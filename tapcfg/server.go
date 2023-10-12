@@ -35,7 +35,7 @@ type databaseBackend interface {
 // genServerConfig generates a server config from the given tapd config.
 //
 // NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
-// after genereting the server config.
+// after generating the server config.
 func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
 	mainErrChan chan<- error) (*tap.Config, error) {
@@ -161,6 +161,46 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		assetStore, proofFileStore,
 	)
 
+	federationMembers := cfg.Universe.FederationServers
+	switch cfg.ChainConf.Network {
+	case "mainnet":
+		cfgLogger.Infof("Configuring %v as initial Universe "+
+			"federation server", defaultMainnetFederationServer)
+
+		federationMembers = append(
+			federationMembers, defaultMainnetFederationServer,
+		)
+
+	case "testnet":
+		cfgLogger.Infof("Configuring %v as initial Universe "+
+			"federation server", defaultTestnetFederationServer)
+
+		federationMembers = append(
+			federationMembers, defaultTestnetFederationServer,
+		)
+
+		// For testnet, we need to overwrite the default universe proof
+		// courier address to use the testnet server.
+		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
+			cfg.DefaultProofCourierAddr = fmt.Sprintf(
+				"%s://%s", proof.UniverseRpcCourierType,
+				fallbackUniverseAddr,
+			)
+		}
+
+	default:
+		// For any other network, such as regtest, we can't use a
+		// universe proof courier by default, as we don't know what
+		// server to pick. So if there is no explicit value set, we fall
+		// back to using the hashmail courier, which works in all cases.
+		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
+			cfg.DefaultProofCourierAddr = fmt.Sprintf(
+				"%s://%s", proof.HashmailCourierType,
+				fallbackHashMailAddr,
+			)
+		}
+	}
+
 	// If no default proof courier address is set, use the fallback hashmail
 	// address.
 	fallbackHashmailCourierAddr := fmt.Sprintf(
@@ -185,10 +225,10 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	var proofCourierCfg *proof.CourierCfg
 	// TODO(ffranr): This logic is leftover for integration tests which
 	//  do not yet enable a proof courier. Remove once all integration tests
 	//  support a proof courier.
+	var proofCourierCfg *proof.CourierCfg
 	if cfg.HashMailCourier != nil {
 		proofCourierCfg = &proof.CourierCfg{
 			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
@@ -233,17 +273,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		LocalRegistrar:      baseUni,
 		SyncBatchSize:       defaultUniverseSyncBatchSize,
 	})
-
-	federationMembers := cfg.Universe.FederationServers
-	switch cfg.ChainConf.Network {
-	case "testnet":
-		cfgLogger.Infof("Configuring %v as initial Universe "+
-			"federation server", defaultTestnetFederationServer)
-
-		federationMembers = append(
-			federationMembers, defaultTestnetFederationServer,
-		)
-	}
 
 	runtimeID := prand.Int63() // nolint:gosec
 	universeFederation := universe.NewFederationEnvoy(

@@ -219,7 +219,7 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// determine the correct path to the macaroon when not specified.
 	network := strings.ToLower(ctx.GlobalString("network"))
 	switch network {
-	case "testnet", "regtest", "simnet", "signet":
+	case "mainnet", "testnet", "regtest", "simnet", "signet":
 	default:
 		return "", "", fmt.Errorf("unknown network: %v", network)
 	}
@@ -234,7 +234,9 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	// target the specified file.
 	var macPath string
 	if ctx.GlobalString("macaroonpath") != "" {
-		macPath = lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
+		macPath = lncfg.CleanAndExpandPath(ctx.GlobalString(
+			"macaroonpath",
+		))
 	} else {
 		// Otherwise, we'll go into the path:
 		// tapddir/data/<network> in order to fetch the

@@ -48,9 +48,12 @@ const (
 	defaultLetsEncryptDirname = "letsencrypt"
 	defaultLetsEncryptListen  = ":80"
 
+	defaultNetwork = "testnet"
+
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
 
+	defaultMainnetFederationServer = "universe.lightning.finance:10029"
 	defaultTestnetFederationServer = "testnet.universe.lightning.finance:10029"
 
 	// DefaultAutogenValidity is the default validity of a self-signed
@@ -68,6 +71,10 @@ const (
 	// fallbackHashMailAddr is the fallback address we'll use to deliver
 	// proofs for asynchronous sends.
 	fallbackHashMailAddr = "mailbox.terminal.lightning.today:443"
+
+	// fallbackUniverseAddr is the fallback address we'll use to deliver
+	// proofs for asynchronous sends.
+	fallbackUniverseAddr = defaultMainnetFederationServer
 
 	// DatabaseBackendSqlite is the name of the SQLite database backend.
 	DatabaseBackendSqlite = "sqlite"
@@ -121,8 +128,6 @@ var (
 	// file.
 	DefaultConfigFile = filepath.Join(DefaultTapdDir, defaultConfigFileName)
 
-	defaultNetwork = "testnet"
-
 	defaultDataDir = filepath.Join(DefaultTapdDir, defaultDataDirname)
 	defaultLogDir  = filepath.Join(DefaultTapdDir, defaultLogDirname)
 
@@ -154,6 +159,12 @@ var (
 		defaultDataDir, defaultNetwork, defaultSqliteDatabaseFileName,
 	)
 
+	// defaultProofCourierAddr is the default proof courier address URI
+	// we'll use to deliver proofs for asynchronous sends.
+	defaultProofCourierAddr = fmt.Sprintf(
+		"%s://%s", proof.UniverseRpcCourierType, fallbackUniverseAddr,
+	)
+
 	// minimalCompatibleVersion is the minimum version and build tags
 	// required in lnd to run tapd.
 	minimalCompatibleVersion = &verrpc.Version{
@@ -175,7 +186,7 @@ var (
 // ChainConfig houses the configuration options that govern which chain/network
 // we operate on.
 type ChainConfig struct {
-	Network string `long:"network" description:"network to run on" choice:"regtest" choice:"testnet" choice:"simnet" choice:"signet"`
+	Network string `long:"network" description:"network to run on" choice:"mainnet" choice:"regtest" choice:"testnet" choice:"simnet" choice:"signet"`
 
 	SigNetChallenge string `long:"signetchallenge" description:"Connect to a custom signet network defined by this challenge instead of using the global default signet test network -- Can be specified multiple times"`
 }
@@ -334,13 +345,11 @@ func DefaultConfig() Config {
 			Port:               5432,
 			MaxOpenConnections: 10,
 		},
-		LogWriter:            build.NewRotatingLogWriter(),
-		Prometheus:           monitoring.DefaultPrometheusConfig(),
-		BatchMintingInterval: defaultBatchMintingInterval,
-		ReOrgSafeDepth:       defaultReOrgSafeDepth,
-		DefaultProofCourierAddr: fmt.Sprintf(
-			"%s://%s", proof.HashmailCourierType, fallbackHashMailAddr,
-		),
+		LogWriter:               build.NewRotatingLogWriter(),
+		Prometheus:              monitoring.DefaultPrometheusConfig(),
+		BatchMintingInterval:    defaultBatchMintingInterval,
+		ReOrgSafeDepth:          defaultReOrgSafeDepth,
+		DefaultProofCourierAddr: defaultProofCourierAddr,
 		HashMailCourier: &proof.HashMailCourierCfg{
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
 			BackoffCfg: &proof.BackoffCfg{
@@ -541,6 +550,8 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	// network flags passed; assign active network params
 	// while we're at it.
 	switch cfg.ChainConf.Network {
+	case "mainnet":
+		cfg.ActiveNetParams = chaincfg.MainNetParams
 	case "testnet":
 		cfg.ActiveNetParams = chaincfg.TestNet3Params
 	case "regtest":
