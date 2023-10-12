@@ -703,7 +703,7 @@ func TestUniverseRootSum(t *testing.T) {
 
 					//nolint:lll
 					leaf.Proof.Asset.PrevWitnesses[0].TxWitness = [][]byte{
-						[]byte{1}, []byte{1}, []byte{1},
+						{1}, {1}, {1},
 					}
 					//nolint:lll
 					leaf.Proof.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
@@ -830,7 +830,7 @@ func TestMultiverseRootSum(t *testing.T) {
 
 					//nolint:lll
 					leaf.Proof.Asset.PrevWitnesses[0].TxWitness = [][]byte{
-						[]byte{1}, []byte{1}, []byte{1},
+						{1}, {1}, {1},
 					}
 					//nolint:lll
 					leaf.Proof.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
