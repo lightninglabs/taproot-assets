@@ -199,11 +199,12 @@ func testUniverseSync(t *harnessTest) {
 
 	assetIdFixedSize := fn.ToArray[[32]byte](firstAssetID)
 
-	firstAssetAmount := rpcSimpleAssets[0].Amount
 	nodeHash := firstAssetUniMssmtRoot.NodeHash()
-	leaf := mssmt.NewLeafNode(
-		nodeHash[:], firstAssetAmount,
-	)
+
+	// For the multiverse tree, the top level leaf node (inserted into the
+	// top level tree) is actually just an accumulator value, so this we
+	// use a value of 1 here.
+	leaf := mssmt.NewLeafNode(nodeHash[:], 1)
 
 	verifyProofResult := mssmt.VerifyMerkleProof(
 		assetIdFixedSize, leaf, multiverseInclusionProof,
