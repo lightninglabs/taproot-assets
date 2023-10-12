@@ -125,7 +125,14 @@ func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
 		return nil, err
 	}
 
-	return mssmt.NewLeafNode(buf.Bytes(), m.Amt), nil
+	amount := m.Amt
+	if !m.Proof.Asset.IsGenesisAsset() {
+		// We set transfer proof amounts to 1 as the transfer universe
+		// tracks the total number of transfers.
+		amount = 1
+	}
+
+	return mssmt.NewLeafNode(buf.Bytes(), amount), nil
 }
 
 // LeafKey is the top level leaf key for a universe. This will be used to key
@@ -257,6 +264,16 @@ type BaseRoot struct {
 	// GroupedAssets is an optional map of asset IDs to the minted amount.
 	// This is only set for grouped assets.
 	GroupedAssets map[asset.ID]uint64
+}
+
+// MultiverseRoot is the ms-smt root for a multiverse. This root can be used to
+// authenticate any leaf proofs.
+type MultiverseRoot struct {
+	// ProofType is the types of proofs that've been stored in the
+	// multiverse.
+	ProofType ProofType
+
+	mssmt.Node
 }
 
 // MultiverseArchive is an interface used to keep track of the set of universe
@@ -473,7 +490,7 @@ type Syncer interface {
 	// remote universe, governed by the sync type and the set of universe
 	// IDs to sync.
 	SyncUniverse(ctx context.Context, host ServerAddr,
-		syncType SyncType,
+		syncType SyncType, syncConfigs SyncConfigs,
 		idsToSync ...Identifier) ([]AssetSyncDiff, error)
 }
 
@@ -673,6 +690,13 @@ type FederationSyncConfigDB interface {
 	UpsertFederationSyncConfig(
 		ctx context.Context, globalSyncConfigs []*FedGlobalSyncConfig,
 		uniSyncConfigs []*FedUniSyncConfig) error
+}
+
+// FederationDB is used for CRUD operations related to federation sync config
+// and tracked servers.
+type FederationDB interface {
+	FederationLog
+	FederationSyncConfigDB
 }
 
 // SyncStatsSort is an enum used to specify the sort order of the returned sync

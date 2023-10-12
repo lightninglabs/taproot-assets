@@ -1286,7 +1286,7 @@ func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})
 	require.NoError(t, err)
 
-	todayStr := time.Now().Format("2006-01-02")
+	todayStr := time.Now().UTC().Format("2006-01-02")
 	require.Len(t, eventStats.Events, 1)
 
 	s := eventStats.Events[0]

@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -11,7 +12,15 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 )
 
-const multiverseNS = "multiverse"
+const (
+	// issuanceMultiverseNS is the namespace used for the multiverse
+	// transfer proofs.
+	issuanceMultiverseNS = "multiverse-issuance"
+
+	// transferMultiverseNS is the namespace used for the multiverse
+	// issuance proofs.
+	transferMultiverseNS = "multiverse-transfer"
+)
 
 type (
 	BaseUniverseRoot = sqlc.UniverseRootsRow
@@ -68,6 +77,57 @@ func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
 	return &MultiverseStore{
 		db: db,
 	}
+}
+
+// namespaceForProof returns the multiverse namespace used for the given proof
+// type.
+func namespaceForProof(proofType universe.ProofType) (string, error) {
+	switch proofType {
+	case universe.ProofTypeIssuance:
+		return issuanceMultiverseNS, nil
+
+	case universe.ProofTypeTransfer:
+		return transferMultiverseNS, nil
+
+	default:
+		return "", fmt.Errorf("unknown proof type: %v", int(proofType))
+	}
+}
+
+// RootNode returns the root multiverse node for the given proof type.
+func (b *MultiverseStore) RootNode(ctx context.Context,
+	proofType universe.ProofType) (*universe.MultiverseRoot, error) {
+
+	var rootNode *universe.MultiverseRoot
+
+	multiverseNS, err := namespaceForProof(proofType)
+	if err != nil {
+		return nil, err
+	}
+
+	readTx := NewBaseUniverseReadTx()
+	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(db, multiverseNS),
+		)
+
+		multiverseRoot, err := multiverseTree.Root(ctx)
+		if err != nil {
+			return err
+		}
+
+		rootNode = &universe.MultiverseRoot{
+			Node:      multiverseRoot,
+			ProofType: proofType,
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return rootNode, nil
 }
 
 // RootNodes returns the complete set of known base universe root nodes for the
@@ -161,8 +221,8 @@ func (b *MultiverseStore) RootNodes(
 	return uniRoots, nil
 }
 
-// FetchProofLeaf returns a proof leaf for the target key. If the key
-// doesn't have a script key specified, then all the proof leafs for the minting
+// FetchProofLeaf returns a proof leaf for the target key. If the key doesn't
+// have a script key specified, then all the proof leafs for the minting
 // outpoint will be returned. If neither are specified, then all inserted proof
 // leafs will be returned.
 func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
@@ -173,6 +233,11 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		readTx = NewBaseUniverseReadTx()
 		proofs []*universe.Proof
 	)
+
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	if err != nil {
+		return nil, err
+	}
 
 	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
 		var err error
@@ -234,6 +299,11 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		issuanceProof *universe.Proof
 	)
 
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	if err != nil {
+		return nil, err
+	}
+
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
 		// tree.
@@ -259,6 +329,10 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		// lower tree root hash.
 		universeRootHash := universeRoot.NodeHash()
 		assetGroupSum := universeRoot.NodeSum()
+
+		if id.ProofType == universe.ProofTypeIssuance {
+			assetGroupSum = 1
+		}
 
 		leafNode := mssmt.NewLeafNode(
 			universeRootHash[:], assetGroupSum,
@@ -322,6 +396,11 @@ func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 			return err
 		}
 
+		multiverseNS, err := namespaceForProof(item.ID.ProofType)
+		if err != nil {
+			return err
+		}
+
 		// Retrieve a handle to the multiverse tree so that we can
 		// update the tree by inserting a new issuance.
 		multiverseTree := mssmt.NewCompactedTree(
@@ -333,6 +412,10 @@ func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 		// lower tree root hash.
 		universeRootHash := universeRoot.NodeHash()
 		assetGroupSum := universeRoot.NodeSum()
+
+		if item.ID.ProofType == universe.ProofTypeIssuance {
+			assetGroupSum = 1
+		}
 
 		leafNode := mssmt.NewLeafNode(
 			universeRootHash[:], assetGroupSum,

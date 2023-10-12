@@ -118,6 +118,12 @@ type Config struct {
 
 	UniverseStats universe.Telemetry
 
+	// UniversePublicAccess is flag which, If true, and the Universe server
+	// is on a public interface, valid proof from remote parties will be
+	// accepted, and proofs will be queryable by remote parties.
+	// This applies to federation syncing as well as RPC insert and query.
+	UniversePublicAccess bool
+
 	Prometheus monitoring.PrometheusConfig
 
 	// LogWriter is the root logger that all of the daemon's subloggers are

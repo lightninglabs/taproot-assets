@@ -2706,10 +2706,22 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 		UniverseRoots: make(map[string]*unirpc.UniverseRoot),
 	}
 
+	// Retrieve config for use in filtering asset roots based on sync export
+	// settings.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	// For each universe root, marshal it into the RPC form, taking care to
 	// specify the proper universe ID.
 	for _, assetRoot := range assetRoots {
 		idStr := assetRoot.ID.String()
+
+		// Skip this asset if it's not configured for sync export.
+		if !syncConfigs.IsSyncExportEnabled(assetRoot.ID) {
+			continue
+		}
 
 		resp.UniverseRoots[idStr], err = marshalUniverseRoot(assetRoot)
 		if err != nil {
@@ -2843,6 +2855,17 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		"for %v", spew.Sdump(universeID))
 
 	universeID.ProofType = universe.ProofTypeIssuance
+
+	// Ensure proof export is enabled for the given universe.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !syncConfigs.IsSyncExportEnabled(universeID) {
+		return nil, fmt.Errorf("proof export is disabled for the " +
+			"given universe")
+	}
 
 	issuanceRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
 	if err != nil {
@@ -3210,49 +3233,74 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	rpcsLog.Debugf("[QueryProof]: fetching proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
-	// Keep a record of whether the proof type was specified by the client.
-	unspecifiedArgProofType :=
-		universeID.ProofType == universe.ProofTypeUnspecified
-	if unspecifiedArgProofType {
-		// The target proof type was unspecified. Assume that the proof
-		// type is a transfer proof (more transfer proofs exist then
-		// issuance proofs).
-		universeID.ProofType = universe.ProofTypeTransfer
+	// Retrieve proof export config for the given universe.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
 	}
 
-	// Attempt to fetch the proof from the base universe.
-	proofs, err := r.cfg.BaseUniverse.FetchIssuanceProof(
-		ctx, universeID, leafKey,
-	)
-	// If we were unable to find a proof, and the proof type was originally
-	// unspecified, then we'll try again with the other proof type.
-	if unspecifiedArgProofType &&
-		errors.Is(err, universe.ErrNoUniverseProofFound) {
+	var candidateIDs []universe.Identifier
 
-		// The proof type was originally unspecified by the client. We
-		// will therefore try again with the other proof type.
-		switch universeID.ProofType {
-		case universe.ProofTypeTransfer:
-			universeID.ProofType = universe.ProofTypeIssuance
-		case universe.ProofTypeIssuance:
-			universeID.ProofType = universe.ProofTypeTransfer
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		// If the proof type is unspecified, then we'll attempt to
+		// retrieve both the issuance and transfer proofs. We gather the
+		// corresponding universe IDs into a candidate set.
+		universeID.ProofType = universe.ProofTypeIssuance
+		if syncConfigs.IsSyncExportEnabled(universeID) {
+			candidateIDs = append(candidateIDs, universeID)
 		}
 
+		universeID.ProofType = universe.ProofTypeTransfer
+		if syncConfigs.IsSyncExportEnabled(universeID) {
+			candidateIDs = append(candidateIDs, universeID)
+		}
+	} else {
+		// Otherwise, we'll only attempt to retrieve the proof for the
+		// specified proof type. But first we'll check that proof export
+		// is enabled for the given universe.
+		if !syncConfigs.IsSyncExportEnabled(universeID) {
+			return nil, fmt.Errorf("proof export is disabled for " +
+				"the given universe")
+		}
+
+		candidateIDs = append(candidateIDs, universeID)
+	}
+
+	// If no candidate IDs were applicable then our config must have
+	// disabled proof export for the given universe.
+	if len(candidateIDs) == 0 {
+		return nil, fmt.Errorf("proof export is disabled for the " +
+			"given universe")
+	}
+
+	// Attempt to retrieve the proof given the candidate set of universe
+	// IDs.
+	var proofs []*universe.Proof
+	for i := range candidateIDs {
+		candidateID := candidateIDs[i]
+
 		proofs, err = r.cfg.BaseUniverse.FetchIssuanceProof(
-			ctx, universeID, leafKey,
+			ctx, candidateID, leafKey,
 		)
 		if err != nil {
+			if errors.Is(err, universe.ErrNoUniverseProofFound) {
+				continue
+			}
+
 			rpcsLog.Debugf("[QueryProof]: error querying for "+
 				"proof at (universeID=%v, leafKey=%x)",
 				universeID, leafKey.UniverseKey())
 			return nil, err
 		}
+
+		// At this point we've found a proof, so we'll break out of the
+		// loop. We don't need to attempt to retrieve a proof for any
+		// other candidate IDs.
+		break
 	}
-	if err != nil {
-		rpcsLog.Debugf("[QueryProof]: error querying for proof at "+
-			"(universeID=%v, leafKey=%x)", universeID,
-			leafKey.UniverseKey())
-		return nil, err
+
+	if len(proofs) == 0 {
+		return nil, universe.ErrNoUniverseProofFound
 	}
 
 	// TODO(roasbeef): query may return multiple proofs, if allow key to
@@ -3330,6 +3378,17 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	err = universe.ValidateProofUniverseType(assetLeaf.Proof, universeID)
 	if err != nil {
 		return nil, err
+	}
+
+	// Ensure proof insert is enabled for the given universe.
+	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	if !syncConfigs.IsSyncInsertEnabled(universeID) {
+		return nil, fmt.Errorf("proof insert is disabled for the " +
+			"given universe")
 	}
 
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
@@ -3462,10 +3521,24 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 
 	uniAddr := universe.NewServerAddrFromStr(req.UniverseHost)
 
+	// Obtain the general and universe specific federation sync configs.
+	queryFedSyncConfigs := r.cfg.FederationDB.QueryFederationSyncConfigs
+	globalConfigs, uniSyncConfigs, err := queryFedSyncConfigs(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query federation sync "+
+			"config(s): %w", err)
+	}
+
+	syncConfigs := universe.SyncConfigs{
+		GlobalSyncConfigs: globalConfigs,
+		UniSyncConfigs:    uniSyncConfigs,
+	}
+
 	// TODO(roasbeef): add layer of indirection in front of?
 	//  * just interface interaction
+	// TODO(ffranr): Sync via the FederationEnvoy rather than syncer.
 	universeDiff, err := r.cfg.UniverseSyncer.SyncUniverse(
-		ctx, uniAddr, syncMode, syncTargets...,
+		ctx, uniAddr, syncMode, syncConfigs, syncTargets...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to sync universe: %w", err)
