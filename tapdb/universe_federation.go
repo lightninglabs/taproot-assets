@@ -45,12 +45,12 @@ var (
 		{
 			ProofType:       universe.ProofTypeIssuance,
 			AllowSyncInsert: true,
-			AllowSyncExport: false,
+			AllowSyncExport: true,
 		},
 		{
 			ProofType:       universe.ProofTypeTransfer,
 			AllowSyncInsert: false,
-			AllowSyncExport: false,
+			AllowSyncExport: true,
 		},
 	}
 )
