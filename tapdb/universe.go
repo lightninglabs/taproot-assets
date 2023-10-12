@@ -3,6 +3,7 @@ package tapdb
 import (
 	"bytes"
 	"context"
+
 	"database/sql"
 	"errors"
 	"fmt"

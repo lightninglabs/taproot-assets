@@ -33,6 +33,12 @@ func defaultUniverseIdOptions(t *testing.T) *universeIdOptions {
 
 type universeIDOptFunc func(*universeIdOptions)
 
+func withProofType(proofType universe.ProofType) universeIDOptFunc {
+	return func(opts *universeIdOptions) {
+		opts.proofType = proofType
+	}
+}
+
 func randUniverseID(t *testing.T, forceGroup bool,
 	optFunctions ...universeIDOptFunc) universe.Identifier {
 
@@ -73,6 +79,18 @@ func newTestUniverse(t *testing.T,
 	)
 
 	return NewBaseUniverseTree(dbTxer, id), db
+}
+
+func newTestMultiverse(t *testing.T) (*MultiverseStore, sqlc.Querier) {
+	db := NewTestDB(t)
+
+	dbTxer := NewTransactionExecutor(db,
+		func(tx *sql.Tx) BaseMultiverseStore {
+			return db.WithTx(tx)
+		},
+	)
+
+	return NewMultiverseStore(dbTxer), db
 }
 
 func newTestUniverseWithDb(db *BaseDB,
@@ -605,4 +623,249 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	// We should still be able to fetch the original issuance proof.
 	_, err = baseUniverse.FetchIssuanceProof(ctx, targetKey)
 	require.NoError(t, err)
+}
+
+// TestUniverseRootSum tests that the root sum and leaves for an issuance and
+// transfer universe are computed as expected.
+func TestUniverseRootSum(t *testing.T) {
+	t.Parallel()
+
+	type leaf struct {
+		sumAmt uint64
+	}
+
+	testCases := []struct {
+		name      string
+		finalSum  uint64
+		proofType universe.ProofType
+		leaves    []leaf
+	}{
+		// If we insert to transfers into a transfer tree, the sum
+		// should be 2. The leaf sum in this case isn't actually used.
+		{
+			name:      "transfer sum",
+			finalSum:  2,
+			proofType: universe.ProofTypeTransfer,
+			leaves: []leaf{
+				{
+					sumAmt: 54,
+				},
+				{
+					sumAmt: 50,
+				},
+			},
+		},
+
+		// If we insert to issuance events into the issuance tree, the
+		// root sum should be the sum of the issuance values.
+		{
+			name:      "issuance sum",
+			finalSum:  34,
+			proofType: universe.ProofTypeIssuance,
+			leaves: []leaf{
+				{
+					sumAmt: 14,
+				},
+				{
+					sumAmt: 20,
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			id := randUniverseID(
+				t, false, withProofType(testCase.proofType),
+			)
+
+			ctx := context.Background()
+			baseUniverse, _ := newTestUniverse(t, id)
+
+			assetGen := asset.RandGenesis(t, asset.Normal)
+
+			leaves := make([]universe.Leaf, len(testCase.leaves))
+			keys := make([]universe.LeafKey, len(testCase.leaves))
+			for i, testLeaf := range testCase.leaves {
+				leaf := randMintingLeaf(
+					t, assetGen, id.GroupKey,
+				)
+				leaf.Amt = testLeaf.sumAmt
+
+				leaves[i] = leaf
+
+				targetKey := randLeafKey(t)
+
+				// For transfer proofs, we'll modify the
+				// witness asset proof to look more like a
+				// transfer.
+				if testCase.proofType ==
+					universe.ProofTypeTransfer {
+
+					//nolint:lll
+					leaf.Proof.Asset.PrevWitnesses[0].TxWitness = [][]byte{
+						[]byte{1}, []byte{1}, []byte{1},
+					}
+					//nolint:lll
+					leaf.Proof.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
+				}
+
+				keys[i] = targetKey
+
+				_, err := baseUniverse.RegisterIssuance(
+					ctx, targetKey, &leaf, nil,
+				)
+				require.NoError(t, err)
+			}
+
+			// If we fetch the root value of the tree, it should
+			// match the root sum.
+			rootNode, _, err := baseUniverse.RootNode(ctx)
+			require.NoError(t, err)
+
+			require.Equal(t, testCase.finalSum, rootNode.NodeSum())
+
+			// Each of the leaves inserted should have the proper
+			// value as well.
+			for i, key := range keys {
+				proofs, err := baseUniverse.FetchIssuanceProof(
+					ctx, key,
+				)
+				require.NoError(t, err)
+
+				sumAmt := testCase.leaves[i].sumAmt
+				if testCase.proofType ==
+					universe.ProofTypeTransfer {
+
+					sumAmt = 1
+				}
+
+				require.Equal(t, sumAmt, proofs[0].Leaf.Amt)
+			}
+		})
+	}
+}
+
+// TestMultiverseRootSum tests that the root sum and leaves for an issuance and
+// transfer multiverse trees are computed as expected.
+func TestMultiverseRootSum(t *testing.T) {
+	t.Parallel()
+
+	type leaf struct {
+		sumAmt uint64
+	}
+
+	testCases := []struct {
+		name      string
+		finalSum  uint64
+		proofType universe.ProofType
+		doubleUp  bool
+		leaves    []leaf
+	}{
+		// If we insert two transfers into a transfer tree, then the
+		// sum should be the sum of the leaf values. The leaf value
+		// here is itself the root sum of an transfer tree, or the
+		// number of transfers in a transfer tree.
+		{
+			name:      "transfer sum",
+			finalSum:  4,
+			proofType: universe.ProofTypeTransfer,
+			doubleUp:  true,
+			leaves: []leaf{
+				{
+					sumAmt: 10,
+				},
+				{
+					sumAmt: 8,
+				},
+			},
+		},
+
+		// If we insert to issuance events into the issuance tree, root
+		// sum should just be the total amount of leaves. So we ignore
+		// the leaf sum, and instead just tally 1.
+		{
+			name:      "issuance sum",
+			finalSum:  2,
+			proofType: universe.ProofTypeIssuance,
+			leaves: []leaf{
+				{
+					sumAmt: 14,
+				},
+				{
+					sumAmt: 20,
+				},
+			},
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			multiverse, _ := newTestMultiverse(t)
+
+			ctx := context.Background()
+
+			leaves := make([]universe.Leaf, len(testCase.leaves))
+			ids := make([]universe.Identifier, len(testCase.leaves))
+			for i, testLeaf := range testCase.leaves {
+				id := randUniverseID(
+					t, false, withProofType(testCase.proofType),
+				)
+
+				ids[i] = id
+
+				assetGen := asset.RandGenesis(t, asset.Normal)
+				leaf := randMintingLeaf(
+					t, assetGen, id.GroupKey,
+				)
+				leaf.Amt = testLeaf.sumAmt
+
+				leaves[i] = leaf
+
+				targetKey := randLeafKey(t)
+
+				// For transfer proofs, we'll modify the
+				// witness asset proof to look more like a
+				// transfer.
+				if testCase.proofType ==
+					universe.ProofTypeTransfer {
+
+					//nolint:lll
+					leaf.Proof.Asset.PrevWitnesses[0].TxWitness = [][]byte{
+						[]byte{1}, []byte{1}, []byte{1},
+					}
+					//nolint:lll
+					leaf.Proof.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
+				}
+
+				_, err := multiverse.UpsertProofLeaf(
+					ctx, id, targetKey, &leaf, nil,
+				)
+				require.NoError(t, err)
+
+				// If we should add more than one under this
+				// ID, then we'll generate another instance.
+				if testCase.doubleUp {
+					targetKey = randLeafKey(t)
+
+					_, err := multiverse.UpsertProofLeaf(
+						ctx, id, targetKey, &leaf, nil,
+					)
+					require.NoError(t, err)
+				}
+			}
+
+			// If we fetch the root value of the tree, it should be
+			// the same as the finalSum.
+			rootNode, err := multiverse.RootNode(
+				ctx, testCase.proofType,
+			)
+			require.NoError(t, err)
+
+			require.Equal(
+				t, int(testCase.finalSum), int(rootNode.NodeSum()),
+			)
+
+			// TODO(roasbeef): also check leaves, need ability to
+			// track them directly.
+		})
+	}
 }
