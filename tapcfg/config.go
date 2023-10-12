@@ -74,7 +74,7 @@ const (
 
 	// fallbackUniverseAddr is the fallback address we'll use to deliver
 	// proofs for asynchronous sends.
-	fallbackUniverseAddr = defaultMainnetFederationServer
+	fallbackUniverseAddr = defaultTestnetFederationServer
 
 	// DatabaseBackendSqlite is the name of the SQLite database backend.
 	DatabaseBackendSqlite = "sqlite"

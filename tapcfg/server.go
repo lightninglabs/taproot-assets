@@ -171,6 +171,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			federationMembers, defaultMainnetFederationServer,
 		)
 
+		// For mainnet, we need to overwrite the default universe proof
+		// courier address to use the mainnet server.
+		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
+			cfg.DefaultProofCourierAddr = fmt.Sprintf(
+				"%s://%s", proof.UniverseRpcCourierType,
+				defaultMainnetFederationServer,
+			)
+		}
+
 	case "testnet":
 		cfgLogger.Infof("Configuring %v as initial Universe "+
 			"federation server", defaultTestnetFederationServer)
@@ -179,20 +188,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			federationMembers, defaultTestnetFederationServer,
 		)
 
-		// For testnet, we need to overwrite the default universe proof
-		// courier address to use the testnet server.
-		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
-			cfg.DefaultProofCourierAddr = fmt.Sprintf(
-				"%s://%s", proof.UniverseRpcCourierType,
-				fallbackUniverseAddr,
-			)
-		}
-
 	default:
 		// For any other network, such as regtest, we can't use a
 		// universe proof courier by default, as we don't know what
-		// server to pick. So if there is no explicit value set, we fall
-		// back to using the hashmail courier, which works in all cases.
+		// server to pick. So if there is no explicit value set, we
+		// fall back to using the hashmail courier, which works in all
+		// cases.
 		if cfg.DefaultProofCourierAddr == defaultProofCourierAddr {
 			cfg.DefaultProofCourierAddr = fmt.Sprintf(
 				"%s://%s", proof.HashmailCourierType,
