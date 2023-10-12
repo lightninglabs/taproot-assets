@@ -48,7 +48,7 @@ const (
 	defaultLetsEncryptDirname = "letsencrypt"
 	defaultLetsEncryptListen  = ":80"
 
-	defaultNetwork = "mainnet"
+	defaultNetwork = "testnet"
 
 	defaultMaxLogFiles    = 3
 	defaultMaxLogFileSize = 10
