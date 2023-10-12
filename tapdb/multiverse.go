@@ -260,6 +260,10 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		universeRootHash := universeRoot.NodeHash()
 		assetGroupSum := universeRoot.NodeSum()
 
+		if id.ProofType == universe.ProofTypeIssuance {
+			assetGroupSum = 1
+		}
+
 		leafNode := mssmt.NewLeafNode(
 			universeRootHash[:], assetGroupSum,
 		)
@@ -333,6 +337,10 @@ func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 		// lower tree root hash.
 		universeRootHash := universeRoot.NodeHash()
 		assetGroupSum := universeRoot.NodeSum()
+
+		if item.ID.ProofType == universe.ProofTypeIssuance {
+			assetGroupSum = 1
+		}
 
 		leafNode := mssmt.NewLeafNode(
 			universeRootHash[:], assetGroupSum,
