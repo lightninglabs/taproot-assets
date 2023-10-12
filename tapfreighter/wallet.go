@@ -9,8 +9,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -1441,6 +1443,12 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("unable to extract psbt: %w", err)
 	}
 
+	// Final TX sanity check.
+	err = blockchain.CheckTransactionSanity(btcutil.NewTx(finalTx))
+	if err != nil {
+		return nil, fmt.Errorf("anchor TX failed final checks: %w", err)
+	}
+
 	return &AnchorTransaction{
 		FundedPsbt:        &anchorPkt,
 		FinalTx:           finalTx,
@@ -1698,6 +1706,15 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 	lastIdx := len(btcPkt.UnsignedTx.TxOut) - 1
 	currentFee := inputAmt - outputAmt
 	feeDelta := int64(requiredFee) - currentFee
+	changeValue := btcPkt.UnsignedTx.TxOut[lastIdx].Value
+
+	// The fee may exceed the total value of the change output, which means
+	// this spend is impossible with the given inputs and fee rate.
+	if changeValue-feeDelta < 0 {
+		return fmt.Errorf("fee of %d sats exceeds change amount of %d"+
+			"sats", requiredFee, changeValue)
+	}
+
 	btcPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
 
 	log.Infof("Adjusting send pkt by delta of %v from %d sats to %d sats",
