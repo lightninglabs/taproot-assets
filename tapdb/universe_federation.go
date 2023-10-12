@@ -45,7 +45,7 @@ var (
 	defaultGlobalSyncConfigs = []*universe.FedGlobalSyncConfig{
 		{
 			ProofType:       universe.ProofTypeIssuance,
-			AllowSyncInsert: false,
+			AllowSyncInsert: true,
 			AllowSyncExport: false,
 		},
 		{
