@@ -266,6 +266,16 @@ type BaseRoot struct {
 	GroupedAssets map[asset.ID]uint64
 }
 
+// MultiverseRoot is the ms-smt root for a multiverse. This root can be used to
+// authenticate any leaf proofs.
+type MultiverseRoot struct {
+	// ProofType is the types of proofs that've been stored in the
+	// multiverse.
+	ProofType ProofType
+
+	mssmt.Node
+}
+
 // MultiverseArchive is an interface used to keep track of the set of universe
 // roots that we know of. The BaseBackend interface is used to interact with a
 // particular base universe, while this is used to obtain aggregate information

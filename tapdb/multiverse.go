@@ -93,6 +93,43 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 		return "", fmt.Errorf("unknown proof type: %v", int(proofType))
 	}
 }
+
+// RootNode returns the root multiverse node for the given proof type.
+func (b *MultiverseStore) RootNode(ctx context.Context,
+	proofType universe.ProofType) (*universe.MultiverseRoot, error) {
+
+	var rootNode *universe.MultiverseRoot
+
+	multiverseNS, err := namespaceForProof(proofType)
+	if err != nil {
+		return nil, err
+	}
+
+	readTx := NewBaseUniverseReadTx()
+	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(db, multiverseNS),
+		)
+
+		multiverseRoot, err := multiverseTree.Root(ctx)
+		if err != nil {
+			return err
+		}
+
+		rootNode = &universe.MultiverseRoot{
+			Node:      multiverseRoot,
+			ProofType: proofType,
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return rootNode, nil
+}
+
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the multiverse.
 func (b *MultiverseStore) RootNodes(
