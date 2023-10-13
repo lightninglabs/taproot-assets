@@ -152,6 +152,15 @@ func (b *MultiverseStore) RootNodes(
 				groupedAssets map[asset.ID]uint64
 			)
 
+			// Parse universe proof type and populate the universe
+			// ID.
+			id.ProofType, err = universe.ParseStrProofType(
+				dbRoot.ProofType,
+			)
+			if err != nil {
+				return err
+			}
+
 			if dbRoot.AssetID != nil {
 				copy(id.AssetID[:], dbRoot.AssetID)
 			}
@@ -187,15 +196,6 @@ func (b *MultiverseStore) RootNodes(
 				groupedAssets = map[asset.ID]uint64{
 					id.AssetID: uint64(dbRoot.RootSum),
 				}
-			}
-
-			// Parse universe proof type and populate the universe
-			// ID.
-			id.ProofType, err = universe.ParseStrProofType(
-				dbRoot.ProofType,
-			)
-			if err != nil {
-				return err
 			}
 
 			var nodeHash mssmt.NodeHash

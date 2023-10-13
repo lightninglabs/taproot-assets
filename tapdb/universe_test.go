@@ -422,10 +422,16 @@ func TestUniverseTreeIsolation(t *testing.T) {
 
 	// For this test, we'll create two different Universes: one based on a
 	// group key, and the other with a plain asset ID.
-	idGroup := randUniverseID(t, true)
+	//
+	// One will be an issuance tree, while the other a transfer tree.
+	idGroup := randUniverseID(
+		t, true, withProofType(universe.ProofTypeIssuance),
+	)
 	groupUniverse, _ := newTestUniverseWithDb(db.BaseDB, idGroup)
 
-	idNormal := randUniverseID(t, false)
+	idNormal := randUniverseID(
+		t, false, withProofType(universe.ProofTypeTransfer),
+	)
 	normalUniverse, _ := newTestUniverseWithDb(db.BaseDB, idNormal)
 
 	// For each of the Universes, we'll now insert a random leaf that
@@ -472,6 +478,30 @@ func TestUniverseTreeIsolation(t *testing.T) {
 		}
 		return false
 	}))
+
+	// Similarly, each of the roots should have the proper proof type set.
+	require.True(t, fn.All(rootNodes, func(root universe.BaseRoot) bool {
+		switch root.ID.ProofType {
+		case universe.ProofTypeIssuance:
+			return mssmt.IsEqualNode(root.Node, groupRoot)
+		case universe.ProofTypeTransfer:
+			return mssmt.IsEqualNode(root.Node, normalRoot)
+		default:
+			return false
+		}
+	}))
+
+	// Finally, the grouped root should have the GroupedAssets field
+	// properly set.
+	for _, root := range rootNodes {
+		if mssmt.IsEqualNode(root.Node, groupRoot) {
+			require.True(t, len(root.GroupedAssets) != 0)
+
+			groupAmt, ok := root.GroupedAssets[groupLeaf.Leaf.ID()]
+			require.True(t, ok)
+			require.Equal(t, groupLeaf.Leaf.Amt, groupAmt)
+		}
+	}
 
 	// We should be able to delete one Universe with no effect on the other.
 	normalNamespace, err := normalUniverse.DeleteUniverse(ctx)
