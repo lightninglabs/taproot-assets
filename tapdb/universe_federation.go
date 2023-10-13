@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -12,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"golang.org/x/exp/maps"
 )
 
 type (
@@ -308,8 +310,11 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 	var (
 		readTx UniverseFederationOptions
 
-		globalConfigs []*universe.FedGlobalSyncConfig
-		uniConfigs    []*universe.FedUniSyncConfig
+		globalConfigs   []*universe.FedGlobalSyncConfig
+		globalConfigSet = make(
+			map[universe.ProofType]*universe.FedGlobalSyncConfig,
+		)
+		uniConfigs []*universe.FedUniSyncConfig
 	)
 
 	err := u.db.ExecTx(ctx, &readTx, func(db UniverseServerStore) error {
@@ -328,14 +333,16 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 			return err
 
 		default:
-			// Parse global db sync configs.
-			globalConfigs = make(
-				[]*universe.FedGlobalSyncConfig,
-				len(globalDbConfigs),
-			)
-			for i := range globalDbConfigs {
-				config := globalDbConfigs[i]
+			// Start with the default global sync configs. This
+			// ensures we don't always clobber with items in the DB
+			// that may be blank.
+			for _, config := range defaultGlobalSyncConfigs {
+				globalConfigSet[config.ProofType] = config
+			}
 
+			// Parse global db sync configs and overwrite the
+			// default configs.
+			for _, config := range globalDbConfigs {
 				proofType, err := universe.ParseStrProofType(
 					config.ProofType,
 				)
@@ -343,12 +350,22 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 					return err
 				}
 
-				globalConfigs[i] = &universe.FedGlobalSyncConfig{
+				globalDbConf := &universe.FedGlobalSyncConfig{
 					ProofType:       proofType,
 					AllowSyncInsert: config.AllowSyncInsert,
 					AllowSyncExport: config.AllowSyncExport,
 				}
+
+				//nolint:lll
+				globalConfigSet[globalDbConf.ProofType] = globalDbConf
 			}
+
+			// Return config options in a stable order.
+			globalConfigs = maps.Values(globalConfigSet)
+			sort.Slice(globalConfigs, func(i, j int) bool {
+				return globalConfigs[i].ProofType <
+					globalConfigs[j].ProofType
+			})
 		}
 
 		// Query for universe specific sync configs.

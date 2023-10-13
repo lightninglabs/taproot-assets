@@ -2758,6 +2758,10 @@ func unmarshalAssetSyncConfig(
 	config *unirpc.AssetFederationSyncConfig) (*universe.FedUniSyncConfig,
 	error) {
 
+	if config == nil {
+		return nil, fmt.Errorf("empty universe sync config")
+	}
+
 	// Parse the universe ID from the RPC form.
 	uniID, err := UnmarshalUniID(config.Id)
 	if err != nil {
