@@ -95,3 +95,20 @@ func TestUniverseFederationCRUD(t *testing.T) {
 	err = fedDB.LogNewSyncs(ctx, addrToUpdate)
 	require.NoError(t, err)
 }
+
+// TestFederationConfigDefault tests that we're able to fetch the default
+// federation config.
+func TestFederationConfigDefault(t *testing.T) {
+	t.Parallel()
+
+	testClock := clock.NewTestClock(time.Now())
+	fedDB, _ := newTestFederationDb(t, testClock)
+
+	ctx := context.Background()
+
+	// If we try to fetch the default config without any added, we should
+	// should get the default config.
+	globalConfig, _, err := fedDB.QueryFederationSyncConfigs(ctx)
+	require.NoError(t, err)
+	require.Equal(t, defaultGlobalSyncConfigs, globalConfig)
+}

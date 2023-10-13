@@ -2,7 +2,6 @@ package tapdb
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"time"
@@ -45,13 +44,13 @@ var (
 	defaultGlobalSyncConfigs = []*universe.FedGlobalSyncConfig{
 		{
 			ProofType:       universe.ProofTypeIssuance,
-			AllowSyncInsert: false,
-			AllowSyncExport: false,
+			AllowSyncInsert: true,
+			AllowSyncExport: true,
 		},
 		{
 			ProofType:       universe.ProofTypeTransfer,
 			AllowSyncInsert: false,
-			AllowSyncExport: false,
+			AllowSyncExport: true,
 		},
 	}
 )
@@ -319,7 +318,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 			ctx,
 		)
 		switch {
-		case errors.Is(err, sql.ErrNoRows):
+		case globalDbConfigs == nil:
 			// If the query does not return any rows then a global
 			// config for each proof type has not yet been set. We
 			// will return a default config for each proof type.

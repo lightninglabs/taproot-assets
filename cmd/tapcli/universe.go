@@ -520,6 +520,12 @@ var universeSyncCommand = cli.Command{
 			Name:  groupKeyName,
 			Usage: "the group key of sync with the universe",
 		},
+		cli.StringFlag{
+			Name: proofTypeName,
+			Usage: "the type of proof to sync either 'issuance' " +
+				"or 'transfer'",
+			Value: universe.ProofTypeIssuance.String(),
+		},
 	},
 	Action: universeSync,
 }
