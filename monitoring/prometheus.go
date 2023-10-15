@@ -34,6 +34,11 @@ var (
 	serverMetrics *grpc_prometheus.ServerMetrics
 )
 
+const (
+	// dbTimeout is the default database timeout.
+	dbTimeout = 20 * time.Second
+)
+
 // PrometheusExporter is a metric exporter that uses Prometheus directly. The
 // internal server will interact with this struct in order to export relevant
 // metrics.

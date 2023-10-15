@@ -313,6 +313,9 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		// configuration.
 		s.cfg.Prometheus.RPCServer = grpcServer
 
+		// Provide Prometheus collectors with access to Universe stats.
+		s.cfg.Prometheus.UniverseStats = s.cfg.UniverseStats
+
 		promExporter, err := monitoring.NewPrometheusExporter(
 			&s.cfg.Prometheus,
 		)
