@@ -2,9 +2,10 @@ package tapcfg
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/binary"
 	"fmt"
-	prand "math/rand"
 
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
@@ -275,7 +276,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		SyncBatchSize:       defaultUniverseSyncBatchSize,
 	})
 
-	runtimeID := prand.Int63() // nolint:gosec
+	var runtimeIDBytes [8]byte
+	_, err = rand.Read(runtimeIDBytes[:])
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate runtime ID: %v", err)
+	}
+
+	runtimeID := int64(binary.BigEndian.Uint64(runtimeIDBytes[:]))
 	universeFederation := universe.NewFederationEnvoy(
 		universe.FederationConfig{
 			FederationDB:            federationDB,
