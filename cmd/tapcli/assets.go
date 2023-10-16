@@ -119,13 +119,18 @@ var mintAssetCommand = cli.Command{
 	},
 }
 
-func parseAssetType(ctx *cli.Context) taprpc.AssetType {
-	assetType := taprpc.AssetType_NORMAL
-	if ctx.String(assetTypeName) == "collectible" {
-		assetType = taprpc.AssetType_COLLECTIBLE
-	}
+func parseAssetType(ctx *cli.Context) (taprpc.AssetType, error) {
+	switch ctx.String(assetTypeName) {
+	case "normal":
+		return taprpc.AssetType_NORMAL, nil
 
-	return assetType
+	case "collectible":
+		return taprpc.AssetType_COLLECTIBLE, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset type '%v'",
+			ctx.String(assetTypeName))
+	}
 }
 
 func mintAsset(ctx *cli.Context) error {
@@ -178,16 +183,43 @@ func mintAsset(ctx *cli.Context) error {
 		}
 	}
 
+	assetType, err := parseAssetType(ctx)
+	if err != nil {
+		return err
+	}
+
+	var (
+		amount        = ctx.Uint64(assetSupplyName)
+		isCollectible = assetType == taprpc.AssetType_COLLECTIBLE
+	)
+	switch {
+	// If the user did not specify the supply, we can silently assume they
+	// are aware that the collectible amount is always 1.
+	case isCollectible && !ctx.IsSet(assetSupplyName):
+		amount = 1
+
+	// If the user explicitly supplied a supply that is incorrect, we must
+	// inform them instead of silently changing the value to 1, otherwise
+	// there will be surprises later.
+	case isCollectible && amount != 1:
+		return fmt.Errorf("supply must be 1 for collectibles")
+
+	// Check that the amount is greater than 0 for normal assets. This is
+	// also checked in the RPC server, but we can avoid the round trip.
+	case !isCollectible && amount == 0:
+		return fmt.Errorf("supply must be set for normal assets")
+	}
+
 	ctxc := getContext()
 	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType:   parseAssetType(ctx),
+			AssetType:   assetType,
 			Name:        ctx.String(assetTagName),
 			AssetMeta:   assetMeta,
-			Amount:      ctx.Uint64(assetSupplyName),
+			Amount:      amount,
 			GroupKey:    groupKey,
 			GroupAnchor: ctx.String(assetGroupAnchorName),
 			AssetVersion: taprpc.AssetVersion(
