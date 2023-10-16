@@ -38,14 +38,12 @@ func Enumerate[T any](items []T, f func(int, T)) {
 	}
 }
 
-// MakeSlice is a generic function short hand for making a slice out of a set
+// MakeSlice is a generic function shorthand for making a slice out of a set
 // of elements. This can be used to avoid having to specify the type of the
 // slice as well as the types of the elements.
 func MakeSlice[T any](items ...T) []T {
 	ts := make([]T, len(items))
-	for i, item := range items {
-		ts[i] = item
-	}
+	copy(ts, items)
 
 	return ts
 }
