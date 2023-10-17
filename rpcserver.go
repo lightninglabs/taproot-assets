@@ -2802,6 +2802,10 @@ func unmarshalAssetSyncConfig(
 
 // UnmarshalUniID parses the RPC universe ID into the native counterpart.
 func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+	if rpcID == nil {
+		return universe.Identifier{}, fmt.Errorf("missing universe id")
+	}
+
 	// Unmarshal the proof type.
 	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
 	if err != nil {
