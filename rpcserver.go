@@ -42,6 +42,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
 )
@@ -443,12 +444,39 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 }
 
+// checkFeeRateSanity ensures that the provided fee rate is above the same
+// minimum fee used as a floor in the fee estimator.
+func checkFeeRateSanity(rpcFeeRate uint32) (*chainfee.SatPerKWeight, error) {
+	var feeRate *chainfee.SatPerKWeight
+	switch {
+	// No manual fee rate was set, which is the default.
+	case rpcFeeRate == 0:
+
+	// A manual fee was set but is below a reasonable floor.
+	case rpcFeeRate < uint32(chainfee.FeePerKwFloor):
+		return nil, fmt.Errorf("manual fee rate %d below floor of %d",
+			rpcFeeRate, uint32(chainfee.FeePerKwFloor))
+
+	default:
+		// Set the fee rate for this transaction.
+		manualFeeRate := chainfee.SatPerKWeight(rpcFeeRate)
+		feeRate = &manualFeeRate
+	}
+
+	return feeRate, nil
+}
+
 // FinalizeBatch attempts to finalize the current pending batch.
 func (r *rpcServer) FinalizeBatch(_ context.Context,
 	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
-	batch, err := r.cfg.AssetMinter.FinalizeBatch()
+	feeRate, err := checkFeeRateSanity(req.FeeRate)
+	if err != nil {
+		return nil, err
+	}
+
+	batch, err := r.cfg.AssetMinter.FinalizeBatch(feeRate)
 	if err != nil {
 		return nil, fmt.Errorf("unable to finalize batch: %w", err)
 	}
@@ -1961,8 +1989,13 @@ func (r *rpcServer) SendAsset(_ context.Context,
 		}
 	}
 
+	feeRate, err := checkFeeRateSanity(req.FeeRate)
+	if err != nil {
+		return nil, err
+	}
+
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewAddressParcel(tapAddrs...),
+		tapfreighter.NewAddressParcel(feeRate, tapAddrs...),
 	)
 	if err != nil {
 		return nil, err

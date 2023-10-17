@@ -917,6 +917,8 @@ message AddrReceivesResponse {
 message SendAssetRequest {
     repeated string tap_addrs = 1;
 
+    // The optional fee rate to use for the minting transaction, in sat/kw.
+    uint32 fee_rate = 2;
     // TODO(roasbeef): maybe in future add details re type of ProofCourier or
     // w/e
 }
