@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"sync/atomic"
 
 	"github.com/davecgh/go-spew/spew"
@@ -210,12 +211,20 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	)
 
 	// We use an error group to simply the error handling of a goroutine.
+	// This goroutine will handle reading in batches of new leaves to
+	// insert into the DB. We'll fee the output of the goroutines below
+	// into the input fetchedLeaves channel.
 	batchSyncEG.Go(func() error {
 		newLeafProofs, err = s.batchStreamNewItems(
 			ctx, uniID, fetchedLeaves, len(keysToFetch),
 		)
 		return err
 	})
+
+	// If this is a transfer tree, then we'll use these channels to sort
+	// the contents before sending to the batch writer.
+	isIssuanceTree := remoteRoot.ID.ProofType == ProofTypeIssuance
+	transferLeafProofs := make(chan *IssuanceItem, len(keysToFetch))
 
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
@@ -243,20 +252,40 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 					"invalid", spew.Sdump(key))
 			}
 
-			// TODO(roasbeef): inclusion w/ root here, also that
-			// it's the expected asset ID
-
-			fetchedLeaves <- &IssuanceItem{
-				ID:   uniID,
-				Key:  key,
-				Leaf: leafProof.Leaf,
+			// If this is an issuance proof, then we can send
+			// things directly to the batch insertion goroutine.
+			// Otherwise, we'll another step to the pipeline below
+			// for sorting.
+			if isIssuanceTree {
+				fetchedLeaves <- &IssuanceItem{
+					ID:   uniID,
+					Key:  key,
+					Leaf: leafProof.Leaf,
+				}
+			} else {
+				transferLeafProofs <- &IssuanceItem{
+					ID:   uniID,
+					Key:  key,
+					Leaf: leafProof.Leaf,
+				}
 			}
 
 			return nil
-		},
-	)
+		})
 	if err != nil {
 		return err
+	}
+
+	// If this is a tranfer tree, then we'll collect all the items as we
+	// need to sort them to ensure we can validate them in dep order.
+	if !isIssuanceTree {
+		transferLeaves := fn.Collect(transferLeafProofs)
+		sort.Slice(transferLeaves, func(i, j int) bool {
+			return transferLeaves[i].Leaf.Proof.BlockHeight <
+				transferLeaves[j].Leaf.Proof.BlockHeight
+		})
+
+		go fn.SendAll(fetchedLeaves, transferLeaves...)
 	}
 
 	// And now we wait for the batch streamer to finish as well.
