@@ -285,7 +285,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 				transferLeaves[j].Leaf.Proof.BlockHeight
 		})
 
-		go fn.SendAll(fetchedLeaves, transferLeaves...)
+		fn.SendAll(fetchedLeaves, transferLeaves...)
 	}
 
 	// And now we wait for the batch streamer to finish as well.
