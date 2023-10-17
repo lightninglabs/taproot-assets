@@ -536,7 +536,9 @@ func (q *Queries) QueryReceiverProofTransferAttempt(ctx context.Context, proofLo
 
 const reAnchorPassiveAssets = `-- name: ReAnchorPassiveAssets :exec
 UPDATE assets
-SET anchor_utxo_id = $1
+SET anchor_utxo_id = $1,
+    split_commitment_root_hash = NULL,
+    split_commitment_root_value = NULL
 WHERE asset_id = $2
 `
 
