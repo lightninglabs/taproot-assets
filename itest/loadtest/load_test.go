@@ -4,10 +4,29 @@ package loadtest
 
 import (
 	"context"
+	"strconv"
 	"testing"
+	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/push"
 	"github.com/stretchr/testify/require"
 )
+
+var (
+	testDuration = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "test_duration_seconds",
+			Help: "Duration of the test execution, in seconds",
+		},
+		[]string{"test_name"},
+	)
+)
+
+func init() {
+	// Register the metric with Prometheus's default registry.
+	prometheus.MustRegister(testDuration)
+}
 
 type testCase struct {
 	name string
@@ -44,6 +63,9 @@ func TestPerformance(t *testing.T) {
 			continue
 		}
 
+		// Record the start time of the test case.
+		startTime := time.Now()
+
 		success := t.Run(tc.name, func(tt *testing.T) {
 			ctxt, cancel := context.WithTimeout(
 				ctxt, cfg.TestTimeout,
@@ -54,6 +76,31 @@ func TestPerformance(t *testing.T) {
 		})
 		if !success {
 			t.Fatalf("test case %v failed", tc.name)
+		}
+
+		// Calculate the test duration and push metrics if the test case succeeded.
+		if cfg.PrometheusGateway.Enabled {
+			duration := time.Since(startTime).Seconds()
+
+			// Update the metric with the test duration.
+			testDuration.WithLabelValues(tc.name).Set(duration)
+
+			// Create a new pusher to push the metrics.
+			pushURL := cfg.PrometheusGateway.Host + ":" +
+				strconv.Itoa(cfg.PrometheusGateway.Port)
+
+			pusher := push.New(pushURL, "load_test").
+				Collector(testDuration).
+				Grouping("test_case", tc.name)
+
+			// Push the metrics to Prometheus PushGateway.
+			if err := pusher.Push(); err != nil {
+				t.Logf("Could not push metrics to Prometheus PushGateway: %v",
+					err)
+			} else {
+				t.Logf("Metrics pushed for test case '%s': duration = %v seconds",
+					tc.name, duration)
+			}
 		}
 	}
 }
