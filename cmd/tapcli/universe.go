@@ -565,11 +565,19 @@ func universeSync(ctx *cli.Context) error {
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
 
-	// TODO(roasbeef): add support for full sync
+	rpcProofType, err := parseProofType(ctx)
+	if err != nil {
+		return err
+	}
+	syncMode := unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY
+	if *rpcProofType == unirpc.ProofType_PROOF_TYPE_TRANSFER {
+		syncMode = unirpc.UniverseSyncMode_SYNC_FULL
+	}
 
 	syncResp, err := client.SyncUniverse(ctxc, &unirpc.SyncRequest{
 		UniverseHost: ctx.String(universeHostName),
 		SyncTargets:  targets,
+		SyncMode:     syncMode,
 	})
 	if err != nil {
 		return err
