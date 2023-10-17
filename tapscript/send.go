@@ -2,6 +2,7 @@ package tapscript
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -839,10 +841,13 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 					"passive assets: %w", err)
 			}
 
-			root := inputTapCommitment.TapscriptRoot(nil)
-			log.Tracef("Output %d commitment: root=%x, "+
-				"num_assets=%d", idx, root[:],
-				len(inputTapCommitment.CommittedAssets()))
+			// Add some trace logging for easier debugging of what
+			// goes into the output commitment (we'll do the same
+			// for the input commitment).
+			LogCommitment(
+				"Output", idx, inputTapCommitment,
+				vOut.AnchorOutputInternalKey, nil, nil,
+			)
 
 			outputCommitments[idx] = inputTapCommitment
 
@@ -875,6 +880,14 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		if err != nil {
 			return nil, err
 		}
+
+		// Add some trace logging for easier debugging of what goes into
+		// the output commitment (we'll do the same for the input
+		// commitment).
+		LogCommitment(
+			"Output", idx, outputCommitments[idx],
+			vOut.AnchorOutputInternalKey, nil, nil,
+		)
 	}
 
 	return outputCommitments, nil
@@ -1163,4 +1176,34 @@ func assertAnchorsEqual(vPkt *tappsbt.VPacket) error {
 	}
 
 	return nil
+}
+
+// LogCommitment logs the given Taproot Asset commitment to the log as a trace
+// message. This is a no-op if the log level is not set to trace.
+func LogCommitment(prefix string, idx int,
+	tapCommitment *commitment.TapCommitment, internalKey *btcec.PublicKey,
+	pkScript, trimmedMerkleRoot []byte) {
+
+	if log.Level() > btclog.LevelTrace {
+		return
+	}
+
+	merkleRoot := tapCommitment.TapscriptRoot(nil)
+	log.Tracef("%v commitment #%d v%d, taproot_asset_root=%x, "+
+		"internal_key=%x, pk_script=%x, trimmed_merkle_root=%x",
+		prefix, idx, tapCommitment.Version, merkleRoot[:],
+		internalKey.SerializeCompressed(), pkScript, trimmedMerkleRoot)
+	for _, a := range tapCommitment.CommittedAssets() {
+		groupKey := "<nil>"
+		if a.GroupKey != nil {
+			groupKey = hex.EncodeToString(
+				a.GroupKey.GroupPubKey.SerializeCompressed(),
+			)
+		}
+		log.Tracef("%v commitment asset_id=%v, script_key=%x, "+
+			"group_key=%v, amount=%d, version=%d, "+
+			"split_commitment=%v", prefix, a.ID(),
+			a.ScriptKey.PubKey.SerializeCompressed(), groupKey,
+			a.Amount, a.Version, a.SplitCommitmentRoot != nil)
+	}
 }

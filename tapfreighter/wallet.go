@@ -931,11 +931,14 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 				"pk script: %w", err)
 		}
 
-		log.Tracef("Input commitment taproot_asset_root=%x, "+
-			"internal_key=%x, pk_script=%x, trimmed_merkle_root=%x",
-			fn.ByteSlice(assetInput.Commitment.TapscriptRoot(nil)),
-			internalKey.PubKey.SerializeCompressed(),
-			anchorPkScript, anchorMerkleRoot[:])
+		// Add some trace logging for easier debugging of what we expect
+		// to be in the commitment we spend (we did the same when
+		// creating the output, so differences should be apparent when
+		// debugging).
+		tapscript.LogCommitment(
+			"Input", idx, assetInput.Commitment, internalKey.PubKey,
+			anchorPkScript, anchorMerkleRoot[:],
+		)
 
 		// We'll also include an inclusion proof for the input asset in
 		// the virtual transaction. With that a signer can verify that
