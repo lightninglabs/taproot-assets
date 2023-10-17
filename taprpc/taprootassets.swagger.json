@@ -1474,6 +1474,22 @@
         },
         "network": {
           "type": "string"
+        },
+        "lnd_identity_pubkey": {
+          "type": "string"
+        },
+        "node_alias": {
+          "type": "string"
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "block_hash": {
+          "type": "string"
+        },
+        "sync_to_chain": {
+          "type": "boolean"
         }
       }
     },
