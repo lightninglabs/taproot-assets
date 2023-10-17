@@ -346,12 +346,6 @@ func (vm *Engine) Execute() error {
 		vm.newAsset, vm.prevAssets,
 	)
 	if err != nil {
-		if errors.Is(err, tapscript.ErrInputMismatch) {
-			return ErrInputMismatch
-		}
-		if errors.Is(err, tapscript.ErrNoInputs) {
-			return ErrNoInputs
-		}
 		return err
 	}
 
