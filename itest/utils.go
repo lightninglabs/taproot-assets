@@ -219,6 +219,16 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 	)
 	require.NoError(t, err)
 
+	for _, u := range listRespUnconfirmed.Assets {
+		var groupKey []byte
+		if u.AssetGroup != nil {
+			groupKey = u.AssetGroup.TweakedGroupKey
+		}
+		t.Logf("Minted %d units of asset ID %x, group_key=%x (name "+
+			"%v,v%d)", u.Amount, u.AssetGenesis.AssetId, groupKey,
+			u.AssetGenesis.Name, u.Version)
+	}
+
 	unconfirmedAssets := GroupAssetsByName(listRespUnconfirmed.Assets)
 	for _, assetRequest := range assetRequests {
 		metaHash := (&proof.MetaReveal{
