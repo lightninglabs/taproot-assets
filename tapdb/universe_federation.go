@@ -263,10 +263,8 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 		}
 
 		// Upsert universe specific sync configs.
-		for i := range uniSyncConfigs {
+		for _, config := range uniSyncConfigs {
 			var (
-				config = uniSyncConfigs[i]
-
 				uniID        = config.UniverseID
 				groupPubKey  []byte
 				assetIDBytes []byte
@@ -285,6 +283,7 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 
 			err := db.UpsertFederationUniSyncConfig(
 				ctx, UpsertFedUniSyncConfigParams{
+					Namespace:       uniID.String(),
 					AssetID:         assetIDBytes,
 					GroupKey:        groupPubKey,
 					ProofType:       uniID.ProofType.String(),
@@ -379,11 +378,9 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 			[]*universe.FedUniSyncConfig, len(uniDbConfigs),
 		)
 
-		for i := range uniDbConfigs {
-			conf := uniDbConfigs[i]
-
+		for i, config := range uniDbConfigs {
 			proofType, err := universe.ParseStrProofType(
-				conf.ProofType,
+				config.ProofType,
 			)
 			if err != nil {
 				return err
@@ -391,8 +388,8 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 
 			// Construct group key public key from bytes.
 			var pubKey *btcec.PublicKey
-			if conf.GroupKey != nil {
-				pubKey, err = btcec.ParsePubKey(conf.GroupKey)
+			if config.GroupKey != nil {
+				pubKey, err = btcec.ParsePubKey(config.GroupKey)
 				if err != nil {
 					return fmt.Errorf("unable to parse "+
 						"group key: %v", err)
@@ -401,7 +398,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 
 			// Construct asset ID from bytes.
 			var assetID asset.ID
-			copy(assetID[:], conf.AssetID)
+			copy(assetID[:], config.AssetID)
 
 			uniID := universe.Identifier{
 				AssetID:   assetID,
@@ -411,8 +408,8 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 
 			uniConfigs[i] = &universe.FedUniSyncConfig{
 				UniverseID:      uniID,
-				AllowSyncInsert: conf.AllowSyncInsert,
-				AllowSyncExport: conf.AllowSyncExport,
+				AllowSyncInsert: config.AllowSyncInsert,
+				AllowSyncExport: config.AllowSyncExport,
 			}
 		}
 		return nil

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
@@ -114,9 +115,9 @@ func TestFederationConfigDefault(t *testing.T) {
 	require.Equal(t, defaultGlobalSyncConfigs, globalConfig)
 }
 
-// TestFederationGlobalConfigCRUD tests that we're able to properly update the
-// global and local federation configs.
-func TestFederationGlobalConfigCRUD(t *testing.T) {
+// TestFederationConfigCRUD tests that we're able to properly update the global
+// and local federation configs.
+func TestFederationConfigCRUD(t *testing.T) {
 	t.Parallel()
 
 	testClock := clock.NewTestClock(time.Now())
@@ -166,7 +167,7 @@ func TestFederationGlobalConfigCRUD(t *testing.T) {
 	expectedCfgs = append(newGlobalProof, newGlobalTransfer...)
 	require.Equal(t, expectedCfgs, dbGlobalCfg)
 
-	// Finally, we should be able to update them both in the same txn.
+	// We should be able to update them both in the same txn.
 	for _, cfg := range expectedCfgs {
 		cfg.AllowSyncInsert = false
 		cfg.AllowSyncExport = false
@@ -178,4 +179,70 @@ func TestFederationGlobalConfigCRUD(t *testing.T) {
 	dbGlobalCfg, _, err = fedDB.QueryFederationSyncConfigs(ctx)
 	require.NoError(t, err)
 	require.Equal(t, expectedCfgs, dbGlobalCfg)
+
+	// Finally, if we insert the current config again, we should see no
+	// change in the returned configs.
+	singleCfg := fn.MakeSlice(dbGlobalCfg[0])
+	err = fedDB.UpsertFederationSyncConfig(ctx, singleCfg, nil)
+	require.NoError(t, err)
+
+	dbGlobalCfg, _, err = fedDB.QueryFederationSyncConfigs(ctx)
+	require.NoError(t, err)
+	require.Equal(t, expectedCfgs, dbGlobalCfg)
+
+	// Now, create configs for specific assets.
+	randAssetIDBytes := test.RandBytes(32)
+	randGroupKey := test.RandPubKey(t)
+	groupCfg := &universe.FedUniSyncConfig{
+		UniverseID: universe.Identifier{
+			GroupKey:  randGroupKey,
+			ProofType: universe.ProofTypeIssuance,
+		},
+		AllowSyncInsert: true,
+		AllowSyncExport: false,
+	}
+	assetCfg := &universe.FedUniSyncConfig{
+		UniverseID: universe.Identifier{
+			ProofType: universe.ProofTypeTransfer,
+		},
+		AllowSyncInsert: false,
+		AllowSyncExport: true,
+	}
+	copy(assetCfg.UniverseID.AssetID[:], randAssetIDBytes)
+
+	// Before insertion, there should be no asset-specific configs.
+	_, dbLocalCfg, err := fedDB.QueryFederationSyncConfigs(ctx)
+	require.NoError(t, err)
+	require.Empty(t, dbLocalCfg)
+
+	// Next, store the asset configs and verify that we get the same configs
+	// back from a query.
+	localCfg := fn.MakeSlice(groupCfg, assetCfg)
+	err = fedDB.UpsertFederationSyncConfig(ctx, nil, localCfg)
+	require.NoError(t, err)
+
+	_, dbLocalCfg, err = fedDB.QueryFederationSyncConfigs(ctx)
+	require.NoError(t, err)
+	require.Equal(t, localCfg, dbLocalCfg)
+
+	// We should be able to overwrite a stored config.
+	groupNewCfg := &universe.FedUniSyncConfig{
+		UniverseID: universe.Identifier{
+			GroupKey:  randGroupKey,
+			ProofType: universe.ProofTypeIssuance,
+		},
+		AllowSyncInsert: true,
+		AllowSyncExport: true,
+	}
+	err = fedDB.UpsertFederationSyncConfig(
+		ctx, nil, fn.MakeSlice(groupNewCfg),
+	)
+	require.NoError(t, err)
+
+	_, dbLocalCfg, err = fedDB.QueryFederationSyncConfigs(ctx)
+	require.NoError(t, err)
+	require.NotEqual(t, localCfg, dbLocalCfg)
+
+	localCfg = fn.MakeSlice(groupNewCfg, assetCfg)
+	require.Equal(t, localCfg, dbLocalCfg)
 }

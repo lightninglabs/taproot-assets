@@ -165,6 +165,7 @@ type FederationGlobalSyncConfig struct {
 }
 
 type FederationUniSyncConfig struct {
+	Namespace       string
 	AssetID         []byte
 	GroupKey        []byte
 	ProofType       string
