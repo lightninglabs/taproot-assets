@@ -502,17 +502,18 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		// TODO(ffranr): Add support for interactive full value multiple
 		// input spend.
 		input := inputs[0]
+		vOut := outputs[recipientIndex]
 
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		outputs[recipientIndex].Asset = input.Asset().Copy()
-		outputs[recipientIndex].Asset.ScriptKey = outputs[0].ScriptKey
+		vOut.Asset = input.Asset().Copy()
+		vOut.Asset.ScriptKey = vOut.ScriptKey
 
 		// Record the PrevID of the input asset in a Witness for the new
 		// asset. This Witness still needs a valid signature for the new
 		// asset to be valid.
-		outputs[recipientIndex].Asset.PrevWitnesses = []asset.Witness{
+		vOut.Asset.PrevWitnesses = []asset.Witness{
 			{
 				PrevID:          &input.PrevID,
 				TxWitness:       nil,
