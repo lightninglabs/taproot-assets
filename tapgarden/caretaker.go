@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -30,8 +31,10 @@ import (
 var (
 	// GenesisDummyScript is a dummy script that we'll use to fund the
 	// initial PSBT packet that'll create initial set of assets. It's the
-	// same size as a encoded P2TR output.
-	GenesisDummyScript [34]byte
+	// same size as a encoded P2TR output and has a valid P2TR prefix.
+	GenesisDummyScript = append(
+		[]byte{0x51, 0x20}, bytes.Repeat([]byte{0x00}, 32)...,
+	)
 
 	// DummyGenesisTxOut is the dummy TxOut we'll place in the PSBt funding
 	// request to make sure we leave enough room for change and fees.
