@@ -2014,10 +2014,17 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			"accidental asset burns")
 	}
 
+	var groupKey *btcec.PublicKey
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	if err == nil && assetGroup.GroupKey != nil {
+		groupKey = &assetGroup.GroupPubKey
+	}
+
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapscript.FundingDescriptor{
-			ID:     assetID,
-			Amount: in.AmountToBurn,
+			ID:       assetID,
+			GroupKey: groupKey,
+			Amount:   in.AmountToBurn,
 		},
 	)
 	if err != nil {
