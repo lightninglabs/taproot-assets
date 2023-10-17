@@ -387,6 +387,7 @@ func (q *Queries) QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAsse
 const queryFederationGlobalSyncConfigs = `-- name: QueryFederationGlobalSyncConfigs :many
 SELECT proof_type, allow_sync_insert, allow_sync_export
 FROM federation_global_sync_config
+ORDER BY proof_type
 `
 
 func (q *Queries) QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error) {
@@ -413,8 +414,9 @@ func (q *Queries) QueryFederationGlobalSyncConfigs(ctx context.Context) ([]Feder
 }
 
 const queryFederationUniSyncConfigs = `-- name: QueryFederationUniSyncConfigs :many
-SELECT asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
+SELECT namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 FROM federation_uni_sync_config
+ORDER BY group_key NULLS LAST, asset_id NULLS LAST, proof_type
 `
 
 func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]FederationUniSyncConfig, error) {
@@ -427,6 +429,7 @@ func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]Federati
 	for rows.Next() {
 		var i FederationUniSyncConfig
 		if err := rows.Scan(
+			&i.Namespace,
 			&i.AssetID,
 			&i.GroupKey,
 			&i.ProofType,
@@ -830,18 +833,19 @@ func (q *Queries) UpsertFederationGlobalSyncConfig(ctx context.Context, arg Upse
 
 const upsertFederationUniSyncConfig = `-- name: UpsertFederationUniSyncConfig :exec
 INSERT INTO federation_uni_sync_config  (
-    asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
+    namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 )
 VALUES(
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4, $5, $6
 )
-ON CONFLICT(asset_id, group_key, proof_type)
+ON CONFLICT(namespace)
     DO UPDATE SET
-    allow_sync_insert = $4,
-    allow_sync_export = $5
+    allow_sync_insert = $5,
+    allow_sync_export = $6
 `
 
 type UpsertFederationUniSyncConfigParams struct {
+	Namespace       string
 	AssetID         []byte
 	GroupKey        []byte
 	ProofType       string
@@ -851,6 +855,7 @@ type UpsertFederationUniSyncConfigParams struct {
 
 func (q *Queries) UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error {
 	_, err := q.db.ExecContext(ctx, upsertFederationUniSyncConfig,
+		arg.Namespace,
 		arg.AssetID,
 		arg.GroupKey,
 		arg.ProofType,

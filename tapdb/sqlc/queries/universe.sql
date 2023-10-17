@@ -327,20 +327,22 @@ ON CONFLICT(proof_type)
 
 -- name: QueryFederationGlobalSyncConfigs :many
 SELECT proof_type, allow_sync_insert, allow_sync_export
-FROM federation_global_sync_config;
+FROM federation_global_sync_config
+ORDER BY proof_type;
 
 -- name: UpsertFederationUniSyncConfig :exec
 INSERT INTO federation_uni_sync_config  (
-    asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
+    namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 )
 VALUES(
-    @asset_id, @group_key, @proof_type, @allow_sync_insert, @allow_sync_export
+    @namespace, @asset_id, @group_key, @proof_type, @allow_sync_insert, @allow_sync_export
 )
-ON CONFLICT(asset_id, group_key, proof_type)
+ON CONFLICT(namespace)
     DO UPDATE SET
     allow_sync_insert = @allow_sync_insert,
     allow_sync_export = @allow_sync_export;
 
 -- name: QueryFederationUniSyncConfigs :many
-SELECT asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
-FROM federation_uni_sync_config;
+SELECT namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
+FROM federation_uni_sync_config
+ORDER BY group_key NULLS LAST, asset_id NULLS LAST, proof_type;
