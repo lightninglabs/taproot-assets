@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -59,14 +60,17 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 	for _, input := range newAsset.PrevWitnesses {
 		// At this point, each input MUST have a prev ID.
 		if input.PrevID == nil {
-			return nil, nil, ErrNoInputs
+			return nil, nil, fmt.Errorf("%w: prevID is nil",
+				ErrNoInputs)
 		}
 
 		// The set of prev assets are similar to the prev
 		// output fetcher used in taproot.
 		prevAsset, ok := prevAssets[*input.PrevID]
 		if !ok {
-			return nil, nil, ErrNoInputs
+			return nil, nil, fmt.Errorf("%w: unable to make "+
+				"virtual txIn %v", ErrNoInputs,
+				spew.Sdump(input.PrevID))
 		}
 
 		// Now we'll insert this prev asset leaf into the tree.
