@@ -404,6 +404,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			// Attempt to receive proof via proof courier service.
 			loc := proof.Locator{
 				AssetID:   &assetID,
+				GroupKey:  addr.GroupKey,
 				ScriptKey: addr.ScriptKey,
 				OutPoint:  &op,
 			}
