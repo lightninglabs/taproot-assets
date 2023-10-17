@@ -790,8 +790,11 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		vOut := outputs[idx]
 
 		// The output that houses the split root will carry along the
-		// existing Taproot Asset commitment of the sender.
-		if vOut.Type.IsSplitRoot() {
+		// existing Taproot Asset commitment of the sender (also known
+		// as passive assets). There can be passive assets without a
+		// split root, in case it's a full value interactive send or
+		// burn.
+		if vOut.Type.IsSplitRoot() || vOut.Type.CanCarryPassive() {
 			// In the interactive case we might have a full value
 			// send without an actual split root output but just the
 			// anchor output for the passive assets. We can skip
