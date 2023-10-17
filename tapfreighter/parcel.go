@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // SendState is an enum that describes the current state of a pending outbound
@@ -130,6 +131,10 @@ type AddressParcel struct {
 	// destAddrs is the list of address that should be used to satisfy the
 	// transfer.
 	destAddrs []*address.Tap
+
+	// transferFeeRate is an optional manually-set feerate specified when
+	// requesting an asset transfer.
+	transferFeeRate *chainfee.SatPerKWeight
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -137,13 +142,16 @@ type AddressParcel struct {
 var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
-func NewAddressParcel(destAddrs ...*address.Tap) *AddressParcel {
+func NewAddressParcel(feeRate *chainfee.SatPerKWeight,
+	destAddrs ...*address.Tap) *AddressParcel {
+
 	return &AddressParcel{
 		parcelKit: &parcelKit{
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		destAddrs: destAddrs,
+		destAddrs:       destAddrs,
+		transferFeeRate: feeRate,
 	}
 }
 

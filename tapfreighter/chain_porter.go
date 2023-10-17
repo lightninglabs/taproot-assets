@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
 // ChainPorterConfig is the main config for the chain porter.
@@ -880,13 +881,31 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Submit the template PSBT to the wallet for funding.
 		//
 		// TODO(roasbeef): unlock the input UTXOs of things fail
-		feeRate, err := p.cfg.ChainBridge.EstimateFee(
-			ctx, tapscript.SendConfTarget,
+		var (
+			feeRate chainfee.SatPerKWeight
+			err     error
 		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to estimate fee: %w",
-				err)
+
+		// First, use a manual fee rate if specified by the parcel.
+		// TODO(jhb): Support PSBT flow / PreSignedParcels
+		addrParcel, ok := currentPkg.Parcel.(*AddressParcel)
+		switch {
+		case ok && addrParcel.transferFeeRate != nil:
+			feeRate = *addrParcel.transferFeeRate
+			log.Infof("sending with manual fee rate")
+
+		default:
+			feeRate, err = p.cfg.ChainBridge.EstimateFee(
+				ctx, tapscript.SendConfTarget,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to estimate "+
+					"fee: %w", err)
+			}
 		}
+
+		readableFeeRate := feeRate.FeePerKVByte().String()
+		log.Infof("sending with fee rate: %v", readableFeeRate)
 
 		vPacket := currentPkg.VirtualPacket
 		firstRecipient, err := vPacket.FirstNonSplitRootOutput()
