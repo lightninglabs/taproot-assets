@@ -570,6 +570,13 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		},
 	)
 
+	maxVersion := asset.V0
+	for _, activeAsset := range activeAssets {
+		if activeAsset.Asset.Version > maxVersion {
+			maxVersion = activeAsset.Asset.Version
+		}
+	}
+
 	// Now that we know what inputs we're going to spend, we know that by
 	// definition, we use the first input's info as the burn's PrevID.
 	firstInput := activeAssets[0]
@@ -600,6 +607,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			Amount:            0,
 			Type:              tappsbt.TypeSplitRoot,
 			AnchorOutputIndex: 0,
+			AssetVersion:      maxVersion,
 
 			// The wallet will look for a "change" output where it
 			// can attach any passive assets that might be in the
@@ -614,6 +622,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			Type:              tappsbt.TypeSimple,
 			Interactive:       true,
 			AnchorOutputIndex: 0,
+			AssetVersion:      maxVersion,
 			ScriptKey:         burnKey,
 		}},
 		ChainParams: f.cfg.ChainParams,

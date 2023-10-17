@@ -521,6 +521,9 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 			},
 		}
 
+		// Adjust the version for the requested send type.
+		vOut.Asset.Version = vOut.AssetVersion
+
 		// We are done, since we don't need to create a split
 		// commitment.
 		return nil
