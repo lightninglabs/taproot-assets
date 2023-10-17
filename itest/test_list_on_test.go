@@ -85,8 +85,19 @@ var testCases = []*testCase{
 		test: testFullValueSend,
 	},
 	{
-		name: "collectible send",
-		test: testCollectibleSend,
+		name:             "collectible send hashmail courier",
+		test:             testCollectibleSend,
+		proofCourierType: proof.HashmailCourierType,
+	},
+	{
+		name:             "collectible send rpc courier",
+		test:             testCollectibleSend,
+		proofCourierType: proof.UniverseRpcCourierType,
+	},
+	{
+		name:             "collectible group send rpc courier",
+		test:             testCollectibleGroupSend,
+		proofCourierType: proof.UniverseRpcCourierType,
 	},
 	{
 		name: "re-issuance",

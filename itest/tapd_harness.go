@@ -1,7 +1,9 @@
 package itest
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"os"
@@ -24,6 +26,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -262,6 +265,61 @@ func (hs *tapdHarness) stop(deleteData bool) error {
 	}
 
 	return err
+}
+
+// assetIDWithBalance returns the asset ID of an asset that has at least the
+// given balance. If no such asset is found, nil is returned.
+func (hs *tapdHarness) assetIDWithBalance(t *testing.T, ctx context.Context,
+	minBalance uint64, assetType taprpc.AssetType) *taprpc.Asset {
+
+	balances, err := hs.ListBalances(ctx, &taprpc.ListBalancesRequest{
+		GroupBy: &taprpc.ListBalancesRequest_AssetId{
+			AssetId: true,
+		},
+	})
+	require.NoError(t, err)
+
+	for assetIDHex, balance := range balances.AssetBalances {
+		if balance.Balance >= minBalance &&
+			balance.AssetType == assetType {
+
+			assetIDBytes, err := hex.DecodeString(assetIDHex)
+			require.NoError(t, err)
+
+			assets, err := hs.ListAssets(
+				ctx, &taprpc.ListAssetRequest{},
+			)
+			require.NoError(t, err)
+
+			for _, asset := range assets.Assets {
+				if bytes.Equal(
+					asset.AssetGenesis.AssetId,
+					assetIDBytes,
+				) {
+
+					return asset
+				}
+			}
+		}
+	}
+
+	return nil
+}
+
+// listTransfersSince returns all transfers that have been made since the last
+// transfer in the given list. If the list is empty, all transfers are returned.
+func (hs *tapdHarness) listTransfersSince(t *testing.T, ctx context.Context,
+	existingTransfers []*taprpc.AssetTransfer) []*taprpc.AssetTransfer {
+
+	resp, err := hs.ListTransfers(ctx, &taprpc.ListTransfersRequest{})
+	require.NoError(t, err)
+
+	if len(existingTransfers) == 0 {
+		return resp.Transfers
+	}
+
+	newIndex := len(existingTransfers)
+	return resp.Transfers[newIndex:]
 }
 
 // dialServer creates a gRPC client connection to the given host using a default
