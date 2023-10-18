@@ -570,6 +570,13 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		},
 	)
 
+	maxVersion := asset.V0
+	for _, activeAsset := range activeAssets {
+		if activeAsset.Asset.Version > maxVersion {
+			maxVersion = activeAsset.Asset.Version
+		}
+	}
+
 	// Now that we know what inputs we're going to spend, we know that by
 	// definition, we use the first input's info as the burn's PrevID.
 	firstInput := activeAssets[0]
@@ -600,6 +607,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			Amount:            0,
 			Type:              tappsbt.TypeSplitRoot,
 			AnchorOutputIndex: 0,
+			AssetVersion:      maxVersion,
 
 			// The wallet will look for a "change" output where it
 			// can attach any passive assets that might be in the
@@ -614,6 +622,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			Type:              tappsbt.TypeSimple,
 			Interactive:       true,
 			AnchorOutputIndex: 0,
+			AssetVersion:      maxVersion,
 			ScriptKey:         burnKey,
 		}},
 		ChainParams: f.cfg.ChainParams,
@@ -931,11 +940,14 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 				"pk script: %w", err)
 		}
 
-		log.Tracef("Input commitment taproot_asset_root=%x, "+
-			"internal_key=%x, pk_script=%x, trimmed_merkle_root=%x",
-			fn.ByteSlice(assetInput.Commitment.TapscriptRoot(nil)),
-			internalKey.PubKey.SerializeCompressed(),
-			anchorPkScript, anchorMerkleRoot[:])
+		// Add some trace logging for easier debugging of what we expect
+		// to be in the commitment we spend (we did the same when
+		// creating the output, so differences should be apparent when
+		// debugging).
+		tapscript.LogCommitment(
+			"Input", idx, assetInput.Commitment, internalKey.PubKey,
+			anchorPkScript, anchorMerkleRoot[:],
+		)
 
 		// We'll also include an inclusion proof for the input asset in
 		// the virtual transaction. With that a signer can verify that

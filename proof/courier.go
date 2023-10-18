@@ -986,7 +986,19 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			outPoint, proofAsset.ScriptKey.PubKey,
 		)
 		assetID := proofAsset.ID()
-		universeID := unirpc.MarshalUniverseID(assetID[:], nil)
+
+		var (
+			groupPubKey      *btcec.PublicKey
+			groupPubKeyBytes []byte
+		)
+		if proofAsset.GroupKey != nil {
+			groupPubKey = &proofAsset.GroupKey.GroupPubKey
+			groupPubKeyBytes = groupPubKey.SerializeCompressed()
+		}
+
+		universeID := unirpc.MarshalUniverseID(
+			assetID[:], groupPubKeyBytes,
+		)
 		universeKey := unirpc.UniverseKey{
 			Id:      universeID,
 			LeafKey: assetKey,
@@ -994,10 +1006,6 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 
 		// Before attempting to deliver the proof, log that an attempted
 		// delivery is about to occur.
-		var groupPubKey *btcec.PublicKey
-		if proofAsset.GroupKey != nil {
-			groupPubKey = &proofAsset.GroupKey.GroupPubKey
-		}
 		loc := Locator{
 			AssetID:   &assetID,
 			GroupKey:  groupPubKey,
@@ -1044,7 +1052,15 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 
 	for {
 		assetID := *loc.AssetID
-		universeID := unirpc.MarshalUniverseID(assetID[:], nil)
+
+		var groupKeyBytes []byte
+		if loc.GroupKey != nil {
+			groupKeyBytes = loc.GroupKey.SerializeCompressed()
+		}
+
+		universeID := unirpc.MarshalUniverseID(
+			assetID[:], groupKeyBytes,
+		)
 		assetKey := unirpc.MarshalAssetKey(
 			*loc.OutPoint, &loc.ScriptKey,
 		)
@@ -1071,8 +1087,8 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 
 		// Break if we've reached the genesis point (the asset is the
 		// genesis asset).
-		asset := transitionProof.Asset
-		if asset.IsGenesisAsset() {
+		proofAsset := transitionProof.Asset
+		if proofAsset.IsGenesisAsset() {
 			break
 		}
 

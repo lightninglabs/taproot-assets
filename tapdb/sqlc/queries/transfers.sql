@@ -107,7 +107,9 @@ RETURNING asset_id;
 
 -- name: ReAnchorPassiveAssets :exec
 UPDATE assets
-SET anchor_utxo_id = @new_anchor_utxo_id
+SET anchor_utxo_id = @new_anchor_utxo_id,
+    split_commitment_root_hash = NULL,
+    split_commitment_root_value = NULL
 WHERE asset_id = @asset_id;
 
 -- name: DeleteAssetWitnesses :exec

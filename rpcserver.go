@@ -2014,10 +2014,17 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 			"accidental asset burns")
 	}
 
+	var groupKey *btcec.PublicKey
+	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
+	if err == nil && assetGroup.GroupKey != nil {
+		groupKey = &assetGroup.GroupPubKey
+	}
+
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapscript.FundingDescriptor{
-			ID:     assetID,
-			Amount: in.AmountToBurn,
+			ID:       assetID,
+			GroupKey: groupKey,
+			Amount:   in.AmountToBurn,
 		},
 	)
 	if err != nil {
@@ -2795,6 +2802,10 @@ func unmarshalAssetSyncConfig(
 
 // UnmarshalUniID parses the RPC universe ID into the native counterpart.
 func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
+	if rpcID == nil {
+		return universe.Identifier{}, fmt.Errorf("missing universe id")
+	}
+
 	// Unmarshal the proof type.
 	proofType, err := UnmarshalUniProofType(rpcID.ProofType)
 	if err != nil {

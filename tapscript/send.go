@@ -2,6 +2,7 @@ package tapscript
 
 import (
 	"context"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"math"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -500,23 +502,27 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		// TODO(ffranr): Add support for interactive full value multiple
 		// input spend.
 		input := inputs[0]
+		vOut := outputs[recipientIndex]
 
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		outputs[recipientIndex].Asset = input.Asset().Copy()
-		outputs[recipientIndex].Asset.ScriptKey = outputs[0].ScriptKey
+		vOut.Asset = input.Asset().Copy()
+		vOut.Asset.ScriptKey = vOut.ScriptKey
 
 		// Record the PrevID of the input asset in a Witness for the new
 		// asset. This Witness still needs a valid signature for the new
 		// asset to be valid.
-		outputs[recipientIndex].Asset.PrevWitnesses = []asset.Witness{
+		vOut.Asset.PrevWitnesses = []asset.Witness{
 			{
 				PrevID:          &input.PrevID,
 				TxWitness:       nil,
 				SplitCommitment: nil,
 			},
 		}
+
+		// Adjust the version for the requested send type.
+		vOut.Asset.Version = vOut.AssetVersion
 
 		// We are done, since we don't need to create a split
 		// commitment.
@@ -787,8 +793,11 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		vOut := outputs[idx]
 
 		// The output that houses the split root will carry along the
-		// existing Taproot Asset commitment of the sender.
-		if vOut.Type.IsSplitRoot() {
+		// existing Taproot Asset commitment of the sender (also known
+		// as passive assets). There can be passive assets without a
+		// split root, in case it's a full value interactive send or
+		// burn.
+		if vOut.Type.IsSplitRoot() || vOut.Type.CanCarryPassive() {
 			// In the interactive case we might have a full value
 			// send without an actual split root output but just the
 			// anchor output for the passive assets. We can skip
@@ -839,10 +848,13 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 					"passive assets: %w", err)
 			}
 
-			root := inputTapCommitment.TapscriptRoot(nil)
-			log.Tracef("Output %d commitment: root=%x, "+
-				"num_assets=%d", idx, root[:],
-				len(inputTapCommitment.CommittedAssets()))
+			// Add some trace logging for easier debugging of what
+			// goes into the output commitment (we'll do the same
+			// for the input commitment).
+			LogCommitment(
+				"Output", idx, inputTapCommitment,
+				vOut.AnchorOutputInternalKey, nil, nil,
+			)
 
 			outputCommitments[idx] = inputTapCommitment
 
@@ -875,6 +887,14 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		if err != nil {
 			return nil, err
 		}
+
+		// Add some trace logging for easier debugging of what goes into
+		// the output commitment (we'll do the same for the input
+		// commitment).
+		LogCommitment(
+			"Output", idx, outputCommitments[idx],
+			vOut.AnchorOutputInternalKey, nil, nil,
+		)
 	}
 
 	return outputCommitments, nil
@@ -1163,4 +1183,34 @@ func assertAnchorsEqual(vPkt *tappsbt.VPacket) error {
 	}
 
 	return nil
+}
+
+// LogCommitment logs the given Taproot Asset commitment to the log as a trace
+// message. This is a no-op if the log level is not set to trace.
+func LogCommitment(prefix string, idx int,
+	tapCommitment *commitment.TapCommitment, internalKey *btcec.PublicKey,
+	pkScript, trimmedMerkleRoot []byte) {
+
+	if log.Level() > btclog.LevelTrace {
+		return
+	}
+
+	merkleRoot := tapCommitment.TapscriptRoot(nil)
+	log.Tracef("%v commitment #%d v%d, taproot_asset_root=%x, "+
+		"internal_key=%x, pk_script=%x, trimmed_merkle_root=%x",
+		prefix, idx, tapCommitment.Version, merkleRoot[:],
+		internalKey.SerializeCompressed(), pkScript, trimmedMerkleRoot)
+	for _, a := range tapCommitment.CommittedAssets() {
+		groupKey := "<nil>"
+		if a.GroupKey != nil {
+			groupKey = hex.EncodeToString(
+				a.GroupKey.GroupPubKey.SerializeCompressed(),
+			)
+		}
+		log.Tracef("%v commitment asset_id=%v, script_key=%x, "+
+			"group_key=%v, amount=%d, version=%d, "+
+			"split_commitment=%v", prefix, a.ID(),
+			a.ScriptKey.PubKey.SerializeCompressed(), groupKey,
+			a.Amount, a.Version, a.SplitCommitmentRoot != nil)
+	}
 }

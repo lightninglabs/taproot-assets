@@ -198,7 +198,9 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 	// Before we can validate a non-issuance proof we need to fetch the
 	// previous asset snapshot (which is the proof verification result for
 	// the previous/parent proof in the proof file).
-	prevAssetSnapshot, err := a.getPrevAssetSnapshot(ctx, id, *newProof)
+	prevAssetSnapshot, err := a.getPrevAssetSnapshot(
+		ctx, id, *newProof, nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous asset "+
 			"snapshot: %w", err)
@@ -280,6 +282,18 @@ func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	return assetSnapshot, nil
 }
 
+// extractBatchDeps constructs map from leaf key to asset in a batch. This is
+// useful for when we're validating an asset state transition in a batch, and
+// the input asset it depends on is created in the batch.
+func extractBatchDeps(batch []*IssuanceItem) map[UniverseKey]*asset.Asset {
+	batchDeps := make(map[UniverseKey]*asset.Asset)
+	for _, item := range batch {
+		batchDeps[item.Key.UniverseKey()] = &item.Leaf.Proof.Asset
+	}
+
+	return batchDeps
+}
+
 // RegisterNewIssuanceBatch inserts a batch of new minting leaves within the
 // target universe tree (based on the ID), stored at the base key(s). We assume
 // the proofs within the batch have already been checked that they don't yet
@@ -329,13 +343,24 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 		}
 	}
 
+	batchDeps := extractBatchDeps(items)
+
 	verifyBatch := func(batchItems []*IssuanceItem) error {
 		err := fn.ParSlice(
 			ctx, batchItems, func(ctx context.Context,
 				i *IssuanceItem) error {
 
+				prevAssets, err := a.getPrevAssetSnapshot(
+					ctx, i.ID, *i.Leaf.Proof, batchDeps,
+				)
+				if err != nil {
+					return fmt.Errorf("unable to "+
+						"fetch previous asset "+
+						"snapshot: %w", err)
+				}
+
 				assetSnapshot, err := a.verifyIssuanceProof(
-					ctx, i.ID, i.Key, i.Leaf, nil,
+					ctx, i.ID, i.Key, i.Leaf, prevAssets,
 				)
 				if err != nil {
 					return err
@@ -397,10 +422,14 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 	return nil
 }
 
+// UniverseKey represents the key used to locate an item within a universe.
+type UniverseKey [32]byte
+
 // getPrevAssetSnapshot returns the previous asset snapshot for the passed
 // proof. If the proof is a genesis proof, then nil is returned.
 func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
-	uniID Identifier, newProof proof.Proof) (*proof.AssetSnapshot, error) {
+	uniID Identifier, newProof proof.Proof,
+	batchAssets map[UniverseKey]*asset.Asset) (*proof.AssetSnapshot, error) {
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
@@ -433,9 +462,32 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 		ScriptKey: &prevScriptKey,
 	}
 
+	// First, we'll check if the prev asset that we need is already amongst
+	// the batch we have, if so then we won't have it in our universe tree
+	// yet, so we'll return it directly.
+	if batchAssets != nil {
+		newAsset := newProof.Asset
+		newScriptKey := newAsset.ScriptKey.PubKey.SerializeCompressed()
+
+		inputAsset, ok := batchAssets[prevLeafKey.UniverseKey()]
+		if ok {
+			log.Debugf("script_key=%x spends item in batch, "+
+				"universe_key=%x using batch input",
+				newScriptKey, prevLeafKey.UniverseKey())
+
+			return &proof.AssetSnapshot{
+				Asset:    inputAsset,
+				OutPoint: prevID.OutPoint,
+			}, nil
+		}
+	}
+
+	// If we can't find the previous asset in the batch, then we'll query
+	// our local universe.
 	prevProofs, err := a.cfg.Multiverse.FetchProofLeaf(
 		ctx, uniID, prevLeafKey,
 	)
+
 	// If we've failed in finding the previous proof in the transfer
 	// universe, we will try to find it in the issuance universe.
 	if uniID.ProofType == ProofTypeTransfer &&
@@ -448,10 +500,14 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 	}
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous "+
-			"proof: %v", err)
+			"proof: %v, id=%v, leaf_key=%v, new_script_key=%x", err,
+			spew.Sdump(uniID), spew.Sdump(prevLeafKey),
+			newProof.Asset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
 	prevProof := prevProofs[0].Leaf.Proof
+
+	// TODO(roasbeef): need more than one snapshot, for inputs
 
 	// Construct minimal asset snapshot for previous asset.
 	// This is a minimal the proof verification result for the

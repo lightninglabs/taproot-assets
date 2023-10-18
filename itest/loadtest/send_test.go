@@ -2,11 +2,13 @@ package loadtest
 
 import (
 	"context"
+	"fmt"
 	prand "math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/itest"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -66,6 +68,10 @@ func sendAssets(t *testing.T, ctx context.Context, numAssets uint64,
 	addr, err := receive.NewAddr(ctx, &taprpc.NewAddrRequest{
 		AssetId: sendAsset.AssetGenesis.AssetId,
 		Amt:     numAssets,
+		ProofCourierAddr: fmt.Sprintf(
+			"%s://%s:%d", proof.UniverseRpcCourierType,
+			send.cfg.Host, send.cfg.Port,
+		),
 	})
 	require.NoError(t, err)
 	itest.AssertAddrCreated(t, receive, sendAsset, addr)

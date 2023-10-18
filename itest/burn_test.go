@@ -20,18 +20,23 @@ func testBurnAssets(t *harnessTest) {
 	minerClient := t.lndHarness.Miner.Client
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
-			simpleAssets[0], simpleAssets[1], issuableAssets[1],
+			simpleAssets[0], simpleAssets[1], issuableAssets[0],
+			issuableAssets[1],
 		},
 	)
 
 	// We first fan out the assets we have to different outputs.
 	var (
-		chainParams          = &address.RegressionNetTap
-		simpleAsset          = rpcAssets[0]
-		simpleCollectible    = rpcAssets[1]
-		simpleAssetGen       = simpleAsset.AssetGenesis
-		simpleCollectibleGen = simpleCollectible.AssetGenesis
-		simpleAssetID        [32]byte
+		chainParams           = &address.RegressionNetTap
+		simpleAsset           = rpcAssets[0]
+		simpleCollectible     = rpcAssets[1]
+		simpleGroup           = rpcAssets[2]
+		simpleGroupCollect    = rpcAssets[3]
+		simpleAssetGen        = simpleAsset.AssetGenesis
+		simpleCollectibleGen  = simpleCollectible.AssetGenesis
+		simpleGroupGen        = simpleGroup.AssetGenesis
+		simpleGroupCollectGen = simpleGroupCollect.AssetGenesis
+		simpleAssetID         [32]byte
 	)
 	copy(simpleAssetID[:], simpleAssetGen.AssetId)
 
@@ -59,8 +64,8 @@ func testBurnAssets(t *harnessTest) {
 	// 		- 300 units to new script key
 	outputAmounts := []uint64{1100, 1200, 1600, 800, 300}
 	vPkt := tappsbt.ForInteractiveSend(
-		simpleAssetID, outputAmounts[0], scriptKey1, 0, anchorInternalKeyDesc1,
-		asset.V0, chainParams,
+		simpleAssetID, outputAmounts[0], scriptKey1, 0,
+		anchorInternalKeyDesc1, asset.V0, chainParams,
 	)
 	tappsbt.AddOutput(
 		vPkt, outputAmounts[1], scriptKey2, 0, anchorInternalKeyDesc1,
@@ -233,4 +238,66 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd, simpleAssetGen.AssetId,
 		simpleAsset.Amount-burnAmt-multiBurnAmt,
 	)
+
+	resp, err := t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		IncludeSpent: true,
+	})
+	require.NoError(t.t, err)
+	assets, err := formatProtoJSON(resp)
+	require.NoError(t.t, err)
+	t.Logf("All assets before last burn: %v", assets)
+
+	// Test case 5: Burn some units of a grouped asset. We start by making
+	// sure we still have the full balance before burning.
+	AssertBalanceByID(
+		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount,
+	)
+	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: simpleGroupGen.AssetId,
+		},
+		AmountToBurn:     burnAmt,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	burnRespJSON, err = formatProtoJSON(burnResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from burning units from grouped asset: %v",
+		burnRespJSON)
+
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		simpleGroupGen.AssetId,
+		[]uint64{simpleGroup.Amount - burnAmt, burnAmt}, 5, 6, 2, true,
+	)
+	AssertBalanceByID(
+		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount-burnAmt,
+	)
+
+	// Test case 6: Burn the single unit of a grouped collectible. We start
+	// by making sure we still have the full balance before burning.
+	AssertBalanceByID(
+		t.t, t.tapd, simpleGroupCollectGen.AssetId,
+		simpleGroupCollect.Amount,
+	)
+	burnResp, err = t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: simpleGroupCollectGen.AssetId,
+		},
+		AmountToBurn:     1,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	burnRespJSON, err = formatProtoJSON(burnResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from burning units from grouped asset: %v",
+		burnRespJSON)
+
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
+		simpleGroupCollectGen.AssetId, []uint64{1}, 6, 7, 1, true,
+	)
+	AssertBalanceByID(t.t, t.tapd, simpleGroupCollectGen.AssetId, 0)
 }

@@ -3,9 +3,11 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -133,7 +135,10 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	// TODO(roasbeef): revisit?
 	prevAsset, ok := vm.prevAssets[*rootWitness.PrevID]
 	if !ok {
-		return ErrNoInputs
+		return fmt.Errorf("%w: root_witness_prev_id=%v, "+
+			"num_prev_assets=%v", ErrNoInputs,
+			spew.Sdump(rootWitness.PrevID),
+			len(vm.prevAssets))
 	}
 	err := matchesAssetParams(
 		&splitAsset.Asset, prevAsset, &rootWitness,
@@ -266,7 +271,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 	switch {
 	case len(vm.newAsset.PrevWitnesses) == 0:
-		return ErrNoInputs
+		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
 
 	case vm.newAsset.Type == asset.Collectible &&
 		len(vm.newAsset.PrevWitnesses) > 1:
@@ -278,7 +283,9 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 		witness := witness
 		prevAsset, ok := vm.prevAssets[*witness.PrevID]
 		if !ok {
-			return ErrNoInputs
+			return fmt.Errorf("%w: no prev asset for "+
+				"input_prev_id=%v", ErrNoInputs,
+				spew.Sdump(witness.PrevID))
 		}
 
 		switch prevAsset.ScriptVersion {
@@ -339,12 +346,6 @@ func (vm *Engine) Execute() error {
 		vm.newAsset, vm.prevAssets,
 	)
 	if err != nil {
-		if errors.Is(err, tapscript.ErrInputMismatch) {
-			return ErrInputMismatch
-		}
-		if errors.Is(err, tapscript.ErrNoInputs) {
-			return ErrNoInputs
-		}
 		return err
 	}
 
