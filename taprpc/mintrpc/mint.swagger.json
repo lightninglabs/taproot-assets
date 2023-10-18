@@ -191,6 +191,11 @@
         "short_response": {
           "type": "boolean",
           "description": "If true, then the assets currently in the batch won't be returned in the\nresponse. This is mainly to avoid a lot of data being transmitted and\npossibly printed on the command line in the case of a very large batch."
+        },
+        "fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The optional fee rate to use for the minting transaction, in sat/kw."
         }
       }
     },

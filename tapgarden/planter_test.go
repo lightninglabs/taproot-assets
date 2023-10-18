@@ -365,7 +365,7 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tapgarden.FundedPsbt {
 		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
 			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
 			isDummyScript := bytes.Equal(
-				txOut.PkScript, tapgarden.GenesisDummyScript[:],
+				txOut.PkScript, tapscript.GenesisDummyScript[:],
 			)
 
 			if isP2TR || isDummyScript {

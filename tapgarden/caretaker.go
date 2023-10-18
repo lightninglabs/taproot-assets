@@ -21,22 +21,20 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
 
 var (
-	// GenesisDummyScript is a dummy script that we'll use to fund the
-	// initial PSBT packet that'll create initial set of assets. It's the
-	// same size as a encoded P2TR output.
-	GenesisDummyScript [34]byte
 
 	// DummyGenesisTxOut is the dummy TxOut we'll place in the PSBt funding
 	// request to make sure we leave enough room for change and fees.
 	DummyGenesisTxOut = wire.TxOut{
-		PkScript: GenesisDummyScript[:],
+		PkScript: tapscript.GenesisDummyScript[:],
 		Value:    int64(GenesisAmtSats),
 	}
 
@@ -71,6 +69,10 @@ const (
 type BatchCaretakerConfig struct {
 	// Batch is the minting batch that this caretaker is responsible for?
 	Batch *MintingBatch
+
+	// BatchFeeRate is an optional manually-set feerate specified when
+	// finalizing a batch.
+	BatchFeeRate *chainfee.SatPerKWeight
 
 	GardenKit
 
@@ -386,12 +388,25 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 	log.Infof("BatchCaretaker(%x): creating skeleton PSBT", b.batchKey[:])
 	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
 
-	feeRate, err := b.cfg.ChainBridge.EstimateFee(
-		ctx, GenesisConfTarget,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to estimate fee: %w", err)
+	// If a fee rate was manually assigned for this batch, use that instead
+	// of a fee rate estimate.
+	var feeRate chainfee.SatPerKWeight
+	switch {
+	case b.cfg.BatchFeeRate != nil:
+		feeRate = *b.cfg.BatchFeeRate
+		log.Infof("BatchCaretaker(%x): using manual fee rate")
+
+	default:
+		feeRate, err = b.cfg.ChainBridge.EstimateFee(
+			ctx, GenesisConfTarget,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to estimate fee: %w", err)
+		}
 	}
+
+	log.Infof("BatchCaretaker(%x): using fee rate: %v",
+		feeRate.FeePerKVByte().String())
 
 	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
 		ctx, genesisPkt, 1, feeRate,
@@ -723,6 +738,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 		b.cfg.Batch.GenesisPacket.ChainFees = chainFees
 
+		log.Infof("BatchCaretaker(%x): GenesisPacket absolute fee: "+
+			"%d sats", chainFees)
 		log.Infof("BatchCaretaker(%x): GenesisPacket finalized",
 			b.batchKey[:])
 		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))

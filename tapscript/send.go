@@ -1,6 +1,7 @@
 package tapscript
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -15,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -104,13 +106,23 @@ var (
 	)
 )
 
+var (
+	// GenesisDummyScript is a dummy script that we'll use to fund the
+	// initial PSBT packet that'll create initial set of assets. It's the
+	// same size as a encoded P2TR output and has a valid P2TR prefix.
+	GenesisDummyScript = append(
+		[]byte{txscript.OP_1, 0x20}, bytes.Repeat([]byte{0x00}, 32)...,
+	)
+)
+
 // createDummyOutput creates a new Bitcoin transaction output that is later
 // used to embed a Taproot Asset commitment.
 func createDummyOutput() *wire.TxOut {
-	// The dummy PkScript is the same size as an encoded P2TR output.
+	// The dummy PkScript is the same size as an encoded P2TR output and has
+	// a valid P2TR prefix.
 	newOutput := wire.TxOut{
 		Value:    int64(DummyAmtSats),
-		PkScript: make([]byte, 34),
+		PkScript: GenesisDummyScript,
 	}
 	return &newOutput
 }

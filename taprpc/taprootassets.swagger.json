@@ -1817,6 +1817,11 @@
           "items": {
             "type": "string"
           }
+        },
+        "fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The optional fee rate to use for the minting transaction, in sat/kw."
         }
       }
     },

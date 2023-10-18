@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/hex"
 	"fmt"
+	"math"
 	"os"
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
@@ -48,6 +49,7 @@ var (
 	groupByGroupName             = "by_group"
 	assetIDName                  = "asset_id"
 	shortResponseName            = "short"
+	feeRateName                  = "fee_rate"
 	assetAmountName              = "amount"
 	burnOverrideConfirmationName = "override_confirmation_destroy_assets"
 )
@@ -250,8 +252,26 @@ var finalizeBatchCommand = cli.Command{
 				"in order to avoid printing a large amount " +
 				"of data in case of large batches",
 		},
+		cli.Uint64Flag{
+			Name: feeRateName,
+			Usage: "if set, the fee rate in sat/kw to use for the" +
+				"minting transaction",
+		},
 	},
 	Action: finalizeBatch,
+}
+
+func parseFeeRate(ctx *cli.Context) (uint32, error) {
+	if ctx.IsSet(feeRateName) {
+		feeRate := ctx.Uint64(feeRateName)
+		if feeRate > math.MaxUint32 {
+			return 0, fmt.Errorf("fee rate exceeds 2^32")
+		}
+
+		return uint32(feeRate), nil
+	}
+
+	return uint32(0), nil
 }
 
 func finalizeBatch(ctx *cli.Context) error {
@@ -259,8 +279,14 @@ func finalizeBatch(ctx *cli.Context) error {
 	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
+	feeRate, err := parseFeeRate(ctx)
+	if err != nil {
+		return err
+	}
+
 	resp, err := client.FinalizeBatch(ctxc, &mintrpc.FinalizeBatchRequest{
 		ShortResponse: ctx.Bool(shortResponseName),
+		FeeRate:       feeRate,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to finalize batch: %w", err)
@@ -496,6 +522,11 @@ var sendAssetsCommand = cli.Command{
 			Usage: "addr to send to; can be specified multiple " +
 				"times to send to multiple addresses at once",
 		},
+		cli.Uint64Flag{
+			Name: feeRateName,
+			Usage: "if set, the fee rate in sat/kw to use for the" +
+				"anchor transaction",
+		},
 		// TODO(roasbeef): add arg for file name to write sender proof
 		// blob
 	},
@@ -512,8 +543,14 @@ func sendAssets(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
+	feeRate, err := parseFeeRate(ctx)
+	if err != nil {
+		return err
+	}
+
 	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
 		TapAddrs: addrs,
+		FeeRate:  feeRate,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)

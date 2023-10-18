@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/ticker"
 	"golang.org/x/exp/maps"
 )
@@ -227,9 +228,11 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 
 // newCaretakerForBatch creates a new BatchCaretaker for a given batch and
 // inserts it into the caretaker map.
-func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker {
+func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
+	feeRate *chainfee.SatPerKWeight) *BatchCaretaker {
+
 	batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
-	caretaker := NewBatchCaretaker(&BatchCaretakerConfig{
+	batchConfig := &BatchCaretakerConfig{
 		Batch:                 batch,
 		GardenKit:             c.cfg.GardenKit,
 		BroadcastCompleteChan: make(chan struct{}, 1),
@@ -241,7 +244,12 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch) *BatchCaretaker
 		CancelRespChan:      make(chan CancelResp, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
 		ErrChan:             c.cfg.ErrChan,
-	})
+	}
+	if feeRate != nil {
+		batchConfig.BatchFeeRate = feeRate
+	}
+
+	caretaker := NewBatchCaretaker(batchConfig)
 	c.caretakers[batchKey] = caretaker
 
 	return caretaker
@@ -296,7 +304,8 @@ func (c *ChainPlanter) Start() error {
 				batch.AssetMetas = make(AssetMetas)
 			}
 
-			caretaker := c.newCaretakerForBatch(batch)
+			// TODO(jhb): Log manual fee rates?
+			caretaker := c.newCaretakerForBatch(batch, nil)
 			if err := caretaker.Start(); err != nil {
 				startErr = err
 				return
@@ -485,7 +494,7 @@ func (c *ChainPlanter) gardener() {
 				continue
 			}
 
-			_, err := c.finalizeBatch()
+			_, err := c.finalizeBatch(nil)
 			if err != nil {
 				c.cfg.ErrChan <- fmt.Errorf("unable to freeze "+
 					"minting batch: %w", err)
@@ -590,7 +599,15 @@ func (c *ChainPlanter) gardener() {
 				log.Infof("Finalizing batch %x",
 					batchKey.SerializeCompressed())
 
-				caretaker, err := c.finalizeBatch()
+				feeRate, err :=
+					typedParam[*chainfee.SatPerKWeight](req)
+				if err != nil {
+					req.Error(fmt.Errorf("bad fee rate: "+
+						"%w", err))
+					break
+				}
+
+				caretaker, err := c.finalizeBatch(*feeRate)
 				if err != nil {
 					c.cfg.ErrChan <- fmt.Errorf("unable "+
 						"to freeze minting batch: %w",
@@ -643,10 +660,12 @@ func (c *ChainPlanter) gardener() {
 }
 
 // finalizeBatch creates a new caretaker for the batch and starts it.
-func (c *ChainPlanter) finalizeBatch() (*BatchCaretaker, error) {
+func (c *ChainPlanter) finalizeBatch(
+	feeRate *chainfee.SatPerKWeight) (*BatchCaretaker, error) {
+
 	// Prep the new care taker that'll be launched assuming the call below
 	// to freeze the batch succeeds.
-	caretaker := c.newCaretakerForBatch(c.pendingBatch)
+	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
@@ -707,8 +726,10 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 }
 
 // FinalizeBatch sends a signal to the planter to finalize the current batch.
-func (c *ChainPlanter) FinalizeBatch() (*MintingBatch, error) {
-	req := newStateReq[*MintingBatch](reqTypeFinalizeBatch)
+func (c *ChainPlanter) FinalizeBatch(
+	feeRate *chainfee.SatPerKWeight) (*MintingBatch, error) {
+
+	req := newStateParamReq[*MintingBatch](reqTypeFinalizeBatch, feeRate)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")

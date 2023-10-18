@@ -1442,6 +1442,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("unable to get on-chain fees for psbt: "+
 			"%w", err)
 	}
+	log.Infof("PSBT absolute fee: %d sats", chainFees)
 
 	err = psbt.MaybeFinalizeAll(signedPsbt)
 	if err != nil {
