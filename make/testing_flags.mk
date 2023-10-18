@@ -5,6 +5,7 @@ LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = -logoutput
 COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
+COVER_HTML = go tool cover -html=coverage.txt -o coverage.html
 POSTGRES_START_DELAY = 5
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
@@ -111,6 +112,9 @@ endif
 
 # Construct the integration test command with the added build flags.
 ITEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) integration itest $(backend)
+
+# Construct the coverage test command path with the added build flags.
+GOACC := $(GOACC_BIN) $(COVER_PKG) -- -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 
 # Construct the load test command with the added build flags.
 LOADTEST_TAGS := $(DEV_TAGS) $(RPC_TAGS) loadtest 

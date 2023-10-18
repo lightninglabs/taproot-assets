@@ -26,6 +26,7 @@ cmd/tapd/tapd
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+coverage.*
 
 # Sed backup files.
 *.bak
@@ -33,6 +34,8 @@ cmd/tapd/tapd
 # Editor configs.
 *.idea
 *.iml
+*.code-workspace
+.vscode/
 
 # Dependency directories (remove the comment below to include it)
 vendor/
