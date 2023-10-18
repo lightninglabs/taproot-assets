@@ -471,7 +471,6 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 
 		inputAsset, ok := batchAssets[prevLeafKey.UniverseKey()]
 		if ok {
-
 			log.Debugf("script_key=%x spends item in batch, "+
 				"universe_key=%x using batch input",
 				newScriptKey, prevLeafKey.UniverseKey())
