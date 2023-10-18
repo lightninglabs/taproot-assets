@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -2319,6 +2320,18 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	rpcBatch := &mintrpc.MintingBatch{
 		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
 		State:    rpcBatchState,
+	}
+
+	// If we have the genesis packet available (funded+signed), then we'll
+	// display the txid as well.
+	if batch.GenesisPacket != nil {
+		batchTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
+		if err == nil {
+			rpcBatch.BatchTxid = batchTx.TxHash().String()
+		} else {
+			rpcsLog.Errorf("unable to extract batch tx: %v", err)
+		}
+
 	}
 
 	// If we don't need to include the seedlings, we can return here.

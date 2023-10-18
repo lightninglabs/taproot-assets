@@ -276,5 +276,18 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
 
+	// We should be able to fetch the batch, and also find that the txid of
+	// the batch tx is populated.
+	batchResp, err := tapClient.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+		Filter: &mintrpc.ListBatchRequest_BatchKey{
+			BatchKey: batchKey,
+		},
+	})
+	require.NoError(t, err)
+	require.Len(t, batchResp.Batches, 1)
+
+	batch := batchResp.Batches[0]
+	require.NotEmpty(t, batch.BatchTxid)
+
 	return AssertAssetsMinted(t, tapClient, assetRequests, mintTXID, blockHash)
 }
