@@ -36,14 +36,8 @@ func TestNewMintingBlobs(t *testing.T) {
 	assetGenesis := asset.RandGenesis(t, asset.Collectible)
 	assetGenesis.MetaHash = metaReveal.MetaHash()
 	assetGenesis.OutputIndex = 0
-	protoAsset := asset.NewAssetNoErr(
-		t, assetGenesis, 1, 0, 0,
-		asset.NewScriptKeyBip86(genesisScriptKey), nil,
-	)
-
-	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
 	tapCommitment, _, err := commitment.Mint(
-		assetGenesis, assetGroupKey, &commitment.AssetDetails{
+		assetGenesis, nil, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        genesisScriptKey,
 			Amount:           nil,
@@ -51,6 +45,22 @@ func TestNewMintingBlobs(t *testing.T) {
 			RelativeLockTime: 0,
 		},
 	)
+	require.NoError(t, err)
+
+	// Add a group anchor with a custom tapscript root to the set of minted
+	// assets. We cannot make this type of asset with commitment.Mint, so
+	// we create it manually and then insert it into the tap commitment.
+	groupedGenesis := asset.RandGenesis(t, asset.Normal)
+	groupedGenesis.FirstPrevOut = assetGenesis.FirstPrevOut
+	groupedGenesis.MetaHash = metaReveal.MetaHash()
+	groupedGenesis.OutputIndex = 0
+	groupedAsset := asset.AssetCustomGroupKey(
+		t, test.RandBool(), false, false, true, groupedGenesis,
+	)
+
+	groupedAssetTree, err := commitment.NewAssetCommitment(groupedAsset)
+	require.NoError(t, err)
+	err = tapCommitment.Upsert(groupedAssetTree)
 	require.NoError(t, err)
 
 	internalKey := test.SchnorrPubKey(t, genesisPrivKey)
@@ -89,11 +99,10 @@ func TestNewMintingBlobs(t *testing.T) {
 		0, chaincfg.MainNetParams.GenesisHash, merkleRoot, 0, 0,
 	)
 
-	newAsset := tapCommitment.CommittedAssets()[0]
-	assetScriptKey := newAsset.ScriptKey
-
+	assetScriptKey := asset.NewScriptKeyBip86(genesisScriptKey)
 	metaReveals := map[asset.SerializedKey]*MetaReveal{
-		asset.ToSerialized(assetScriptKey.PubKey): metaReveal,
+		asset.ToSerialized(assetScriptKey.PubKey):         metaReveal,
+		asset.ToSerialized(groupedAsset.ScriptKey.PubKey): metaReveal,
 	}
 
 	// The NewMintingBlobs will return an error if the generated proof is
