@@ -1424,9 +1424,9 @@ func TestAssetExportLog(t *testing.T) {
 	require.Equal(t, 0, len(parcels))
 }
 
-// TestAssetGroupSigUpsert tests that if you try to insert another asset
-// group sig with the same asset_gen_id, then only one is actually created.
-func TestAssetGroupSigUpsert(t *testing.T) {
+// TestAssetGroupWitnessUpsert tests that if you try to insert another asset
+// group witness with the same asset_gen_id, then only one is actually created.
+func TestAssetGroupWitnessUpsert(t *testing.T) {
 	t.Parallel()
 
 	_, _, db := newAssetStore(t)
@@ -1435,7 +1435,7 @@ func TestAssetGroupSigUpsert(t *testing.T) {
 	internalKey := test.RandPubKey(t)
 
 	// First, we'll insert all the required rows we need to satisfy the
-	// foreign key constraints needed to insert a new genesis sig.
+	// foreign key constraints needed to insert a new genesis witness.
 	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
 		RawKey: internalKey.SerializeCompressed(),
 	})
@@ -1457,24 +1457,74 @@ func TestAssetGroupSigUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	// With all the other items inserted, we'll now insert an asset group
-	// sig.
-	groupSigID, err := db.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
-		WitnessStack: []byte{0x01},
-		GenAssetID:   genAssetID,
-		GroupKeyID:   groupID,
-	})
+	// witness.
+	groupWitnessID, err := db.UpsertAssetGroupWitness(
+		ctx, AssetGroupWitness{
+			WitnessStack: []byte{0x01},
+			GenAssetID:   genAssetID,
+			GroupKeyID:   groupID,
+		})
 	require.NoError(t, err)
 
 	// If we insert the very same sig, then we should get the same group sig
 	// ID back.
-	groupSigID2, err := db.UpsertAssetGroupWitness(ctx, AssetGroupWitness{
-		WitnessStack: []byte{0x01},
-		GenAssetID:   genAssetID,
-		GroupKeyID:   groupID,
-	})
+	groupWitnessID2, err := db.UpsertAssetGroupWitness(
+		ctx, AssetGroupWitness{
+			WitnessStack: []byte{0x01},
+			GenAssetID:   genAssetID,
+			GroupKeyID:   groupID,
+		})
 	require.NoError(t, err)
 
-	require.Equal(t, groupSigID, groupSigID2)
+	require.Equal(t, groupWitnessID, groupWitnessID2)
+}
+
+// TestAssetGroupComplexWitness tests that we can store and load an asset group
+// witness of multiple elements.
+func TestAssetGroupComplexWitness(t *testing.T) {
+	t.Parallel()
+
+	mintingStore, assetStore, db := newAssetStore(t)
+	ctx := context.Background()
+
+	internalKey := test.RandPubKey(t)
+	groupAnchorGen := asset.RandGenesis(t, asset.RandAssetType(t))
+	groupAnchorGen.MetaHash = [32]byte{}
+	tapscriptRoot := test.RandBytes(32)
+	groupSig := test.RandBytes(64)
+
+	// First, we'll insert all the required rows we need to satisfy the
+	// foreign key constraints needed to insert a new genesis witness.
+	genesisPointID, err := upsertGenesisPoint(
+		ctx, db, groupAnchorGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+
+	genAssetID, err := upsertGenesis(ctx, db, genesisPointID, groupAnchorGen)
+	require.NoError(t, err)
+
+	groupKey := asset.GroupKey{
+		RawKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+		},
+		GroupPubKey:   *internalKey,
+		TapscriptRoot: tapscriptRoot,
+		Witness:       fn.MakeSlice(tapscriptRoot, groupSig),
+	}
+
+	_, err = upsertGroupKey(
+		ctx, &groupKey, assetStore.db, genesisPointID, genAssetID,
+	)
+	require.NoError(t, err)
+
+	// If we fetch the group, it should have all the fields correctly
+	// populated.
+
+	storedGroup, err := mintingStore.FetchGroupByGroupKey(ctx, internalKey)
+	require.NoError(t, err)
+
+	require.Equal(t, groupAnchorGen, *storedGroup.Genesis)
+	require.True(t, groupKey.IsEqual(storedGroup.GroupKey))
 }
 
 // TestAssetGroupKeyUpsert tests that if you try to insert another asset group
