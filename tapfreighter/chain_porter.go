@@ -606,6 +606,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return nil
 		}
 
+		// Un-spendable means this is a tombstone output resulting from
+		// a split.
 		unSpendable, err := out.ScriptKey.IsUnSpendable()
 		if err != nil {
 			return fmt.Errorf("error checking if script key is "+
@@ -615,6 +617,17 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			log.Debugf("Not transferring proof for un-spendable "+
 				"output script key %x",
 				key.SerializeCompressed())
+			return nil
+		}
+
+		// Burns are also always kept local and not sent to any
+		// receiver.
+		if len(out.WitnessData) > 0 && asset.IsBurnKey(
+			out.ScriptKey.PubKey, out.WitnessData[0],
+		) {
+
+			log.Debugf("Not transferring proof for burn script "+
+				"key %x", key.SerializeCompressed())
 			return nil
 		}
 
