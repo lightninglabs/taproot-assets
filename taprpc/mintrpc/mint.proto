@@ -102,11 +102,17 @@ message MintingBatch {
     */
     bytes batch_key = 1;
 
-    // The assets that are part of the batch.
-    repeated MintAsset assets = 2;
+    /*
+    The transaction ID of the batch. Only populated if the batch has been
+    committed.
+    */
+    string batch_txid = 2;
 
     // The state of the batch.
     BatchState state = 3;
+
+    // The assets that are part of the batch.
+    repeated MintAsset assets = 4;
 }
 
 enum BatchState {

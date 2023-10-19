@@ -288,16 +288,20 @@
           "format": "byte",
           "description": "A public key serialized in compressed format that can be used to uniquely\nidentify a pending minting batch. Responses that share the same key will be\nbatched into the same minting transaction."
         },
+        "batch_txid": {
+          "type": "string",
+          "description": "The transaction ID of the batch. Only populated if the batch has been\ncommitted."
+        },
+        "state": {
+          "$ref": "#/definitions/mintrpcBatchState",
+          "description": "The state of the batch."
+        },
         "assets": {
           "type": "array",
           "items": {
             "$ref": "#/definitions/mintrpcMintAsset"
           },
           "description": "The assets that are part of the batch."
-        },
-        "state": {
-          "$ref": "#/definitions/mintrpcBatchState",
-          "description": "The state of the batch."
         }
       }
     },
