@@ -169,7 +169,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 
 	// If the local root matches the remote root, then we're done here.
 	case err == nil && mssmt.IsEqualNode(localRoot, remoteRoot):
-		log.Infof("Root for %v matches, no sync needed",
+		log.Debugf("Root for %v matches, no sync needed",
 			uniID.String())
 
 		return nil
@@ -329,7 +329,8 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
 		func(ctx context.Context, batch []*IssuanceItem) error {
 			numItems += len(batch)
-			log.Infof("UniverseRoot(%v): Inserting %d new leaves "+
+
+			log.Debugf("UniverseRoot(%v): Inserting %d new leaves "+
 				"(%d of %d)", uniID.String(), len(batch),
 				numItems, numTotal)
 
@@ -341,9 +342,11 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 					"issuance proofs: %w", err)
 			}
 
-			log.Infof("UniverseRoot(%v): Inserted %d new leaves "+
-				"(%d of %d)", uniID.String(), len(batch),
-				numItems, numTotal)
+			if len(batch) > 0 {
+				log.Infof("UniverseRoot(%v): Inserted %d new "+
+					"leaves (%d of %d)", uniID.String(),
+					len(batch), numItems, numTotal)
+			}
 
 			newLeaves := fn.Map(
 				batch, func(i *IssuanceItem) *Leaf {
