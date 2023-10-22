@@ -524,8 +524,8 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	for _, rootNode := range rootNodes {
 		// TODO(roasbeef): need base universe -> universe cache
 		// invalidation or delete thru multiverse
-		multiverse.rootNodeCache.Load().Delete(treeID(rootNode.ID.String()))
-		multiverse.proofCache.Delete(treeID(rootNode.ID.String()))
+		multiverse.rootNodeCache.wipeCache()
+		multiverse.proofCache.delProofsForAsset(rootNode.ID)
 	}
 
 	// The deleted universe should not be present in the multiverse.
