@@ -595,14 +595,10 @@ func (a *Archive) DeleteRoot(ctx context.Context,
 
 	log.Debugf("Deleting universe tree for Universe: id=%v", id.String())
 
-	uniStr, err := withBaseUni(a, id, func(baseUni BaseBackend) (string,
-		error) {
-
-		return baseUni.DeleteUniverse(ctx)
-	})
-
+	uniStr, err := a.cfg.Multiverse.DeleteUniverse(ctx, id)
 	if err != nil {
 		log.Tracef("Failed to delete universe tree: %w", err)
 	}
+
 	return uniStr, err
 }

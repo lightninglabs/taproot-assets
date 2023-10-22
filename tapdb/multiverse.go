@@ -473,3 +473,35 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 
 	return nil
 }
+
+// DeleteUniverse delete an entire universe sub-tre.
+func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
+	id universe.Identifier) (string, error) {
+
+	var writeTx BaseUniverseStoreOptions
+
+	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseMultiverseStore) error {
+		multiverseNS, err := namespaceForProof(id.ProofType)
+		if err != nil {
+			return err
+		}
+
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbTx, multiverseNS),
+		)
+
+		multiverseLeafKey := id.Bytes()
+		_, err = multiverseTree.Delete(ctx, multiverseLeafKey)
+		if err != nil {
+			return err
+		}
+
+		return deleteUniverseTree(ctx, dbTx, id)
+	})
+	if dbErr != nil {
+		return "", dbErr
+	}
+
+
+	return id.String(), dbErr
+}

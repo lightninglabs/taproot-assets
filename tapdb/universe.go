@@ -340,10 +340,9 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
-	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, mssmt.Node,
-	error) {
+	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
+	metaReveal *proof.MetaReveal,
+) (*universe.Proof, mssmt.Node, error) {
 
 	namespace := id.String()
 
@@ -740,53 +739,62 @@ func (b *BaseUniverseTree) MintingLeaves(
 	return leaves, nil
 }
 
+// deleteUniverses deletes the entire universe for a given namespace.
+func deleteUniverseTree(ctx context.Context,
+	db BaseUniverseStore, id universe.Identifier) error {
+
+	namespace := id.String()
+
+	// Instantiate a compact tree so we can delete the MS-SMT
+	// backing the universe.
+	universeTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(db, namespace),
+	)
+
+	// Delete all MS-SMT nodes backing the universe tree.
+	err := universeTree.DeleteAllNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe MS-SMT"+
+			"nodes: %w", err)
+	}
+
+	// Delete all leaves in the universe table.
+	err = db.DeleteUniverseLeaves(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe leaves: %w",
+			err)
+	}
+
+	// Delete the root node of the MS-SMT backing the universe.
+	err = universeTree.DeleteRoot(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe MS-SMT"+
+			"tree root: %w", err)
+	}
+
+	// Delete any events related to this universe.
+	err = db.DeleteUniverseEvents(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe events: "+
+			"%w", err)
+	}
+
+	// Delete the universe root from the universe table.
+	err = db.DeleteUniverseRoot(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe root: %w",
+			err)
+	}
+
+	return nil
+}
+
 // DeleteUniverse deletes the entire universe tree.
 func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 	var writeTx BaseUniverseStoreOptions
 
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(db BaseUniverseStore) error {
-		// Instantiate a compact tree so we can delete the MS-SMT
-		// backing the universe.
-		universeTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, b.smtNamespace),
-		)
-
-		// Delete all MS-SMT nodes backing the universe tree.
-		err := universeTree.DeleteAllNodes(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe MS-SMT"+
-				"nodes: %w", err)
-		}
-
-		// Delete all leaves in the universe table.
-		err = db.DeleteUniverseLeaves(ctx, b.smtNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe leaves: %w",
-				err)
-		}
-
-		// Delete the root node of the MS-SMT backing the universe.
-		err = universeTree.DeleteRoot(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe MS-SMT"+
-				"tree root: %w", err)
-		}
-
-		// Delete any events related to this universe.
-		err = db.DeleteUniverseEvents(ctx, b.smtNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe events: "+
-				"%w", err)
-		}
-
-		// Delete the universe root from the universe table.
-		err = db.DeleteUniverseRoot(ctx, b.smtNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe root: %w",
-				err)
-		}
-
-		return nil
+		return deleteUniverseTree(ctx, db, b.id)
 	})
 
 	return b.smtNamespace, dbErr

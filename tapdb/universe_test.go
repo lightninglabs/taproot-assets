@@ -521,6 +521,13 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.Nil(t, normalRoot)
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 
+	for _, rootNode := range rootNodes {
+		// TODO(roasbeef): need base universe -> universe cache
+		// invalidation or delete thru multiverse
+		multiverse.rootNodeCache.Load().Delete(treeID(rootNode.ID.String()))
+		multiverse.proofCache.Delete(treeID(rootNode.ID.String()))
+	}
+
 	// The deleted universe should not be present in the multiverse.
 	rootNodes, err = multiverse.RootNodes(
 		ctx, universe.RootNodesQuery{
@@ -781,7 +788,7 @@ func TestUniverseRootSum(t *testing.T) {
 					sumAmt = 1
 				}
 
-				require.Equal(t, sumAmt, proofs[0].Leaf.Amt)
+				require.Equal(t, int(sumAmt), int(proofs[0].Leaf.Amt))
 			}
 		})
 	}

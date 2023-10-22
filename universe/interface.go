@@ -308,6 +308,9 @@ type MultiverseArchive interface {
 	FetchProofLeaf(ctx context.Context, id Identifier,
 		key LeafKey) ([]*Proof, error)
 
+	// DeleteUniverse deletes all leaves, and the root, for given universe.
+	DeleteUniverse(ctx context.Context, id Identifier) (string, error)
+
 	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
 }
