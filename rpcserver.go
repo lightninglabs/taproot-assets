@@ -2342,7 +2342,6 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		} else {
 			rpcsLog.Errorf("unable to extract batch tx: %v", err)
 		}
-
 	}
 
 	// If we don't need to include the seedlings, we can return here.
