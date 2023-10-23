@@ -386,9 +386,9 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 // UpsertProofLeafBatch upserts a proof leaf batch within the multiverse tree
 // and the universe tree that corresponds to the given key(s).
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
-	items []*universe.IssuanceItem) error {
+	items []*universe.Item) error {
 
-	insertProof := func(item *universe.IssuanceItem,
+	insertProof := func(item *universe.Item,
 		dbTx BaseMultiverseStore) error {
 
 		// Upsert proof leaf into the asset (group) specific universe

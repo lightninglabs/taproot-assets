@@ -288,7 +288,7 @@ func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
 // extractBatchDeps constructs map from leaf key to asset in a batch. This is
 // useful for when we're validating an asset state transition in a batch, and
 // the input asset it depends on is created in the batch.
-func extractBatchDeps(batch []*IssuanceItem) map[UniverseKey]*asset.Asset {
+func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
 	batchDeps := make(map[UniverseKey]*asset.Asset)
 	for _, item := range batch {
 		batchDeps[item.Key.UniverseKey()] = &item.Leaf.Proof.Asset
@@ -302,7 +302,7 @@ func extractBatchDeps(batch []*IssuanceItem) map[UniverseKey]*asset.Asset {
 // the proofs within the batch have already been checked that they don't yet
 // exist in the local database.
 func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
-	items []*IssuanceItem) error {
+	items []*Item) error {
 
 	log.Infof("Verifying %d new proofs for insertion into Universe",
 		len(items))
@@ -311,8 +311,8 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 	// verified and stored before any issuances that may be reissuances into
 	// the same asset group. This is required for proper verification of
 	// reissuances, which may be in this batch.
-	var anchorItems []*IssuanceItem
-	nonAnchorItems := make([]*IssuanceItem, 0, len(items))
+	var anchorItems []*Item
+	nonAnchorItems := make([]*Item, 0, len(items))
 	for ind := range items {
 		item := items[ind]
 
@@ -348,10 +348,10 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 
 	batchDeps := extractBatchDeps(items)
 
-	verifyBatch := func(batchItems []*IssuanceItem) error {
+	verifyBatch := func(batchItems []*Item) error {
 		err := fn.ParSlice(
 			ctx, batchItems, func(ctx context.Context,
-				i *IssuanceItem) error {
+				i *Item) error {
 
 				prevAssets, err := a.getPrevAssetSnapshot(
 					ctx, i.ID, *i.Leaf.Proof, batchDeps,
@@ -410,7 +410,7 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 
 	// Log a sync event for the newly inserted leaf in the background as an
 	// async goroutine.
-	ids := fn.Map(items, func(item *IssuanceItem) Identifier {
+	ids := fn.Map(items, func(item *Item) Identifier {
 		return item.ID
 	})
 	go func() {

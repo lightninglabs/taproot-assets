@@ -293,7 +293,7 @@ type MultiverseArchive interface {
 
 	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
 	// tree and the universe tree that corresponds to the given key(s).
-	UpsertProofLeafBatch(ctx context.Context, items []*IssuanceItem) error
+	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
 
 	// FetchProofLeaf returns a proof leaf for the target key. If the key
 	// doesn't have a script key specified, then all the proof leafs for the
@@ -315,20 +315,19 @@ type Registrar interface {
 		leaf *Leaf) (*Proof, error)
 }
 
-// IssuanceItem is an item that can be used to register a new issuance within a
-// base universe.
-type IssuanceItem struct {
-	// ID is the identifier of the base universe that the item should be
-	// registered within.
+// Item contains the data fields necessary to insert/update a proof leaf
+// within a multiverse and the related asset (group) specific universe.
+type Item struct {
+	// ID is the identifier of the asset (group) specific universe.
 	ID Identifier
 
-	// Key is the base key that the leaf is or will be stored at.
+	// Key is the key that the leaf is or will be stored at.
 	Key LeafKey
 
-	// Leaf is the minting leaf that was created.
+	// Leaf is the proof leaf which will be stored at the key.
 	Leaf *Leaf
 
-	// MetaReveal is the meta reveal that was created.
+	// MetaReveal is the meta reveal associated with the given proof leaf.
 	MetaReveal *proof.MetaReveal
 }
 
@@ -342,7 +341,7 @@ type BatchRegistrar interface {
 	// key(s). We assume the proofs within the batch have already been
 	// checked that they don't yet exist in the local database.
 	RegisterNewIssuanceBatch(ctx context.Context,
-		items []*IssuanceItem) error
+		items []*Item) error
 }
 
 const (

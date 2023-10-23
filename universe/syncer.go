@@ -205,7 +205,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// for the new leaves. This allows us to stream the new leaves to the
 	// local registrar as they're fetched.
 	var (
-		fetchedLeaves = make(chan *IssuanceItem, len(keysToFetch))
+		fetchedLeaves = make(chan *Item, len(keysToFetch))
 		newLeafProofs []*Leaf
 		batchSyncEG   errgroup.Group
 	)
@@ -224,7 +224,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// If this is a transfer tree, then we'll use these channels to sort
 	// the contents before sending to the batch writer.
 	isIssuanceTree := remoteRoot.ID.ProofType == ProofTypeIssuance
-	transferLeafProofs := make(chan *IssuanceItem, len(keysToFetch))
+	transferLeafProofs := make(chan *Item, len(keysToFetch))
 
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
@@ -257,13 +257,13 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 			// Otherwise, we'll another step to the pipeline below
 			// for sorting.
 			if isIssuanceTree {
-				fetchedLeaves <- &IssuanceItem{
+				fetchedLeaves <- &Item{
 					ID:   uniID,
 					Key:  key,
 					Leaf: leafProof.Leaf,
 				}
 			} else {
-				transferLeafProofs <- &IssuanceItem{
+				transferLeafProofs <- &Item{
 					ID:   uniID,
 					Key:  key,
 					Leaf: leafProof.Leaf,
@@ -318,7 +318,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 // batchStreamNewItems streams the set of new items to the local registrar in
 // batches and returns the new leaf proofs.
 func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
-	uniID Identifier, fetchedLeaves chan *IssuanceItem,
+	uniID Identifier, fetchedLeaves chan *Item,
 	numTotal int) ([]*Leaf, error) {
 
 	var (
@@ -327,7 +327,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 	)
 	err := fn.CollectBatch(
 		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
-		func(ctx context.Context, batch []*IssuanceItem) error {
+		func(ctx context.Context, batch []*Item) error {
 			numItems += len(batch)
 
 			log.Debugf("UniverseRoot(%v): Inserting %d new leaves "+
@@ -349,7 +349,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 			}
 
 			newLeaves := fn.Map(
-				batch, func(i *IssuanceItem) *Leaf {
+				batch, func(i *Item) *Leaf {
 					return i.Leaf
 				},
 			)

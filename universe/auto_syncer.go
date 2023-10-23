@@ -76,7 +76,7 @@ type FederationPushReq struct {
 // FederationIssuanceBatchPushReq is used to push out a batch of new issuance
 // events to all or some members of the federation.
 type FederationIssuanceBatchPushReq struct {
-	IssuanceBatch []*IssuanceItem
+	IssuanceBatch []*Item
 
 	resp chan struct{}
 	err  chan error
@@ -431,7 +431,7 @@ func (f *FederationEnvoy) RegisterIssuance(_ context.Context, id Identifier,
 //
 // NOTE: This is part of the universe.BatchRegistrar interface.
 func (f *FederationEnvoy) RegisterNewIssuanceBatch(_ context.Context,
-	items []*IssuanceItem) error {
+	items []*Item) error {
 
 	pushReq := &FederationIssuanceBatchPushReq{
 		IssuanceBatch: items,
