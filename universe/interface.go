@@ -291,10 +291,9 @@ type MultiverseArchive interface {
 		leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
-	// RegisterBatchIssuance inserts a new minting leaf batch within the
-	// multiverse tree and the universe tree that corresponds to the given
-	// base key(s).
-	RegisterBatchIssuance(ctx context.Context, items []*IssuanceItem) error
+	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
+	// tree and the universe tree that corresponds to the given key(s).
+	UpsertProofLeafBatch(ctx context.Context, items []*IssuanceItem) error
 
 	// FetchProofLeaf returns a proof leaf for the target key. If the key
 	// doesn't have a script key specified, then all the proof leafs for the

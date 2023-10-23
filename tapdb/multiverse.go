@@ -383,15 +383,15 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	return issuanceProof, nil
 }
 
-// RegisterBatchIssuance inserts a new minting leaf batch within the multiverse
-// tree and the universe tree that corresponds to the given base key(s).
-func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
+// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse tree
+// and the universe tree that corresponds to the given key(s).
+func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.IssuanceItem) error {
 
 	insertProof := func(item *universe.IssuanceItem,
 		dbTx BaseMultiverseStore) error {
 
-		// Register issuance in the asset (group) specific universe
+		// Upsert proof leaf into the asset (group) specific universe
 		// tree.
 		_, universeRoot, err := universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
@@ -407,7 +407,7 @@ func (b *MultiverseStore) RegisterBatchIssuance(ctx context.Context,
 		}
 
 		// Retrieve a handle to the multiverse tree so that we can
-		// update the tree by inserting a new issuance.
+		// update the tree by inserting/updating a proof leaf.
 		multiverseTree := mssmt.NewCompactedTree(
 			newTreeStoreWrapperTx(dbTx, multiverseNS),
 		)

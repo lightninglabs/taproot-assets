@@ -389,7 +389,7 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 
 	log.Infof("Inserting %d verified group anchor proofs into Universe",
 		len(anchorItems))
-	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, anchorItems)
+	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
 	if err != nil {
 		return fmt.Errorf("unable to register new group anchor "+
 			"issuance proofs: %w", err)
@@ -402,7 +402,7 @@ func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
 
 	log.Infof("Inserting %d verified proofs into Universe",
 		len(nonAnchorItems))
-	err = a.cfg.Multiverse.RegisterBatchIssuance(ctx, nonAnchorItems)
+	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
 	if err != nil {
 		return fmt.Errorf("unable to register new issuance proofs: %w",
 			err)
