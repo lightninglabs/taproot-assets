@@ -347,7 +347,7 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 			Backoff:           backoff.DefaultConfig,
 			MinConnectTimeout: 10 * time.Second,
 		}),
-		grpc.WithMaxMsgSize(lnrpc.MaxGrpcMsgSize),
+		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
 	}
 
 	if serverCertPath != "" {

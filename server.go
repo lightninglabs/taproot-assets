@@ -267,9 +267,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		},
 	)
 	serverOpts = append(serverOpts, rpcServerOpts...)
-	serverOpts = append(
-		serverOpts, grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize),
-	)
+	serverOpts = append(serverOpts, ServerMaxMsgReceiveSize)
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	defer grpcServer.Stop()
