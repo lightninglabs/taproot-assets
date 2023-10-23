@@ -76,11 +76,13 @@ func unmarshalUniverseRoots(
 
 // RootNodes returns the complete set of known root nodes for the set
 // of assets tracked in the base Universe.
-func (r *RpcUniverseDiff) RootNodes(
-	ctx context.Context) ([]universe.BaseRoot, error) {
+func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
+	withAmountsById bool) ([]universe.BaseRoot, error) {
 
 	universeRoots, err := r.conn.AssetRoots(
-		ctx, &unirpc.AssetRootRequest{},
+		ctx, &unirpc.AssetRootRequest{
+			WithAmountsById: withAmountsById,
+		},
 	)
 	if err != nil {
 		return nil, err

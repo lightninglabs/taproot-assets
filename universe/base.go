@@ -129,10 +129,13 @@ func (a *MintingArchive) RootNode(ctx context.Context,
 }
 
 // RootNodes returns the set of root nodes for all known base universes assets.
-func (a *MintingArchive) RootNodes(ctx context.Context) ([]BaseRoot, error) {
-	log.Debugf("Fetching all known Universe roots")
+func (a *MintingArchive) RootNodes(ctx context.Context,
+	withAmountsById bool) ([]BaseRoot, error) {
 
-	return a.cfg.Multiverse.RootNodes(ctx)
+	log.Debugf("Fetching all known Universe roots (with_amounts_by_id=%v)",
+		withAmountsById)
+
+	return a.cfg.Multiverse.RootNodes(ctx, withAmountsById)
 }
 
 // RegisterIssuance attempts to register a new issuance proof for a new minting

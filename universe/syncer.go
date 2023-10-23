@@ -111,7 +111,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// Otherwise, we'll just fetch all the roots from the remote universe.
 	default:
 		log.Infof("Fetching all roots for remote Universe server...")
-		targetRoots, err = diffEngine.RootNodes(ctx)
+		targetRoots, err = diffEngine.RootNodes(ctx, false)
 		if err != nil {
 			return nil, err
 		}

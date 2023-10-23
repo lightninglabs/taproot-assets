@@ -2774,10 +2774,12 @@ func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
 func (r *rpcServer) AssetRoots(ctx context.Context,
-	_ *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
+	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	// First, we'll retrieve the full set of known asset Universe roots.
-	assetRoots, err := r.cfg.BaseUniverse.RootNodes(ctx)
+	assetRoots, err := r.cfg.BaseUniverse.RootNodes(
+		ctx, req.WithAmountsById,
+	)
 	if err != nil {
 		return nil, err
 	}

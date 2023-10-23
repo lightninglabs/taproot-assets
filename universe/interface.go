@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
-
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -283,7 +282,8 @@ type MultiverseRoot struct {
 type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
-	RootNodes(ctx context.Context) ([]BaseRoot, error)
+	RootNodes(ctx context.Context, withAmountsById bool) ([]BaseRoot,
+		error)
 
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
@@ -501,7 +501,8 @@ type DiffEngine interface {
 	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
 
 	// RootNodes returns the set of root nodes for all known universes.
-	RootNodes(ctx context.Context) ([]BaseRoot, error)
+	RootNodes(ctx context.Context, withAmountsById bool) ([]BaseRoot,
+		error)
 
 	// UniverseLeafKeys returns all the keys inserted in the universe.
 	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
