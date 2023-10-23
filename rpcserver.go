@@ -2777,7 +2777,7 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	// First, we'll retrieve the full set of known asset Universe roots.
-	assetRoots, err := r.cfg.BaseUniverse.RootNodes(
+	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, req.WithAmountsById,
 	)
 	if err != nil {
@@ -2957,7 +2957,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 			"given universe")
 	}
 
-	issuanceRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	issuanceRoot, err := r.cfg.UniverseArchive.RootNode(ctx, universeID)
 	if err != nil {
 		// Do not return at this point if the error only indicates that
 		// the root wasn't found. We'll try to find the transfer root
@@ -2978,7 +2978,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 
 	universeID.ProofType = universe.ProofTypeTransfer
 
-	transferRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	transferRoot, err := r.cfg.UniverseArchive.RootNode(ctx, universeID)
 	if err != nil {
 		// Do not return at this point if the error only indicates that
 		// the root wasn't found. We may have found the issuance root
@@ -3015,13 +3015,13 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	// issuance and transfer roots.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
 		universeID.ProofType = universe.ProofTypeIssuance
-		_, err := r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		_, err := r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
 			return nil, err
 		}
 
 		universeID.ProofType = universe.ProofTypeTransfer
-		_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
 			return nil, err
 		}
@@ -3031,7 +3031,7 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 
 	// At this point the universe proof type was specified, so we'll only
 	// delete the root for that proof type.
-	_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+	_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3068,7 +3068,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	// TODO(roasbeef): tell above if was tring or not, then would set
 	// below diff
 
-	leafKeys, err := r.cfg.BaseUniverse.UniverseLeafKeys(ctx, universeID)
+	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3127,7 +3127,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.BaseUniverse.MintingLeaves(ctx, universeID)
+	assetLeaves, err := r.cfg.UniverseArchive.MintingLeaves(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3369,7 +3369,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	for i := range candidateIDs {
 		candidateID := candidateIDs[i]
 
-		proofs, err = r.cfg.BaseUniverse.FetchIssuanceProof(
+		proofs, err = r.cfg.UniverseArchive.FetchIssuanceProof(
 			ctx, candidateID, leafKey,
 		)
 		if err != nil {
@@ -3485,7 +3485,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		"(universeID=%v, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
-	newUniverseState, err := r.cfg.BaseUniverse.RegisterIssuance(
+	newUniverseState, err := r.cfg.UniverseArchive.RegisterIssuance(
 		ctx, universeID, leafKey, assetLeaf,
 	)
 	if err != nil {
