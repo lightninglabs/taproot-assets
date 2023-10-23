@@ -791,6 +791,15 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "with_amounts_by_id",
+            "description": "If true, then the response will include the amounts for each asset ID\nof grouped assets.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
         "tags": [
           "Universe"
         ]
