@@ -45,14 +45,14 @@ type MintingArchiveConfig struct {
 	// TODO(roasbeef): load all at once, or lazy load dynamic?
 }
 
-// MintingArchive is a persistence implementation of the Base universe
-// interface. This is used by minting sub-systems to register new base universe
-// issuance proofs each time an asset is created. It can also be used to
-// synchronize state amongst disparate base universe instances, and also to
-// serve as initial bootstrap for users wishing to send/receive assets.
+// Archive is a persistence implementation of the universe interface. This is
+// used by minting sub-systems to upsert new universe issuance proofs each time
+// an asset is created. It can also be used to synchronize state amongst
+// disparate universe instances, and also to serve as initial bootstrap for
+// users wishing to send/receive assets.
 //
 // TODO(roasbeef): erect universe in front of?
-type MintingArchive struct {
+type Archive struct {
 	cfg MintingArchiveConfig
 
 	// baseUniverses is a map of all the current known base universe
@@ -63,8 +63,8 @@ type MintingArchive struct {
 }
 
 // NewMintingArchive creates a new minting archive based on the passed config.
-func NewMintingArchive(cfg MintingArchiveConfig) *MintingArchive {
-	a := &MintingArchive{
+func NewMintingArchive(cfg MintingArchiveConfig) *Archive {
+	a := &Archive{
 		cfg:           cfg,
 		baseUniverses: make(map[Identifier]BaseBackend),
 	}
@@ -74,7 +74,7 @@ func NewMintingArchive(cfg MintingArchiveConfig) *MintingArchive {
 
 // fetchUniverse returns the base universe instance for the passed identifier.
 // The universe will be loaded in on demand if it has not been seen before.
-func (a *MintingArchive) fetchUniverse(id Identifier) BaseBackend {
+func (a *Archive) fetchUniverse(id Identifier) BaseBackend {
 	a.Lock()
 	defer a.Unlock()
 
@@ -109,7 +109,7 @@ func withBaseUni[T any](fetcher uniFetcher, id Identifier,
 
 // RootNode returns the root node of the base universe corresponding to the
 // passed ID.
-func (a *MintingArchive) RootNode(ctx context.Context,
+func (a *Archive) RootNode(ctx context.Context,
 	id Identifier) (BaseRoot, error) {
 
 	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
@@ -129,7 +129,7 @@ func (a *MintingArchive) RootNode(ctx context.Context,
 }
 
 // RootNodes returns the set of root nodes for all known base universes assets.
-func (a *MintingArchive) RootNodes(ctx context.Context,
+func (a *Archive) RootNodes(ctx context.Context,
 	withAmountsById bool) ([]BaseRoot, error) {
 
 	log.Debugf("Fetching all known Universe roots (with_amounts_by_id=%v)",
@@ -142,7 +142,7 @@ func (a *MintingArchive) RootNodes(ctx context.Context,
 // event for the specified base universe identifier. This method will return an
 // error if the passed minting proof is invalid. If the leaf is already known,
 // then no action is taken and the existing issuance commitment proof returned.
-func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
+func (a *Archive) RegisterIssuance(ctx context.Context, id Identifier,
 	key LeafKey, leaf *Leaf) (*Proof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
@@ -243,7 +243,7 @@ func (a *MintingArchive) RegisterIssuance(ctx context.Context, id Identifier,
 
 // verifyIssuanceProof verifies the passed minting leaf is a valid issuance
 // proof, returning the asset snapshot if so.
-func (a *MintingArchive) verifyIssuanceProof(ctx context.Context, id Identifier,
+func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	key LeafKey, leaf *Leaf,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
@@ -301,7 +301,7 @@ func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
 // target universe tree (based on the ID), stored at the base key(s). We assume
 // the proofs within the batch have already been checked that they don't yet
 // exist in the local database.
-func (a *MintingArchive) RegisterNewIssuanceBatch(ctx context.Context,
+func (a *Archive) RegisterNewIssuanceBatch(ctx context.Context,
 	items []*Item) error {
 
 	log.Infof("Verifying %d new proofs for insertion into Universe",
@@ -430,7 +430,7 @@ type UniverseKey [32]byte
 
 // getPrevAssetSnapshot returns the previous asset snapshot for the passed
 // proof. If the proof is a genesis proof, then nil is returned.
-func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
+func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	uniID Identifier, newProof proof.Proof,
 	batchAssets map[UniverseKey]*asset.Asset) (*proof.AssetSnapshot, error) {
 
@@ -524,7 +524,7 @@ func (a *MintingArchive) getPrevAssetSnapshot(ctx context.Context,
 
 // FetchIssuanceProof attempts to fetch an issuance proof for the target base
 // leaf based on the universe identifier (assetID/groupKey).
-func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
+func (a *Archive) FetchIssuanceProof(ctx context.Context, id Identifier,
 	key LeafKey) ([]*Proof, error) {
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
@@ -550,7 +550,7 @@ func (a *MintingArchive) FetchIssuanceProof(ctx context.Context, id Identifier,
 
 // UniverseLeafKeys returns the set of leaf keys known for the specified
 // universe identifier.
-func (a *MintingArchive) UniverseLeafKeys(ctx context.Context,
+func (a *Archive) UniverseLeafKeys(ctx context.Context,
 	id Identifier) ([]LeafKey, error) {
 
 	log.Debugf("Retrieving all keys for Universe: id=%v", id.StringForLog())
@@ -562,7 +562,7 @@ func (a *MintingArchive) UniverseLeafKeys(ctx context.Context,
 
 // MintingLeaves returns the set of minting leaves known for the specified base
 // universe.
-func (a *MintingArchive) MintingLeaves(ctx context.Context,
+func (a *Archive) MintingLeaves(ctx context.Context,
 	id Identifier) ([]Leaf, error) {
 
 	log.Debugf("Retrieving all leaves for Universe: id=%v",
@@ -577,7 +577,7 @@ func (a *MintingArchive) MintingLeaves(ctx context.Context,
 
 // DeleteRoot deletes all universe leaves, and the universe root, for the
 // specified base universe.
-func (a *MintingArchive) DeleteRoot(ctx context.Context,
+func (a *Archive) DeleteRoot(ctx context.Context,
 	id Identifier) (string, error) {
 
 	log.Debugf("Deleting universe tree for Universe: id=%v", id.String())
