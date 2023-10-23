@@ -267,7 +267,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ErrChan:   mainErrChan,
 	})
 
-	baseUni := universe.NewMintingArchive(uniCfg)
+	baseUni := universe.NewArchive(uniCfg)
 
 	universeSyncer := universe.NewSimpleSyncer(universe.SimpleSyncCfg{
 		LocalDiffEngine:     baseUni,

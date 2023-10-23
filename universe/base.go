@@ -61,8 +61,8 @@ type Archive struct {
 	sync.RWMutex
 }
 
-// NewMintingArchive creates a new minting archive based on the passed config.
-func NewMintingArchive(cfg ArchiveConfig) *Archive {
+// NewArchive creates a new universe archive based on the passed config.
+func NewArchive(cfg ArchiveConfig) *Archive {
 	a := &Archive{
 		cfg:           cfg,
 		baseUniverses: make(map[Identifier]BaseBackend),
