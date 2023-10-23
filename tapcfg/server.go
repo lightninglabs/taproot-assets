@@ -132,7 +132,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	groupVerifier := tapgarden.GenGroupVerifier(
 		context.Background(), assetMintingStore,
 	)
-	uniCfg := universe.MintingArchiveConfig{
+	uniCfg := universe.ArchiveConfig{
 		NewBaseTree: func(id universe.Identifier) universe.BaseBackend {
 			return tapdb.NewBaseUniverseTree(
 				uniDB, id,

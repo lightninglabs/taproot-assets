@@ -15,10 +15,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 )
 
-// MintingArchiveConfig is the main config for the minting archive. This
-// includes all the items required to interact with the set of relevant base
-// universes.
-type MintingArchiveConfig struct {
+// ArchiveConfig is the main config for the archive. This includes all the items
+// required to interact with the set of relevant universes.
+type ArchiveConfig struct {
 	// NewBaseTree returns a new base universe backend for the given
 	// identifier. This method always returns a new universe instance, even
 	// if the identifier has never been seen before.
@@ -53,7 +52,7 @@ type MintingArchiveConfig struct {
 //
 // TODO(roasbeef): erect universe in front of?
 type Archive struct {
-	cfg MintingArchiveConfig
+	cfg ArchiveConfig
 
 	// baseUniverses is a map of all the current known base universe
 	// instances for the archive.
@@ -63,7 +62,7 @@ type Archive struct {
 }
 
 // NewMintingArchive creates a new minting archive based on the passed config.
-func NewMintingArchive(cfg MintingArchiveConfig) *Archive {
+func NewMintingArchive(cfg ArchiveConfig) *Archive {
 	a := &Archive{
 		cfg:           cfg,
 		baseUniverses: make(map[Identifier]BaseBackend),
