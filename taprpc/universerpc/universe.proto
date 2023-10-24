@@ -143,6 +143,10 @@ service Universe {
 }
 
 message AssetRootRequest {
+    // If true, then the response will include the amounts for each asset ID
+    // of grouped assets.
+    bool with_amounts_by_id = 1;
+
     // TODO(roasbeef): filter by asset ID, etc?
 }
 

@@ -463,7 +463,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	)
 	multiverse := NewMultiverseStore(multiverseDB)
 
-	rootNodes, err := multiverse.RootNodes(ctx)
+	rootNodes, err := multiverse.RootNodes(ctx, true)
 	require.NoError(t, err)
 
 	// We should be able to find both of the roots we've inserted above.
@@ -514,7 +514,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 
 	// The deleted universe should not be present in the multiverse.
-	rootNodes, err = multiverse.RootNodes(ctx)
+	rootNodes, err = multiverse.RootNodes(ctx, true)
 	require.NoError(t, err)
 	require.Len(t, rootNodes, 1)
 	require.True(t, mssmt.IsEqualNode(rootNodes[0].Node, groupRoot))

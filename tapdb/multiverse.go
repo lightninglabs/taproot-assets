@@ -132,8 +132,8 @@ func (b *MultiverseStore) RootNode(ctx context.Context,
 
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the multiverse.
-func (b *MultiverseStore) RootNodes(
-	ctx context.Context) ([]universe.BaseRoot, error) {
+func (b *MultiverseStore) RootNodes(ctx context.Context,
+	withAmountsById bool) ([]universe.BaseRoot, error) {
 
 	var (
 		uniRoots []universe.BaseRoot
@@ -172,7 +172,12 @@ func (b *MultiverseStore) RootNodes(
 				if err != nil {
 					return err
 				}
+			}
 
+			// We skip the grouped assets if that wasn't explicitly
+			// requested by the user, saves us some calls for
+			// grouped assets.
+			if dbRoot.GroupKey != nil && withAmountsById {
 				groupLeaves, err := db.QueryUniverseLeaves(
 					ctx, UniverseLeafQuery{
 						Namespace: id.String(),
@@ -190,7 +195,7 @@ func (b *MultiverseStore) RootNodes(
 					copy(id[:], leaf.AssetID)
 					groupedAssets[id] = uint64(leaf.SumAmt)
 				}
-			} else {
+			} else if withAmountsById {
 				// For non-grouped assets, there's exactly one
 				// member, the asset itself.
 				groupedAssets = map[asset.ID]uint64{
