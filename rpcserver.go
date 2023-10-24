@@ -2746,7 +2746,7 @@ func marshalMssmtNode(node mssmt.Node) *unirpc.MerkleSumNode {
 }
 
 // marshallUniverseRoot marshals the universe root into the RPC counterpart.
-func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
+func marshalUniverseRoot(node universe.Root) (*unirpc.UniverseRoot, error) {
 	// There was no old base root, so we'll just return a blank root.
 	if node.Node == nil {
 		return &unirpc.UniverseRoot{}, nil
@@ -3272,7 +3272,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 		return nil, err
 	}
 
-	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
+	uniRoot, err := marshalUniverseRoot(universe.Root{
 		Node: proof.UniverseRoot,
 	})
 	if err != nil {

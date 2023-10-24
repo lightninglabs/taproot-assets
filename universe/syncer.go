@@ -75,7 +75,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	}()
 
 	var (
-		targetRoots []BaseRoot
+		targetRoots []Root
 		err         error
 	)
 	switch {
@@ -88,7 +88,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 		// We'll use an error group to fetch each Universe root we need
 		// as a series of parallel requests backed by a worker pool.
-		rootsToSync := make(chan BaseRoot, len(idsToSync))
+		rootsToSync := make(chan Root, len(idsToSync))
 		err = fn.ParSlice(
 			ctx, idsToSync,
 			func(ctx context.Context, id Identifier) error {
@@ -118,7 +118,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	}
 
 	targetRoots = fn.Filter(
-		targetRoots, func(r BaseRoot) bool {
+		targetRoots, func(r Root) bool {
 			// If we're syncing issuance proofs, then we'll only
 			// sync issuance roots.
 			if syncType == SyncIssuance &&
@@ -140,7 +140,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// the diff operation for each of them.
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
 	err = fn.ParSlice(
-		ctx, targetRoots, func(ctx context.Context, r BaseRoot) error {
+		ctx, targetRoots, func(ctx context.Context, r Root) error {
 			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
 		},
 	)
@@ -154,7 +154,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 // syncRoot attempts to sync the local Universe with the remote diff engine for
 // a specific base root.
-func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
+func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	diffEngine DiffEngine, result chan<- AssetSyncDiff) error {
 
 	// First, we'll compare the remote root against the local root.

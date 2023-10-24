@@ -133,10 +133,10 @@ func (b *MultiverseStore) RootNode(ctx context.Context,
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the multiverse.
 func (b *MultiverseStore) RootNodes(ctx context.Context,
-	withAmountsById bool) ([]universe.BaseRoot, error) {
+	withAmountsById bool) ([]universe.Root, error) {
 
 	var (
-		uniRoots []universe.BaseRoot
+		uniRoots []universe.Root
 		readTx   = NewBaseMultiverseReadTx()
 	)
 
@@ -205,7 +205,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 
 			var nodeHash mssmt.NodeHash
 			copy(nodeHash[:], dbRoot.RootHash)
-			uniRoot := universe.BaseRoot{
+			uniRoot := universe.Root{
 				ID: id,
 				Node: mssmt.NewComputedBranch(
 					nodeHash, uint64(dbRoot.RootSum),

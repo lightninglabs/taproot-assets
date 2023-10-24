@@ -467,7 +467,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.NoError(t, err)
 
 	// We should be able to find both of the roots we've inserted above.
-	require.True(t, fn.All(rootNodes, func(rootNode universe.BaseRoot) bool {
+	require.True(t, fn.All(rootNodes, func(rootNode universe.Root) bool {
 		for _, rootNode := range rootNodes {
 			if mssmt.IsEqualNode(rootNode.Node, groupRoot) {
 				return true
@@ -480,7 +480,7 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	}))
 
 	// Similarly, each of the roots should have the proper proof type set.
-	require.True(t, fn.All(rootNodes, func(root universe.BaseRoot) bool {
+	require.True(t, fn.All(rootNodes, func(root universe.Root) bool {
 		switch root.ID.ProofType {
 		case universe.ProofTypeIssuance:
 			return mssmt.IsEqualNode(root.Node, groupRoot)

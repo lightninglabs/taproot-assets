@@ -248,10 +248,10 @@ type BaseBackend interface {
 	DeleteUniverse(ctx context.Context) (string, error)
 }
 
-// BaseRoot is the ms-smt root for a base universe. This root can be used to
-// compare against other trackers of a base universe to find discrepancies
-// (unknown issuance events, etc).
-type BaseRoot struct {
+// Root is the ms-smt root for a universe. This root can be used to compare
+// against other trackers of a universe to find discrepancies (unknown issuance
+// events, etc).
+type Root struct {
 	ID Identifier
 
 	mssmt.Node
@@ -282,7 +282,7 @@ type MultiverseRoot struct {
 type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
-	RootNodes(ctx context.Context, withAmountsById bool) ([]BaseRoot,
+	RootNodes(ctx context.Context, withAmountsById bool) ([]Root,
 		error)
 
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
@@ -463,10 +463,10 @@ func (s SyncType) String() string {
 // Universe root, and the set of assets that were added to the Universe.
 type AssetSyncDiff struct {
 	// OldUniverseRoot is the root of the universe before the sync.
-	OldUniverseRoot BaseRoot
+	OldUniverseRoot Root
 
 	// NewUniverseRoot is the new root of the Universe after the sync.
-	NewUniverseRoot BaseRoot
+	NewUniverseRoot Root
 
 	// NewAssetLeaves is the set of new leaf proofs that were added to the
 	// Universe.
@@ -493,11 +493,10 @@ type Syncer interface {
 // of two universes and find the set of assets that are different between them.
 type DiffEngine interface {
 	// RootNode returns the root node for a given base universe.
-	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
+	RootNode(ctx context.Context, id Identifier) (Root, error)
 
 	// RootNodes returns the set of root nodes for all known universes.
-	RootNodes(ctx context.Context, withAmountsById bool) ([]BaseRoot,
-		error)
+	RootNodes(ctx context.Context, withAmountsById bool) ([]Root, error)
 
 	// UniverseLeafKeys returns all the keys inserted in the universe.
 	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)

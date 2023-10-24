@@ -109,17 +109,17 @@ func withBaseUni[T any](fetcher uniFetcher, id Identifier,
 // RootNode returns the root node of the base universe corresponding to the
 // passed ID.
 func (a *Archive) RootNode(ctx context.Context,
-	id Identifier) (BaseRoot, error) {
+	id Identifier) (Root, error) {
 
 	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) (BaseRoot, error) {
+	return withBaseUni(a, id, func(baseUni BaseBackend) (Root, error) {
 		smtNode, assetName, err := baseUni.RootNode(ctx)
 		if err != nil {
-			return BaseRoot{}, err
+			return Root{}, err
 		}
 
-		return BaseRoot{
+		return Root{
 			ID:        id,
 			Node:      smtNode,
 			AssetName: assetName,
@@ -129,7 +129,7 @@ func (a *Archive) RootNode(ctx context.Context,
 
 // RootNodes returns the set of root nodes for all known base universes assets.
 func (a *Archive) RootNodes(ctx context.Context,
-	withAmountsById bool) ([]BaseRoot, error) {
+	withAmountsById bool) ([]Root, error) {
 
 	log.Debugf("Fetching all known Universe roots (with_amounts_by_id=%v)",
 		withAmountsById)
