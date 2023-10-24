@@ -16,7 +16,8 @@ import (
 )
 
 const (
-	proofTypeName = "proof_type"
+	proofTypeName       = "proof_type"
+	skipAmountsByIdName = "skip_amounts_by_id"
 )
 
 func getUniverseClient(ctx *cli.Context) (unirpc.UniverseClient, func()) {
@@ -69,6 +70,11 @@ var universeRootsCommand = cli.Command{
 			Usage: "the type of proof to show the roots for, " +
 				"either 'issuance' or 'transfer'",
 			Value: universe.ProofTypeIssuance.String(),
+		},
+		cli.BoolFlag{
+			Name: skipAmountsByIdName,
+			Usage: "skip showing the amounts by ID for grouped " +
+				"assets to optimize response size and speed",
 		},
 	},
 	Action: universeRoots,
@@ -154,7 +160,9 @@ func universeRoots(ctx *cli.Context) error {
 	// for all the known universe roots.
 	if universeID == nil {
 		universeRoots, err := client.AssetRoots(
-			ctxc, &unirpc.AssetRootRequest{},
+			ctxc, &unirpc.AssetRootRequest{
+				WithAmountsById: !ctx.Bool(skipAmountsByIdName),
+			},
 		)
 		if err != nil {
 			return err
