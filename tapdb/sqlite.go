@@ -33,7 +33,7 @@ const (
 
 	// defaultConnMaxLifetime is the maximum amount of time a connection can
 	// be reused for before it is closed.
-	defaultConnMaxLifetime = 5 * time.Minute
+	defaultConnMaxLifetime = 10 * time.Minute
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
