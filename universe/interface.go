@@ -306,12 +306,11 @@ type MultiverseArchive interface {
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
 }
 
-// Registrar is an interface that allows a caller to register issuance of a new
-// asset in a local/remote base universe instance.
+// Registrar is an interface that allows a caller to upsert a proof leaf in a
+// local/remote universe instance.
 type Registrar interface {
-	// RegisterIssuance inserts a new minting leaf within the target
-	// universe tree (based on the ID), stored at the base key.
-	RegisterIssuance(ctx context.Context, id Identifier, key LeafKey,
+	// UpsertProofLeaf upserts a proof leaf within the target universe tree.
+	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf) (*Proof, error)
 }
 

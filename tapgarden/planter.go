@@ -933,7 +933,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 			Proof:            p,
 			Amt:              p.Asset.Amount,
 		}
-		_, err = c.cfg.Universe.RegisterIssuance(
+		_, err = c.cfg.Universe.UpsertProofLeaf(
 			ctx, uniID, leafKey, mintingLeaf,
 		)
 		if err != nil {

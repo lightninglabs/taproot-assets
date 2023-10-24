@@ -3485,7 +3485,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		"(universeID=%v, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
-	newUniverseState, err := r.cfg.UniverseArchive.RegisterIssuance(
+	newUniverseState, err := r.cfg.UniverseArchive.UpsertProofLeaf(
 		ctx, universeID, leafKey, assetLeaf,
 	)
 	if err != nil {

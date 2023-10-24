@@ -137,11 +137,11 @@ func (a *Archive) RootNodes(ctx context.Context,
 	return a.cfg.Multiverse.RootNodes(ctx, withAmountsById)
 }
 
-// RegisterIssuance attempts to register a new issuance proof for a new minting
-// event for the specified base universe identifier. This method will return an
-// error if the passed minting proof is invalid. If the leaf is already known,
-// then no action is taken and the existing issuance commitment proof returned.
-func (a *Archive) RegisterIssuance(ctx context.Context, id Identifier,
+// UpsertProofLeaf attempts to upsert a proof for an asset issuance or transfer
+// event. This method will return an error if the passed proof is invalid. If
+// the leaf is already known, then no action is taken and the existing
+// commitment proof returned.
+func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	key LeafKey, leaf *Leaf) (*Proof, error) {
 
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",

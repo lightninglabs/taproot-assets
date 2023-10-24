@@ -78,9 +78,9 @@ func unmarshalIssuanceProof(uniKey *unirpc.UniverseKey,
 	}, nil
 }
 
-// RegisterIssuance is an implementation of the universe.Registrar interface
+// UpsertProofLeaf is an implementation of the universe.Registrar interface
 // that uses a remote Universe server as the Registry instance.
-func (r *RpcUniverseRegistrar) RegisterIssuance(ctx context.Context,
+func (r *RpcUniverseRegistrar) UpsertProofLeaf(ctx context.Context,
 	id universe.Identifier, key universe.LeafKey,
 	leaf *universe.Leaf) (*universe.Proof, error) {
 

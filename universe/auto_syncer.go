@@ -263,7 +263,7 @@ func (f *FederationEnvoy) pushProofToFederation(uniID Identifier, key LeafKey,
 			return nil
 		}
 
-		_, err = remoteUniverseServer.RegisterIssuance(
+		_, err = remoteUniverseServer.UpsertProofLeaf(
 			ctx, uniID, key, leaf,
 		)
 		if err != nil {
@@ -335,7 +335,7 @@ func (f *FederationEnvoy) syncer() {
 
 			// First, we'll attempt to registrar the issuance with
 			// the local registrar server.
-			newProof, err := f.cfg.LocalRegistrar.RegisterIssuance(
+			newProof, err := f.cfg.LocalRegistrar.UpsertProofLeaf(
 				ctx, pushReq.ID, pushReq.Key, pushReq.Leaf,
 			)
 			cancel()
@@ -400,13 +400,12 @@ func (f *FederationEnvoy) syncer() {
 	}
 }
 
-// RegisterIssuance inserts a new minting leaf within the target universe tree
-// (based on the ID), stored at the base key. This can be used to first push
-// out a new update to the local registrar, ultimately queuing it to also be
-// sent to the set of active universe servers.
+// UpsertProofLeaf upserts a proof leaf within the target universe tree. This
+// can be used to first push out a new update to the local registrar,
+// ultimately queuing it to also be sent to the set of active universe servers.
 //
 // NOTE: This is part of the universe.Registrar interface.
-func (f *FederationEnvoy) RegisterIssuance(_ context.Context, id Identifier,
+func (f *FederationEnvoy) UpsertProofLeaf(_ context.Context, id Identifier,
 	key LeafKey, leaf *Leaf) (*Proof, error) {
 
 	pushReq := &FederationPushReq{
