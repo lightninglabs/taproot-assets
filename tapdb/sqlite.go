@@ -31,8 +31,9 @@ const (
 	// time.
 	defaultMaxConns = 25
 
-	// connIdleLifetime is the amount of time a connection can be idle.
-	connIdleLifetime = 5 * time.Minute
+	// defaultConnMaxLifetime is the maximum amount of time a connection can
+	// be reused for before it is closed.
+	defaultConnMaxLifetime = 10 * time.Minute
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our
@@ -115,7 +116,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 
 	db.SetMaxOpenConns(defaultMaxConns)
 	db.SetMaxIdleConns(defaultMaxConns)
-	db.SetConnMaxLifetime(connIdleLifetime)
+	db.SetConnMaxLifetime(defaultConnMaxLifetime)
 
 	if !cfg.SkipMigrations {
 		// Now that the database is open, populate the database with
