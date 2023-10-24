@@ -339,7 +339,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to register "+
-					"issuance proofs: %w", err)
+					"proofs: %w", err)
 			}
 
 			if len(batch) > 0 {
@@ -359,8 +359,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to register issuance proofs: %w",
-			err)
+		return nil, fmt.Errorf("unable to register proofs: %w", err)
 	}
 
 	return newLeafProofs, nil

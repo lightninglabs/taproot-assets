@@ -75,7 +75,7 @@ func unmarshalUniverseRoots(
 }
 
 // RootNodes returns the complete set of known root nodes for the set
-// of assets tracked in the base Universe.
+// of assets tracked in the universe.
 func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
 	withAmountsById bool) ([]universe.BaseRoot, error) {
 
@@ -93,7 +93,7 @@ func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
 	)
 }
 
-// RootNode returns the root node for a given base universe.
+// RootNode returns the root node for a given universe.
 func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	id universe.Identifier) (universe.BaseRoot, error) {
 

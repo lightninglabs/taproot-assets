@@ -333,7 +333,7 @@ func (f *FederationEnvoy) syncer() {
 		case pushReq := <-f.pushRequests:
 			ctx, cancel := f.WithCtxQuit()
 
-			// First, we'll attempt to registrar the issuance with
+			// First, we'll attempt to registrar the proof leaf with
 			// the local registrar server.
 			newProof, err := f.cfg.LocalRegistrar.UpsertProofLeaf(
 				ctx, pushReq.ID, pushReq.Key, pushReq.Leaf,
@@ -363,7 +363,7 @@ func (f *FederationEnvoy) syncer() {
 		case pushReq := <-f.batchPushRequests:
 			ctx, cancel := f.WithCtxQuitNoTimeout()
 
-			// First, we'll attempt to registrar the issuance with
+			// First, we'll attempt to registrar the proof leaf with
 			// the local registrar server.
 			err := f.cfg.LocalRegistrar.UpsertProofLeafBatch(
 				ctx, pushReq.Batch,
