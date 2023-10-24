@@ -3302,12 +3302,13 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 	}, nil
 }
 
-// QueryProof attempts to query for an issuance proof for a given asset based
-// on its UniverseKey. A UniverseKey is composed of the Universe ID
+// QueryProof attempts to query for an issuance or transfer proof for a given
+// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 // (asset_id/group_key) and also a leaf key (outpoint || script_key). If found,
-// then the issuance proof is returned that includes an inclusion proof to the
-// known Universe root, as well as a Taproot Asset state transition or issuance
-// proof for the said asset.
+// the target universe proof leaf is returned in addition to inclusion proofs
+// for the Universe and Multiverse MS-SMTs. This allows a caller to verify the
+// known Universe root, Multiverse root, and transition or issuance proof for
+// the target asset.
 func (r *rpcServer) QueryProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
@@ -3427,9 +3428,9 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	}, nil
 }
 
-// InsertProof attempts to insert a new issuance proof into the Universe tree
-// specified by the UniverseKey. If valid, then the proof is inserted into the
-// database, with a new Universe root returned for the updated
+// InsertProof attempts to insert a new issuance or transfer proof into the
+// Universe tree specified by the UniverseKey. If valid, then the proof is
+// inserted into the database, with a new Universe root returned for the updated
 // asset_id/group_key.
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
