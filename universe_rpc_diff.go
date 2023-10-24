@@ -58,20 +58,20 @@ func unmarshalUniverseRoot(
 func unmarshalUniverseRoots(
 	roots []*unirpc.UniverseRoot) ([]universe.Root, error) {
 
-	baseRoots := make([]universe.Root, 0, len(roots))
+	uniRoots := make([]universe.Root, 0, len(roots))
 	for _, root := range roots {
 		id, err := UnmarshalUniID(root.Id)
 		if err != nil {
 			return nil, err
 		}
 
-		baseRoots = append(baseRoots, universe.Root{
+		uniRoots = append(uniRoots, universe.Root{
 			ID:   id,
 			Node: unmarshalMerkleSumNode(root.MssmtRoot),
 		})
 	}
 
-	return baseRoots, nil
+	return uniRoots, nil
 }
 
 // RootNodes returns the complete set of known root nodes for the set
