@@ -520,9 +520,9 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	}, nil
 }
 
-// FetchIssuanceProof attempts to fetch an issuance proof for the target base
-// leaf based on the universe identifier (assetID/groupKey).
-func (a *Archive) FetchIssuanceProof(ctx context.Context, id Identifier,
+// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
+// and given a universe identifier (assetID/groupKey).
+func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	key LeafKey) ([]*Proof, error) {
 
 	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",

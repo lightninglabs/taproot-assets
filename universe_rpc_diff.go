@@ -143,14 +143,13 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	return keys, nil
 }
 
-// FetchIssuanceProof attempts to fetch an issuance proof for the
-// target base leaf based on the universe identifier
-// (assetID/groupKey).
+// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
+// and given a universe identifier (assetID/groupKey).
 //
 // TODO(roasbeef): actually add this somewhere else?  * rn kinda
 // asymmetric, as just need this to complete final portion
 // of diff
-func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
+func (r *RpcUniverseDiff) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
 	key universe.LeafKey) ([]*universe.Proof, error) {
 

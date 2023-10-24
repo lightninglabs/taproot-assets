@@ -3369,7 +3369,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	for i := range candidateIDs {
 		candidateID := candidateIDs[i]
 
-		proofs, err = r.cfg.UniverseArchive.FetchIssuanceProof(
+		proofs, err = r.cfg.UniverseArchive.FetchProofLeaf(
 			ctx, candidateID, leafKey,
 		)
 		if err != nil {

@@ -230,7 +230,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	// proofs from the remote party.
 	err = fn.ParSlice(
 		ctx, keysToFetch, func(ctx context.Context, key LeafKey) error {
-			newProof, err := diffEngine.FetchIssuanceProof(
+			newProof, err := diffEngine.FetchProofLeaf(
 				ctx, uniID, key,
 			)
 			if err != nil {

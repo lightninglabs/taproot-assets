@@ -501,13 +501,13 @@ type DiffEngine interface {
 	// UniverseLeafKeys returns all the keys inserted in the universe.
 	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
 
-	// FetchIssuanceProof attempts to fetch an issuance proof for the
-	// target base leaf based on the universe identifier (assetID/groupKey).
+	// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
+	// and given a universe identifier (assetID/groupKey).
 	//
 	// TODO(roasbeef): actually add this somewhere else?  * rn kinda
 	// asymmetric, as just need this to complete final portion
 	// of diff
-	FetchIssuanceProof(ctx context.Context, id Identifier,
+	FetchProofLeaf(ctx context.Context, id Identifier,
 		key LeafKey) ([]*Proof, error)
 }
 
