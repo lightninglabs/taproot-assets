@@ -797,9 +797,7 @@ func getTLSConfig(cfg *Config,
 	// in cmd/tapcli/main.go.
 	restDialOpts := []grpc.DialOption{
 		grpc.WithTransportCredentials(restCreds),
-		grpc.WithDefaultCallOptions(
-			grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize),
-		),
+		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
 	}
 
 	// Return a function closure that can be used to listen on a given

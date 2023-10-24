@@ -43,9 +43,20 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/signal"
 	"google.golang.org/grpc"
+)
+
+var (
+	// MaxMsgReceiveSize is the largest message our client will receive. We
+	// set this to 200MiB atm.
+	MaxMsgReceiveSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
+
+	// ServerMaxMsgReceiveSize is the largest message our server will
+	// receive.
+	ServerMaxMsgReceiveSize = grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize)
 )
 
 const (
@@ -2331,7 +2342,6 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 		} else {
 			rpcsLog.Errorf("unable to extract batch tx: %v", err)
 		}
-
 	}
 
 	// If we don't need to include the seedlings, we can return here.

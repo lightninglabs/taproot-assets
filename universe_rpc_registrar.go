@@ -165,6 +165,7 @@ func ConnectUniverse(
 	// Create a dial options array.
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
+		grpc.WithDefaultCallOptions(MaxMsgReceiveSize),
 	}
 
 	uniAddr, err := serverAddr.Addr()

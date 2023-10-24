@@ -21,7 +21,6 @@ import (
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
 	"github.com/urfave/cli"
@@ -49,10 +48,6 @@ const (
 var (
 	defaultTapdDir     = btcutil.AppDataDir("tapd", false)
 	defaultTLSCertPath = filepath.Join(defaultTapdDir, defaultTLSCertFilename)
-
-	// maxMsgRecvSize is the largest message our client will receive. We
-	// set this to 200MiB atm.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
 )
 
 func fatal(err error) {
@@ -202,7 +197,7 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		opts = append(opts, grpc.WithContextDialer(genericDialer))
 	}
 
-	opts = append(opts, grpc.WithDefaultCallOptions(maxMsgRecvSize))
+	opts = append(opts, grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize))
 
 	conn, err := grpc.Dial(profile.RPCServer, opts...)
 	if err != nil {

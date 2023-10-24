@@ -12,12 +12,12 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/rpcclient"
+	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
-	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -26,10 +26,6 @@ import (
 )
 
 var (
-	// maxMsgRecvSize is the largest message our client will receive. We
-	// set this to 200MiB atm.
-	maxMsgRecvSize = grpc.MaxCallRecvMsgSize(lnrpc.MaxGrpcMsgSize)
-
 	// defaultTimeout is a timeout that will be used for various wait
 	// scenarios where no custom timeout value is defined.
 	defaultTimeout = time.Second * 10
@@ -147,7 +143,7 @@ func getTapClient(t *testing.T, ctx context.Context,
 	// Create a dial options array.
 	opts := []grpc.DialOption{
 		grpc.WithTransportCredentials(creds),
-		grpc.WithDefaultCallOptions(maxMsgRecvSize),
+		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
 	}
 
 	if cfg.MacPath != "" {

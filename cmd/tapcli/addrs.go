@@ -27,11 +27,10 @@ var addrCommands = []cli.Command{
 }
 
 const (
-	groupKeyName = "group_key"
-
-	amtName = "amt"
-
-	assetVersionName = "asset_version"
+	groupKeyName         = "group_key"
+	amtName              = "amt"
+	assetVersionName     = "asset_version"
+	proofCourierAddrName = "proof_courier_addr"
 )
 
 var newAddrCommand = cli.Command{
@@ -52,6 +51,13 @@ var newAddrCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  assetVersionName,
 			Usage: "the asset version of the asset to receive",
+		},
+		cli.StringFlag{
+			Name: proofCourierAddrName,
+			Usage: "(optional) the address of the proof courier " +
+				"to use for this specific address, if the " +
+				"default proof courier should be " +
+				"overwritten; format: protocol://host:port",
 		},
 	},
 	Action: newAddr,
@@ -80,9 +86,10 @@ func newAddr(ctx *cli.Context) error {
 	}
 
 	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
-		AssetId:      assetID,
-		Amt:          ctx.Uint64(amtName),
-		AssetVersion: assetVersion,
+		AssetId:          assetID,
+		Amt:              ctx.Uint64(amtName),
+		AssetVersion:     assetVersion,
+		ProofCourierAddr: ctx.String(proofCourierAddrName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)
