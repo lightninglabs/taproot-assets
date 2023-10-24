@@ -296,11 +296,10 @@ func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
 	return batchDeps
 }
 
-// RegisterNewIssuanceBatch inserts a batch of new minting leaves within the
-// target universe tree (based on the ID), stored at the base key(s). We assume
-// the proofs within the batch have already been checked that they don't yet
-// exist in the local database.
-func (a *Archive) RegisterNewIssuanceBatch(ctx context.Context,
+// UpsertProofLeafBatch inserts a batch of proof leaves within the target
+// universe tree. We assume the proofs within the batch have already been
+// checked that they don't yet exist in the local database.
+func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	items []*Item) error {
 
 	log.Infof("Verifying %d new proofs for insertion into Universe",

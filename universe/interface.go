@@ -332,16 +332,14 @@ type Item struct {
 }
 
 // BatchRegistrar is an interface that allows a caller to register a batch of
-// issuance items within a base universe.
+// proof items within a universe.
 type BatchRegistrar interface {
 	Registrar
 
-	// RegisterNewIssuanceBatch inserts a batch of new minting leaves within
-	// the target universe tree (based on the ID), stored at the base
-	// key(s). We assume the proofs within the batch have already been
-	// checked that they don't yet exist in the local database.
-	RegisterNewIssuanceBatch(ctx context.Context,
-		items []*Item) error
+	// UpsertProofLeafBatch inserts a batch of proof leaves within the
+	// target universe tree. We assume the proofs within the batch have
+	// already been checked that they don't yet exist in the local database.
+	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
 }
 
 const (

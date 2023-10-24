@@ -365,7 +365,7 @@ func (f *FederationEnvoy) syncer() {
 
 			// First, we'll attempt to registrar the issuance with
 			// the local registrar server.
-			err := f.cfg.LocalRegistrar.RegisterNewIssuanceBatch(
+			err := f.cfg.LocalRegistrar.UpsertProofLeafBatch(
 				ctx, pushReq.IssuanceBatch,
 			)
 			cancel()
@@ -424,13 +424,12 @@ func (f *FederationEnvoy) RegisterIssuance(_ context.Context, id Identifier,
 	return fn.RecvResp(pushReq.resp, pushReq.err, f.Quit)
 }
 
-// RegisterNewIssuanceBatch inserts a batch of new minting leaves within the
-// target universe tree (based on the ID), stored at the base key(s). We assume
-// the proofs within the batch have already been checked that they don't yet
-// exist in the local database.
+// UpsertProofLeafBatch inserts a batch of proof leaves within the target
+// universe tree. We assume the proofs within the batch have already been
+// checked that they don't yet exist in the local database.
 //
 // NOTE: This is part of the universe.BatchRegistrar interface.
-func (f *FederationEnvoy) RegisterNewIssuanceBatch(_ context.Context,
+func (f *FederationEnvoy) UpsertProofLeafBatch(_ context.Context,
 	items []*Item) error {
 
 	pushReq := &FederationIssuanceBatchPushReq{

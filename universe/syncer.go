@@ -334,7 +334,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 				"(%d of %d)", uniID.String(), len(batch),
 				numItems, numTotal)
 
-			err := s.cfg.LocalRegistrar.RegisterNewIssuanceBatch(
+			err := s.cfg.LocalRegistrar.UpsertProofLeafBatch(
 				ctx, batch,
 			)
 			if err != nil {

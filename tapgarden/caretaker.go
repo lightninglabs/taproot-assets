@@ -1194,7 +1194,7 @@ func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
 				"local universe", len(batch), numItems,
 				numTotal)
 
-			err := uni.RegisterNewIssuanceBatch(ctx, batch)
+			err := uni.UpsertProofLeafBatch(ctx, batch)
 			if err != nil {
 				return fmt.Errorf("unable to register "+
 					"issuance batch: %w", err)
