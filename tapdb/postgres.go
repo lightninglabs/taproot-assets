@@ -79,7 +79,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 
 	rawDb.SetMaxOpenConns(maxConns)
 	rawDb.SetMaxIdleConns(maxConns)
-	rawDb.SetConnMaxLifetime(connIdleLifetime)
+	rawDb.SetConnMaxLifetime(defaultConnMaxLifetime)
 
 	if !cfg.SkipMigrations {
 		// Now that the database is open, populate the database with
