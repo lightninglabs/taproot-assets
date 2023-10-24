@@ -3257,8 +3257,8 @@ func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// marshalIssuanceProof marshals an issuance proof into the RPC form.
-func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
+// marshalUniverseProofLeaf marshals a universe proof leaf into the RPC form.
+func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.Proof) (*unirpc.AssetProofResponse, error) {
 
@@ -3400,7 +3400,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	rpcsLog.Debugf("[QueryProof]: found proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
-	return r.marshalIssuanceProof(ctx, req, proof)
+	return r.marshalUniverseProofLeaf(ctx, req, proof)
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
@@ -3496,7 +3496,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	rpcsLog.Debugf("[InsertProof]: proof inserted, new universe root: %x",
 		universeRootHash[:])
 
-	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
+	return r.marshalUniverseProofLeaf(ctx, req.Key, newUniverseState)
 }
 
 // Info returns a set of information about the current state of the Universe.
