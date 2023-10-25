@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions
+    url: https://github.com/lightninglabs/taproot-assets/discussions
+    about: For general or troubleshooting questions or if you're not sure what issue type to pick.
+  - name: Documentation for taproot-assets
+    url: https://docs.lightning.engineering/the-lightning-network/taproot-assets
+    about: Please make sure the documentation cannot answer your question first.
+  - name: Lightning Community Slack
+    url: https://lightning.engineering/slack.html
+    about: Ask and answer questions in the #taproot-assets channel.

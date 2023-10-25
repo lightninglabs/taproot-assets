@@ -1,8 +1,8 @@
 ---
-name: Issue template
-about: Create a report to help us improve
+name: Bug report
+about: Create a bug report. Please use the discussions section for general or troubleshooting questions.
 title: "[bug]: "
-labels: needs triage
+labels: ["bug", "needs triage"]
 assignees: ''
 
 ---
@@ -14,8 +14,8 @@ Describe your issue here.
 ### Your environment
 
 ```sh
-tapcli getinfo                                    # version of `tapd`, `lnd`, and network
-uname -mrsv                                          # operating system 
+tapcli getinfo                       # version of `tapd`, `lnd`, and network
+uname -mrsv                          # operating system 
 bitcoind --version || btcd --version # version of `btcd`, `bitcoind`, or other backend
 ```
 * any other relevant environment details
