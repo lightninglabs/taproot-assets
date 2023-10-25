@@ -122,9 +122,10 @@ func (h *HashMailCourierAddr) Url() *url.URL {
 func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
 	recipient Recipient) (Courier, error) {
 
+	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.DeliveryLog)
+
 	hashMailCfg := HashMailCourierCfg{
 		ReceiverAckTimeout: cfg.ReceiverAckTimeout,
-		BackoffCfg:         cfg.BackoffCfg,
 	}
 
 	hashMailBox, err := NewHashMailBox(&h.addr)
@@ -137,11 +138,11 @@ func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
 		map[uint64]*fn.EventReceiver[fn.Event],
 	)
 	return &HashMailCourier{
-		cfg:         &hashMailCfg,
-		recipient:   recipient,
-		mailbox:     hashMailBox,
-		deliveryLog: cfg.DeliveryLog,
-		subscribers: subscribers,
+		cfg:           &hashMailCfg,
+		backoffHandle: backoffHandle,
+		recipient:     recipient,
+		mailbox:       hashMailBox,
+		subscribers:   subscribers,
 	}, nil
 }
 
@@ -513,15 +514,16 @@ type Recipient struct {
 	Amount uint64
 }
 
-// HashMailCourierCfg is the config for the hashmail proof courier.
-type HashMailCourierCfg struct {
-	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
-	// acknowledge the proof.
-	ReceiverAckTimeout time.Duration `long:"receiveracktimeout" description:"The maximum time to wait for the receiver to acknowledge the proof."`
+// BackoffExecError is an error returned when the backoff execution fails.
+// This error wraps the underlying error returned by the execution function.
+// It allows the porter to determine whether the state machine should be halted
+// or not.
+type BackoffExecError struct {
+	execErr error
+}
 
-	// BackoffCfg configures the behaviour of the proof delivery
-	// functionality.
-	BackoffCfg *BackoffCfg
+func (e *BackoffExecError) Error() string {
+	return fmt.Sprintf("backoff exec error: %s", e.execErr.Error())
 }
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
@@ -543,20 +545,205 @@ type BackoffCfg struct {
 	MaxBackoff time.Duration `long:"maxbackoff" description:"The maximum backoff time to wait before retrying to deliver the proof to the receiver."`
 }
 
+// BackoffHandler is a handler for the backoff procedure.
+type BackoffHandler struct {
+	// cfg contains the backoff configuration parameters.
+	cfg *BackoffCfg
+
+	// deliveryLog is the log that the courier will use to record and query
+	// proof delivery attempts.
+	deliveryLog DeliveryLog
+}
+
+// initialDelay performs an initial delay based on the delivery log to ensure
+// that we don't spam the courier service with proof delivery attempts.
+func (b *BackoffHandler) initialDelay(ctx context.Context,
+	proofLocator Locator) error {
+
+	locatorHash, err := proofLocator.Hash()
+	if err != nil {
+		return err
+	}
+	log.Debugf("Handling initial delivery delay for proof: "+
+		"(locator_hash=%x)", locatorHash[:])
+
+	// Query delivery log to ensure a sensible rate of delivery attempts.
+	timestamps, err := b.deliveryLog.QueryProofDeliveryLog(
+		ctx, proofLocator,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to retrieve proof delivery "+
+			"logs: %w", err)
+	}
+
+	if len(timestamps) == 0 {
+		log.Debugf("No previous proof delivery attempts found "+
+			"(locator_hash=%x)", locatorHash[:])
+		return nil
+	}
+
+	log.Debugf("Found timestamp(s) relating to previous proof delivery "+
+		"attempt. Number of timestamps: %d", len(timestamps))
+
+	// Determine whether the historical receiver proof delivery attempts
+	// occurred far enough in the past to warrant a new set of delivery
+	// attempts. Otherwise, wait.
+	//
+	// At this point we know we have a non-zero number of past delivery
+	// attempts.
+	timeSinceLastAttempt := timeSinceLastDeliveryAttempt(timestamps)
+	backoffResetWait := b.cfg.BackoffResetWait
+	if timeSinceLastAttempt < backoffResetWait {
+		waitDuration := backoffResetWait - timeSinceLastAttempt
+		log.Debugf("Waiting %v before attempting to deliver receiver "+
+			"proof (locator_hash=%x) to receiver using backoff "+
+			"procedure", waitDuration, locatorHash[:])
+
+		err := b.wait(ctx, waitDuration)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// Exec attempts to execute the given target function using a repeating backoff
+// time delayed strategy. The backoff strategy is used to ensure that we don't
+// spam the courier service with proof delivery attempts.
+func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
+	targetFunc func() error, subscriberEvent func(fn.Event)) error {
+
+	if b.cfg == nil {
+		return fmt.Errorf("backoff config not specified")
+	}
+
+	locatorHash, err := proofLocator.Hash()
+	if err != nil {
+		return err
+	}
+	log.Infof("Starting proof delivery backoff procedure for proof: "+
+		"(locator_hash=%x)", locatorHash[:])
+
+	// Conditionally perform an initial delay based on the delivery log to
+	// ensure that we don't spam the courier service with proof delivery
+	// attempts.
+	err = b.initialDelay(ctx, proofLocator)
+	if err != nil {
+		return err
+	}
+
+	var (
+		backoff    = b.cfg.InitialBackoff
+		numTries   = b.cfg.NumTries
+		maxBackoff = b.cfg.MaxBackoff
+
+		// Target function execution error.
+		errExec error = nil
+	)
+
+	for i := 0; i < numTries; i++ {
+		// Before attempting to deliver the proof, log that
+		// an attempted delivery is about to occur.
+		err = b.deliveryLog.StoreProofDeliveryAttempt(ctx, proofLocator)
+		if err != nil {
+			return fmt.Errorf("unable to log proof "+
+				"delivery attempt: %w", err)
+		}
+
+		// Execute target function.
+		errExec = targetFunc()
+		if errExec == nil {
+			// The target function executed successfully, we can
+			// exit the loop.
+			break
+		}
+		// Store execution error in case this is the last attempt.
+		errExec = fmt.Errorf("error executing backoff procedure: "+
+			"%w", &BackoffExecError{execErr: errExec})
+
+		// If the backoff duration is zero, we'll skip the backoff and
+		// immediately attempt to execute the target function again.
+		if backoff == 0 {
+			continue
+		}
+
+		// The target function execution failed. Notify subscribers that
+		// backoff wait is about to commence.
+		transferEvent := NewReceiverProofBackoffWaitEvent(
+			backoff, int64(i+1),
+		)
+		subscriberEvent(transferEvent)
+
+		log.Debugf("Receiver proof delivery failed with "+
+			"error. Backing off for %s: %v", backoff, errExec)
+
+		// Wait before reattempting execution.
+		err := b.wait(ctx, backoff)
+		if err != nil {
+			return fmt.Errorf("backoff wait: %w", err)
+		}
+
+		// Increase next backoff duration.
+		backoff *= 2
+		// Cap the backoff at the maximum backoff.
+		if backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+	if errExec != nil {
+		return fmt.Errorf("receiver proof delivery failed; count "+
+			"retries attempted: %d; %w", numTries, errExec)
+	}
+
+	return nil
+}
+
+// wait blocks for a given amount of time.
+func (b *BackoffHandler) wait(ctx context.Context, wait time.Duration) error {
+	select {
+	case <-time.After(wait):
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("context canceled")
+	}
+}
+
+// NewBackoffHandler creates a new backoff procedure handle.
+func NewBackoffHandler(cfg *BackoffCfg,
+	deliveryLog DeliveryLog) *BackoffHandler {
+
+	return &BackoffHandler{
+		cfg:         cfg,
+		deliveryLog: deliveryLog,
+	}
+}
+
+// HashMailCourierCfg is the config for the hashmail proof courier.
+type HashMailCourierCfg struct {
+	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
+	// acknowledge the proof.
+	ReceiverAckTimeout time.Duration `long:"receiveracktimeout" description:"The maximum time to wait for the receiver to acknowledge the proof."`
+
+	// BackoffCfg configures the behaviour of the proof delivery
+	// functionality.
+	BackoffCfg *BackoffCfg
+}
+
 // HashMailCourier is a hashmail proof courier service handle. It implements the
 // Courier interface.
 type HashMailCourier struct {
 	// cfg contains the courier's configuration parameters.
 	cfg *HashMailCourierCfg
 
+	// backoffHandle is a handle to the backoff procedure used in proof
+	// delivery.
+	backoffHandle *BackoffHandler
+
 	// recipient describes the recipient of the proof.
 	recipient Recipient
 
 	mailbox ProofMailbox
-
-	// deliveryLog is the log that the courier will use to record the
-	// attempted delivery of proofs to the receiver.
-	deliveryLog DeliveryLog
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -581,89 +768,50 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 	senderStreamID := deriveSenderStreamID(h.recipient)
 	receiverStreamID := deriveReceiverStreamID(h.recipient)
 
-	// Query delivery log to ensure a sensible rate of delivery attempts.
-	timestamps, err := h.deliveryLog.QueryProofDeliveryLog(
-		ctx, proof.Locator,
-	)
-	if err != nil {
-		return fmt.Errorf("unable to retrieve proof delivery "+
-			"logs: %w", err)
-	}
-
-	// Determine whether the historical receiver proof delivery attempts
-	// occurred far enough in the past to warrant a new set of delivery
-	// attempts. Otherwise, wait.
-	//
-	// Only wait if we have a non-zero number of past delivery attempts.
-	timeSinceLastAttempt := timeSinceLastDeliveryAttempt(timestamps)
-	backoffResetWait := h.cfg.BackoffCfg.BackoffResetWait
-	if len(timestamps) > 0 &&
-		timeSinceLastAttempt < backoffResetWait {
-
-		waitDuration := backoffResetWait - timeSinceLastAttempt
-		log.Infof("Waiting %v before attempting to "+
-			"deliver receiver proof to receiver "+
-			"using backoff procedure", waitDuration)
-
-		err := h.wait(ctx, waitDuration)
-		if err != nil {
-			return err
-		}
-	}
-
 	// Interact with the hashmail service using a backoff procedure to
 	// ensure that we don't overwhelm the service with delivery attempts.
-	err = h.backoffExec(
-		ctx, func() error {
-			err := h.initMailboxes(
-				ctx, senderStreamID, receiverStreamID,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to initialize "+
-					"mailboxes: %w", err)
-			}
+	deliveryExec := func() error {
+		err := h.initMailboxes(
+			ctx, senderStreamID, receiverStreamID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to initialize "+
+				"mailboxes: %w", err)
+		}
 
-			// Before attempting to deliver the proof, log that
-			// an attempted delivery is about to occur.
-			err = h.deliveryLog.StoreProofDeliveryAttempt(
-				ctx, proof.Locator,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to log proof "+
-					"delivery attempt: %w", err)
-			}
+		// Now that the stream has been initialized, we'll write
+		// the proof over the stream.
+		//
+		// TODO(roasbeef): do ecies here
+		log.Infof("Sending receiver proof via sid=%x",
+			senderStreamID)
+		err = h.mailbox.WriteProof(
+			ctx, senderStreamID, proof.Blob,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to send proof "+
+				"to asset transfer receiver: %w", err)
+		}
 
-			// Now that the stream has been initialized, we'll write
-			// the proof over the stream.
-			//
-			// TODO(roasbeef): do ecies here
-			log.Infof("Sending receiver proof via sid=%x",
-				senderStreamID)
-			err = h.mailbox.WriteProof(
-				ctx, senderStreamID, proof.Blob,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to send proof "+
-					"to asset transfer receiver: %w", err)
-			}
+		// Wait to receive the ACK from the remote party over
+		// their stream.
+		log.Infof("Waiting (%v) for receiver ACK via sid=%x",
+			h.cfg.ReceiverAckTimeout, receiverStreamID)
 
-			// Wait to receive the ACK from the remote party over
-			// their stream.
-			log.Infof("Waiting (%v) for receiver ACK via sid=%x",
-				h.cfg.ReceiverAckTimeout, receiverStreamID)
+		ctxTimeout, cancel := context.WithTimeout(
+			ctx, h.cfg.ReceiverAckTimeout,
+		)
+		defer cancel()
+		err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
+		if err != nil {
+			return fmt.Errorf("failed to receive ACK "+
+				"from receiver within timeout: %w", err)
+		}
 
-			ctxTimeout, cancel := context.WithTimeout(
-				ctx, h.cfg.ReceiverAckTimeout,
-			)
-			defer cancel()
-			err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
-			if err != nil {
-				return fmt.Errorf("failed to receive ACK "+
-					"from receiver within timeout: %w", err)
-			}
-
-			return nil
-		},
+		return nil
+	}
+	err := h.backoffHandle.Exec(
+		ctx, proof.Locator, deliveryExec, h.publishSubscriberEvent,
 	)
 	if err != nil {
 		return fmt.Errorf("proof backoff delivery attempt has "+
@@ -735,82 +883,6 @@ func timeSinceLastDeliveryAttempt(timestamps []time.Time) time.Duration {
 	return time.Since(latestTimestamp)
 }
 
-// BackoffExecError is an error returned when the backoff execution fails.
-// This error wraps the underlying error returned by the execution function.
-// It allows the porter to determine whether the state machine should be halted
-// or not.
-type BackoffExecError struct {
-	execErr error
-}
-
-func (e *BackoffExecError) Error() string {
-	return fmt.Sprintf("backoff exec error: %s", e.execErr.Error())
-}
-
-// backoffExec attempts to execute the given `exec` function using a repeating
-// backoff time delayed strategy. The backoff strategy is used to ensure
-// that we don't spam the hashmail service with proof delivery attempts.
-func (h *HashMailCourier) backoffExec(ctx context.Context,
-	targetFunc func() error) error {
-
-	var (
-		backoff    = h.cfg.BackoffCfg.InitialBackoff
-		numTries   = h.cfg.BackoffCfg.NumTries
-		maxBackoff = h.cfg.BackoffCfg.MaxBackoff
-
-		// Target function execution error.
-		errExec error = nil
-	)
-
-	for i := 0; i < numTries; i++ {
-		// Execute target function.
-		errExec = targetFunc()
-		if errExec == nil {
-			// The target function executed successfully, we can
-			// exit the loop.
-			break
-		}
-		// Store execution error in case this is the last attempt.
-		errExec = fmt.Errorf("error executing backoff procedure: "+
-			"%w", &BackoffExecError{execErr: errExec})
-
-		// If the backoff duration is zero, we'll skip the backoff and
-		// immediately attempt to execute the target function again.
-		if backoff == 0 {
-			continue
-		}
-
-		// The target function execution failed. Notify subscribers that
-		// backoff wait is about to commence.
-		transferEvent := NewReceiverProofBackoffWaitEvent(
-			backoff, int64(i+1),
-		)
-		h.publishSubscriberEvent(transferEvent)
-
-		log.Debugf("Receiver proof delivery failed with "+
-			"error. Backing off for %s: %v", backoff, errExec)
-
-		// Wait before reattempting execution.
-		err := h.wait(ctx, backoff)
-		if err != nil {
-			return fmt.Errorf("backoff wait: %w", err)
-		}
-
-		// Increase next backoff duration.
-		backoff *= 2
-		// Cap the backoff at the maximum backoff.
-		if backoff > maxBackoff {
-			backoff = maxBackoff
-		}
-	}
-	if errExec != nil {
-		return fmt.Errorf("receiver proof delivery failed; count "+
-			"retries attempted: %d; %w", numTries, errExec)
-	}
-
-	return nil
-}
-
 // publishSubscriberEvent publishes an event to all subscribers.
 func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 	// Lock the subscriber mutex to ensure that we don't modify the
@@ -820,18 +892,6 @@ func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range h.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
-	}
-}
-
-// wait blocks for a given amount of time.
-func (h *HashMailCourier) wait(ctx context.Context,
-	backoff time.Duration) error {
-
-	select {
-	case <-time.After(backoff):
-		return nil
-	case <-ctx.Done():
-		return fmt.Errorf("hashmail courier context canceled")
 	}
 }
 
