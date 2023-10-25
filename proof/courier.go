@@ -181,6 +181,15 @@ func (h *UniverseRpcCourierAddr) Url() *url.URL {
 func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 	cfg *CourierCfg, recipient Recipient) (Courier, error) {
 
+	// Skip the initial delivery delay for the universe RPC courier.
+	// This courier skips the initial delay because it uses the backoff
+	// procedure for each proof within a proof file separately.
+	// Consequently, if we attempt to perform two consecutive send events
+	// which share the same proof lineage (matching ancestral proofs), the
+	// second send event will be delayed by the initial delay.
+	cfg.BackoffCfg.SkipInitDeliveryDelay = true
+	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.DeliveryLog)
+
 	// Ensure that the courier address is a universe RPC address.
 	if h.addr.Scheme != UniverseRpcCourierType {
 		return nil, fmt.Errorf("unsupported courier protocol: %v",
@@ -209,10 +218,11 @@ func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 	)
 
 	return &UniverseRpcCourier{
-		recipient:   recipient,
-		client:      client,
-		deliveryLog: cfg.DeliveryLog,
-		subscribers: subscribers,
+		recipient:     recipient,
+		client:        client,
+		backoffHandle: backoffHandle,
+		deliveryLog:   cfg.DeliveryLog,
+		subscribers:   subscribers,
 	}, nil
 }
 
@@ -1000,6 +1010,10 @@ type UniverseRpcCourier struct {
 	// the universe RPC server.
 	client unirpc.UniverseClient
 
+	// backoffHandle is a handle to the backoff procedure used in proof
+	// delivery.
+	backoffHandle *BackoffHandler
+
 	// deliveryLog is the log that the courier will use to record the
 	// attempted delivery of proofs to the receiver.
 	deliveryLog DeliveryLog
@@ -1023,6 +1037,10 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 	if err != nil {
 		return err
 	}
+
+	log.Infof("Universe RPC proof courier attempting to deliver proof "+
+		"file (num_proofs=%d) for send event (asset_id=%v, amt=%v)",
+		proofFile.NumProofs(), c.recipient.AssetID, c.recipient.Amount)
 
 	// Iterate over each proof in the proof file and submit to the courier
 	// service.
@@ -1083,20 +1101,27 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			ScriptKey: *proofAsset.ScriptKey.PubKey,
 			OutPoint:  &outPoint,
 		}
-		err = c.deliveryLog.StoreProofDeliveryAttempt(ctx, loc)
-		if err != nil {
-			return fmt.Errorf("unable to log proof delivery "+
-				"attempt: %w", err)
-		}
 
-		// Submit proof to courier.
-		_, err = c.client.InsertProof(ctx, &unirpc.AssetProof{
-			Key:       &universeKey,
-			AssetLeaf: &assetLeaf,
-		})
+		// Setup delivery routine and start backoff procedure.
+		deliverFunc := func() error {
+			// Submit proof to courier.
+			_, err = c.client.InsertProof(ctx, &unirpc.AssetProof{
+				Key:       &universeKey,
+				AssetLeaf: &assetLeaf,
+			})
+			if err != nil {
+				return fmt.Errorf("error inserting proof into "+
+					"universe courier service: %w", err)
+			}
+
+			return nil
+		}
+		err = c.backoffHandle.Exec(
+			ctx, loc, deliverFunc, c.publishSubscriberEvent,
+		)
 		if err != nil {
-			return fmt.Errorf("error inserting proof into "+
-				"universe courier service: %w", err)
+			return fmt.Errorf("proof backoff delivery attempt has "+
+				"failed: %w", err)
 		}
 	}
 
@@ -1214,6 +1239,18 @@ func (c *UniverseRpcCourier) SetSubscribers(
 	defer c.subscriberMtx.Unlock()
 
 	c.subscribers = subscribers
+}
+
+// publishSubscriberEvent publishes an event to all subscribers.
+func (c *UniverseRpcCourier) publishSubscriberEvent(event fn.Event) {
+	// Lock the subscriber mutex to ensure that we don't modify the
+	// subscriber map while we're iterating over it.
+	c.subscriberMtx.Lock()
+	defer c.subscriberMtx.Unlock()
+
+	for _, sub := range c.subscribers {
+		sub.NewItemCreated.ChanIn() <- event
+	}
 }
 
 // A compile-time assertion to ensure the UniverseRpcCourier meets the
