@@ -4,7 +4,6 @@ package loadtest
 
 import (
 	"context"
-	"strconv"
 	"testing"
 	"time"
 
@@ -86,10 +85,7 @@ func TestPerformance(t *testing.T) {
 			testDuration.WithLabelValues(tc.name).Set(duration)
 
 			// Create a new pusher to push the metrics.
-			pushURL := cfg.PrometheusGateway.Host + ":" +
-				strconv.Itoa(cfg.PrometheusGateway.Port)
-
-			pusher := push.New(pushURL, "load_test").
+			pusher := push.New(cfg.PrometheusGateway.PushURL, "load_test").
 				Collector(testDuration).
 				Grouping("test_case", tc.name)
 

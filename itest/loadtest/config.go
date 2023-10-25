@@ -1,6 +1,7 @@
 package loadtest
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/jessevdk/go-flags"
@@ -50,6 +51,7 @@ type PrometheusGatewayConfig struct {
 	Enabled bool   `long:"enabled" description:"Enable pushing metrics to Prometheus PushGateway"`
 	Host    string `long:"host" description:"Prometheus PushGateway host address"`
 	Port    int    `long:"port" description:"Prometheus PushGateway port"`
+	PushURL string
 }
 
 // Config holds the main configuration for the performance testing binary.
@@ -154,5 +156,25 @@ func LoadConfig() (*Config, error) {
 // of it with sane defaults.
 func ValidateConfig(cfg Config) (*Config, error) {
 	// TODO (positiveblue): add validation logic.
+
+	// Validate Prometheus PushGateway configuration.
+	if cfg.PrometheusGateway.Enabled {
+		gatewayHost := cfg.PrometheusGateway.Host
+		gatewayPort := cfg.PrometheusGateway.Port
+
+		if gatewayHost == "" {
+			return nil, fmt.Errorf("gateway hostname may not be empty")
+		}
+
+		if gatewayPort == 0 {
+			return nil, fmt.Errorf("gateway port is not set")
+		}
+
+		// Construct the endpoint for Prometheus PushGateway.
+		cfg.PrometheusGateway.PushURL = fmt.Sprintf(
+			"%s:%d", gatewayHost, gatewayPort,
+		)
+	}
+
 	return &cfg, nil
 }
