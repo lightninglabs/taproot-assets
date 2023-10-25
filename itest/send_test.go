@@ -109,6 +109,8 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	for i := 0; i < numSends; i++ {
+		t.t.Logf("Performing send procedure: %d", i)
+
 		// Deduct what we sent from the expected current number of
 		// units.
 		currentUnits -= numUnits
