@@ -248,10 +248,10 @@ type BaseBackend interface {
 	DeleteUniverse(ctx context.Context) (string, error)
 }
 
-// BaseRoot is the ms-smt root for a base universe. This root can be used to
-// compare against other trackers of a base universe to find discrepancies
-// (unknown issuance events, etc).
-type BaseRoot struct {
+// Root is the ms-smt root for a universe. This root can be used to compare
+// against other trackers of a universe to find discrepancies (unknown issuance
+// events, etc).
+type Root struct {
 	ID Identifier
 
 	mssmt.Node
@@ -282,7 +282,7 @@ type MultiverseRoot struct {
 type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
-	RootNodes(ctx context.Context, withAmountsById bool) ([]BaseRoot,
+	RootNodes(ctx context.Context, withAmountsById bool) ([]Root,
 		error)
 
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
@@ -291,10 +291,9 @@ type MultiverseArchive interface {
 		leaf *Leaf,
 		metaReveal *proof.MetaReveal) (*Proof, error)
 
-	// RegisterBatchIssuance inserts a new minting leaf batch within the
-	// multiverse tree and the universe tree that corresponds to the given
-	// base key(s).
-	RegisterBatchIssuance(ctx context.Context, items []*IssuanceItem) error
+	// UpsertProofLeafBatch upserts a proof leaf batch within the multiverse
+	// tree and the universe tree that corresponds to the given key(s).
+	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
 
 	// FetchProofLeaf returns a proof leaf for the target key. If the key
 	// doesn't have a script key specified, then all the proof leafs for the
@@ -307,43 +306,39 @@ type MultiverseArchive interface {
 	//  * also eventually want pull/fetch stats, can be pulled out into another instance
 }
 
-// Registrar is an interface that allows a caller to register issuance of a new
-// asset in a local/remote base universe instance.
+// Registrar is an interface that allows a caller to upsert a proof leaf in a
+// local/remote universe instance.
 type Registrar interface {
-	// RegisterIssuance inserts a new minting leaf within the target
-	// universe tree (based on the ID), stored at the base key.
-	RegisterIssuance(ctx context.Context, id Identifier, key LeafKey,
+	// UpsertProofLeaf upserts a proof leaf within the target universe tree.
+	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf) (*Proof, error)
 }
 
-// IssuanceItem is an item that can be used to register a new issuance within a
-// base universe.
-type IssuanceItem struct {
-	// ID is the identifier of the base universe that the item should be
-	// registered within.
+// Item contains the data fields necessary to insert/update a proof leaf
+// within a multiverse and the related asset (group) specific universe.
+type Item struct {
+	// ID is the identifier of the asset (group) specific universe.
 	ID Identifier
 
-	// Key is the base key that the leaf is or will be stored at.
+	// Key is the key that the leaf is or will be stored at.
 	Key LeafKey
 
-	// Leaf is the minting leaf that was created.
+	// Leaf is the proof leaf which will be stored at the key.
 	Leaf *Leaf
 
-	// MetaReveal is the meta reveal that was created.
+	// MetaReveal is the meta reveal associated with the given proof leaf.
 	MetaReveal *proof.MetaReveal
 }
 
 // BatchRegistrar is an interface that allows a caller to register a batch of
-// issuance items within a base universe.
+// proof items within a universe.
 type BatchRegistrar interface {
 	Registrar
 
-	// RegisterNewIssuanceBatch inserts a batch of new minting leaves within
-	// the target universe tree (based on the ID), stored at the base
-	// key(s). We assume the proofs within the batch have already been
-	// checked that they don't yet exist in the local database.
-	RegisterNewIssuanceBatch(ctx context.Context,
-		items []*IssuanceItem) error
+	// UpsertProofLeafBatch inserts a batch of proof leaves within the
+	// target universe tree. We assume the proofs within the batch have
+	// already been checked that they don't yet exist in the local database.
+	UpsertProofLeafBatch(ctx context.Context, items []*Item) error
 }
 
 const (
@@ -468,10 +463,10 @@ func (s SyncType) String() string {
 // Universe root, and the set of assets that were added to the Universe.
 type AssetSyncDiff struct {
 	// OldUniverseRoot is the root of the universe before the sync.
-	OldUniverseRoot BaseRoot
+	OldUniverseRoot Root
 
 	// NewUniverseRoot is the new root of the Universe after the sync.
-	NewUniverseRoot BaseRoot
+	NewUniverseRoot Root
 
 	// NewAssetLeaves is the set of new leaf proofs that were added to the
 	// Universe.
@@ -498,22 +493,21 @@ type Syncer interface {
 // of two universes and find the set of assets that are different between them.
 type DiffEngine interface {
 	// RootNode returns the root node for a given base universe.
-	RootNode(ctx context.Context, id Identifier) (BaseRoot, error)
+	RootNode(ctx context.Context, id Identifier) (Root, error)
 
 	// RootNodes returns the set of root nodes for all known universes.
-	RootNodes(ctx context.Context, withAmountsById bool) ([]BaseRoot,
-		error)
+	RootNodes(ctx context.Context, withAmountsById bool) ([]Root, error)
 
 	// UniverseLeafKeys returns all the keys inserted in the universe.
 	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
 
-	// FetchIssuanceProof attempts to fetch an issuance proof for the
-	// target base leaf based on the universe identifier (assetID/groupKey).
+	// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
+	// and given a universe identifier (assetID/groupKey).
 	//
 	// TODO(roasbeef): actually add this somewhere else?  * rn kinda
 	// asymmetric, as just need this to complete final portion
 	// of diff
-	FetchIssuanceProof(ctx context.Context, id Identifier,
+	FetchProofLeaf(ctx context.Context, id Identifier,
 		key LeafKey) ([]*Proof, error)
 }
 

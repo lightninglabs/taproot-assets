@@ -2746,7 +2746,7 @@ func marshalMssmtNode(node mssmt.Node) *unirpc.MerkleSumNode {
 }
 
 // marshallUniverseRoot marshals the universe root into the RPC counterpart.
-func marshalUniverseRoot(node universe.BaseRoot) (*unirpc.UniverseRoot, error) {
+func marshalUniverseRoot(node universe.Root) (*unirpc.UniverseRoot, error) {
 	// There was no old base root, so we'll just return a blank root.
 	if node.Node == nil {
 		return &unirpc.UniverseRoot{}, nil
@@ -2777,7 +2777,7 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
 	// First, we'll retrieve the full set of known asset Universe roots.
-	assetRoots, err := r.cfg.BaseUniverse.RootNodes(
+	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, req.WithAmountsById,
 	)
 	if err != nil {
@@ -2957,7 +2957,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 			"given universe")
 	}
 
-	issuanceRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	issuanceRoot, err := r.cfg.UniverseArchive.RootNode(ctx, universeID)
 	if err != nil {
 		// Do not return at this point if the error only indicates that
 		// the root wasn't found. We'll try to find the transfer root
@@ -2978,7 +2978,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 
 	universeID.ProofType = universe.ProofTypeTransfer
 
-	transferRoot, err := r.cfg.BaseUniverse.RootNode(ctx, universeID)
+	transferRoot, err := r.cfg.UniverseArchive.RootNode(ctx, universeID)
 	if err != nil {
 		// Do not return at this point if the error only indicates that
 		// the root wasn't found. We may have found the issuance root
@@ -3015,13 +3015,13 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	// issuance and transfer roots.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
 		universeID.ProofType = universe.ProofTypeIssuance
-		_, err := r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		_, err := r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
 			return nil, err
 		}
 
 		universeID.ProofType = universe.ProofTypeTransfer
-		_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+		_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
 			return nil, err
 		}
@@ -3031,7 +3031,7 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 
 	// At this point the universe proof type was specified, so we'll only
 	// delete the root for that proof type.
-	_, err = r.cfg.BaseUniverse.DeleteRoot(ctx, universeID)
+	_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3068,7 +3068,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	// TODO(roasbeef): tell above if was tring or not, then would set
 	// below diff
 
-	leafKeys, err := r.cfg.BaseUniverse.UniverseLeafKeys(ctx, universeID)
+	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3127,7 +3127,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaves, err := r.cfg.BaseUniverse.MintingLeaves(ctx, universeID)
+	assetLeaves, err := r.cfg.UniverseArchive.MintingLeaves(ctx, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3257,8 +3257,8 @@ func marshalMssmtProof(proof *mssmt.Proof) ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// marshalIssuanceProof marshals an issuance proof into the RPC form.
-func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
+// marshalUniverseProofLeaf marshals a universe proof leaf into the RPC form.
+func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 	req *unirpc.UniverseKey,
 	proof *universe.Proof) (*unirpc.AssetProofResponse, error) {
 
@@ -3272,7 +3272,7 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 		return nil, err
 	}
 
-	uniRoot, err := marshalUniverseRoot(universe.BaseRoot{
+	uniRoot, err := marshalUniverseRoot(universe.Root{
 		Node: proof.UniverseRoot,
 	})
 	if err != nil {
@@ -3302,12 +3302,13 @@ func (r *rpcServer) marshalIssuanceProof(ctx context.Context,
 	}, nil
 }
 
-// QueryProof attempts to query for an issuance proof for a given asset based
-// on its UniverseKey. A UniverseKey is composed of the Universe ID
+// QueryProof attempts to query for an issuance or transfer proof for a given
+// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
 // (asset_id/group_key) and also a leaf key (outpoint || script_key). If found,
-// then the issuance proof is returned that includes an inclusion proof to the
-// known Universe root, as well as a Taproot Asset state transition or issuance
-// proof for the said asset.
+// the target universe proof leaf is returned in addition to inclusion proofs
+// for the Universe and Multiverse MS-SMTs. This allows a caller to verify the
+// known Universe root, Multiverse root, and transition or issuance proof for
+// the target asset.
 func (r *rpcServer) QueryProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
@@ -3369,7 +3370,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	for i := range candidateIDs {
 		candidateID := candidateIDs[i]
 
-		proofs, err = r.cfg.BaseUniverse.FetchIssuanceProof(
+		proofs, err = r.cfg.UniverseArchive.FetchProofLeaf(
 			ctx, candidateID, leafKey,
 		)
 		if err != nil {
@@ -3400,7 +3401,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	rpcsLog.Debugf("[QueryProof]: found proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
-	return r.marshalIssuanceProof(ctx, req, proof)
+	return r.marshalUniverseProofLeaf(ctx, req, proof)
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
@@ -3427,9 +3428,9 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	}, nil
 }
 
-// InsertProof attempts to insert a new issuance proof into the Universe tree
-// specified by the UniverseKey. If valid, then the proof is inserted into the
-// database, with a new Universe root returned for the updated
+// InsertProof attempts to insert a new issuance or transfer proof into the
+// Universe tree specified by the UniverseKey. If valid, then the proof is
+// inserted into the database, with a new Universe root returned for the updated
 // asset_id/group_key.
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
@@ -3485,7 +3486,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 		"(universeID=%v, leafKey=%x)", universeID,
 		leafKey.UniverseKey())
 
-	newUniverseState, err := r.cfg.BaseUniverse.RegisterIssuance(
+	newUniverseState, err := r.cfg.UniverseArchive.UpsertProofLeaf(
 		ctx, universeID, leafKey, assetLeaf,
 	)
 	if err != nil {
@@ -3496,7 +3497,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	rpcsLog.Debugf("[InsertProof]: proof inserted, new universe root: %x",
 		universeRootHash[:])
 
-	return r.marshalIssuanceProof(ctx, req.Key, newUniverseState)
+	return r.marshalUniverseProofLeaf(ctx, req.Key, newUniverseState)
 }
 
 // Info returns a set of information about the current state of the Universe.

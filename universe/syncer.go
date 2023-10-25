@@ -75,7 +75,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	}()
 
 	var (
-		targetRoots []BaseRoot
+		targetRoots []Root
 		err         error
 	)
 	switch {
@@ -88,7 +88,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 		// We'll use an error group to fetch each Universe root we need
 		// as a series of parallel requests backed by a worker pool.
-		rootsToSync := make(chan BaseRoot, len(idsToSync))
+		rootsToSync := make(chan Root, len(idsToSync))
 		err = fn.ParSlice(
 			ctx, idsToSync,
 			func(ctx context.Context, id Identifier) error {
@@ -118,7 +118,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	}
 
 	targetRoots = fn.Filter(
-		targetRoots, func(r BaseRoot) bool {
+		targetRoots, func(r Root) bool {
 			// If we're syncing issuance proofs, then we'll only
 			// sync issuance roots.
 			if syncType == SyncIssuance &&
@@ -140,7 +140,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// the diff operation for each of them.
 	syncDiffs := make(chan AssetSyncDiff, len(targetRoots))
 	err = fn.ParSlice(
-		ctx, targetRoots, func(ctx context.Context, r BaseRoot) error {
+		ctx, targetRoots, func(ctx context.Context, r Root) error {
 			return s.syncRoot(ctx, r, diffEngine, syncDiffs)
 		},
 	)
@@ -154,7 +154,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 // syncRoot attempts to sync the local Universe with the remote diff engine for
 // a specific base root.
-func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
+func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	diffEngine DiffEngine, result chan<- AssetSyncDiff) error {
 
 	// First, we'll compare the remote root against the local root.
@@ -205,7 +205,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// for the new leaves. This allows us to stream the new leaves to the
 	// local registrar as they're fetched.
 	var (
-		fetchedLeaves = make(chan *IssuanceItem, len(keysToFetch))
+		fetchedLeaves = make(chan *Item, len(keysToFetch))
 		newLeafProofs []*Leaf
 		batchSyncEG   errgroup.Group
 	)
@@ -224,13 +224,13 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 	// If this is a transfer tree, then we'll use these channels to sort
 	// the contents before sending to the batch writer.
 	isIssuanceTree := remoteRoot.ID.ProofType == ProofTypeIssuance
-	transferLeafProofs := make(chan *IssuanceItem, len(keysToFetch))
+	transferLeafProofs := make(chan *Item, len(keysToFetch))
 
 	// Now that we know where the divergence is, we can fetch the issuance
 	// proofs from the remote party.
 	err = fn.ParSlice(
 		ctx, keysToFetch, func(ctx context.Context, key LeafKey) error {
-			newProof, err := diffEngine.FetchIssuanceProof(
+			newProof, err := diffEngine.FetchProofLeaf(
 				ctx, uniID, key,
 			)
 			if err != nil {
@@ -257,13 +257,13 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 			// Otherwise, we'll another step to the pipeline below
 			// for sorting.
 			if isIssuanceTree {
-				fetchedLeaves <- &IssuanceItem{
+				fetchedLeaves <- &Item{
 					ID:   uniID,
 					Key:  key,
 					Leaf: leafProof.Leaf,
 				}
 			} else {
-				transferLeafProofs <- &IssuanceItem{
+				transferLeafProofs <- &Item{
 					ID:   uniID,
 					Key:  key,
 					Leaf: leafProof.Leaf,
@@ -318,7 +318,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot BaseRoot,
 // batchStreamNewItems streams the set of new items to the local registrar in
 // batches and returns the new leaf proofs.
 func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
-	uniID Identifier, fetchedLeaves chan *IssuanceItem,
+	uniID Identifier, fetchedLeaves chan *Item,
 	numTotal int) ([]*Leaf, error) {
 
 	var (
@@ -327,19 +327,19 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 	)
 	err := fn.CollectBatch(
 		ctx, fetchedLeaves, s.cfg.SyncBatchSize,
-		func(ctx context.Context, batch []*IssuanceItem) error {
+		func(ctx context.Context, batch []*Item) error {
 			numItems += len(batch)
 
 			log.Debugf("UniverseRoot(%v): Inserting %d new leaves "+
 				"(%d of %d)", uniID.String(), len(batch),
 				numItems, numTotal)
 
-			err := s.cfg.LocalRegistrar.RegisterNewIssuanceBatch(
+			err := s.cfg.LocalRegistrar.UpsertProofLeafBatch(
 				ctx, batch,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to register "+
-					"issuance proofs: %w", err)
+					"proofs: %w", err)
 			}
 
 			if len(batch) > 0 {
@@ -349,7 +349,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 			}
 
 			newLeaves := fn.Map(
-				batch, func(i *IssuanceItem) *Leaf {
+				batch, func(i *Item) *Leaf {
 					return i.Leaf
 				},
 			)
@@ -359,8 +359,7 @@ func (s *SimpleSyncer) batchStreamNewItems(ctx context.Context,
 		},
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to register issuance proofs: %w",
-			err)
+		return nil, fmt.Errorf("unable to register proofs: %w", err)
 	}
 
 	return newLeafProofs, nil

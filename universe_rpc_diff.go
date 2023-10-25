@@ -42,42 +42,42 @@ func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 }
 
 func unmarshalUniverseRoot(
-	root *unirpc.UniverseRoot) (universe.BaseRoot, error) {
+	root *unirpc.UniverseRoot) (universe.Root, error) {
 
 	id, err := UnmarshalUniID(root.Id)
 	if err != nil {
-		return universe.BaseRoot{}, err
+		return universe.Root{}, err
 	}
 
-	return universe.BaseRoot{
+	return universe.Root{
 		ID:   id,
 		Node: unmarshalMerkleSumNode(root.MssmtRoot),
 	}, nil
 }
 
 func unmarshalUniverseRoots(
-	roots []*unirpc.UniverseRoot) ([]universe.BaseRoot, error) {
+	roots []*unirpc.UniverseRoot) ([]universe.Root, error) {
 
-	baseRoots := make([]universe.BaseRoot, 0, len(roots))
+	uniRoots := make([]universe.Root, 0, len(roots))
 	for _, root := range roots {
 		id, err := UnmarshalUniID(root.Id)
 		if err != nil {
 			return nil, err
 		}
 
-		baseRoots = append(baseRoots, universe.BaseRoot{
+		uniRoots = append(uniRoots, universe.Root{
 			ID:   id,
 			Node: unmarshalMerkleSumNode(root.MssmtRoot),
 		})
 	}
 
-	return baseRoots, nil
+	return uniRoots, nil
 }
 
 // RootNodes returns the complete set of known root nodes for the set
-// of assets tracked in the base Universe.
+// of assets tracked in the universe.
 func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
-	withAmountsById bool) ([]universe.BaseRoot, error) {
+	withAmountsById bool) ([]universe.Root, error) {
 
 	universeRoots, err := r.conn.AssetRoots(
 		ctx, &unirpc.AssetRootRequest{
@@ -93,13 +93,13 @@ func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
 	)
 }
 
-// RootNode returns the root node for a given base universe.
+// RootNode returns the root node for a given universe.
 func (r *RpcUniverseDiff) RootNode(ctx context.Context,
-	id universe.Identifier) (universe.BaseRoot, error) {
+	id universe.Identifier) (universe.Root, error) {
 
 	uniID, err := MarshalUniID(id)
 	if err != nil {
-		return universe.BaseRoot{}, err
+		return universe.Root{}, err
 	}
 	rootReq := &universerpc.AssetRootQuery{
 		Id: uniID,
@@ -107,7 +107,7 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 
 	universeRoot, err := r.conn.QueryAssetRoots(ctx, rootReq)
 	if err != nil {
-		return universe.BaseRoot{}, err
+		return universe.Root{}, err
 	}
 
 	if id.ProofType == universe.ProofTypeIssuance {
@@ -143,14 +143,13 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	return keys, nil
 }
 
-// FetchIssuanceProof attempts to fetch an issuance proof for the
-// target base leaf based on the universe identifier
-// (assetID/groupKey).
+// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
+// and given a universe identifier (assetID/groupKey).
 //
 // TODO(roasbeef): actually add this somewhere else?  * rn kinda
 // asymmetric, as just need this to complete final portion
 // of diff
-func (r *RpcUniverseDiff) FetchIssuanceProof(ctx context.Context,
+func (r *RpcUniverseDiff) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
 	key universe.LeafKey) ([]*universe.Proof, error) {
 

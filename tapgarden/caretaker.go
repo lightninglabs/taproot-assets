@@ -954,7 +954,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			committedAssets   = batchCommitment.CommittedAssets()
 			numAssets         = len(committedAssets)
 			mintingProofBlobs = make(proof.AssetBlobs, numAssets)
-			universeItems     chan *universe.IssuanceItem
+			universeItems     chan *universe.Item
 			mintTxHash        = confInfo.Tx.TxHash()
 			proofMutex        sync.Mutex
 			batchSyncEG       errgroup.Group
@@ -966,7 +966,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// still being stored to the local proof store.
 		if b.cfg.Universe != nil {
 			universeItems = make(
-				chan *universe.IssuanceItem, numAssets,
+				chan *universe.Item, numAssets,
 			)
 
 			// We use an error group to simply the error handling of
@@ -1093,7 +1093,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
 	headerVerifier proof.HeaderVerifier,
-	groupVerifier proof.GroupVerifier) (proof.Blob, *universe.IssuanceItem,
+	groupVerifier proof.GroupVerifier) (proof.Blob, *universe.Item,
 	error) {
 
 	assetID := a.ID()
@@ -1168,7 +1168,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		Amt:   a.Amount,
 	}
 
-	return blob, &universe.IssuanceItem{
+	return blob, &universe.Item{
 		ID:   uniID,
 		Key:  leafKey,
 		Leaf: mintingLeaf,
@@ -1178,7 +1178,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 // batchStreamUniverseItems streams the issuance items for a batch to the
 // universe.
 func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
-	universeItems chan *universe.IssuanceItem, numTotal int) error {
+	universeItems chan *universe.Item, numTotal int) error {
 
 	var (
 		numItems int
@@ -1187,14 +1187,14 @@ func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
 	err := fn.CollectBatch(
 		ctx, universeItems, b.cfg.UniversePushBatchSize,
 		func(ctx context.Context,
-			batch []*universe.IssuanceItem) error {
+			batch []*universe.Item) error {
 
 			numItems += len(batch)
 			log.Infof("Inserting %d new leaves (%d of %d) into "+
 				"local universe", len(batch), numItems,
 				numTotal)
 
-			err := uni.RegisterNewIssuanceBatch(ctx, batch)
+			err := uni.UpsertProofLeafBatch(ctx, batch)
 			if err != nil {
 				return fmt.Errorf("unable to register "+
 					"issuance batch: %w", err)
