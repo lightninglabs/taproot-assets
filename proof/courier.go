@@ -528,6 +528,11 @@ func (e *BackoffExecError) Error() string {
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 type BackoffCfg struct {
+	// SkipInitDeliveryDelay is a flag that indicates whether we should skip
+	// the initial delay before attempting to deliver the proof to the
+	// receiver.
+	SkipInitDeliveryDelay bool
+
 	// BackoffResetWait is the amount of time we'll wait before
 	// resetting the backoff counter to its initial state.
 	BackoffResetWait time.Duration `long:"backoffresetwait" description:"The amount of time to wait before resetting the backoff counter."`
@@ -559,6 +564,12 @@ type BackoffHandler struct {
 // that we don't spam the courier service with proof delivery attempts.
 func (b *BackoffHandler) initialDelay(ctx context.Context,
 	proofLocator Locator) error {
+
+	// If the skip initial delivery delay flag is set, we'll skip the
+	// initial delay.
+	if b.cfg.SkipInitDeliveryDelay {
+		return nil
+	}
 
 	locatorHash, err := proofLocator.Hash()
 	if err != nil {
