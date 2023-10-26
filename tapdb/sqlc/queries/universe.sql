@@ -216,11 +216,14 @@ FROM aggregated;
 WITH asset_supply AS (
     SELECT SUM(nodes.sum) AS supply, gen.asset_id AS asset_id
     FROM universe_leaves leaves
+    JOIN universe_roots roots
+        ON leaves.universe_root_id = roots.id
     JOIN mssmt_nodes nodes
         ON leaves.leaf_node_key = nodes.key AND
            leaves.leaf_node_namespace = nodes.namespace
     JOIN genesis_info_view gen
         ON leaves.asset_genesis_id = gen.gen_asset_id
+    WHERE roots.proof_type = 'issuance'
     GROUP BY gen.asset_id
 ), group_supply AS (
     SELECT sum AS num_assets, uroots.group_key AS group_key
@@ -230,6 +233,7 @@ WITH asset_supply AS (
          nodes.namespace = roots.namespace
     JOIN universe_roots uroots
       ON roots.namespace = uroots.namespace_root
+    WHERE uroots.proof_type = 'issuance'
 ), asset_info AS (
     SELECT asset_supply.supply, group_supply.num_assets AS group_supply,
            gen.asset_id AS asset_id, 
@@ -262,6 +266,7 @@ SELECT asset_info.supply AS asset_supply,
 FROM asset_info
 JOIN universe_stats
     ON asset_info.asset_id = universe_stats.asset_id
+WHERE universe_stats.proof_type = 'issuance'
 ORDER BY
     CASE WHEN sqlc.narg('sort_by') = 'asset_id' AND sqlc.narg('sort_direction') = 0 THEN
              asset_info.asset_id END ASC,
