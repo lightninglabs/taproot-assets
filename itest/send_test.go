@@ -501,6 +501,109 @@ func testReattemptFailedAssetSendHashmailCourier(t *harnessTest) {
 	wg.Wait()
 }
 
+// testReattemptFailedAssetSendUniCourier tests that a failed attempt at
+// sending an asset proof will be reattempted by the tapd node. This test
+// targets the universe proof courier.
+func testReattemptFailedAssetSendUniCourier(t *harnessTest) {
+	var (
+		ctxb = context.Background()
+		wg   sync.WaitGroup
+	)
+
+	// Make a new node which will send the asset to the primary tapd node.
+	// We expect this node to fail because our send call will time out
+	// whilst the porter continues to attempt to send the asset.
+	sendTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.expectErrExit = true
+		},
+	)
+
+	// Subscribe to receive asset send events from primary tapd node.
+	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
+		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Test to ensure that we receive the expected number of backoff wait
+	// event notifications.
+	// This test is executed in a goroutine to ensure that we can receive
+	// the event notification(s) from the tapd node as the rest of the test
+	// proceeds.
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Define a target event selector to match the backoff wait
+		// event. This function selects for a specific event type.
+		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
+			switch eventTyped := event.Event.(type) {
+			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
+				ev := eventTyped.ReceiverProofBackoffWaitEvent
+				t.Logf("Found event ntfs: %v", ev)
+				return true
+			}
+
+			return false
+		}
+
+		// Expected number of events is one less than the number of
+		// tries because the first attempt does not count as a backoff
+		// event.
+		nodeBackoffCfg := t.tapd.clientCfg.HashMailCourier.BackoffCfg
+		expectedEventCount := nodeBackoffCfg.NumTries - 1
+
+		// Context timeout scales with expected number of events.
+		timeout := time.Duration(expectedEventCount) *
+			defaultProofTransferReceiverAckTimeout
+		// Add overhead buffer to context timeout.
+		timeout += 5 * time.Second
+		ctx, cancel := context.WithTimeout(ctxb, timeout)
+		defer cancel()
+
+		assertRecvNtfsEvent(
+			t, ctx, eventNtfns, targetEventSelector,
+			expectedEventCount,
+		)
+	}()
+
+	// Mint an asset for sending.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Synchronize the Universe state of the second node, with the main
+	// node.
+	t.syncUniverseState(sendTapd, t.tapd, len(rpcAssets))
+
+	// Create a new address for the receiver node.
+	recvAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     10,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], recvAddr)
+
+	// Simulate a failed attempt at sending the asset proof by stopping
+	// the proof courier service.
+	//
+	// In following the hashmail proof courier protocol, the receiver node
+	// returns a proof received confirmation message via the courier.
+	// We can simulate a proof transfer failure by stopping the receiving
+	// tapd node. The courier service should still be operational.
+	require.NoError(t.t, t.proofCourier.Stop())
+
+	// Send asset and then mine to confirm the associated on-chain tx.
+	sendAssetsToAddr(t, sendTapd, recvAddr)
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	wg.Wait()
+}
+
 // testOfflineReceiverEventuallyReceives tests that a receiver node will
 // eventually receive an asset even if it is offline whilst the sender node
 // makes multiple attempts to send the asset.
