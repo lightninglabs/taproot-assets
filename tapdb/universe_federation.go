@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"golang.org/x/exp/maps"
 )
 
@@ -124,6 +126,14 @@ type BatchedUniverseServerStore interface {
 	BatchedTx[UniverseServerStore]
 }
 
+// assetSyncCfgs is a map of asset ID to universe specific sync config.
+type assetSyncCfgs = lnutils.SyncMap[treeID, *universe.FedUniSyncConfig]
+
+// globalSyncCfgs is a map of proof type to global sync config.
+type globalSyncCfgs = lnutils.SyncMap[
+	universe.ProofType, *universe.FedGlobalSyncConfig,
+]
+
 // UniverseFederationDB is used to manage the set of universe servers by
 // sub-systems that need to manage syncing and pushing new proofs amongst the
 // federation set.
@@ -131,15 +141,28 @@ type UniverseFederationDB struct {
 	db BatchedUniverseServerStore
 
 	clock clock.Clock
+
+	globalCfg atomic.Pointer[globalSyncCfgs]
+	assetCfgs atomic.Pointer[assetSyncCfgs]
 }
 
 // NewUniverseFederationDB makes a new Universe federation DB.
 func NewUniverseFederationDB(db BatchedUniverseServerStore,
 	clock clock.Clock) *UniverseFederationDB {
 
+	var (
+		globalCfgPtr atomic.Pointer[globalSyncCfgs]
+		assetCfgsPtr atomic.Pointer[assetSyncCfgs]
+	)
+
+	globalCfgPtr.Store(&globalSyncCfgs{})
+	assetCfgsPtr.Store(&assetSyncCfgs{})
+
 	return &UniverseFederationDB{
-		db:    db,
-		clock: clock,
+		db:        db,
+		clock:     clock,
+		globalCfg: globalCfgPtr,
+		assetCfgs: assetCfgsPtr,
 	}
 }
 
@@ -245,7 +268,7 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 	uniSyncConfigs []*universe.FedUniSyncConfig) error {
 
 	var writeTx UniverseFederationOptions
-	return u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
+	dbErr := u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
 		// Upsert global proof type specific federation sync
 		// configs.
 		for i := range globalSyncConfigs {
@@ -298,6 +321,15 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 
 		return nil
 	})
+	if dbErr != nil {
+		return dbErr
+	}
+
+	// We just updated the config, so wipe our cached versions.
+	u.globalCfg.Store(&globalSyncCfgs{})
+	u.assetCfgs.Store(&assetSyncCfgs{})
+
+	return nil
 }
 
 // QueryFederationSyncConfigs returns the global and universe specific
@@ -315,6 +347,27 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 		)
 		uniConfigs []*universe.FedUniSyncConfig
 	)
+
+	// Check to see if our cache is populated, if so, then we can just
+	// return them directly.
+	u.globalCfg.Load().Range(func(proofType universe.ProofType,
+		cfg *universe.FedGlobalSyncConfig) bool {
+
+		globalConfigs = append(globalConfigs, cfg)
+
+		return true
+	})
+	u.assetCfgs.Load().Range(func(treeID treeID,
+		cfg *universe.FedUniSyncConfig) bool {
+
+		uniConfigs = append(uniConfigs, cfg)
+
+		return true
+	})
+
+	if len(globalConfigs) > 0 || len(uniConfigs) > 0 {
+		return globalConfigs, uniConfigs, nil
+	}
 
 	err := u.db.ExecTx(ctx, &readTx, func(db UniverseServerStore) error {
 		// Query for global sync configs.
@@ -416,6 +469,16 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 	})
 	if err != nil {
 		return nil, nil, err
+	}
+
+	// Update our cache with what we've read from disk.
+	globalCfgs := u.globalCfg.Load()
+	for _, globalCfg := range globalConfigs {
+		globalCfgs.Store(globalCfg.ProofType, globalCfg)
+	}
+	assetCfgs := u.assetCfgs.Load()
+	for _, uniCfg := range uniConfigs {
+		assetCfgs.Store(treeID(uniCfg.UniverseID.String()), uniCfg)
 	}
 
 	return globalConfigs, uniConfigs, nil
