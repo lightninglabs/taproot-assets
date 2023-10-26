@@ -3266,8 +3266,11 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 		return nil, err
 	}
 
-	// TODO(roasbeef): tell above if was tring or not, then would set
-	// below diff
+	// If the proof type wasn't speciifed, then we'll return an error as we
+	// don't know which keys to actually fetch.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		return nil, fmt.Errorf("proof type must be specified")
+	}
 
 	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
 		return nil, fmt.Errorf("invalid request limit")

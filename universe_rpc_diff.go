@@ -128,6 +128,7 @@ func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
 	assetKeys, err := r.conn.AssetLeafKeys(
 		ctx, &unirpc.AssetLeafKeysRequest{
 			Id:        uniID,
