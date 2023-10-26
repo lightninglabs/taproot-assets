@@ -340,8 +340,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal,
-) (*universe.Proof, mssmt.Node, error) {
+	metaReveal *proof.MetaReveal) (*universe.Proof, mssmt.Node, error) {
 
 	namespace := id.String()
 
@@ -349,8 +348,8 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// the minting key, as that'll be the key in the SMT itself.
 	smtKey := key.UniverseKey()
 
-	// The value stored in the MS-SMT will be the serialized Leaf,
-	// so we'll convert that into raw bytes now.
+	// The value stored in the MS-SMT will be the serialized Leaf, so we'll
+	// convert that into raw bytes now.
 	leafNode := leaf.SmtLeafNode()
 
 	var groupKeyBytes []byte
@@ -368,23 +367,21 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		universeRoot       mssmt.Node
 	)
 
-	// First, we'll instantiate a new compact tree instance from the
-	// backing tree store.
+	// First, we'll instantiate a new compact tree instance from the backing
+	// tree store.
 	universeTree := mssmt.NewCompactedTree(
 		newTreeStoreWrapperTx(dbTx, namespace),
 	)
 
-	// Now that we have a tree instance linked to this DB
-	// transaction, we'll insert the leaf into the tree based on
-	// its SMT key.
+	// Now that we have a tree instance linked to this DB transaction, we'll
+	// insert the leaf into the tree based on its SMT key.
 	_, err = universeTree.Insert(ctx, smtKey, leafNode)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Next, we'll upsert the universe root in the DB, which gives
-	// us the root ID that we'll use to insert the universe leaf
-	// overlay.
+	// Next, we'll upsert the universe root in the DB, which gives us the
+	// root ID that we'll use to insert the universe leaf overlay.
 	universeRootID, err := dbTx.UpsertUniverseRoot(ctx, NewUniverseRoot{
 		NamespaceRoot: namespace,
 		AssetID:       fn.ByteSlice(leaf.ID()),
@@ -395,9 +392,9 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, nil, err
 	}
 
-	// Before we insert the asset genesis, we'll insert the meta
-	// first. The reveal may or may not be populated, which'll also
-	// insert the opaque meta blob on disk.
+	// Before we insert the asset genesis, we'll insert the meta first. The
+	// reveal may or may not be populated, which'll also insert the opaque
+	// meta blob on disk.
 	_, err = maybeUpsertAssetMeta(ctx, dbTx, &leaf.Genesis, metaReveal)
 	if err != nil {
 		return nil, nil, err
@@ -429,8 +426,8 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, nil, err
 	}
 
-	// Finally, we'll obtain the merkle proof from the tree for the
-	// leaf we just inserted.
+	// Finally, we'll obtain the merkle proof from the tree for the leaf we
+	// just inserted.
 	leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
 	if err != nil {
 		return nil, nil, err
