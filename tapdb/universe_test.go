@@ -26,7 +26,7 @@ type universeIdOptions struct {
 	proofType universe.ProofType
 }
 
-func defaultUniverseIdOptions(t *testing.T) *universeIdOptions {
+func defaultUniverseIdOptions() *universeIdOptions {
 	return &universeIdOptions{
 		proofType: universe.ProofTypeIssuance,
 	}
@@ -43,7 +43,7 @@ func withProofType(proofType universe.ProofType) universeIDOptFunc {
 func randUniverseID(t *testing.T, forceGroup bool,
 	optFunctions ...universeIDOptFunc) universe.Identifier {
 
-	opts := defaultUniverseIdOptions(t)
+	opts := defaultUniverseIdOptions()
 	for _, optFunc := range optFunctions {
 		optFunc(opts)
 	}
@@ -73,8 +73,8 @@ func newTestUniverse(t *testing.T,
 
 	db := NewTestDB(t)
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseUniverseStore {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) BaseUniverseStore {
 			return db.WithTx(tx)
 		},
 	)
@@ -85,8 +85,18 @@ func newTestUniverse(t *testing.T,
 func newTestMultiverse(t *testing.T) (*MultiverseStore, sqlc.Querier) {
 	db := NewTestDB(t)
 
-	dbTxer := NewTransactionExecutor(db,
-		func(tx *sql.Tx) BaseMultiverseStore {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) BaseMultiverseStore {
+			return db.WithTx(tx)
+		},
+	)
+
+	return NewMultiverseStore(dbTxer), db
+}
+
+func newTestMultiverseWithDb(db *BaseDB) (*MultiverseStore, sqlc.Querier) {
+	dbTxer := NewTransactionExecutor(
+		db, func(tx *sql.Tx) BaseMultiverseStore {
 			return db.WithTx(tx)
 		},
 	)
@@ -106,6 +116,29 @@ func newTestUniverseWithDb(db *BaseDB,
 	return NewBaseUniverseTree(dbTxer, id), db
 }
 
+func assertIDInList(t *testing.T, leaves []universe.Identifier,
+	id universe.Identifier) {
+
+	require.True(t, fn.Any(leaves, func(l universe.Identifier) bool {
+		switch {
+		case l.AssetID != asset.ID{}:
+			return l.AssetID == id.AssetID
+
+		case l.GroupKey != nil:
+			if id.GroupKey == nil {
+				return false
+			}
+
+			return test.SchnorrKeysEqual(t, l.GroupKey, id.GroupKey)
+
+		default:
+			require.Fail(t, "invalid leaf")
+		}
+
+		return false
+	}))
+}
+
 // TestUniverseEmptyTree tests that an empty Universe tree returns the expected
 // error.
 func TestUniverseEmptyTree(t *testing.T) {
@@ -122,10 +155,8 @@ func TestUniverseEmptyTree(t *testing.T) {
 
 func randLeafKey(t *testing.T) universe.LeafKey {
 	return universe.LeafKey{
-		OutPoint: test.RandOp(t),
-		ScriptKey: fn.Ptr(
-			asset.NewScriptKey(test.RandPubKey(t)),
-		),
+		OutPoint:  test.RandOp(t),
+		ScriptKey: fn.Ptr(asset.NewScriptKey(test.RandPubKey(t))),
 	}
 }
 
@@ -193,7 +224,7 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	return leaf
 }
 
-// leaWithKey is a two tuple that associates universe leaf key with a leaf.
+// leafWithKey is a two tuple that associates universe leaf key with a leaf.
 type leafWithKey struct {
 	universe.LeafKey
 
@@ -208,10 +239,26 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	ctx := context.Background()
 
-	id := randUniverseID(t, false)
-	baseUniverse, _ := newTestUniverse(t, id)
+	id := randUniverseID(
+		t, false, withProofType(universe.ProofTypeIssuance),
+	)
+	db := NewTestDB(t)
+	baseUniverse, _ := newTestUniverseWithDb(db.BaseDB, id)
+	multiverse, _ := newTestMultiverseWithDb(db.BaseDB)
 
 	const numLeaves = 4
+
+	// The multiverse tree should be empty at this point.
+	issuanceLeaves, err := multiverse.FetchLeaves(
+		ctx, nil, nil, universe.ProofTypeIssuance,
+	)
+	require.NoError(t, err)
+	require.Len(t, issuanceLeaves, 0)
+	transferLeaves, err := multiverse.FetchLeaves(
+		ctx, nil, nil, universe.ProofTypeTransfer,
+	)
+	require.NoError(t, err)
+	require.Len(t, transferLeaves, 0)
 
 	// All the leaves will be under the same base universe tree, so we want
 	// them to have the same asset ID.
@@ -286,6 +333,17 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 			t, mssmt.IsEqualNode(uniProof.UniverseRoot, dbProofRoot),
 		)
 	}
+
+	// The multiverse tree should just have a single leaf, since we inserted
+	// proofs into the same universe.
+	multiverseLeaves, err := multiverse.FetchLeaves(
+		ctx, nil, nil, id.ProofType,
+	)
+	require.NoError(t, err)
+	require.Len(t, multiverseLeaves, 1)
+
+	// And we should actually find the leaf we just inserted.
+	assertIDInList(t, multiverseLeaves, id)
 
 	// Next, we'll query for all the available keys, this should match the
 	// number of insertions we just did.
@@ -820,13 +878,15 @@ func TestMultiverseRootSum(t *testing.T) {
 		sumAmt uint64
 	}
 
-	testCases := []struct {
+	type testCase struct {
 		name      string
 		finalSum  uint64
 		proofType universe.ProofType
 		doubleUp  bool
 		leaves    []leaf
-	}{
+	}
+
+	testCases := []testCase{
 		// If we insert two transfers into a transfer tree, then the
 		// sum should be the sum of the leaf values. The leaf value
 		// here is itself the root sum of an transfer tree, or the
@@ -863,75 +923,101 @@ func TestMultiverseRootSum(t *testing.T) {
 			},
 		},
 	}
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			multiverse, _ := newTestMultiverse(t)
 
-			ctx := context.Background()
+	runTestCase := func(t *testing.T, tc testCase) {
+		multiverse, _ := newTestMultiverse(t)
 
-			leaves := make([]universe.Leaf, len(testCase.leaves))
-			ids := make([]universe.Identifier, len(testCase.leaves))
-			for i, testLeaf := range testCase.leaves {
-				id := randUniverseID(
-					t, false, withProofType(testCase.proofType),
-				)
+		ctx := context.Background()
 
-				ids[i] = id
+		// The multiverse tree should be empty at this point.
+		issuanceLeaves, err := multiverse.FetchLeaves(
+			ctx, nil, nil, universe.ProofTypeIssuance,
+		)
+		require.NoError(t, err)
+		require.Len(t, issuanceLeaves, 0)
+		transferLeaves, err := multiverse.FetchLeaves(
+			ctx, nil, nil, universe.ProofTypeTransfer,
+		)
+		require.NoError(t, err)
+		require.Len(t, transferLeaves, 0)
 
-				assetGen := asset.RandGenesis(t, asset.Normal)
-				leaf := randMintingLeaf(
-					t, assetGen, id.GroupKey,
-				)
-				leaf.Amt = testLeaf.sumAmt
+		leaves := make([]universe.Leaf, len(tc.leaves))
+		ids := make([]universe.Identifier, len(tc.leaves))
+		for i, testLeaf := range tc.leaves {
+			id := randUniverseID(
+				t, false, withProofType(tc.proofType),
+			)
 
-				leaves[i] = leaf
+			ids[i] = id
 
-				targetKey := randLeafKey(t)
+			assetGen := asset.RandGenesis(t, asset.Normal)
+			leaf := randMintingLeaf(t, assetGen, id.GroupKey)
+			leaf.Amt = testLeaf.sumAmt
 
-				// For transfer proofs, we'll modify the
-				// witness asset proof to look more like a
-				// transfer.
-				if testCase.proofType ==
-					universe.ProofTypeTransfer {
+			leaves[i] = leaf
 
-					//nolint:lll
-					leaf.Asset.PrevWitnesses[0].TxWitness = [][]byte{
-						{1}, {1}, {1},
-					}
-					//nolint:lll
-					leaf.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
+			targetKey := randLeafKey(t)
+
+			// For transfer proofs, we'll modify the witness asset
+			// proof to look more like a transfer.
+			if tc.proofType == universe.ProofTypeTransfer {
+				prevWitnesses := leaf.Asset.PrevWitnesses
+				prevWitnesses[0].TxWitness = [][]byte{
+					{1}, {1}, {1},
 				}
+				prevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
+			}
+
+			_, err := multiverse.UpsertProofLeaf(
+				ctx, id, targetKey, &leaf, nil,
+			)
+			require.NoError(t, err)
+
+			// If we should add more than one under this ID, then
+			// we'll generate another instance.
+			if tc.doubleUp {
+				targetKey = randLeafKey(t)
 
 				_, err := multiverse.UpsertProofLeaf(
 					ctx, id, targetKey, &leaf, nil,
 				)
 				require.NoError(t, err)
-
-				// If we should add more than one under this
-				// ID, then we'll generate another instance.
-				if testCase.doubleUp {
-					targetKey = randLeafKey(t)
-
-					_, err := multiverse.UpsertProofLeaf(
-						ctx, id, targetKey, &leaf, nil,
-					)
-					require.NoError(t, err)
-				}
 			}
 
-			// If we fetch the root value of the tree, it should be
-			// the same as the finalSum.
-			rootNode, err := multiverse.RootNode(
-				ctx, testCase.proofType,
+			// The multiverse tree should now have one more leaf.
+			multiverseLeaves, err := multiverse.FetchLeaves(
+				ctx, nil, nil, tc.proofType,
 			)
 			require.NoError(t, err)
+			require.Len(t, multiverseLeaves, i+1)
 
-			require.Equal(
-				t, int(testCase.finalSum), int(rootNode.NodeSum()),
-			)
+			// And we should actually find the leaf we just
+			// inserted.
+			assertIDInList(t, multiverseLeaves, id)
+		}
 
-			// TODO(roasbeef): also check leaves, need ability to
-			// track them directly.
+		// If we fetch the root value of the tree, it should be
+		// the same as the finalSum.
+		rootNode, err := multiverse.RootNode(ctx, tc.proofType)
+		require.NoError(t, err)
+
+		require.EqualValues(t, tc.finalSum, rootNode.NodeSum())
+
+		// We now delete the whole universe and expect the multiverse
+		// leave to also disappear.
+		_, err = multiverse.DeleteUniverse(ctx, ids[0])
+		require.NoError(t, err)
+
+		multiverseLeaves, err := multiverse.FetchLeaves(
+			ctx, nil, nil, tc.proofType,
+		)
+		require.NoError(t, err)
+		require.Len(t, multiverseLeaves, len(ids)-1)
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			runTestCase(t, testCase)
 		})
 	}
 }

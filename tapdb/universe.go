@@ -41,6 +41,22 @@ type (
 	// UniverseLeafKeysQuery is used to query for the set of keys that are
 	// currently stored for a given namespace.
 	UniverseLeafKeysQuery = sqlc.FetchUniverseKeysParams
+
+	// UpsertMultiverseRoot is used to upsert a multiverse root.
+	UpsertMultiverseRoot = sqlc.UpsertMultiverseRootParams
+
+	// UpsertMultiverseLeaf is used to upsert a multiverse leaf.
+	UpsertMultiverseLeaf = sqlc.UpsertMultiverseLeafParams
+
+	// DeleteMultiverseLeaf is used to delete a multiverse leaf.
+	DeleteMultiverseLeaf = sqlc.DeleteMultiverseLeafParams
+
+	// QueryMultiverseLeaves is used to query for a set of leaves based on
+	// the proof type and asset ID (or group key)
+	QueryMultiverseLeaves = sqlc.QueryMultiverseLeavesParams
+
+	// MultiverseLeaf is a leaf in a multiverse.
+	MultiverseLeaf = sqlc.QueryMultiverseLeavesRow
 )
 
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
@@ -89,6 +105,23 @@ type BaseUniverseStore interface {
 	// for a given namespace.
 	FetchUniverseKeys(ctx context.Context,
 		arg UniverseLeafKeysQuery) ([]UniverseKeys, error)
+
+	// UpsertMultiverseRoot upserts a multiverse root in the database.
+	UpsertMultiverseRoot(ctx context.Context,
+		arg UpsertMultiverseRoot) (int64, error)
+
+	// UpsertMultiverseLeaf upserts a multiverse leaf in the database.
+	UpsertMultiverseLeaf(ctx context.Context,
+		arg UpsertMultiverseLeaf) (int64, error)
+
+	// DeleteMultiverseLeaf deletes a multiverse leaf from the database.
+	DeleteMultiverseLeaf(ctx context.Context,
+		arg DeleteMultiverseLeaf) error
+
+	// QueryMultiverseLeaves is used to query for the set of leaves that
+	// reside in a multiverse tree.
+	QueryMultiverseLeaves(ctx context.Context,
+		arg QueryMultiverseLeaves) ([]MultiverseLeaf, error)
 }
 
 // BaseUniverseStoreOptions is the set of options for universe tree queries.
@@ -318,7 +351,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 		issuanceProof *universe.Proof
 	)
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
-		issuanceProof, _, err = universeUpsertProofLeaf(
+		issuanceProof, err = universeUpsertProofLeaf(
 			ctx, dbTx, b.id, key, leaf, metaReveal,
 		)
 		return err
@@ -340,7 +373,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, mssmt.Node, error) {
+	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	namespace := id.String()
 
@@ -359,7 +392,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 
 	mintingPointBytes, err := encodeOutpoint(key.OutPoint)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var (
@@ -377,7 +410,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// insert the leaf into the tree based on its SMT key.
 	_, err = universeTree.Insert(ctx, smtKey, leafNode)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Next, we'll upsert the universe root in the DB, which gives us the
@@ -389,7 +422,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		ProofType:     id.ProofType.String(),
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Before we insert the asset genesis, we'll insert the meta first. The
@@ -397,20 +430,20 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// meta blob on disk.
 	_, err = maybeUpsertAssetMeta(ctx, dbTx, &leaf.Genesis, metaReveal)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	var leafProof proof.Proof
 	err = leafProof.Decode(bytes.NewReader(leaf.RawProof))
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to decode proof: %w", err)
+		return nil, fmt.Errorf("unable to decode proof: %w", err)
 	}
 
 	assetGenID, err := upsertAssetGen(
 		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	scriptKeyBytes := schnorr.SerializePubKey(key.ScriptKey.PubKey)
@@ -423,29 +456,109 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		MintingPoint:      mintingPointBytes,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// Finally, we'll obtain the merkle proof from the tree for the leaf we
 	// just inserted.
 	leafInclusionProof, err = universeTree.MerkleProof(ctx, smtKey)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	// With the insertion complete, we'll now fetch the root of the tree as
 	// it stands and return it to the caller.
 	universeRoot, err = universeTree.Root(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+
+	// The next step is to insert the multiverse leaf, which is a leaf in
+	// the multiverse tree that points to the universe leaf we just created.
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	if err != nil {
+		return nil, err
+	}
+
+	// Retrieve a handle to the multiverse tree so that we can update the
+	// tree by inserting a new issuance.
+	multiverseTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(dbTx, multiverseNS),
+	)
+
+	// Construct a leaf node for insertion into the multiverse tree. The
+	// leaf node includes a reference to the lower tree via the lower tree
+	// root hash.
+	universeRootHash := universeRoot.NodeHash()
+	assetGroupSum := universeRoot.NodeSum()
+
+	if id.ProofType == universe.ProofTypeIssuance {
+		assetGroupSum = 1
+	}
+
+	uniLeafNode := mssmt.NewLeafNode(universeRootHash[:], assetGroupSum)
+
+	// Use asset ID (or asset group hash) as the upper tree leaf node key.
+	// This is the same as the asset specific universe ID.
+	uniLeafNodeKey := id.Bytes()
+
+	_, err = multiverseTree.Insert(ctx, uniLeafNodeKey, uniLeafNode)
+	if err != nil {
+		return nil, err
+	}
+
+	// Now that we've inserted the leaf into the multiverse tree, we'll also
+	// make sure the corresponding multiverse roots and leaves are created.
+	multiverseRootID, err := dbTx.UpsertMultiverseRoot(
+		ctx, UpsertMultiverseRoot{
+			NamespaceRoot: multiverseNS,
+			ProofType:     id.ProofType.String(),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to upsert multiverse root: %w",
+			err)
+	}
+
+	var assetIDBytes []byte
+	if id.GroupKey == nil {
+		assetIDBytes = id.AssetID[:]
+	}
+
+	_, err = dbTx.UpsertMultiverseLeaf(ctx, UpsertMultiverseLeaf{
+		MultiverseRootID:  multiverseRootID,
+		AssetID:           assetIDBytes,
+		GroupKey:          groupKeyBytes,
+		LeafNodeKey:       uniLeafNodeKey[:],
+		LeafNodeNamespace: multiverseNS,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to upsert multiverse leaf: %w",
+			err)
+	}
+
+	// Retrieve the multiverse root and asset specific inclusion proof for
+	// the leaf node.
+	multiverseRoot, err := multiverseTree.Root(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	multiverseInclusionProof, err := multiverseTree.MerkleProof(
+		ctx, uniLeafNodeKey,
+	)
+	if err != nil {
+		return nil, err
 	}
 
 	return &universe.Proof{
-		LeafKey:                key,
-		UniverseRoot:           universeRoot,
-		UniverseInclusionProof: leafInclusionProof,
-		Leaf:                   leaf,
-	}, universeRoot, nil
+		LeafKey:                  key,
+		UniverseRoot:             universeRoot,
+		UniverseInclusionProof:   leafInclusionProof,
+		MultiverseRoot:           multiverseRoot,
+		MultiverseInclusionProof: multiverseInclusionProof,
+		Leaf:                     leaf,
+	}, nil
 }
 
 // FetchIssuanceProof returns an issuance proof for the target key. If the key
@@ -803,6 +916,18 @@ func deleteUniverseTree(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("failed to delete universe root: %w",
 			err)
+	}
+
+	multiverseNS, err := namespaceForProof(id.ProofType)
+	if err != nil {
+		return err
+	}
+	err = db.DeleteMultiverseLeaf(ctx, DeleteMultiverseLeaf{
+		Namespace:   multiverseNS,
+		LeafNodeKey: fn.ByteSlice(id.Bytes()),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to upsert multiverse leaf: %w", err)
 	}
 
 	return nil

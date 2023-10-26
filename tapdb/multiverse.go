@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -862,75 +863,18 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		issuanceProof *universe.Proof
 	)
 
-	multiverseNS, err := namespaceForProof(id.ProofType)
-	if err != nil {
-		return nil, err
-	}
-
 	execTxFunc := func(dbTx BaseMultiverseStore) error {
 		// Register issuance in the asset (group) specific universe
 		// tree.
-		var (
-			universeRoot mssmt.Node
-			err          error
-		)
-		issuanceProof, universeRoot, err = universeUpsertProofLeaf(
+		var err error
+		issuanceProof, err = universeUpsertProofLeaf(
 			ctx, dbTx, id, key, leaf, metaReveal,
 		)
 		if err != nil {
 			return err
 		}
 
-		// Retrieve a handle to the multiverse tree so that we can
-		// update the tree by inserting a new issuance.
-		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(dbTx, multiverseNS),
-		)
-
-		// Construct a leaf node for insertion into the multiverse tree.
-		// The leaf node includes a reference to the lower tree via the
-		// lower tree root hash.
-		universeRootHash := universeRoot.NodeHash()
-		assetGroupSum := universeRoot.NodeSum()
-
-		if id.ProofType == universe.ProofTypeIssuance {
-			assetGroupSum = 1
-		}
-
-		leafNode := mssmt.NewLeafNode(
-			universeRootHash[:], assetGroupSum,
-		)
-
-		// Use asset ID (or asset group hash) as the upper tree leaf
-		// node key. This is the same as the asset specific universe ID.
-		leafNodeKey := id.Bytes()
-
-		_, err = multiverseTree.Insert(
-			ctx, leafNodeKey, leafNode,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Retrieve the multiverse root and asset specific inclusion
-		// proof for the leaf node.
-		multiverseRoot, err := multiverseTree.Root(ctx)
-		if err != nil {
-			return err
-		}
-
-		multiverseInclusionProof, err := multiverseTree.MerkleProof(
-			ctx, leafNodeKey,
-		)
-		if err != nil {
-			return err
-		}
-
-		// Add multiverse specific fields to the issuance proof.
-		issuanceProof.MultiverseRoot = multiverseRoot
-		issuanceProof.MultiverseInclusionProof = multiverseInclusionProof
-
-		return err
+		return nil
 	}
 	dbErr := b.db.ExecTx(ctx, &writeTx, execTxFunc)
 	if dbErr != nil {
@@ -957,44 +901,10 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 
 		// Upsert proof leaf into the asset (group) specific universe
 		// tree.
-		_, universeRoot, err := universeUpsertProofLeaf(
+		_, err := universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
 			item.MetaReveal,
 		)
-		if err != nil {
-			return err
-		}
-
-		multiverseNS, err := namespaceForProof(item.ID.ProofType)
-		if err != nil {
-			return err
-		}
-
-		// Retrieve a handle to the multiverse tree so that we can
-		// update the tree by inserting/updating a proof leaf.
-		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(dbTx, multiverseNS),
-		)
-
-		// Construct a leaf node for insertion into the multiverse tree.
-		// The leaf node includes a reference to the lower tree via the
-		// lower tree root hash.
-		universeRootHash := universeRoot.NodeHash()
-		assetGroupSum := universeRoot.NodeSum()
-
-		if item.ID.ProofType == universe.ProofTypeIssuance {
-			assetGroupSum = 1
-		}
-
-		leafNode := mssmt.NewLeafNode(
-			universeRootHash[:], assetGroupSum,
-		)
-
-		// Use asset ID (or asset group hash) as the upper tree leaf
-		// node key. This is the same as the asset specific universe ID.
-		leafNodeKey := item.ID.Bytes()
-
-		_, err = multiverseTree.Insert(ctx, leafNodeKey, leafNode)
 		if err != nil {
 			return err
 		}
@@ -1073,4 +983,60 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	b.leafKeysCache.wipeCache(idStr)
 
 	return id.String(), dbErr
+}
+
+// FetchLeaves returns the set of multiverse leaves for the given proof type,
+// asset ID, and group key. If both asset ID and group key is nil, all leaves
+// for the given proof type will be returned.
+func (b *MultiverseStore) FetchLeaves(ctx context.Context,
+	assetID *asset.ID, groupKey *btcec.PublicKey,
+	proofType universe.ProofType) ([]universe.Identifier, error) {
+
+	var assetIDBytes, groupKeyBytes []byte
+	if assetID != nil {
+		assetIDBytes = assetID[:]
+	}
+	if groupKey != nil {
+		groupKeyBytes = schnorr.SerializePubKey(groupKey)
+	}
+
+	var (
+		readTx = NewBaseUniverseReadTx()
+		ids    []universe.Identifier
+	)
+	dbErr := b.db.ExecTx(ctx, &readTx, func(q BaseMultiverseStore) error {
+		leaves, err := q.QueryMultiverseLeaves(
+			ctx, QueryMultiverseLeaves{
+				ProofType: proofType.String(),
+				AssetID:   assetIDBytes,
+				GroupKey:  groupKeyBytes,
+			},
+		)
+		if err != nil {
+			return err
+		}
+
+		ids = make([]universe.Identifier, len(leaves))
+		for i, leaf := range leaves {
+			ids[i].ProofType = proofType
+			if len(leaf.AssetID) > 0 {
+				copy(ids[i].AssetID[:], leaf.AssetID)
+			}
+			if len(leaf.GroupKey) > 0 {
+				ids[i].GroupKey, err = schnorr.ParsePubKey(
+					leaf.GroupKey,
+				)
+				if err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return ids, nil
 }
