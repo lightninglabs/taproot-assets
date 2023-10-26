@@ -807,6 +807,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 		// the proof over the stream.
 		//
 		// TODO(roasbeef): do ecies here
+		// (this ^ TODO relates to encrypting proofs for the receiver
+		// before uploading to the courier)
 		log.Infof("Sending receiver proof via sid=%x",
 			senderStreamID)
 		err = h.mailbox.WriteProof(
