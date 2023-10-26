@@ -159,34 +159,38 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	}
 
 	// Populate proof courier specific config fields.
+	//
+	// Use passed in backoff config or default config.
+	backoffCfg := &proof.BackoffCfg{
+		BackoffResetWait: 2 * time.Second,
+		NumTries:         3,
+		InitialBackoff:   2 * time.Second,
+		MaxBackoff:       2 * time.Second,
+	}
+	if proofSendBackoffCfg != nil {
+		backoffCfg = proofSendBackoffCfg
+	}
+
+	// Used passed in proof receiver ack timeout or default.
+	receiverAckTimeout := defaultProofTransferReceiverAckTimeout
+	if proofReceiverAckTimeout != nil {
+		receiverAckTimeout = *proofReceiverAckTimeout
+	}
+
+	// TODO(ffranr): Disentangle the hashmail config from the universe RPC
+	// courier config. Right now, the universe courier takes the backoff
+	// config from the hashmail courier config.
+	finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
+		ReceiverAckTimeout: receiverAckTimeout,
+		BackoffCfg:         backoffCfg,
+	}
+
 	switch typedProofCourier := (proofCourier).(type) {
 	case *ApertureHarness:
-		// Use passed in backoff config or default config.
-		backoffCfg := &proof.BackoffCfg{
-			BackoffResetWait: 2 * time.Second,
-			NumTries:         3,
-			InitialBackoff:   2 * time.Second,
-			MaxBackoff:       2 * time.Second,
-		}
-		if proofSendBackoffCfg != nil {
-			backoffCfg = proofSendBackoffCfg
-		}
-
-		// Used passed in proof receiver ack timeout or default.
-		receiverAckTimeout := defaultProofTransferReceiverAckTimeout
-		if proofReceiverAckTimeout != nil {
-			receiverAckTimeout = *proofReceiverAckTimeout
-		}
-
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
 			"%s://%s", proof.HashmailCourierType,
 			typedProofCourier.ListenAddr,
 		)
-
-		finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
-			ReceiverAckTimeout: receiverAckTimeout,
-			BackoffCfg:         backoffCfg,
-		}
 
 	case *UniverseRPCHarness:
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
