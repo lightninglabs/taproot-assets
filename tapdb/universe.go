@@ -613,6 +613,63 @@ func universeFetchProofLeaf(ctx context.Context,
 	return proofs, nil
 }
 
+// mintingKeys returns all the leaf keys in the target universe.
+func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+
+	namespace := q.Id.String()
+
+	universeKeys, err := dbTx.FetchUniverseKeys(
+		ctx, UniverseLeafKeysQuery{
+			Namespace:     namespace,
+			SortDirection: sqlInt16(q.SortDirection),
+			NumOffset:     q.Offset,
+			NumLimit: func() int32 {
+				if q.Limit == 0 {
+					return universe.MaxPageSize
+				}
+
+				return q.Limit
+			}(),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var leafKeys []universe.LeafKey
+	err = fn.ForEachErr(universeKeys, func(key UniverseKeys) error {
+		scriptKeyPub, err := schnorr.ParsePubKey(
+			key.ScriptKeyBytes,
+		)
+		if err != nil {
+			return err
+		}
+		scriptKey := asset.NewScriptKey(scriptKeyPub)
+
+		var genPoint wire.OutPoint
+		err = readOutPoint(
+			bytes.NewReader(key.MintingPoint), 0, 0,
+			&genPoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		leafKeys = append(leafKeys, universe.LeafKey{
+			OutPoint:  genPoint,
+			ScriptKey: &scriptKey,
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return leafKeys, nil
+}
+
 // MintingKeys returns all the keys inserted in the universe.
 func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
@@ -621,49 +678,14 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		universeKeys, err := db.FetchUniverseKeys(
-			ctx, UniverseLeafKeysQuery{
-				Namespace:     b.smtNamespace,
-				SortDirection: sqlInt16(q.SortDirection),
-				NumOffset:     q.Offset,
-				NumLimit: func() int32 {
-					if q.Limit == 0 {
-						return universe.MaxPageSize
-					}
-
-					return q.Limit
-				}(),
-			},
-		)
+		dbLeaves, err := mintingKeys(ctx, db, q)
 		if err != nil {
 			return err
 		}
 
-		return fn.ForEachErr(universeKeys, func(key UniverseKeys) error {
-			scriptKeyPub, err := schnorr.ParsePubKey(
-				key.ScriptKeyBytes,
-			)
-			if err != nil {
-				return err
-			}
-			scriptKey := asset.NewScriptKey(scriptKeyPub)
+		leafKeys = dbLeaves
 
-			var genPoint wire.OutPoint
-			err = readOutPoint(
-				bytes.NewReader(key.MintingPoint), 0, 0,
-				&genPoint,
-			)
-			if err != nil {
-				return err
-			}
-
-			leafKeys = append(leafKeys, universe.LeafKey{
-				OutPoint:  genPoint,
-				ScriptKey: &scriptKey,
-			})
-
-			return nil
-		})
+		return nil
 	})
 	if dbErr != nil {
 		return nil, dbErr

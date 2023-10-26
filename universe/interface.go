@@ -311,8 +311,14 @@ type MultiverseArchive interface {
 	// DeleteUniverse deletes all leaves, and the root, for given universe.
 	DeleteUniverse(ctx context.Context, id Identifier) (string, error)
 
-	// TODO(roasbeef): other stats stuff here, like total number of assets, etc
-	//  * also eventually want pull/fetch stats, can be pulled out into another instance
+	// UniverseRootNode returns the Universe root node for the given asset
+	// ID.
+	UniverseRootNode(ctx context.Context, id Identifier) (Root, error)
+
+	// UniverseLeafKeys returns the set of leaf keys for the given
+	// universe.
+	UniverseLeafKeys(ctx context.Context,
+		q UniverseLeafKeysQuery) ([]LeafKey, error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a

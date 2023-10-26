@@ -113,18 +113,7 @@ func (a *Archive) RootNode(ctx context.Context,
 
 	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) (Root, error) {
-		smtNode, assetName, err := baseUni.RootNode(ctx)
-		if err != nil {
-			return Root{}, err
-		}
-
-		return Root{
-			ID:        id,
-			Node:      smtNode,
-			AssetName: assetName,
-		}, nil
-	})
+	return a.cfg.Multiverse.UniverseRootNode(ctx, id)
 }
 
 type RootNodesQuery struct {
@@ -568,9 +557,7 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 
 	log.Debugf("Retrieving all keys for Universe: id=%v", q.Id.StringForLog())
 
-	return withBaseUni(a, q.Id, func(baseUni BaseBackend) ([]LeafKey, error) {
-		return baseUni.MintingKeys(ctx, q)
-	})
+	return a.cfg.Multiverse.UniverseLeafKeys(ctx, q)
 }
 
 // MintingLeaves returns the set of minting leaves known for the specified base
