@@ -398,9 +398,10 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	test.WriteTestVectors(t.t, proof.RegtestTestVectorName, testVectors)
 }
 
-// testReattemptFailedAssetSend tests that a failed attempt at sending an asset
-// proof will be reattempted by the tapd node.
-func testReattemptFailedAssetSend(t *harnessTest) {
+// testReattemptFailedAssetSendHashmailCourier tests that a failed attempt at
+// sending an asset proof will be reattempted by the tapd node. This test
+// targets the hashmail courier.
+func testReattemptFailedAssetSendHashmailCourier(t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		wg   sync.WaitGroup
@@ -444,10 +445,11 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 			return false
 		}
 
-		// Default number of proof delivery attempts in tests is 3,
-		// therefore expect at least 2 backoff wait events
-		// (not waiting on first attempt).
-		expectedEventCount := 2
+		// Expected number of events is one less than the number of
+		// tries because the first attempt does not count as a backoff
+		// event.
+		nodeBackoffCfg := t.tapd.clientCfg.HashMailCourier.BackoffCfg
+		expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 		// Context timeout scales with expected number of events.
 		timeout := time.Duration(expectedEventCount) *
@@ -485,6 +487,11 @@ func testReattemptFailedAssetSend(t *harnessTest) {
 
 	// Simulate a failed attempt at sending the asset proof by stopping
 	// the receiver node.
+	//
+	// The receiving tapd node does not return a proof received confirmation
+	// message via the universe RPC courier. We can simulate a proof
+	// transfer failure by stopping the courier service directly and not the
+	// receiving tapd node.
 	require.NoError(t.t, t.tapd.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
