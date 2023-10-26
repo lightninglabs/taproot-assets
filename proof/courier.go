@@ -533,6 +533,9 @@ type BackoffExecError struct {
 }
 
 func (e *BackoffExecError) Error() string {
+	if e.execErr == nil {
+		return "backoff exec error"
+	}
 	return fmt.Sprintf("backoff exec error: %s", e.execErr.Error())
 }
 
