@@ -127,7 +127,12 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 	// we asserted previously.
 	uniRoots, err := alice.AssetRoots(ctx, &unirpc.AssetRootRequest{})
 	require.NoError(t, err)
-	require.Len(t, uniRoots.UniverseRoots, groupCount)
+	issuanceRoots := fn.FilterMap(
+		uniRoots.UniverseRoots, func(root *unirpc.UniverseRoot) bool {
+			return root.Id.ProofType == unirpc.ProofType_PROOF_TYPE_ISSUANCE
+		},
+	)
+	require.Len(t, issuanceRoots, groupCount)
 
 	itest.AssertUniverseRoot(t, alice, groupBalance, nil, collectGroupKey)
 
