@@ -70,6 +70,19 @@ type QueryParams struct {
 	UnmanagedOnly bool
 }
 
+// AssetSyncer is an interface that allows the address.Book to look up asset
+// genesis and group information from both the local asset store and assets
+// known to universe servers in our federation.
+type AssetSyncer interface {
+	// SyncAssetInfo queries the universes in our federation for genesis
+	// and asset group information about the given asset ID.
+	SyncAssetInfo(ctx context.Context, assetID *asset.ID) error
+
+	// EnableAssetSync updates the sync config for the given asset so that
+	// we sync future issuance proofs.
+	EnableAssetSync(ctx context.Context, groupInfo *asset.AssetGroup) error
+}
+
 // Storage is the main storage interface for the address book.
 type Storage interface {
 	EventStorage
@@ -131,6 +144,10 @@ type KeyRing interface {
 type BookConfig struct {
 	// Store holds the set of created addresses.
 	Store Storage
+
+	// Syncer allows the address.Book to sync issuance information for
+	// assets from universe servers in our federation.
+	Syncer AssetSyncer
 
 	// KeyRing points to an active key ring instance.
 	KeyRing KeyRing
