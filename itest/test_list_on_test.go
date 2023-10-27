@@ -54,9 +54,14 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
-		name:             "reattempt failed asset send",
-		test:             testReattemptFailedAssetSend,
+		name:             "reattempt failed asset send hashmail courier",
+		test:             testReattemptFailedAssetSendHashmailCourier,
 		proofCourierType: proof.HashmailCourierType,
+	},
+	{
+		name:             "reattempt failed asset send uni courier",
+		test:             testReattemptFailedAssetSendUniCourier,
+		proofCourierType: proof.UniverseRpcCourierType,
 	},
 	{
 		name:             "offline receiver eventually receives",
