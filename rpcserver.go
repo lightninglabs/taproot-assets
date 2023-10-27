@@ -3536,7 +3536,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Debugf("[QueryProof]: fetching proof at (universeID=%v, "+
+	rpcsLog.Tracef("[QueryProof]: fetching proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
 	// Retrieve proof export config for the given universe.

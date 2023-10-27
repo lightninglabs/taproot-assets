@@ -522,23 +522,8 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	key LeafKey) ([]*Proof, error) {
 
-	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
+	log.Tracef("Retrieving Universe proof for: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
-
-	// Log a sync event for the leaf query leaf in the background as an
-	// async goroutine.
-	defer func() {
-		go func() {
-			err := a.cfg.UniverseStats.LogSyncEvent(
-				context.Background(), id, key,
-			)
-			if err != nil {
-				log.Warnf("unable to log sync event (id=%v, "+
-					"key=%v): %v", id.StringForLog(),
-					spew.Sdump(key), err)
-			}
-		}()
-	}()
 
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
