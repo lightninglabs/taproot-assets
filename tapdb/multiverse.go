@@ -337,6 +337,8 @@ type leafKeysCache = lru.Cache[treeID, *leafPageCache]
 // universeLeafCaches is used to cache the set of leaf keys for a given
 // universe.
 type universeLeafCache struct {
+	sync.Mutex
+
 	leafCache *leafKeysCache
 }
 
@@ -530,6 +532,17 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 
 	// First, check to see if we have the leaf keys cached.
 	leafKeys := b.leafKeysCache.fetchLeafKeys(q)
+	if len(leafKeys) > 0 {
+		return leafKeys, nil
+	}
+
+	// The leaves wasn't populated, so we'll go to disk to fetch it.
+	b.leafKeysCache.Lock()
+	defer b.leafKeysCache.Unlock()
+
+	// While we were waiting for the lock, the cache might bave been
+	// populated, so we'll check that now.
+	leafKeys = b.leafKeysCache.fetchLeafKeys(id)
 	if len(leafKeys) > 0 {
 		return leafKeys, nil
 	}
