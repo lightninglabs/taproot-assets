@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 )
 
@@ -99,6 +101,10 @@ type FederationEnvoy struct {
 
 	batchPushRequests chan *FederationProofBatchPushReq
 }
+
+// A compile-time check to ensure that FederationEnvoy meets the
+// address.AssetSyncer interface.
+var _ address.AssetSyncer = (*FederationEnvoy)(nil)
 
 // NewFederationEnvoy creates a new federation envoy from the passed config.
 func NewFederationEnvoy(cfg FederationConfig) *FederationEnvoy {
@@ -228,27 +234,16 @@ func (f *FederationEnvoy) syncServerState(ctx context.Context,
 func (f *FederationEnvoy) pushProofToFederation(uniID Identifier, key LeafKey,
 	leaf *Leaf) {
 
-	ctx, cancel := f.WithCtxQuit()
-	defer cancel()
-
-	fedServers, err := f.cfg.FederationDB.UniverseServers(
-		ctx,
-	)
-	if err != nil {
-		err := fmt.Errorf("unable to fetch set of universe "+
-			"servers: %v", err)
-		f.reportErr(err)
-		return
-	}
-
-	if len(fedServers) == 0 {
+	// Fetch all universe servers in our federation.
+	fedServers, err := f.tryFetchServers()
+	if err != nil || len(fedServers) == 0 {
 		return
 	}
 
 	log.Infof("Pushing new proof to %v federation members, proof_key=%v",
 		len(fedServers), spew.Sdump(key))
 
-	ctx, cancel = f.WithCtxQuitNoTimeout()
+	ctx, cancel := f.WithCtxQuitNoTimeout()
 	defer cancel()
 
 	// To push a new proof out, we'll attempt to dial to the remote
@@ -302,20 +297,12 @@ func (f *FederationEnvoy) syncer() {
 		// to synchronize state with all the active universe servers in
 		// the federation.
 		case <-syncTicker.C:
-			ctx, cancel := f.WithCtxQuit()
-
-			fedServers, err := f.cfg.FederationDB.UniverseServers(
-				ctx,
-			)
+			// Error propogation is handled in tryFetchServers, we
+			// only need to exit here.
+			fedServers, err := f.tryFetchServers()
 			if err != nil {
-				cancel()
-
-				err := fmt.Errorf("unable to fetch set of "+
-					"universe servers: %v", err)
-				f.reportErr(err)
 				return
 			}
-			cancel()
 
 			log.Infof("Synchronizing with %v federation members",
 				len(fedServers))
@@ -528,6 +515,134 @@ func (f *FederationEnvoy) SetAllowPublicAccess() error {
 
 	return f.cfg.FederationDB.UpsertFederationSyncConfig(
 		ctx, globalSyncConfigs, nil,
+	)
+}
+
+// tryFetchServers attempts to fetch the set of universe servers in the
+// federation.
+func (f *FederationEnvoy) tryFetchServers() ([]ServerAddr, error) {
+	ctx, cancel := f.WithCtxQuit()
+
+	fedServers, err := f.cfg.FederationDB.UniverseServers(
+		ctx,
+	)
+	if err != nil {
+		cancel()
+
+		err := fmt.Errorf("unable to fetch set of universe servers: %v",
+			err)
+		f.reportErr(err)
+		return nil, fmt.Errorf("unable to fetch set of universe" +
+			"servers")
+	}
+	cancel()
+
+	return fedServers, nil
+}
+
+// SyncAssetInfo queries the universes in our federation for genesis and asset
+// group information about the given asset ID.
+func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
+	assetID *asset.ID) error {
+
+	if assetID == nil {
+		return fmt.Errorf("no asset ID provided")
+	}
+
+	// Fetch the set of universe servers in our federation.
+	fedServers, err := f.tryFetchServers()
+	if err != nil {
+		return err
+	}
+
+	assetConfig := FedUniSyncConfig{
+		UniverseID: Identifier{
+			AssetID:   *assetID,
+			ProofType: ProofTypeIssuance,
+		},
+		AllowSyncInsert: true,
+		AllowSyncExport: false,
+	}
+	fullConfig := SyncConfigs{
+		UniSyncConfigs: []*FedUniSyncConfig{&assetConfig},
+	}
+	// We'll sync with Universe servers in parallel and collect the diffs
+	// from any successful syncs. There can only be one diff per server, as
+	// we're only syncing one universe root.
+	returnedSyncDiffs := make(chan AssetSyncDiff, len(fedServers))
+
+	// To fetch information about the asset, we only need to sync with the
+	// remote universe. Asset group import and verification is handled as
+	// part of the universe sync.
+	syncFromUni := func(ctxs context.Context, addr ServerAddr) error {
+		syncDiff, err := f.cfg.UniverseSyncer.SyncUniverse(
+			ctxs, addr, SyncIssuance, fullConfig,
+		)
+
+		// Sync failures are expected from Universe servers that do not
+		// have a relevant universe root.
+		if err != nil {
+			log.Debugf("asset lookup for %v failed with remote"+
+				"server: %v", assetID.String(), addr.HostStr())
+			return nil
+		}
+
+		// There should only be one sync diff since we're only syncing
+		// one universe root.
+		if syncDiff != nil {
+			if len(syncDiff) != 1 {
+				log.Debugf("unexpected number of sync diffs: "+
+					"%v", len(syncDiff))
+				return nil
+			}
+
+			returnedSyncDiffs <- syncDiff[0]
+		}
+
+		return nil
+	}
+
+	// Sync with the federation Universe servers in parallel.
+	err = fn.ParSlice(ctx, fedServers, syncFromUni)
+	if err != nil {
+		// We should never receive a non-nil error from the sync above.
+		log.Errorf("unable to perform asset lookup with federation: "+
+			"%v", err)
+		return err
+	}
+
+	syncDiffs := fn.Collect(returnedSyncDiffs)
+	log.Infof("Synced new Universe leaves for asset %v, diff_size=%v",
+		assetID.String(), len(syncDiffs))
+
+	// TODO(jhb): Log successful syncs?
+	if len(syncDiffs) == 0 {
+		return fmt.Errorf("asset lookup failed for asset: %v",
+			assetID.String())
+	}
+
+	return nil
+}
+
+// EnableAssetSync updates the sync config for the given asset to that we sync
+// future issuance proofs.
+func (f *FederationEnvoy) EnableAssetSync(ctx context.Context,
+	groupInfo *asset.AssetGroup) error {
+
+	// Construct the universe config to match the given asset.
+	uniID := FedUniSyncConfig{
+		UniverseID: Identifier{
+			ProofType: ProofTypeIssuance,
+			GroupKey:  &groupInfo.GroupKey.GroupPubKey,
+		},
+		AllowSyncInsert: true,
+		AllowSyncExport: true,
+	}
+
+	// We know there is no existing config for this asset, so we don't need
+	// to read an existing config before upserting the config above.
+	return f.cfg.FederationDB.UpsertFederationSyncConfig(
+		ctx, nil, []*FedUniSyncConfig{&uniID},
 	)
 }
 
