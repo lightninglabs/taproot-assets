@@ -505,6 +505,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/multiverse": {
+      "post": {
+        "summary": "tapcli: `universe multiverse`\nMultiverseRoot returns the root of the multiverse tree. This is useful to\ndetermine the equality of two multiverse trees, since the root can directly\nbe compared to another multiverse root to find out if a sync is required.",
+        "operationId": "Universe_MultiverseRoot",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcMultiverseRootResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/universerpcMultiverseRootRequest"
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/proofs/asset-id/{id.asset_id_str}/{leaf_key.op.hash_str}/{leaf_key.op.index}/{leaf_key.script_key_str}": {
       "get": {
         "summary": "tapcli: `universe proofs query`\nQueryProof attempts to query for an issuance or transfer proof for a given\nasset based on its UniverseKey. A UniverseKey is composed of the Universe\nID (asset_id/group_key) and also a leaf key (outpoint || script_key). If\nfound, then the issuance proof is returned that includes an inclusion proof\nto the known Universe root, as well as a Taproot Asset state transition or\nissuance proof for the said asset.",
@@ -1862,6 +1895,31 @@
           "type": "string",
           "format": "int64",
           "description": "The root sum of the branch node. This is hashed to create the root_hash\nalong with the left and right siblings. This value represents the total\nknown supply of the asset."
+        }
+      }
+    },
+    "universerpcMultiverseRootRequest": {
+      "type": "object",
+      "properties": {
+        "proof_type": {
+          "$ref": "#/definitions/universerpcProofType",
+          "description": "The proof type to calculate the multiverse root for."
+        },
+        "specific_ids": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/universerpcID"
+          },
+          "description": "An optional list of universe IDs to include in the multiverse root. If\nnone are specified, then all known universes of the given proof type are\nincluded. NOTE: The proof type within the IDs must either be unspecified\nor match the proof type above."
+        }
+      }
+    },
+    "universerpcMultiverseRootResponse": {
+      "type": "object",
+      "properties": {
+        "multiverse_root": {
+          "$ref": "#/definitions/universerpcMerkleSumNode",
+          "description": "The root of the multiverse tree."
         }
       }
     },

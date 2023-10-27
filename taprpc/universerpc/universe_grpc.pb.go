@@ -18,6 +18,11 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type UniverseClient interface {
+	// tapcli: `universe multiverse`
+	// MultiverseRoot returns the root of the multiverse tree. This is useful to
+	// determine the equality of two multiverse trees, since the root can directly
+	// be compared to another multiverse root to find out if a sync is required.
+	MultiverseRoot(ctx context.Context, in *MultiverseRootRequest, opts ...grpc.CallOption) (*MultiverseRootResponse, error)
 	// tapcli: `universe roots`
 	// AssetRoots queries for the known Universe roots associated with each known
 	// asset. These roots represent the supply/audit state for each known asset.
@@ -113,6 +118,15 @@ type universeClient struct {
 
 func NewUniverseClient(cc grpc.ClientConnInterface) UniverseClient {
 	return &universeClient{cc}
+}
+
+func (c *universeClient) MultiverseRoot(ctx context.Context, in *MultiverseRootRequest, opts ...grpc.CallOption) (*MultiverseRootResponse, error) {
+	out := new(MultiverseRootResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/MultiverseRoot", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *universeClient) AssetRoots(ctx context.Context, in *AssetRootRequest, opts ...grpc.CallOption) (*AssetRootResponse, error) {
@@ -272,6 +286,11 @@ func (c *universeClient) QueryFederationSyncConfig(ctx context.Context, in *Quer
 // All implementations must embed UnimplementedUniverseServer
 // for forward compatibility
 type UniverseServer interface {
+	// tapcli: `universe multiverse`
+	// MultiverseRoot returns the root of the multiverse tree. This is useful to
+	// determine the equality of two multiverse trees, since the root can directly
+	// be compared to another multiverse root to find out if a sync is required.
+	MultiverseRoot(context.Context, *MultiverseRootRequest) (*MultiverseRootResponse, error)
 	// tapcli: `universe roots`
 	// AssetRoots queries for the known Universe roots associated with each known
 	// asset. These roots represent the supply/audit state for each known asset.
@@ -366,6 +385,9 @@ type UniverseServer interface {
 type UnimplementedUniverseServer struct {
 }
 
+func (UnimplementedUniverseServer) MultiverseRoot(context.Context, *MultiverseRootRequest) (*MultiverseRootResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method MultiverseRoot not implemented")
+}
 func (UnimplementedUniverseServer) AssetRoots(context.Context, *AssetRootRequest) (*AssetRootResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssetRoots not implemented")
 }
@@ -428,6 +450,24 @@ type UnsafeUniverseServer interface {
 
 func RegisterUniverseServer(s grpc.ServiceRegistrar, srv UniverseServer) {
 	s.RegisterService(&Universe_ServiceDesc, srv)
+}
+
+func _Universe_MultiverseRoot_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(MultiverseRootRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).MultiverseRoot(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/MultiverseRoot",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).MultiverseRoot(ctx, req.(*MultiverseRootRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _Universe_AssetRoots_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -743,6 +783,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "universerpc.Universe",
 	HandlerType: (*UniverseServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "MultiverseRoot",
+			Handler:    _Universe_MultiverseRoot_Handler,
+		},
 		{
 			MethodName: "AssetRoots",
 			Handler:    _Universe_AssetRoots_Handler,

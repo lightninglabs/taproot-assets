@@ -7,6 +7,13 @@ package universerpc;
 option go_package = "github.com/lightninglabs/taproot-assets/taprpc/universerpc";
 
 service Universe {
+    /* tapcli: `universe multiverse`
+    MultiverseRoot returns the root of the multiverse tree. This is useful to
+    determine the equality of two multiverse trees, since the root can directly
+    be compared to another multiverse root to find out if a sync is required.
+    */
+    rpc MultiverseRoot (MultiverseRootRequest) returns (MultiverseRootResponse);
+
     /* tapcli: `universe roots`
     AssetRoots queries for the known Universe roots associated with each known
     asset. These roots represent the supply/audit state for each known asset.
@@ -140,6 +147,22 @@ service Universe {
     */
     rpc QueryFederationSyncConfig (QueryFederationSyncConfigRequest)
         returns (QueryFederationSyncConfigResponse);
+}
+
+message MultiverseRootRequest {
+    // The proof type to calculate the multiverse root for.
+    ProofType proof_type = 1;
+
+    // An optional list of universe IDs to include in the multiverse root. If
+    // none are specified, then all known universes of the given proof type are
+    // included. NOTE: The proof type within the IDs must either be unspecified
+    // or match the proof type above.
+    repeated ID specific_ids = 2;
+}
+
+message MultiverseRootResponse {
+    // The root of the multiverse tree.
+    MerkleSumNode multiverse_root = 1;
 }
 
 message AssetRootRequest {

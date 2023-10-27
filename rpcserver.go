@@ -2960,6 +2960,56 @@ func marshalUniverseRoot(node universe.Root) (*unirpc.UniverseRoot, error) {
 	}, nil
 }
 
+// MultiverseRoot returns the root of the multiverse tree. This is useful to
+// determine the equality of two multiverse trees, since the root can directly
+// be compared to another multiverse root to find out if a sync is required.
+func (r *rpcServer) MultiverseRoot(ctx context.Context,
+	req *unirpc.MultiverseRootRequest) (*unirpc.MultiverseRootResponse,
+	error) {
+
+	proofType, err := UnmarshalUniProofType(req.ProofType)
+	if err != nil {
+		return nil, fmt.Errorf("invalid proof type: %w", err)
+	}
+
+	if proofType == universe.ProofTypeUnspecified {
+		return nil, fmt.Errorf("proof type must be specified")
+	}
+
+	filterByIDs := make([]universe.Identifier, len(req.SpecificIds))
+	for idx, rpcID := range req.SpecificIds {
+		filterByIDs[idx], err = UnmarshalUniID(rpcID)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse universe id: "+
+				"%w", err)
+		}
+
+		// Allow the RPC user to not specify the proof type for each ID
+		// individually since the outer one is mandatory.
+		if filterByIDs[idx].ProofType == universe.ProofTypeUnspecified {
+			filterByIDs[idx].ProofType = proofType
+		}
+
+		if filterByIDs[idx].ProofType != proofType {
+			return nil, fmt.Errorf("proof type mismatch in ID "+
+				"%d: %v != %v", idx, filterByIDs[idx].ProofType,
+				proofType)
+		}
+	}
+
+	rootNode, err := r.cfg.UniverseArchive.MultiverseRoot(
+		ctx, proofType, filterByIDs,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch multiverse root: %w",
+			err)
+	}
+
+	return &unirpc.MultiverseRootResponse{
+		MultiverseRoot: marshalMssmtNode(rootNode),
+	}, nil
+}
+
 // AssetRoots queries for the known Universe roots associated with each known
 // asset. These roots represent the supply/audit state for each known asset.
 func (r *rpcServer) AssetRoots(ctx context.Context,

@@ -21,6 +21,31 @@ func RegisterUniverseJSONCallbacks(registry map[string]func(ctx context.Context,
 		},
 	}
 
+	registry["universerpc.Universe.MultiverseRoot"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &MultiverseRootRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewUniverseClient(conn)
+		resp, err := client.MultiverseRoot(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
 	registry["universerpc.Universe.AssetRoots"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
