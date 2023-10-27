@@ -2957,13 +2957,85 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 			"given universe")
 	}
 
-	issuanceRoot, err := r.cfg.UniverseArchive.RootNode(ctx, universeID)
+	// Query for both a issaunce and transfer universe root.
+	assetRoots, err := r.queryAssetProofRoots(ctx, universeID)
 	if err != nil {
+		return nil, err
+	}
+
+	// If no roots were found and the universe ID had no group key, the
+	// asset may be a grouped asset.
+	mayBeGrouped := assetRoots.IssuanceRoot.Id == nil &&
+		assetRoots.TransferRoot.Id == nil && universeID.GroupKey == nil
+
+	// Query for a matching asset group, and fetch the matching universe
+	// roots if we find a group.
+	if mayBeGrouped {
+		groupedAssetID := universeID.AssetID
+		rpcsLog.Debugf("No roots found for asset %v, checking if this "+
+			"asset is part of a group", groupedAssetID.String())
+
+		assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(
+			ctx, groupedAssetID,
+		)
+
+		switch {
+		// No asset info was found; we will return empty universe roots.
+		case errors.Is(err, address.ErrAssetGroupUnknown):
+
+		case err != nil:
+			return nil, fmt.Errorf("asset group lookup failed: %w",
+				err)
+
+		// We found the correct group for this asset; fetch the universe
+		// roots for the group.
+		case assetGroup.GroupKey != nil:
+			foundGroupKey := &assetGroup.GroupPubKey
+			groupUniID := universe.Identifier{
+				GroupKey:  foundGroupKey,
+				ProofType: universe.ProofTypeIssuance,
+			}
+
+			rpcsLog.Debugf("Found group %x for asset %v",
+				foundGroupKey.SerializeCompressed(),
+				groupedAssetID.String())
+
+			assetRoots, err := r.queryAssetProofRoots(
+				ctx, groupUniID,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			return assetRoots, nil
+
+		// The asset has no group; return empty universe roots below.
+		default:
+		}
+	}
+
+	// Either some universe roots were found earlier, the original request
+	// was for an asset group, or no matching group key was found.
+	// Return any roots that were found without an asset group lookup.
+	return assetRoots, nil
+}
+
+// queryAssetProofRoots attempts to locate the current Universe root for a
+// specific asset, for both proof types. The asset can be identified by its
+// asset ID or group key.
+func (r *rpcServer) queryAssetProofRoots(ctx context.Context,
+	id universe.Identifier) (*unirpc.QueryRootResponse, error) {
+
+	var issuanceRootRPC, transferRootRPC *unirpc.UniverseRoot
+	uniID := id
+
+	issuanceRoot, issuanceErr := r.cfg.UniverseArchive.RootNode(ctx, uniID)
+	if issuanceErr != nil {
 		// Do not return at this point if the error only indicates that
 		// the root wasn't found. We'll try to find the transfer root
 		// below.
-		if !errors.Is(err, universe.ErrNoUniverseRoot) {
-			return nil, err
+		if !errors.Is(issuanceErr, universe.ErrNoUniverseRoot) {
+			return nil, issuanceErr
 		}
 	}
 
@@ -2974,21 +3046,21 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 
 	// Attempt to retrieve the transfer universe root.
 	rpcsLog.Debugf("Querying for asset (group) transfer universe root "+
-		"for %v", spew.Sdump(universeID))
+		"for %v", spew.Sdump(uniID))
 
-	universeID.ProofType = universe.ProofTypeTransfer
+	uniID.ProofType = universe.ProofTypeTransfer
 
-	transferRoot, err := r.cfg.UniverseArchive.RootNode(ctx, universeID)
-	if err != nil {
+	transferRoot, transferErr := r.cfg.UniverseArchive.RootNode(ctx, uniID)
+	if transferErr != nil {
 		// Do not return at this point if the error only indicates that
 		// the root wasn't found. We may have found the issuance root
 		// above.
-		if !errors.Is(err, universe.ErrNoUniverseRoot) {
-			return nil, err
+		if !errors.Is(transferErr, universe.ErrNoUniverseRoot) {
+			return nil, transferErr
 		}
 	}
 
-	transferRootRPC, err := marshalUniverseRoot(transferRoot)
+	transferRootRPC, err = marshalUniverseRoot(transferRoot)
 	if err != nil {
 		return nil, err
 	}
