@@ -74,62 +74,85 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 		s.isSyncing.Store(false)
 	}()
 
+	// Examine config to ascertain whether global insertion for either proof
+	// type is allowed.
+	globalInsertEnabled := fn.Any(
+		syncConfigs.GlobalSyncConfigs,
+		func(config *FedGlobalSyncConfig) bool {
+			return config.AllowSyncInsert
+		},
+	)
+
+	// Define a custom filter function that will be used to filter for
+	// Universes that we want to sync. This filter makes use of the
+	// given syncType.
+	uniIdSyncFilter := func(id Identifier) bool {
+		// If we're syncing issuance proofs, then the universe must
+		// relate to issuance proofs.
+		if syncType == SyncIssuance &&
+			id.ProofType != ProofTypeIssuance {
+
+			return false
+		}
+
+		return syncConfigs.IsSyncInsertEnabled(id)
+	}
+
 	var (
 		targetRoots []Root
 		err         error
 	)
 	switch {
-	// If we have a specific set of Universes to sync, then we'll fetch the
-	// roots for each of them.
+	// If we have been given a specific set of Universes to sync, then we'll
+	// only fetch roots for those universes. We wont filter out any
+	// Universes here as we assume that the caller has already done so.
 	case len(idsToSync) != 0:
-		log.Infof("Fetching %v roots", len(idsToSync))
-		log.Tracef("Fetching %v roots for IDs: %v", len(idsToSync),
-			spew.Sdump(idsToSync))
-
-		// We'll use an error group to fetch each Universe root we need
-		// as a series of parallel requests backed by a worker pool.
-		rootsToSync := make(chan Root, len(idsToSync))
-		err = fn.ParSlice(
-			ctx, idsToSync,
-			func(ctx context.Context, id Identifier) error {
-				root, err := diffEngine.RootNode(ctx, id)
-				if err != nil {
-					return err
-				}
-
-				rootsToSync <- root
-				return nil
-			},
-		)
+		targetRoots, err = fetchRootsForIDs(ctx, idsToSync, diffEngine)
 		if err != nil {
-			return nil, fmt.Errorf("unable to fetch roots for "+
-				"universe sync: %w", err)
+			return nil, err
 		}
 
-		targetRoots = fn.Collect(rootsToSync)
-
-	// Otherwise, we'll just fetch all the roots from the remote universe.
-	default:
+	// If global insert is enabled we'll just fetch all the roots from the
+	// remote servers.
+	case globalInsertEnabled:
 		log.Infof("Fetching all roots for remote Universe server...")
 		targetRoots, err = diffEngine.RootNodes(ctx, false)
 		if err != nil {
 			return nil, err
 		}
-	}
 
-	targetRoots = fn.Filter(
-		targetRoots, func(r Root) bool {
-			// If we're syncing issuance proofs, then we'll only
-			// sync issuance roots.
-			if syncType == SyncIssuance &&
-				r.ID.ProofType != ProofTypeIssuance {
+		// Examine universe IDs of returned roots and filter out
+		// universes that we don't want to sync.
+		targetRoots = fn.Filter(
+			targetRoots, func(r Root) bool {
+				return uniIdSyncFilter(r.ID)
+			},
+		)
 
-				return false
+	// At this point, we know that global insert is disabled, and we don't
+	// have any specific Universes to sync. We will therefore fetch roots
+	// for all universes which have corresponding and enabled specific sync
+	// configs.
+	default:
+		var uniIDs []Identifier
+
+		for _, uniSyncCfg := range syncConfigs.UniSyncConfigs {
+			// Check with the filter to ensure that the universe is
+			// applicable for syncing. If not, we would have
+			// retrieved the corresponding root in vain.
+			if uniIdSyncFilter(uniSyncCfg.UniverseID) {
+				uniIDs = append(
+					uniIDs, uniSyncCfg.UniverseID,
+				)
 			}
+		}
 
-			return syncConfigs.IsSyncInsertEnabled(r.ID)
-		},
-	)
+		// Retrieve roots for the gathered set of universes.
+		targetRoots, err = fetchRootsForIDs(ctx, uniIDs, diffEngine)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
@@ -150,6 +173,37 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 	// Finally, we'll collect all the diffs and return them to the caller.
 	return fn.Collect(syncDiffs), nil
+}
+
+// fetchRootsForIDs fetches the roots for a specific set of universe IDs.
+func fetchRootsForIDs(ctx context.Context, idsToSync []Identifier,
+	diffEngine DiffEngine) ([]Root, error) {
+
+	log.Infof("Fetching %v roots", len(idsToSync))
+	log.Tracef("Fetching %v roots for IDs: %v", len(idsToSync),
+		spew.Sdump(idsToSync))
+
+	// We'll use an error group to fetch each Universe root we need
+	// as a series of parallel requests backed by a worker pool.
+	rootsToSync := make(chan Root, len(idsToSync))
+	err := fn.ParSlice(
+		ctx, idsToSync,
+		func(ctx context.Context, id Identifier) error {
+			root, err := diffEngine.RootNode(ctx, id)
+			if err != nil {
+				return err
+			}
+
+			rootsToSync <- root
+			return nil
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch roots for "+
+			"universe sync: %w", err)
+	}
+
+	return fn.Collect(rootsToSync), nil
 }
 
 // syncRoot attempts to sync the local Universe with the remote diff engine for
