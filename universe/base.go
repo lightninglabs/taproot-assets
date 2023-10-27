@@ -12,6 +12,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
 
@@ -132,6 +133,69 @@ func (a *Archive) RootNodes(ctx context.Context,
 		q.SortDirection, q.Offset, q.Limit)
 
 	return a.cfg.Multiverse.RootNodes(ctx, q)
+}
+
+// MultiverseRoot returns the root node of the multiverse for the specified
+// proof type. If the given list of universe IDs is non-empty, then the root
+// will be calculated just for those universes.
+func (a *Archive) MultiverseRoot(ctx context.Context, proofType ProofType,
+	filterByIDs []Identifier) (mssmt.Node, error) {
+
+	log.Debugf("Fetching multiverse root for proof type: %v", proofType)
+
+	leaveIDs, err := a.cfg.Multiverse.FetchLeaves(ctx, nil, nil, proofType)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch multiverse leaves: %w",
+			err)
+	}
+
+	// If a filter list is provided, then we'll only include the leaves
+	// that are in the filter list.
+	includeUniverse := func(id Identifier) bool {
+		if len(filterByIDs) == 0 {
+			return true
+		}
+
+		for _, filterID := range filterByIDs {
+			if id.IsEqual(filterID) {
+				return true
+			}
+		}
+
+		return false
+	}
+
+	memStore := mssmt.NewDefaultStore()
+	tree := mssmt.NewCompactedTree(memStore)
+
+	for _, id := range leaveIDs {
+		// Only include the universe if it's in the filter list (given
+		// the filter list is non-empty).
+		if !includeUniverse(id) {
+			continue
+		}
+
+		uniRoot, err := a.cfg.Multiverse.UniverseRootNode(ctx, id)
+		if err != nil {
+			return nil, fmt.Errorf("unable to fetch universe "+
+				"root: %w", err)
+		}
+
+		rootHash := uniRoot.NodeHash()
+		rootSum := uniRoot.NodeSum()
+
+		if id.ProofType == ProofTypeIssuance {
+			rootSum = 1
+		}
+
+		uniLeaf := mssmt.NewLeafNode(rootHash[:], rootSum)
+		_, err = tree.Insert(ctx, id.Bytes(), uniLeaf)
+		if err != nil {
+			return nil, fmt.Errorf("unable to insert leaf: %w", err)
+		}
+	}
+
+	return tree.Root(ctx)
 }
 
 // UpsertProofLeaf attempts to upsert a proof for an asset issuance or transfer

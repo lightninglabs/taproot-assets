@@ -84,6 +84,24 @@ func (i *Identifier) StringForLog() string {
 		i.String(), i.AssetID[:], groupKey, i.ProofType)
 }
 
+// IsEqual returns true if the two identifiers are equal.
+func (i *Identifier) IsEqual(other Identifier) bool {
+	if i == nil {
+		return false
+	}
+
+	groupKeysEqual := false
+	if i.GroupKey == nil || other.GroupKey == nil {
+		groupKeysEqual = i.GroupKey == other.GroupKey
+	} else {
+		groupKeysEqual = i.GroupKey.IsEqual(other.GroupKey)
+	}
+
+	return i.AssetID == other.AssetID &&
+		groupKeysEqual &&
+		i.ProofType == other.ProofType
+}
+
 // NewUniIDFromAsset creates a new universe ID from an asset.
 func NewUniIDFromAsset(a asset.Asset) Identifier {
 	proofType := ProofTypeTransfer
@@ -393,6 +411,13 @@ type MultiverseArchive interface {
 	// universe.
 	UniverseLeafKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
+
+	// FetchLeaves returns the set of multiverse leaves for the given proof
+	// type, asset ID, and group key. If both asset ID and group key is nil,
+	// all leaves for the given proof type will be returned.
+	FetchLeaves(ctx context.Context, assetID *asset.ID,
+		groupKey *btcec.PublicKey,
+		proofType ProofType) ([]Identifier, error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a
