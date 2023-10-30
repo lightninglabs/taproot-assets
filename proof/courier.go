@@ -187,7 +187,7 @@ func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 	// Consequently, if we attempt to perform two consecutive send events
 	// which share the same proof lineage (matching ancestral proofs), the
 	// second send event will be delayed by the initial delay.
-	cfg.BackoffCfg.SkipInitDeliveryDelay = true
+	cfg.BackoffCfg.SkipInitDelay = true
 	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
 
 	// Ensure that the courier address is a universe RPC address.
@@ -541,10 +541,10 @@ func (e *BackoffExecError) Error() string {
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 type BackoffCfg struct {
-	// SkipInitDeliveryDelay is a flag that indicates whether we should skip
+	// SkipInitDelay is a flag that indicates whether we should skip
 	// the initial delay before attempting to deliver the proof to the
 	// receiver.
-	SkipInitDeliveryDelay bool
+	SkipInitDelay bool
 
 	// BackoffResetWait is the amount of time we'll wait before
 	// resetting the backoff counter to its initial state.
@@ -576,11 +576,11 @@ type BackoffHandler struct {
 // initialDelay performs an initial delay based on the delivery log to ensure
 // that we don't spam the courier service with proof delivery attempts.
 func (b *BackoffHandler) initialDelay(ctx context.Context,
-	proofLocator Locator) error {
+	proofLocator Locator, proofTransferType TransferType) error {
 
-	// If the skip initial delivery delay flag is set, we'll skip the
+	// If the skip initial transfer delay flag is set, we'll skip the
 	// initial delay.
-	if b.cfg.SkipInitDeliveryDelay {
+	if b.cfg.SkipInitDelay {
 		return nil
 	}
 
@@ -588,40 +588,40 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 	if err != nil {
 		return err
 	}
-	log.Debugf("Handling initial delivery delay for proof: "+
-		"(locator_hash=%x)", locatorHash[:])
+	log.Debugf("Handling initial proof transfer delay (locator_hash=%x)",
+		locatorHash[:])
 
 	// Query delivery log to ensure a sensible rate of delivery attempts.
 	timestamps, err := b.transferLog.QueryProofTransferLog(
-		ctx, proofLocator, DeliverTransferType,
+		ctx, proofLocator, proofTransferType,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve proof delivery "+
+		return fmt.Errorf("unable to retrieve proof transfer attemps "+
 			"logs: %w", err)
 	}
 
 	if len(timestamps) == 0 {
-		log.Debugf("No previous proof delivery attempts found "+
+		log.Debugf("No previous transfer attempts found for proof "+
 			"(locator_hash=%x)", locatorHash[:])
 		return nil
 	}
 
-	log.Debugf("Found timestamp(s) relating to previous proof delivery "+
+	log.Debugf("Found timestamp(s) relating to previous proof transfer "+
 		"attempt. Number of timestamps: %d", len(timestamps))
 
-	// Determine whether the historical receiver proof delivery attempts
-	// occurred far enough in the past to warrant a new set of delivery
+	// Determine whether the historical receiver proof transfer attempts
+	// occurred far enough in the past to warrant a new set of transfer
 	// attempts. Otherwise, wait.
 	//
-	// At this point we know we have a non-zero number of past delivery
+	// At this point we know we have a non-zero number of past transfer
 	// attempts.
-	timeSinceLastAttempt := timeSinceLastDeliveryAttempt(timestamps)
+	timeSinceLastAttempt := timeSinceLastTransferAttempt(timestamps)
 	backoffResetWait := b.cfg.BackoffResetWait
 	if timeSinceLastAttempt < backoffResetWait {
 		waitDuration := backoffResetWait - timeSinceLastAttempt
-		log.Debugf("Waiting %v before attempting to deliver receiver "+
-			"proof (locator_hash=%x) to receiver using backoff "+
-			"procedure", waitDuration, locatorHash[:])
+		log.Debugf("Waiting %v before attempting to transfer proof "+
+			"(locator_hash=%x) using backoff procedure",
+			waitDuration, locatorHash[:])
 
 		err := b.wait(ctx, waitDuration)
 		if err != nil {
@@ -632,11 +632,12 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 	return nil
 }
 
-// Exec attempts to execute the given target function using a repeating backoff
-// time delayed strategy. The backoff strategy is used to ensure that we don't
-// spam the courier service with proof delivery attempts.
-func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
-	targetFunc func() error, subscriberEvent func(fn.Event)) error {
+// Exec attempts to execute the given proof transfer function using a repeating
+// backoff time delayed strategy. The backoff strategy is used to ensure that we
+// don't spam the courier service with proof transfer attempts.
+func (b *BackoffHandler) Exec(ctx context.Context,
+	proofLocator Locator, transferType TransferType,
+	transferFunc func() error, subscriberEvent func(fn.Event)) error {
 
 	if b.cfg == nil {
 		return fmt.Errorf("backoff config not specified")
@@ -646,13 +647,13 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 	if err != nil {
 		return err
 	}
-	log.Infof("Starting proof delivery backoff procedure for proof: "+
+	log.Infof("Starting proof transfer backoff procedure for proof "+
 		"(locator_hash=%x)", locatorHash[:])
 
-	// Conditionally perform an initial delay based on the delivery log to
-	// ensure that we don't spam the courier service with proof delivery
+	// Conditionally perform an initial delay based on the transfer log to
+	// ensure that we don't spam the courier service with proof transfer
 	// attempts.
-	err = b.initialDelay(ctx, proofLocator)
+	err = b.initialDelay(ctx, proofLocator, transferType)
 	if err != nil {
 		return err
 	}
@@ -662,7 +663,7 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		numTries   = b.cfg.NumTries
 		maxBackoff = b.cfg.MaxBackoff
 
-		// Target function execution error.
+		// Transfer function return error.
 		errExec error = nil
 	)
 
@@ -670,15 +671,15 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		// Before attempting to deliver the proof, log that
 		// an attempted delivery is about to occur.
 		err = b.transferLog.LogProofTransferAttempt(
-			ctx, proofLocator, DeliverTransferType,
+			ctx, proofLocator, transferType,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to log proof "+
-				"delivery attempt: %w", err)
+			return fmt.Errorf("unable to log proof delivery "+
+				"attempt: %w", err)
 		}
 
-		// Execute target function.
-		errExec = targetFunc()
+		// Execute target proof transfer function.
+		errExec = transferFunc()
 		if errExec == nil {
 			// The target function executed successfully, we can
 			// exit the loop.
@@ -701,8 +702,8 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		)
 		subscriberEvent(transferEvent)
 
-		log.Debugf("Receiver proof delivery failed with "+
-			"error. Backing off for %s: %v", backoff, errExec)
+		log.Debugf("Proof delivery failed with error. Backing off "+
+			"for %s: %v", backoff, errExec)
 
 		// Wait before reattempting execution.
 		err := b.wait(ctx, backoff)
@@ -718,8 +719,8 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		}
 	}
 	if errExec != nil {
-		return fmt.Errorf("receiver proof delivery failed; count "+
-			"retries attempted: %d; %w", numTries, errExec)
+		return fmt.Errorf("proof transfer backoff procedure failed; "+
+			"count retries attempted: %d; %w", numTries, errExec)
 	}
 
 	return nil
@@ -801,8 +802,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 			ctx, senderStreamID, receiverStreamID,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to initialize "+
-				"mailboxes: %w", err)
+			return fmt.Errorf("failed to initialize mailboxes: %w",
+				err)
 		}
 
 		// Now that the stream has been initialized, we'll write
@@ -817,8 +818,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 			ctx, senderStreamID, proof.Blob,
 		)
 		if err != nil {
-			return fmt.Errorf("failed to send proof "+
-				"to asset transfer receiver: %w", err)
+			return fmt.Errorf("failed to send proof to asset "+
+				"transfer receiver: %w", err)
 		}
 
 		// Wait to receive the ACK from the remote party over
@@ -832,14 +833,15 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 		defer cancel()
 		err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
 		if err != nil {
-			return fmt.Errorf("failed to receive ACK "+
-				"from receiver within timeout: %w", err)
+			return fmt.Errorf("failed to receive ACK from "+
+				"receiver within timeout: %w", err)
 		}
 
 		return nil
 	}
 	err := h.backoffHandle.Exec(
-		ctx, proof.Locator, deliveryExec, h.publishSubscriberEvent,
+		ctx, proof.Locator, SendTransferType, deliveryExec,
+		h.publishSubscriberEvent,
 	)
 	if err != nil {
 		return fmt.Errorf("proof backoff delivery attempt has "+
@@ -888,11 +890,11 @@ func (h *HashMailCourier) initMailboxes(ctx context.Context,
 	return nil
 }
 
-// timeSinceLastDeliveryAttempt calculates time duration which has elapsed since
-// the last delivery attempt.
-func timeSinceLastDeliveryAttempt(timestamps []time.Time) time.Duration {
-	// If there are no previous proof delivery attempts, then we'll
-	// return early.
+// timeSinceLastTransferAttempt calculates time duration which has elapsed since
+// the last proof transfer attempt (either delivery or retrieval).
+func timeSinceLastTransferAttempt(timestamps []time.Time) time.Duration {
+	// If there are no previous proof transfer attempts, then we'll return
+	// early.
 	if len(timestamps) == 0 {
 		return time.Duration(0)
 	}
@@ -1117,14 +1119,16 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 				AssetLeaf: &assetLeaf,
 			})
 			if err != nil {
-				return fmt.Errorf("error inserting proof into "+
-					"universe courier service: %w", err)
+				return fmt.Errorf("error inserting proof "+
+					"into universe courier service: %w",
+					err)
 			}
 
 			return nil
 		}
 		err = c.backoffHandle.Exec(
-			ctx, loc, deliverFunc, c.publishSubscriberEvent,
+			ctx, loc, SendTransferType, deliverFunc,
+			c.publishSubscriberEvent,
 		)
 		if err != nil {
 			return fmt.Errorf("proof backoff delivery attempt has "+
