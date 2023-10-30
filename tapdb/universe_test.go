@@ -278,7 +278,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// Next, we'll query for all the available keys, this should match the
 	// number of insertions we just did.
-	mintingKeys, err := baseUniverse.MintingKeys(ctx)
+	mintingKeys, err := baseUniverse.MintingKeys(
+		ctx, universe.UniverseLeafKeysQuery{},
+	)
 	require.NoError(t, err)
 	require.Equal(t, numLeaves, len(mintingKeys))
 
@@ -342,7 +344,9 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	_, err = baseUniverse.DeleteUniverse(ctx)
 	require.NoError(t, err)
 
-	mintingKeys, err = baseUniverse.MintingKeys(ctx)
+	mintingKeys, err = baseUniverse.MintingKeys(
+		ctx, universe.UniverseLeafKeysQuery{},
+	)
 	require.NoError(t, err)
 	require.Len(t, mintingKeys, 0)
 
@@ -463,7 +467,11 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	)
 	multiverse := NewMultiverseStore(multiverseDB)
 
-	rootNodes, err := multiverse.RootNodes(ctx, true)
+	rootNodes, err := multiverse.RootNodes(
+		ctx, universe.RootNodesQuery{
+			WithAmountsById: true,
+		},
+	)
 	require.NoError(t, err)
 
 	// We should be able to find both of the roots we've inserted above.
@@ -514,7 +522,11 @@ func TestUniverseTreeIsolation(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 
 	// The deleted universe should not be present in the multiverse.
-	rootNodes, err = multiverse.RootNodes(ctx, true)
+	rootNodes, err = multiverse.RootNodes(
+		ctx, universe.RootNodesQuery{
+			WithAmountsById: true,
+		},
+	)
 	require.NoError(t, err)
 	require.Len(t, rootNodes, 1)
 	require.True(t, mssmt.IsEqualNode(rootNodes[0].Node, groupRoot))

@@ -24,6 +24,8 @@ const (
 
 type (
 	BaseUniverseRoot = sqlc.UniverseRootsRow
+
+	UniverseRootsParams = sqlc.UniverseRootsParams
 )
 
 // BaseMultiverseStore is used to interact with a set of base universe
@@ -31,7 +33,8 @@ type (
 type BaseMultiverseStore interface {
 	BaseUniverseStore
 
-	UniverseRoots(ctx context.Context) ([]BaseUniverseRoot, error)
+	UniverseRoots(ctx context.Context,
+		params UniverseRootsParams) ([]BaseUniverseRoot, error)
 }
 
 // BaseMultiverseOptions is the set of options for multiverse queries.
@@ -133,15 +136,27 @@ func (b *MultiverseStore) RootNode(ctx context.Context,
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the multiverse.
 func (b *MultiverseStore) RootNodes(ctx context.Context,
-	withAmountsById bool) ([]universe.Root, error) {
+	q universe.RootNodesQuery) ([]universe.Root, error) {
 
 	var (
 		uniRoots []universe.Root
 		readTx   = NewBaseMultiverseReadTx()
 	)
 
+	params := sqlc.UniverseRootsParams{
+		SortDirection: sqlInt16(q.SortDirection),
+		NumOffset:     int32(q.Offset),
+		NumLimit: func() int32 {
+			if q.Limit == 0 {
+				return universe.MaxPageSize
+			}
+
+			return int32(q.Limit)
+		}(),
+	}
+
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
-		dbRoots, err := db.UniverseRoots(ctx)
+		dbRoots, err := db.UniverseRoots(ctx, params)
 		if err != nil {
 			return err
 		}
@@ -177,7 +192,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			// We skip the grouped assets if that wasn't explicitly
 			// requested by the user, saves us some calls for
 			// grouped assets.
-			if dbRoot.GroupKey != nil && withAmountsById {
+			if dbRoot.GroupKey != nil && q.WithAmountsById {
 				groupLeaves, err := db.QueryUniverseLeaves(
 					ctx, UniverseLeafQuery{
 						Namespace: id.String(),
@@ -195,7 +210,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 					copy(id[:], leaf.AssetID)
 					groupedAssets[id] = uint64(leaf.SumAmt)
 				}
-			} else if withAmountsById {
+			} else if q.WithAmountsById {
 				// For non-grouped assets, there's exactly one
 				// member, the asset itself.
 				groupedAssets = map[asset.ID]uint64{

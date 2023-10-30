@@ -127,6 +127,13 @@ func (a *Archive) RootNode(ctx context.Context,
 	})
 }
 
+type RootNodesQuery struct {
+	WithAmountsById bool
+	SortDirection   SortDirection
+	Offset          int32
+	Limit           int32
+}
+
 // RootNodes returns the set of root nodes for all known base universes assets.
 func (a *Archive) RootNodes(ctx context.Context,
 	withAmountsById bool) ([]Root, error) {
@@ -544,6 +551,13 @@ func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	}()
 
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
+}
+
+type UniverseLeafKeysQuery struct {
+	Id            Identifier
+	SortDirection SortDirection
+	Offset        int32
+	Limit         int32
 }
 
 // UniverseLeafKeys returns the set of leaf keys known for the specified

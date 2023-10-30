@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -421,7 +420,7 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 			NumOffset:     int32(q.Offset),
 			NumLimit: func() int32 {
 				if q.Limit == 0 {
-					return int32(math.MaxInt32)
+					return universe.MaxPageSize
 				}
 
 				return int32(q.Limit)
