@@ -270,9 +270,30 @@ func universeKeys(ctx *cli.Context) error {
 		return err
 	}
 
-	assetKeys, err := client.AssetLeafKeys(ctxc, universeID)
-	if err != nil {
-		return err
+	assetKeys := &unirpc.AssetLeafKeyResponse{}
+	offset := 0
+
+	for {
+		tempKeys, err := client.AssetLeafKeys(
+			ctxc, &unirpc.AssetLeafKeysRequest{
+				Id:     universeID,
+				Offset: int32(offset),
+				Limit:  universe.MaxPageSize,
+			},
+		)
+
+		if err != nil {
+			return err
+		}
+
+		if len(tempKeys.AssetKeys) == 0 {
+			break
+		}
+
+		assetKeys.AssetKeys = append(
+			assetKeys.AssetKeys, tempKeys.AssetKeys...,
+		)
+		offset += universe.MaxPageSize
 	}
 
 	printRespJSON(assetKeys)

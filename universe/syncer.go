@@ -13,6 +13,10 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	defaultPageSize = int32(MaxPageSize)
+)
+
 var (
 	// ErrUnsupportedSync is returned when a syncer is asked to async in a
 	// way that it does not support.
@@ -116,7 +120,8 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	// remote servers.
 	case globalInsertEnabled:
 		log.Infof("Fetching all roots for remote Universe server...")
-		targetRoots, err = diffEngine.RootNodes(ctx, false)
+
+		targetRoots, err = s.fetchAllRoots(ctx, diffEngine)
 		if err != nil {
 			return nil, err
 		}
@@ -236,12 +241,19 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 		uniID.String())
 
 	// Otherwise, we'll need to perform a diff operation to find the set of
-	// keys we need to fetch.
-	remoteUniKeys, err := diffEngine.UniverseLeafKeys(ctx, uniID)
+	// keys we need to fetch. We'll start by fetching the set of keys from
+	// both the local and remote Universe.
+	var (
+		remoteUniKeys []LeafKey
+		localUniKeys  []LeafKey
+	)
+
+	remoteUniKeys, err = s.fetchAllLeafKeys(ctx, diffEngine, uniID)
 	if err != nil {
 		return err
 	}
-	localUniKeys, err := s.cfg.LocalDiffEngine.UniverseLeafKeys(ctx, uniID)
+
+	localUniKeys, err = s.fetchAllLeafKeys(ctx, s.cfg.LocalDiffEngine, uniID)
 	if err != nil {
 		return err
 	}
@@ -439,4 +451,74 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 	// With the engine created, we can now sync the local Universe with the
 	// remote instance.
 	return s.executeSync(ctx, diffEngine, syncType, syncConfigs, idsToSync)
+}
+
+// fetchAllRoots fetches all the roots from the remote Universe. This function
+// is used in order to isolate any logic related to the specifics of how we
+// fetch the data from the universe server.
+func (s *SimpleSyncer) fetchAllRoots(ctx context.Context, diffEngine DiffEngine) ([]Root, error) {
+	offset := int32(0)
+	pageSize := defaultPageSize
+	roots := make([]Root, 0)
+
+	for {
+		log.Debugf("Fetching roots in range: %v to %v", offset,
+			offset+pageSize)
+		tempRoots, err := diffEngine.RootNodes(
+			ctx, RootNodesQuery{
+				WithAmountsById: false,
+				SortDirection:   SortAscending,
+				Offset:          offset,
+				Limit:           pageSize,
+			},
+		)
+
+		if err != nil {
+			return nil, err
+		}
+
+		if len(tempRoots) == 0 {
+			break
+		}
+
+		roots = append(roots, tempRoots...)
+		offset += pageSize
+	}
+
+	return roots, nil
+}
+
+// fetchAllLeafKeys fetches all the leaf keys from the remote Universe. This
+// function is used in order to isolate any logic related to the specifics of
+// how we fetch the data from the universe server.
+func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
+	diffEngine DiffEngine, uniID Identifier) ([]LeafKey, error) {
+
+	// Initialize the offset to be used for the pages.
+	offset := int32(0)
+	pageSize := defaultPageSize
+	leafKeys := make([]LeafKey, 0)
+
+	for {
+		tempRemoteKeys, err := diffEngine.UniverseLeafKeys(
+			ctx, UniverseLeafKeysQuery{
+				Id:            uniID,
+				Offset:        offset,
+				Limit:         pageSize,
+				SortDirection: SortAscending,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(tempRemoteKeys) == 0 {
+			break
+		}
+
+		leafKeys = append(leafKeys, tempRemoteKeys...)
+		offset += pageSize
+	}
+
+	return leafKeys, nil
 }
