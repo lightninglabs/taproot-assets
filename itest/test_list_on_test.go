@@ -64,6 +64,11 @@ var testCases = []*testCase{
 		proofCourierType: proof.UniverseRpcCourierType,
 	},
 	{
+		name:             "reattempt failed receive uni courier",
+		test:             testReattemptFailedReceiveUniCourier,
+		proofCourierType: proof.UniverseRpcCourierType,
+	},
+	{
 		name:             "offline receiver eventually receives",
 		test:             testOfflineReceiverEventuallyReceives,
 		proofCourierType: proof.HashmailCourierType,
