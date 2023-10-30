@@ -1184,13 +1184,35 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 			LeafKey: assetKey,
 		}
 
-		resp, err := c.client.QueryProof(ctx, &universeKey)
+		// Setup proof receive/query routine and start backoff
+		// procedure.
+		var proofBlob []byte
+		receiveFunc := func() error {
+			// Retrieve proof from courier.
+			resp, err := c.client.QueryProof(ctx, &universeKey)
+			if err != nil {
+				return err
+			}
+			if err != nil {
+				return fmt.Errorf("error retreving proof "+
+					"from universe courier service: %w",
+					err)
+			}
+
+			proofBlob = resp.AssetLeaf.IssuanceProof
+
+			return nil
+		}
+		err := c.backoffHandle.Exec(
+			ctx, loc, ReceiveTransferType, receiveFunc,
+			c.publishSubscriberEvent,
+		)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("proof backoff receive "+
+				"attempt has failed: %w", err)
 		}
 
 		// Decode transition proof from query response.
-		proofBlob := resp.AssetLeaf.IssuanceProof
 		var transitionProof Proof
 		if err := transitionProof.Decode(
 			bytes.NewReader(proofBlob),
