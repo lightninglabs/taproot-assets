@@ -35,6 +35,12 @@ var (
 	ErrNoUniverseProofFound = fmt.Errorf("no universe proof found")
 )
 
+const (
+	// MaxPageSize is the maximum page size that can be used when querying
+	// for asset roots and leaves.
+	MaxPageSize = 512
+)
+
 // Identifier is the identifier for a universe.
 type Identifier struct {
 	// AssetID is the asset ID for the universe.
@@ -237,7 +243,8 @@ type BaseBackend interface {
 		key LeafKey) ([]*Proof, error)
 
 	// MintingKeys returns all the keys inserted in the universe.
-	MintingKeys(ctx context.Context) ([]LeafKey, error)
+	MintingKeys(ctx context.Context,
+		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
 	// MintingLeaves returns all the minting leaves inserted into the
 	// universe.
@@ -282,8 +289,7 @@ type MultiverseRoot struct {
 type MultiverseArchive interface {
 	// RootNodes returns the complete set of known root nodes for the set
 	// of assets tracked in the base Universe.
-	RootNodes(ctx context.Context, withAmountsById bool) ([]Root,
-		error)
+	RootNodes(ctx context.Context, q RootNodesQuery) ([]Root, error)
 
 	// UpsertProofLeaf upserts a proof leaf within the multiverse tree and
 	// the universe tree that corresponds to the given key.
@@ -496,10 +502,11 @@ type DiffEngine interface {
 	RootNode(ctx context.Context, id Identifier) (Root, error)
 
 	// RootNodes returns the set of root nodes for all known universes.
-	RootNodes(ctx context.Context, withAmountsById bool) ([]Root, error)
+	RootNodes(ctx context.Context, q RootNodesQuery) ([]Root, error)
 
 	// UniverseLeafKeys returns all the keys inserted in the universe.
-	UniverseLeafKeys(ctx context.Context, id Identifier) ([]LeafKey, error)
+	UniverseLeafKeys(ctx context.Context,
+		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
 	// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
 	// and given a universe identifier (assetID/groupKey).
