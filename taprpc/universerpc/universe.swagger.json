@@ -181,7 +181,7 @@
         ]
       }
     },
-    "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}": {
+    "/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}": {
       "get": {
         "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
         "operationId": "Universe_AssetLeafKeys",
@@ -201,14 +201,14 @@
         },
         "parameters": [
           {
-            "name": "asset_id_str",
+            "name": "id.asset_id_str",
             "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
-            "name": "asset_id",
+            "name": "id.asset_id",
             "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -216,7 +216,7 @@
             "format": "byte"
           },
           {
-            "name": "group_key",
+            "name": "id.group_key",
             "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -224,14 +224,14 @@
             "format": "byte"
           },
           {
-            "name": "group_key_str",
+            "name": "id.group_key_str",
             "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "proof_type",
+            "name": "id.proof_type",
             "in": "query",
             "required": false,
             "type": "string",
@@ -241,6 +241,34 @@
               "PROOF_TYPE_TRANSFER"
             ],
             "default": "PROOF_TYPE_UNSPECIFIED"
+          },
+          {
+            "name": "offset",
+            "description": "The offset for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The length limit for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The direction of the page.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_ASC",
+              "SORT_DIRECTION_DESC"
+            ],
+            "default": "SORT_DIRECTION_ASC"
           }
         ],
         "tags": [
@@ -248,7 +276,7 @@
         ]
       }
     },
-    "/v1/taproot-assets/universe/keys/group-key/{group_key_str}": {
+    "/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}": {
       "get": {
         "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
         "operationId": "Universe_AssetLeafKeys2",
@@ -268,14 +296,14 @@
         },
         "parameters": [
           {
-            "name": "group_key_str",
+            "name": "id.group_key_str",
             "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
-            "name": "asset_id",
+            "name": "id.asset_id",
             "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -283,14 +311,14 @@
             "format": "byte"
           },
           {
-            "name": "asset_id_str",
+            "name": "id.asset_id_str",
             "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "group_key",
+            "name": "id.group_key",
             "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -298,7 +326,7 @@
             "format": "byte"
           },
           {
-            "name": "proof_type",
+            "name": "id.proof_type",
             "in": "query",
             "required": false,
             "type": "string",
@@ -308,6 +336,34 @@
               "PROOF_TYPE_TRANSFER"
             ],
             "default": "PROOF_TYPE_UNSPECIFIED"
+          },
+          {
+            "name": "offset",
+            "description": "The offset for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The length limit for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The direction of the page.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_ASC",
+              "SORT_DIRECTION_DESC"
+            ],
+            "default": "SORT_DIRECTION_ASC"
           }
         ],
         "tags": [
@@ -798,6 +854,34 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "offset",
+            "description": "The offset for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "limit",
+            "description": "The length limit for the page.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "direction",
+            "description": "The direction of the page.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SORT_DIRECTION_ASC",
+              "SORT_DIRECTION_DESC"
+            ],
+            "default": "SORT_DIRECTION_ASC"
           }
         ],
         "tags": [

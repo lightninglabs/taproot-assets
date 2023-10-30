@@ -37,7 +37,7 @@ type UniverseClient interface {
 	// valid Taproot Asset commitment, and script_key is the script_key of
 	// the asset within the Taproot Asset commitment for the given asset_id or
 	// group_key.
-	AssetLeafKeys(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error)
+	AssetLeafKeys(ctx context.Context, in *AssetLeafKeysRequest, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error)
 	// tapcli: `universe leaves`
 	// AssetLeaves queries for the set of asset leaves (the values in the Universe
 	// MS-SMT tree) for a given asset_id or group_key. These represents either
@@ -141,7 +141,7 @@ func (c *universeClient) DeleteAssetRoot(ctx context.Context, in *DeleteRootQuer
 	return out, nil
 }
 
-func (c *universeClient) AssetLeafKeys(ctx context.Context, in *ID, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error) {
+func (c *universeClient) AssetLeafKeys(ctx context.Context, in *AssetLeafKeysRequest, opts ...grpc.CallOption) (*AssetLeafKeyResponse, error) {
 	out := new(AssetLeafKeyResponse)
 	err := c.cc.Invoke(ctx, "/universerpc.Universe/AssetLeafKeys", in, out, opts...)
 	if err != nil {
@@ -290,7 +290,7 @@ type UniverseServer interface {
 	// valid Taproot Asset commitment, and script_key is the script_key of
 	// the asset within the Taproot Asset commitment for the given asset_id or
 	// group_key.
-	AssetLeafKeys(context.Context, *ID) (*AssetLeafKeyResponse, error)
+	AssetLeafKeys(context.Context, *AssetLeafKeysRequest) (*AssetLeafKeyResponse, error)
 	// tapcli: `universe leaves`
 	// AssetLeaves queries for the set of asset leaves (the values in the Universe
 	// MS-SMT tree) for a given asset_id or group_key. These represents either
@@ -373,7 +373,7 @@ func (UnimplementedUniverseServer) QueryAssetRoots(context.Context, *AssetRootQu
 func (UnimplementedUniverseServer) DeleteAssetRoot(context.Context, *DeleteRootQuery) (*DeleteRootResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method DeleteAssetRoot not implemented")
 }
-func (UnimplementedUniverseServer) AssetLeafKeys(context.Context, *ID) (*AssetLeafKeyResponse, error) {
+func (UnimplementedUniverseServer) AssetLeafKeys(context.Context, *AssetLeafKeysRequest) (*AssetLeafKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AssetLeafKeys not implemented")
 }
 func (UnimplementedUniverseServer) AssetLeaves(context.Context, *ID) (*AssetLeafResponse, error) {
@@ -483,7 +483,7 @@ func _Universe_DeleteAssetRoot_Handler(srv interface{}, ctx context.Context, dec
 }
 
 func _Universe_AssetLeafKeys_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ID)
+	in := new(AssetLeafKeysRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -495,7 +495,7 @@ func _Universe_AssetLeafKeys_Handler(srv interface{}, ctx context.Context, dec f
 		FullMethod: "/universerpc.Universe/AssetLeafKeys",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(UniverseServer).AssetLeafKeys(ctx, req.(*ID))
+		return srv.(UniverseServer).AssetLeafKeys(ctx, req.(*AssetLeafKeysRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }

@@ -12,9 +12,9 @@ http:
         - get: "/v1/taproot-assets/universe/roots/group-key/{id.group_key_str}"
 
     - selector: universerpc.Universe.AssetLeafKeys
-      get: "/v1/taproot-assets/universe/keys/asset-id/{asset_id_str}"
+      get: "/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}"
       additional_bindings:
-        - get: "/v1/taproot-assets/universe/keys/group-key/{group_key_str}"
+        - get: "/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}"
 
     - selector: universerpc.Universe.AssetLeaves
       get: "/v1/taproot-assets/universe/leaves/asset-id/{asset_id_str}"
