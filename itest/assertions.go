@@ -1196,10 +1196,20 @@ func AssertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 	a, b unirpc.UniverseClient) {
 
 	for _, uniID := range uniIDs {
-		aUniKeys, err := a.AssetLeafKeys(context.Background(), uniID)
+		aUniKeys, err := a.AssetLeafKeys(
+			context.Background(),
+			&unirpc.AssetLeafKeysRequest{
+				Id: uniID,
+			},
+		)
 		require.NoError(t, err)
 
-		bUniKeys, err := b.AssetLeafKeys(context.Background(), uniID)
+		bUniKeys, err := b.AssetLeafKeys(
+			context.Background(),
+			&unirpc.AssetLeafKeysRequest{
+				Id: uniID,
+			},
+		)
 		require.NoError(t, err)
 
 		require.Equal(

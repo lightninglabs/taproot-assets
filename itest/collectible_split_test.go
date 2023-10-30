@@ -316,7 +316,11 @@ func testCollectibleGroupSend(t *harnessTest) {
 	// The universe tree should also have a key for each asset, with all
 	// outpoints matching the chain anchor of the group anchor.
 	mintOutpoint := collectibleAnchor.ChainAnchor.AnchorOutpoint
-	uniKeys, err := t.tapd.AssetLeafKeys(ctxb, &collectUniID)
+	uniKeys, err := t.tapd.AssetLeafKeys(
+		ctxb, &unirpc.AssetLeafKeysRequest{
+			Id: &collectUniID,
+		},
+	)
 	require.NoError(t.t, err)
 	require.Len(t.t, uniKeys.AssetKeys, batchSize)
 
