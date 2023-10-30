@@ -436,8 +436,12 @@ func testReattemptFailedAssetSendHashmailCourier(t *harnessTest) {
 		// event. This function selects for a specific event type.
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
-				ev := eventTyped.ReceiverProofBackoffWaitEvent
+			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
+				ev := eventTyped.ProofTransferBackoffWaitEvent
+				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+					return false
+				}
+
 				t.Logf("Found event ntfs: %v", ev)
 				return true
 			}
@@ -539,8 +543,12 @@ func testReattemptFailedAssetSendUniCourier(t *harnessTest) {
 		// event. This function selects for a specific event type.
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
-				ev := eventTyped.ReceiverProofBackoffWaitEvent
+			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
+				ev := eventTyped.ProofTransferBackoffWaitEvent
+				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+					return false
+				}
+
 				t.Logf("Found event ntfs: %v", ev)
 				return true
 			}
@@ -652,8 +660,12 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		// event. This function selects for a specific event type.
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
 			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent:
-				ev := eventTyped.ReceiverProofBackoffWaitEvent
+			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
+				ev := eventTyped.ProofTransferBackoffWaitEvent
+				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+					return false
+				}
+
 				t.Logf("Found event ntfs: %v", ev)
 				return true
 			}

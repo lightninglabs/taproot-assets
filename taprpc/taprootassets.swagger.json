@@ -1746,18 +1746,7 @@
         }
       }
     },
-    "taprpcQueryAddrResponse": {
-      "type": "object",
-      "properties": {
-        "addrs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/taprpcAddr"
-          }
-        }
-      }
-    },
-    "taprpcReceiverProofBackoffWaitEvent": {
+    "taprpcProofTransferBackoffWaitEvent": {
       "type": "object",
       "properties": {
         "timestamp": {
@@ -1774,6 +1763,30 @@
           "type": "string",
           "format": "int64",
           "description": "Tries counter is the number of tries we've made so far during the\ncourse of the current backoff procedure to deliver the proof to the\nreceiver."
+        },
+        "transfer_type": {
+          "$ref": "#/definitions/taprpcProofTransferType",
+          "description": "The type of proof transfer attempt."
+        }
+      }
+    },
+    "taprpcProofTransferType": {
+      "type": "string",
+      "enum": [
+        "PROOF_TRANSFER_TYPE_SEND",
+        "PROOF_TRANSFER_TYPE_RECEIVE"
+      ],
+      "default": "PROOF_TRANSFER_TYPE_SEND",
+      "description": "ProofTransferType is the type of proof transfer attempt. The transfer is\neither a proof delivery to the transfer counterparty or receiving a proof\nfrom the transfer counterparty. Note that the transfer counterparty is\nusually the proof courier service.\n\n - PROOF_TRANSFER_TYPE_SEND: This value indicates that the proof transfer attempt is a delivery to the\ntransfer counterparty.\n - PROOF_TRANSFER_TYPE_RECEIVE: This value indicates that the proof transfer attempt is a receive from\nthe transfer counterparty."
+    },
+    "taprpcQueryAddrResponse": {
+      "type": "object",
+      "properties": {
+        "addrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAddr"
+          }
         }
       }
     },
@@ -1803,9 +1816,9 @@
           "$ref": "#/definitions/taprpcExecuteSendStateEvent",
           "description": "An event which indicates that a send state is about to be executed."
         },
-        "receiver_proof_backoff_wait_event": {
-          "$ref": "#/definitions/taprpcReceiverProofBackoffWaitEvent",
-          "description": "An event which indicates that the proof send backoff wait period will\nstart imminently."
+        "proof_transfer_backoff_wait_event": {
+          "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
+          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
         }
       }
     },

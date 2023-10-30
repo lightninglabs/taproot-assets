@@ -695,12 +695,12 @@ func (b *BackoffHandler) Exec(ctx context.Context,
 			continue
 		}
 
-		// The target function execution failed. Notify subscribers that
-		// backoff wait is about to commence.
-		transferEvent := NewReceiverProofBackoffWaitEvent(
-			backoff, int64(i+1),
+		// The target delivery function execution failed. Notify
+		// subscribers that a backoff wait event is about to commence.
+		waitEvent := NewBackoffWaitEvent(
+			backoff, int64(i+1), transferType,
 		)
-		subscriberEvent(transferEvent)
+		subscriberEvent(waitEvent)
 
 		log.Debugf("Proof delivery failed with error. Backing off "+
 			"for %s: %v", backoff, errExec)
@@ -925,35 +925,43 @@ func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 	}
 }
 
-// ReceiverProofBackoffWaitEvent is an event that is sent to a subscriber each
-// time we wait via the Backoff procedure before retrying to deliver a proof to
-// the receiver.
-type ReceiverProofBackoffWaitEvent struct {
+// BackoffWaitEvent is an event that is sent to a subscriber each time we
+// wait via the Backoff procedure before retrying to deliver a proof to the
+// receiver.
+type BackoffWaitEvent struct {
 	// timestamp is the time the event was created.
 	timestamp time.Time
 
-	// Backoff is the current Backoff duration.
+	// Backoff is the current backoff wait duration.
 	Backoff time.Duration
 
 	// TriesCounter is the number of tries we've made so far during the
 	// course of the current Backoff procedure to deliver the proof to the
 	// receiver.
 	TriesCounter int64
+
+	// TransferType is the type of proof transfer attempt. The transfer is
+	// either a proof delivery to the transfer counterparty or receiving a
+	// proof from the transfer counterparty. Note that the transfer
+	// counterparty is usually the proof courier service.
+	TransferType TransferType
 }
 
 // Timestamp returns the timestamp of the event.
-func (e *ReceiverProofBackoffWaitEvent) Timestamp() time.Time {
+func (e *BackoffWaitEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
-// NewReceiverProofBackoffWaitEvent creates a new ReceiverProofBackoffWaitEvent.
-func NewReceiverProofBackoffWaitEvent(
-	backoff time.Duration, triesCounter int64) *ReceiverProofBackoffWaitEvent {
+// NewBackoffWaitEvent creates a new BackoffWaitEvent.
+func NewBackoffWaitEvent(
+	backoff time.Duration, triesCounter int64,
+	transferType TransferType) *BackoffWaitEvent {
 
-	return &ReceiverProofBackoffWaitEvent{
+	return &BackoffWaitEvent{
 		timestamp:    time.Now().UTC(),
 		Backoff:      backoff,
 		TriesCounter: triesCounter,
+		TransferType: transferType,
 	}
 }
 

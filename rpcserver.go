@@ -2286,7 +2286,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 	}
 }
 
-// marshallSendAssetEvent maps a ChainPorter event to its RPC counterpart.
+// marshallSendAssetEvent maps an asset send event to its RPC counterpart.
 func marshallSendAssetEvent(
 	eventInterface fn.Event) (*taprpc.SendAssetEvent, error) {
 
@@ -2302,12 +2302,24 @@ func marshallSendAssetEvent(
 			Event: eventRpc,
 		}, nil
 
-	case *proof.ReceiverProofBackoffWaitEvent:
-		eventRpc := taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent{
-			ReceiverProofBackoffWaitEvent: &taprpc.ReceiverProofBackoffWaitEvent{
+	case *proof.BackoffWaitEvent:
+		// Map the transfer type to the RPC counterpart. We only
+		// support the send transfer type for asset send events.
+		var transferTypeRpc taprpc.ProofTransferType
+		switch event.TransferType {
+		case proof.SendTransferType:
+			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+		default:
+			return nil, fmt.Errorf("unexpected transfer type: %v",
+				event.TransferType)
+		}
+
+		eventRpc := taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent{
+			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
 				Timestamp:    event.Timestamp().UnixMicro(),
 				Backoff:      event.Backoff.Microseconds(),
 				TriesCounter: event.TriesCounter,
+				TransferType: transferTypeRpc,
 			},
 		}
 		return &taprpc.SendAssetEvent{
