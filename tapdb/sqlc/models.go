@@ -263,7 +263,8 @@ type PassiveAsset struct {
 	NewProof        []byte
 }
 
-type ReceiverProofTransferAttempt struct {
+type ProofTransferLog struct {
+	TransferType     string
 	ProofLocatorHash []byte
 	TimeUnix         time.Time
 }

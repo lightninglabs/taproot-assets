@@ -235,7 +235,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		proofCourierCfg = &proof.CourierCfg{
 			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
 			BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
-			DeliveryLog:        assetStore,
+			TransferLog:        assetStore,
 		}
 	}
 

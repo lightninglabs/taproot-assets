@@ -122,7 +122,7 @@ func (h *HashMailCourierAddr) Url() *url.URL {
 func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
 	recipient Recipient) (Courier, error) {
 
-	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.DeliveryLog)
+	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
 
 	hashMailCfg := HashMailCourierCfg{
 		ReceiverAckTimeout: cfg.ReceiverAckTimeout,
@@ -188,7 +188,7 @@ func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 	// which share the same proof lineage (matching ancestral proofs), the
 	// second send event will be delayed by the initial delay.
 	cfg.BackoffCfg.SkipInitDeliveryDelay = true
-	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.DeliveryLog)
+	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
 
 	// Ensure that the courier address is a universe RPC address.
 	if h.addr.Scheme != UniverseRpcCourierType {
@@ -221,7 +221,7 @@ func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 		recipient:     recipient,
 		client:        client,
 		backoffHandle: backoffHandle,
-		deliveryLog:   cfg.DeliveryLog,
+		transfer:      cfg.TransferLog,
 		subscribers:   subscribers,
 	}, nil
 }
@@ -264,9 +264,9 @@ type CourierCfg struct {
 	// functionality.
 	BackoffCfg *BackoffCfg
 
-	// DeliveryLog is the log that the courier will use to record the
-	// attempted delivery of proofs to the receiver.
-	DeliveryLog DeliveryLog
+	// TransferLog is a log for recording proof delivery and retrieval
+	// attempts.
+	TransferLog TransferLog
 }
 
 // ProofMailbox represents an abstract store-and-forward mailbox that can be
@@ -568,9 +568,9 @@ type BackoffHandler struct {
 	// cfg contains the backoff configuration parameters.
 	cfg *BackoffCfg
 
-	// deliveryLog is the log that the courier will use to record and query
-	// proof delivery attempts.
-	deliveryLog DeliveryLog
+	// transferLog is a log for recording proof delivery and retrieval
+	// attempts.
+	transferLog TransferLog
 }
 
 // initialDelay performs an initial delay based on the delivery log to ensure
@@ -592,8 +592,8 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 		"(locator_hash=%x)", locatorHash[:])
 
 	// Query delivery log to ensure a sensible rate of delivery attempts.
-	timestamps, err := b.deliveryLog.QueryProofDeliveryLog(
-		ctx, proofLocator,
+	timestamps, err := b.transferLog.QueryProofTransferLog(
+		ctx, proofLocator, DeliverTransferType,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to retrieve proof delivery "+
@@ -669,7 +669,9 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 	for i := 0; i < numTries; i++ {
 		// Before attempting to deliver the proof, log that
 		// an attempted delivery is about to occur.
-		err = b.deliveryLog.StoreProofDeliveryAttempt(ctx, proofLocator)
+		err = b.transferLog.LogProofTransferAttempt(
+			ctx, proofLocator, DeliverTransferType,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to log proof "+
 				"delivery attempt: %w", err)
@@ -735,11 +737,11 @@ func (b *BackoffHandler) wait(ctx context.Context, wait time.Duration) error {
 
 // NewBackoffHandler creates a new backoff procedure handle.
 func NewBackoffHandler(cfg *BackoffCfg,
-	deliveryLog DeliveryLog) *BackoffHandler {
+	deliveryLog TransferLog) *BackoffHandler {
 
 	return &BackoffHandler{
 		cfg:         cfg,
-		deliveryLog: deliveryLog,
+		transferLog: deliveryLog,
 	}
 }
 
@@ -1019,9 +1021,9 @@ type UniverseRpcCourier struct {
 	// delivery.
 	backoffHandle *BackoffHandler
 
-	// deliveryLog is the log that the courier will use to record the
+	// transfer is the log that the courier will use to record the
 	// attempted delivery of proofs to the receiver.
-	deliveryLog DeliveryLog
+	transfer TransferLog
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -1262,13 +1264,30 @@ func (c *UniverseRpcCourier) publishSubscriberEvent(event fn.Event) {
 // proof.Courier interface.
 var _ Courier = (*UniverseRpcCourier)(nil)
 
-// DeliveryLog is an interface that allows the courier to log the (attempted)
-// delivery of a proof.
-type DeliveryLog interface {
-	// StoreProofDeliveryAttempt logs a proof delivery attempt to disk.
-	StoreProofDeliveryAttempt(context.Context, Locator) error
+// TransferType is the type of proof transfer attempt. The transfer is
+// either a proof delivery to the transfer counterparty or receiving a proof
+// from the transfer counterparty. Note that the transfer counterparty is
+// usually the proof courier service.
+type TransferType string
 
-	// QueryProofDeliveryLog returns timestamps which correspond to logged
+const (
+	// SendTransferType signifies that a proof was sent to the transfer
+	// counterparty.
+	SendTransferType TransferType = "send"
+
+	// ReceiveTransferType signifies that a proof was received from the
+	// proof transfer counterparty.
+	ReceiveTransferType TransferType = "receive"
+)
+
+// TransferLog is an interface that allows the courier to log the attempted
+// delivery/receive of a proof.
+type TransferLog interface {
+	// LogProofTransferAttempt logs a new proof transfer attempt.
+	LogProofTransferAttempt(context.Context, Locator, TransferType) error
+
+	// QueryProofTransferLog returns timestamps which correspond to logged
 	// proof delivery attempts.
-	QueryProofDeliveryLog(context.Context, Locator) ([]time.Time, error)
+	QueryProofTransferLog(context.Context, Locator,
+		TransferType) ([]time.Time, error)
 }
