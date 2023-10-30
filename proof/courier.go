@@ -648,7 +648,8 @@ func (b *BackoffHandler) Exec(ctx context.Context,
 		return err
 	}
 	log.Infof("Starting proof transfer backoff procedure for proof "+
-		"(locator_hash=%x)", locatorHash[:])
+		"(transfer_type=%s, locator_hash=%x)", transferType,
+		locatorHash[:])
 
 	// Conditionally perform an initial delay based on the transfer log to
 	// ensure that we don't spam the courier service with proof transfer
@@ -702,8 +703,10 @@ func (b *BackoffHandler) Exec(ctx context.Context,
 		)
 		subscriberEvent(waitEvent)
 
-		log.Debugf("Proof delivery failed with error. Backing off "+
-			"for %s: %v", backoff, errExec)
+		log.Debugf("Proof delivery failed with error. Backing off. "+
+			"(transfer_type=%s, locator_hash=%x, backoff=%s, "+
+			"attempt=%d): %v",
+			transferType, locatorHash[:], backoff, i, errExec)
 
 		// Wait before reattempting execution.
 		err := b.wait(ctx, backoff)
