@@ -524,7 +524,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		},
 	)
 
-	// Subscribe to receive asset send events from primary tapd node.
+	// Subscribe to receive asset send events from the sending tapd node.
 	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
 		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
@@ -614,7 +614,9 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 
 // testOfflineReceiverEventuallyReceives tests that a receiver node will
 // eventually receive an asset even if it is offline whilst the sender node
-// makes multiple attempts to send the asset.
+// makes multiple attempts to send the asset. This test explicitly listens for
+// backoff wait events to ensure that the sender node is making multiple
+// attempts to send the asset.
 func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	var (
 		ctxb = context.Background()
@@ -662,6 +664,11 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 			switch eventTyped := event.Event.(type) {
 			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
 				ev := eventTyped.ProofTransferBackoffWaitEvent
+
+				// We're listening for events on the sender
+				// node. We therefore expect to receive
+				// deliver transfer type backoff wait events
+				// for sending transfers.
 				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
 					return false
 				}
@@ -723,8 +730,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	t.Logf("Re-starting receiving taproot assets node")
 	require.NoError(t.t, recvTapd.start(false))
 
-	// Confirm that the receiver eventually receives the asset. Pause to
-	// give the receiver time to recognise the full send event.
+	// Confirm that the receiver eventually receives the asset.
 	t.Logf("Attempting to confirm asset received")
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
 
