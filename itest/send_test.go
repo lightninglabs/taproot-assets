@@ -398,10 +398,10 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	test.WriteTestVectors(t.t, proof.RegtestTestVectorName, testVectors)
 }
 
-// testReattemptFailedAssetSendHashmailCourier tests that a failed attempt at
+// testReattemptFailedSendHashmailCourier tests that a failed attempt at
 // sending an asset proof will be reattempted by the tapd node. This test
 // targets the hashmail courier.
-func testReattemptFailedAssetSendHashmailCourier(t *harnessTest) {
+func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		wg   sync.WaitGroup
@@ -505,10 +505,10 @@ func testReattemptFailedAssetSendHashmailCourier(t *harnessTest) {
 	wg.Wait()
 }
 
-// testReattemptFailedAssetSendUniCourier tests that a failed attempt at
+// testReattemptFailedSendUniCourier tests that a failed attempt at
 // sending an asset proof will be reattempted by the tapd node. This test
 // targets the universe proof courier.
-func testReattemptFailedAssetSendUniCourier(t *harnessTest) {
+func testReattemptFailedSendUniCourier(t *harnessTest) {
 	var (
 		ctxb = context.Background()
 		wg   sync.WaitGroup
