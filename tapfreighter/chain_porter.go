@@ -90,8 +90,7 @@ type ChainPorter struct {
 	// events, keyed by their subscription ID.
 	subscribers map[uint64]*fn.EventReceiver[fn.Event]
 
-	// subscriberMtx guards the subscribers map and access to the
-	// subscriptionID.
+	// subscriberMtx guards the subscribers map.
 	subscriberMtx sync.Mutex
 
 	*fn.ContextGuard
