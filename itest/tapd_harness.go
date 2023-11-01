@@ -80,12 +80,28 @@ type tapdConfig struct {
 	BaseDir   string
 }
 
+type harnessOpts struct {
+	proofSendBackoffCfg     *proof.BackoffCfg
+	proofReceiverAckTimeout *time.Duration
+	proofCourier            proof.CourierHarness
+	addrAssetSyncerDisable  bool
+}
+
+type harnessOption func(*harnessOpts)
+
+func defaultHarnessOpts() *harnessOpts {
+	return &harnessOpts{}
+}
+
 // newTapdHarness creates a new tapd server harness with the given
 // configuration.
 func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
-	proofCourier proof.CourierHarness,
-	proofSendBackoffCfg *proof.BackoffCfg,
-	proofReceiverAckTimeout *time.Duration) (*tapdHarness, error) {
+	harnessOpts ...harnessOption) (*tapdHarness, error) {
+
+	opts := defaultHarnessOpts()
+	for _, harnessOpt := range harnessOpts {
+		harnessOpt(opts)
+	}
 
 	if cfg.BaseDir == "" {
 		var err error
@@ -152,6 +168,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// as well as RPC insert and query.
 	tapCfg.Universe.PublicAccess = true
 
+	// Pass through the address asset syncer disable flag. If the option
+	// was not set, this will be false, which is the default.
+	tapCfg.AddrBook.DisableSyncer = opts.addrAssetSyncerDisable
+
 	cfgLogger := tapCfg.LogWriter.GenSubLogger("CONF", nil)
 	finalCfg, err := tapcfg.ValidateConfig(tapCfg, cfgLogger)
 	if err != nil {
@@ -167,14 +187,14 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		InitialBackoff:   2 * time.Second,
 		MaxBackoff:       2 * time.Second,
 	}
-	if proofSendBackoffCfg != nil {
-		backoffCfg = proofSendBackoffCfg
+	if opts.proofSendBackoffCfg != nil {
+		backoffCfg = opts.proofSendBackoffCfg
 	}
 
 	// Used passed in proof receiver ack timeout or default.
 	receiverAckTimeout := defaultProofTransferReceiverAckTimeout
-	if proofReceiverAckTimeout != nil {
-		receiverAckTimeout = *proofReceiverAckTimeout
+	if opts.proofReceiverAckTimeout != nil {
+		receiverAckTimeout = *opts.proofReceiverAckTimeout
 	}
 
 	// TODO(ffranr): Disentangle the hashmail config from the universe RPC
@@ -185,7 +205,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		BackoffCfg:         backoffCfg,
 	}
 
-	switch typedProofCourier := (proofCourier).(type) {
+	switch typedProofCourier := (opts.proofCourier).(type) {
 	case *ApertureHarness:
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
 			"%s://%s", proof.HashmailCourierType,

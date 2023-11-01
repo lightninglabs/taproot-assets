@@ -39,6 +39,10 @@ var testCases = []*testCase{
 		test: testReOrgMintAndSend,
 	},
 	{
+		name: "address syncer",
+		test: testAddressAssetSyncer,
+	},
+	{
 		name:             "basic send unidirectional",
 		test:             testBasicSendUnidirectional,
 		proofCourierType: proof.HashmailCourierType,
