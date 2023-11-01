@@ -161,8 +161,6 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
-	log.Tracef("Obtained %v roots from remote Universe server: %v",
-		len(targetRoots), spew.Sdump(targetRoots))
 
 	// Now that we know the set of Universes we need to sync, we'll execute
 	// the diff operation for each of them.
