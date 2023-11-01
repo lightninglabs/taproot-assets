@@ -3314,8 +3314,8 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	}
 
 	return &unirpc.AssetLeaf{
-		Asset:         rpcAsset,
-		IssuanceProof: buf.Bytes(),
+		Asset: rpcAsset,
+		Proof: buf.Bytes(),
 	}, nil
 }
 
@@ -3622,7 +3622,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	// itself.
 	var assetProof proof.Proof
 	if err := assetProof.Decode(
-		bytes.NewReader(leaf.IssuanceProof),
+		bytes.NewReader(leaf.Proof),
 	); err != nil {
 		return nil, err
 	}
