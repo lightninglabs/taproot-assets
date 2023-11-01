@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -394,7 +395,8 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 	switch {
 	case b.cfg.BatchFeeRate != nil:
 		feeRate = *b.cfg.BatchFeeRate
-		log.Infof("BatchCaretaker(%x): using manual fee rate")
+		log.Infof("BatchCaretaker(%x): using manual fee rate",
+			b.batchKey[:])
 
 	default:
 		feeRate, err = b.cfg.ChainBridge.EstimateFee(
@@ -406,7 +408,7 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 	}
 
 	log.Infof("BatchCaretaker(%x): using fee rate: %v",
-		feeRate.FeePerKVByte().String())
+		b.batchKey[:], feeRate.FeePerKVByte().String())
 
 	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
 		ctx, genesisPkt, 1, feeRate,
@@ -1150,6 +1152,11 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		ScriptKey: &a.ScriptKey,
 	}
 
+	var proofBuf bytes.Buffer
+	if err = mintingProof.Encode(&proofBuf); err != nil {
+		return nil, nil, fmt.Errorf("unable to encode proof: %w", err)
+	}
+
 	// With both of those assembled, we can now register issuance which
 	// takes the amount and proof of the minting event.
 	uniGen := universe.GenesisWithGroup{
@@ -1164,8 +1171,9 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		// The universe tree store only the asset state transition and
 		// not also the proof file checksum (as the root is effectively
 		// a checksum), so we'll use just the state transition.
-		Proof: mintingProof,
-		Amt:   a.Amount,
+		RawProof: proofBuf.Bytes(),
+		Amt:      a.Amount,
+		Asset:    a,
 	}
 
 	return blob, &universe.Item{

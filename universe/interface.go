@@ -1,7 +1,6 @@
 package universe
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -87,8 +86,8 @@ func (i *Identifier) StringForLog() string {
 
 // ValidateProofUniverseType validates that the proof type matches the universe
 // identifier proof type.
-func ValidateProofUniverseType(proof *proof.Proof, uniID Identifier) error {
-	expectedProofType, err := NewProofTypeFromAssetProof(proof)
+func ValidateProofUniverseType(a *asset.Asset, uniID Identifier) error {
+	expectedProofType, err := NewProofTypeFromAsset(a)
 	if err != nil {
 		return err
 	}
@@ -115,29 +114,27 @@ type GenesisWithGroup struct {
 type Leaf struct {
 	GenesisWithGroup
 
-	// Proof is either an issuance proof or a transfer proof associated with
-	// the issuance or spend event which this leaf represents.
-	Proof *proof.Proof
+	// RawProof is either an issuance proof or a transfer proof associated
+	// with/ the issuance or spend event which this leaf represents.
+	RawProof proof.Blob
+
+	// Asset is the asset that the leaf is associated with.
+	Asset *asset.Asset
 
 	// Amt is the amount of units associated with the coin.
 	Amt uint64
 }
 
 // SmtLeafNode returns the SMT leaf node for the given leaf.
-func (m *Leaf) SmtLeafNode() (*mssmt.LeafNode, error) {
-	var buf bytes.Buffer
-	if err := m.Proof.Encode(&buf); err != nil {
-		return nil, err
-	}
-
+func (m *Leaf) SmtLeafNode() *mssmt.LeafNode {
 	amount := m.Amt
-	if !m.Proof.Asset.IsGenesisAsset() {
+	if !m.Asset.IsGenesisAsset() {
 		// We set transfer proof amounts to 1 as the transfer universe
 		// tracks the total number of transfers.
 		amount = 1
 	}
 
-	return mssmt.NewLeafNode(buf.Bytes(), amount), nil
+	return mssmt.NewLeafNode(m.RawProof, amount)
 }
 
 // LeafKey is the top level leaf key for a universe. This will be used to key
@@ -203,18 +200,15 @@ type Proof struct {
 // VerifyRoot verifies that the inclusion proof for the root node matches the
 // specified root. This is useful for sanity checking an issuance proof against
 // the purported root, and the included leaf.
-func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) (bool, error) {
-	leafNode, err := i.Leaf.SmtLeafNode()
-	if err != nil {
-		return false, err
-	}
+func (i *Proof) VerifyRoot(expectedRoot mssmt.Node) bool {
+	leafNode := i.Leaf.SmtLeafNode()
 
 	reconstructedRoot := i.UniverseInclusionProof.Root(
 		i.LeafKey.UniverseKey(), leafNode,
 	)
 
 	return mssmt.IsEqualNode(i.UniverseRoot, expectedRoot) &&
-		mssmt.IsEqualNode(reconstructedRoot, expectedRoot), nil
+		mssmt.IsEqualNode(reconstructedRoot, expectedRoot)
 }
 
 // BaseBackend is the backend storage interface for a base universe. The
@@ -615,13 +609,13 @@ const (
 	ProofTypeTransfer
 )
 
-// NewProofTypeFromAssetProof returns the proof type for the given asset proof.
-func NewProofTypeFromAssetProof(proof *proof.Proof) (ProofType, error) {
-	if proof == nil {
-		return 0, fmt.Errorf("proof is nil")
+// NewProofTypeFromAsset returns the proof type for the given asset proof.
+func NewProofTypeFromAsset(a *asset.Asset) (ProofType, error) {
+	if a == nil {
+		return 0, fmt.Errorf("asset is nil")
 	}
 
-	if proof.Asset.IsGenesisAsset() {
+	if a.IsGenesisAsset() {
 		return ProofTypeIssuance, nil
 	}
 

@@ -3,7 +3,6 @@ package tapdb
 import (
 	"bytes"
 	"context"
-
 	"database/sql"
 	"errors"
 	"fmt"
@@ -352,10 +351,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 
 	// The value stored in the MS-SMT will be the serialized Leaf,
 	// so we'll convert that into raw bytes now.
-	leafNode, err := leaf.SmtLeafNode()
-	if err != nil {
-		return nil, nil, err
-	}
+	leafNode := leaf.SmtLeafNode()
 
 	var groupKeyBytes []byte
 	if id.GroupKey != nil {
@@ -402,15 +398,19 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// Before we insert the asset genesis, we'll insert the meta
 	// first. The reveal may or may not be populated, which'll also
 	// insert the opaque meta blob on disk.
-	_, err = maybeUpsertAssetMeta(
-		ctx, dbTx, &leaf.Genesis, metaReveal,
-	)
+	_, err = maybeUpsertAssetMeta(ctx, dbTx, &leaf.Genesis, metaReveal)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	var leafProof proof.Proof
+	err = leafProof.Decode(bytes.NewReader(leaf.RawProof))
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to decode proof: %w", err)
+	}
+
 	assetGenID, err := upsertAssetGen(
-		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leaf.Proof,
+		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -524,13 +524,11 @@ func universeFetchProofLeaf(ctx context.Context,
 	//
 	// If the script key is blank, then we'll fetch all the leaves in the
 	// tree.
-	universeLeaves, err := dbTx.QueryUniverseLeaves(
-		ctx, UniverseLeafQuery{
-			MintingPointBytes: mintingPointBytes,
-			ScriptKeyBytes:    targetScriptKey,
-			Namespace:         namespace,
-		},
-	)
+	universeLeaves, err := dbTx.QueryUniverseLeaves(ctx, UniverseLeafQuery{
+		MintingPointBytes: mintingPointBytes,
+		ScriptKeyBytes:    targetScriptKey,
+		Namespace:         namespace,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -556,22 +554,23 @@ func universeFetchProofLeaf(ctx context.Context,
 			ScriptKey: &scriptKey,
 		}
 		smtKey := universeKey.UniverseKey()
-		leafProof, err := universeTree.MerkleProof(
-			ctx, smtKey,
-		)
+		leafProof, err := universeTree.MerkleProof(ctx, smtKey)
 		if err != nil {
 			return err
 		}
 
-		leafAssetGen, err := fetchGenesis(
-			ctx, dbTx, leaf.GenAssetID,
-		)
+		leafAssetGen, err := fetchGenesis(ctx, dbTx, leaf.GenAssetID)
 		if err != nil {
 			return err
 		}
 
-		var genProof proof.Proof
-		err = genProof.Decode(bytes.NewReader(leaf.GenesisProof))
+		// We only need to obtain the asset at this point, so we'll do
+		// a sparse decode here to decode only the asset record.
+		var leafAsset asset.Asset
+		assetRecord := proof.AssetLeafRecord(&leafAsset)
+		err = proof.SparseDecode(
+			bytes.NewReader(leaf.GenesisProof), assetRecord,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
@@ -584,8 +583,9 @@ func universeFetchProofLeaf(ctx context.Context,
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				Proof: &genProof,
-				Amt:   uint64(leaf.SumAmt),
+				RawProof: leaf.GenesisProof,
+				Asset:    &leafAsset,
+				Amt:      uint64(leaf.SumAmt),
 			},
 		}
 		if id.GroupKey != nil {
@@ -740,8 +740,9 @@ func (b *BaseUniverseTree) MintingLeaves(
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				Proof: &genProof,
-				Amt:   uint64(dbLeaf.SumAmt),
+				RawProof: dbLeaf.GenesisProof,
+				Asset:    &genProof.Asset,
+				Amt:      uint64(dbLeaf.SumAmt),
 			}
 			if b.id.GroupKey != nil {
 				leaf.GroupKey = &asset.GroupKey{

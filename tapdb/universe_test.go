@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"math"
@@ -151,31 +152,38 @@ func randProof(t *testing.T) *proof.Proof {
 func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	groupKey *btcec.PublicKey) universe.Leaf {
 
+	randProof := randProof(t)
+
 	leaf := universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
 			Genesis: assetGen,
 		},
-		Proof: randProof(t),
-		Amt:   uint64(rand.Int31()),
+		Amt: uint64(rand.Int31()),
 	}
 
 	// The asset within the genesis proof is random; reset the asset genesis
 	// and group key to match the universe minting leaf.
-	leaf.Proof.Asset.Genesis = assetGen
-	leaf.Proof.GenesisReveal = &assetGen
+	randProof.Asset.Genesis = assetGen
+	randProof.GenesisReveal = &assetGen
 
 	if groupKey != nil {
 		assetGroupKey := &asset.GroupKey{
 			GroupPubKey: *groupKey,
-			Witness:     leaf.Proof.Asset.GroupKey.Witness,
+			Witness:     randProof.Asset.GroupKey.Witness,
 		}
 
 		leaf.GroupKey = assetGroupKey
-		leaf.Proof.Asset.GroupKey = assetGroupKey
-		leaf.Proof.GroupKeyReveal = &asset.GroupKeyReveal{
+		randProof.Asset.GroupKey = assetGroupKey
+		randProof.GroupKeyReveal = &asset.GroupKeyReveal{
 			RawKey: asset.ToSerialized(groupKey),
 		}
 	}
+
+	leaf.Asset = &randProof.Asset
+
+	var proofBuf bytes.Buffer
+	require.NoError(t, randProof.Encode(&proofBuf))
+	leaf.RawProof = proofBuf.Bytes()
 
 	return leaf
 }
@@ -244,8 +252,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// We should be able to verify the issuance proof given the
 		// root of the SMT.
-		node, err := leaf.SmtLeafNode()
-		require.NoError(t, err)
+		node := leaf.SmtLeafNode()
 		proofRoot := issuanceProof.UniverseInclusionProof.Root(
 			targetKey.UniverseKey(), node,
 		)
@@ -266,8 +273,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 		// The issuance proof we obtained should have a valid inclusion
 		// proof.
-		node, err = uniProof.Leaf.SmtLeafNode()
-		require.NoError(t, err)
+		node = uniProof.Leaf.SmtLeafNode()
 		dbProofRoot := uniProof.UniverseInclusionProof.Root(
 			uniProof.LeafKey.UniverseKey(), node,
 		)
@@ -312,7 +318,12 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	// leaves we just inserted.
 	for idx := range testLeaves {
 		testLeaf := &testLeaves[idx]
-		testLeaf.Leaf.Proof = randProof(t)
+
+		var proofBuf bytes.Buffer
+		randProof := randProof(t)
+		require.NoError(t, randProof.Encode(&proofBuf))
+
+		testLeaf.Leaf.RawProof = proofBuf.Bytes()
 
 		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.RegisterIssuance(
@@ -569,13 +580,14 @@ func TestUniverseLeafQuery(t *testing.T) {
 			// key, so they must also share the same group witness.
 			switch {
 			case sharedWitness == nil:
-				sharedWitness =
-					leaf.GroupKey.Witness
+				sharedWitness = leaf.GroupKey.Witness
 			default:
-				leaf.GroupKey.Witness =
-					sharedWitness
-				leaf.Proof.Asset.GroupKey.Witness =
-					sharedWitness
+				leaf.GroupKey.Witness = sharedWitness
+
+				//nolint:lll
+				//leaf.Proof.Asset.GroupKey.Witness = sharedWitness
+				leaf.Asset.GroupKey.Witness = sharedWitness
+				// TODO(roasbeef): circle back
 			}
 		}
 
@@ -620,10 +632,10 @@ func TestUniverseLeafQuery(t *testing.T) {
 			t, leaf.GenesisWithGroup, p[0].Leaf.GenesisWithGroup,
 		)
 
-		expectedNode, err := leaf.SmtLeafNode()
+		expectedNode := leaf.SmtLeafNode()
 		require.NoError(t, err)
 
-		actualNode, err := p[0].Leaf.SmtLeafNode()
+		actualNode := p[0].Leaf.SmtLeafNode()
 		require.NoError(t, err)
 
 		require.True(t, mssmt.IsEqualNode(expectedNode, actualNode))
@@ -751,11 +763,11 @@ func TestUniverseRootSum(t *testing.T) {
 					universe.ProofTypeTransfer {
 
 					//nolint:lll
-					leaf.Proof.Asset.PrevWitnesses[0].TxWitness = [][]byte{
+					leaf.Asset.PrevWitnesses[0].TxWitness = [][]byte{
 						{1}, {1}, {1},
 					}
 					//nolint:lll
-					leaf.Proof.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
+					leaf.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
 				}
 
 				keys[i] = targetKey
@@ -878,11 +890,11 @@ func TestMultiverseRootSum(t *testing.T) {
 					universe.ProofTypeTransfer {
 
 					//nolint:lll
-					leaf.Proof.Asset.PrevWitnesses[0].TxWitness = [][]byte{
+					leaf.Asset.PrevWitnesses[0].TxWitness = [][]byte{
 						{1}, {1}, {1},
 					}
 					//nolint:lll
-					leaf.Proof.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
+					leaf.Asset.PrevWitnesses[0].PrevID.OutPoint.Hash = [32]byte{1}
 				}
 
 				_, err := multiverse.UpsertProofLeaf(

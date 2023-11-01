@@ -100,7 +100,9 @@ func TestValidateProofUniverseType(t *testing.T) {
 		tc := tc
 
 		t.Run(tc.name, func(tt *testing.T) {
-			err := ValidateProofUniverseType(&tc.proof, tc.uniID)
+			err := ValidateProofUniverseType(
+				&tc.proof.Asset, tc.uniID,
+			)
 			require.True(t, tc.expectErr == (err != nil), err)
 		})
 	}

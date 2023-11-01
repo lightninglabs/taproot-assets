@@ -3302,15 +3302,8 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
 
-	// In order to display the full asset, we'll also encode the genesis
-	// proof.
-	var buf bytes.Buffer
-	if err := assetLeaf.Proof.Encode(&buf); err != nil {
-		return nil, err
-	}
-
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, &assetLeaf.Proof.Asset, false, true, keys,
+		ctx, assetLeaf.Asset, false, true, keys,
 	)
 	if err != nil {
 		return nil, err
@@ -3318,7 +3311,7 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 
 	return &unirpc.AssetLeaf{
 		Asset: rpcAsset,
-		Proof: buf.Bytes(),
+		Proof: assetLeaf.RawProof,
 	}, nil
 }
 
@@ -3638,8 +3631,9 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
 		},
-		Proof: &assetProof,
-		Amt:   assetProof.Asset.Amount,
+		RawProof: leaf.Proof,
+		Asset:    &assetProof.Asset,
+		Amt:      assetProof.Asset.Amount,
 	}, nil
 }
 
@@ -3671,8 +3665,8 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	// If universe proof type unspecified, set based on the provided asset
 	// proof.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
-		universeID.ProofType, err = universe.NewProofTypeFromAssetProof(
-			assetLeaf.Proof,
+		universeID.ProofType, err = universe.NewProofTypeFromAsset(
+			assetLeaf.Asset,
 		)
 		if err != nil {
 			return nil, err
@@ -3681,7 +3675,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 
 	// Ensure that the new proof is of the correct type for the target
 	// universe.
-	err = universe.ValidateProofUniverseType(assetLeaf.Proof, universeID)
+	err = universe.ValidateProofUniverseType(assetLeaf.Asset, universeID)
 	if err != nil {
 		return nil, err
 	}
