@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 )
 
@@ -128,6 +129,15 @@ type Config struct {
 	// accepted, and proofs will be queryable by remote parties.
 	// This applies to federation syncing as well as RPC insert and query.
 	UniversePublicAccess bool
+
+	// UniverseQueriesPerSecond is the maximum number of queries per
+	// second across the set of active universe queries that is permitted.
+	// Anything above this starts to get rate limited.
+	UniverseQueriesPerSecond rate.Limit
+
+	// UniverseQueriesBurst is the burst budget for the universe query rate
+	// limiting.
+	UniverseQueriesBurst int
 
 	Prometheus monitoring.PrometheusConfig
 

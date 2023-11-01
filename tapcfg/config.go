@@ -31,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tor"
 	"golang.org/x/net/http2"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 )
@@ -113,6 +114,16 @@ const (
 	// defaultReOrgSafeDepth is the default number of confirmations we'll
 	// wait for before considering a transaction safely buried in the chain.
 	defaultReOrgSafeDepth = 6
+
+	// defaultUniverseMaxQps is the default maximum number of queries per
+	// second for the universe server. This permis 100 queries per second
+	// by default.
+	defaultUniverseMaxQps = 100
+
+	// defaultUniverseQueriesBurst is the default burst budget for the
+	// universe queries. By default we'll allow 100 qps, with a max burst
+	// of 10 queries.
+	defaultUniverseQueriesBurst = 10
 )
 
 var (
@@ -253,6 +264,10 @@ type UniverseConfig struct {
 	PublicAccess bool `long:"public-access" description:"If true, and the Universe server is on a public interface, valid proof from remote parties will be accepted, and proofs will be queryable by remote parties. This applies to federation syncing as well as RPC insert and query."`
 
 	StatsCacheDuration time.Duration `long:"stats-cache-duration" description:"The amount of time to cache stats for before refreshing them."`
+
+	UniverseQueriesPerSecond rate.Limit `long:"max-qps" description:"The maximum number of queries per second across the set of active universe queries that is permitted. Anything above this starts to get rate limited."`
+
+	UniverseQueriesBurst int `long:"req-burst-budget" description:"The burst budget for the universe query rate limiting."`
 }
 
 // AddressConfig is the config that houses any address Book related config
@@ -371,6 +386,10 @@ func DefaultConfig() Config {
 		},
 		Universe: &UniverseConfig{
 			SyncInterval: defaultUniverseSyncInterval,
+			UniverseQueriesPerSecond: rate.Limit(
+				defaultUniverseMaxQps,
+			),
+			UniverseQueriesBurst: defaultUniverseQueriesBurst,
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,

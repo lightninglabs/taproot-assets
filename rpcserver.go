@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/signal"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 )
 
@@ -116,6 +117,8 @@ type rpcServer struct {
 
 	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
 
+	proofQueryRateLimiter *rate.Limiter
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -132,7 +135,10 @@ func newRPCServer(interceptor signal.Interceptor,
 			maxNumBlocksInCache,
 		),
 		quit: make(chan struct{}),
-		cfg:  cfg,
+		proofQueryRateLimiter: rate.NewLimiter(
+			cfg.UniverseQueriesPerSecond, cfg.UniverseQueriesBurst,
+		),
+		cfg: cfg,
 	}, nil
 }
 
@@ -2897,6 +2903,12 @@ func marshalUniverseRoot(node universe.Root) (*unirpc.UniverseRoot, error) {
 func (r *rpcServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	// First, we'll retrieve the full set of known asset Universe roots.
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, universe.RootNodesQuery{
@@ -3081,6 +3093,12 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 	if !syncConfigs.IsSyncExportEnabled(universeID) {
 		return nil, fmt.Errorf("proof export is disabled for the " +
 			"given universe")
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
 	}
 
 	// Query for both a issaunce and transfer universe root.
@@ -3276,6 +3294,12 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 		return nil, fmt.Errorf("invalid request limit")
 	}
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
 		ctx, universe.UniverseLeafKeysQuery{
 			Id:            universeID,
@@ -3332,6 +3356,12 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 
 	universeID, err := UnmarshalUniID(req)
 	if err != nil {
+		return nil, err
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
@@ -3572,6 +3602,12 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 			"given universe")
 	}
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	// Attempt to retrieve the proof given the candidate set of universe
 	// IDs.
 	var proofs []*universe.Proof
@@ -3689,6 +3725,12 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	if !syncConfigs.IsSyncInsertEnabled(universeID) {
 		return nil, fmt.Errorf("proof insert is disabled for the " +
 			"given universe")
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
 	}
 
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
