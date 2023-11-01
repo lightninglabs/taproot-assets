@@ -119,11 +119,18 @@ func newLeafCache() leafProofCache {
 type treeID string
 
 // proofCache a map of proof caches for each proof type.
-type proofCache lnutils.SyncMap[treeID, leafProofCache]
+type proofCache struct {
+	lnutils.SyncMap[treeID, leafProofCache]
+
+	*cacheLogger
+}
 
 // newProofCache creates a new proof cache.
 func newProofCache() *proofCache {
-	return &proofCache{}
+	return &proofCache{
+		SyncMap:     lnutils.SyncMap[treeID, leafProofCache]{},
+		cacheLogger: newCacheLogger("universe_proofs"),
+	}
 }
 
 // fetchProof reads the cached proof for the given ID and leaf key.
@@ -133,30 +140,29 @@ func (p *proofCache) fetchProof(id universe.Identifier,
 	// First, get the sub-cache for this universe ID from the map of
 	// caches.
 	idStr := treeID(id.String())
-	proofCache, _ := p.LoadOrStore(idStr, newLeafCache())
-	assetProofCache := proofCache.(leafProofCache)
+	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
 
 	// With that lower level cache obtained, we can check to see if we have
 	// a hit or not.
 	proofKey := NewProofKey(id, leafKey)
 	proof, err := assetProofCache.Get(proofKey)
 	if err == nil {
-		log.Debugf("read proof for %v+%v from cache, key=%v",
-			id.StringForLog(), leafKey, proofKey[:])
+		p.Hit()
 		return *proof
 	}
+
+	p.Miss()
 
 	return nil
 }
 
 // insertProof inserts the given proof into the cache.
-func (p *proofCache) insertProof(id universe.Identifier, leafKey universe.LeafKey,
-	proof []*universe.Proof) {
+func (p *proofCache) insertProof(id universe.Identifier,
+	leafKey universe.LeafKey, proof []*universe.Proof) {
 
 	idStr := treeID(id.String())
 
-	proofCache, _ := p.LoadOrStore(idStr, newLeafCache())
-	assetProofCache := proofCache.(leafProofCache)
+	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
 
 	proofKey := NewProofKey(id, leafKey)
 
@@ -214,14 +220,17 @@ type rootNodeCache struct {
 
 	allRoots atomicRootCache
 
+	*cacheLogger
+
 	// TODO(roasbeef): cache for issuance vs transfer roots?
 }
 
 // newRootNodeCache creates a new root node cache.
 func newRootNodeCache() *rootNodeCache {
 	return &rootNodeCache{
-		rootIndex: newAtomicRootIndex(),
-		allRoots:  newAtomicRootCache(),
+		rootIndex:   newAtomicRootIndex(),
+		allRoots:    newAtomicRootCache(),
+		cacheLogger: newCacheLogger("universe_roots"),
 	}
 }
 
@@ -249,6 +258,12 @@ func (r *rootNodeCache) fetchRoots(withAmts, haveWriteLock bool,
 	rootNodeCache := r.allRoots.Load()
 	rootNodes := *rootNodeCache
 
+	if len(rootNodes) > 0 {
+		r.Hit()
+	} else {
+		r.Miss()
+	}
+
 	return rootNodes
 }
 
@@ -258,8 +273,11 @@ func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
 
 	root, ok := rootIndex.Load(treeID(id.String()))
 	if ok {
+		r.Hit()
 		return root
 	}
+
+	r.Miss()
 
 	return nil
 }
@@ -340,6 +358,8 @@ type universeLeafCache struct {
 	sync.Mutex
 
 	leafCache *leafKeysCache
+
+	*cacheLogger
 }
 
 // newUniverseLeafCache creates a new universe leaf cache.
@@ -348,6 +368,7 @@ func newUniverseLeafCache() *universeLeafCache {
 		leafCache: lru.NewCache[treeID, *leafPageCache](
 			numCachedProofs,
 		),
+		cacheLogger: newCacheLogger("universe_leaf_keys"),
 	}
 }
 
@@ -361,12 +382,14 @@ func (u *universeLeafCache) fetchLeafKeys(q universe.UniverseLeafKeysQuery,
 	if err == nil {
 		leafKeys, err := leafPageCache.Get(newLeafQuery(q))
 		if err == nil {
+			u.Hit()
 			log.Tracef("read leaf keys for %v from cache",
 				q.Id.StringForLog())
 			return *leafKeys
 		}
-
 	}
+
+	u.Miss()
 
 	return nil
 }
