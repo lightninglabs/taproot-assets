@@ -3642,7 +3642,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	// not be fully specified
 	proof := proofs[0]
 
-	rpcsLog.Debugf("[QueryProof]: found proof at (universeID=%v, "+
+	rpcsLog.Tracef("[QueryProof]: found proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
 	return r.marshalUniverseProofLeaf(ctx, req, proof)
