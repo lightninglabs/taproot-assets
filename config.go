@@ -100,6 +100,11 @@ type Config struct {
 
 	AddrBook *address.Book
 
+	// AddrBookDisableSyncer is a flag which, if true, will prevent the
+	// daemon from trying to sync issuance proofs for unknown assets when
+	// creating an address.
+	AddrBookDisableSyncer bool
+
 	DefaultProofCourierAddr *url.URL
 
 	ProofArchive proof.Archiver

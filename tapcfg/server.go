@@ -301,6 +301,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		KeyRing:      keyRing,
 		Chain:        tapChainParams,
 	}
+	if cfg.AddrBook.DisableSyncer {
+		addrBookConfig.Syncer = nil
+	}
 	addrBook := address.NewBook(addrBookConfig)
 
 	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
@@ -358,6 +361,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		),
 		ChainBridge:             chainBridge,
 		AddrBook:                addrBook,
+		AddrBookDisableSyncer:   cfg.AddrBook.DisableSyncer,
 		DefaultProofCourierAddr: proofCourierAddr.Url(),
 		ProofArchive:            proofArchive,
 		AssetWallet:             assetWallet,
