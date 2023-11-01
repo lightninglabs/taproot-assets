@@ -86,6 +86,13 @@ type Custodian struct {
 	// events about new proofs being imported.
 	proofSubscription *fn.EventReceiver[proof.Blob]
 
+	// statusEventsSubs is a map of subscribers that want to be notified on
+	// new status events, keyed by their subscription ID.
+	statusEventsSubs map[uint64]*fn.EventReceiver[fn.Event]
+
+	// statusEventsSubsMtx guards the general status events subscribers map.
+	statusEventsSubsMtx sync.Mutex
+
 	// events is a map of all transaction outpoints and their ongoing
 	// address events of inbound assets.
 	events map[wire.OutPoint]*address.Event
@@ -102,10 +109,12 @@ func NewCustodian(cfg *CustodianConfig) *Custodian {
 		fn.DefaultQueueSize,
 	)
 	proofSub := fn.NewEventReceiver[proof.Blob](fn.DefaultQueueSize)
+	statusEventsSubs := make(map[uint64]*fn.EventReceiver[fn.Event])
 	return &Custodian{
 		cfg:               cfg,
 		addrSubscription:  addrSub,
 		proofSubscription: proofSub,
+		statusEventsSubs:  statusEventsSubs,
 		events:            make(map[wire.OutPoint]*address.Event),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -165,6 +174,15 @@ func (c *Custodian) Stop() error {
 		err = c.cfg.ProofNotifier.RemoveSubscriber(c.proofSubscription)
 		if err != nil {
 			stopErr = err
+		}
+
+		// Remove all status event subscribers.
+		for _, sub := range c.statusEventsSubs {
+			err := c.RemoveSubscriber(sub)
+			if err != nil {
+				stopErr = err
+				break
+			}
 		}
 	})
 
@@ -389,6 +407,12 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 					"service handle: %v", err)
 				return
 			}
+
+			// Update courier handle events subscribers before
+			// attempting to retrieve proof.
+			c.statusEventsSubsMtx.Lock()
+			courier.SetSubscribers(c.statusEventsSubs)
+			c.statusEventsSubsMtx.Unlock()
 
 			// Sleep to give the sender an opportunity to transfer
 			// the proof to the proof courier service.
@@ -657,6 +681,41 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 	return c.cfg.AddrBook.CompleteEvent(
 		ctxt, event, address.StatusCompleted, anchorPoint,
 	)
+}
+
+// RegisterSubscriber adds a new subscriber to the set of subscribers that will
+// be notified of any new status update events.
+//
+// TODO(ffranr): Add support for delivering existing events to new subscribers.
+func (c *Custodian) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
+	deliverExisting bool, deliverFrom bool) error {
+
+	c.statusEventsSubsMtx.Lock()
+	defer c.statusEventsSubsMtx.Unlock()
+
+	c.statusEventsSubs[receiver.ID()] = receiver
+
+	return nil
+}
+
+// RemoveSubscriber removes a subscriber from the set of status event
+// subscribers.
+func (c *Custodian) RemoveSubscriber(
+	subscriber *fn.EventReceiver[fn.Event]) error {
+
+	c.statusEventsSubsMtx.Lock()
+	defer c.statusEventsSubsMtx.Unlock()
+
+	_, ok := c.statusEventsSubs[subscriber.ID()]
+	if !ok {
+		return fmt.Errorf("status event subscriber with ID %d not "+
+			"found", subscriber.ID())
+	}
+
+	subscriber.Stop()
+	delete(c.statusEventsSubs, subscriber.ID())
+
+	return nil
 }
 
 // hasWalletTaprootOutput returns true if one of the outputs of the given
