@@ -26,7 +26,11 @@ func newUniverseStatsWithDB(db *BaseDB, clock clock.Clock) (*UniverseStats,
 		},
 	)
 
-	return NewUniverseStats(dbTxer, clock), db
+	stats := NewUniverseStats(
+		dbTxer, clock, WithStatsCacheDuration(time.Microsecond),
+	)
+
+	return stats, db
 }
 
 type uniStatsHarness struct {

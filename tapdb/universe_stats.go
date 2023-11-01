@@ -5,9 +5,14 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"math"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -104,22 +109,222 @@ type BatchedUniverseStats interface {
 	BatchedTx[UniverseStatsStore]
 }
 
+// eventQuery is used to query for events within a given time range.
+type eventQuery struct {
+	// startTime is the start time of the query.
+	startTime int64
+
+	// endTime is the end time of the query.
+	endTime int64
+}
+
+// eventQueryBucket is the interval that we'll use to bucket similar queries
+// into.
+const eventQueryBucket = time.Hour
+
+// newEventQuery creates a new event query from the given query.
+func newEventQuery(q universe.GroupedStatsQuery) eventQuery {
+	// For both the start and time time, we'll round down to the nearest
+	// hour. This'll serve to bucket queries into hourly buckets.
+	startTime := q.StartTime.UTC().Truncate(eventQueryBucket).Unix()
+	endTime := q.EndTime.UTC().Truncate(eventQueryBucket).Unix()
+
+	return eventQuery{
+		startTime: startTime,
+		endTime:   endTime,
+	}
+}
+
+// cachedAssetEvents is a cached set of asset events.
+type cachedAssetEvents []*universe.GroupedStats
+
+// Size returns the number of events cached for this value.
+func (c cachedAssetEvents) Size() (uint64, error) {
+	return uint64(len(c)), nil
+}
+
+// eventQueryCacheSize is the total number of queries that we'll cache.
+const eventQueryCacheSize = 1000
+
+// assetEventCache is a cache of queries into a timeslice of the set of asset
+// events.
+type assetEventsCache = *lru.Cache[eventQuery, cachedAssetEvents]
+
+// statsQueryCacheSize is the total number of asset query responses that we'll
+// hold inside the cache.
+const statsQueryCacheSize = 80_0000
+
+// cachedSyncStats is a cached set of sync stats.
+type cachedSyncStats []universe.AssetSyncSnapshot
+
+// Size returns the number of events cached for this value. We'll have the
+// cache be limited by the number of assets returned for each query.
+func (c cachedSyncStats) Size() (uint64, error) {
+	return uint64(len(c)), nil
+}
+
+// syncStatsQuery is a wrapper around the SyncStatsQuery that uses an explicit
+// value for the asset type. This enables is to properly use it as a cache key.
+type syncStatsQuery struct {
+	universe.SyncStatsQuery
+
+	assetType asset.Type
+}
+
+// syncStatsCache is a cache of queries into the set of sync stats.
+type syncStatsCache = lru.Cache[syncStatsQuery, cachedSyncStats]
+
+// atomicAssetEventsCache is an atomic wrapper around the asset events cache.
+type atomicSyncStatsCache struct {
+	atomic.Pointer[syncStatsCache]
+}
+
+// wipe can be used to both wipe and init the stats cache.
+func (a *atomicSyncStatsCache) wipe() {
+	statsCache := lru.NewCache[syncStatsQuery, cachedSyncStats](
+		statsQueryCacheSize,
+	)
+
+	a.Store(statsCache)
+}
+
+// fetchQuery attempts to fetch the query from the cache.
+func (a *atomicSyncStatsCache) fetchQuery(q universe.SyncStatsQuery,
+) cachedSyncStats {
+
+	assetType := func() asset.Type {
+		if q.AssetTypeFilter != nil {
+			return *q.AssetTypeFilter
+		}
+
+		return asset.Type(math.MaxUint8)
+	}()
+
+	newQuery := q
+
+	// Set this to nil so the map doesn't try to use the memory address as
+	// part of the key.
+	newQuery.AssetTypeFilter = nil
+
+	// First make the wrapper around the struct, using a value of the max
+	// asset type to signal that no asset type was requested.
+	query := syncStatsQuery{
+		SyncStatsQuery: newQuery,
+		assetType:      assetType,
+	}
+
+	// Now, we'll attempt to fetch the query from the cache.
+	statsCache := a.Load()
+	if statsCache == nil {
+		return nil
+	}
+
+	cachedResult, err := statsCache.Get(query)
+	if err == nil {
+		return cachedResult
+	}
+
+	return nil
+}
+
+// storeQuery stores the given query in the cache.
+func (a *atomicSyncStatsCache) storeQuery(q universe.SyncStatsQuery,
+	resp []universe.AssetSyncSnapshot) {
+
+	assetType := func() asset.Type {
+		if q.AssetTypeFilter != nil {
+			return *q.AssetTypeFilter
+		}
+
+		return asset.Type(math.MaxUint8)
+	}()
+
+	newQuery := q
+
+	// Set this to nil so the map doesn't try to use the memory address as
+	// part of the key.
+	newQuery.AssetTypeFilter = nil
+
+	// First make the wrapper around the struct, using a value of the max
+	// asset type to signal that no asset type was requested.
+	query := syncStatsQuery{
+		SyncStatsQuery: newQuery,
+		assetType:      assetType,
+	}
+
+	statsCache := a.Load()
+
+	_, _ = statsCache.Put(query, cachedSyncStats(resp))
+}
+
 // UniverseStats is an implementation of the universe.Telemetry interface that
 // is backed by the on-disk Universe event and MS-SMT tree store.
 type UniverseStats struct {
+	opts statsOpts
+
 	db BatchedUniverseStats
 
 	clock clock.Clock
+
+	statsMtx      sync.Mutex
+	statsSnapshot atomic.Pointer[universe.AggregateStats]
+	statsRefresh  *time.Timer
+
+	eventsMtx        sync.Mutex
+	assetEventsCache assetEventsCache
+
+	syncStatsMtx     sync.Mutex
+	syncStatsCache   atomicSyncStatsCache
+	syncStatsRefresh *time.Timer
+}
+
+// statsOpts defines the set of options that can be used to configure the
+// universe stats db.
+type statsOpts struct {
+	// cacheDuration is the duration that the stats will be cached for.
+	cacheDuration time.Duration
+}
+
+// UniverseStatOption is a functional option that can be used to modify the way
+// that the UniverseStats struct is created.
+type UniverseStatsOption func(*statsOpts)
+
+// defaultStatsOpts returns a set of default options for the universe stats.
+func defaultStatsOpts() statsOpts {
+	return statsOpts{
+		cacheDuration: StatsCacheDuration,
+	}
+}
+
+// WithStatsCacheDuration is a functional option that can be used to set the
+// amount of time the stats are cached for.
+func WithStatsCacheDuration(d time.Duration) UniverseStatsOption {
+	return func(o *statsOpts) {
+		o.cacheDuration = d
+	}
 }
 
 // NewUniverseStats creates a new instance of the UniverseStats backed by the
 // database.
-func NewUniverseStats(db BatchedUniverseStats,
-	clock clock.Clock) *UniverseStats {
+func NewUniverseStats(db BatchedUniverseStats, clock clock.Clock,
+	options ...UniverseStatsOption) *UniverseStats {
+
+	opts := defaultStatsOpts()
+	for _, o := range options {
+		o(&opts)
+	}
+
+	var atomicStatsCache atomicSyncStatsCache
+	atomicStatsCache.wipe()
 
 	return &UniverseStats{
 		db:    db,
 		clock: clock,
+		opts:  opts,
+		assetEventsCache: lru.NewCache[eventQuery, cachedAssetEvents](
+			eventQueryCacheSize,
+		),
+		syncStatsCache: atomicStatsCache,
 	}
 }
 
@@ -233,7 +438,22 @@ func (u *UniverseStats) LogNewProofEvents(ctx context.Context,
 func (u *UniverseStats) AggregateSyncStats(
 	ctx context.Context) (universe.AggregateStats, error) {
 
-	var stats universe.AggregateStats
+	stats := u.statsSnapshot.Load()
+	if stats != nil {
+		return *stats, nil
+	}
+
+	u.statsMtx.Lock()
+	defer u.statsMtx.Unlock()
+
+	// Check to see if the stats were loaded in while we were waiting for
+	// the mutex.
+	stats = u.statsSnapshot.Load()
+	if stats != nil {
+		return *stats, nil
+	}
+
+	var dbStats universe.AggregateStats
 
 	readTx := NewUniverseStatsReadTx()
 	err := u.db.ExecTx(ctx, &readTx, func(db UniverseStatsStore) error {
@@ -245,25 +465,25 @@ func (u *UniverseStats) AggregateSyncStats(
 		// We'll need to do a type cast here as sqlite will give us a
 		// NULL value as an int, while postgres will give us a "0"
 		// string.
-		stats.NumTotalSyncs, err = parseCoalesceNumericType[uint64](
+		dbStats.NumTotalSyncs, err = parseCoalesceNumericType[uint64](
 			uniStats.TotalSyncs,
 		)
 		if err != nil {
 			return err
 		}
-		stats.NumTotalProofs, err = parseCoalesceNumericType[uint64](
+		dbStats.NumTotalProofs, err = parseCoalesceNumericType[uint64](
 			uniStats.TotalProofs,
 		)
 		if err != nil {
 			return err
 		}
-		stats.NumTotalGroups, err = parseCoalesceNumericType[uint64](
+		dbStats.NumTotalGroups, err = parseCoalesceNumericType[uint64](
 			uniStats.TotalNumGroups,
 		)
 		if err != nil {
 			return err
 		}
-		stats.NumTotalAssets, err = parseCoalesceNumericType[uint64](
+		dbStats.NumTotalAssets, err = parseCoalesceNumericType[uint64](
 			uniStats.TotalNumAssets,
 		)
 		if err != nil {
@@ -273,10 +493,21 @@ func (u *UniverseStats) AggregateSyncStats(
 		return nil
 	})
 	if err != nil {
-		return stats, err
+		return universe.AggregateStats{}, err
 	}
 
-	return stats, nil
+	// We'll store the DB stats then start our time after function to wipe
+	// the stats pointer so we'll refresh it after a period of time.
+	u.statsSnapshot.Store(&dbStats)
+
+	u.statsRefresh = time.AfterFunc(u.opts.cacheDuration, func() {
+		log.Infof("Purging stats cache, duration=%v",
+			u.opts.cacheDuration)
+
+		u.statsSnapshot.Store(nil)
+	})
+
+	return dbStats, nil
 }
 
 // sortTypeToOrderBy converts the given sort type to the corresponding SQL
@@ -312,6 +543,25 @@ func sortTypeToOrderBy(s universe.SyncStatsSort) string {
 // QueryAssetStatsPerDay returns the stats for all assets grouped by day.
 func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 	q universe.GroupedStatsQuery) ([]*universe.GroupedStats, error) {
+
+	// First, we'll check to see if we already have a cached result for
+	// this query.
+	query := newEventQuery(q)
+	cachedResult, err := u.assetEventsCache.Get(query)
+	if err == nil {
+		return cachedResult, nil
+	}
+
+	// Otherwise, we'll go to query the DB, then cache the result.
+	u.eventsMtx.Lock()
+	defer u.eventsMtx.Unlock()
+
+	// Check to see if the cache was populated while we were waiting on the
+	// mutex.
+	cachedResult, err = u.assetEventsCache.Get(query)
+	if err == nil {
+		return cachedResult, nil
+	}
 
 	var (
 		readTx  = NewUniverseStatsReadTx()
@@ -387,6 +637,9 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 		return nil, dbErr
 	}
 
+	// We have a fresh result, so we'll cache it now.
+	u.assetEventsCache.Put(query, results)
+
 	return results, nil
 }
 
@@ -401,39 +654,59 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 		Query: q,
 	}
 
+	// First, check the cache to see if we already have a cached result for
+	// this query.
+	syncSnapshots := u.syncStatsCache.fetchQuery(q)
+	if syncSnapshots != nil {
+		resp.SyncStats = syncSnapshots
+		return resp, nil
+	}
+
+	// Otherwise, we'll grab the main mutex so we can qury the db then
+	// cache the result.
+	u.syncStatsMtx.Lock()
+	defer u.syncStatsMtx.Unlock()
+
+	// Check again to see if the value was loaded in while we were waiting.
+	syncSnapshots = u.syncStatsCache.fetchQuery(q)
+	if syncSnapshots != nil {
+		resp.SyncStats = syncSnapshots
+		return resp, nil
+	}
+
+	// First, we'll map the external query to our SQL specific struct.
+	// We'll need to use the proper null types so the query works as
+	// expected.
+	query := UniverseStatsQuery{
+		AssetName: sqlStr(q.AssetNameFilter),
+		AssetType: func() sql.NullInt16 {
+			if q.AssetTypeFilter == nil {
+				return sql.NullInt16{}
+			}
+
+			return sqlInt16(*q.AssetTypeFilter)
+		}(),
+		SortBy:        sqlStr(sortTypeToOrderBy(q.SortBy)),
+		SortDirection: sqlInt16(q.SortDirection),
+		NumOffset:     int32(q.Offset),
+		NumLimit: func() int32 {
+			if q.Limit == 0 {
+				return int32(math.MaxInt32)
+			}
+
+			return int32(q.Limit)
+		}(),
+	}
+
+	// In order for the narg clause to work properly, we'll only
+	// apply the asset ID if it's set.
+	var zeroID asset.ID
+	if q.AssetIDFilter != zeroID {
+		query.AssetID = q.AssetIDFilter[:]
+	}
+
 	readTx := NewUniverseStatsReadTx()
 	err := u.db.ExecTx(ctx, &readTx, func(db UniverseStatsStore) error {
-		// First, we'll map the external query to our SQL specific
-		// struct. We'll need to use the proper null types so the query
-		// works as expected.
-		query := UniverseStatsQuery{
-			AssetName: sqlStr(q.AssetNameFilter),
-			AssetType: func() sql.NullInt16 {
-				if q.AssetTypeFilter == nil {
-					return sql.NullInt16{}
-				}
-
-				return sqlInt16(*q.AssetTypeFilter)
-			}(),
-			SortBy:        sqlStr(sortTypeToOrderBy(q.SortBy)),
-			SortDirection: sqlInt16(q.SortDirection),
-			NumOffset:     int32(q.Offset),
-			NumLimit: func() int32 {
-				if q.Limit == 0 {
-					return universe.MaxPageSize
-				}
-
-				return int32(q.Limit)
-			}(),
-		}
-
-		// In order for the narg clause to work properly, we'll only
-		// apply the asset ID if it's set.
-		var zeroID asset.ID
-		if q.AssetIDFilter != zeroID {
-			query.AssetID = q.AssetIDFilter[:]
-		}
-
 		// With the query constructed above, we'll now query the DB for
 		// the set of stats for each universe.
 		assetStats, err := db.QueryUniverseAssetStats(ctx, query)
@@ -486,6 +759,18 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	// Now we'll insert the result in the cache.
+	u.syncStatsCache.storeQuery(q, resp.SyncStats)
+
+	// Finally, we'll create the time after function that'll wipe the
+	// cache, forcing a refresh.
+	u.syncStatsRefresh = time.AfterFunc(u.opts.cacheDuration, func() {
+		log.Infof("Purging sync stats cache, duration=%v",
+			u.opts.cacheDuration)
+
+		u.syncStatsCache.wipe()
+	})
 
 	return resp, nil
 }

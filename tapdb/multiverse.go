@@ -540,9 +540,9 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 	b.leafKeysCache.Lock()
 	defer b.leafKeysCache.Unlock()
 
-	// While we were waiting for the lock, the cache might bave been
+	// While we were waiting for the lock, the cache might have been
 	// populated, so we'll check that now.
-	leafKeys = b.leafKeysCache.fetchLeafKeys(id)
+	leafKeys = b.leafKeysCache.fetchLeafKeys(q)
 	if len(leafKeys) > 0 {
 		return leafKeys, nil
 	}

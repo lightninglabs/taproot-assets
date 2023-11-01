@@ -117,7 +117,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	universeStats := tapdb.NewUniverseStats(uniStatsDB, defaultClock)
+
+	var statsOpts []tapdb.UniverseStatsOption
+	if cfg.Universe.StatsCacheDuration != 0 {
+		cacheOpt := tapdb.WithStatsCacheDuration(
+			cfg.Universe.StatsCacheDuration,
+		)
+		statsOpts = append(statsOpts, cacheOpt)
+	}
+
+	universeStats := tapdb.NewUniverseStats(
+		uniStatsDB, defaultClock, statsOpts...,
+	)
 
 	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
