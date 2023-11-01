@@ -26,7 +26,7 @@ func NewUniverseRPCHarness(t *testing.T, ht *harnessTest,
 		t, ht, tapdConfig{
 			NetParams: harnessNetParams,
 			LndNode:   lndHarness,
-		}, nil, nil, nil,
+		},
 	)
 	require.NoError(t, err)
 
