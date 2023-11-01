@@ -312,7 +312,7 @@ type cachedLeafKeys []universe.LeafKey
 
 // Size just returns 1, as we cache based on the total number of assets, but
 // not the sum of their leaves.
-func (c *cachedLeafKeys) Size() (uint64, error) {
+func (c cachedLeafKeys) Size() (uint64, error) {
 	return uint64(1), nil
 }
 
