@@ -84,6 +84,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/taprpc.TaprootAssets/SubscribeReceiveAssetEventNtfns": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
 			Entity: "assets",
 			Action: "write",

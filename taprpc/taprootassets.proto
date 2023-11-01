@@ -117,6 +117,13 @@ service TaprootAssets {
         returns (stream SendAssetEvent);
 
     /*
+    SubscribeReceiveAssetEventNtfns registers a subscription to the event
+    notification stream which relates to the asset receive process.
+    */
+    rpc SubscribeReceiveAssetEventNtfns (SubscribeReceiveAssetEventNtfnsRequest)
+        returns (stream ReceiveAssetEvent);
+
+    /*
     FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
     either by the asset ID for that asset, or a meta hash.
     */
@@ -998,6 +1005,17 @@ message ProofTransferBackoffWaitEvent {
 
     // The type of proof transfer attempt.
     ProofTransferType transfer_type = 4;
+}
+
+message SubscribeReceiveAssetEventNtfnsRequest {
+}
+
+message ReceiveAssetEvent {
+    oneof event {
+        // An event which indicates that the proof transfer backoff wait period
+        // will start imminently.
+        ProofTransferBackoffWaitEvent proof_transfer_backoff_wait_event = 1;
+    }
 }
 
 message FetchAssetMetaRequest {

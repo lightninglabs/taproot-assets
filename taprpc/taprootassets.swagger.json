@@ -653,6 +653,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/receive/ntfs": {
+      "post": {
+        "summary": "SubscribeReceiveAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset receive process.",
+        "operationId": "TaprootAssets_SubscribeReceiveAssetEventNtfns",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcReceiveAssetEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcReceiveAssetEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeReceiveAssetEventNtfnsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/send": {
       "post": {
         "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed Taproot Asset address(es) to attempt\nto complete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
@@ -1790,6 +1832,15 @@
         }
       }
     },
+    "taprpcReceiveAssetEvent": {
+      "type": "object",
+      "properties": {
+        "proof_transfer_backoff_wait_event": {
+          "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
+          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
+        }
+      }
+    },
     "taprpcScriptKey": {
       "type": "object",
       "properties": {
@@ -1858,6 +1909,9 @@
       "type": "object"
     },
     "taprpcStopResponse": {
+      "type": "object"
+    },
+    "taprpcSubscribeReceiveAssetEventNtfnsRequest": {
       "type": "object"
     },
     "taprpcSubscribeSendAssetEventNtfnsRequest": {
