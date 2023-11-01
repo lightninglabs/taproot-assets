@@ -68,7 +68,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		timeout := 2 * defaultProofTransferReceiverAckTimeout
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
-		assertRecvNtfsEvent(
+		assertAssetSendNtfsEvent(
 			t, ctx, eventNtfns, targetEventSelector, numSends,
 		)
 	}()
@@ -463,7 +463,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
-		assertRecvNtfsEvent(
+		assertAssetSendNtfsEvent(
 			t, ctx, eventNtfns, targetEventSelector,
 			expectedEventCount,
 		)
@@ -570,7 +570,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
-		assertRecvNtfsEvent(
+		assertAssetSendNtfsEvent(
 			t, ctx, eventNtfns, targetEventSelector,
 			expectedEventCount,
 		)
@@ -802,7 +802,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
-		assertRecvNtfsEvent(
+		assertAssetSendNtfsEvent(
 			t, ctx, eventNtfns, targetEventSelector,
 			expectedEventCount,
 		)
@@ -851,10 +851,10 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	wg.Wait()
 }
 
-// assertRecvNtfsEvent asserts that the given event notification was received.
-// This function will block until the event is received or the event stream is
-// closed.
-func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
+// assertAssetSendNtfsEvent asserts that the given asset send event notification
+// was received. This function will block until the event is received or the
+// event stream is closed.
+func assertAssetSendNtfsEvent(t *harnessTest, ctx context.Context,
 	eventNtfns taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsClient,
 	targetEventSelector func(*taprpc.SendAssetEvent) bool,
 	expectedCount int) {
@@ -893,7 +893,7 @@ func assertRecvNtfsEvent(t *harnessTest, ctx context.Context,
 	require.Equal(t.t, expectedCount, countFound)
 }
 
-// assertRecvNtfsEvent asserts that the given asset receive event notification
+// assertAssetSendNtfsEvent asserts that the given asset receive event notification
 // was received. This function will block until the event is received or the
 // event stream is closed.
 func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
