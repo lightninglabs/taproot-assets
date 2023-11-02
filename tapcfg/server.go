@@ -98,13 +98,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := tap.NewLndRpcChainBridge(lndServices)
 
-	addrBook := address.NewBook(address.BookConfig{
-		Store:        tapdbAddrBook,
-		StoreTimeout: tapdb.DefaultStoreTimeout,
-		KeyRing:      keyRing,
-		Chain:        tapChainParams,
-	})
-
 	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
 
 	uniDB := tapdb.NewTransactionExecutor(
@@ -301,6 +294,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
+	addrBookConfig := address.BookConfig{
+		Store:        tapdbAddrBook,
+		Syncer:       universeFederation,
+		StoreTimeout: tapdb.DefaultStoreTimeout,
+		KeyRing:      keyRing,
+		Chain:        tapChainParams,
+	}
+	if cfg.AddrBook.DisableSyncer {
+		addrBookConfig.Syncer = nil
+	}
+	addrBook := address.NewBook(addrBookConfig)
+
 	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
@@ -356,6 +361,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		),
 		ChainBridge:             chainBridge,
 		AddrBook:                addrBook,
+		AddrBookDisableSyncer:   cfg.AddrBook.DisableSyncer,
 		DefaultProofCourierAddr: proofCourierAddr.Url(),
 		ProofArchive:            proofArchive,
 		AssetWallet:             assetWallet,

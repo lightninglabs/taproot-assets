@@ -253,6 +253,12 @@ type UniverseConfig struct {
 	PublicAccess bool `long:"public-access" description:"If true, and the Universe server is on a public interface, valid proof from remote parties will be accepted, and proofs will be queryable by remote parties. This applies to federation syncing as well as RPC insert and query."`
 }
 
+// AddressConfig is the config that houses any address Book related config
+// values.
+type AddrBookConfig struct {
+	DisableSyncer bool `long:"disable-syncer" description:"If true, tapd will not try to sync issuance proofs for unknown assets when creating an address."`
+}
+
 // Config is the main config for the tapd cli command.
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
@@ -288,6 +294,8 @@ type Config struct {
 	Postgres        *tapdb.PostgresConfig `group:"postgres" namespace:"postgres"`
 
 	Universe *UniverseConfig `group:"universe" namespace:"universe"`
+
+	AddrBook *AddrBookConfig `group:"address" namespace:"address"`
 
 	Prometheus monitoring.PrometheusConfig `group:"prometheus" namespace:"prometheus"`
 
@@ -361,6 +369,9 @@ func DefaultConfig() Config {
 		},
 		Universe: &UniverseConfig{
 			SyncInterval: defaultUniverseSyncInterval,
+		},
+		AddrBook: &AddrBookConfig{
+			DisableSyncer: false,
 		},
 	}
 }

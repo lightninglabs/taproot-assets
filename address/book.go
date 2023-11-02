@@ -2,12 +2,14 @@ package address
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -68,6 +70,19 @@ type QueryParams struct {
 	// UnmanagedOnly is a boolean pointer indicating whether only addresses
 	// should be returned that are not yet managed by the wallet.
 	UnmanagedOnly bool
+}
+
+// AssetSyncer is an interface that allows the address.Book to look up asset
+// genesis and group information from both the local asset store and assets
+// known to universe servers in our federation.
+type AssetSyncer interface {
+	// SyncAssetInfo queries the universes in our federation for genesis
+	// and asset group information about the given asset ID.
+	SyncAssetInfo(ctx context.Context, assetID *asset.ID) error
+
+	// EnableAssetSync updates the sync config for the given asset so that
+	// we sync future issuance proofs.
+	EnableAssetSync(ctx context.Context, groupInfo *asset.AssetGroup) error
 }
 
 // Storage is the main storage interface for the address book.
@@ -132,6 +147,10 @@ type BookConfig struct {
 	// Store holds the set of created addresses.
 	Store Storage
 
+	// Syncer allows the address.Book to sync issuance information for
+	// assets from universe servers in our federation.
+	Syncer AssetSyncer
+
 	// KeyRing points to an active key ring instance.
 	KeyRing KeyRing
 
@@ -171,6 +190,64 @@ func NewBook(cfg BookConfig) *Book {
 	}
 }
 
+// queryAssetInfo attempts to locate asset genesis information by querying
+// geneses already known to this node. If asset issuance was not previously
+// verified, we then query universes in our federation for issuance proofs.
+func (b *Book) queryAssetInfo(ctx context.Context,
+	id asset.ID) (*asset.AssetGroup, error) {
+
+	// Check if we know of this asset ID already.
+	assetGroup, err := b.cfg.Store.QueryAssetGroup(ctx, id)
+	switch {
+	case assetGroup != nil:
+		return assetGroup, nil
+
+	// Asset lookup failed gracefully; continue to asset lookup using the
+	// AssetSyncer if enabled.
+	case errors.Is(err, ErrAssetGroupUnknown):
+		if b.cfg.Syncer == nil {
+			return nil, ErrAssetGroupUnknown
+		}
+
+	case err != nil:
+		return nil, err
+	}
+
+	log.Debugf("asset %v is unknown, attempting to bootstrap", id.String())
+
+	// Use the AssetSyncer to query our universe federation for the asset.
+	err = b.cfg.Syncer.SyncAssetInfo(ctx, &id)
+	if err != nil {
+		return nil, err
+	}
+
+	// The asset genesis info may have been synced from a universe
+	// server; query for the asset ID again.
+	assetGroup, err = b.cfg.Store.QueryAssetGroup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debugf("bootstrap succeeded for asset %v", id.String())
+
+	// If the asset was found after sync, and has an asset group, update our
+	// universe sync config to ensure that we sync future issuance proofs.
+	// Ungrouped assets will have no new issuance proofs so do not need a
+	// universe sync config at all.
+	if assetGroup.GroupKey != nil {
+		log.Debugf("enabling asset sync for asset group %x",
+			schnorr.SerializePubKey(
+				&assetGroup.GroupKey.GroupPubKey,
+			))
+		err = b.cfg.Syncer.EnableAssetSync(ctx, assetGroup)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return assetGroup, nil
+}
+
 // NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
@@ -178,8 +255,8 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 ) (*AddrWithKeyInfo, error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
-	// of this asset ID already.
-	if _, err := b.cfg.Store.QueryAssetGroup(ctx, assetID); err != nil {
+	// of this asset ID, or can import it.
+	if _, err := b.queryAssetInfo(ctx, assetID); err != nil {
 		return nil, fmt.Errorf("unable to make address for unknown "+
 			"asset %x: %w", assetID[:], err)
 	}
@@ -217,7 +294,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't
 	// bootstrapped it.
-	assetGroup, err := b.cfg.Store.QueryAssetGroup(ctx, assetID)
+	assetGroup, err := b.queryAssetInfo(ctx, assetID)
 	if err != nil {
 		return nil, err
 	}

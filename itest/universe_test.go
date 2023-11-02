@@ -467,6 +467,7 @@ func testUniverseFederation(t *harnessTest) {
 			simpleAssets[1], issuableAssets[0],
 		},
 	)
+	var groupKey []byte
 
 	// Bob should have two new assets in its local Universe tree.
 	for _, newAsset := range newAssets {
@@ -478,7 +479,7 @@ func testUniverseFederation(t *harnessTest) {
 		}
 
 		if newAsset.AssetGroup != nil {
-			groupKey := newAsset.AssetGroup.TweakedGroupKey
+			groupKey = newAsset.AssetGroup.TweakedGroupKey
 			uniID = &unirpc.ID{
 				Id: &unirpc.ID_GroupKey{
 					GroupKey: groupKey,
@@ -496,6 +497,46 @@ func testUniverseFederation(t *harnessTest) {
 		}, defaultTimeout)
 		require.NoError(t.t, waitErr)
 	}
+
+	// Check that we can fetch the group anchor from the federation server
+	// by its asset ID in addition to its group key.
+	groupedAsset := fn.Filter(newAssets, func(asset *taprpc.Asset) bool {
+		return asset.AssetGroup != nil
+	})
+	require.Len(t.t, groupedAsset, 1)
+
+	// Query for the group anchor with only the asset ID.
+	uniIDNoGroupKey := &unirpc.ID{
+		Id: &unirpc.ID_AssetId{
+			AssetId: groupedAsset[0].AssetGenesis.AssetId,
+		},
+	}
+	groupUniRoots, err := t.tapd.QueryAssetRoots(
+		ctxt, &unirpc.AssetRootQuery{
+			Id: uniIDNoGroupKey,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// The fetched universe roots should have the correct group key. There
+	// were no asset transfers, so we only inspect the issuance root.
+	require.NotNil(t.t, groupUniRoots)
+	require.NotNil(t.t, groupUniRoots.IssuanceRoot)
+	require.NotNil(t.t, groupUniRoots.IssuanceRoot.Id)
+
+	uniIDNoGroupKeyResp := groupUniRoots.IssuanceRoot.Id
+	uniIDResp, err := tap.UnmarshalUniID(uniIDNoGroupKeyResp)
+	require.NoError(t.t, err)
+	require.NotNil(t.t, uniIDResp.GroupKey)
+
+	// The universe root uses the schnorr-serialized group key, so we
+	// reserialize the group key stored earlier before comparing.
+	groupKeyParsed, err := btcec.ParsePubKey(groupKey)
+	require.NoError(t.t, err)
+
+	groupKey = schnorr.SerializePubKey(groupKeyParsed)
+	uniRootGroupKey := schnorr.SerializePubKey(uniIDResp.GroupKey)
+	require.Equal(t.t, groupKey, uniRootGroupKey)
 
 	// At this point, both nodes should have the same Universe roots as Bob
 	// should have optimistically pushed the update to its federation

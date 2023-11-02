@@ -4,11 +4,17 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
+	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -182,6 +188,243 @@ func testMultiAddress(t *harnessTest) {
 	runMultiSendTest(
 		ctxt, t, alice, bob, groupGenInfo, mintedGroupAsset, 1, 2,
 	)
+}
+
+// testAddressAssetSyncer tests that we can create addresses for assets that
+// were not synced to the address creating node before creating the address.
+func testAddressAssetSyncer(t *harnessTest) {
+	// We'll kick off the test by making a new node, without hooking it up
+	// to any existing Universe server.
+	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, nil)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	miner := t.lndHarness.Miner.Client
+
+	// Now that Bob is active, we'll mint some assets with the main node.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, []*mintrpc.MintAssetRequest{
+			simpleAssets[0], issuableAssets[0],
+		},
+	)
+	require.Len(t.t, rpcAssets, 2)
+
+	// Bob should not be able to make an address for any assets minted by
+	// Alice, as he has not added her as a Universe server.
+	firstAsset := rpcAssets[0]
+	_, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:      firstAsset.AssetGenesis.AssetId,
+		Amt:          firstAsset.Amount / 2,
+		AssetVersion: firstAsset.Version,
+	})
+	require.ErrorContains(t.t, err, "asset lookup failed for asset")
+
+	// We'll now add the main node, as a member of Bob's Universe
+	// federation. We expect that their state is synchronized shortly after
+	// the call returns.
+	_, err = bob.AddFederationServer(
+		ctxt, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{
+				{
+					Host: t.tapd.rpcHost(),
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Bob's Universe stats should show that he now has two assets.
+	AssertUniverseStats(t.t, bob, 2, 0, 2, 1)
+
+	// Bob should not be able to make an address for a random asset ID
+	// that he nor Alice are aware of.
+	randAssetId := test.RandBytes(32)
+	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId: randAssetId,
+		Amt:     1,
+	})
+	require.ErrorContains(t.t, err, "asset lookup failed for asset")
+
+	// Turn off global universe syncing for Bob, so he doesn't observe any
+	// future assets minted by Alice.
+	globalConfigs := []*unirpc.GlobalFederationSyncConfig{
+		{
+			ProofType:       unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+			AllowSyncInsert: false,
+			AllowSyncExport: false,
+		},
+		{
+			ProofType:       unirpc.ProofType_PROOF_TYPE_TRANSFER,
+			AllowSyncInsert: false,
+			AllowSyncExport: false,
+		},
+	}
+
+	_, err = bob.UniverseClient.SetFederationSyncConfig(
+		ctxb, &unirpc.SetFederationSyncConfigRequest{
+			GlobalSyncConfigs: globalConfigs,
+		},
+	)
+	require.NoError(t.t, err)
+
+	configResp, err := bob.UniverseClient.QueryFederationSyncConfig(
+		ctxb, &unirpc.QueryFederationSyncConfigRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Ensure that the global configs are set as expected.
+	require.Equal(t.t, len(configResp.GlobalSyncConfigs), 2)
+
+	for i := range configResp.GlobalSyncConfigs {
+		config := configResp.GlobalSyncConfigs[i]
+
+		// Match proof type.
+		switch config.ProofType {
+		case unirpc.ProofType_PROOF_TYPE_ISSUANCE:
+			require.False(t.t, config.AllowSyncInsert)
+			require.False(t.t, config.AllowSyncExport)
+
+		case unirpc.ProofType_PROOF_TYPE_TRANSFER:
+			require.False(t.t, config.AllowSyncInsert)
+			require.False(t.t, config.AllowSyncExport)
+
+		default:
+			t.Fatalf("unexpected global proof type: %s",
+				config.ProofType)
+		}
+	}
+
+	// Mint more assets with the main node, which should not sync to Bob.
+	secondRpcAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, []*mintrpc.MintAssetRequest{
+			simpleAssets[1], issuableAssets[1],
+		},
+	)
+	require.Len(t.t, secondRpcAssets, 2)
+
+	// Verify that Bob will not sync to Alice by default by manually
+	// triggering a sync.
+	syncDiff, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+		UniverseHost: t.tapd.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, syncDiff.SyncedUniverses, 0)
+
+	// This helper restarts Bob, disables global universe sync, and adds
+	// Alice to his federation.
+	restartBobNoUniSync := func(disableSyncer bool) {
+		require.NoError(t.t, bob.stop(!*noDelete))
+		bob = setupTapdHarness(
+			t.t, t, t.lndHarness.Bob, nil,
+			func(params *tapdHarnessParams) {
+				params.addrAssetSyncerDisable = disableSyncer
+			},
+		)
+
+		_, err = bob.UniverseClient.SetFederationSyncConfig(
+			ctxb, &unirpc.SetFederationSyncConfigRequest{
+				GlobalSyncConfigs: globalConfigs,
+			},
+		)
+		require.NoError(t.t, err)
+
+		_, err = bob.AddFederationServer(
+			ctxt, &unirpc.AddFederationServerRequest{
+				Servers: []*unirpc.UniverseFederationServer{
+					{
+						Host: t.tapd.rpcHost(),
+					},
+				},
+			},
+		)
+		require.NoError(t.t, err)
+		AssertUniverseStats(t.t, bob, 0, 0, 0, 0)
+	}
+
+	// If we restart Bob with the syncer disabled and no automatic sync
+	// with Alice, he should be unable to make an address for the new
+	// assets.
+	restartBobNoUniSync(true)
+	firstAsset = secondRpcAssets[0]
+	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:      firstAsset.AssetGenesis.AssetId,
+		Amt:          firstAsset.Amount,
+		AssetVersion: firstAsset.Version,
+	})
+	require.ErrorContains(t.t, err, "asset group is unknown")
+
+	// Restart Bob again with the syncer enabled. Bob should be able to make
+	// an address for both new assets minted by Alice, even though he has
+	// not synced their issuance proofs.
+	restartBobNoUniSync(false)
+	firstAsset = secondRpcAssets[0]
+	firstAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:      firstAsset.AssetGenesis.AssetId,
+		Amt:          firstAsset.Amount,
+		AssetVersion: firstAsset.Version,
+	})
+	require.NoError(t.t, err)
+	AssertAddr(t.t, firstAsset, firstAddr)
+
+	secondAsset := secondRpcAssets[1]
+	secondGroup := secondAsset.AssetGroup
+	secondAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:      secondAsset.AssetGenesis.AssetId,
+		Amt:          secondAsset.Amount,
+		AssetVersion: secondAsset.Version,
+	})
+	require.NoError(t.t, err)
+	AssertAddr(t.t, secondAsset, secondAddr)
+
+	// Ensure that the asset group of the second asset has a matching
+	// universe config so Bob will sync future issuances.
+	resp, err := bob.UniverseClient.QueryFederationSyncConfig(
+		ctxt, &unirpc.QueryFederationSyncConfigRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.AssetSyncConfigs, 1)
+
+	groupSyncConfig := resp.AssetSyncConfigs[0]
+	require.NotNil(t.t, groupSyncConfig.Id)
+
+	groupUniID, err := tap.UnmarshalUniID(groupSyncConfig.Id)
+	uniIDGroupKey := schnorr.SerializePubKey(groupUniID.GroupKey)
+	require.NotNil(t.t, groupUniID.GroupKey)
+	require.Equal(t.t, secondGroup.TweakedGroupKey[1:], uniIDGroupKey)
+	require.Equal(t.t, groupUniID.ProofType, universe.ProofTypeIssuance)
+
+	// Bob's Universe stats should show that he has now synced both assets
+	// from the second mint and the single asset group from that mint.
+	AssertUniverseStats(t.t, bob, 2, 0, 2, 1)
+
+	// Alice's Universe stats should reflect the extra syncs from the asset
+	// group lookups by Bob.
+	AssertUniverseStats(t.t, t.tapd, 4, 4, 4, 2)
+
+	// If Alice now mints a reissuance for the second asset group, Bob
+	// should successfully sync that new asset.
+	secondGroupMember := CopyRequest(issuableAssets[1])
+	secondGroupMember.EnableEmission = false
+	secondGroupMember.Asset.Name += "-2"
+	secondGroupMember.Asset.GroupKey = secondGroup.TweakedGroupKey
+
+	reissuedAsset := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, fn.MakeSlice(secondGroupMember),
+	)
+	require.Len(t.t, reissuedAsset, 1)
+
+	syncDiff, err = bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+		UniverseHost: t.tapd.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, syncDiff.SyncedUniverses, 1)
 }
 
 // runMultiSendTest runs a test that sends assets to multiple addresses at the

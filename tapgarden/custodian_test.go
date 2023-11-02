@@ -34,7 +34,8 @@ var (
 )
 
 // newAddrBook creates a new instance of the TapAddressBook book.
-func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
+func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing,
+	syncer *tapgarden.MockAssetSyncer) (*address.Book,
 	*tapdb.TapAddressBook, sqlc.Querier) {
 
 	db := tapdb.NewTestDB(t)
@@ -48,6 +49,7 @@ func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing) (*address.Book,
 	tapdbBook := tapdb.NewTapAddressBook(addrTx, chainParams, testClock)
 	book := address.NewBook(address.BookConfig{
 		Store:        tapdbBook,
+		Syncer:       syncer,
 		StoreTimeout: testTimeout,
 		Chain:        *chainParams,
 		KeyRing:      keyRing,
@@ -86,6 +88,7 @@ type custodianHarness struct {
 	keyRing      *tapgarden.MockKeyRing
 	tapdbBook    *tapdb.TapAddressBook
 	addrBook     *address.Book
+	syncer       *tapgarden.MockAssetSyncer
 	assetDB      *tapdb.AssetStore
 	proofArchive *proof.MultiArchiver
 }
@@ -134,7 +137,8 @@ func newHarness(t *testing.T,
 	chainBridge := tapgarden.NewMockChainBridge()
 	walletAnchor := tapgarden.NewMockWalletAnchor()
 	keyRing := tapgarden.NewMockKeyRing()
-	addrBook, tapdbBook, _ := newAddrBook(t, keyRing)
+	syncer := tapgarden.NewMockAssetSyncer()
+	addrBook, tapdbBook, _ := newAddrBook(t, keyRing, syncer)
 	proofArchive, assetDB := newProofArchive(t)
 
 	ctxb := context.Background()
@@ -161,6 +165,7 @@ func newHarness(t *testing.T,
 		keyRing:      keyRing,
 		tapdbBook:    tapdbBook,
 		addrBook:     addrBook,
+		syncer:       syncer,
 		assetDB:      assetDB,
 		proofArchive: proofArchive,
 	}
@@ -226,8 +231,36 @@ func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
 	return taprootOutput, tx
 }
 
+// insertAssetInfo starts a background goroutine that receives asset info that
+// was fetched from the asset syncer, and stores it in the address book. This
+// simulates asset bootstrapping that would occur during universe sync.
+func insertAssetInfo(t *testing.T, ctx context.Context, quit <-chan struct{},
+	book *tapdb.TapAddressBook, syncer *tapgarden.MockAssetSyncer) {
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+
+			case <-quit:
+				return
+
+			case newAsset := <-syncer.FetchedAssets:
+				err := book.InsertAssetGen(
+					ctx, newAsset.Genesis,
+					newAsset.GroupKey,
+				)
+				require.NoError(t, err)
+
+			default:
+			}
+		}
+	}()
+}
+
 // TestCustodianNewAddr makes sure that a new address is imported into the
-// wallet and watched on-chain if a new one is added to the address book.,
+// wallet and watched on-chain if a new one is added to the address book.
 func TestCustodianNewAddr(t *testing.T) {
 	t.Parallel()
 
@@ -264,6 +297,80 @@ func TestCustodianNewAddr(t *testing.T) {
 
 		return !addrs[0].ManagedAfter.IsZero()
 	})
+}
+
+// TestBookAssetSyncer makes sure that addresses can be created for assets
+// not yet known to the address book.
+func TestBookAssetSyncer(t *testing.T) {
+	t.Parallel()
+
+	h := newHarness(t, nil)
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	ctx := context.Background()
+	proofCourierAddr := address.RandProofCourierAddr(t)
+
+	// Start a background goroutine to add assets that have been
+	// fetched from the asset syncer to the address book, to mimic a
+	// universe sync.
+	quitAssetWatcher := make(chan struct{})
+	insertAssetInfo(
+		t, ctx, quitAssetWatcher, h.tapdbBook, h.syncer,
+	)
+
+	// Address creation should fail for unknown assets.
+	newAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
+	_, err := h.addrBook.NewAddress(
+		ctx, newAsset.ID(), 1, nil, proofCourierAddr,
+	)
+	require.ErrorContains(t, err, "unknown asset")
+
+	// If we add the asset to the asset syncer, address creation should
+	// succeed.
+	h.syncer.AddAsset(*newAsset)
+	go func() {
+		<-h.keyRing.ReqKeys
+		<-h.keyRing.ReqKeys
+	}()
+	newAddr, err := h.addrBook.NewAddress(
+		ctx, newAsset.ID(), 1, nil, proofCourierAddr,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, newAddr)
+
+	numAddrs := 1
+	validAddrs := fn.MakeSlice(newAddr)
+
+	// TODO(jhb): remove asset from syncer, assert that address creation
+	// for the same asset works
+
+	// If the asset syncer returns an error, that should propogate up to
+	// the address creator.
+	h.syncer.FetchErrs = true
+
+	secondAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
+	_, err = h.addrBook.NewAddress(
+		ctx, secondAsset.ID(), 1, nil, proofCourierAddr,
+	)
+	require.ErrorContains(t, err, "failed to fetch asset info")
+
+	h.assertAddrsRegistered(validAddrs...)
+
+	h.eventually(func() bool {
+		addrs, err := h.tapdbBook.QueryAddrs(
+			ctx, address.QueryParams{},
+		)
+		require.NoError(t, err)
+		require.Len(t, addrs, numAddrs)
+
+		return !addrs[0].ManagedAfter.IsZero()
+	})
+
+	close(quitAssetWatcher)
 }
 
 func TestTransactionHandling(t *testing.T) {

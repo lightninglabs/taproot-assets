@@ -325,6 +325,10 @@ type tapdHarnessParams struct {
 	// an ack from the proof receiver.
 	proofReceiverAckTimeout *time.Duration
 
+	// addrAssetSyncerDisable is a flag that determines if the address book
+	// will try and bootstrap unknown assets on address creation.
+	addrAssetSyncerDisable bool
+
 	// expectErrExit indicates whether tapd is expected to exit with an
 	// error.
 	expectErrExit bool
@@ -363,12 +367,18 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		selectedProofCourier = params.proofCourier
 	}
 
+	harnessOpts := func(ho *harnessOpts) {
+		ho.proofSendBackoffCfg = params.proofSendBackoffCfg
+		ho.proofReceiverAckTimeout = params.proofReceiverAckTimeout
+		ho.proofCourier = selectedProofCourier
+		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
+	}
+
 	tapdHarness, err := newTapdHarness(
 		t, ht, tapdConfig{
 			NetParams: harnessNetParams,
 			LndNode:   node,
-		}, selectedProofCourier,
-		params.proofSendBackoffCfg, params.proofReceiverAckTimeout,
+		}, harnessOpts,
 	)
 	require.NoError(t, err)
 
