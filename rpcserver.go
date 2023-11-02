@@ -3716,14 +3716,8 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 func (r *rpcServer) Info(ctx context.Context,
 	_ *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {
 
-	universeStats, err := r.cfg.UniverseStats.AggregateSyncStats(ctx)
-	if err != nil {
-		return nil, err
-	}
-
 	return &unirpc.InfoResponse{
 		RuntimeId: r.cfg.RuntimeID,
-		NumAssets: universeStats.NumTotalAssets,
 	}, nil
 }
 

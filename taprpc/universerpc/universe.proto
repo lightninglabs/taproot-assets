@@ -355,9 +355,6 @@ message InfoResponse {
     // server, changes with each restart. Mainly used to identify identical
     // servers when they are exposed under different hostnames/ports.
     int64 runtime_id = 1;
-
-    // The number of assets known to this Universe server.
-    uint64 num_assets = 2;
 }
 
 enum UniverseSyncMode {
