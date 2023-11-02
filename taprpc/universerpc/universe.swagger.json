@@ -1837,11 +1837,6 @@
           "type": "string",
           "format": "int64",
           "description": "A pseudo-random runtime ID for the current instance of the Universe\nserver, changes with each restart. Mainly used to identify identical\nservers when they are exposed under different hostnames/ports."
-        },
-        "num_assets": {
-          "type": "string",
-          "format": "uint64",
-          "description": "The number of assets known to this Universe server."
         }
       }
     },

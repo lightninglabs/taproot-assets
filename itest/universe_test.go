@@ -458,7 +458,7 @@ func testUniverseFederation(t *harnessTest) {
 	// Test the content of the universe info call.
 	info, err := bob.Info(ctxt, &unirpc.InfoRequest{})
 	require.NoError(t.t, err)
-	require.EqualValues(t.t, 1, info.NumAssets)
+	require.NotZero(t.t, info.RuntimeId)
 
 	// We'll now make two new assets with Bob, and ensure that the state is
 	// properly pushed to the main node which is a part of the federation.
