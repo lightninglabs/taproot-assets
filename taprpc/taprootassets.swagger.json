@@ -653,6 +653,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/receive/ntfs": {
+      "post": {
+        "summary": "SubscribeReceiveAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset receive process.",
+        "operationId": "TaprootAssets_SubscribeReceiveAssetEventNtfns",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcReceiveAssetEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcReceiveAssetEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeReceiveAssetEventNtfnsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/send": {
       "post": {
         "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed Taproot Asset address(es) to attempt\nto complete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
@@ -1746,18 +1788,7 @@
         }
       }
     },
-    "taprpcQueryAddrResponse": {
-      "type": "object",
-      "properties": {
-        "addrs": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/taprpcAddr"
-          }
-        }
-      }
-    },
-    "taprpcReceiverProofBackoffWaitEvent": {
+    "taprpcProofTransferBackoffWaitEvent": {
       "type": "object",
       "properties": {
         "timestamp": {
@@ -1774,6 +1805,39 @@
           "type": "string",
           "format": "int64",
           "description": "Tries counter is the number of tries we've made so far during the\ncourse of the current backoff procedure to deliver the proof to the\nreceiver."
+        },
+        "transfer_type": {
+          "$ref": "#/definitions/taprpcProofTransferType",
+          "description": "The type of proof transfer attempt."
+        }
+      }
+    },
+    "taprpcProofTransferType": {
+      "type": "string",
+      "enum": [
+        "PROOF_TRANSFER_TYPE_SEND",
+        "PROOF_TRANSFER_TYPE_RECEIVE"
+      ],
+      "default": "PROOF_TRANSFER_TYPE_SEND",
+      "description": "ProofTransferType is the type of proof transfer attempt. The transfer is\neither a proof delivery to the transfer counterparty or receiving a proof\nfrom the transfer counterparty. Note that the transfer counterparty is\nusually the proof courier service.\n\n - PROOF_TRANSFER_TYPE_SEND: This value indicates that the proof transfer attempt is a delivery to the\ntransfer counterparty.\n - PROOF_TRANSFER_TYPE_RECEIVE: This value indicates that the proof transfer attempt is a receive from\nthe transfer counterparty."
+    },
+    "taprpcQueryAddrResponse": {
+      "type": "object",
+      "properties": {
+        "addrs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcAddr"
+          }
+        }
+      }
+    },
+    "taprpcReceiveAssetEvent": {
+      "type": "object",
+      "properties": {
+        "proof_transfer_backoff_wait_event": {
+          "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
+          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
         }
       }
     },
@@ -1803,9 +1867,9 @@
           "$ref": "#/definitions/taprpcExecuteSendStateEvent",
           "description": "An event which indicates that a send state is about to be executed."
         },
-        "receiver_proof_backoff_wait_event": {
-          "$ref": "#/definitions/taprpcReceiverProofBackoffWaitEvent",
-          "description": "An event which indicates that the proof send backoff wait period will\nstart imminently."
+        "proof_transfer_backoff_wait_event": {
+          "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
+          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
         }
       }
     },
@@ -1845,6 +1909,9 @@
       "type": "object"
     },
     "taprpcStopResponse": {
+      "type": "object"
+    },
+    "taprpcSubscribeReceiveAssetEventNtfnsRequest": {
       "type": "object"
     },
     "taprpcSubscribeSendAssetEventNtfnsRequest": {

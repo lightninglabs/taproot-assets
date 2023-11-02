@@ -117,6 +117,13 @@ service TaprootAssets {
         returns (stream SendAssetEvent);
 
     /*
+    SubscribeReceiveAssetEventNtfns registers a subscription to the event
+    notification stream which relates to the asset receive process.
+    */
+    rpc SubscribeReceiveAssetEventNtfns (SubscribeReceiveAssetEventNtfnsRequest)
+        returns (stream ReceiveAssetEvent);
+
+    /*
     FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
     either by the asset ID for that asset, or a meta hash.
     */
@@ -956,9 +963,9 @@ message SendAssetEvent {
         // An event which indicates that a send state is about to be executed.
         ExecuteSendStateEvent execute_send_state_event = 1;
 
-        // An event which indicates that the proof send backoff wait period will
-        // start imminently.
-        ReceiverProofBackoffWaitEvent receiver_proof_backoff_wait_event = 2;
+        // An event which indicates that the proof transfer backoff wait period
+        // will start imminently.
+        ProofTransferBackoffWaitEvent proof_transfer_backoff_wait_event = 2;
     }
 }
 
@@ -970,7 +977,21 @@ message ExecuteSendStateEvent {
     string send_state = 2;
 }
 
-message ReceiverProofBackoffWaitEvent {
+// ProofTransferType is the type of proof transfer attempt. The transfer is
+// either a proof delivery to the transfer counterparty or receiving a proof
+// from the transfer counterparty. Note that the transfer counterparty is
+// usually the proof courier service.
+enum ProofTransferType {
+    // This value indicates that the proof transfer attempt is a delivery to the
+    // transfer counterparty.
+    PROOF_TRANSFER_TYPE_SEND = 0;
+
+    // This value indicates that the proof transfer attempt is a receive from
+    // the transfer counterparty.
+    PROOF_TRANSFER_TYPE_RECEIVE = 1;
+}
+
+message ProofTransferBackoffWaitEvent {
     // Transfer attempt timestamp (microseconds).
     int64 timestamp = 1;
 
@@ -981,6 +1002,20 @@ message ReceiverProofBackoffWaitEvent {
     // course of the current backoff procedure to deliver the proof to the
     // receiver.
     int64 tries_counter = 3;
+
+    // The type of proof transfer attempt.
+    ProofTransferType transfer_type = 4;
+}
+
+message SubscribeReceiveAssetEventNtfnsRequest {
+}
+
+message ReceiveAssetEvent {
+    oneof event {
+        // An event which indicates that the proof transfer backoff wait period
+        // will start imminently.
+        ProofTransferBackoffWaitEvent proof_transfer_backoff_wait_event = 1;
+    }
 }
 
 message FetchAssetMetaRequest {

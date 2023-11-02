@@ -66,6 +66,10 @@ http:
       post: "/v1/taproot-assets/send/ntfs"
       body: "*"
 
+    - selector: taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns
+      post: "/v1/taproot-assets/receive/ntfs"
+      body: "*"
+
     - selector: taprpc.TaprootAssets.ListTransfers
       get: "/v1/taproot-assets/assets/transfers"
 

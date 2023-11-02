@@ -130,6 +130,14 @@ type (
 
 	// ReAnchorParams wraps the params needed to re-anchor a passive asset.
 	ReAnchorParams = sqlc.ReAnchorPassiveAssetsParams
+
+	// LogProofTransAttemptParams is a type alias for the params needed to
+	// log a proof transfer attempt.
+	LogProofTransAttemptParams = sqlc.LogProofTransferAttemptParams
+
+	// QueryProofTransAttemptsParams is a type alias for the params needed
+	// to query the proof transfer attempts log.
+	QueryProofTransAttemptsParams = sqlc.QueryProofTransferAttemptsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
@@ -260,15 +268,14 @@ type ActiveAssetsStore interface {
 	// given asset ID.
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 
-	// InsertReceiverProofTransferAttempt inserts a new receiver proof
-	// transfer attempt record.
-	InsertReceiverProofTransferAttempt(ctx context.Context,
-		arg InsertRecvProofTxAttemptParams) error
+	// LogProofTransferAttempt logs a new proof transfer attempt.
+	LogProofTransferAttempt(ctx context.Context,
+		arg LogProofTransAttemptParams) error
 
-	// QueryReceiverProofTransferAttempt returns timestamps which correspond
-	// to receiver proof delivery attempts.
-	QueryReceiverProofTransferAttempt(ctx context.Context,
-		proofLocatorHash []byte) ([]time.Time, error)
+	// QueryProofTransferAttempts returns timestamps from the proof transfer
+	// attempts log.
+	QueryProofTransferAttempts(ctx context.Context,
+		arg QueryProofTransAttemptsParams) ([]time.Time, error)
 
 	// InsertPassiveAsset inserts a new row which includes the data
 	// necessary to re-anchor a passive asset.
@@ -293,8 +300,6 @@ type ActiveAssetsStore interface {
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 }
-
-type InsertRecvProofTxAttemptParams = sqlc.InsertReceiverProofTransferAttemptParams
 
 // AssetBalance holds a balance query result for a particular asset or all
 // assets tracked by this daemon.
@@ -2350,9 +2355,9 @@ func logPendingPassiveAssets(ctx context.Context,
 	return nil
 }
 
-// StoreProofDeliveryAttempt logs a proof delivery attempt to disk.
-func (a *AssetStore) StoreProofDeliveryAttempt(ctx context.Context,
-	locator proof.Locator) error {
+// LogProofTransferAttempt logs a proof delivery attempt to disk.
+func (a *AssetStore) LogProofTransferAttempt(ctx context.Context,
+	locator proof.Locator, transferType proof.TransferType) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
@@ -2364,25 +2369,27 @@ func (a *AssetStore) StoreProofDeliveryAttempt(ctx context.Context,
 				err)
 		}
 
-		err = q.InsertReceiverProofTransferAttempt(
-			ctx, InsertRecvProofTxAttemptParams{
+		err = q.LogProofTransferAttempt(
+			ctx, LogProofTransAttemptParams{
+				TransferType:     string(transferType),
 				ProofLocatorHash: proofLocatorHash[:],
 				TimeUnix:         a.clock.Now().UTC(),
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("unable to insert receiver proof "+
-				"transfer attempt log entry: %w", err)
+			return fmt.Errorf("unable to log proof transfer "+
+				"attempt: %w", err)
 		}
 
 		return nil
 	})
 }
 
-// QueryProofDeliveryLog returns timestamps which correspond to logged proof
-// delivery attempts.
-func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
-	locator proof.Locator) ([]time.Time, error) {
+// QueryProofTransferLog returns timestamps which correspond to logged proof
+// transfer attempts.
+func (a *AssetStore) QueryProofTransferLog(ctx context.Context,
+	locator proof.Locator,
+	transferType proof.TransferType) ([]time.Time, error) {
 
 	var (
 		timestamps []time.Time
@@ -2397,8 +2404,11 @@ func (a *AssetStore) QueryProofDeliveryLog(ctx context.Context,
 				err)
 		}
 
-		timestamps, err = q.QueryReceiverProofTransferAttempt(
-			ctx, proofLocatorHash[:],
+		timestamps, err = q.QueryProofTransferAttempts(
+			ctx, QueryProofTransAttemptsParams{
+				ProofLocatorHash: proofLocatorHash[:],
+				TransferType:     string(transferType),
+			},
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query receiver proof "+

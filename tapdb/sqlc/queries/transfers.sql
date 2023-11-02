@@ -116,17 +116,18 @@ WHERE asset_id = @asset_id;
 DELETE FROM asset_witnesses
 WHERE asset_id = $1;
 
--- name: InsertReceiverProofTransferAttempt :exec
-INSERT INTO receiver_proof_transfer_attempts (
-    proof_locator_hash, time_unix
+-- name: LogProofTransferAttempt :exec
+INSERT INTO proof_transfer_log (
+    transfer_type, proof_locator_hash, time_unix
 ) VALUES (
-    $1, $2
+    @transfer_type, @proof_locator_hash, @time_unix
 );
 
--- name: QueryReceiverProofTransferAttempt :many
+-- name: QueryProofTransferAttempts :many
 SELECT time_unix
-FROM receiver_proof_transfer_attempts
-WHERE proof_locator_hash = $1
+FROM proof_transfer_log
+WHERE proof_locator_hash = @proof_locator_hash
+    AND transfer_type = @transfer_type
 ORDER BY time_unix DESC;
 
 -- name: InsertPassiveAsset :exec

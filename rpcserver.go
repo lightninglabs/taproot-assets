@@ -75,9 +75,19 @@ const (
 	AssetBurnConfirmationText = "assets will be destroyed"
 )
 
-// cacheableTimestamp is a wrapper around a uint32 that can be used as a value
-// in an LRU cache.
-type cacheableTimestamp uint32
+type (
+	// cacheableTimestamp is a wrapper around a uint32 that can be used as a
+	// value in an LRU cache.
+	cacheableTimestamp uint32
+
+	// subSendEventNtfnsStream is a type alias for the asset send event
+	// notification stream.
+	subSendEventNtfnsStream = taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsServer
+
+	// subReceiveEventNtfnsStream is a type alias for the asset receive
+	// event notification stream.
+	subReceiveEventNtfnsStream = taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsServer
+)
 
 // Size returns the size of the cacheable timestamp. Since we scale the cache by
 // the number of items and not the total memory size, we can simply return 1
@@ -2230,21 +2240,24 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
 	_ *taprpc.SubscribeSendAssetEventNtfnsRequest,
-	ntfnStream taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsServer) error {
+	ntfnStream subSendEventNtfnsStream) error {
 
 	// Create a new event subscriber and pass a copy to the chain porter.
 	// We will then read events from the subscriber.
 	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
 	defer eventSubscriber.Stop()
 
-	err := r.cfg.ChainPorter.RegisterSubscriber(eventSubscriber, false, false)
+	// Register the subscriber with the ChainPorter.
+	err := r.cfg.ChainPorter.RegisterSubscriber(
+		eventSubscriber, false, false,
+	)
 	if err != nil {
-		return fmt.Errorf("failed to register event notifications "+
-			"subscription: %w", err)
+		return fmt.Errorf("failed to register chain porter event"+
+			"notifications subscription: %w", err)
 	}
 
-	// Loop and read from the ChainPorter event subscription and forward to
-	// the RPC stream.
+	// Loop and read from the event subscription and forward to the RPC
+	// stream.
 	for {
 		select {
 		// Handle receiving a new event from the ChainPorter.
@@ -2254,9 +2267,8 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 			rpcEvent, err := marshallSendAssetEvent(event)
 			if err != nil {
-				return fmt.Errorf("failed to marshall "+
-					"ChainPorter event into RPC event: "+
-					"%w", err)
+				return fmt.Errorf("failed to marshall asset "+
+					"send event into RPC event: %w", err)
 			}
 
 			err = ntfnStream.Send(rpcEvent)
@@ -2286,7 +2298,104 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 	}
 }
 
-// marshallSendAssetEvent maps a ChainPorter event to its RPC counterpart.
+// SubscribeReceiveAssetEventNtfns registers a subscription to the event
+// notification stream which relates to the asset receiving process.
+func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
+	_ *taprpc.SubscribeReceiveAssetEventNtfnsRequest,
+	ntfnStream subReceiveEventNtfnsStream) error {
+
+	// Create a new event subscriber and pass a copy to the component(s)
+	// which are involved in the asset receive process. We will then read
+	// events from the subscriber.
+	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	defer eventSubscriber.Stop()
+
+	// Register the subscriber with the AssetCustodian.
+	err := r.cfg.AssetCustodian.RegisterSubscriber(
+		eventSubscriber, false, false,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register custodian event"+
+			"notifications subscription: %w", err)
+	}
+
+	// Loop and read from the event subscription and forward to the RPC
+	// stream.
+	for {
+		select {
+		// Handle receiving a new event. The event will be mapped to the
+		// RPC event type and sent over the stream.
+		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+
+			rpcEvent, err := marshallReceiveAssetEvent(event)
+			if err != nil {
+				return fmt.Errorf("failed to marshall "+
+					"asset receive event into RPC event: "+
+					"%w", err)
+			}
+
+			err = ntfnStream.Send(rpcEvent)
+			if err != nil {
+				return fmt.Errorf("failed to RPC stream "+
+					"asset receive event: %w", err)
+			}
+
+		// Handle the case where the RPC stream is closed by the
+		// client.
+		case <-ntfnStream.Context().Done():
+			// Don't return an error if a normal context
+			// cancellation has occurred.
+			isCanceledContext := errors.Is(
+				ntfnStream.Context().Err(), context.Canceled,
+			)
+			if isCanceledContext {
+				return nil
+			}
+
+			return ntfnStream.Context().Err()
+
+		// Handle the case where the RPC server is shutting down.
+		case <-r.quit:
+			return nil
+		}
+	}
+}
+
+// marshallReceiveAssetEvent maps an asset receive event to its RPC counterpart.
+func marshallReceiveAssetEvent(
+	eventInterface fn.Event) (*taprpc.ReceiveAssetEvent, error) {
+
+	switch event := eventInterface.(type) {
+	case *proof.BackoffWaitEvent:
+		// Map the transfer type to the RPC counterpart. We only
+		// support the "receive" transfer type for asset receive events.
+		var transferTypeRpc taprpc.ProofTransferType
+		switch event.TransferType {
+		case proof.ReceiveTransferType:
+			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+		default:
+			return nil, fmt.Errorf("unexpected transfer type: %v",
+				event.TransferType)
+		}
+
+		eventRpc := taprpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent{
+			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
+				Timestamp:    event.Timestamp().UnixMicro(),
+				Backoff:      event.Backoff.Microseconds(),
+				TriesCounter: event.TriesCounter,
+				TransferType: transferTypeRpc,
+			},
+		}
+		return &taprpc.ReceiveAssetEvent{
+			Event: &eventRpc,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
+	}
+}
+
+// marshallSendAssetEvent maps an asset send event to its RPC counterpart.
 func marshallSendAssetEvent(
 	eventInterface fn.Event) (*taprpc.SendAssetEvent, error) {
 
@@ -2302,12 +2411,24 @@ func marshallSendAssetEvent(
 			Event: eventRpc,
 		}, nil
 
-	case *proof.ReceiverProofBackoffWaitEvent:
-		eventRpc := taprpc.SendAssetEvent_ReceiverProofBackoffWaitEvent{
-			ReceiverProofBackoffWaitEvent: &taprpc.ReceiverProofBackoffWaitEvent{
+	case *proof.BackoffWaitEvent:
+		// Map the transfer type to the RPC counterpart. We only
+		// support the send transfer type for asset send events.
+		var transferTypeRpc taprpc.ProofTransferType
+		switch event.TransferType {
+		case proof.SendTransferType:
+			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+		default:
+			return nil, fmt.Errorf("unexpected transfer type: %v",
+				event.TransferType)
+		}
+
+		eventRpc := taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent{
+			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
 				Timestamp:    event.Timestamp().UnixMicro(),
 				Backoff:      event.Backoff.Microseconds(),
 				TriesCounter: event.TriesCounter,
+				TransferType: transferTypeRpc,
 			},
 		}
 		return &taprpc.SendAssetEvent{

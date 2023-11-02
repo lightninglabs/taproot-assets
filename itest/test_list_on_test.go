@@ -58,13 +58,18 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
-		name:             "reattempt failed asset send hashmail courier",
-		test:             testReattemptFailedAssetSendHashmailCourier,
+		name:             "reattempt failed send hashmail courier",
+		test:             testReattemptFailedSendHashmailCourier,
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
-		name:             "reattempt failed asset send uni courier",
-		test:             testReattemptFailedAssetSendUniCourier,
+		name:             "reattempt failed send uni courier",
+		test:             testReattemptFailedSendUniCourier,
+		proofCourierType: proof.UniverseRpcCourierType,
+	},
+	{
+		name:             "reattempt failed receive uni courier",
+		test:             testReattemptFailedReceiveUniCourier,
 		proofCourierType: proof.UniverseRpcCourierType,
 	},
 	{

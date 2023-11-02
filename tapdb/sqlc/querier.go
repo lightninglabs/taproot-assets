@@ -92,10 +92,10 @@ type Querier interface {
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
-	InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	ListUniverseServers(ctx context.Context) ([]UniverseServer, error)
+	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
@@ -124,7 +124,7 @@ type Querier interface {
 	QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]FederationUniSyncConfig, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
-	QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error)
+	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
 	// TODO(roasbeef): use the universe id instead for the grouping? so namespace
 	// root, simplifies queries
 	QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error)

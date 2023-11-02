@@ -375,21 +375,22 @@ func (q *Queries) InsertPassiveAsset(ctx context.Context, arg InsertPassiveAsset
 	return err
 }
 
-const insertReceiverProofTransferAttempt = `-- name: InsertReceiverProofTransferAttempt :exec
-INSERT INTO receiver_proof_transfer_attempts (
-    proof_locator_hash, time_unix
+const logProofTransferAttempt = `-- name: LogProofTransferAttempt :exec
+INSERT INTO proof_transfer_log (
+    transfer_type, proof_locator_hash, time_unix
 ) VALUES (
-    $1, $2
+    $1, $2, $3
 )
 `
 
-type InsertReceiverProofTransferAttemptParams struct {
+type LogProofTransferAttemptParams struct {
+	TransferType     string
 	ProofLocatorHash []byte
 	TimeUnix         time.Time
 }
 
-func (q *Queries) InsertReceiverProofTransferAttempt(ctx context.Context, arg InsertReceiverProofTransferAttemptParams) error {
-	_, err := q.db.ExecContext(ctx, insertReceiverProofTransferAttempt, arg.ProofLocatorHash, arg.TimeUnix)
+func (q *Queries) LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, logProofTransferAttempt, arg.TransferType, arg.ProofLocatorHash, arg.TimeUnix)
 	return err
 }
 
@@ -504,15 +505,21 @@ func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]Q
 	return items, nil
 }
 
-const queryReceiverProofTransferAttempt = `-- name: QueryReceiverProofTransferAttempt :many
+const queryProofTransferAttempts = `-- name: QueryProofTransferAttempts :many
 SELECT time_unix
-FROM receiver_proof_transfer_attempts
+FROM proof_transfer_log
 WHERE proof_locator_hash = $1
+    AND transfer_type = $2
 ORDER BY time_unix DESC
 `
 
-func (q *Queries) QueryReceiverProofTransferAttempt(ctx context.Context, proofLocatorHash []byte) ([]time.Time, error) {
-	rows, err := q.db.QueryContext(ctx, queryReceiverProofTransferAttempt, proofLocatorHash)
+type QueryProofTransferAttemptsParams struct {
+	ProofLocatorHash []byte
+	TransferType     string
+}
+
+func (q *Queries) QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error) {
+	rows, err := q.db.QueryContext(ctx, queryProofTransferAttempts, arg.ProofLocatorHash, arg.TransferType)
 	if err != nil {
 		return nil, err
 	}
