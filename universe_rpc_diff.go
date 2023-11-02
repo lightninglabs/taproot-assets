@@ -77,11 +77,14 @@ func unmarshalUniverseRoots(
 // RootNodes returns the complete set of known root nodes for the set
 // of assets tracked in the universe.
 func (r *RpcUniverseDiff) RootNodes(ctx context.Context,
-	withAmountsById bool) ([]universe.Root, error) {
+	q universe.RootNodesQuery) ([]universe.Root, error) {
 
 	universeRoots, err := r.conn.AssetRoots(
 		ctx, &unirpc.AssetRootRequest{
-			WithAmountsById: withAmountsById,
+			WithAmountsById: q.WithAmountsById,
+			Offset:          int32(q.Offset),
+			Limit:           int32(q.Limit),
+			Direction:       unirpc.SortDirection(q.SortDirection),
 		},
 	)
 	if err != nil {
@@ -119,13 +122,20 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 
 // UniverseLeafKeys returns all the keys inserted in the universe.
 func (r *RpcUniverseDiff) UniverseLeafKeys(ctx context.Context,
-	id universe.Identifier) ([]universe.LeafKey, error) {
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
 
-	uniID, err := MarshalUniID(id)
+	uniID, err := MarshalUniID(q.Id)
 	if err != nil {
 		return nil, err
 	}
-	assetKeys, err := r.conn.AssetLeafKeys(ctx, uniID)
+	assetKeys, err := r.conn.AssetLeafKeys(
+		ctx, &unirpc.AssetLeafKeysRequest{
+			Id:        uniID,
+			Direction: unirpc.SortDirection(q.SortDirection),
+			Offset:    int32(q.Offset),
+			Limit:     int32(q.Limit),
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

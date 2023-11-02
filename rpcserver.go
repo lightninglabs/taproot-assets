@@ -2899,7 +2899,12 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 
 	// First, we'll retrieve the full set of known asset Universe roots.
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
-		ctx, req.WithAmountsById,
+		ctx, universe.RootNodesQuery{
+			WithAmountsById: req.WithAmountsById,
+			SortDirection:   universe.SortDirection(req.Direction),
+			Offset:          req.Offset,
+			Limit:           req.Limit,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -3250,9 +3255,13 @@ func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 // Taproot Asset commitment, and script_key is the script_key of the asset
 // within the Taproot Asset commitment for the given asset_id or group_key.
 func (r *rpcServer) AssetLeafKeys(ctx context.Context,
-	req *unirpc.ID) (*unirpc.AssetLeafKeyResponse, error) {
+	req *unirpc.AssetLeafKeysRequest) (*unirpc.AssetLeafKeyResponse, error) {
 
-	universeID, err := UnmarshalUniID(req)
+	if req == nil {
+		return nil, fmt.Errorf("request must be set")
+	}
+
+	universeID, err := UnmarshalUniID(req.Id)
 	if err != nil {
 		return nil, err
 	}
@@ -3260,7 +3269,18 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	// TODO(roasbeef): tell above if was tring or not, then would set
 	// below diff
 
-	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(ctx, universeID)
+	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
+		return nil, fmt.Errorf("invalid request limit")
+	}
+
+	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
+		ctx, universe.UniverseLeafKeysQuery{
+			Id:            universeID,
+			SortDirection: universe.SortDirection(req.Direction),
+			Offset:        req.Offset,
+			Limit:         req.Limit,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}

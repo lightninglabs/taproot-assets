@@ -65,15 +65,31 @@ const fetchUniverseKeys = `-- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes
 FROM universe_leaves leaves
 WHERE leaves.leaf_node_namespace = $1
+ORDER BY 
+    CASE WHEN $2 = 0 THEN leaves.id END ASC,
+    CASE WHEN $2 = 1 THEN leaves.id END DESC
+LIMIT $4 OFFSET $3
 `
+
+type FetchUniverseKeysParams struct {
+	Namespace     string
+	SortDirection interface{}
+	NumOffset     int32
+	NumLimit      int32
+}
 
 type FetchUniverseKeysRow struct {
 	MintingPoint   []byte
 	ScriptKeyBytes []byte
 }
 
-func (q *Queries) FetchUniverseKeys(ctx context.Context, namespace string) ([]FetchUniverseKeysRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchUniverseKeys, namespace)
+func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchUniverseKeys,
+		arg.Namespace,
+		arg.SortDirection,
+		arg.NumOffset,
+		arg.NumLimit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -773,7 +789,17 @@ JOIN mssmt_nodes
        mssmt_nodes.namespace = mssmt_roots.namespace
 JOIN genesis_assets
     ON genesis_assets.asset_id = universe_roots.asset_id
+ORDER BY 
+    CASE WHEN $1 = 0 THEN universe_roots.id END ASC,
+    CASE WHEN $1 = 1 THEN universe_roots.id END DESC
+LIMIT $3 OFFSET $2
 `
+
+type UniverseRootsParams struct {
+	SortDirection interface{}
+	NumOffset     int32
+	NumLimit      int32
+}
 
 type UniverseRootsRow struct {
 	AssetID   []byte
@@ -784,8 +810,8 @@ type UniverseRootsRow struct {
 	AssetName string
 }
 
-func (q *Queries) UniverseRoots(ctx context.Context) ([]UniverseRootsRow, error) {
-	rows, err := q.db.QueryContext(ctx, universeRoots)
+func (q *Queries) UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error) {
+	rows, err := q.db.QueryContext(ctx, universeRoots, arg.SortDirection, arg.NumOffset, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}

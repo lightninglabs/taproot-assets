@@ -127,14 +127,22 @@ func (a *Archive) RootNode(ctx context.Context,
 	})
 }
 
+type RootNodesQuery struct {
+	WithAmountsById bool
+	SortDirection   SortDirection
+	Offset          int32
+	Limit           int32
+}
+
 // RootNodes returns the set of root nodes for all known base universes assets.
 func (a *Archive) RootNodes(ctx context.Context,
-	withAmountsById bool) ([]Root, error) {
+	q RootNodesQuery) ([]Root, error) {
 
-	log.Debugf("Fetching all known Universe roots (with_amounts_by_id=%v)",
-		withAmountsById)
+	log.Debugf("Fetching all known Universe roots (with_amounts_by_id=%v"+
+		", sort_direction=%v, offset=%v, limit=%v)", q.WithAmountsById,
+		q.SortDirection, q.Offset, q.Limit)
 
-	return a.cfg.Multiverse.RootNodes(ctx, withAmountsById)
+	return a.cfg.Multiverse.RootNodes(ctx, q)
 }
 
 // UpsertProofLeaf attempts to upsert a proof for an asset issuance or transfer
@@ -546,15 +554,22 @@ func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
 
+type UniverseLeafKeysQuery struct {
+	Id            Identifier
+	SortDirection SortDirection
+	Offset        int32
+	Limit         int32
+}
+
 // UniverseLeafKeys returns the set of leaf keys known for the specified
 // universe identifier.
 func (a *Archive) UniverseLeafKeys(ctx context.Context,
-	id Identifier) ([]LeafKey, error) {
+	q UniverseLeafKeysQuery) ([]LeafKey, error) {
 
-	log.Debugf("Retrieving all keys for Universe: id=%v", id.StringForLog())
+	log.Debugf("Retrieving all keys for Universe: id=%v", q.Id.StringForLog())
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) ([]LeafKey, error) {
-		return baseUni.MintingKeys(ctx)
+	return withBaseUni(a, q.Id, func(baseUni BaseBackend) ([]LeafKey, error) {
+		return baseUni.MintingKeys(ctx, q)
 	})
 }
 

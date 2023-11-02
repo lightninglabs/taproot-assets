@@ -200,11 +200,13 @@ func mintBatchStressTest(
 	// The universe tree should also have a key for each asset, with all
 	// outpoints matching the chain anchor of the group anchor.
 	mintOutpoint := collectibleAnchor.ChainAnchor.AnchorOutpoint
-	uniKeys, err := alice.AssetLeafKeys(ctx, &collectUniID)
-	require.NoError(t, err)
-	require.Len(t, uniKeys.AssetKeys, batchSize)
 
-	correctOp := fn.All(uniKeys.AssetKeys, func(key *unirpc.AssetKey) bool {
+	leafKeys, err := fetchAllLeafKeys(t, alice, &collectUniID)
+	require.NoError(t, err)
+
+	require.Len(t, leafKeys, batchSize)
+
+	correctOp := fn.All(leafKeys, func(key *unirpc.AssetKey) bool {
 		return key.GetOpStr() == mintOutpoint
 	})
 	require.True(t, correctOp)

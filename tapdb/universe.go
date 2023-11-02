@@ -38,6 +38,10 @@ type (
 
 	// UniverseLeaf is a universe leaf.
 	UniverseLeaf = sqlc.QueryUniverseLeavesRow
+
+	// UniverseLeafKeysQuery is used to query for the set of keys that are
+	// currently stored for a given namespace.
+	UniverseLeafKeysQuery = sqlc.FetchUniverseKeysParams
 )
 
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
@@ -85,7 +89,7 @@ type BaseUniverseStore interface {
 	// FetchUniverseKeys fetches the set of keys that are currently stored
 	// for a given namespace.
 	FetchUniverseKeys(ctx context.Context,
-		namespace string) ([]UniverseKeys, error)
+		arg UniverseLeafKeysQuery) ([]UniverseKeys, error)
 }
 
 // BaseUniverseStoreOptions is the set of options for universe tree queries.
@@ -612,13 +616,26 @@ func universeFetchProofLeaf(ctx context.Context,
 
 // MintingKeys returns all the keys inserted in the universe.
 func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
-) ([]universe.LeafKey, error) {
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
 
 	var leafKeys []universe.LeafKey
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		universeKeys, err := db.FetchUniverseKeys(ctx, b.smtNamespace)
+		universeKeys, err := db.FetchUniverseKeys(
+			ctx, UniverseLeafKeysQuery{
+				Namespace:     b.smtNamespace,
+				SortDirection: sqlInt16(q.SortDirection),
+				NumOffset:     q.Offset,
+				NumLimit: func() int32 {
+					if q.Limit == 0 {
+						return universe.MaxPageSize
+					}
+
+					return q.Limit
+				}(),
+			},
+		)
 		if err != nil {
 			return err
 		}

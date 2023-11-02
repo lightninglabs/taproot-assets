@@ -194,6 +194,10 @@ var testCases = []*testCase{
 		name: "federation sync config",
 		test: testFederationSyncConfig,
 	},
+	{
+		name: "universe pagination simple",
+		test: testUniversePaginationSimple,
+	},
 }
 
 var optionalTestCases = []*testCase{

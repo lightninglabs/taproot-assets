@@ -33,7 +33,7 @@ service Universe {
     the asset within the Taproot Asset commitment for the given asset_id or
     group_key.
     */
-    rpc AssetLeafKeys (ID) returns (AssetLeafKeyResponse);
+    rpc AssetLeafKeys (AssetLeafKeysRequest) returns (AssetLeafKeyResponse);
 
     /* tapcli: `universe leaves`
     AssetLeaves queries for the set of asset leaves (the values in the Universe
@@ -147,6 +147,15 @@ message AssetRootRequest {
     // of grouped assets.
     bool with_amounts_by_id = 1;
 
+    // The offset for the page.
+    int32 offset = 2;
+
+    // The length limit for the page.
+    int32 limit = 3;
+
+    // The direction of the page.
+    SortDirection direction = 4;
+
     // TODO(roasbeef): filter by asset ID, etc?
 }
 
@@ -258,6 +267,20 @@ message AssetKey {
 
         string script_key_str = 4;
     }
+}
+
+message AssetLeafKeysRequest {
+    // The ID of the asset to query for.
+    ID id = 1;
+
+    // The offset for the page.
+    int32 offset = 2;
+
+    // The length limit for the page.
+    int32 limit = 3;
+
+    // The direction of the page.
+    SortDirection direction = 4;
 }
 
 message AssetLeafKeyResponse {
