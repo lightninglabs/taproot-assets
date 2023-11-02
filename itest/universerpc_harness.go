@@ -43,7 +43,9 @@ func (h *UniverseRPCHarness) Start(_ chan error) error {
 
 // Stop stops the service.
 func (h *UniverseRPCHarness) Stop() error {
-	return h.service.stop(true)
+	// Don't delete temporary data on stop. This will allow us to cleanly
+	// restart the service mid-test.
+	return h.service.stop(false)
 }
 
 // Ensure that NewUniverseRPCHarness implements the proof.CourierHarness
