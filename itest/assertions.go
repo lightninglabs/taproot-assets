@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -1157,10 +1158,10 @@ func AssertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
 func AssertUniverseStateEqual(t *testing.T, a, b unirpc.UniverseClient) bool {
 	ctxb := context.Background()
 
-	rootsA, err := a.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
+	rootsA, err := assetRoots(ctxb, a, universe.MaxPageSize/100)
 	require.NoError(t, err)
 
-	rootsB, err := b.AssetRoots(ctxb, &unirpc.AssetRootRequest{})
+	rootsB, err := assetRoots(ctxb, b, universe.MaxPageSize/100)
 	require.NoError(t, err)
 
 	return AssertUniverseRootsEqual(rootsA, rootsB)
@@ -1515,4 +1516,40 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	equalityCheck(issuableAssets[0].Asset, groupedAssets[0])
 	equalityCheck(issuableAssets[1].Asset, groupedAssets[1])
+}
+
+// assetRoots is a helper method that fetches all roots from a given universe
+// rpc by scanning for all pages.
+func assetRoots(ctx context.Context,
+	uni unirpc.UniverseClient, pageSize int32) (*unirpc.AssetRootResponse, error) {
+
+	offset := int32(0)
+	roots := make(map[string]*unirpc.UniverseRoot)
+
+	for {
+		res, err := uni.AssetRoots(
+			ctx,
+			&unirpc.AssetRootRequest{
+				Offset: offset,
+				Limit:  pageSize,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if len(res.UniverseRoots) == 0 {
+			break
+		}
+
+		for k, v := range res.UniverseRoots {
+			roots[k] = v
+		}
+
+		offset += pageSize
+	}
+
+	return &unirpc.AssetRootResponse{
+		UniverseRoots: roots,
+	}, nil
 }
