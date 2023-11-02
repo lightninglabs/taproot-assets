@@ -1590,10 +1590,10 @@
           "$ref": "#/definitions/taprpcAsset",
           "description": "The asset included in the leaf."
         },
-        "issuance_proof": {
+        "proof": {
           "type": "string",
           "format": "byte",
-          "description": "The asset issuance proof, which proves that the asset specified above\nwas issued properly. This is always just an individual mint/transfer\nproof and never a proof file."
+          "description": "The asset issuance or transfer proof, which proves that the asset\nspecified above was issued or transferred properly. This is always just\nan individual mint/transfer proof and never a proof file."
         }
       }
     },

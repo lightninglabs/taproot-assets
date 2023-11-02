@@ -1085,8 +1085,8 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		}
 
 		assetLeaf := unirpc.AssetLeaf{
-			Asset:         rpcAsset,
-			IssuanceProof: proofBuf.Bytes(),
+			Asset: rpcAsset,
+			Proof: proofBuf.Bytes(),
 		}
 
 		// Construct universe key.
@@ -1202,7 +1202,7 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 					err)
 			}
 
-			proofBlob = resp.AssetLeaf.IssuanceProof
+			proofBlob = resp.AssetLeaf.Proof
 
 			return nil
 		}
