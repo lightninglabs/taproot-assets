@@ -170,7 +170,7 @@ func (p *proofCache) insertProof(id universe.Identifier,
 		id.StringForLog(), leafKey, proofKey[:])
 
 	proofVal := cachedProof(proof)
-	assetProofCache.Put(proofKey, &proofVal)
+	_, _ = assetProofCache.Put(proofKey, &proofVal)
 }
 
 // delProofsForAsset deletes all the proofs for the given asset.
@@ -215,7 +215,7 @@ type rootPageCache = lru.Cache[rootPageQuery, universeRootPage]
 type atomicRootCache = atomic.Pointer[rootPageCache]
 
 // newAtomicRootCache creates a new atomic root cache.
-func newAtomicRootCache() atomicRootCache {
+func newAtomicRootCache() *atomicRootCache {
 	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
 		numCachedProofs,
 	)
@@ -223,7 +223,7 @@ func newAtomicRootCache() atomicRootCache {
 	var a atomicRootCache
 	a.Store(rootCache)
 
-	return a
+	return &a
 }
 
 // rootIndex maps a tree ID to a universe root.
@@ -233,11 +233,11 @@ type rootIndex = lnutils.SyncMap[treeID, *universe.Root]
 type atomicRootIndex = atomic.Pointer[rootIndex]
 
 // newAtomicRootIndex creates a new atomic root index.
-func newAtomicRootIndex() atomicRootIndex {
+func newAtomicRootIndex() *atomicRootIndex {
 	var a atomicRootIndex
 	a.Store(&rootIndex{})
 
-	return a
+	return &a
 }
 
 // rootNodeCache is used to cache the set of active root nodes for the
@@ -245,9 +245,9 @@ func newAtomicRootIndex() atomicRootIndex {
 type rootNodeCache struct {
 	sync.RWMutex
 
-	rootIndex atomicRootIndex
+	rootIndex *atomicRootIndex
 
-	allRoots atomicRootCache
+	allRoots *atomicRootCache
 
 	*cacheLogger
 
@@ -321,10 +321,12 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 
 	// Store the main root pointer, then update the root index.
 	rootPageCache := r.allRoots.Load()
-	rootPageCache.Put(newRootPageQuery(q), rootNodes)
+	_, _ = rootPageCache.Put(newRootPageQuery(q), rootNodes)
 
 	rootIndex := r.rootIndex.Load()
 	for _, rootNode := range rootNodes {
+		rootNode := rootNode
+
 		idStr := treeID(rootNode.ID.String())
 		rootIndex.Store(idStr, &rootNode)
 	}
@@ -451,11 +453,11 @@ func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 		}
 
 		// Store the cache in the top level cache.
-		u.leafCache.Put(idStr, pageCache)
+		_, _ = u.leafCache.Put(idStr, pageCache)
 	}
 
 	// Add the to the page cache.
-	pageCache.Put(newLeafQuery(q), &cachedKeys)
+	_, _ = pageCache.Put(newLeafQuery(q), &cachedKeys)
 }
 
 // wipeCache wipes the cache of leaf keys for a given universe ID.

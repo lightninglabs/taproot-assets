@@ -178,7 +178,6 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 		if err := existingProof.Decode(bytes.NewReader(
 			issuanceProof.Leaf.RawProof,
 		)); err != nil {
-
 			return nil, err
 		}
 

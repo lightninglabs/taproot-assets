@@ -343,7 +343,6 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	if !isIssuanceTree {
 		transferLeaves := fn.Collect(transferLeafProofs)
 		sort.Slice(transferLeaves, func(i, j int) bool {
-
 			// We'll need to decode the block heights from the
 			// proof, so we'll make a record to do so.
 			var iBlockHeight, jBlockHeight uint32

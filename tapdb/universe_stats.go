@@ -181,8 +181,8 @@ type atomicSyncStatsCache struct {
 	*cacheLogger
 }
 
-func newAtomicSyncStatsCache() atomicSyncStatsCache {
-	return atomicSyncStatsCache{
+func newAtomicSyncStatsCache() *atomicSyncStatsCache {
+	return &atomicSyncStatsCache{
 		cacheLogger: newCacheLogger("sync stats"),
 	}
 }
@@ -288,7 +288,7 @@ type UniverseStats struct {
 	eventsCacheLogger *cacheLogger
 
 	syncStatsMtx     sync.Mutex
-	syncStatsCache   atomicSyncStatsCache
+	syncStatsCache   *atomicSyncStatsCache
 	syncStatsRefresh *time.Timer
 }
 
@@ -710,7 +710,7 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 	}
 
 	// We have a fresh result, so we'll cache it now.
-	u.assetEventsCache.Put(query, results)
+	_, _ = u.assetEventsCache.Put(query, results)
 
 	return results, nil
 }

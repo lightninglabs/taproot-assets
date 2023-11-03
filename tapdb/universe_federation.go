@@ -142,8 +142,8 @@ type UniverseFederationDB struct {
 
 	clock clock.Clock
 
-	globalCfg atomic.Pointer[globalSyncCfgs]
-	assetCfgs atomic.Pointer[assetSyncCfgs]
+	globalCfg *atomic.Pointer[globalSyncCfgs]
+	assetCfgs *atomic.Pointer[assetSyncCfgs]
 }
 
 // NewUniverseFederationDB makes a new Universe federation DB.
@@ -161,8 +161,8 @@ func NewUniverseFederationDB(db BatchedUniverseServerStore,
 	return &UniverseFederationDB{
 		db:        db,
 		clock:     clock,
-		globalCfg: globalCfgPtr,
-		assetCfgs: assetCfgsPtr,
+		globalCfg: &globalCfgPtr,
+		assetCfgs: &assetCfgsPtr,
 	}
 }
 
