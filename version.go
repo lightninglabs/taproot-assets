@@ -45,11 +45,11 @@ const (
 	AppMinor uint = 3
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 0
+	AppPatch uint = 1
 
 	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
-	AppPreRelease = "alpha"
+	AppPreRelease = "alpha.rc1"
 
 	// defaultAgentName is the default name of the software that is added as
 	// the first part of the user agent string.
