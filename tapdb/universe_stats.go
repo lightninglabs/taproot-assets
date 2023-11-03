@@ -449,29 +449,10 @@ func (u *UniverseStats) LogNewProofEvents(ctx context.Context,
 	})
 }
 
-// AggregateSyncStats returns stats aggregated over all assets within the
-// Universe.
-func (u *UniverseStats) AggregateSyncStats(
-	ctx context.Context) (universe.AggregateStats, error) {
-
-	stats := u.statsSnapshot.Load()
-	if stats != nil {
-		u.statsCacheLogger.Hit()
-		return *stats, nil
-	}
-
-	u.statsMtx.Lock()
-	defer u.statsMtx.Unlock()
-
-	// Check to see if the stats were loaded in while we were waiting for
-	// the mutex.
-	stats = u.statsSnapshot.Load()
-	if stats != nil {
-		u.statsCacheLogger.Hit()
-		return *stats, nil
-	}
-
-	u.statsCacheLogger.Miss()
+// querySyncStats is a helper function that's used to query the sync stats for
+// the Universe db.
+func (u *UniverseStats) querySyncStats(ctx context.Context,
+) (universe.AggregateStats, error) {
 
 	var dbStats universe.AggregateStats
 
@@ -516,16 +497,83 @@ func (u *UniverseStats) AggregateSyncStats(
 		return universe.AggregateStats{}, err
 	}
 
+	return dbStats, nil
+}
+
+// populateSyncStatsCache is used to populate the sync stats cache
+// periodically.
+//
+// NOTE: This MUST be run as the call back of a time.AfterFunc.
+func (u *UniverseStats) populateSyncStatsCache() {
+	log.Infof("Refreshing stats cache, duration=%v", u.opts.cacheDuration)
+
+	// If this is a test, then we'll just purge the items.
+	if u.opts.cacheDuration == 0 {
+		u.statsSnapshot.Store(nil)
+		return
+	}
+
+	now := time.Now()
+
+	// To ensure the stats endpoint is always available, we'll repopulate
+	// it async ourselves here. This ensures after the first miss, the
+	// stats are always populated.
+	ctx := context.Background()
+	dbStats, err := u.querySyncStats(ctx)
+	if err != nil {
+		log.Warnf("Unable to refresh stats cache: %v", err)
+		return
+	}
+
+	log.Debugf("Refreshed stats cache, interval=%v, took=%v",
+		u.opts.cacheDuration, time.Since(now))
+
+	u.statsSnapshot.Store(&dbStats)
+
+	// Reset the timer so we'll refresh again after the cache duration.
+	if !u.statsRefresh.Stop() {
+		<-u.statsRefresh.C
+	}
+
+	u.statsRefresh.Reset(u.opts.cacheDuration)
+}
+
+// AggregateSyncStats returns stats aggregated over all assets within the
+// Universe.
+func (u *UniverseStats) AggregateSyncStats(
+	ctx context.Context) (universe.AggregateStats, error) {
+
+	stats := u.statsSnapshot.Load()
+	if stats != nil {
+		u.statsCacheLogger.Hit()
+		return *stats, nil
+	}
+
+	u.statsMtx.Lock()
+	defer u.statsMtx.Unlock()
+
+	// Check to see if the stats were loaded in while we were waiting for
+	// the mutex.
+	stats = u.statsSnapshot.Load()
+	if stats != nil {
+		u.statsCacheLogger.Hit()
+		return *stats, nil
+	}
+
+	u.statsCacheLogger.Miss()
+
+	dbStats, err := u.querySyncStats(ctx)
+	if err != nil {
+		return dbStats, err
+	}
+
 	// We'll store the DB stats then start our time after function to wipe
 	// the stats pointer so we'll refresh it after a period of time.
 	u.statsSnapshot.Store(&dbStats)
 
-	u.statsRefresh = time.AfterFunc(u.opts.cacheDuration, func() {
-		log.Infof("Purging stats cache, duration=%v",
-			u.opts.cacheDuration)
-
-		u.statsSnapshot.Store(nil)
-	})
+	u.statsRefresh = time.AfterFunc(
+		u.opts.cacheDuration, u.populateSyncStatsCache,
+	)
 
 	return dbStats, nil
 }

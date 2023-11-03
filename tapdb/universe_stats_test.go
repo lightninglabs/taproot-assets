@@ -4,16 +4,19 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"math/rand"
 	"sort"
 	"testing"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -27,7 +30,7 @@ func newUniverseStatsWithDB(db *BaseDB, clock clock.Clock) (*UniverseStats,
 	)
 
 	stats := NewUniverseStats(
-		dbTxer, clock, WithStatsCacheDuration(time.Microsecond),
+		dbTxer, clock, WithStatsCacheDuration(0),
 	)
 
 	return stats, db
@@ -100,10 +103,26 @@ func (u *uniStatsHarness) logSyncEventByIndex(i int) {
 func (u *uniStatsHarness) assertUniverseStatsEqual(t *testing.T,
 	stats universe.AggregateStats) {
 
-	uniStats, err := u.db.AggregateSyncStats(context.Background())
-	require.NoError(t, err)
+	var (
+		uniStats universe.AggregateStats
+		err      error
+	)
 
-	require.Equal(t, uniStats, stats)
+	err = wait.NoError(func() error {
+		uniStats, err = u.db.AggregateSyncStats(context.Background())
+		if err != nil {
+			return err
+		}
+
+		if uniStats != stats {
+			return fmt.Errorf("expected %v, got %v",
+				spew.Sdump(stats),
+				spew.Sdump(uniStats))
+		}
+
+		return nil
+	}, time.Second*2)
+	require.NoError(t, err)
 }
 
 // TestUniverseStatsEvents tests that we're able to properly insert, and also
