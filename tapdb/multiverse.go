@@ -94,7 +94,7 @@ func NewProofKey(id universe.Identifier, key universe.LeafKey) ProofKey {
 }
 
 // numCachedProofs is the number of universe proofs we'll cache.
-const numCachedProofs = 25_000
+const numCachedProofs = 50_000
 
 // cachedProof is a single cached proof.
 type cachedProof []*universe.Proof
@@ -181,18 +181,47 @@ func (p *proofCache) delProofsForAsset(id universe.Identifier) {
 	p.Delete(idStr)
 }
 
-// cachedRoots is used to store the latest root for each known universe tree.
-type cachedRoots []universe.Root
+// rootPageQuery is a wrapper around a query to fetch all the roots, but with
+// pagination parameters.
+type rootPageQuery struct {
+	withAmountsById bool
+	leafQuery
+}
+
+// newRootPageQuery creates a new root page query.
+func newRootPageQuery(q universe.RootNodesQuery) rootPageQuery {
+	return rootPageQuery{
+		withAmountsById: q.WithAmountsById,
+		leafQuery: leafQuery{
+			sortDirection: q.SortDirection,
+			offset:        int32(q.Offset),
+			limit:         int32(q.Limit),
+		},
+	}
+}
+
+// universeRootPage is a single page of roots.
+type universeRootPage []universe.Root
+
+// Size is the amount of roots in the page.
+func (u universeRootPage) Size() (uint64, error) {
+	return uint64(len(u)), nil
+}
+
+// rootPageCache is used to store the latest root pages for a given treeID.
+type rootPageCache = lru.Cache[rootPageQuery, universeRootPage]
 
 // atomicRootCache is an atomic pointer to a root cache.
-type atomicRootCache = atomic.Pointer[cachedRoots]
+type atomicRootCache = atomic.Pointer[rootPageCache]
 
 // newAtomicRootCache creates a new atomic root cache.
 func newAtomicRootCache() atomicRootCache {
-	treeCache := &cachedRoots{}
+	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
+		numCachedProofs,
+	)
 
 	var a atomicRootCache
-	a.Store(treeCache)
+	a.Store(rootCache)
 
 	return a
 }
@@ -237,14 +266,8 @@ func newRootNodeCache() *rootNodeCache {
 // fetchRoots reads the cached roots for the given proof type. If the amounts
 // are needed, then we return nothing so we go to the database to fetch the
 // information.
-func (r *rootNodeCache) fetchRoots(withAmts, haveWriteLock bool,
-) []universe.Root {
-
-	// We don't cache roots with amounts, so if the caller wants the
-	// amounts, they'll go to disk.
-	if withAmts {
-		return nil
-	}
+func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
+	haveWriteLock bool) []universe.Root {
 
 	// If we have the write lock already, no need to fetch it.
 	if !haveWriteLock {
@@ -256,7 +279,7 @@ func (r *rootNodeCache) fetchRoots(withAmts, haveWriteLock bool,
 
 	// Attempt to read directly from the root node cache.
 	rootNodeCache := r.allRoots.Load()
-	rootNodes := *rootNodeCache
+	rootNodes, _ := rootNodeCache.Get(newRootPageQuery(q))
 
 	if len(rootNodes) > 0 {
 		r.Hit()
@@ -282,13 +305,23 @@ func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
 	return nil
 }
 
+// cacheRoot stores the given root in the cache.
+func (r *rootNodeCache) cacheRoot(id universe.Identifier,
+	root universe.Root) {
+
+	rootIndex := r.rootIndex.Load()
+	rootIndex.Store(treeID(id.String()), &root)
+}
+
 // cacheRoots stores the given roots in the cache.
-func (r *rootNodeCache) cacheRoots(rootNodes []universe.Root) {
+func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
+	rootNodes []universe.Root) {
+
 	log.Debugf("caching num_roots=%v", len(rootNodes))
 
 	// Store the main root pointer, then update the root index.
-	newRoots := cachedRoots(rootNodes)
-	r.allRoots.Store(&newRoots)
+	rootPageCache := r.allRoots.Load()
+	rootPageCache.Put(newRootPageQuery(q), rootNodes)
 
 	rootIndex := r.rootIndex.Load()
 	for _, rootNode := range rootNodes {
@@ -301,7 +334,11 @@ func (r *rootNodeCache) cacheRoots(rootNodes []universe.Root) {
 func (r *rootNodeCache) wipeCache() {
 	log.Debugf("wiping universe cache")
 
-	r.allRoots.Store(&cachedRoots{})
+	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
+		numCachedProofs,
+	)
+	r.allRoots.Store(rootCache)
+
 	r.rootIndex.Store(&rootIndex{})
 }
 
@@ -512,6 +549,16 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		return *rootNode, nil
 	}
 
+	b.rootNodeCache.Lock()
+	defer b.rootNodeCache.Unlock()
+
+	// Check to see if the cache was populated while we were waiting for
+	// the lock.
+	rootNode = b.rootNodeCache.fetchRoot(id)
+	if rootNode != nil {
+		return *rootNode, nil
+	}
+
 	var universeRoot UniverseRoot
 
 	universeNamespace := id.String()
@@ -546,6 +593,8 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		AssetName: universeRoot.AssetName,
 	}
 
+	b.rootNodeCache.cacheRoot(id, dbRoot)
+
 	return dbRoot, nil
 }
 
@@ -573,7 +622,7 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 	// Otherwise, we'll read it from disk, then add it to our cache.
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
-		dbLeaves, err := mintingKeys(ctx, db, q)
+		dbLeaves, err := mintingKeys(ctx, db, q, q.Id.String())
 		if err != nil {
 			return err
 		}
@@ -597,7 +646,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	q universe.RootNodesQuery) ([]universe.Root, error) {
 
 	// Attempt to read directly from the root node cache.
-	rootNodes := b.rootNodeCache.fetchRoots(q.WithAmountsById, false)
+	rootNodes := b.rootNodeCache.fetchRoots(q, false)
 	if len(rootNodes) > 0 {
 		log.Debugf("read %d root nodes from cache", len(rootNodes))
 		return rootNodes, nil
@@ -608,7 +657,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 
 	// Check to see if the cache was populated while we were waiting for
 	// the mutex.
-	rootNodes = b.rootNodeCache.fetchRoots(q.WithAmountsById, true)
+	rootNodes = b.rootNodeCache.fetchRoots(q, true)
 	if len(rootNodes) > 0 {
 		log.Debugf("read %d root nodes from cache", len(rootNodes))
 		return rootNodes, nil
@@ -721,7 +770,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 		len(uniRoots), time.Since(now))
 
 	// Cache all the root nodes we just read from the database.
-	b.rootNodeCache.cacheRoots(uniRoots)
+	b.rootNodeCache.cacheRoots(q, uniRoots)
 
 	return uniRoots, nil
 }

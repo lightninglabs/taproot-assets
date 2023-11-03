@@ -615,9 +615,8 @@ func universeFetchProofLeaf(ctx context.Context,
 
 // mintingKeys returns all the leaf keys in the target universe.
 func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
-	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
-
-	namespace := q.Id.String()
+	q universe.UniverseLeafKeysQuery,
+	namespace string) ([]universe.LeafKey, error) {
 
 	universeKeys, err := dbTx.FetchUniverseKeys(
 		ctx, UniverseLeafKeysQuery{
@@ -678,7 +677,7 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		dbLeaves, err := mintingKeys(ctx, db, q)
+		dbLeaves, err := mintingKeys(ctx, db, q, b.smtNamespace)
 		if err != nil {
 			return err
 		}
