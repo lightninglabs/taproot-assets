@@ -1,6 +1,7 @@
 package universe
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -10,6 +11,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -161,8 +163,6 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 	log.Infof("Obtained %v roots from remote Universe server",
 		len(targetRoots))
-	log.Tracef("Obtained %v roots from remote Universe server: %v",
-		len(targetRoots), spew.Sdump(targetRoots))
 
 	// Now that we know the set of Universes we need to sync, we'll execute
 	// the diff operation for each of them.
@@ -308,11 +308,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 			// Now that we have this leaf proof, we want to ensure
 			// that it's actually part of the remote root we were
 			// given.
-			validRoot, err := leafProof.VerifyRoot(remoteRoot)
-			if err != nil {
-				return fmt.Errorf("unable to verify root: %w",
-					err)
-			}
+			validRoot := leafProof.VerifyRoot(remoteRoot)
 			if !validRoot {
 				return fmt.Errorf("proof for key=%v is "+
 					"invalid", spew.Sdump(key))
@@ -347,8 +343,26 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	if !isIssuanceTree {
 		transferLeaves := fn.Collect(transferLeafProofs)
 		sort.Slice(transferLeaves, func(i, j int) bool {
-			return transferLeaves[i].Leaf.Proof.BlockHeight <
-				transferLeaves[j].Leaf.Proof.BlockHeight
+			// We'll need to decode the block heights from the
+			// proof, so we'll make a record to do so.
+			var iBlockHeight, jBlockHeight uint32
+
+			iRecord := proof.BlockHeightRecord(&iBlockHeight)
+			jRecord := proof.BlockHeightRecord(&jBlockHeight)
+
+			_ = proof.SparseDecode(
+				//nolint:lll
+				bytes.NewReader(transferLeaves[i].Leaf.RawProof),
+				iRecord,
+			)
+
+			_ = proof.SparseDecode(
+				//nolint:lll
+				bytes.NewReader(transferLeaves[j].Leaf.RawProof),
+				jRecord,
+			)
+
+			return iBlockHeight < jBlockHeight
 		})
 
 		fn.SendAll(fetchedLeaves, transferLeaves...)

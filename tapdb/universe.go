@@ -3,7 +3,6 @@ package tapdb
 import (
 	"bytes"
 	"context"
-
 	"database/sql"
 	"errors"
 	"fmt"
@@ -340,10 +339,9 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // NOTE: This function accepts a db transaction, as it's used when making
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
-	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, mssmt.Node,
-	error) {
+	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
+	metaReveal *proof.MetaReveal,
+) (*universe.Proof, mssmt.Node, error) {
 
 	namespace := id.String()
 
@@ -353,10 +351,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 
 	// The value stored in the MS-SMT will be the serialized Leaf,
 	// so we'll convert that into raw bytes now.
-	leafNode, err := leaf.SmtLeafNode()
-	if err != nil {
-		return nil, nil, err
-	}
+	leafNode := leaf.SmtLeafNode()
 
 	var groupKeyBytes []byte
 	if id.GroupKey != nil {
@@ -403,15 +398,19 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	// Before we insert the asset genesis, we'll insert the meta
 	// first. The reveal may or may not be populated, which'll also
 	// insert the opaque meta blob on disk.
-	_, err = maybeUpsertAssetMeta(
-		ctx, dbTx, &leaf.Genesis, metaReveal,
-	)
+	_, err = maybeUpsertAssetMeta(ctx, dbTx, &leaf.Genesis, metaReveal)
 	if err != nil {
 		return nil, nil, err
 	}
 
+	var leafProof proof.Proof
+	err = leafProof.Decode(bytes.NewReader(leaf.RawProof))
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to decode proof: %w", err)
+	}
+
 	assetGenID, err := upsertAssetGen(
-		ctx, dbTx, leaf.Genesis, leaf.GroupKey, leaf.Proof,
+		ctx, dbTx, leaf.Genesis, leaf.GroupKey, &leafProof,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -525,13 +524,11 @@ func universeFetchProofLeaf(ctx context.Context,
 	//
 	// If the script key is blank, then we'll fetch all the leaves in the
 	// tree.
-	universeLeaves, err := dbTx.QueryUniverseLeaves(
-		ctx, UniverseLeafQuery{
-			MintingPointBytes: mintingPointBytes,
-			ScriptKeyBytes:    targetScriptKey,
-			Namespace:         namespace,
-		},
-	)
+	universeLeaves, err := dbTx.QueryUniverseLeaves(ctx, UniverseLeafQuery{
+		MintingPointBytes: mintingPointBytes,
+		ScriptKeyBytes:    targetScriptKey,
+		Namespace:         namespace,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -557,22 +554,23 @@ func universeFetchProofLeaf(ctx context.Context,
 			ScriptKey: &scriptKey,
 		}
 		smtKey := universeKey.UniverseKey()
-		leafProof, err := universeTree.MerkleProof(
-			ctx, smtKey,
-		)
+		leafProof, err := universeTree.MerkleProof(ctx, smtKey)
 		if err != nil {
 			return err
 		}
 
-		leafAssetGen, err := fetchGenesis(
-			ctx, dbTx, leaf.GenAssetID,
-		)
+		leafAssetGen, err := fetchGenesis(ctx, dbTx, leaf.GenAssetID)
 		if err != nil {
 			return err
 		}
 
-		var genProof proof.Proof
-		err = genProof.Decode(bytes.NewReader(leaf.GenesisProof))
+		// We only need to obtain the asset at this point, so we'll do
+		// a sparse decode here to decode only the asset record.
+		var leafAsset asset.Asset
+		assetRecord := proof.AssetLeafRecord(&leafAsset)
+		err = proof.SparseDecode(
+			bytes.NewReader(leaf.GenesisProof), assetRecord,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to decode proof: %w", err)
 		}
@@ -585,8 +583,9 @@ func universeFetchProofLeaf(ctx context.Context,
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				Proof: &genProof,
-				Amt:   uint64(leaf.SumAmt),
+				RawProof: leaf.GenesisProof,
+				Asset:    &leafAsset,
+				Amt:      uint64(leaf.SumAmt),
 			},
 		}
 		if id.GroupKey != nil {
@@ -614,6 +613,62 @@ func universeFetchProofLeaf(ctx context.Context,
 	return proofs, nil
 }
 
+// mintingKeys returns all the leaf keys in the target universe.
+func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
+	q universe.UniverseLeafKeysQuery,
+	namespace string) ([]universe.LeafKey, error) {
+
+	universeKeys, err := dbTx.FetchUniverseKeys(
+		ctx, UniverseLeafKeysQuery{
+			Namespace:     namespace,
+			SortDirection: sqlInt16(q.SortDirection),
+			NumOffset:     q.Offset,
+			NumLimit: func() int32 {
+				if q.Limit == 0 {
+					return universe.MaxPageSize
+				}
+
+				return q.Limit
+			}(),
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var leafKeys []universe.LeafKey
+	err = fn.ForEachErr(universeKeys, func(key UniverseKeys) error {
+		scriptKeyPub, err := schnorr.ParsePubKey(
+			key.ScriptKeyBytes,
+		)
+		if err != nil {
+			return err
+		}
+		scriptKey := asset.NewScriptKey(scriptKeyPub)
+
+		var genPoint wire.OutPoint
+		err = readOutPoint(
+			bytes.NewReader(key.MintingPoint), 0, 0,
+			&genPoint,
+		)
+		if err != nil {
+			return err
+		}
+
+		leafKeys = append(leafKeys, universe.LeafKey{
+			OutPoint:  genPoint,
+			ScriptKey: &scriptKey,
+		})
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return leafKeys, nil
+}
+
 // MintingKeys returns all the keys inserted in the universe.
 func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
@@ -622,49 +677,14 @@ func (b *BaseUniverseTree) MintingKeys(ctx context.Context,
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		universeKeys, err := db.FetchUniverseKeys(
-			ctx, UniverseLeafKeysQuery{
-				Namespace:     b.smtNamespace,
-				SortDirection: sqlInt16(q.SortDirection),
-				NumOffset:     q.Offset,
-				NumLimit: func() int32 {
-					if q.Limit == 0 {
-						return universe.MaxPageSize
-					}
-
-					return q.Limit
-				}(),
-			},
-		)
+		dbLeaves, err := mintingKeys(ctx, db, q, b.smtNamespace)
 		if err != nil {
 			return err
 		}
 
-		return fn.ForEachErr(universeKeys, func(key UniverseKeys) error {
-			scriptKeyPub, err := schnorr.ParsePubKey(
-				key.ScriptKeyBytes,
-			)
-			if err != nil {
-				return err
-			}
-			scriptKey := asset.NewScriptKey(scriptKeyPub)
+		leafKeys = dbLeaves
 
-			var genPoint wire.OutPoint
-			err = readOutPoint(
-				bytes.NewReader(key.MintingPoint), 0, 0,
-				&genPoint,
-			)
-			if err != nil {
-				return err
-			}
-
-			leafKeys = append(leafKeys, universe.LeafKey{
-				OutPoint:  genPoint,
-				ScriptKey: &scriptKey,
-			})
-
-			return nil
-		})
+		return nil
 	})
 	if dbErr != nil {
 		return nil, dbErr
@@ -719,8 +739,9 @@ func (b *BaseUniverseTree) MintingLeaves(
 				GenesisWithGroup: universe.GenesisWithGroup{
 					Genesis: leafAssetGen,
 				},
-				Proof: &genProof,
-				Amt:   uint64(dbLeaf.SumAmt),
+				RawProof: dbLeaf.GenesisProof,
+				Asset:    &genProof.Asset,
+				Amt:      uint64(dbLeaf.SumAmt),
 			}
 			if b.id.GroupKey != nil {
 				leaf.GroupKey = &asset.GroupKey{
@@ -740,53 +761,62 @@ func (b *BaseUniverseTree) MintingLeaves(
 	return leaves, nil
 }
 
+// deleteUniverses deletes the entire universe for a given namespace.
+func deleteUniverseTree(ctx context.Context,
+	db BaseUniverseStore, id universe.Identifier) error {
+
+	namespace := id.String()
+
+	// Instantiate a compact tree so we can delete the MS-SMT
+	// backing the universe.
+	universeTree := mssmt.NewCompactedTree(
+		newTreeStoreWrapperTx(db, namespace),
+	)
+
+	// Delete all MS-SMT nodes backing the universe tree.
+	err := universeTree.DeleteAllNodes(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe MS-SMT"+
+			"nodes: %w", err)
+	}
+
+	// Delete all leaves in the universe table.
+	err = db.DeleteUniverseLeaves(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe leaves: %w",
+			err)
+	}
+
+	// Delete the root node of the MS-SMT backing the universe.
+	err = universeTree.DeleteRoot(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe MS-SMT"+
+			"tree root: %w", err)
+	}
+
+	// Delete any events related to this universe.
+	err = db.DeleteUniverseEvents(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe events: "+
+			"%w", err)
+	}
+
+	// Delete the universe root from the universe table.
+	err = db.DeleteUniverseRoot(ctx, namespace)
+	if err != nil {
+		return fmt.Errorf("failed to delete universe root: %w",
+			err)
+	}
+
+	return nil
+}
+
 // DeleteUniverse deletes the entire universe tree.
 func (b *BaseUniverseTree) DeleteUniverse(ctx context.Context) (string, error) {
 	var writeTx BaseUniverseStoreOptions
 
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(db BaseUniverseStore) error {
-		// Instantiate a compact tree so we can delete the MS-SMT
-		// backing the universe.
-		universeTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, b.smtNamespace),
-		)
-
-		// Delete all MS-SMT nodes backing the universe tree.
-		err := universeTree.DeleteAllNodes(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe MS-SMT"+
-				"nodes: %w", err)
-		}
-
-		// Delete all leaves in the universe table.
-		err = db.DeleteUniverseLeaves(ctx, b.smtNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe leaves: %w",
-				err)
-		}
-
-		// Delete the root node of the MS-SMT backing the universe.
-		err = universeTree.DeleteRoot(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe MS-SMT"+
-				"tree root: %w", err)
-		}
-
-		// Delete any events related to this universe.
-		err = db.DeleteUniverseEvents(ctx, b.smtNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe events: "+
-				"%w", err)
-		}
-
-		// Delete the universe root from the universe table.
-		err = db.DeleteUniverseRoot(ctx, b.smtNamespace)
-		if err != nil {
-			return fmt.Errorf("failed to delete universe root: %w",
-				err)
-		}
-
-		return nil
+		return deleteUniverseTree(ctx, db, b.id)
 	})
 
 	return b.smtNamespace, dbErr

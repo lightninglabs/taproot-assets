@@ -239,7 +239,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Bob's Universe stats should show that he now has two assets.
-	AssertUniverseStats(t.t, bob, 2, 0, 2, 1)
+	AssertUniverseStats(t.t, bob, 2, 2, 1)
 
 	// Bob should not be able to make an address for a random asset ID
 	// that he nor Alice are aware of.
@@ -344,7 +344,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 			},
 		)
 		require.NoError(t.t, err)
-		AssertUniverseStats(t.t, bob, 0, 0, 0, 0)
+		AssertUniverseStats(t.t, bob, 0, 0, 0)
 	}
 
 	// If we restart Bob with the syncer disabled and no automatic sync
@@ -401,11 +401,11 @@ func testAddressAssetSyncer(t *harnessTest) {
 
 	// Bob's Universe stats should show that he has now synced both assets
 	// from the second mint and the single asset group from that mint.
-	AssertUniverseStats(t.t, bob, 2, 0, 2, 1)
+	AssertUniverseStats(t.t, bob, 2, 2, 1)
 
 	// Alice's Universe stats should reflect the extra syncs from the asset
 	// group lookups by Bob.
-	AssertUniverseStats(t.t, t.tapd, 4, 4, 4, 2)
+	AssertUniverseStats(t.t, t.tapd, 4, 4, 2)
 
 	// If Alice now mints a reissuance for the second asset group, Bob
 	// should successfully sync that new asset.

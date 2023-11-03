@@ -39,6 +39,7 @@ require (
 	golang.org/x/net v0.17.0
 	golang.org/x/sync v0.2.0
 	golang.org/x/term v0.13.0
+	golang.org/x/time v0.0.0-20220224211638-0e9765cccd65
 	google.golang.org/grpc v1.56.3
 	google.golang.org/protobuf v1.30.0
 	gopkg.in/macaroon-bakery.v2 v2.1.0
@@ -187,7 +188,6 @@ require (
 	golang.org/x/mod v0.10.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
-	golang.org/x/time v0.0.0-20220224211638-0e9765cccd65 // indirect
 	golang.org/x/tools v0.9.1 // indirect
 	google.golang.org/genproto v0.0.0-20230410155749-daa745c078e1 // indirect
 	gopkg.in/errgo.v1 v1.0.1 // indirect

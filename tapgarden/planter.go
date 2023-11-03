@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
@@ -920,6 +921,13 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 			ScriptKey: &p.Asset.ScriptKey,
 		}
 
+		// The universe leaf stores the raw proof, so we'll encode it
+		// here now.
+		var proofBuf bytes.Buffer
+		if err := p.Encode(&proofBuf); err != nil {
+			return fmt.Errorf("unable to encode proof: %v", err)
+		}
+
 		// With both of those assembled, we can now update issuance
 		// which takes the amount and proof of the minting event.
 		uniGen := universe.GenesisWithGroup{
@@ -930,8 +938,9 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		}
 		mintingLeaf := &universe.Leaf{
 			GenesisWithGroup: uniGen,
-			Proof:            p,
+			RawProof:         proofBuf.Bytes(),
 			Amt:              p.Asset.Amount,
+			Asset:            &p.Asset,
 		}
 		_, err = c.cfg.Universe.UpsertProofLeaf(
 			ctx, uniID, leafKey, mintingLeaf,

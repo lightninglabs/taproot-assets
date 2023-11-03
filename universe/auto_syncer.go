@@ -291,7 +291,9 @@ func (f *FederationEnvoy) syncer() {
 			// only need to exit here.
 			fedServers, err := f.tryFetchServers()
 			if err != nil {
-				return
+				log.Warnf("unable to fetch set of universe "+
+					"servers: %v", err)
+				continue
 			}
 
 			log.Infof("Synchronizing with %v federation members",

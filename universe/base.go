@@ -113,18 +113,7 @@ func (a *Archive) RootNode(ctx context.Context,
 
 	log.Debugf("Looking up root node for base Universe %v", spew.Sdump(id))
 
-	return withBaseUni(a, id, func(baseUni BaseBackend) (Root, error) {
-		smtNode, assetName, err := baseUni.RootNode(ctx)
-		if err != nil {
-			return Root{}, err
-		}
-
-		return Root{
-			ID:        id,
-			Node:      smtNode,
-			AssetName: assetName,
-		}, nil
-	})
+	return a.cfg.Multiverse.UniverseRootNode(ctx, id)
 }
 
 type RootNodesQuery struct {
@@ -155,21 +144,26 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	log.Debugf("Inserting new proof into Universe: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
 
-	newProof := leaf.Proof
-
 	// If universe proof type unspecified in universe ID, set based on the
 	// provided asset proof.
+	newAsset := leaf.Asset
 	if id.ProofType == ProofTypeUnspecified {
 		var err error
-		id.ProofType, err = NewProofTypeFromAssetProof(newProof)
+		id.ProofType, err = NewProofTypeFromAsset(newAsset)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	// Ensure the proof is of the correct type for the target universe.
-	err := ValidateProofUniverseType(newProof, id)
+	err := ValidateProofUniverseType(newAsset, id)
 	if err != nil {
+		return nil, err
+	}
+
+	// We need to decode the new proof now.
+	var newProof proof.Proof
+	if err := newProof.Decode(bytes.NewReader(leaf.RawProof)); err != nil {
 		return nil, err
 	}
 
@@ -180,11 +174,17 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	case err == nil && len(issuanceProofs) > 0:
 		issuanceProof := issuanceProofs[0]
 
+		var existingProof proof.Proof
+		if err := existingProof.Decode(bytes.NewReader(
+			issuanceProof.Leaf.RawProof,
+		)); err != nil {
+			return nil, err
+		}
+
 		// The only valid case for an update of a proof is if the mint
 		// TX was re-organized out of the chain. If the block hash is
 		// still the same, we don't see this as an update and just
 		// return the existing proof.
-		existingProof := issuanceProof.Leaf.Proof
 		if existingProof.BlockHeader.BlockHash() ==
 			newProof.BlockHeader.BlockHash() {
 
@@ -209,7 +209,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	// previous asset snapshot (which is the proof verification result for
 	// the previous/parent proof in the proof file).
 	prevAssetSnapshot, err := a.getPrevAssetSnapshot(
-		ctx, id, *newProof, nil,
+		ctx, id, newAsset, nil,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous asset "+
@@ -217,7 +217,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	}
 
 	assetSnapshot, err := a.verifyIssuanceProof(
-		ctx, id, key, leaf, prevAssetSnapshot,
+		ctx, id, key, &newProof, prevAssetSnapshot,
 	)
 	if err != nil {
 		return nil, err
@@ -251,10 +251,10 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 // verifyIssuanceProof verifies the passed minting leaf is a valid issuance
 // proof, returning the asset snapshot if so.
 func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
-	key LeafKey, leaf *Leaf,
+	key LeafKey, newProof *proof.Proof,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
-	assetSnapshot, err := leaf.Proof.Verify(
+	assetSnapshot, err := newProof.Verify(
 		ctx, prevAssetSnapshot, a.cfg.HeaderVerifier,
 		a.cfg.GroupVerifier,
 	)
@@ -298,7 +298,7 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 func extractBatchDeps(batch []*Item) map[UniverseKey]*asset.Asset {
 	batchDeps := make(map[UniverseKey]*asset.Asset)
 	for _, item := range batch {
-		batchDeps[item.Key.UniverseKey()] = &item.Leaf.Proof.Asset
+		batchDeps[item.Key.UniverseKey()] = item.Leaf.Asset
 	}
 
 	return batchDeps
@@ -319,6 +319,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	// reissuances, which may be in this batch.
 	var anchorItems []*Item
 	nonAnchorItems := make([]*Item, 0, len(items))
+	assetProofs := make(map[LeafKey]*proof.Proof)
 	for ind := range items {
 		item := items[ind]
 
@@ -326,8 +327,8 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		// proof type.
 		if item.ID.ProofType == ProofTypeUnspecified {
 			var err error
-			item.ID.ProofType, err = NewProofTypeFromAssetProof(
-				item.Leaf.Proof,
+			item.ID.ProofType, err = NewProofTypeFromAsset(
+				item.Leaf.Asset,
 			)
 			if err != nil {
 				return err
@@ -336,16 +337,26 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 
 		// Ensure that the target universe ID proof type corresponds to
 		// the leaf proof type.
-		err := ValidateProofUniverseType(item.Leaf.Proof, item.ID)
+		err := ValidateProofUniverseType(item.Leaf.Asset, item.ID)
 		if err != nil {
 			return err
 		}
 
+		// At this point, we'll need to decode the proof so we can
+		// partition it below.
+		var assetProof proof.Proof
+		err = assetProof.Decode(bytes.NewReader(item.Leaf.RawProof))
+		if err != nil {
+			return fmt.Errorf("unable to decode proof: %w", err)
+		}
+
+		assetProofs[item.Key] = &assetProof
+
 		// Any group anchor issuance proof must have a group key reveal
-		// attached, so tht can be used to partition anchor assets and
+		// attached, so that can be used to partition anchor assets and
 		// non-anchor assets.
 		switch {
-		case item.Leaf.Proof.GroupKeyReveal != nil:
+		case assetProof.GroupKeyReveal != nil:
 			anchorItems = append(anchorItems, item)
 		default:
 			nonAnchorItems = append(nonAnchorItems, item)
@@ -360,7 +371,7 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 				i *Item) error {
 
 				prevAssets, err := a.getPrevAssetSnapshot(
-					ctx, i.ID, *i.Leaf.Proof, batchDeps,
+					ctx, i.ID, i.Leaf.Asset, batchDeps,
 				)
 				if err != nil {
 					return fmt.Errorf("unable to "+
@@ -368,8 +379,14 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 						"snapshot: %w", err)
 				}
 
+				assetProof, ok := assetProofs[i.Key]
+				if !ok {
+					return fmt.Errorf("missing proof "+
+						"for key=%v", i.Key)
+				}
+
 				assetSnapshot, err := a.verifyIssuanceProof(
-					ctx, i.ID, i.Key, i.Leaf, prevAssets,
+					ctx, i.ID, i.Key, assetProof, prevAssets,
 				)
 				if err != nil {
 					return err
@@ -437,17 +454,17 @@ type UniverseKey [32]byte
 // getPrevAssetSnapshot returns the previous asset snapshot for the passed
 // proof. If the proof is a genesis proof, then nil is returned.
 func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
-	uniID Identifier, newProof proof.Proof,
+	uniID Identifier, newAsset *asset.Asset,
 	batchAssets map[UniverseKey]*asset.Asset) (*proof.AssetSnapshot, error) {
 
 	// If this is a genesis proof, then there is no previous asset (and
 	// therefore no previous asset snapshot).
-	if newProof.Asset.IsGenesisAsset() {
+	if newAsset.IsGenesisAsset() {
 		return nil, nil
 	}
 
 	// Query for proof associated with the previous asset.
-	prevID, err := newProof.Asset.PrimaryPrevID()
+	prevID, err := newAsset.PrimaryPrevID()
 	if err != nil {
 		return nil, err
 	}
@@ -475,7 +492,6 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	// the batch we have, if so then we won't have it in our universe tree
 	// yet, so we'll return it directly.
 	if batchAssets != nil {
-		newAsset := newProof.Asset
 		newScriptKey := newAsset.ScriptKey.PubKey.SerializeCompressed()
 
 		inputAsset, ok := batchAssets[prevLeafKey.UniverseKey()]
@@ -511,10 +527,10 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 		return nil, fmt.Errorf("unable to fetch previous "+
 			"proof: %v, id=%v, leaf_key=%v, new_script_key=%x", err,
 			spew.Sdump(uniID), spew.Sdump(prevLeafKey),
-			newProof.Asset.ScriptKey.PubKey.SerializeCompressed())
+			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
-	prevProof := prevProofs[0].Leaf.Proof
+	prevAsset := prevProofs[0].Leaf.Asset
 
 	// TODO(roasbeef): need more than one snapshot, for inputs
 
@@ -523,7 +539,7 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	// previous (input) asset. We know that it was already verified
 	// as it was present in the multiverse/universe archive.
 	return &proof.AssetSnapshot{
-		Asset:    &prevProof.Asset,
+		Asset:    prevAsset,
 		OutPoint: prevID.OutPoint,
 	}, nil
 }
@@ -533,23 +549,8 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 func (a *Archive) FetchProofLeaf(ctx context.Context, id Identifier,
 	key LeafKey) ([]*Proof, error) {
 
-	log.Debugf("Retrieving Universe proof for: id=%v, base_key=%v",
+	log.Tracef("Retrieving Universe proof for: id=%v, base_key=%v",
 		id.StringForLog(), spew.Sdump(key))
-
-	// Log a sync event for the leaf query leaf in the background as an
-	// async goroutine.
-	defer func() {
-		go func() {
-			err := a.cfg.UniverseStats.LogSyncEvent(
-				context.Background(), id, key,
-			)
-			if err != nil {
-				log.Warnf("unable to log sync event (id=%v, "+
-					"key=%v): %v", id.StringForLog(),
-					spew.Sdump(key), err)
-			}
-		}()
-	}()
 
 	return a.cfg.Multiverse.FetchProofLeaf(ctx, id, key)
 }
@@ -568,9 +569,7 @@ func (a *Archive) UniverseLeafKeys(ctx context.Context,
 
 	log.Debugf("Retrieving all keys for Universe: id=%v", q.Id.StringForLog())
 
-	return withBaseUni(a, q.Id, func(baseUni BaseBackend) ([]LeafKey, error) {
-		return baseUni.MintingKeys(ctx, q)
-	})
+	return a.cfg.Multiverse.UniverseLeafKeys(ctx, q)
 }
 
 // MintingLeaves returns the set of minting leaves known for the specified base
@@ -595,14 +594,10 @@ func (a *Archive) DeleteRoot(ctx context.Context,
 
 	log.Debugf("Deleting universe tree for Universe: id=%v", id.String())
 
-	uniStr, err := withBaseUni(a, id, func(baseUni BaseBackend) (string,
-		error) {
-
-		return baseUni.DeleteUniverse(ctx)
-	})
-
+	uniStr, err := a.cfg.Multiverse.DeleteUniverse(ctx, id)
 	if err != nil {
 		log.Tracef("Failed to delete universe tree: %w", err)
 	}
+
 	return uniStr, err
 }

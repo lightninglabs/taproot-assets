@@ -1226,7 +1226,7 @@ func AssertUniverseKeysEqual(t *testing.T, uniIDs []*unirpc.ID,
 }
 
 func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
-	numProofs, numSyncs, numAssets, numGroups int) {
+	numProofs, numAssets, numGroups int) {
 
 	err := wait.NoError(func() error {
 		uniStats, err := client.UniverseStats(
@@ -1239,10 +1239,6 @@ func AssertUniverseStats(t *testing.T, client unirpc.UniverseClient,
 		if numProofs != int(uniStats.NumTotalProofs) {
 			return fmt.Errorf("expected %v proofs, got %v",
 				numProofs, uniStats.NumTotalProofs)
-		}
-		if numSyncs != int(uniStats.NumTotalSyncs) {
-			return fmt.Errorf("expected %v syncs, got %v",
-				numSyncs, uniStats.NumTotalSyncs)
 		}
 		if numAssets != int(uniStats.NumTotalAssets) {
 			return fmt.Errorf("expected %v assets, got %v",

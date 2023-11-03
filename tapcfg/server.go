@@ -117,7 +117,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	universeStats := tapdb.NewUniverseStats(uniStatsDB, defaultClock)
+
+	var statsOpts []tapdb.UniverseStatsOption
+	if cfg.Universe.StatsCacheDuration != 0 {
+		cacheOpt := tapdb.WithStatsCacheDuration(
+			cfg.Universe.StatsCacheDuration,
+		)
+		statsOpts = append(statsOpts, cacheOpt)
+	}
+
+	universeStats := tapdb.NewUniverseStats(
+		uniStatsDB, defaultClock, statsOpts...,
+	)
 
 	headerVerifier := tapgarden.GenHeaderVerifier(
 		context.Background(), chainBridge,
@@ -384,12 +395,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ErrChan:         mainErrChan,
 			},
 		),
-		UniverseArchive:      baseUni,
-		UniverseSyncer:       universeSyncer,
-		UniverseFederation:   universeFederation,
-		UniverseStats:        universeStats,
-		UniversePublicAccess: cfg.Universe.PublicAccess,
-		LogWriter:            cfg.LogWriter,
+		UniverseArchive:          baseUni,
+		UniverseSyncer:           universeSyncer,
+		UniverseFederation:       universeFederation,
+		UniverseStats:            universeStats,
+		UniversePublicAccess:     cfg.Universe.PublicAccess,
+		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
+		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
+		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,

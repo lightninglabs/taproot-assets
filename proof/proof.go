@@ -446,3 +446,29 @@ func (p *Proof) IsUnknownVersion() bool {
 		return true
 	}
 }
+
+// SparseDecode can be used to decode a proof from a reader without decoding
+// and parsing the entire thing. This handles ignoring the magic bytes, and
+// will decode directly into the target records.
+func SparseDecode(r io.Reader, records ...tlv.Record) error {
+	// The very first byte of the serialized proof is a magic byte, so
+	// we'll read one byte to skip it.
+	var magicBytes [PrefixMagicBytesLength]byte
+	_, err := r.Read(magicBytes[:])
+	if err != nil {
+		return err
+	}
+
+	if magicBytes != PrefixMagicBytes {
+		return fmt.Errorf("invalid prefix magic bytes, expected %s, "+
+			"got %s", string(PrefixMagicBytes[:]),
+			string(magicBytes[:]))
+	}
+
+	proofStream, err := tlv.NewStream(records...)
+	if err != nil {
+		return err
+	}
+
+	return proofStream.Decode(r)
+}

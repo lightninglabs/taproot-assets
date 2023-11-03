@@ -2,14 +2,23 @@ package tapdb
 
 import (
 	"context"
+	"crypto/sha256"
+	"database/sql"
+	"errors"
 	"fmt"
+	"sync"
+	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 const (
@@ -64,21 +73,420 @@ type BatchedMultiverse interface {
 	BatchedTx[BaseMultiverseStore]
 }
 
+// ProofKey is used to uniquely identify a proof within a universe. This is
+// used for the LRU cache for the proofs themselves, which are considered to be
+// immutable.
+type ProofKey [32]byte
+
+// NewProofKey takes a universe identifier and leaf key, and returns a proof
+// key.
+func NewProofKey(id universe.Identifier, key universe.LeafKey) ProofKey {
+	idBytes := id.Bytes()
+	leafKeyBytes := key.UniverseKey()
+
+	// The proof key maps down the ID and the leaf key into a single
+	// 32-byte value: sha256(id || leaf_key)..
+	h := sha256.New()
+	h.Write(idBytes[:])
+	h.Write(leafKeyBytes[:])
+
+	return fn.ToArray[ProofKey](h.Sum(nil))
+}
+
+// numCachedProofs is the number of universe proofs we'll cache.
+const numCachedProofs = 50_000
+
+// cachedProof is a single cached proof.
+type cachedProof []*universe.Proof
+
+// Size just returns 1 as we're limiting based on the total number of proofs.
+func (c *cachedProof) Size() (uint64, error) {
+	return 1, nil
+}
+
+// leafProofCache is used to cache proofs for issuance leaves for assets w/o a
+// group key.
+type leafProofCache = *lru.Cache[ProofKey, *cachedProof]
+
+// newLeafCache creates a new leaf proof cache.
+func newLeafCache() leafProofCache {
+	return lru.NewCache[ProofKey, *cachedProof](
+		numCachedProofs,
+	)
+}
+
+// treeID is used to uniquely identify a multiverse tree.
+type treeID string
+
+// proofCache a map of proof caches for each proof type.
+type proofCache struct {
+	lnutils.SyncMap[treeID, leafProofCache]
+
+	*cacheLogger
+}
+
+// newProofCache creates a new proof cache.
+func newProofCache() *proofCache {
+	return &proofCache{
+		SyncMap:     lnutils.SyncMap[treeID, leafProofCache]{},
+		cacheLogger: newCacheLogger("universe_proofs"),
+	}
+}
+
+// fetchProof reads the cached proof for the given ID and leaf key.
+func (p *proofCache) fetchProof(id universe.Identifier,
+	leafKey universe.LeafKey) []*universe.Proof {
+
+	// First, get the sub-cache for this universe ID from the map of
+	// caches.
+	idStr := treeID(id.String())
+	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
+
+	// With that lower level cache obtained, we can check to see if we have
+	// a hit or not.
+	proofKey := NewProofKey(id, leafKey)
+	proof, err := assetProofCache.Get(proofKey)
+	if err == nil {
+		p.Hit()
+		return *proof
+	}
+
+	p.Miss()
+
+	return nil
+}
+
+// insertProof inserts the given proof into the cache.
+func (p *proofCache) insertProof(id universe.Identifier,
+	leafKey universe.LeafKey, proof []*universe.Proof) {
+
+	idStr := treeID(id.String())
+
+	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
+
+	proofKey := NewProofKey(id, leafKey)
+
+	log.Debugf("storing proof for %v+%v in cache, key=%x",
+		id.StringForLog(), leafKey, proofKey[:])
+
+	proofVal := cachedProof(proof)
+	_, _ = assetProofCache.Put(proofKey, &proofVal)
+}
+
+// delProofsForAsset deletes all the proofs for the given asset.
+func (p *proofCache) delProofsForAsset(id universe.Identifier) {
+	log.Debugf("wiping proofs for %v from cache", id)
+
+	idStr := treeID(id.String())
+	p.Delete(idStr)
+}
+
+// rootPageQuery is a wrapper around a query to fetch all the roots, but with
+// pagination parameters.
+type rootPageQuery struct {
+	withAmountsById bool
+	leafQuery
+}
+
+// newRootPageQuery creates a new root page query.
+func newRootPageQuery(q universe.RootNodesQuery) rootPageQuery {
+	return rootPageQuery{
+		withAmountsById: q.WithAmountsById,
+		leafQuery: leafQuery{
+			sortDirection: q.SortDirection,
+			offset:        int32(q.Offset),
+			limit:         int32(q.Limit),
+		},
+	}
+}
+
+// universeRootPage is a single page of roots.
+type universeRootPage []universe.Root
+
+// Size is the amount of roots in the page.
+func (u universeRootPage) Size() (uint64, error) {
+	return uint64(len(u)), nil
+}
+
+// rootPageCache is used to store the latest root pages for a given treeID.
+type rootPageCache = lru.Cache[rootPageQuery, universeRootPage]
+
+// atomicRootCache is an atomic pointer to a root cache.
+type atomicRootCache = atomic.Pointer[rootPageCache]
+
+// newAtomicRootCache creates a new atomic root cache.
+func newAtomicRootCache() *atomicRootCache {
+	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
+		numCachedProofs,
+	)
+
+	var a atomicRootCache
+	a.Store(rootCache)
+
+	return &a
+}
+
+// rootIndex maps a tree ID to a universe root.
+type rootIndex = lnutils.SyncMap[treeID, *universe.Root]
+
+// atomicRootIndex is an atomic pointer to a root index.
+type atomicRootIndex = atomic.Pointer[rootIndex]
+
+// newAtomicRootIndex creates a new atomic root index.
+func newAtomicRootIndex() *atomicRootIndex {
+	var a atomicRootIndex
+	a.Store(&rootIndex{})
+
+	return &a
+}
+
+// rootNodeCache is used to cache the set of active root nodes for the
+// multiverse tree.
+type rootNodeCache struct {
+	sync.RWMutex
+
+	rootIndex *atomicRootIndex
+
+	allRoots *atomicRootCache
+
+	*cacheLogger
+
+	// TODO(roasbeef): cache for issuance vs transfer roots?
+}
+
+// newRootNodeCache creates a new root node cache.
+func newRootNodeCache() *rootNodeCache {
+	return &rootNodeCache{
+		rootIndex:   newAtomicRootIndex(),
+		allRoots:    newAtomicRootCache(),
+		cacheLogger: newCacheLogger("universe_roots"),
+	}
+}
+
+// fetchRoots reads the cached roots for the given proof type. If the amounts
+// are needed, then we return nothing so we go to the database to fetch the
+// information.
+func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
+	haveWriteLock bool) []universe.Root {
+
+	// If we have the write lock already, no need to fetch it.
+	if !haveWriteLock {
+		r.RLock()
+		defer r.RUnlock()
+	}
+
+	log.Infof("checking cache for roots")
+
+	// Attempt to read directly from the root node cache.
+	rootNodeCache := r.allRoots.Load()
+	rootNodes, _ := rootNodeCache.Get(newRootPageQuery(q))
+
+	if len(rootNodes) > 0 {
+		r.Hit()
+	} else {
+		r.Miss()
+	}
+
+	return rootNodes
+}
+
+// fetchRoot reads the cached root for the given ID.
+func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
+	rootIndex := r.rootIndex.Load()
+
+	root, ok := rootIndex.Load(treeID(id.String()))
+	if ok {
+		r.Hit()
+		return root
+	}
+
+	r.Miss()
+
+	return nil
+}
+
+// cacheRoot stores the given root in the cache.
+func (r *rootNodeCache) cacheRoot(id universe.Identifier,
+	root universe.Root) {
+
+	rootIndex := r.rootIndex.Load()
+	rootIndex.Store(treeID(id.String()), &root)
+}
+
+// cacheRoots stores the given roots in the cache.
+func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
+	rootNodes []universe.Root) {
+
+	log.Debugf("caching num_roots=%v", len(rootNodes))
+
+	// Store the main root pointer, then update the root index.
+	rootPageCache := r.allRoots.Load()
+	_, _ = rootPageCache.Put(newRootPageQuery(q), rootNodes)
+
+	rootIndex := r.rootIndex.Load()
+	for _, rootNode := range rootNodes {
+		rootNode := rootNode
+
+		idStr := treeID(rootNode.ID.String())
+		rootIndex.Store(idStr, &rootNode)
+	}
+}
+
+// wipeCache wipes all the cached roots.
+func (r *rootNodeCache) wipeCache() {
+	log.Debugf("wiping universe cache")
+
+	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
+		numCachedProofs,
+	)
+	r.allRoots.Store(rootCache)
+
+	r.rootIndex.Store(&rootIndex{})
+}
+
+// cachedLeafKeys is used to cache the set of leaf keys for a given universe.
+//
+// TODO(roasbeef); cacheable[T]
+type cachedLeafKeys []universe.LeafKey
+
+// Size just returns 1, as we cache based on the total number of assets, but
+// not the sum of their leaves.
+func (c cachedLeafKeys) Size() (uint64, error) {
+	return uint64(1), nil
+}
+
+// numMaxCachedPages is the maximum number of pages we'll cache for a given
+// page cache. Each page is 512 items, so we'll cache 10 of them, up to 5,120
+// for a given namespace.
+const numMaxCachedPages = 1000
+
+// leafQuery is a wrapper around the existing UniverseLeafKeysQuery struct that
+// doesn't include a pointer so it can be safely used as a map key.
+type leafQuery struct {
+	sortDirection universe.SortDirection
+	offset        int32
+	limit         int32
+}
+
+// newLeafQuery creates a new leaf query.
+func newLeafQuery(q universe.UniverseLeafKeysQuery) leafQuery {
+	return leafQuery{
+		sortDirection: q.SortDirection,
+		offset:        int32(q.Offset),
+		limit:         int32(q.Limit),
+	}
+}
+
+// leafPageCache caches the various paginated responses for a given treeID.
+type leafPageCache struct {
+	*lru.Cache[leafQuery, *cachedLeafKeys]
+}
+
+// Size returns the number of elements in the leaf page cache.
+func (l *leafPageCache) Size() (uint64, error) {
+	return uint64(l.Len()), nil
+}
+
+// leafKeysCache is used to cache the set of leaf keys for a given universe.
+// For each treeID we store an inner cache for the paginated responses.
+type leafKeysCache = lru.Cache[treeID, *leafPageCache]
+
+// universeLeafCaches is used to cache the set of leaf keys for a given
+// universe.
+type universeLeafCache struct {
+	sync.Mutex
+
+	leafCache *leafKeysCache
+
+	*cacheLogger
+}
+
+// newUniverseLeafCache creates a new universe leaf cache.
+func newUniverseLeafCache() *universeLeafCache {
+	return &universeLeafCache{
+		leafCache: lru.NewCache[treeID, *leafPageCache](
+			numCachedProofs,
+		),
+		cacheLogger: newCacheLogger("universe_leaf_keys"),
+	}
+}
+
+// fetchLeafKeys reads the cached leaf keys for the given ID.
+func (u *universeLeafCache) fetchLeafKeys(q universe.UniverseLeafKeysQuery,
+) []universe.LeafKey {
+
+	idStr := treeID(q.Id.String())
+
+	leafPageCache, err := u.leafCache.Get(idStr)
+	if err == nil {
+		leafKeys, err := leafPageCache.Get(newLeafQuery(q))
+		if err == nil {
+			u.Hit()
+			log.Tracef("read leaf keys for %v from cache",
+				q.Id.StringForLog())
+			return *leafKeys
+		}
+	}
+
+	u.Miss()
+
+	return nil
+}
+
+// cacheLeafKeys stores the given leaf keys in the cache.
+func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
+	keys []universe.LeafKey) {
+
+	cachedKeys := cachedLeafKeys(keys)
+
+	idStr := treeID(q.Id.String())
+
+	log.Debugf("storing leaf keys for %v in cache", q.Id.StringForLog())
+
+	pageCache, err := u.leafCache.Get(idStr)
+	if err != nil {
+		// No page cache yet, so we'll create one now.
+		pageCache = &leafPageCache{
+			Cache: lru.NewCache[leafQuery, *cachedLeafKeys](
+				numMaxCachedPages,
+			),
+		}
+
+		// Store the cache in the top level cache.
+		_, _ = u.leafCache.Put(idStr, pageCache)
+	}
+
+	// Add the to the page cache.
+	_, _ = pageCache.Put(newLeafQuery(q), &cachedKeys)
+}
+
+// wipeCache wipes the cache of leaf keys for a given universe ID.
+func (u *universeLeafCache) wipeCache(id treeID) {
+	log.Debugf("wiping leaf keys for %x in cache", id)
+
+	u.leafCache.Delete(id)
+}
+
 // MultiverseStore implements the persistent storage for a multiverse.
 //
 // NOTE: This implements the universe.MultiverseArchive interface.
 type MultiverseStore struct {
 	db BatchedMultiverse
 
-	// TODO(roasbeef): actually the start of multiverse?
-	// * mapping: assetID -> baseUniverseRoot => outpoint || scriptKey => transfer
-	// * drop base in front?
+	rootNodeCache *rootNodeCache
+
+	proofCache *proofCache
+
+	leafKeysCache *universeLeafCache
 }
 
 // NewMultiverseStore creates a new multiverse DB store handle.
 func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
 	return &MultiverseStore{
-		db: db,
+		db:            db,
+		rootNodeCache: newRootNodeCache(),
+		proofCache:    newProofCache(),
+		leafKeysCache: newUniverseLeafCache(),
 	}
 }
 
@@ -101,12 +509,12 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 func (b *MultiverseStore) RootNode(ctx context.Context,
 	proofType universe.ProofType) (*universe.MultiverseRoot, error) {
 
-	var rootNode *universe.MultiverseRoot
-
 	multiverseNS, err := namespaceForProof(proofType)
 	if err != nil {
 		return nil, err
 	}
+
+	var rootNode *universe.MultiverseRoot
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
@@ -133,10 +541,132 @@ func (b *MultiverseStore) RootNode(ctx context.Context,
 	return rootNode, nil
 }
 
+// UniverseRootNode returns the Universe root node for the given asset ID.
+func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
+	id universe.Identifier) (universe.Root, error) {
+
+	// First, we'll check the root node cache to see if we already have it.
+	rootNode := b.rootNodeCache.fetchRoot(id)
+	if rootNode != nil {
+		return *rootNode, nil
+	}
+
+	b.rootNodeCache.Lock()
+	defer b.rootNodeCache.Unlock()
+
+	// Check to see if the cache was populated while we were waiting for
+	// the lock.
+	rootNode = b.rootNodeCache.fetchRoot(id)
+	if rootNode != nil {
+		return *rootNode, nil
+	}
+
+	var universeRoot UniverseRoot
+
+	universeNamespace := id.String()
+
+	readTx := NewBaseUniverseReadTx()
+
+	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
+		dbRoot, err := db.FetchUniverseRoot(ctx, universeNamespace)
+		if err != nil {
+			return err
+		}
+
+		universeRoot = dbRoot
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return universe.Root{}, universe.ErrNoUniverseRoot
+	case dbErr != nil:
+		return universe.Root{}, dbErr
+	}
+
+	var nodeHash mssmt.NodeHash
+	copy(nodeHash[:], universeRoot.RootHash[:])
+	smtNode := mssmt.NewComputedNode(
+		nodeHash, uint64(universeRoot.RootSum),
+	)
+
+	dbRoot := universe.Root{
+		ID:        id,
+		Node:      smtNode,
+		AssetName: universeRoot.AssetName,
+	}
+
+	b.rootNodeCache.cacheRoot(id, dbRoot)
+
+	return dbRoot, nil
+}
+
+// UniverseLeafKeys returns the set of leaf keys for the given universe.
+func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+
+	// First, check to see if we have the leaf keys cached.
+	leafKeys := b.leafKeysCache.fetchLeafKeys(q)
+	if len(leafKeys) > 0 {
+		return leafKeys, nil
+	}
+
+	// The leaves wasn't populated, so we'll go to disk to fetch it.
+	b.leafKeysCache.Lock()
+	defer b.leafKeysCache.Unlock()
+
+	// While we were waiting for the lock, the cache might have been
+	// populated, so we'll check that now.
+	leafKeys = b.leafKeysCache.fetchLeafKeys(q)
+	if len(leafKeys) > 0 {
+		return leafKeys, nil
+	}
+
+	// Otherwise, we'll read it from disk, then add it to our cache.
+	readTx := NewBaseUniverseReadTx()
+	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
+		dbLeaves, err := mintingKeys(ctx, db, q, q.Id.String())
+		if err != nil {
+			return err
+		}
+
+		leafKeys = dbLeaves
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	b.leafKeysCache.cacheLeafKeys(q, leafKeys)
+
+	return leafKeys, nil
+}
+
 // RootNodes returns the complete set of known base universe root nodes for the
 // set of base universes tracked in the multiverse.
 func (b *MultiverseStore) RootNodes(ctx context.Context,
 	q universe.RootNodesQuery) ([]universe.Root, error) {
+
+	// Attempt to read directly from the root node cache.
+	rootNodes := b.rootNodeCache.fetchRoots(q, false)
+	if len(rootNodes) > 0 {
+		log.Debugf("read %d root nodes from cache", len(rootNodes))
+		return rootNodes, nil
+	}
+
+	b.rootNodeCache.Lock()
+	defer b.rootNodeCache.Unlock()
+
+	// Check to see if the cache was populated while we were waiting for
+	// the mutex.
+	rootNodes = b.rootNodeCache.fetchRoots(q, true)
+	if len(rootNodes) > 0 {
+		log.Debugf("read %d root nodes from cache", len(rootNodes))
+		return rootNodes, nil
+	}
+
+	now := time.Now()
+	log.Infof("populating root cache...")
 
 	var (
 		uniRoots []universe.Root
@@ -238,6 +768,12 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 		return nil, dbErr
 	}
 
+	log.Debugf("Populating %v root nodes into cache, took=%v",
+		len(uniRoots), time.Since(now))
+
+	// Cache all the root nodes we just read from the database.
+	b.rootNodeCache.cacheRoots(q, uniRoots)
+
 	return uniRoots, nil
 }
 
@@ -248,6 +784,12 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	id universe.Identifier,
 	universeKey universe.LeafKey) ([]*universe.Proof, error) {
+
+	// First, check the cached to see if we already have this proof.
+	proof := b.proofCache.fetchProof(id, universeKey)
+	if len(proof) > 0 {
+		return proof, nil
+	}
 
 	var (
 		readTx = NewBaseUniverseReadTx()
@@ -303,6 +845,9 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	if dbErr != nil {
 		return nil, dbErr
 	}
+
+	// Insert the proof we just read up into the main cache.
+	b.proofCache.insertProof(id, universeKey, proofs)
 
 	return proofs, nil
 }
@@ -390,10 +935,16 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		return err
 	}
 	dbErr := b.db.ExecTx(ctx, &writeTx, execTxFunc)
-
 	if dbErr != nil {
 		return nil, dbErr
 	}
+
+	idStr := treeID(id.String())
+
+	// Invalidate the cache since we just updated the root.
+	b.rootNodeCache.wipeCache()
+	b.proofCache.delProofsForAsset(id)
+	b.leafKeysCache.wipeCache(idStr)
 
 	return issuanceProof, nil
 }
@@ -471,5 +1022,57 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		return dbErr
 	}
 
+	// TODO(roasbeef): want to write thru but then need db query again?
+
+	b.rootNodeCache.wipeCache()
+
+	// Invalidate the root node cache for all the assets we just inserted.
+	idsToDelete := fn.NewSet(fn.Map(items, func(item *universe.Item) treeID {
+		return treeID(item.ID.String())
+	})...)
+
+	for id := range idsToDelete {
+		b.proofCache.Delete(id)
+		b.leafKeysCache.wipeCache(id)
+	}
+
 	return nil
+}
+
+// DeleteUniverse delete an entire universe sub-tre.
+func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
+	id universe.Identifier) (string, error) {
+
+	var writeTx BaseUniverseStoreOptions
+
+	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseMultiverseStore) error {
+		multiverseNS, err := namespaceForProof(id.ProofType)
+		if err != nil {
+			return err
+		}
+
+		multiverseTree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbTx, multiverseNS),
+		)
+
+		multiverseLeafKey := id.Bytes()
+		_, err = multiverseTree.Delete(ctx, multiverseLeafKey)
+		if err != nil {
+			return err
+		}
+
+		return deleteUniverseTree(ctx, dbTx, id)
+	})
+	if dbErr != nil {
+		return "", dbErr
+	}
+
+	// Wipe the cache items from this node.
+	b.rootNodeCache.wipeCache()
+
+	idStr := treeID(id.String())
+	b.proofCache.Delete(idStr)
+	b.leafKeysCache.wipeCache(idStr)
+
+	return id.String(), dbErr
 }

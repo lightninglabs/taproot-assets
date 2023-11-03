@@ -46,6 +46,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/signal"
+	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 )
 
@@ -116,6 +117,8 @@ type rpcServer struct {
 
 	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
 
+	proofQueryRateLimiter *rate.Limiter
+
 	quit chan struct{}
 	wg   sync.WaitGroup
 }
@@ -132,7 +135,10 @@ func newRPCServer(interceptor signal.Interceptor,
 			maxNumBlocksInCache,
 		),
 		quit: make(chan struct{}),
-		cfg:  cfg,
+		proofQueryRateLimiter: rate.NewLimiter(
+			cfg.UniverseQueriesPerSecond, cfg.UniverseQueriesBurst,
+		),
+		cfg: cfg,
 	}, nil
 }
 
@@ -2897,6 +2903,12 @@ func marshalUniverseRoot(node universe.Root) (*unirpc.UniverseRoot, error) {
 func (r *rpcServer) AssetRoots(ctx context.Context,
 	req *unirpc.AssetRootRequest) (*unirpc.AssetRootResponse, error) {
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	// First, we'll retrieve the full set of known asset Universe roots.
 	assetRoots, err := r.cfg.UniverseArchive.RootNodes(
 		ctx, universe.RootNodesQuery{
@@ -3083,6 +3095,12 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 			"given universe")
 	}
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	// Query for both a issaunce and transfer universe root.
 	assetRoots, err := r.queryAssetProofRoots(ctx, universeID)
 	if err != nil {
@@ -3266,11 +3284,20 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 		return nil, err
 	}
 
-	// TODO(roasbeef): tell above if was tring or not, then would set
-	// below diff
+	// If the proof type wasn't speciifed, then we'll return an error as we
+	// don't know which keys to actually fetch.
+	if universeID.ProofType == universe.ProofTypeUnspecified {
+		return nil, fmt.Errorf("proof type must be specified")
+	}
 
 	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
 		return nil, fmt.Errorf("invalid request limit")
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
 	}
 
 	leafKeys, err := r.cfg.UniverseArchive.UniverseLeafKeys(
@@ -3299,15 +3326,8 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
 
-	// In order to display the full asset, we'll also encode the genesis
-	// proof.
-	var buf bytes.Buffer
-	if err := assetLeaf.Proof.Encode(&buf); err != nil {
-		return nil, err
-	}
-
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, &assetLeaf.Proof.Asset, false, true, keys,
+		ctx, assetLeaf.Asset, false, true, keys,
 	)
 	if err != nil {
 		return nil, err
@@ -3315,7 +3335,7 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 
 	return &unirpc.AssetLeaf{
 		Asset: rpcAsset,
-		Proof: buf.Bytes(),
+		Proof: assetLeaf.RawProof,
 	}, nil
 }
 
@@ -3336,6 +3356,12 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 
 	universeID, err := UnmarshalUniID(req)
 	if err != nil {
+		return nil, err
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
@@ -3533,7 +3559,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 		return nil, err
 	}
 
-	rpcsLog.Debugf("[QueryProof]: fetching proof at (universeID=%v, "+
+	rpcsLog.Tracef("[QueryProof]: fetching proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
 	// Retrieve proof export config for the given universe.
@@ -3576,6 +3602,12 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 			"given universe")
 	}
 
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
+	}
+
 	// Attempt to retrieve the proof given the candidate set of universe
 	// IDs.
 	var proofs []*universe.Proof
@@ -3610,7 +3642,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	// not be fully specified
 	proof := proofs[0]
 
-	rpcsLog.Debugf("[QueryProof]: found proof at (universeID=%v, "+
+	rpcsLog.Tracef("[QueryProof]: found proof at (universeID=%v, "+
 		"leafKey=%x)", universeID, leafKey.UniverseKey())
 
 	return r.marshalUniverseProofLeaf(ctx, req, proof)
@@ -3635,8 +3667,9 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 			Genesis:  assetProof.Asset.Genesis,
 			GroupKey: assetProof.Asset.GroupKey,
 		},
-		Proof: &assetProof,
-		Amt:   assetProof.Asset.Amount,
+		RawProof: leaf.Proof,
+		Asset:    &assetProof.Asset,
+		Amt:      assetProof.Asset.Amount,
 	}, nil
 }
 
@@ -3668,8 +3701,8 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	// If universe proof type unspecified, set based on the provided asset
 	// proof.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
-		universeID.ProofType, err = universe.NewProofTypeFromAssetProof(
-			assetLeaf.Proof,
+		universeID.ProofType, err = universe.NewProofTypeFromAsset(
+			assetLeaf.Asset,
 		)
 		if err != nil {
 			return nil, err
@@ -3678,7 +3711,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 
 	// Ensure that the new proof is of the correct type for the target
 	// universe.
-	err = universe.ValidateProofUniverseType(assetLeaf.Proof, universeID)
+	err = universe.ValidateProofUniverseType(assetLeaf.Asset, universeID)
 	if err != nil {
 		return nil, err
 	}
@@ -3692,6 +3725,12 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	if !syncConfigs.IsSyncInsertEnabled(universeID) {
 		return nil, fmt.Errorf("proof insert is disabled for the " +
 			"given universe")
+	}
+
+	// Check the rate limiter to see if we need to wait at all. If not then
+	// this'll be a noop.
+	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+		return nil, err
 	}
 
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
