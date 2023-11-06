@@ -52,9 +52,10 @@ func AssetAmountCheck(amt uint64) AssetCheck {
 // AssetTypeCheck returns a check function that tests an asset's type.
 func AssetTypeCheck(assetType taprpc.AssetType) AssetCheck {
 	return func(a *taprpc.Asset) error {
-		if a.AssetType != assetType {
+		if a.AssetGenesis.AssetType != assetType {
 			return fmt.Errorf("unexpected asset type, got %v "+
-				"wanted %v", a.AssetType, assetType)
+				"wanted %v", a.AssetGenesis.AssetType,
+				assetType)
 		}
 
 		return nil
@@ -765,7 +766,7 @@ func AssertNonInteractiveRecvComplete(t *testing.T,
 // asset.
 func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.Equal(t, expected.AssetGenesis.AssetId, actual.AssetId)
-	require.Equal(t, expected.AssetType, actual.AssetType)
+	require.Equal(t, expected.AssetGenesis.AssetType, actual.AssetType)
 
 	if expected.AssetGroup == nil {
 		require.Nil(t, actual.GroupKey)
@@ -789,7 +790,10 @@ func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 func AssertAsset(t *testing.T, expected, actual *taprpc.Asset) {
 	require.Equal(t, expected.Version, actual.Version)
 	AssertAssetGenesis(t, expected.AssetGenesis, actual.AssetGenesis)
-	require.Equal(t, expected.AssetType, actual.AssetType)
+	require.Equal(
+		t, expected.AssetGenesis.AssetType,
+		actual.AssetGenesis.AssetType,
+	)
 	require.Equal(t, expected.Amount, actual.Amount)
 	require.Equal(t, expected.LockTime, actual.LockTime)
 	require.Equal(t, expected.RelativeLockTime, actual.RelativeLockTime)
@@ -820,7 +824,8 @@ func assertProofReveals(t *testing.T, expected *taprpc.Asset,
 			actual.GenesisReveal.GenesisBaseReveal,
 		)
 		require.Equal(
-			t, expected.AssetType, actual.GenesisReveal.AssetType,
+			t, expected.AssetGenesis.AssetType,
+			actual.GenesisReveal.GenesisBaseReveal.AssetType,
 		)
 	}
 }
@@ -987,7 +992,7 @@ func AssertGroup(t *testing.T, a *taprpc.Asset, b *taprpc.AssetHumanReadable,
 	require.Equal(t, a.RelativeLockTime, b.RelativeLockTime)
 	require.Equal(t, a.AssetGenesis.Name, b.Tag)
 	require.Equal(t, a.AssetGenesis.MetaHash, b.MetaHash)
-	require.Equal(t, a.AssetType, b.Type)
+	require.Equal(t, a.AssetGenesis.AssetType, b.Type)
 	require.Equal(t, a.AssetGroup.TweakedGroupKey, groupKey)
 }
 
@@ -1314,7 +1319,7 @@ func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
 	require.NoError(t, err)
 
 	anchorGen := ParseGenInfo(t, anchor.AssetGenesis)
-	anchorGen.Type = asset.Type(anchor.AssetType)
+	anchorGen.Type = asset.Type(anchor.AssetGenesis.AssetType)
 	AssertGroupAnchor(t, anchorGen, anchor.AssetGroup)
 
 	return anchor

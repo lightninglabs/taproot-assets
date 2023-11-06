@@ -157,7 +157,7 @@ func testBurnAssets(t *harnessTest) {
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
 		AssetAmountCheck(burnedAsset.Amount),
-		AssetTypeCheck(burnedAsset.AssetType),
+		AssetTypeCheck(burnedAsset.AssetGenesis.AssetType),
 		AssetScriptKeyIsLocalCheck(false),
 		AssetScriptKeyIsBurnCheck(true),
 	)

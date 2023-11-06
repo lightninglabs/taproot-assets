@@ -186,7 +186,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 		AssertAssetState(
 			t.t, importedAssets, gen.Name, gen.MetaHash,
 			AssetAmountCheck(existingAsset.Amount),
-			AssetTypeCheck(existingAsset.AssetType),
+			AssetTypeCheck(existingAsset.AssetGenesis.AssetType),
 			AssetAnchorCheck(*anchorTxHash, *anchorBlockHash),
 			AssetScriptKeyIsLocalCheck(shouldShowUpAsLocal),
 		)
