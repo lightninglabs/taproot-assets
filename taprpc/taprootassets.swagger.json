@@ -1021,10 +1021,6 @@
           "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
         },
-        "asset_type": {
-          "$ref": "#/definitions/taprpcAssetType",
-          "description": "The type of the asset."
-        },
         "amount": {
           "type": "string",
           "format": "uint64",
@@ -1094,10 +1090,6 @@
         "asset_genesis": {
           "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
-        },
-        "asset_type": {
-          "$ref": "#/definitions/taprpcAssetType",
-          "description": "The type of the asset."
         },
         "balance": {
           "type": "string",
@@ -1477,6 +1469,10 @@
           "format": "byte",
           "description": "The asset ID that uniquely identifies the asset."
         },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
         "output_index": {
           "type": "integer",
           "format": "int64",
@@ -1495,10 +1491,6 @@
         "genesis_base_reveal": {
           "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information in the genesis reveal."
-        },
-        "asset_type": {
-          "$ref": "#/definitions/taprpcAssetType",
-          "description": "The asset type, not included in the base genesis info."
         }
       }
     },
