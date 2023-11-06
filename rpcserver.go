@@ -765,12 +765,12 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 			AssetGenesis: &taprpc.GenesisInfo{
 				Version:      int32(balance.Version),
 				GenesisPoint: balance.GenesisPoint.String(),
+				AssetType:    taprpc.AssetType(balance.Type),
 				Name:         balance.Tag,
 				MetaHash:     balance.MetaHash[:],
 				AssetId:      balance.ID[:],
 			},
-			AssetType: taprpc.AssetType(balance.Type),
-			Balance:   balance.Balance,
+			Balance: balance.Balance,
 		}
 	}
 
@@ -1421,8 +1421,8 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 				MetaHash:     rpcGenesis.MetaHash[:],
 				AssetId:      decodedAssetID[:],
 				OutputIndex:  rpcGenesis.OutputIndex,
+				AssetType:    taprpc.AssetType(p.Asset.Type),
 			},
-			AssetType: taprpc.AssetType(p.Asset.Type),
 		}
 	}
 
