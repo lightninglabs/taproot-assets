@@ -807,10 +807,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 // receiving an asset proof will be reattempted by the receiving tapd node. This
 // test targets the universe proof courier.
 func testReattemptFailedReceiveUniCourier(t *harnessTest) {
-	var (
-		ctxb = context.Background()
-		wg   sync.WaitGroup
-	)
+	ctxb := context.Background()
 
 	// This tapd node will send the asset to the receiving tapd node.
 	// It will also transfer proof the related transfer proofs to the
@@ -892,56 +889,47 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 
 	// Test to ensure that we receive the minimum expected number of backoff
 	// wait event notifications.
-	//
-	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification(s) from the tapd node as soon as the proof
-	// courier service is restarted.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		// Define a target event selector to match the backoff wait
-		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
-			switch eventTyped := event.Event.(type) {
-			case *taprpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent:
-				ev := eventTyped.ProofTransferBackoffWaitEvent
-
-				// We are attempting to identify receive
-				// transfer types. Skip the event if it is not
-				// a receiving transfer type.
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE {
-					return false
-				}
-
-				t.Logf("Found event ntfs: %v", ev)
-				return true
-			}
-
-			return false
-		}
-
-		// Expected minimum number of events to receive.
-		expectedEventCount := 3
-
-		// Context timeout scales with expected number of events.
-		timeout := time.Duration(expectedEventCount) *
-			defaultProofTransferReceiverAckTimeout
-		// Add overhead buffer to context timeout.
-		timeout += 5 * time.Second
-		ctx, cancel := context.WithTimeout(ctxb, timeout)
-		defer cancel()
-
-		assertAssetRecvNtfsEvent(
-			t, ctx, eventNtfns, targetEventSelector,
-			expectedEventCount,
-		)
-	}()
-
-	// Wait for the receiver node's backoff attempts to complete.
 	t.Logf("Waiting for the receiving tapd node to complete backoff " +
 		"proof retrieval attempts")
-	wg.Wait()
+
+	// Define a target event selector to match the backoff wait event. This
+	// function selects for a specific event type.
+	targetEventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
+		switch eventTyped := event.Event.(type) {
+		case *taprpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent:
+			ev := eventTyped.ProofTransferBackoffWaitEvent
+
+			// We are attempting to identify receive transfer types.
+			// Skip the event if it is not a receiving transfer
+			// type.
+			if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE {
+				return false
+			}
+
+			t.Logf("Found event ntfs: %v", ev)
+			return true
+		}
+
+		return false
+	}
+
+	// Expected minimum number of events to receive.
+	expectedEventCount := 3
+
+	// Context timeout scales with expected number of events.
+	timeout := time.Duration(expectedEventCount) *
+		defaultProofTransferReceiverAckTimeout
+	// Add overhead buffer to context timeout.
+	timeout += 5 * time.Second
+	ctx, cancel := context.WithTimeout(ctxb, timeout)
+	defer cancel()
+
+	// Assert that the receiver tapd node has accomplished our minimum
+	// expected number of backoff procedure receive attempts.
+	assertAssetRecvNtfsEvent(
+		t, ctx, eventNtfns, targetEventSelector, expectedEventCount,
+	)
+
 	t.Logf("Finished waiting for the receiving tapd node to complete " +
 		"backoff procedure")
 
