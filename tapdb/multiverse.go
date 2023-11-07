@@ -275,8 +275,6 @@ func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
 		defer r.RUnlock()
 	}
 
-	log.Infof("checking cache for roots")
-
 	// Attempt to read directly from the root node cache.
 	rootNodeCache := r.allRoots.Load()
 	rootNodes, _ := rootNodeCache.Get(newRootPageQuery(q))
@@ -650,7 +648,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	// Attempt to read directly from the root node cache.
 	rootNodes := b.rootNodeCache.fetchRoots(q, false)
 	if len(rootNodes) > 0 {
-		log.Debugf("read %d root nodes from cache", len(rootNodes))
+		log.Tracef("read %d root nodes from cache", len(rootNodes))
 		return rootNodes, nil
 	}
 
@@ -661,7 +659,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	// the mutex.
 	rootNodes = b.rootNodeCache.fetchRoots(q, true)
 	if len(rootNodes) > 0 {
-		log.Debugf("read %d root nodes from cache", len(rootNodes))
+		log.Tracef("read %d root nodes from cache", len(rootNodes))
 		return rootNodes, nil
 	}
 
