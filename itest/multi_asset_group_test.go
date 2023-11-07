@@ -389,7 +389,7 @@ func assetIDWithBalance(t *testing.T, node *tapdHarness,
 
 	for assetIDHex, balance := range balances.AssetBalances {
 		if balance.Balance >= minBalance &&
-			balance.AssetType == assetType {
+			balance.AssetGenesis.AssetType == assetType {
 
 			assetIDBytes, err := hex.DecodeString(assetIDHex)
 			require.NoError(t, err)

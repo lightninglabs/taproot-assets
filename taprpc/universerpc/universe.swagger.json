@@ -1349,10 +1349,6 @@
           "$ref": "#/definitions/taprpcGenesisInfo",
           "description": "The base genesis information of an asset. This information never changes."
         },
-        "asset_type": {
-          "$ref": "#/definitions/taprpcAssetType",
-          "description": "The type of the asset."
-        },
         "amount": {
           "type": "string",
           "format": "uint64",
@@ -1474,6 +1470,10 @@
           "type": "string",
           "format": "byte",
           "description": "The asset ID that uniquely identifies the asset."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
         },
         "output_index": {
           "type": "integer",

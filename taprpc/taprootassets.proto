@@ -228,14 +228,17 @@ message GenesisInfo {
     // The asset ID that uniquely identifies the asset.
     bytes asset_id = 4;
 
+    // The type of the asset.
+    AssetType asset_type = 5;
+
     /*
     The index of the output that carries the unique Taproot Asset commitment in
     the genesis transaction.
     */
-    uint32 output_index = 5;
+    uint32 output_index = 6;
 
     // The version of the Taproot Asset commitment that created this asset.
-    int32 version = 6;
+    int32 version = 7;
 }
 
 message AssetGroup {
@@ -268,9 +271,6 @@ message GroupKeyReveal {
 message GenesisReveal {
     // The base genesis information in the genesis reveal.
     GenesisInfo genesis_base_reveal = 1;
-
-    // The asset type, not included in the base genesis info.
-    AssetType asset_type = 2;
 }
 
 enum AssetVersion {
@@ -289,9 +289,6 @@ message Asset {
 
     // The base genesis information of an asset. This information never changes.
     GenesisInfo asset_genesis = 2;
-
-    // The type of the asset.
-    AssetType asset_type = 3;
 
     // The total amount of the asset stored in this Taproot Asset UTXO.
     uint64 amount = 4;
@@ -446,9 +443,6 @@ message ListBalancesRequest {
 message AssetBalance {
     // The base genesis information of an asset. This information never changes.
     GenesisInfo asset_genesis = 1;
-
-    // The type of the asset.
-    AssetType asset_type = 2;
 
     // The balance of the asset owned by the target daemon.
     uint64 balance = 3;
