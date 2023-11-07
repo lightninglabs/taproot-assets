@@ -1188,6 +1188,24 @@
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
     },
+    "taprpcAssetReceiveCompleteEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Event creation timestamp."
+        },
+        "address": {
+          "$ref": "#/definitions/taprpcAddr",
+          "description": "The address that received the asset."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint of the transaction that was used to receive the asset."
+        }
+      }
+    },
     "taprpcAssetTransfer": {
       "type": "object",
       "properties": {
@@ -1813,6 +1831,10 @@
         "proof_transfer_backoff_wait_event": {
           "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
           "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
+        },
+        "asset_receive_complete_event": {
+          "$ref": "#/definitions/taprpcAssetReceiveCompleteEvent",
+          "description": "An event which indicates that an asset receive process has finished."
         }
       }
     },

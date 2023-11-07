@@ -2350,7 +2350,9 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 		// RPC event type and sent over the stream.
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
 
-			rpcEvent, err := marshallReceiveAssetEvent(event)
+			rpcEvent, err := marshallReceiveAssetEvent(
+				event, r.cfg.TapAddrBook,
+			)
 			if err != nil {
 				return fmt.Errorf("failed to marshall "+
 					"asset receive event into RPC event: "+
@@ -2385,8 +2387,8 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 }
 
 // marshallReceiveAssetEvent maps an asset receive event to its RPC counterpart.
-func marshallReceiveAssetEvent(
-	eventInterface fn.Event) (*taprpc.ReceiveAssetEvent, error) {
+func marshallReceiveAssetEvent(eventInterface fn.Event,
+	db address.Storage) (*taprpc.ReceiveAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *proof.BackoffWaitEvent:
@@ -2407,6 +2409,23 @@ func marshallReceiveAssetEvent(
 				Backoff:      event.Backoff.Microseconds(),
 				TriesCounter: event.TriesCounter,
 				TransferType: transferTypeRpc,
+			},
+		}
+		return &taprpc.ReceiveAssetEvent{
+			Event: &eventRpc,
+		}, nil
+
+	case *tapgarden.AssetReceiveCompleteEvent:
+		rpcAddr, err := marshalAddr(&event.Address, db)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling addr: %w", err)
+		}
+
+		eventRpc := taprpc.ReceiveAssetEvent_AssetReceiveCompleteEvent{
+			AssetReceiveCompleteEvent: &taprpc.AssetReceiveCompleteEvent{
+				Timestamp: event.Timestamp().UnixMicro(),
+				Address:   rpcAddr,
+				Outpoint:  event.OutPoint.String(),
 			},
 		}
 		return &taprpc.ReceiveAssetEvent{
