@@ -944,6 +944,13 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// proof(s).
 	t.Logf("Attempting to confirm asset received by receiver node")
 	AssertNonInteractiveRecvComplete(t.t, receiveTapd, 1)
+
+	// Confirm that the sender tapd node eventually receives the asset
+	// transfer and publishes an asset recv complete event.
+	t.Logf("Check for asset recv complete event from receiver tapd node")
+	assertAssetRecvCompleteEvent(
+		t, ctxb, 5*time.Second, recvAddr.Encoded, eventNtfns,
+	)
 }
 
 // testOfflineReceiverEventuallyReceives tests that a receiver node will
@@ -1155,6 +1162,29 @@ func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
 	require.Equal(t.t, expectedCount, countFound, "unexpected number of "+
 		"asset receive event notifications (expected=%d, actual=%d)",
 		expectedCount, countFound)
+}
+
+// assertAssetRecvNtfsEvent asserts that the given asset receive complete event
+// notification was received. This function will block until the event is
+// received or the event stream is closed.
+func assertAssetRecvCompleteEvent(t *harnessTest, ctxb context.Context,
+	timeout time.Duration, encodedAddr string,
+	eventNtfns taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsClient) {
+
+	ctx, cancel := context.WithTimeout(ctxb, timeout)
+	defer cancel()
+
+	eventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
+		switch eventTyped := event.Event.(type) {
+		case *taprpc.ReceiveAssetEvent_AssetReceiveCompleteEvent:
+			ev := eventTyped.AssetReceiveCompleteEvent
+			return encodedAddr == ev.Address.Encoded
+		default:
+			return false
+		}
+	}
+
+	assertAssetRecvNtfsEvent(t, ctx, eventNtfns, eventSelector, 1)
 }
 
 // testMultiInputSendNonInteractiveSingleID tests that we can properly
