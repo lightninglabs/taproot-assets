@@ -18,6 +18,36 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
+// AssetReceiveCompleteEvent is an event that is sent to a subscriber once the
+// asset receive process has finished for a given address and outpoint.
+type AssetReceiveCompleteEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// Address is the address associated with the asset that was received.
+	Address address.Tap
+
+	// OutPoint is the outpoint of the transaction that was used to receive
+	// the asset.
+	OutPoint wire.OutPoint
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AssetReceiveCompleteEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// NewAssetRecvCompleteEvent creates a new AssetReceiveCompleteEvent.
+func NewAssetRecvCompleteEvent(addr address.Tap,
+	outpoint wire.OutPoint) *AssetReceiveCompleteEvent {
+
+	return &AssetReceiveCompleteEvent{
+		timestamp: time.Now().UTC(),
+		Address:   addr,
+		OutPoint:  outpoint,
+	}
+}
+
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
 type CustodianConfig struct {
@@ -458,6 +488,18 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				log.Errorf("unable to import proofs: %v", err)
 				return
 			}
+
+			// At this point the "receive" process is complete. We
+			// will now notify all status event subscribers.
+			recvCompleteEvent := NewAssetRecvCompleteEvent(
+				*addr, op,
+			)
+			err = c.publishSubscriberStatusEvent(recvCompleteEvent)
+			if err != nil {
+				log.Errorf("unable publish status event: %v",
+					err)
+				return
+			}
 		}()
 	}
 
@@ -698,6 +740,23 @@ func (c *Custodian) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
 	defer c.statusEventsSubsMtx.Unlock()
 
 	c.statusEventsSubs[receiver.ID()] = receiver
+
+	return nil
+}
+
+// publishSubscriberStatusEvent publishes an event to all status events
+// subscribers.
+func (c *Custodian) publishSubscriberStatusEvent(event fn.Event) error {
+	// Lock the subscriber mutex to ensure that we don't modify the
+	// subscriber map while we're iterating over it.
+	c.statusEventsSubsMtx.Lock()
+	defer c.statusEventsSubsMtx.Unlock()
+
+	for _, sub := range c.statusEventsSubs {
+		if !fn.SendOrQuit(sub.NewItemCreated.ChanIn(), event, c.Quit) {
+			return fmt.Errorf("custodian shutting down")
+		}
+	}
 
 	return nil
 }
