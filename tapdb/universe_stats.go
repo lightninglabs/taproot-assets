@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -152,7 +153,7 @@ type assetEventsCache = *lru.Cache[eventQuery, cachedAssetEvents]
 
 // statsQueryCacheSize is the total number of asset query responses that we'll
 // hold inside the cache.
-const statsQueryCacheSize = 80_0000
+const statsQueryCacheSize = 80_000
 
 // cachedSyncStats is a cached set of sync stats.
 type cachedSyncStats []universe.AssetSyncSnapshot
@@ -265,6 +266,8 @@ func (a *atomicSyncStatsCache) storeQuery(q universe.SyncStatsQuery,
 	}
 
 	statsCache := a.Load()
+
+	log.Debugf("Storing asset stats query: %v", spew.Sdump(q))
 
 	_, _ = statsCache.Put(query, cachedSyncStats(resp))
 }
@@ -509,6 +512,7 @@ func (u *UniverseStats) populateSyncStatsCache() {
 
 	// If this is a test, then we'll just purge the items.
 	if u.opts.cacheDuration == 0 {
+		log.Debugf("nil state cache duration, wiping cache")
 		u.statsSnapshot.Store(nil)
 		return
 	}
@@ -532,7 +536,10 @@ func (u *UniverseStats) populateSyncStatsCache() {
 
 	// Reset the timer so we'll refresh again after the cache duration.
 	if !u.statsRefresh.Stop() {
-		<-u.statsRefresh.C
+		select {
+		case <-u.statsRefresh.C:
+		default:
+		}
 	}
 
 	u.statsRefresh.Reset(u.opts.cacheDuration)
@@ -562,6 +569,8 @@ func (u *UniverseStats) AggregateSyncStats(
 
 	u.statsCacheLogger.Miss()
 
+	log.Debugf("Populating aggregate sync stats")
+
 	dbStats, err := u.querySyncStats(ctx)
 	if err != nil {
 		return dbStats, err
@@ -571,6 +580,13 @@ func (u *UniverseStats) AggregateSyncStats(
 	// the stats pointer so we'll refresh it after a period of time.
 	u.statsSnapshot.Store(&dbStats)
 
+	// Reset the timer so we'll refresh again after the cache duration.
+	if u.statsRefresh != nil && !u.statsRefresh.Stop() {
+		select {
+		case <-u.statsRefresh.C:
+		default:
+		}
+	}
 	u.statsRefresh = time.AfterFunc(
 		u.opts.cacheDuration, u.populateSyncStatsCache,
 	)
@@ -837,6 +853,16 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 
 	// Finally, we'll create the time after function that'll wipe the
 	// cache, forcing a refresh.
+	//
+	// If we already have a timer active, then stop it, so we only have a
+	// single timer going at any given time.
+	if u.syncStatsRefresh != nil && !u.syncStatsRefresh.Stop() {
+		select {
+		case <-u.syncStatsRefresh.C:
+		default:
+		}
+	}
+
 	u.syncStatsRefresh = time.AfterFunc(u.opts.cacheDuration, func() {
 		log.Infof("Purging sync stats cache, duration=%v",
 			u.opts.cacheDuration)
