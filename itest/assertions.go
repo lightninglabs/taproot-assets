@@ -69,10 +69,17 @@ func AssetAnchorCheck(txid, blockHash chainhash.Hash) AssetCheck {
 			return fmt.Errorf("asset is missing chain anchor field")
 		}
 
-		if a.ChainAnchor.AnchorTxid != txid.String() {
+		out, err :=
+			wire.NewOutPointFromString(a.ChainAnchor.AnchorOutpoint)
+		if err != nil {
+			return fmt.Errorf("unable to parse outpoint: %v", err)
+		}
+
+		anchorTxid := out.Hash.String()
+
+		if anchorTxid != txid.String() {
 			return fmt.Errorf("unexpected asset anchor TXID, got "+
-				"%v wanted %x", a.ChainAnchor.AnchorTxid,
-				txid[:])
+				"%v wanted %x", anchorTxid, txid[:])
 		}
 
 		if a.ChainAnchor.AnchorBlockHash != blockHash.String() {
