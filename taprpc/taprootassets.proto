@@ -183,9 +183,6 @@ message AnchorInfo {
     //  resides.
     bytes anchor_tx = 1;
 
-    // The txid of the above transaction.
-    string anchor_txid = 2;
-
     // The block hash the contains the anchor transaction above.
     string anchor_block_hash = 3;
 
