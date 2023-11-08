@@ -727,7 +727,6 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
 
 	rpcAsset.ChainAnchor = &taprpc.AnchorInfo{
 		AnchorTx:         anchorTxBytes,
-		AnchorTxid:       a.AnchorTxid.String(),
 		AnchorBlockHash:  a.AnchorBlockHash.String(),
 		AnchorOutpoint:   a.AnchorOutpoint.String(),
 		InternalKey:      a.AnchorInternalKey.SerializeCompressed(),
@@ -1380,7 +1379,6 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
 		Asset:                  &p.Asset,
 		AnchorTx:               &p.AnchorTx,
-		AnchorTxid:             p.AnchorTx.TxHash(),
 		AnchorBlockHash:        p.BlockHeader.BlockHash(),
 		AnchorBlockHeight:      p.BlockHeight,
 		AnchorOutpoint:         anchorOutpoint,

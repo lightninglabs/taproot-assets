@@ -362,9 +362,6 @@ type ChainAsset struct {
 	// AnchorTx is the transaction that anchors this chain asset.
 	AnchorTx *wire.MsgTx
 
-	// AnchorTxid is the TXID of the anchor tx.
-	AnchorTxid chainhash.Hash
-
 	// AnchorBlockHash is the blockhash that mined the anchor tx.
 	AnchorBlockHash chainhash.Hash
 
@@ -761,7 +758,6 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 			Asset:                  assetSprout,
 			IsSpent:                sprout.Spent,
 			AnchorTx:               anchorTx,
-			AnchorTxid:             anchorTx.TxHash(),
 			AnchorBlockHash:        anchorBlockHash,
 			AnchorOutpoint:         anchorOutpoint,
 			AnchorInternalKey:      anchorInternalKey,
