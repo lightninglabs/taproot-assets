@@ -16,14 +16,18 @@ const (
 type assetCollector struct {
 	collectMx sync.Mutex
 
-	cfg *PrometheusConfig
+	cfg      *PrometheusConfig
+	registry *prometheus.Registry
 
 	numAssetsMinted prometheus.Gauge
 }
 
-func newAssetCollector(cfg *PrometheusConfig) *assetCollector {
+func newAssetCollector(cfg *PrometheusConfig,
+	registry *prometheus.Registry) *assetCollector {
+
 	return &assetCollector{
-		cfg: cfg,
+		cfg:      cfg,
+		registry: registry,
 		numAssetsMinted: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Name: numAssetsMintedMetric,
@@ -42,7 +46,6 @@ func (a *assetCollector) Name() string {
 //
 // NOTE: Part of the prometheus.Collector interface.
 func (a *assetCollector) Describe(ch chan<- *prometheus.Desc) {
-	log.Infof("Asset Collector Describe()")
 	a.collectMx.Lock()
 	defer a.collectMx.Unlock()
 
@@ -53,7 +56,6 @@ func (a *assetCollector) Describe(ch chan<- *prometheus.Desc) {
 //
 // NOTE: Part of the prometheus.Collector interface.
 func (a *assetCollector) Collect(ch chan<- prometheus.Metric) {
-	log.Infof("Asset Collector Collect()")
 	a.collectMx.Lock()
 	defer a.collectMx.Unlock()
 
@@ -83,14 +85,12 @@ func (a *assetCollector) Collect(ch chan<- prometheus.Metric) {
 }
 
 func (a *assetCollector) RegisterMetricFuncs() error {
-	log.Infof("Asset Collector: Register Metric Funcs")
-	err := prometheus.Register(a)
+	err := a.registry.Register(a)
 	if err != nil {
 		log.Errorf("Error registering asset collector: %v", err)
 		return err
 	}
 
-	log.Infof("Asset Collector: Register Metric Funcs Finished")
 	return nil
 }
 
@@ -99,9 +99,10 @@ var _ MetricGroup = (*assetCollector)(nil)
 func init() {
 	metricsMtx.Lock()
 	defer metricsMtx.Unlock()
-	metricGroups[assetCollectorName] = func(cfg *PrometheusConfig) (
-		MetricGroup, error) {
+	metricGroups[assetCollectorName] = func(cfg *PrometheusConfig,
+		registry *prometheus.Registry) (MetricGroup, error) {
 
-		return newAssetCollector(cfg), nil
+		// Create the assetCollector with the provided registry.
+		return newAssetCollector(cfg, registry), nil
 	}
 }

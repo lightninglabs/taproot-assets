@@ -324,13 +324,14 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 				err)
 		}
 
-		srvrLog.Infof("Prometheus exporter server listening on %v",
-			s.cfg.Prometheus.ListenAddr)
-
 		if err := promExporter.Start(); err != nil {
 			return mkErr("Unable to start prometheus exporter: %v",
 				err)
 		}
+
+		srvrLog.Infof("Prometheus exporter server listening on %v",
+			s.cfg.Prometheus.ListenAddr)
+
 	}
 
 	srvrLog.Infof("Taproot Asset Daemon fully active!")

@@ -43,12 +43,14 @@ const (
 // internal server will interact with this struct in order to export relevant
 // metrics.
 type PrometheusExporter struct {
-	config *PrometheusConfig
+	config   *PrometheusConfig
+	registry *prometheus.Registry
 }
 
 // Start registers all relevant metrics with the Prometheus library, then
 // launches the HTTP server that Prometheus will hit to scrape our metrics.
 func (p *PrometheusExporter) Start() error {
+	log.Infof("Starting Prometheus Exporter")
 	// If we're not active, then there's nothing more to do.
 	if !p.config.Active {
 		return nil
@@ -59,12 +61,13 @@ func (p *PrometheusExporter) Start() error {
 		return fmt.Errorf("server metrics not set")
 	}
 
-	reg := prometheus.NewRegistry()
-	reg.MustRegister(collectors.NewProcessCollector(
+	// Create a custom Prometheus registry.
+	p.registry = prometheus.NewRegistry()
+	p.registry.MustRegister(collectors.NewProcessCollector(
 		collectors.ProcessCollectorOpts{},
 	))
-	reg.MustRegister(collectors.NewGoCollector())
-	reg.MustRegister(serverMetrics)
+	p.registry.MustRegister(collectors.NewGoCollector())
+	p.registry.MustRegister(serverMetrics)
 
 	// Make ensure that all metrics exist when collecting and querying.
 	serverMetrics.InitializeMetrics(p.config.RPCServer)
@@ -76,11 +79,12 @@ func (p *PrometheusExporter) Start() error {
 	}
 
 	// Finally, we'll launch the HTTP server that Prometheus will use to
-	// scape our metrics.
+	// scrape our metrics.
 	go func() {
+		// Use our custom prometheus registry.
 		promMux := http.NewServeMux()
 		promMux.Handle("/metrics", promhttp.HandlerFor(
-			reg, promhttp.HandlerOpts{
+			p.registry, promhttp.HandlerOpts{
 				EnableOpenMetrics:   true,
 				MaxRequestsInFlight: 1,
 			}),
@@ -111,10 +115,10 @@ func (p *PrometheusExporter) registerMetrics() error {
 	metricsMtx.Lock()
 	defer metricsMtx.Unlock()
 
-	for _, metricGroupFunc := range metricGroups {
-		metricGroup, err := metricGroupFunc(p.config)
+	for name, metricGroupFunc := range metricGroups {
+		metricGroup, err := metricGroupFunc(p.config, p.registry)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to create metric group %s: %v", name, err)
 		}
 
 		if err := metricGroup.RegisterMetricFuncs(); err != nil {

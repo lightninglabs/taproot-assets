@@ -5,7 +5,7 @@ import "github.com/prometheus/client_golang/prometheus"
 // metricGroupFactory is a factory method that given the primary prometheus
 // config, will create a new MetricGroup that will be managed by the main
 // PrometheusExporter.
-type metricGroupFactory func(*PrometheusConfig) (MetricGroup, error)
+type metricGroupFactory func(*PrometheusConfig, *prometheus.Registry) (MetricGroup, error)
 
 // MetricGroup is the primary interface of this package. The main exporter (in
 // this case the PrometheusExporter), will manage these directly, ensuring that
