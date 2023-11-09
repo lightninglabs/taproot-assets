@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -173,10 +174,12 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	importedAssets := GroupAssetsByName(listResp.Assets)
 	for _, existingAsset := range assets {
 		gen := existingAsset.AssetGenesis
-		anchorTxHash, err := chainhash.NewHashFromStr(
-			existingAsset.ChainAnchor.AnchorTxid,
+		out, err := wire.NewOutPointFromString(
+			existingAsset.ChainAnchor.AnchorOutpoint,
 		)
 		require.NoError(t.t, err)
+
+		anchorTxHash := out.Hash
 
 		anchorBlockHash, err := chainhash.NewHashFromStr(
 			existingAsset.ChainAnchor.AnchorBlockHash,
@@ -187,7 +190,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 			t.t, importedAssets, gen.Name, gen.MetaHash,
 			AssetAmountCheck(existingAsset.Amount),
 			AssetTypeCheck(existingAsset.AssetGenesis.AssetType),
-			AssetAnchorCheck(*anchorTxHash, *anchorBlockHash),
+			AssetAnchorCheck(anchorTxHash, *anchorBlockHash),
 			AssetScriptKeyIsLocalCheck(shouldShowUpAsLocal),
 		)
 	}
