@@ -547,12 +547,15 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 	// along if so.
 	case strings.Contains(err.Error(), "already exists"):
 
-	case err != nil:
+	default:
 		return err
 	}
 
-	log.Infof("Imported Taproot Asset address %v into wallet, watching "+
-		"p2tr address %v on chain", addrStr, p2trAddr.String())
+	log.Infof("Imported Taproot Asset address %v into wallet", addrStr)
+	if p2trAddr != nil {
+		log.Infof("watching p2tr address %v on chain",
+			p2trAddr.String())
+	}
 
 	return c.cfg.AddrBook.SetAddrManaged(ctxt, addr, time.Now())
 }
