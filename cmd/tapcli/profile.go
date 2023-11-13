@@ -109,6 +109,69 @@ func getGlobalOptions(ctx *cli.Context, skipMacaroons bool) (*profileEntry,
 		defaultProfileFile)
 }
 
+// getGlobalOptionsCobra returns the global connection options. If a profile file
+// exists, these global options might be read from a predefined profile. If no
+// profile exists, the global options from the command line are returned as an
+// ephemeral profile entry.
+func getGlobalOptionsCobra(opts *globalOpts, skipMacaroons bool) (*profileEntry,
+	error) {
+
+	var profileName string
+
+	// Try to load the default profile file and depending on its existence
+	// what profile to use.
+	f, err := loadProfileFile(defaultProfileFile)
+	switch {
+	// The legacy case where no profile file exists and the user also didn't
+	// request to use one. We only consider the global options here.
+	case err == errNoProfileFile && opts.profile == "":
+		return profileFromContextCobra(opts, false, skipMacaroons)
+
+	// The file doesn't exist but the user specified an explicit profile.
+	case err == errNoProfileFile && opts.profile != "" &&
+		opts.profile != " ":
+
+		return nil, fmt.Errorf("profile file %s does not exist",
+			defaultProfileFile)
+
+	// There is a file but we couldn't read/parse it.
+	case err != nil:
+		return nil, fmt.Errorf("could not read profile file %s: "+
+			"%v", defaultProfileFile, err)
+
+	// The user explicitly disabled the use of profiles for this command by
+	// setting the flag to a space. We fall back to the default/old
+	// behavior.
+	case opts.profile == " ":
+		return profileFromContextCobra(opts, false, skipMacaroons)
+
+	// There is a file, but no default profile is specified. The user also
+	// didn't specify a profile to use so we fall back to the default/old
+	// behavior.
+	case opts.profile == "" && len(f.Default) == 0:
+		return profileFromContextCobra(opts, false, skipMacaroons)
+
+	// The user didn't specify a profile but there is a default one defined.
+	case opts.profile == "" && len(f.Default) > 0:
+		profileName = f.Default
+
+	// The user specified a specific profile to use.
+	case opts.profile != "" && opts.profile != " ":
+		profileName = opts.profile
+	}
+
+	// If we got to here, we do have a profile file and know the name of the
+	// profile to use. Now we just need to make sure it does exist.
+	for _, prof := range f.Profiles {
+		if prof.Name == profileName {
+			return prof, nil
+		}
+	}
+
+	return nil, fmt.Errorf("profile '%s' not found in file %s", profileName,
+		defaultProfileFile)
+}
+
 // capturePassword returns a password value that has been entered twice by the
 // user, to ensure that the user knows what password they have entered. The user
 // will be prompted to retry until the passwords match. If the optional param is
@@ -233,6 +296,95 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		Default: macEntry.Name,
 		Timeout: ctx.GlobalInt64("macaroontimeout"),
 		IP:      ctx.GlobalString("macaroonip"),
+		Jar:     []*macaroonEntry{macEntry},
+	}
+
+	return entry, nil
+}
+
+// profileFromContext creates an ephemeral profile entry from the global options
+// set in the CLI context.
+func profileFromContextCobra(opts *globalOpts, store, skipMacaroons bool) (
+	*profileEntry, error) {
+
+	// Parse the paths of the cert and macaroon. This will validate the
+	// chain and network value as well.
+	tlsCertPath, macPath, err := extractPathArgsCobra(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	// Load the certificate file now, if specified. We store it as plain PEM
+	// directly.
+	var tlsCert []byte
+	if tlsCertPath != "" {
+		var err error
+		tlsCert, err = os.ReadFile(tlsCertPath)
+		if err != nil {
+			return nil, fmt.Errorf("could not load TLS cert file: %v", err)
+		}
+	}
+
+	entry := &profileEntry{
+		RPCServer: opts.rpcServer,
+		TapdDir:   lncfg.CleanAndExpandPath(opts.tapdDir),
+		Chain:     opts.chain,
+
+		Network:     opts.network,
+		NoMacaroons: opts.noMacaroons,
+		TLSCert:     string(tlsCert),
+	}
+
+	// If we aren't using macaroons in general (flag --no-macaroons) or
+	// don't need macaroons for this command (wallet unlocker), we can now
+	// return already.
+	if skipMacaroons || opts.noMacaroons {
+		return entry, nil
+	}
+
+	// Now load and possibly encrypt the macaroon file.
+	macBytes, err := os.ReadFile(macPath)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read macaroon path (check "+
+			"the network setting!): %v", err)
+	}
+	mac := &macaroon.Macaroon{}
+	if err = mac.UnmarshalBinary(macBytes); err != nil {
+		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+	}
+
+	var pw []byte
+	if store {
+		// Read a password from the terminal. If it's empty, we won't
+		// encrypt the macaroon and store it plaintext.
+		pw, err = capturePassword(
+			"Enter password to encrypt macaroon with or leave "+
+				"blank to store in plaintext: ", true,
+			walletunlocker.ValidatePassword,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to get encryption "+
+				"password: %v", err)
+		}
+	}
+	macEntry := &macaroonEntry{}
+	if err = macEntry.storeMacaroon(mac, pw); err != nil {
+		return nil, fmt.Errorf("unable to store macaroon: %v", err)
+	}
+
+	// We determine the name of the macaroon from the file itself but cut
+	// off the ".macaroon" at the end.
+	macEntry.Name = filepath.Base(macPath)
+	if filepath.Ext(macEntry.Name) == "macaroon" {
+		macEntry.Name = strings.TrimSuffix(macEntry.Name, ".macaroon")
+	}
+
+	// Now that we have the macaroon jar as well, let's return the entry
+	// with all the values populated.
+	entry.Macaroons = &macaroonJar{
+		Default: macEntry.Name,
+		Timeout: opts.macaroonTimeout,
+		IP:      opts.macaroonIP,
 		Jar:     []*macaroonEntry{macEntry},
 	}
 

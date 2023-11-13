@@ -48,7 +48,15 @@ const (
 var (
 	defaultTapdDir     = btcutil.AppDataDir("tapd", false)
 	defaultTLSCertPath = filepath.Join(defaultTapdDir, defaultTLSCertFilename)
+	rootOpts           = globalOpts{}
 )
+
+type globalOpts struct {
+	rpcServer, tapdDir, socksProxy, tlsCertPath, network, chain string
+	noMacaroons                                                 bool
+	macaroonTimeout                                             int64
+	macaroonPath, macaroonIP, profile, macFromJar               string
+}
 
 func fatal(err error) {
 	fmt.Fprintf(os.Stderr, "[tapcli] %v\n", err)
@@ -77,6 +85,36 @@ func getMintClient(ctx *cli.Context) (mintrpc.MintClient, func()) {
 
 func getWalletClient(ctx *cli.Context) (wrpc.AssetWalletClient, func()) {
 	conn := getClientConn(ctx, false)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return wrpc.NewAssetWalletClient(conn), cleanUp
+}
+
+func getClientCobra(opts *globalOpts) (taprpc.TaprootAssetsClient, func()) {
+	conn := getClientConnCobra(opts, false)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return taprpc.NewTaprootAssetsClient(conn), cleanUp
+}
+
+func getMintClientCobra(opts *globalOpts) (mintrpc.MintClient, func()) {
+	conn := getClientConnCobra(opts, false)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	return mintrpc.NewMintClient(conn), cleanUp
+}
+
+func getWalletClientCobra(opts *globalOpts) (wrpc.AssetWalletClient, func()) {
+	conn := getClientConnCobra(opts, false)
 
 	cleanUp := func() {
 		conn.Close()
@@ -207,6 +245,132 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	return conn
 }
 
+func getClientConnCobra(opts *globalOpts, skipMacaroons bool) *grpc.ClientConn {
+	// First, we'll get the selected stored profile or an ephemeral one
+	// created from the global options in the CLI context.
+	profile, err := getGlobalOptionsCobra(opts, skipMacaroons)
+	if err != nil {
+		fatal(fmt.Errorf("could not load global options: %v", err))
+	}
+
+	// Load the specified TLS certificate.
+	certPool, err := profile.cert()
+	if err != nil {
+		fatal(fmt.Errorf("could not create cert pool: %v", err))
+	}
+
+	// Build transport credentials from the certificate pool. If there is no
+	// certificate pool, we expect the server to use a non-self-signed
+	// certificate such as a certificate obtained from Let's Encrypt.
+	var creds credentials.TransportCredentials
+	if certPool != nil {
+		creds = credentials.NewClientTLSFromCert(certPool, "")
+	} else {
+		// Fallback to the system pool. Using an empty tls config is an
+		// alternative to x509.SystemCertPool(). That call is not
+		// supported on Windows.
+		creds = credentials.NewTLS(&tls.Config{})
+	}
+
+	// Create a dial options array.
+	grpcOpts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+	}
+
+	// Only process macaroon credentials if --no-macaroons isn't set and
+	// if we're not skipping macaroon processing.
+	if !profile.NoMacaroons && !skipMacaroons {
+		// Find out which macaroon to load.
+		macName := profile.Macaroons.Default
+		if opts.macFromJar != "" {
+			macName = opts.macFromJar
+		}
+		var macEntry *macaroonEntry
+		for _, entry := range profile.Macaroons.Jar {
+			if entry.Name == macName {
+				macEntry = entry
+				break
+			}
+		}
+		if macEntry == nil {
+			fatal(fmt.Errorf("macaroon with name '%s' not found "+
+				"in profile", macName))
+		}
+
+		// Get and possibly decrypt the specified macaroon.
+		//
+		// TODO(guggero): Make it possible to cache the password so we
+		// don't need to ask for it every time.
+		mac, err := macEntry.loadMacaroon(readPassword)
+		if err != nil {
+			fatal(fmt.Errorf("could not load macaroon: %v", err))
+		}
+
+		macConstraints := []macaroons.Constraint{
+			// We add a time-based constraint to prevent replay of the
+			// macaroon. It's good for 60 seconds by default to make up for
+			// any discrepancy between client and server clocks, but leaking
+			// the macaroon before it becomes invalid makes it possible for
+			// an attacker to reuse the macaroon. In addition, the validity
+			// time of the macaroon is extended by the time the server clock
+			// is behind the client clock, or shortened by the time the
+			// server clock is ahead of the client clock (or invalid
+			// altogether if, in the latter case, this time is more than 60
+			// seconds).
+			macaroons.TimeoutConstraint(profile.Macaroons.Timeout),
+
+			// Lock macaroon down to a specific IP address.
+			macaroons.IPLockConstraint(profile.Macaroons.IP),
+		}
+
+		// Apply constraints to the macaroon.
+		constrainedMac, err := macaroons.AddConstraints(
+			mac, macConstraints...,
+		)
+		if err != nil {
+			fatal(err)
+		}
+
+		// Now we append the macaroon credentials to the dial options.
+		cred, err := macaroons.NewMacaroonCredential(constrainedMac)
+		if err != nil {
+			fatal(fmt.Errorf("error cloning mac: %v", err))
+		}
+		grpcOpts = append(grpcOpts, grpc.WithPerRPCCredentials(cred))
+	}
+
+	// If a socksproxy server is specified we use a tor dialer
+	// to connect to the grpc server.
+	if opts.socksProxy != "" {
+		socksProxy := opts.socksProxy
+		torDialer := func(_ context.Context, addr string) (net.Conn, error) {
+			return tor.Dial(
+				addr, socksProxy, false, false,
+				tor.DefaultConnTimeout,
+			)
+		}
+		grpcOpts = append(grpcOpts, grpc.WithContextDialer(torDialer))
+	} else {
+		// We need to use a custom dialer so we can also connect to
+		// unix sockets and not just TCP addresses.
+		genericDialer := lncfg.ClientAddressDialer(defaultRPCPort)
+		grpcOpts = append(
+			grpcOpts, grpc.WithContextDialer(genericDialer),
+		)
+	}
+
+	grpcOpts = append(
+		grpcOpts, grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
+	)
+
+	conn, err := grpc.Dial(profile.RPCServer, grpcOpts...)
+	if err != nil {
+		fatal(fmt.Errorf("unable to connect to RPC server: %v", err))
+	}
+
+	return conn
+}
+
 // extractPathArgs parses the TLS certificate and macaroon paths from the
 // command.
 func extractPathArgs(ctx *cli.Context) (string, string, error) {
@@ -255,7 +419,54 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 	return tlsCertPath, macPath, nil
 }
 
-func main() {
+// TODO(jhb): remove chain from profiles?
+// extractPathArgs parses the TLS certificate and macaroon paths from the
+// command.
+func extractPathArgsCobra(opts *globalOpts) (string, string, error) {
+	// We'll start off by parsing the active network. These are needed to
+	// determine the correct path to the macaroon when not specified.
+	network := strings.ToLower(opts.network)
+	switch network {
+	case "mainnet", "testnet", "regtest", "simnet", "signet":
+	default:
+		return "", "", fmt.Errorf("unknown network: %v", network)
+	}
+
+	// We'll now fetch the tapddir so we can make a decision  on how to
+	// properly read the macaroons (if needed) and also the cert. This will
+	// either be the default, or will have been overwritten by the end
+	// user.
+	tapdDir := lncfg.CleanAndExpandPath(opts.tapdDir)
+
+	// If the macaroon path as been manually provided, then we'll only
+	// target the specified file.
+	var macPath string
+	if opts.macaroonPath != "" {
+		macPath = lncfg.CleanAndExpandPath(opts.macaroonPath)
+	} else {
+		// Otherwise, we'll go into the path:
+		// tapddir/data/<network> in order to fetch the
+		// macaroon that we need.
+		macPath = filepath.Join(
+			tapdDir, defaultDataDir, network, defaultMacaroonFilename,
+		)
+	}
+
+	tlsCertPath := lncfg.CleanAndExpandPath(opts.tlsCertPath)
+
+	// If a custom tapd directory was set, we'll also check if custom paths
+	// for the TLS cert and macaroon file were set as well. If not, we'll
+	// override their paths so they can be found within the custom tapd
+	// directory set. This allows us to set a custom tapd directory, along
+	// with custom paths to the TLS cert and macaroon file.
+	if tapdDir != defaultTapdDir {
+		tlsCertPath = filepath.Join(tapdDir, defaultTLSCertFilename)
+	}
+
+	return tlsCertPath, macPath, nil
+}
+
+func yeet() {
 	app := cli.NewApp()
 	app.Name = "tapcli"
 	app.Version = tap.Version()
