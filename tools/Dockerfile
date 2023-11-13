@@ -1,9 +1,3 @@
-# If you change this value, please change it in the following files as well:
-# /.github/workflows/main.yaml
-# /Dockerfile
-# /dev.Dockerfile
-# /make/builder.Dockerfile
-# /taprpc/Dockerfile
 FROM golang:1.21.0-bookworm
 
 RUN apt-get update && apt-get install -y git

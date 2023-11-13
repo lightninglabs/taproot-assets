@@ -1,10 +1,4 @@
-# If you change this value, please change it in the following files as well:
-# /.github/workflows/main.yaml
-# /Dockerfile
-# /make/builder.Dockerfile
-# /taprpc/Dockerfile
-# /tools/Dockerfile
-FROM golang:1.21.0 as builder 
+FROM golang:1.21.0 as builder
 
 WORKDIR /app
 
