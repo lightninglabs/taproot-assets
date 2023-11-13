@@ -71,8 +71,12 @@ type FederationPushReq struct {
 	// Leaf is the new leaf to add.
 	Leaf *Leaf
 
+	// resp is a channel that will be sent the asset issuance/transfer
+	// proof and corresponding universe/multiverse inclusion proofs if the
+	// federation proof push was successful.
 	resp chan *Proof
-	err  chan error
+
+	err chan error
 }
 
 // FederationProofBatchPushReq is used to push out a batch of universe proof
@@ -97,8 +101,12 @@ type FederationEnvoy struct {
 
 	stopOnce sync.Once
 
+	// pushRequests is a channel that will be sent new requests to push out
+	// proof leaves to the federation.
 	pushRequests chan *FederationPushReq
 
+	// batchPushRequests is a channel that will be sent new requests to push
+	// out batch proof leaves to the federation.
 	batchPushRequests chan *FederationProofBatchPushReq
 }
 
