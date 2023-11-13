@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/spf13/cobra"
 	"github.com/urfave/cli"
 )
 
@@ -33,6 +34,51 @@ var assetsCommands = []cli.Command{
 	},
 }
 
+type assetOpts struct {
+	assetType, tag, metaBytes, metaFilePath, groupKey, groupAnchor string
+	batchKey, assetID                                              string
+	supply, assetAmount, version, feeRate                          uint64
+	metaType                                                       int32
+	emission, shortResponse, showWitness, showSpent, groupByGroup  bool
+	burnOverrideConfirmation                                       bool
+}
+
+type assetSubCmd struct {
+	opts assetOpts
+
+	cmd *cobra.Command
+}
+
+func newAssetRootCmd() *cobra.Command {
+	cc := &assetSubCmd{}
+	cc.cmd = &cobra.Command{
+		Use:     "assets",
+		Aliases: []string{"a"},
+		Short:   "Interact with Taproot Assets.",
+		GroupID: "Assets",
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return cc.cmd.Help()
+		},
+	}
+	cc.cmd.SetUsageTemplate(usageTemplateNoGlobals)
+
+	cc.cmd.AddCommand(
+		newMintAssetCmd(),
+	)
+
+	return cc.cmd
+}
+
+type mintAssetCmd struct {
+	assetSubCmd
+
+	assetType     taprpc.AssetType
+	isCollectible bool
+	amount        uint64
+	groupKey      []byte
+	assetMeta     *taprpc.AssetMeta
+}
+
 var (
 	assetTypeName                = "type"
 	assetTagName                 = "name"
@@ -53,6 +99,77 @@ var (
 	assetAmountName              = "amount"
 	burnOverrideConfirmationName = "override_confirmation_destroy_assets"
 )
+
+func newMintAssetCmd() *cobra.Command {
+	cc := &mintAssetCmd{}
+	cc.cmd = &cobra.Command{
+		Use:     "mint",
+		Aliases: []string{"m"},
+		Short:   "mint a new asset",
+		Long:    "Attempt to mint a new asset with the specified parameters",
+		// Commands with positional arguments not attached to a flag
+		// are rejected.
+		// TODO(jhb): does this still work with subcommands attached?
+		Args:    cobra.NoArgs,
+		PreRunE: cc.Validate,
+		RunE:    cc.Execute,
+		// TODO(jhb): subcommands
+	}
+	cc.cmd.Flags().StringVar(
+		&cc.opts.assetType, assetTypeName, "",
+		"the type of asset, must either be: normal, or collectible",
+	)
+	cc.cmd.MarkFlagRequired(assetTypeName)
+	cc.cmd.Flags().StringVar(
+		&cc.opts.tag, assetTagName, "",
+		"the name/tag of the asset",
+	)
+	cc.cmd.MarkFlagRequired(assetTagName)
+	cc.cmd.Flags().Uint64Var(
+		&cc.opts.supply, assetSupplyName, 0,
+		"the target supply of the minted asset",
+	)
+	cc.cmd.Flags().Uint64Var(
+		&cc.opts.version, assetVersionName, 0,
+		"the version of the asset to mint",
+	)
+	cc.cmd.Flags().StringVar(
+		&cc.opts.metaBytes, assetMetaBytesName, "",
+		"the raw metadata associated with the asset",
+	)
+	cc.cmd.Flags().StringVar(
+		&cc.opts.metaFilePath, assetMetaFilePathName, "",
+		"a path to a file on disk that should be read and used as the "+
+			"asset meta",
+	)
+	cc.cmd.Flags().Int32Var(
+		&cc.opts.metaType, assetMetaTypeName, 0,
+		"the type of the meta data for the asset",
+	)
+	cc.cmd.Flags().BoolVar(
+		&cc.opts.emission, assetEmissionName, false,
+		"if true, then the asset supports on going emission",
+	)
+	cc.cmd.Flags().StringVar(
+		&cc.opts.groupKey, assetGroupKeyName, "",
+		"the specific group key to use to mint the asset",
+	)
+	cc.cmd.Flags().StringVar(
+		&cc.opts.groupAnchor, assetGroupAnchorName, "",
+		"the other asset in this batch that the new asset be grouped "+
+			"with",
+	)
+	cc.cmd.Flags().BoolVar(
+		&cc.opts.shortResponse, shortResponseName, false,
+		"if true, then the current assets within the batch will not "+
+			"be returned in the response in order to avoid "+
+			"printing a large amount of data in case of large "+
+			"batches",
+	)
+	cc.cmd.SetUsageTemplate(usageTemplateNoGlobals)
+
+	return cc.cmd
+}
 
 var mintAssetCommand = cli.Command{
 	Name:        "mint",
@@ -121,6 +238,19 @@ var mintAssetCommand = cli.Command{
 	},
 }
 
+func parseAssetTypeCobra(opts *assetOpts) (taprpc.AssetType, error) {
+	switch opts.assetType {
+	case "normal":
+		return taprpc.AssetType_NORMAL, nil
+
+	case "collectible":
+		return taprpc.AssetType_COLLECTIBLE, nil
+
+	default:
+		return 0, fmt.Errorf("unknown asset type '%v'", opts.assetType)
+	}
+}
+
 func parseAssetType(ctx *cli.Context) (taprpc.AssetType, error) {
 	switch ctx.String(assetTypeName) {
 	case "normal":
@@ -133,6 +263,95 @@ func parseAssetType(ctx *cli.Context) (taprpc.AssetType, error) {
 		return 0, fmt.Errorf("unknown asset type '%v'",
 			ctx.String(assetTypeName))
 	}
+}
+
+func (c *mintAssetCmd) Validate(_ *cobra.Command, _ []string) error {
+	assetType, err := parseAssetTypeCobra(&c.opts)
+	if err != nil {
+		return err
+	}
+
+	c.assetType = assetType
+	c.isCollectible = assetType == taprpc.AssetType_COLLECTIBLE
+	c.amount = c.opts.supply
+
+	switch {
+	// If the user did not specify the supply, we can silently assume they
+	// are aware that the collectible amount is always 1.
+	case c.isCollectible && c.opts.supply == 0:
+		c.amount = 1
+
+	// If the user explicitly supplied a supply that is incorrect, we must
+	// inform them instead of silently changing the value to 1, otherwise
+	// there will be surprises later.
+	case c.isCollectible && c.amount != 1:
+		return fmt.Errorf("supply must be 1 for collectibles")
+
+	// Check that the amount is greater than 0 for normal assets. This is
+	// also checked in the RPC server, but we can avoid the round trip.
+	case !c.isCollectible && c.amount == 0:
+		return fmt.Errorf("supply must be set for normal assets")
+	}
+
+	if len(c.opts.groupKey) != 0 {
+		c.groupKey, err = hex.DecodeString(c.opts.groupKey)
+		if err != nil {
+			return fmt.Errorf("invalid group key")
+		}
+	}
+
+	// Both the meta bytes and the meta path can be set.
+	switch {
+	case c.opts.metaBytes != "" && c.opts.metaFilePath != "":
+		return fmt.Errorf("meta bytes or meta file path cannot " +
+			"be both set")
+
+	case c.opts.metaBytes != "":
+		c.assetMeta = &taprpc.AssetMeta{
+			Data: []byte(c.opts.metaBytes),
+			Type: taprpc.AssetMetaType(c.opts.metaType),
+		}
+
+	case c.opts.metaFilePath != "":
+		metaPath := tapcfg.CleanAndExpandPath(c.opts.metaFilePath)
+		metaFileBytes, err := os.ReadFile(metaPath)
+		if err != nil {
+			return fmt.Errorf("unable to read meta file: %w", err)
+		}
+
+		c.assetMeta = &taprpc.AssetMeta{
+			Data: metaFileBytes,
+			Type: taprpc.AssetMetaType(c.opts.metaType),
+		}
+	}
+
+	return nil
+}
+
+func (c *mintAssetCmd) Execute(_ *cobra.Command, _ []string) error {
+	ctxc := getContext()
+	client, cleanUp := getMintClientCobra(&rootOpts)
+	defer cleanUp()
+
+	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
+		Asset: &mintrpc.MintAsset{
+			AssetType:    c.assetType,
+			Name:         c.opts.tag,
+			AssetMeta:    c.assetMeta,
+			Amount:       c.amount,
+			GroupKey:     c.groupKey,
+			GroupAnchor:  c.opts.groupAnchor,
+			AssetVersion: taprpc.AssetVersion(c.opts.version),
+		},
+		EnableEmission: c.opts.emission,
+		ShortResponse:  c.opts.shortResponse,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to mint asset: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
 }
 
 func mintAsset(ctx *cli.Context) error {
