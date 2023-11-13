@@ -292,7 +292,7 @@ func (f *FederationEnvoy) syncer() {
 		// to synchronize state with all the active universe servers in
 		// the federation.
 		case <-syncTicker.C:
-			// Error propogation is handled in tryFetchServers, we
+			// Error propagation is handled in tryFetchServers, we
 			// only need to exit here.
 			fedServers, err := f.tryFetchServers()
 			if err != nil {
