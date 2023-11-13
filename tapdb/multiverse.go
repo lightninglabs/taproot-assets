@@ -952,6 +952,10 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
 
+	if len(items) == 0 {
+		return nil
+	}
+
 	insertProof := func(item *universe.Item,
 		dbTx BaseMultiverseStore) error {
 

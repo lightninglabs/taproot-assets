@@ -405,30 +405,40 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 		return nil
 	}
 
-	err := verifyBatch(anchorItems)
-	if err != nil {
-		return err
+	log.Infof("Identified %d unverified group anchor proofs for insertion "+
+		"into Universe", len(anchorItems))
+	if len(anchorItems) > 0 {
+		log.Infof("Verifying and inserting group anchor proofs")
+		err := verifyBatch(anchorItems)
+		if err != nil {
+			return err
+		}
+
+		log.Debugf("Verification complete. Inserting group anchor " +
+			"proofs into the Universe")
+		err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
+		if err != nil {
+			return fmt.Errorf("unable to register new group "+
+				"anchor issuance proofs: %w", err)
+		}
 	}
 
-	log.Infof("Inserting %d verified group anchor proofs into Universe",
-		len(anchorItems))
-	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, anchorItems)
-	if err != nil {
-		return fmt.Errorf("unable to register new group anchor "+
-			"issuance proofs: %w", err)
-	}
+	log.Infof("Identified %d unverified non-anchor proofs for insertion "+
+		"into Universe", len(nonAnchorItems))
+	if len(nonAnchorItems) > 0 {
+		log.Infof("Verifying and inserting non-anchor proofs")
+		err := verifyBatch(nonAnchorItems)
+		if err != nil {
+			return err
+		}
 
-	err = verifyBatch(nonAnchorItems)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Inserting %d verified proofs into Universe",
-		len(nonAnchorItems))
-	err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
-	if err != nil {
-		return fmt.Errorf("unable to register new issuance proofs: %w",
-			err)
+		log.Debugf("Verification complete. Inserting non-anchor " +
+			"proofs into the Universe")
+		err = a.cfg.Multiverse.UpsertProofLeafBatch(ctx, nonAnchorItems)
+		if err != nil {
+			return fmt.Errorf("unable to register new issuance "+
+				"proofs: %w", err)
+		}
 	}
 
 	// Log a sync event for the newly inserted leaf in the background as an
