@@ -370,6 +370,10 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 			ctx, batchItems, func(ctx context.Context,
 				i *Item) error {
 
+				if i == nil {
+					return fmt.Errorf("unexpected nil item")
+				}
+
 				prevAssets, err := a.getPrevAssetSnapshot(
 					ctx, i.ID, i.Leaf.Asset, batchDeps,
 				)
