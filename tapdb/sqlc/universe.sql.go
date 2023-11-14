@@ -620,8 +620,12 @@ func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]Federati
 }
 
 const queryMultiverseLeaves = `-- name: QueryMultiverseLeaves :many
-SELECT r.namespace_root, r.proof_type, l.asset_id, l.group_key, l.leaf_node_key
+SELECT r.namespace_root, r.proof_type, l.asset_id, l.group_key, 
+       smt_nodes.value AS universe_root_hash, smt_nodes.sum AS universe_root_sum
 FROM multiverse_leaves l
+JOIN mssmt_nodes smt_nodes
+  ON l.leaf_node_key = smt_nodes.key AND
+     l.leaf_node_namespace = smt_nodes.namespace
 JOIN multiverse_roots r
   ON l.multiverse_root_id = r.id
 WHERE r.proof_type = $1 AND
@@ -636,11 +640,12 @@ type QueryMultiverseLeavesParams struct {
 }
 
 type QueryMultiverseLeavesRow struct {
-	NamespaceRoot string
-	ProofType     string
-	AssetID       []byte
-	GroupKey      []byte
-	LeafNodeKey   []byte
+	NamespaceRoot    string
+	ProofType        string
+	AssetID          []byte
+	GroupKey         []byte
+	UniverseRootHash []byte
+	UniverseRootSum  int64
 }
 
 func (q *Queries) QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error) {
@@ -657,7 +662,8 @@ func (q *Queries) QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverse
 			&i.ProofType,
 			&i.AssetID,
 			&i.GroupKey,
-			&i.LeafNodeKey,
+			&i.UniverseRootHash,
+			&i.UniverseRootSum,
 		); err != nil {
 			return nil, err
 		}
