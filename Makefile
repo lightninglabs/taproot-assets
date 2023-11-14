@@ -57,6 +57,8 @@ DOCKER_TOOLS = docker run \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
   -v $$(pwd):/build taproot-assets-tools
 
+GO_VERSION = 1.21.0
+
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
 define print
@@ -251,9 +253,19 @@ fmt: $(GOIMPORTS_BIN)
 	@$(call print, "Formatting source.")
 	gofmt -l -w -s $(GOFILES_NOVENDOR)
 
-lint: docker-tools
+check-go-version-yaml:
+	@$(call print, "Checking for target Go version (v$(GO_VERSION)) in  YAML files (*.yaml, *.yml)")
+	./tools/check-go-version-yaml.sh $(GO_VERSION)
+
+check-go-version-dockerfile:
+	@$(call print, "Checking for target Go version (v$(GO_VERSION)) in Dockerfile files (*Dockerfile)")
+	./tools/check-go-version-dockerfile.sh $(GO_VERSION)
+
+lint-source: docker-tools
 	@$(call print, "Linting source.")
 	$(DOCKER_TOOLS) golangci-lint run -v $(LINT_WORKERS)
+
+lint: lint-source check-go-version-dockerfile check-go-version-yaml
 
 list:
 	@$(call print, "Listing commands.")

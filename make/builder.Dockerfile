@@ -1,9 +1,3 @@
-# If you change this value, please change it in the following files as well:
-# /.github/workflows/main.yaml
-# /Dockerfile
-# /dev.Dockerfile
-# /taprpc/Dockerfile
-# /tools/Dockerfile
 FROM golang:1.21.0-bookworm
 
 MAINTAINER Olaoluwa Osuntokun <laolu@lightning.engineering>
