@@ -428,12 +428,16 @@ type MultiverseArchive interface {
 	UniverseLeafKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
 
-	// FetchLeaves returns the set of multiverse leaves for the given proof
-	// type, asset ID, and group key. If both asset ID and group key is nil,
-	// all leaves for the given proof type will be returned.
-	FetchLeaves(ctx context.Context, assetID *asset.ID,
-		groupKey *btcec.PublicKey,
-		proofType ProofType) ([]Identifier, error)
+	// FetchLeaves returns the set of multiverse leaves that satisfy the set
+	// of universe targets. If the set of targets is empty, all leaves for
+	// the given proof type will be returned.
+	FetchLeaves(ctx context.Context, universeTargets []MultiverseLeafDesc,
+		proofType ProofType) ([]MultiverseLeaf, error)
+
+	// MultiverseRootNode returns the Multiverse root node for the given
+	// proof type.
+	MultiverseRootNode(ctx context.Context,
+		proofType ProofType) (fn.Option[MultiverseRoot], error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a

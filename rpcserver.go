@@ -3005,9 +3005,12 @@ func (r *rpcServer) MultiverseRoot(ctx context.Context,
 			err)
 	}
 
-	return &unirpc.MultiverseRootResponse{
-		MultiverseRoot: marshalMssmtNode(rootNode),
-	}, nil
+	var resp unirpc.MultiverseRootResponse
+	rootNode.WhenSome(func(node universe.MultiverseRoot) {
+		resp.MultiverseRoot = marshalMssmtNode(node)
+	})
+
+	return &resp, nil
 }
 
 // AssetRoots queries for the known Universe roots associated with each known
