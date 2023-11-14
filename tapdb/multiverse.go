@@ -1031,54 +1031,81 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 // asset ID, and group key. If both asset ID and group key is nil, all leaves
 // for the given proof type will be returned.
 func (b *MultiverseStore) FetchLeaves(ctx context.Context,
-	assetID *asset.ID, groupKey *btcec.PublicKey,
-	proofType universe.ProofType) ([]universe.Identifier, error) {
+	universeTargets []universe.MultiverseLeafDesc,
+	proofType universe.ProofType) ([]universe.MultiverseLeaf, error) {
 
-	var assetIDBytes, groupKeyBytes []byte
-	if assetID != nil {
-		assetIDBytes = assetID[:]
-	}
-	if groupKey != nil {
-		groupKeyBytes = schnorr.SerializePubKey(groupKey)
+	queries := make([]QueryMultiverseLeaves, 0, len(universeTargets))
+	switch len(universeTargets) {
+	// If we don't have any targets, then we'll have just a single query to
+	// return all universe leaves for the proof type.
+	case 0:
+		queries = append(queries, QueryMultiverseLeaves{
+			ProofType: proofType.String(),
+		})
+
+	// Otherwise, we'll do a query for each universe target specified.
+	default:
+		for _, uniTarget := range universeTargets {
+			var assetIDBytes, groupKeyBytes []byte
+
+			uniTarget.WhenLeft(func(a asset.ID) {
+				assetIDBytes = a[:]
+			})
+			uniTarget.WhenRight(func(g btcec.PublicKey) {
+				groupKeyBytes = schnorr.SerializePubKey(&g)
+			})
+
+			queries = append(queries, QueryMultiverseLeaves{
+				ProofType: proofType.String(),
+				AssetID:   assetIDBytes,
+				GroupKey:  groupKeyBytes,
+			})
+		}
 	}
 
 	var (
 		readTx = NewBaseUniverseReadTx()
-		ids    []universe.Identifier
+		leaves []universe.MultiverseLeaf
 	)
 	dbErr := b.db.ExecTx(ctx, &readTx, func(q BaseMultiverseStore) error {
-		leaves, err := q.QueryMultiverseLeaves(
-			ctx, QueryMultiverseLeaves{
-				ProofType: proofType.String(),
-				AssetID:   assetIDBytes,
-				GroupKey:  groupKeyBytes,
-			},
-		)
-		if err != nil {
-			return err
-		}
+		leaves = nil
 
-		ids = make([]universe.Identifier, len(leaves))
-		for i, leaf := range leaves {
-			ids[i].ProofType = proofType
-			if len(leaf.AssetID) > 0 {
-				copy(ids[i].AssetID[:], leaf.AssetID)
+		for _, query := range queries {
+			dbLeaves, err := q.QueryMultiverseLeaves(ctx, query)
+			if err != nil {
+				return err
 			}
-			if len(leaf.GroupKey) > 0 {
-				ids[i].GroupKey, err = schnorr.ParsePubKey(
-					leaf.GroupKey,
-				)
-				if err != nil {
-					return err
+
+			for _, leaf := range dbLeaves {
+				var id universe.Identifier
+
+				id.ProofType = proofType
+				if len(leaf.AssetID) > 0 {
+					copy(id.AssetID[:], leaf.AssetID)
 				}
+				if len(leaf.GroupKey) > 0 {
+					id.GroupKey, err = schnorr.ParsePubKey(
+						leaf.GroupKey,
+					)
+					if err != nil {
+						return err
+					}
+				}
+
+				leaves = append(leaves, universe.MultiverseLeaf{
+					ID: id,
+					LeafNode: mssmt.NewLeafNode(
+						leaf.UniverseRootHash,
+						uint64(leaf.UniverseRootSum),
+					),
+				})
 			}
 		}
-
 		return nil
 	})
 	if dbErr != nil {
 		return nil, dbErr
 	}
 
-	return ids, nil
+	return leaves, nil
 }
