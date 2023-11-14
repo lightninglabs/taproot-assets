@@ -50,13 +50,6 @@ type (
 
 	// DeleteMultiverseLeaf is used to delete a multiverse leaf.
 	DeleteMultiverseLeaf = sqlc.DeleteMultiverseLeafParams
-
-	// QueryMultiverseLeaves is used to query for a set of leaves based on
-	// the proof type and asset ID (or group key)
-	QueryMultiverseLeaves = sqlc.QueryMultiverseLeavesParams
-
-	// MultiverseLeaf is a leaf in a multiverse.
-	MultiverseLeaf = sqlc.QueryMultiverseLeavesRow
 )
 
 // BaseUniverseStore is the main interface for the Taproot Asset universe store.
@@ -117,11 +110,6 @@ type BaseUniverseStore interface {
 	// DeleteMultiverseLeaf deletes a multiverse leaf from the database.
 	DeleteMultiverseLeaf(ctx context.Context,
 		arg DeleteMultiverseLeaf) error
-
-	// QueryMultiverseLeaves is used to query for the set of leaves that
-	// reside in a multiverse tree.
-	QueryMultiverseLeaves(ctx context.Context,
-		arg QueryMultiverseLeaves) ([]MultiverseLeaf, error)
 }
 
 // BaseUniverseStoreOptions is the set of options for universe tree queries.

@@ -32,10 +32,27 @@ const (
 	transferMultiverseNS = "multiverse-transfer"
 )
 
+var (
+	// ErrNoMultiverseRoot is returned when no universe root is found for
+	// the target proof type.
+	ErrNoMultiverseRoot = errors.New("no multiverse root found")
+)
+
 type (
 	BaseUniverseRoot = sqlc.UniverseRootsRow
 
 	UniverseRootsParams = sqlc.UniverseRootsParams
+
+	// MultiverseRoot is the root of a multiverse tree. Two trees exist:
+	// issuance and transfers.
+	MultiverseRoot = sqlc.FetchMultiverseRootRow
+
+	// MultiverseLeaf is a leaf in a multiverse.
+	MultiverseLeaf = sqlc.QueryMultiverseLeavesRow
+
+	// QueryMultiverseLeaves is used to query for a set of leaves based on
+	// the proof type and asset ID (or group key)
+	QueryMultiverseLeaves = sqlc.QueryMultiverseLeavesParams
 )
 
 // BaseMultiverseStore is used to interact with a set of base universe
@@ -43,8 +60,20 @@ type (
 type BaseMultiverseStore interface {
 	BaseUniverseStore
 
+	// UniverseRoots returns the set of active universe roots for a given
+	// Multiverse type.
 	UniverseRoots(ctx context.Context,
 		params UniverseRootsParams) ([]BaseUniverseRoot, error)
+
+	// QueryMultiverseLeaves is used to query for the set of leaves that
+	// reside in a multiverse tree.
+	QueryMultiverseLeaves(ctx context.Context,
+		arg QueryMultiverseLeaves) ([]MultiverseLeaf, error)
+
+	// FetchMultiverseRoot returns the root of the multiverse tree for a
+	// given target namespace (proof type in this case).
+	FetchMultiverseRoot(ctx context.Context,
+		proofNamespace string) (MultiverseRoot, error)
 }
 
 // BaseMultiverseOptions is the set of options for multiverse queries.
@@ -504,40 +533,53 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 	}
 }
 
-// RootNode returns the root multiverse node for the given proof type.
-func (b *MultiverseStore) RootNode(ctx context.Context,
-	proofType universe.ProofType) (*universe.MultiverseRoot, error) {
+// MultiverseRootNode returns the root multiverse node for the given proof
+// type.
+func (b *MultiverseStore) MultiverseRootNode(ctx context.Context,
+	proofType universe.ProofType) (fn.Option[universe.MultiverseRoot],
+	error) {
+
+	none := fn.None[universe.MultiverseRoot]()
 
 	multiverseNS, err := namespaceForProof(proofType)
 	if err != nil {
-		return nil, err
+		return none, err
 	}
 
-	var rootNode *universe.MultiverseRoot
+	var rootNode universe.MultiverseRoot
 
 	readTx := NewBaseUniverseReadTx()
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
-		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, multiverseNS),
-		)
+		multiverseRoot, err := db.FetchMultiverseRoot(ctx, multiverseNS)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+			return ErrNoMultiverseRoot
 
-		multiverseRoot, err := multiverseTree.Root(ctx)
+		case err != nil:
+			return err
+		}
+
+		nodeHash, err := newKey(multiverseRoot.MultiverseRootHash[:])
 		if err != nil {
 			return err
 		}
 
-		rootNode = &universe.MultiverseRoot{
-			Node:      multiverseRoot,
+		smtRoot := mssmt.NewComputedBranch(
+			nodeHash, uint64(multiverseRoot.MultiverseRootSum),
+		)
+
+		rootNode = universe.MultiverseRoot{
+			Node:      smtRoot,
 			ProofType: proofType,
 		}
 
 		return nil
 	})
 	if dbErr != nil {
-		return nil, dbErr
+		return none, dbErr
 	}
 
-	return rootNode, nil
+	return fn.Some(rootNode), nil
 }
 
 // UniverseRootNode returns the Universe root node for the given asset ID.
