@@ -816,6 +816,10 @@ type AssetSyncSnapshot struct {
 	// for the asset.
 	TotalProofs uint64
 
+	// AnchorPoint is the outpoint of the transaction that created the
+	// asset.
+	AnchorPoint wire.OutPoint
+
 	// TODO(roasbeef): add last sync?
 }
 
