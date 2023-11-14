@@ -315,7 +315,8 @@ CREATE TABLE IF NOT EXISTS asset_seedlings (
 CREATE VIEW genesis_info_view AS
     SELECT
         gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash meta_hash,
-        output_index, asset_type, genesis_points.prev_out prev_out, block_height
+        output_index, asset_type, genesis_points.prev_out prev_out, 
+        chain_txns.txid anchor_txid, block_height
     FROM genesis_assets
     -- We do a LEFT JOIN here, as not every asset has a set of
     -- metadata that matches the asset.
