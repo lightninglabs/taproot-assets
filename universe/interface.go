@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
@@ -364,6 +365,11 @@ type Root struct {
 	GroupedAssets map[asset.ID]uint64
 }
 
+// MultiverseLeafDesc can be used to uniquely identify a Multiverse leave
+// (which is a Universe root).  A leaf for a given Universe tree (proof type
+// assumed) can be identified by either the asset ID or the target group key.
+type MultiverseLeafDesc = fn.Either[asset.ID, btcec.PublicKey]
+
 // MultiverseRoot is the ms-smt root for a multiverse. This root can be used to
 // authenticate any leaf proofs.
 type MultiverseRoot struct {
@@ -372,6 +378,16 @@ type MultiverseRoot struct {
 	ProofType ProofType
 
 	mssmt.Node
+}
+
+// MultiverseLeaf is the leaf within a Multiverse, this stores a value which is
+// derived from the root of a normal Universe tree.
+type MultiverseLeaf struct {
+	// ID contains the information to uniquely identify the multiverse
+	// root: assetID/groupKey and the proof type.
+	ID Identifier
+
+	*mssmt.LeafNode
 }
 
 // MultiverseArchive is an interface used to keep track of the set of universe
