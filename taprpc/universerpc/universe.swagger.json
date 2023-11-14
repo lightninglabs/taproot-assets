@@ -1714,6 +1714,9 @@
         "genesis_timestamp": {
           "type": "string",
           "format": "int64"
+        },
+        "anchor_point": {
+          "type": "string"
         }
       }
     },
