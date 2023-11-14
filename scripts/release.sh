@@ -95,6 +95,11 @@ function check_tag_correct() {
   if [[ $tag != $(git describe --tags) ]]; then
     red "tag $tag not checked out"
     exit 1
+  else
+    # At this point we know that the tag is checked out. Report checked out git
+    # commit.
+    commit_hash=$(git rev-parse HEAD)
+    echo "Tag $tag checked out. Git commit: $commit_hash"
   fi
 
   # Build tapd to extract version.
