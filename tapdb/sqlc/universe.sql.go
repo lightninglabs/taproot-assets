@@ -114,6 +114,30 @@ func (q *Queries) DeleteUniverseServer(ctx context.Context, arg DeleteUniverseSe
 	return err
 }
 
+const fetchMultiverseRoot = `-- name: FetchMultiverseRoot :one
+SELECT proof_type, n.hash_key as multiverse_root_hash, n.sum as multiverse_root_sum
+FROM multiverse_roots r
+JOIN mssmt_roots m
+    ON r.namespace_root = m.namespace
+JOIN mssmt_nodes n
+    ON m.root_hash = n.hash_key AND
+       m.namespace = n.namespace
+WHERE namespace_root = $1
+`
+
+type FetchMultiverseRootRow struct {
+	ProofType          string
+	MultiverseRootHash []byte
+	MultiverseRootSum  int64
+}
+
+func (q *Queries) FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchMultiverseRoot, namespaceRoot)
+	var i FetchMultiverseRootRow
+	err := row.Scan(&i.ProofType, &i.MultiverseRootHash, &i.MultiverseRootSum)
+	return i, err
+}
+
 const fetchUniverseKeys = `-- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes
 FROM universe_leaves leaves

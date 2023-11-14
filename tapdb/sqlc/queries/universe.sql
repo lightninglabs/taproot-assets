@@ -490,6 +490,16 @@ ON CONFLICT (namespace_root)
     DO UPDATE SET namespace_root = EXCLUDED.namespace_root
 RETURNING id;
 
+-- name: FetchMultiverseRoot :one
+SELECT proof_type, n.hash_key as multiverse_root_hash, n.sum as multiverse_root_sum
+FROM multiverse_roots r
+JOIN mssmt_roots m
+    ON r.namespace_root = m.namespace
+JOIN mssmt_nodes n
+    ON m.root_hash = n.hash_key AND
+       m.namespace = n.namespace
+WHERE namespace_root = @namespace_root;
+
 -- name: UpsertMultiverseLeaf :one
 INSERT INTO multiverse_leaves (
     multiverse_root_id, asset_id, group_key, leaf_node_key, leaf_node_namespace
