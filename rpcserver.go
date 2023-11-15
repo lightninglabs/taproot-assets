@@ -4209,6 +4209,7 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		TotalSupply:      int64(a.TotalSupply),
 		GenesisHeight:    int32(a.GenesisHeight),
 		GenesisTimestamp: r.getBlockTimestamp(ctx, a.GenesisHeight),
+		AnchorPoint:      a.AnchorPoint.String(),
 	}
 
 	if a.GroupKey != nil {

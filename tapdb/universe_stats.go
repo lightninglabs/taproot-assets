@@ -12,6 +12,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -837,6 +839,16 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 			); err != nil {
 				return fmt.Errorf("unable to read outpoint: %w",
 					err)
+			}
+
+			hash, err := chainhash.NewHash(assetStat.AnchorTxid[:])
+			if err != nil {
+				return err
+			}
+
+			stats.AnchorPoint = wire.OutPoint{
+				Hash:  *hash,
+				Index: uint32(assetStat.AnchorIndex),
 			}
 
 			resp.SyncStats = append(resp.SyncStats, stats)

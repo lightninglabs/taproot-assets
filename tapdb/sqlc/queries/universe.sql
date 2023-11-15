@@ -247,7 +247,8 @@ WITH asset_supply AS (
            gen.asset_id AS asset_id, 
            gen.asset_tag AS asset_name, gen.asset_type AS asset_type,
            gen.block_height AS genesis_height, gen.prev_out AS genesis_prev_out,
-           group_info.tweaked_group_key AS group_key
+           group_info.tweaked_group_key AS group_key,
+           gen.output_index AS anchor_index, gen.anchor_txid AS anchor_txid
     FROM genesis_info_view gen
     JOIN asset_supply
         ON asset_supply.asset_id = gen.asset_id
@@ -269,6 +270,8 @@ SELECT asset_info.supply AS asset_supply,
     asset_info.genesis_height AS genesis_height,
     asset_info.genesis_prev_out AS genesis_prev_out,
     asset_info.group_key AS group_key,
+    asset_info.anchor_index AS anchor_index,
+    asset_info.anchor_txid AS anchor_txid,
     universe_stats.total_asset_syncs AS total_syncs,
     universe_stats.total_asset_proofs AS total_proofs
 FROM asset_info

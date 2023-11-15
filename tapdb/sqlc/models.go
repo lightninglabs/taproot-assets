@@ -191,6 +191,7 @@ type GenesisInfoView struct {
 	OutputIndex int32
 	AssetType   int16
 	PrevOut     []byte
+	AnchorTxid  []byte
 	BlockHeight sql.NullInt32
 }
 
