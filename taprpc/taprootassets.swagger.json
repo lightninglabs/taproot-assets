@@ -522,7 +522,7 @@
       }
     },
     "/v1/taproot-assets/getinfo": {
-      "post": {
+      "get": {
         "summary": "tapcli: `getinfo`\nGetInfo returns the information for the node.",
         "operationId": "TaprootAssets_GetInfo",
         "responses": {
@@ -539,16 +539,6 @@
             }
           }
         },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/taprpcGetInfoRequest"
-            }
-          }
-        ],
         "tags": [
           "TaprootAssets"
         ]
@@ -1489,9 +1479,6 @@
           "description": "The base genesis information in the genesis reveal."
         }
       }
-    },
-    "taprpcGetInfoRequest": {
-      "type": "object"
     },
     "taprpcGetInfoResponse": {
       "type": "object",
