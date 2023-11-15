@@ -1300,6 +1300,10 @@ func AssertUniverseAssetStats(t *testing.T, node *tapdHarness,
 		require.NotZero(t, statAsset.GenesisHeight)
 		require.NotZero(t, statAsset.GenesisTimestamp)
 		require.NotEmpty(t, statAsset.GenesisPoint)
+		require.NotEmpty(t, statAsset.AnchorPoint)
+		require.NotEqual(
+			t, statAsset.GenesisPoint, statAsset.AnchorPoint,
+		)
 	}
 
 	eventStats, err := node.QueryEvents(ctxb, &unirpc.QueryEventsRequest{})
