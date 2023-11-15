@@ -166,6 +166,8 @@ func (b *BatchCaretaker) Start() error {
 func (b *BatchCaretaker) Stop() error {
 	var stopErr error
 	b.stopOnce.Do(func() {
+		log.Infof("BatchCaretaker(%x): Stopping", b.batchKey[:])
+
 		close(b.Quit)
 		b.Wg.Wait()
 	})
@@ -313,7 +315,7 @@ func (b *BatchCaretaker) assetCultivator() {
 		currentBatchState, BatchStateBroadcast,
 	)
 	if err != nil {
-		log.Errorf("unable to advance state machine: %v", err)
+		log.Errorf("Unable to advance state machine: %v", err)
 		b.cfg.BroadcastErrChan <- err
 		return
 	}

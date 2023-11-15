@@ -344,7 +344,8 @@ func (c *ChainPlanter) stopCaretakers() {
 		if err := caretaker.Stop(); err != nil {
 			// TODO(roasbeef): continue and stop the rest
 			// of them?
-			log.Warnf("Unable to stop ChainCaretaker(%x)", batchKey[:])
+			log.Warnf("Unable to stop ChainCaretaker(%x)",
+				batchKey[:])
 			return
 		}
 	}
@@ -547,14 +548,14 @@ func (c *ChainPlanter) gardener() {
 		case batchKey := <-c.completionSignals:
 			caretaker, ok := c.caretakers[batchKey]
 			if !ok {
-				log.Warnf("unknown caretaker: %x", batchKey[:])
+				log.Warnf("Unknown caretaker: %x", batchKey[:])
 				continue
 			}
 
 			log.Infof("ChainCaretaker(%x) has finished", batchKey[:])
 
 			if err := caretaker.Stop(); err != nil {
-				log.Warnf("unable to stop care taker: %v", err)
+				log.Warnf("Unable to stop caretaker: %v", err)
 			}
 
 			delete(c.caretakers, batchKey)
@@ -597,8 +598,8 @@ func (c *ChainPlanter) gardener() {
 				}
 
 				batchKey := c.pendingBatch.BatchKey.PubKey
-				log.Infof("Finalizing batch %x",
-					batchKey.SerializeCompressed())
+				batchKeySerial := asset.ToSerialized(batchKey)
+				log.Infof("Finalizing batch %x", batchKeySerial)
 
 				feeRate, err :=
 					typedParam[*chainfee.SatPerKWeight](req)
@@ -624,6 +625,18 @@ func (c *ChainPlanter) gardener() {
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					req.Error(err)
+					// Unrecoverable error, stop caretaker
+					// directly. The pending batch will not
+					// be saved.
+					stopErr := caretaker.Stop()
+					if stopErr != nil {
+						log.Warnf("Unable to stop "+
+							"caretaker "+
+							"gracefully: %v", err)
+					}
+
+					delete(c.caretakers, batchKeySerial)
+					c.pendingBatch = nil
 					continue
 
 				case <-c.Quit:
