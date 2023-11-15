@@ -15,7 +15,7 @@ COMMIT := $(shell git describe --tags --dirty)
 
 GOBUILD := GOEXPERIMENT=loopvar GO111MODULE=on go build -v
 GOINSTALL := GOEXPERIMENT=loopvar GO111MODULE=on go install -v
-GOTEST := GOEXPERIMENT=loopvar GO111MODULE=on go test 
+GOTEST := GOEXPERIMENT=loopvar GO111MODULE=on go test
 GOMOD := GO111MODULE=on go mod
 
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'
@@ -168,7 +168,7 @@ unit-cover: $(GOACC_BIN)
 
 unit-race:
 	@$(call print, "Running unit race tests.")
-	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOLIST) | $(XARGS) env $(GOTEST) -race -test.timeout=20m
+	env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(UNIT_RACE)
 
 itest: build-itest itest-only
 
