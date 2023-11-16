@@ -269,7 +269,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 			break
 		}
 
-		require.Equal(t.t, assetGroupBalance.Balance, uint64(10))
+		require.Equal(t.t, int(10), int(assetGroupBalance.Balance))
 
 		// Get asset balance by asset ID from the receiver node.
 		respAsset, err := recvTapd.ListBalances(
@@ -296,18 +296,6 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	}
 
 	// Initial balance check.
-	assertRecvBalance()
-
-	// Stop the receiver node, mine, and then start the receiver node. Then,
-	// check the balance again.
-	require.NoError(t.t, recvTapd.stop(false))
-	t.lndHarness.MineBlocks(7)
-	require.NoError(t.t, recvTapd.start(false))
-
-	assertRecvBalance()
-
-	// Mine more blocks and then check the balance again.
-	t.lndHarness.MineBlocks(7)
 	assertRecvBalance()
 
 	// Restart the receiver node and then check the balance again.

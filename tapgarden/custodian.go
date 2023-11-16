@@ -414,16 +414,16 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			courier.SetSubscribers(c.statusEventsSubs)
 			c.statusEventsSubsMtx.Unlock()
 
-			// Sleep to give the sender an opportunity to transfer
-			// the proof to the proof courier service.
-			// Without this delay our first attempt at retrieving
-			// the proof will very likely fail. We should expect
-			// retrieval success before this delay.
-			select {
-			case <-time.After(defaultProofRetrievalDelay):
-			case <-ctx.Done():
-				return
-			}
+			//// Sleep to give the sender an opportunity to transfer
+			//// the proof to the proof courier service.
+			//// Without this delay our first attempt at retrieving
+			//// the proof will very likely fail. We should expect
+			//// retrieval success before this delay.
+			//select {
+			//case <-time.After(defaultProofRetrievalDelay):
+			//case <-ctx.Done():
+			//	return
+			//}
 
 			// Attempt to receive proof via proof courier service.
 			loc := proof.Locator{
