@@ -50,10 +50,10 @@ var (
 				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
-				Amount:       5000,
-				AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V1,
+				Amount:          5000,
+				AssetVersion:    taprpc.AssetVersion_ASSET_VERSION_V1,
+				NewGroupedAsset: true,
 			},
-			EnableEmission: true,
 		},
 		{
 			Asset: &mintrpc.MintAsset{
@@ -62,10 +62,10 @@ var (
 				AssetMeta: &taprpc.AssetMeta{
 					Data: []byte("some metadata"),
 				},
-				Amount:       1,
-				AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V0,
+				Amount:          1,
+				AssetVersion:    taprpc.AssetVersion_ASSET_VERSION_V0,
+				NewGroupedAsset: true,
 			},
-			EnableEmission: true,
 		},
 	}
 
@@ -242,14 +242,24 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	equalityCheck := func(a, b *mintrpc.MintAsset) {
+	equalityCheck := func(a *mintrpc.MintAsset, b *mintrpc.PendingAsset) {
 		require.Equal(t.t, a.AssetType, b.AssetType)
 		require.Equal(t.t, a.Name, b.Name)
 		require.Equal(t.t, a.AssetMeta.Data, b.AssetMeta.Data)
 		require.Equal(t.t, a.Amount, b.Amount)
 		require.Equal(t.t, a.GroupKey, b.GroupKey)
+		require.Equal(t.t, a.GroupAnchor, b.GroupAnchor)
 	}
 
+	equalityCheckSeedlings := func(a, b *mintrpc.PendingAsset) {
+		require.Equal(t.t, a.AssetType, b.AssetType)
+		require.Equal(t.t, a.Name, b.Name)
+		require.Equal(t.t, a.AssetMeta.Data, b.AssetMeta.Data)
+		require.Equal(t.t, a.Amount, b.Amount)
+		require.Equal(t.t, a.NewGroupedAsset, b.NewGroupedAsset)
+		require.Equal(t.t, a.GroupKey, b.GroupKey)
+		require.Equal(t.t, a.GroupAnchor, b.GroupAnchor)
+	}
 	// If we attempt to add both assets to the same batch, the second mint
 	// call should fail.
 	collideResp, err := t.tapd.MintAsset(ctxt, &assetCollide)
@@ -305,7 +315,9 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	require.Len(t.t, cancelBatch.Batches, 1)
 	cancelBatchCollide := cancelBatch.Batches[0]
 	require.Len(t.t, cancelBatchCollide.Assets, 1)
-	equalityCheck(batchCollide.Assets[0], cancelBatchCollide.Assets[0])
+	equalityCheckSeedlings(
+		batchCollide.Assets[0], cancelBatchCollide.Assets[0],
+	)
 	cancelBatchState := cancelBatchCollide.State
 	require.Equal(
 		t.t, cancelBatchState,

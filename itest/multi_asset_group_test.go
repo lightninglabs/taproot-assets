@@ -22,7 +22,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// and one new group of 3 assets.
 	complexBatch := []*mintrpc.MintAssetRequest{simpleAssets[0]}
 	issuableAsset := CopyRequest(simpleAssets[1])
-	issuableAsset.EnableEmission = true
+	issuableAsset.Asset.NewGroupedAsset = true
 	complexBatch = append(complexBatch, issuableAsset)
 
 	normalGroupMembers := 2
@@ -195,7 +195,8 @@ func createMultiAssetGroup(anchor *mintrpc.MintAssetRequest,
 	groupSum := uint64(0)
 	for i := uint64(1); i <= numAssets; i++ {
 		assetReq := CopyRequest(anchor)
-		assetReq.EnableEmission = false
+		assetReq.Asset.NewGroupedAsset = false
+		assetReq.Asset.GroupedAsset = true
 		assetReq.Asset.GroupAnchor = anchorName
 		assetReq.Asset.Name = fmt.Sprintf(
 			"%s-tranche-%d", anchorName, i,
@@ -227,6 +228,7 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	// group anchor is invalid if there is no pending batch.
 	groupedAsset := CopyRequest(simpleAssets[0])
 	groupedAsset.Asset.GroupAnchor = groupedAsset.Asset.Name
+	groupedAsset.Asset.GroupedAsset = true
 
 	_, err := t.tapd.MintAsset(ctxb, groupedAsset)
 	require.ErrorContains(t.t, err, "batch empty, group anchor")
@@ -236,6 +238,7 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	simpleAsset := CopyRequest(simpleAssets[1])
 	_, err = t.tapd.MintAsset(ctxb, simpleAsset)
 	require.NoError(t.t, err)
+
 	_, err = t.tapd.MintAsset(ctxb, groupedAsset)
 	require.ErrorContains(t.t, err, "not present in batch")
 
@@ -252,7 +255,7 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 	require.ErrorContains(t.t, err, "has emission disabled")
 
 	// Finally, we'll modify the assets to make the multi-asset group valid.
-	validAnchor.EnableEmission = true
+	validAnchor.Asset.NewGroupedAsset = true
 	validAnchor.Asset.AssetMeta = &taprpc.AssetMeta{
 		Data: []byte("metadata for itest group anchors"),
 	}
@@ -284,7 +287,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 
 	// First, we'll build a batch to mint.
 	issuableAsset := CopyRequest(simpleAssets[1])
-	issuableAsset.EnableEmission = true
+	issuableAsset.Asset.NewGroupedAsset = true
 
 	collectibleGroupMembers := 50
 	collectibleGroup, collectibleGroupSum := createMultiAssetGroup(

@@ -60,9 +60,9 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 				Data: imageMetadataBytes,
 				Type: 0,
 			},
-			Amount: 1,
+			Amount:          1,
+			NewGroupedAsset: false,
 		},
-		EnableEmission: false,
 	}
 
 	// Update the asset name and metadata to match an index.
@@ -75,7 +75,7 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 	// Use the first asset of the batch as the asset group anchor.
 	collectibleAnchorReq := itest.CopyRequest(&collectibleRequestTemplate)
 	incrementMintAsset(collectibleAnchorReq.Asset, 0)
-	collectibleAnchorReq.EnableEmission = true
+	collectibleAnchorReq.Asset.NewGroupedAsset = true
 	batchReqs[0] = collectibleAnchorReq
 
 	// Generate the rest of the batch, with each asset referencing the group
@@ -84,6 +84,8 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 		groupedAsset := itest.CopyRequest(&collectibleRequestTemplate)
 		incrementMintAsset(groupedAsset.Asset, i)
 		groupedAsset.Asset.GroupAnchor = collectibleAnchorReq.Asset.Name
+		groupedAsset.Asset.GroupedAsset = true
+		groupedAsset.Asset.NewGroupedAsset = false
 		batchReqs[i] = groupedAsset
 	}
 
