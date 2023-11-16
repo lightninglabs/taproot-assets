@@ -357,12 +357,37 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	specificGroupKey := len(req.Asset.GroupKey) != 0
 	specificGroupAnchor := len(req.Asset.GroupAnchor) != 0
 
+	switch {
+	// New grouped asset and grouped asset cannot both be set.
+	case req.Asset.NewGroupedAsset && req.Asset.GroupedAsset:
+		return nil, fmt.Errorf("cannot set both new grouped asset " +
+			"and grouped asset",
+		)
+
 	// Using a specific group key or anchor implies disabling emission.
-	if req.EnableEmission {
+	case req.Asset.NewGroupedAsset:
 		if specificGroupKey || specificGroupAnchor {
 			return nil, fmt.Errorf("must disable emission to " +
 				"specify a group")
 		}
+
+	// If the asset is intended to be part of an existing group, a group key
+	// or anchor must be specified, but not both.
+	case req.Asset.GroupedAsset:
+		if !specificGroupKey && !specificGroupAnchor {
+			return nil, fmt.Errorf("must specify a group key or" +
+				"group anchor")
+		}
+
+		if specificGroupKey && specificGroupAnchor {
+			return nil, fmt.Errorf("cannot specify both a group " +
+				"key and a group anchor")
+		}
+
+	// A group was specified without GroupedAsset being set.
+	case specificGroupKey || specificGroupAnchor:
+		return nil, fmt.Errorf("must set grouped asset to mint into " +
+			"a specific group")
 	}
 
 	assetVersion, err := taprpc.UnmarshalAssetVersion(
@@ -377,29 +402,24 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		AssetType:      asset.Type(req.Asset.AssetType),
 		AssetName:      req.Asset.Name,
 		Amount:         req.Asset.Amount,
-		EnableEmission: req.EnableEmission,
+		EnableEmission: req.Asset.NewGroupedAsset,
 	}
 
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
 		"issuance=%v", seedling.AssetVersion, seedling.AssetType,
 		seedling.AssetName, seedling.Amount, seedling.EnableEmission)
 
+	switch {
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
-	if specificGroupKey {
-		if specificGroupAnchor {
-			return nil, fmt.Errorf("cannot specify a group key " +
-				"and a group anchor")
-		}
-
+	case specificGroupKey:
 		groupTweakedKey, err := btcec.ParsePubKey(req.Asset.GroupKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid group key: %w", err)
 		}
 
 		err = r.checkBalanceOverflow(
-			ctx, nil, groupTweakedKey,
-			req.Asset.Amount,
+			ctx, nil, groupTweakedKey, req.Asset.Amount,
 		)
 		if err != nil {
 			return nil, err
@@ -410,11 +430,10 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 				GroupPubKey: *groupTweakedKey,
 			},
 		}
-	}
 
 	// If a group anchor is provided, propoate the name to the seedling.
 	// We cannot do any name validation from outside the minter.
-	if specificGroupAnchor {
+	case specificGroupAnchor:
 		seedling.GroupAnchor = &req.Asset.GroupAnchor
 	}
 
@@ -2500,9 +2519,10 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 
 // marshalSeedlings marshals the seedlings into the RPC counterpart.
 func marshalSeedlings(
-	seedlings map[string]*tapgarden.Seedling) ([]*mintrpc.MintAsset, error) {
+	seedlings map[string]*tapgarden.Seedling) ([]*mintrpc.PendingAsset,
+	error) {
 
-	rpcAssets := make([]*mintrpc.MintAsset, 0, len(seedlings))
+	rpcAssets := make([]*mintrpc.PendingAsset, 0, len(seedlings))
 	for _, seedling := range seedlings {
 		var groupKeyBytes []byte
 		if seedling.HasGroupKey() {
@@ -2534,7 +2554,7 @@ func marshalSeedlings(
 			return nil, err
 		}
 
-		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
+		nextSeedling := &mintrpc.PendingAsset{
 			AssetType:    taprpc.AssetType(seedling.AssetType),
 			AssetVersion: assetVersion,
 			Name:         seedling.AssetName,
@@ -2542,7 +2562,13 @@ func marshalSeedlings(
 			Amount:       seedling.Amount,
 			GroupKey:     groupKeyBytes,
 			GroupAnchor:  groupAnchor,
-		})
+		}
+
+		if seedling.EnableEmission {
+			nextSeedling.NewGroupedAsset = true
+		}
+
+		rpcAssets = append(rpcAssets, nextSeedling)
 	}
 
 	return rpcAssets, nil
@@ -2550,9 +2576,9 @@ func marshalSeedlings(
 
 // marshalSprouts marshals the sprouts into the RPC counterpart.
 func marshalSprouts(sprouts []*asset.Asset,
-	metas tapgarden.AssetMetas) []*mintrpc.MintAsset {
+	metas tapgarden.AssetMetas) []*mintrpc.PendingAsset {
 
-	rpcAssets := make([]*mintrpc.MintAsset, 0, len(sprouts))
+	rpcAssets := make([]*mintrpc.PendingAsset, 0, len(sprouts))
 	for _, sprout := range sprouts {
 		scriptKey := asset.ToSerialized(sprout.ScriptKey.PubKey)
 
@@ -2573,7 +2599,7 @@ func marshalSprouts(sprouts []*asset.Asset,
 			groupKeyBytes = gpk.SerializeCompressed()
 		}
 
-		rpcAssets = append(rpcAssets, &mintrpc.MintAsset{
+		rpcAssets = append(rpcAssets, &mintrpc.PendingAsset{
 			AssetType: taprpc.AssetType(sprout.Type),
 			Name:      sprout.Tag,
 			AssetMeta: assetMeta,
