@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -16,6 +17,8 @@ import (
 // interface backed by an active remote lnd node.
 type LndRpcChainBridge struct {
 	lnd *lndclient.LndServices
+
+	getBlockHeaderSupported *bool
 }
 
 // NewLndRpcChainBridge creates a new chain bridge from an active lnd services
@@ -79,6 +82,19 @@ func (l *LndRpcChainBridge) GetBlock(ctx context.Context,
 	return block, nil
 }
 
+// GetBlockHeader returns a block header given its hash.
+func (l *LndRpcChainBridge) GetBlockHeader(ctx context.Context,
+	hash chainhash.Hash) (*wire.BlockHeader, error) {
+
+	header, err := l.lnd.ChainKit.GetBlockHeader(ctx, hash)
+	if err != nil {
+		return nil, fmt.Errorf("unable to retrieve block header: %w",
+			err)
+	}
+
+	return header, nil
+}
+
 // GetBlockHash returns the hash of the block in the best blockchain at the
 // given height.
 func (l *LndRpcChainBridge) GetBlockHash(ctx context.Context,
@@ -91,6 +107,31 @@ func (l *LndRpcChainBridge) GetBlockHash(ctx context.Context,
 	}
 
 	return blockHash, nil
+}
+
+// GetBlockHeaderSupported returns true if the chain backend supports the
+// `GetBlockHeader` RPC call.
+func (l *LndRpcChainBridge) GetBlockHeaderSupported(ctx context.Context) bool {
+	// Check if we've already asserted the compatibility of the chain
+	// backend.
+	if l.getBlockHeaderSupported != nil {
+		return *l.getBlockHeaderSupported
+	}
+
+	// The ChainKit.GetBlockHeader() RPC call was added in lnd v0.17.1.
+	getBlockHeaderMinimalVersion := &verrpc.Version{
+		AppMajor: 0,
+		AppMinor: 17,
+		AppPatch: 1,
+	}
+
+	getBlockHeaderUnsupported := lndclient.AssertVersionCompatible(
+		l.lnd.Version, getBlockHeaderMinimalVersion,
+	)
+	getBlockHeaderSupported := getBlockHeaderUnsupported == nil
+
+	l.getBlockHeaderSupported = &getBlockHeaderSupported
+	return *l.getBlockHeaderSupported
 }
 
 // VerifyBlock returns an error if a block (with given header and height) is not
@@ -121,7 +162,14 @@ func (l *LndRpcChainBridge) VerifyBlock(ctx context.Context,
 			"expectedHash: %s)", height, hash, expectedHash)
 	}
 
-	// Ensure that the block header corresponds to a block on-chain.
+	// Ensure that the block header corresponds to a block on-chain. Fetch
+	// only the corresponding block header and not the entire block if
+	// supported.
+	if l.GetBlockHeaderSupported(ctx) {
+		_, err = l.GetBlockHeader(ctx, header.BlockHash())
+		return err
+	}
+
 	_, err = l.GetBlock(ctx, header.BlockHash())
 	return err
 }
