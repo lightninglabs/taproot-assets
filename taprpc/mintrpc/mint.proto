@@ -33,40 +33,86 @@ service Mint {
     rpc ListBatches (ListBatchRequest) returns (ListBatchResponse);
 }
 
-message MintAsset {
+message PendingAsset {
+    // The version of asset to mint.
+    taprpc.AssetVersion asset_version = 1;
+
     // The type of the asset to be created.
-    taprpc.AssetType asset_type = 1;
+    taprpc.AssetType asset_type = 2;
 
     // The name, or "tag" of the asset. This will affect the final asset ID.
-    string name = 2;
+    string name = 3;
 
     /*
     A blob that resents metadata related to the asset. This will affect the
     final asset ID.
     */
-    taprpc.AssetMeta asset_meta = 3;
+    taprpc.AssetMeta asset_meta = 4;
 
     /*
     The total amount of units of the new asset that should be created. If the
     AssetType is Collectible, then this field cannot be set.
     */
-    uint64 amount = 4;
+    uint64 amount = 5;
 
     /*
-    The specific group key this asset should be minted with.
+    If true, then the asset will be created with a new group key, which allows
+    for future asset issuance.
     */
-    bytes group_key = 5;
+    bool new_grouped_asset = 6;
+
+    // The specific group key this asset should be minted with.
+    bytes group_key = 7;
 
     /*
     The name of the asset in the batch that will anchor a new asset group.
     This asset will be minted with the same group key as the anchor asset.
     */
-    string group_anchor = 6;
+    string group_anchor = 8;
+}
+
+message MintAsset {
+    // The version of asset to mint.
+    taprpc.AssetVersion asset_version = 1;
+
+    // The type of the asset to be created.
+    taprpc.AssetType asset_type = 2;
+
+    // The name, or "tag" of the asset. This will affect the final asset ID.
+    string name = 3;
 
     /*
-    The version of asset to mint.
+    A blob that resents metadata related to the asset. This will affect the
+    final asset ID.
     */
-    taprpc.AssetVersion asset_version = 7;
+    taprpc.AssetMeta asset_meta = 4;
+
+    /*
+    The total amount of units of the new asset that should be created. If the
+    AssetType is Collectible, then this field cannot be set.
+    */
+    uint64 amount = 5;
+
+    /*
+    If true, then the asset will be created with a group key, which allows for
+    future asset issuance.
+    */
+    bool new_grouped_asset = 6;
+
+    /*
+    If true, then a group key or group anchor can be set to mint this asset into
+    an existing asset group.
+    */
+    bool grouped_asset = 7;
+
+    // The specific group key this asset should be minted with.
+    bytes group_key = 8;
+
+    /*
+    The name of the asset in the batch that will anchor a new asset group.
+    This asset will be minted with the same group key as the anchor asset.
+    */
+    string group_anchor = 9;
 }
 
 message MintAssetRequest {
@@ -76,17 +122,11 @@ message MintAssetRequest {
     MintAsset asset = 1;
 
     /*
-    If true, then the asset will be created with a group key, which allows for
-    future asset issuance.
-    */
-    bool enable_emission = 2;
-
-    /*
     If true, then the assets currently in the batch won't be returned in the
     response. This is mainly to avoid a lot of data being transmitted and
     possibly printed on the command line in the case of a very large batch.
     */
-    bool short_response = 3;
+    bool short_response = 2;
 }
 
 message MintAssetResponse {
@@ -112,7 +152,7 @@ message MintingBatch {
     BatchState state = 3;
 
     // The assets that are part of the batch.
-    repeated MintAsset assets = 4;
+    repeated PendingAsset assets = 4;
 }
 
 enum BatchState {
