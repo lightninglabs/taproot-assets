@@ -81,10 +81,11 @@ type tapdConfig struct {
 }
 
 type harnessOpts struct {
-	proofSendBackoffCfg     *proof.BackoffCfg
-	proofReceiverAckTimeout *time.Duration
-	proofCourier            proof.CourierHarness
-	addrAssetSyncerDisable  bool
+	proofSendBackoffCfg          *proof.BackoffCfg
+	proofReceiverAckTimeout      *time.Duration
+	proofCourier                 proof.CourierHarness
+	custodianProofRetrievalDelay *time.Duration
+	addrAssetSyncerDisable       bool
 }
 
 type harnessOption func(*harnessOpts)
@@ -221,6 +222,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	default:
 		finalCfg.DefaultProofCourierAddr = ""
 		finalCfg.HashMailCourier = nil
+	}
+
+	// Set the custodian proof retrieval delay if it was specified.
+	if opts.custodianProofRetrievalDelay != nil {
+		finalCfg.CustodianProofRetrievalDelay = *opts.custodianProofRetrievalDelay
 	}
 
 	return &tapdHarness{

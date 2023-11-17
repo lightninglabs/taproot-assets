@@ -124,6 +124,11 @@ const (
 	// universe queries. By default we'll allow 100 qps, with a max burst
 	// of 10 queries.
 	defaultUniverseQueriesBurst = 10
+
+	// defaultProofRetrievalDelay is the default time duration the custodian
+	// waits having identified an asset transfer on-chain and before
+	// retrieving the corresponding proof via the proof courier service.
+	defaultProofRetrievalDelay = 5 * time.Second
 )
 
 var (
@@ -301,6 +306,8 @@ type Config struct {
 	DefaultProofCourierAddr string                    `long:"proofcourieraddr" description:"Default proof courier service address."`
 	HashMailCourier         *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
 
+	CustodianProofRetrievalDelay time.Duration `long:"custodianproofretrievaldelay" description:"The number of seconds the custodian waits after identifying an asset transfer on-chain and before retrieving the corresponding proof."`
+
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
 
@@ -384,6 +391,7 @@ func DefaultConfig() Config {
 				MaxBackoff:       defaultProofTransferMaxBackoff,
 			},
 		},
+		CustodianProofRetrievalDelay: defaultProofRetrievalDelay,
 		Universe: &UniverseConfig{
 			SyncInterval: defaultUniverseSyncInterval,
 			UniverseQueriesPerSecond: rate.Limit(

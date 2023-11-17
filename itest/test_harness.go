@@ -325,6 +325,11 @@ type tapdHarnessParams struct {
 	// an ack from the proof receiver.
 	proofReceiverAckTimeout *time.Duration
 
+	// custodianProofRetrievalDelay is the time duration the custodian waits
+	// having identified an asset transfer on-chain and before retrieving
+	// the corresponding proof via the proof courier service.
+	custodianProofRetrievalDelay *time.Duration
+
 	// addrAssetSyncerDisable is a flag that determines if the address book
 	// will try and bootstrap unknown assets on address creation.
 	addrAssetSyncerDisable bool
@@ -371,6 +376,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.proofSendBackoffCfg = params.proofSendBackoffCfg
 		ho.proofReceiverAckTimeout = params.proofReceiverAckTimeout
 		ho.proofCourier = selectedProofCourier
+		ho.custodianProofRetrievalDelay = params.custodianProofRetrievalDelay
 		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
 	}
 
