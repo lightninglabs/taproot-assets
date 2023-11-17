@@ -178,13 +178,24 @@ INSERT INTO genesis_assets (
     DO UPDATE SET asset_id = EXCLUDED.asset_id
 RETURNING gen_asset_id;
 
--- name: InsertNewAsset :one
+-- name: UpsertAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING asset_id;
+    @genesis_id, @version, @script_key_id, @asset_group_witness_id,
+    @script_version, @amount, @lock_time, @relative_lock_time, @anchor_utxo_id,
+    @spent
+)  ON CONFLICT (anchor_utxo_id, genesis_id, script_key_id)
+DO UPDATE SET
+    version = @version,
+    asset_group_witness_id = @asset_group_witness_id,
+    script_version = @script_version,
+    amount = @amount,
+    lock_time = @lock_time,
+    relative_lock_time = @relative_lock_time,
+    spent = @spent
+RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
 WITH genesis_info AS (

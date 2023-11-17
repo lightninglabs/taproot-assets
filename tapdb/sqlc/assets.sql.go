@@ -1713,46 +1713,6 @@ func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitness
 	return err
 }
 
-const insertNewAsset = `-- name: InsertNewAsset :one
-INSERT INTO assets (
-    genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
-    amount, lock_time, relative_lock_time, anchor_utxo_id, spent
-) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING asset_id
-`
-
-type InsertNewAssetParams struct {
-	GenesisID           int64
-	Version             int32
-	ScriptKeyID         int64
-	AssetGroupWitnessID sql.NullInt64
-	ScriptVersion       int32
-	Amount              int64
-	LockTime            sql.NullInt32
-	RelativeLockTime    sql.NullInt32
-	AnchorUtxoID        sql.NullInt64
-	Spent               bool
-}
-
-func (q *Queries) InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertNewAsset,
-		arg.GenesisID,
-		arg.Version,
-		arg.ScriptKeyID,
-		arg.AssetGroupWitnessID,
-		arg.ScriptVersion,
-		arg.Amount,
-		arg.LockTime,
-		arg.RelativeLockTime,
-		arg.AnchorUtxoID,
-		arg.Spent,
-	)
-	var asset_id int64
-	err := row.Scan(&asset_id)
-	return asset_id, err
-}
-
 const newMintingBatch = `-- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
     batch_state, batch_id, height_hint, creation_time_unix
@@ -2188,6 +2148,57 @@ type UpdateUTXOLeaseParams struct {
 func (q *Queries) UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error {
 	_, err := q.db.ExecContext(ctx, updateUTXOLease, arg.LeaseOwner, arg.LeaseExpiry, arg.Outpoint)
 	return err
+}
+
+const upsertAsset = `-- name: UpsertAsset :one
+INSERT INTO assets (
+    genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
+    amount, lock_time, relative_lock_time, anchor_utxo_id, spent
+) VALUES (
+    $1, $2, $3, $4,
+    $5, $6, $7, $8, $9,
+    $10
+)  ON CONFLICT (anchor_utxo_id, genesis_id, script_key_id)
+DO UPDATE SET
+    version = $2,
+    asset_group_witness_id = $4,
+    script_version = $5,
+    amount = $6,
+    lock_time = $7,
+    relative_lock_time = $8,
+    spent = $10
+RETURNING asset_id
+`
+
+type UpsertAssetParams struct {
+	GenesisID           int64
+	Version             int32
+	ScriptKeyID         int64
+	AssetGroupWitnessID sql.NullInt64
+	ScriptVersion       int32
+	Amount              int64
+	LockTime            sql.NullInt32
+	RelativeLockTime    sql.NullInt32
+	AnchorUtxoID        sql.NullInt64
+	Spent               bool
+}
+
+func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertAsset,
+		arg.GenesisID,
+		arg.Version,
+		arg.ScriptKeyID,
+		arg.AssetGroupWitnessID,
+		arg.ScriptVersion,
+		arg.Amount,
+		arg.LockTime,
+		arg.RelativeLockTime,
+		arg.AnchorUtxoID,
+		arg.Spent,
+	)
+	var asset_id int64
+	err := row.Scan(&asset_id)
+	return asset_id, err
 }
 
 const upsertAssetGroupKey = `-- name: UpsertAssetGroupKey :one

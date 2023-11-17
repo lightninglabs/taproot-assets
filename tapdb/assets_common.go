@@ -70,9 +70,9 @@ type UpsertAssetStore interface {
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
 		error)
 
-	// InsertNewAsset inserts a new asset on disk.
-	InsertNewAsset(ctx context.Context,
-		arg sqlc.InsertNewAssetParams) (int64, error)
+	// UpsertAsset upserts an asset on disk.
+	UpsertAsset(ctx context.Context,
+		arg sqlc.UpsertAssetParams) (int64, error)
 
 	// UpsertAssetMeta inserts a new asset meta into the DB.
 	UpsertAssetMeta(ctx context.Context, arg NewAssetMeta) (int64, error)
@@ -204,28 +204,10 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 			anchorUtxoID = anchorUtxoIDs[idx]
 		}
 
-		// Check for matching assets in the database. If we find one,
-		// we'll just use its primary key ID, and we won't attempt to
-		// insert the asset again.
-		existingAssets, err := q.QueryAssets(ctx, QueryAssetFilters{
-			AnchorUtxoID: anchorUtxoID,
-			GenesisID:    sqlInt64(genAssetID),
-			ScriptKeyID:  sqlInt64(scriptKeyID),
-		})
-		if err != nil {
-			return 0, nil, fmt.Errorf("unable to query assets: %w",
-				err)
-		}
-
-		if len(existingAssets) > 0 {
-			assetIDs[idx] = existingAssets[0].AssetPrimaryKey
-			continue
-		}
-
-		// With all the dependent data inserted, we can now insert the
+		// With all the dependent data inserted, we can now upsert the
 		// base asset information itself.
-		assetIDs[idx], err = q.InsertNewAsset(
-			ctx, sqlc.InsertNewAssetParams{
+		assetIDs[idx], err = q.UpsertAsset(
+			ctx, sqlc.UpsertAssetParams{
 				GenesisID:           genAssetID,
 				Version:             int32(a.Version),
 				ScriptKeyID:         scriptKeyID,
