@@ -53,6 +53,11 @@ var testCases = []*testCase{
 		proofCourierType: proof.UniverseRpcCourierType,
 	},
 	{
+		name:             "restart receiver check balance",
+		test:             testRestartReceiverCheckBalance,
+		proofCourierType: proof.UniverseRpcCourierType,
+	},
+	{
 		name:             "resume pending package send",
 		test:             testResumePendingPackageSend,
 		proofCourierType: proof.HashmailCourierType,
