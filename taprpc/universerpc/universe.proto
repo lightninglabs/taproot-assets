@@ -28,7 +28,7 @@ service Universe {
     /* tapcli: `universe keys`
     AssetLeafKeys queries for the set of Universe keys associated with a given
     asset_id or group_key. Each key takes the form: (outpoint, script_key),
-    where outpoint is an outpoint in the Bitcoin blockcahin that anchors a
+    where outpoint is an outpoint in the Bitcoin blockchain that anchors a
     valid Taproot Asset commitment, and script_key is the script_key of
     the asset within the Taproot Asset commitment for the given asset_id or
     group_key.

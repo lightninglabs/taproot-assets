@@ -1700,7 +1700,7 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 		case txscript.WitnessV1TaprootTy:
 			weightEstimator.AddP2TROutput()
 		default:
-			return fmt.Errorf("unknwon pkscript: %x",
+			return fmt.Errorf("unknown pkscript: %x",
 				txOut.PkScript)
 		}
 	}

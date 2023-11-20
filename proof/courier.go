@@ -596,7 +596,7 @@ func (b *BackoffHandler) initialDelay(ctx context.Context,
 		ctx, proofLocator, proofTransferType,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to retrieve proof transfer attemps "+
+		return fmt.Errorf("unable to retrieve proof transfer attempts "+
 			"logs: %w", err)
 	}
 

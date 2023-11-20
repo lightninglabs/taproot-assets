@@ -92,7 +92,7 @@ type Storage interface {
 	// InsertAddrs inserts a series of addresses into the database.
 	InsertAddrs(ctx context.Context, addrs ...AddrWithKeyInfo) error
 
-	// QueryAddrs attemps to query for a set of addresses.
+	// QueryAddrs attempts to query for a set of addresses.
 	QueryAddrs(ctx context.Context,
 		params QueryParams) ([]AddrWithKeyInfo, error)
 
