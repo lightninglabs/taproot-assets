@@ -127,7 +127,7 @@ type RootNodesQuery struct {
 func (a *Archive) RootNodes(ctx context.Context,
 	q RootNodesQuery) ([]Root, error) {
 
-	log.Debugf("Fetching all known Universe roots (with_amounts_by_id=%v"+
+	log.Tracef("Fetching all known Universe roots (with_amounts_by_id=%v"+
 		", sort_direction=%v, offset=%v, limit=%v)", q.WithAmountsById,
 		q.SortDirection, q.Offset, q.Limit)
 
