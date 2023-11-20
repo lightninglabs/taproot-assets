@@ -1945,7 +1945,10 @@ WHERE (
     assets.amount >= COALESCE($7, assets.amount) AND
     assets.spent = COALESCE($8, assets.spent) AND
     (key_group_info_view.tweaked_group_key = $9 OR
-      $9 IS NULL)
+      $9 IS NULL) AND
+    assets.anchor_utxo_id = COALESCE($10, assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE($11, assets.genesis_id) AND
+    assets.script_key_id = COALESCE($12, assets.script_key_id)
 )
 `
 
@@ -1959,6 +1962,9 @@ type QueryAssetsParams struct {
 	MinAmt           sql.NullInt64
 	Spent            sql.NullBool
 	KeyGroupFilter   []byte
+	AnchorUtxoID     sql.NullInt64
+	GenesisID        sql.NullInt64
+	ScriptKeyID      sql.NullInt64
 }
 
 type QueryAssetsRow struct {
@@ -2021,6 +2027,9 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.MinAmt,
 		arg.Spent,
 		arg.KeyGroupFilter,
+		arg.AnchorUtxoID,
+		arg.GenesisID,
+		arg.ScriptKeyID,
 	)
 	if err != nil {
 		return nil, err

@@ -18,10 +18,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-const (
-	defaultProofRetrievalDelay = 5 * time.Second
-)
-
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
 type CustodianConfig struct {
@@ -57,6 +53,11 @@ type CustodianConfig struct {
 	// ProofCourierCfg is a general config applicable to all proof courier
 	// service handles.
 	ProofCourierCfg *proof.CourierCfg
+
+	// ProofRetrievalDelay is the time duration the custodian waits having
+	// identified an asset transfer on-chain and before retrieving the
+	// corresponding proof via the proof courier service.
+	ProofRetrievalDelay time.Duration
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
@@ -420,7 +421,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			// the proof will very likely fail. We should expect
 			// retrieval success before this delay.
 			select {
-			case <-time.After(defaultProofRetrievalDelay):
+			case <-time.After(c.cfg.ProofRetrievalDelay):
 			case <-ctx.Done():
 				return
 			}

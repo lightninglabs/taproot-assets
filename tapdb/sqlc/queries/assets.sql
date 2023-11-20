@@ -430,7 +430,10 @@ WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
     assets.spent = COALESCE(sqlc.narg('spent'), assets.spent) AND
     (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
-      sqlc.narg('key_group_filter') IS NULL)
+      sqlc.narg('key_group_filter') IS NULL) AND
+    assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
+    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id)
 );
 
 -- name: AllAssets :many

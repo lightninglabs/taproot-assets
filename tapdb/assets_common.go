@@ -66,6 +66,10 @@ type UpsertAssetStore interface {
 	UpsertAssetGroupKey(ctx context.Context, arg AssetGroupKey) (int64,
 		error)
 
+	// QueryAssets fetches a filtered set of fully confirmed assets.
+	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
+		error)
+
 	// InsertNewAsset inserts a new asset on disk.
 	InsertNewAsset(ctx context.Context,
 		arg sqlc.InsertNewAssetParams) (int64, error)
@@ -198,6 +202,24 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 		var anchorUtxoID sql.NullInt64
 		if len(anchorUtxoIDs) > 0 {
 			anchorUtxoID = anchorUtxoIDs[idx]
+		}
+
+		// Check for matching assets in the database. If we find one,
+		// we'll just use its primary key ID, and we won't attempt to
+		// insert the asset again.
+		existingAssets, err := q.QueryAssets(ctx, QueryAssetFilters{
+			AnchorUtxoID: anchorUtxoID,
+			GenesisID:    sqlInt64(genAssetID),
+			ScriptKeyID:  sqlInt64(scriptKeyID),
+		})
+		if err != nil {
+			return 0, nil, fmt.Errorf("unable to query assets: %w",
+				err)
+		}
+
+		if len(existingAssets) > 0 {
+			assetIDs[idx] = existingAssets[0].AssetPrimaryKey
+			continue
 		}
 
 		// With all the dependent data inserted, we can now insert the
