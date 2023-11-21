@@ -230,9 +230,9 @@ func testCollectibleGroupSend(t *harnessTest) {
 				Data: []byte("foo"),
 				Type: 0,
 			},
-			Amount: 1,
+			Amount:          1,
+			NewGroupedAsset: false,
 		},
-		EnableEmission: false,
 	}
 
 	// Update the asset name and metadata to match an index.
@@ -245,7 +245,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 	// Use the first asset of the batch as the asset group anchor.
 	collectibleAnchorReq := CopyRequest(&collectibleRequestTemplate)
 	incrementMintAsset(collectibleAnchorReq.Asset, 0)
-	collectibleAnchorReq.EnableEmission = true
+	collectibleAnchorReq.Asset.NewGroupedAsset = true
 	batchReqs[0] = collectibleAnchorReq
 
 	// Generate the rest of the batch, with each asset referencing the group
@@ -254,6 +254,8 @@ func testCollectibleGroupSend(t *harnessTest) {
 		groupedAsset := CopyRequest(&collectibleRequestTemplate)
 		incrementMintAsset(groupedAsset.Asset, i)
 		groupedAsset.Asset.GroupAnchor = collectibleAnchorReq.Asset.Name
+		groupedAsset.Asset.NewGroupedAsset = false
+		groupedAsset.Asset.GroupedAsset = true
 		batchReqs[i] = groupedAsset
 	}
 

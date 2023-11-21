@@ -222,6 +222,10 @@
     "mintrpcMintAsset": {
       "type": "object",
       "properties": {
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The version of asset to mint."
+        },
         "asset_type": {
           "$ref": "#/definitions/taprpcAssetType",
           "description": "The type of the asset to be created."
@@ -239,6 +243,14 @@
           "format": "uint64",
           "description": "The total amount of units of the new asset that should be created. If the\nAssetType is Collectible, then this field cannot be set."
         },
+        "new_grouped_asset": {
+          "type": "boolean",
+          "description": "If true, then the asset will be created with a group key, which allows for\nfuture asset issuance."
+        },
+        "grouped_asset": {
+          "type": "boolean",
+          "description": "If true, then a group key or group anchor can be set to mint this asset into\nan existing asset group."
+        },
         "group_key": {
           "type": "string",
           "format": "byte",
@@ -247,10 +259,6 @@
         "group_anchor": {
           "type": "string",
           "description": "The name of the asset in the batch that will anchor a new asset group.\nThis asset will be minted with the same group key as the anchor asset."
-        },
-        "asset_version": {
-          "$ref": "#/definitions/taprpcAssetVersion",
-          "description": "The version of asset to mint."
         }
       }
     },
@@ -260,10 +268,6 @@
         "asset": {
           "$ref": "#/definitions/mintrpcMintAsset",
           "description": "The asset to be minted."
-        },
-        "enable_emission": {
-          "type": "boolean",
-          "description": "If true, then the asset will be created with a group key, which allows for\nfuture asset issuance."
         },
         "short_response": {
           "type": "boolean",
@@ -299,9 +303,48 @@
         "assets": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/mintrpcMintAsset"
+            "$ref": "#/definitions/mintrpcPendingAsset"
           },
           "description": "The assets that are part of the batch."
+        }
+      }
+    },
+    "mintrpcPendingAsset": {
+      "type": "object",
+      "properties": {
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The version of asset to mint."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset to be created."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name, or \"tag\" of the asset. This will affect the final asset ID."
+        },
+        "asset_meta": {
+          "$ref": "#/definitions/taprpcAssetMeta",
+          "description": "A blob that resents metadata related to the asset. This will affect the\nfinal asset ID."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of units of the new asset that should be created. If the\nAssetType is Collectible, then this field cannot be set."
+        },
+        "new_grouped_asset": {
+          "type": "boolean",
+          "description": "If true, then the asset will be created with a new group key, which allows\nfor future asset issuance."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The specific group key this asset should be minted with."
+        },
+        "group_anchor": {
+          "type": "string",
+          "description": "The name of the asset in the batch that will anchor a new asset group.\nThis asset will be minted with the same group key as the anchor asset."
         }
       }
     },

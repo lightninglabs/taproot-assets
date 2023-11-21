@@ -40,7 +40,8 @@ var (
 	assetMetaBytesName           = "meta_bytes"
 	assetMetaFilePathName        = "meta_file_path"
 	assetMetaTypeName            = "meta_type"
-	assetEmissionName            = "enable_emission"
+	assetNewGroupedAssetName     = "new_grouped_asset"
+	assetGroupedAssetName        = "grouped_asset"
 	assetShowWitnessName         = "show_witness"
 	assetShowSpentName           = "show_spent"
 	assetGroupKeyName            = "group_key"
@@ -91,9 +92,14 @@ var mintAssetCommand = cli.Command{
 			Usage: "the type of the meta data for the asset",
 		},
 		cli.BoolFlag{
-			Name: assetEmissionName,
+			Name: assetNewGroupedAssetName,
 			Usage: "if true, then the asset supports on going " +
 				"emission",
+		},
+		cli.BoolFlag{
+			Name: assetGroupedAssetName,
+			Usage: "if true, then the asset is minted into a " +
+				"specific group",
 		},
 		cli.StringFlag{
 			Name: assetGroupKeyName,
@@ -218,18 +224,19 @@ func mintAsset(ctx *cli.Context) error {
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType:   assetType,
-			Name:        ctx.String(assetTagName),
-			AssetMeta:   assetMeta,
-			Amount:      amount,
-			GroupKey:    groupKey,
-			GroupAnchor: ctx.String(assetGroupAnchorName),
+			AssetType:       assetType,
+			Name:            ctx.String(assetTagName),
+			AssetMeta:       assetMeta,
+			Amount:          amount,
+			NewGroupedAsset: ctx.Bool(assetNewGroupedAssetName),
+			GroupedAsset:    ctx.Bool(assetGroupedAssetName),
+			GroupKey:        groupKey,
+			GroupAnchor:     ctx.String(assetGroupAnchorName),
 			AssetVersion: taprpc.AssetVersion(
 				ctx.Uint64(assetVersionName),
 			),
 		},
-		EnableEmission: ctx.Bool(assetEmissionName),
-		ShortResponse:  ctx.Bool(shortResponseName),
+		ShortResponse: ctx.Bool(shortResponseName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to mint asset: %w", err)

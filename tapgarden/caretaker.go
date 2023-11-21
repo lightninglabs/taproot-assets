@@ -785,7 +785,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		case strings.Contains(err.Error(), "already exists"):
 			break
 
-		case err != nil:
+		default:
 			return 0, fmt.Errorf("unable to import key: %w", err)
 		}
 

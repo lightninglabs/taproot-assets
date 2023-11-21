@@ -118,7 +118,9 @@ func testReIssuance(t *harnessTest) {
 
 	reissuedAssets[0].Asset.Amount = normalGroupMintHalf
 	reissuedAssets[0].Asset.GroupKey = normalGroupKey
+	reissuedAssets[0].Asset.GroupedAsset = true
 	reissuedAssets[1].Asset.GroupKey = collectGroupKey
+	reissuedAssets[1].Asset.GroupedAsset = true
 
 	normalReissueGen := MintAssetsConfirmBatch(
 		t.t, miner, t.tapd,
@@ -241,7 +243,7 @@ func testReIssuanceAmountOverflow(t *harnessTest) {
 	assetIssueReqs := CopyRequests(issuableAssets)
 	assetIssueReq := assetIssueReqs[0]
 
-	assetIssueReq.EnableEmission = true
+	assetIssueReq.Asset.NewGroupedAsset = true
 	assetIssueReq.Asset.Amount = math.MaxUint64
 
 	assets := MintAssetsConfirmBatch(
@@ -262,7 +264,7 @@ func testReIssuanceAmountOverflow(t *harnessTest) {
 	// Reissue an amount which is minimally sufficient to lead to an
 	// overflow error.
 	assetIssueReq.Asset.Amount = 1
-	assetIssueReq.EnableEmission = false
+	assetIssueReq.Asset.GroupedAsset = true
 	assetIssueReq.Asset.GroupKey = groupKey
 
 	ctxb := context.Background()
@@ -292,16 +294,45 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// Now, create a minting request to try and reissue into the group
 	// created during minting.
 	reissueRequest := CopyRequest(simpleAssets[0])
-	reissueRequest.Asset.GroupKey = collectGroupKey
 
-	// A request must not have the emission flag set if a group key is given.
-	reissueRequest.EnableEmission = true
-
+	// An asset cannot be both a new grouped asset and grouped asset.
+	reissueRequest.Asset.NewGroupedAsset = true
+	reissueRequest.Asset.GroupedAsset = true
 	_, err := t.tapd.MintAsset(ctxb, reissueRequest)
-	require.ErrorContains(t.t, err, "must disable emission")
+	require.ErrorContains(t.t, err, "cannot set both new grouped asset")
 
-	// Restore the emission flag.
-	reissueRequest.EnableEmission = false
+	// A grouped asset must specify a specific group.
+	reissueRequest.Asset.NewGroupedAsset = false
+	reissueRequest.Asset.GroupedAsset = true
+	_, err = t.tapd.MintAsset(ctxb, reissueRequest)
+	require.ErrorContains(t.t, err, "must specify a group key or")
+
+	// An asset cannot specify a group without being a grouped asset.
+	reissueRequest.Asset.NewGroupedAsset = false
+	reissueRequest.Asset.GroupedAsset = false
+	reissueRequest.Asset.GroupKey = collectGroupKey
+	_, err = t.tapd.MintAsset(ctxb, reissueRequest)
+	require.ErrorContains(t.t, err, "must set grouped asset to mint")
+
+	// A grouped asset cannot specify both a group key and group anchor.
+	reissueRequest.Asset.NewGroupedAsset = false
+	reissueRequest.Asset.GroupedAsset = true
+	reissueRequest.Asset.GroupKey = collectGroupKey
+	reissueRequest.Asset.GroupAnchor = collectGenInfo.Name
+	_, err = t.tapd.MintAsset(ctxb, reissueRequest)
+	require.ErrorContains(t.t, err, "cannot specify both a group key")
+
+	// An asset cannot be a new grouped asset and reference a specific
+	// group.
+	reissueRequest.Asset.NewGroupedAsset = true
+	reissueRequest.Asset.GroupedAsset = false
+	_, err = t.tapd.MintAsset(ctxb, reissueRequest)
+	require.ErrorContains(t.t, err, "must disable emission to specify")
+
+	// Restore the correct flags for a new grouped asset.
+	reissueRequest.Asset.NewGroupedAsset = false
+	reissueRequest.Asset.GroupedAsset = true
+	reissueRequest.Asset.GroupAnchor = ""
 
 	// A given group key must be parseable, so a group key with an invalid
 	// parity byte should be rejected.

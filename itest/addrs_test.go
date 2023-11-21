@@ -410,9 +410,10 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// If Alice now mints a reissuance for the second asset group, Bob
 	// should successfully sync that new asset.
 	secondGroupMember := CopyRequest(issuableAssets[1])
-	secondGroupMember.EnableEmission = false
+	secondGroupMember.Asset.NewGroupedAsset = false
 	secondGroupMember.Asset.Name += "-2"
 	secondGroupMember.Asset.GroupKey = secondGroup.TweakedGroupKey
+	secondGroupMember.Asset.GroupedAsset = true
 
 	reissuedAsset := MintAssetsConfirmBatch(
 		t.t, miner, t.tapd, fn.MakeSlice(secondGroupMember),
