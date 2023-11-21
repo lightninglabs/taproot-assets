@@ -183,7 +183,7 @@
     },
     "/v1/taproot-assets/universe/keys/asset-id/{id.asset_id_str}": {
       "get": {
-        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockchain that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
         "operationId": "Universe_AssetLeafKeys",
         "responses": {
           "200": {
@@ -278,7 +278,7 @@
     },
     "/v1/taproot-assets/universe/keys/group-key/{id.group_key_str}": {
       "get": {
-        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockcahin that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
+        "summary": "tapcli: `universe keys`\nAssetLeafKeys queries for the set of Universe keys associated with a given\nasset_id or group_key. Each key takes the form: (outpoint, script_key),\nwhere outpoint is an outpoint in the Bitcoin blockchain that anchors a\nvalid Taproot Asset commitment, and script_key is the script_key of\nthe asset within the Taproot Asset commitment for the given asset_id or\ngroup_key.",
         "operationId": "Universe_AssetLeafKeys2",
         "responses": {
           "200": {
