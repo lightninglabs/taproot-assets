@@ -763,7 +763,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		b.cfg.Batch.GenesisPacket.ChainFees = chainFees
 
 		log.Infof("BatchCaretaker(%x): GenesisPacket absolute fee: "+
-			"%d sats", chainFees)
+			"%d sats", b.batchKey[:], chainFees)
 		log.Infof("BatchCaretaker(%x): GenesisPacket finalized",
 			b.batchKey[:])
 		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
@@ -871,32 +871,43 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			defer confCancel()
 			defer b.Wg.Done()
 
-			var confEvent *chainntnfs.TxConfirmation
-			select {
-			case confEvent = <-confNtfn.Confirmed:
-				log.Debugf("Got chain confirmation: %v",
-					confEvent.Tx.TxHash())
+			var (
+				confEvent *chainntnfs.TxConfirmation
+				confRecv  bool
+			)
 
-			case err := <-errChan:
-				b.cfg.ErrChan <- fmt.Errorf("error getting "+
-					"confirmation: %w", err)
-				return
+			for !confRecv {
+				select {
+				case confEvent = <-confNtfn.Confirmed:
+					log.Debugf("Got chain confirmation: %v",
+						confEvent.Tx.TxHash())
+					confRecv = true
 
-			case <-confCtx.Done():
-				log.Debugf("Skipping TX confirmation, context " +
-					"done")
+				case err := <-errChan:
+					b.cfg.ErrChan <- fmt.Errorf("error "+
+						"getting confirmation: %w", err)
+					return
 
-			case <-b.cfg.CancelReqChan:
-				cancelErr := b.Cancel()
-				if cancelErr == nil {
+				case <-confCtx.Done():
+					log.Debugf("Skipping TX confirmation, " +
+						"context done")
+					confRecv = true
+
+				case <-b.cfg.CancelReqChan:
+					cancelErr := b.Cancel()
+					if cancelErr == nil {
+						return
+					}
+
+					// Cancellation failed, continue to wait
+					// for transaction confirmation.
+					log.Info(cancelErr)
+
+				case <-b.Quit:
+					log.Debugf("Skipping TX confirmation, " +
+						"exiting")
 					return
 				}
-
-				log.Info(cancelErr)
-
-			case <-b.Quit:
-				log.Debugf("Skipping TX confirmation, exiting")
-				return
 			}
 
 			if confEvent == nil {
@@ -905,24 +916,31 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				return
 			}
 
-			select {
-			case b.confEvent <- confEvent:
+			for {
+				select {
+				case b.confEvent <- confEvent:
+					return
 
-			case <-confCtx.Done():
-				log.Debugf("Skipping TX confirmation, context " +
-					"done")
+				case <-confCtx.Done():
+					log.Debugf("Skipping TX confirmation, " +
+						"context done")
+					return
 
-			case <-b.cfg.CancelReqChan:
-				cancelErr := b.Cancel()
-				if cancelErr == nil {
+				case <-b.cfg.CancelReqChan:
+					cancelErr := b.Cancel()
+					if cancelErr == nil {
+						return
+					}
+
+					// Cancellation failed, continue to try
+					// and send the confirmation event.
+					log.Info(cancelErr)
+
+				case <-b.Quit:
+					log.Debugf("Skipping TX confirmation, " +
+						"exiting")
 					return
 				}
-
-				log.Info(cancelErr)
-
-			case <-b.Quit:
-				log.Debugf("Skipping TX confirmation, exiting")
-				return
 			}
 		}()
 
