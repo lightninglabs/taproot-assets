@@ -1,4 +1,4 @@
-FROM golang:1.21.0-alpine as builder
+FROM golang:1.21.4-alpine as builder
 
 # Force Go to use the cgo based DNS resolver. This is required to ensure DNS
 # queries required to connect to linked containers succeed.
