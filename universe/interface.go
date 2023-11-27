@@ -400,6 +400,12 @@ type Item struct {
 
 	// MetaReveal is the meta reveal associated with the given proof leaf.
 	MetaReveal *proof.MetaReveal
+
+	// LogProofSync is a boolean that indicates, if true, that the proof
+	// leaf sync attempt should be logged and actively managed to ensure
+	// that the federation push procedure is repeated in the event of a
+	// failure.
+	LogProofSync bool
 }
 
 // BatchRegistrar is an interface that allows a caller to register a batch of
