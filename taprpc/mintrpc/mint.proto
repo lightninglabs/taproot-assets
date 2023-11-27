@@ -157,7 +157,7 @@ message MintingBatch {
 
 enum BatchState {
     BATCH_STATE_UNKNOWN = 0;
-    BATCH_STATE_PEDNING = 1;
+    BATCH_STATE_PENDING = 1;
     BATCH_STATE_FROZEN = 2;
     BATCH_STATE_COMMITTED = 3;
     BATCH_STATE_BROADCAST = 4;

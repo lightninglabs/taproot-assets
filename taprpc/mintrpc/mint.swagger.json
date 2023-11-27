@@ -161,7 +161,7 @@
       "type": "string",
       "enum": [
         "BATCH_STATE_UNKNOWN",
-        "BATCH_STATE_PEDNING",
+        "BATCH_STATE_PENDING",
         "BATCH_STATE_FROZEN",
         "BATCH_STATE_COMMITTED",
         "BATCH_STATE_BROADCAST",

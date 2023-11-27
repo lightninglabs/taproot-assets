@@ -2619,7 +2619,7 @@ func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 
 	switch currentBatchState {
 	case tapgarden.BatchStatePending:
-		return mintrpc.BatchState_BATCH_STATE_PEDNING, nil
+		return mintrpc.BatchState_BATCH_STATE_PENDING, nil
 
 	case tapgarden.BatchStateFrozen:
 		return mintrpc.BatchState_BATCH_STATE_FROZEN, nil
