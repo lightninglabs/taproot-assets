@@ -84,6 +84,66 @@ func (i *Identifier) StringForLog() string {
 		i.String(), i.AssetID[:], groupKey, i.ProofType)
 }
 
+// NewUniIDFromRawArgs creates a new universe ID from the raw arguments. The
+// asset ID bytes and group key bytes are mutually exclusive. If the group key
+// bytes are set, then the asset ID bytes will be ignored.
+// This function is useful in deriving a universe ID from the data stored in the
+// database.
+func NewUniIDFromRawArgs(assetIDBytes []byte, groupKeyBytes []byte,
+	proofTypeStr string) (Identifier, error) {
+
+	proofType, err := ParseStrProofType(proofTypeStr)
+	if err != nil {
+		return Identifier{}, err
+	}
+
+	// If the group key bytes are set, then we'll preferentially populate
+	// the universe ID with that and not the asset ID.
+	if len(groupKeyBytes) != 0 {
+		groupKey, err := parseGroupKey(groupKeyBytes)
+		if err != nil {
+			return Identifier{}, fmt.Errorf("unable to parse "+
+				"group key: %w", err)
+		}
+		return Identifier{
+			GroupKey:  groupKey,
+			ProofType: proofType,
+		}, nil
+	}
+
+	// At this point we know that the group key bytes are nil, so we'll
+	// attempt to parse the asset ID bytes.
+	if len(assetIDBytes) == 0 {
+		return Identifier{}, fmt.Errorf("asset ID bytes and group " +
+			"key bytes are both nil")
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], assetIDBytes)
+
+	return Identifier{
+		AssetID:   assetID,
+		ProofType: proofType,
+	}, nil
+}
+
+// parseGroupKey parses a group key from bytes, which can be in either the
+// Schnorr or Compressed format.
+func parseGroupKey(scriptKey []byte) (*btcec.PublicKey, error) {
+	switch len(scriptKey) {
+	case schnorr.PubKeyBytesLen:
+		return schnorr.ParsePubKey(scriptKey)
+
+	// Truncate the key and then parse as a Schnorr key.
+	case btcec.PubKeyBytesLenCompressed:
+		return schnorr.ParsePubKey(scriptKey[1:])
+
+	default:
+		return nil, fmt.Errorf("unknown script key length: %v",
+			len(scriptKey))
+	}
+}
+
 // ValidateProofUniverseType validates that the proof type matches the universe
 // identifier proof type.
 func ValidateProofUniverseType(a *asset.Asset, uniID Identifier) error {
