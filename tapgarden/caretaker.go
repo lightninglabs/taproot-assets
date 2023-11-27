@@ -1179,6 +1179,11 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		ID:   uniID,
 		Key:  leafKey,
 		Leaf: mintingLeaf,
+
+		// We set this to true to indicate that we would like the syncer
+		// to log and reattempt (in the event of a failure) to push sync
+		// this proof leaf.
+		LogProofSync: true,
 	}, nil
 }
 
