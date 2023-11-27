@@ -94,7 +94,6 @@ type Querier interface {
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
 	InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
-	ListUniverseServers(ctx context.Context) ([]UniverseServer, error)
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
@@ -129,6 +128,7 @@ type Querier interface {
 	// root, simplifies queries
 	QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error)
 	QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error)
+	QueryUniverseServers(ctx context.Context, arg QueryUniverseServersParams) ([]UniverseServer, error)
 	QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error)
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error
 	SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error
