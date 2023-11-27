@@ -115,8 +115,11 @@ UPDATE universe_servers
 SET last_sync_time = @new_sync_time
 WHERE server_host = @target_server;
 
--- name: ListUniverseServers :many
-SELECT * FROM universe_servers;
+-- name: QueryUniverseServers :many
+SELECT * FROM universe_servers
+WHERE (id = sqlc.narg('id') OR sqlc.narg('id') IS NULL) AND
+      (server_host = sqlc.narg('server_host')
+           OR sqlc.narg('server_host') IS NULL);
 
 -- name: InsertNewSyncEvent :exec
 WITH group_key_root_id AS (

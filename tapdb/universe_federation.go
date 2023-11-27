@@ -40,6 +40,9 @@ type (
 	// FedUniSyncConfigs is the universe specific federation sync config
 	// returned from a query.
 	FedUniSyncConfigs = sqlc.FederationUniSyncConfig
+
+	// QueryUniServersParams is used to query for universe servers.
+	QueryUniServersParams = sqlc.QueryUniverseServersParams
 )
 
 var (
@@ -97,8 +100,10 @@ type UniverseServerStore interface {
 	// LogServerSync marks that a server was just synced in the DB.
 	LogServerSync(ctx context.Context, arg sqlc.LogServerSyncParams) error
 
-	// ListUniverseServers returns the total set of all universe servers.
-	ListUniverseServers(ctx context.Context) ([]sqlc.UniverseServer, error)
+	// QueryUniverseServers returns a set of universe servers.
+	QueryUniverseServers(ctx context.Context,
+		arg sqlc.QueryUniverseServersParams) ([]sqlc.UniverseServer,
+		error)
 }
 
 // UniverseFederationOptions is the database tx object for the universe server store.
@@ -174,7 +179,9 @@ func (u *UniverseFederationDB) UniverseServers(
 
 	readTx := NewUniverseFederationReadTx()
 	dbErr := u.db.ExecTx(ctx, &readTx, func(db UniverseServerStore) error {
-		servers, err := db.ListUniverseServers(ctx)
+		servers, err := db.QueryUniverseServers(
+			ctx, QueryUniServersParams{},
+		)
 		if err != nil {
 			return err
 		}

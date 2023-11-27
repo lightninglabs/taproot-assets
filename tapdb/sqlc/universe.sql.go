@@ -265,33 +265,6 @@ func (q *Queries) InsertUniverseServer(ctx context.Context, arg InsertUniverseSe
 	return err
 }
 
-const listUniverseServers = `-- name: ListUniverseServers :many
-SELECT id, server_host, last_sync_time FROM universe_servers
-`
-
-func (q *Queries) ListUniverseServers(ctx context.Context) ([]UniverseServer, error) {
-	rows, err := q.db.QueryContext(ctx, listUniverseServers)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var items []UniverseServer
-	for rows.Next() {
-		var i UniverseServer
-		if err := rows.Scan(&i.ID, &i.ServerHost, &i.LastSyncTime); err != nil {
-			return nil, err
-		}
-		items = append(items, i)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, err
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	return items, nil
-}
-
 const logServerSync = `-- name: LogServerSync :exec
 UPDATE universe_servers
 SET last_sync_time = $1
@@ -675,6 +648,41 @@ func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeav
 			&i.SumAmt,
 			&i.AssetID,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryUniverseServers = `-- name: QueryUniverseServers :many
+SELECT id, server_host, last_sync_time FROM universe_servers
+WHERE (id = $1 OR $1 IS NULL) AND
+      (server_host = $2
+           OR $2 IS NULL)
+`
+
+type QueryUniverseServersParams struct {
+	ID         sql.NullInt64
+	ServerHost sql.NullString
+}
+
+func (q *Queries) QueryUniverseServers(ctx context.Context, arg QueryUniverseServersParams) ([]UniverseServer, error) {
+	rows, err := q.db.QueryContext(ctx, queryUniverseServers, arg.ID, arg.ServerHost)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UniverseServer
+	for rows.Next() {
+		var i UniverseServer
+		if err := rows.Scan(&i.ID, &i.ServerHost, &i.LastSyncTime); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
