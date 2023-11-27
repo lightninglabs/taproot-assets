@@ -121,6 +121,9 @@ type Querier interface {
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error)
+	// Join on mssmt_nodes to get leaf related fields.
+	// Join on genesis_info_view to get leaf related fields.
+	QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error)
 	QueryFederationUniSyncConfigs(ctx context.Context) ([]FederationUniSyncConfig, error)
 	QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error)
 	QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error)
@@ -145,6 +148,7 @@ type Querier interface {
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
+	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
 	UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error
 	UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error)
 	UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error)

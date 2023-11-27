@@ -365,3 +365,99 @@ ON CONFLICT(namespace)
 SELECT namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 FROM federation_uni_sync_config
 ORDER BY group_key NULLS LAST, asset_id NULLS LAST, proof_type;
+
+-- name: UpsertFederationProofSyncLog :one
+INSERT INTO federation_proof_sync_log as log (
+    status, timestamp, sync_direction, proof_leaf_id, universe_root_id,
+    servers_id
+) VALUES (
+    @status, @timestamp, @sync_direction,
+    (
+        -- Select the leaf id from the universe_leaves table.
+        SELECT id
+        FROM universe_leaves
+        WHERE leaf_node_namespace = @leaf_namespace
+            AND minting_point = @leaf_minting_point_bytes
+            AND script_key_bytes = @leaf_script_key_bytes
+        LIMIT 1
+    ),
+    (
+        -- Select the universe root id from the universe_roots table.
+        SELECT id
+        FROM universe_roots
+        WHERE namespace_root = @universe_id_namespace
+        LIMIT 1
+    ),
+    (
+        -- Select the server id from the universe_servers table.
+        SELECT id
+        FROM universe_servers
+        WHERE server_host = @server_host
+        LIMIT 1
+    )
+) ON CONFLICT (sync_direction, proof_leaf_id, universe_root_id, servers_id)
+DO UPDATE SET
+    status = EXCLUDED.status,
+    timestamp = EXCLUDED.timestamp,
+    -- Increment the attempt counter.
+    attempt_counter = CASE
+       WHEN @bump_sync_attempt_counter = true THEN log.attempt_counter + 1
+       ELSE log.attempt_counter
+    END
+RETURNING id;
+
+-- name: QueryFederationProofSyncLog :many
+SELECT
+    log.id, status, timestamp, sync_direction, attempt_counter,
+
+    -- Select fields from the universe_servers table.
+    server.id as server_id,
+    server.server_host,
+
+    -- Select universe leaf related fields.
+    leaf.minting_point as leaf_minting_point_bytes,
+    leaf.script_key_bytes as leaf_script_key_bytes,
+    mssmt_node.value as leaf_genesis_proof,
+    genesis.gen_asset_id as leaf_gen_asset_id,
+    genesis.asset_id as leaf_asset_id,
+
+    -- Select fields from the universe_roots table.
+    root.asset_id as uni_asset_id,
+    root.group_key as uni_group_key,
+    root.proof_type as uni_proof_type
+
+FROM federation_proof_sync_log as log
+
+JOIN universe_leaves as leaf
+    ON leaf.id = log.proof_leaf_id
+
+-- Join on mssmt_nodes to get leaf related fields.
+JOIN mssmt_nodes mssmt_node
+     ON leaf.leaf_node_key = mssmt_node.key AND
+        leaf.leaf_node_namespace = mssmt_node.namespace
+
+-- Join on genesis_info_view to get leaf related fields.
+JOIN genesis_info_view genesis
+     ON leaf.asset_genesis_id = genesis.gen_asset_id
+
+JOIN universe_servers as server
+    ON server.id = log.servers_id
+
+JOIN universe_roots as root
+    ON root.id = log.universe_root_id
+
+WHERE (log.sync_direction = sqlc.narg('sync_direction')
+           OR sqlc.narg('sync_direction') IS NULL)
+        AND
+      (log.status = sqlc.narg('status') OR sqlc.narg('status') IS NULL)
+        AND
+
+      -- Universe leaves WHERE clauses.
+      (leaf.leaf_node_namespace = sqlc.narg('leaf_namespace')
+           OR sqlc.narg('leaf_namespace') IS NULL)
+        AND
+      (leaf.minting_point = sqlc.narg('leaf_minting_point_bytes')
+           OR sqlc.narg('leaf_minting_point_bytes') IS NULL)
+        AND
+      (leaf.script_key_bytes = sqlc.narg('leaf_script_key_bytes')
+           OR sqlc.narg('leaf_script_key_bytes') IS NULL);
