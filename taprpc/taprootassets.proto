@@ -1001,11 +1001,25 @@ message ProofTransferBackoffWaitEvent {
 message SubscribeReceiveAssetEventNtfnsRequest {
 }
 
+message AssetReceiveCompleteEvent {
+    // Event creation timestamp.
+    int64 timestamp = 1;
+
+    // The address that received the asset.
+    Addr address = 2;
+
+    // The outpoint of the transaction that was used to receive the asset.
+    string outpoint = 3;
+}
+
 message ReceiveAssetEvent {
     oneof event {
         // An event which indicates that the proof transfer backoff wait period
         // will start imminently.
         ProofTransferBackoffWaitEvent proof_transfer_backoff_wait_event = 1;
+
+        // An event which indicates that an asset receive process has finished.
+        AssetReceiveCompleteEvent asset_receive_complete_event = 2;
     }
 }
 
