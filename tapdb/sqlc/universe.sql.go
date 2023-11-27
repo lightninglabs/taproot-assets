@@ -402,6 +402,134 @@ func (q *Queries) QueryFederationGlobalSyncConfigs(ctx context.Context) ([]Feder
 	return items, nil
 }
 
+const queryFederationProofSyncLog = `-- name: QueryFederationProofSyncLog :many
+SELECT
+    log.id, status, timestamp, sync_direction, attempt_counter,
+
+    -- Select fields from the universe_servers table.
+    server.id as server_id,
+    server.server_host,
+
+    -- Select universe leaf related fields.
+    leaf.minting_point as leaf_minting_point_bytes,
+    leaf.script_key_bytes as leaf_script_key_bytes,
+    mssmt_node.value as leaf_genesis_proof,
+    genesis.gen_asset_id as leaf_gen_asset_id,
+    genesis.asset_id as leaf_asset_id,
+
+    -- Select fields from the universe_roots table.
+    root.asset_id as uni_asset_id,
+    root.group_key as uni_group_key,
+    root.proof_type as uni_proof_type
+
+FROM federation_proof_sync_log as log
+
+JOIN universe_leaves as leaf
+    ON leaf.id = log.proof_leaf_id
+
+JOIN mssmt_nodes mssmt_node
+     ON leaf.leaf_node_key = mssmt_node.key AND
+        leaf.leaf_node_namespace = mssmt_node.namespace
+
+JOIN genesis_info_view genesis
+     ON leaf.asset_genesis_id = genesis.gen_asset_id
+
+JOIN universe_servers as server
+    ON server.id = log.servers_id
+
+JOIN universe_roots as root
+    ON root.id = log.universe_root_id
+
+WHERE (log.sync_direction = $1
+           OR $1 IS NULL)
+        AND
+      (log.status = $2 OR $2 IS NULL)
+        AND
+
+      -- Universe leaves WHERE clauses.
+      (leaf.leaf_node_namespace = $3
+           OR $3 IS NULL)
+        AND
+      (leaf.minting_point = $4
+           OR $4 IS NULL)
+        AND
+      (leaf.script_key_bytes = $5
+           OR $5 IS NULL)
+`
+
+type QueryFederationProofSyncLogParams struct {
+	SyncDirection         sql.NullString
+	Status                sql.NullString
+	LeafNamespace         sql.NullString
+	LeafMintingPointBytes []byte
+	LeafScriptKeyBytes    []byte
+}
+
+type QueryFederationProofSyncLogRow struct {
+	ID                    int64
+	Status                string
+	Timestamp             time.Time
+	SyncDirection         string
+	AttemptCounter        int64
+	ServerID              int64
+	ServerHost            string
+	LeafMintingPointBytes []byte
+	LeafScriptKeyBytes    []byte
+	LeafGenesisProof      []byte
+	LeafGenAssetID        int64
+	LeafAssetID           []byte
+	UniAssetID            []byte
+	UniGroupKey           []byte
+	UniProofType          string
+}
+
+// Join on mssmt_nodes to get leaf related fields.
+// Join on genesis_info_view to get leaf related fields.
+func (q *Queries) QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryFederationProofSyncLog,
+		arg.SyncDirection,
+		arg.Status,
+		arg.LeafNamespace,
+		arg.LeafMintingPointBytes,
+		arg.LeafScriptKeyBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryFederationProofSyncLogRow
+	for rows.Next() {
+		var i QueryFederationProofSyncLogRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Status,
+			&i.Timestamp,
+			&i.SyncDirection,
+			&i.AttemptCounter,
+			&i.ServerID,
+			&i.ServerHost,
+			&i.LeafMintingPointBytes,
+			&i.LeafScriptKeyBytes,
+			&i.LeafGenesisProof,
+			&i.LeafGenAssetID,
+			&i.LeafAssetID,
+			&i.UniAssetID,
+			&i.UniGroupKey,
+			&i.UniProofType,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const queryFederationUniSyncConfigs = `-- name: QueryFederationUniSyncConfigs :many
 SELECT namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 FROM federation_uni_sync_config
@@ -875,6 +1003,76 @@ type UpsertFederationGlobalSyncConfigParams struct {
 func (q *Queries) UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error {
 	_, err := q.db.ExecContext(ctx, upsertFederationGlobalSyncConfig, arg.ProofType, arg.AllowSyncInsert, arg.AllowSyncExport)
 	return err
+}
+
+const upsertFederationProofSyncLog = `-- name: UpsertFederationProofSyncLog :one
+INSERT INTO federation_proof_sync_log as log (
+    status, timestamp, sync_direction, proof_leaf_id, universe_root_id,
+    servers_id
+) VALUES (
+    $1, $2, $3,
+    (
+        -- Select the leaf id from the universe_leaves table.
+        SELECT id
+        FROM universe_leaves
+        WHERE leaf_node_namespace = $4
+            AND minting_point = $5
+            AND script_key_bytes = $6
+        LIMIT 1
+    ),
+    (
+        -- Select the universe root id from the universe_roots table.
+        SELECT id
+        FROM universe_roots
+        WHERE namespace_root = $7
+        LIMIT 1
+    ),
+    (
+        -- Select the server id from the universe_servers table.
+        SELECT id
+        FROM universe_servers
+        WHERE server_host = $8
+        LIMIT 1
+    )
+) ON CONFLICT (sync_direction, proof_leaf_id, universe_root_id, servers_id)
+DO UPDATE SET
+    status = EXCLUDED.status,
+    timestamp = EXCLUDED.timestamp,
+    -- Increment the attempt counter.
+    attempt_counter = CASE
+       WHEN $9 = true THEN log.attempt_counter + 1
+       ELSE log.attempt_counter
+    END
+RETURNING id
+`
+
+type UpsertFederationProofSyncLogParams struct {
+	Status                 string
+	Timestamp              time.Time
+	SyncDirection          string
+	LeafNamespace          string
+	LeafMintingPointBytes  []byte
+	LeafScriptKeyBytes     []byte
+	UniverseIDNamespace    string
+	ServerHost             string
+	BumpSyncAttemptCounter interface{}
+}
+
+func (q *Queries) UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertFederationProofSyncLog,
+		arg.Status,
+		arg.Timestamp,
+		arg.SyncDirection,
+		arg.LeafNamespace,
+		arg.LeafMintingPointBytes,
+		arg.LeafScriptKeyBytes,
+		arg.UniverseIDNamespace,
+		arg.ServerHost,
+		arg.BumpSyncAttemptCounter,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertFederationUniSyncConfig = `-- name: UpsertFederationUniSyncConfig :exec

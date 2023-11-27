@@ -1,7 +1,9 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"sort"
@@ -9,8 +11,11 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
@@ -19,6 +24,17 @@ import (
 )
 
 type (
+	// UpsertFedProofSyncLogParams is used to upsert federation proof sync
+	// logs.
+	UpsertFedProofSyncLogParams = sqlc.UpsertFederationProofSyncLogParams
+
+	// QueryFedProofSyncLogParams is used to query for federation proof sync
+	// logs.
+	QueryFedProofSyncLogParams = sqlc.QueryFederationProofSyncLogParams
+
+	// ProofSyncLogEntry is a single entry from the proof sync log.
+	ProofSyncLogEntry = sqlc.QueryFederationProofSyncLogRow
+
 	// NewUniverseServer is used to create a new universe server.
 	NewUniverseServer = sqlc.InsertUniverseServerParams
 
@@ -62,6 +78,22 @@ var (
 	}
 )
 
+// FederationProofSyncLogStore is used to log the sync status of individual
+// universe proofs.
+type FederationProofSyncLogStore interface {
+	BaseUniverseStore
+
+	// UpsertFederationProofSyncLog upserts a proof sync log entry for a
+	// given proof leaf and server.
+	UpsertFederationProofSyncLog(ctx context.Context,
+		arg UpsertFedProofSyncLogParams) (int64, error)
+
+	// QueryFederationProofSyncLog returns the set of proof sync logs for a
+	// given proof leaf.
+	QueryFederationProofSyncLog(ctx context.Context,
+		arg QueryFedProofSyncLogParams) ([]ProofSyncLogEntry, error)
+}
+
 // FederationSyncConfigStore is used to manage the set of Universe servers as
 // part of a federation.
 type FederationSyncConfigStore interface {
@@ -90,6 +122,7 @@ type FederationSyncConfigStore interface {
 // of a federation.
 type UniverseServerStore interface {
 	FederationSyncConfigStore
+	FederationProofSyncLogStore
 
 	// InsertUniverseServer inserts a new universe server in to the DB.
 	InsertUniverseServer(ctx context.Context, arg NewUniverseServer) error
@@ -266,6 +299,270 @@ func (u *UniverseFederationDB) LogNewSyncs(ctx context.Context,
 			})
 		})
 	})
+}
+
+// UpsertFederationProofSyncLog upserts a federation proof sync log entry for a
+// given universe server and proof.
+func (u *UniverseFederationDB) UpsertFederationProofSyncLog(
+	ctx context.Context, uniID universe.Identifier,
+	leafKey universe.LeafKey, addr universe.ServerAddr,
+	syncDirection universe.SyncDirection,
+	syncStatus universe.ProofSyncStatus,
+	bumpSyncAttemptCounter bool) (int64, error) {
+
+	// Encode the leaf key outpoint as bytes. We'll use this to look up the
+	// leaf ID in the DB.
+	leafKeyOutpointBytes, err := encodeOutpoint(leafKey.OutPoint)
+	if err != nil {
+		return 0, err
+	}
+
+	// Encode the leaf script key pub key as bytes. We'll use this to look
+	// up the leaf ID in the DB.
+	scriptKeyPubKeyBytes := schnorr.SerializePubKey(
+		leafKey.ScriptKey.PubKey,
+	)
+
+	var (
+		writeTx UniverseFederationOptions
+		logID   int64
+	)
+
+	err = u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
+		params := UpsertFedProofSyncLogParams{
+			Status:                 string(syncStatus),
+			Timestamp:              time.Now().UTC(),
+			SyncDirection:          string(syncDirection),
+			UniverseIDNamespace:    uniID.String(),
+			LeafNamespace:          uniID.String(),
+			LeafMintingPointBytes:  leafKeyOutpointBytes,
+			LeafScriptKeyBytes:     scriptKeyPubKeyBytes,
+			ServerHost:             addr.HostStr(),
+			BumpSyncAttemptCounter: bumpSyncAttemptCounter,
+		}
+		logID, err = db.UpsertFederationProofSyncLog(ctx, params)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	return logID, err
+}
+
+// QueryFederationProofSyncLog queries the federation proof sync log and returns
+// the log entries which correspond to the given universe proof leaf.
+func (u *UniverseFederationDB) QueryFederationProofSyncLog(
+	ctx context.Context, uniID universe.Identifier,
+	leafKey universe.LeafKey,
+	syncDirection universe.SyncDirection,
+	syncStatus universe.ProofSyncStatus) ([]*universe.ProofSyncLogEntry,
+	error) {
+
+	// Encode the leaf key outpoint as bytes. We'll use this to look up the
+	// leaf ID in the DB.
+	leafKeyOutpointBytes, err := encodeOutpoint(leafKey.OutPoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// Encode the leaf script key pub key as bytes. We'll use this to look
+	// up the leaf ID in the DB.
+	scriptKeyPubKeyBytes := schnorr.SerializePubKey(
+		leafKey.ScriptKey.PubKey,
+	)
+
+	var (
+		readTx        = NewUniverseFederationReadTx()
+		proofSyncLogs []*universe.ProofSyncLogEntry
+	)
+
+	err = u.db.ExecTx(ctx, &readTx, func(db UniverseServerStore) error {
+		params := QueryFedProofSyncLogParams{
+			SyncDirection:         sqlStr(string(syncDirection)),
+			Status:                sqlStr(string(syncStatus)),
+			LeafNamespace:         sqlStr(uniID.String()),
+			LeafMintingPointBytes: leafKeyOutpointBytes,
+			LeafScriptKeyBytes:    scriptKeyPubKeyBytes,
+		}
+		logEntries, err := db.QueryFederationProofSyncLog(ctx, params)
+
+		// Parse database proof sync logs. Multiple log entries may
+		// exist for a given leaf because each log entry is unique to a
+		// server.
+		proofSyncLogs = make(
+			[]*universe.ProofSyncLogEntry, 0, len(logEntries),
+		)
+		for idx := range logEntries {
+			entry := logEntries[idx]
+
+			parsedLogEntry, err := fetchProofSyncLogEntry(
+				ctx, entry, db,
+			)
+			if err != nil {
+				return err
+			}
+
+			proofSyncLogs = append(proofSyncLogs, parsedLogEntry)
+		}
+
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return proofSyncLogs, nil
+}
+
+// FetchPendingProofsSyncLog queries the federation proof sync log and returns
+// all log entries with sync status pending.
+func (u *UniverseFederationDB) FetchPendingProofsSyncLog(ctx context.Context,
+	syncDirection *universe.SyncDirection) ([]*universe.ProofSyncLogEntry,
+	error) {
+
+	var (
+		readTx        = NewUniverseFederationReadTx()
+		proofSyncLogs []*universe.ProofSyncLogEntry
+	)
+
+	err := u.db.ExecTx(ctx, &readTx, func(db UniverseServerStore) error {
+		// If the sync direction is not set, then we'll query for all
+		// pending proof sync log entries.
+		var sqlSyncDirection sql.NullString
+		if syncDirection != nil {
+			sqlSyncDirection = sqlStr(string(*syncDirection))
+		}
+
+		sqlProofSyncStatus := sqlStr(
+			string(universe.ProofSyncStatusPending),
+		)
+
+		params := QueryFedProofSyncLogParams{
+			SyncDirection: sqlSyncDirection,
+			Status:        sqlProofSyncStatus,
+		}
+		logEntries, err := db.QueryFederationProofSyncLog(ctx, params)
+		if err != nil {
+			return fmt.Errorf("unable to query proof sync log: %w",
+				err)
+		}
+
+		// Parse log entries from database row.
+		proofSyncLogs = make(
+			[]*universe.ProofSyncLogEntry, 0, len(logEntries),
+		)
+		for idx := range logEntries {
+			entry := logEntries[idx]
+
+			parsedLogEntry, err := fetchProofSyncLogEntry(
+				ctx, entry, db,
+			)
+			if err != nil {
+				return err
+			}
+
+			proofSyncLogs = append(proofSyncLogs, parsedLogEntry)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return proofSyncLogs, nil
+}
+
+// fetchProofSyncLogEntry returns a proof sync log entry given a DB row.
+func fetchProofSyncLogEntry(ctx context.Context, entry ProofSyncLogEntry,
+	dbTx UniverseServerStore) (*universe.ProofSyncLogEntry, error) {
+
+	// Fetch asset genesis for the leaf.
+	leafAssetGen, err := fetchGenesis(ctx, dbTx, entry.LeafGenAssetID)
+	if err != nil {
+		return nil, err
+	}
+
+	// We only need to obtain the asset at this point, so we'll do a sparse
+	// decode here to decode only the asset record.
+	var leafAsset asset.Asset
+	assetRecord := proof.AssetLeafRecord(&leafAsset)
+	err = proof.SparseDecode(
+		bytes.NewReader(entry.LeafGenesisProof), assetRecord,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof: %w", err)
+	}
+
+	leaf := &universe.Leaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis:  leafAssetGen,
+			GroupKey: leafAsset.GroupKey,
+		},
+		RawProof: entry.LeafGenesisProof,
+		Asset:    &leafAsset,
+		Amt:      leafAsset.Amount,
+	}
+
+	// Parse leaf key from leaf DB row.
+	scriptKeyPub, err := schnorr.ParsePubKey(
+		entry.LeafScriptKeyBytes,
+	)
+	if err != nil {
+		return nil, err
+	}
+	scriptKey := asset.NewScriptKey(scriptKeyPub)
+
+	var outPoint wire.OutPoint
+	err = readOutPoint(
+		bytes.NewReader(entry.LeafMintingPointBytes), 0, 0,
+		&outPoint,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	leafKey := universe.LeafKey{
+		OutPoint:  outPoint,
+		ScriptKey: &scriptKey,
+	}
+
+	// Parse server address from DB row.
+	serverAddr := universe.NewServerAddr(entry.ServerID, entry.ServerHost)
+
+	// Parse proof sync status directly from the DB row.
+	status, err := universe.ParseStrProofSyncStatus(entry.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse proof sync direction directly from the DB row.
+	direction, err := universe.ParseStrSyncDirection(entry.SyncDirection)
+	if err != nil {
+		return nil, err
+	}
+
+	uniID, err := universe.NewUniIDFromRawArgs(
+		entry.UniAssetID, entry.UniGroupKey,
+		entry.UniProofType,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &universe.ProofSyncLogEntry{
+		Timestamp:      entry.Timestamp,
+		SyncStatus:     status,
+		SyncDirection:  direction,
+		AttemptCounter: entry.AttemptCounter,
+		ServerAddr:     serverAddr,
+
+		UniID:   uniID,
+		LeafKey: leafKey,
+		Leaf:    *leaf,
+	}, nil
 }
 
 // UpsertFederationSyncConfig upserts both the global and universe specific

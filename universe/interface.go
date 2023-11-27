@@ -763,10 +763,109 @@ type FederationSyncConfigDB interface {
 		uniSyncConfigs []*FedUniSyncConfig) error
 }
 
-// FederationDB is used for CRUD operations related to federation sync config
-// and tracked servers.
+// SyncDirection is the direction of a proof sync.
+type SyncDirection string
+
+const (
+	// SyncDirectionPush indicates that the sync is a push sync (from the local
+	// server to the remote server).
+	SyncDirectionPush SyncDirection = "push"
+
+	// SyncDirectionPull indicates that the sync is a pull sync (from the remote
+	// server to the local server).
+	SyncDirectionPull SyncDirection = "pull"
+)
+
+// ParseStrSyncDirection parses a string into a SyncDirection.
+func ParseStrSyncDirection(s string) (SyncDirection, error) {
+	switch s {
+	case string(SyncDirectionPush):
+		return SyncDirectionPush, nil
+	case string(SyncDirectionPull):
+		return SyncDirectionPull, nil
+	default:
+		return "", fmt.Errorf("unknown sync direction: %v", s)
+	}
+}
+
+// ProofSyncStatus is the status of a proof sync.
+type ProofSyncStatus string
+
+const (
+	// ProofSyncStatusPending indicates that the sync is pending.
+	ProofSyncStatusPending ProofSyncStatus = "pending"
+
+	// ProofSyncStatusComplete indicates that the sync is complete.
+	ProofSyncStatusComplete ProofSyncStatus = "complete"
+)
+
+// ParseStrProofSyncStatus parses a string into a ProofSyncStatus.
+func ParseStrProofSyncStatus(s string) (ProofSyncStatus, error) {
+	switch s {
+	case string(ProofSyncStatusPending):
+		return ProofSyncStatusPending, nil
+	case string(ProofSyncStatusComplete):
+		return ProofSyncStatusComplete, nil
+	default:
+		return "", fmt.Errorf("unknown proof sync status: %v", s)
+	}
+}
+
+// ProofSyncLogEntry is a log entry for a proof sync.
+type ProofSyncLogEntry struct {
+	// Timestamp is the timestamp of the log entry.
+	Timestamp time.Time
+
+	// SyncStatus is the status of the sync.
+	SyncStatus ProofSyncStatus
+
+	// SyncDirection is the direction of the sync.
+	SyncDirection SyncDirection
+
+	// AttemptCounter is the number of times the sync has been attempted.
+	AttemptCounter int64
+
+	// ServerAddr is the address of the sync counterparty server.
+	ServerAddr ServerAddr
+
+	// UniID is the identifier of the universe associated with the sync event.
+	UniID Identifier
+
+	// LeafKey is the leaf key associated with the sync event.
+	LeafKey LeafKey
+
+	// Leaf is the leaf associated with the sync event.
+	Leaf Leaf
+}
+
+// FederationProofSyncLog is used for CRUD operations relating to the federation
+// proof sync log.
+type FederationProofSyncLog interface {
+	// UpsertFederationProofSyncLog upserts a federation proof sync log
+	// entry for a given universe server and proof.
+	UpsertFederationProofSyncLog(ctx context.Context, uniID Identifier,
+		leafKey LeafKey, addr ServerAddr, syncDirection SyncDirection,
+		syncStatus ProofSyncStatus,
+		bumpSyncAttemptCounter bool) (int64, error)
+
+	// QueryFederationProofSyncLog queries the federation proof sync log and
+	// returns the log entries which correspond to the given universe proof
+	// leaf.
+	QueryFederationProofSyncLog(ctx context.Context, uniID Identifier,
+		leafKey LeafKey, syncDirection SyncDirection,
+		syncStatus ProofSyncStatus) ([]*ProofSyncLogEntry, error)
+
+	// FetchPendingProofsSyncLog queries the federation proof sync log and
+	// returns all log entries with sync status pending.
+	FetchPendingProofsSyncLog(ctx context.Context,
+		syncDirection *SyncDirection) ([]*ProofSyncLogEntry, error)
+}
+
+// FederationDB is used for CRUD operations related to federation logs and
+// configuration.
 type FederationDB interface {
 	FederationLog
+	FederationProofSyncLog
 	FederationSyncConfigDB
 }
 
