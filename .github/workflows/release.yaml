@@ -42,7 +42,7 @@ jobs:
           name: tapd ${{ env.RELEASE_VERSION }}
           draft: true
           prerelease: false
-          files: tapd-${{ env.RELEASE_VERSION }}/*
+          files: taproot-assets-${{ env.RELEASE_VERSION }}/*
           body: |
             # Database Migrations
             TODO
