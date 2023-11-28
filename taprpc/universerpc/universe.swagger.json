@@ -1212,7 +1212,7 @@
     },
     "/v1/taproot-assets/universe/sync/config": {
       "get": {
-        "summary": "QueryFederationSyncConfig queries the universe federation sync configuration\nsettings.",
+        "summary": "tapcli: `universe federation config info`\nQueryFederationSyncConfig queries the universe federation sync configuration\nsettings.",
         "operationId": "Universe_QueryFederationSyncConfig",
         "responses": {
           "200": {

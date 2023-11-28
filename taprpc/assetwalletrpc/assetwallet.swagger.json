@@ -51,7 +51,7 @@
     },
     "/v1/taproot-assets/wallet/ownership/prove": {
       "post": {
-        "summary": "ProveAssetOwnership creates an ownership proof embedded in an asset\ntransition proof. That ownership proof is a signed virtual transaction\nspending the asset with a valid witness to prove the prover owns the keys\nthat can spend the asset.",
+        "summary": "tapcli: `proofs proveownership`\nProveAssetOwnership creates an ownership proof embedded in an asset\ntransition proof. That ownership proof is a signed virtual transaction\nspending the asset with a valid witness to prove the prover owns the keys\nthat can spend the asset.",
         "operationId": "AssetWallet_ProveAssetOwnership",
         "responses": {
           "200": {
@@ -84,7 +84,7 @@
     },
     "/v1/taproot-assets/wallet/ownership/verify": {
       "post": {
-        "summary": "VerifyAssetOwnership verifies the asset ownership proof embedded in the\ngiven transition proof of an asset and returns true if the proof is valid.",
+        "summary": "tapcli: `proofs verifyownership`\nVerifyAssetOwnership verifies the asset ownership proof embedded in the\ngiven transition proof of an asset and returns true if the proof is valid.",
         "operationId": "AssetWallet_VerifyAssetOwnership",
         "responses": {
           "200": {

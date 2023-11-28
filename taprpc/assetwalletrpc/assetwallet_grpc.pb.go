@@ -42,11 +42,13 @@ type AssetWalletClient interface {
 	// key) and stores them both in the database to make sure they are identified
 	// as local keys later on when importing proofs.
 	NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error)
+	// tapcli: `proofs proveownership`
 	// ProveAssetOwnership creates an ownership proof embedded in an asset
 	// transition proof. That ownership proof is a signed virtual transaction
 	// spending the asset with a valid witness to prove the prover owns the keys
 	// that can spend the asset.
 	ProveAssetOwnership(ctx context.Context, in *ProveAssetOwnershipRequest, opts ...grpc.CallOption) (*ProveAssetOwnershipResponse, error)
+	// tapcli: `proofs verifyownership`
 	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
 	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(ctx context.Context, in *VerifyAssetOwnershipRequest, opts ...grpc.CallOption) (*VerifyAssetOwnershipResponse, error)
@@ -162,11 +164,13 @@ type AssetWalletServer interface {
 	// key) and stores them both in the database to make sure they are identified
 	// as local keys later on when importing proofs.
 	NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error)
+	// tapcli: `proofs proveownership`
 	// ProveAssetOwnership creates an ownership proof embedded in an asset
 	// transition proof. That ownership proof is a signed virtual transaction
 	// spending the asset with a valid witness to prove the prover owns the keys
 	// that can spend the asset.
 	ProveAssetOwnership(context.Context, *ProveAssetOwnershipRequest) (*ProveAssetOwnershipResponse, error)
+	// tapcli: `proofs verifyownership`
 	// VerifyAssetOwnership verifies the asset ownership proof embedded in the
 	// given transition proof of an asset and returns true if the proof is valid.
 	VerifyAssetOwnership(context.Context, *VerifyAssetOwnershipRequest) (*VerifyAssetOwnershipResponse, error)

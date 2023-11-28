@@ -134,7 +134,7 @@ service Universe {
     rpc SetFederationSyncConfig (SetFederationSyncConfigRequest)
         returns (SetFederationSyncConfigResponse);
 
-    /*
+    /* tapcli: `universe federation config info`
     QueryFederationSyncConfig queries the universe federation sync configuration
     settings.
     */

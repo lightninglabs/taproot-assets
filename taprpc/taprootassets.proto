@@ -123,7 +123,7 @@ service TaprootAssets {
     rpc SubscribeReceiveAssetEventNtfns (SubscribeReceiveAssetEventNtfnsRequest)
         returns (stream ReceiveAssetEvent);
 
-    /*
+    /* tapcli: `assets meta`
     FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
     either by the asset ID for that asset, or a meta hash.
     */
