@@ -101,6 +101,7 @@ type UniverseClient interface {
 	// SetFederationSyncConfig sets the configuration of the universe federation
 	// sync.
 	SetFederationSyncConfig(ctx context.Context, in *SetFederationSyncConfigRequest, opts ...grpc.CallOption) (*SetFederationSyncConfigResponse, error)
+	// tapcli: `universe federation config info`
 	// QueryFederationSyncConfig queries the universe federation sync configuration
 	// settings.
 	QueryFederationSyncConfig(ctx context.Context, in *QueryFederationSyncConfigRequest, opts ...grpc.CallOption) (*QueryFederationSyncConfigResponse, error)
@@ -354,6 +355,7 @@ type UniverseServer interface {
 	// SetFederationSyncConfig sets the configuration of the universe federation
 	// sync.
 	SetFederationSyncConfig(context.Context, *SetFederationSyncConfigRequest) (*SetFederationSyncConfigResponse, error)
+	// tapcli: `universe federation config info`
 	// QueryFederationSyncConfig queries the universe federation sync configuration
 	// settings.
 	QueryFederationSyncConfig(context.Context, *QueryFederationSyncConfigRequest) (*QueryFederationSyncConfigResponse, error)

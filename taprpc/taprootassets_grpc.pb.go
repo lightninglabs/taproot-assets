@@ -94,6 +94,7 @@ type TaprootAssetsClient interface {
 	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset receive process.
 	SubscribeReceiveAssetEventNtfns(ctx context.Context, in *SubscribeReceiveAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveAssetEventNtfnsClient, error)
+	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error)
@@ -413,6 +414,7 @@ type TaprootAssetsServer interface {
 	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset receive process.
 	SubscribeReceiveAssetEventNtfns(*SubscribeReceiveAssetEventNtfnsRequest, TaprootAssets_SubscribeReceiveAssetEventNtfnsServer) error
+	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error)

@@ -49,7 +49,7 @@ service AssetWallet {
     */
     rpc NextScriptKey (NextScriptKeyRequest) returns (NextScriptKeyResponse);
 
-    /*
+    /* tapcli: `proofs proveownership`
     ProveAssetOwnership creates an ownership proof embedded in an asset
     transition proof. That ownership proof is a signed virtual transaction
     spending the asset with a valid witness to prove the prover owns the keys
@@ -58,7 +58,7 @@ service AssetWallet {
     rpc ProveAssetOwnership (ProveAssetOwnershipRequest)
         returns (ProveAssetOwnershipResponse);
 
-    /*
+    /* tapcli: `proofs verifyownership`
     VerifyAssetOwnership verifies the asset ownership proof embedded in the
     given transition proof of an asset and returns true if the proof is valid.
     */

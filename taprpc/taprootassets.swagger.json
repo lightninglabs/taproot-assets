@@ -293,7 +293,7 @@
     },
     "/v1/taproot-assets/assets/meta/asset-id/{asset_id_str}": {
       "get": {
-        "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
+        "summary": "tapcli: `assets meta`\nFetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
         "operationId": "TaprootAssets_FetchAssetMeta",
         "responses": {
           "200": {
@@ -348,7 +348,7 @@
     },
     "/v1/taproot-assets/assets/meta/hash/{meta_hash_str}": {
       "get": {
-        "summary": "FetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
+        "summary": "tapcli: `assets meta`\nFetchAssetMeta allows a caller to fetch the reveal meta data for an asset\neither by the asset ID for that asset, or a meta hash.",
         "operationId": "TaprootAssets_FetchAssetMeta2",
         "responses": {
           "200": {

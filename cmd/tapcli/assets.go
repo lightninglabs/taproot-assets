@@ -261,8 +261,8 @@ var finalizeBatchCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: feeRateName,
-			Usage: "if set, the fee rate in sat/kw to use for the" +
-				"minting transaction",
+			Usage: "if set, the fee rate in sat/kw to use for " +
+				"the minting transaction",
 		},
 	},
 	Action: finalizeBatch,
@@ -531,8 +531,8 @@ var sendAssetsCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: feeRateName,
-			Usage: "if set, the fee rate in sat/kw to use for the" +
-				"anchor transaction",
+			Usage: "if set, the fee rate in sat/kw to use for " +
+				"the anchor transaction",
 		},
 		// TODO(roasbeef): add arg for file name to write sender proof
 		// blob
