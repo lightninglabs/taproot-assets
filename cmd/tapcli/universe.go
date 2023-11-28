@@ -783,13 +783,13 @@ var (
 		},
 		cli.StringFlag{
 			Name: proofInsertName,
-			Usage: "if true, remote Universes can push proofs to" +
+			Usage: "if true, remote Universes can push proofs to " +
 				"the local Universe",
 		},
 		cli.StringFlag{
 			Name: proofExportName,
-			Usage: "if true, remote Universes can pull proofs from" +
-				"the local Universe",
+			Usage: "if true, remote Universes can pull proofs " +
+				"from the local Universe",
 		},
 	}
 )
@@ -1166,8 +1166,8 @@ func universeFederationGetConfigInfo(ctx *cli.Context) error {
 	}
 
 	if scope == "global" {
-		return fmt.Errorf("cannot specify global scope and a specific" +
-			"asset")
+		return fmt.Errorf("cannot specify global scope and a " +
+			"specific asset")
 	}
 
 	return printLocalConfig()
