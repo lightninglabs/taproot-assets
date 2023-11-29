@@ -11,6 +11,44 @@ import (
 	"time"
 )
 
+const deleteFederationProofSyncLog = `-- name: DeleteFederationProofSyncLog :exec
+WITH selected_server_id AS (
+    -- Select the server ids from the universe_servers table for the specified
+    -- hosts.
+    SELECT id
+    FROM universe_servers
+    WHERE
+        (server_host = $4
+            OR $4 IS NULL)
+)
+DELETE FROM federation_proof_sync_log
+WHERE
+    servers_id IN (SELECT id FROM selected_server_id) AND
+    (status = $1
+        OR $1 IS NULL) AND
+    (timestamp >= $2
+        OR $2 IS NULL) AND
+    (attempt_counter >= $3
+        OR $3 IS NULL)
+`
+
+type DeleteFederationProofSyncLogParams struct {
+	Status            sql.NullString
+	MinTimestamp      sql.NullTime
+	MinAttemptCounter sql.NullInt64
+	ServerHost        sql.NullString
+}
+
+func (q *Queries) DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error {
+	_, err := q.db.ExecContext(ctx, deleteFederationProofSyncLog,
+		arg.Status,
+		arg.MinTimestamp,
+		arg.MinAttemptCounter,
+		arg.ServerHost,
+	)
+	return err
+}
+
 const deleteUniverseEvents = `-- name: DeleteUniverseEvents :exec
 WITH root_id AS (
     SELECT id

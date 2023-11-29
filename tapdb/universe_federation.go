@@ -32,6 +32,9 @@ type (
 	// logs.
 	QueryFedProofSyncLogParams = sqlc.QueryFederationProofSyncLogParams
 
+	// DeleteFedProofSyncLogParams is used to delete proof sync log entries.
+	DeleteFedProofSyncLogParams = sqlc.DeleteFederationProofSyncLogParams
+
 	// ProofSyncLogEntry is a single entry from the proof sync log.
 	ProofSyncLogEntry = sqlc.QueryFederationProofSyncLogRow
 
@@ -92,6 +95,10 @@ type FederationProofSyncLogStore interface {
 	// given proof leaf.
 	QueryFederationProofSyncLog(ctx context.Context,
 		arg QueryFedProofSyncLogParams) ([]ProofSyncLogEntry, error)
+
+	// DeleteFederationProofSyncLog deletes proof sync log entries.
+	DeleteFederationProofSyncLog(ctx context.Context,
+		arg DeleteFedProofSyncLogParams) error
 }
 
 // FederationSyncConfigStore is used to manage the set of Universe servers as
@@ -563,6 +570,37 @@ func fetchProofSyncLogEntry(ctx context.Context, entry ProofSyncLogEntry,
 		LeafKey: leafKey,
 		Leaf:    *leaf,
 	}, nil
+}
+
+// DeleteProofsSyncLogEntries deletes a set of proof sync log entries.
+func (u *UniverseFederationDB) DeleteProofsSyncLogEntries(ctx context.Context,
+	servers ...universe.ServerAddr) error {
+
+	var writeTx UniverseFederationOptions
+
+	err := u.db.ExecTx(ctx, &writeTx, func(db UniverseServerStore) error {
+		// Delete proof sync log entries which are associated with each
+		// server.
+		for i := range servers {
+			server := servers[i]
+
+			err := db.DeleteFederationProofSyncLog(
+				ctx, DeleteFedProofSyncLogParams{
+					ServerHost: sqlStr(server.HostStr()),
+				},
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // UpsertFederationSyncConfig upserts both the global and universe specific

@@ -865,6 +865,10 @@ type FederationProofSyncLog interface {
 	// returns all log entries with sync status pending.
 	FetchPendingProofsSyncLog(ctx context.Context,
 		syncDirection *SyncDirection) ([]*ProofSyncLogEntry, error)
+
+	// DeleteProofsSyncLogEntries deletes proof sync log entries.
+	DeleteProofsSyncLogEntries(ctx context.Context,
+		servers ...ServerAddr) error
 }
 
 // FederationDB is used for CRUD operations related to federation logs and

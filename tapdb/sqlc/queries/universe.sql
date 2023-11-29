@@ -461,3 +461,23 @@ WHERE (log.sync_direction = sqlc.narg('sync_direction')
         AND
       (leaf.script_key_bytes = sqlc.narg('leaf_script_key_bytes')
            OR sqlc.narg('leaf_script_key_bytes') IS NULL);
+
+-- name: DeleteFederationProofSyncLog :exec
+WITH selected_server_id AS (
+    -- Select the server ids from the universe_servers table for the specified
+    -- hosts.
+    SELECT id
+    FROM universe_servers
+    WHERE
+        (server_host = sqlc.narg('server_host')
+            OR sqlc.narg('server_host') IS NULL)
+)
+DELETE FROM federation_proof_sync_log
+WHERE
+    servers_id IN (SELECT id FROM selected_server_id) AND
+    (status = sqlc.narg('status')
+        OR sqlc.narg('status') IS NULL) AND
+    (timestamp >= sqlc.narg('min_timestamp')
+        OR sqlc.narg('min_timestamp') IS NULL) AND
+    (attempt_counter >= sqlc.narg('min_attempt_counter')
+        OR sqlc.narg('min_attempt_counter') IS NULL);
