@@ -366,6 +366,10 @@ type tapdHarnessParams struct {
 	// synced from the above node.
 	startupSyncNumAssets int
 
+	// fedSyncTickerInterval is the interval at which the federation envoy
+	// sync ticker will fire.
+	fedSyncTickerInterval *time.Duration
+
 	// noDefaultUniverseSync indicates whether the default universe server
 	// should be added as a federation server or not.
 	noDefaultUniverseSync bool
@@ -402,6 +406,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.proofCourier = selectedProofCourier
 		ho.custodianProofRetrievalDelay = params.custodianProofRetrievalDelay
 		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
+		ho.fedSyncTickerInterval = params.fedSyncTickerInterval
 	}
 
 	tapdHarness, err := newTapdHarness(t, ht, tapdConfig{
