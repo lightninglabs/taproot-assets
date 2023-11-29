@@ -25,6 +25,7 @@ type Querier interface {
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)
 	DeleteAssetWitnesses(ctx context.Context, assetID int64) error
 	DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error
+	DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error
 	DeleteManagedUTXO(ctx context.Context, outpoint []byte) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
