@@ -171,3 +171,27 @@ func NewTestPostgresDB(t *testing.T) *PostgresStore {
 
 	return store
 }
+
+// NewTestPostgresDBWithVersion is a helper function that creates a Postgres
+// database for testing and migrates it to the given version.
+func NewTestPostgresDBWithVersion(t *testing.T, version uint) *PostgresStore {
+	t.Helper()
+
+	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
+		version)
+
+	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
+	storeCfg := sqlFixture.GetConfig()
+	storeCfg.SkipMigrations = true
+	store, err := NewPostgresStore(storeCfg)
+	require.NoError(t, err)
+
+	err = store.ExecuteMigrations(TargetVersion(version))
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		sqlFixture.TearDown(t)
+	})
+
+	return store
+}
