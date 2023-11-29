@@ -1591,10 +1591,11 @@ func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
 	// Store the script and value of the change output.
 	maxOutputIndex := len(fPkt.Pkt.UnsignedTx.TxOut) - 1
 	changeOutput := fPkt.Pkt.UnsignedTx.TxOut[changeIndex]
+	lastOutput := fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex]
 
-	// Overwrite the existing change output, and restore in at the
-	// highest-index output.
-	fPkt.Pkt.UnsignedTx.TxOut[changeIndex] = createDummyOutput()
+	// Swap the change output, and highest-index output.
+	fPkt.Pkt.UnsignedTx.TxOut[changeIndex].PkScript = lastOutput.PkScript
+	fPkt.Pkt.UnsignedTx.TxOut[changeIndex].Value = lastOutput.Value
 	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeOutput.PkScript
 	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeOutput.Value
 
@@ -1609,8 +1610,9 @@ func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
 		return
 	}
 
-	// We also need to re-assign the PSBT level output information.
+	// We also need to swap the PSBT level output information.
 	changeOutputInfo := fPkt.Pkt.Outputs[changeIndex]
+	lastOutputInfo := fPkt.Pkt.Outputs[maxOutputIndex]
 	fPkt.Pkt.Outputs[maxOutputIndex] = psbt.POutput{
 		RedeemScript:           changeOutputInfo.RedeemScript,
 		WitnessScript:          changeOutputInfo.WitnessScript,
@@ -1619,7 +1621,14 @@ func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
 		TaprootTapTree:         changeOutputInfo.TaprootTapTree,
 		TaprootBip32Derivation: changeOutputInfo.TaprootBip32Derivation,
 	}
-	fPkt.Pkt.Outputs[changeIndex] = psbt.POutput{}
+	fPkt.Pkt.Outputs[changeIndex] = psbt.POutput{
+		RedeemScript:           lastOutputInfo.RedeemScript,
+		WitnessScript:          lastOutputInfo.WitnessScript,
+		Bip32Derivation:        lastOutputInfo.Bip32Derivation,
+		TaprootInternalKey:     lastOutputInfo.TaprootInternalKey,
+		TaprootTapTree:         lastOutputInfo.TaprootTapTree,
+		TaprootBip32Derivation: lastOutputInfo.TaprootBip32Derivation,
+	}
 	fPkt.ChangeOutputIndex = int32(maxOutputIndex)
 }
 
