@@ -140,7 +140,7 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// Now that the database is open, populate the database with our set of
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(); err != nil {
+		if err := s.ExecuteMigrations(TargetLatest); err != nil {
 			return nil, fmt.Errorf("error executing migrations: "+
 				"%w", err)
 		}
@@ -149,8 +149,9 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	return s, nil
 }
 
-// ExecuteMigrations executes all the migrations for the sqlite database.
-func (s *SqliteStore) ExecuteMigrations() error {
+// ExecuteMigrations runs migrations for the sqlite database, depending on the
+// target given, either all migrations or up to a given version.
+func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 	driver, err := sqlite_migrate.WithInstance(
 		s.DB, &sqlite_migrate.Config{},
 	)
@@ -159,7 +160,9 @@ func (s *SqliteStore) ExecuteMigrations() error {
 	}
 
 	sqliteFS := newReplacerFS(sqlSchemas, sqliteSchemaReplacements)
-	return applyMigrations(sqliteFS, driver, "sqlc/migrations", "sqlite")
+	return applyMigrations(
+		sqliteFS, driver, "sqlc/migrations", "sqlite", target,
+	)
 }
 
 // NewTestSqliteDB is a helper function that creates an SQLite database for

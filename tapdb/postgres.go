@@ -129,7 +129,7 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	// Now that the database is open, populate the database with our set of
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(); err != nil {
+		if err := s.ExecuteMigrations(TargetLatest); err != nil {
 			return nil, fmt.Errorf("error executing migrations: "+
 				"%w", err)
 		}
@@ -138,8 +138,9 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	return s, nil
 }
 
-// ExecuteMigrations runs all migrations for the Postgres database.
-func (s *PostgresStore) ExecuteMigrations() error {
+// ExecuteMigrations runs migrations for the Postgres database, depending on the
+// target given, either all migrations or up to a given version.
+func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	driver, err := postgres_migrate.WithInstance(
 		s.DB, &postgres_migrate.Config{},
 	)
@@ -149,7 +150,7 @@ func (s *PostgresStore) ExecuteMigrations() error {
 
 	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
 	return applyMigrations(
-		postgresFS, driver, "sqlc/migrations", s.cfg.DBName,
+		postgresFS, driver, "sqlc/migrations", s.cfg.DBName, target,
 	)
 }
 
