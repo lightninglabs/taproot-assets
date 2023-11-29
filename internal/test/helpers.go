@@ -3,6 +3,8 @@ package test
 import (
 	"bytes"
 	"encoding/hex"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -368,4 +370,14 @@ func ScriptSchnorrSig(t *testing.T, pubKey *btcec.PublicKey) txscript.TapLeaf {
 	script2, err := builder.Script()
 	require.NoError(t, err)
 	return txscript.NewBaseTapLeaf(script2)
+}
+
+// ReadTestDataFile reads a file from the testdata directory and returns its
+// content as a string.
+func ReadTestDataFile(t *testing.T, fileName string) string {
+	path := filepath.Join("testdata", fileName)
+	fileBytes, err := os.ReadFile(path)
+	require.NoError(t, err)
+
+	return string(fileBytes)
 }
