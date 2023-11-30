@@ -870,7 +870,7 @@ func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 	}
 
 	require.True(t, ok)
-	require.Equal(t, uint64(amt), uint64(balance.Balance))
+	require.Equal(t, amt, balance.Balance)
 }
 
 // AssertBalanceByGroup asserts that the balance of a single asset group

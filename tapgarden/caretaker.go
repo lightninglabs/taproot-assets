@@ -17,7 +17,6 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache/lru"
-
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -1336,14 +1335,13 @@ func newSingleValue[T any](v T) singleCacheValue[T] {
 // is used more as a set.
 type emptyCacheVal = singleCacheValue[emptyVal]
 
-// GenGroupVeifier generates a group key verification callback function given a
+// GenGroupVerifier generates a group key verification callback function given a
 // DB handle.
 func GenGroupVerifier(ctx context.Context,
 	mintingStore MintingStore) func(*btcec.PublicKey) error {
 
 	// Cache known group keys that were previously fetched.
-	assetGroups := lru.NewCache[
-		asset.SerializedKey, emptyCacheVal](
+	assetGroups := lru.NewCache[asset.SerializedKey, emptyCacheVal](
 		assetGroupCacheSize,
 	)
 
@@ -1360,9 +1358,7 @@ func GenGroupVerifier(ctx context.Context,
 
 		// This query will err if no stored group has a matching
 		// tweaked group key.
-		_, err = mintingStore.FetchGroupByGroupKey(
-			ctx, groupKey,
-		)
+		_, err = mintingStore.FetchGroupByGroupKey(ctx, groupKey)
 		if err != nil {
 			return fmt.Errorf("%x: group verifier: %v: %w",
 				assetGroupKey[:], err, ErrGroupKeyUnknown)
@@ -1377,12 +1373,12 @@ func GenGroupVerifier(ctx context.Context,
 // GenGroupAnchorVerifier generates a caching group anchor verification
 // callback function given a DB handle.
 func GenGroupAnchorVerifier(ctx context.Context,
-	mintingStore MintingStore) func(*asset.Genesis,
-	*asset.GroupKey) error {
+	mintingStore MintingStore) func(*asset.Genesis, *asset.GroupKey) error {
 
 	// Cache anchors for groups that were previously fetched.
 	groupAnchors := lru.NewCache[
-		asset.SerializedKey, singleCacheValue[*asset.Genesis]](
+		asset.SerializedKey, singleCacheValue[*asset.Genesis],
+	](
 		assetGroupCacheSize,
 	)
 
