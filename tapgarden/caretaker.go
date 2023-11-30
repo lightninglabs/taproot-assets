@@ -1364,8 +1364,8 @@ func GenGroupVerifier(ctx context.Context,
 			ctx, groupKey,
 		)
 		if err != nil {
-			return fmt.Errorf("%x: %w", assetGroupKey,
-				ErrGroupKeyUnknown)
+			return fmt.Errorf("%x: group verifier: %v: %w",
+				assetGroupKey[:], err, ErrGroupKeyUnknown)
 		}
 
 		_, _ = assetGroups.Put(assetGroupKey, emptyCacheVal{})
@@ -1394,7 +1394,9 @@ func GenGroupAnchorVerifier(ctx context.Context,
 				ctx, &groupKey.GroupPubKey,
 			)
 			if err != nil {
-				return ErrGroupKeyUnknown
+				return fmt.Errorf("%x: group anchor verifier: "+
+					"%w", assetGroupKey[:],
+					ErrGroupKeyUnknown)
 			}
 
 			groupAnchor = newSingleValue(storedGroup.Genesis)

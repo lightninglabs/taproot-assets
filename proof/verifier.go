@@ -331,7 +331,7 @@ func (p *Proof) verfyGenesisGroupKey(groupVerifier GroupVerifier) error {
 	groupKey := p.Asset.GroupKey.GroupPubKey
 	err := groupVerifier(&groupKey)
 	if err != nil {
-		return ErrGroupKeyUnknown
+		return fmt.Errorf("%w: %v", ErrGroupKeyUnknown, err)
 	}
 
 	return nil
