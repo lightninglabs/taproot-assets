@@ -327,7 +327,7 @@ func (p *Proof) verifyGenesisReveal() error {
 
 // verifyGenesisGroupKey verifies that the group key attached to the asset in
 // this proof has already been verified.
-func (p *Proof) verfyGenesisGroupKey(groupVerifier GroupVerifier) error {
+func (p *Proof) verifyGenesisGroupKey(groupVerifier GroupVerifier) error {
 	groupKey := p.Asset.GroupKey.GroupPubKey
 	err := groupVerifier(&groupKey)
 	if err != nil {
@@ -487,7 +487,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	case isGenesisAsset && hasGroupKey && !hasGroupKeyReveal:
 		// A reissuance must be for an asset group that has already
 		// been imported and verified.
-		if err := p.verfyGenesisGroupKey(groupVerifier); err != nil {
+		if err := p.verifyGenesisGroupKey(groupVerifier); err != nil {
 			return nil, err
 		}
 
@@ -500,7 +500,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 7. Verify group key for asset transfers. Any asset with a group key
 	// must carry a group key that has already been imported and verified.
 	if !isGenesisAsset && hasGroupKey {
-		if err := p.verfyGenesisGroupKey(groupVerifier); err != nil {
+		if err := p.verifyGenesisGroupKey(groupVerifier); err != nil {
 			return nil, err
 		}
 	}
