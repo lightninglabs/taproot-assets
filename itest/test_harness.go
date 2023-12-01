@@ -240,6 +240,25 @@ func (h *harnessTest) syncUniverseState(target, syncer *tapdHarness,
 	require.Equal(h.t, numExpectedAssets, numAssets)
 }
 
+// addFederationServer adds a new federation server to the given tapd harness.
+func (h *harnessTest) addFederationServer(host string, target *tapdHarness) {
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), defaultWaitTimeout,
+	)
+	defer cancel()
+
+	_, err := target.AddFederationServer(
+		ctxt, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{
+				{
+					Host: host,
+				},
+			},
+		},
+	)
+	require.NoError(h.t, err)
+}
+
 // nextAvailablePort returns the first port that is available for listening by
 // a new node. It panics if no port is found and the maximum available TCP port
 // is reached.
@@ -346,6 +365,10 @@ type tapdHarnessParams struct {
 	// startupSyncNumAssets is the number of assets that are expected to be
 	// synced from the above node.
 	startupSyncNumAssets int
+
+	// noDefaultUniverseSync indicates whether the default universe server
+	// should be added as a federation server or not.
+	noDefaultUniverseSync bool
 }
 
 type Option func(*tapdHarnessParams)
@@ -390,6 +413,12 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 	// Start the tapd harness now.
 	err = tapdHarness.start(params.expectErrExit)
 	require.NoError(t, err)
+
+	// Add the default universe server as a federation server, unless
+	// specifically indicated by the caller.
+	if !params.noDefaultUniverseSync {
+		ht.addFederationServer(universe.service.rpcHost(), tapdHarness)
+	}
 
 	// Before we exit, we'll check to see if we need to sync the universe
 	// state.

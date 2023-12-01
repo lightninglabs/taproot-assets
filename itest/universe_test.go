@@ -42,7 +42,10 @@ func testUniverseSync(t *harnessTest) {
 	// With those assets created, we'll now create a new node that we'll
 	// use to exercise the Universe sync.
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, nil,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
@@ -385,7 +388,10 @@ func testUniverseFederation(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up to
 	// any existing Universe server.
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, nil,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
