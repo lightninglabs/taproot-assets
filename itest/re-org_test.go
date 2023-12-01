@@ -53,10 +53,6 @@ func testReOrgMint(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(assetList)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -139,10 +135,6 @@ func testReOrgSend(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(assetList)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -262,10 +254,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(assetList)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))

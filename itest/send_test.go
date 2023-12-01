@@ -88,10 +88,6 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -215,8 +211,6 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
 			params.custodianProofRetrievalDelay = &custodianProofRetrievalDelay
 		},
 	)
@@ -458,10 +452,6 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Set up a new node that will serve as the receiving node.
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, recvTapd.stop(!*noDelete))
@@ -1212,10 +1202,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	// node. Sync the new node with the primary node.
 	bobTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
@@ -1305,10 +1291,6 @@ func testSendMultipleCoins(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))

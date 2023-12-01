@@ -40,10 +40,6 @@ func testAddresses(t *harnessTest) {
 	// assets made above.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -169,10 +165,6 @@ func testMultiAddress(t *harnessTest) {
 	alice := t.tapd
 	bob := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = alice
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))

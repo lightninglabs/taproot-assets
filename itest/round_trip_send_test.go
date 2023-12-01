@@ -41,10 +41,6 @@ func testRoundTripSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
