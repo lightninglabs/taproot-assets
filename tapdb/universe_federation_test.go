@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"testing"
 	"time"
 
@@ -35,10 +34,12 @@ func newTestFederationDb(t *testing.T,
 func TestUniverseFederationCRUD(t *testing.T) {
 	t.Parallel()
 
-	testClock := clock.NewTestClock(time.Now())
-	fedDB, _ := newTestFederationDb(t, testClock)
+	var (
+		ctx = context.Background()
 
-	ctx := context.Background()
+		db    = NewDbHandle(t)
+		fedDB = db.UniverseFederationStore
+	)
 
 	// If we try to list the set of servers without any added, we should
 	// get the error we expect.
@@ -47,19 +48,7 @@ func TestUniverseFederationCRUD(t *testing.T) {
 	require.Empty(t, dbServers)
 
 	// Next, we'll try to add a new series of servers to the DB.
-	const numServers = 10
-	addrs := make([]universe.ServerAddr, 0, numServers)
-	for i := int64(0); i < numServers; i++ {
-		portOffset := i + 10_000
-		hostStr := fmt.Sprintf("localhost:%v", portOffset)
-
-		addrs = append(addrs, universe.NewServerAddr(i+1, hostStr))
-	}
-
-	// With the set of addrs created, we'll now insert them all into the
-	// database.
-	err = fedDB.AddServers(ctx, addrs...)
-	require.NoError(t, err)
+	addrs := db.AddRandomServerAddrs(t, 10)
 
 	// If we try to insert them all again, then we should get an error as
 	// we ensure the host names are unique.

@@ -84,6 +84,26 @@ func (i *Identifier) StringForLog() string {
 		i.String(), i.AssetID[:], groupKey, i.ProofType)
 }
 
+// NewUniIDFromAsset creates a new universe ID from an asset.
+func NewUniIDFromAsset(a asset.Asset) Identifier {
+	proofType := ProofTypeTransfer
+	if a.IsGenesisAsset() {
+		proofType = ProofTypeIssuance
+	}
+
+	if a.GroupKey != nil {
+		return Identifier{
+			GroupKey:  &a.GroupKey.GroupPubKey,
+			ProofType: proofType,
+		}
+	}
+
+	return Identifier{
+		AssetID:   a.ID(),
+		ProofType: proofType,
+	}
+}
+
 // NewUniIDFromRawArgs creates a new universe ID from the raw arguments. The
 // asset ID bytes and group key bytes are mutually exclusive. If the group key
 // bytes are set, then the asset ID bytes will be ignored.

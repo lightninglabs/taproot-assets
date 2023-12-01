@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/stretchr/testify/require"
 )
@@ -156,6 +158,67 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	))
 
 	return testAsset, annotatedProof
+}
+
+// AddUniProofLeaf generates a universe proof leaf and inserts it into the test
+// database.
+func (d *DbHandler) AddUniProofLeaf(t *testing.T, testAsset *asset.Asset,
+	annotatedProof *proof.AnnotatedProof) *universe.Proof {
+
+	ctx := context.Background()
+
+	// Insert proof into the multiverse/universe store. This step will
+	// populate the universe root and universe leaves tables.
+	uniId := universe.NewUniIDFromAsset(*testAsset)
+
+	leafKey := universe.LeafKey{
+		OutPoint:  annotatedProof.AssetSnapshot.OutPoint,
+		ScriptKey: &testAsset.ScriptKey,
+	}
+
+	leaf := universe.Leaf{
+		GenesisWithGroup: universe.GenesisWithGroup{
+			Genesis:  testAsset.Genesis,
+			GroupKey: testAsset.GroupKey,
+		},
+		RawProof: annotatedProof.Blob,
+		Asset:    testAsset,
+		Amt:      testAsset.Amount,
+	}
+
+	uniProof, err := d.MultiverseStore.UpsertProofLeaf(
+		ctx, uniId, leafKey, &leaf, nil,
+	)
+	require.NoError(t, err)
+
+	return uniProof
+}
+
+// AddRandomServerAddrs is a helper function that will create server addresses
+// and add them to the database.
+func (d *DbHandler) AddRandomServerAddrs(t *testing.T,
+	numServers int) []universe.ServerAddr {
+
+	var (
+		ctx   = context.Background()
+		fedDB = d.UniverseFederationStore
+	)
+
+	addrs := make([]universe.ServerAddr, 0, numServers)
+	for i := 0; i < numServers; i++ {
+		portOffset := i + 10_000
+		hostStr := fmt.Sprintf("localhost:%v", portOffset)
+
+		addr := universe.NewServerAddr(int64(i+1), hostStr)
+		addrs = append(addrs, addr)
+	}
+
+	// With the set of addrs created, we'll now insert them all into the
+	// database.
+	err := fedDB.AddServers(ctx, addrs...)
+	require.NoError(t, err)
+
+	return addrs
 }
 
 // NewDbHandle creates a new store and query handle to the test database.
