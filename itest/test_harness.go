@@ -95,7 +95,7 @@ type harnessTest struct {
 	// nil if not yet set up.
 	lndHarness *lntest.HarnessTest
 
-	universeServer *serverHarness
+	universeServer *universeServerHarness
 
 	tapd *tapdHarness
 
@@ -107,7 +107,7 @@ type harnessTest struct {
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
-	universeServer *serverHarness, tapd *tapdHarness,
+	universeServer *universeServerHarness, tapd *tapdHarness,
 	proofCourier proof.CourierHarness) *harnessTest {
 
 	return &harnessTest{
@@ -174,7 +174,11 @@ func (h *harnessTest) LogfTimestamped(format string, args ...interface{}) {
 
 // shutdown stops both the mock universe and tapd server.
 func (h *harnessTest) shutdown(_ *testing.T) error {
-	h.universeServer.stop()
+	err := h.universeServer.Stop()
+	if err != nil {
+		return fmt.Errorf("unable to stop universe server harness: "+
+			"%w", err)
+	}
 
 	if h.proofCourier != nil {
 		err := h.proofCourier.Stop()
@@ -184,7 +188,7 @@ func (h *harnessTest) shutdown(_ *testing.T) error {
 		}
 	}
 
-	err := h.tapd.stop(!*noDelete)
+	err = h.tapd.stop(!*noDelete)
 	if err != nil {
 		return fmt.Errorf("unable to stop tapd: %v", err)
 	}
@@ -269,7 +273,15 @@ func nextAvailablePort() int {
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest,
 	proofCourierType proof.CourierType) (*tapdHarness,
-	*serverHarness, proof.CourierHarness) {
+	*universeServerHarness, proof.CourierHarness) {
+
+	universeServer := newUniverseServerHarness(t, ht, lndHarness.Bob)
+
+	t.Logf("Starting universe server harness, listening on %v",
+		universeServer.ListenAddr)
+
+	err := universeServer.Start(nil)
+	require.NoError(t, err, "universe server harness")
 
 	// If a proof courier type is specified, start test specific proof
 	// courier service and attach to test harness.
@@ -277,27 +289,17 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	switch proofCourierType {
 	case proof.HashmailCourierType:
 		port := nextAvailablePort()
-		apHarness := NewApertureHarness(ht.t, port)
-		proofCourier = &apHarness
+		apertureHarness := NewApertureHarness(ht.t, port)
+		err := apertureHarness.Start(nil)
+		require.NoError(t, err, "aperture proof courier harness")
+
+		proofCourier = apertureHarness
 
 	// If nothing is specified, we use the universe RPC proof courier by
 	// default.
 	default:
-		proofCourier = NewUniverseRPCHarness(t, ht, lndHarness.Bob)
+		proofCourier = universeServer
 	}
-
-	// Start the proof courier harness if specified.
-	if proofCourier != nil {
-		err := proofCourier.Start(nil)
-		require.NoError(t, err, "unable to start proof courier harness")
-	}
-
-	mockServerAddr := fmt.Sprintf(
-		node.ListenerFormat, node.NextAvailablePort(),
-	)
-	universeServer := newServerHarness(mockServerAddr)
-	err := universeServer.start()
-	require.NoError(t, err)
 
 	// Create a tapd that uses Bob and connect it to the universe server.
 	tapdHarness := setupTapdHarness(
@@ -351,7 +353,7 @@ type Option func(*tapdHarnessParams)
 // setupTapdHarness creates a new tapd that connects to the given lnd node
 // and to the given universe server.
 func setupTapdHarness(t *testing.T, ht *harnessTest,
-	node *node.HarnessNode, universe *serverHarness,
+	node *node.HarnessNode, universe *universeServerHarness,
 	opts ...Option) *tapdHarness {
 
 	// Set parameters by executing option functions.
@@ -379,12 +381,10 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
 	}
 
-	tapdHarness, err := newTapdHarness(
-		t, ht, tapdConfig{
-			NetParams: harnessNetParams,
-			LndNode:   node,
-		}, harnessOpts,
-	)
+	tapdHarness, err := newTapdHarness(t, ht, tapdConfig{
+		NetParams: harnessNetParams,
+		LndNode:   node,
+	}, harnessOpts)
 	require.NoError(t, err)
 
 	// Start the tapd harness now.
