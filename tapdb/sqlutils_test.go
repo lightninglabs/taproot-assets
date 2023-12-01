@@ -1,12 +1,22 @@
 package tapdb
 
 import (
+	"bytes"
+	"context"
 	"database/sql"
+	"math/rand"
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/stretchr/testify/require"
 )
 
 // DbHandler is a helper struct that contains all the database stores.
@@ -26,6 +36,126 @@ type DbHandler struct {
 	// DirectQuery is a handle to the underlying database that can be used
 	// to query the database directly.
 	DirectQuery sqlc.Querier
+}
+
+// AddRandomAssetProof generates a random asset and corresponding proof and
+// inserts them into the given test database.
+func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
+	*proof.AnnotatedProof) {
+
+	var (
+		ctx = context.Background()
+
+		assetStore = d.AssetStore
+		db         = d.DirectQuery
+	)
+
+	// Next, we'll make a new random asset that also has a few inputs with
+	// dummy witness information.
+	testAsset := randAsset(t)
+
+	assetRoot, err := commitment.NewAssetCommitment(testAsset)
+	require.NoError(t, err)
+
+	taprootAssetRoot, err := commitment.NewTapCommitment(assetRoot)
+	require.NoError(t, err)
+
+	// With our asset created, we can now create the AnnotatedProof we use
+	// to import assets into the database.
+	var blockHash chainhash.Hash
+	_, err = rand.Read(blockHash[:])
+	require.NoError(t, err)
+
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(&wire.TxIn{})
+	anchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    10,
+	})
+
+	assetID := testAsset.ID()
+	anchorPoint := wire.OutPoint{
+		Hash:  anchorTx.TxHash(),
+		Index: 0,
+	}
+
+	// Generate a random proof and encode it into a proof blob.
+	testProof := randProof(t, testAsset)
+
+	var proofBlobBuffer bytes.Buffer
+	err = testProof.Encode(&proofBlobBuffer)
+	require.NoError(t, err)
+
+	proofBlob := proofBlobBuffer.Bytes()
+	scriptKey := testAsset.ScriptKey
+
+	annotatedProof := &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   &assetID,
+			ScriptKey: *scriptKey.PubKey,
+		},
+		Blob: proofBlob,
+		AssetSnapshot: &proof.AssetSnapshot{
+			Asset:             testAsset,
+			OutPoint:          anchorPoint,
+			AnchorBlockHash:   blockHash,
+			AnchorBlockHeight: test.RandInt[uint32](),
+			AnchorTxIndex:     test.RandInt[uint32](),
+			AnchorTx:          anchorTx,
+			OutputIndex:       0,
+			InternalKey:       test.RandPubKey(t),
+			ScriptRoot:        taprootAssetRoot,
+		},
+	}
+	if testAsset.GroupKey != nil {
+		annotatedProof.GroupKey = &testAsset.GroupKey.GroupPubKey
+	}
+
+	// We'll now insert the internal key information as well as the script
+	// key ahead of time to reflect the address creation that happens
+	// elsewhere.
+	_, err = db.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    annotatedProof.InternalKey.SerializeCompressed(),
+		KeyFamily: test.RandInt[int32](),
+		KeyIndex:  test.RandInt[int32](),
+	})
+	require.NoError(t, err)
+	rawScriptKeyID, err := db.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    scriptKey.RawKey.PubKey.SerializeCompressed(),
+		KeyFamily: int32(testAsset.ScriptKey.RawKey.Family),
+		KeyIndex:  int32(testAsset.ScriptKey.RawKey.Index),
+	})
+	require.NoError(t, err)
+	_, err = db.UpsertScriptKey(ctx, NewScriptKey{
+		InternalKeyID:    rawScriptKeyID,
+		TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
+		Tweak:            nil,
+	})
+	require.NoError(t, err)
+
+	// We'll add the chain transaction of the proof now to simulate a
+	// batched transfer on a higher layer.
+	var anchorTxBuf bytes.Buffer
+	err = annotatedProof.AnchorTx.Serialize(&anchorTxBuf)
+	require.NoError(t, err)
+	anchorTXID := annotatedProof.AnchorTx.TxHash()
+	_, err = db.UpsertChainTx(ctx, ChainTxParams{
+		Txid:        anchorTXID[:],
+		RawTx:       anchorTxBuf.Bytes(),
+		BlockHeight: sqlInt32(annotatedProof.AnchorBlockHeight),
+		BlockHash:   annotatedProof.AnchorBlockHash[:],
+		TxIndex:     sqlInt32(annotatedProof.AnchorTxIndex),
+	})
+	require.NoError(t, err, "unable to insert chain tx: %w", err)
+
+	// With all our test data constructed, we'll now attempt to import the
+	// asset into the database.
+	require.NoError(t, assetStore.ImportProofs(
+		ctx, proof.MockHeaderVerifier, proof.MockGroupVerifier, false,
+		annotatedProof,
+	))
+
+	return testAsset, annotatedProof
 }
 
 // NewDbHandle creates a new store and query handle to the test database.
