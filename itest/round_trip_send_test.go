@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
-	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -81,7 +80,7 @@ func testRoundTripSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		genInfo.AssetId, []uint64{bobAmt, bobAmt}, 0, 1,
 	)
-	_ = sendProof(t, t.tapd, secondTapd, bobAddr.ScriptKey, genInfo)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 
 	// Now, Alice will request half of the assets she sent to Bob.
 	aliceAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
@@ -101,10 +100,7 @@ func testRoundTripSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, secondTapd,
 		sendResp, genInfo.AssetId, []uint64{aliceAmt, aliceAmt}, 0, 1,
 	)
-	_ = sendProof(t, secondTapd, t.tapd, aliceAddr.ScriptKey, genInfo)
-
-	// Give both nodes some time to process the final transfer.
-	time.Sleep(time.Second * 1)
+	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 
 	// Check the final state of both nodes. Each node should list
 	// one transfer, and Alice should have 3/4 of the total units.

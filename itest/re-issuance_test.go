@@ -78,10 +78,7 @@ func testReIssuance(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, firstCollectSend,
 		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
-	sendProof(
-		t, t.tapd, secondTapd, collectGroupAddr.ScriptKey,
-		collectGenInfo,
-	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 
 	// Check the state of both nodes. The first node should show one
 	// zero-value transfer representing the send of the collectible.
@@ -107,10 +104,7 @@ func testReIssuance(t *harnessTest) {
 		normalGenInfo.AssetId,
 		[]uint64{normalGroupMintHalf, normalGroupMintHalf}, 1, 2,
 	)
-	sendProof(
-		t, t.tapd, secondTapd, normalGroupAddr.ScriptKey,
-		normalGenInfo,
-	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 2)
 
 	// Reissue one more collectible and half the original mint amount for
 	// the normal asset.
@@ -186,10 +180,7 @@ func testReIssuance(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, secondCollectSend,
 		collectReissueInfo.AssetId, []uint64{0, 1}, 2, 3,
 	)
-	sendProof(
-		t, t.tapd, secondTapd, collectReissueAddr.ScriptKey,
-		collectReissueInfo,
-	)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 3)
 
 	// The second node should show two groups, with two assets in
 	// the collectible group and a total balance of 2 for that group.
@@ -220,10 +211,7 @@ func testReIssuance(t *harnessTest) {
 		t.t, secondTapd.ht.lndHarness.Miner.Client, secondTapd,
 		thirdCollectSend, collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
-	sendProof(
-		t, secondTapd, t.tapd, collectReissueAddr.ScriptKey,
-		collectReissueInfo,
-	)
+	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 
 	// The collectible balance on the minting node should be 1, and there
 	// should still be only two groups.
@@ -382,12 +370,8 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, collectSend,
 		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
-	sendProof(
-		t, t.tapd, secondTapd, collectGroupAddr.ScriptKey,
-		collectGenInfo,
-	)
 
-	// A reissuance with the second node should still fail because the
+	// A re-issuance with the second node should still fail because the
 	// group key was not created by that node.
 	_, err = secondTapd.MintAsset(ctxb, reissueRequest)
 	require.ErrorContains(t.t, err, "can't sign with group key")

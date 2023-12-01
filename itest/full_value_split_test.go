@@ -88,8 +88,8 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
 			)
-			_ = sendProof(
-				t, alice, bob, receiverAddr.ScriptKey, genInfo,
+			AssertNonInteractiveRecvComplete(
+				t.t, bob, senderTransferIdx+1,
 			)
 			senderTransferIdx++
 		} else {
@@ -108,8 +108,8 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 				genInfo.AssetId, []uint64{0, fullAmount},
 				receiverTransferIdx, receiverTransferIdx+1,
 			)
-			_ = sendProof(
-				t, bob, alice, receiverAddr.ScriptKey, genInfo,
+			AssertNonInteractiveRecvComplete(
+				t.t, alice, receiverTransferIdx+1,
 			)
 			receiverTransferIdx++
 		}

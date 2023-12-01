@@ -129,10 +129,6 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		normalMember.AssetGenesis.AssetId,
 		[]uint64{0, normalMember.Amount}, 0, 1,
 	)
-	_ = sendProof(
-		t, t.tapd, secondTapd, bobNormalAddr.ScriptKey,
-		normalMemberGenInfo,
-	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 
 	AssertBalanceByGroup(
@@ -169,10 +165,6 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, collectGroupSend,
 		collectMember.AssetGenesis.AssetId,
 		[]uint64{0, collectMember.Amount}, 1, 2,
-	)
-	sendProof(
-		t, t.tapd, secondTapd, bobCollectAddr.ScriptKey,
-		collectMemberGenInfo,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 2)
 
