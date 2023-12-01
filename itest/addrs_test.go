@@ -189,7 +189,12 @@ func testMultiAddress(t *harnessTest) {
 func testAddressAssetSyncer(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up
 	// to any existing Universe server.
-	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, nil)
+	bob := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
@@ -315,8 +320,9 @@ func testAddressAssetSyncer(t *harnessTest) {
 	restartBobNoUniSync := func(disableSyncer bool) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 		bob = setupTapdHarness(
-			t.t, t, t.lndHarness.Bob, nil,
+			t.t, t, t.lndHarness.Bob, t.universeServer,
 			func(params *tapdHarnessParams) {
+				params.noDefaultUniverseSync = true
 				params.addrAssetSyncerDisable = disableSyncer
 			},
 		)
