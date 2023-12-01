@@ -170,9 +170,6 @@ func testReOrgSend(t *harnessTest) {
 		sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
 	)
-	_ = sendProof(
-		t, t.tapd, secondTapd, bobAddr.ScriptKey, sendAssetGen,
-	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	initialBlockHash := initialBlock.BlockHash()
 
@@ -290,9 +287,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
-	)
-	_ = sendProof(
-		t, t.tapd, secondTapd, bobAddr.ScriptKey, sendAssetGen,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	initialBlockHash := initialBlock.BlockHash()

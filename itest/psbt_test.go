@@ -132,6 +132,10 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, bob, sendResp,
 		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
+
+	// This is an interactive/PSBT based transfer, so we do need to manually
+	// send the proof from the sender to the receiver because the proof
+	// courier address gets lost in the address->PSBT conversion.
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 
@@ -258,6 +262,10 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, bob, sendResp,
 		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
+
+	// This is an interactive/PSBT based transfer, so we do need to manually
+	// send the proof from the sender to the receiver because the proof
+	// courier address gets lost in the address->PSBT conversion.
 	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 
@@ -438,6 +446,9 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 			sendResp, genInfo.AssetId, amounts, i/2, (i/2)+1,
 			numOutputs,
 		)
+
+		// This is an interactive transfer, so we do need to manually
+		// send the proof from the sender to the receiver.
 		_ = sendProof(
 			t, sender, receiver,
 			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
@@ -656,6 +667,9 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 			[]uint64{sendAmt, changeAmt}, i/2, (i/2)+1,
 			numOutputs,
 		)
+
+		// This is an interactive transfer, so we do need to manually
+		// send the proof from the sender to the receiver.
 		_ = sendProof(
 			t, sender, receiver,
 			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
@@ -779,6 +793,9 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, alice, sendResp,
 		genInfo.AssetId, []uint64{sendAmt, changeAmt}, 0, 1, 2,
 	)
+
+	// This is an interactive transfer, so we do need to manually send the
+	// proof from the sender to the receiver.
 	_ = sendProof(
 		t, alice, bob,
 		receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
@@ -927,6 +944,9 @@ func testPsbtMultiSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, sender, sendResp,
 		genInfo.AssetId, outputAmounts, 0, 1, numOutputs,
 	)
+
+	// This is an interactive transfer, so we do need to manually send the
+	// proof from the sender to the receiver.
 	_ = sendProof(
 		t, sender, receiver,
 		receiverScriptKey1.PubKey.SerializeCompressed(), genInfo,
@@ -1034,7 +1054,6 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		t.t, t.lndHarness.Miner.Client, alice, sendResp,
 		genInfo.AssetId, []uint64{changeUnits, numUnits}, 0, 1,
 	)
-	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, bob, 1)
 }
 
@@ -1059,7 +1078,6 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 		genInfo.AssetId, []uint64{change, numUnits}, outTransferIdx,
 		numOutTransfers,
 	)
-	_ = sendProof(t, alice, bob, bobAddr.ScriptKey, genInfo)
 
 	// There are now two receive events (since only non-interactive sends
 	// appear in that RPC output).
