@@ -242,6 +242,11 @@ type MockChainBridge struct {
 
 	ReqCount int
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
+
+	failFeeEstimates bool
+	emptyConf        bool
+	errConf          bool
+	confErr          chan error
 }
 
 func NewMockChainBridge() *MockChainBridge {
@@ -255,11 +260,27 @@ func NewMockChainBridge() *MockChainBridge {
 	}
 }
 
+func (m *MockChainBridge) FailFeeEstimates(enable bool) {
+	m.failFeeEstimates = enable
+}
+
+func (m *MockChainBridge) FailConf(enable bool) {
+	m.errConf = enable
+}
+func (m *MockChainBridge) EmptyConf(enable bool) {
+	m.emptyConf = enable
+}
+
 func (m *MockChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 	blockHeight, blockIndex int, block *wire.MsgBlock,
 	tx *wire.MsgTx) {
 
 	req := m.ConfReqs[reqNo]
+	if m.emptyConf {
+		req.Confirmed <- nil
+		return
+	}
+
 	req.Confirmed <- &chainntnfs.TxConfirmation{
 		BlockHash:   blockHash,
 		BlockHeight: uint32(blockHeight),
@@ -287,7 +308,7 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 		Confirmed: make(chan *chainntnfs.TxConfirmation),
 		Cancel:    func() {},
 	}
-	errChan := make(chan error)
+	m.confErr = make(chan error, 1)
 
 	m.ConfReqs[m.ReqCount] = req
 
@@ -296,7 +317,11 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	case <-ctx.Done():
 	}
 
-	return req, errChan, nil
+	if m.errConf {
+		m.confErr <- fmt.Errorf("confirmation error")
+	}
+
+	return req, m.confErr, nil
 }
 
 func (m *MockChainBridge) RegisterBlockEpochNtfn(
@@ -359,6 +384,10 @@ func (m *MockChainBridge) EstimateFee(ctx context.Context,
 
 	case <-ctx.Done():
 		return 0, fmt.Errorf("shutting down")
+	}
+
+	if m.failFeeEstimates {
+		return 0, fmt.Errorf("failed to estimate fee")
 	}
 
 	return 253, nil
