@@ -636,8 +636,6 @@ func (c *ChainPlanter) gardener() {
 					}
 
 					delete(c.caretakers, batchKeySerial)
-					c.pendingBatch = nil
-					continue
 
 				case <-c.Quit:
 					return
@@ -677,10 +675,6 @@ func (c *ChainPlanter) gardener() {
 func (c *ChainPlanter) finalizeBatch(
 	feeRate *chainfee.SatPerKWeight) (*BatchCaretaker, error) {
 
-	// Prep the new care taker that'll be launched assuming the call below
-	// to freeze the batch succeeds.
-	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
-
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
 	ctx, cancel := c.WithCtxQuit()
@@ -691,9 +685,11 @@ func (c *ChainPlanter) finalizeBatch(
 			err)
 	}
 
-	// Now that the batch has been frozen, we'll launch a new caretaker
-	// state machine for the batch that'll drive all the seedlings do
-	// adulthood.
+	// Now that the batch has been frozen on disk, we can update the batch
+	// state to frozen before launching a new caretaker state machine for
+	// the batch that'll drive all the seedlings do adulthood.
+	c.pendingBatch.UpdateState(BatchStateFrozen)
+	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 	if err := caretaker.Start(); err != nil {
 		return nil, fmt.Errorf("unable to start new caretaker: %w", err)
 	}
