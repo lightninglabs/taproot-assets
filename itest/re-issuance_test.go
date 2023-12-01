@@ -51,13 +51,8 @@ func testReIssuance(t *harnessTest) {
 
 	// Create a second node, which will have no information about previously
 	// minted assets or asset groups.
-	numTotalAssets := len(normalGroupGen) + len(collectGroupGen)
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = numTotalAssets
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -341,10 +336,6 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	// minted assets or asset groups.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(collectGroupGen)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
