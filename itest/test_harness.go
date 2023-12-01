@@ -275,15 +275,14 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	// courier service and attach to test harness.
 	var proofCourier proof.CourierHarness
 	switch proofCourierType {
-	case proof.DisabledCourier:
-		// Proof courier disabled, do nothing.
-
 	case proof.HashmailCourierType:
 		port := nextAvailablePort()
 		apHarness := NewApertureHarness(ht.t, port)
 		proofCourier = &apHarness
 
-	case proof.UniverseRpcCourierType:
+	// If nothing is specified, we use the universe RPC proof courier by
+	// default.
+	default:
 		proofCourier = NewUniverseRPCHarness(t, ht, lndHarness.Bob)
 	}
 

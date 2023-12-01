@@ -2,9 +2,7 @@
 
 package itest
 
-import (
-	"github.com/lightninglabs/taproot-assets/proof"
-)
+import "github.com/lightninglabs/taproot-assets/proof"
 
 var testCases = []*testCase{
 	{
@@ -48,14 +46,12 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
-		name:             "basic send universerpc proof courier",
-		test:             testBasicSendUnidirectional,
-		proofCourierType: proof.UniverseRpcCourierType,
+		name: "basic send unidirectional",
+		test: testBasicSendUnidirectional,
 	},
 	{
-		name:             "restart receiver check balance",
-		test:             testRestartReceiverCheckBalance,
-		proofCourierType: proof.UniverseRpcCourierType,
+		name: "restart receiver check balance",
+		test: testRestartReceiverCheckBalance,
 	},
 	{
 		name:             "resume pending package send",
@@ -68,14 +64,12 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
-		name:             "reattempt failed send uni courier",
-		test:             testReattemptFailedSendUniCourier,
-		proofCourierType: proof.UniverseRpcCourierType,
+		name: "reattempt failed send uni courier",
+		test: testReattemptFailedSendUniCourier,
 	},
 	{
-		name:             "reattempt failed receive uni courier",
-		test:             testReattemptFailedReceiveUniCourier,
-		proofCourierType: proof.UniverseRpcCourierType,
+		name: "reattempt failed receive uni courier",
+		test: testReattemptFailedReceiveUniCourier,
 	},
 	{
 		name:             "offline receiver eventually receives",
@@ -109,14 +103,12 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
-		name:             "collectible send rpc courier",
-		test:             testCollectibleSend,
-		proofCourierType: proof.UniverseRpcCourierType,
+		name: "collectible send",
+		test: testCollectibleSend,
 	},
 	{
-		name:             "collectible group send rpc courier",
-		test:             testCollectibleGroupSend,
-		proofCourierType: proof.UniverseRpcCourierType,
+		name: "collectible group send",
+		test: testCollectibleGroupSend,
 	},
 	{
 		name: "re-issuance",
