@@ -879,13 +879,14 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			for !confRecv {
 				select {
 				case confEvent = <-confNtfn.Confirmed:
-					log.Debugf("Got chain confirmation: %v",
-						confEvent.Tx.TxHash())
 					confRecv = true
 
 				case err := <-errChan:
-					b.cfg.ErrChan <- fmt.Errorf("error "+
-						"getting confirmation: %w", err)
+					confErr := fmt.Errorf("error getting "+
+						"confirmation: %w", err)
+					log.Info(confErr)
+					b.cfg.ErrChan <- confErr
+
 					return
 
 				case <-confCtx.Done():
@@ -911,9 +912,17 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			}
 
 			if confEvent == nil {
-				b.cfg.ErrChan <- fmt.Errorf("got empty " +
+				confErr := fmt.Errorf("got empty " +
 					"confirmation event in batch")
+				log.Info(confErr)
+				b.cfg.ErrChan <- confErr
+
 				return
+			}
+
+			if confEvent.Tx != nil {
+				log.Debugf("Got chain confirmation: %v",
+					confEvent.Tx.TxHash())
 			}
 
 			for {
