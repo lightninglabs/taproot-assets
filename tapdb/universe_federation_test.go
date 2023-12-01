@@ -87,6 +87,284 @@ func TestUniverseFederationCRUD(t *testing.T) {
 	require.NoError(t, err)
 }
 
+// TestFederationProofSyncLogCRUD tests that we can add, modify, and remove
+// proof sync log entries from the Universe DB.
+func TestFederationProofSyncLogCRUD(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx      = context.Background()
+		dbHandle = NewDbHandle(t)
+		fedStore = dbHandle.UniverseFederationStore
+	)
+
+	// Populate the database with a random asset, its associated proof, and
+	// a set of servers.
+	testAsset, testAnnotatedProof := dbHandle.AddRandomAssetProof(t)
+	uniProof := dbHandle.AddUniProofLeaf(t, testAsset, testAnnotatedProof)
+	uniId := universe.NewUniIDFromAsset(*testAsset)
+
+	servers := dbHandle.AddRandomServerAddrs(t, 3)
+
+	// Designate pending sync status for all servers except the first.
+	// Make a map set of pending sync servers.
+	pendingSyncServers := make(map[universe.ServerAddr]struct{})
+	for i := range servers {
+		server := servers[i]
+		if i == 0 {
+			continue
+		}
+		pendingSyncServers[server] = struct{}{}
+	}
+
+	// Add log entries for the first server.
+	syncServer := servers[0]
+
+	// Add push log entry.
+	_, err := fedStore.UpsertFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, syncServer,
+		universe.SyncDirectionPush, universe.ProofSyncStatusComplete,
+		true,
+	)
+	require.NoError(t, err)
+
+	// Add pull log entry.
+	_, err = fedStore.UpsertFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, syncServer,
+		universe.SyncDirectionPull, universe.ProofSyncStatusComplete,
+		true,
+	)
+	require.NoError(t, err)
+
+	// We've already added log entries for the first server. We will now
+	// insert new proof sync log entries for the remaining servers.
+	for _, server := range servers[1:] {
+		_, err := fedStore.UpsertFederationProofSyncLog(
+			ctx, uniId, uniProof.LeafKey, server,
+			universe.SyncDirectionPush,
+			universe.ProofSyncStatusPending, false,
+		)
+		require.NoError(t, err)
+	}
+
+	// Retrieve all sync status pending log entries.
+	syncDirectionPush := universe.SyncDirectionPush
+	pendingLogEntries, err := fedStore.FetchPendingProofsSyncLog(
+		ctx, &syncDirectionPush,
+	)
+	require.NoError(t, err)
+	require.Len(t, pendingLogEntries, 2)
+
+	for i := range pendingLogEntries {
+		entry := pendingLogEntries[i]
+		require.Equal(
+			t, universe.ProofSyncStatusPending, entry.SyncStatus,
+		)
+		require.Equal(
+			t, universe.SyncDirectionPush, entry.SyncDirection,
+		)
+		require.Equal(t, uniId.String(), entry.UniID.String())
+		require.Equal(t, int64(0), entry.AttemptCounter)
+
+		assertProofSyncLogLeafKey(t, uniProof.LeafKey, entry.LeafKey)
+		assertProofSyncLogLeaf(t, *uniProof.Leaf, entry.Leaf)
+
+		// Check for server address in pending sync server set.
+		_, ok := pendingSyncServers[entry.ServerAddr]
+		require.True(t, ok)
+	}
+
+	// Retrieve all push sync status complete log entries.
+	completePushLogEntries, err := fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPush,
+		universe.ProofSyncStatusComplete,
+	)
+	require.NoError(t, err)
+
+	// There should only be one complete push log entry.
+	require.Len(t, completePushLogEntries, 1)
+
+	// Check that the complete log entry is as expected.
+	completePushEntry := completePushLogEntries[0]
+
+	require.Equal(t, servers[0], completePushEntry.ServerAddr)
+	require.Equal(
+		t, universe.ProofSyncStatusComplete,
+		completePushEntry.SyncStatus,
+	)
+	require.Equal(
+		t, universe.SyncDirectionPush, completePushEntry.SyncDirection,
+	)
+	require.Equal(t, uniId.String(), completePushEntry.UniID.String())
+	require.Equal(t, int64(0), completePushEntry.AttemptCounter)
+
+	assertProofSyncLogLeafKey(
+		t, uniProof.LeafKey, completePushEntry.LeafKey,
+	)
+	assertProofSyncLogLeaf(t, *uniProof.Leaf, completePushEntry.Leaf)
+
+	// Retrieve all pull sync status complete log entries.
+	completePullLogEntries, err := fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPull,
+		universe.ProofSyncStatusComplete,
+	)
+	require.NoError(t, err)
+
+	// There should only be one complete push log entry.
+	require.Len(t, completePullLogEntries, 1)
+
+	// Check that the complete log entry is as expected.
+	completePullEntry := completePullLogEntries[0]
+
+	require.Equal(t, servers[0], completePullEntry.ServerAddr)
+	require.Equal(
+		t, universe.ProofSyncStatusComplete,
+		completePullEntry.SyncStatus,
+	)
+	require.Equal(
+		t, universe.SyncDirectionPull, completePullEntry.SyncDirection,
+	)
+	require.Equal(t, uniId.String(), completePullEntry.UniID.String())
+	require.Equal(t, int64(0), completePullEntry.AttemptCounter)
+
+	assertProofSyncLogLeafKey(
+		t, uniProof.LeafKey, completePullEntry.LeafKey,
+	)
+	assertProofSyncLogLeaf(t, *uniProof.Leaf, completePullEntry.Leaf)
+
+	// Increment the attempt counter for one of the pending log entries.
+	_, err = fedStore.UpsertFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, servers[1],
+		universe.SyncDirectionPush, universe.ProofSyncStatusPending,
+		true,
+	)
+	require.NoError(t, err)
+
+	// Check that the attempt counter was incremented as expected.
+	pendingLogEntries, err = fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending,
+	)
+	require.NoError(t, err)
+	require.Len(t, pendingLogEntries, 2)
+
+	for i := range pendingLogEntries {
+		entry := pendingLogEntries[i]
+		if entry.ServerAddr == servers[1] {
+			require.Equal(t, int64(1), entry.AttemptCounter)
+		} else {
+			require.Equal(t, int64(0), entry.AttemptCounter)
+		}
+	}
+
+	// Upsert without incrementing the attempt counter for one of the
+	// pending log entries.
+	_, err = fedStore.UpsertFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, servers[1],
+		universe.SyncDirectionPush, universe.ProofSyncStatusPending,
+		false,
+	)
+	require.NoError(t, err)
+
+	// Check that the attempt counter was not changed as expected.
+	pendingLogEntries, err = fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending,
+	)
+	require.NoError(t, err)
+	require.Len(t, pendingLogEntries, 2)
+
+	for i := range pendingLogEntries {
+		entry := pendingLogEntries[i]
+		if entry.ServerAddr == servers[1] {
+			require.Equal(t, int64(1), entry.AttemptCounter)
+		} else {
+			require.Equal(t, int64(0), entry.AttemptCounter)
+		}
+	}
+
+	// Set the sync status to complete for one of the pending log entries.
+	_, err = fedStore.UpsertFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, servers[1],
+		universe.SyncDirectionPush, universe.ProofSyncStatusComplete,
+		false,
+	)
+	require.NoError(t, err)
+
+	// Check that the sync status was updated as expected.
+	pendingLogEntries, err = fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending,
+	)
+	require.NoError(t, err)
+	require.Len(t, pendingLogEntries, 1)
+
+	completePushLogEntries, err = fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPush,
+		universe.ProofSyncStatusComplete,
+	)
+	require.NoError(t, err)
+	require.Len(t, completePushLogEntries, 2)
+
+	// Delete log entries for one of the servers.
+	err = fedStore.DeleteProofsSyncLogEntries(ctx, servers[0], servers[1])
+	require.NoError(t, err)
+
+	// Only one log entry should remain and it should have sync status
+	// pending.
+	pendingLogEntries, err = fedStore.QueryFederationProofSyncLog(
+		ctx, uniId, uniProof.LeafKey, universe.SyncDirectionPush,
+		universe.ProofSyncStatusPending,
+	)
+	require.NoError(t, err)
+	require.Len(t, pendingLogEntries, 1)
+
+	// Check that the remaining log entry is as expected.
+	pendingEntry := pendingLogEntries[0]
+	require.Equal(t, servers[2], pendingEntry.ServerAddr)
+}
+
+// assertProofSyncLogLeafKey asserts that a leaf key derived from a proof sync
+// log entry is equal to a given leaf key.
+func assertProofSyncLogLeafKey(t *testing.T, actualLeafKey universe.LeafKey,
+	logLeafKey universe.LeafKey) {
+
+	// We can safely ignore the tweaked script key as it is the derivation
+	// information for the script key. It is only ever known to the owner of
+	// the asset and is never serialized in a proof
+	actualLeafKey.ScriptKey.TweakedScriptKey = nil
+	require.Equal(t, actualLeafKey, logLeafKey)
+}
+
+// assertProofSyncLogLeaf asserts that a leaf derived from a proof sync log
+// entry is equal to a given universe leaf.
+func assertProofSyncLogLeaf(t *testing.T, actualLeaf universe.Leaf,
+	logLeaf universe.Leaf) {
+
+	if actualLeaf.GenesisWithGroup.GroupKey != nil {
+		// We can safely ignore the group key witness as it is the
+		// basically just extracted from the asset and won't be relevant
+		// when parsing the proof.
+		actualLeaf.GenesisWithGroup.GroupKey.Witness = nil
+
+		// We can safely ignore the pre-tweaked group key
+		// (GroupKey.RawKey) as it is the derivation information for the
+		// group key. It is only ever known to the owner of the asset
+		// and is never serialized in a proof.
+		actualLeaf.GenesisWithGroup.GroupKey.RawKey.PubKey = nil
+	}
+
+	require.Equal(t, actualLeaf.Amt, logLeaf.Amt)
+	require.Equal(t, actualLeaf.RawProof, logLeaf.RawProof)
+	require.Equal(t, actualLeaf.GenesisWithGroup, logLeaf.GenesisWithGroup)
+
+	// We compare the assets with our custom asset quality function as the
+	// SplitCommitmentRoot field MS-SMT node types will differ. A computed
+	// node is derived from the database data whereas the generated asset
+	// may have a MS-SMT branch node type.
+	actualLeaf.Asset.DeepEqual(logLeaf.Asset)
+}
+
 // TestFederationConfigDefault tests that we're able to fetch the default
 // federation config.
 func TestFederationConfigDefault(t *testing.T) {
