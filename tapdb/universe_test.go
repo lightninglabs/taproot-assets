@@ -129,7 +129,12 @@ func randLeafKey(t *testing.T) universe.LeafKey {
 	}
 }
 
-func randProof(t *testing.T) *proof.Proof {
+func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
+	proofAsset := *asset.RandAsset(t, asset.Normal)
+	if argAsset != nil {
+		proofAsset = *argAsset
+	}
+
 	return &proof.Proof{
 		PrevOut: wire.OutPoint{},
 		BlockHeader: wire.BlockHeader{
@@ -142,7 +147,7 @@ func randProof(t *testing.T) *proof.Proof {
 			}},
 		},
 		TxMerkleProof: proof.TxMerkleProof{},
-		Asset:         *asset.RandAsset(t, asset.Normal),
+		Asset:         proofAsset,
 		InclusionProof: proof.TaprootProof{
 			InternalKey: test.RandPubKey(t),
 		},
@@ -152,7 +157,7 @@ func randProof(t *testing.T) *proof.Proof {
 func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 	groupKey *btcec.PublicKey) universe.Leaf {
 
-	randProof := randProof(t)
+	randProof := randProof(t, nil)
 
 	leaf := universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
@@ -320,7 +325,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 		testLeaf := &testLeaves[idx]
 
 		var proofBuf bytes.Buffer
-		randProof := randProof(t)
+		randProof := randProof(t, nil)
 		require.NoError(t, randProof.Encode(&proofBuf))
 
 		testLeaf.Leaf.RawProof = proofBuf.Bytes()
