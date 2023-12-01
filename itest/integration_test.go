@@ -59,11 +59,10 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			// The universe server and tapd client are both freshly
 			// created and later discarded for each test run to
 			// assure no state is taken over between runs.
-			tapdHarness, universeServer, proofCourier :=
-				setupHarnesses(
-					t1, ht, lndHarness,
-					testCase.proofCourierType,
-				)
+			tapdHarness, uniHarness, proofCourier := setupHarnesses(
+				t1, ht, lndHarness,
+				testCase.proofCourierType,
+			)
 			lndHarness.EnsureConnected(
 				lndHarness.Alice, lndHarness.Bob,
 			)
@@ -72,8 +71,8 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			lndHarness.Bob.AddToLogf(logLine)
 
 			ht := ht.newHarnessTest(
-				t1, lndHarness, universeServer,
-				tapdHarness, proofCourier,
+				t1, lndHarness, uniHarness, tapdHarness,
+				proofCourier,
 			)
 
 			// Now we have everything to run the test case.
