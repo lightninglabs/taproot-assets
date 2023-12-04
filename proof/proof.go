@@ -56,7 +56,7 @@ var (
 	// proof for a genesis asset has a non-zero meta hash, but doesn't have
 	// a meta reveal.
 	ErrGenesisRevealMetaRevealRequired = errors.New("genesis meta reveal " +
-		"reveal required")
+		"required")
 
 	// ErrGenesisRevealMetaHashMismatch is an error returned if an asset
 	// proof for a genesis asset has a genesis reveal where the meta hash
@@ -69,12 +69,6 @@ var (
 	// doesn't match the proof TLV field.
 	ErrGenesisRevealOutputIndexMismatch = errors.New("genesis reveal " +
 		"output index mismatch")
-
-	// ErrGenesisRevealTypeMismatch is an error returned if an asset proof
-	// for a genesis asset has a genesis reveal where the asset type doesn't
-	// match the proof TLV field.
-	ErrGenesisRevealTypeMismatch = errors.New("genesis reveal type " +
-		"mismatch")
 
 	// ErrNonGenesisAssetWithGroupKeyReveal is an error returned if an asset
 	// proof for a non-genesis asset contains a group key reveal.

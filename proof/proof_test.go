@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -338,8 +339,9 @@ func TestProofEncoding(t *testing.T) {
 
 func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	amt *uint64, tapscriptPreimage *commitment.TapscriptPreimage,
-	noMetaHash bool, metaReveal *MetaReveal,
-	genesisMutator genMutator,
+	noMetaHash bool, metaReveal *MetaReveal, genesisMutator genMutator,
+	genesisRevealMutator genRevealMutator,
+	groupRevealMutator groupRevealMutator,
 	assetVersion asset.Version) (Proof, *btcec.PrivateKey) {
 
 	t.Helper()
@@ -372,11 +374,15 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		asset.WithAssetVersion(assetVersion),
 	)
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
-	groupKeyReveal := asset.GroupKeyReveal{
+	groupKeyReveal := &asset.GroupKeyReveal{
 		RawKey: asset.ToSerialized(
 			assetGroupKey.RawKey.PubKey,
 		),
 		TapscriptRoot: assetGroupKey.TapscriptRoot,
+	}
+
+	if groupRevealMutator != nil {
+		groupRevealMutator(groupKeyReveal)
 	}
 
 	tapCommitment, assets, err := commitment.Mint(
@@ -436,6 +442,11 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	txMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{genesisTx}, 0)
 	require.NoError(t, err)
 
+	genReveal := &assetGenesis
+	if genesisRevealMutator != nil {
+		genReveal = genesisRevealMutator(genReveal)
+	}
+
 	return Proof{
 		PrevOut:       assetGenesis.FirstPrevOut,
 		BlockHeader:   *blockHeader,
@@ -455,12 +466,16 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		MetaReveal:       metaReveal,
 		ExclusionProofs:  nil,
 		AdditionalInputs: nil,
-		GenesisReveal:    &assetGenesis,
-		GroupKeyReveal:   &groupKeyReveal,
+		GenesisReveal:    genReveal,
+		GroupKeyReveal:   groupKeyReveal,
 	}, genesisPrivKey
 }
 
 type genMutator func(*asset.Genesis)
+
+type groupRevealMutator func(*asset.GroupKeyReveal)
+
+type genRevealMutator func(*asset.Genesis) *asset.Genesis
 
 func TestGenesisProofVerification(t *testing.T) {
 	t.Parallel()
@@ -476,15 +491,18 @@ func TestGenesisProofVerification(t *testing.T) {
 	amount := uint64(5000)
 
 	testCases := []struct {
-		name              string
-		assetType         asset.Type
-		amount            *uint64
-		assetVersion      asset.Version
-		tapscriptPreimage *commitment.TapscriptPreimage
-		metaReveal        *MetaReveal
-		noMetaHash        bool
-		genesisMutator    genMutator
-		expectedErr       error
+		name                 string
+		assetType            asset.Type
+		amount               *uint64
+		assetVersion         asset.Version
+		tapscriptPreimage    *commitment.TapscriptPreimage
+		metaReveal           *MetaReveal
+		noMetaHash           bool
+		noGroup              bool
+		genesisMutator       genMutator
+		genesisRevealMutator genRevealMutator
+		groupRevealMutator   groupRevealMutator
+		expectedErr          error
 	}{
 		{
 			name:       "collectible genesis",
@@ -584,6 +602,78 @@ func TestGenesisProofVerification(t *testing.T) {
 			assetType:   asset.Collectible,
 			expectedErr: ErrGenesisRevealMetaRevealRequired,
 		},
+		{
+			name:       "missing genesis reveal",
+			assetType:  asset.Collectible,
+			noMetaHash: true,
+			genesisRevealMutator: func(
+				g *asset.Genesis) *asset.Genesis {
+
+				return nil
+			},
+			expectedErr: ErrGenesisRevealRequired,
+		},
+		{
+			name:       "genesis reveal asset ID mismatch",
+			assetType:  asset.Normal,
+			amount:     &amount,
+			noMetaHash: true,
+			genesisRevealMutator: func(
+				g *asset.Genesis) *asset.Genesis {
+
+				gCopy := *g
+				gCopy.Tag += "mismatch"
+				return &gCopy
+			},
+			expectedErr: ErrGenesisRevealAssetIDMismatch,
+		},
+		{
+			name:      "genesis reveal prev out mismatch",
+			assetType: asset.Collectible,
+			genesisRevealMutator: func(
+				g *asset.Genesis) *asset.Genesis {
+
+				gCopy := *g
+				gCopy.FirstPrevOut = test.RandOp(t)
+				return &gCopy
+			},
+			expectedErr: ErrGenesisRevealPrevOutMismatch,
+		},
+		{
+			name:       "genesis reveal output index mismatch",
+			assetType:  asset.Normal,
+			amount:     &amount,
+			noMetaHash: true,
+			genesisRevealMutator: func(
+				g *asset.Genesis) *asset.Genesis {
+
+				gCopy := *g
+				gCopy.OutputIndex = uint32(
+					test.RandInt[int32](),
+				)
+				return &gCopy
+			},
+			expectedErr: ErrGenesisRevealOutputIndexMismatch,
+		},
+		{
+			name:       "group key reveal invalid key",
+			assetType:  asset.Collectible,
+			noMetaHash: true,
+			groupRevealMutator: func(gkr *asset.GroupKeyReveal) {
+				gkr.RawKey[0] = 0x01
+			},
+			expectedErr: secp256k1.ErrPubKeyInvalidFormat,
+		},
+		{
+			name:       "group key reveal mismatched tweaked key",
+			assetType:  asset.Normal,
+			amount:     &amount,
+			noMetaHash: true,
+			groupRevealMutator: func(gkr *asset.GroupKeyReveal) {
+				gkr.TapscriptRoot = test.RandBytes(32)
+			},
+			expectedErr: ErrGroupKeyRevealMismatch,
+		},
 	}
 
 	testVectors := &TestVectors{}
@@ -595,6 +685,7 @@ func TestGenesisProofVerification(t *testing.T) {
 				tt, tc.assetType, tc.amount,
 				tc.tapscriptPreimage, tc.noMetaHash,
 				tc.metaReveal, tc.genesisMutator,
+				tc.genesisRevealMutator, tc.groupRevealMutator,
 				tc.assetVersion,
 			)
 			_, err := genesisProof.Verify(
@@ -635,7 +726,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	t.Parallel()
 
 	proof, _ := genRandomGenesisWithProof(
-		t, asset.Collectible, nil, nil, true, nil, nil, 0,
+		t, asset.Collectible, nil, nil, true, nil, nil, nil, nil, 0,
 	)
 
 	// Create a base reference for the block header and block height. We
@@ -793,7 +884,7 @@ func TestProofReplacement(t *testing.T) {
 		amt := uint64(i + 1)
 		assetVersion := asset.Version(i % 2)
 		lotsOfProofs[i], _ = genRandomGenesisWithProof(
-			t, asset.Normal, &amt, nil, false, nil, nil,
+			t, asset.Normal, &amt, nil, false, nil, nil, nil, nil,
 			assetVersion,
 		)
 	}
@@ -822,7 +913,7 @@ func TestProofReplacement(t *testing.T) {
 		// We'll generate a random proof, and then replace a random
 		// proof in the file with it.
 		proof, _ := genRandomGenesisWithProof(
-			t, asset.Normal, &amt, nil, false, nil, nil,
+			t, asset.Normal, &amt, nil, false, nil, nil, nil, nil,
 			assetVersion,
 		)
 		idx := test.RandIntn(numProofs)
@@ -836,7 +927,7 @@ func TestProofReplacement(t *testing.T) {
 	// boundary conditions).
 	amt := uint64(1337)
 	firstProof, _ := genRandomGenesisWithProof(
-		t, asset.Normal, &amt, nil, false, nil, nil, asset.V1,
+		t, asset.Normal, &amt, nil, false, nil, nil, nil, nil, asset.V1,
 	)
 	err = f.ReplaceProofAt(0, firstProof)
 	require.NoError(t, err)
@@ -844,7 +935,7 @@ func TestProofReplacement(t *testing.T) {
 
 	amt = uint64(2016)
 	lastProof, _ := genRandomGenesisWithProof(
-		t, asset.Normal, &amt, nil, false, nil, nil, asset.V0,
+		t, asset.Normal, &amt, nil, false, nil, nil, nil, nil, asset.V0,
 	)
 	err = f.ReplaceProofAt(uint32(f.NumProofs()-1), lastProof)
 	require.NoError(t, err)
@@ -870,7 +961,7 @@ func BenchmarkProofEncoding(b *testing.B) {
 
 	// Start with a minted genesis asset.
 	genesisProof, _ := genRandomGenesisWithProof(
-		b, asset.Normal, &amt, nil, false, nil, nil, asset.V0,
+		b, asset.Normal, &amt, nil, false, nil, nil, nil, nil, asset.V0,
 	)
 
 	// We create a file with 10k proofs (the same one) and test encoding/
