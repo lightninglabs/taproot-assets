@@ -671,6 +671,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"service handle: %w", err)
 		}
 
+		defer courier.Close()
+
 		// Update courier events subscribers before attempting to
 		// deliver proof.
 		p.subscriberMtx.Lock()

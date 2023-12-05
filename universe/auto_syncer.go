@@ -175,6 +175,11 @@ func (f *FederationEnvoy) Start() error {
 	return nil
 }
 
+// Close frees up any ephemeral resources allocated by the envoy.
+func (f *FederationEnvoy) Close() error {
+	return nil
+}
+
 // Stop stops all active goroutines.
 func (f *FederationEnvoy) Stop() error {
 	f.stopOnce.Do(func() {
