@@ -6,6 +6,8 @@
 *.dylib
 tapcli-debug
 tapd-debug
+/tapcli
+/tapd
 cmd/tapcli/tapcli
 cmd/tapd/tapd
 
