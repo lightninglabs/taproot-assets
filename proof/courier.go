@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -66,6 +67,9 @@ type Courier interface {
 	// SetSubscribers sets the set of subscribers that will be notified
 	// of proof courier related events.
 	SetSubscribers(map[uint64]*fn.EventReceiver[fn.Event])
+
+	// Close stops the courier instance.
+	Close() error
 }
 
 // CourierAddr is a fully validated courier address (including protocol specific
@@ -223,6 +227,7 @@ func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 		backoffHandle: backoffHandle,
 		transfer:      cfg.TransferLog,
 		subscribers:   subscribers,
+		rawConn:       conn,
 	}, nil
 }
 
@@ -291,11 +296,16 @@ type ProofMailbox interface {
 	// CleanUp attempts to tear down the mailbox as specified by the passed
 	// sid.
 	CleanUp(ctx context.Context, sid streamID) error
+
+	// Close closes the underlying connection to the hashmail server.
+	Close() error
 }
 
 // HashMailBox is an implementation of the ProofMailbox interface backed by the
 // hashmailrpc.HashMailClient.
 type HashMailBox struct {
+	rawConn *grpc.ClientConn
+
 	client hashmailrpc.HashMailClient
 }
 
@@ -341,7 +351,8 @@ func NewHashMailBox(courierAddr *url.URL) (*HashMailBox,
 	client := hashmailrpc.NewHashMailClient(conn)
 
 	return &HashMailBox{
-		client: client,
+		client:  client,
+		rawConn: conn,
 	}, nil
 }
 
@@ -478,6 +489,11 @@ func (h *HashMailBox) CleanUp(ctx context.Context, sid streamID) error {
 
 	_, err := h.client.DelCipherBox(ctx, streamAuth)
 	return err
+}
+
+// Close closes the underlying connection to the hashmail server.
+func (h *HashMailBox) Close() error {
+	return h.rawConn.Close()
 }
 
 // A compile-time assertion to ensure that the HashMailBox meets the
@@ -853,6 +869,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 
 	log.Infof("Received ACK from receiver! Cleaning up mailboxes...")
 
+	defer h.Close()
+
 	// Once we receive this ACK, we can clean up our mailbox and also the
 	// receiver's mailbox.
 	if err := h.mailbox.CleanUp(ctx, senderStreamID); err != nil {
@@ -926,6 +944,17 @@ func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 	for _, sub := range h.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
 	}
+}
+
+// Close closes the underlying connection to the hashmail server.
+func (h *HashMailCourier) Close() error {
+	if err := h.mailbox.Close(); err != nil {
+		log.Warnf("unable to close mailbox session, "+
+			"recipient=%v: %v", err, spew.Sdump(h.recipient))
+		return err
+	}
+
+	return nil
 }
 
 // BackoffWaitEvent is an event that is sent to a subscriber each time we
@@ -1029,6 +1058,10 @@ type UniverseRpcCourier struct {
 	// client is the RPC client that the courier will use to interact with
 	// the universe RPC server.
 	client unirpc.UniverseClient
+
+	// rawConn is the raw connection that the courier will use to interact
+	// with the remote gRPC service.
+	rawConn *grpc.ClientConn
 
 	// backoffHandle is a handle to the backoff procedure used in proof
 	// delivery.
@@ -1295,6 +1328,11 @@ func (c *UniverseRpcCourier) publishSubscriberEvent(event fn.Event) {
 	for _, sub := range c.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
 	}
+}
+
+// Close closes the courier's connection to the remote gRPC service.
+func (c *UniverseRpcCourier) Close() error {
+	return c.rawConn.Close()
 }
 
 // A compile-time assertion to ensure the UniverseRpcCourier meets the
