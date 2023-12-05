@@ -461,7 +461,6 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 		return nil, fmt.Errorf("unable to create remote diff "+
 			"engine: %w", err)
 	}
-
 	defer diffEngine.Close()
 
 	// With the engine created, we can now sync the local Universe with the
