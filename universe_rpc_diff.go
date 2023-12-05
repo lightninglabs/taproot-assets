@@ -15,7 +15,7 @@ import (
 // RpcUniverseDiff is an implementation of the universe.DiffEngine interface
 // that uses an RPC connection to target Universe.
 type RpcUniverseDiff struct {
-	conn unirpc.UniverseClient
+	conn *universeClientConn
 }
 
 // NewRpcUniverseDiff creates a new RpcUniverseDiff instance that dials out to
@@ -208,6 +208,17 @@ func (r *RpcUniverseDiff) FetchProofLeaf(ctx context.Context,
 	}
 
 	return []*universe.Proof{uniProof}, nil
+}
+
+// Close closes the underlying RPC connection to the remote universe server.
+func (r *RpcUniverseDiff) Close() error {
+	if err := r.conn.Close(); err != nil {
+		tapdLog.Warnf("unable to close universe RPC "+
+			"connection: %v", err)
+		return err
+	}
+
+	return nil
 }
 
 // A compile time interface to ensure that RpcUniverseDiff implements the
