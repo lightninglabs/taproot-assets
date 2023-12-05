@@ -243,6 +243,8 @@ func (f *FederationEnvoy) pushProofToServer(ctx context.Context,
 			"to remote server(%v): %w", addr.HostStr(), err)
 	}
 
+	defer remoteUniverseServer.Close()
+
 	_, err = remoteUniverseServer.UpsertProofLeaf(
 		ctx, uniID, key, leaf,
 	)

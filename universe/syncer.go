@@ -462,6 +462,8 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 			"engine: %w", err)
 	}
 
+	defer diffEngine.Close()
+
 	// With the engine created, we can now sync the local Universe with the
 	// remote instance.
 	return s.executeSync(ctx, diffEngine, syncType, syncConfigs, idsToSync)
