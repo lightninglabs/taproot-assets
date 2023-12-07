@@ -40,10 +40,6 @@ func testAddresses(t *harnessTest) {
 	// assets made above.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -78,12 +74,6 @@ func testAddresses(t *harnessTest) {
 
 		// Eventually the event should be marked as confirmed.
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
-
-		// To complete the transfer, we'll export the proof from the
-		// sender and import it into the receiver for each asset set.
-		sendProof(
-			t, t.tapd, secondTapd, addr.ScriptKey, a.AssetGenesis,
-		)
 
 		// Make sure we have imported and finalized all proofs.
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, idx+1)
@@ -175,10 +165,6 @@ func testMultiAddress(t *harnessTest) {
 	alice := t.tapd
 	bob := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = alice
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
@@ -195,7 +181,12 @@ func testMultiAddress(t *harnessTest) {
 func testAddressAssetSyncer(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up
 	// to any existing Universe server.
-	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, nil)
+	bob := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
@@ -321,8 +312,9 @@ func testAddressAssetSyncer(t *harnessTest) {
 	restartBobNoUniSync := func(disableSyncer bool) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 		bob = setupTapdHarness(
-			t.t, t, t.lndHarness.Bob, nil,
+			t.t, t, t.lndHarness.Bob, t.universeServer,
 			func(params *tapdHarnessParams) {
+				params.noDefaultUniverseSync = true
 				params.addrAssetSyncerDisable = disableSyncer
 			},
 		)
@@ -436,13 +428,11 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 
 	// In order to force a split, we don't try to send the full asset.
 	const sendAmt = 100
-	var bobAddresses []*taprpc.Addr
 	bobAddr1, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
-	bobAddresses = append(bobAddresses, bobAddr1)
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
 
 	bobAddr2, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
@@ -450,7 +440,6 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
-	bobAddresses = append(bobAddresses, bobAddr2)
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr2)
 
 	// To test that Alice can also receive to multiple addresses in a single
@@ -491,14 +480,6 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	// For local addresses, we should already have the proof in the DB at
 	// this point, so the status should go to completed directly.
 	AssertAddrEventByStatus(t.t, alice, statusCompleted, numRuns*2)
-
-	// To complete the transfer, we'll export the proof from the sender and
-	// import it into the receiver for each asset set. This should not be
-	// necessary for the sends to Alice, as she is both the sender and
-	// receiver and should detect the local proof once it's written to disk.
-	for i := range bobAddresses {
-		sendProof(t, alice, bob, bobAddresses[i].ScriptKey, genInfo)
-	}
 
 	// Make sure we have imported and finalized all proofs.
 	AssertNonInteractiveRecvComplete(t.t, bob, numRuns*2)

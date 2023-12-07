@@ -88,10 +88,6 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -215,8 +211,6 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
 			params.custodianProofRetrievalDelay = &custodianProofRetrievalDelay
 		},
 	)
@@ -458,10 +452,6 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Set up a new node that will serve as the receiving node.
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, recvTapd.stop(!*noDelete))
@@ -1212,10 +1202,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	// node. Sync the new node with the primary node.
 	bobTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
@@ -1240,7 +1226,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		genInfo.AssetId, []uint64{4000, 1000}, 0, 1,
 	)
 
-	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 1)
 
 	// Second of two send events from minting node to the secondary node.
@@ -1261,7 +1246,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		genInfo.AssetId, []uint64{0, 4000}, 1, 2,
 	)
 
-	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 2)
 
 	t.Logf("Two separate send events complete, now attempting to send " +
@@ -1285,7 +1269,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		genInfo.AssetId, []uint64{0, 5000}, 0, 1,
 	)
 
-	_ = sendProof(t, bobTapd, t.tapd, addr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 }
 
@@ -1308,10 +1291,6 @@ func testSendMultipleCoins(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -1388,9 +1367,6 @@ func testSendMultipleCoins(t *harnessTest) {
 	// Now we confirm the 5 transfers and make sure they complete as
 	// expected.
 	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 5)
-	for _, addr := range bobAddrs {
-		_ = sendProof(t, t.tapd, secondTapd, addr.ScriptKey, genInfo)
-	}
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
 }
 

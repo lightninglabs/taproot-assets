@@ -27,7 +27,7 @@ type ApertureHarness struct {
 
 // NewApertureHarness creates a new instance of the aperture service. It returns
 // a harness which includes useful values for testing.
-func NewApertureHarness(t *testing.T, port int) ApertureHarness {
+func NewApertureHarness(t *testing.T, port int) *ApertureHarness {
 	// Create a temporary directory for the aperture service to use.
 	baseDir := filepath.Join(t.TempDir(), "aperture")
 	err := os.MkdirAll(baseDir, os.ModePerm)
@@ -55,7 +55,7 @@ func NewApertureHarness(t *testing.T, port int) ApertureHarness {
 	}
 	service := aperture.NewAperture(cfg)
 
-	return ApertureHarness{
+	return &ApertureHarness{
 		ListenAddr: listenAddr,
 		Service:    service,
 	}
