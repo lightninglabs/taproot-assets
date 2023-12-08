@@ -91,8 +91,8 @@ type BatchKey = asset.SerializedKey
 
 // CancelResp is the response from a caretaker attempting to cancel a batch.
 type CancelResp struct {
-	finalState *BatchState
-	err        error
+	cancelAttempted bool
+	err             error
 }
 
 type stateRequest interface {
@@ -448,7 +448,7 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 			// cancellation was possible and attempted. This means
 			// that the caretaker is shut down and the planter
 			// must delete it.
-			if cancelResp.finalState != nil {
+			if cancelResp.cancelAttempted {
 				delete(c.caretakers, batchKeySerialized)
 			}
 

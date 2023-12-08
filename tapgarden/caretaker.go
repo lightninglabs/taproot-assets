@@ -196,50 +196,50 @@ func (b *BatchCaretaker) Cancel() error {
 	switch batchState {
 	// In the pending state, the batch seedlings have not sprouted yet.
 	case BatchStatePending, BatchStateFrozen:
-		finalBatchState := BatchStateSeedlingCancelled
 		err := b.cfg.Log.UpdateBatchState(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
-			finalBatchState,
+			BatchStateSeedlingCancelled,
 		)
 		if err != nil {
 			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
 				"cancel failed: %w", batchKey, batchState, err)
 		}
 
-		cancelResp = CancelResp{&finalBatchState, err}
+		cancelResp = CancelResp{true, err}
 
 	case BatchStateCommitted:
-		finalBatchState := BatchStateSproutCancelled
 		err := b.cfg.Log.UpdateBatchState(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
-			finalBatchState,
+			BatchStateSproutCancelled,
 		)
 		if err != nil {
 			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
 				"cancel failed: %w", batchKey, batchState, err)
 		}
 
-		cancelResp = CancelResp{&finalBatchState, err}
+		cancelResp = CancelResp{true, err}
 
 	default:
 		err := fmt.Errorf("BatchCaretaker(%x), batch not cancellable",
 			b.cfg.Batch.BatchKey.PubKey.SerializeCompressed())
-		cancelResp = CancelResp{nil, err}
+		cancelResp = CancelResp{false, err}
 	}
 
 	b.cfg.CancelRespChan <- cancelResp
 
-	// If the batch was cancellable, the finalState of the cancel response
-	// will be non-nil. If the cancellation failed, that error will be
-	// handled by the planter. At this point, the caretaker should always
-	// shut down gracefully.
-	if cancelResp.finalState != nil {
+	// If the batch was cancellable, the final write of the cancelled batch
+	// may still have failed. That error will be handled by the planter. At
+	// this point, the caretaker should shut down gracefully if cancellation
+	// was attempted.
+	if cancelResp.cancelAttempted {
 		log.Infof("BatchCaretaker(%x), attempted batch cancellation, "+
 			"shutting down", b.batchKey[:])
 
 		return nil
 	}
 
+	// If the cancellation failed, that error will be handled by the
+	// planter.
 	return fmt.Errorf("BatchCaretaker(%x) cancellation failed",
 		b.batchKey[:])
 }
