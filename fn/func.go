@@ -172,3 +172,20 @@ func First[T any](xs []*T, pred func(*T) bool) (*T, error) {
 
 	return nil, fmt.Errorf("no item found")
 }
+
+// Last returns the last item in the slice that matches the predicate, or an
+// error if none matches.
+func Last[T any](xs []*T, pred func(*T) bool) (*T, error) {
+	var matches []*T
+	for i := range xs {
+		if pred(xs[i]) {
+			matches = append(matches, xs[i])
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, fmt.Errorf("no item found")
+	}
+
+	return matches[len(matches)-1], nil
+}

@@ -91,8 +91,8 @@ type BatchKey = asset.SerializedKey
 
 // CancelResp is the response from a caretaker attempting to cancel a batch.
 type CancelResp struct {
-	finalState *BatchState
-	err        error
+	cancelAttempted bool
+	err             error
 }
 
 type stateRequest interface {
@@ -344,7 +344,8 @@ func (c *ChainPlanter) stopCaretakers() {
 		if err := caretaker.Stop(); err != nil {
 			// TODO(roasbeef): continue and stop the rest
 			// of them?
-			log.Warnf("Unable to stop ChainCaretaker(%x)", batchKey[:])
+			log.Warnf("Unable to stop ChainCaretaker(%x)",
+				batchKey[:])
 			return
 		}
 	}
@@ -447,7 +448,7 @@ func (c *ChainPlanter) cancelMintingBatch(ctx context.Context,
 			// cancellation was possible and attempted. This means
 			// that the caretaker is shut down and the planter
 			// must delete it.
-			if cancelResp.finalState != nil {
+			if cancelResp.cancelAttempted {
 				delete(c.caretakers, batchKeySerialized)
 			}
 
@@ -547,14 +548,14 @@ func (c *ChainPlanter) gardener() {
 		case batchKey := <-c.completionSignals:
 			caretaker, ok := c.caretakers[batchKey]
 			if !ok {
-				log.Warnf("unknown caretaker: %x", batchKey[:])
+				log.Warnf("Unknown caretaker: %x", batchKey[:])
 				continue
 			}
 
 			log.Infof("ChainCaretaker(%x) has finished", batchKey[:])
 
 			if err := caretaker.Stop(); err != nil {
-				log.Warnf("unable to stop care taker: %v", err)
+				log.Warnf("Unable to stop caretaker: %v", err)
 			}
 
 			delete(c.caretakers, batchKey)
@@ -597,8 +598,8 @@ func (c *ChainPlanter) gardener() {
 				}
 
 				batchKey := c.pendingBatch.BatchKey.PubKey
-				log.Infof("Finalizing batch %x",
-					batchKey.SerializeCompressed())
+				batchKeySerial := asset.ToSerialized(batchKey)
+				log.Infof("Finalizing batch %x", batchKeySerial)
 
 				feeRate, err :=
 					typedParam[*chainfee.SatPerKWeight](req)
@@ -624,7 +625,17 @@ func (c *ChainPlanter) gardener() {
 
 				case err := <-caretaker.cfg.BroadcastErrChan:
 					req.Error(err)
-					continue
+					// Unrecoverable error, stop caretaker
+					// directly. The pending batch will not
+					// be saved.
+					stopErr := caretaker.Stop()
+					if stopErr != nil {
+						log.Warnf("Unable to stop "+
+							"caretaker "+
+							"gracefully: %v", err)
+					}
+
+					delete(c.caretakers, batchKeySerial)
 
 				case <-c.Quit:
 					return
@@ -664,10 +675,6 @@ func (c *ChainPlanter) gardener() {
 func (c *ChainPlanter) finalizeBatch(
 	feeRate *chainfee.SatPerKWeight) (*BatchCaretaker, error) {
 
-	// Prep the new care taker that'll be launched assuming the call below
-	// to freeze the batch succeeds.
-	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
-
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
 	ctx, cancel := c.WithCtxQuit()
@@ -678,9 +685,11 @@ func (c *ChainPlanter) finalizeBatch(
 			err)
 	}
 
-	// Now that the batch has been frozen, we'll launch a new caretaker
-	// state machine for the batch that'll drive all the seedlings do
-	// adulthood.
+	// Now that the batch has been frozen on disk, we can update the batch
+	// state to frozen before launching a new caretaker state machine for
+	// the batch that'll drive all the seedlings do adulthood.
+	c.pendingBatch.UpdateState(BatchStateFrozen)
+	caretaker := c.newCaretakerForBatch(c.pendingBatch, feeRate)
 	if err := caretaker.Start(); err != nil {
 		return nil, fmt.Errorf("unable to start new caretaker: %w", err)
 	}
