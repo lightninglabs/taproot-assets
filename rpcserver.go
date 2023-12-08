@@ -3997,7 +3997,17 @@ func (r *rpcServer) DeleteFederationServer(ctx context.Context,
 
 	serversToDel := fn.Map(req.Servers, unmarshalUniverseServer)
 
-	err := r.cfg.FederationDB.RemoveServers(ctx, serversToDel...)
+	// Remove the servers from the proofs sync log. This is necessary before
+	// we can remove the servers from the database because of a foreign
+	// key constraint.
+	err := r.cfg.FederationDB.DeleteProofsSyncLogEntries(
+		ctx, serversToDel...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = r.cfg.FederationDB.RemoveServers(ctx, serversToDel...)
 	if err != nil {
 		return nil, err
 	}

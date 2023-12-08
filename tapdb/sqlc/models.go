@@ -164,6 +164,17 @@ type FederationGlobalSyncConfig struct {
 	AllowSyncExport bool
 }
 
+type FederationProofSyncLog struct {
+	ID             int64
+	Status         string
+	Timestamp      time.Time
+	AttemptCounter int64
+	SyncDirection  string
+	ProofLeafID    int64
+	UniverseRootID int64
+	ServersID      int64
+}
+
 type FederationUniSyncConfig struct {
 	Namespace       string
 	AssetID         []byte

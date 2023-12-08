@@ -100,6 +100,10 @@ type harnessOpts struct {
 	proofCourier                 proof.CourierHarness
 	custodianProofRetrievalDelay *time.Duration
 	addrAssetSyncerDisable       bool
+
+	// fedSyncTickerInterval is the interval at which the federation envoy
+	// sync ticker will fire.
+	fedSyncTickerInterval *time.Duration
 }
 
 type harnessOption func(*harnessOpts)
@@ -240,6 +244,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	finalCfg.CustodianProofRetrievalDelay = defaultProofRetrievalDelay
 	if opts.custodianProofRetrievalDelay != nil {
 		finalCfg.CustodianProofRetrievalDelay = *opts.custodianProofRetrievalDelay
+	}
+
+	if opts.fedSyncTickerInterval != nil {
+		finalCfg.Universe.SyncInterval = *opts.fedSyncTickerInterval
 	}
 
 	return &tapdHarness{

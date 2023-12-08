@@ -195,6 +195,10 @@ var testCases = []*testCase{
 		name: "universe pagination simple",
 		test: testUniversePaginationSimple,
 	},
+	{
+		name: "mint proof repeat fed sync attempt",
+		test: testMintProofRepeatFedSyncAttempt,
+	},
 }
 
 var optionalTestCases = []*testCase{

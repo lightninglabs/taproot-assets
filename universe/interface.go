@@ -84,6 +84,86 @@ func (i *Identifier) StringForLog() string {
 		i.String(), i.AssetID[:], groupKey, i.ProofType)
 }
 
+// NewUniIDFromAsset creates a new universe ID from an asset.
+func NewUniIDFromAsset(a asset.Asset) Identifier {
+	proofType := ProofTypeTransfer
+	if a.IsGenesisAsset() {
+		proofType = ProofTypeIssuance
+	}
+
+	if a.GroupKey != nil {
+		return Identifier{
+			GroupKey:  &a.GroupKey.GroupPubKey,
+			ProofType: proofType,
+		}
+	}
+
+	return Identifier{
+		AssetID:   a.ID(),
+		ProofType: proofType,
+	}
+}
+
+// NewUniIDFromRawArgs creates a new universe ID from the raw arguments. The
+// asset ID bytes and group key bytes are mutually exclusive. If the group key
+// bytes are set, then the asset ID bytes will be ignored.
+// This function is useful in deriving a universe ID from the data stored in the
+// database.
+func NewUniIDFromRawArgs(assetIDBytes []byte, groupKeyBytes []byte,
+	proofTypeStr string) (Identifier, error) {
+
+	proofType, err := ParseStrProofType(proofTypeStr)
+	if err != nil {
+		return Identifier{}, err
+	}
+
+	// If the group key bytes are set, then we'll preferentially populate
+	// the universe ID with that and not the asset ID.
+	if len(groupKeyBytes) != 0 {
+		groupKey, err := parseGroupKey(groupKeyBytes)
+		if err != nil {
+			return Identifier{}, fmt.Errorf("unable to parse "+
+				"group key: %w", err)
+		}
+		return Identifier{
+			GroupKey:  groupKey,
+			ProofType: proofType,
+		}, nil
+	}
+
+	// At this point we know that the group key bytes are nil, so we'll
+	// attempt to parse the asset ID bytes.
+	if len(assetIDBytes) == 0 {
+		return Identifier{}, fmt.Errorf("asset ID bytes and group " +
+			"key bytes are both nil")
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], assetIDBytes)
+
+	return Identifier{
+		AssetID:   assetID,
+		ProofType: proofType,
+	}, nil
+}
+
+// parseGroupKey parses a group key from bytes, which can be in either the
+// Schnorr or Compressed format.
+func parseGroupKey(scriptKey []byte) (*btcec.PublicKey, error) {
+	switch len(scriptKey) {
+	case schnorr.PubKeyBytesLen:
+		return schnorr.ParsePubKey(scriptKey)
+
+	// Truncate the key and then parse as a Schnorr key.
+	case btcec.PubKeyBytesLenCompressed:
+		return schnorr.ParsePubKey(scriptKey[1:])
+
+	default:
+		return nil, fmt.Errorf("unknown script key length: %v",
+			len(scriptKey))
+	}
+}
+
 // ValidateProofUniverseType validates that the proof type matches the universe
 // identifier proof type.
 func ValidateProofUniverseType(a *asset.Asset, uniID Identifier) error {
@@ -337,6 +417,12 @@ type Item struct {
 
 	// MetaReveal is the meta reveal associated with the given proof leaf.
 	MetaReveal *proof.MetaReveal
+
+	// LogProofSync is a boolean that indicates, if true, that the proof
+	// leaf sync attempt should be logged and actively managed to ensure
+	// that the federation push procedure is repeated in the event of a
+	// failure.
+	LogProofSync bool
 }
 
 // BatchRegistrar is an interface that allows a caller to register a batch of
@@ -697,10 +783,113 @@ type FederationSyncConfigDB interface {
 		uniSyncConfigs []*FedUniSyncConfig) error
 }
 
-// FederationDB is used for CRUD operations related to federation sync config
-// and tracked servers.
+// SyncDirection is the direction of a proof sync.
+type SyncDirection string
+
+const (
+	// SyncDirectionPush indicates that the sync is a push sync (from the local
+	// server to the remote server).
+	SyncDirectionPush SyncDirection = "push"
+
+	// SyncDirectionPull indicates that the sync is a pull sync (from the remote
+	// server to the local server).
+	SyncDirectionPull SyncDirection = "pull"
+)
+
+// ParseStrSyncDirection parses a string into a SyncDirection.
+func ParseStrSyncDirection(s string) (SyncDirection, error) {
+	switch s {
+	case string(SyncDirectionPush):
+		return SyncDirectionPush, nil
+	case string(SyncDirectionPull):
+		return SyncDirectionPull, nil
+	default:
+		return "", fmt.Errorf("unknown sync direction: %v", s)
+	}
+}
+
+// ProofSyncStatus is the status of a proof sync.
+type ProofSyncStatus string
+
+const (
+	// ProofSyncStatusPending indicates that the sync is pending.
+	ProofSyncStatusPending ProofSyncStatus = "pending"
+
+	// ProofSyncStatusComplete indicates that the sync is complete.
+	ProofSyncStatusComplete ProofSyncStatus = "complete"
+)
+
+// ParseStrProofSyncStatus parses a string into a ProofSyncStatus.
+func ParseStrProofSyncStatus(s string) (ProofSyncStatus, error) {
+	switch s {
+	case string(ProofSyncStatusPending):
+		return ProofSyncStatusPending, nil
+	case string(ProofSyncStatusComplete):
+		return ProofSyncStatusComplete, nil
+	default:
+		return "", fmt.Errorf("unknown proof sync status: %v", s)
+	}
+}
+
+// ProofSyncLogEntry is a log entry for a proof sync.
+type ProofSyncLogEntry struct {
+	// Timestamp is the timestamp of the log entry.
+	Timestamp time.Time
+
+	// SyncStatus is the status of the sync.
+	SyncStatus ProofSyncStatus
+
+	// SyncDirection is the direction of the sync.
+	SyncDirection SyncDirection
+
+	// AttemptCounter is the number of times the sync has been attempted.
+	AttemptCounter int64
+
+	// ServerAddr is the address of the sync counterparty server.
+	ServerAddr ServerAddr
+
+	// UniID is the identifier of the universe associated with the sync event.
+	UniID Identifier
+
+	// LeafKey is the leaf key associated with the sync event.
+	LeafKey LeafKey
+
+	// Leaf is the leaf associated with the sync event.
+	Leaf Leaf
+}
+
+// FederationProofSyncLog is used for CRUD operations relating to the federation
+// proof sync log.
+type FederationProofSyncLog interface {
+	// UpsertFederationProofSyncLog upserts a federation proof sync log
+	// entry for a given universe server and proof.
+	UpsertFederationProofSyncLog(ctx context.Context, uniID Identifier,
+		leafKey LeafKey, addr ServerAddr, syncDirection SyncDirection,
+		syncStatus ProofSyncStatus,
+		bumpSyncAttemptCounter bool) (int64, error)
+
+	// QueryFederationProofSyncLog queries the federation proof sync log and
+	// returns the log entries which correspond to the given universe proof
+	// leaf.
+	QueryFederationProofSyncLog(ctx context.Context, uniID Identifier,
+		leafKey LeafKey, syncDirection SyncDirection,
+		syncStatus ProofSyncStatus) ([]*ProofSyncLogEntry, error)
+
+	// FetchPendingProofsSyncLog queries the federation proof sync log and
+	// returns all log entries with sync status pending.
+	FetchPendingProofsSyncLog(ctx context.Context,
+		syncDirection *SyncDirection) ([]*ProofSyncLogEntry, error)
+
+	// DeleteProofsSyncLogEntries deletes proof sync log entries.
+	DeleteProofsSyncLogEntries(ctx context.Context,
+		servers ...ServerAddr) error
+}
+
+// FederationDB is used for CRUD operations related to federation logs and
+// configuration.
 type FederationDB interface {
 	FederationLog
+	FederationProofSyncLog
 	FederationSyncConfigDB
 }
 
