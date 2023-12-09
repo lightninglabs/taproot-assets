@@ -1050,8 +1050,6 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 func (r *rpcServer) NewAddr(ctx context.Context,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr, error) {
 
-	var err error
-
 	// Parse the proof courier address if one was provided, otherwise use
 	// the default specified in the config.
 	courierAddr := r.cfg.DefaultProofCourierAddr
@@ -1089,7 +1087,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	rpcsLog.Infof("[NewAddr]: making new addr: asset_id=%x, amt=%v",
 		assetID[:], req.Amt)
 
-	err = r.checkBalanceOverflow(ctx, &assetID, nil, req.Amt)
+	err := r.checkBalanceOverflow(ctx, &assetID, nil, req.Amt)
 	if err != nil {
 		return nil, err
 	}
@@ -1376,7 +1374,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 	var exclusionProofs [][]byte
 	for _, exclusionProof := range p.ExclusionProofs {
 		var exclusionProofBuf bytes.Buffer
-		err := exclusionProof.Encode(&exclusionProofBuf)
+		err = exclusionProof.Encode(&exclusionProofBuf)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode exclusion "+
 				"proofs: %w", err)
@@ -1388,7 +1386,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var splitRootProofBuf bytes.Buffer
 	if splitRootProof != nil {
-		err := splitRootProof.Encode(&splitRootProofBuf)
+		err = splitRootProof.Encode(&splitRootProofBuf)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode split root "+
 				"proof: %w", err)
@@ -3140,7 +3138,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
@@ -3193,7 +3191,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 			foundGroupKey.SerializeCompressed(),
 			groupedAssetID.String())
 
-		assetRoots, err := r.queryAssetProofRoots(ctx, groupUniID)
+		assetRoots, err = r.queryAssetProofRoots(ctx, groupUniID)
 		if err != nil {
 			return nil, err
 		}
@@ -3273,7 +3271,7 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 	// issuance and transfer roots.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
 		universeID.ProofType = universe.ProofTypeIssuance
-		_, err := r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
+		_, err = r.cfg.UniverseArchive.DeleteRoot(ctx, universeID)
 		if err != nil {
 			return nil, err
 		}
@@ -3339,7 +3337,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
@@ -3404,7 +3402,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
@@ -3458,35 +3456,32 @@ func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
 
 // unmarshalLeafKey un-marshals a leaf key from the RPC form.
 func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
-	var (
-		leafKey universe.LeafKey
-		err     error
-	)
+	var leafKey universe.LeafKey
 
 	switch {
 	case key.GetScriptKeyBytes() != nil:
-		pubKey, err := parseUserKey(key.GetScriptKeyBytes())
+		scriptKey, err := parseUserKey(key.GetScriptKeyBytes())
 		if err != nil {
 			return leafKey, err
 		}
 
 		leafKey.ScriptKey = &asset.ScriptKey{
-			PubKey: pubKey,
+			PubKey: scriptKey,
 		}
 
 	case key.GetScriptKeyStr() != "":
-		scriptKeyBytes, sErr := hex.DecodeString(key.GetScriptKeyStr())
-		if sErr != nil {
+		scriptKeyBytes, err := hex.DecodeString(key.GetScriptKeyStr())
+		if err != nil {
 			return leafKey, err
 		}
 
-		pubKey, err := parseUserKey(scriptKeyBytes)
+		scriptKey, err := parseUserKey(scriptKeyBytes)
 		if err != nil {
 			return leafKey, err
 		}
 
 		leafKey.ScriptKey = &asset.ScriptKey{
-			PubKey: pubKey,
+			PubKey: scriptKey,
 		}
 	default:
 		// TODO(roasbeef): can actually allow not to be, then would
@@ -3520,7 +3515,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 		}
 
 	default:
-		return leafKey, fmt.Errorf("outpoint not set: %v", err)
+		return leafKey, fmt.Errorf("outpoint not set")
 	}
 
 	return leafKey, nil
@@ -3647,7 +3642,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 
@@ -3772,7 +3767,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 
 	// Check the rate limiter to see if we need to wait at all. If not then
 	// this'll be a noop.
-	if err := r.proofQueryRateLimiter.Wait(ctx); err != nil {
+	if err = r.proofQueryRateLimiter.Wait(ctx); err != nil {
 		return nil, err
 	}
 

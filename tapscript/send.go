@@ -794,7 +794,7 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		}
 
 		// Remove all input assets from the asset commitment tree.
-		err := assetCommitment.Delete(inputAsset)
+		err = assetCommitment.Delete(inputAsset)
 		if err != nil {
 			return nil, err
 		}
@@ -819,7 +819,7 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 			// The asset is present, just commit it to the input
 			// asset commitment.
 			case vOut.Asset != nil:
-				err := assetCommitment.Upsert(vOut.Asset)
+				err = assetCommitment.Upsert(vOut.Asset)
 				if err != nil {
 					return nil, err
 				}
