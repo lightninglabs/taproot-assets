@@ -175,7 +175,7 @@ func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 	// First, we check that the passed asset is a genesis grouped asset
 	// that has no group witness.
 	if !newAsset.NeedsGenesisWitnessForGroup() {
-		return nil, nil, fmt.Errorf("asset is not a genesis grouped" +
+		return nil, nil, fmt.Errorf("asset is not a genesis grouped " +
 			"asset")
 	}
 
@@ -321,6 +321,16 @@ func RandID(t testing.TB) ID {
 	test.RandRead(t, a[:])
 
 	return a
+}
+
+// RandAssetType creates a random asset type.
+func RandAssetType(t testing.TB) Type {
+	isCollectible := test.RandBool()
+	if isCollectible {
+		return Collectible
+	}
+
+	return Normal
 }
 
 // NewAssetNoErr creates an asset and fails the test if asset creation fails.

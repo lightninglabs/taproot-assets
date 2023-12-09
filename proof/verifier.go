@@ -285,20 +285,12 @@ func (p *Proof) verifyGenesisReveal() error {
 		return ErrGenesisRevealRequired
 	}
 
-	// The genesis reveal determines the ID of an asset, so make sure it is
-	// consistent.
-	assetID := p.Asset.ID()
-	if reveal.ID() != assetID {
-		return ErrGenesisRevealAssetIDMismatch
-	}
-
-	// We also make sure the genesis reveal is consistent with the TLV
-	// fields in the state transition proof.
+	// Make sure the genesis reveal is consistent with the TLV fields in
+	// the state transition proof.
 	if reveal.FirstPrevOut != p.PrevOut {
 		return ErrGenesisRevealPrevOutMismatch
 	}
 
-	// TODO(roasbeef): enforce practical limit on size of meta reveal
 	// If this asset has an empty meta reveal, then the meta hash must be
 	// empty. Otherwise, the meta hash must match the meta reveal.
 	var proofMeta [asset.MetaHashLen]byte
@@ -318,8 +310,13 @@ func (p *Proof) verifyGenesisReveal() error {
 		return ErrGenesisRevealOutputIndexMismatch
 	}
 
-	if reveal.Type != p.Asset.Type {
-		return ErrGenesisRevealTypeMismatch
+	// The genesis reveal determines the ID of an asset, so make sure it is
+	// consistent. Since the asset ID commits to all fields of the genesis,
+	// this is equivalent to checking equality for the genesis tag and type
+	// fields that have not yet been verified.
+	assetID := p.Asset.ID()
+	if reveal.ID() != assetID {
+		return ErrGenesisRevealAssetIDMismatch
 	}
 
 	return nil
@@ -341,14 +338,7 @@ func (p *Proof) verifyGenesisGroupKey(groupVerifier GroupVerifier) error {
 // the same key as the group key specified for the asset.
 func (p *Proof) verifyGroupKeyReveal() error {
 	groupKey := p.Asset.GroupKey
-	if groupKey == nil {
-		return ErrGroupKeyRequired
-	}
-
 	reveal := p.GroupKeyReveal
-	if reveal == nil {
-		return ErrGroupKeyRevealRequired
-	}
 
 	revealedKey, err := reveal.GroupPubKey(p.Asset.ID())
 	if err != nil {

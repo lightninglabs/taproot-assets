@@ -54,9 +54,10 @@ func randAsset(t *testing.T, assetType asset.Type,
 	protoAsset := asset.RandAssetWithValues(t, genesis, nil, scriptKey)
 	groupKey := asset.RandGroupKey(t, genesis, protoAsset)
 
-	fullAsset := protoAsset.Copy()
-	fullAsset.GroupKey = groupKey
-	return fullAsset
+	return asset.NewAssetNoErr(
+		t, genesis, protoAsset.Amount, protoAsset.LockTime,
+		protoAsset.RelativeLockTime, scriptKey, groupKey,
+	)
 }
 
 func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
