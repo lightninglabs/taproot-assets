@@ -861,7 +861,7 @@ func fetchAssetsWithWitness(ctx context.Context, q ActiveAssetsStore,
 	// First, we'll fetch all the assets we know of on disk.
 	dbAssets, err := q.QueryAssets(ctx, assetFilter)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to read db assets: %v", err)
+		return nil, nil, fmt.Errorf("unable to read db assets: %w", err)
 	}
 
 	assetIDs := fMap(dbAssets, func(a ConfirmedAsset) int64 {

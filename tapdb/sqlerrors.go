@@ -3,6 +3,7 @@ package tapdb
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgconn"
 	"github.com/jackc/pgerrcode"
@@ -52,6 +53,20 @@ func parseSqliteError(sqliteErr *sqlite.Error) error {
 			DbError: sqliteErr,
 		}
 
+	// Generic error, need to parse the message further.
+	case sqlite3.SQLITE_ERROR:
+		errMsg := sqliteErr.Error()
+
+		switch {
+		case strings.Contains(errMsg, "no such table"):
+			return &ErrSchemaError{
+				DbError: sqliteErr,
+			}
+
+		default:
+			return fmt.Errorf("unknown sqlite error: %w", sqliteErr)
+		}
+
 	default:
 		return fmt.Errorf("unknown sqlite error: %w", sqliteErr)
 	}
@@ -70,6 +85,12 @@ func parsePostgresError(pqErr *pgconn.PgError) error {
 	// Unable to serialize the transaction, so we'll need to try again.
 	case pgerrcode.SerializationFailure:
 		return &ErrSerializationError{
+			DbError: pqErr,
+		}
+
+	// Handle schema error.
+	case pgerrcode.UndefinedColumn, pgerrcode.UndefinedTable:
+		return &ErrSchemaError{
 			DbError: pqErr,
 		}
 
@@ -110,4 +131,26 @@ func (e ErrSerializationError) Error() string {
 func IsSerializationError(err error) bool {
 	var serializationError *ErrSerializationError
 	return errors.As(err, &serializationError)
+}
+
+// ErrSchemaError is an error type which represents a database agnostic error
+// that the schema of the database is incorrect for the given query.
+type ErrSchemaError struct {
+	DbError error
+}
+
+// Unwrap returns the wrapped error.
+func (e ErrSchemaError) Unwrap() error {
+	return e.DbError
+}
+
+// Error returns the error message.
+func (e ErrSchemaError) Error() string {
+	return e.DbError.Error()
+}
+
+// IsSchemaError returns true if the given error is a schema error.
+func IsSchemaError(err error) bool {
+	var schemaError *ErrSchemaError
+	return errors.As(err, &schemaError)
 }

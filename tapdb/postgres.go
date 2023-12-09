@@ -30,6 +30,16 @@ var (
 	// fully executed yet. So this time needs to be chosen correctly to be
 	// longer than the longest expected individual test run time.
 	DefaultPostgresFixtureLifetime = 60 * time.Minute
+
+	// postgresSchemaReplacements is a map of schema strings that need to be
+	// replaced for postgres. This is needed because we write the schemas
+	// to work with sqlite primarily, and postgres has some differences.
+	postgresSchemaReplacements = map[string]string{
+		"BLOB":                "BYTEA",
+		"INTEGER PRIMARY KEY": "SERIAL PRIMARY KEY",
+		"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
+		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
+	}
 )
 
 // PostgresConfig holds the postgres database configuration.
@@ -107,44 +117,41 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	rawDb.SetConnMaxLifetime(connMaxLifetime)
 	rawDb.SetConnMaxIdleTime(connMaxIdleTime)
 
-	if !cfg.SkipMigrations {
-		// Now that the database is open, populate the database with
-		// our set of schemas based on our embedded in-memory file
-		// system.
-		//
-		// First, we'll need to open up a new migration instance for
-		// our current target database: sqlite.
-		driver, err := postgres_migrate.WithInstance(
-			rawDb, &postgres_migrate.Config{},
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		postgresFS := newReplacerFS(sqlSchemas, map[string]string{
-			"BLOB":                "BYTEA",
-			"INTEGER PRIMARY KEY": "SERIAL PRIMARY KEY",
-			"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
-			"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
-		})
-
-		err = applyMigrations(
-			postgresFS, driver, "sqlc/migrations", cfg.DBName,
-		)
-		if err != nil {
-			return nil, err
-		}
-	}
-
 	queries := sqlc.NewPostgres(rawDb)
-
-	return &PostgresStore{
+	s := &PostgresStore{
 		cfg: cfg,
 		BaseDB: &BaseDB{
 			DB:      rawDb,
 			Queries: queries,
 		},
-	}, nil
+	}
+
+	// Now that the database is open, populate the database with our set of
+	// schemas based on our embedded in-memory file system.
+	if !cfg.SkipMigrations {
+		if err := s.ExecuteMigrations(TargetLatest); err != nil {
+			return nil, fmt.Errorf("error executing migrations: "+
+				"%w", err)
+		}
+	}
+
+	return s, nil
+}
+
+// ExecuteMigrations runs migrations for the Postgres database, depending on the
+// target given, either all migrations or up to a given version.
+func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
+	driver, err := postgres_migrate.WithInstance(
+		s.DB, &postgres_migrate.Config{},
+	)
+	if err != nil {
+		return fmt.Errorf("error creating postgres migration: %w", err)
+	}
+
+	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
+	return applyMigrations(
+		postgresFS, driver, "sqlc/migrations", s.cfg.DBName, target,
+	)
 }
 
 // NewTestPostgresDB is a helper function that creates a Postgres database for
@@ -156,6 +163,30 @@ func NewTestPostgresDB(t *testing.T) *PostgresStore {
 
 	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
 	store, err := NewPostgresStore(sqlFixture.GetConfig())
+	require.NoError(t, err)
+
+	t.Cleanup(func() {
+		sqlFixture.TearDown(t)
+	})
+
+	return store
+}
+
+// NewTestPostgresDBWithVersion is a helper function that creates a Postgres
+// database for testing and migrates it to the given version.
+func NewTestPostgresDBWithVersion(t *testing.T, version uint) *PostgresStore {
+	t.Helper()
+
+	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
+		version)
+
+	sqlFixture := NewTestPgFixture(t, DefaultPostgresFixtureLifetime, true)
+	storeCfg := sqlFixture.GetConfig()
+	storeCfg.SkipMigrations = true
+	store, err := NewPostgresStore(storeCfg)
+	require.NoError(t, err)
+
+	err = store.ExecuteMigrations(TargetVersion(version))
 	require.NoError(t, err)
 
 	t.Cleanup(func() {

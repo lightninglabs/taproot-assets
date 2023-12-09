@@ -36,6 +36,13 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 	// First, Make a new test database.
 	db := NewTestDB(t)
 
+	mintStore, assetStore := newAssetStoreFromDB(db.BaseDB)
+	return mintStore, assetStore, db
+}
+
+// newAssetStoreFromDB makes a new instance of the AssetMintingStore backed by
+// the passed database.
+func newAssetStoreFromDB(db *BaseDB) (*AssetMintingStore, *AssetStore) {
 	// TODO(roasbeef): can use another layer of type params since
 	// duplicated?
 	txCreator := func(tx *sql.Tx) PendingAssetStore {
@@ -50,7 +57,7 @@ func newAssetStore(t *testing.T) (*AssetMintingStore, *AssetStore,
 	testClock := clock.NewTestClock(time.Now())
 
 	return NewAssetMintingStore(assetMintingDB),
-		NewAssetStore(assetsDB, testClock), db
+		NewAssetStore(assetsDB, testClock)
 }
 
 func assertBatchState(t *testing.T, batch *tapgarden.MintingBatch,
