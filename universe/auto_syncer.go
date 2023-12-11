@@ -417,78 +417,17 @@ func (f *FederationEnvoy) syncer() {
 					err)
 			}
 
-		// A new push request has just arrived. We'll perform a
-		// asynchronous registration with the local Universe registrar,
-		// then push it out in an async manner to the federation
-		// members.
+		// Handle a new push request.
 		case pushReq := <-f.pushRequests:
 			log.Debug("Federation envoy handling push request")
-			ctx, cancel := f.WithCtxQuit()
-
-			// First, we'll attempt to registrar the proof leaf with
-			// the local registrar server.
-			newProof, err := f.cfg.LocalRegistrar.UpsertProofLeaf(
-				ctx, pushReq.ID, pushReq.Key, pushReq.Leaf,
-			)
-			cancel()
+			err := f.handlePushRequest(pushReq)
 			if err != nil {
-				err := fmt.Errorf("unable to insert proof "+
-					"into local universe: %w", err)
-
-				log.Warnf(err.Error())
-
-				pushReq.err <- err
-				continue
+				// Warn, but don't exit the syncer. The syncer
+				// should continue to run and attempt handle
+				// more events.
+				log.Warnf("Unable to handle push request: %v",
+					err)
 			}
-
-			// Now that we know we were able to register the proof,
-			// we'll return back to the caller, and push the new
-			// proof out to the federation in the background.
-			pushReq.resp <- newProof
-
-			// Fetch all universe servers in our federation.
-			fedServers, err := f.tryFetchServers()
-			if err != nil {
-				err := fmt.Errorf("unable to fetch "+
-					"federation servers: %w", err)
-				log.Warnf(err.Error())
-				pushReq.err <- err
-				continue
-			}
-
-			if len(fedServers) == 0 {
-				log.Warnf("could not find any federation " +
-					"servers")
-				continue
-			}
-
-			if pushReq.LogProofSync {
-				// We are attempting to sync using the
-				// logged proof sync procedure. We will
-				// therefore narrow down the set of target
-				// servers based on the sync log. Only servers
-				// that are not yet push sync complete will be
-				// targeted.
-				fedServers, err = f.filterProofSyncPending(
-					fedServers, pushReq.ID, pushReq.Key,
-				)
-				if err != nil {
-					log.Warnf("failed to filter " +
-						"federation servers")
-					continue
-				}
-			}
-
-			// With the response sent above, we'll push this
-			// out to all the Universe servers in the
-			// background.
-			ctxPush, cancelPush := f.WithCtxQuitNoTimeout()
-			f.pushProofToFederation(
-				ctxPush, pushReq.ID, pushReq.Key,
-				pushReq.Leaf, fedServers,
-				pushReq.LogProofSync,
-			)
-			cancelPush()
 
 		case pushReq := <-f.batchPushRequests:
 			log.Debug("Federation envoy handling batch push " +
@@ -622,6 +561,74 @@ func (f *FederationEnvoy) handleTickEvent() error {
 		)
 		cancelPush()
 	}
+
+	return nil
+}
+
+// handlePushRequest is called each time a new push request is received. It will
+// perform an asynchronous registration with the local Universe registrar, then
+// push the proof leaf out in an async manner to the federation members.
+func (f *FederationEnvoy) handlePushRequest(pushReq *FederationPushReq) error {
+	if pushReq == nil {
+		return fmt.Errorf("nil push request")
+	}
+
+	// First, we'll attempt to registrar the proof leaf with the local
+	// registrar server.
+	ctx, cancel := f.WithCtxQuit()
+	defer cancel()
+	newProof, err := f.cfg.LocalRegistrar.UpsertProofLeaf(
+		ctx, pushReq.ID, pushReq.Key, pushReq.Leaf,
+	)
+	if err != nil {
+		err = fmt.Errorf("unable to insert proof into local "+
+			"universe: %w", err)
+		pushReq.err <- err
+		return err
+	}
+
+	// Now that we know we were able to register the proof, we'll return
+	// back to the caller, and push the new proof out to the federation in
+	// the background.
+	pushReq.resp <- newProof
+
+	// Fetch all universe servers in our federation.
+	fedServers, err := f.tryFetchServers()
+	if err != nil {
+		err = fmt.Errorf("unable to fetch federation servers: %w", err)
+		pushReq.err <- err
+		return err
+	}
+
+	if len(fedServers) == 0 {
+		log.Warnf("could not find any federation servers")
+		return nil
+	}
+
+	if pushReq.LogProofSync {
+		// We are attempting to sync using the logged proof sync
+		// procedure. We will therefore narrow down the set of target
+		// servers based on the sync log. Only servers that are not yet
+		// push sync complete will be targeted.
+		fedServers, err = f.filterProofSyncPending(
+			fedServers, pushReq.ID, pushReq.Key,
+		)
+		if err != nil {
+			err = fmt.Errorf("failed to filter federation "+
+				"servers: %w", err)
+			pushReq.err <- err
+			return err
+		}
+	}
+
+	// With the response sent above, we'll push this out to all the Universe
+	// servers in the background.
+	ctx, cancel = f.WithCtxQuitNoTimeout()
+	defer cancel()
+	f.pushProofToFederation(
+		ctx, pushReq.ID, pushReq.Key, pushReq.Leaf, fedServers,
+		pushReq.LogProofSync,
+	)
 
 	return nil
 }
