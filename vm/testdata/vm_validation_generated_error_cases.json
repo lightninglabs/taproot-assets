@@ -228,7 +228,7 @@
               "script_key": "024c25fa5f861a81dc425778a9e01696795f79e1d8337fe9ead022aafdf8c373c1"
             },
             "tx_witness": [
-              "f21345c685804e28abbbd93131afd844ad33c14c83d931aab38cb8ef493128576496e637483656f37f9dcca8d5074259f257bc51795e1d54c86af71c37726272"
+              "147112c6ad920152fc29243e14aeb06b956af76d6fd8cd34e4a30376f81187aac8dafdb390fe0e1e1e38ad3e15bfbc79e5a4749aa2a8ba3b75690f0523c933ae"
             ],
             "split_commitment": null
           }
@@ -290,7 +290,7 @@
                             "script_key": "024c25fa5f861a81dc425778a9e01696795f79e1d8337fe9ead022aafdf8c373c1"
                           },
                           "tx_witness": [
-                            "f21345c685804e28abbbd93131afd844ad33c14c83d931aab38cb8ef493128576496e637483656f37f9dcca8d5074259f257bc51795e1d54c86af71c37726272"
+                            "147112c6ad920152fc29243e14aeb06b956af76d6fd8cd34e4a30376f81187aac8dafdb390fe0e1e1e38ad3e15bfbc79e5a4749aa2a8ba3b75690f0523c933ae"
                           ],
                           "split_commitment": null
                         }
@@ -364,7 +364,7 @@
                             "script_key": "024c25fa5f861a81dc425778a9e01696795f79e1d8337fe9ead022aafdf8c373c1"
                           },
                           "tx_witness": [
-                            "f21345c685804e28abbbd93131afd844ad33c14c83d931aab38cb8ef493128576496e637483656f37f9dcca8d5074259f257bc51795e1d54c86af71c37726272"
+                            "147112c6ad920152fc29243e14aeb06b956af76d6fd8cd34e4a30376f81187aac8dafdb390fe0e1e1e38ad3e15bfbc79e5a4749aa2a8ba3b75690f0523c933ae"
                           ],
                           "split_commitment": null
                         }
@@ -417,7 +417,9 @@
                   "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
                   "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
                 },
-                "tx_witness": null,
+                "tx_witness": [
+                  "f9611ae7ba190aa09e9006103236baf3fcb59c3646a4aedd15d056477d3feb4c4e84ac2ba37cb0a34ded2178eb91b956df40a05542bdbc735ae05c08cbf78776"
+                ],
                 "split_commitment": null
               }
             ],
@@ -644,7 +646,7 @@
               "script_key": "02eb1015d044964b28e09a30b2166498969e101b91482c251ab4068ec06886033b"
             },
             "tx_witness": [
-              "6d1eab42ed6e2ef1d8256f8f4deea9af7969c373eff1ed66efc38a132a88b73f92da4e917a5de3e0934879042b82842396aa3ebc09db007d1f3d08590fcf8431"
+              "fc8630d1e19cdd35934ffcd11601119de5683ac2420196ece6177676d53c6ee21ea2eaa8223d8a773c25cfda2e0184fe9d39dce2657e220dfec200fe95548a66"
             ],
             "split_commitment": null
           }
@@ -706,7 +708,7 @@
                             "script_key": "02eb1015d044964b28e09a30b2166498969e101b91482c251ab4068ec06886033b"
                           },
                           "tx_witness": [
-                            "6d1eab42ed6e2ef1d8256f8f4deea9af7969c373eff1ed66efc38a132a88b73f92da4e917a5de3e0934879042b82842396aa3ebc09db007d1f3d08590fcf8431"
+                            "fc8630d1e19cdd35934ffcd11601119de5683ac2420196ece6177676d53c6ee21ea2eaa8223d8a773c25cfda2e0184fe9d39dce2657e220dfec200fe95548a66"
                           ],
                           "split_commitment": null
                         }
@@ -780,7 +782,7 @@
                             "script_key": "02eb1015d044964b28e09a30b2166498969e101b91482c251ab4068ec06886033b"
                           },
                           "tx_witness": [
-                            "6d1eab42ed6e2ef1d8256f8f4deea9af7969c373eff1ed66efc38a132a88b73f92da4e917a5de3e0934879042b82842396aa3ebc09db007d1f3d08590fcf8431"
+                            "fc8630d1e19cdd35934ffcd11601119de5683ac2420196ece6177676d53c6ee21ea2eaa8223d8a773c25cfda2e0184fe9d39dce2657e220dfec200fe95548a66"
                           ],
                           "split_commitment": null
                         }
@@ -833,7 +835,9 @@
                   "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
                   "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
                 },
-                "tx_witness": null,
+                "tx_witness": [
+                  "161b022e7a76ad5d663665bb92c24990c079163de47da9dc3bb582f31fe83aab91d552b210a8702c780b1a4c2b05d94fb542138562f8d247386dad5081fc2916"
+                ],
                 "split_commitment": null
               }
             ],
@@ -868,7 +872,7 @@
               "script_key": "02dcf6213bd4ed87c3200308af98581349ec45f7645abb4c1aed2449782e71a173"
             },
             "tx_witness": [
-              "321e3846d410ce6c19e610adc5dcfa6a9f0f3d0acd666312d5092b5ecc5843be333c28a2f8489c04905360c531c1b3bf8bb8f1b196bfb647f9df56a082ef4ee8"
+              "960e90607fba8d922b7c5faf01e882c4a43ffb3ecc64578d051720d871c531cbae2c0a5f9d853ef926ae61c57414b988ca1a83efd8765763946fffb73d3ba63a"
             ],
             "split_commitment": null
           }
@@ -930,7 +934,7 @@
                             "script_key": "02dcf6213bd4ed87c3200308af98581349ec45f7645abb4c1aed2449782e71a173"
                           },
                           "tx_witness": [
-                            "321e3846d410ce6c19e610adc5dcfa6a9f0f3d0acd666312d5092b5ecc5843be333c28a2f8489c04905360c531c1b3bf8bb8f1b196bfb647f9df56a082ef4ee8"
+                            "960e90607fba8d922b7c5faf01e882c4a43ffb3ecc64578d051720d871c531cbae2c0a5f9d853ef926ae61c57414b988ca1a83efd8765763946fffb73d3ba63a"
                           ],
                           "split_commitment": null
                         }
@@ -1004,7 +1008,7 @@
                             "script_key": "02dcf6213bd4ed87c3200308af98581349ec45f7645abb4c1aed2449782e71a173"
                           },
                           "tx_witness": [
-                            "321e3846d410ce6c19e610adc5dcfa6a9f0f3d0acd666312d5092b5ecc5843be333c28a2f8489c04905360c531c1b3bf8bb8f1b196bfb647f9df56a082ef4ee8"
+                            "960e90607fba8d922b7c5faf01e882c4a43ffb3ecc64578d051720d871c531cbae2c0a5f9d853ef926ae61c57414b988ca1a83efd8765763946fffb73d3ba63a"
                           ],
                           "split_commitment": null
                         }
@@ -1041,7 +1045,7 @@
             "script_key": "02dcf6213bd4ed87c3200308af98581349ec45f7645abb4c1aed2449782e71a173"
           },
           "asset": {
-            "version": 1,
+            "version": 0,
             "genesis_first_prev_out": "0c666166bd67761366791f0b0847fb86fa18627c23f6f8d3c1d1476697468877:1580888861",
             "genesis_tag": "99272490106ddf8683126f60d35772c6dfc744b0adbfd5dcf118c4f2b06cfaf0",
             "genesis_meta_hash": "99272490106ddf8683126f60d35772c6dfc744b0adbfd5dcf118c4f2b06cfaf0",
@@ -1057,7 +1061,9 @@
                   "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
                   "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
                 },
-                "tx_witness": null,
+                "tx_witness": [
+                  "a83cb00e8845e37895911f452fdf3c608c5bd6131d3d7133ecd128863ef062a72c28126fa43b28fa67817cd87d7dc50ba7320ece6b87fe3596f2ad43e80a40b2"
+                ],
                 "split_commitment": null
               }
             ],
@@ -1363,7 +1369,9 @@
                   "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
                   "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
                 },
-                "tx_witness": null,
+                "tx_witness": [
+                  "db70a38b3fd89d3b91320969898624df9e53b066b002e3735d1ea19d14e9b90c70b3a7fc85c22cd6c36b015043fb304acd6361febad2dfeb8b83589cf7cd0934"
+                ],
                 "split_commitment": null
               }
             ],
@@ -1669,7 +1677,9 @@
                   "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
                   "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
                 },
-                "tx_witness": null,
+                "tx_witness": [
+                  "84d9d75a73949800b80fd2a1c4313c27d7c4f9d8f9b5a00a7f32a4b217615a76edf6101980d2c6d423a3db16fcb0f9c3e7d8243d24680ee9992a44f386015add"
+                ],
                 "split_commitment": null
               }
             ],
