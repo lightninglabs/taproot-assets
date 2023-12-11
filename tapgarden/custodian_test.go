@@ -539,6 +539,86 @@ func TestTransactionHandling(t *testing.T) {
 	require.EqualValues(t, mockProof.Blob, dbProof)
 }
 
+// TestTransactionConfirmedOnly tests that the custodian only starts the proof
+// courier once a transaction has been confirmed. We also test that it correctly
+// re-tries fetching proofs using a proof courier after it has been restarted.
+func TestTransactionConfirmedOnly(t *testing.T) {
+	t.Parallel()
+
+	runTransactionConfirmedOnlyTest(t, false)
+	runTransactionConfirmedOnlyTest(t, true)
+}
+
+// runTransactionConfirmedOnlyTest runs the transaction confirmed only test,
+// optionally restarting the custodian in the middle.
+func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
+	h := newHarness(t, nil)
+
+	// Before we start the custodian, we create a few random addresses.
+	ctx := context.Background()
+
+	const numAddrs = 5
+	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
+	genesis := make([]*asset.Genesis, numAddrs)
+	for i := 0; i < numAddrs; i++ {
+		addrs[i], genesis[i] = randAddr(h)
+		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
+		require.NoError(t, err)
+	}
+
+	// We start the custodian and make sure it's started up correctly. This
+	// should add pending events for each of the addresses.
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
+
+	// We expect all addresses to be watched by the wallet now.
+	h.assertAddrsRegistered(addrs...)
+
+	// To make sure the custodian adds address events for each address, we
+	// need to signal an unconfirmed transaction for each of them now.
+	outputIndexes := make([]int, numAddrs)
+	transactions := make([]*lndclient.Transaction, numAddrs)
+	for idx := range addrs {
+		outputIndex, tx := randWalletTx(addrs[idx])
+		outputIndexes[idx] = outputIndex
+		transactions[idx] = tx
+		h.walletAnchor.SubscribeTx <- *tx
+
+		// We also simulate that the proof courier has all the proofs
+		// it needs.
+		mockProof := randProof(
+			t, outputIndexes[idx], tx.Tx, genesis[idx], addrs[idx],
+		)
+		_ = h.courier.DeliverProof(nil, mockProof)
+	}
+
+	// We want events to be created for each address, they should be in the
+	// state where they detected a transaction.
+	h.assertEventsPresent(numAddrs, address.StatusTransactionDetected)
+
+	// In case we're testing with a restart, we now restart the custodian.
+	if withRestart {
+		require.NoError(t, h.c.Stop())
+
+		h.c = tapgarden.NewCustodian(h.cfg)
+		require.NoError(t, h.c.Start())
+		h.assertStartup()
+	}
+
+	// Now we confirm the transactions. This should trigger the custodian to
+	// fetch the proof for each of the addresses.
+	for idx := range transactions {
+		tx := transactions[idx]
+		tx.Confirmations = 1
+		h.walletAnchor.SubscribeTx <- *tx
+	}
+
+	h.assertEventsPresent(numAddrs, address.StatusCompleted)
+}
+
 func mustMakeAddr(t *testing.T,
 	gen asset.Genesis, groupKey *btcec.PublicKey,
 	groupWitness wire.TxWitness, scriptKey btcec.PublicKey) *address.Tap {
