@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -74,6 +75,20 @@ func MockGroupAnchorVerifier(gen *asset.Genesis,
 	groupKey *asset.GroupKey) error {
 
 	return nil
+}
+
+// MockProofCourierDispatcher is a mock proof courier dispatcher which returns
+// the same courier for all requests.
+type MockProofCourierDispatcher struct {
+	Courier Courier
+}
+
+// NewCourier instantiates a new courier service handle given a service
+// URL address.
+func (m *MockProofCourierDispatcher) NewCourier(*url.URL, Recipient) (Courier,
+	error) {
+
+	return m.Courier, nil
 }
 
 // MockProofCourier is a mock proof courier which stores the last proof it
