@@ -429,59 +429,17 @@ func (f *FederationEnvoy) syncer() {
 					err)
 			}
 
+		// Handle a new batch push request.
 		case pushReq := <-f.batchPushRequests:
 			log.Debug("Federation envoy handling batch push " +
 				"request")
-			ctx, cancel := f.WithCtxQuitNoTimeout()
-
-			// First, we'll attempt to registrar the proof leaf with
-			// the local registrar server.
-			err := f.cfg.LocalRegistrar.UpsertProofLeafBatch(
-				ctx, pushReq.Batch,
-			)
-			cancel()
+			err := f.handleBatchPushRequest(pushReq)
 			if err != nil {
-				err := fmt.Errorf("unable to insert proof "+
-					"batch into local universe: %w", err)
-
-				log.Warnf(err.Error())
-
-				pushReq.err <- err
-				continue
+				// Warn, but don't exit the event handler
+				// routine.
+				log.Warnf("Unable to handle batch push "+
+					"request: %v", err)
 			}
-
-			// Now that we know we were able to register the proof,
-			// we'll return back to the caller.
-			pushReq.resp <- struct{}{}
-
-			// Fetch all universe servers in our federation.
-			fedServers, err := f.tryFetchServers()
-			if err != nil {
-				err := fmt.Errorf("unable to fetch "+
-					"federation servers: %w", err)
-				log.Warnf(err.Error())
-				pushReq.err <- err
-				continue
-			}
-
-			if len(fedServers) == 0 {
-				log.Warnf("could not find any federation " +
-					"servers")
-				continue
-			}
-
-			// With the response sent above, we'll push this out to
-			// all the Universe servers in the background.
-			ctxPush, cancelPush := f.WithCtxQuitNoTimeout()
-			for idx := range pushReq.Batch {
-				item := pushReq.Batch[idx]
-
-				f.pushProofToFederation(
-					ctxPush, item.ID, item.Key, item.Leaf,
-					fedServers, item.LogProofSync,
-				)
-			}
-			cancelPush()
 
 		case <-f.Quit:
 			return
@@ -629,6 +587,61 @@ func (f *FederationEnvoy) handlePushRequest(pushReq *FederationPushReq) error {
 		ctx, pushReq.ID, pushReq.Key, pushReq.Leaf, fedServers,
 		pushReq.LogProofSync,
 	)
+
+	return nil
+}
+
+// handleBatchPushRequest is called each time a new batch push request is
+// received. It will perform an asynchronous registration with the local
+// Universe registrar, then push each leaf from the batch out in an async manner
+// to the federation members.
+func (f *FederationEnvoy) handleBatchPushRequest(
+	pushReq *FederationProofBatchPushReq) error {
+
+	if pushReq == nil {
+		return fmt.Errorf("nil batch push request")
+	}
+
+	ctx, cancel := f.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// First, we'll attempt to registrar the proof leaf with the local
+	// registrar server.
+	err := f.cfg.LocalRegistrar.UpsertProofLeafBatch(ctx, pushReq.Batch)
+	if err != nil {
+		err = fmt.Errorf("unable to insert proof batch into local "+
+			"universe: %w", err)
+		pushReq.err <- err
+		return err
+	}
+
+	// Now that we know we were able to register the proof, we'll return
+	// back to the caller.
+	pushReq.resp <- struct{}{}
+
+	// Fetch all universe servers in our federation.
+	fedServers, err := f.tryFetchServers()
+	if err != nil {
+		err = fmt.Errorf("unable to fetch federation servers: %w", err)
+		pushReq.err <- err
+		return err
+	}
+
+	if len(fedServers) == 0 {
+		log.Warnf("could not find any federation servers")
+		return nil
+	}
+
+	// With the response sent above, we'll push this out to all the Universe
+	// servers in the background.
+	for idx := range pushReq.Batch {
+		item := pushReq.Batch[idx]
+
+		f.pushProofToFederation(
+			ctx, item.ID, item.Key, item.Leaf, fedServers,
+			item.LogProofSync,
+		)
+	}
 
 	return nil
 }
