@@ -403,88 +403,18 @@ func (f *FederationEnvoy) syncer() {
 	syncTicker := time.NewTicker(f.cfg.SyncInterval)
 	defer syncTicker.Stop()
 
-	// We'll use a timeout that's slightly less than the sync interval to
-	// help avoid ticking into a new sync event before the previous event
-	// has finished.
-	syncContextTimeout := f.cfg.SyncInterval - 1*time.Second
-	if syncContextTimeout < 0 {
-		// If the sync interval is less than a second, then we'll use
-		// the sync interval as the timeout.
-		syncContextTimeout = f.cfg.SyncInterval
-	}
-
 	for {
 		select {
-		// A new sync event has just been triggered, so we'll attempt
-		// to synchronize state with all the active universe servers in
-		// the federation.
+		// Handle a new sync tick event.
 		case <-syncTicker.C:
 			log.Debug("Federation envoy handling new tick event")
-
-			// Error propagation is handled in tryFetchServers, we
-			// only need to exit here.
-			fedServers, err := f.tryFetchServers()
+			err := f.handleTickEvent()
 			if err != nil {
-				log.Warnf("unable to fetch set of universe "+
-					"servers: %v", err)
-				continue
-			}
-
-			log.Infof("Synchronizing with %v federation members",
-				len(fedServers))
-			err = f.SyncServers(fedServers)
-			if err != nil {
-				log.Warnf("unable to sync with federation "+
-					"server: %v", err)
-				continue
-			}
-
-			// After we've synced with the federation, we'll
-			// attempt to push out any pending proofs that we
-			// haven't yet completed.
-			ctxFetchLog, cancelFetchLog := f.WithCtxQuitNoTimeout()
-			syncDirection := SyncDirectionPush
-			db := f.cfg.FederationDB
-			logEntries, err := db.FetchPendingProofsSyncLog(
-				ctxFetchLog, &syncDirection,
-			)
-			cancelFetchLog()
-			if err != nil {
-				log.Warnf("unable to query pending push "+
-					"sync log: %w", err)
-				continue
-			}
-
-			if len(logEntries) > 0 {
-				log.Debugf("Handling pending proof sync log "+
-					"entries (entries_count=%d)",
-					len(logEntries))
-			}
-
-			// TODO(ffranr): Take account of any new servers that
-			//  have been added since the last time we populated the
-			//  log for a given proof leaf. Pending proof sync log
-			//  entries are only relevant for the set of servers
-			//  that existed at the time the log entry was created.
-			//  If a new server is added, then we should create a
-			//  new log entry for the new server.
-
-			for idx := range logEntries {
-				entry := logEntries[idx]
-
-				servers := []ServerAddr{
-					entry.ServerAddr,
-				}
-
-				ctxPush, cancelPush :=
-					f.CtxBlockingCustomTimeout(
-						syncContextTimeout,
-					)
-				f.pushProofToFederation(
-					ctxPush, entry.UniID, entry.LeafKey,
-					&entry.Leaf, servers, true,
-				)
-				cancelPush()
+				// Warn, but don't exit the syncer. The syncer
+				// should continue to run and attempt handle
+				// more events.
+				log.Warnf("Unable to handle tick event: %v",
+					err)
 			}
 
 		// A new push request has just arrived. We'll perform a
@@ -618,6 +548,82 @@ func (f *FederationEnvoy) syncer() {
 			return
 		}
 	}
+}
+
+// handleTickEvent is called each time the sync ticker fires. It will attempt
+// to synchronize state with all the active universe servers in the federation.
+func (f *FederationEnvoy) handleTickEvent() error {
+	// Error propagation is handled in tryFetchServers, we only need to exit
+	// here.
+	fedServers, err := f.tryFetchServers()
+	if err != nil {
+		return fmt.Errorf("unable to fetch set of universe servers: "+
+			"%w", err)
+	}
+
+	log.Infof("Synchronizing with %v federation members", len(fedServers))
+	err = f.SyncServers(fedServers)
+	if err != nil {
+		return fmt.Errorf("unable to sync with federation server: %w",
+			err)
+	}
+
+	// After we've synced with the federation, we'll attempt to push out any
+	// pending proofs that we haven't yet completed.
+	ctx, cancel := f.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	syncDirection := SyncDirectionPush
+	db := f.cfg.FederationDB
+
+	logEntries, err := db.FetchPendingProofsSyncLog(
+		ctx, &syncDirection,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to query pending push sync log: %w",
+			err)
+	}
+
+	if len(logEntries) > 0 {
+		log.Debugf("Handling pending proof sync log entries "+
+			"(entries_count=%d)", len(logEntries))
+	}
+
+	// TODO(ffranr): Take account of any new servers that have been added
+	//  since the last time we populated the log for a given proof leaf.
+	//  Pending proof sync log entries are only relevant for the set of
+	//  servers that existed at the time the log entry was created. If a new
+	//  server is added, then we should create a new log entry for the new
+	//  server.
+
+	// We'll use a timeout that's slightly less than the sync interval to
+	// help avoid ticking into a new sync event before the previous event
+	// has finished.
+	syncContextTimeout := f.cfg.SyncInterval - 1*time.Second
+	if syncContextTimeout < 0 {
+		// If the sync interval is less than a second, then we'll use
+		// the sync interval as the timeout.
+		syncContextTimeout = f.cfg.SyncInterval
+	}
+
+	for idx := range logEntries {
+		entry := logEntries[idx]
+
+		servers := []ServerAddr{
+			entry.ServerAddr,
+		}
+
+		ctxPush, cancelPush := f.CtxBlockingCustomTimeout(
+			syncContextTimeout,
+		)
+		f.pushProofToFederation(
+			ctxPush, entry.UniID, entry.LeafKey, &entry.Leaf,
+			servers, true,
+		)
+		cancelPush()
+	}
+
+	return nil
 }
 
 // UpsertProofLeaf upserts a proof leaf within the target universe tree. This
