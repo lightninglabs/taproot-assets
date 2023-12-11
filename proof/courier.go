@@ -72,6 +72,113 @@ type Courier interface {
 	Close() error
 }
 
+// CourierCfg contains general config parameters applicable to all proof
+// couriers.
+type CourierCfg struct {
+	// HashMailCfg contains hashmail protocol specific config parameters.
+	HashMailCfg *HashMailCourierCfg
+
+	// UniverseRpcCfg contains universe RPC protocol specific config
+	// parameters.
+	UniverseRpcCfg *UniverseRpcCourierCfg
+
+	// TransferLog is a log for recording proof delivery and retrieval
+	// attempts.
+	TransferLog TransferLog
+}
+
+// CourierDispatch is an interface that abstracts away the different proof
+// courier services that are supported.
+type CourierDispatch interface {
+	// NewCourier instantiates a new courier service handle given a service
+	// URL address.
+	NewCourier(addr *url.URL, recipient Recipient) (Courier, error)
+}
+
+// URLDispatch is a proof courier dispatch that uses the courier address URL
+// scheme to determine which courier service to use.
+type URLDispatch struct {
+	cfg *CourierCfg
+}
+
+// NewCourierDispatch creates a new proof courier dispatch.
+func NewCourierDispatch(cfg *CourierCfg) *URLDispatch {
+	return &URLDispatch{
+		cfg: cfg,
+	}
+}
+
+// NewCourier instantiates a new courier service handle given a service URL
+// address.
+func (u *URLDispatch) NewCourier(addr *url.URL,
+	recipient Recipient) (Courier, error) {
+
+	subscribers := make(map[uint64]*fn.EventReceiver[fn.Event])
+
+	// Create new courier addr based on URL scheme.
+	switch addr.Scheme {
+	case HashmailCourierType:
+		cfg := u.cfg.HashMailCfg
+		backoffHandler := NewBackoffHandler(
+			cfg.BackoffCfg, u.cfg.TransferLog,
+		)
+
+		hashMailCfg := HashMailCourierCfg{
+			ReceiverAckTimeout: cfg.ReceiverAckTimeout,
+		}
+
+		hashMailBox, err := NewHashMailBox(addr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make mailbox: %v",
+				err)
+		}
+
+		return &HashMailCourier{
+			cfg:           &hashMailCfg,
+			backoffHandle: backoffHandler,
+			recipient:     recipient,
+			mailbox:       hashMailBox,
+			subscribers:   subscribers,
+		}, nil
+
+	case UniverseRpcCourierType:
+		cfg := u.cfg.UniverseRpcCfg
+		backoffHandler := NewBackoffHandler(
+			cfg.BackoffCfg, u.cfg.TransferLog,
+		)
+
+		// Connect to the universe RPC server.
+		dialOpts, err := serverDialOpts()
+		if err != nil {
+			return nil, err
+		}
+
+		serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
+		conn, err := grpc.Dial(serverAddr, dialOpts...)
+		if err != nil {
+			return nil, err
+		}
+
+		client := unirpc.NewUniverseClient(conn)
+
+		return &UniverseRpcCourier{
+			recipient:     recipient,
+			client:        client,
+			backoffHandle: backoffHandler,
+			transfer:      u.cfg.TransferLog,
+			subscribers:   subscribers,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown courier address protocol "+
+			"(consider updating tapd): %v", addr.Scheme)
+	}
+}
+
+// A compile-time assertion to ensure that the URLDispatch meets the
+// CourierDispatch interface.
+var _ CourierDispatch = (*URLDispatch)(nil)
+
 // CourierAddr is a fully validated courier address (including protocol specific
 // validation).
 type CourierAddr interface {
@@ -126,10 +233,12 @@ func (h *HashMailCourierAddr) Url() *url.URL {
 func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
 	recipient Recipient) (Courier, error) {
 
-	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
+	backoffHandle := NewBackoffHandler(
+		cfg.HashMailCfg.BackoffCfg, cfg.TransferLog,
+	)
 
 	hashMailCfg := HashMailCourierCfg{
-		ReceiverAckTimeout: cfg.ReceiverAckTimeout,
+		ReceiverAckTimeout: cfg.HashMailCfg.ReceiverAckTimeout,
 	}
 
 	hashMailBox, err := NewHashMailBox(&h.addr)
@@ -185,7 +294,9 @@ func (h *UniverseRpcCourierAddr) Url() *url.URL {
 func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 	cfg *CourierCfg, recipient Recipient) (Courier, error) {
 
-	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
+	backoffHandle := NewBackoffHandler(
+		cfg.UniverseRpcCfg.BackoffCfg, cfg.TransferLog,
+	)
 
 	// Ensure that the courier address is a universe RPC address.
 	if h.addr.Scheme != UniverseRpcCourierType {
@@ -249,22 +360,6 @@ func NewCourier(ctx context.Context, addr url.URL, cfg *CourierCfg,
 	}
 
 	return courierAddr.NewCourier(ctx, cfg, recipient)
-}
-
-// CourierCfg contains general config parameters applicable to all proof
-// couriers.
-type CourierCfg struct {
-	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
-	// acknowledge the proof.
-	ReceiverAckTimeout time.Duration
-
-	// BackoffCfg configures the behaviour of the proof delivery
-	// functionality.
-	BackoffCfg *BackoffCfg
-
-	// TransferLog is a log for recording proof delivery and retrieval
-	// attempts.
-	TransferLog TransferLog
 }
 
 // ProofMailbox represents an abstract store-and-forward mailbox that can be

@@ -322,9 +322,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// types of couriers that currently exist will receive this config upon
 	// initialization.
 	proofCourierCfg := &proof.CourierCfg{
-		ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
-		BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
-		TransferLog:        assetStore,
+		HashMailCfg:    cfg.HashMailCourier,
+		UniverseRpcCfg: cfg.UniverseRpcCourier,
+		TransferLog:    assetStore,
 	}
 
 	return &tap.Config{
