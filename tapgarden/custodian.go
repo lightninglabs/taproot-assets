@@ -396,13 +396,21 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				}
 
 				c.events[op] = event
+
+				// Now that we've seen this output confirm on
+				// chain, we'll launch a goroutine to use the
+				// ProofCourier to import the proof into our
+				// local DB.
+				c.Wg.Add(1)
+				go c.receiveProof(event.Addr.Tap, op)
 			}
 
 			continue
 		}
 
 		// This is a new output, let's find out if it's for an address
-		// of ours.
+		// of ours. This step also creates a new event for the address
+		// if it doesn't exist yet.
 		addr, err := c.mapToTapAddr(walletTx, uint32(idx), op)
 		if err != nil {
 			return err
@@ -414,9 +422,17 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			continue
 		}
 
-		// Now that we've seen this output on chain, we'll launch a
-		// goroutine to use the ProofCourier to import the proof into
-		// our local DB.
+		// We now need to wait for a confirmation, since proofs will
+		// be delivered once the anchor transaction is confirmed. If
+		// we skip it now, we'll receive another notification once the
+		// transaction is confirmed.
+		if walletTx.Confirmations == 0 {
+			continue
+		}
+
+		// Now that we've seen this output confirm on chain, we'll
+		// launch a goroutine to use the ProofCourier to import the
+		// proof into our local DB.
 		c.Wg.Add(1)
 		go c.receiveProof(addr, op)
 	}
@@ -450,7 +466,7 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
 		&addr.ProofCourierAddr, recipient,
 	)
 	if err != nil {
-		log.Errorf("unable to initiate proof courier service handle: "+
+		log.Errorf("Unable to initiate proof courier service handle: "+
 			"%v", err)
 		return
 	}
@@ -589,8 +605,7 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 
 	log.Infof("Imported Taproot Asset address %v into wallet", addrStr)
 	if p2trAddr != nil {
-		log.Infof("watching p2tr address %v on chain",
-			p2trAddr.String())
+		log.Infof("Watching p2tr address %v on chain", p2trAddr)
 	}
 
 	return c.cfg.AddrBook.SetAddrManaged(ctxt, addr, time.Now())
