@@ -76,7 +76,7 @@ const (
 	// defaultProofTransferReceiverAckTimeout is the default itest specific
 	// timeout we'll use for waiting for a receiver to acknowledge a proof
 	// transfer.
-	defaultProofTransferReceiverAckTimeout = 15 * time.Second
+	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
 // tapdHarness is a test harness that holds everything that is needed to
