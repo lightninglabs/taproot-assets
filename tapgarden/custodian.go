@@ -400,13 +400,6 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			continue
 		}
 
-		// TODO(ffranr): This proof courier disabled check should be
-		//  removed. It was implemented because some integration test do
-		//  not setup and use a proof courier.
-		if c.cfg.ProofCourierCfg == nil {
-			continue
-		}
-
 		// Now that we've seen this output on chain, we'll launch a
 		// goroutine to use the ProofCourier to import the proof into
 		// our local DB.
