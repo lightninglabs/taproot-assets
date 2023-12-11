@@ -231,18 +231,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 	}
 
-	// TODO(ffranr): This logic is leftover for integration tests which
-	//  do not yet enable a proof courier. Remove once all integration tests
-	//  support a proof courier.
-	var proofCourierCfg *proof.CourierCfg
-	if cfg.HashMailCourier != nil {
-		proofCourierCfg = &proof.CourierCfg{
-			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
-			BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
-			TransferLog:        assetStore,
-		}
-	}
-
 	reOrgWatcher := tapgarden.NewReOrgWatcher(&tapgarden.ReOrgWatcherConfig{
 		ChainBridge: chainBridge,
 		GroupVerifier: tapgarden.GenGroupVerifier(
@@ -329,6 +317,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		Wallet:       walletAnchor,
 		ChainParams:  &tapChainParams,
 	})
+
+	// Addresses can have different proof couriers configured, but both
+	// types of couriers that currently exist will receive this config upon
+	// initialization.
+	proofCourierCfg := &proof.CourierCfg{
+		ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
+		BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
+		TransferLog:        assetStore,
+	}
 
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
