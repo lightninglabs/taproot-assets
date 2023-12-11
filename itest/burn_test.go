@@ -2,6 +2,7 @@ package itest
 
 import (
 	"context"
+	"encoding/hex"
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -300,4 +301,113 @@ func testBurnAssets(t *harnessTest) {
 		simpleGroupCollectGen.AssetId, []uint64{1}, 6, 7, 1, true,
 	)
 	AssertBalanceByID(t.t, t.tapd, simpleGroupCollectGen.AssetId, 0)
+}
+
+// testBurnGroupedAssets tests that some amount of an asset from an asset group
+// can be burnt successfully.
+func testBurnGroupedAssets(t *harnessTest) {
+	var (
+		ctxb  = context.Background()
+		miner = t.lndHarness.Miner.Client
+
+		firstMintReq = issuableAssets[0]
+	)
+
+	// We start off without any asset groups.
+	AssertNumGroups(t.t, t.tapd, 0)
+
+	// Next, we mint a re-issuable asset, creating a new asset group.
+	firstMintResponses := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, []*mintrpc.MintAssetRequest{firstMintReq},
+	)
+	require.Len(t.t, firstMintResponses, 1)
+
+	var (
+		firstMintResp = firstMintResponses[0]
+		assetGroupKey = firstMintResp.AssetGroup.TweakedGroupKey
+	)
+
+	// Ensure that an asset group was created.
+	AssertNumGroups(t.t, t.tapd, 1)
+
+	// Issue a further asset into the asset group.
+	simpleAssetsCopy := CopyRequests(simpleAssets)
+	secondMintReq := simpleAssetsCopy[0]
+	secondMintReq.Asset.Amount = 1010
+	secondMintReq.Asset.GroupKey = assetGroupKey
+	secondMintReq.Asset.GroupedAsset = true
+
+	secondMintResponses := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd,
+		[]*mintrpc.MintAssetRequest{secondMintReq},
+	)
+	require.Len(t.t, secondMintResponses, 1)
+
+	// Ensure that we haven't created a new group.
+	AssertNumGroups(t.t, t.tapd, 1)
+
+	secondMintResp := secondMintResponses[0]
+
+	// Confirm that the minted asset group contains two assets.
+	assetGroups, err := t.tapd.ListGroups(
+		ctxb, &taprpc.ListGroupsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	encodedGroupKey := hex.EncodeToString(assetGroupKey)
+	assetGroup := assetGroups.Groups[encodedGroupKey]
+	require.Len(t.t, assetGroup.Assets, 2)
+
+	// Burn some amount of the second asset.
+	var (
+		burnAssetID = secondMintResp.AssetGenesis.AssetId
+
+		preBurnAmt  = secondMintResp.Amount
+		burnAmt     = uint64(10)
+		postBurnAmt = preBurnAmt - burnAmt
+	)
+
+	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: burnAssetID,
+		},
+		AmountToBurn:     burnAmt,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	burnRespJSON, err := formatProtoJSON(burnResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from burning %d units: %v", burnAmt, burnRespJSON)
+
+	// Assert that the asset burn transfer occurred correctly.
+	AssertAssetOutboundTransferWithOutputs(
+		t.t, miner, t.tapd, burnResp.BurnTransfer,
+		burnAssetID, []uint64{postBurnAmt, burnAmt}, 0, 1, 2, true,
+	)
+
+	// Ensure that the burnt asset has the correct state.
+	burnedAsset := burnResp.BurnProof.Asset
+	allAssets, err := t.tapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
+	)
+	require.NoError(t.t, err)
+	AssertAssetStateByScriptKey(
+		t.t, allAssets.Assets, burnedAsset.ScriptKey,
+		AssetAmountCheck(burnedAsset.Amount),
+		AssetTypeCheck(burnedAsset.AssetGenesis.AssetType),
+		AssetScriptKeyIsLocalCheck(false),
+		AssetScriptKeyIsBurnCheck(true),
+	)
+
+	// Our asset balance should have been decreased by the burned amount.
+	AssertBalanceByID(t.t, t.tapd, burnAssetID, postBurnAmt)
+
+	// Confirm that the minted asset group still contains two assets.
+	assetGroups, err = t.tapd.ListGroups(ctxb, &taprpc.ListGroupsRequest{})
+	require.NoError(t.t, err)
+
+	encodedGroupKey = hex.EncodeToString(assetGroupKey)
+	assetGroup = assetGroups.Groups[encodedGroupKey]
+	require.Len(t.t, assetGroup.Assets, 2)
 }
