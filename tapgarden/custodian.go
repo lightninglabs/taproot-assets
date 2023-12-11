@@ -271,11 +271,24 @@ func (c *Custodian) watchInboundAssets() {
 
 		// Maybe a proof was delivered while we were shutting down or
 		// starting up, let's check now.
-		err = c.checkProofAvailable(event)
+		available, err := c.checkProofAvailable(event)
 		if err != nil {
 			reportErr(err)
 			return
 		}
+
+		// If we did find a proof, we did import it now and can remove
+		// the event from our cache.
+		if available {
+			delete(c.events, event.Outpoint)
+
+			continue
+		}
+
+		// If we didn't find a proof, we'll launch a goroutine to use
+		// the ProofCourier to import the proof into our local DB.
+		c.Wg.Add(1)
+		go c.receiveProof(event.Addr.Tap, event.Outpoint)
 	}
 
 	// Read all on-chain transactions and make sure they are mapped to an
@@ -594,7 +607,7 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 
 // checkProofAvailable checks the proof storage if a proof for the given event
 // is already available. If it is, and it checks out, the event is updated.
-func (c *Custodian) checkProofAvailable(event *address.Event) error {
+func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	ctxt, cancel := c.WithCtxQuit()
 	defer cancel()
 
@@ -610,34 +623,36 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	})
 	switch {
 	case errors.Is(err, proof.ErrProofNotFound):
-		return nil
+		return false, nil
 
 	case err != nil:
-		return fmt.Errorf("error fetching proof for event: %w", err)
+		return false, fmt.Errorf("error fetching proof for event: %w",
+			err)
 	}
 
 	file := proof.NewEmptyFile(proof.V0)
 	if err := file.Decode(bytes.NewReader(blob)); err != nil {
-		return fmt.Errorf("error decoding proof file: %w", err)
+		return false, fmt.Errorf("error decoding proof file: %w", err)
 	}
 
 	// Exit early on empty proof (shouldn't happen outside of test cases).
 	if file.IsEmpty() {
-		return fmt.Errorf("archive contained empty proof file: %w", err)
+		return false, fmt.Errorf("archive contained empty proof file: "+
+			"%w", err)
 	}
 
 	lastProof, err := file.LastProof()
 	if err != nil {
-		return fmt.Errorf("error fetching last proof: %w", err)
+		return false, fmt.Errorf("error fetching last proof: %w", err)
 	}
 
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
 	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
-		return c.setReceiveCompleted(event, lastProof, file)
+		return true, c.setReceiveCompleted(event, lastProof, file)
 	}
 
-	return nil
+	return false, nil
 }
 
 // mapProofToEvent inspects a new proof and attempts to match it to an existing
