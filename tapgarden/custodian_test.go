@@ -1,9 +1,12 @@
 package tapgarden_test
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"math/rand"
+	"net/url"
 	"testing"
 	"time"
 
@@ -13,15 +16,16 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
-	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -34,11 +38,9 @@ var (
 )
 
 // newAddrBook creates a new instance of the TapAddressBook book.
-func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing,
+func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapgarden.MockKeyRing,
 	syncer *tapgarden.MockAssetSyncer) (*address.Book,
-	*tapdb.TapAddressBook, sqlc.Querier) {
-
-	db := tapdb.NewTestDB(t)
+	*tapdb.TapAddressBook) {
 
 	txCreator := func(tx *sql.Tx) tapdb.AddrBook {
 		return db.WithTx(tx)
@@ -54,12 +56,12 @@ func newAddrBook(t *testing.T, keyRing *tapgarden.MockKeyRing,
 		Chain:        *chainParams,
 		KeyRing:      keyRing,
 	})
-	return book, tapdbBook, db
+	return book, tapdbBook
 }
 
 // newProofArchive creates a new instance of the MultiArchiver.
-func newProofArchive(t *testing.T) (*proof.MultiArchiver, *tapdb.AssetStore) {
-	db := tapdb.NewTestDB(t)
+func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
+	*tapdb.AssetStore) {
 
 	txCreator := func(tx *sql.Tx) tapdb.ActiveAssetsStore {
 		return db.WithTx(tx)
@@ -90,7 +92,7 @@ type custodianHarness struct {
 	addrBook     *address.Book
 	syncer       *tapgarden.MockAssetSyncer
 	assetDB      *tapdb.AssetStore
-	proofArchive *proof.MultiArchiver
+	courier      *proof.MockProofCourier
 }
 
 // assertStartup makes sure the custodian was started correctly.
@@ -112,6 +114,48 @@ func (h *custodianHarness) assertStartup() {
 // interval pre-set.
 func (h *custodianHarness) eventually(fn func() bool) {
 	require.Eventually(h.t, fn, testTimeout, testPollInterval)
+}
+
+// assertEventsPresent makes sure that the given number of events is present in
+// the address book, then returns those events.
+func (h *custodianHarness) assertEventsPresent(numEvents int,
+	status address.Status) []*address.Event {
+
+	ctx := context.Background()
+	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	// Only one event should be registered though, as we've only created one
+	// transaction.
+	var finalEvents []*address.Event
+	err := wait.NoError(func() error {
+		events, err := h.tapdbBook.QueryAddrEvents(
+			ctxt, address.EventQueryParams{},
+		)
+		if err != nil {
+			return err
+		}
+
+		if len(events) != numEvents {
+			return fmt.Errorf("wanted %d events but got %d",
+				numEvents, len(events))
+		}
+
+		for idx, event := range events {
+			if event.Status != status {
+				return fmt.Errorf("event %d has status %v "+
+					"but wanted %v", idx, event.Status,
+					status)
+			}
+		}
+
+		finalEvents = events
+
+		return nil
+	}, testTimeout)
+	require.NoError(h.t, err)
+
+	return finalEvents
 }
 
 // assertAddrsRegistered makes sure that for each of the given addresses a
@@ -138,8 +182,14 @@ func newHarness(t *testing.T,
 	walletAnchor := tapgarden.NewMockWalletAnchor()
 	keyRing := tapgarden.NewMockKeyRing()
 	syncer := tapgarden.NewMockAssetSyncer()
-	addrBook, tapdbBook, _ := newAddrBook(t, keyRing, syncer)
-	proofArchive, assetDB := newProofArchive(t)
+	db := tapdb.NewTestDB(t)
+	addrBook, tapdbBook := newAddrBookForDB(db.BaseDB, keyRing, syncer)
+	_, assetDB := newProofArchiveForDB(t, db.BaseDB)
+	courier := proof.NewMockProofCourier()
+	courierDispatch := &proof.MockProofCourierDispatcher{
+		Courier: courier,
+	}
+	proofWatcher := &tapgarden.MockProofWatcher{}
 
 	ctxb := context.Background()
 	for _, initialAddr := range initialAddrs {
@@ -148,13 +198,15 @@ func newHarness(t *testing.T,
 	}
 
 	cfg := &tapgarden.CustodianConfig{
-		ChainParams:   chainParams,
-		ChainBridge:   chainBridge,
-		WalletAnchor:  walletAnchor,
-		AddrBook:      addrBook,
-		ProofArchive:  proofArchive,
-		ProofNotifier: assetDB,
-		ErrChan:       make(chan error, 1),
+		ChainParams:            chainParams,
+		ChainBridge:            chainBridge,
+		WalletAnchor:           walletAnchor,
+		AddrBook:               addrBook,
+		ProofArchive:           assetDB,
+		ProofNotifier:          assetDB,
+		ProofCourierDispatcher: courierDispatch,
+		ProofWatcher:           proofWatcher,
+		ErrChan:                make(chan error, 1),
 	}
 	return &custodianHarness{
 		t:            t,
@@ -167,20 +219,21 @@ func newHarness(t *testing.T,
 		addrBook:     addrBook,
 		syncer:       syncer,
 		assetDB:      assetDB,
-		proofArchive: proofArchive,
+		courier:      courier,
 	}
 }
 
-func randAddr(h *custodianHarness) *address.AddrWithKeyInfo {
-	proofCourierAddr := address.RandProofCourierAddr(h.t)
+func randAddr(h *custodianHarness) (*address.AddrWithKeyInfo, *asset.Genesis) {
 	addr, genesis, group := address.RandAddr(
-		h.t, &address.RegressionNetTap, proofCourierAddr,
+		h.t, &address.RegressionNetTap, url.URL{
+			Scheme: "mock",
+		},
 	)
 
 	err := h.tapdbBook.InsertAssetGen(context.Background(), genesis, group)
 	require.NoError(h.t, err)
 
-	return addr
+	return addr, genesis
 }
 
 func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
@@ -193,9 +246,12 @@ func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
 	taprootOutput := rand.Intn(numOutputs)
 
 	for idx := 0; idx < numInputs; idx++ {
-		in := &wire.TxIn{}
-		_, _ = rand.Read(in.PreviousOutPoint.Hash[:])
-		in.PreviousOutPoint.Index = rand.Uint32()
+		in := &wire.TxIn{
+			PreviousOutPoint: wire.OutPoint{
+				Hash:  test.RandHash(),
+				Index: rand.Uint32(),
+			},
+		}
 		tx.Tx.AddTxIn(in)
 		tx.PreviousOutpoints = append(
 			tx.PreviousOutpoints, &lnrpc.PreviousOutPoint{
@@ -229,6 +285,71 @@ func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
 	}
 
 	return taprootOutput, tx
+}
+
+func randProof(t *testing.T, outputIndex int, tx *wire.MsgTx,
+	genesis *asset.Genesis,
+	addr *address.AddrWithKeyInfo) *proof.AnnotatedProof {
+
+	a := asset.Asset{
+		Version:   asset.V0,
+		Genesis:   *genesis,
+		Amount:    addr.Amount,
+		ScriptKey: asset.NewScriptKey(&addr.ScriptKey),
+	}
+	if addr.GroupKey != nil {
+		a.GroupKey = &asset.GroupKey{
+			GroupPubKey: *addr.GroupKey,
+		}
+	}
+
+	p := &proof.Proof{
+		PrevOut: wire.OutPoint{},
+		BlockHeader: wire.BlockHeader{
+			Timestamp: time.Unix(rand.Int63(), 0),
+		},
+		AnchorTx:      *tx,
+		TxMerkleProof: proof.TxMerkleProof{},
+		Asset:         a,
+		InclusionProof: proof.TaprootProof{
+			InternalKey: test.RandPubKey(t),
+			OutputIndex: uint32(outputIndex),
+		},
+	}
+
+	f, err := proof.NewFile(proof.V0, *p)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	require.NoError(t, f.Encode(&buf))
+
+	ac, err := commitment.NewAssetCommitment(&a)
+	require.NoError(t, err)
+	tc, err := commitment.NewTapCommitment(ac)
+	require.NoError(t, err)
+
+	op := wire.OutPoint{
+		Hash:  tx.TxHash(),
+		Index: uint32(outputIndex),
+	}
+
+	return &proof.AnnotatedProof{
+		Locator: proof.Locator{
+			AssetID:   fn.Ptr(genesis.ID()),
+			GroupKey:  addr.GroupKey,
+			ScriptKey: addr.ScriptKey,
+			OutPoint:  &op,
+		},
+		Blob: buf.Bytes(),
+		AssetSnapshot: &proof.AssetSnapshot{
+			Asset:       &a,
+			OutPoint:    op,
+			AnchorTx:    tx,
+			OutputIndex: uint32(outputIndex),
+			InternalKey: test.RandPubKey(t),
+			ScriptRoot:  tc,
+		},
+	}
 }
 
 // insertAssetInfo starts a background goroutine that receives asset info that
@@ -279,7 +400,7 @@ func TestCustodianNewAddr(t *testing.T) {
 		<-h.keyRing.ReqKeys
 	}()
 	ctx := context.Background()
-	addr := randAddr(h)
+	addr, _ := randAddr(h)
 	proofCourierAddr := address.RandProofCourierAddr(t)
 	dbAddr, err := h.addrBook.NewAddress(
 		ctx, addr.AssetID, addr.Amount, nil, proofCourierAddr,
@@ -373,6 +494,8 @@ func TestBookAssetSyncer(t *testing.T) {
 	close(quitAssetWatcher)
 }
 
+// TestTransactionHandling tests that the custodian correctly handles incoming
+// transactions.
 func TestTransactionHandling(t *testing.T) {
 	h := newHarness(t, nil)
 
@@ -382,14 +505,20 @@ func TestTransactionHandling(t *testing.T) {
 
 	const numAddrs = 5
 	addrs := make([]*address.AddrWithKeyInfo, numAddrs)
+	genesis := make([]*asset.Genesis, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addrs[i] = randAddr(h)
+		addrs[i], genesis[i] = randAddr(h)
 		err := h.tapdbBook.InsertAddrs(ctx, *addrs[i])
 		require.NoError(t, err)
 	}
 
 	outputIdx, tx := randWalletTx(addrs[0])
+	tx.Confirmations = 1
 	h.walletAnchor.Transactions = append(h.walletAnchor.Transactions, *tx)
+
+	mockProof := randProof(t, outputIdx, tx.Tx, genesis[0], addrs[0])
+	err := h.courier.DeliverProof(nil, mockProof)
+	require.NoError(t, err)
 
 	require.NoError(t, h.c.Start())
 	t.Cleanup(func() {
@@ -402,21 +531,12 @@ func TestTransactionHandling(t *testing.T) {
 
 	// Only one event should be registered though, as we've only created one
 	// transaction.
-	h.eventually(func() bool {
-		events, err := h.tapdbBook.QueryAddrEvents(
-			ctx, address.EventQueryParams{},
-		)
-		require.NoError(t, err)
+	events := h.assertEventsPresent(1, address.StatusCompleted)
+	require.EqualValues(t, outputIdx, events[0].Outpoint.Index)
 
-		if len(events) != 1 {
-			t.Logf("Got %d events", len(events))
-			return false
-		}
-
-		require.EqualValues(t, outputIdx, events[0].Outpoint.Index)
-
-		return true
-	})
+	dbProof, err := h.assetDB.FetchProof(ctx, mockProof.Locator)
+	require.NoError(t, err)
+	require.EqualValues(t, mockProof.Blob, dbProof)
 }
 
 func mustMakeAddr(t *testing.T,

@@ -71,7 +71,7 @@ type CustodianConfig struct {
 
 	// ProofArchive is the storage backend for proofs to which we store new
 	// incoming proofs.
-	ProofArchive proof.NotifyArchiver
+	ProofArchive proof.Archiver
 
 	// ProofNotifier is the storage backend for proofs from which we are
 	// notified about new proofs. This can be the same as the ProofArchive
@@ -80,9 +80,10 @@ type CustodianConfig struct {
 	// being available in the relational database).
 	ProofNotifier proof.NotifyArchiver
 
-	// ProofCourierCfg is a general config applicable to all proof courier
-	// service handles.
-	ProofCourierCfg *proof.CourierCfg
+	// ProofCourierDispatcher is the dispatcher that is used to create new
+	// proof courier handles for receiving proofs based on the protocol of
+	// a proof courier address.
+	ProofCourierDispatcher proof.CourierDispatch
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
@@ -422,9 +423,8 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				AssetID:   assetID,
 				Amount:    addr.Amount,
 			}
-			courier, err := proof.NewCourier(
-				ctx, addr.ProofCourierAddr,
-				c.cfg.ProofCourierCfg, recipient,
+			courier, err := c.cfg.ProofCourierDispatcher.NewCourier(
+				&addr.ProofCourierAddr, recipient,
 			)
 			if err != nil {
 				log.Errorf("unable to initiate proof courier "+

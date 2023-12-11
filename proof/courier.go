@@ -167,6 +167,7 @@ func (u *URLDispatch) NewCourier(addr *url.URL,
 			backoffHandle: backoffHandler,
 			transfer:      u.cfg.TransferLog,
 			subscribers:   subscribers,
+			rawConn:       conn,
 		}, nil
 
 	default:
@@ -179,187 +180,40 @@ func (u *URLDispatch) NewCourier(addr *url.URL,
 // CourierDispatch interface.
 var _ CourierDispatch = (*URLDispatch)(nil)
 
-// CourierAddr is a fully validated courier address (including protocol specific
-// validation).
-type CourierAddr interface {
-	// Url returns the url.URL representation of the courier address.
-	Url() *url.URL
-
-	// NewCourier generates a new courier service handle.
-	NewCourier(ctx context.Context, cfg *CourierCfg,
-		recipient Recipient) (Courier, error)
-}
-
-// ParseCourierAddrString parses a proof courier address string and returns a
-// protocol specific courier address instance.
-func ParseCourierAddrString(addr string) (CourierAddr, error) {
-	// Parse URI.
+// ParseCourierAddress attempts to parse the given string as a proof courier
+// address, validates that all required fields are present and ensures the
+// protocol is one of the supported protocols.
+func ParseCourierAddress(addr string) (*url.URL, error) {
 	urlAddr, err := url.ParseRequestURI(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid proof courier URI address: %w",
 			err)
 	}
 
-	return ParseCourierAddrUrl(*urlAddr)
-}
-
-// ParseCourierAddrUrl parses a proof courier address url.URL and returns a
-// protocol specific courier address instance.
-func ParseCourierAddrUrl(addr url.URL) (CourierAddr, error) {
-	// Create new courier addr based on URL scheme.
-	switch addr.Scheme {
-	case HashmailCourierType:
-		return NewHashMailCourierAddr(addr)
-	case UniverseRpcCourierType:
-		return NewUniverseRpcCourierAddr(addr)
-	}
-
-	return nil, fmt.Errorf("unknown courier address protocol "+
-		"(consider updating tapd): %v", addr.Scheme)
-}
-
-// HashMailCourierAddr is a hashmail protocol specific implementation of the
-// CourierAddr interface.
-type HashMailCourierAddr struct {
-	addr url.URL
-}
-
-// Url returns the url.URL representation of the hashmail courier address.
-func (h *HashMailCourierAddr) Url() *url.URL {
-	return &h.addr
-}
-
-// NewCourier generates a new courier service handle.
-func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
-	recipient Recipient) (Courier, error) {
-
-	backoffHandle := NewBackoffHandler(
-		cfg.HashMailCfg.BackoffCfg, cfg.TransferLog,
-	)
-
-	hashMailCfg := HashMailCourierCfg{
-		ReceiverAckTimeout: cfg.HashMailCfg.ReceiverAckTimeout,
-	}
-
-	hashMailBox, err := NewHashMailBox(&h.addr)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make mailbox: %v",
-			err)
-	}
-
-	subscribers := make(
-		map[uint64]*fn.EventReceiver[fn.Event],
-	)
-	return &HashMailCourier{
-		cfg:           &hashMailCfg,
-		backoffHandle: backoffHandle,
-		recipient:     recipient,
-		mailbox:       hashMailBox,
-		subscribers:   subscribers,
-	}, nil
-}
-
-// NewHashMailCourierAddr generates a new hashmail courier address from a given
-// URL. This function also performs hashmail protocol specific address
-// validation.
-func NewHashMailCourierAddr(addr url.URL) (*HashMailCourierAddr, error) {
-	if addr.Scheme != HashmailCourierType {
-		return nil, fmt.Errorf("expected hashmail courier protocol: %v",
-			addr.Scheme)
-	}
-
-	// We expect the port number to be specified for a hashmail service.
-	if addr.Port() == "" {
-		return nil, fmt.Errorf("hashmail proof courier URI address " +
-			"port unspecified")
-	}
-
-	return &HashMailCourierAddr{
-		addr,
-	}, nil
-}
-
-// UniverseRpcCourierAddr is a universe RPC protocol specific implementation of
-// the CourierAddr interface.
-type UniverseRpcCourierAddr struct {
-	addr url.URL
-}
-
-// Url returns the url.URL representation of the courier address.
-func (h *UniverseRpcCourierAddr) Url() *url.URL {
-	return &h.addr
-}
-
-// NewCourier generates a new courier service handle.
-func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
-	cfg *CourierCfg, recipient Recipient) (Courier, error) {
-
-	backoffHandle := NewBackoffHandler(
-		cfg.UniverseRpcCfg.BackoffCfg, cfg.TransferLog,
-	)
-
-	// Ensure that the courier address is a universe RPC address.
-	if h.addr.Scheme != UniverseRpcCourierType {
-		return nil, fmt.Errorf("unsupported courier protocol: %v",
-			h.addr.Scheme)
-	}
-
-	// Connect to the universe RPC server.
-	dialOpts, err := serverDialOpts()
-	if err != nil {
+	if err := ValidateCourierAddress(urlAddr); err != nil {
 		return nil, err
 	}
 
-	serverAddr := fmt.Sprintf(
-		"%s:%s", h.addr.Hostname(), h.addr.Port(),
-	)
-	conn, err := grpc.Dial(serverAddr, dialOpts...)
-	if err != nil {
-		return nil, err
-	}
-
-	client := unirpc.NewUniverseClient(conn)
-
-	// Instantiate the events subscribers map.
-	subscribers := make(
-		map[uint64]*fn.EventReceiver[fn.Event],
-	)
-
-	return &UniverseRpcCourier{
-		recipient:     recipient,
-		client:        client,
-		backoffHandle: backoffHandle,
-		transfer:      cfg.TransferLog,
-		subscribers:   subscribers,
-		rawConn:       conn,
-	}, nil
+	return urlAddr, nil
 }
 
-// NewUniverseRpcCourierAddr generates a new universe RPC courier address from a
-// given URL. This function also performs protocol specific address validation.
-func NewUniverseRpcCourierAddr(addr url.URL) (*UniverseRpcCourierAddr, error) {
+// ValidateCourierAddress validates that all required fields are present and
+// ensures the protocol is one of the supported protocols.
+func ValidateCourierAddress(addr *url.URL) error {
 	// We expect the port number to be specified.
 	if addr.Port() == "" {
-		return nil, fmt.Errorf("proof courier URI address port " +
-			"unspecified")
+		return fmt.Errorf("proof courier URI address port unspecified")
 	}
 
-	return &UniverseRpcCourierAddr{
-		addr,
-	}, nil
-}
+	switch addr.Scheme {
+	case HashmailCourierType, UniverseRpcCourierType:
+		// Valid and known courier address protocol.
+		return nil
 
-// NewCourier instantiates a new courier service handle given a service URL
-// address.
-func NewCourier(ctx context.Context, addr url.URL, cfg *CourierCfg,
-	recipient Recipient) (Courier, error) {
-
-	courierAddr, err := ParseCourierAddrUrl(addr)
-	if err != nil {
-		return nil, err
+	default:
+		return fmt.Errorf("unknown courier address protocol "+
+			"(consider updating tapd): %v", addr.Scheme)
 	}
-
-	return courierAddr.NewCourier(ctx, cfg, recipient)
 }
 
 // ProofMailbox represents an abstract store-and-forward mailbox that can be
@@ -564,7 +418,7 @@ func (h *HashMailBox) RecvAck(ctx context.Context, sid streamID) error {
 	return fmt.Errorf("expected ack, got %x", msg.Msg)
 }
 
-// CleanUp atempts to tear down the mailbox as specified by the passed sid.
+// CleanUp attempts to tear down the mailbox as specified by the passed sid.
 func (h *HashMailBox) CleanUp(ctx context.Context, sid streamID) error {
 	streamAuth := &hashmailrpc.CipherBoxAuth{
 		Desc: &hashmailrpc.CipherBoxDesc{
