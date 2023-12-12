@@ -184,6 +184,10 @@ var testCases = []*testCase{
 		test: testUniverseFederation,
 	},
 	{
+		name: "fee estimation",
+		test: testFeeEstimation,
+	},
+	{
 		name: "get info",
 		test: testGetInfo,
 	},

@@ -12,11 +12,15 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/proto"
 )
@@ -146,6 +150,73 @@ func MineBlocks(t *testing.T, client *rpcclient.Client,
 	}
 
 	return blocks
+}
+
+type UTXORequest struct {
+	Type   lnrpc.AddressType
+	Amount int64
+}
+
+// SetNodeUTXOs sets the wallet state for the given node wallet to a set of
+// UTXOs of a specific type and value.
+func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
+	feeRate btcutil.Amount, reqs []*UTXORequest) {
+
+	minerAddr := t.lndHarness.Miner.NewMinerAddress()
+
+	// Drain any funds held by the node.
+	wallet.RPC.SendCoins(&lnrpc.SendCoinsRequest{
+		Addr:    minerAddr.EncodeAddress(),
+		SendAll: true,
+	})
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+
+	// Build TXOs from the UTXO requests, which will be used by the miner
+	// to build a TX.
+	makeOutputs := func(req *UTXORequest) *wire.TxOut {
+		addrResp := wallet.RPC.NewAddress(
+			&lnrpc.NewAddressRequest{
+				Type: req.Type,
+			},
+		)
+
+		addr, err := btcutil.DecodeAddress(
+			addrResp.Address, t.lndHarness.Miner.ActiveNet,
+		)
+		require.NoError(t.t, err)
+
+		addrScript, err := txscript.PayToAddrScript(addr)
+		require.NoError(t.t, err)
+
+		return &wire.TxOut{
+			PkScript: addrScript,
+			Value:    req.Amount,
+		}
+	}
+
+	aliceOutputs := fn.Map(reqs, makeOutputs)
+
+	_ = t.lndHarness.Miner.SendOutputsWithoutChange(aliceOutputs, feeRate)
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+	t.lndHarness.WaitForBlockchainSync(wallet)
+}
+
+// ResetNodeWallet sets the wallet state of the given node to own 100 P2TR UTXOs
+// of BTC, which matches the wallet state when initializing the itest harness.
+func ResetNodeWallet(t *harnessTest, wallet *node.HarnessNode) {
+	const outputCount = 100
+	const txoType = lnrpc.AddressType_TAPROOT_PUBKEY
+	const outputValue = 1e8
+
+	resetReqs := make([]*UTXORequest, outputCount)
+	for i := 0; i < outputCount; i++ {
+		resetReqs[i] = &UTXORequest{
+			txoType,
+			outputValue,
+		}
+	}
+
+	SetNodeUTXOs(t, wallet, btcutil.Amount(1), resetReqs)
 }
 
 type MintOption func(*MintOptions)
