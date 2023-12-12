@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -101,17 +103,25 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 			Index: rand.Uint32(),
 		},
 	})
-	packet.Inputs = append(packet.Inputs, psbt.PInput{
+
+	// Use a P2TR input by default.
+	anchorInput := psbt.PInput{
 		WitnessUtxo: &wire.TxOut{
 			Value:    100000,
-			PkScript: []byte{0x1},
+			PkScript: bytes.Clone(tapscript.GenesisDummyScript),
 		},
 		SighashType: txscript.SigHashDefault,
-	})
-	packet.UnsignedTx.AddTxOut(&wire.TxOut{
+	}
+	packet.Inputs = append(packet.Inputs, anchorInput)
+
+	// Use a non-P2TR change output by default so we avoid generating
+	// exclusion proofs.
+	changeOutput := wire.TxOut{
 		Value:    50000,
-		PkScript: []byte{0x2},
-	})
+		PkScript: bytes.Clone(tapscript.GenesisDummyScript),
+	}
+	changeOutput.PkScript[0] = txscript.OP_0
+	packet.UnsignedTx.AddTxOut(&changeOutput)
 	packet.Outputs = append(packet.Outputs, psbt.POutput{})
 
 	// We always have the change output be the second output, so this means
