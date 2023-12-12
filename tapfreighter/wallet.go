@@ -1702,6 +1702,19 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 			"change=%d) ", requiredFee, changeValue)
 	}
 
+	// Even if the change amount would be non-negative, it may still be
+	// below the dust threshold.
+	// TODO(jhb): Remove the change output in this case instead of failing
+	possibleChangeOutput := wire.NewTxOut(
+		changeValue-feeDelta, btcPkt.UnsignedTx.TxOut[lastIdx].PkScript,
+	)
+	err = txrules.CheckOutput(
+		possibleChangeOutput, txrules.DefaultRelayFeePerKb,
+	)
+	if err != nil {
+		return fmt.Errorf("change output is dust: %w", err)
+	}
+
 	btcPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
 
 	log.Infof("Adjusting send pkt fee by delta of %d from %d sats to %d "+
