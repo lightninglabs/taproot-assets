@@ -313,6 +313,16 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		// configuration.
 		s.cfg.Prometheus.RPCServer = grpcServer
 
+		// Provide Prometheus collectors with access to Universe stats.
+		s.cfg.Prometheus.UniverseStats = s.cfg.UniverseStats
+
+		// Provide Prometheus collectors with access to the asset store.
+		s.cfg.Prometheus.AssetStore = s.cfg.AssetStore
+
+		// Provide Prometheus collectors with access to the asset
+		// minter.
+		s.cfg.Prometheus.AssetMinter = s.cfg.AssetMinter
+
 		promExporter, err := monitoring.NewPrometheusExporter(
 			&s.cfg.Prometheus,
 		)
@@ -321,13 +331,13 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 				err)
 		}
 
-		srvrLog.Infof("Prometheus exporter server listening on %v",
-			s.cfg.Prometheus.ListenAddr)
-
 		if err := promExporter.Start(); err != nil {
 			return mkErr("Unable to start prometheus exporter: %v",
 				err)
 		}
+
+		srvrLog.Infof("Prometheus exporter server listening on %v",
+			s.cfg.Prometheus.ListenAddr)
 	}
 
 	srvrLog.Infof("Taproot Asset Daemon fully active!")
