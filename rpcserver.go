@@ -2063,6 +2063,8 @@ func (r *rpcServer) SendAsset(_ context.Context,
 func (r *rpcServer) BurnAsset(ctx context.Context,
 	in *taprpc.BurnAssetRequest) (*taprpc.BurnAssetResponse, error) {
 
+	rpcsLog.Debug("Executing asset burn")
+
 	var assetID asset.ID
 	switch {
 	case len(in.GetAssetId()) > 0:
@@ -2092,9 +2094,28 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	var groupKey *btcec.PublicKey
 	assetGroup, err := r.cfg.TapAddrBook.QueryAssetGroup(ctx, assetID)
-	if err == nil && assetGroup.GroupKey != nil {
+	switch {
+	case err == nil && assetGroup.GroupKey != nil:
+		// We found the asset group, so we can use the group key to
+		// burn the asset.
 		groupKey = &assetGroup.GroupPubKey
+	case errors.Is(err, address.ErrAssetGroupUnknown):
+		// We don't know the asset group, so we'll try to burn the
+		// asset using the asset ID only.
+		rpcsLog.Debug("Asset group key not found, asset may not be " +
+			"part of a group")
+	case err != nil:
+		return nil, fmt.Errorf("error querying asset group: %w", err)
 	}
+
+	var serializedGroupKey []byte
+	if groupKey != nil {
+		serializedGroupKey = groupKey.SerializeCompressed()
+	}
+
+	rpcsLog.Infof("Burning asset (asset_id=%x, group_key=%x, "+
+		"burn_amount=%d)", assetID[:], serializedGroupKey,
+		in.AmountToBurn)
 
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapscript.FundingDescriptor{
