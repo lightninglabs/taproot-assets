@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -28,7 +29,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -1654,61 +1654,30 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 	}
 
 	// Now that we've added an extra input, we'll want to re-calculate the
-	// total weight of the transaction, so we can ensure we're paying
-	// enough in fees.
-	var (
-		weightEstimator     input.TxWeightEstimator
-		inputAmt, outputAmt int64
+	// total vsize of the transaction and the necessary fee at the desired
+	// fee rate.
+	inputScripts := make([][]byte, 0, len(btcPkt.Inputs))
+	for inputIdx, input := range btcPkt.Inputs {
+		if input.WitnessUtxo == nil {
+			return fmt.Errorf("PSBT input %d doesn't specify "+
+				"witness UTXO, which is not supported",
+				inputIdx)
+		}
+
+		if len(input.WitnessUtxo.PkScript) == 0 {
+			return fmt.Errorf("input %d on psbt missing "+
+				"pkscript", inputIdx)
+		}
+
+		inputScripts = append(inputScripts, input.WitnessUtxo.PkScript)
+	}
+
+	estimatedSize, requiredFee := tapscript.EstimateFee(
+		inputScripts, btcPkt.UnsignedTx.TxOut, feeRate,
 	)
-	for _, pIn := range btcPkt.Inputs {
-		inputAmt += pIn.WitnessUtxo.Value
-
-		inputPkScript := pIn.WitnessUtxo.PkScript
-		switch {
-		case txscript.IsPayToWitnessPubKeyHash(inputPkScript):
-			weightEstimator.AddP2WKHInput()
-
-		case txscript.IsPayToScriptHash(inputPkScript):
-			weightEstimator.AddNestedP2WKHInput()
-
-		case txscript.IsPayToTaproot(inputPkScript):
-			weightEstimator.AddTaprootKeySpendInput(
-				txscript.SigHashDefault,
-			)
-		default:
-			return fmt.Errorf("unknown pkScript: %x",
-				inputPkScript)
-		}
-	}
-	for _, txOut := range btcPkt.UnsignedTx.TxOut {
-		outputAmt += txOut.Value
-
-		addrType, _, _, err := txscript.ExtractPkScriptAddrs(
-			txOut.PkScript, params,
-		)
-		if err != nil {
-			return err
-		}
-
-		switch addrType {
-		case txscript.WitnessV0PubKeyHashTy:
-			weightEstimator.AddP2WKHOutput()
-
-		case txscript.WitnessV0ScriptHashTy:
-			weightEstimator.AddP2WSHOutput()
-
-		case txscript.WitnessV1TaprootTy:
-			weightEstimator.AddP2TROutput()
-		default:
-			return fmt.Errorf("unknown pkscript: %x",
-				txOut.PkScript)
-		}
-	}
-
-	// With this, we can now calculate the total fee we need to pay. We'll
-	// also make sure to round up the required fee to the floor.
-	totalWeight := int64(weightEstimator.Weight())
-	requiredFee := feeRate.FeeForWeight(totalWeight)
+	log.Infof("Estimated TX vsize: %d", estimatedSize)
+	log.Infof("TX required fee before change adjustment: %d at feerate "+
+		"%d sat/vB", requiredFee, feeRate.FeePerKVByte()/1000)
 
 	// Given the current fee (which doesn't account for our input) and the
 	// total fee we want to pay, we'll adjust the wallet's change output
@@ -1729,8 +1698,8 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 	// The fee may exceed the total value of the change output, which means
 	// this spend is impossible with the given inputs and fee rate.
 	if changeValue-feeDelta < 0 {
-		return fmt.Errorf("fee of %d sats exceeds change amount of %d"+
-			"sats", requiredFee, changeValue)
+		return fmt.Errorf("fee exceeds change amount: (fee=%d, "+
+			"change=%d) ", requiredFee, changeValue)
 	}
 
 	btcPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
