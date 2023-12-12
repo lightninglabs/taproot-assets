@@ -425,7 +425,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 			numOutputs = 2
 			amounts = []uint64{fullAmt, 0}
 		}
-		ConfirmAndAssetOutboundTransferWithOutputs(
+		ConfirmAndAssertOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner.Client, sender,
 			sendResp, genInfo.AssetId, amounts, i/2, (i/2)+1,
 			numOutputs,
@@ -637,7 +637,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		require.NoError(t.t, err)
 
 		numOutputs := 2
-		ConfirmAndAssetOutboundTransferWithOutputs(
+		ConfirmAndAssertOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner.Client, sender,
 			sendResp, genInfo.AssetId,
 			[]uint64{sendAmt, changeAmt}, i/2, (i/2)+1,
@@ -761,7 +761,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	ConfirmAndAssetOutboundTransferWithOutputs(
+	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner.Client, alice, sendResp,
 		genInfo.AssetId, []uint64{sendAmt, changeAmt}, 0, 1, 2,
 	)
@@ -908,7 +908,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// addresses (sharing an anchor output) and 1 for the change. So there
 	// are 4 BTC anchor outputs but 5 asset transfer outputs.
 	numOutputs := 5
-	ConfirmAndAssetOutboundTransferWithOutputs(
+	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner.Client, sender, sendResp,
 		genInfo.AssetId, outputAmounts, 0, 1, numOutputs,
 	)
@@ -1079,7 +1079,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 		numTransfers       = 1
 		numOutputs         = 1
 	)
-	ConfirmAndAssetOutboundTransferWithOutputs(
+	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner.Client, secondaryTapd,
 		sendResp, genInfo.AssetId,
 		[]uint64{sendAmt}, currentTransferIdx, numTransfers,

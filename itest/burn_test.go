@@ -99,7 +99,7 @@ func testBurnAssets(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	ConfirmAndAssetOutboundTransferWithOutputs(
+	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, sendResp, simpleAssetGen.AssetId,
 		outputAmounts, 0, 1, numOutputs,
 	)

@@ -640,16 +640,16 @@ func ConfirmAndAssertOutboundTransfer(t *testing.T,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers int) *wire.MsgBlock {
 
-	return ConfirmAndAssetOutboundTransferWithOutputs(
+	return ConfirmAndAssertOutboundTransferWithOutputs(
 		t, minerClient, sender, sendResp, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, 2,
 	)
 }
 
-// ConfirmAndAssetOutboundTransferWithOutputs makes sure the given outbound
+// ConfirmAndAssertOutboundTransferWithOutputs makes sure the given outbound
 // transfer has the correct state and number of outputs before confirming it and
 // then asserting the confirmed state with the node.
-func ConfirmAndAssetOutboundTransferWithOutputs(t *testing.T,
+func ConfirmAndAssertOutboundTransferWithOutputs(t *testing.T,
 	minerClient *rpcclient.Client, sender TapdClient,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx,
