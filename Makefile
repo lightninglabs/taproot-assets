@@ -284,16 +284,16 @@ mod-check: mod-tidy
 
 gen-deterministic-test-vectors:
 	@$(call print, "Generating deterministic test vectors.")
-	make unit gen-test-vectors=true pkg=address case=TestAddressEncoding
-	make unit gen-test-vectors=true pkg=asset case=TestAssetEncoding
-	make unit gen-test-vectors=true pkg=asset case=TestDeriveBurnKey
-	make unit gen-test-vectors=true pkg=mssmt case=TestProofEncoding
-	make unit gen-test-vectors=true pkg=mssmt case=TestInsertionOverflow
-	make unit gen-test-vectors=true pkg=mssmt case=TestReplaceWithEmptyBranch
-	make unit gen-test-vectors=true pkg=mssmt case=TestReplace
-	make unit gen-test-vectors=true pkg=proof case=TestGenesisProofVerification
-	make unit gen-test-vectors=true pkg=tappsbt case=TestEncodingDecoding
-	make unit gen-test-vectors=true pkg=vm case=TestVM
+	make unit gen-test-vectors=true pkg=address case=^TestAddressEncoding$
+	make unit gen-test-vectors=true pkg=asset case=^TestAssetEncoding$
+	make unit gen-test-vectors=true pkg=asset case=^TestDeriveBurnKey$
+	make unit gen-test-vectors=true pkg=mssmt case=^TestProofEncoding$
+	make unit gen-test-vectors=true pkg=mssmt case=^TestInsertionOverflow$
+	make unit gen-test-vectors=true pkg=mssmt case=^TestReplaceWithEmptyBranch$
+	make unit gen-test-vectors=true pkg=mssmt case=^TestReplace$
+	make unit gen-test-vectors=true pkg=proof case=^TestGenesisProofVerification$
+	make unit gen-test-vectors=true pkg=tappsbt case=^TestEncodingDecoding$
+	make unit gen-test-vectors=true pkg=vm case=^TestVM$
 
 gen-itest-test-vectors:
 	@$(call print, "Generating test vectors from integration tests.")
