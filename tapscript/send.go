@@ -115,14 +115,14 @@ var (
 	)
 )
 
-// createDummyOutput creates a new Bitcoin transaction output that is later
+// CreateDummyOutput creates a new Bitcoin transaction output that is later
 // used to embed a Taproot Asset commitment.
-func createDummyOutput() *wire.TxOut {
+func CreateDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output and has
 	// a valid P2TR prefix.
 	newOutput := wire.TxOut{
 		Value:    int64(DummyAmtSats),
-		PkScript: GenesisDummyScript,
+		PkScript: bytes.Clone(GenesisDummyScript),
 	}
 	return &newOutput
 }
@@ -1029,7 +1029,7 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 
 	txTemplate := wire.NewMsgTx(2)
 	for i := uint32(0); i < maxOutputIndex; i++ {
-		txTemplate.AddTxOut(createDummyOutput())
+		txTemplate.AddTxOut(CreateDummyOutput())
 	}
 
 	spendPkt, err := psbt.NewFromUnsignedTx(txTemplate)

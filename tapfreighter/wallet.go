@@ -1437,7 +1437,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Before we finalize, we need to calculate the actual, final fees that
 	// we pay.
-	chainFees, err := tapgarden.GetTxFee(signedPsbt)
+	chainFees, err := signedPsbt.GetTxFee()
 	if err != nil {
 		return nil, fmt.Errorf("unable to get on-chain fees for psbt: "+
 			"%w", err)
@@ -1466,7 +1466,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		FundedPsbt:        &anchorPkt,
 		FinalTx:           finalTx,
 		TargetFeeRate:     params.FeeRate,
-		ChainFees:         chainFees,
+		ChainFees:         int64(chainFees),
 		OutputCommitments: mergedCommitments,
 	}, nil
 }
@@ -1717,10 +1717,15 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 	// Earlier in adjustFundedPsbt we set wallet's change output to be the
 	// very last output in the transaction.
 	lastIdx := len(btcPkt.UnsignedTx.TxOut) - 1
-	currentFee := inputAmt - outputAmt
-	feeDelta := int64(requiredFee) - currentFee
+	currentFee, err := btcPkt.GetTxFee()
+	if err != nil {
+		return err
+	}
+
+	feeDelta := int64(requiredFee) - int64(currentFee)
 	changeValue := btcPkt.UnsignedTx.TxOut[lastIdx].Value
 
+	log.Infof("Current fee: %d, fee delta: %d", currentFee, feeDelta)
 	// The fee may exceed the total value of the change output, which means
 	// this spend is impossible with the given inputs and fee rate.
 	if changeValue-feeDelta < 0 {
@@ -1730,8 +1735,8 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
 
 	btcPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
 
-	log.Infof("Adjusting send pkt by delta of %v from %d sats to %d sats",
-		feeDelta, currentFee, requiredFee)
+	log.Infof("Adjusting send pkt fee by delta of %d from %d sats to %d "+
+		"sats", feeDelta, currentFee, requiredFee)
 
 	return nil
 }
