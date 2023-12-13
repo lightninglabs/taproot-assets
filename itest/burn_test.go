@@ -411,3 +411,57 @@ func testBurnGroupedAssets(t *harnessTest) {
 	assetGroup = assetGroups.Groups[encodedGroupKey]
 	require.Len(t.t, assetGroup.Assets, 2)
 }
+
+func testBurnBugItest(t *harnessTest) {
+	var (
+		ctxb       = context.Background()
+		dbFilePath = "/home/user/tmp/burn_bug/tapd.db"
+	)
+
+	tapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.sqliteDatabaseFilePath = &dbFilePath
+			params.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, tapd.stop(!*noDelete))
+	}()
+
+	allAssets, err := tapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
+	)
+	require.NoError(t.t, err)
+
+	// Grab the asset ID and group key for the asset we mean to burn.
+	var burnAssetId *asset.ID
+	//var burnAssetGroupKey *btcec.PublicKey
+
+	for idx := range allAssets.Assets {
+		rpcAsset := allAssets.Assets[idx]
+
+		var targetAssetId asset.ID
+		copy(targetAssetId[:], rpcAsset.AssetGenesis.AssetId)
+
+		if targetAssetId.String() == "f04c2820492d2cca4df053cbf83d93eb99e1bc34f51da6acbe8a85e3db5d5914" {
+			burnAssetId = &targetAssetId
+			//burnAssetGroupKey = a.GroupKey
+		}
+	}
+
+	require.NotNil(t.t, burnAssetId)
+
+	burnAmt := uint64(10)
+
+	burnResp, err := t.tapd.BurnAsset(ctxb, &taprpc.BurnAssetRequest{
+		Asset: &taprpc.BurnAssetRequest_AssetId{
+			AssetId: burnAssetId[:],
+		},
+		AmountToBurn:     burnAmt,
+		ConfirmationText: taprootassets.AssetBurnConfirmationText,
+	})
+	require.NoError(t.t, err)
+
+	burnResp = burnResp
+}

@@ -634,6 +634,10 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		newInternalKey, f.cfg.ChainParams.HDCoinType,
 	)
 
+	// TODO(ffranr): Do all selected commitments by this point need to
+	//  include the target asset in the commitment field? If so then we
+	//  should check that that's the case here.
+
 	// The virtual transaction is now ready to be further enriched with the
 	// split commitment and other data.
 	fundedPkt, err := f.fundPacketWithInputs(

@@ -192,6 +192,10 @@ var testCases = []*testCase{
 		test: testBurnGroupedAssets,
 	},
 	{
+		name: "burn bug itest",
+		test: testBurnBugItest,
+	},
+	{
 		name: "federation sync config",
 		test: testFederationSyncConfig,
 	},

@@ -248,6 +248,50 @@ func assertAssetEqual(t *testing.T, a, b *asset.Asset) {
 	}
 }
 
+func TestBurnBug(t *testing.T) {
+	t.Parallel()
+
+	var (
+		ctx = context.Background()
+
+		dbHandle   = NewDbHandleFromPath(t, "/home/user/tmp/burn_bug/tapd.db")
+		assetStore = dbHandle.AssetStore
+	)
+
+	res, err := assetStore.FetchGroupedAssets(ctx)
+	require.NoError(t, err)
+
+	// Grab the asset ID and group key for the asset we mean to burn.
+	var burnAssetId asset.ID
+	var burnAssetGroupKey *btcec.PublicKey
+
+	for idx := range res {
+		a := res[idx]
+		if a.ID.String() == "f04c2820492d2cca4df053cbf83d93eb99e1bc34f51da6acbe8a85e3db5d5914" {
+			burnAssetId = a.ID
+			burnAssetGroupKey = a.GroupKey
+		}
+	}
+
+	// List eligible coins for burning.
+	acs, err := assetStore.ListEligibleCoins(ctx, tapfreighter.CommitmentConstraints{
+		MinAmt:   10,
+		GroupKey: burnAssetGroupKey,
+		AssetID:  &burnAssetId,
+	})
+	require.NoError(t, err)
+
+	tapCommitmentKey := asset.TapCommitmentKey(burnAssetId, burnAssetGroupKey)
+
+	for idx := range acs {
+		anchoredCommitment := acs[idx]
+
+		assetCommitments := anchoredCommitment.Commitment.Commitments()
+		_, ok := assetCommitments[tapCommitmentKey]
+		require.True(t, ok)
+	}
+}
+
 // TestImportAssetProof tests that given a valid asset proof (mainly the final
 // snapshot information), we're able to properly import all the components on
 // disk, then retrieve the asset as if it were ours.
