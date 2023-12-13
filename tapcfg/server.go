@@ -327,6 +327,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		TransferLog:    assetStore,
 	})
 
+	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
+
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
 		RuntimeID:    runtimeID,
@@ -361,7 +363,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				),
 				AddrBook:               addrBook,
 				ProofArchive:           proofArchive,
-				ProofNotifier:          assetStore,
+				ProofNotifier:          multiNotifier,
 				ErrChan:                mainErrChan,
 				ProofCourierDispatcher: proofCourierDispatcher,
 				ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay, ProofWatcher: reOrgWatcher,
