@@ -77,6 +77,10 @@ var testCases = []*testCase{
 		proofCourierType: proof.HashmailCourierType,
 	},
 	{
+		name: "addr send no proof courier with local universe import",
+		test: testSendNoCourierUniverseImport,
+	},
+	{
 		name:             "basic send passive asset",
 		test:             testBasicSendPassiveAsset,
 		proofCourierType: proof.HashmailCourierType,
