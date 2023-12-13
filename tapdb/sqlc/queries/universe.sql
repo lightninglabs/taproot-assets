@@ -481,3 +481,51 @@ WHERE
         OR sqlc.narg('min_timestamp') IS NULL) AND
     (attempt_counter >= sqlc.narg('min_attempt_counter')
         OR sqlc.narg('min_attempt_counter') IS NULL);
+
+-- name: UpsertMultiverseRoot :one
+INSERT INTO multiverse_roots (namespace_root, proof_type)
+VALUES (@namespace_root, @proof_type)
+ON CONFLICT (namespace_root)
+    -- This is a no-op to allow returning the ID.
+    DO UPDATE SET namespace_root = EXCLUDED.namespace_root
+RETURNING id;
+
+-- name: FetchMultiverseRoot :one
+SELECT proof_type, n.hash_key as multiverse_root_hash, n.sum as multiverse_root_sum
+FROM multiverse_roots r
+JOIN mssmt_roots m
+    ON r.namespace_root = m.namespace
+JOIN mssmt_nodes n
+    ON m.root_hash = n.hash_key AND
+       m.namespace = n.namespace
+WHERE namespace_root = @namespace_root;
+
+-- name: UpsertMultiverseLeaf :one
+INSERT INTO multiverse_leaves (
+    multiverse_root_id, asset_id, group_key, leaf_node_key, leaf_node_namespace
+) VALUES (
+    @multiverse_root_id, @asset_id, @group_key, @leaf_node_key,
+    @leaf_node_namespace
+)
+ON CONFLICT (leaf_node_key, leaf_node_namespace)
+    -- This is a no-op to allow returning the ID.
+    DO UPDATE SET leaf_node_key = EXCLUDED.leaf_node_key,
+                  leaf_node_namespace = EXCLUDED.leaf_node_namespace
+RETURNING id;
+
+-- name: DeleteMultiverseLeaf :exec
+DELETE FROM multiverse_leaves
+WHERE leaf_node_namespace = @namespace AND leaf_node_key = @leaf_node_key;
+
+-- name: QueryMultiverseLeaves :many
+SELECT r.namespace_root, r.proof_type, l.asset_id, l.group_key, 
+       smt_nodes.value AS universe_root_hash, smt_nodes.sum AS universe_root_sum
+FROM multiverse_leaves l
+JOIN mssmt_nodes smt_nodes
+  ON l.leaf_node_key = smt_nodes.key AND
+     l.leaf_node_namespace = smt_nodes.namespace
+JOIN multiverse_roots r
+  ON l.multiverse_root_id = r.id
+WHERE r.proof_type = @proof_type AND
+      (l.asset_id = @asset_id OR @asset_id IS NULL) AND
+      (l.group_key = @group_key OR @group_key IS NULL);

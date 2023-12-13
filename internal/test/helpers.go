@@ -99,6 +99,14 @@ func SchnorrKey(t testing.TB, pubKey *btcec.PublicKey) *btcec.PublicKey {
 	return key
 }
 
+func SchnorrKeysEqual(t testing.TB, a, b *btcec.PublicKey) bool {
+	if a == nil || b == nil {
+		return a == b
+	}
+
+	return SchnorrKey(t, a).IsEqual(SchnorrKey(t, b))
+}
+
 func RandPubKey(t testing.TB) *btcec.PublicKey {
 	return SchnorrPubKey(t, RandPrivKey(t))
 }

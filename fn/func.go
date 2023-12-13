@@ -142,9 +142,9 @@ func Any[T any](xs []T, pred func(T) bool) bool {
 	return false
 }
 
-// None returns true if the passed predicate returns false for all items in the
-// slice.
-func None[T any](xs []T, pred func(T) bool) bool {
+// NotAny returns true if the passed predicate returns false for all items in
+// the slice.
+func NotAny[T any](xs []T, pred func(T) bool) bool {
 	return !Any(xs, pred)
 }
 

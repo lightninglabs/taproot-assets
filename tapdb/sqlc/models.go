@@ -264,6 +264,21 @@ type MssmtRoot struct {
 	RootHash  []byte
 }
 
+type MultiverseLeafe struct {
+	ID                int64
+	MultiverseRootID  int64
+	AssetID           []byte
+	GroupKey          []byte
+	LeafNodeKey       []byte
+	LeafNodeNamespace string
+}
+
+type MultiverseRoot struct {
+	ID            int64
+	NamespaceRoot string
+	ProofType     string
+}
+
 type PassiveAsset struct {
 	PassiveID       int64
 	TransferID      int64

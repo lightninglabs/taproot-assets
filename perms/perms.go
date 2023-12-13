@@ -136,6 +136,10 @@ var (
 			Entity: "mint",
 			Action: "read",
 		}},
+		"/universerpc.Universe/MultiverseRoot": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/universerpc.Universe/AssetRoots": {{
 			Entity: "universe",
 			Action: "read",

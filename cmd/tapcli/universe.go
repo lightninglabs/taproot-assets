@@ -38,6 +38,7 @@ var universeCommands = []cli.Command{
 		Usage:     "Interact with a local or remote tap universe",
 		Category:  "Universe",
 		Subcommands: []cli.Command{
+			multiverseRootCommand,
 			universeRootsCommand,
 			universeDeleteRootCommand,
 			universeLeavesCommand,
@@ -49,6 +50,48 @@ var universeCommands = []cli.Command{
 			universeStatsCommand,
 		},
 	},
+}
+
+var multiverseRootCommand = cli.Command{
+	Name:        "multiverse",
+	ShortName:   "m",
+	Description: "Show the multiverse root",
+	Usage: `
+	Calculate the multiverse root from the current known asset universes of
+	the given proof type.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: proofTypeName,
+			Usage: "the type of proof to show the root for, " +
+				"either 'issuance' or 'transfer'",
+			Value: universe.ProofTypeIssuance.String(),
+		},
+	},
+	Action: multiverseRoot,
+}
+
+func multiverseRoot(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	rpcProofType, err := parseProofType(ctx)
+	if err != nil {
+		return err
+	}
+
+	multiverseRoot, err := client.MultiverseRoot(
+		ctxc, &unirpc.MultiverseRootRequest{
+			ProofType: *rpcProofType,
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(multiverseRoot)
+	return nil
 }
 
 var universeRootsCommand = cli.Command{

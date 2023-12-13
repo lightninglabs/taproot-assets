@@ -49,6 +49,21 @@ func (q *Queries) DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFe
 	return err
 }
 
+const deleteMultiverseLeaf = `-- name: DeleteMultiverseLeaf :exec
+DELETE FROM multiverse_leaves
+WHERE leaf_node_namespace = $1 AND leaf_node_key = $2
+`
+
+type DeleteMultiverseLeafParams struct {
+	Namespace   string
+	LeafNodeKey []byte
+}
+
+func (q *Queries) DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error {
+	_, err := q.db.ExecContext(ctx, deleteMultiverseLeaf, arg.Namespace, arg.LeafNodeKey)
+	return err
+}
+
 const deleteUniverseEvents = `-- name: DeleteUniverseEvents :exec
 WITH root_id AS (
     SELECT id
@@ -97,6 +112,30 @@ type DeleteUniverseServerParams struct {
 func (q *Queries) DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error {
 	_, err := q.db.ExecContext(ctx, deleteUniverseServer, arg.TargetServer, arg.TargetID)
 	return err
+}
+
+const fetchMultiverseRoot = `-- name: FetchMultiverseRoot :one
+SELECT proof_type, n.hash_key as multiverse_root_hash, n.sum as multiverse_root_sum
+FROM multiverse_roots r
+JOIN mssmt_roots m
+    ON r.namespace_root = m.namespace
+JOIN mssmt_nodes n
+    ON m.root_hash = n.hash_key AND
+       m.namespace = n.namespace
+WHERE namespace_root = $1
+`
+
+type FetchMultiverseRootRow struct {
+	ProofType          string
+	MultiverseRootHash []byte
+	MultiverseRootSum  int64
+}
+
+func (q *Queries) FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchMultiverseRoot, namespaceRoot)
+	var i FetchMultiverseRootRow
+	err := row.Scan(&i.ProofType, &i.MultiverseRootHash, &i.MultiverseRootSum)
+	return i, err
 }
 
 const fetchUniverseKeys = `-- name: FetchUniverseKeys :many
@@ -590,6 +629,65 @@ func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]Federati
 			&i.ProofType,
 			&i.AllowSyncInsert,
 			&i.AllowSyncExport,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryMultiverseLeaves = `-- name: QueryMultiverseLeaves :many
+SELECT r.namespace_root, r.proof_type, l.asset_id, l.group_key, 
+       smt_nodes.value AS universe_root_hash, smt_nodes.sum AS universe_root_sum
+FROM multiverse_leaves l
+JOIN mssmt_nodes smt_nodes
+  ON l.leaf_node_key = smt_nodes.key AND
+     l.leaf_node_namespace = smt_nodes.namespace
+JOIN multiverse_roots r
+  ON l.multiverse_root_id = r.id
+WHERE r.proof_type = $1 AND
+      (l.asset_id = $2 OR $2 IS NULL) AND
+      (l.group_key = $3 OR $3 IS NULL)
+`
+
+type QueryMultiverseLeavesParams struct {
+	ProofType string
+	AssetID   []byte
+	GroupKey  []byte
+}
+
+type QueryMultiverseLeavesRow struct {
+	NamespaceRoot    string
+	ProofType        string
+	AssetID          []byte
+	GroupKey         []byte
+	UniverseRootHash []byte
+	UniverseRootSum  int64
+}
+
+func (q *Queries) QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryMultiverseLeaves, arg.ProofType, arg.AssetID, arg.GroupKey)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryMultiverseLeavesRow
+	for rows.Next() {
+		var i QueryMultiverseLeavesRow
+		if err := rows.Scan(
+			&i.NamespaceRoot,
+			&i.ProofType,
+			&i.AssetID,
+			&i.GroupKey,
+			&i.UniverseRootHash,
+			&i.UniverseRootSum,
 		); err != nil {
 			return nil, err
 		}
@@ -1145,6 +1243,62 @@ func (q *Queries) UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertF
 		arg.AllowSyncExport,
 	)
 	return err
+}
+
+const upsertMultiverseLeaf = `-- name: UpsertMultiverseLeaf :one
+INSERT INTO multiverse_leaves (
+    multiverse_root_id, asset_id, group_key, leaf_node_key, leaf_node_namespace
+) VALUES (
+    $1, $2, $3, $4,
+    $5
+)
+ON CONFLICT (leaf_node_key, leaf_node_namespace)
+    -- This is a no-op to allow returning the ID.
+    DO UPDATE SET leaf_node_key = EXCLUDED.leaf_node_key,
+                  leaf_node_namespace = EXCLUDED.leaf_node_namespace
+RETURNING id
+`
+
+type UpsertMultiverseLeafParams struct {
+	MultiverseRootID  int64
+	AssetID           []byte
+	GroupKey          []byte
+	LeafNodeKey       []byte
+	LeafNodeNamespace string
+}
+
+func (q *Queries) UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertMultiverseLeaf,
+		arg.MultiverseRootID,
+		arg.AssetID,
+		arg.GroupKey,
+		arg.LeafNodeKey,
+		arg.LeafNodeNamespace,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
+}
+
+const upsertMultiverseRoot = `-- name: UpsertMultiverseRoot :one
+INSERT INTO multiverse_roots (namespace_root, proof_type)
+VALUES ($1, $2)
+ON CONFLICT (namespace_root)
+    -- This is a no-op to allow returning the ID.
+    DO UPDATE SET namespace_root = EXCLUDED.namespace_root
+RETURNING id
+`
+
+type UpsertMultiverseRootParams struct {
+	NamespaceRoot string
+	ProofType     string
+}
+
+func (q *Queries) UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertMultiverseRoot, arg.NamespaceRoot, arg.ProofType)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const upsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec

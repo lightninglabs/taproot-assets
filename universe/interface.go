@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 )
@@ -82,6 +83,24 @@ func (i *Identifier) StringForLog() string {
 
 	return fmt.Sprintf("%v (asset_id=%x, group_key=%v, proof_type=%v)",
 		i.String(), i.AssetID[:], groupKey, i.ProofType)
+}
+
+// IsEqual returns true if the two identifiers are equal.
+func (i *Identifier) IsEqual(other Identifier) bool {
+	if i == nil {
+		return false
+	}
+
+	groupKeysEqual := false
+	if i.GroupKey == nil || other.GroupKey == nil {
+		groupKeysEqual = i.GroupKey == other.GroupKey
+	} else {
+		groupKeysEqual = i.GroupKey.IsEqual(other.GroupKey)
+	}
+
+	return i.AssetID == other.AssetID &&
+		groupKeysEqual &&
+		i.ProofType == other.ProofType
 }
 
 // NewUniIDFromAsset creates a new universe ID from an asset.
@@ -346,6 +365,11 @@ type Root struct {
 	GroupedAssets map[asset.ID]uint64
 }
 
+// MultiverseLeafDesc can be used to uniquely identify a Multiverse leave
+// (which is a Universe root).  A leaf for a given Universe tree (proof type
+// assumed) can be identified by either the asset ID or the target group key.
+type MultiverseLeafDesc = fn.Either[asset.ID, btcec.PublicKey]
+
 // MultiverseRoot is the ms-smt root for a multiverse. This root can be used to
 // authenticate any leaf proofs.
 type MultiverseRoot struct {
@@ -354,6 +378,16 @@ type MultiverseRoot struct {
 	ProofType ProofType
 
 	mssmt.Node
+}
+
+// MultiverseLeaf is the leaf within a Multiverse, this stores a value which is
+// derived from the root of a normal Universe tree.
+type MultiverseLeaf struct {
+	// ID contains the information to uniquely identify the multiverse
+	// root: assetID/groupKey and the proof type.
+	ID Identifier
+
+	*mssmt.LeafNode
 }
 
 // MultiverseArchive is an interface used to keep track of the set of universe
@@ -393,6 +427,17 @@ type MultiverseArchive interface {
 	// universe.
 	UniverseLeafKeys(ctx context.Context,
 		q UniverseLeafKeysQuery) ([]LeafKey, error)
+
+	// FetchLeaves returns the set of multiverse leaves that satisfy the set
+	// of universe targets. If the set of targets is empty, all leaves for
+	// the given proof type will be returned.
+	FetchLeaves(ctx context.Context, universeTargets []MultiverseLeafDesc,
+		proofType ProofType) ([]MultiverseLeaf, error)
+
+	// MultiverseRootNode returns the Multiverse root node for the given
+	// proof type.
+	MultiverseRootNode(ctx context.Context,
+		proofType ProofType) (fn.Option[MultiverseRoot], error)
 }
 
 // Registrar is an interface that allows a caller to upsert a proof leaf in a
