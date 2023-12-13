@@ -168,15 +168,21 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 // NewTestSqliteDB is a helper function that creates an SQLite database for
 // testing.
 func NewTestSqliteDB(t *testing.T) *SqliteStore {
-	t.Helper()
-
-	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
-	t.Logf("Creating new SQLite DB for testing: %s", dbFileName)
-
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
+	dbPath := filepath.Join(t.TempDir(), "tmp.db")
+	t.Logf("Creating new SQLite DB handle for testing: %s", dbPath)
+
+	return NewTestSqliteDbHandleFromPath(t, dbPath)
+}
+
+// NewTestSqliteDbHandleFromPath is a helper function that creates a SQLite
+// database handle given a database file path.
+func NewTestSqliteDbHandleFromPath(t *testing.T, dbPath string) *SqliteStore {
+	t.Helper()
+
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
-		DatabaseFileName: dbFileName,
+		DatabaseFileName: dbPath,
 		SkipMigrations:   false,
 	})
 	require.NoError(t, err)
