@@ -1285,7 +1285,7 @@ func FetchProofProvenance(ctx context.Context, originLocator Locator,
 	// reversedProofs is a slice of transition proofs ordered from latest to
 	// earliest (the issuance proof comes last in the slice). This ordering
 	// is a reversal of that found in the proof file.
-	var reversedProofs []Proof
+	var reversedProofs []Blob
 	for {
 		// Setup proof receive/query routine and start backoff
 		// procedure.
@@ -1295,24 +1295,25 @@ func FetchProofProvenance(ctx context.Context, originLocator Locator,
 				"failed: %w", err)
 		}
 
-		// Decode transition proof from query response.
-		var currentProof Proof
-		err = currentProof.Decode(bytes.NewReader(proofBlob))
+		// Decode just the asset leaf record from the proof.
+		var proofAsset asset.Asset
+		assetRecord := AssetLeafRecord(&proofAsset)
+		err = SparseDecode(bytes.NewReader(proofBlob), assetRecord)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("unable to decode proof: %w",
+				err)
 		}
 
-		reversedProofs = append(reversedProofs, currentProof)
+		reversedProofs = append(reversedProofs, proofBlob)
 
 		// Break if we've reached the genesis point (the asset is the
 		// genesis asset).
-		proofAsset := currentProof.Asset
 		if proofAsset.IsGenesisAsset() {
 			break
 		}
 
 		// Update locator with principal input to the current outpoint.
-		prevID, err := currentProof.Asset.PrimaryPrevID()
+		prevID, err := proofAsset.PrimaryPrevID()
 		if err != nil {
 			return nil, err
 		}
@@ -1336,7 +1337,7 @@ func FetchProofProvenance(ctx context.Context, originLocator Locator,
 	// order.
 	proofFile := &File{}
 	for i := len(reversedProofs) - 1; i >= 0; i-- {
-		err := proofFile.AppendProof(reversedProofs[i])
+		err := proofFile.AppendProofRaw(reversedProofs[i])
 		if err != nil {
 			return nil, fmt.Errorf("error appending proof to "+
 				"proof file: %w", err)
