@@ -1598,6 +1598,27 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 	return items, nil
 }
 
+const hasAssetProof = `-- name: HasAssetProof :one
+WITH asset_info AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
+    WHERE script_keys.tweaked_script_key = $1
+)
+SELECT COUNT(asset_info.asset_id) > 0 as has_proof
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id
+`
+
+func (q *Queries) HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (bool, error) {
+	row := q.db.QueryRowContext(ctx, hasAssetProof, tweakedScriptKey)
+	var has_proof bool
+	err := row.Scan(&has_proof)
+	return has_proof, err
+}
+
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
