@@ -175,6 +175,10 @@ type ActiveAssetsStore interface {
 	FetchAssetProof(ctx context.Context,
 		scriptKey []byte) (AssetProofI, error)
 
+	// HasAssetProof returns true if we have proof for a given asset
+	// identified by its script key.
+	HasAssetProof(ctx context.Context, scriptKey []byte) (bool, error)
+
 	// FetchAssetProofsByAssetID fetches all asset proofs for a given asset
 	// ID.
 	FetchAssetProofsByAssetID(ctx context.Context,
@@ -1236,6 +1240,38 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 	}
 
 	return diskProof, nil
+}
+
+// HasProof returns true if the proof for the given locator exists. This is
+// intended to be a performance optimized lookup compared to fetching a proof
+// and checking for ErrProofNotFound.
+func (a *AssetStore) HasProof(ctx context.Context, locator proof.Locator) (bool,
+	error) {
+
+	// We don't need anything else but the script key since we have an
+	// on-disk index for all proofs we store.
+	var (
+		scriptKey = locator.ScriptKey
+		readOpts  = NewAssetStoreReadTx()
+		haveProof bool
+	)
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		proofAvailable, err := q.HasAssetProof(
+			ctx, scriptKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to find out if we have "+
+				"asset proof: %w", err)
+		}
+
+		haveProof = proofAvailable
+		return nil
+	})
+	if dbErr != nil {
+		return false, dbErr
+	}
+
+	return haveProof, nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed

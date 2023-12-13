@@ -107,6 +107,11 @@ type Archiver interface {
 	// returned.
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
+	// HasProof returns true if the proof for the given locator exists. This
+	// is intended to be a performance optimized lookup compared to fetching
+	// a proof and checking for ErrProofNotFound.
+	HasProof(ctx context.Context, id Locator) (bool, error)
+
 	// FetchProofs fetches all proofs for assets uniquely identified by the
 	// passed asset ID.
 	FetchProofs(ctx context.Context, id asset.ID) ([]*AnnotatedProof, error)
@@ -219,6 +224,22 @@ func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 	}
 
 	return proofFile, nil
+}
+
+// HasProof returns true if the proof for the given locator exists. This is
+// intended to be a performance optimized lookup compared to fetching a proof
+// and checking for ErrProofNotFound.
+func (f *FileArchiver) HasProof(_ context.Context, id Locator) (bool, error) {
+	// All our on-disk storage is based on asset IDs, so to look up a path,
+	// we just need to compute the full file path and see if it exists on
+	// disk.
+	proofPath, err := genProofFilePath(f.proofPath, id)
+	if err != nil {
+		return false, fmt.Errorf("unable to make proof file path: %w",
+			err)
+	}
+
+	return lnrpc.FileExists(proofPath), nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed
@@ -410,6 +431,27 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 	}
 
 	return nil, ErrProofNotFound
+}
+
+// HasProof returns true if the proof for the given locator exists. This is
+// intended to be a performance optimized lookup compared to fetching a proof
+// and checking for ErrProofNotFound. The multi archiver only considers a proof
+// to be present if all backends have it.
+func (m *MultiArchiver) HasProof(ctx context.Context, id Locator) (bool, error) {
+	for _, archive := range m.backends {
+		ok, err := archive.HasProof(ctx, id)
+		if err != nil {
+			return false, err
+		}
+
+		// We are expecting all backends to have the proof, otherwise we
+		// consider the proof not to be found.
+		if !ok {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed
