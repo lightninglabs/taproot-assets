@@ -700,6 +700,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 
 		totalInputAmt += anchorAsset.Asset.Amount
 	}
+	log.Debugf("Total input amount of target asset %d", totalInputAmt)
 
 	inputCommitments, err := f.setVPacketInputs(
 		ctx, selectedCommitments, vPkt,
@@ -707,6 +708,8 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 	if err != nil {
 		return nil, err
 	}
+
+	log.Debugf("Found %d input commitments", len(inputCommitments))
 
 	// Gather Taproot Asset commitments from the selected anchored assets.
 	var selectedTapCommitments []*commitment.TapCommitment

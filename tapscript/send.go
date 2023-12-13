@@ -221,8 +221,25 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 	assetCommitments := tapCommitment.Commitments()
 	assetCommitment, ok := assetCommitments[desc.TapCommitmentKey()]
 	if !ok {
-		return nil, fmt.Errorf("input commitment does "+
-			"not contain asset_id=%x: %w", desc.TapCommitmentKey(),
+		log.Debugf("Input commitment does not contain target asset "+
+			"tap commitment key (asset_commitments_count=%d, "+
+			"tap_commitment_key=%x)", len(assetCommitments),
+			desc.TapCommitmentKey())
+
+		for key, assetCom := range assetCommitments {
+			commitmentAssets := assetCom.Assets()
+			log.Debugf("asset_commitment_key=%x, "+
+				"count_commitment_assets=%d", key[:],
+				len(commitmentAssets))
+
+			for assetKey, commitmentAsset := range commitmentAssets {
+				log.Debugf("asset_key=%x, asset=%v",
+					assetKey[:], commitmentAsset)
+			}
+		}
+
+		return nil, fmt.Errorf("input commitment does not contain "+
+			"tap_commitment_key=%x: %w", desc.TapCommitmentKey(),
 			ErrMissingInputAsset)
 	}
 
@@ -234,9 +251,10 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 	inputAsset, ok := assetCommitment.Asset(assetCommitmentKey)
 	if !ok {
 		return nil, fmt.Errorf("input commitment does not "+
-			"contain leaf with script_key=%x: %w",
+			"contain leaf with (script_key=%x, "+
+			"asset_commitment_key=%x): %w",
 			inputScriptKey.SerializeCompressed(),
-			ErrMissingInputAsset)
+			assetCommitmentKey[:], ErrMissingInputAsset)
 	}
 
 	return inputAsset, nil
