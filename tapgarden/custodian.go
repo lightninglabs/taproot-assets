@@ -1,7 +1,6 @@
 package tapgarden
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"strings"
@@ -626,6 +625,7 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 		AssetID:   fn.Ptr(event.Addr.AssetID),
 		GroupKey:  event.Addr.GroupKey,
 		ScriptKey: event.Addr.ScriptKey,
+		OutPoint:  &event.Outpoint,
 	})
 	switch {
 	case errors.Is(err, proof.ErrProofNotFound):
@@ -636,15 +636,23 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 			err)
 	}
 
-	file := proof.NewEmptyFile(proof.V0)
-	if err := file.Decode(bytes.NewReader(blob)); err != nil {
-		return false, fmt.Errorf("error decoding proof file: %w", err)
+	// At this point, we expect the proof to be a full file, containing the
+	// whole provenance chain (as required by implementers of the
+	// proof.NotifyArchiver.FetchProof() method). So if we don't we can't
+	// continue.
+	if !blob.IsFile() {
+		return false, fmt.Errorf("expected proof to be a full file, " +
+			"but got something else")
+	}
+
+	file, err := blob.AsFile()
+	if err != nil {
+		return false, fmt.Errorf("error extracting proof file: %w", err)
 	}
 
 	// Exit early on empty proof (shouldn't happen outside of test cases).
 	if file.IsEmpty() {
-		return false, fmt.Errorf("archive contained empty proof file: "+
-			"%w", err)
+		return false, fmt.Errorf("archive contained empty proof file")
 	}
 
 	lastProof, err := file.LastProof()
@@ -665,9 +673,92 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 // and pending address event. If a proof successfully matches the desired state
 // of the address, that completes the inbound transfer of an asset.
 func (c *Custodian) mapProofToEvent(p proof.Blob) error {
-	file := proof.NewEmptyFile(proof.V0)
-	if err := file.Decode(bytes.NewReader(p)); err != nil {
-		return fmt.Errorf("error decoding proof file: %w", err)
+	// We arrive here if we are notified about a new proof. The notification
+	// interface allows that proof to be a single transition proof. So if
+	// we don't have a full file yet, we need to fetch it now. The
+	// proof.NotifyArchiver.FetchProof() method will return the full file as
+	// per its Godoc.
+	var (
+		proofBlob = p
+		lastProof *proof.Proof
+		err       error
+	)
+	if !p.IsFile() {
+		log.Debugf("Received single proof, inspecting if matches event")
+		lastProof, err = p.AsSingleProof()
+		if err != nil {
+			return fmt.Errorf("error decoding proof: %w", err)
+		}
+
+		// Before we go ahead and fetch the full file, let's make sure
+		// we are actually interested in this proof. We need to do this
+		// because we receive all transfer proofs inserted into the
+		// local universe here. So they could just be from a proof sync
+		// run and not actually be for an address we are interested in.
+		haveMatchingEvents := fn.AnyMapItem(
+			c.events, func(e *address.Event) bool {
+				return EventMatchesProof(e, lastProof)
+			},
+		)
+		if !haveMatchingEvents {
+			log.Debugf("Proof doesn't match any events, skipping.")
+			return nil
+		}
+
+		ctxt, cancel := c.WithCtxQuit()
+		defer cancel()
+
+		loc := proof.Locator{
+			AssetID:   fn.Ptr(lastProof.Asset.ID()),
+			ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(lastProof.OutPoint()),
+		}
+		if lastProof.Asset.GroupKey != nil {
+			loc.GroupKey = &lastProof.Asset.GroupKey.GroupPubKey
+		}
+
+		log.Debugf("Received single proof, fetching full file")
+		proofBlob, err = c.cfg.ProofNotifier.FetchProof(ctxt, loc)
+		if err != nil {
+			return fmt.Errorf("error fetching full proof file for "+
+				"event: %w", err)
+		}
+
+		// Do we already have this proof in our main archive? This
+		// should only be false if we got the notification from our
+		// local universe instead of the local proof archive (which the
+		// couriers use). This is mainly an optimization to make sure we
+		// don't unnecessarily overwrite the proofs in our main archive.
+		haveProof, err := c.cfg.ProofArchive.HasProof(ctxt, loc)
+		if err != nil {
+			return fmt.Errorf("error checking if proof is "+
+				"available: %w", err)
+		}
+
+		// We don't have the proof yet, or not in all backends, so we
+		// need to import it now.
+		if !haveProof {
+			headerVerifier := GenHeaderVerifier(
+				ctxt, c.cfg.ChainBridge,
+			)
+			err = c.cfg.ProofArchive.ImportProofs(
+				ctxt, headerVerifier, c.cfg.GroupVerifier,
+				false, &proof.AnnotatedProof{
+					Locator: loc,
+					Blob:    proofBlob,
+				},
+			)
+			if err != nil {
+				return fmt.Errorf("error importing proof "+
+					"file into main archive: %w", err)
+			}
+		}
+	}
+
+	// Now we can be sure we have a file.
+	file, err := proofBlob.AsFile()
+	if err != nil {
+		return fmt.Errorf("error extracting proof file: %w", err)
 	}
 
 	// Exit early on empty proof (shouldn't happen outside of test cases).
@@ -678,19 +769,22 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 
 	// We got the proof from the multi archiver, which verifies it before
 	// giving it to us. So we don't have to verify them again and can
-	// directly look at the last state.
-	lastProof, err := file.LastProof()
-	if err != nil {
-		return fmt.Errorf("error fetching last proof: %w", err)
+	// directly look at the last state. We can skip extracting the last
+	// proof if we started out with a single proof in the first place, which
+	// we already parsed above.
+	if lastProof == nil {
+		lastProof, err = file.LastProof()
+		if err != nil {
+			return fmt.Errorf("error fetching last proof: %w", err)
+		}
 	}
-	log.Infof("Received new proof file, version=%d, num_proofs=%d",
-		file.Version, file.NumProofs())
+	log.Infof("Received new proof file for asset ID %s, version=%d,"+
+		"num_proofs=%d", lastProof.Asset.ID().String(), file.Version,
+		file.NumProofs())
 
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
-		if AddrMatchesAsset(event.Addr, &lastProof.Asset) &&
-			event.Outpoint == lastProof.OutPoint() {
-
+		if EventMatchesProof(event, lastProof) {
 			// Importing a proof already creates the asset in the
 			// database. Therefore, all we need to do is update the
 			// state of the address event to mark it as completed
@@ -843,4 +937,10 @@ func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
 
 	return addr.AssetID == a.ID() && groupKeyEqual &&
 		addr.ScriptKey.IsEqual(a.ScriptKey.PubKey)
+}
+
+// EventMatchesProof returns true if the given event matches the given proof.
+func EventMatchesProof(event *address.Event, p *proof.Proof) bool {
+	return AddrMatchesAsset(event.Addr, &p.Asset) &&
+		event.Outpoint == p.OutPoint()
 }
