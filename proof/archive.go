@@ -125,7 +125,12 @@ type Archiver interface {
 // NotifyArchiver is an Archiver that also allows callers to subscribe to
 // notifications about new proofs being added to the archiver.
 type NotifyArchiver interface {
-	Archiver
+	// FetchProof fetches a proof for an asset uniquely identified by the
+	// passed Identifier. The returned blob is expected to be the encoded
+	// full proof file, containing the complete provenance of the asset.
+	//
+	// If a proof cannot be found, then ErrProofNotFound should be returned.
+	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
 	fn.EventPublisher[Blob, []*Locator]
 }
