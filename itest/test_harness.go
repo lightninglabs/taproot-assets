@@ -373,6 +373,10 @@ type tapdHarnessParams struct {
 	// noDefaultUniverseSync indicates whether the default universe server
 	// should be added as a federation server or not.
 	noDefaultUniverseSync bool
+
+	// sqliteDatabaseFilePath is the path to the SQLite database file to
+	// use.
+	sqliteDatabaseFilePath *string
 }
 
 type Option func(*tapdHarnessParams)
@@ -407,12 +411,14 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.custodianProofRetrievalDelay = params.custodianProofRetrievalDelay
 		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
 		ho.fedSyncTickerInterval = params.fedSyncTickerInterval
+		ho.sqliteDatabaseFilePath = params.sqliteDatabaseFilePath
 	}
 
-	tapdHarness, err := newTapdHarness(t, ht, tapdConfig{
+	tapdCfg := tapdConfig{
 		NetParams: harnessNetParams,
 		LndNode:   node,
-	}, harnessOpts)
+	}
+	tapdHarness, err := newTapdHarness(t, ht, tapdCfg, harnessOpts)
 	require.NoError(t, err)
 
 	// Start the tapd harness now.
