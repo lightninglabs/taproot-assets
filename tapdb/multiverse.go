@@ -1,6 +1,7 @@
 package tapdb
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
@@ -476,15 +477,23 @@ type MultiverseStore struct {
 	proofCache *proofCache
 
 	leafKeysCache *universeLeafCache
+
+	// transferProofDistributor is an event distributor that will be used to
+	// notify subscribers about new proof leaves that are added to the
+	// multiverse. This is used to notify the custodian about new incoming
+	// proofs. And since the custodian is only interested in transfer
+	// proofs, we only signal on transfer proofs.
+	transferProofDistributor *fn.EventDistributor[proof.Blob]
 }
 
 // NewMultiverseStore creates a new multiverse DB store handle.
 func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
 	return &MultiverseStore{
-		db:            db,
-		rootNodeCache: newRootNodeCache(),
-		proofCache:    newProofCache(),
-		leafKeysCache: newUniverseLeafCache(),
+		db:                       db,
+		rootNodeCache:            newRootNodeCache(),
+		proofCache:               newProofCache(),
+		leafKeysCache:            newUniverseLeafCache(),
+		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
 	}
 }
 
@@ -850,6 +859,78 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	return proofs, nil
 }
 
+// FetchProof fetches a proof for an asset uniquely identified by the passed
+// Locator. The returned blob contains the encoded full proof file, representing
+// the complete provenance of the asset.
+//
+// If a proof cannot be found, then ErrProofNotFound is returned.
+//
+// NOTE: This is part of the proof.NotifyArchiver interface.
+func (b *MultiverseStore) FetchProof(ctx context.Context,
+	originLocator proof.Locator) (proof.Blob, error) {
+
+	// The universe only delivers a single proof at a time, so we need a
+	// callback that we can feed into proof.FetchProofProvenance to assemble
+	// the full proof file.
+	fetchProof := func(ctx context.Context, loc proof.Locator) (proof.Blob,
+		error) {
+
+		uniID := universe.Identifier{
+			AssetID:   *loc.AssetID,
+			GroupKey:  loc.GroupKey,
+			ProofType: universe.ProofTypeTransfer,
+		}
+		scriptKey := asset.NewScriptKey(&loc.ScriptKey)
+		leafKey := universe.LeafKey{
+			ScriptKey: &scriptKey,
+		}
+		if loc.OutPoint != nil {
+			leafKey.OutPoint = *loc.OutPoint
+		}
+
+		proofs, err := b.FetchProofLeaf(ctx, uniID, leafKey)
+		if errors.Is(err, universe.ErrNoUniverseProofFound) {
+			// If we didn't find a proof, maybe we arrived at the
+			// issuance proof, in which case we need to adjust the
+			// proof type.
+			uniID.ProofType = universe.ProofTypeIssuance
+			proofs, err = b.FetchProofLeaf(ctx, uniID, leafKey)
+
+			// If we still didn't find a proof, then we'll return
+			// the proof not found error, but the one from the proof
+			// package, not the universe package, as the Godoc for
+			// this method in the proof.NotifyArchiver states.
+			if errors.Is(err, universe.ErrNoUniverseProofFound) {
+				return nil, proof.ErrProofNotFound
+			}
+		}
+		if err != nil {
+			return nil, fmt.Errorf("error fetching proof from "+
+				"archive: %w", err)
+		}
+
+		if len(proofs) > 1 {
+			return nil, fmt.Errorf("expected only one proof, "+
+				"got %d", len(proofs))
+		}
+
+		return proofs[0].Leaf.RawProof, nil
+	}
+
+	file, err := proof.FetchProofProvenance(ctx, originLocator, fetchProof)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching proof from archive: %w",
+			err)
+	}
+
+	var buf bytes.Buffer
+	if err := file.Encode(&buf); err != nil {
+		return nil, fmt.Errorf("error encoding proof file: %w", err)
+	}
+
+	return buf.Bytes(), nil
+}
+
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
@@ -944,6 +1025,14 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	b.proofCache.delProofsForAsset(id)
 	b.leafKeysCache.wipeCache(idStr)
 
+	// Notify subscribers about the new proof leaf, now that we're sure we
+	// have written it to the database. But we only care about transfer
+	// proofs, as the events are received by the custodian to finalize
+	// inbound transfers.
+	if id.ProofType == universe.ProofTypeTransfer {
+		b.transferProofDistributor.NotifySubscribers(leaf.RawProof)
+	}
+
 	return issuanceProof, nil
 }
 
@@ -1024,6 +1113,18 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 
 	b.rootNodeCache.wipeCache()
 
+	// Notify subscribers about the new proof leaves, now that we're sure we
+	// have written them to the database. But we only care about transfer
+	// proofs, as the events are received by the custodian to finalize
+	// inbound transfers.
+	for idx := range items {
+		if items[idx].ID.ProofType == universe.ProofTypeTransfer {
+			b.transferProofDistributor.NotifySubscribers(
+				items[idx].Leaf.RawProof,
+			)
+		}
+	}
+
 	// Invalidate the root node cache for all the assets we just inserted.
 	idsToDelete := fn.NewSet(fn.Map(items, func(item *universe.Item) treeID {
 		return treeID(item.ID.String())
@@ -1074,3 +1175,68 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 
 	return id.String(), dbErr
 }
+
+// RegisterSubscriber adds a new subscriber for receiving events. The
+// deliverExisting boolean indicates whether already existing items should be
+// sent to the NewItemCreated channel when the subscription is started. An
+// optional deliverFrom can be specified to indicate from which timestamp/index/
+// marker onward existing items should be delivered on startup. If deliverFrom
+// is nil/zero/empty then all existing items will be delivered.
+func (b *MultiverseStore) RegisterSubscriber(
+	receiver *fn.EventReceiver[proof.Blob], deliverExisting bool,
+	deliverFrom []*proof.Locator) error {
+
+	b.transferProofDistributor.RegisterSubscriber(receiver)
+
+	// No delivery of existing items requested, we're done here.
+	if !deliverExisting {
+		return nil
+	}
+
+	ctx := context.Background()
+	for _, loc := range deliverFrom {
+		if loc.AssetID == nil {
+			return fmt.Errorf("missing asset ID")
+		}
+
+		id := universe.Identifier{
+			AssetID:   *loc.AssetID,
+			GroupKey:  loc.GroupKey,
+			ProofType: universe.ProofTypeTransfer,
+		}
+		scriptKey := asset.NewScriptKey(&loc.ScriptKey)
+		key := universe.LeafKey{
+			ScriptKey: &scriptKey,
+		}
+
+		if loc.OutPoint != nil {
+			key.OutPoint = *loc.OutPoint
+		}
+
+		leaves, err := b.FetchProofLeaf(ctx, id, key)
+		if err != nil {
+			return err
+		}
+
+		// Deliver the found leaves to the new item queue of the
+		// subscriber.
+		for idx := range leaves {
+			rawProof := leaves[idx].Leaf.RawProof
+			receiver.NewItemCreated.ChanIn() <- rawProof
+		}
+	}
+
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events.
+func (b *MultiverseStore) RemoveSubscriber(
+	subscriber *fn.EventReceiver[proof.Blob]) error {
+
+	return b.transferProofDistributor.RemoveSubscriber(subscriber)
+}
+
+// A compile-time interface to ensure MultiverseStore meets the
+// proof.NotifyArchiver interface.
+var _ proof.NotifyArchiver = (*MultiverseStore)(nil)
