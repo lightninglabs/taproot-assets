@@ -1137,36 +1137,24 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 	originLocator Locator) (*AnnotatedProof, error) {
 
-	// In order to reconstruct the proof file we must collect all the
-	// transition proofs that make up the main chain of proofs. That is
-	// accomplished by iterating backwards through the main chain of proofs
-	// until we reach the genesis point (minting proof).
-
-	// We will update the locator at each iteration.
-	loc := originLocator
-
-	// revProofs is a slice of transition proofs ordered from latest to
-	// earliest (the issuance proof comes last in the slice). This ordering
-	// is a reversal of that found in the proof file.
-	var revProofs []Proof
-
-	for {
-		assetID := *loc.AssetID
-
+	fetchProof := func(ctx context.Context, loc Locator) (Blob, error) {
 		var groupKeyBytes []byte
 		if loc.GroupKey != nil {
 			groupKeyBytes = loc.GroupKey.SerializeCompressed()
 		}
 
-		universeID := unirpc.MarshalUniverseID(
-			assetID[:], groupKeyBytes,
-		)
-		assetKey := unirpc.MarshalAssetKey(
-			*loc.OutPoint, &loc.ScriptKey,
-		)
+		if loc.OutPoint == nil {
+			return nil, fmt.Errorf("proof locator for asset %x "+
+				"is missing outpoint", loc.AssetID[:])
+		}
+
 		universeKey := unirpc.UniverseKey{
-			Id:      universeID,
-			LeafKey: assetKey,
+			Id: unirpc.MarshalUniverseID(
+				loc.AssetID[:], groupKeyBytes,
+			),
+			LeafKey: unirpc.MarshalAssetKey(
+				*loc.OutPoint, &loc.ScriptKey,
+			),
 		}
 
 		// Setup proof receive/query routine and start backoff
@@ -1197,50 +1185,13 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				"attempt has failed: %w", err)
 		}
 
-		// Decode transition proof from query response.
-		var transitionProof Proof
-		if err := transitionProof.Decode(
-			bytes.NewReader(proofBlob),
-		); err != nil {
-			return nil, err
-		}
-
-		revProofs = append(revProofs, transitionProof)
-
-		// Break if we've reached the genesis point (the asset is the
-		// genesis asset).
-		proofAsset := transitionProof.Asset
-		if proofAsset.IsGenesisAsset() {
-			break
-		}
-
-		// Update locator with principal input to the current outpoint.
-		prevID, err := transitionProof.Asset.PrimaryPrevID()
-		if err != nil {
-			return nil, err
-		}
-
-		// Parse script key public key.
-		scriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse script key "+
-				"public key from Proof.PrevID: %w", err)
-		}
-		loc.ScriptKey = *scriptKeyPubKey
-
-		loc.AssetID = &prevID.ID
-		loc.OutPoint = &prevID.OutPoint
+		return proofBlob, nil
 	}
 
-	// Append proofs to proof file in reverse order to their collected
-	// order.
-	proofFile := &File{}
-	for i := len(revProofs) - 1; i >= 0; i-- {
-		err := proofFile.AppendProof(revProofs[i])
-		if err != nil {
-			return nil, fmt.Errorf("error appending proof to "+
-				"proof file: %w", err)
-		}
+	proofFile, err := FetchProofProvenance(ctx, originLocator, fetchProof)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching proof provenance: %w",
+			err)
 	}
 
 	// Encode the full proof file.
@@ -1314,4 +1265,83 @@ type TransferLog interface {
 	// proof delivery attempts.
 	QueryProofTransferLog(context.Context, Locator,
 		TransferType) ([]time.Time, error)
+}
+
+// FetchProofProvenance iterates backwards through the main chain of proofs
+// until it reaches the genesis point (the asset is the genesis asset) and then
+// returns the full proof file with the full provenance for the asset.
+func FetchProofProvenance(ctx context.Context, originLocator Locator,
+	fetchSingleProof func(context.Context, Locator) (Blob, error)) (*File,
+	error) {
+
+	// In order to reconstruct the proof file we must collect all the
+	// transition proofs that make up the main chain of proofs. That is
+	// accomplished by iterating backwards through the main chain of proofs
+	// until we reach the genesis point (minting proof).
+
+	// We will update the locator at each iteration.
+	currentLocator := originLocator
+
+	// reversedProofs is a slice of transition proofs ordered from latest to
+	// earliest (the issuance proof comes last in the slice). This ordering
+	// is a reversal of that found in the proof file.
+	var reversedProofs []Proof
+	for {
+		// Setup proof receive/query routine and start backoff
+		// procedure.
+		proofBlob, err := fetchSingleProof(ctx, currentLocator)
+		if err != nil {
+			return nil, fmt.Errorf("fetching single proof "+
+				"failed: %w", err)
+		}
+
+		// Decode transition proof from query response.
+		var currentProof Proof
+		err = currentProof.Decode(bytes.NewReader(proofBlob))
+		if err != nil {
+			return nil, err
+		}
+
+		reversedProofs = append(reversedProofs, currentProof)
+
+		// Break if we've reached the genesis point (the asset is the
+		// genesis asset).
+		proofAsset := currentProof.Asset
+		if proofAsset.IsGenesisAsset() {
+			break
+		}
+
+		// Update locator with principal input to the current outpoint.
+		prevID, err := currentProof.Asset.PrimaryPrevID()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse script key public key.
+		scriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse script key "+
+				"public key from Proof.PrevID: %w", err)
+		}
+
+		currentLocator = Locator{
+			AssetID:   &prevID.ID,
+			GroupKey:  originLocator.GroupKey,
+			ScriptKey: *scriptKeyPubKey,
+			OutPoint:  &prevID.OutPoint,
+		}
+	}
+
+	// Append proofs to proof file in reverse order to their collected
+	// order.
+	proofFile := &File{}
+	for i := len(reversedProofs) - 1; i >= 0; i-- {
+		err := proofFile.AppendProof(reversedProofs[i])
+		if err != nil {
+			return nil, fmt.Errorf("error appending proof to "+
+				"proof file: %w", err)
+		}
+	}
+
+	return proofFile, nil
 }
