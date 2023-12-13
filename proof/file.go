@@ -393,6 +393,26 @@ func (f *File) AppendProof(proof Proof) error {
 	return nil
 }
 
+// AppendProofRaw appends a raw proof to the file and calculates its chained
+// hash.
+func (f *File) AppendProofRaw(proof []byte) error {
+	if f.IsUnknownVersion() {
+		return ErrUnknownVersion
+	}
+
+	var prevHash [sha256.Size]byte
+	if !f.IsEmpty() {
+		prevHash = f.proofs[len(f.proofs)-1].hash
+	}
+
+	f.proofs = append(f.proofs, &hashedProof{
+		proofBytes: proof,
+		hash:       hashProof(proof, prevHash),
+	})
+
+	return nil
+}
+
 // ReplaceLastProof attempts to replace the last proof in the file with another
 // one, updating its chained hash in the process.
 func (f *File) ReplaceLastProof(proof Proof) error {
