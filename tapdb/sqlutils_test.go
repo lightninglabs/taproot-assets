@@ -221,11 +221,8 @@ func (d *DbHandler) AddRandomServerAddrs(t *testing.T,
 	return addrs
 }
 
-// NewDbHandle creates a new store and query handle to the test database.
-func NewDbHandle(t *testing.T) *DbHandler {
-	// Create a new test database.
-	db := NewTestDB(t)
-
+// newDbHandleFromDb creates a new database store handle given a database store.
+func newDbHandleFromDb(db *BaseDB) *DbHandler {
 	testClock := clock.NewTestClock(time.Now())
 
 	// Gain a handle to the pending (minting) universe federation store.
@@ -267,4 +264,18 @@ func NewDbHandle(t *testing.T) *DbHandler {
 		AssetStore:              activeAssetsStore,
 		DirectQuery:             db,
 	}
+}
+
+// NewDbHandleFromPath creates a new database store handle given a database file
+// path.
+func NewDbHandleFromPath(t *testing.T, dbPath string) *DbHandler {
+	db := NewTestDbHandleFromPath(t, dbPath)
+	return newDbHandleFromDb(db.BaseDB)
+}
+
+// NewDbHandle creates a new database store handle.
+func NewDbHandle(t *testing.T) *DbHandler {
+	// Create a new test database with the default database file path.
+	db := NewTestDB(t)
+	return newDbHandleFromDb(db.BaseDB)
 }
