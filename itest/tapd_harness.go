@@ -104,6 +104,10 @@ type harnessOpts struct {
 	// fedSyncTickerInterval is the interval at which the federation envoy
 	// sync ticker will fire.
 	fedSyncTickerInterval *time.Duration
+
+	// sqliteDatabaseFilePath is the path to the SQLite database file to
+	// use.
+	sqliteDatabaseFilePath *string
 }
 
 type harnessOption func(*harnessOpts)
@@ -186,6 +190,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// be queryable by other tapd nodes. This applies to federation syncing
 	// as well as RPC insert and query.
 	tapCfg.Universe.PublicAccess = true
+
+	// Set the SQLite database file path if it was specified.
+	if opts.sqliteDatabaseFilePath != nil {
+		tapCfg.Sqlite.DatabaseFileName = *opts.sqliteDatabaseFilePath
+	}
 
 	// Pass through the address asset syncer disable flag. If the option
 	// was not set, this will be false, which is the default.
