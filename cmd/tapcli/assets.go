@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/urfave/cli"
 )
 
@@ -50,7 +51,7 @@ var (
 	groupByGroupName             = "by_group"
 	assetIDName                  = "asset_id"
 	shortResponseName            = "short"
-	feeRateName                  = "fee_rate"
+	feeRateName                  = "sat_per_vbyte"
 	assetAmountName              = "amount"
 	burnOverrideConfirmationName = "override_confirmation_destroy_assets"
 )
@@ -261,7 +262,7 @@ var finalizeBatchCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: feeRateName,
-			Usage: "if set, the fee rate in sat/kw to use for " +
+			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the minting transaction",
 		},
 	},
@@ -270,9 +271,18 @@ var finalizeBatchCommand = cli.Command{
 
 func parseFeeRate(ctx *cli.Context) (uint32, error) {
 	if ctx.IsSet(feeRateName) {
-		feeRate := ctx.Uint64(feeRateName)
-		if feeRate > math.MaxUint32 {
+		userFeeRate := ctx.Uint64(feeRateName)
+		if userFeeRate > math.MaxUint32 {
 			return 0, fmt.Errorf("fee rate exceeds 2^32")
+		}
+
+		// Convert from sat/vB to sat/kw. Round up to the fee floor if
+		// the specified feerate is too low.
+		feeRate := chainfee.SatPerKVByte(userFeeRate * 1000).
+			FeePerKWeight()
+
+		if feeRate < chainfee.FeePerKwFloor {
+			feeRate = chainfee.FeePerKwFloor
 		}
 
 		return uint32(feeRate), nil
@@ -531,7 +541,7 @@ var sendAssetsCommand = cli.Command{
 		},
 		cli.Uint64Flag{
 			Name: feeRateName,
-			Usage: "if set, the fee rate in sat/kw to use for " +
+			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the anchor transaction",
 		},
 		// TODO(roasbeef): add arg for file name to write sender proof
