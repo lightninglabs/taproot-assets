@@ -1747,30 +1747,28 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("error decoding packet: %w", err)
 	}
 
-	if len(vPacket.Inputs) != 1 {
-		return nil, fmt.Errorf("only one input is currently supported")
-	}
+	// Query the asset store to gather tap commitments for all inputs.
+	inputCommitments := make(tappsbt.InputCommitments, len(vPacket.Inputs))
+	for idx := range vPacket.Inputs {
+		input := vPacket.Inputs[idx]
 
-	inputAsset := vPacket.Inputs[0].Asset()
-	prevID := vPacket.Inputs[0].PrevID
-	inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
-		ctx, inputAsset.ID(), prevID.OutPoint, inputAsset.GroupKey,
-		&inputAsset.ScriptKey, true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error fetching input commitment: %w",
-			err)
-	}
+		inputAsset := input.Asset()
+		prevID := input.PrevID
 
-	rpcsLog.Debugf("Selected commitment for anchor point %v, requesting "+
-		"delivery", inputCommitment.AnchorPoint)
+		inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
+			ctx, inputAsset.ID(), prevID.OutPoint,
+			inputAsset.GroupKey, &inputAsset.ScriptKey, true,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching input "+
+				"commitment: %w", err)
+		}
+
+		inputCommitments[idx] = inputCommitment.Commitment
+	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewPreSignedParcel(
-			vPacket, tappsbt.InputCommitments{
-				0: inputCommitment.Commitment,
-			},
-		),
+		tapfreighter.NewPreSignedParcel(vPacket, inputCommitments),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
