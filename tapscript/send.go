@@ -506,32 +506,51 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 	)
 
 	if isFullValueInteractiveSend {
-		if len(inputs) != 1 {
-			return fmt.Errorf("full value interactive send " +
-				"must have exactly one input")
+		// Sum the total amount of the input assets.
+		inputsAmountSum := uint64(0)
+		for idx := range inputs {
+			input := inputs[idx]
+
+			// TODO(ffranr): At the moment, we need to ensure that
+			//  all inputs have the same asset ID. We've already
+			//  checked that above, but we will do it again here for
+			//  clarity.
+			if inputs[idx].Asset().ID() != assetID {
+				return fmt.Errorf("multiple input assets " +
+					"must have the same asset ID")
+			}
+
+			inputsAmountSum += input.Asset().Amount
 		}
 
-		// TODO(ffranr): Add support for interactive full value multiple
-		// input spend.
-		input := inputs[0]
-		vOut := outputs[recipientIndex]
+		// At this point we know that each input has the same asset ID
+		// we therefore arbitrarily select the first input as our
+		// template output asset.
+		firstInput := inputs[0]
 
 		// We'll now create a new copy of the old asset, swapping out
 		// the script key. We blank out the tweaked key information as
 		// this is now an external asset.
-		vOut.Asset = input.Asset().Copy()
+		vOut := outputs[recipientIndex]
+		vOut.Asset = firstInput.Asset().Copy()
+		vOut.Asset.Amount = inputsAmountSum
 		vOut.Asset.ScriptKey = vOut.ScriptKey
 
-		// Record the PrevID of the input asset in a Witness for the new
-		// asset. This Witness still needs a valid signature for the new
-		// asset to be valid.
-		vOut.Asset.PrevWitnesses = []asset.Witness{
-			{
+		// Gather previous witnesses from the input assets.
+		prevWitnesses := make([]asset.Witness, len(inputs))
+		for idx := range inputs {
+			input := inputs[idx]
+
+			// Record the PrevID of the input asset in a Witness for
+			// the new asset. This Witness still needs a valid
+			// signature for the new asset to be valid.
+			prevWitnesses[idx] = asset.Witness{
 				PrevID:          &input.PrevID,
 				TxWitness:       nil,
 				SplitCommitment: nil,
-			},
+			}
 		}
+		vOut.Asset.PrevWitnesses = prevWitnesses
 
 		// Adjust the version for the requested send type.
 		vOut.Asset.Version = vOut.AssetVersion
