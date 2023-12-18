@@ -370,6 +370,15 @@ type Root struct {
 // assumed) can be identified by either the asset ID or the target group key.
 type MultiverseLeafDesc = fn.Either[asset.ID, btcec.PublicKey]
 
+// IDToMultiverseLeafDesc converts an ID to a multiverse leaf desc.
+func IDToMultiverseLeafDesc(id Identifier) MultiverseLeafDesc {
+	if id.GroupKey != nil {
+		return fn.NewRight[asset.ID](*id.GroupKey)
+	}
+
+	return fn.NewLeft[asset.ID, btcec.PublicKey](id.AssetID)
+}
+
 // MultiverseRoot is the ms-smt root for a multiverse. This root can be used to
 // authenticate any leaf proofs.
 type MultiverseRoot struct {
