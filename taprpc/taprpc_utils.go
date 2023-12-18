@@ -1,6 +1,10 @@
 package taprpc
 
-import "google.golang.org/protobuf/encoding/protojson"
+import (
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+)
 
 var (
 	// ProtoJSONMarshalOpts is a struct that holds the default marshal
@@ -40,3 +44,14 @@ var (
 		UseHexForBytes: true,
 	}
 )
+
+// IsUnimplemented returns true if the error is a gRPC error with the code
+// Unimplemented.
+func IsUnimplemented(err error) bool {
+	s, ok := status.FromError(err)
+	if !ok {
+		return false
+	}
+
+	return s.Code() == codes.Unimplemented
+}
