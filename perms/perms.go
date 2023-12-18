@@ -218,6 +218,7 @@ var (
 	// gain a layer of DoS defense.
 	defaultMacaroonWhitelist = map[string]struct{}{
 		"/universerpc.Universe/AssetRoots":      {},
+		"/universerpc.Universe/MultiverseRoot":  {},
 		"/universerpc.Universe/QueryAssetRoots": {},
 		"/universerpc.Universe/AssetLeafKeys":   {},
 		"/universerpc.Universe/AssetLeaves":     {},
