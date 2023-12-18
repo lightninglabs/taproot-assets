@@ -40,7 +40,7 @@ func withProofType(proofType universe.ProofType) universeIDOptFunc {
 	}
 }
 
-func randUniverseID(t *testing.T, forceGroup bool,
+func randUniverseID(t testing.TB, forceGroup bool,
 	optFunctions ...universeIDOptFunc) universe.Identifier {
 
 	opts := defaultUniverseIdOptions()
@@ -155,14 +155,14 @@ func TestUniverseEmptyTree(t *testing.T) {
 	require.ErrorIs(t, err, universe.ErrNoUniverseRoot)
 }
 
-func randLeafKey(t *testing.T) universe.LeafKey {
+func randLeafKey(t testing.TB) universe.LeafKey {
 	return universe.LeafKey{
 		OutPoint:  test.RandOp(t),
 		ScriptKey: fn.Ptr(asset.NewScriptKey(test.RandPubKey(t))),
 	}
 }
 
-func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
+func randProof(t testing.TB, argAsset *asset.Asset) *proof.Proof {
 	proofAsset := *asset.RandAsset(t, asset.Normal)
 	if argAsset != nil {
 		proofAsset = *argAsset
@@ -187,7 +187,7 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 	}
 }
 
-func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
+func randMintingLeaf(t testing.TB, assetGen asset.Genesis,
 	groupKey *btcec.PublicKey) universe.Leaf {
 
 	randProof := randProof(t, nil)
@@ -1072,4 +1072,181 @@ func TestMultiverseRootSum(t *testing.T) {
 			runTestCase(t, testCase)
 		})
 	}
+}
+
+// BenchmarkMultiverse benchmarks database calls around the multiverse tree.
+func BenchmarkMultiverse(b *testing.B) {
+	ctx := context.Background()
+
+	db := NewTestDB(b)
+	multiverse, _ := newTestMultiverseWithDb(db.BaseDB)
+
+	// We first insert a couple of hundred leaves into the multiverse, the
+	// same number of issuance and transfer proofs.
+	const numLeaves = 200
+	issuanceIDs := make([]universe.Identifier, 0, numLeaves)
+	transferIDs := make([]universe.Identifier, 0, numLeaves)
+	transferSum := uint64(0)
+	for i := 0; i < numLeaves; i++ {
+		// Create two universe identifiers first, one for issuance and
+		// one for transfer.
+		forceGroup := test.RandBool()
+		proofType := withProofType(universe.ProofTypeIssuance)
+		issuanceID := randUniverseID(b, forceGroup, proofType)
+
+		transferID := issuanceID
+		transferID.ProofType = universe.ProofTypeTransfer
+
+		issuanceIDs = append(issuanceIDs, issuanceID)
+		transferIDs = append(transferIDs, issuanceID)
+
+		// Now we insert a single proof leaf into each of the two new
+		// universes.
+		assetGen := asset.RandGenesis(b, asset.Normal)
+
+		issuanceLeaf := leafWithKey{
+			LeafKey: randLeafKey(b),
+			Leaf: randMintingLeaf(
+				b, assetGen, issuanceID.GroupKey,
+			),
+		}
+		transferLeaf := leafWithKey{
+			LeafKey: randLeafKey(b),
+			Leaf: randMintingLeaf(
+				b, assetGen, transferID.GroupKey,
+			),
+		}
+
+		_, err := multiverse.UpsertProofLeaf(
+			ctx, issuanceID, issuanceLeaf.LeafKey,
+			&issuanceLeaf.Leaf, nil,
+		)
+		require.NoError(b, err)
+		_, err = multiverse.UpsertProofLeaf(
+			ctx, transferID, transferLeaf.LeafKey,
+			&transferLeaf.Leaf, nil,
+		)
+		require.NoError(b, err)
+
+		transferSum += transferLeaf.Leaf.Amt
+	}
+
+	b.ResetTimer()
+	var (
+		fetchIRootNode     int64
+		fetchTRootNode     int64
+		fetchAllLeaves     int64
+		fetchSpecificAll   int64
+		fetchSpecificFew50 int64
+		fetchSpecificFew10 int64
+	)
+	for i := 0; i < b.N; i++ {
+		// Count the time to fetch the issuance root node.
+		start := time.Now()
+		irn, err := multiverse.MultiverseRootNode(
+			ctx, universe.ProofTypeIssuance,
+		)
+		require.NoError(b, err)
+		fetchIRootNode += time.Since(start).Nanoseconds()
+
+		require.True(b, irn.IsSome())
+		irn.WhenSome(func(rootNode universe.MultiverseRoot) {
+			require.EqualValues(b, numLeaves, rootNode.NodeSum())
+		})
+
+		// Count the time to fetch the transfer root node.
+		start = time.Now()
+		trn, err := multiverse.MultiverseRootNode(
+			ctx, universe.ProofTypeTransfer,
+		)
+		require.NoError(b, err)
+		fetchTRootNode += time.Since(start).Nanoseconds()
+
+		require.True(b, trn.IsSome())
+		trn.WhenSome(func(rootNode universe.MultiverseRoot) {
+			require.EqualValues(b, transferSum, rootNode.NodeSum())
+		})
+
+		// Count the time to fetch all leaves.
+		start = time.Now()
+		allLeaves, err := multiverse.FetchLeaves(
+			ctx, nil, universe.ProofTypeTransfer,
+		)
+		require.NoError(b, err)
+		fetchAllLeaves += time.Since(start).Nanoseconds()
+
+		require.Len(b, allLeaves, numLeaves)
+
+		// Count the time to fetch the same leaves but by specifying
+		// the universe IDs instead.
+		leafDescriptors := fn.Map(
+			transferIDs, universe.IDToMultiverseLeafDesc,
+		)
+
+		start = time.Now()
+		specificLeaves, err := multiverse.FetchLeaves(
+			ctx, leafDescriptors, universe.ProofTypeTransfer,
+		)
+		require.NoError(b, err)
+		fetchSpecificAll += time.Since(start).Nanoseconds()
+
+		require.Len(b, specificLeaves, numLeaves)
+
+		// Count the time to fetch 50 specific leaves.
+		numSpecificLeaves := 50
+		leafDescriptors = fn.Map(
+			transferIDs[0:numSpecificLeaves],
+			universe.IDToMultiverseLeafDesc,
+		)
+
+		start = time.Now()
+		specificLeaves, err = multiverse.FetchLeaves(
+			ctx, leafDescriptors, universe.ProofTypeTransfer,
+		)
+		require.NoError(b, err)
+		fetchSpecificFew50 += time.Since(start).Nanoseconds()
+
+		require.Len(b, specificLeaves, numSpecificLeaves)
+
+		// Count the time to fetch 10 specific leaves.
+		numSpecificLeaves = 10
+		leafDescriptors = fn.Map(
+			transferIDs[100:numSpecificLeaves],
+			universe.IDToMultiverseLeafDesc,
+		)
+
+		start = time.Now()
+		specificLeaves, err = multiverse.FetchLeaves(
+			ctx, leafDescriptors, universe.ProofTypeTransfer,
+		)
+		require.NoError(b, err)
+		fetchSpecificFew10 += time.Since(start).Nanoseconds()
+
+		require.Len(b, specificLeaves, numSpecificLeaves)
+	}
+
+	b.ReportMetric(
+		float64(fetchIRootNode)/float64(b.N),
+		"fetch_issuance_root_ns/op",
+	)
+	b.ReportMetric(
+		float64(fetchTRootNode)/float64(b.N),
+		"fetch_transfer_root_ns/op",
+	)
+	b.ReportMetric(
+		float64(fetchAllLeaves)/float64(b.N),
+		"fetch_all_leaves_ns/op",
+	)
+	b.ReportMetric(
+		float64(fetchSpecificAll)/float64(b.N),
+		"fetch_specific_leaves_all_ns/op",
+	)
+	b.ReportMetric(
+		float64(fetchSpecificFew50)/float64(b.N),
+		"fetch_50_specific_leaves_ns/op",
+	)
+	b.ReportMetric(
+		float64(fetchSpecificFew10)/float64(b.N),
+		"fetch_10_specific_leaves_ns/op",
+	)
 }
