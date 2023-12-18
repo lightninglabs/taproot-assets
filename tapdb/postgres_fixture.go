@@ -35,7 +35,7 @@ type TestPgFixture struct {
 // NewTestPgFixture constructs a new TestPgFixture starting up a docker
 // container running Postgres 11. The started container will expire in after
 // the passed duration.
-func NewTestPgFixture(t *testing.T, expiry time.Duration,
+func NewTestPgFixture(t testing.TB, expiry time.Duration,
 	autoRemove bool) *TestPgFixture {
 
 	// Use a sensible default on Windows (tcp/http) and linux/osx (socket)
@@ -77,7 +77,7 @@ func NewTestPgFixture(t *testing.T, expiry time.Duration,
 		port: int(port),
 	}
 	databaseURL := fixture.GetDSN()
-	log.Infof("Connecting to Postgres fixture: %v\n", databaseURL)
+	log.Infof("Connecting to Postgres fixture: %v", databaseURL)
 
 	// Tell docker to hard kill the container in "expiry" seconds.
 	require.NoError(t, resource.Expire(uint(expiry.Seconds())))
@@ -122,7 +122,7 @@ func (f *TestPgFixture) GetConfig() *PostgresConfig {
 }
 
 // TearDown stops the underlying docker container.
-func (f *TestPgFixture) TearDown(t *testing.T) {
+func (f *TestPgFixture) TearDown(t testing.TB) {
 	err := f.pool.Purge(f.resource)
 	require.NoError(t, err, "Could not purge resource")
 }
