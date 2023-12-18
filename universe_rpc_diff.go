@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -208,6 +209,45 @@ func (r *RpcUniverseDiff) FetchProofLeaf(ctx context.Context,
 	}
 
 	return []*universe.Proof{uniProof}, nil
+}
+
+// MultiverseRoot returns the root node of the multiverse for the
+// specified proof type. If the given list of universe IDs is non-empty,
+// then the root will be calculated just for those universes.
+func (r *RpcUniverseDiff) MultiverseRoot(ctx context.Context,
+	proofType universe.ProofType,
+	filterByIDs []universe.Identifier) (fn.Option[universe.MultiverseRoot],
+	error) {
+
+	none := fn.None[universe.MultiverseRoot]()
+
+	proofTypeRpc, err := MarshalUniProofType(proofType)
+	if err != nil {
+		return none, fmt.Errorf("unable to marshal proof type: %w", err)
+	}
+
+	rpcIDs := make([]*unirpc.ID, len(filterByIDs))
+	for i, id := range filterByIDs {
+		uniID, err := MarshalUniID(id)
+		if err != nil {
+			return none, err
+		}
+
+		rpcIDs[i] = uniID
+	}
+
+	root, err := r.conn.MultiverseRoot(ctx, &unirpc.MultiverseRootRequest{
+		ProofType:   proofTypeRpc,
+		SpecificIds: rpcIDs,
+	})
+	if err != nil {
+		return none, err
+	}
+
+	return fn.Some(universe.MultiverseRoot{
+		ProofType: proofType,
+		Node:      unmarshalMerkleSumNode(root.MultiverseRoot),
+	}), nil
 }
 
 // A compile time interface to ensure that RpcUniverseDiff implements the

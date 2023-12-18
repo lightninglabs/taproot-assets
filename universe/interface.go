@@ -660,6 +660,12 @@ type DiffEngine interface {
 	// of diff
 	FetchProofLeaf(ctx context.Context, id Identifier,
 		key LeafKey) ([]*Proof, error)
+
+	// MultiverseRoot returns the root node of the multiverse for the
+	// specified proof type. If the given list of universe IDs is non-empty,
+	// then the root will be calculated just for those universes.
+	MultiverseRoot(ctx context.Context, proofType ProofType,
+		filterByIDs []Identifier) (fn.Option[MultiverseRoot], error)
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle
