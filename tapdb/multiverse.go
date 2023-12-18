@@ -621,7 +621,8 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 }
 
 // MultiverseRootNode returns the root multiverse node for the given proof
-// type.
+// type. If no multiverse root exists (yet), then ErrNoMultiverseRoot is
+// returned.
 func (b *MultiverseStore) MultiverseRootNode(ctx context.Context,
 	proofType universe.ProofType) (fn.Option[universe.MultiverseRoot],
 	error) {

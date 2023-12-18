@@ -151,6 +151,9 @@ func (a *Archive) MultiverseRoot(ctx context.Context, proofType ProofType,
 		rootNode, err := a.cfg.Multiverse.MultiverseRootNode(
 			ctx, proofType,
 		)
+		if errors.Is(err, ErrNoUniverseProofFound) {
+			return none, nil
+		}
 		if err != nil {
 			return none, err
 		}

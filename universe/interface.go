@@ -444,7 +444,8 @@ type MultiverseArchive interface {
 		proofType ProofType) ([]MultiverseLeaf, error)
 
 	// MultiverseRootNode returns the Multiverse root node for the given
-	// proof type.
+	// proof type. If no multiverse root exists (yet), then
+	// ErrNoMultiverseRoot is returned.
 	MultiverseRootNode(ctx context.Context,
 		proofType ProofType) (fn.Option[MultiverseRoot], error)
 }
