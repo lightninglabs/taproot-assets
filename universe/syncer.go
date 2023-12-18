@@ -110,7 +110,7 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 	)
 	switch {
 	// If we have been given a specific set of Universes to sync, then we'll
-	// only fetch roots for those universes. We wont filter out any
+	// only fetch roots for those universes. We won't filter out any
 	// Universes here as we assume that the caller has already done so.
 	case len(idsToSync) != 0:
 		targetRoots, err = fetchRootsForIDs(ctx, idsToSync, diffEngine)
@@ -130,11 +130,9 @@ func (s *SimpleSyncer) executeSync(ctx context.Context, diffEngine DiffEngine,
 
 		// Examine universe IDs of returned roots and filter out
 		// universes that we don't want to sync.
-		targetRoots = fn.Filter(
-			targetRoots, func(r Root) bool {
-				return uniIdSyncFilter(r.ID)
-			},
-		)
+		targetRoots = fn.Filter(targetRoots, func(r Root) bool {
+			return uniIdSyncFilter(r.ID)
+		})
 
 	// At this point, we know that global insert is disabled, and we don't
 	// have any specific Universes to sync. We will therefore fetch roots
