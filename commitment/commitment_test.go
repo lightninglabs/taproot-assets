@@ -100,9 +100,13 @@ func TestNewAssetCommitment(t *testing.T) {
 	group1Reissued := randAsset(t, genesis2, nil)
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
+		t, test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
+		nil,
+	)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
 		asset.NewMockGenesisSigner(group1Priv), &genTxBuilder,
-		test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
+		*group1ReissuedGroupReq,
 	)
 	require.NoError(t, err)
 	group1Reissued = asset.NewAssetNoErr(
@@ -950,9 +954,12 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	group1Reissued := randAsset(t, genesis2, nil)
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
+		t, test.PubToKeyDesc(group1Pub), genesis1, group1Reissued, nil,
+	)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
 		asset.NewMockGenesisSigner(group1Priv), &genTxBuilder,
-		test.PubToKeyDesc(group1Pub), genesis1, group1Reissued,
+		*group1ReissuedGroupReq,
 	)
 	require.NoError(t, err)
 	group1Reissued = asset.NewAssetNoErr(

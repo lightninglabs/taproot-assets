@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,10 +51,13 @@ func RandGroupKeyWithSigner(t testing.TB, genesis Genesis,
 
 	genSigner := NewMockGenesisSigner(privateKey)
 	genBuilder := MockGroupTxBuilder{}
-	groupKey, err := DeriveGroupKey(
-		genSigner, &genBuilder, test.PubToKeyDesc(privateKey.PubKey()),
-		genesis, newAsset,
-	)
+	groupReq := GroupKeyRequest{
+		RawKey:    test.PubToKeyDesc(privateKey.PubKey()),
+		AnchorGen: genesis,
+		NewAsset:  newAsset,
+	}
+
+	groupKey, err := DeriveGroupKey(genSigner, &genBuilder, groupReq)
 	require.NoError(t, err)
 
 	return groupKey, privateKey.Serialize()
@@ -343,6 +347,15 @@ func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
 	require.NoError(t, err)
 
 	return a
+}
+
+func NewGroupKeyRequestNoErr(t testing.TB, internalKey keychain.KeyDescriptor,
+	gen Genesis, newAsset *Asset, scriptRoot []byte) *GroupKeyRequest {
+
+	req, err := NewGroupKeyRequest(internalKey, gen, newAsset, scriptRoot)
+	require.NoError(t, err)
+
+	return req
 }
 
 // RandAsset creates a random asset of the given type for testing.
