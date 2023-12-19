@@ -1408,21 +1408,31 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 	}
 
 	if withMetaReveal {
-		metaHash := rpcAsset.AssetGenesis.MetaHash
-		if len(metaHash) == 0 {
+		switch {
+		case p.MetaReveal != nil:
+			rpcMeta = &taprpc.AssetMeta{
+				Data: p.MetaReveal.Data,
+				Type: taprpc.AssetMetaType(
+					p.MetaReveal.Type,
+				),
+				MetaHash: fn.ByteSlice(p.MetaReveal.MetaHash()),
+			}
+
+		case len(rpcAsset.AssetGenesis.MetaHash) == 0:
 			return nil, fmt.Errorf("asset does not contain meta " +
 				"data")
-		}
 
-		rpcMeta, err = r.FetchAssetMeta(
-			ctx, &taprpc.FetchAssetMetaRequest{
+		default:
+			metaHash := rpcAsset.AssetGenesis.MetaHash
+			req := &taprpc.FetchAssetMetaRequest{
 				Asset: &taprpc.FetchAssetMetaRequest_MetaHash{
 					MetaHash: metaHash,
 				},
-			},
-		)
-		if err != nil {
-			return nil, err
+			}
+			rpcMeta, err = r.FetchAssetMeta(ctx, req)
+			if err != nil {
+				return nil, err
+			}
 		}
 	}
 
