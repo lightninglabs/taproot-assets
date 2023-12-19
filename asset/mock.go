@@ -385,13 +385,10 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 		assetVersion = V1
 	}
 
-	a, err := New(
-		genesis, uint64(units), 0, 0, scriptKey, groupKey,
+	return NewAssetNoErr(
+		t, genesis, uint64(units), 0, 0, scriptKey, groupKey,
 		WithAssetVersion(assetVersion),
 	)
-	require.NoError(t, err)
-
-	return a
 }
 
 type ValidTestCase struct {

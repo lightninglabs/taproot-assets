@@ -57,6 +57,7 @@ func randAsset(t *testing.T, assetType asset.Type,
 	return asset.NewAssetNoErr(
 		t, genesis, protoAsset.Amount, protoAsset.LockTime,
 		protoAsset.RelativeLockTime, scriptKey, groupKey,
+		asset.WithAssetVersion(protoAsset.Version),
 	)
 }
 
@@ -132,6 +133,7 @@ func genesisStateTransition(assetType asset.Type,
 			a = asset.NewAssetNoErr(
 				t, a.Genesis, a.Amount, a.LockTime,
 				a.RelativeLockTime, a.ScriptKey, nil,
+				asset.WithAssetVersion(a.Version),
 			)
 		}
 

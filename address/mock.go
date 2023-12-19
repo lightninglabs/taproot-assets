@@ -50,14 +50,21 @@ func RandAddr(t testing.TB, params *ChainParams,
 	}
 
 	var (
+		assetVersion     asset.Version
 		groupInfo        *asset.GroupKey
 		groupPubKey      *btcec.PublicKey
 		groupWitness     wire.TxWitness
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
+
+	if test.RandInt[uint32]()%2 == 0 {
+		assetVersion = asset.V1
+	}
+
 	if test.RandInt[uint32]()%2 == 0 {
 		protoAsset := asset.NewAssetNoErr(
 			t, genesis, amount, 0, 0, scriptKey, nil,
+			asset.WithAssetVersion(assetVersion),
 		)
 		groupInfo = asset.RandGroupKey(t, genesis, protoAsset)
 		groupPubKey = &groupInfo.GroupPubKey
@@ -66,11 +73,6 @@ func RandAddr(t testing.TB, params *ChainParams,
 		tapscriptSibling = commitment.NewPreimageFromLeaf(
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
 		)
-	}
-
-	var assetVersion asset.Version
-	if test.RandInt[uint32]()%2 == 0 {
-		assetVersion = asset.V1
 	}
 
 	tapAddr, err := New(
