@@ -180,6 +180,10 @@ var testCases = []*testCase{
 		test: testUniverseSync,
 	},
 	{
+		name: "universe sync manual insert",
+		test: testUniverseManualSync,
+	},
+	{
 		name: "universe federation",
 		test: testUniverseFederation,
 	},
