@@ -168,6 +168,10 @@ var testCases = []*testCase{
 		test: testPsbtMultiSend,
 	},
 	{
+		name: "multi input psbt single asset id",
+		test: testMultiInputPsbtSingleAssetID,
+	},
+	{
 		name: "universe REST API",
 		test: testUniverseREST,
 	},
