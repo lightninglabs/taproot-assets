@@ -292,6 +292,88 @@ func testUniverseSync(t *harnessTest) {
 	)
 }
 
+// testUniverseManualSync tests that we're able to insert proofs manually into
+// a universe instead of using a full sync.
+func testUniverseManualSync(t *harnessTest) {
+	miner := t.lndHarness.Miner.Client
+
+	// First, we'll create out usual set of issuable assets.
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, miner, t.tapd, issuableAssets,
+	)
+
+	// With those assets created, we'll now create a new node that we'll
+	// use to exercise the manual Universe sync.
+	bob := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We now side load the issuance proof of our first asset into Bob's
+	// universe.
+	firstAsset := rpcIssuableAssets[0]
+	firstAssetGen := firstAsset.AssetGenesis
+	sendProofUniRPC(t, t.tapd, bob, firstAsset.ScriptKey, firstAssetGen)
+
+	// We should also be able to fetch an asset from Bob's Universe, and
+	// query for that asset with the compressed script key.
+	firstOutpoint, err := tap.UnmarshalOutpoint(
+		firstAsset.ChainAnchor.AnchorOutpoint,
+	)
+	require.NoError(t.t, err)
+
+	firstAssetProofQuery := unirpc.UniverseKey{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_GroupKey{
+				GroupKey: firstAsset.AssetGroup.TweakedGroupKey,
+			},
+			ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+		},
+		LeafKey: &unirpc.AssetKey{
+			Outpoint: &unirpc.AssetKey_Op{
+				Op: &unirpc.Outpoint{
+					HashStr: firstOutpoint.Hash.String(),
+					Index:   int32(firstOutpoint.Index),
+				},
+			},
+			ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+				ScriptKeyBytes: firstAsset.ScriptKey,
+			},
+		},
+	}
+
+	// We should now be able to query for the asset proof.
+	_, err = bob.QueryProof(ctxt, &firstAssetProofQuery)
+	require.NoError(t.t, err)
+
+	// We should now also be able to fetch the meta data and group key for
+	// the asset.
+	metaData, err := bob.FetchAssetMeta(ctxt, &taprpc.FetchAssetMetaRequest{
+		Asset: &taprpc.FetchAssetMetaRequest_MetaHash{
+			MetaHash: firstAssetGen.MetaHash,
+		},
+	})
+	require.NoError(t.t, err)
+	require.Equal(t.t, firstAssetGen.MetaHash, metaData.MetaHash)
+
+	// We should be able to create a new address for the asset, since that
+	// requires us to know the full genesis and group key.
+	_, err = bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId: firstAssetGen.AssetId,
+		Amt:     500,
+	})
+	require.NoError(t.t, err)
+}
+
 // unmarshalMerkleSumNode un-marshals a protobuf MerkleSumNode.
 func unmarshalMerkleSumNode(root *unirpc.MerkleSumNode) mssmt.Node {
 	var nodeHash mssmt.NodeHash
