@@ -151,6 +151,9 @@ func (a *Archive) MultiverseRoot(ctx context.Context, proofType ProofType,
 		rootNode, err := a.cfg.Multiverse.MultiverseRootNode(
 			ctx, proofType,
 		)
+		if errors.Is(err, ErrNoUniverseProofFound) {
+			return none, nil
+		}
 		if err != nil {
 			return none, err
 		}
@@ -160,17 +163,7 @@ func (a *Archive) MultiverseRoot(ctx context.Context, proofType ProofType,
 
 	// Otherwise, we'll run the query to fetch the multiverse leaf for each
 	// of the specified assets.
-	uniTargets := make([]MultiverseLeafDesc, len(filterByIDs))
-	for idx, id := range filterByIDs {
-		if id.GroupKey != nil {
-			uniTargets[idx] = fn.NewRight[asset.ID](*id.GroupKey)
-		} else {
-			uniTargets[idx] = fn.NewLeft[asset.ID, btcec.PublicKey](
-				id.AssetID,
-			)
-		}
-	}
-
+	uniTargets := fn.Map(filterByIDs, IDToMultiverseLeafDesc)
 	multiverseLeaves, err := a.cfg.Multiverse.FetchLeaves(
 		ctx, uniTargets, proofType,
 	)

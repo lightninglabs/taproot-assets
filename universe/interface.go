@@ -370,6 +370,15 @@ type Root struct {
 // assumed) can be identified by either the asset ID or the target group key.
 type MultiverseLeafDesc = fn.Either[asset.ID, btcec.PublicKey]
 
+// IDToMultiverseLeafDesc converts an ID to a multiverse leaf desc.
+func IDToMultiverseLeafDesc(id Identifier) MultiverseLeafDesc {
+	if id.GroupKey != nil {
+		return fn.NewRight[asset.ID](*id.GroupKey)
+	}
+
+	return fn.NewLeft[asset.ID, btcec.PublicKey](id.AssetID)
+}
+
 // MultiverseRoot is the ms-smt root for a multiverse. This root can be used to
 // authenticate any leaf proofs.
 type MultiverseRoot struct {
@@ -435,7 +444,8 @@ type MultiverseArchive interface {
 		proofType ProofType) ([]MultiverseLeaf, error)
 
 	// MultiverseRootNode returns the Multiverse root node for the given
-	// proof type.
+	// proof type. If no multiverse root exists (yet), then
+	// ErrNoMultiverseRoot is returned.
 	MultiverseRootNode(ctx context.Context,
 		proofType ProofType) (fn.Option[MultiverseRoot], error)
 }
@@ -650,6 +660,12 @@ type DiffEngine interface {
 	// of diff
 	FetchProofLeaf(ctx context.Context, id Identifier,
 		key LeafKey) ([]*Proof, error)
+
+	// MultiverseRoot returns the root node of the multiverse for the
+	// specified proof type. If the given list of universe IDs is non-empty,
+	// then the root will be calculated just for those universes.
+	MultiverseRoot(ctx context.Context, proofType ProofType,
+		filterByIDs []Identifier) (fn.Option[MultiverseRoot], error)
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle

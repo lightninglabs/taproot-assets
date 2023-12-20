@@ -157,7 +157,7 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 
 // NewTestPostgresDB is a helper function that creates a Postgres database for
 // testing.
-func NewTestPostgresDB(t *testing.T) *PostgresStore {
+func NewTestPostgresDB(t testing.TB) *PostgresStore {
 	t.Helper()
 
 	t.Logf("Creating new Postgres DB for testing")
@@ -175,7 +175,7 @@ func NewTestPostgresDB(t *testing.T) *PostgresStore {
 
 // NewTestPostgresDBWithVersion is a helper function that creates a Postgres
 // database for testing and migrates it to the given version.
-func NewTestPostgresDBWithVersion(t *testing.T, version uint) *PostgresStore {
+func NewTestPostgresDBWithVersion(t testing.TB, version uint) *PostgresStore {
 	t.Helper()
 
 	t.Logf("Creating new Postgres DB for testing, migrating to version %d",
