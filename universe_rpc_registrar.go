@@ -18,7 +18,7 @@ import (
 // RpcUniverseRegistrar is an implementation of the universe.Registrar interface
 // that uses an RPC connection to target Universe.
 type RpcUniverseRegistrar struct {
-	conn unirpc.UniverseClient
+	conn *universeClientConn
 }
 
 // NewRpcUniverseRegistrar creates a new RpcUniverseRegistrar instance that
@@ -115,6 +115,17 @@ func (r *RpcUniverseRegistrar) UpsertProofLeaf(ctx context.Context,
 	return unmarshalIssuanceProof(uniKey, proofResp)
 }
 
+// Close closes the underlying RPC connection to the remote Universe server.
+func (r *RpcUniverseRegistrar) Close() error {
+	if err := r.conn.Close(); err != nil {
+		tapdLog.Warnf("unable to close universe RPC "+
+			"connection: %v", err)
+		return err
+	}
+
+	return nil
+}
+
 // A compile time interface to ensure that RpcUniverseRegistrar implements the
 // universe.Registrar interface.
 var _ universe.Registrar = (*RpcUniverseRegistrar)(nil)
@@ -151,10 +162,18 @@ func CheckFederationServer(localRuntimeID int64, connectTimeout time.Duration,
 	return nil
 }
 
+// universeClientConn is a wrapper around a gRPC client connection that also
+// includes the raw connection. This allows us to properly manage the lifecycle
+// of the connection.
+type universeClientConn struct {
+	*grpc.ClientConn
+	unirpc.UniverseClient
+}
+
 // ConnectUniverse connects to a remote Universe server using the provided
 // server address.
 func ConnectUniverse(
-	serverAddr universe.ServerAddr) (unirpc.UniverseClient, error) {
+	serverAddr universe.ServerAddr) (*universeClientConn, error) {
 
 	// TODO(roasbeef): all info is authenticated, but also want to allow
 	// brontide connect as well, can avoid TLS certs
@@ -179,5 +198,8 @@ func ConnectUniverse(
 			"server: %v", err)
 	}
 
-	return unirpc.NewUniverseClient(rawConn), nil
+	return &universeClientConn{
+		ClientConn:     rawConn,
+		UniverseClient: unirpc.NewUniverseClient(rawConn),
+	}, nil
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -268,6 +270,12 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	)
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(serverOpts, ServerMaxMsgReceiveSize)
+
+	keepAliveParams := keepalive.ServerParameters{
+		MaxConnectionIdle: time.Minute * 2,
+	}
+
+	serverOpts = append(serverOpts, grpc.KeepaliveParams(keepAliveParams))
 
 	grpcServer := grpc.NewServer(serverOpts...)
 	defer grpcServer.Stop()

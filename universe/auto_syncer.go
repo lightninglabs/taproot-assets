@@ -175,6 +175,11 @@ func (f *FederationEnvoy) Start() error {
 	return nil
 }
 
+// Close frees up any ephemeral resources allocated by the envoy.
+func (f *FederationEnvoy) Close() error {
+	return nil
+}
+
 // Stop stops all active goroutines.
 func (f *FederationEnvoy) Stop() error {
 	f.stopOnce.Do(func() {
@@ -242,6 +247,8 @@ func (f *FederationEnvoy) pushProofToServer(ctx context.Context,
 		return fmt.Errorf("cannot push proof unable to connect "+
 			"to remote server(%v): %w", addr.HostStr(), err)
 	}
+
+	defer remoteUniverseServer.Close()
 
 	_, err = remoteUniverseServer.UpsertProofLeaf(
 		ctx, uniID, key, leaf,
