@@ -8,7 +8,6 @@ package taprootassets
 import (
 	"bytes"
 	"fmt"
-	"math"
 	"runtime/debug"
 	"strings"
 )
@@ -50,58 +49,7 @@ const (
 	// AppPreRelease MUST only contain characters from semanticAlphabet
 	// per the semantic versioning spec.
 	AppPreRelease = "alpha"
-
-	// defaultAgentName is the default name of the software that is added as
-	// the first part of the user agent string.
-	defaultAgentName = "tapd"
 )
-
-// agentName stores the name of the software that is added as the first part of
-// the user agent string. This defaults to the value "tapd" when being run as
-// a standalone component but can be overwritten by LiT for example when tapd
-// is integrated into the UI.
-var agentName = defaultAgentName
-
-// SetAgentName overwrites the default agent name which can be used to identify
-// the software tapd is bundled in (for example LiT). This function panics if
-// the agent name contains characters outside of the allowed semantic alphabet.
-func SetAgentName(newAgentName string) {
-	for _, r := range newAgentName {
-		if !strings.ContainsRune(semanticAlphabet, r) {
-			panic(fmt.Errorf("rune: %v is not in the semantic "+
-				"alphabet", r))
-		}
-	}
-
-	agentName = newAgentName
-}
-
-// UserAgent returns the full user agent string that identifies the software
-// that is submitting swaps to the loop server.
-func UserAgent(initiator string) string {
-	// We'll only allow "safe" characters in the initiator portion of the
-	// user agent string and spaces only if surrounded by other characters.
-	initiatorAlphabet := semanticAlphabet + ". "
-	cleanInitiator := normalizeVerString(
-		strings.TrimSpace(initiator), initiatorAlphabet,
-	)
-	if len(cleanInitiator) > 0 {
-		cleanInitiator = fmt.Sprintf(",initiator=%s", cleanInitiator)
-	}
-
-	// The whole user agent string is limited to 255 characters server side
-	// and also consists of the agent name, version and commit. So we only
-	// want to take up at most 150 characters for the initiator. Anything
-	// more will just be dropped.
-	strLen := len(cleanInitiator)
-	cleanInitiator = cleanInitiator[:int(math.Min(float64(strLen), 150))]
-
-	// Assemble full string, including the commit hash of current build.
-	return fmt.Sprintf(
-		"%s/v%s/commit=%s%s", agentName, semanticVersion(), Commit,
-		cleanInitiator,
-	)
-}
 
 func init() {
 	// Assert that AppPreRelease is valid according to the semantic
@@ -134,15 +82,6 @@ func init() {
 // semantic versioning 2.0.0 spec (http://semver.org/).
 func Version() string {
 	return fmt.Sprintf("%s commit=%s", semanticVersion(), Commit)
-}
-
-// Tags returns the list of build tags that were compiled into the executable.
-func Tags() []string {
-	if len(RawTags) == 0 {
-		return nil
-	}
-
-	return strings.Split(RawTags, ",")
 }
 
 // normalizeVerString returns the passed string stripped of all characters
