@@ -47,9 +47,21 @@ const (
 	// AppPatch defines the application patch for this binary.
 	AppPatch uint = 2
 
-	// AppPreRelease MUST only contain characters from semanticAlphabet
-	// per the semantic versioning spec.
-	AppPreRelease = "alpha"
+	// AppStatus defines the release status of this binary (e.g. beta).
+	AppStatus = "alpha"
+
+	// AppPreRelease defines the pre-release version of this binary.
+	// It MUST only contain characters from the semantic versioning spec.
+	AppPreRelease = ""
+
+	// GitTagIncludeStatus indicates whether the status should be included
+	// in the git tag name.
+	//
+	// Including the app version status in the git tag may be problematic
+	// for golang projects when importing them as dependencies. We therefore
+	// include this flag to allow toggling the status on and off in a
+	// standardised way across our projects.
+	GitTagIncludeStatus = false
 
 	// defaultAgentName is the default name of the software that is added as
 	// the first part of the user agent string.
@@ -104,9 +116,19 @@ func UserAgent(initiator string) string {
 }
 
 func init() {
+	// Assert that AppStatus is valid according to the semantic versioning
+	// guidelines for pre-release version and build metadata strings. In
+	// particular, it MUST only contain characters in semanticAlphabet.
+	for _, r := range AppStatus {
+		if !strings.ContainsRune(semanticAlphabet, r) {
+			panic(fmt.Errorf("rune: %v is not in the semantic "+
+				"alphabet", r))
+		}
+	}
+
 	// Assert that AppPreRelease is valid according to the semantic
 	// versioning guidelines for pre-release version and build metadata
-	// strings. In particular it MUST only contain characters in
+	// strings. In particular, it MUST only contain characters in
 	// semanticAlphabet.
 	for _, r := range AppPreRelease {
 		if !strings.ContainsRune(semanticAlphabet, r) {
@@ -162,12 +184,28 @@ func semanticVersion() string {
 	// Start with the major, minor, and patch versions.
 	version := fmt.Sprintf("%d.%d.%d", AppMajor, AppMinor, AppPatch)
 
-	// Append pre-release version if there is one. The hyphen called for
-	// by the semantic versioning spec is automatically appended and should
-	// not be contained in the pre-release string. The pre-release version
+	// If defined, we will now sanitise the release status string. The
+	// hyphen called for by the semantic versioning spec is automatically
+	// appended and should not be contained in the status string. The status
 	// is not appended if it contains invalid characters.
+	appStatus := normalizeVerString(AppStatus, semanticAlphabet)
+
+	// If defined, we will now sanitise the pre-release version string. The
+	// hyphen called for by the semantic versioning spec is automatically
+	// appended and should not be contained in the pre-release string.
+	// The pre-release version is not appended if it contains invalid
+	// characters.
 	preRelease := normalizeVerString(AppPreRelease, semanticAlphabet)
-	if preRelease != "" {
+
+	// Append any status and pre-release strings to the version string.
+	switch {
+	case appStatus != "" && preRelease != "":
+		version = fmt.Sprintf(
+			"%s-%s.%s", version, appStatus, preRelease,
+		)
+	case appStatus != "":
+		version = fmt.Sprintf("%s-%s", version, appStatus)
+	case preRelease != "":
 		version = fmt.Sprintf("%s-%s", version, preRelease)
 	}
 
