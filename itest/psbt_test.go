@@ -954,14 +954,16 @@ func testPsbtMultiSend(t *harnessTest) {
 }
 
 // testMultiInputPsbtSingleAssetID tests to ensure that we can correctly
-// construct and spend a multi-input full value PSBT where each input has the
-// same asset ID.
+// construct and spend a multi-input partial value and full value PSBT where
+// each input has the same asset ID.
 //
 // The test works as follows:
 //  1. Mint an asset on the primary tapd node.
-//  2. Send the asset to a secondary tapd node in two different send events.
-//  3. Send the asset back to the primary tapd node in a single multi-input PSBT
-//     send event.
+//  2. Send the asset to a secondary tapd node in three different send events.
+//  3. Send a partial amount of the asset back to the primary tapd node in a
+//     single multi-input PSBT send event.
+//  4. Send the remaining amount of the asset back to the primary tapd node in
+//     a single full value multi-input PSBT send event.
 func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	var (
 		ctxb        = context.Background()
@@ -974,6 +976,12 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
 	)
 	rpcAsset := rpcAssets[0]
+	assetTotalAmtMinted := simpleAssets[0].Asset.Amount
+
+	// The primary node asset total should be equal to the amount minted.
+	// This variable will serve as a running total of the amount of the
+	// asset on the primary node.
+	primaryTapdAssetAmt := assetTotalAmtMinted
 
 	// Set up a node that will serve as the final multi input PSBT sender
 	// node.
@@ -984,13 +992,16 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 		require.NoError(t.t, secondaryTapd.stop(!*noDelete))
 	}()
 
-	// First of two send events from primary (minting) node to secondary
+	// First of three send events from primary (minting) node to secondary
 	// node.
+	sendAmt := uint64(1000)
+	changeAmt := primaryTapdAssetAmt - sendAmt
+
 	genInfo := rpcAsset.AssetGenesis
 	addr, err := secondaryTapd.NewAddr(
 		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
-			Amt:     1000,
+			Amt:     sendAmt,
 		},
 	)
 	require.NoError(t.t, err)
@@ -1001,17 +1012,23 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, primaryTapd, sendResp,
-		genInfo.AssetId, []uint64{4000, 1000}, 0, 1,
+		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 0, 1,
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, secondaryTapd, 1)
 
-	// Second of two send events from primary (minting) node to the
-	// secondary node.
+	primaryTapdAssetAmt -= sendAmt
+
+	// Second of three send events from primary (minting) node to secondary
+	// node.
+	sendAmt = uint64(1000)
+	changeAmt = primaryTapdAssetAmt - sendAmt
+
+	genInfo = rpcAsset.AssetGenesis
 	addr, err = secondaryTapd.NewAddr(
 		ctxb, &taprpc.NewAddrRequest{
 			AssetId: genInfo.AssetId,
-			Amt:     4000,
+			Amt:     sendAmt,
 		},
 	)
 	require.NoError(t.t, err)
@@ -1022,13 +1039,47 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, primaryTapd, sendResp,
-		genInfo.AssetId, []uint64{0, 4000}, 1, 2,
+		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 1, 2,
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, secondaryTapd, 2)
 
-	t.Logf("Two separate send events complete, now attempting to send " +
-		"back the full amount in a single multi-input PSBT send event")
+	primaryTapdAssetAmt -= sendAmt
+
+	// Third of three send events from primary (minting) node to the
+	// secondary node.
+	sendAmt = uint64(3000)
+	changeAmt = primaryTapdAssetAmt - sendAmt
+
+	addr, err = secondaryTapd.NewAddr(
+		ctxb, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     sendAmt,
+		},
+	)
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondaryTapd, rpcAsset, addr)
+
+	// Send the assets to the secondary node.
+	sendResp = sendAssetsToAddr(t, primaryTapd, addr)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, primaryTapd, sendResp,
+		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 2, 3,
+	)
+
+	AssertNonInteractiveRecvComplete(t.t, secondaryTapd, 3)
+
+	primaryTapdAssetAmt -= sendAmt
+
+	// At this point, all three send events have completed. The primary
+	// node should have no assets and the secondary node should have three
+	// assets.
+	require.Equal(t.t, uint64(0), primaryTapdAssetAmt)
+
+	t.Logf("Three separate send events complete. Now attempting to send " +
+		"a partial amount in a single multi-input PSBT send event " +
+		"back to the primary node from the secondary node.")
 
 	// Ensure that the primary node has no assets before we begin.
 	primaryNodeAssets, err := primaryTapd.ListAssets(
@@ -1037,27 +1088,45 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	require.NoError(t.t, err)
 	require.Empty(t.t, primaryNodeAssets.Assets)
 
+	// The secondary node should have three assets as a result of the
+	// previous three send events.
+	secondaryNodeAssets, err := secondaryTapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, secondaryNodeAssets.Assets, 3)
+
 	// We need to derive two keys for the receiver node, one for the new
 	// script key and one for the internal key.
-	receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(
+	primaryNodeScriptKey, primaryNodeAnchorIntKeyDesc := deriveKeys(
 		t.t, primaryTapd,
 	)
 
 	var assetId asset.ID
 	copy(assetId[:], genInfo.AssetId)
 
-	var (
-		chainParams = &address.RegressionNetTap
-		sendAmt     = uint64(5000)
-	)
+	chainParams := &address.RegressionNetTap
+	sendAmt = uint64(3500)
+	changeAmt = uint64(500)
 
 	vPkt := tappsbt.ForInteractiveSend(
-		assetId, sendAmt, receiverScriptKey, 0,
-		receiverAnchorIntKeyDesc, asset.V0, chainParams,
+		assetId, sendAmt, primaryNodeScriptKey, 0,
+		primaryNodeAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
 	// Next, we'll attempt to fund the PSBT.
 	fundResp := fundPacket(t, secondaryTapd, vPkt)
+
+	// Decode and inspect the funded vPSBT.
+	fundedVPsbtCopy := make([]byte, len(fundResp.FundedPsbt))
+	copy(fundedVPsbtCopy, fundResp.FundedPsbt)
+	bytesReader := bytes.NewReader(fundedVPsbtCopy)
+
+	vPkt, err = tappsbt.NewFromRawBytes(bytesReader, false)
+	require.NoError(t.t, err)
+	require.Equal(t.t, 2, len(vPkt.Inputs))
+
+	// Sign the funded vPSBT.
 	signResp, err := secondaryTapd.SignVirtualPsbt(
 		ctxb, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
@@ -1077,12 +1146,12 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	var (
 		currentTransferIdx = 0
 		numTransfers       = 1
-		numOutputs         = 1
+		numOutputs         = 2
 	)
 	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner.Client, secondaryTapd,
 		sendResp, genInfo.AssetId,
-		[]uint64{sendAmt}, currentTransferIdx, numTransfers,
+		[]uint64{sendAmt, changeAmt}, currentTransferIdx, numTransfers,
 		numOutputs,
 	)
 
@@ -1090,7 +1159,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	// the proof from the sender to the receiver.
 	_ = sendProof(
 		t, secondaryTapd, primaryTapd,
-		receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
+		primaryNodeScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
 
 	// Finally, we make sure that the primary node has the asset.
@@ -1108,6 +1177,92 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	var foundAssetId asset.ID
 	copy(foundAssetId[:], primaryNodeAsset.AssetGenesis.AssetId)
 	require.Equal(t.t, assetId, foundAssetId)
+
+	t.Logf("Partial amount multi-input PSBT send event complete. Now " +
+		"attempting to send the remaining amount in a full value " +
+		"multi-input PSBT send event back to the primary node from " +
+		"the secondary node.")
+
+	// Attempt a full value send of the rest of the asset back to the
+	// primary node.
+	sendAmt = uint64(1500)
+
+	vPkt = tappsbt.ForInteractiveSend(
+		assetId, sendAmt, primaryNodeScriptKey, 0,
+		primaryNodeAnchorIntKeyDesc, asset.V0, chainParams,
+	)
+
+	// Next, we'll attempt to fund the PSBT.
+	fundResp = fundPacket(t, secondaryTapd, vPkt)
+
+	// Decode and inspect the funded vPSBT.
+	fundedVPsbtCopy = make([]byte, len(fundResp.FundedPsbt))
+	copy(fundedVPsbtCopy, fundResp.FundedPsbt)
+	bytesReader = bytes.NewReader(fundedVPsbtCopy)
+
+	vPkt, err = tappsbt.NewFromRawBytes(bytesReader, false)
+	require.NoError(t.t, err)
+	require.Equal(t.t, 2, len(vPkt.Inputs))
+
+	// Sign the funded vPSBT.
+	signResp, err = secondaryTapd.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// And finally anchor the PSBT in the BTC chain to complete the
+	// transfer.
+	sendResp, err = secondaryTapd.AnchorVirtualPsbts(
+		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signResp.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	currentTransferIdx = 1
+	numTransfers = 2
+	numOutputs = 1
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, secondaryTapd, sendResp,
+		genInfo.AssetId, []uint64{sendAmt}, currentTransferIdx,
+		numTransfers, numOutputs,
+	)
+
+	// This is an interactive transfer. Therefore, we will manually transfer
+	// the proof from the sender to the receiver.
+	_ = sendProof(
+		t, secondaryTapd, primaryTapd,
+		primaryNodeScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	// Finally, we make sure that the primary node has the asset.
+	primaryNodeAssets, err = primaryTapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, primaryNodeAssets.Assets, 2)
+
+	primaryTapdAssetAmt = 0
+	for idx := range primaryNodeAssets.Assets {
+		a := primaryNodeAssets.Assets[idx]
+
+		// Ensure matching asset ID.
+		copy(foundAssetId[:], a.AssetGenesis.AssetId)
+		require.Equal(t.t, assetId, foundAssetId)
+
+		require.True(t.t, a.Amount == 1500 || a.Amount == 3500)
+		primaryTapdAssetAmt += a.Amount
+	}
+	require.Equal(t.t, primaryTapdAssetAmt, assetTotalAmtMinted)
+
+	// Finally, we ensure that the secondary node has no assets.
+	secondaryNodeAssets, err = secondaryTapd.ListAssets(
+		ctxb, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, secondaryNodeAssets.Assets, 0)
 }
 
 func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
