@@ -1413,7 +1413,7 @@ func TestTapCommitmentUpsertMaxVersion(t *testing.T) {
 }
 
 // TestTapCommitmentDeleteMaxVersion tests that when we delete commitments, the
-// max version is also udpated.
+// max version is also updated.
 func TestTapCommitmentDeleteMaxVersion(t *testing.T) {
 	t.Parallel()
 
@@ -1474,7 +1474,7 @@ func TestAssetCommitmentUpsertMaxVersion(t *testing.T) {
 }
 
 // TestAssetCommitmentDeleteMaxVersion tests that when we delete commitments,
-// the max version is also udpated.
+// the max version is also updated.
 func TestAssetCommitmentDeleteMaxVersion(t *testing.T) {
 	t.Parallel()
 

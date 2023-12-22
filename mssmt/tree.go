@@ -210,7 +210,7 @@ func (t *FullTree) insert(tx TreeStoreUpdateTx, key *[hashSize]byte,
 
 	// With our new root updated, we can update the leaf node within the
 	// store. If we've inserted an empty leaf, then the leaf node found at
-	// the given key is being deleted, otherise it's being inserted.
+	// the given key is being deleted, otherwise it's being inserted.
 	if leaf.IsEmpty() {
 		if err := tx.DeleteLeaf(*key); err != nil {
 			return nil, err

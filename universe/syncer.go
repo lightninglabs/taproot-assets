@@ -338,7 +338,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 		return err
 	}
 
-	// If this is a tranfer tree, then we'll collect all the items as we
+	// If this is a transfer tree, then we'll collect all the items as we
 	// need to sort them to ensure we can validate them in dep order.
 	if !isIssuanceTree {
 		transferLeaves := fn.Collect(transferLeafProofs)

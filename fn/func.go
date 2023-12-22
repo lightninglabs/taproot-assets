@@ -95,14 +95,14 @@ func CopyAll[T Copyable[T]](xs []T) []T {
 }
 
 // CopyableErr is a generic interface for a type that's able to return a deep copy
-// of itself. This is identical to Copyable, but shuold be used in cases where
+// of itself. This is identical to Copyable, but should be used in cases where
 // the copy method can return an error.
 type CopyableErr[T any] interface {
 	Copy() (T, error)
 }
 
 // CopyAllErr creates a new slice where each item of the slice is a deep copy of
-// the elements of the input slice. This is identical to CopyAll, but shuold be
+// the elements of the input slice. This is identical to CopyAll, but should be
 // used in cases where the copy method can return an error.
 func CopyAllErr[T CopyableErr[T]](xs []T) ([]T, error) {
 	var err error
