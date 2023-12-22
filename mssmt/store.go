@@ -76,7 +76,7 @@ type TreeStoreUpdateTx interface {
 // along with a 'New()' method which is responsible for initializing a
 // particular TreeStore concrete implementation.
 type TreeStoreDriver struct {
-	// Name is the anme of the minting store driver.
+	// Name is the name of the minting store driver.
 	Name string
 
 	// New creates a new concrete instance of the TreeStore given a set of
