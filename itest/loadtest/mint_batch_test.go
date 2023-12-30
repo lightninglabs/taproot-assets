@@ -50,7 +50,7 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 	// already are.
 	initialGroups := itest.NumGroups(t, alice)
 
-	// Each asset in the batch will share a name and metdata preimage, that
+	// Each asset in the batch will share a name and metadata preimage, that
 	// will be updated based on the asset's index in the batch.
 	collectibleRequestTemplate := mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{

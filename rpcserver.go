@@ -973,7 +973,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 	}
 }
 
-// ListTransfers lists all asset transfers managed by this deamon.
+// ListTransfers lists all asset transfers managed by this daemon.
 func (r *rpcServer) ListTransfers(ctx context.Context,
 	_ *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
 	error) {
@@ -3407,7 +3407,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 		return nil, err
 	}
 
-	// If the proof type wasn't speciifed, then we'll return an error as we
+	// If the proof type wasn't specified, then we'll return an error as we
 	// don't know which keys to actually fetch.
 	if universeID.ProofType == universe.ProofTypeUnspecified {
 		return nil, fmt.Errorf("proof type must be specified")

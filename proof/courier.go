@@ -476,7 +476,7 @@ func (h *HashMailBox) RecvAck(ctx context.Context, sid streamID) error {
 	return fmt.Errorf("expected ack, got %x", msg.Msg)
 }
 
-// CleanUp atempts to tear down the mailbox as specified by the passed sid.
+// CleanUp attempts to tear down the mailbox as specified by the passed sid.
 func (h *HashMailBox) CleanUp(ctx context.Context, sid streamID) error {
 	streamAuth := &hashmailrpc.CipherBoxAuth{
 		Desc: &hashmailrpc.CipherBoxDesc{
@@ -1230,7 +1230,7 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				return err
 			}
 			if err != nil {
-				return fmt.Errorf("error retreving proof "+
+				return fmt.Errorf("error retrieving proof "+
 					"from universe courier service: %w",
 					err)
 			}

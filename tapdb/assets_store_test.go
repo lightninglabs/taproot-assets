@@ -1603,7 +1603,7 @@ func TestAssetGroupKeyUpsert(t *testing.T) {
 	require.Equal(t, witness, groupInfo.WitnessStack)
 }
 
-// TestFetchGroupedAssets tests that the FetchGroupedAssets query corectly
+// TestFetchGroupedAssets tests that the FetchGroupedAssets query correctly
 // excludes assets with nil group keys, groups assets with matching group
 // keys, and returns other asset fields accurately.
 func TestFetchGroupedAssets(t *testing.T) {

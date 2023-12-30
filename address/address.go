@@ -446,7 +446,7 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	// The HRP is everything before the found '1'.
 	hrp := prefix[:len(prefix)-1]
 
-	// Ensure that the hrp we deocded matches the network we're trying to
+	// Ensure that the hrp we decoded matches the network we're trying to
 	// use the address on.
 	if !IsForNet(hrp, net) {
 		return nil, ErrMismatchedHRP

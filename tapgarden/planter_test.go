@@ -1116,7 +1116,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	require.NoError(t, err)
 
 	// If the caretaker failed, there should be no active caretakers nor
-	// pending batch. The caretaker error should be propogated to the caller
+	// pending batch. The caretaker error should be propagated to the caller
 	// of finalize.
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
@@ -1131,7 +1131,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// Finalize the pending batch to start a caretaker, and progress the
 	// caretaker to TX confirmation. The finalize call should report no
-	// error, but the caretaker should propogate the confirmation error to
+	// error, but the caretaker should propagate the confirmation error to
 	// the shared error channel.
 	t.finalizeBatch(&wg, respChan)
 	batchCount++

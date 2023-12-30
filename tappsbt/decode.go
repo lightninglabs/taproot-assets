@@ -428,7 +428,7 @@ func findCustomFieldsByKeyPrefix(customFields []*customPsbtField,
 		}
 	}
 
-	return nil, fmt.Errorf("%w: key %x not found in list of unkonwns",
+	return nil, fmt.Errorf("%w: key %x not found in list of unknowns",
 		ErrKeyNotFound, keyPrefix)
 }
 
