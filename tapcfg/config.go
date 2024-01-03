@@ -303,8 +303,9 @@ type Config struct {
 	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
 
 	// The following options are used to configure the proof courier.
-	DefaultProofCourierAddr string                    `long:"proofcourieraddr" description:"Default proof courier service address."`
-	HashMailCourier         *proof.HashMailCourierCfg `group:"proofcourier" namespace:"hashmailcourier"`
+	DefaultProofCourierAddr string                       `long:"proofcourieraddr" description:"Default proof courier service address."`
+	HashMailCourier         *proof.HashMailCourierCfg    `group:"hashmailcourier" namespace:"hashmailcourier"`
+	UniverseRpcCourier      *proof.UniverseRpcCourierCfg `group:"universerpccourier" namespace:"universerpccourier"`
 
 	CustodianProofRetrievalDelay time.Duration `long:"custodianproofretrievaldelay" description:"The number of seconds the custodian waits after identifying an asset transfer on-chain and before retrieving the corresponding proof."`
 
@@ -385,6 +386,15 @@ func DefaultConfig() Config {
 		HashMailCourier: &proof.HashMailCourierCfg{
 			ReceiverAckTimeout: defaultProofTransferReceiverAckTimeout,
 			BackoffCfg: &proof.BackoffCfg{
+				BackoffResetWait: defaultProofTransferBackoffResetWait,
+				NumTries:         defaultProofTransferNumTries,
+				InitialBackoff:   defaultProofTransferInitialBackoff,
+				MaxBackoff:       defaultProofTransferMaxBackoff,
+			},
+		},
+		UniverseRpcCourier: &proof.UniverseRpcCourierCfg{
+			BackoffCfg: &proof.BackoffCfg{
+				SkipInitDelay:    true,
 				BackoffResetWait: defaultProofTransferBackoffResetWait,
 				NumTries:         defaultProofTransferNumTries,
 				InitialBackoff:   defaultProofTransferInitialBackoff,

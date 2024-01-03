@@ -185,13 +185,6 @@ func (h *UniverseRpcCourierAddr) Url() *url.URL {
 func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
 	cfg *CourierCfg, recipient Recipient) (Courier, error) {
 
-	// Skip the initial delivery delay for the universe RPC courier.
-	// This courier skips the initial delay because it uses the backoff
-	// procedure for each proof within a proof file separately.
-	// Consequently, if we attempt to perform two consecutive send events
-	// which share the same proof lineage (matching ancestral proofs), the
-	// second send event will be delayed by the initial delay.
-	cfg.BackoffCfg.SkipInitDelay = true
 	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
 
 	// Ensure that the courier address is a universe RPC address.
@@ -557,10 +550,10 @@ func (e *BackoffExecError) Error() string {
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 type BackoffCfg struct {
-	// SkipInitDelay is a flag that indicates whether we should skip
-	// the initial delay before attempting to deliver the proof to the
-	// receiver.
-	SkipInitDelay bool
+	// SkipInitDelay is a flag that indicates whether we should skip the
+	// initial delay before attempting to deliver the proof to the receiver
+	// or receiving from the sender.
+	SkipInitDelay bool `long:"skipinitdelay" description:"Skip the initial delay before attempting to deliver the proof to the receiver or receiving from the sender."`
 
 	// BackoffResetWait is the amount of time we'll wait before
 	// resetting the backoff counter to its initial state.
@@ -1048,6 +1041,13 @@ func (h *HashMailCourier) SetSubscribers(
 // A compile-time assertion to ensure the HashMailCourier meets the
 // proof.Courier interface.
 var _ Courier = (*HashMailCourier)(nil)
+
+// UniverseRpcCourierCfg is the config for the universe RPC proof courier.
+type UniverseRpcCourierCfg struct {
+	// BackoffCfg configures the behaviour of the proof delivery
+	// functionality.
+	BackoffCfg *BackoffCfg
+}
 
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
 // implements the Courier interface.
