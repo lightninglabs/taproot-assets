@@ -47,9 +47,19 @@ var (
 			"allow the postgres fixture to run in total. Needs "+
 			"to be increased for long-running tests.")
 
-	// defaultBackoffConfig is the default backoff config we'll use for
-	// sending proofs.
-	defaultBackoffConfig = proof.BackoffCfg{
+	// defaultHashmailBackoffConfig is the default backoff config we'll use
+	// for sending proofs with the hashmail courier.
+	defaultHashmailBackoffConfig = proof.BackoffCfg{
+		BackoffResetWait: time.Second,
+		NumTries:         5,
+		InitialBackoff:   300 * time.Millisecond,
+		MaxBackoff:       600 * time.Millisecond,
+	}
+
+	// defaultUniverseRpcBackoffConfig is the default backoff config we'll
+	// use for sending proofs with the universe RPC courier.
+	defaultUniverseRpcBackoffConfig = proof.BackoffCfg{
+		SkipInitDelay:    true,
 		BackoffResetWait: time.Second,
 		NumTries:         5,
 		InitialBackoff:   300 * time.Millisecond,
@@ -209,9 +219,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// Populate proof courier specific config fields.
 	//
 	// Use passed in backoff config or default config.
-	backoffCfg := defaultBackoffConfig
+	hashmailBackoffCfg := defaultHashmailBackoffConfig
+	universeRpcBackoffCfg := defaultUniverseRpcBackoffConfig
 	if opts.proofSendBackoffCfg != nil {
-		backoffCfg = *opts.proofSendBackoffCfg
+		hashmailBackoffCfg = *opts.proofSendBackoffCfg
+		universeRpcBackoffCfg = *opts.proofSendBackoffCfg
 	}
 
 	// Used passed in proof receiver ack timeout or default.
@@ -220,12 +232,12 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		receiverAckTimeout = *opts.proofReceiverAckTimeout
 	}
 
-	// TODO(ffranr): Disentangle the hashmail config from the universe RPC
-	// courier config. Right now, the universe courier takes the backoff
-	// config from the hashmail courier config.
 	finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
 		ReceiverAckTimeout: receiverAckTimeout,
-		BackoffCfg:         &backoffCfg,
+		BackoffCfg:         &hashmailBackoffCfg,
+	}
+	finalCfg.UniverseRpcCourier = &proof.UniverseRpcCourierCfg{
+		BackoffCfg: &universeRpcBackoffCfg,
 	}
 
 	switch typedProofCourier := (opts.proofCourier).(type) {
@@ -243,7 +255,6 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 
 	default:
 		finalCfg.DefaultProofCourierAddr = ""
-		finalCfg.HashMailCourier = nil
 	}
 
 	ht.t.Logf("Using proof courier address: %v",
