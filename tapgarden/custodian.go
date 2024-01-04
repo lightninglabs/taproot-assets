@@ -288,7 +288,14 @@ func (c *Custodian) watchInboundAssets() {
 		// If we didn't find a proof, we'll launch a goroutine to use
 		// the ProofCourier to import the proof into our local DB.
 		c.Wg.Add(1)
-		go c.receiveProof(event.Addr.Tap, event.Outpoint)
+		go func() {
+			defer c.Wg.Done()
+
+			recErr := c.receiveProof(event.Addr.Tap, event.Outpoint)
+			if recErr != nil {
+				reportErr(recErr)
+			}
+		}()
 	}
 
 	// Read all on-chain transactions and make sure they are mapped to an
@@ -402,7 +409,17 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				// ProofCourier to import the proof into our
 				// local DB.
 				c.Wg.Add(1)
-				go c.receiveProof(event.Addr.Tap, op)
+				go func() {
+					defer c.Wg.Done()
+
+					recErr := c.receiveProof(
+						event.Addr.Tap, op,
+					)
+					if recErr != nil {
+						log.Errorf("Unable to receive "+
+							"proof: %v", recErr)
+					}
+				}()
 			}
 
 			continue
@@ -434,7 +451,15 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		// launch a goroutine to use the ProofCourier to import the
 		// proof into our local DB.
 		c.Wg.Add(1)
-		go c.receiveProof(addr, op)
+		go func() {
+			defer c.Wg.Done()
+
+			recErr := c.receiveProof(addr, op)
+			if recErr != nil {
+				log.Errorf("Unable to receive proof: %v",
+					recErr)
+			}
+		}()
 	}
 
 	return nil
@@ -442,11 +467,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 
 // receiveProof attempts to receive a proof for the given address and outpoint
 // via the proof courier service.
-//
-// NOTE: This must be called as a goroutine.
-func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
-	defer c.Wg.Done()
-
+func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) error {
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
@@ -466,9 +487,8 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
 		&addr.ProofCourierAddr, recipient,
 	)
 	if err != nil {
-		log.Errorf("Unable to initiate proof courier service handle: "+
-			"%v", err)
-		return
+		return fmt.Errorf("unable to initiate proof courier service "+
+			"handle: %w", err)
 	}
 
 	// Update courier handle events subscribers before attempting to
@@ -484,7 +504,7 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
 	select {
 	case <-time.After(c.cfg.ProofRetrievalDelay):
 	case <-ctx.Done():
-		return
+		return nil
 	}
 
 	// Attempt to receive proof via proof courier service.
@@ -496,8 +516,8 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
 	}
 	addrProof, err := courier.ReceiveProof(ctx, loc)
 	if err != nil {
-		log.Errorf("Unable to receive proof using courier: %v", err)
-		return
+		return fmt.Errorf("unable to receive proof using courier: %w",
+			err)
 	}
 
 	log.Debugf("Received proof for: script_key=%x, asset_id=%x",
@@ -511,9 +531,10 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
 		ctx, headerVerifier, c.cfg.GroupVerifier, false, addrProof,
 	)
 	if err != nil {
-		log.Errorf("Unable to import proofs: %v", err)
-		return
+		return fmt.Errorf("unable to import proofs: %w", err)
 	}
+
+	return nil
 }
 
 // mapToTapAddr attempts to match a transaction output to a Taproot Asset
