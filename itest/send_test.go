@@ -21,6 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	transferTypeSend = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+)
+
 // testBasicSendUnidirectional tests that we can properly send assets back and
 // forth between nodes.
 func testBasicSendUnidirectional(t *harnessTest) {
@@ -619,7 +623,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 			switch eventTyped := event.Event.(type) {
 			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
 				ev := eventTyped.ProofTransferBackoffWaitEvent
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+				if ev.TransferType != transferTypeSend {
 					return false
 				}
 
@@ -726,7 +730,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 			switch eventTyped := event.Event.(type) {
 			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
 				ev := eventTyped.ProofTransferBackoffWaitEvent
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+				if ev.TransferType != transferTypeSend {
 					return false
 				}
 
@@ -1000,7 +1004,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 				// node. We therefore expect to receive
 				// deliver transfer type backoff wait events
 				// for sending transfers.
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+				if ev.TransferType != transferTypeSend {
 					return false
 				}
 

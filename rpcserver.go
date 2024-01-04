@@ -1054,19 +1054,14 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	// the default specified in the config.
 	courierAddr := r.cfg.DefaultProofCourierAddr
 	if req.ProofCourierAddr != "" {
-		addr, err := proof.ParseCourierAddrString(
+		var err error
+		courierAddr, err = proof.ParseCourierAddress(
 			req.ProofCourierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof courier "+
 				"address: %w", err)
 		}
-
-		// At this point, we do not intend on creating a proof courier
-		// service instance. We are only interested in parsing and
-		// validating the address. We therefore convert the address into
-		// an url.URL type for storage in the address book.
-		courierAddr = addr.Url()
 	}
 
 	// Check that the proof courier address is set. This should never
@@ -1075,7 +1070,6 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 	if courierAddr == nil {
 		return nil, fmt.Errorf("no proof courier address provided")
 	}
-	proofCourierAddr := *courierAddr
 
 	if len(req.AssetId) != 32 {
 		return nil, fmt.Errorf("invalid asset id length")
@@ -1112,8 +1106,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, assetID, req.Amt, tapscriptSibling,
-			proofCourierAddr,
+			ctx, assetID, req.Amt, tapscriptSibling, *courierAddr,
 			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
@@ -1154,7 +1147,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
 			ctx, assetID, req.Amt, *scriptKey, internalKey,
-			tapscriptSibling, proofCourierAddr,
+			tapscriptSibling, *courierAddr,
 			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {

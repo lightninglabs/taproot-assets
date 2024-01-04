@@ -71,7 +71,7 @@ type CustodianConfig struct {
 
 	// ProofArchive is the storage backend for proofs to which we store new
 	// incoming proofs.
-	ProofArchive proof.NotifyArchiver
+	ProofArchive proof.Archiver
 
 	// ProofNotifier is the storage backend for proofs from which we are
 	// notified about new proofs. This can be the same as the ProofArchive
@@ -80,9 +80,10 @@ type CustodianConfig struct {
 	// being available in the relational database).
 	ProofNotifier proof.NotifyArchiver
 
-	// ProofCourierCfg is a general config applicable to all proof courier
-	// service handles.
-	ProofCourierCfg *proof.CourierCfg
+	// ProofCourierDispatcher is the dispatcher that is used to create new
+	// proof courier handles for receiving proofs based on the protocol of
+	// a proof courier address.
+	ProofCourierDispatcher proof.CourierDispatch
 
 	// ProofRetrievalDelay is the time duration the custodian waits having
 	// identified an asset transfer on-chain and before retrieving the
@@ -270,11 +271,24 @@ func (c *Custodian) watchInboundAssets() {
 
 		// Maybe a proof was delivered while we were shutting down or
 		// starting up, let's check now.
-		err = c.checkProofAvailable(event)
+		available, err := c.checkProofAvailable(event)
 		if err != nil {
 			reportErr(err)
 			return
 		}
+
+		// If we did find a proof, we did import it now and can remove
+		// the event from our cache.
+		if available {
+			delete(c.events, event.Outpoint)
+
+			continue
+		}
+
+		// If we didn't find a proof, we'll launch a goroutine to use
+		// the ProofCourier to import the proof into our local DB.
+		c.Wg.Add(1)
+		go c.receiveProof(event.Addr.Tap, event.Outpoint)
 	}
 
 	// Read all on-chain transactions and make sure they are mapped to an
@@ -382,13 +396,21 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				}
 
 				c.events[op] = event
+
+				// Now that we've seen this output confirm on
+				// chain, we'll launch a goroutine to use the
+				// ProofCourier to import the proof into our
+				// local DB.
+				c.Wg.Add(1)
+				go c.receiveProof(event.Addr.Tap, op)
 			}
 
 			continue
 		}
 
 		// This is a new output, let's find out if it's for an address
-		// of ours.
+		// of ours. This step also creates a new event for the address
+		// if it doesn't exist yet.
 		addr, err := c.mapToTapAddr(walletTx, uint32(idx), op)
 		if err != nil {
 			return err
@@ -400,110 +422,98 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			continue
 		}
 
-		// TODO(ffranr): This proof courier disabled check should be
-		//  removed. It was implemented because some integration test do
-		//  not setup and use a proof courier.
-		if c.cfg.ProofCourierCfg == nil {
+		// We now need to wait for a confirmation, since proofs will
+		// be delivered once the anchor transaction is confirmed. If
+		// we skip it now, we'll receive another notification once the
+		// transaction is confirmed.
+		if walletTx.Confirmations == 0 {
 			continue
 		}
 
-		// Now that we've seen this output on chain, we'll launch a
-		// goroutine to use the ProofCourier to import the proof into
-		// our local DB.
+		// Now that we've seen this output confirm on chain, we'll
+		// launch a goroutine to use the ProofCourier to import the
+		// proof into our local DB.
 		c.Wg.Add(1)
-		go func() {
-			defer c.Wg.Done()
-
-			ctx, cancel := c.WithCtxQuitNoTimeout()
-			defer cancel()
-
-			assetID := addr.AssetID
-
-			log.Debugf("Waiting to receive proof for script key %x",
-				addr.ScriptKey.SerializeCompressed())
-
-			// Initiate proof courier service handle from the proof
-			// courier address found in the Tap address.
-			recipient := proof.Recipient{
-				ScriptKey: &addr.ScriptKey,
-				AssetID:   assetID,
-				Amount:    addr.Amount,
-			}
-			courier, err := proof.NewCourier(
-				ctx, addr.ProofCourierAddr,
-				c.cfg.ProofCourierCfg, recipient,
-			)
-			if err != nil {
-				log.Errorf("unable to initiate proof courier "+
-					"service handle: %v", err)
-				return
-			}
-
-			// Update courier handle events subscribers before
-			// attempting to retrieve proof.
-			c.statusEventsSubsMtx.Lock()
-			courier.SetSubscribers(c.statusEventsSubs)
-			c.statusEventsSubsMtx.Unlock()
-
-			// Sleep to give the sender an opportunity to transfer
-			// the proof to the proof courier service.
-			// Without this delay our first attempt at retrieving
-			// the proof will very likely fail. We should expect
-			// retrieval success before this delay.
-			select {
-			case <-time.After(c.cfg.ProofRetrievalDelay):
-			case <-ctx.Done():
-				return
-			}
-
-			// Attempt to receive proof via proof courier service.
-			loc := proof.Locator{
-				AssetID:   &assetID,
-				GroupKey:  addr.GroupKey,
-				ScriptKey: addr.ScriptKey,
-				OutPoint:  &op,
-			}
-			addrProof, err := courier.ReceiveProof(ctx, loc)
-			if err != nil {
-				log.Errorf("unable to recv proof: %v", err)
-				return
-			}
-
-			log.Debugf("Received proof for: script_key=%x, "+
-				"asset_id=%x",
-				addr.ScriptKey.SerializeCompressed(),
-				assetID[:])
-
-			ctx, cancel = c.CtxBlocking()
-			defer cancel()
-
-			headerVerifier := GenHeaderVerifier(
-				ctx, c.cfg.ChainBridge,
-			)
-			err = c.cfg.ProofArchive.ImportProofs(
-				ctx, headerVerifier, c.cfg.GroupVerifier, false,
-				addrProof,
-			)
-			if err != nil {
-				log.Errorf("unable to import proofs: %v", err)
-				return
-			}
-
-			// At this point the "receive" process is complete. We
-			// will now notify all status event subscribers.
-			recvCompleteEvent := NewAssetRecvCompleteEvent(
-				*addr, op,
-			)
-			err = c.publishSubscriberStatusEvent(recvCompleteEvent)
-			if err != nil {
-				log.Errorf("unable publish status event: %v",
-					err)
-				return
-			}
-		}()
+		go c.receiveProof(addr, op)
 	}
 
 	return nil
+}
+
+// receiveProof attempts to receive a proof for the given address and outpoint
+// via the proof courier service.
+//
+// NOTE: This must be called as a goroutine.
+func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) {
+	defer c.Wg.Done()
+
+	ctx, cancel := c.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	assetID := addr.AssetID
+
+	scriptKeyBytes := addr.ScriptKey.SerializeCompressed()
+	log.Debugf("Waiting to receive proof for script key %x", scriptKeyBytes)
+
+	// Initiate proof courier service handle from the proof courier address
+	// found in the Tap address.
+	recipient := proof.Recipient{
+		ScriptKey: &addr.ScriptKey,
+		AssetID:   assetID,
+		Amount:    addr.Amount,
+	}
+	courier, err := c.cfg.ProofCourierDispatcher.NewCourier(
+		&addr.ProofCourierAddr, recipient,
+	)
+	if err != nil {
+		log.Errorf("Unable to initiate proof courier service handle: "+
+			"%v", err)
+		return
+	}
+
+	// Update courier handle events subscribers before attempting to
+	// retrieve proof.
+	c.statusEventsSubsMtx.Lock()
+	courier.SetSubscribers(c.statusEventsSubs)
+	c.statusEventsSubsMtx.Unlock()
+
+	// Sleep to give the sender an opportunity to transfer the proof to the
+	// proof courier service. Without this delay our first attempt at
+	// retrieving the proof will very likely fail. We should expect
+	// retrieval success before this delay.
+	select {
+	case <-time.After(c.cfg.ProofRetrievalDelay):
+	case <-ctx.Done():
+		return
+	}
+
+	// Attempt to receive proof via proof courier service.
+	loc := proof.Locator{
+		AssetID:   &assetID,
+		GroupKey:  addr.GroupKey,
+		ScriptKey: addr.ScriptKey,
+		OutPoint:  &op,
+	}
+	addrProof, err := courier.ReceiveProof(ctx, loc)
+	if err != nil {
+		log.Errorf("Unable to receive proof using courier: %v", err)
+		return
+	}
+
+	log.Debugf("Received proof for: script_key=%x, asset_id=%x",
+		scriptKeyBytes, assetID[:])
+
+	ctx, cancel = c.CtxBlocking()
+	defer cancel()
+
+	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	err = c.cfg.ProofArchive.ImportProofs(
+		ctx, headerVerifier, c.cfg.GroupVerifier, false, addrProof,
+	)
+	if err != nil {
+		log.Errorf("Unable to import proofs: %v", err)
+		return
+	}
 }
 
 // mapToTapAddr attempts to match a transaction output to a Taproot Asset
@@ -595,8 +605,7 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 
 	log.Infof("Imported Taproot Asset address %v into wallet", addrStr)
 	if p2trAddr != nil {
-		log.Infof("watching p2tr address %v on chain",
-			p2trAddr.String())
+		log.Infof("Watching p2tr address %v on chain", p2trAddr)
 	}
 
 	return c.cfg.AddrBook.SetAddrManaged(ctxt, addr, time.Now())
@@ -604,7 +613,7 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 
 // checkProofAvailable checks the proof storage if a proof for the given event
 // is already available. If it is, and it checks out, the event is updated.
-func (c *Custodian) checkProofAvailable(event *address.Event) error {
+func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	ctxt, cancel := c.WithCtxQuit()
 	defer cancel()
 
@@ -620,34 +629,36 @@ func (c *Custodian) checkProofAvailable(event *address.Event) error {
 	})
 	switch {
 	case errors.Is(err, proof.ErrProofNotFound):
-		return nil
+		return false, nil
 
 	case err != nil:
-		return fmt.Errorf("error fetching proof for event: %w", err)
+		return false, fmt.Errorf("error fetching proof for event: %w",
+			err)
 	}
 
 	file := proof.NewEmptyFile(proof.V0)
 	if err := file.Decode(bytes.NewReader(blob)); err != nil {
-		return fmt.Errorf("error decoding proof file: %w", err)
+		return false, fmt.Errorf("error decoding proof file: %w", err)
 	}
 
 	// Exit early on empty proof (shouldn't happen outside of test cases).
 	if file.IsEmpty() {
-		return fmt.Errorf("archive contained empty proof file: %w", err)
+		return false, fmt.Errorf("archive contained empty proof file: "+
+			"%w", err)
 	}
 
 	lastProof, err := file.LastProof()
 	if err != nil {
-		return fmt.Errorf("error fetching last proof: %w", err)
+		return false, fmt.Errorf("error fetching last proof: %w", err)
 	}
 
 	// The proof might be an old state, let's make sure it matches our event
 	// before marking the inbound asset transfer as complete.
 	if AddrMatchesAsset(event.Addr, &lastProof.Asset) {
-		return c.setReceiveCompleted(event, lastProof, file)
+		return true, c.setReceiveCompleted(event, lastProof, file)
 	}
 
-	return nil
+	return false, nil
 }
 
 // mapProofToEvent inspects a new proof and attempts to match it to an existing
@@ -702,13 +713,23 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 func (c *Custodian) setReceiveCompleted(event *address.Event,
 	lastProof *proof.Proof, proofFile *proof.File) error {
 
+	// At this point the "receive" process is complete. We will now notify
+	// all status event subscribers.
+	receiveCompleteEvent := NewAssetRecvCompleteEvent(
+		*event.Addr.Tap, event.Outpoint,
+	)
+	err := c.publishSubscriberStatusEvent(receiveCompleteEvent)
+	if err != nil {
+		log.Errorf("Unable publish status event: %v", err)
+	}
+
 	// The proof is created after a single confirmation. To make sure we
 	// notice if the anchor transaction is re-organized out of the chain, we
 	// give all the not-yet-sufficiently-buried proofs in the received proof
 	// file to the re-org watcher and replace the updated proof in the local
 	// proof archive if a re-org happens. The sender will do the same, so no
 	// re-send of the proof is necessary.
-	err := c.cfg.ProofWatcher.MaybeWatch(
+	err = c.cfg.ProofWatcher.MaybeWatch(
 		proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
 	)
 	if err != nil {

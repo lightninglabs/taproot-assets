@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -13,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -73,6 +76,94 @@ func MockGroupAnchorVerifier(gen *asset.Genesis,
 
 	return nil
 }
+
+// MockProofCourierDispatcher is a mock proof courier dispatcher which returns
+// the same courier for all requests.
+type MockProofCourierDispatcher struct {
+	Courier Courier
+}
+
+// NewCourier instantiates a new courier service handle given a service
+// URL address.
+func (m *MockProofCourierDispatcher) NewCourier(*url.URL, Recipient) (Courier,
+	error) {
+
+	return m.Courier, nil
+}
+
+// MockProofCourier is a mock proof courier which stores the last proof it
+// received.
+type MockProofCourier struct {
+	sync.Mutex
+
+	currentProofs map[asset.SerializedKey]*AnnotatedProof
+
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]
+}
+
+// NewMockProofCourier returns a new mock proof courier.
+func NewMockProofCourier() *MockProofCourier {
+	return &MockProofCourier{
+		currentProofs: make(map[asset.SerializedKey]*AnnotatedProof),
+	}
+}
+
+// Start starts the proof courier service.
+func (m *MockProofCourier) Start(chan error) error {
+	return nil
+}
+
+// Stop stops the proof courier service.
+func (m *MockProofCourier) Stop() error {
+	return nil
+}
+
+// DeliverProof attempts to delivery a proof to the receiver, using the
+// information in the Addr type.
+func (m *MockProofCourier) DeliverProof(_ context.Context,
+	proof *AnnotatedProof) error {
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.currentProofs[asset.ToSerialized(&proof.ScriptKey)] = proof
+
+	return nil
+}
+
+// ReceiveProof attempts to obtain a proof as identified by the passed
+// locator from the source encapsulated within the specified address.
+func (m *MockProofCourier) ReceiveProof(_ context.Context,
+	loc Locator) (*AnnotatedProof, error) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	proof, ok := m.currentProofs[asset.ToSerialized(&loc.ScriptKey)]
+	if !ok {
+		return nil, ErrProofNotFound
+	}
+
+	return proof, nil
+}
+
+// SetSubscribers sets the set of subscribers that will be notified
+// of proof courier related events.
+func (m *MockProofCourier) SetSubscribers(
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]) {
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.subscribers = subscribers
+}
+
+// Close stops the courier instance.
+func (m *MockProofCourier) Close() error {
+	return nil
+}
+
+var _ Courier = (*MockProofCourier)(nil)
 
 type ValidTestCase struct {
 	Proof    *TestProof `json:"proof"`
