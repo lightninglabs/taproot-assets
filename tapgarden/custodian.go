@@ -534,6 +534,11 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) error {
 		return fmt.Errorf("unable to import proofs: %w", err)
 	}
 
+	// The proof is now verified and in our local archive. We will now
+	// finalize handling the proof like we would with any other newly
+	// received proof.
+	c.proofSubscription.NewItemCreated.ChanIn() <- addrProof.Blob
+
 	return nil
 }
 
