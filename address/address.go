@@ -327,7 +327,7 @@ func (a *Tap) TaprootOutputKey() (*btcec.PublicKey, error) {
 // EncodeRecords determines the non-nil records to include when encoding an
 // address at runtime.
 func (a *Tap) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 9)
+	records := make([]tlv.Record, 0, 10)
 	records = append(records, newAddressVersionRecord(&a.Version))
 	records = append(records, newAddressAssetVersionRecord(&a.AssetVersion))
 	records = append(records, newAddressAssetID(&a.AssetID))
@@ -349,6 +349,10 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 		records, newProofCourierAddrRecord(&a.ProofCourierAddr),
 	)
 
+	if a.Memo != "" {
+		records = append(records, newMemoRecord(&a.Memo))
+	}
+
 	return records
 }
 
@@ -365,6 +369,7 @@ func (a *Tap) DecodeRecords() []tlv.Record {
 		newAddressTapscriptSiblingRecord(&a.TapscriptSibling),
 		newAddressAmountRecord(&a.Amount),
 		newProofCourierAddrRecord(&a.ProofCourierAddr),
+		newMemoRecord(&a.Memo),
 	}
 }
 
