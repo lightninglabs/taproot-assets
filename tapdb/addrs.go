@@ -282,6 +282,7 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				AssetType:        int16(assetGen.AssetType),
 				CreationTime:     addr.CreationTime.UTC(),
 				ProofCourierAddr: proofCourierAddrBytes,
+				Memo:             addr.Memo,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert addr: %w",
@@ -438,6 +439,7 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				groupKey, groupWitness,
 				*scriptKey, *internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params, *proofCourierAddr,
+				addr.Memo,
 				address.WithAssetVersion(
 					asset.Version(addr.AssetVersion),
 				),
@@ -587,7 +589,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	tapAddr, err := address.New(
 		address.Version(dbAddr.Version), genesis, groupKey,
 		groupWitness, *scriptKey, *internalKey, uint64(dbAddr.Amount),
-		tapscriptSibling, params, *proofCourierAddr,
+		tapscriptSibling, params, *proofCourierAddr, dbAddr.Memo,
 		address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)),
 	)
 	if err != nil {

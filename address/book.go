@@ -250,7 +250,7 @@ func (b *Book) queryAssetInfo(ctx context.Context,
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
 func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
-	tapscriptSibling *commitment.TapscriptPreimage,
+	tapscriptSibling *commitment.TapscriptPreimage, memo string,
 	proofCourierAddr url.URL, addrOpts ...NewAddrOpt,
 ) (*AddrWithKeyInfo, error) {
 
@@ -278,7 +278,7 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 
 	return b.NewAddressWithKeys(
 		ctx, assetID, amount, scriptKey, internalKeyDesc,
-		tapscriptSibling, proofCourierAddr, addrOpts...,
+		tapscriptSibling, proofCourierAddr, memo, addrOpts...,
 	)
 }
 
@@ -288,7 +288,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr url.URL,
+	proofCourierAddr url.URL, memo string,
 	addrOpts ...NewAddrOpt) (*AddrWithKeyInfo, error) {
 
 	// Before we proceed, we'll make sure that the asset group is known to
@@ -312,7 +312,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	baseAddr, err := New(
 		V0, *assetGroup.Genesis, groupKey, groupWitness,
 		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
-		tapscriptSibling, &b.cfg.Chain, proofCourierAddr,
+		tapscriptSibling, &b.cfg.Chain, proofCourierAddr, memo,
 		addrOpts...,
 	)
 	if err != nil {
