@@ -31,6 +31,7 @@ const (
 	amtName              = "amt"
 	assetVersionName     = "asset_version"
 	proofCourierAddrName = "proof_courier_addr"
+	memoName             = "memo"
 )
 
 var newAddrCommand = cli.Command{
@@ -58,6 +59,10 @@ var newAddrCommand = cli.Command{
 				"to use for this specific address, if the " +
 				"default proof courier should be " +
 				"overwritten; format: protocol://host:port",
+		},
+		cli.StringFlag{
+			Name:  memoName,
+			Usage: "(optional) a memo to attach to the address",
 		},
 	},
 	Action: newAddr,
@@ -90,6 +95,7 @@ func newAddr(ctx *cli.Context) error {
 		Amt:              ctx.Uint64(amtName),
 		AssetVersion:     assetVersion,
 		ProofCourierAddr: ctx.String(proofCourierAddrName),
+		Memo:             ctx.String(memoName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)
