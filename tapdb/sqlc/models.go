@@ -24,6 +24,7 @@ type Addr struct {
 	CreationTime     time.Time
 	ManagedFrom      sql.NullTime
 	ProofCourierAddr []byte
+	Memo             string
 }
 
 type AddrEvent struct {
