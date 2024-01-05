@@ -167,7 +167,7 @@ func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
 type MockGroupTxBuilder struct{}
 
 // BuildGenesisTx constructs a virtual transaction and prevOut that represent
-// the genesis state transition for a grouped asset. This ouput is used to
+// the genesis state transition for a grouped asset. This output is used to
 // create a group witness for the grouped asset.
 func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 	*wire.TxOut, error) {

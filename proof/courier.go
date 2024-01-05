@@ -1179,7 +1179,7 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				return err
 			}
 			if err != nil {
-				return fmt.Errorf("error retreving proof "+
+				return fmt.Errorf("error retrieving proof "+
 					"from universe courier service: %w",
 					err)
 			}

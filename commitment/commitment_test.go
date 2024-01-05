@@ -1026,7 +1026,7 @@ func TestUpdateAssetCommitment(t *testing.T) {
 			require.Equal(t, testCase.err, err)
 
 			// Verify the number of assets in the updated AssetCommitment,
-			// as well as the inlcusion of an inserted asset or non-inclusion
+			// as well as the inclusion of an inserted asset or non-inclusion
 			// of a deleted asset.
 			if testCase.err == nil {
 				switch testCase.numAssets {

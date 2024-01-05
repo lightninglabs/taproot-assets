@@ -21,6 +21,6 @@ type GenesisSigner interface {
 type GenesisTxBuilder interface {
 	// BuildGenesisTx constructs a virtual transaction and prevOut that
 	// represent the genesis state transition for a grouped asset. This
-	// ouput is used to create a group witness for the grouped asset.
+	// output is used to create a group witness for the grouped asset.
 	BuildGenesisTx(newAsset *Asset) (*wire.MsgTx, *wire.TxOut, error)
 }

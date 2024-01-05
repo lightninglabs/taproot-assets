@@ -469,7 +469,7 @@ func TestBookAssetSyncer(t *testing.T) {
 	// TODO(jhb): remove asset from syncer, assert that address creation
 	// for the same asset works
 
-	// If the asset syncer returns an error, that should propogate up to
+	// If the asset syncer returns an error, that should propagate up to
 	// the address creator.
 	h.syncer.FetchErrs = true
 
