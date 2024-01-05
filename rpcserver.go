@@ -1896,6 +1896,7 @@ func marshalAddr(addr *address.Tap,
 		TaprootOutputKey: taprootOutputKey,
 		AssetType:        taprpc.AssetType(addr.AssetType()),
 		ProofCourierAddr: addr.ProofCourierAddr.String(),
+		Memo:             addr.Memo,
 	}
 
 	if addr.GroupKey != nil {
