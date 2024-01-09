@@ -1311,6 +1311,13 @@ func TestAssetExportLog(t *testing.T) {
 	require.Equal(t, 1, len(parcels))
 	require.Equal(t, spendDelta, parcels[0])
 
+	// We should also be able to query for the parcel when filtering on its
+	// anchor transaction hash.
+	parcels, err = assetsStore.QueryParcels(ctx, &anchorTxHash, true)
+	require.NoError(t, err)
+	require.Len(t, parcels, 1)
+	require.Equal(t, spendDelta, parcels[0])
+
 	// With the asset delta committed and verified, we'll now mark the
 	// delta as being confirmed on chain.
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))

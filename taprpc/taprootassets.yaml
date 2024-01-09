@@ -71,6 +71,8 @@ http:
 
     - selector: taprpc.TaprootAssets.ListTransfers
       get: "/v1/taproot-assets/assets/transfers"
+      additional_bindings:
+        - get: "/v1/taproot-assets/assets/transfers/{anchor_txid}"
 
     - selector: taprpc.TaprootAssets.FetchAssetMeta
       get: "/v1/taproot-assets/assets/meta/asset-id/{asset_id_str}"
