@@ -451,6 +451,8 @@ const (
 	// output key, allowing the ability for an asset to indirectly commit to
 	// multiple spending conditions.
 	ScriptV0 ScriptVersion = 0
+
+	ScriptV1 ScriptVersion = 1
 )
 
 // AssetGroup holds information about an asset group, including the genesis

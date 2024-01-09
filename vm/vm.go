@@ -268,7 +268,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 // an asset (normal or collectible) is fully consumed without splits. This is
 // done by verifying each input has a valid witness generated over the virtual
 // transaction representing the state transition.
-func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
+func (vm *Engine) validateStateTransition() error {
 	switch {
 	case len(vm.newAsset.PrevWitnesses) == 0:
 		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
@@ -277,6 +277,32 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 		len(vm.newAsset.PrevWitnesses) > 1:
 
 		return newErrKind(ErrInvalidTransferWitness)
+	}
+
+	// Initialite an array holding all the assets that appear in this state
+	// transition outputs.
+	assetOutputs := make([]*asset.Asset, 0, len(vm.splitAssets)+1)
+
+	// Add the root asset to the list of outputs.
+	// TODO(george): was the root asset placed 1st on the signer's side? is
+	// this enforced by bips?
+	assetOutputs = append(assetOutputs, vm.newAsset)
+
+	// Add the split assets to the list of outputs.
+	// TODO(geoge): this function states that there's no splits, does that
+	// mean that following loop is a noop?
+	for _, splitAsset := range vm.splitAssets {
+		assetOutputs = append(assetOutputs, &splitAsset.Asset)
+	}
+
+	// Construct the virtual transaction that this input signed,
+	// based on the sighash flag of the signature that we acquired
+	// above.
+	virtualTx, _, err := tapscript.VirtualTx(
+		vm.newAsset, vm.prevAssets, assetOutputs,
+	)
+	if err != nil {
+		return err
 	}
 
 	for i, witness := range vm.newAsset.PrevWitnesses {
@@ -296,6 +322,14 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 			if err != nil {
 				return err
 			}
+		case asset.ScriptV1:
+			// TODO(george): validateWitnessV0 was built around the
+			// idea that we have a single input single output
+			// virtual transaction. In order for already existing
+			// assets and proofs to still be valid we must not touch
+			// that code, instead increment in a backwards
+			// compatible way.
+			return ErrInvalidScriptVersion
 		default:
 			return ErrInvalidScriptVersion
 		}
@@ -345,11 +379,25 @@ func (vm *Engine) Execute() error {
 		}
 	}
 
+	// Create the set of asset outputs that will be used to construct the
+	// virtual transaction.
+	assetOutputs := make([]*asset.Asset, 0, len(vm.splitAssets)+1)
+
+	// Add the root asset to the list of outputs.
+	// TODO(george): was the root asset placed 1st on the signer's side? is
+	// this enforced by bips?
+	assetOutputs = append(assetOutputs, vm.newAsset)
+
+	// Add the split assets to the list of outputs.
+	for _, splitAsset := range vm.splitAssets {
+		assetOutputs = append(assetOutputs, &splitAsset.Asset)
+	}
+
 	// Now that we know we're not dealing with a genesis state transition,
 	// we'll map our set of asset inputs and outputs to the 1-input 1-output
 	// virtual transaction.
 	virtualTx, inputTree, err := tapscript.VirtualTx(
-		vm.newAsset, vm.prevAssets,
+		vm.newAsset, vm.prevAssets, assetOutputs,
 	)
 	if err != nil {
 		return err
@@ -365,5 +413,5 @@ func (vm *Engine) Execute() error {
 	}
 
 	// Finally, we'll validate the asset witness.
-	return vm.validateStateTransition(virtualTx)
+	return vm.validateStateTransition()
 }
