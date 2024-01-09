@@ -59,16 +59,16 @@ func VirtualTxWithInput(virtualTx *wire.MsgTx, input *Asset,
 
 	txCopy := virtualTx.Copy()
 	txCopy.LockTime = uint32(input.LockTime)
-	txCopy.TxIn[zeroIndex].PreviousOutPoint.Index = idx
-	txCopy.TxIn[zeroIndex].Sequence = uint32(input.RelativeLockTime)
-	txCopy.TxIn[zeroIndex].Witness = witness
+	txCopy.TxIn[idx].PreviousOutPoint.Index = idx
+	txCopy.TxIn[idx].Sequence = uint32(input.RelativeLockTime)
+	txCopy.TxIn[idx].Witness = witness
 	return txCopy
 }
 
 // VirtualGenesisTxIn computes the single input of a Taproot Asset virtual
 // transaction that represents a grouped asset genesis. The input prevout's hash
 // is the root of a MS-SMT committing to only the genesis asset.
-func VirtualGenesisTxIn(newAsset *Asset) (*wire.TxIn, mssmt.Tree, error) {
+func VirtualGenesisTxIn(newAsset *Asset) ([]*wire.TxIn, mssmt.Tree, error) {
 	inputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
 
 	// TODO(bhandras): thread the context through.
@@ -100,7 +100,11 @@ func VirtualGenesisTxIn(newAsset *Asset) (*wire.TxIn, mssmt.Tree, error) {
 
 	prevOut := VirtualTxInPrevOut(treeRoot)
 
-	return wire.NewTxIn(prevOut, nil, nil), inputTree, nil
+	txIns := []*wire.TxIn{
+		wire.NewTxIn(prevOut, nil, nil),
+	}
+
+	return txIns, inputTree, nil
 }
 
 // GenesisPrevOutFetcher returns a Taproot Asset input's `PrevOutFetcher` to be

@@ -140,7 +140,7 @@ func virtualGenesisTxOut(newAsset *Asset) (*wire.TxOut, error) {
 // MockGroupTxBuilder.
 func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
 	var (
-		txIn *wire.TxIn
+		txIn []*wire.TxIn
 		err  error
 	)
 
@@ -159,7 +159,10 @@ func virtualGenesisTx(newAsset *Asset) (*wire.MsgTx, error) {
 	// With our single input and output mapped, we're ready to construct our
 	// virtual transaction.
 	virtualTx := wire.NewMsgTx(2)
-	virtualTx.AddTxIn(txIn)
+
+	for _, txIn := range txIn {
+		virtualTx.AddTxIn(txIn)
+	}
 	virtualTx.AddTxOut(txOut)
 	return virtualTx, nil
 }

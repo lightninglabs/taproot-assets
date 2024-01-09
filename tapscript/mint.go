@@ -31,7 +31,7 @@ func BuildGenesisTx(newAsset *asset.Asset) (*wire.MsgTx,
 
 	// Now, create the virtual transaction that represents this asset
 	// minting.
-	virtualTx, _, err := VirtualTx(newAsset, nil)
+	virtualTx, _, err := VirtualTx(newAsset, nil, []*asset.Asset{newAsset})
 	if err != nil {
 		return nil, nil, err
 	}

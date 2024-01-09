@@ -40,13 +40,79 @@ const (
 	zeroIndex = 0
 )
 
-// virtualTxIn computes the single input of a Taproot Asset virtual transaction.
-// The input prevout's hash is the root of a MS-SMT committing to all inputs of
-// a state transition.
-func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
-	*wire.TxIn, mssmt.Tree, error) {
+// virtualTxInputTree places all of the inputs of a virtual transaction that
+// represents a taproot assets state transition into a MS-SMT. This tree is
+// returned as the result.
+func virtualTxInputTree(newAsset *asset.Asset, prevAssets commitment.InputSet) (
+	mssmt.Tree, error) {
 
 	inputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	// For each input we'll locate the asset UTXO being spent, then
+	// insert that into a new SMT, with the key being the hash of
+	// the prevID pointer, and the value being the leaf itself.
+	inputsConsumed := make(
+		map[asset.PrevID]struct{}, len(prevAssets),
+	)
+
+	// TODO(bhandras): thread the context through.
+	ctx := context.TODO()
+
+	for _, input := range newAsset.PrevWitnesses {
+		// At this point, each input MUST have a prev ID.
+		if input.PrevID == nil {
+			return nil, fmt.Errorf("%w: prevID is nil",
+				ErrNoInputs)
+		}
+
+		// The set of prev assets are similar to the prev
+		// output fetcher used in taproot.
+		prevAsset, ok := prevAssets[*input.PrevID]
+		if !ok {
+			return nil, fmt.Errorf("%w: unable to make "+
+				"virtual txIn %v", ErrNoInputs,
+				spew.Sdump(input.PrevID))
+		}
+
+		// Now we'll insert this prev asset leaf into the tree.
+		// The generated leaf includes the amount of the asset,
+		// so the sum of this tree will be the total amount
+		// being spent.
+		key := input.PrevID.Hash()
+		leaf, err := prevAsset.Leaf()
+		if err != nil {
+			return nil, err
+		}
+		_, err = inputTree.Insert(ctx, key, leaf)
+		if err != nil {
+			return nil, err
+		}
+
+		inputsConsumed[*input.PrevID] = struct{}{}
+	}
+
+	// In this context, the set of referenced inputs should match
+	// the set of previous assets. This ensures no duplicate inputs
+	// are being spent.
+	//
+	// TODO(roasbeef): make further explicit?
+	if len(inputsConsumed) != len(prevAssets) {
+		return nil, ErrInputMismatch
+	}
+
+	return inputTree, nil
+}
+
+// virtualTxIns computes the inputs of a Taproot Asset virtual transaction. Each
+// input's prevout hash is the root of a MS-SMT containing the asset input at
+// the same index.
+func virtualTxIns(newAsset *asset.Asset, prevAssets commitment.InputSet) (
+	[]*wire.TxIn, mssmt.Tree, error) {
+
+	var (
+		txIns    = make([]*wire.TxIn, len(newAsset.PrevWitnesses))
+		aggrTree = mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+	)
+
 	// For each input we'll locate the asset UTXO being spent, then
 	// insert that into a new SMT, with the key being the hash of
 	// the prevID pointer, and the value being the leaf itself.
@@ -82,12 +148,33 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		if err != nil {
 			return nil, nil, err
 		}
+
+		// Create the ms smt that will hold the input.
+		inputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+		// Insert the leaf into the tree holding just this input.
 		_, err = inputTree.Insert(ctx, key, leaf)
 		if err != nil {
 			return nil, nil, err
 		}
 
+		// Add the leaf to the aggregate input tree, which is going to
+		// hold all the inputs.
+		_, err = aggrTree.Insert(ctx, key, leaf)
+		if err != nil {
+			return nil, nil, err
+		}
+
 		inputsConsumed[*input.PrevID] = struct{}{}
+
+		treeRoot, err := inputTree.Root(context.Background())
+		if err != nil {
+			return nil, nil, err
+		}
+
+		// TODO(roasbeef): document empty hash usage here
+		prevOut := asset.VirtualTxInPrevOut(treeRoot)
+		txIns = append(txIns, wire.NewTxIn(prevOut, nil, nil))
 	}
 
 	// In this context, the set of referenced inputs should match
@@ -99,125 +186,146 @@ func virtualTxIn(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 		return nil, nil, ErrInputMismatch
 	}
 
-	treeRoot, err := inputTree.Root(context.Background())
-	if err != nil {
-		return nil, nil, err
-	}
-
-	// TODO(roasbeef): document empty hash usage here
-	prevOut := asset.VirtualTxInPrevOut(treeRoot)
-
-	return wire.NewTxIn(prevOut, nil, nil), inputTree, nil
+	return txIns, aggrTree, nil
 }
 
-// virtualTxOut computes the single output of a Taproot Asset virtual
-// transaction based on whether an asset has a split commitment or not.
-func virtualTxOut(txAsset *asset.Asset) (*wire.TxOut, error) {
-	// If we have any asset splits, then we'll indirectly commit to all of
-	// them through the SplitCommitmentRoot.
-	if txAsset.SplitCommitmentRoot != nil {
-		// In this case, we already have an MS-SMT over the set of
-		// outputs created, so we'll map this into a normal taproot
-		// (segwit v1) script.
-		rootKey := txAsset.SplitCommitmentRoot.NodeHash()
+// virtualTxOut computes the outputs of a Taproot Asset virtual transaction.
+// Each output's pkScript commits to an MS-SMT containing the asset output at
+// the same index.
+func virtualTxOut(assetOutputs []*asset.Asset) ([]*wire.TxOut, error) {
+	var (
+		txOuts = make([]*wire.TxOut, 0, len(assetOutputs))
+	)
+
+	for _, txAsset := range assetOutputs {
+		// If we have any asset splits, then we'll indirectly commit to
+		// all of them through the SplitCommitmentRoot.
+		if txAsset.SplitCommitmentRoot != nil {
+			// In this case, we already have an MS-SMT over the set
+			// of outputs created, so we'll map this into a normal
+			// taproot (segwit v1) script.
+			rootKey := txAsset.SplitCommitmentRoot.NodeHash()
+			pkScript, err := asset.ComputeTaprootScript(rootKey[:])
+			if err != nil {
+				return nil, err
+			}
+			value := int64(txAsset.SplitCommitmentRoot.NodeSum())
+			txOuts = append(txOuts, wire.NewTxOut(value, pkScript))
+		}
+
+		// Otherwise, we'll just commit to the new asset directly. In
+		// this case, the output script is derived from the root of a
+		// MS-SMT containing the new asset.
+		var groupKey []byte
+		if txAsset.GroupKey != nil {
+			groupKey = schnorr.SerializePubKey(
+				&txAsset.GroupKey.GroupPubKey,
+			)
+		} else {
+			var emptyKey [32]byte
+			groupKey = emptyKey[:]
+		}
+		assetID := txAsset.Genesis.ID()
+
+		// TODO(roasbeef): double check this key matches the split
+		// commitment above? or can treat as standalone case (no splits)
+		h := sha256.New()
+		_, _ = h.Write(groupKey)
+		_, _ = h.Write(assetID[:])
+		_, _ = h.Write(schnorr.SerializePubKey(txAsset.ScriptKey.PubKey))
+
+		// The new asset may have witnesses for its input(s), so make a
+		// copy and strip them out when including the asset in the tree,
+		// as the witness depends on the result of the tree.
+		//
+		// TODO(roasbeef): ensure this is documented in the BIP
+		copyWithoutWitness := txAsset.Copy()
+		for i := range copyWithoutWitness.PrevWitnesses {
+			copyWithoutWitness.PrevWitnesses[i].TxWitness = nil
+		}
+		key := *(*[32]byte)(h.Sum(nil))
+		leaf, err := copyWithoutWitness.Leaf()
+		if err != nil {
+			return nil, err
+		}
+		outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+
+		var (
+			tree mssmt.Tree
+		)
+
+		// TODO(bhandras): thread the context through.
+		tree, err = outputTree.Insert(context.TODO(), key, leaf)
+		if err != nil {
+			return nil, err
+		}
+
+		treeRoot, err := tree.Root(context.Background())
+		if err != nil {
+			return nil, err
+		}
+
+		rootKey := treeRoot.NodeHash()
 		pkScript, err := asset.ComputeTaprootScript(rootKey[:])
 		if err != nil {
 			return nil, err
 		}
-		value := int64(txAsset.SplitCommitmentRoot.NodeSum())
-		return wire.NewTxOut(value, pkScript), nil
-	}
 
-	// Otherwise, we'll just commit to the new asset directly. In
-	// this case, the output script is derived from the root of a
-	// MS-SMT containing the new asset.
-	var groupKey []byte
-	if txAsset.GroupKey != nil {
-		groupKey = schnorr.SerializePubKey(
-			&txAsset.GroupKey.GroupPubKey,
+		txOuts = append(
+			txOuts, wire.NewTxOut(int64(txAsset.Amount), pkScript),
 		)
-	} else {
-		var emptyKey [32]byte
-		groupKey = emptyKey[:]
-	}
-	assetID := txAsset.Genesis.ID()
-
-	// TODO(roasbeef): double check this key matches the split commitment
-	// above? or can treat as standalone case (no splits)
-	h := sha256.New()
-	_, _ = h.Write(groupKey)
-	_, _ = h.Write(assetID[:])
-	_, _ = h.Write(schnorr.SerializePubKey(txAsset.ScriptKey.PubKey))
-
-	// The new asset may have witnesses for its input(s), so make a
-	// copy and strip them out when including the asset in the tree,
-	// as the witness depends on the result of the tree.
-	//
-	// TODO(roasbeef): ensure this is documented in the BIP
-	copyWithoutWitness := txAsset.Copy()
-	for i := range copyWithoutWitness.PrevWitnesses {
-		copyWithoutWitness.PrevWitnesses[i].TxWitness = nil
-	}
-	key := *(*[32]byte)(h.Sum(nil))
-	leaf, err := copyWithoutWitness.Leaf()
-	if err != nil {
-		return nil, err
-	}
-	outputTree := mssmt.NewCompactedTree(mssmt.NewDefaultStore())
-
-	// TODO(bhandras): thread the context through.
-	tree, err := outputTree.Insert(context.TODO(), key, leaf)
-	if err != nil {
-		return nil, err
 	}
 
-	treeRoot, err := tree.Root(context.Background())
-	if err != nil {
-		return nil, err
-	}
-
-	rootKey := treeRoot.NodeHash()
-	pkScript, err := asset.ComputeTaprootScript(rootKey[:])
-	if err != nil {
-		return nil, err
-	}
-	return wire.NewTxOut(int64(txAsset.Amount), pkScript), nil
+	return txOuts, nil
 }
 
 // VirtualTx constructs the virtual transaction that enables the movement of an
-// asset representing an asset state transition.
-func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
-	*wire.MsgTx, mssmt.Tree, error) {
+// asset representing an asset state transition. The inputs and outputs of the
+// virtual transaction directly match the asset inputs and outputs of the
+// transition.
+func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet,
+	assetOutputs []*asset.Asset) (*wire.MsgTx, mssmt.Tree, error) {
 
 	var (
-		txIn      *wire.TxIn
+		txIns     = make([]*wire.TxIn, 0, len(newAsset.PrevWitnesses))
 		inputTree mssmt.Tree
 		err       error
 	)
 
-	// We'll start by mapping all inputs into a MS-SMT.
+	// We'll start by creating the virtual transaction inputs. A tree
+	// containing all the inputs is also returned, which may be used to
+	// validate that assets are not being inflated.
 	if newAsset.NeedsGenesisWitnessForGroup() ||
 		newAsset.HasGenesisWitnessForGroup() {
 
-		txIn, inputTree, err = asset.VirtualGenesisTxIn(newAsset)
+		txIns, inputTree, err = asset.VirtualGenesisTxIn(newAsset)
 	} else {
-		txIn, inputTree, err = virtualTxIn(newAsset, prevAssets)
+		txIns, inputTree, err = virtualTxIns(newAsset, prevAssets)
 	}
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Then we'll map all asset outputs into a single UTXO.
-	txOut, err := virtualTxOut(newAsset)
+	txOuts, err := virtualTxOut(assetOutputs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// With our single input and output mapped, we're ready to construct our
-	// virtual transaction.
+	// With our inputs and outputs, we're ready to construct our virtual
+	// transaction.
 	virtualTx := wire.NewMsgTx(2)
-	virtualTx.AddTxIn(txIn)
-	virtualTx.AddTxOut(txOut)
+
+	// We add each input as a standard transaction input.
+	for _, txIn := range txIns {
+		virtualTx.AddTxIn(txIn)
+	}
+
+	// We add each output as a standard transaction output.
+	for _, txOut := range txOuts {
+		virtualTx.AddTxOut(txOut)
+	}
+
 	return virtualTx, inputTree, nil
 }
 

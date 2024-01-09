@@ -648,9 +648,14 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 		prevAssets[input.PrevID] = input.Asset()
 	}
 
+	assetOutputs := make([]*asset.Asset, len(outputs))
+	for idx := range outputs {
+		assetOutputs[idx] = outputs[idx].Asset
+	}
+
 	// Create a Taproot Asset virtual transaction representing the asset
 	// transfer.
-	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
+	virtualTx, _, err := VirtualTx(newAsset, prevAssets, assetOutputs)
 	if err != nil {
 		return err
 	}
@@ -669,7 +674,7 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 		// Sign the virtual transaction based on the input script
 		// information (key spend or script spend).
 		newWitness, err := CreateTaprootSignature(
-			input, inputSpecificVirtualTx, 0, signer,
+			input, inputSpecificVirtualTx, idx, signer,
 		)
 		if err != nil {
 			return fmt.Errorf("error creating taproot "+
