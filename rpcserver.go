@@ -491,26 +491,24 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 }
 
-// checkFeeRateSanity ensures that the provided fee rate is above the same
-// minimum fee used as a floor in the fee estimator.
+// checkFeeRateSanity ensures that the provided fee rate, in sat/kw, is above
+// the same minimum fee used as a floor in the fee estimator.
 func checkFeeRateSanity(rpcFeeRate uint32) (*chainfee.SatPerKWeight, error) {
-	var feeRate *chainfee.SatPerKWeight
+	feeFloor := uint32(chainfee.FeePerKwFloor)
 	switch {
 	// No manual fee rate was set, which is the default.
 	case rpcFeeRate == 0:
+		return nil, nil
 
 	// A manual fee was set but is below a reasonable floor.
-	case rpcFeeRate < uint32(chainfee.FeePerKwFloor):
-		return nil, fmt.Errorf("manual fee rate %d below floor of %d",
-			rpcFeeRate, uint32(chainfee.FeePerKwFloor))
+	case rpcFeeRate < feeFloor:
+		return nil, fmt.Errorf("manual fee rate below floor: "+
+			"(fee_rate=%d, floor=%d sat/kw)", rpcFeeRate, feeFloor)
 
+	// Set the fee rate for this transaction.
 	default:
-		// Set the fee rate for this transaction.
-		manualFeeRate := chainfee.SatPerKWeight(rpcFeeRate)
-		feeRate = &manualFeeRate
+		return fn.Ptr(chainfee.SatPerKWeight(rpcFeeRate)), nil
 	}
-
-	return feeRate, nil
 }
 
 // FinalizeBatch attempts to finalize the current pending batch.

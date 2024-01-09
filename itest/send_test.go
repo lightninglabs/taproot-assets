@@ -1320,7 +1320,7 @@ func testSendMultipleCoins(t *harnessTest) {
 	// We created 5 addresses in our first node now, so we can initiate the
 	// transfer to send the coins back to our wallet in 5 pieces now.
 	sendResp := sendAssetsToAddr(t, t.tapd, addrs...)
-	ConfirmAndAssetOutboundTransferWithOutputs(
+	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		genInfo.AssetId, []uint64{
 			0, unitsPerPart, unitsPerPart, unitsPerPart,

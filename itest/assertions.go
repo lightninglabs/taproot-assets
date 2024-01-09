@@ -12,6 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
@@ -24,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -217,6 +219,75 @@ func AssertTxInBlock(t *testing.T, block *wire.MsgBlock,
 	require.Fail(t, "tx was not included in block")
 
 	return nil
+}
+
+// AssertTransferFeeRate checks that fee paid for the TX anchoring an asset
+// transfer is close to the expected fee for that TX, at a given fee rate.
+func AssertTransferFeeRate(t *testing.T, minerClient *rpcclient.Client,
+	transferResp *taprpc.SendAssetResponse, inputAmt int64,
+	feeRate chainfee.SatPerKWeight, roundFee bool) {
+
+	txid, err := chainhash.NewHash(transferResp.Transfer.AnchorTxHash)
+	require.NoError(t, err)
+
+	AssertFeeRate(t, minerClient, inputAmt, txid, feeRate, roundFee)
+}
+
+// AssertFeeRate checks that the fee paid for a given TX is close to the
+// expected fee for the same TX, at a given fee rate.
+func AssertFeeRate(t *testing.T, minerClient *rpcclient.Client, inputAmt int64,
+	txid *chainhash.Hash, feeRate chainfee.SatPerKWeight, roundFee bool) {
+
+	var (
+		outputValue                 float64
+		expectedFee, maxOverpayment btcutil.Amount
+		maxVsizeDifference          = int64(2)
+	)
+
+	verboseTx, err := minerClient.GetRawTransactionVerbose(txid)
+	require.NoError(t, err)
+
+	vsize := verboseTx.Vsize
+	for _, vout := range verboseTx.Vout {
+		outputValue += vout.Value
+	}
+
+	t.Logf("TX vsize of %d bytes", vsize)
+
+	btcOutputValue, err := btcutil.NewAmount(outputValue)
+	require.NoError(t, err)
+
+	actualFee := inputAmt - int64(btcOutputValue)
+
+	switch {
+	case roundFee:
+		// Replicate the rounding performed when calling `FundPsbt`.
+		feeSatPerVbyte := uint64(feeRate.FeePerKVByte()) / 1000
+		roundedFeeRate := chainfee.SatPerKVByte(
+			feeSatPerVbyte * 1000,
+		).FeePerKWeight()
+
+		expectedFee = roundedFeeRate.FeePerKVByte().
+			FeeForVSize(int64(vsize))
+		maxOverpayment = roundedFeeRate.FeePerKVByte().
+			FeeForVSize(maxVsizeDifference)
+
+	default:
+		expectedFee = feeRate.FeePerKVByte().
+			FeeForVSize(int64(vsize))
+		maxOverpayment = feeRate.FeePerKVByte().
+			FeeForVSize(maxVsizeDifference)
+	}
+
+	// The actual fee may be higher than the expected fee after
+	// confirmation, as the freighter makes a worst-case estimate of the TX
+	// vsize. The gap between these two fees should still be small.
+	require.GreaterOrEqual(t, actualFee, int64(expectedFee))
+
+	overpaidFee := actualFee - int64(expectedFee)
+	require.LessOrEqual(t, overpaidFee, int64(maxOverpayment))
+
+	t.Logf("Correct fee of %d sats", actualFee)
 }
 
 // WaitForBatchState polls until the planter has reached the desired state with
@@ -640,16 +711,16 @@ func ConfirmAndAssertOutboundTransfer(t *testing.T,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers int) *wire.MsgBlock {
 
-	return ConfirmAndAssetOutboundTransferWithOutputs(
+	return ConfirmAndAssertOutboundTransferWithOutputs(
 		t, minerClient, sender, sendResp, assetID, expectedAmounts,
 		currentTransferIdx, numTransfers, 2,
 	)
 }
 
-// ConfirmAndAssetOutboundTransferWithOutputs makes sure the given outbound
+// ConfirmAndAssertOutboundTransferWithOutputs makes sure the given outbound
 // transfer has the correct state and number of outputs before confirming it and
 // then asserting the confirmed state with the node.
-func ConfirmAndAssetOutboundTransferWithOutputs(t *testing.T,
+func ConfirmAndAssertOutboundTransferWithOutputs(t *testing.T,
 	minerClient *rpcclient.Client, sender TapdClient,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx,

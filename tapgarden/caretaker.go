@@ -30,14 +30,6 @@ import (
 )
 
 var (
-
-	// DummyGenesisTxOut is the dummy TxOut we'll place in the PSBt funding
-	// request to make sure we leave enough room for change and fees.
-	DummyGenesisTxOut = wire.TxOut{
-		PkScript: tapscript.GenesisDummyScript[:],
-		Value:    int64(GenesisAmtSats),
-	}
-
 	// ErrGroupKeyUnknown is an error returned if an asset has a group key
 	// attached that has not been previously verified.
 	ErrGroupKeyUnknown = errors.New("group key not known")
@@ -402,7 +394,7 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 		b.batchKey[:])
 
 	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(&DummyGenesisTxOut)
+	txTemplate.AddTxOut(tapscript.CreateDummyOutput())
 	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
@@ -411,26 +403,28 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 	log.Infof("BatchCaretaker(%x): creating skeleton PSBT", b.batchKey[:])
 	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
 
-	// If a fee rate was manually assigned for this batch, use that instead
-	// of a fee rate estimate.
 	var feeRate chainfee.SatPerKWeight
 	switch {
+	// If a fee rate was manually assigned for this batch, use that instead
+	// of a fee rate estimate.
 	case b.cfg.BatchFeeRate != nil:
 		feeRate = *b.cfg.BatchFeeRate
-		log.Infof("BatchCaretaker(%x): using manual fee rate",
-			b.batchKey[:])
+		log.Infof("BatchCaretaker(%x): using manual fee rate: %s, %d "+
+			"sat/vB", b.batchKey[:], feeRate.String(),
+			feeRate.FeePerKVByte()/1000)
 
 	default:
 		feeRate, err = b.cfg.ChainBridge.EstimateFee(
 			ctx, GenesisConfTarget,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to estimate fee: %w", err)
+			return nil, fmt.Errorf("unable to estimate fee: %w",
+				err)
 		}
-	}
 
-	log.Infof("BatchCaretaker(%x): using fee rate: %v",
-		b.batchKey[:], feeRate.FeePerKVByte().String())
+		log.Infof("BatchCaretaker(%x): estimated fee rate: %s",
+			b.batchKey[:], feeRate.FeePerKVByte().String())
+	}
 
 	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
 		ctx, genesisPkt, 1, feeRate,
@@ -755,17 +749,15 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		b.cfg.Batch.GenesisPacket.Pkt = signedPkt
 
 		// Populate how much this tx paid in on-chain fees.
-		chainFees, err := GetTxFee(signedPkt)
+		chainFees, err := signedPkt.GetTxFee()
 		if err != nil {
 			return 0, fmt.Errorf("unable to get on-chain fees "+
 				"for psbt: %w", err)
 		}
-		b.cfg.Batch.GenesisPacket.ChainFees = chainFees
+		b.cfg.Batch.GenesisPacket.ChainFees = int64(chainFees)
 
-		log.Infof("BatchCaretaker(%x): GenesisPacket absolute fee: "+
-			"%d sats", b.batchKey[:], chainFees)
-		log.Infof("BatchCaretaker(%x): GenesisPacket finalized",
-			b.batchKey[:])
+		log.Infof("BatchCaretaker(%x): GenesisPacket finalized "+
+			"(absolute_fee_sats: %d)", b.batchKey[:], chainFees)
 		log.Tracef("GenesisPacket: %v", spew.Sdump(signedPkt))
 
 		// At this point we have a fully signed PSBT packet which'll
@@ -1342,21 +1334,6 @@ func SortAssets(fullAssets []*asset.Asset,
 	}
 
 	return anchorAssets, nonAnchorAssets, nil
-}
-
-// GetTxFee returns the value of the on-chain fees paid by a finalized PSBT.
-func GetTxFee(pkt *psbt.Packet) (int64, error) {
-	inputValue, err := psbt.SumUtxoInputValues(pkt)
-	if err != nil {
-		return 0, fmt.Errorf("unable to sum input values: %v", err)
-	}
-
-	outputValue := int64(0)
-	for _, out := range pkt.UnsignedTx.TxOut {
-		outputValue += out.Value
-	}
-
-	return inputValue - outputValue, nil
 }
 
 // GenHeaderVerifier generates a block header on-chain verification callback
