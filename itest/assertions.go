@@ -751,6 +751,7 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 	outpoints := make(map[string]struct{})
 	scripts := make(map[string]struct{})
 	for _, o := range outputs {
+		// Ensure that each transfer output script key is unique.
 		_, ok := scripts[string(o.ScriptKey)]
 		require.False(t, ok)
 
