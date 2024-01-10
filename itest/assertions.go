@@ -1567,10 +1567,10 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.NoError(t, err)
 
 	groupKeys := maps.Keys(assetGroups.Groups)
-	require.Equal(t, 2, len(groupKeys))
+	require.Len(t, groupKeys, 2)
 
 	groupedAssets := assetGroups.Groups[groupKeys[0]].Assets
-	require.Equal(t, 1, len(groupedAssets))
+	require.Len(t, groupedAssets, 1)
 	require.Equal(t, 1, len(assetGroups.Groups[groupKeys[1]].Assets))
 
 	groupedAssets = append(
