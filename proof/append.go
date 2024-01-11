@@ -166,7 +166,13 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 		}
 
 		// Make sure the committed asset matches the root asset exactly.
-		if !committedRoot.DeepEqual(rootAsset) {
+		// We allow the TxWitness to mismatch for assets with version 1
+		// as they would not include the witness when the proof is
+		// created.
+		if !committedRoot.DeepEqualAllowSegWitIgnoreTxWitness(
+			rootAsset,
+		) {
+
 			return nil, fmt.Errorf("root asset mismatch")
 		}
 

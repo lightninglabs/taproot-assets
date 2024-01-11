@@ -426,8 +426,10 @@ func (w *Witness) Decode(r io.Reader) error {
 	return stream.Decode(r)
 }
 
-// DeepEqual returns true if this witness is equal with the given witness.
-func (w *Witness) DeepEqual(o *Witness) bool {
+// DeepEqual returns true if this witness is equal with the given witness. If
+// the skipTxWitness boolean is set, the TxWitness field of the Witness is not
+// compared.
+func (w *Witness) DeepEqual(skipTxWitness bool, o *Witness) bool {
 	if w == nil || o == nil {
 		return w == o
 	}
@@ -436,11 +438,17 @@ func (w *Witness) DeepEqual(o *Witness) bool {
 		return false
 	}
 
-	if !reflect.DeepEqual(w.TxWitness, o.TxWitness) {
+	if !w.SplitCommitment.DeepEqual(o.SplitCommitment) {
 		return false
 	}
 
-	return w.SplitCommitment.DeepEqual(o.SplitCommitment)
+	// If we're not comparing the TxWitness, we're done. This might be
+	// useful when comparing witnesses of segregated witness version assets.
+	if skipTxWitness {
+		return true
+	}
+
+	return reflect.DeepEqual(w.TxWitness, o.TxWitness)
 }
 
 // ScriptVersion denotes the asset script versioning scheme.
@@ -1398,6 +1406,20 @@ func (a *Asset) Copy() *Asset {
 
 // DeepEqual returns true if this asset is equal with the given asset.
 func (a *Asset) DeepEqual(o *Asset) bool {
+	return a.deepEqual(false, o)
+}
+
+// DeepEqualAllowSegWitIgnoreTxWitness returns true if this asset is equal with
+// the given asset, ignoring the TxWitness field of the Witness if the asset
+// version is v1.
+func (a *Asset) DeepEqualAllowSegWitIgnoreTxWitness(o *Asset) bool {
+	return a.deepEqual(true, o)
+}
+
+// deepEqual returns true if this asset is equal with the given asset. The
+// allowSegWitIgnoreTxWitness flag is used to determine whether the TxWitness
+// field of the Witness should be ignored if the asset version is v1.
+func (a *Asset) deepEqual(allowSegWitIgnoreTxWitness bool, o *Asset) bool {
 	if a.Version != o.Version {
 		return false
 	}
@@ -1437,7 +1459,9 @@ func (a *Asset) DeepEqual(o *Asset) bool {
 	}
 
 	for i := range a.PrevWitnesses {
-		if !a.PrevWitnesses[i].DeepEqual(&o.PrevWitnesses[i]) {
+		oPrevWitness := &o.PrevWitnesses[i]
+		skipTxWitness := a.Version == V1 && allowSegWitIgnoreTxWitness
+		if !a.PrevWitnesses[i].DeepEqual(skipTxWitness, oPrevWitness) {
 			return false
 		}
 	}
