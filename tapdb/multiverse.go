@@ -989,7 +989,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	return nil
 }
 
-// DeleteUniverse delete an entire universe sub-tre.
+// DeleteUniverse delete an entire universe sub-tree.
 func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	id universe.Identifier) (string, error) {
 
