@@ -31,9 +31,9 @@ var (
 	GoVersion string
 )
 
-// semanticAlphabet is the set of characters that are permitted for use in an
-// AppPreRelease.
-const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz-."
+// semanticAlphabet is the set of characters that are permitted for use in
+// AppStatus and AppPreRelease.
+const semanticAlphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 // These constants define the application version and follow the semantic
 // versioning 2.0.0 spec (http://semver.org/).
@@ -78,8 +78,10 @@ var agentName = defaultAgentName
 // the software tapd is bundled in (for example LiT). This function panics if
 // the agent name contains characters outside of the allowed semantic alphabet.
 func SetAgentName(newAgentName string) {
+	agentNameAlphabet := semanticAlphabet + "-. "
+
 	for _, r := range newAgentName {
-		if !strings.ContainsRune(semanticAlphabet, r) {
+		if !strings.ContainsRune(agentNameAlphabet, r) {
 			panic(fmt.Errorf("rune: %v is not in the semantic "+
 				"alphabet", r))
 		}
@@ -93,7 +95,7 @@ func SetAgentName(newAgentName string) {
 func UserAgent(initiator string) string {
 	// We'll only allow "safe" characters in the initiator portion of the
 	// user agent string and spaces only if surrounded by other characters.
-	initiatorAlphabet := semanticAlphabet + ". "
+	initiatorAlphabet := semanticAlphabet + "-. "
 	cleanInitiator := normalizeVerString(
 		strings.TrimSpace(initiator), initiatorAlphabet,
 	)
