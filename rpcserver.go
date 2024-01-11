@@ -1855,6 +1855,149 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 	}, nil
 }
 
+// QueryInternalKey returns the key descriptor for the given internal key.
+func (r *rpcServer) QueryInternalKey(ctx context.Context,
+	req *wrpc.QueryInternalKeyRequest) (*wrpc.QueryInternalKeyResponse,
+	error) {
+
+	var (
+		internalKey *btcec.PublicKey
+		keyLocator  keychain.KeyLocator
+		err         error
+	)
+
+	// We allow the user to specify the key either in the 33-byte compressed
+	// format or the 32-byte x-only format.
+	switch {
+	case len(req.InternalKey) == 33:
+		internalKey, err = btcec.ParsePubKey(req.InternalKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing internal key: %w",
+				err)
+		}
+
+		// If the full 33-byte key was specified, we expect the user to
+		// already know the parity byte, so we only try once.
+		keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+			ctx, internalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching internal key: "+
+				"%w", err)
+		}
+
+	case len(req.InternalKey) == 32:
+		internalKey, err = schnorr.ParsePubKey(req.InternalKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing internal key: %w",
+				err)
+		}
+
+		keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+			ctx, internalKey,
+		)
+
+		switch {
+		// If the key can't be found with the even parity, we'll try
+		// the odd parity.
+		case errors.Is(err, address.ErrInternalKeyNotFound):
+			internalKey = tapscript.FlipParity(internalKey)
+
+			keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+				ctx, internalKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error fetching "+
+					"internal key: %w", err)
+			}
+
+		// For any other error from above, we'll return it to the user.
+		case err != nil:
+			return nil, fmt.Errorf("error fetching internal key: "+
+				"%w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid internal key length")
+	}
+
+	return &wrpc.QueryInternalKeyResponse{
+		InternalKey: marshalKeyDescriptor(keychain.KeyDescriptor{
+			PubKey:     internalKey,
+			KeyLocator: keyLocator,
+		}),
+	}, nil
+}
+
+// QueryScriptKey returns the full script key descriptor for the given tweaked
+// script key.
+func (r *rpcServer) QueryScriptKey(ctx context.Context,
+	req *wrpc.QueryScriptKeyRequest) (*wrpc.QueryScriptKeyResponse, error) {
+
+	var (
+		scriptKey  *btcec.PublicKey
+		tweakedKey *asset.TweakedScriptKey
+		err        error
+	)
+
+	// We allow the user to specify the key either in the 33-byte compressed
+	// format or the 32-byte x-only format.
+	switch {
+	case len(req.TweakedScriptKey) == 33:
+		scriptKey, err = btcec.ParsePubKey(req.TweakedScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing script key: %w",
+				err)
+		}
+
+		tweakedKey, err = r.cfg.AssetWallet.FetchScriptKey(
+			ctx, scriptKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching script key: %w",
+				err)
+		}
+
+	case len(req.TweakedScriptKey) == 32:
+		scriptKey, err = schnorr.ParsePubKey(req.TweakedScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing script key: %w",
+				err)
+		}
+
+		tweakedKey, err = r.cfg.AssetWallet.FetchScriptKey(
+			ctx, scriptKey,
+		)
+
+		// If the key can't be found with the even parity, we'll try
+		// the odd parity.
+		if errors.Is(err, address.ErrScriptKeyNotFound) {
+			scriptKey = tapscript.FlipParity(scriptKey)
+
+			tweakedKey, err = r.cfg.AssetWallet.FetchScriptKey(
+				ctx, scriptKey,
+			)
+		}
+
+		// Return either the original error or the error from the re-try
+		// with odd parity.
+		if err != nil {
+			return nil, fmt.Errorf("error fetching script key: %w",
+				err)
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid script key length")
+	}
+
+	return &wrpc.QueryScriptKeyResponse{
+		ScriptKey: marshalScriptKey(asset.ScriptKey{
+			PubKey:           scriptKey,
+			TweakedScriptKey: tweakedKey,
+		}),
+	}, nil
+}
+
 // marshalAddr turns an address into its RPC counterpart.
 func marshalAddr(addr *address.Tap,
 	db address.Storage) (*taprpc.Addr, error) {

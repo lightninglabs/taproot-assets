@@ -108,6 +108,14 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/QueryInternalKey": {{
+			Entity: "assets",
+			Action: "read",
+		}},
+		"/assetwalletrpc.AssetWallet/QueryScriptKey": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/assetwalletrpc.AssetWallet/ProveAssetOwnership": {{
 			Entity: "assets",
 			Action: "write",

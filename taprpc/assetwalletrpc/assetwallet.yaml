@@ -23,6 +23,12 @@ http:
       post: "/v1/taproot-assets/wallet/script-key/next"
       body: "*"
 
+    - selector: assetwalletrpc.AssetWallet.QueryInternalKey
+      get: "/v1/taproot-assets/wallet/internal-key/{internal_key}"
+
+    - selector: assetwalletrpc.AssetWallet.QueryScriptKey
+      get: "/v1/taproot-assets/wallet/script-key/{tweaked_script_key}"
+
     - selector: assetwalletrpc.AssetWallet.ProveAssetOwnership
       post: "/v1/taproot-assets/wallet/ownership/prove"
       body: "*"

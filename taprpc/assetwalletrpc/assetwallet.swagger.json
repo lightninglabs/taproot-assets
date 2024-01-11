@@ -49,6 +49,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/wallet/internal-key/{internal_key}": {
+      "get": {
+        "summary": "QueryInternalKey returns the key descriptor for the given internal key.",
+        "operationId": "AssetWallet_QueryInternalKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcQueryInternalKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "internal_key",
+            "description": "The internal key to look for. This can either be the 32-byte x-only raw\ninternal key or the 33-byte raw internal key with the parity byte.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/ownership/prove": {
       "post": {
         "summary": "tapcli: `proofs proveownership`\nProveAssetOwnership creates an ownership proof embedded in an asset\ntransition proof. That ownership proof is a signed virtual transaction\nspending the asset with a valid witness to prove the prover owns the keys\nthat can spend the asset.",
@@ -141,6 +174,39 @@
             "schema": {
               "$ref": "#/definitions/assetwalletrpcNextScriptKeyRequest"
             }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taproot-assets/wallet/script-key/{tweaked_script_key}": {
+      "get": {
+        "summary": "QueryScriptKey returns the full script key descriptor for the given tweaked\nscript key.",
+        "operationId": "AssetWallet_QueryScriptKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcQueryScriptKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "tweaked_script_key",
+            "description": "The tweaked script key to look for. This can either be the 32-byte\nx-only tweaked script key or the 33-byte tweaked script key with the\nparity byte.",
+            "in": "path",
+            "required": true,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [
@@ -412,6 +478,22 @@
         "proof_with_witness": {
           "type": "string",
           "format": "byte"
+        }
+      }
+    },
+    "assetwalletrpcQueryInternalKeyResponse": {
+      "type": "object",
+      "properties": {
+        "internal_key": {
+          "$ref": "#/definitions/taprpcKeyDescriptor"
+        }
+      }
+    },
+    "assetwalletrpcQueryScriptKeyResponse": {
+      "type": "object",
+      "properties": {
+        "script_key": {
+          "$ref": "#/definitions/taprpcScriptKey"
         }
       }
     },
