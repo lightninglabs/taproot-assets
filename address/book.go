@@ -20,7 +20,7 @@ import (
 
 var (
 	// ErrAssetGroupUnknown is returned when the asset genesis is not known.
-	// This means an address can't be created until a Universe boostrap or
+	// This means an address can't be created until a Universe bootstrap or
 	// manual issuance proof insertion.
 	ErrAssetGroupUnknown = fmt.Errorf("asset group is unknown")
 )
