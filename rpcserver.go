@@ -1707,7 +1707,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 
 // SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
 // commitments of the inputs and outputs.
-func (r *rpcServer) SignVirtualPsbt(_ context.Context,
+func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 	req *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
 	error) {
 
@@ -1720,6 +1720,43 @@ func (r *rpcServer) SignVirtualPsbt(_ context.Context,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding packet: %w", err)
+	}
+
+	// Make sure the input keys are known.
+	for _, input := range vPkt.Inputs {
+		// If we have all the derivation information, we don't need to
+		// do anything.
+		if len(input.Bip32Derivation) > 0 &&
+			len(input.TaprootBip32Derivation) > 0 {
+
+			continue
+		}
+
+		scriptKey := input.Asset().ScriptKey
+
+		// If the full tweaked script key isn't set on the asset, we
+		// need to look it up in the local database, to make sure we'll
+		// be able to sign for it.
+		if scriptKey.TweakedScriptKey == nil {
+			tweakedScriptKey, err := r.cfg.AssetWallet.FetchScriptKey(
+				ctx, scriptKey.PubKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error fetching "+
+					"script key: %w", err)
+			}
+
+			scriptKey.TweakedScriptKey = tweakedScriptKey
+		}
+
+		derivation, trDerivation := tappsbt.Bip32DerivationFromKeyDesc(
+			scriptKey.TweakedScriptKey.RawKey,
+			r.cfg.ChainParams.HDCoinType,
+		)
+		input.Bip32Derivation = []*psbt.Bip32Derivation{derivation}
+		input.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trDerivation,
+		}
 	}
 
 	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(vPkt)
