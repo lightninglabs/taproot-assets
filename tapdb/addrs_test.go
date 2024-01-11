@@ -194,6 +194,17 @@ func TestAddressInsertion(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, scriptKey.RawKey.PubKey)
 		require.False(t, scriptKey.RawKey.IsEmpty())
+		require.Equal(t, addr.ScriptKeyTweak.RawKey, scriptKey.RawKey)
+
+		// And the internal key as well.
+		internalKeyLoc, err := addrBook.FetchInternalKeyLocator(
+			ctx, &addr.InternalKey,
+		)
+		require.NoError(t, err)
+		require.False(t, internalKeyLoc.IsEmpty())
+		require.Equal(
+			t, addr.InternalKeyDesc.KeyLocator, internalKeyLoc,
+		)
 	}
 
 	// All addresses should be unmanaged at this point.

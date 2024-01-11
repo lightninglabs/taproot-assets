@@ -1145,6 +1145,24 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 	return items, nil
 }
 
+const fetchInternalKeyLocator = `-- name: FetchInternalKeyLocator :one
+SELECT key_family, key_index
+FROM internal_keys
+WHERE raw_key = $1
+`
+
+type FetchInternalKeyLocatorRow struct {
+	KeyFamily int32
+	KeyIndex  int32
+}
+
+func (q *Queries) FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchInternalKeyLocator, rawKey)
+	var i FetchInternalKeyLocatorRow
+	err := row.Scan(&i.KeyFamily, &i.KeyIndex)
+	return i, err
+}
+
 const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
 SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
