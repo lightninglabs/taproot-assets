@@ -34,6 +34,10 @@ type GardenKit struct {
 	// various states the planter will progress it through.
 	Log MintingStore
 
+	// TreeStore provides access to optional tapscript trees used with
+	// script keys, minting output keys, and group keys.
+	TreeStore asset.TapscriptTreeStore
+
 	// KeyRing is used for obtaining internal keys for the anchor
 	// transaction, as well as script keys for each asset and group keys
 	// for assets created that permit ongoing emission.

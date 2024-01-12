@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -205,6 +206,76 @@ func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 // GenesisTxBuilder interface.
 var _ GenesisTxBuilder = (*MockGroupTxBuilder)(nil)
 
+type MockTapscriptTreeStore struct {
+	Store               map[SerializedKey][]byte
+	FailLoad, FailStore bool
+}
+
+func NewMockTapscriptTreeStore() *MockTapscriptTreeStore {
+	return &MockTapscriptTreeStore{
+		Store: make(map[SerializedKey][]byte),
+	}
+}
+
+func (m *MockTapscriptTreeStore) StoreTapscriptTree(_ context.Context,
+	pubKey SerializedKey, tapTree *waddrmgr.Tapscript) error {
+
+	if m.FailStore {
+		return fmt.Errorf("failed to store tapscript tree")
+	}
+
+	if tapTree == nil {
+		return nil
+	}
+
+	_, ok := m.Store[pubKey]
+	if ok {
+		return TreeAlreadyStored
+	}
+
+	// Add internal key to control block. Even if we don't use this field
+	// after loading the tree, the encode and decode will fail if empty.
+	internalKey, err := pubKey.ToPubKey()
+	if err != nil {
+		return err
+	}
+
+	storedTree := *tapTree
+	storedTree.ControlBlock.InternalKey = internalKey
+	tapTreeBytes, err := EncodeTaprootScript(&storedTree)
+	if err != nil {
+		return err
+	}
+
+	m.Store[pubKey] = tapTreeBytes
+
+	return nil
+}
+
+func (m *MockTapscriptTreeStore) LoadTapscriptTree(_ context.Context,
+	pubKey SerializedKey) (*waddrmgr.Tapscript, error) {
+
+	if m.FailLoad {
+		return nil, fmt.Errorf("failed to load tapscript tree")
+	}
+
+	treeBytes, ok := m.Store[pubKey]
+	if !ok {
+		return nil, TreeNotFound
+	}
+
+	tree, err := DecodeTaprootScript(treeBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return tree, nil
+}
+
+// A compile time assertion to ensure that MockTapscriptTreeStore meets the
+// TapscriptTreeStore interface.
+var _ TapscriptTreeStore = (*MockTapscriptTreeStore)(nil)
+
 // SignOutputRaw creates a signature for a single input.
 // Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw
 func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
@@ -380,11 +451,13 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 	// Derive a tapscipt root using the default tapscript tree used for
 	// testing, but use a signature as a witness.
 	case keySpend:
-		tapRootHash := test.BuildTapscriptTreeNoReveal(
+		treeRootChildren := test.BuildTapscriptTreeNoReveal(
 			t, groupSinglyTweakedKey,
 		)
 
-		groupReq.TapscriptRoot = tapRootHash
+		treeTapHash := treeRootChildren.TapHash()
+
+		groupReq.TapscriptRoot = treeTapHash[:]
 		groupKey, err = DeriveCustomGroupKey(
 			genSigner, &genBuilder, groupReq, nil, nil,
 		)
