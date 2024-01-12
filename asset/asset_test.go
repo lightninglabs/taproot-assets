@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
@@ -31,8 +32,10 @@ var (
 			"821525f66a4a85ea8b71e482a74f382d2ce5ebeee8fdb2172f47" +
 			"7df4900d310536c0",
 	)
-	sig, _     = schnorr.ParseSignature(sigBytes)
-	sigWitness = wire.TxWitness{sig.Serialize()}
+	sig, _                    = schnorr.ParseSignature(sigBytes)
+	sigWitness                = wire.TxWitness{sig.Serialize()}
+	unsupportedTapLeafVersion = txscript.TapscriptLeafVersion(0xf0)
+	testTapLeafScript         = []byte{99, 88, 77, 66, 55, 44}
 
 	generatedTestVectorName = "asset_tlv_encoding_generated.json"
 
@@ -496,6 +499,170 @@ func TestAssetEncoding(t *testing.T) {
 	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
 	// build tag is not set.
 	test.WriteTestVectors(t, generatedTestVectorName, testVectors)
+}
+
+// TestTapLeafEncoding asserts that we can properly encode and decode tapLeafs
+// through their TLV serialization, and that invalid tapLeafs are rejected.
+func TestTapLeafEncoding(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		leaf  *txscript.TapLeaf
+		valid bool
+	}{
+		{
+			name:  "nil leaf",
+			leaf:  nil,
+			valid: false,
+		},
+		{
+			name:  "empty script",
+			leaf:  fn.Ptr(txscript.NewBaseTapLeaf([]byte{})),
+			valid: false,
+		},
+		{
+			name: "large leaf script",
+			leaf: fn.Ptr(txscript.NewBaseTapLeaf(
+				test.RandBytes(blockchain.MaxBlockWeight),
+			)),
+			valid: true,
+		},
+		{
+			name: "random script with unknown version",
+			leaf: fn.Ptr(txscript.NewTapLeaf(
+				unsupportedTapLeafVersion, testTapLeafScript,
+			)),
+			valid: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		tc := testCase
+
+		t.Run(tc.name, func(t *testing.T) {
+			leafBytes, err := EncodeTapLeaf(tc.leaf)
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				return
+			}
+
+			leaf, err := DecodeTapLeaf(leafBytes)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.leaf.LeafVersion, leaf.LeafVersion)
+			require.Equal(t, tc.leaf.Script, leaf.Script)
+		})
+	}
+}
+
+// TestTapBranchEncodings asserts that we can properly encode and decode
+// tapBranches, and that invalid slices of byte slices are rejected.
+func TestTapBranchEncoding(t *testing.T) {
+	tests := []struct {
+		name       string
+		branchData [][]byte
+		valid      bool
+	}{
+		{
+			name:       "empty branch",
+			branchData: [][]byte{},
+			valid:      false,
+		},
+		{
+			name: "branch with invalid child",
+			branchData: [][]byte{
+				pubKeyBytes,
+				hashBytes2[:],
+			},
+			valid: false,
+		},
+		{
+			name: "valid branch",
+			branchData: [][]byte{
+				hashBytes1[:],
+				hashBytes2[:],
+			},
+			valid: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		tc := testCase
+
+		t.Run(tc.name, func(t *testing.T) {
+			branch, err := DecodeTapBranchNodes(tc.branchData)
+
+			if tc.valid {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				return
+			}
+
+			branchBytes := EncodeTapBranchNodes(*branch)
+			require.Equal(t, tc.branchData, branchBytes)
+		})
+	}
+}
+
+// TestTapLeafSanity assserts that we reject tapLeafs that fail our sanity
+// checks, and accept valid tapLeafs.
+func TestTapLeafSanity(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		leaf *txscript.TapLeaf
+		sane bool
+	}{
+		{
+			name: "nil leaf",
+			leaf: nil,
+			sane: false,
+		},
+		{
+			name: "unsupported version",
+			leaf: fn.Ptr(txscript.NewTapLeaf(
+				unsupportedTapLeafVersion, testTapLeafScript,
+			)),
+			sane: false,
+		},
+		{
+			name: "empty script",
+			leaf: fn.Ptr(txscript.NewBaseTapLeaf([]byte{})),
+			sane: false,
+		},
+		{
+			name: "large leaf script",
+			leaf: fn.Ptr(txscript.NewBaseTapLeaf(
+				test.RandBytes(blockchain.MaxBlockWeight),
+			)),
+			sane: false,
+		},
+		{
+			name: "valid tapleaf",
+			leaf: fn.Ptr(
+				txscript.NewBaseTapLeaf(testTapLeafScript),
+			),
+			sane: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		tc := testCase
+
+		t.Run(tc.name, func(t *testing.T) {
+			err := CheckTapLeafSanity(tc.leaf)
+			if tc.sane {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+			}
+		})
+	}
 }
 
 // TestAssetIsBurn asserts that the IsBurn method is correct.
