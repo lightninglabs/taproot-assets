@@ -633,3 +633,42 @@ func (m *MockProofWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 		return nil
 	}
 }
+
+type FallibleTapscriptTreeMgr struct {
+	store               MintingStore
+	FailLoad, FailStore bool
+}
+
+func (mgr FallibleTapscriptTreeMgr) DeleteTapscriptTree(ctx context.Context,
+	rootHash chainhash.Hash) error {
+
+	return mgr.store.DeleteTapscriptTree(ctx, rootHash)
+}
+
+func (mgr FallibleTapscriptTreeMgr) LoadTapscriptTree(ctx context.Context,
+	rootHash chainhash.Hash) (*asset.TapscriptTreeNodes, error) {
+
+	if mgr.FailLoad {
+		return nil, fmt.Errorf("failed to load tapscript tree")
+	}
+
+	return mgr.store.LoadTapscriptTree(ctx, rootHash)
+}
+
+func (mgr FallibleTapscriptTreeMgr) StoreTapscriptTree(ctx context.Context,
+	treeNodes asset.TapscriptTreeNodes) (*chainhash.Hash, error) {
+
+	if mgr.FailStore {
+		return nil, fmt.Errorf("unable to store tapscript tree")
+	}
+
+	return mgr.store.StoreTapscriptTree(ctx, treeNodes)
+}
+
+func NewFallibleTapscriptTreeMgr(store MintingStore) FallibleTapscriptTreeMgr {
+	return FallibleTapscriptTreeMgr{
+		store: store,
+	}
+}
+
+var _ asset.TapscriptTreeManager = (*FallibleTapscriptTreeMgr)(nil)

@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 )
 
 const (
@@ -73,8 +74,9 @@ func (t TapscriptPreimageType) String() string {
 // TapscriptPreimage wraps a pre-image byte slice with a type byte that self
 // identifies what type of pre-image it is.
 type TapscriptPreimage struct {
-	// SiblingPreimage is the pre-image itself. This will be either 32 or
-	// 64 bytes.
+	// SiblingPreimage is the pre-image itself. This will be 64 bytes if
+	// representing a TapBranch, or any size under 4 MBytes if representing
+	// a TapLeaf.
 	SiblingPreimage []byte
 
 	// SiblingType is the type of the pre-image.
@@ -83,9 +85,9 @@ type TapscriptPreimage struct {
 
 // NewPreimageFromLeaf creates a new TapscriptPreimage from a single tap leaf.
 func NewPreimageFromLeaf(leaf txscript.TapLeaf) *TapscriptPreimage {
-	// The leaf encoding is: leafVersion || compactSizeof(script) ||
-	// script, where compactSizeof returns the compact size needed to
-	// encode the value.
+	// The leaf encoding is: leafVersion || compactSizeof(script) || script,
+	// where compactSizeof returns the compact size needed to encode the
+	// value.
 	var encodedLeaf bytes.Buffer
 
 	_ = encodedLeaf.WriteByte(byte(leaf.LeafVersion))
@@ -111,6 +113,56 @@ func NewPreimageFromBranch(branch txscript.TapBranch) *TapscriptPreimage {
 		SiblingPreimage: encodedBranch.Bytes(),
 		SiblingType:     BranchPreimage,
 	}
+}
+
+// TapTreeToSibling constucts a taproot sibling hash from Tapscript tree nodes,
+// to be used with a TapCommitment tree root to derive a tapscript root. This
+// could be multiple TapLeaf objects, or a representation of a TapBranch.
+func NewPreimageFromTapscriptTreeNodes(
+	tn asset.TapscriptTreeNodes) (*TapscriptPreimage, error) {
+
+	var preimage *TapscriptPreimage
+
+	maybeLeaves := tn.GetLeaves().UnwrapToPtr()
+	if maybeLeaves != nil {
+		leaves := maybeLeaves.ToLeaves()
+
+		// A single tapscript leaf must be verified to not be another
+		// Taproot Asset commitment before use.
+		if len(leaves) == 1 {
+			siblingLeaf := leaves[0]
+			err := asset.CheckTapLeafSanity(&siblingLeaf)
+			if err != nil {
+				return nil, err
+			}
+
+			if IsTaprootAssetCommitmentScript(siblingLeaf.Script) {
+				return nil, ErrPreimageIsTapCommitment
+			}
+
+			return NewPreimageFromLeaf(siblingLeaf), nil
+		}
+
+		// Make a branch from the leaves.
+		tree := txscript.AssembleTaprootScriptTree(leaves...)
+		branch := txscript.NewTapBranch(
+			tree.RootNode.Left(), tree.RootNode.Right(),
+		)
+		preimage = NewPreimageFromBranch(branch)
+	}
+
+	maybeBranch := tn.GetBranch().UnwrapToPtr()
+	if maybeBranch != nil {
+		branches := maybeBranch.ToBranch()
+		branch := bytes.Join(branches, []byte{})
+
+		preimage = &TapscriptPreimage{
+			SiblingPreimage: branch,
+			SiblingType:     BranchPreimage,
+		}
+	}
+
+	return preimage, nil
 }
 
 // IsEmpty returns true if the sibling pre-image is empty.
