@@ -17,9 +17,11 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -461,6 +463,66 @@ const (
 	// multiple spending conditions.
 	ScriptV0 ScriptVersion = 0
 )
+
+// TapscriptTreePreimage represents the two supported ways to define a tapscript
+// tree to be used as a sibling for a Taproot Asset commitment, an asset group
+// key, or an asset script key.
+type TapscriptTreePreimage = fn.Either[TapBranchPreimage, []txscript.TapLeaf]
+
+func NewTreePreimageFromBranchPreimage(
+	b TapBranchPreimage) TapscriptTreePreimage {
+
+	return fn.NewLeft[TapBranchPreimage, []txscript.TapLeaf](b)
+}
+
+func NewTreePreimageFromLeaves(l []txscript.TapLeaf) (*TapscriptTreePreimage,
+	error) {
+
+	if len(l) == 0 {
+		return nil, fmt.Errorf("no leaves given")
+	}
+	// TODO(jhb): assert leaf versions?
+
+	preimage := fn.NewRight[TapBranchPreimage, []txscript.TapLeaf](l)
+
+	return &preimage, nil
+}
+
+// tapBranchPreimageLen is the length of a TapBranch preimage, excluding
+// the TapBranchTag.
+const TapBranchPreimageLen = 64
+
+type TapBranchPreimage struct {
+	left  [chainhash.HashSize]byte
+	right [chainhash.HashSize]byte
+}
+
+func NewTapBranchPreimage(branch txscript.TapBranch) TapBranchPreimage {
+	return TapBranchPreimage{
+		left:  branch.Left().TapHash(),
+		right: branch.Right().TapHash(),
+	}
+}
+
+func (b TapBranchPreimage) TapBranchHash() chainhash.Hash {
+	l, r := b.left[:], b.right[:]
+	if bytes.Compare(l, r) > 0 {
+		l, r = r, l
+	}
+
+	return *chainhash.TaggedHash(chainhash.TagTapBranch, l, r)
+}
+
+// TODO(jhb): redundant?
+// NewTapBranchHash takes the raw tap hashes of the left and right nodes and
+// hashes them into a branch.
+func NewTapBranchHash(l, r chainhash.Hash) chainhash.Hash {
+	if bytes.Compare(l[:], r[:]) > 0 {
+		l, r = r, l
+	}
+
+	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
+}
 
 // AssetGroup holds information about an asset group, including the genesis
 // information needed re-tweak the raw key.
