@@ -521,7 +521,10 @@ func (r *rpcServer) FinalizeBatch(_ context.Context,
 		return nil, err
 	}
 
-	batch, err := r.cfg.AssetMinter.FinalizeBatch(feeRate)
+	// TODO(jhb): Add tapscript tree as an arg in FinalizeBatchRequest.
+	batch, err := r.cfg.AssetMinter.FinalizeBatch(
+		&tapgarden.FinalizeParams{FeeRate: feeRate},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to finalize batch: %w", err)
 	}
