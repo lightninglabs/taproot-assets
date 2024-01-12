@@ -44,7 +44,7 @@ type Planter interface {
 
 	// FinalizeBatch signals that the asset minter should finalize
 	// the current batch, if one exists.
-	FinalizeBatch(feeRate *chainfee.SatPerKWeight) (*MintingBatch, error)
+	FinalizeBatch(params *FinalizeParams) (*MintingBatch, error)
 
 	// CancelBatch signals that the asset minter should cancel the
 	// current batch, if one exists.
