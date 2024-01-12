@@ -65,6 +65,8 @@ type mintingTestHarness struct {
 
 	store tapgarden.MintingStore
 
+	treeStore *asset.MockTapscriptTreeStore
+
 	keyRing *tapgarden.MockKeyRing
 
 	genSigner *tapgarden.MockGenSigner
@@ -99,6 +101,7 @@ func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 	return &mintingTestHarness{
 		T:            t,
 		store:        store,
+		treeStore:    asset.NewMockTapscriptTreeStore(),
 		ticker:       ticker.NewForce(interval),
 		wallet:       tapgarden.NewMockWalletAnchor(),
 		chain:        tapgarden.NewMockChainBridge(),
@@ -125,6 +128,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			Wallet:       t.wallet,
 			ChainBridge:  t.chain,
 			Log:          t.store,
+			TreeStore:    t.treeStore,
 			KeyRing:      t.keyRing,
 			GenSigner:    t.genSigner,
 			GenTxBuilder: t.genTxBuilder,
@@ -276,7 +280,7 @@ func (t *mintingTestHarness) assertFinalizeBatch(wg *sync.WaitGroup,
 // progressCaretaker uses the mock interfaces to progress a caretaker from start
 // to TX confirmation.
 func (t *mintingTestHarness) progressCaretaker(
-	seedlings []*tapgarden.Seedling) func() {
+	seedlings []*tapgarden.Seedling, batchSibling *chainhash.Hash) func() {
 
 	// Assert that the caretaker has requested a genesis TX to be funded.
 	_ = t.assertGenesisTxFunded()
@@ -294,7 +298,7 @@ func (t *mintingTestHarness) progressCaretaker(
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(batchSibling)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -625,7 +629,9 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 
 // assertGenesisPsbtFinalized asserts that a request to finalize the genesis
 // transaction has been requested by a caretaker.
-func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
+func (t *mintingTestHarness) assertGenesisPsbtFinalized(
+	sibling *chainhash.Hash) {
+
 	t.Helper()
 
 	// Ensure that a request to finalize the PSBt has come across.
@@ -649,7 +655,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 
 	// The minting key of the batch should match the public key
 	// that was inserted into the wallet.
-	batchKey, _, err := pendingBatch.MintingOutputKey()
+	batchKey, _, err := pendingBatch.MintingOutputKey(sibling)
 	require.NoError(t, err)
 
 	importedKey, err := fn.RecvOrTimeout(
@@ -790,7 +796,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(nil)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -892,7 +898,7 @@ func testMintingTicker(t *mintingTestHarness) {
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(nil)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -1028,7 +1034,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(nil)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -1136,7 +1142,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan)
 	batchCount++
 
-	_ = t.progressCaretaker(seedlings)
+	_ = t.progressCaretaker(seedlings, nil)
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1160,7 +1166,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan)
 	batchCount++
 
-	sendConfNtfn := t.progressCaretaker(seedlings)
+	sendConfNtfn := t.progressCaretaker(seedlings, nil)
 	caretakerCount++
 
 	// Trigger the confirmation event, which should cause the caretaker to
@@ -1190,7 +1196,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan)
 	batchCount++
 
-	sendConfNtfn = t.progressCaretaker(seedlings)
+	sendConfNtfn = t.progressCaretaker(seedlings, nil)
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1198,6 +1204,8 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+
+	// TODO(jhb): add finalize with tapscript root
 }
 
 // mintingStoreTestCase is used to programmatically run a series of test cases
