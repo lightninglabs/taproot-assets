@@ -137,7 +137,7 @@ func initSpendScenario(t *testing.T) spendData {
 	address1, err := address.New(
 		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
 		state.receiverPubKey, state.normalAmt1, nil,
-		&address.MainNetTap, proofCourierAddr,
+		&address.MainNetTap, proofCourierAddr, "",
 	)
 	require.NoError(t, err)
 	state.address1 = *address1
@@ -147,7 +147,7 @@ func initSpendScenario(t *testing.T) spendData {
 		address.V0, state.genesis1collect, &state.groupKey.GroupPubKey,
 		state.groupKey.Witness, state.receiverPubKey,
 		state.receiverPubKey, state.collectAmt, nil,
-		&address.TestNet3Tap, proofCourierAddr,
+		&address.TestNet3Tap, proofCourierAddr, "",
 	)
 	require.NoError(t, err)
 	state.address1CollectGroup = *address1CollectGroup
@@ -157,7 +157,7 @@ func initSpendScenario(t *testing.T) spendData {
 	address2, err := address.New(
 		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
 		state.receiverPubKey, state.normalAmt2, nil,
-		&address.MainNetTap, proofCourierAddr,
+		&address.MainNetTap, proofCourierAddr, "",
 	)
 	require.NoError(t, err)
 	state.address2 = *address2
@@ -2082,7 +2082,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 			address.V0, state.genesis1, nil, nil,
 			state.receiverPubKey, state.receiverPubKey,
 			state.normalAmt1, nil, &address.TestNet3Tap,
-			address.RandProofCourierAddr(t),
+			address.RandProofCourierAddr(t), "",
 		)
 		require.NoError(t, err)
 
@@ -2155,7 +2155,7 @@ func TestPayToAddrScript(t *testing.T) {
 	addr1, err := address.New(
 		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
 		*internalKey, sendAmt, nil, &address.RegressionNetTap,
-		address.RandProofCourierAddr(t),
+		address.RandProofCourierAddr(t), "",
 	)
 	require.NoError(t, err)
 
@@ -2172,7 +2172,7 @@ func TestPayToAddrScript(t *testing.T) {
 	addr2, err := address.New(
 		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
 		*internalKey, sendAmt, sibling, &address.RegressionNetTap,
-		address.RandProofCourierAddr(t),
+		address.RandProofCourierAddr(t), "",
 	)
 	require.NoError(t, err)
 

@@ -40,6 +40,9 @@ const (
 
 	// addrProofCourierType is the TLV type of the proof courier address.
 	addrProofCourierAddrType addressTLVType = 12
+
+	// addrMemoType is the TLV type of the memo.
+	addrMemoType addressTLVType = 13
 )
 
 func newAddressVersionRecord(version *Version) tlv.Record {
@@ -116,5 +119,18 @@ func newProofCourierAddrRecord(addr *url.URL) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		addrProofCourierAddrType, addr, recordSize,
 		urlEncoder, urlDecoder,
+	)
+}
+
+func newMemoRecord(memo *string) tlv.Record {
+	var memoBytes []byte
+	if memo != nil {
+		memoBytes = []byte(*memo)
+	}
+	recordSize := tlv.SizeVarBytes(&memoBytes)
+
+	return tlv.MakeDynamicRecord(
+		addrMemoType, memo, recordSize,
+		memoEncoder, memoDecoder,
 	)
 }

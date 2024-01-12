@@ -23,8 +23,8 @@ var (
 		"a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e" +
 			"078f",
 	)
-	pubKey, _ = schnorr.ParsePubKey(pubKeyBytes)
-
+	pubKey, _               = schnorr.ParsePubKey(pubKeyBytes)
+	addrMemo                = "memo"
 	generatedTestVectorName = "address_tlv_encoding_generated.json"
 
 	allTestVectorFiles = []string{
@@ -79,7 +79,7 @@ func randAddress(t *testing.T, net *ChainParams, v Version, groupPubKey,
 
 	return New(
 		v, genesis, groupKey, groupWitness, scriptKey, internalKey,
-		amount, tapscriptSibling, net, proofCourierAddr,
+		amount, tapscriptSibling, net, proofCourierAddr, addrMemo,
 		addrOpts...,
 	)
 }
@@ -112,6 +112,7 @@ func assertAddressEqual(t *testing.T, a, b *Tap) {
 	require.Equal(t, a.ScriptKey, b.ScriptKey)
 	require.Equal(t, a.InternalKey, b.InternalKey)
 	require.Equal(t, a.Amount, b.Amount)
+	require.Equal(t, a.Memo, b.Memo)
 }
 
 // TestNewAddress tests edge cases around creating a new address.

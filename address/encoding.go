@@ -91,3 +91,24 @@ func VersionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 	return tlv.NewTypeForDecodingErr(val, "Version", l, 1)
 }
+
+func memoEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*string); ok {
+		memoBytes := []byte(*t)
+		return tlv.EVarBytes(w, &memoBytes, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*string")
+}
+
+func memoDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if t, ok := val.(*string); ok {
+		var memoBytes []byte
+		err := tlv.DVarBytes(r, &memoBytes, buf, l)
+		if err != nil {
+			return err
+		}
+		*t = string(memoBytes)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*string", l, l)
+}

@@ -1104,8 +1104,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, assetID, req.Amt, tapscriptSibling, *courierAddr,
-			address.WithAssetVersion(assetVersion),
+			ctx, assetID, req.Amt, tapscriptSibling, req.Memo,
+			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1145,7 +1145,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
 			ctx, assetID, req.Amt, *scriptKey, internalKey,
-			tapscriptSibling, *courierAddr,
+			tapscriptSibling, *courierAddr, req.Memo,
 			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
@@ -1894,6 +1894,7 @@ func marshalAddr(addr *address.Tap,
 		TaprootOutputKey: taprootOutputKey,
 		AssetType:        taprpc.AssetType(addr.AssetType()),
 		ProofCourierAddr: addr.ProofCourierAddr.String(),
+		Memo:             addr.Memo,
 	}
 
 	if addr.GroupKey != nil {

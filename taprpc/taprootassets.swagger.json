@@ -878,6 +878,10 @@
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The asset version of the address."
+        },
+        "memo": {
+          "type": "string",
+          "description": "The memo of the address."
         }
       }
     },
@@ -1715,6 +1719,10 @@
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The asset version to use when sending/receiving to/from this address."
+        },
+        "memo": {
+          "type": "string",
+          "description": "The optional memo to attach to the address. This will be included in the\nencoded address."
         }
       }
     },

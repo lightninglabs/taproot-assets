@@ -361,8 +361,10 @@ func testAddressAssetSyncer(t *harnessTest) {
 		AssetId:      firstAsset.AssetGenesis.AssetId,
 		Amt:          firstAsset.Amount,
 		AssetVersion: firstAsset.Version,
+		Memo:         "first_address",
 	})
 	require.NoError(t.t, err)
+	require.Equal(t.t, "first_address", firstAddr.Memo)
 	AssertAddr(t.t, firstAsset, firstAddr)
 
 	secondAsset := secondRpcAssets[1]

@@ -630,6 +630,9 @@ message Addr {
 
     // The asset version of the address.
     AssetVersion asset_version = 11;
+
+    // The memo of the address.
+    string memo = 12;
 }
 
 message QueryAddrRequest {
@@ -699,6 +702,12 @@ message NewAddrRequest {
     The asset version to use when sending/receiving to/from this address.
     */
     AssetVersion asset_version = 7;
+
+    /*
+    The optional memo to attach to the address. This will be included in the
+    encoded address.
+    */
+    string memo = 8;
 }
 
 message ScriptKey {

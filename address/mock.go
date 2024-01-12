@@ -73,10 +73,12 @@ func RandAddr(t testing.TB, params *ChainParams,
 		assetVersion = asset.V1
 	}
 
+	randMemo := test.RandHash().String()
+
 	tapAddr, err := New(
 		V0, genesis, groupPubKey, groupWitness, *scriptKey.PubKey,
 		*internalKey.PubKey(), amount, tapscriptSibling, params,
-		proofCourierAddr, WithAssetVersion(assetVersion),
+		proofCourierAddr, randMemo, WithAssetVersion(assetVersion),
 	)
 	require.NoError(t, err)
 
