@@ -9,6 +9,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -125,6 +126,11 @@ type stateParamReq[T, S any] struct {
 	stateReq[T]
 
 	param S
+}
+
+type FinalizeParams struct {
+	FeeRate *chainfee.SatPerKWeight
+	TapTree *waddrmgr.Tapscript
 }
 
 func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
@@ -605,15 +611,17 @@ func (c *ChainPlanter) gardener() {
 				batchKeySerial := asset.ToSerialized(batchKey)
 				log.Infof("Finalizing batch %x", batchKeySerial)
 
-				feeRate, err :=
-					typedParam[*chainfee.SatPerKWeight](req)
+				finalizeReqParams, err :=
+					typedParam[*FinalizeParams](req)
 				if err != nil {
-					req.Error(fmt.Errorf("bad fee rate: "+
-						"%w", err))
+					req.Error(fmt.Errorf("bad finalize "+
+						"params: %w", err))
 					break
 				}
 
-				caretaker, err := c.finalizeBatch(*feeRate)
+				caretaker, err := c.finalizeBatch(
+					*finalizeReqParams,
+				)
 				if err != nil {
 					c.cfg.ErrChan <- fmt.Errorf("unable "+
 						"to freeze minting batch: %w",
@@ -676,13 +684,40 @@ func (c *ChainPlanter) gardener() {
 }
 
 // finalizeBatch creates a new caretaker for the batch and starts it.
-func (c *ChainPlanter) finalizeBatch(
-	feeRate *chainfee.SatPerKWeight) (*BatchCaretaker, error) {
+func (c *ChainPlanter) finalizeBatch(params *FinalizeParams) (*BatchCaretaker,
+	error) {
+
+	var (
+		tapTree *waddrmgr.Tapscript
+		feeRate *chainfee.SatPerKWeight
+		err     error
+	)
+
+	if params != nil {
+		tapTree = params.TapTree
+		feeRate = params.FeeRate
+	}
+
+	// If a tapscript tree was specified for this batch, we'll store it on
+	// disk. The caretaker we start for this batch will use it when deriving
+	// the final Taproot output key.
+	// TODO(jhb): Make this load call mandatory once we have a DB-backed
+	// implementation of the tapscript tree store.
+	ctx, cancel := c.WithCtxQuit()
+	batchKey := asset.ToSerialized(c.pendingBatch.BatchKey.PubKey)
+	if c.cfg.TreeStore != nil {
+		err = c.cfg.TreeStore.StoreTapscriptTree(
+			ctx, batchKey, tapTree,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to store tapscript "+
+				"tree for minting batch: %w", err)
+		}
+	}
 
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
-	ctx, cancel := c.WithCtxQuit()
-	err := freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
+	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
 	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("unable to freeze minting batch: %w",
@@ -740,10 +775,10 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 }
 
 // FinalizeBatch sends a signal to the planter to finalize the current batch.
-func (c *ChainPlanter) FinalizeBatch(
-	feeRate *chainfee.SatPerKWeight) (*MintingBatch, error) {
+func (c *ChainPlanter) FinalizeBatch(params *FinalizeParams) (*MintingBatch,
+	error) {
 
-	req := newStateParamReq[*MintingBatch](reqTypeFinalizeBatch, feeRate)
+	req := newStateParamReq[*MintingBatch](reqTypeFinalizeBatch, params)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
