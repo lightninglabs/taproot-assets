@@ -44,7 +44,7 @@ type Planter interface {
 
 	// FinalizeBatch signals that the asset minter should finalize
 	// the current batch, if one exists.
-	FinalizeBatch(feeRate *chainfee.SatPerKWeight) (*MintingBatch, error)
+	FinalizeBatch(params *FinalizeParams) (*MintingBatch, error)
 
 	// CancelBatch signals that the asset minter should cancel the
 	// current batch, if one exists.
@@ -169,6 +169,8 @@ func NewBatchState(state uint8) (BatchState, error) {
 // the process of seeding, planting, and finally maturing taproot assets that are
 // a part of the batch.
 type MintingStore interface {
+	asset.TapscriptTreeManager
+
 	// CommitMintingBatch commits a new minting batch to disk, identified
 	// by its batch key.
 	CommitMintingBatch(ctx context.Context, newBatch *MintingBatch) error
@@ -215,7 +217,7 @@ type MintingStore interface {
 	// state upon a successful call.
 	CommitSignedGenesisTx(ctx context.Context, batchKey *btcec.PublicKey,
 		genesisTx *FundedPsbt, anchorOutputIndex uint32,
-		tapRoot []byte) error
+		merkleRoot, tapTreeRoot, tapSibling []byte) error
 
 	// MarkBatchConfirmed marks the batch as confirmed on chain. The passed
 	// block location information determines where exactly in the chain the
@@ -236,6 +238,9 @@ type MintingStore interface {
 	// key, including the genesis information used to create the group.
 	FetchGroupByGroupKey(ctx context.Context,
 		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
+
+	CommitBatchTapSibling(ctx context.Context, batchKey *btcec.PublicKey,
+		rootHash *chainhash.Hash) error
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation
