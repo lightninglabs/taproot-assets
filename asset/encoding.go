@@ -11,9 +11,17 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+// TLV types for TapLeaf encode/decode.
+const (
+	typeTapLeafVersion tlv.Type = 1
+	typeTapLeafScript  tlv.Type = 2
 )
 
 var (
@@ -663,4 +671,166 @@ func LeafDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "Asset")
+}
+
+func EncodeTapBranchNodes(branch TapBranchNodes) [][]byte {
+	var left, right bytes.Buffer
+	_, _ = left.Write(branch.left[:])
+	_, _ = right.Write(branch.right[:])
+
+	return [][]byte{left.Bytes(), right.Bytes()}
+}
+
+func DecodeTapBranchNodes(branchData [][]byte) (*TapBranchNodes, error) {
+	if len(branchData) != 2 {
+		return nil, errors.New("invalid tapscript branch data")
+	}
+
+	left, right := branchData[0], branchData[1]
+
+	// Given data cannot be a valid encoded TapBranchPreimage.
+	if len(left) != chainhash.HashSize || len(right) != chainhash.HashSize {
+		return nil, fmt.Errorf("invalid tapscript preimage length")
+	}
+
+	var leftHash, rightHash [chainhash.HashSize]byte
+	copy(leftHash[:], left)
+	copy(rightHash[:], right)
+
+	return &TapBranchNodes{
+		left:  leftHash,
+		right: rightHash,
+	}, nil
+}
+
+func EncodeTapLeafNodes(leaves TapLeafNodes) ([][]byte, error) {
+	innerLeaves := leaves.ToLeaves()
+
+	return fn.MapErr(innerLeaves, func(l txscript.TapLeaf) ([]byte, error) {
+		return EncodeTapLeaf(&l)
+	})
+}
+
+func DecodeTapLeafNodes(leafData [][]byte) (*TapLeafNodes, error) {
+	if len(leafData) == 0 {
+		return nil, fmt.Errorf("no tapleaves provided")
+	}
+
+	orderedLeaves := make([]txscript.TapLeaf, len(leafData))
+	for i, leafBytes := range leafData {
+		leaf, err := DecodeTapLeaf(leafBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		orderedLeaves[i] = *leaf
+	}
+
+	return &TapLeafNodes{
+		v: orderedLeaves,
+	}, nil
+}
+
+// The following TapLeaf {en,de}coders are a duplicate of those used in
+// btcwallet. Specifically, the inner loop logic for handling []TapLeaf.
+// https://github.com/btcsuite/btcwallet/blob/master/waddrmgr/tlv.go#L160
+// This duplication is needed until we update btcwallet to export these methods.
+
+// EncodeTapLeaf encodes a TapLeaf into a byte slice containing a TapLeaf TLV
+// record, prefixed with a varint indicating the length of the record.
+func EncodeTapLeaf(leaf *txscript.TapLeaf) ([]byte, error) {
+	if leaf == nil {
+		return nil, fmt.Errorf("cannot encode nil tapleaf")
+	}
+
+	leafVersion := uint8(leaf.LeafVersion)
+	tlvRecords := []tlv.Record{
+		tlv.MakePrimitiveRecord(
+			typeTapLeafVersion, &leafVersion,
+		),
+	}
+
+	if len(leaf.Script) > 0 {
+		tlvRecords = append(
+			tlvRecords, tlv.MakePrimitiveRecord(
+				typeTapLeafScript, &leaf.Script,
+			),
+		)
+	}
+
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return nil, err
+	}
+
+	var leafTLVBytes bytes.Buffer
+	err = tlvStream.Encode(&leafTLVBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	// We encode the record with a varint length followed by
+	// the _raw_ TLV bytes.
+	var buf bytes.Buffer
+	tlvLen := uint64(len(leafTLVBytes.Bytes()))
+	if err := tlv.WriteVarInt(&buf, tlvLen, &[8]byte{}); err != nil {
+		return nil, err
+	}
+
+	_, err = buf.Write(leafTLVBytes.Bytes())
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// DecodeTapLeaf decodes a byte slice containing a TapLeaf TLV record prefixed
+// with a varint indicating the length of the record.
+func DecodeTapLeaf(leafData []byte) (*txscript.TapLeaf, error) {
+	var (
+		buf       [8]byte
+		leafBytes = bytes.NewReader(leafData)
+	)
+
+	// Read out the varint that encodes the size of the inner TLV record.
+	blobSize, err := tlv.ReadVarInt(leafBytes, &buf)
+	if err != nil {
+		return nil, err
+	}
+
+	innerTlvReader := io.LimitedReader{
+		R: leafBytes,
+		N: int64(blobSize),
+	}
+
+	var (
+		leafVersion uint8
+		script      []byte
+	)
+	tlvStream, err := tlv.NewStream(
+		tlv.MakePrimitiveRecord(typeTapLeafVersion, &leafVersion),
+		tlv.MakePrimitiveRecord(typeTapLeafScript, &script),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	parsedTypes, err := tlvStream.DecodeWithParsedTypes(&innerTlvReader)
+	if err != nil {
+		return nil, err
+	}
+
+	leaf := txscript.TapLeaf{
+		LeafVersion: txscript.TapscriptLeafVersion(leafVersion),
+	}
+
+	// Only set script when actually parsed to make difference between nil
+	//and empty slice work correctly. The parsedTypes entry must be nil if
+	//it was parsed fully.
+	if t, ok := parsedTypes[typeTapLeafScript]; ok && t == nil {
+		leaf.Script = script
+	}
+
+	return &leaf, nil
 }
