@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
@@ -205,6 +206,98 @@ func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 // GenesisTxBuilder interface.
 var _ GenesisTxBuilder = (*MockGroupTxBuilder)(nil)
 
+type storedTapTree struct {
+	branches bool
+	treeData [][]byte
+}
+
+type MockTapscriptTreeStore struct {
+	Store               map[chainhash.Hash]storedTapTree
+	FailLoad, FailStore bool
+}
+
+func NewMockTapscriptTreeStore() *MockTapscriptTreeStore {
+	return &MockTapscriptTreeStore{
+		Store: make(map[chainhash.Hash]storedTapTree),
+	}
+}
+
+func (m *MockTapscriptTreeStore) StoreTapscriptTree(_ context.Context,
+	tapTree TapscriptTreeNodes) (*chainhash.Hash, error) {
+
+	if m.FailStore {
+		return nil, fmt.Errorf("failed to store tapscript tree")
+	}
+
+	var rootHash chainhash.Hash
+
+	tapLeaves := tapTree.GetLeaves().UnwrapToPtr()
+	if tapLeaves != nil {
+		rootHash = tapLeaves.RootHash()
+		leafBytes, err := EncodeTapLeafNodes(*tapLeaves)
+		if err != nil {
+			return nil, err
+		}
+
+		m.Store[rootHash] = storedTapTree{false, leafBytes}
+	}
+
+	tapBranch := tapTree.GetBranch().UnwrapToPtr()
+	if tapBranch != nil {
+		rootHash = tapBranch.RootHash()
+		branchBytes := EncodeTapBranchNodes(*tapBranch)
+		m.Store[rootHash] = storedTapTree{true, branchBytes}
+	}
+
+	return &rootHash, nil
+}
+
+func (m *MockTapscriptTreeStore) LoadTapscriptTree(_ context.Context,
+	rootHash chainhash.Hash) (*TapscriptTreeNodes, error) {
+
+	if m.FailLoad {
+		return nil, fmt.Errorf("failed to load tapscript tree")
+	}
+
+	storedTree, ok := m.Store[rootHash]
+	if !ok {
+		return nil, TreeNotFound
+	}
+
+	var nodes TapscriptTreeNodes
+	if storedTree.branches {
+		branch, err := DecodeTapBranchNodes(storedTree.treeData)
+		if err != nil {
+			return nil, err
+		}
+
+		nodes = nodes.FromBranch(*branch)
+
+		return &nodes, nil
+	}
+
+	leaves, err := DecodeTapLeafNodes(storedTree.treeData)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes = nodes.FromLeaves(*leaves)
+
+	return &nodes, nil
+}
+
+func (m *MockTapscriptTreeStore) DeleteTapscriptTree(_ context.Context,
+	rootHash chainhash.Hash) error {
+
+	delete(m.Store, rootHash)
+
+	return nil
+}
+
+// A compile time assertion to ensure that MockTapscriptTreeStore meets the
+// TapscriptTreeStore interface.
+var _ TapscriptTreeManager = (*MockTapscriptTreeStore)(nil)
+
 // SignOutputRaw creates a signature for a single input.
 // Taken from lnd/lnwallet/btcwallet/signer:L344, SignOutputRaw
 func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
@@ -380,11 +473,13 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 	// Derive a tapscipt root using the default tapscript tree used for
 	// testing, but use a signature as a witness.
 	case keySpend:
-		tapRootHash := test.BuildTapscriptTreeNoReveal(
+		treeRootChildren := test.BuildTapscriptTreeNoReveal(
 			t, groupSinglyTweakedKey,
 		)
 
-		groupReq.TapscriptRoot = tapRootHash
+		treeTapHash := treeRootChildren.TapHash()
+
+		groupReq.TapscriptRoot = treeTapHash[:]
 		groupKey, err = DeriveCustomGroupKey(
 			genSigner, &genBuilder, groupReq, nil, nil,
 		)
