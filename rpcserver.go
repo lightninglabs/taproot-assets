@@ -18,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
@@ -515,12 +516,44 @@ func (r *rpcServer) FinalizeBatch(_ context.Context,
 	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
+	var batchSibling *asset.TapscriptTreeNodes
+
 	feeRate, err := checkFeeRateSanity(req.FeeRate)
 	if err != nil {
 		return nil, err
 	}
+	feeRateOpt := fn.MaybeSome(feeRate)
 
-	batch, err := r.cfg.AssetMinter.FinalizeBatch(feeRate)
+	batchTapscriptTree := req.GetFullTree()
+	batchTapBranch := req.GetBranch()
+
+	switch {
+	case batchTapscriptTree != nil && batchTapBranch != nil:
+		return nil, fmt.Errorf("cannot specify both tapscript tree " +
+			"and tapscript tree branches")
+
+	case batchTapscriptTree != nil:
+		batchSibling, err = marshalTapscriptFullTree(batchTapscriptTree)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tapscript tree: %w",
+				err)
+		}
+
+	case batchTapBranch != nil:
+		batchSibling, err = marshalTapscriptBranch(batchTapBranch)
+		if err != nil {
+			return nil, fmt.Errorf("invalid tapscript branch: %w",
+				err)
+		}
+	}
+	tapTreeOpt := fn.MaybeSome(batchSibling)
+
+	batch, err := r.cfg.AssetMinter.FinalizeBatch(
+		tapgarden.FinalizeParams{
+			FeeRate:        feeRateOpt,
+			SiblingTapTree: tapTreeOpt,
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to finalize batch: %w", err)
 	}
@@ -2915,6 +2948,29 @@ func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 		return 0, fmt.Errorf("unknown batch state: %v",
 			currentBatchState.String())
 	}
+}
+
+func marshalTapscriptFullTree(tree *taprpc.TapscriptFullTree) (
+	*asset.TapscriptTreeNodes, error) {
+
+	rpcLeaves := tree.GetAllLeaves()
+	leaves := fn.Map(rpcLeaves, func(l *taprpc.TapLeaf) txscript.TapLeaf {
+		return txscript.NewBaseTapLeaf(l.Script)
+	})
+
+	return asset.TapTreeNodesFromLeaves(leaves)
+}
+
+func marshalTapscriptBranch(branch *taprpc.TapBranch) (*asset.TapscriptTreeNodes,
+	error) {
+
+	branchData := [][]byte{branch.LeftTaphash, branch.RightTaphash}
+	tapBranch, err := asset.DecodeTapBranchNodes(branchData)
+	if err != nil {
+		return nil, err
+	}
+
+	return fn.Ptr(asset.FromBranch(*tapBranch)), nil
 }
 
 // UnmarshalScriptKey parses the RPC script key into the native counterpart.
