@@ -419,6 +419,47 @@
             }
           }
         },
+        "parameters": [
+          {
+            "name": "anchor_txid",
+            "description": "anchor_txid specifies the hexadecimal encoded txid string of the anchor\ntransaction for which to retrieve transfers. An empty value indicates\nthat this parameter should be disregarded in transfer selection.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/assets/transfers/{anchor_txid}": {
+      "get": {
+        "summary": "tapcli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
+        "operationId": "TaprootAssets_ListTransfers2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListTransfersResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "anchor_txid",
+            "description": "anchor_txid specifies the hexadecimal encoded txid string of the anchor\ntransaction for which to retrieve transfers. An empty value indicates\nthat this parameter should be disregarded in transfer selection.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          }
+        ],
         "tags": [
           "TaprootAssets"
         ]

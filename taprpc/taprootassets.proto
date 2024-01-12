@@ -460,6 +460,10 @@ message ListBalancesResponse {
 }
 
 message ListTransfersRequest {
+    // anchor_txid specifies the hexadecimal encoded txid string of the anchor
+    // transaction for which to retrieve transfers. An empty value indicates
+    // that this parameter should be disregarded in transfer selection.
+    string anchor_txid = 1;
 }
 
 message ListTransfersResponse {

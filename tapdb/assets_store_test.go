@@ -1261,7 +1261,7 @@ func TestAssetExportLog(t *testing.T) {
 	// looking for all unconfirmed transfers.
 	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(assetTransfers))
+	require.Len(t, assetTransfers, 1)
 
 	// We should also be able to find it based on its outpoint.
 	firstOutput := spendDelta.Outputs[0]
@@ -1270,7 +1270,7 @@ func TestAssetExportLog(t *testing.T) {
 		AnchorTxHash: firstOutputAnchor.OutPoint.Hash[:],
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(assetTransfers))
+	require.Len(t, assetTransfers, 1)
 
 	// Check that the new UTXO is found among our managed UTXOs.
 	utxos, err = assetsStore.FetchManagedUTXOs(ctx)
@@ -1302,13 +1302,20 @@ func TestAssetExportLog(t *testing.T) {
 		UnconfOnly: true,
 	})
 	require.NoError(t, err)
-	require.Equal(t, 1, len(assetTransfers))
+	require.Len(t, assetTransfers, 1)
 
 	// This should also show up in the set of pending parcels. It should
 	// also match exactly the inbound parcel we used to make the delta.
 	parcels, err := assetsStore.PendingParcels(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 1, len(parcels))
+	require.Len(t, parcels, 1)
+	require.Equal(t, spendDelta, parcels[0])
+
+	// We should also be able to query for the parcel when filtering on its
+	// anchor transaction hash.
+	parcels, err = assetsStore.QueryParcels(ctx, &anchorTxHash, true)
+	require.NoError(t, err)
+	require.Len(t, parcels, 1)
 	require.Equal(t, spendDelta, parcels[0])
 
 	// With the asset delta committed and verified, we'll now mark the
@@ -1421,7 +1428,7 @@ func TestAssetExportLog(t *testing.T) {
 	// At this point, there should be no more pending parcels.
 	parcels, err = assetsStore.PendingParcels(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 0, len(parcels))
+	require.Len(t, parcels, 0)
 }
 
 // TestAssetGroupWitnessUpsert tests that if you try to insert another asset

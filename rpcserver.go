@@ -973,10 +973,24 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 
 // ListTransfers lists all asset transfers managed by this daemon.
 func (r *rpcServer) ListTransfers(ctx context.Context,
-	_ *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
+	req *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
 	error) {
 
-	parcels, err := r.cfg.AssetStore.QueryParcels(ctx, false)
+	// Unmarshal the anchor tx hash if one was provided.
+	var (
+		anchorTxHash *chainhash.Hash
+		err          error
+	)
+
+	if len(req.AnchorTxid) != 0 {
+		anchorTxHash, err = chainhash.NewHashFromStr(req.AnchorTxid)
+		if err != nil {
+			return nil, fmt.Errorf("invalid anchor tx hash: %w",
+				err)
+		}
+	}
+
+	parcels, err := r.cfg.AssetStore.QueryParcels(ctx, anchorTxHash, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query parcels: %w", err)
 	}

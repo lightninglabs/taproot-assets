@@ -2757,22 +2757,31 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 func (a *AssetStore) PendingParcels(
 	ctx context.Context) ([]*tapfreighter.OutboundParcel, error) {
 
-	return a.QueryParcels(ctx, true)
+	return a.QueryParcels(ctx, nil, true)
 }
 
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
+	anchorTxHash *chainhash.Hash,
 	pending bool) ([]*tapfreighter.OutboundParcel, error) {
 
 	var transfers []*tapfreighter.OutboundParcel
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		// Construct transfer query.
+		transferQuery := TransferQuery{
+			UnconfOnly: pending,
+		}
+
+		// Include anchor tx hash if specified.
+		if anchorTxHash != nil {
+			transferQuery.AnchorTxHash = anchorTxHash[:]
+		}
+
 		// If we want every unconfirmed transfer, then we only pass in
 		// the UnconfOnly field.
-		dbTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
-			UnconfOnly: pending,
-		})
+		dbTransfers, err := q.QueryAssetTransfers(ctx, transferQuery)
 		if err != nil {
 			return err
 		}
