@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -463,6 +465,183 @@ const (
 	// multiple spending conditions.
 	ScriptV0 ScriptVersion = 0
 )
+
+// TapscriptTreeNodes represents the two supported ways to define a tapscript
+// tree to be used as a sibling for a Taproot Asset commitment, an asset group
+// key, or an asset script key. This type is used for interfacing with the DB,
+// not for supplying in a proof or key derivation. The inner fields are mutually
+// exclusive.
+type TapscriptTreeNodes struct {
+	// leaves is created from an ordered list of TapLeaf objects and
+	// represents a Tapscript tree.
+	leaves *TapLeafNodes
+
+	// branch is created from a TapBranch and represents the tapHashes of
+	// the child nodes of a TapBranch.
+	branch *TapBranchNodes
+}
+
+// GetLeaves returns an Option containing a copy of the internal TapLeafNodes,
+// if it exists.
+func GetLeaves(ttn TapscriptTreeNodes) fn.Option[TapLeafNodes] {
+	if ttn.leaves == nil {
+		return fn.None[TapLeafNodes]()
+	}
+
+	return fn.Some[TapLeafNodes](*ttn.leaves)
+}
+
+// GetBranch returns an Option containing a copy of the internal TapBranchNodes,
+// if it exists.
+func GetBranch(ttn TapscriptTreeNodes) fn.Option[TapBranchNodes] {
+	if ttn.branch == nil {
+		return fn.None[TapBranchNodes]()
+	}
+
+	return fn.Some[TapBranchNodes](*ttn.branch)
+}
+
+// FromBranch creates a TapscriptTreeNodes object from a TapBranchNodes object.
+func FromBranch(tbn TapBranchNodes) TapscriptTreeNodes {
+	return TapscriptTreeNodes{
+		branch: &tbn,
+	}
+}
+
+// FromLeaves creates a TapscriptTreeNodes object from a TapLeafNodes object.
+func FromLeaves(tln TapLeafNodes) TapscriptTreeNodes {
+	return TapscriptTreeNodes{
+		leaves: &tln,
+	}
+}
+
+// CheckTapLeafSanity asserts that a TapLeaf script is smaller than the maximum
+// witness size, and that the TapLeaf version is Tapscript v0.
+func CheckTapLeafSanity(leaf *txscript.TapLeaf) error {
+	if leaf == nil {
+		return fmt.Errorf("leaf cannot be nil")
+	}
+
+	if leaf.LeafVersion != txscript.BaseLeafVersion {
+		return fmt.Errorf("tapleaf version %d not supported",
+			leaf.LeafVersion)
+	}
+
+	if len(leaf.Script) == 0 {
+		return fmt.Errorf("tapleaf script is empty")
+	}
+
+	if len(leaf.Script) >= blockchain.MaxBlockWeight {
+		return fmt.Errorf("tapleaf script too large")
+	}
+
+	return nil
+}
+
+// TapLeafNodes represents an ordered list of TapLeaf objects, that have been
+// checked for their script version and size. These leaves can be stored to and
+// loaded from the DB.
+type TapLeafNodes struct {
+	v []txscript.TapLeaf
+}
+
+// TapTreeNodesFromLeaves sanity checks an ordered list of TapLeaf objects and
+// constructs a TapscriptTreeNodes object if all leaves are valid.
+func TapTreeNodesFromLeaves(leaves []txscript.TapLeaf) (*TapscriptTreeNodes,
+	error) {
+
+	err := CheckTapLeavesSanity(leaves)
+	if err != nil {
+		return nil, err
+	}
+
+	nodes := TapscriptTreeNodes{
+		leaves: &TapLeafNodes{
+			v: leaves,
+		},
+	}
+
+	return &nodes, nil
+}
+
+// CheckTapLeavesSanity asserts that a slice of TapLeafs is below the maximum
+// size, and that each leaf passes a sanity check for script version and size.
+func CheckTapLeavesSanity(leaves []txscript.TapLeaf) error {
+	if len(leaves) == 0 {
+		return fmt.Errorf("no leaves given")
+	}
+
+	// The maximum number of leaves we will allow for a Tapscript tree we
+	// store is 2^15 - 1. To use a larger tree, create a TapscriptTreeNodes
+	// object from a TapBranch instead.
+	if len(leaves) > math.MaxInt16 {
+		return fmt.Errorf("tapleaf count larger than %d",
+			math.MaxInt16)
+	}
+
+	// Reject any leaf not using the initial Tapscript version, or with a
+	// script size above the maximum blocksize.
+	for i := range leaves {
+		err := CheckTapLeafSanity(&leaves[i])
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ToLeaves returns the TapLeaf slice inside a TapLeafNodes object.
+func ToLeaves(l TapLeafNodes) []txscript.TapLeaf {
+	return l.v
+}
+
+// LeafNodesRootHash returns the root hash of a Tapscript tree built from the
+// TapLeaf nodes in a TapLeafNodes object.
+func LeafNodesRootHash(l TapLeafNodes) chainhash.Hash {
+	return txscript.AssembleTaprootScriptTree(l.v...).RootNode.TapHash()
+}
+
+// TapBranchNodesLen is the length of a TapBranch represented as a byte arrray.
+const TapBranchNodesLen = 64
+
+// TapBranchNodes represents the tapHashes of the child nodes of a TapBranch.
+// These tapHashes can be stored to and loaded from the DB.
+type TapBranchNodes struct {
+	left  [chainhash.HashSize]byte
+	right [chainhash.HashSize]byte
+}
+
+// TapTreeNodesFromBranch creates a TapscriptTreeNodes object from a TapBranch.
+func TapTreeNodesFromBranch(branch txscript.TapBranch) TapscriptTreeNodes {
+	return TapscriptTreeNodes{
+		branch: &TapBranchNodes{
+			left:  branch.Left().TapHash(),
+			right: branch.Right().TapHash(),
+		},
+	}
+}
+
+// ToBranch returns an encoded TapBranchNodes object.
+func ToBranch(b TapBranchNodes) [][]byte {
+	return EncodeTapBranchNodes(b)
+}
+
+// BranchNodesRootHash returns the root hash of a Tapscript tree built from the
+// tapHashes stored in a TapBranchNodes object.
+func BranchNodesRootHash(b TapBranchNodes) chainhash.Hash {
+	return NewTapBranchHash(b.left, b.right)
+}
+
+// NewTapBranchHash takes the raw tap hashes of the left and right nodes and
+// hashes them into a branch.
+func NewTapBranchHash(l, r chainhash.Hash) chainhash.Hash {
+	if bytes.Compare(l[:], r[:]) > 0 {
+		l, r = r, l
+	}
+
+	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
+}
 
 // AssetGroup holds information about an asset group, including the genesis
 // information needed re-tweak the raw key.
