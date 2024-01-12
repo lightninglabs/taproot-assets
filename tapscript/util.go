@@ -1,12 +1,15 @@
 package tapscript
 
 import (
+	"fmt"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/btcsuite/btcwallet/wallet/txsizes"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -34,6 +37,51 @@ func PayToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
 		AddOp(txscript.OP_1).
 		AddData(schnorr.SerializePubKey(taprootKey)).
 		Script()
+}
+
+// TapTreeToSibling constucts a taproot sibling hash from a Tapscript tree,
+// to be used with a TapCommitment tree root to derive a tapscript root. This
+// mimics the logic in the lnd/input package, and is needed here because the
+// Tapscript tree root hash is not returned when constructing a Tapscript
+// object.
+func TapTreeToSibling(
+	tapTree waddrmgr.Tapscript) (*commitment.TapscriptPreimage,
+	error) {
+
+	// For the anchor UTXO, the only supported type for the tap tree sibling
+	// is full tapscript tree. The sibling must not be another Tap
+	// commitment, so it cannot be just the root hash for a tapscript tree.
+	if tapTree.Type != waddrmgr.TapscriptTypeFullTree {
+		return nil, fmt.Errorf("unsupported tapscript tree type for "+
+			"minting anchor taproot sibling: %v", tapTree.Type)
+	}
+
+	switch len(tapTree.Leaves) {
+	case 1:
+		tapPreimage := commitment.NewPreimageFromLeaf(
+			tapTree.Leaves[0],
+		)
+
+		// A single tapscript leaf must be verified to not be another
+		// Taproot Asset commitment before use.
+		err := tapPreimage.VerifyNoCommitment()
+		if err != nil {
+			return nil, err
+		}
+
+		return tapPreimage, nil
+
+	default:
+		// Create a preimage from the top two nodes in the tapscript
+		// tree. This preimage can never be a Taproot Asset commitment,
+		// as it is the wrong length (64 bytes).
+		tree := txscript.AssembleTaprootScriptTree(tapTree.Leaves...)
+		rootChildren := txscript.NewTapBranch(
+			tree.RootNode.Left(), tree.RootNode.Right(),
+		)
+
+		return commitment.NewPreimageFromBranch(rootChildren), nil
+	}
 }
 
 // EstimateFee provides a worst-case fee and vsize estimate for a transaction
