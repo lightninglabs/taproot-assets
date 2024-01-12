@@ -68,7 +68,7 @@ type ReOrgWatcherConfig struct {
 
 	// ProofArchive is the storage backend for proofs to which we store
 	// updated proofs.
-	ProofArchive proof.NotifyArchiver
+	ProofArchive proof.Archiver
 
 	// NonBuriedAssetFetcher is a function that returns all assets that are
 	// not yet sufficiently deep buried.

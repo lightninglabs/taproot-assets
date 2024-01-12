@@ -11,8 +11,85 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 )
 
-// Blob represents a serialized proof file, including the checksum.
+// Blob either represents a serialized proof file, including the checksum or a
+// single serialized issuance/transition proof. Which one it is can be found out
+// from the leading magic bytes (or the helper methods that inspect those).
 type Blob []byte
+
+// IsFile returns true if the blob is a serialized proof file.
+func (b Blob) IsFile() bool {
+	return IsProofFile(b)
+}
+
+// IsSingleProof returns true if the blob is a serialized single proof.
+func (b Blob) IsSingleProof() bool {
+	return IsSingleProof(b)
+}
+
+// AsFile returns the blob as a parsed file. If the blob is a single proof, it
+// will be parsed as a file with a single proof.
+func (b Blob) AsFile() (*File, error) {
+	switch {
+	// We have a full file, we can just parse it and return it.
+	case b.IsFile():
+		file := NewEmptyFile(V0)
+		if err := file.Decode(bytes.NewReader(b)); err != nil {
+			return nil, fmt.Errorf("error decoding proof file: %w",
+				err)
+		}
+
+		return file, nil
+
+	// We have a single proof, so let's parse it and return it directly,
+	// assuming it is the most recent proof the caller is interested in.
+	case b.IsSingleProof():
+		p := Proof{}
+		if err := p.Decode(bytes.NewReader(b)); err != nil {
+			return nil, fmt.Errorf("error decoding single proof: "+
+				"%w", err)
+		}
+
+		file, err := NewFile(V0, p)
+		if err != nil {
+			return nil, err
+		}
+
+		return file, nil
+
+	default:
+		return nil, fmt.Errorf("unknown proof blob type")
+	}
+}
+
+// AsSingleProof returns the blob as a parsed single proof. If the blob is a
+// full proof file, the parsed last proof of that file will be returned.
+func (b Blob) AsSingleProof() (*Proof, error) {
+	switch {
+	// We have a full file, we can just parse it and return it.
+	case b.IsFile():
+		file := NewEmptyFile(V0)
+		if err := file.Decode(bytes.NewReader(b)); err != nil {
+			return nil, fmt.Errorf("error decoding proof file: %w",
+				err)
+		}
+
+		return file.LastProof()
+
+	// We have a single proof, so let's parse it and return it directly,
+	// assuming it is the most recent proof the caller is interested in.
+	case b.IsSingleProof():
+		p := Proof{}
+		if err := p.Decode(bytes.NewReader(b)); err != nil {
+			return nil, fmt.Errorf("error decoding single proof: "+
+				"%w", err)
+		}
+
+		return &p, nil
+
+	default:
+		return nil, fmt.Errorf("unknown proof blob type")
+	}
+}
 
 // AssetBlobs is a data structure used to pass around the proof files for a
 // set of assets which may have been created in the same batched transaction.

@@ -592,6 +592,12 @@ func (m *MockProofArchive) FetchProof(ctx context.Context,
 	return nil, nil
 }
 
+func (m *MockProofArchive) HasProof(ctx context.Context,
+	id proof.Locator) (bool, error) {
+
+	return false, nil
+}
+
 func (m *MockProofArchive) FetchProofs(ctx context.Context,
 	id asset.ID) ([]*proof.AnnotatedProof, error) {
 
