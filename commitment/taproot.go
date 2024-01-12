@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 )
 
 const (
@@ -73,6 +74,7 @@ func (t TapscriptPreimageType) String() string {
 // TapscriptPreimage wraps a pre-image byte slice with a type byte that self
 // identifies what type of pre-image it is.
 type TapscriptPreimage struct {
+	// TODO(jhb): SiblingPreimage need not be 32 bytes?
 	// SiblingPreimage is the pre-image itself. This will be either 32 or
 	// 64 bytes.
 	SiblingPreimage []byte
@@ -111,6 +113,49 @@ func NewPreimageFromBranch(branch txscript.TapBranch) *TapscriptPreimage {
 		SiblingPreimage: encodedBranch.Bytes(),
 		SiblingType:     BranchPreimage,
 	}
+}
+
+// TapTreeToSibling constucts a taproot sibling hash from a Tapscript tree,
+// to be used with a TapCommitment tree root to derive a tapscript root. This
+// mimics the logic in the lnd/input package, and is needed here because the
+// Tapscript tree root hash is not returned when constructing a Tapscript
+// object.
+func NewPreimageFromTreePreimage(
+	p asset.TapscriptTreePreimage) (*TapscriptPreimage, error) {
+
+	var (
+		preimage *TapscriptPreimage
+		err      error
+	)
+
+	p.WhenLeft(func(tbp asset.TapBranchPreimage) {
+		preimage = &TapscriptPreimage{
+			SiblingPreimage: asset.EncodeTapBranchPreimage(tbp),
+			SiblingType:     BranchPreimage,
+		}
+	})
+	p.WhenRight(func(tl []txscript.TapLeaf) {
+		if len(tl) == 1 {
+			preimage = NewPreimageFromLeaf(tl[0])
+
+			// A single tapscript leaf must be verified to not be
+			// another Taproot Asset commitment before use.
+			err = preimage.VerifyNoCommitment()
+			return
+		}
+
+		tree := txscript.AssembleTaprootScriptTree(tl...)
+		rootChildren := txscript.NewTapBranch(
+			tree.RootNode.Left(), tree.RootNode.Right(),
+		)
+		preimage = NewPreimageFromBranch(rootChildren)
+	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	return preimage, nil
 }
 
 // IsEmpty returns true if the sibling pre-image is empty.

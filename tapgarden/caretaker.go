@@ -679,10 +679,29 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		b.cfg.Batch.RootAssetCommitment = tapCommitment
 
+		// Fetch the optional Tapscript tree for this batch, and convert
+		// it to a TapHash.
+		// TODO(jhb): Make this load call mandatory once we have a
+		// DB-backed implementation of the tapscript tree store.
+		var batchSibling *commitment.TapscriptPreimage
+		if b.cfg.TreeStore != nil && b.cfg.Batch.tapSiblingHash != nil {
+			tapSibling, err := b.cfg.TreeStore.LoadTapscriptTree(
+				ctx, *b.cfg.Batch.tapSiblingHash,
+			)
+			if err != nil {
+				return 0, err
+			}
+
+			batchSibling, err = commitment.
+				NewPreimageFromTreePreimage(*tapSibling)
+			if err != nil {
+				return 0, err
+			}
+		}
 		// With the commitment Taproot Asset root SMT constructed, we'll
 		// map that into the tapscript root we'll insert into the
 		// genesis transaction.
-		genesisScript, err := b.cfg.Batch.genesisScript()
+		genesisScript, err := b.cfg.Batch.genesisScript(batchSibling)
 		if err != nil {
 			return 0, fmt.Errorf("unable to create genesis "+
 				"script: %v", err)
@@ -776,11 +795,15 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		// At this point we have a fully signed PSBT packet which'll
 		// create our set of assets once mined. We'll write this to
-		// disk, then import the public key into the wallet.
+		// disk, then import the public key into the wallet. The sibling
+		// here can always be nil as we'll fetch the output key computed
+		// in BatchStateFrozen.
 		//
 		// TODO(roasbeef): re-run during the broadcast phase to ensure
 		// it's fully imported?
-		mintingOutputKey, tapRoot, err := b.cfg.Batch.MintingOutputKey()
+		mintingOutputKey, tapRoot, err := b.cfg.Batch.MintingOutputKey(
+			nil,
+		)
 		if err != nil {
 			return 0, err
 		}
@@ -976,6 +999,26 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
 		groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
 
+		// Fetch the optional tapscript sibling for this batch, which
+		// is needed to construct valid inclusion proofs.
+		// TODO(jhb): Make this load call mandatory once we have a
+		// DB-backed implementation of the tapscript tree store.
+		var batchSibling *commitment.TapscriptPreimage
+		if b.cfg.TreeStore != nil && b.cfg.Batch.tapSiblingHash != nil {
+			tapSibling, err := b.cfg.TreeStore.LoadTapscriptTree(
+				ctx, *b.cfg.Batch.tapSiblingHash,
+			)
+			if err != nil {
+				return 0, err
+			}
+
+			batchSibling, err = commitment.
+				NewPreimageFromTreePreimage(*tapSibling)
+			if err != nil {
+				return 0, err
+			}
+		}
+
 		// Now that the minting transaction has been confirmed, we'll
 		// need to create the series of proof file blobs for each of
 		// the assets. In case the lnd wallet creates a P2TR change
@@ -990,6 +1033,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				TxIndex:          int(confInfo.TxIndex),
 				OutputIndex:      int(b.anchorOutputIndex),
 				InternalKey:      b.cfg.Batch.BatchKey.PubKey,
+				TapscriptSibling: batchSibling,
 				TaprootAssetRoot: batchCommitment,
 			},
 			GenesisPoint: extractGenesisOutpoint(
@@ -1011,6 +1055,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			baseProof, headerVerifier, groupVerifier,
 			groupAnchorVerifier,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
+			proof.WithSiblingPreimage(batchSibling),
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to construct minting "+
