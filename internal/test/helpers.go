@@ -393,19 +393,18 @@ func ReadTestDataFile(t *testing.T, fileName string) string {
 }
 
 // BuildTapscriptTree builds a Tapscript tree with two leaves, a hash lock
-// script and a signature verification script. It returns only the tapscript
-// tree root.
+// script and a signature verification script.
 func BuildTapscriptTreeNoReveal(t *testing.T,
-	internalKey *btcec.PublicKey) []byte {
+	internalKey *btcec.PublicKey) txscript.TapBranch {
 
 	hashLockWitness := []byte("foobar")
 	hashLockLeaf := ScriptHashLock(t, hashLockWitness)
 	sigLeaf := ScriptSchnorrSig(t, internalKey)
 
 	tree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
-	rootHash := tree.RootNode.TapHash()
-
-	return rootHash[:]
+	return txscript.NewTapBranch(
+		tree.RootNode.Left(), tree.RootNode.Right(),
+	)
 }
 
 // BuildTapscriptTree builds a Tapscript tree with two leaves, a hash lock
