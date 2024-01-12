@@ -380,11 +380,12 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 	// Derive a tapscipt root using the default tapscript tree used for
 	// testing, but use a signature as a witness.
 	case keySpend:
-		tapRootHash := test.BuildTapscriptTreeNoReveal(
+		treeRootChildren := test.BuildTapscriptTreeNoReveal(
 			t, groupSinglyTweakedKey,
 		)
+		treeTapHash := treeRootChildren.TapHash()
 
-		groupReq.TapscriptRoot = tapRootHash
+		groupReq.TapscriptRoot = treeTapHash[:]
 		groupKey, err = DeriveCustomGroupKey(
 			genSigner, &genBuilder, groupReq, nil, nil,
 		)

@@ -681,8 +681,7 @@ func EncodeTapBranchNodes(branch TapBranchNodes) [][]byte {
 
 func DecodeTapBranchNodes(branchData [][]byte) (*TapBranchNodes, error) {
 	if len(branchData) != 2 {
-		return nil, fmt.Errorf("invalid tapscript branch data, not 2" +
-			"elements")
+		return nil, InvalidTapBranch
 	}
 
 	left, right := branchData[0], branchData[1]
