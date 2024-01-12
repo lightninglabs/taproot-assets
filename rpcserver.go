@@ -516,12 +516,22 @@ func (r *rpcServer) FinalizeBatch(_ context.Context,
 	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
+	feeRateOpt := fn.None[chainfee.SatPerKWeight]()
 	feeRate, err := checkFeeRateSanity(req.FeeRate)
 	if err != nil {
 		return nil, err
 	}
 
-	batch, err := r.cfg.AssetMinter.FinalizeBatch(feeRate)
+	if feeRate != nil {
+		feeRateOpt = fn.Some(*feeRate)
+	}
+
+	// TODO(jhb): Add tapscript tree as an arg in FinalizeBatchRequest.
+	batch, err := r.cfg.AssetMinter.FinalizeBatch(
+		&tapgarden.FinalizeParams{
+			FeeRate: feeRateOpt,
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to finalize batch: %w", err)
 	}
