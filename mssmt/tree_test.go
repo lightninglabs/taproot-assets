@@ -39,25 +39,20 @@ func genTestStores(t *testing.T) map[string]makeTestTreeStoreFunc {
 	constructors := make(map[string]makeTestTreeStoreFunc)
 
 	for _, driver := range mssmt.RegisteredTreeStores() {
-		var makeFunc makeTestTreeStoreFunc
-		if driver.Name == "sqlite3" {
-			makeFunc = func() (mssmt.TreeStore, error) {
-				dbFileName := filepath.Join(
-					t.TempDir(), "tmp.db",
-				)
+		constructors[driver.Name] = func() (mssmt.TreeStore, error) {
+			dbFileName := filepath.Join(
+				t.TempDir(), "tmp.db",
+			)
 
-				treeStore, err := driver.New(dbFileName, "test")
-				if err != nil {
-					return nil, fmt.Errorf("unable to "+
-						"create new sqlite tree "+
-						"store: %v", err)
-				}
-
-				return treeStore, nil
+			treeStore, err := driver.New(dbFileName, "test")
+			if err != nil {
+				return nil, fmt.Errorf("unable to "+
+					"create new sqlite tree "+
+					"store: %v", err)
 			}
-		}
 
-		constructors[driver.Name] = makeFunc
+			return treeStore, nil
+		}
 	}
 
 	constructors["default"] = func() (mssmt.TreeStore, error) {
