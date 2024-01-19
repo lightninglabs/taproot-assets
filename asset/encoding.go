@@ -140,13 +140,16 @@ func CompressedPubKeyEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "*btcec.PublicKey")
 }
 
-func CompressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+func CompressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
 	if typ, ok := val.(**btcec.PublicKey); ok {
 		var keyBytes [btcec.PubKeyBytesLenCompressed]byte
 		err := tlv.DBytes33(r, &keyBytes, buf, btcec.PubKeyBytesLenCompressed)
 		if err != nil {
 			return err
 		}
+
 		var key *btcec.PublicKey
 		// Handle empty key, which is not on the curve.
 		if keyBytes == [btcec.PubKeyBytesLenCompressed]byte{} {
@@ -160,6 +163,7 @@ func CompressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error
 		*typ = key
 		return nil
 	}
+
 	return tlv.NewTypeForDecodingErr(
 		val, "*btcec.PublicKey", l, btcec.PubKeyBytesLenCompressed,
 	)
