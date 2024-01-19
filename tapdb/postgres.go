@@ -173,6 +173,25 @@ func NewTestPostgresDB(t *testing.T) *PostgresStore {
 	return store
 }
 
+// NewPostgresDB is a helper function that creates a Postgres database for
+// testing.
+func NewPostgresDB() (*PostgresStore, error) {
+	var t testing.T
+	sqlFixture := NewTestPgFixture(&t, DefaultPostgresFixtureLifetime, true)
+	if t.Failed() {
+		return nil, fmt.Errorf("unable to make postgres db")
+	}
+
+	store, err := NewPostgresStore(sqlFixture.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+
+	// sqlFixture.TearDown(t)
+
+	return store, nil
+}
+
 // NewTestPostgresDBWithVersion is a helper function that creates a Postgres
 // database for testing and migrates it to the given version.
 func NewTestPostgresDBWithVersion(t *testing.T, version uint) *PostgresStore {
