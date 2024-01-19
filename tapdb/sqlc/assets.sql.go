@@ -508,34 +508,45 @@ func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (F
 
 const fetchAssetProof = `-- name: FetchAssetProof :one
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key
+    SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
     JOIN script_keys
-        ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = $1
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+      ON assets.anchor_utxo_id = utxos.utxo_id
+   WHERE script_keys.tweaked_script_key = $1
+     AND (utxos.outpoint = $2 OR $2 IS NULL)
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
-       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id,
+       asset_info.outpoint as outpoint
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id
+  ON asset_info.asset_id = asset_proofs.asset_id
 `
+
+type FetchAssetProofParams struct {
+	TweakedScriptKey []byte
+	Outpoint         []byte
+}
 
 type FetchAssetProofRow struct {
 	ScriptKey []byte
 	ProofFile []byte
 	AssetID   int64
 	ProofID   int64
+	Outpoint  []byte
 }
 
-func (q *Queries) FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAssetProof, tweakedScriptKey)
+func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) (FetchAssetProofRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
 	var i FetchAssetProofRow
 	err := row.Scan(
 		&i.ScriptKey,
 		&i.ProofFile,
 		&i.AssetID,
 		&i.ProofID,
+		&i.Outpoint,
 	)
 	return i, err
 }
@@ -2299,15 +2310,16 @@ WITH target_asset(asset_id) AS (
     SELECT asset_id
     FROM assets
     JOIN script_keys 
-        ON assets.script_key_id = script_keys.script_key_id
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+      ON assets.anchor_utxo_id = utxos.utxo_id
     WHERE
         (script_keys.tweaked_script_key = $2
              OR $2 IS NULL)
         AND (assets.asset_id = $3
                  OR $3 IS NULL)
-    -- TODO(guggero): Fix this by disallowing multiple assets with the same
-    -- script key!
-    LIMIT 1
+        AND (utxos.outpoint = $4
+                 OR $4 IS NULL)
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
@@ -2322,10 +2334,16 @@ type UpsertAssetProofParams struct {
 	ProofFile        []byte
 	TweakedScriptKey []byte
 	AssetID          sql.NullInt64
+	Outpoint         []byte
 }
 
 func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.ProofFile, arg.TweakedScriptKey, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, upsertAssetProof,
+		arg.ProofFile,
+		arg.TweakedScriptKey,
+		arg.AssetID,
+		arg.Outpoint,
+	)
 	return err
 }
 

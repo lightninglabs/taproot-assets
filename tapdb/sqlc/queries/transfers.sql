@@ -155,10 +155,13 @@ INSERT INTO passive_assets (
 -- name: QueryPassiveAssets :many
 SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
        passive.new_witness_stack, passive.new_proof,
-       genesis_assets.asset_id AS genesis_id, passive.asset_version
+       genesis_assets.asset_id AS genesis_id, passive.asset_version,
+       utxos.outpoint
 FROM passive_assets as passive
     JOIN assets
         ON passive.asset_id = assets.asset_id
     JOIN genesis_assets
         ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+         ON passive.new_anchor_utxo = utxos.utxo_id
 WHERE passive.transfer_id = @transfer_id;

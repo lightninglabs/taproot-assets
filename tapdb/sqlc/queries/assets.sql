@@ -631,15 +631,16 @@ WITH target_asset(asset_id) AS (
     SELECT asset_id
     FROM assets
     JOIN script_keys 
-        ON assets.script_key_id = script_keys.script_key_id
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+      ON assets.anchor_utxo_id = utxos.utxo_id
     WHERE
         (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key')
              OR sqlc.narg('tweaked_script_key') IS NULL)
         AND (assets.asset_id = sqlc.narg('asset_id')
                  OR sqlc.narg('asset_id') IS NULL)
-    -- TODO(guggero): Fix this by disallowing multiple assets with the same
-    -- script key!
-    LIMIT 1
+        AND (utxos.outpoint = sqlc.narg('outpoint')
+                 OR sqlc.narg('outpoint') IS NULL)
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
@@ -678,17 +679,21 @@ JOIN asset_info
 
 -- name: FetchAssetProof :one
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key
+    SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
     JOIN script_keys
-        ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = $1
+      ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+      ON assets.anchor_utxo_id = utxos.utxo_id
+   WHERE script_keys.tweaked_script_key = $1
+     AND (utxos.outpoint = sqlc.narg('outpoint') OR sqlc.narg('outpoint') IS NULL)
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
-       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id,
+       asset_info.outpoint as outpoint
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id;
+  ON asset_info.asset_id = asset_proofs.asset_id;
 
 -- name: HasAssetProof :one
 WITH asset_info AS (
