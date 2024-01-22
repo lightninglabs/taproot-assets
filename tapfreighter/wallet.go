@@ -956,6 +956,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		proofLocator := proof.Locator{
 			AssetID:   &assetID,
 			ScriptKey: *assetInput.Asset.ScriptKey.PubKey,
+			OutPoint:  &assetInput.AnchorPoint,
 		}
 		if assetInput.Asset.GroupKey != nil {
 			proofLocator.GroupKey = &assetInput.Asset.GroupKey.GroupPubKey

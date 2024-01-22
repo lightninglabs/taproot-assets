@@ -333,7 +333,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	for _, passiveAsset := range sendPkg.PassiveAssets {
 		newAnnotatedProofFile, rawProof, err := p.updateAssetProofFile(
 			ctx, passiveAsset.GenesisID,
-			passiveAsset.ScriptKey.PubKey, confEvent,
+			passiveAsset.ScriptKey.PubKey,
+			&passiveAsset.PrevAnchorPoint, confEvent,
 			passiveAsset.NewProof,
 		)
 		if err != nil {
@@ -515,6 +516,7 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 	inputProofLocator := proof.Locator{
 		AssetID:   &input.ID,
 		ScriptKey: *scriptKey,
+		OutPoint:  &input.OutPoint,
 	}
 	inputProofBytes, err := p.cfg.AssetProofs.FetchProof(
 		ctx, inputProofLocator,
@@ -534,13 +536,15 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 // updateAssetProofFile retrieves and updates the proof file for the given asset
 // ID and script key with the new proof.
 func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID,
-	scriptKeyPub *btcec.PublicKey, confEvent *chainntnfs.TxConfirmation,
+	scriptKeyPub *btcec.PublicKey, outPoint *wire.OutPoint,
+	confEvent *chainntnfs.TxConfirmation,
 	newProof *proof.Proof) (*proof.AnnotatedProof, *proof.Proof, error) {
 
 	// Retrieve current proof file.
 	locator := proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKeyPub,
+		OutPoint:  outPoint,
 	}
 	currentProofFileBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
@@ -729,6 +733,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		proofLocator := proof.Locator{
 			AssetID:   &passiveAsset.GenesisID,
 			ScriptKey: *passiveAsset.ScriptKey.PubKey,
+			OutPoint:  &passiveAsset.PrevAnchorPoint,
 		}
 		proofFileBlob, err := p.cfg.AssetProofs.FetchProof(
 			ctx, proofLocator,
