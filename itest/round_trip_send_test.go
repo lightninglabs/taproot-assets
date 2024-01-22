@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightningnetwork/lnd/input"
@@ -127,7 +128,7 @@ func testRoundTripSend(t *harnessTest) {
 	// recipient's output is the second one.
 	bobToAliceOutput := transferResp.Transfers[0].Outputs[1]
 	bobToAliceAnchor := bobToAliceOutput.Anchor
-	outpoint, err := ParseOutPoint(bobToAliceAnchor.Outpoint)
+	outpoint, err := proof.ParseOutPoint(bobToAliceAnchor.Outpoint)
 	require.NoError(t.t, err)
 
 	internalKey, err := btcec.ParsePubKey(bobToAliceAnchor.InternalKey)

@@ -2,10 +2,14 @@ package proof
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"strconv"
+	"strings"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 )
@@ -96,4 +100,28 @@ func nextPowerOfTwo(n int) int {
 	// Figure out and return the next power of two.
 	exponent := uint(math.Log2(float64(n))) + 1
 	return 1 << exponent // 2^exponent
+}
+
+// ParseOutPoint parses an outpoint from a string in the format of txid:index.
+func ParseOutPoint(s string) (*wire.OutPoint, error) {
+	split := strings.Split(s, ":")
+	if len(split) != 2 {
+		return nil, fmt.Errorf("expecting outpoint to be in format " +
+			"of: txid:index")
+	}
+
+	index, err := strconv.ParseInt(split[1], 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode output index: %v", err)
+	}
+
+	txid, err := chainhash.NewHashFromStr(split[0])
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse hex string: %v", err)
+	}
+
+	return &wire.OutPoint{
+		Hash:  *txid,
+		Index: uint32(index),
+	}, nil
 }
