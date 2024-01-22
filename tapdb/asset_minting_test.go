@@ -765,17 +765,17 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// Count the number of assets with a group key. Each grouped asset
 	// should have a grouped genesis witness.
-	groupCount := fn.Count(assets, func(a *ChainAsset) bool {
+	groupCount := fn.Count(assets, func(a *asset.ChainAsset) bool {
 		return a.GroupKey != nil
 	})
-	groupWitnessCount := fn.Count(assets, func(a *ChainAsset) bool {
+	groupWitnessCount := fn.Count(assets, func(a *asset.ChainAsset) bool {
 		return a.HasGenesisWitnessForGroup()
 	})
 	require.Equal(t, groupCount, groupWitnessCount)
 
 	// All the assets returned should have the genesis prev ID set up.
 	ungroupedCount := len(assets) - groupCount
-	genesisWitnessCount := fn.Count(assets, func(a *ChainAsset) bool {
+	genesisWitnessCount := fn.Count(assets, func(a *asset.ChainAsset) bool {
 		return a.HasGenesisWitness()
 	})
 	require.Equal(t, ungroupedCount, genesisWitnessCount)
@@ -783,7 +783,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// All the assets should also have a matching asset version as the
 	// seedlings we created.
 	mintingBatch := randAssetCtx.mintingBatch
-	require.True(t, fn.All(assets, func(dbAsset *ChainAsset) bool {
+	require.True(t, fn.All(assets, func(dbAsset *asset.ChainAsset) bool {
 		seedling, ok := mintingBatch.Seedlings[dbAsset.Genesis.Tag]
 		if !ok {
 			t.Logf("seedling for %v not found",

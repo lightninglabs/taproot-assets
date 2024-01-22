@@ -358,56 +358,6 @@ func NewAssetStore(db BatchedAssetStore, clock clock.Clock) *AssetStore {
 	}
 }
 
-// ChainAsset is a wrapper around the base asset struct that includes
-// information detailing where in the chain the asset is currently anchored.
-type ChainAsset struct {
-	*asset.Asset
-
-	// IsSpent indicates whether the above asset was previously spent.
-	IsSpent bool
-
-	// AnchorTx is the transaction that anchors this chain asset.
-	AnchorTx *wire.MsgTx
-
-	// AnchorBlockHash is the blockhash that mined the anchor tx.
-	AnchorBlockHash chainhash.Hash
-
-	// AnchorBlockHeight is the height of the block that mined the anchor
-	// tx.
-	AnchorBlockHeight uint32
-
-	// AnchorOutpoint is the outpoint that commits to the asset.
-	AnchorOutpoint wire.OutPoint
-
-	// AnchorInternalKey is the raw internal key that was used to create the
-	// anchor Taproot output key.
-	AnchorInternalKey *btcec.PublicKey
-
-	// AnchorMerkleRoot is the Taproot merkle root hash of the anchor output
-	// the asset was committed to. If there is no Tapscript sibling, this is
-	// equal to the Taproot Asset root commitment hash.
-	AnchorMerkleRoot []byte
-
-	// AnchorTapscriptSibling is the serialized preimage of a Tapscript
-	// sibling, if there was one. If this is empty, then the
-	// AnchorTapscriptSibling hash is equal to the Taproot root hash of the
-	// anchor output.
-	AnchorTapscriptSibling []byte
-
-	// AnchorLeaseOwner is the identity of the application that currently
-	// has a lease on this UTXO. If empty/nil, then the UTXO is not
-	// currently leased. A lease means that the UTXO is being
-	// reserved/locked to be spent in an upcoming transaction and that it
-	// should not be available for coin selection through any of the wallet
-	// RPCs.
-	AnchorLeaseOwner [32]byte
-
-	// AnchorLeaseExpiry is the expiry of the lease. If the expiry is nil or
-	// the time is in the past, then the lease is not valid and the UTXO is
-	// available for coin selection.
-	AnchorLeaseExpiry *time.Time
-}
-
 // ManagedUTXO holds information about a given UTXO we manage.
 type ManagedUTXO struct {
 	// OutPoint is the outpoint of the UTXO.
@@ -568,9 +518,9 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 // the witnesses of those assets to a set of normal ChainAsset structs needed
 // by a higher level application.
 func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
-	witnesses assetWitnesses) ([]*ChainAsset, error) {
+	witnesses assetWitnesses) ([]*asset.ChainAsset, error) {
 
-	chainAssets := make([]*ChainAsset, len(dbAssets))
+	chainAssets := make([]*asset.ChainAsset, len(dbAssets))
 	for i := range dbAssets {
 		sprout := dbAssets[i]
 
@@ -761,7 +711,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 				"internal key: %w", err)
 		}
 
-		chainAssets[i] = &ChainAsset{
+		chainAssets[i] = &asset.ChainAsset{
 			Asset:                  assetSprout,
 			IsSpent:                sprout.Spent,
 			AnchorTx:               anchorTx,
@@ -1051,7 +1001,8 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
 func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
-	includeLeased bool, query *AssetQueryFilters) ([]*ChainAsset, error) {
+	includeLeased bool, query *AssetQueryFilters) ([]*asset.ChainAsset,
+	error) {
 
 	var (
 		dbAssets       []ConfirmedAsset
@@ -1655,7 +1606,7 @@ func (a *AssetStore) RemoveSubscriber(
 // queryChainAssets queries the database for assets matching the passed filter.
 // The returned assets have all anchor and witness information populated.
 func (a *AssetStore) queryChainAssets(ctx context.Context, q ActiveAssetsStore,
-	filter QueryAssetFilters) ([]*ChainAsset, error) {
+	filter QueryAssetFilters) ([]*asset.ChainAsset, error) {
 
 	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
 		ctx, q, filter,
@@ -1818,10 +1769,12 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 	error) {
 
 	var (
-		matchingAssets      []*ChainAsset
-		chainAnchorToAssets = make(map[wire.OutPoint][]*ChainAsset)
-		anchorPoints        = make(map[wire.OutPoint]AnchorPoint)
-		err                 error
+		matchingAssets      []*asset.ChainAsset
+		chainAnchorToAssets = make(
+			map[wire.OutPoint][]*asset.ChainAsset,
+		)
+		anchorPoints = make(map[wire.OutPoint]AnchorPoint)
+		err          error
 	)
 
 	readOpts := NewAssetStoreReadTx()
@@ -1902,7 +1855,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 
 		// Fetch the asset leaves from each chain asset, and then
 		// build a Taproot Asset commitment from this set of assets.
-		fetchAsset := func(cAsset *ChainAsset) *asset.Asset {
+		fetchAsset := func(cAsset *asset.ChainAsset) *asset.Asset {
 			return cAsset.Asset
 		}
 
