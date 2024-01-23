@@ -141,12 +141,12 @@ func TapscriptPreimageEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**TapscriptPreimage); ok {
 		// We'll encode the pre-image as 1 byte for the type of the
 		// pre-image, and then the pre-image itself.
-		siblingType := uint8((*t).SiblingType)
+		siblingType := uint8((*t).siblingType)
 		if err := tlv.EUint8(w, &siblingType, buf); err != nil {
 			return err
 		}
 
-		return tlv.EVarBytes(w, &(*t).SiblingPreimage, buf)
+		return tlv.EVarBytes(w, &(*t).siblingPreimage, buf)
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "*TapscriptPreimage")
@@ -175,10 +175,10 @@ func TapscriptPreimageDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 
-		preimage.SiblingType = TapscriptPreimageType(siblingType)
+		preimage.siblingType = TapscriptPreimageType(siblingType)
 
 		// Now we'll read out the pre-image itself.
-		err = tlv.DVarBytes(r, &preimage.SiblingPreimage, buf, l-1)
+		err = tlv.DVarBytes(r, &preimage.siblingPreimage, buf, l-1)
 		if err != nil {
 			return err
 		}
