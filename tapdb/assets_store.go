@@ -176,7 +176,7 @@ type ActiveAssetsStore interface {
 	// FetchAssetProof fetches the asset proof for a given asset identified
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
-		arg FetchAssetProof) (AssetProofI, error)
+		arg FetchAssetProof) ([]AssetProofI, error)
 
 	// HasAssetProof returns true if we have proof for a given asset
 	// identified by its script key.
@@ -1103,7 +1103,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 // TODO(roasbeef): potentially have a version that writes thru a reader
 // instead?
 func (a *AssetStore) FetchAssetProofs(ctx context.Context,
-	targetAssets ...*btcec.PublicKey) (proof.AssetBlobs, error) {
+	targetAssets ...proof.Locator) (proof.AssetBlobs, error) {
 
 	proofs := make(proof.AssetBlobs)
 
@@ -1136,21 +1136,28 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 		// TODO(roasbeef): can modify the query to use IN somewhere
 		// instead? then would take input params and insert into
 		// virtual rows to use
-		for _, scriptKey := range targetAssets {
-			scriptKey := scriptKey
-			serializedKey := asset.ToSerialized(scriptKey)
+		for _, locator := range targetAssets {
+			args, err := locatorToProofQuery(locator)
+			if err != nil {
+				return err
+			}
 
-			assetProof, err := q.FetchAssetProof(
-				ctx, FetchAssetProof{
-					TweakedScriptKey: serializedKey[:],
-				},
-			)
+			assetProofs, err := q.FetchAssetProof(ctx, args)
 			if err != nil {
 				return fmt.Errorf("unable to fetch asset "+
 					"proof: %w", err)
 			}
 
-			proofs[serializedKey] = assetProof.ProofFile
+			// If the query without the outpoint returns exactly one
+			// proof then we're fine. If there actually are multiple
+			// proofs, we require the user to specify the outpoint
+			// as well.
+			if len(assetProofs) != 1 {
+				return proof.ErrMultipleProofs
+			}
+
+			serializedKey := asset.ToSerialized(&locator.ScriptKey)
+			proofs[serializedKey] = assetProofs[0].ProofFile
 		}
 		return nil
 	})
@@ -1164,39 +1171,38 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 // FetchProof fetches a proof for an asset uniquely identified by the passed
 // ProofIdentifier.
 //
+// If a proof cannot be found, then ErrProofNotFound should be returned. If
+// multiple proofs exist for the given fields of the locator then
+// ErrMultipleProofs is returned to indicate more specific fields need to be set
+// in the Locator (e.g. the OutPoint).
+//
 // NOTE: This implements the proof.Archiver interface.
 func (a *AssetStore) FetchProof(ctx context.Context,
 	locator proof.Locator) (proof.Blob, error) {
 
-	// We have an on-disk index for all proofs we store, so we can use the
-	// script key as the primary identifier.
-	args := FetchAssetProof{
-		TweakedScriptKey: locator.ScriptKey.SerializeCompressed(),
-	}
-
-	// But script keys aren't unique, so if the locator explicitly specifies
-	// an outpoint, we'll use that as well.
-	if locator.OutPoint != nil {
-		outpoint, err := encodeOutpoint(*locator.OutPoint)
-		if err != nil {
-			return nil, fmt.Errorf("unable to encode outpoint: %w",
-				err)
-		}
-
-		args.Outpoint = outpoint
+	args, err := locatorToProofQuery(locator)
+	if err != nil {
+		return nil, err
 	}
 
 	var diskProof proof.Blob
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		assetProof, err := q.FetchAssetProof(ctx, args)
+		assetProofs, err := q.FetchAssetProof(ctx, args)
 		if err != nil {
 			return fmt.Errorf("unable to fetch asset proof: %w",
 				err)
 		}
 
-		diskProof = assetProof.ProofFile
+		// If the query without the outpoint returns exactly one proof
+		// then we're fine. If there actually are multiple proofs, we
+		// require the user to specify the outpoint as well.
+		if len(assetProofs) != 1 {
+			return proof.ErrMultipleProofs
+		}
+
+		diskProof = assetProofs[0].ProofFile
 
 		return nil
 	})
@@ -1208,6 +1214,30 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 	}
 
 	return diskProof, nil
+}
+
+// locatorToProofQuery turns a proof locator into a FetchAssetProof query
+// struct.
+func locatorToProofQuery(locator proof.Locator) (FetchAssetProof, error) {
+	// We have an on-disk index for all proofs we store, so we can use the
+	// script key as the primary identifier.
+	args := FetchAssetProof{
+		TweakedScriptKey: locator.ScriptKey.SerializeCompressed(),
+	}
+
+	// But script keys aren't unique, so if the locator explicitly specifies
+	// an outpoint, we'll use that as well.
+	if locator.OutPoint != nil {
+		outpoint, err := encodeOutpoint(*locator.OutPoint)
+		if err != nil {
+			return args, fmt.Errorf("unable to encode outpoint: %w",
+				err)
+		}
+
+		args.Outpoint = outpoint
+	}
+
+	return args, nil
 }
 
 // HasProof returns true if the proof for the given locator exists. This is

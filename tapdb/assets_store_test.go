@@ -1459,7 +1459,7 @@ func TestAssetExportLog(t *testing.T) {
 		TweakedScriptKey: newScriptKey.PubKey.SerializeCompressed(),
 	})
 	require.NoError(t, err)
-	require.Equal(t, receiverBlob, diskSenderBlob.ProofFile)
+	require.Equal(t, receiverBlob, diskSenderBlob[0].ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

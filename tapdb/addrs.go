@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -127,8 +128,8 @@ type AddrBook interface {
 
 	// FetchAssetProof fetches the asset proof for a given asset identified
 	// by its script key.
-	FetchAssetProof(ctx context.Context, arg FetchAssetProof) (AssetProofI,
-		error)
+	FetchAssetProof(ctx context.Context,
+		arg FetchAssetProof) ([]AssetProofI, error)
 
 	// FetchGenesisByAssetID attempts to fetch asset genesis information
 	// for a given asset ID.
@@ -904,6 +905,12 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 			return fmt.Errorf("error fetching asset proof: %w", err)
 		}
 
+		if len(proofData) != 1 {
+			return fmt.Errorf("expected exactly one proof, got "+
+				"%d: %w", len(proofData),
+				proof.ErrMultipleProofs)
+		}
+
 		_, err = db.UpsertAddrEvent(ctx, UpsertAddrEvent{
 			TaprootOutputKey: schnorr.SerializePubKey(
 				&event.Addr.TaprootOutputKey,
@@ -911,8 +918,8 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 			Status:              int16(status),
 			Txid:                anchorPoint.Hash[:],
 			ChainTxnOutputIndex: int32(anchorPoint.Index),
-			AssetProofID:        sqlInt64(proofData.ProofID),
-			AssetID:             sqlInt64(proofData.AssetID),
+			AssetProofID:        sqlInt64(proofData[0].ProofID),
+			AssetID:             sqlInt64(proofData[0].AssetID),
 		})
 		return err
 	})

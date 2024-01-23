@@ -136,7 +136,9 @@ type Archiver interface {
 	// passed ProofIdentifier.
 	//
 	// If a proof cannot be found, then ErrProofNotFound should be
-	// returned.
+	// returned. If multiple proofs exist for the given fields of the
+	// locator then ErrMultipleProofs should be returned to indicate more
+	// specific fields need to be set in the Locator (e.g. the OutPoint).
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
 	// HasProof returns true if the proof for the given locator exists. This
@@ -490,7 +492,10 @@ func migrateOldFileNames(rootPath string) error {
 // FetchProof fetches a proof for an asset uniquely identified by the passed
 // ProofIdentifier.
 //
-// If a proof cannot be found, then ErrProofNotFound should be returned.
+// If a proof cannot be found, then ErrProofNotFound should be returned. If
+// multiple proofs exist for the given fields of the locator then
+// ErrMultipleProofs is returned to indicate more specific fields need to be set
+// in the Locator (e.g. the OutPoint).
 //
 // NOTE: This implements the Archiver interface.
 func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
