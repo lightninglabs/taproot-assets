@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
@@ -491,6 +492,28 @@ type GroupKey struct {
 	Witness wire.TxWitness
 }
 
+// GroupKeyRequest contains the essential fields used to derive a group key.
+type GroupKeyRequest struct {
+	// RawKey is the raw group key before the tweak with the genesis point
+	// has been applied.
+	RawKey keychain.KeyDescriptor
+
+	// AnchorGen is the genesis of the group anchor, which is the asset used
+	// to derive the single tweak for the group key. For a new group key,
+	// this will be the genesis of the new asset.
+	AnchorGen Genesis
+
+	// TapscriptRoot is the root of a Tapscript tree that includes script
+	// spend conditions for the group key. A group key with an empty
+	// Tapscript root can only authorize reissuance with a signature.
+	TapscriptRoot []byte
+
+	// NewAsset is the asset which we are requesting group membership for.
+	// A successful request will produce a witness that authorizes this
+	// to be a member of this asset group.
+	NewAsset *Asset
+}
+
 // GroupKeyReveal is a type for representing the data used to derive the tweaked
 // key used to identify an asset group. The final tweaked key is the result of:
 // TapTweak(groupInternalKey, tapscriptRoot)
@@ -798,39 +821,79 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 	}
 }
 
+// NewGroupKeyRequest constructs and validates a group key request.
+func NewGroupKeyRequest(internalKey keychain.KeyDescriptor, anchorGen Genesis,
+	newAsset *Asset, scriptRoot []byte) (*GroupKeyRequest, error) {
+
+	req := &GroupKeyRequest{
+		RawKey:        internalKey,
+		AnchorGen:     anchorGen,
+		NewAsset:      newAsset,
+		TapscriptRoot: scriptRoot,
+	}
+
+	err := req.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	return req, nil
+}
+
+// ValidateGroupKeyRequest ensures that the asset intended to be a member of an
+// asset group is well-formed.
+func (req *GroupKeyRequest) Validate() error {
+	// Perform the final checks on the asset being authorized for group
+	// membership.
+	if req.NewAsset == nil {
+		return fmt.Errorf("grouped asset cannot be nil")
+	}
+
+	// The asset in the request must have the default genesis asset witness,
+	// and no group key. Those fields can only be populated after group
+	// witness creation.
+	if !req.NewAsset.HasGenesisWitness() {
+		return fmt.Errorf("asset is not a genesis asset")
+	}
+
+	if req.NewAsset.GroupKey != nil {
+		return fmt.Errorf("asset already has group key")
+	}
+
+	if req.AnchorGen.Type != req.NewAsset.Type {
+		return fmt.Errorf("asset group type mismatch")
+	}
+
+	if req.RawKey.PubKey == nil {
+		return fmt.Errorf("missing group internal key")
+	}
+
+	return nil
+}
+
 // DeriveGroupKey derives an asset's group key based on an internal public
 // key descriptor, the original group asset genesis, and the asset's genesis.
 func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
-	rawKey keychain.KeyDescriptor, initialGen Genesis,
-	newAsset *Asset) (*GroupKey, error) {
+	req GroupKeyRequest) (*GroupKey, error) {
 
 	// First, perform the final checks on the asset being authorized for
 	// group membership.
-	if newAsset == nil {
-		return nil, fmt.Errorf("grouped asset cannot be nil")
-	}
-
-	if !newAsset.HasGenesisWitness() {
-		return nil, fmt.Errorf("asset is not a genesis asset")
-	}
-
-	if newAsset.GroupKey != nil {
-		return nil, fmt.Errorf("asset already has group key")
-	}
-
-	if initialGen.Type != newAsset.Type {
-		return nil, fmt.Errorf("asset group type mismatch")
+	err := req.Validate()
+	if err != nil {
+		return nil, err
 	}
 
 	// Compute the tweaked group key and set it in the asset before
 	// creating the virtual minting transaction.
-	genesisTweak := initialGen.ID()
-	tweakedGroupKey, err := GroupPubKey(rawKey.PubKey, genesisTweak[:], nil)
+	genesisTweak := req.AnchorGen.ID()
+	tweakedGroupKey, err := GroupPubKey(
+		req.RawKey.PubKey, genesisTweak[:], nil,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot tweak group key: %w", err)
 	}
 
-	assetWithGroup := newAsset.Copy()
+	assetWithGroup := req.NewAsset.Copy()
 	assetWithGroup.GroupKey = &GroupKey{
 		GroupPubKey: *tweakedGroupKey,
 	}
@@ -846,7 +909,7 @@ func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
 	// minting transaction. This is restricted to group keys with an empty
 	// tapscript root and key path spends.
 	signDesc := &lndclient.SignDescriptor{
-		KeyDesc:     rawKey,
+		KeyDesc:     req.RawKey,
 		SingleTweak: genesisTweak[:],
 		SignMethod:  input.TaprootKeySpendBIP0086SignMethod,
 		Output:      prevOut,
@@ -859,9 +922,120 @@ func DeriveGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
 	}
 
 	return &GroupKey{
-		RawKey:      rawKey,
+		RawKey:      req.RawKey,
 		GroupPubKey: *tweakedGroupKey,
 		Witness:     wire.TxWitness{sig.Serialize()},
+	}, nil
+}
+
+// DeriveCustomGroupKey derives an asset's group key based on a signing
+// descriptor, the original group asset genesis, and the asset's genesis.
+func DeriveCustomGroupKey(genSigner GenesisSigner, genBuilder GenesisTxBuilder,
+	req GroupKeyRequest, tapLeaf *psbt.TaprootTapLeafScript,
+	scriptWitness []byte) (*GroupKey, error) {
+
+	// First, perform the final checks on the asset being authorized for
+	// group membership.
+	err := req.Validate()
+	if err != nil {
+		return nil, err
+	}
+
+	// Compute the tweaked group key and set it in the asset before
+	// creating the virtual minting transaction.
+	genesisTweak := req.AnchorGen.ID()
+	tweakedGroupKey, err := GroupPubKey(
+		req.RawKey.PubKey, genesisTweak[:], req.TapscriptRoot,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+	}
+
+	assetWithGroup := req.NewAsset.Copy()
+	assetWithGroup.GroupKey = &GroupKey{
+		GroupPubKey: *tweakedGroupKey,
+	}
+
+	// Exit early if a group witness is already given, since we don't need
+	// to construct a virtual TX nor produce a signature.
+	if scriptWitness != nil {
+		if tapLeaf == nil {
+			return nil, fmt.Errorf("need tap leaf with group " +
+				"script witness")
+		}
+
+		witness := wire.TxWitness{
+			scriptWitness, tapLeaf.Script, tapLeaf.ControlBlock,
+		}
+
+		return &GroupKey{
+			RawKey:        req.RawKey,
+			GroupPubKey:   *tweakedGroupKey,
+			TapscriptRoot: req.TapscriptRoot,
+			Witness:       witness,
+		}, nil
+	}
+
+	// Build the virtual transaction that represents the minting of the new
+	// asset, which will be signed to generate the group witness.
+	genesisTx, prevOut, err := genBuilder.BuildGenesisTx(assetWithGroup)
+	if err != nil {
+		return nil, fmt.Errorf("cannot build virtual tx: %w", err)
+	}
+
+	// Populate the signing descriptor needed to sign the virtual minting
+	// transaction.
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:     req.RawKey,
+		SingleTweak: genesisTweak[:],
+		TapTweak:    req.TapscriptRoot,
+		Output:      prevOut,
+		HashType:    txscript.SigHashDefault,
+		InputIndex:  0,
+	}
+
+	// There are three possible signing cases: BIP-0086 key spend path, key
+	// spend path with a script root, and script spend path.
+	switch {
+	// If there is no tapscript root, we're doing a BIP-0086 key spend.
+	case len(signDesc.TapTweak) == 0:
+		signDesc.SignMethod = input.TaprootKeySpendBIP0086SignMethod
+
+	// No leaf means we're not signing a specific script, so this is the key
+	// spend path with a tapscript root.
+	case len(signDesc.TapTweak) != 0 && tapLeaf == nil:
+		signDesc.SignMethod = input.TaprootKeySpendSignMethod
+
+	// One leaf hash and a merkle root means we're signing a specific
+	// script.
+	case len(signDesc.TapTweak) != 0 && tapLeaf != nil:
+		signDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		signDesc.WitnessScript = tapLeaf.Script
+
+	default:
+		return nil, fmt.Errorf("bad sign descriptor for group key")
+	}
+
+	sig, err := genSigner.SignVirtualTx(signDesc, genesisTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	witness := wire.TxWitness{sig.Serialize()}
+
+	// If this was a script spend, we also have to add the script itself and
+	// the control block to the witness, otherwise the verifier will reject
+	// the generated witness.
+	if signDesc.SignMethod == input.TaprootScriptSpendSignMethod {
+		witness = append(witness, signDesc.WitnessScript)
+		witness = append(witness, tapLeaf.ControlBlock)
+	}
+
+	return &GroupKey{
+		RawKey:        signDesc.KeyDesc,
+		GroupPubKey:   *tweakedGroupKey,
+		TapscriptRoot: signDesc.TapTweak,
+		Witness:       witness,
 	}, nil
 }
 

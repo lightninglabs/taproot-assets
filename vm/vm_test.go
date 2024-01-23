@@ -10,12 +10,10 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -57,6 +55,7 @@ func randAsset(t *testing.T, assetType asset.Type,
 	return asset.NewAssetNoErr(
 		t, genesis, protoAsset.Amount, protoAsset.LockTime,
 		protoAsset.RelativeLockTime, scriptKey, groupKey,
+		asset.WithAssetVersion(protoAsset.Version),
 	)
 }
 
@@ -132,6 +131,7 @@ func genesisStateTransition(assetType asset.Type,
 			a = asset.NewAssetNoErr(
 				t, a.Genesis, a.Amount, a.LockTime,
 				a.RelativeLockTime, a.ScriptKey, nil,
+				asset.WithAssetVersion(a.Version),
 			)
 		}
 
@@ -444,51 +444,26 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 	}
 }
 
+func groupAnchorStateTransition(useHashLock, BIP86, keySpend, valid bool,
+	assetType asset.Type) stateTransitionFunc {
+
+	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet) {
+
+		gen := asset.RandGenesis(t, assetType)
+		return asset.AssetCustomGroupKey(
+			t, useHashLock, BIP86, keySpend, valid, gen,
+		), nil, nil
+	}
+}
+
 func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	valid bool, sigHashType txscript.SigHashType) stateTransitionFunc {
 
 	scriptPrivKey := test.RandPrivKey(t)
-	scriptInternalKey := scriptPrivKey.PubKey()
-
-	// Let's create a taproot asset script now. This is a hash lock with a
-	// simple preimage of "foobar".
-	leaf1 := test.ScriptHashLock(t, []byte("foobar"))
-
-	// Let's add a second script output as well to test the partial reveal.
-	leaf2 := test.ScriptSchnorrSig(t, scriptInternalKey)
-
-	var (
-		usedLeaf      *txscript.TapLeaf
-		testTapScript *waddrmgr.Tapscript
-		scriptWitness []byte
+	usedLeaf, testTapScript, _, _, scriptWitness := test.BuildTapscriptTree(
+		t, useHashLock, valid, scriptPrivKey.PubKey(),
 	)
-	if useHashLock {
-		usedLeaf = &leaf1
-		inclusionProof := leaf2.TapHash()
-		testTapScript = input.TapscriptPartialReveal(
-			scriptInternalKey, leaf1, inclusionProof[:],
-		)
-		scriptWitness = []byte("foobar")
-
-		if !valid {
-			scriptWitness = []byte("not-foobar")
-		}
-	} else {
-		usedLeaf = &leaf2
-		inclusionProof := leaf1.TapHash()
-		testTapScript = input.TapscriptPartialReveal(
-			scriptInternalKey, leaf2, inclusionProof[:],
-		)
-
-		// If we leave the scriptWitness nil, the genTaprootScriptSpend
-		// function will automatically create a signature for us.
-		// We only need to create a witness if we want an invalid
-		// signature.
-		if !valid {
-			scriptWitness = make([]byte, 64)
-		}
-	}
-
 	scriptKey, err := testTapScript.TaprootKey()
 	require.NoError(t, err)
 
@@ -594,6 +569,48 @@ func TestVM(t *testing.T) {
 				asset.Collectible, true,
 			),
 			err: newErrKind(ErrInvalidGenesisStateTransition),
+		},
+		{
+			name: "collectible group anchor BIP86 key",
+			f: groupAnchorStateTransition(
+				true, true, false, false, asset.Collectible,
+			),
+			err: nil,
+		},
+		{
+			name: "normal group anchor key spend",
+			f: groupAnchorStateTransition(
+				true, false, true, true, asset.Normal,
+			),
+			err: nil,
+		},
+		{
+			name: "normal group anchor hash lock witness",
+			f: groupAnchorStateTransition(
+				true, false, false, true, asset.Normal,
+			),
+			err: nil,
+		},
+		{
+			name: "collectible group anchor sig script witness",
+			f: groupAnchorStateTransition(
+				false, false, false, true, asset.Collectible,
+			),
+			err: nil,
+		},
+		{
+			name: "collectible group anchor invalid hash lock",
+			f: groupAnchorStateTransition(
+				true, false, false, false, asset.Collectible,
+			),
+			err: invalidHashLockErr,
+		},
+		{
+			name: "normal group anchor invalid sig",
+			f: groupAnchorStateTransition(
+				false, false, false, false, asset.Normal,
+			),
+			err: invalidSigErr,
 		},
 		{
 			name: "invalid split collectible input",

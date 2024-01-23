@@ -84,7 +84,7 @@ func TestNewAssetCommitment(t *testing.T) {
 	group1Anchor = asset.NewAssetNoErr(
 		t, genesis1, group1Anchor.Amount, group1Anchor.LockTime,
 		group1Anchor.RelativeLockTime, group1Anchor.ScriptKey,
-		groupKey1,
+		groupKey1, asset.WithAssetVersion(group1Anchor.Version),
 	)
 	groupKey1Collectible := asset.RandGroupKey(
 		t, genesis1Collectible, genesis1CollectibleProtoAsset,
@@ -100,15 +100,20 @@ func TestNewAssetCommitment(t *testing.T) {
 	group1Reissued := randAsset(t, genesis2, nil)
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
+		t, test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
+		nil,
+	)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
 		asset.NewMockGenesisSigner(group1Priv), &genTxBuilder,
-		test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
+		*group1ReissuedGroupReq,
 	)
 	require.NoError(t, err)
 	group1Reissued = asset.NewAssetNoErr(
 		t, genesis2, group1Reissued.Amount, group1Reissued.LockTime,
 		group1Reissued.RelativeLockTime, group1Reissued.ScriptKey,
 		group1ReissuedGroupKey,
+		asset.WithAssetVersion(group1Reissued.Version),
 	)
 
 	testCases := []struct {
@@ -417,6 +422,7 @@ func TestMintAndDeriveTapCommitment(t *testing.T) {
 		t, genesis1, *anchorDetails.Amount, anchorDetails.LockTime,
 		anchorDetails.RelativeLockTime,
 		asset.NewScriptKeyBip86(anchorDetails.ScriptKey), nil,
+		asset.WithAssetVersion(anchorDetails.Version),
 	)
 	groupKey1 := asset.RandGroupKey(t, genesis1, genesis1ProtoAsset)
 
@@ -485,6 +491,7 @@ func TestMintAndDeriveTapCommitment(t *testing.T) {
 		t, genesis2, *anchorDetails.Amount, anchorDetails.LockTime,
 		anchorDetails.RelativeLockTime,
 		asset.NewScriptKeyBip86(anchorDetails.ScriptKey), nil,
+		asset.WithAssetVersion(anchorDetails.Version),
 	)
 	groupKey2 := asset.RandGroupKey(t, genesis2, genesis2ProtoAsset)
 	_, nonExistentAssetGroup, err := Mint(
@@ -902,6 +909,7 @@ func TestTapCommitmentKeyPopulation(t *testing.T) {
 			a = asset.NewAssetNoErr(
 				t, genesis, a.Amount, a.LockTime,
 				a.RelativeLockTime, a.ScriptKey, groupKey,
+				asset.WithAssetVersion(a.Version),
 			)
 		}
 
@@ -939,22 +947,26 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	group1Anchor = asset.NewAssetNoErr(
 		t, genesis1, group1Anchor.Amount, group1Anchor.LockTime,
 		group1Anchor.RelativeLockTime, group1Anchor.ScriptKey,
-		groupKey1,
+		groupKey1, asset.WithAssetVersion(group1Anchor.Version),
 	)
 	group2Anchor := randAsset(t, genesis2, nil)
 	groupKey2 := asset.RandGroupKey(t, genesis2, group2Anchor)
 	group1Reissued := randAsset(t, genesis2, nil)
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
+	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
+		t, test.PubToKeyDesc(group1Pub), genesis1, group1Reissued, nil,
+	)
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
 		asset.NewMockGenesisSigner(group1Priv), &genTxBuilder,
-		test.PubToKeyDesc(group1Pub), genesis1, group1Reissued,
+		*group1ReissuedGroupReq,
 	)
 	require.NoError(t, err)
 	group1Reissued = asset.NewAssetNoErr(
 		t, genesis2, group1Reissued.Amount, group1Reissued.LockTime,
 		group1Reissued.RelativeLockTime, group1Reissued.ScriptKey,
 		group1ReissuedGroupKey,
+		asset.WithAssetVersion(group1Reissued.Version),
 	)
 
 	assetNoGroup := randAsset(t, genesis2, nil)
@@ -1090,11 +1102,13 @@ func TestUpdateTapCommitment(t *testing.T) {
 	asset1 := asset.NewAssetNoErr(
 		t, genesis1, protoAsset1.Amount, protoAsset1.LockTime,
 		protoAsset1.RelativeLockTime, protoAsset1.ScriptKey, groupKey1,
+		asset.WithAssetVersion(protoAsset1.Version),
 	)
 
 	asset2 := asset.NewAssetNoErr(
 		t, genesis2, protoAsset2.Amount, protoAsset2.LockTime,
 		protoAsset2.RelativeLockTime, protoAsset2.ScriptKey, groupKey2,
+		asset.WithAssetVersion(protoAsset2.Version),
 	)
 
 	assetCommitment1, err := NewAssetCommitment(asset1)
@@ -1266,6 +1280,7 @@ func TestTapCommitmentDeepCopy(t *testing.T) {
 	asset1 := asset.NewAssetNoErr(
 		t, genesis1, protoAsset1.Amount, protoAsset1.LockTime,
 		protoAsset1.RelativeLockTime, protoAsset1.ScriptKey, groupKey1,
+		asset.WithAssetVersion(protoAsset1.Version),
 	)
 
 	genesis2 := asset.RandGenesis(t, asset.Normal)
@@ -1274,6 +1289,7 @@ func TestTapCommitmentDeepCopy(t *testing.T) {
 	asset2 := asset.NewAssetNoErr(
 		t, genesis2, protoAsset2.Amount, protoAsset2.LockTime,
 		protoAsset2.RelativeLockTime, protoAsset2.ScriptKey, groupKey2,
+		asset.WithAssetVersion(protoAsset2.Version),
 	)
 
 	assetCommitment1, err := NewAssetCommitment(asset1)
