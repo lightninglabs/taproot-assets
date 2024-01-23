@@ -187,7 +187,8 @@ type MintingBlobOption func(*mintingBlobOpts)
 // mintingBlobOpts is a set of options that can be used to modify the final
 // proof files created.
 type mintingBlobOpts struct {
-	metaReveals map[asset.SerializedKey]*MetaReveal
+	metaReveals        map[asset.SerializedKey]*MetaReveal
+	tapSiblingPreimage *commitment.TapscriptPreimage
 }
 
 // defaultMintingBlobOpts returns the default set of options for creating a
@@ -205,6 +206,17 @@ func WithAssetMetaReveals(
 
 	return func(o *mintingBlobOpts) {
 		o.metaReveals = metaReveals
+	}
+}
+
+// WithSiblingPreimage is a MintingBlobOption that allows the caller to provide
+// a tapscript sibling preimage to be used when building the initial minting
+// blob.
+func WithSiblingPreimage(
+	sibling *commitment.TapscriptPreimage) MintingBlobOption {
+
+	return func(o *mintingBlobOpts) {
+		o.tapSiblingPreimage = sibling
 	}
 }
 
@@ -298,6 +310,14 @@ func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
 	// then encode that as a proof file blob in the blobs map.
 	assets := tapTreeRoot.CommittedAssets()
 	proofs := make(AssetProofs, len(assets))
+
+	// If a sibling preimage was provided for this Tap commitment, we'll
+	// need to include it with every inclusion proof.
+	var batchSiblingPreimage *commitment.TapscriptPreimage
+	if opts.tapSiblingPreimage != nil {
+		batchSiblingPreimage = opts.tapSiblingPreimage
+	}
+
 	for idx := range assets {
 		// First, we'll copy over the base proof and also set the asset
 		// within the proof itself.
@@ -319,11 +339,9 @@ func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
 		// With the merkle proof obtained, we can now set that in the
 		// main inclusion proof.
 		//
-		// NOTE: We don't add a TapSiblingPreimage here since we assume
-		// that this minting output ONLY commits to the Taproot Asset
-		// commitment.
 		assetProof.InclusionProof.CommitmentProof = &CommitmentProof{
-			Proof: *assetMerkleProof,
+			Proof:              *assetMerkleProof,
+			TapSiblingPreimage: batchSiblingPreimage,
 		}
 
 		scriptKey := asset.ToSerialized(newAsset.ScriptKey.PubKey)
