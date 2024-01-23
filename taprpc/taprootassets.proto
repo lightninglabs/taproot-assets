@@ -852,6 +852,7 @@ message DecodeProofResponse {
 message ExportProofRequest {
     bytes asset_id = 1;
     bytes script_key = 2;
+    OutPoint outpoint = 3;
 
     // TODO(roasbeef): specify information to make new state transition in proof
     // file?

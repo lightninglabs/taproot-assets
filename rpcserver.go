@@ -1496,12 +1496,32 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
-	var assetID asset.ID
+	var (
+		assetID  asset.ID
+		outPoint *wire.OutPoint
+	)
 	copy(assetID[:], req.AssetId)
+
+	// The outpoint is optional when querying for a proof file. But if
+	// multiple proofs exist for the same assetID and script key, then an
+	// error will be returned and the outpoint needs to be specified to
+	// disambiguate.
+	if req.Outpoint != nil {
+		txid, err := chainhash.NewHash(req.Outpoint.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+		outPoint = &wire.OutPoint{
+			Hash:  *txid,
+			Index: req.Outpoint.OutputIndex,
+		}
+	}
 
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
+		OutPoint:  outPoint,
 	})
 	if err != nil {
 		return nil, err
@@ -4224,10 +4244,31 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
-	assetID := fn.ToArray[asset.ID](req.AssetId)
+	var (
+		assetID  = fn.ToArray[asset.ID](req.AssetId)
+		outPoint *wire.OutPoint
+	)
+
+	// The outpoint is optional when querying for a proof file. But if
+	// multiple proofs exist for the same assetID and script key, then an
+	// error will be returned and the outpoint needs to be specified to
+	// disambiguate.
+	if req.Outpoint != nil {
+		txid, err := chainhash.NewHash(req.Outpoint.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+		outPoint = &wire.OutPoint{
+			Hash:  *txid,
+			Index: req.Outpoint.OutputIndex,
+		}
+	}
+
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
+		OutPoint:  outPoint,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot fetch proof: %w", err)
