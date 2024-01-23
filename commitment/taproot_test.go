@@ -1,11 +1,15 @@
 package commitment
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -30,6 +34,20 @@ func TestTapscriptPreimage(t *testing.T) {
 	// The order doesn't matter here as they are sorted before hashing.
 	branch := txscript.NewTapBranch(leaf1, leaf2)
 	branchHash := branch.TapHash()
+
+	// Create a random byte slice with the same structure as a Taproot
+	// Asset commitment root, that can be used in a TapLeaf.
+	randTapCommitmentRoot := func(version asset.Version) []byte {
+		var dummyRootSum [8]byte
+		binary.BigEndian.PutUint64(
+			dummyRootSum[:], test.RandInt[uint64](),
+		)
+		dummyRootHashParts := [][]byte{
+			{byte(version)}, TaprootAssetsMarker[:],
+			fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+		}
+		return bytes.Join(dummyRootHashParts, nil)
+	}
 
 	testCases := []struct {
 		name            string
@@ -82,6 +100,21 @@ func TestTapscriptPreimage(t *testing.T) {
 		expectedName:    "BranchPreimage",
 		expectedEmpty:   false,
 		expectedHashErr: ErrInvalidTapscriptPreimageLen.Error(),
+	}, {
+		name: "tap commitment leaf pre-image",
+		makePreimage: func(t *testing.T) *TapscriptPreimage {
+			tapCommitmentRoot := randTapCommitmentRoot(asset.V0)
+			return NewPreimageFromLeaf(
+				txscript.TapLeaf{
+					LeafVersion: txscript.BaseLeafVersion,
+					Script:      tapCommitmentRoot[:],
+				},
+			)
+		},
+		expectedType:    LeafPreimage,
+		expectedName:    "LeafPreimage",
+		expectedEmpty:   false,
+		expectedHashErr: ErrInvalidTaprootProof.Error(),
 	}, {
 		name: "valid leaf pre-image",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {

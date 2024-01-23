@@ -99,6 +99,34 @@ func NewPreimageFromLeaf(leaf txscript.TapLeaf) *TapscriptPreimage {
 	}
 }
 
+// ScriptFromLeafPreimage decodes the leafVersion and script from a taproot
+// leaf preimage.
+func ScriptFromLeafPreimage(preimage []byte) (*txscript.TapscriptLeafVersion,
+	[]byte, error) {
+
+	// Remove the leaf version and script size prefix from the preimage.
+	// The prefix is at least 2 bytes long, and if it's missing
+	// then this preimage was not encoded correctly.
+	if len(preimage) < 2 {
+		return nil, nil, ErrInvalidEmptyTapscriptPreimage
+	}
+
+	version := txscript.TapscriptLeafVersion(preimage[0])
+
+	// The script is encoded with a leading VarByte that indicates its total
+	// length.
+	remaining := preimage[1:]
+	script, err := wire.ReadVarBytes(
+		bytes.NewReader(remaining), 0, uint32(len(remaining)), "script",
+	)
+	if err != nil {
+		return nil, nil,
+			fmt.Errorf("error decoding leaf pre-image: %w", err)
+	}
+
+	return &version, script, nil
+}
+
 // NewPreimageFromBranch creates a new TapscriptPreimage from a tap branch.
 func NewPreimageFromBranch(branch txscript.TapBranch) *TapscriptPreimage {
 	var (
@@ -202,11 +230,33 @@ func (t *TapscriptPreimage) TapHash() (*chainhash.Hash, error) {
 // VerifyNoCommitment verifies that the preimage is not a Taproot Asset
 // commitment.
 func (t *TapscriptPreimage) VerifyNoCommitment() error {
-	if IsTaprootAssetCommitmentScript(t.SiblingPreimage) {
-		return ErrPreimageIsTapCommitment
-	}
+	switch {
+	// A preimage smaller than a valid Taproot Asset commitment script needs
+	// no further inspection.
+	case len(t.SiblingPreimage) < TaprootAssetCommitmentScriptSize:
+		return nil
 
-	return nil
+	case len(t.SiblingPreimage) == TaprootAssetCommitmentScriptSize:
+		if IsTaprootAssetCommitmentScript(t.SiblingPreimage) {
+			return ErrPreimageIsTapCommitment
+		}
+
+		return nil
+
+	default:
+		// The sibling may be an encoded tapleaf; remove the version
+		// prefix and inspect the script.
+		_, script, err := ScriptFromLeafPreimage(t.SiblingPreimage)
+		if err != nil {
+			return err
+		}
+
+		if IsTaprootAssetCommitmentScript(script) {
+			return ErrPreimageIsTapCommitment
+		}
+
+		return nil
+	}
 }
 
 // MaybeDecodeTapscriptPreimage returns the decoded preimage and hash of the
@@ -295,28 +345,17 @@ func TapBranchHash(preimage []byte) (*chainhash.Hash, error) {
 // TapLeafHash computes the TapHash of a TapLeaf node from its preimage
 // if possible, otherwise an error is returned.
 func TapLeafHash(preimage []byte) (*chainhash.Hash, error) {
-	// Empty preimage.
-	if len(preimage) == 0 {
-		return nil, ErrInvalidEmptyTapscriptPreimage
+	// Decode the script version and the script itself.
+	version, script, err := ScriptFromLeafPreimage(preimage)
+	if err != nil {
+		return nil, err
 	}
 
-	// Enforce that it is not including another Taproot Asset commitment.
-	if bytes.Contains(preimage, TaprootAssetsMarker[:]) {
+	// Verify that the script is not including a Taproot Asset commitment.
+	if IsTaprootAssetCommitmentScript(script) {
 		return nil, ErrInvalidTaprootProof
 	}
 
-	version := txscript.TapscriptLeafVersion(preimage[0])
-
-	// The script is encoded with a leading VarByte that indicates its total
-	// length.
-	remaining := preimage[1:]
-	script, err := wire.ReadVarBytes(
-		bytes.NewReader(remaining), 0, uint32(len(remaining)), "script",
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error decoding leaf pre-image: %w", err)
-	}
-
-	h := txscript.NewTapLeaf(version, script).TapHash()
+	h := txscript.NewTapLeaf(*version, script).TapHash()
 	return &h, nil
 }
