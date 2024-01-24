@@ -80,9 +80,10 @@ function red() {
 
 # check_tag_correct makes sure the given git tag is checked out and the git tree
 # is not dirty.
-#   arguments: <version-tag>
+#   arguments: <version-tag> <version-file-path>
 function check_tag_correct() {
   local tag=$1
+  local version_file_path=$2
 
   # For automated builds we can skip this check as they will only be triggered
   # on tags.
@@ -102,31 +103,16 @@ function check_tag_correct() {
     echo "Tag $tag checked out. Git commit: $commit_hash"
   fi
 
-  # Build tapd to extract version.
-  go build ${PKG}/cmd/tapd
+  # Ensure that the git tag matches the version string derived from the version
+  # file.
+  local expected_tag
+  expected_tag=$(./scripts/get-git-tag-name.sh "$version_file_path")
 
-  # Extract version command output.
-  tapd_version_output=$(./tapd --version)
-
-  # Use a regex to isolate the version string.
-  if [[ $tapd_version_output =~ $TAPD_VERSION_REGEX ]]; then
-    # Prepend 'v' to match git tag naming scheme.
-    tapd_version="v${BASH_REMATCH[1]}"
-    green "version: $tapd_version"
-
-    # If the tapd reported version contains a suffix, remove it, so we can match
-    # the tag properly.
-    # shellcheck disable=SC2001
-    tapd_version=$(echo "$tapd_version" | sed -e 's/-\(alpha\|beta\)\(\.rc[0-9]\+\)\?//g')
-
-    # Match git tag with tapd version.
-    if [[ $tag != "${tapd_version}" ]]; then
-      red "tapd version $tapd_version does not match tag $tag"
-      exit 1
-    fi
-  else
-    red "malformed tapd version output"
+  if [[ $tag != "$expected_tag" ]]; then
+    red "Error: tag $tag does not match git tag version string derived from $version_file_path"
     exit 1
+  else
+    green "tag $tag matches git tag version string derived from $version_file_path"
   fi
 }
 

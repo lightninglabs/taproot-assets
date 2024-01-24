@@ -26,7 +26,7 @@ RELEASE_TAGS = monitoring
 # from the current date.
 ifneq ($(tag),)
 VERSION_TAG = $(tag)
-VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)"
+VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)" "$(VERSION_GO_FILE)"
 endif
 
 # By default we will build all systems. But with the 'sys' tag, a specific
