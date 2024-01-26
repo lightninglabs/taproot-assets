@@ -60,9 +60,10 @@ type ChainPorterConfig struct {
 	// TODO(roasbeef): replace with proof.Courier in the future/
 	AssetProofs proof.Archiver
 
-	// ProofCourierCfg is a general config applicable to all proof courier
-	// service handles.
-	ProofCourierCfg *proof.CourierCfg
+	// ProofCourierDispatcher is the dispatcher that is used to create new
+	// proof courier handles for sending proofs based on the protocol of
+	// a proof courier address.
+	ProofCourierDispatcher proof.CourierDispatch
 
 	// ProofWatcher is used to watch new proofs for their anchor transaction
 	// to be confirmed safely with a minimum number of confirmations.
@@ -648,7 +649,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		log.Debugf("Attempting to deliver proof for script key %x",
 			key.SerializeCompressed())
 
-		proofCourierAddr, err := proof.ParseCourierAddrString(
+		proofCourierAddr, err := proof.ParseCourierAddress(
 			string(out.ProofCourierAddr),
 		)
 		if err != nil {
@@ -663,8 +664,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			AssetID:   *receiverProof.AssetID,
 			Amount:    out.Amount,
 		}
-		courier, err := proofCourierAddr.NewCourier(
-			ctx, p.cfg.ProofCourierCfg, recipient,
+		courier, err := p.cfg.ProofCourierDispatcher.NewCourier(
+			proofCourierAddr, recipient,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to initiate proof courier "+
@@ -700,7 +701,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		return nil
 	}
 
-	// If we have a proof courier instance active, then we'll launch several
+	// If we have a non-interactive proof, then we'll launch several
 	// goroutines to deliver the proof(s) to the receiver(s). Since a
 	// pre-signed parcel (a parcel that uses the RPC driven vPSBT flow)
 	// doesn't have proof courier URLs (they aren't part of the vPSBT), the
@@ -708,7 +709,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// to receiver, and we don't even need to attempt to use a proof
 	// courier.
 	_, isPreSigned := pkg.Parcel.(*PreSignedParcel)
-	if p.cfg.ProofCourierCfg != nil && !isPreSigned {
+	if !isPreSigned {
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
 

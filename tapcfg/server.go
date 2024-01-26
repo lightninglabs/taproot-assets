@@ -212,7 +212,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	fallbackHashmailCourierAddr := fmt.Sprintf(
 		"%s://%s", proof.HashmailCourierType, fallbackHashMailAddr,
 	)
-	proofCourierAddr, err := proof.ParseCourierAddrString(
+	proofCourierAddr, err := proof.ParseCourierAddress(
 		fallbackHashmailCourierAddr,
 	)
 	if err != nil {
@@ -222,24 +222,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	// If default proof courier address is set, use it as the default.
 	if cfg.DefaultProofCourierAddr != "" {
-		proofCourierAddr, err = proof.ParseCourierAddrString(
+		proofCourierAddr, err = proof.ParseCourierAddress(
 			cfg.DefaultProofCourierAddr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse default proof "+
 				"courier address: %v", err)
-		}
-	}
-
-	// TODO(ffranr): This logic is leftover for integration tests which
-	//  do not yet enable a proof courier. Remove once all integration tests
-	//  support a proof courier.
-	var proofCourierCfg *proof.CourierCfg
-	if cfg.HashMailCourier != nil {
-		proofCourierCfg = &proof.CourierCfg{
-			ReceiverAckTimeout: cfg.HashMailCourier.ReceiverAckTimeout,
-			BackoffCfg:         cfg.HashMailCourier.BackoffCfg,
-			TransferLog:        assetStore,
 		}
 	}
 
@@ -330,6 +318,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		ChainParams:  &tapChainParams,
 	})
 
+	// Addresses can have different proof couriers configured, but both
+	// types of couriers that currently exist will receive this config upon
+	// initialization.
+	proofCourierDispatcher := proof.NewCourierDispatch(&proof.CourierCfg{
+		HashMailCfg:    cfg.HashMailCourier,
+		UniverseRpcCfg: cfg.UniverseRpcCourier,
+		TransferLog:    assetStore,
+	})
+
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
 		RuntimeID:    runtimeID,
@@ -362,19 +359,18 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				GroupVerifier: tapgarden.GenGroupVerifier(
 					context.Background(), assetMintingStore,
 				),
-				AddrBook:            addrBook,
-				ProofArchive:        proofArchive,
-				ProofNotifier:       assetStore,
-				ErrChan:             mainErrChan,
-				ProofCourierCfg:     proofCourierCfg,
-				ProofRetrievalDelay: cfg.CustodianProofRetrievalDelay,
-				ProofWatcher:        reOrgWatcher,
+				AddrBook:               addrBook,
+				ProofArchive:           proofArchive,
+				ProofNotifier:          assetStore,
+				ErrChan:                mainErrChan,
+				ProofCourierDispatcher: proofCourierDispatcher,
+				ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay, ProofWatcher: reOrgWatcher,
 			},
 		),
 		ChainBridge:             chainBridge,
 		AddrBook:                addrBook,
 		AddrBookDisableSyncer:   cfg.AddrBook.DisableSyncer,
-		DefaultProofCourierAddr: proofCourierAddr.Url(),
+		DefaultProofCourierAddr: proofCourierAddr,
 		ProofArchive:            proofArchive,
 		AssetWallet:             assetWallet,
 		CoinSelect:              coinSelect,
@@ -387,13 +383,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				GroupVerifier: tapgarden.GenGroupVerifier(
 					context.Background(), assetMintingStore,
 				),
-				Wallet:          walletAnchor,
-				KeyRing:         keyRing,
-				AssetWallet:     assetWallet,
-				AssetProofs:     proofFileStore,
-				ProofCourierCfg: proofCourierCfg,
-				ProofWatcher:    reOrgWatcher,
-				ErrChan:         mainErrChan,
+				Wallet:                 walletAnchor,
+				KeyRing:                keyRing,
+				AssetWallet:            assetWallet,
+				AssetProofs:            proofFileStore,
+				ProofCourierDispatcher: proofCourierDispatcher,
+				ProofWatcher:           reOrgWatcher,
+				ErrChan:                mainErrChan,
 			},
 		),
 		UniverseArchive:          baseUni,
