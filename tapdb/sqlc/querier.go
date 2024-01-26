@@ -79,6 +79,7 @@ type Querier interface {
 	GenesisAssets(ctx context.Context) ([]GenesisAsset, error)
 	GenesisPoints(ctx context.Context) ([]GenesisPoint, error)
 	GetRootKey(ctx context.Context, id []byte) (Macaroon, error)
+	HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (bool, error)
 	InsertAddr(ctx context.Context, arg InsertAddrParams) (int64, error)
 	InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error
 	InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error

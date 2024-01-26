@@ -1374,6 +1374,67 @@ func testSendMultipleCoins(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
 }
 
+// testSendNoCourierUniverseImport tests that we can send assets to a node that
+// has no courier, and then manually transfer the proof to the receiving using
+// the universe proof import RPC method.
+func testSendNoCourierUniverseImport(t *harnessTest) {
+	ctxb := context.Background()
+
+	// First, we'll make a normal assets with enough units.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	firstAsset := rpcAssets[0]
+	genInfo := firstAsset.AssetGenesis
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets. We turn off the proof
+	// courier by supplying a dummy implementation.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.proofCourier = &proof.MockProofCourier{}
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Next, we'll attempt to transfer some amount of assets[0] to the
+	// receiving node.
+	numUnitsSend := uint64(1200)
+
+	// Get a new address (which accepts the first asset) from the
+	// receiving node.
+	receiveAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnitsSend,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondTapd, firstAsset, receiveAddr)
+
+	// Send the assets to the receiving node.
+	sendResp := sendAssetsToAddr(t, t.tapd, receiveAddr)
+
+	// Assert that the outbound transfer was confirmed.
+	expectedAmtAfterSend := firstAsset.Amount - numUnitsSend
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId,
+		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
+	)
+
+	// Since we disabled proof couriers, we need to manually transfer the
+	// proof from the sender to the receiver now. We use the universe RPC
+	// InsertProof method to do this.
+	sendProofUniRPC(t, t.tapd, secondTapd, receiveAddr.ScriptKey, genInfo)
+
+	// And now, the transfer should be completed on the receiver side too.
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+}
+
 // addProofTestVectorFromFile adds a proof test vector by extracting it from the
 // proof file found at the given asset ID and script key.
 func addProofTestVectorFromFile(t *testing.T, testName string,

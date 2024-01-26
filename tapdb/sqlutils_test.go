@@ -150,12 +150,26 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	})
 	require.NoError(t, err, "unable to insert chain tx: %w", err)
 
+	// Before we insert the proof, we expect our backend to report it as not
+	// found.
+	proofLocator := proof.Locator{
+		ScriptKey: *testAsset.ScriptKey.PubKey,
+	}
+	found, err := assetStore.HasProof(ctx, proofLocator)
+	require.NoError(t, err)
+	require.False(t, found)
+
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
 		ctx, proof.MockHeaderVerifier, proof.MockGroupVerifier, false,
 		annotatedProof,
 	))
+
+	// Now the HasProof should return true.
+	found, err = assetStore.HasProof(ctx, proofLocator)
+	require.NoError(t, err)
+	require.True(t, found)
 
 	return testAsset, annotatedProof
 }

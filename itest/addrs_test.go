@@ -8,6 +8,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -512,6 +513,8 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	require.NoError(t.t, err)
 }
 
+// sendProof manually exports a proof from the given source node and imports it
+// using the development only ImportProof RPC on the destination node.
 func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
 
@@ -537,6 +540,85 @@ func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
 		ProofFile:    proofResp.RawProofFile,
 		GenesisPoint: genInfo.GenesisPoint,
+	})
+	require.NoError(t.t, err)
+
+	return importResp
+}
+
+// sendProofUniRPC manually exports a proof from the given source node and
+// imports it using the universe related InsertProof RPC on the destination
+// node.
+func sendProofUniRPC(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
+	genInfo *taprpc.GenesisInfo) *unirpc.AssetProofResponse {
+
+	ctxb := context.Background()
+
+	var proofResp *taprpc.ProofFile
+	waitErr := wait.NoError(func() error {
+		resp, err := src.ExportProof(ctxb, &taprpc.ExportProofRequest{
+			AssetId:   genInfo.AssetId,
+			ScriptKey: scriptKey,
+		})
+		if err != nil {
+			return err
+		}
+
+		proofResp = resp
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t.t, waitErr)
+
+	t.Logf("Importing proof %x using InsertProof", proofResp.RawProofFile)
+
+	f := proof.File{}
+	err := f.Decode(bytes.NewReader(proofResp.RawProofFile))
+	require.NoError(t.t, err)
+
+	lastProof, err := f.LastProof()
+	require.NoError(t.t, err)
+
+	var lastProofBytes bytes.Buffer
+	err = lastProof.Encode(&lastProofBytes)
+	require.NoError(t.t, err)
+	asset := lastProof.Asset
+
+	proofType := universe.ProofTypeTransfer
+	if asset.IsGenesisAsset() {
+		proofType = universe.ProofTypeIssuance
+	}
+
+	uniID := universe.Identifier{
+		AssetID:   asset.ID(),
+		ProofType: proofType,
+	}
+	if asset.GroupKey != nil {
+		uniID.GroupKey = &asset.GroupKey.GroupPubKey
+	}
+
+	rpcUniID, err := tap.MarshalUniID(uniID)
+	require.NoError(t.t, err)
+
+	outpoint := &unirpc.Outpoint{
+		HashStr: lastProof.AnchorTx.TxHash().String(),
+		Index:   int32(lastProof.InclusionProof.OutputIndex),
+	}
+
+	importResp, err := dst.InsertProof(ctxb, &unirpc.AssetProof{
+		Key: &unirpc.UniverseKey{
+			Id: rpcUniID,
+			LeafKey: &unirpc.AssetKey{
+				Outpoint: &unirpc.AssetKey_Op{
+					Op: outpoint,
+				},
+				ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+					ScriptKeyBytes: scriptKey,
+				},
+			},
+		},
+		AssetLeaf: &unirpc.AssetLeaf{
+			Proof: lastProofBytes.Bytes(),
+		},
 	})
 	require.NoError(t.t, err)
 
