@@ -11,17 +11,15 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/lightninglabs/taproot-assets/internal/test"
-
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
-
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -44,7 +42,10 @@ func testUniverseSync(t *harnessTest) {
 	// With those assets created, we'll now create a new node that we'll
 	// use to exercise the Universe sync.
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, nil,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
@@ -387,7 +388,10 @@ func testUniverseFederation(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up to
 	// any existing Universe server.
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, nil,
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))

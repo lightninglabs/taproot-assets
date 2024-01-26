@@ -53,10 +53,6 @@ func testReOrgMint(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(assetList)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -139,10 +135,6 @@ func testReOrgSend(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(assetList)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -169,9 +161,6 @@ func testReOrgSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
-	)
-	_ = sendProof(
-		t, t.tapd, secondTapd, bobAddr.ScriptKey, sendAssetGen,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	initialBlockHash := initialBlock.BlockHash()
@@ -265,10 +254,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(assetList)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -290,9 +275,6 @@ func testReOrgMintAndSend(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		sendAssetGen.AssetId,
 		[]uint64{sendAsset.Amount - sendAmount, sendAmount}, 0, 1,
-	)
-	_ = sendProof(
-		t, t.tapd, secondTapd, bobAddr.ScriptKey, sendAssetGen,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 	initialBlockHash := initialBlock.BlockHash()

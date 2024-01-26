@@ -225,7 +225,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 		ctx, id, key, &newProof, prevAssetSnapshot,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to verify proof: %w", err)
 	}
 
 	// Now that we know the proof is valid, we'll insert it into the base
