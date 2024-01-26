@@ -71,6 +71,11 @@ func NewArchive(cfg ArchiveConfig) *Archive {
 	return a
 }
 
+// Close closes the archive, stopping all goroutines and freeing all resources.
+func (a *Archive) Close() error {
+	return nil
+}
+
 // fetchUniverse returns the base universe instance for the passed identifier.
 // The universe will be loaded in on demand if it has not been seen before.
 func (a *Archive) fetchUniverse(id Identifier) BaseBackend {

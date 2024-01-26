@@ -321,6 +321,9 @@ type Registrar interface {
 	// UpsertProofLeaf upserts a proof leaf within the target universe tree.
 	UpsertProofLeaf(ctx context.Context, id Identifier, key LeafKey,
 		leaf *Leaf) (*Proof, error)
+
+	// Close is used to shutdown the active registrar instance.
+	Close() error
 }
 
 // Item contains the data fields necessary to insert/update a proof leaf
@@ -519,6 +522,9 @@ type DiffEngine interface {
 	// of diff
 	FetchProofLeaf(ctx context.Context, id Identifier,
 		key LeafKey) ([]*Proof, error)
+
+	// Close is used to shutdown the active diff engine instance.
+	Close() error
 }
 
 // Commitment is an on chain universe commitment. This includes the merkle
