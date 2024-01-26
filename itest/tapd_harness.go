@@ -46,13 +46,37 @@ var (
 		tapdb.DefaultPostgresFixtureLifetime, "The amount of time to "+
 			"allow the postgres fixture to run in total. Needs "+
 			"to be increased for long-running tests.")
+
+	// defaultHashmailBackoffConfig is the default backoff config we'll use
+	// for sending proofs with the hashmail courier.
+	defaultHashmailBackoffConfig = proof.BackoffCfg{
+		BackoffResetWait: time.Second,
+		NumTries:         5,
+		InitialBackoff:   300 * time.Millisecond,
+		MaxBackoff:       600 * time.Millisecond,
+	}
+
+	// defaultUniverseRpcBackoffConfig is the default backoff config we'll
+	// use for sending proofs with the universe RPC courier.
+	defaultUniverseRpcBackoffConfig = proof.BackoffCfg{
+		SkipInitDelay:    true,
+		BackoffResetWait: time.Second,
+		NumTries:         5,
+		InitialBackoff:   300 * time.Millisecond,
+		MaxBackoff:       600 * time.Millisecond,
+	}
+
+	// defaultProofRetrievalDelay is the default delay we'll use for the
+	// custodian to wait from observing a transaction on-chan to retrieving
+	// the proof from the courier.
+	defaultProofRetrievalDelay = 200 * time.Millisecond
 )
 
 const (
 	// defaultProofTransferReceiverAckTimeout is the default itest specific
 	// timeout we'll use for waiting for a receiver to acknowledge a proof
 	// transfer.
-	defaultProofTransferReceiverAckTimeout = 15 * time.Second
+	defaultProofTransferReceiverAckTimeout = 5 * time.Second
 )
 
 // tapdHarness is a test harness that holds everything that is needed to
@@ -86,6 +110,10 @@ type harnessOpts struct {
 	proofCourier                 proof.CourierHarness
 	custodianProofRetrievalDelay *time.Duration
 	addrAssetSyncerDisable       bool
+
+	// fedSyncTickerInterval is the interval at which the federation envoy
+	// sync ticker will fire.
+	fedSyncTickerInterval *time.Duration
 }
 
 type harnessOption func(*harnessOpts)
@@ -182,14 +210,11 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// Populate proof courier specific config fields.
 	//
 	// Use passed in backoff config or default config.
-	backoffCfg := &proof.BackoffCfg{
-		BackoffResetWait: 2 * time.Second,
-		NumTries:         3,
-		InitialBackoff:   2 * time.Second,
-		MaxBackoff:       2 * time.Second,
-	}
+	hashmailBackoffCfg := defaultHashmailBackoffConfig
+	universeRpcBackoffCfg := defaultUniverseRpcBackoffConfig
 	if opts.proofSendBackoffCfg != nil {
-		backoffCfg = opts.proofSendBackoffCfg
+		hashmailBackoffCfg = *opts.proofSendBackoffCfg
+		universeRpcBackoffCfg = *opts.proofSendBackoffCfg
 	}
 
 	// Used passed in proof receiver ack timeout or default.
@@ -198,12 +223,12 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		receiverAckTimeout = *opts.proofReceiverAckTimeout
 	}
 
-	// TODO(ffranr): Disentangle the hashmail config from the universe RPC
-	// courier config. Right now, the universe courier takes the backoff
-	// config from the hashmail courier config.
 	finalCfg.HashMailCourier = &proof.HashMailCourierCfg{
 		ReceiverAckTimeout: receiverAckTimeout,
-		BackoffCfg:         backoffCfg,
+		BackoffCfg:         &hashmailBackoffCfg,
+	}
+	finalCfg.UniverseRpcCourier = &proof.UniverseRpcCourierCfg{
+		BackoffCfg: &universeRpcBackoffCfg,
 	}
 
 	switch typedProofCourier := (opts.proofCourier).(type) {
@@ -213,7 +238,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 			typedProofCourier.ListenAddr,
 		)
 
-	case *UniverseRPCHarness:
+	case *universeServerHarness:
 		finalCfg.DefaultProofCourierAddr = fmt.Sprintf(
 			"%s://%s", proof.UniverseRpcCourierType,
 			typedProofCourier.ListenAddr,
@@ -221,12 +246,19 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 
 	default:
 		finalCfg.DefaultProofCourierAddr = ""
-		finalCfg.HashMailCourier = nil
 	}
 
+	ht.t.Logf("Using proof courier address: %v",
+		finalCfg.DefaultProofCourierAddr)
+
 	// Set the custodian proof retrieval delay if it was specified.
+	finalCfg.CustodianProofRetrievalDelay = defaultProofRetrievalDelay
 	if opts.custodianProofRetrievalDelay != nil {
 		finalCfg.CustodianProofRetrievalDelay = *opts.custodianProofRetrievalDelay
+	}
+
+	if opts.fedSyncTickerInterval != nil {
+		finalCfg.Universe.SyncInterval = *opts.fedSyncTickerInterval
 	}
 
 	return &tapdHarness{

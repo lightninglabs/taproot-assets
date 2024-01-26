@@ -1,6 +1,11 @@
 package monitoring
 
-import "google.golang.org/grpc"
+import (
+	"github.com/lightninglabs/taproot-assets/tapdb"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/universe"
+	"google.golang.org/grpc"
+)
 
 // PrometheusConfig is the set of configuration data that specifies if
 // Prometheus metric exporting is activated, and if so the listening address of
@@ -16,6 +21,18 @@ type PrometheusConfig struct {
 	// RPCServer is a pointer to the main RPC server. We use this to export
 	// generic RPC metrics to monitor the health of the service.
 	RPCServer *grpc.Server
+
+	// UniverseStats is used to collect any stats that are relevant to the
+	// universe.
+	UniverseStats universe.Telemetry
+
+	// AssetStore is used to collect any stats that are relevant to the
+	// asset store.
+	AssetStore *tapdb.AssetStore
+
+	// AssetMinter is used to collect any stats that are relevant to the
+	// asset minter.
+	AssetMinter tapgarden.Planter
 
 	// PerfHistograms indicates if the additional histogram information for
 	// latency, and handling time of gRPC calls should be enabled. This

@@ -130,6 +130,18 @@ func All[T any](xs []T, pred func(T) bool) bool {
 	return true
 }
 
+// AllMapItems returns true if the passed predicate returns true for all items
+// in the map.
+func AllMapItems[T any, K comparable](xs map[K]T, pred func(T) bool) bool {
+	for i := range xs {
+		if !pred(xs[i]) {
+			return false
+		}
+	}
+
+	return true
+}
+
 // Any returns true if the passed predicate returns true for any item in the
 // slice.
 func Any[T any](xs []T, pred func(T) bool) bool {
@@ -148,8 +160,46 @@ func None[T any](xs []T, pred func(T) bool) bool {
 	return !Any(xs, pred)
 }
 
+// AnyMapItem returns true if the passed predicate returns true for any item in
+// the map.
+func AnyMapItem[T any, K comparable](xs map[K]T, pred func(T) bool) bool {
+	for i := range xs {
+		if pred(xs[i]) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// NotAny returns true if the passed predicate returns false for all items in
+// the slice.
+func NotAny[T any](xs []T, pred func(T) bool) bool {
+	return !Any(xs, pred)
+}
+
+// NotAnyMapItem returns true if the passed predicate returns false for all
+// items in the map.
+func NotAnyMapItem[T any, K comparable](xs map[K]T, pred func(T) bool) bool {
+	return !AnyMapItem(xs, pred)
+}
+
 // Count returns the number of items in the slice that match the predicate.
 func Count[T any](xs []T, pred func(T) bool) int {
+	var count int
+
+	for i := range xs {
+		if pred(xs[i]) {
+			count++
+		}
+	}
+
+	return count
+}
+
+// CountMapItems returns the number of items in the map that match the
+// predicate.
+func CountMapItems[T any, K comparable](xs map[K]T, pred func(T) bool) int {
 	var count int
 
 	for i := range xs {

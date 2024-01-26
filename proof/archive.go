@@ -107,6 +107,11 @@ type Archiver interface {
 	// returned.
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
+	// HasProof returns true if the proof for the given locator exists. This
+	// is intended to be a performance optimized lookup compared to fetching
+	// a proof and checking for ErrProofNotFound.
+	HasProof(ctx context.Context, id Locator) (bool, error)
+
 	// FetchProofs fetches all proofs for assets uniquely identified by the
 	// passed asset ID.
 	FetchProofs(ctx context.Context, id asset.ID) ([]*AnnotatedProof, error)
@@ -125,10 +130,102 @@ type Archiver interface {
 // NotifyArchiver is an Archiver that also allows callers to subscribe to
 // notifications about new proofs being added to the archiver.
 type NotifyArchiver interface {
-	Archiver
+	// FetchProof fetches a proof for an asset uniquely identified by the
+	// passed Identifier. The returned blob is expected to be the encoded
+	// full proof file, containing the complete provenance of the asset.
+	//
+	// If a proof cannot be found, then ErrProofNotFound should be returned.
+	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
 	fn.EventPublisher[Blob, []*Locator]
 }
+
+// MultiArchiveNotifier is a NotifyArchiver that wraps several other archives
+// and notifies subscribers about new proofs that are added to any of the
+// archives.
+type MultiArchiveNotifier struct {
+	archives []NotifyArchiver
+}
+
+// NewMultiArchiveNotifier creates a new MultiArchiveNotifier based on the set
+// of specified backends.
+func NewMultiArchiveNotifier(archives ...NotifyArchiver) *MultiArchiveNotifier {
+	return &MultiArchiveNotifier{
+		archives: archives,
+	}
+}
+
+// FetchProof fetches a proof for an asset uniquely identified by the passed
+// Identifier. The returned proof can either be a full proof file or just a
+// single proof.
+//
+// If a proof cannot be found, then ErrProofNotFound should be returned.
+//
+// NOTE: This is part of the NotifyArchiver interface.
+func (m *MultiArchiveNotifier) FetchProof(ctx context.Context,
+	id Locator) (Blob, error) {
+
+	for idx := range m.archives {
+		a := m.archives[idx]
+
+		proofBlob, err := a.FetchProof(ctx, id)
+		if errors.Is(err, ErrProofNotFound) {
+			// Try the next archive.
+			continue
+		} else if err != nil {
+			return nil, fmt.Errorf("error fetching proof "+
+				"from archive: %w", err)
+		}
+
+		return proofBlob, nil
+	}
+
+	return nil, ErrProofNotFound
+}
+
+// RegisterSubscriber adds a new subscriber for receiving events. The
+// registration request is forwarded to all registered archives.
+func (m *MultiArchiveNotifier) RegisterSubscriber(
+	receiver *fn.EventReceiver[Blob], deliverExisting bool,
+	deliverFrom []*Locator) error {
+
+	for idx := range m.archives {
+		a := m.archives[idx]
+
+		err := a.RegisterSubscriber(
+			receiver, deliverExisting, deliverFrom,
+		)
+		if err != nil {
+			return fmt.Errorf("error registering subscriber: %w",
+				err)
+		}
+	}
+
+	return nil
+}
+
+// RemoveSubscriber removes the given subscriber and also stops it from
+// processing events. The removal request is forwarded to all registered
+// archives.
+func (m *MultiArchiveNotifier) RemoveSubscriber(
+	subscriber *fn.EventReceiver[Blob]) error {
+
+	for idx := range m.archives {
+		a := m.archives[idx]
+
+		err := a.RemoveSubscriber(subscriber)
+		if err != nil {
+			return fmt.Errorf("error removing subscriber: "+
+				"%w", err)
+		}
+	}
+
+	return nil
+}
+
+// A compile-time interface to ensure MultiArchiveNotifier meets the
+// NotifyArchiver interface.
+var _ NotifyArchiver = (*MultiArchiveNotifier)(nil)
 
 // FileArchiver implements proof Archiver backed by an on-disk file system. The
 // archiver takes a single root directory then creates the following overlap
@@ -214,6 +311,22 @@ func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 	}
 
 	return proofFile, nil
+}
+
+// HasProof returns true if the proof for the given locator exists. This is
+// intended to be a performance optimized lookup compared to fetching a proof
+// and checking for ErrProofNotFound.
+func (f *FileArchiver) HasProof(_ context.Context, id Locator) (bool, error) {
+	// All our on-disk storage is based on asset IDs, so to look up a path,
+	// we just need to compute the full file path and see if it exists on
+	// disk.
+	proofPath, err := genProofFilePath(f.proofPath, id)
+	if err != nil {
+		return false, fmt.Errorf("unable to make proof file path: %w",
+			err)
+	}
+
+	return lnrpc.FileExists(proofPath), nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed
@@ -405,6 +518,27 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 	}
 
 	return nil, ErrProofNotFound
+}
+
+// HasProof returns true if the proof for the given locator exists. This is
+// intended to be a performance optimized lookup compared to fetching a proof
+// and checking for ErrProofNotFound. The multi archiver only considers a proof
+// to be present if all backends have it.
+func (m *MultiArchiver) HasProof(ctx context.Context, id Locator) (bool, error) {
+	for _, archive := range m.backends {
+		ok, err := archive.HasProof(ctx, id)
+		if err != nil {
+			return false, err
+		}
+
+		// We are expecting all backends to have the proof, otherwise we
+		// consider the proof not to be found.
+		if !ok {
+			return false, nil
+		}
+	}
+
+	return true, nil
 }
 
 // FetchProofs fetches all proofs for assets uniquely identified by the passed

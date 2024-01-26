@@ -8,6 +8,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -40,10 +41,6 @@ func testAddresses(t *harnessTest) {
 	// assets made above.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -78,12 +75,6 @@ func testAddresses(t *harnessTest) {
 
 		// Eventually the event should be marked as confirmed.
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
-
-		// To complete the transfer, we'll export the proof from the
-		// sender and import it into the receiver for each asset set.
-		sendProof(
-			t, t.tapd, secondTapd, addr.ScriptKey, a.AssetGenesis,
-		)
 
 		// Make sure we have imported and finalized all proofs.
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, idx+1)
@@ -175,10 +166,6 @@ func testMultiAddress(t *harnessTest) {
 	alice := t.tapd
 	bob := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = alice
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
@@ -195,7 +182,12 @@ func testMultiAddress(t *harnessTest) {
 func testAddressAssetSyncer(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up
 	// to any existing Universe server.
-	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, nil)
+	bob := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.noDefaultUniverseSync = true
+		},
+	)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
@@ -321,8 +313,9 @@ func testAddressAssetSyncer(t *harnessTest) {
 	restartBobNoUniSync := func(disableSyncer bool) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 		bob = setupTapdHarness(
-			t.t, t, t.lndHarness.Bob, nil,
+			t.t, t, t.lndHarness.Bob, t.universeServer,
 			func(params *tapdHarnessParams) {
+				params.noDefaultUniverseSync = true
 				params.addrAssetSyncerDisable = disableSyncer
 			},
 		)
@@ -436,13 +429,11 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 
 	// In order to force a split, we don't try to send the full asset.
 	const sendAmt = 100
-	var bobAddresses []*taprpc.Addr
 	bobAddr1, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId: genInfo.AssetId,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
-	bobAddresses = append(bobAddresses, bobAddr1)
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
 
 	bobAddr2, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
@@ -450,7 +441,6 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 		Amt:     sendAmt,
 	})
 	require.NoError(t.t, err)
-	bobAddresses = append(bobAddresses, bobAddr2)
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr2)
 
 	// To test that Alice can also receive to multiple addresses in a single
@@ -492,14 +482,6 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	// this point, so the status should go to completed directly.
 	AssertAddrEventByStatus(t.t, alice, statusCompleted, numRuns*2)
 
-	// To complete the transfer, we'll export the proof from the sender and
-	// import it into the receiver for each asset set. This should not be
-	// necessary for the sends to Alice, as she is both the sender and
-	// receiver and should detect the local proof once it's written to disk.
-	for i := range bobAddresses {
-		sendProof(t, alice, bob, bobAddresses[i].ScriptKey, genInfo)
-	}
-
 	// Make sure we have imported and finalized all proofs.
 	AssertNonInteractiveRecvComplete(t.t, bob, numRuns*2)
 	AssertNonInteractiveRecvComplete(t.t, alice, numRuns*2)
@@ -531,6 +513,8 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	require.NoError(t.t, err)
 }
 
+// sendProof manually exports a proof from the given source node and imports it
+// using the development only ImportProof RPC on the destination node.
 func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
 
@@ -556,6 +540,85 @@ func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
 		ProofFile:    proofResp.RawProofFile,
 		GenesisPoint: genInfo.GenesisPoint,
+	})
+	require.NoError(t.t, err)
+
+	return importResp
+}
+
+// sendProofUniRPC manually exports a proof from the given source node and
+// imports it using the universe related InsertProof RPC on the destination
+// node.
+func sendProofUniRPC(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
+	genInfo *taprpc.GenesisInfo) *unirpc.AssetProofResponse {
+
+	ctxb := context.Background()
+
+	var proofResp *taprpc.ProofFile
+	waitErr := wait.NoError(func() error {
+		resp, err := src.ExportProof(ctxb, &taprpc.ExportProofRequest{
+			AssetId:   genInfo.AssetId,
+			ScriptKey: scriptKey,
+		})
+		if err != nil {
+			return err
+		}
+
+		proofResp = resp
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t.t, waitErr)
+
+	t.Logf("Importing proof %x using InsertProof", proofResp.RawProofFile)
+
+	f := proof.File{}
+	err := f.Decode(bytes.NewReader(proofResp.RawProofFile))
+	require.NoError(t.t, err)
+
+	lastProof, err := f.LastProof()
+	require.NoError(t.t, err)
+
+	var lastProofBytes bytes.Buffer
+	err = lastProof.Encode(&lastProofBytes)
+	require.NoError(t.t, err)
+	asset := lastProof.Asset
+
+	proofType := universe.ProofTypeTransfer
+	if asset.IsGenesisAsset() {
+		proofType = universe.ProofTypeIssuance
+	}
+
+	uniID := universe.Identifier{
+		AssetID:   asset.ID(),
+		ProofType: proofType,
+	}
+	if asset.GroupKey != nil {
+		uniID.GroupKey = &asset.GroupKey.GroupPubKey
+	}
+
+	rpcUniID, err := tap.MarshalUniID(uniID)
+	require.NoError(t.t, err)
+
+	outpoint := &unirpc.Outpoint{
+		HashStr: lastProof.AnchorTx.TxHash().String(),
+		Index:   int32(lastProof.InclusionProof.OutputIndex),
+	}
+
+	importResp, err := dst.InsertProof(ctxb, &unirpc.AssetProof{
+		Key: &unirpc.UniverseKey{
+			Id: rpcUniID,
+			LeafKey: &unirpc.AssetKey{
+				Outpoint: &unirpc.AssetKey_Op{
+					Op: outpoint,
+				},
+				ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+					ScriptKeyBytes: scriptKey,
+				},
+			},
+		},
+		AssetLeaf: &unirpc.AssetLeaf{
+			Proof: lastProofBytes.Bytes(),
+		},
 	})
 	require.NoError(t.t, err)
 

@@ -95,7 +95,7 @@ type harnessTest struct {
 	// nil if not yet set up.
 	lndHarness *lntest.HarnessTest
 
-	universeServer *serverHarness
+	universeServer *universeServerHarness
 
 	tapd *tapdHarness
 
@@ -107,7 +107,7 @@ type harnessTest struct {
 // newHarnessTest creates a new instance of a harnessTest from a regular
 // testing.T instance.
 func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
-	universeServer *serverHarness, tapd *tapdHarness,
+	universeServer *universeServerHarness, tapd *tapdHarness,
 	proofCourier proof.CourierHarness) *harnessTest {
 
 	return &harnessTest{
@@ -174,7 +174,11 @@ func (h *harnessTest) LogfTimestamped(format string, args ...interface{}) {
 
 // shutdown stops both the mock universe and tapd server.
 func (h *harnessTest) shutdown(_ *testing.T) error {
-	h.universeServer.stop()
+	err := h.universeServer.Stop()
+	if err != nil {
+		return fmt.Errorf("unable to stop universe server harness: "+
+			"%w", err)
+	}
 
 	if h.proofCourier != nil {
 		err := h.proofCourier.Stop()
@@ -184,7 +188,7 @@ func (h *harnessTest) shutdown(_ *testing.T) error {
 		}
 	}
 
-	err := h.tapd.stop(!*noDelete)
+	err = h.tapd.stop(!*noDelete)
 	if err != nil {
 		return fmt.Errorf("unable to stop tapd: %v", err)
 	}
@@ -236,6 +240,25 @@ func (h *harnessTest) syncUniverseState(target, syncer *tapdHarness,
 	require.Equal(h.t, numExpectedAssets, numAssets)
 }
 
+// addFederationServer adds a new federation server to the given tapd harness.
+func (h *harnessTest) addFederationServer(host string, target *tapdHarness) {
+	ctxt, cancel := context.WithTimeout(
+		context.Background(), defaultWaitTimeout,
+	)
+	defer cancel()
+
+	_, err := target.AddFederationServer(
+		ctxt, &unirpc.AddFederationServerRequest{
+			Servers: []*unirpc.UniverseFederationServer{
+				{
+					Host: host,
+				},
+			},
+		},
+	)
+	require.NoError(h.t, err)
+}
+
 // nextAvailablePort returns the first port that is available for listening by
 // a new node. It panics if no port is found and the maximum available TCP port
 // is reached.
@@ -269,36 +292,33 @@ func nextAvailablePort() int {
 func setupHarnesses(t *testing.T, ht *harnessTest,
 	lndHarness *lntest.HarnessTest,
 	proofCourierType proof.CourierType) (*tapdHarness,
-	*serverHarness, proof.CourierHarness) {
+	*universeServerHarness, proof.CourierHarness) {
+
+	universeServer := newUniverseServerHarness(t, ht, lndHarness.Bob)
+
+	t.Logf("Starting universe server harness, listening on %v",
+		universeServer.ListenAddr)
+
+	err := universeServer.Start(nil)
+	require.NoError(t, err, "universe server harness")
 
 	// If a proof courier type is specified, start test specific proof
 	// courier service and attach to test harness.
 	var proofCourier proof.CourierHarness
 	switch proofCourierType {
-	case proof.DisabledCourier:
-		// Proof courier disabled, do nothing.
-
 	case proof.HashmailCourierType:
 		port := nextAvailablePort()
-		apHarness := NewApertureHarness(ht.t, port)
-		proofCourier = &apHarness
+		apertureHarness := NewApertureHarness(ht.t, port)
+		err := apertureHarness.Start(nil)
+		require.NoError(t, err, "aperture proof courier harness")
 
-	case proof.UniverseRpcCourierType:
-		proofCourier = NewUniverseRPCHarness(t, ht, lndHarness.Bob)
+		proofCourier = apertureHarness
+
+	// If nothing is specified, we use the universe RPC proof courier by
+	// default.
+	default:
+		proofCourier = universeServer
 	}
-
-	// Start the proof courier harness if specified.
-	if proofCourier != nil {
-		err := proofCourier.Start(nil)
-		require.NoError(t, err, "unable to start proof courier harness")
-	}
-
-	mockServerAddr := fmt.Sprintf(
-		node.ListenerFormat, node.NextAvailablePort(),
-	)
-	universeServer := newServerHarness(mockServerAddr)
-	err := universeServer.start()
-	require.NoError(t, err)
 
 	// Create a tapd that uses Bob and connect it to the universe server.
 	tapdHarness := setupTapdHarness(
@@ -345,6 +365,14 @@ type tapdHarnessParams struct {
 	// startupSyncNumAssets is the number of assets that are expected to be
 	// synced from the above node.
 	startupSyncNumAssets int
+
+	// fedSyncTickerInterval is the interval at which the federation envoy
+	// sync ticker will fire.
+	fedSyncTickerInterval *time.Duration
+
+	// noDefaultUniverseSync indicates whether the default universe server
+	// should be added as a federation server or not.
+	noDefaultUniverseSync bool
 }
 
 type Option func(*tapdHarnessParams)
@@ -352,7 +380,7 @@ type Option func(*tapdHarnessParams)
 // setupTapdHarness creates a new tapd that connects to the given lnd node
 // and to the given universe server.
 func setupTapdHarness(t *testing.T, ht *harnessTest,
-	node *node.HarnessNode, universe *serverHarness,
+	node *node.HarnessNode, universe *universeServerHarness,
 	opts ...Option) *tapdHarness {
 
 	// Set parameters by executing option functions.
@@ -378,19 +406,24 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.proofCourier = selectedProofCourier
 		ho.custodianProofRetrievalDelay = params.custodianProofRetrievalDelay
 		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
+		ho.fedSyncTickerInterval = params.fedSyncTickerInterval
 	}
 
-	tapdHarness, err := newTapdHarness(
-		t, ht, tapdConfig{
-			NetParams: harnessNetParams,
-			LndNode:   node,
-		}, harnessOpts,
-	)
+	tapdHarness, err := newTapdHarness(t, ht, tapdConfig{
+		NetParams: harnessNetParams,
+		LndNode:   node,
+	}, harnessOpts)
 	require.NoError(t, err)
 
 	// Start the tapd harness now.
 	err = tapdHarness.start(params.expectErrExit)
 	require.NoError(t, err)
+
+	// Add the default universe server as a federation server, unless
+	// specifically indicated by the caller.
+	if !params.noDefaultUniverseSync {
+		ht.addFederationServer(universe.service.rpcHost(), tapdHarness)
+	}
 
 	// Before we exit, we'll check to see if we need to sync the universe
 	// state.

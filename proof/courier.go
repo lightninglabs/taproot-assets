@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -66,207 +67,153 @@ type Courier interface {
 	// SetSubscribers sets the set of subscribers that will be notified
 	// of proof courier related events.
 	SetSubscribers(map[uint64]*fn.EventReceiver[fn.Event])
+
+	// Close stops the courier instance.
+	Close() error
 }
 
-// CourierAddr is a fully validated courier address (including protocol specific
-// validation).
-type CourierAddr interface {
-	// Url returns the url.URL representation of the courier address.
-	Url() *url.URL
+// CourierCfg contains general config parameters applicable to all proof
+// couriers.
+type CourierCfg struct {
+	// HashMailCfg contains hashmail protocol specific config parameters.
+	HashMailCfg *HashMailCourierCfg
 
-	// NewCourier generates a new courier service handle.
-	NewCourier(ctx context.Context, cfg *CourierCfg,
-		recipient Recipient) (Courier, error)
+	// UniverseRpcCfg contains universe RPC protocol specific config
+	// parameters.
+	UniverseRpcCfg *UniverseRpcCourierCfg
+
+	// TransferLog is a log for recording proof delivery and retrieval
+	// attempts.
+	TransferLog TransferLog
 }
 
-// ParseCourierAddrString parses a proof courier address string and returns a
-// protocol specific courier address instance.
-func ParseCourierAddrString(addr string) (CourierAddr, error) {
-	// Parse URI.
+// CourierDispatch is an interface that abstracts away the different proof
+// courier services that are supported.
+type CourierDispatch interface {
+	// NewCourier instantiates a new courier service handle given a service
+	// URL address.
+	NewCourier(addr *url.URL, recipient Recipient) (Courier, error)
+}
+
+// URLDispatch is a proof courier dispatch that uses the courier address URL
+// scheme to determine which courier service to use.
+type URLDispatch struct {
+	cfg *CourierCfg
+}
+
+// NewCourierDispatch creates a new proof courier dispatch.
+func NewCourierDispatch(cfg *CourierCfg) *URLDispatch {
+	return &URLDispatch{
+		cfg: cfg,
+	}
+}
+
+// NewCourier instantiates a new courier service handle given a service URL
+// address.
+func (u *URLDispatch) NewCourier(addr *url.URL,
+	recipient Recipient) (Courier, error) {
+
+	subscribers := make(map[uint64]*fn.EventReceiver[fn.Event])
+
+	// Create new courier addr based on URL scheme.
+	switch addr.Scheme {
+	case HashmailCourierType:
+		cfg := u.cfg.HashMailCfg
+		backoffHandler := NewBackoffHandler(
+			cfg.BackoffCfg, u.cfg.TransferLog,
+		)
+
+		hashMailCfg := HashMailCourierCfg{
+			ReceiverAckTimeout: cfg.ReceiverAckTimeout,
+		}
+
+		hashMailBox, err := NewHashMailBox(addr)
+		if err != nil {
+			return nil, fmt.Errorf("unable to make mailbox: %v",
+				err)
+		}
+
+		return &HashMailCourier{
+			cfg:           &hashMailCfg,
+			backoffHandle: backoffHandler,
+			recipient:     recipient,
+			mailbox:       hashMailBox,
+			subscribers:   subscribers,
+		}, nil
+
+	case UniverseRpcCourierType:
+		cfg := u.cfg.UniverseRpcCfg
+		backoffHandler := NewBackoffHandler(
+			cfg.BackoffCfg, u.cfg.TransferLog,
+		)
+
+		// Connect to the universe RPC server.
+		dialOpts, err := serverDialOpts()
+		if err != nil {
+			return nil, err
+		}
+
+		serverAddr := fmt.Sprintf("%s:%s", addr.Hostname(), addr.Port())
+		conn, err := grpc.Dial(serverAddr, dialOpts...)
+		if err != nil {
+			return nil, err
+		}
+
+		client := unirpc.NewUniverseClient(conn)
+
+		return &UniverseRpcCourier{
+			recipient:     recipient,
+			client:        client,
+			backoffHandle: backoffHandler,
+			transfer:      u.cfg.TransferLog,
+			subscribers:   subscribers,
+			rawConn:       conn,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown courier address protocol "+
+			"(consider updating tapd): %v", addr.Scheme)
+	}
+}
+
+// A compile-time assertion to ensure that the URLDispatch meets the
+// CourierDispatch interface.
+var _ CourierDispatch = (*URLDispatch)(nil)
+
+// ParseCourierAddress attempts to parse the given string as a proof courier
+// address, validates that all required fields are present and ensures the
+// protocol is one of the supported protocols.
+func ParseCourierAddress(addr string) (*url.URL, error) {
 	urlAddr, err := url.ParseRequestURI(addr)
 	if err != nil {
 		return nil, fmt.Errorf("invalid proof courier URI address: %w",
 			err)
 	}
 
-	return ParseCourierAddrUrl(*urlAddr)
-}
-
-// ParseCourierAddrUrl parses a proof courier address url.URL and returns a
-// protocol specific courier address instance.
-func ParseCourierAddrUrl(addr url.URL) (CourierAddr, error) {
-	// Create new courier addr based on URL scheme.
-	switch addr.Scheme {
-	case HashmailCourierType:
-		return NewHashMailCourierAddr(addr)
-	case UniverseRpcCourierType:
-		return NewUniverseRpcCourierAddr(addr)
-	}
-
-	return nil, fmt.Errorf("unknown courier address protocol "+
-		"(consider updating tapd): %v", addr.Scheme)
-}
-
-// HashMailCourierAddr is a hashmail protocol specific implementation of the
-// CourierAddr interface.
-type HashMailCourierAddr struct {
-	addr url.URL
-}
-
-// Url returns the url.URL representation of the hashmail courier address.
-func (h *HashMailCourierAddr) Url() *url.URL {
-	return &h.addr
-}
-
-// NewCourier generates a new courier service handle.
-func (h *HashMailCourierAddr) NewCourier(_ context.Context, cfg *CourierCfg,
-	recipient Recipient) (Courier, error) {
-
-	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
-
-	hashMailCfg := HashMailCourierCfg{
-		ReceiverAckTimeout: cfg.ReceiverAckTimeout,
-	}
-
-	hashMailBox, err := NewHashMailBox(&h.addr)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make mailbox: %v",
-			err)
-	}
-
-	subscribers := make(
-		map[uint64]*fn.EventReceiver[fn.Event],
-	)
-	return &HashMailCourier{
-		cfg:           &hashMailCfg,
-		backoffHandle: backoffHandle,
-		recipient:     recipient,
-		mailbox:       hashMailBox,
-		subscribers:   subscribers,
-	}, nil
-}
-
-// NewHashMailCourierAddr generates a new hashmail courier address from a given
-// URL. This function also performs hashmail protocol specific address
-// validation.
-func NewHashMailCourierAddr(addr url.URL) (*HashMailCourierAddr, error) {
-	if addr.Scheme != HashmailCourierType {
-		return nil, fmt.Errorf("expected hashmail courier protocol: %v",
-			addr.Scheme)
-	}
-
-	// We expect the port number to be specified for a hashmail service.
-	if addr.Port() == "" {
-		return nil, fmt.Errorf("hashmail proof courier URI address " +
-			"port unspecified")
-	}
-
-	return &HashMailCourierAddr{
-		addr,
-	}, nil
-}
-
-// UniverseRpcCourierAddr is a universe RPC protocol specific implementation of
-// the CourierAddr interface.
-type UniverseRpcCourierAddr struct {
-	addr url.URL
-}
-
-// Url returns the url.URL representation of the courier address.
-func (h *UniverseRpcCourierAddr) Url() *url.URL {
-	return &h.addr
-}
-
-// NewCourier generates a new courier service handle.
-func (h *UniverseRpcCourierAddr) NewCourier(_ context.Context,
-	cfg *CourierCfg, recipient Recipient) (Courier, error) {
-
-	// Skip the initial delivery delay for the universe RPC courier.
-	// This courier skips the initial delay because it uses the backoff
-	// procedure for each proof within a proof file separately.
-	// Consequently, if we attempt to perform two consecutive send events
-	// which share the same proof lineage (matching ancestral proofs), the
-	// second send event will be delayed by the initial delay.
-	cfg.BackoffCfg.SkipInitDelay = true
-	backoffHandle := NewBackoffHandler(cfg.BackoffCfg, cfg.TransferLog)
-
-	// Ensure that the courier address is a universe RPC address.
-	if h.addr.Scheme != UniverseRpcCourierType {
-		return nil, fmt.Errorf("unsupported courier protocol: %v",
-			h.addr.Scheme)
-	}
-
-	// Connect to the universe RPC server.
-	dialOpts, err := serverDialOpts()
-	if err != nil {
+	if err := ValidateCourierAddress(urlAddr); err != nil {
 		return nil, err
 	}
 
-	serverAddr := fmt.Sprintf(
-		"%s:%s", h.addr.Hostname(), h.addr.Port(),
-	)
-	conn, err := grpc.Dial(serverAddr, dialOpts...)
-	if err != nil {
-		return nil, err
-	}
-
-	client := unirpc.NewUniverseClient(conn)
-
-	// Instantiate the events subscribers map.
-	subscribers := make(
-		map[uint64]*fn.EventReceiver[fn.Event],
-	)
-
-	return &UniverseRpcCourier{
-		recipient:     recipient,
-		client:        client,
-		backoffHandle: backoffHandle,
-		transfer:      cfg.TransferLog,
-		subscribers:   subscribers,
-	}, nil
+	return urlAddr, nil
 }
 
-// NewUniverseRpcCourierAddr generates a new universe RPC courier address from a
-// given URL. This function also performs protocol specific address validation.
-func NewUniverseRpcCourierAddr(addr url.URL) (*UniverseRpcCourierAddr, error) {
+// ValidateCourierAddress validates that all required fields are present and
+// ensures the protocol is one of the supported protocols.
+func ValidateCourierAddress(addr *url.URL) error {
 	// We expect the port number to be specified.
 	if addr.Port() == "" {
-		return nil, fmt.Errorf("proof courier URI address port " +
-			"unspecified")
+		return fmt.Errorf("proof courier URI address port unspecified")
 	}
 
-	return &UniverseRpcCourierAddr{
-		addr,
-	}, nil
-}
+	switch addr.Scheme {
+	case HashmailCourierType, UniverseRpcCourierType:
+		// Valid and known courier address protocol.
+		return nil
 
-// NewCourier instantiates a new courier service handle given a service URL
-// address.
-func NewCourier(ctx context.Context, addr url.URL, cfg *CourierCfg,
-	recipient Recipient) (Courier, error) {
-
-	courierAddr, err := ParseCourierAddrUrl(addr)
-	if err != nil {
-		return nil, err
+	default:
+		return fmt.Errorf("unknown courier address protocol "+
+			"(consider updating tapd): %v", addr.Scheme)
 	}
-
-	return courierAddr.NewCourier(ctx, cfg, recipient)
-}
-
-// CourierCfg contains general config parameters applicable to all proof
-// couriers.
-type CourierCfg struct {
-	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
-	// acknowledge the proof.
-	ReceiverAckTimeout time.Duration
-
-	// BackoffCfg configures the behaviour of the proof delivery
-	// functionality.
-	BackoffCfg *BackoffCfg
-
-	// TransferLog is a log for recording proof delivery and retrieval
-	// attempts.
-	TransferLog TransferLog
 }
 
 // ProofMailbox represents an abstract store-and-forward mailbox that can be
@@ -291,11 +238,16 @@ type ProofMailbox interface {
 	// CleanUp attempts to tear down the mailbox as specified by the passed
 	// sid.
 	CleanUp(ctx context.Context, sid streamID) error
+
+	// Close closes the underlying connection to the hashmail server.
+	Close() error
 }
 
 // HashMailBox is an implementation of the ProofMailbox interface backed by the
 // hashmailrpc.HashMailClient.
 type HashMailBox struct {
+	rawConn *grpc.ClientConn
+
 	client hashmailrpc.HashMailClient
 }
 
@@ -341,7 +293,8 @@ func NewHashMailBox(courierAddr *url.URL) (*HashMailBox,
 	client := hashmailrpc.NewHashMailClient(conn)
 
 	return &HashMailBox{
-		client: client,
+		client:  client,
+		rawConn: conn,
 	}, nil
 }
 
@@ -465,7 +418,7 @@ func (h *HashMailBox) RecvAck(ctx context.Context, sid streamID) error {
 	return fmt.Errorf("expected ack, got %x", msg.Msg)
 }
 
-// CleanUp atempts to tear down the mailbox as specified by the passed sid.
+// CleanUp attempts to tear down the mailbox as specified by the passed sid.
 func (h *HashMailBox) CleanUp(ctx context.Context, sid streamID) error {
 	streamAuth := &hashmailrpc.CipherBoxAuth{
 		Desc: &hashmailrpc.CipherBoxDesc{
@@ -478,6 +431,11 @@ func (h *HashMailBox) CleanUp(ctx context.Context, sid streamID) error {
 
 	_, err := h.client.DelCipherBox(ctx, streamAuth)
 	return err
+}
+
+// Close closes the underlying connection to the hashmail server.
+func (h *HashMailBox) Close() error {
+	return h.rawConn.Close()
 }
 
 // A compile-time assertion to ensure that the HashMailBox meets the
@@ -541,10 +499,10 @@ func (e *BackoffExecError) Error() string {
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
 type BackoffCfg struct {
-	// SkipInitDelay is a flag that indicates whether we should skip
-	// the initial delay before attempting to deliver the proof to the
-	// receiver.
-	SkipInitDelay bool
+	// SkipInitDelay is a flag that indicates whether we should skip the
+	// initial delay before attempting to deliver the proof to the receiver
+	// or receiving from the sender.
+	SkipInitDelay bool `long:"skipinitdelay" description:"Skip the initial delay before attempting to deliver the proof to the receiver or receiving from the sender."`
 
 	// BackoffResetWait is the amount of time we'll wait before
 	// resetting the backoff counter to its initial state.
@@ -853,6 +811,8 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 
 	log.Infof("Received ACK from receiver! Cleaning up mailboxes...")
 
+	defer h.Close()
+
 	// Once we receive this ACK, we can clean up our mailbox and also the
 	// receiver's mailbox.
 	if err := h.mailbox.CleanUp(ctx, senderStreamID); err != nil {
@@ -926,6 +886,17 @@ func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 	for _, sub := range h.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
 	}
+}
+
+// Close closes the underlying connection to the hashmail server.
+func (h *HashMailCourier) Close() error {
+	if err := h.mailbox.Close(); err != nil {
+		log.Warnf("unable to close mailbox session, "+
+			"recipient=%v: %v", err, spew.Sdump(h.recipient))
+		return err
+	}
+
+	return nil
 }
 
 // BackoffWaitEvent is an event that is sent to a subscriber each time we
@@ -1020,6 +991,13 @@ func (h *HashMailCourier) SetSubscribers(
 // proof.Courier interface.
 var _ Courier = (*HashMailCourier)(nil)
 
+// UniverseRpcCourierCfg is the config for the universe RPC proof courier.
+type UniverseRpcCourierCfg struct {
+	// BackoffCfg configures the behaviour of the proof delivery
+	// functionality.
+	BackoffCfg *BackoffCfg
+}
+
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
 // implements the Courier interface.
 type UniverseRpcCourier struct {
@@ -1029,6 +1007,10 @@ type UniverseRpcCourier struct {
 	// client is the RPC client that the courier will use to interact with
 	// the universe RPC server.
 	client unirpc.UniverseClient
+
+	// rawConn is the raw connection that the courier will use to interact
+	// with the remote gRPC service.
+	rawConn *grpc.ClientConn
 
 	// backoffHandle is a handle to the backoff procedure used in proof
 	// delivery.
@@ -1155,36 +1137,24 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 	originLocator Locator) (*AnnotatedProof, error) {
 
-	// In order to reconstruct the proof file we must collect all the
-	// transition proofs that make up the main chain of proofs. That is
-	// accomplished by iterating backwards through the main chain of proofs
-	// until we reach the genesis point (minting proof).
-
-	// We will update the locator at each iteration.
-	loc := originLocator
-
-	// revProofs is a slice of transition proofs ordered from latest to
-	// earliest (the issuance proof comes last in the slice). This ordering
-	// is a reversal of that found in the proof file.
-	var revProofs []Proof
-
-	for {
-		assetID := *loc.AssetID
-
+	fetchProof := func(ctx context.Context, loc Locator) (Blob, error) {
 		var groupKeyBytes []byte
 		if loc.GroupKey != nil {
 			groupKeyBytes = loc.GroupKey.SerializeCompressed()
 		}
 
-		universeID := unirpc.MarshalUniverseID(
-			assetID[:], groupKeyBytes,
-		)
-		assetKey := unirpc.MarshalAssetKey(
-			*loc.OutPoint, &loc.ScriptKey,
-		)
+		if loc.OutPoint == nil {
+			return nil, fmt.Errorf("proof locator for asset %x "+
+				"is missing outpoint", loc.AssetID[:])
+		}
+
 		universeKey := unirpc.UniverseKey{
-			Id:      universeID,
-			LeafKey: assetKey,
+			Id: unirpc.MarshalUniverseID(
+				loc.AssetID[:], groupKeyBytes,
+			),
+			LeafKey: unirpc.MarshalAssetKey(
+				*loc.OutPoint, &loc.ScriptKey,
+			),
 		}
 
 		// Setup proof receive/query routine and start backoff
@@ -1215,50 +1185,13 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 				"attempt has failed: %w", err)
 		}
 
-		// Decode transition proof from query response.
-		var transitionProof Proof
-		if err := transitionProof.Decode(
-			bytes.NewReader(proofBlob),
-		); err != nil {
-			return nil, err
-		}
-
-		revProofs = append(revProofs, transitionProof)
-
-		// Break if we've reached the genesis point (the asset is the
-		// genesis asset).
-		proofAsset := transitionProof.Asset
-		if proofAsset.IsGenesisAsset() {
-			break
-		}
-
-		// Update locator with principal input to the current outpoint.
-		prevID, err := transitionProof.Asset.PrimaryPrevID()
-		if err != nil {
-			return nil, err
-		}
-
-		// Parse script key public key.
-		scriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse script key "+
-				"public key from Proof.PrevID: %w", err)
-		}
-		loc.ScriptKey = *scriptKeyPubKey
-
-		loc.AssetID = &prevID.ID
-		loc.OutPoint = &prevID.OutPoint
+		return proofBlob, nil
 	}
 
-	// Append proofs to proof file in reverse order to their collected
-	// order.
-	proofFile := &File{}
-	for i := len(revProofs) - 1; i >= 0; i-- {
-		err := proofFile.AppendProof(revProofs[i])
-		if err != nil {
-			return nil, fmt.Errorf("error appending proof to "+
-				"proof file: %w", err)
-		}
+	proofFile, err := FetchProofProvenance(ctx, originLocator, fetchProof)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching proof provenance: %w",
+			err)
 	}
 
 	// Encode the full proof file.
@@ -1297,6 +1230,11 @@ func (c *UniverseRpcCourier) publishSubscriberEvent(event fn.Event) {
 	}
 }
 
+// Close closes the courier's connection to the remote gRPC service.
+func (c *UniverseRpcCourier) Close() error {
+	return c.rawConn.Close()
+}
+
 // A compile-time assertion to ensure the UniverseRpcCourier meets the
 // proof.Courier interface.
 var _ Courier = (*UniverseRpcCourier)(nil)
@@ -1327,4 +1265,84 @@ type TransferLog interface {
 	// proof delivery attempts.
 	QueryProofTransferLog(context.Context, Locator,
 		TransferType) ([]time.Time, error)
+}
+
+// FetchProofProvenance iterates backwards through the main chain of proofs
+// until it reaches the genesis point (the asset is the genesis asset) and then
+// returns the full proof file with the full provenance for the asset.
+func FetchProofProvenance(ctx context.Context, originLocator Locator,
+	fetchSingleProof func(context.Context, Locator) (Blob, error)) (*File,
+	error) {
+
+	// In order to reconstruct the proof file we must collect all the
+	// transition proofs that make up the main chain of proofs. That is
+	// accomplished by iterating backwards through the main chain of proofs
+	// until we reach the genesis point (minting proof).
+
+	// We will update the locator at each iteration.
+	currentLocator := originLocator
+
+	// reversedProofs is a slice of transition proofs ordered from latest to
+	// earliest (the issuance proof comes last in the slice). This ordering
+	// is a reversal of that found in the proof file.
+	var reversedProofs []Blob
+	for {
+		// Setup proof receive/query routine and start backoff
+		// procedure.
+		proofBlob, err := fetchSingleProof(ctx, currentLocator)
+		if err != nil {
+			return nil, fmt.Errorf("fetching single proof "+
+				"failed: %w", err)
+		}
+
+		// Decode just the asset leaf record from the proof.
+		var proofAsset asset.Asset
+		assetRecord := AssetLeafRecord(&proofAsset)
+		err = SparseDecode(bytes.NewReader(proofBlob), assetRecord)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode proof: %w",
+				err)
+		}
+
+		reversedProofs = append(reversedProofs, proofBlob)
+
+		// Break if we've reached the genesis point (the asset is the
+		// genesis asset).
+		if proofAsset.IsGenesisAsset() {
+			break
+		}
+
+		// Update locator with principal input to the current outpoint.
+		prevID, err := proofAsset.PrimaryPrevID()
+		if err != nil {
+			return nil, err
+		}
+
+		// Parse script key public key.
+		scriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse script key "+
+				"public key from Proof.PrevID: %w", err)
+		}
+
+		currentLocator = Locator{
+			AssetID:   &prevID.ID,
+			GroupKey:  originLocator.GroupKey,
+			ScriptKey: *scriptKeyPubKey,
+			OutPoint:  &prevID.OutPoint,
+		}
+	}
+
+	// Append proofs to proof file in reverse order to their collected
+	// order.
+	proofFile := &File{}
+	for i := len(reversedProofs) - 1; i >= 0; i-- {
+		err := proofFile.AppendProofRaw(reversedProofs[i])
+		if err != nil {
+			return nil, fmt.Errorf("error appending proof to "+
+				"proof file: %w", err)
+		}
+	}
+
+	return proofFile, nil
 }

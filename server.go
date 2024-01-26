@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
@@ -21,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -269,6 +271,12 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 	serverOpts = append(serverOpts, rpcServerOpts...)
 	serverOpts = append(serverOpts, ServerMaxMsgReceiveSize)
 
+	keepAliveParams := keepalive.ServerParameters{
+		MaxConnectionIdle: time.Minute * 2,
+	}
+
+	serverOpts = append(serverOpts, grpc.KeepaliveParams(keepAliveParams))
+
 	grpcServer := grpc.NewServer(serverOpts...)
 	defer grpcServer.Stop()
 
@@ -313,6 +321,16 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		// configuration.
 		s.cfg.Prometheus.RPCServer = grpcServer
 
+		// Provide Prometheus collectors with access to Universe stats.
+		s.cfg.Prometheus.UniverseStats = s.cfg.UniverseStats
+
+		// Provide Prometheus collectors with access to the asset store.
+		s.cfg.Prometheus.AssetStore = s.cfg.AssetStore
+
+		// Provide Prometheus collectors with access to the asset
+		// minter.
+		s.cfg.Prometheus.AssetMinter = s.cfg.AssetMinter
+
 		promExporter, err := monitoring.NewPrometheusExporter(
 			&s.cfg.Prometheus,
 		)
@@ -321,13 +339,13 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 				err)
 		}
 
-		srvrLog.Infof("Prometheus exporter server listening on %v",
-			s.cfg.Prometheus.ListenAddr)
-
 		if err := promExporter.Start(); err != nil {
 			return mkErr("Unable to start prometheus exporter: %v",
 				err)
 		}
+
+		srvrLog.Infof("Prometheus exporter server listening on %v",
+			s.cfg.Prometheus.ListenAddr)
 	}
 
 	srvrLog.Infof("Taproot Asset Daemon fully active!")

@@ -21,6 +21,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	transferTypeSend = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+)
+
 // testBasicSendUnidirectional tests that we can properly send assets back and
 // forth between nodes.
 func testBasicSendUnidirectional(t *harnessTest) {
@@ -88,10 +92,6 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -215,8 +215,6 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
 			params.custodianProofRetrievalDelay = &custodianProofRetrievalDelay
 		},
 	)
@@ -458,10 +456,6 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	// Set up a new node that will serve as the receiving node.
 	recvTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, recvTapd.stop(!*noDelete))
@@ -629,7 +623,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 			switch eventTyped := event.Event.(type) {
 			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
 				ev := eventTyped.ProofTransferBackoffWaitEvent
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+				if ev.TransferType != transferTypeSend {
 					return false
 				}
 
@@ -736,7 +730,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 			switch eventTyped := event.Event.(type) {
 			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
 				ev := eventTyped.ProofTransferBackoffWaitEvent
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+				if ev.TransferType != transferTypeSend {
 					return false
 				}
 
@@ -1010,7 +1004,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 				// node. We therefore expect to receive
 				// deliver transfer type backoff wait events
 				// for sending transfers.
-				if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND {
+				if ev.TransferType != transferTypeSend {
 					return false
 				}
 
@@ -1212,10 +1206,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	// node. Sync the new node with the primary node.
 	bobTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
@@ -1240,7 +1230,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		genInfo.AssetId, []uint64{4000, 1000}, 0, 1,
 	)
 
-	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 1)
 
 	// Second of two send events from minting node to the secondary node.
@@ -1261,7 +1250,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		genInfo.AssetId, []uint64{0, 4000}, 1, 2,
 	)
 
-	_ = sendProof(t, t.tapd, bobTapd, addr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 2)
 
 	t.Logf("Two separate send events complete, now attempting to send " +
@@ -1285,7 +1273,6 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 		genInfo.AssetId, []uint64{0, 5000}, 0, 1,
 	)
 
-	_ = sendProof(t, bobTapd, t.tapd, addr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
 }
 
@@ -1308,10 +1295,6 @@ func testSendMultipleCoins(t *harnessTest) {
 	// node will be used to synchronize universe state.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -1388,10 +1371,68 @@ func testSendMultipleCoins(t *harnessTest) {
 	// Now we confirm the 5 transfers and make sure they complete as
 	// expected.
 	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 5)
-	for _, addr := range bobAddrs {
-		_ = sendProof(t, t.tapd, secondTapd, addr.ScriptKey, genInfo)
-	}
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
+}
+
+// testSendNoCourierUniverseImport tests that we can send assets to a node that
+// has no courier, and then manually transfer the proof to the receiving using
+// the universe proof import RPC method.
+func testSendNoCourierUniverseImport(t *harnessTest) {
+	ctxb := context.Background()
+
+	// First, we'll make a normal assets with enough units.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	firstAsset := rpcAssets[0]
+	genInfo := firstAsset.AssetGenesis
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets. We turn off the proof
+	// courier by supplying a dummy implementation.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.proofCourier = &proof.MockProofCourier{}
+		},
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Next, we'll attempt to transfer some amount of assets[0] to the
+	// receiving node.
+	numUnitsSend := uint64(1200)
+
+	// Get a new address (which accepts the first asset) from the
+	// receiving node.
+	receiveAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     numUnitsSend,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, secondTapd, firstAsset, receiveAddr)
+
+	// Send the assets to the receiving node.
+	sendResp := sendAssetsToAddr(t, t.tapd, receiveAddr)
+
+	// Assert that the outbound transfer was confirmed.
+	expectedAmtAfterSend := firstAsset.Amount - numUnitsSend
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		genInfo.AssetId,
+		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
+	)
+
+	// Since we disabled proof couriers, we need to manually transfer the
+	// proof from the sender to the receiver now. We use the universe RPC
+	// InsertProof method to do this.
+	sendProofUniRPC(t, t.tapd, secondTapd, receiveAddr.ScriptKey, genInfo)
+
+	// And now, the transfer should be completed on the receiver side too.
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 }
 
 // addProofTestVectorFromFile adds a proof test vector by extracting it from the

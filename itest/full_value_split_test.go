@@ -33,10 +33,6 @@ func testFullValueSend(t *harnessTest) {
 	// serve as the node which'll receive the assets.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = len(rpcAssets)
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -88,8 +84,8 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
 			)
-			_ = sendProof(
-				t, alice, bob, receiverAddr.ScriptKey, genInfo,
+			AssertNonInteractiveRecvComplete(
+				t.t, bob, senderTransferIdx+1,
 			)
 			senderTransferIdx++
 		} else {
@@ -108,8 +104,8 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 				genInfo.AssetId, []uint64{0, fullAmount},
 				receiverTransferIdx, receiverTransferIdx+1,
 			)
-			_ = sendProof(
-				t, bob, alice, receiverAddr.ScriptKey, genInfo,
+			AssertNonInteractiveRecvComplete(
+				t.t, alice, receiverTransferIdx+1,
 			)
 			receiverTransferIdx++
 		}

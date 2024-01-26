@@ -690,6 +690,19 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
+-- name: HasAssetProof :one
+WITH asset_info AS (
+    SELECT assets.asset_id
+    FROM assets
+    JOIN script_keys
+        ON assets.script_key_id = script_keys.script_key_id
+    WHERE script_keys.tweaked_script_key = $1
+)
+SELECT COUNT(asset_info.asset_id) > 0 as has_proof
+FROM asset_proofs
+JOIN asset_info
+    ON asset_info.asset_id = asset_proofs.asset_id;
+
 -- name: InsertAssetWitness :exec
 INSERT INTO asset_witnesses (
     asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,

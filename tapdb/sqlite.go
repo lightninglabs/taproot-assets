@@ -160,11 +160,11 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 func NewTestSqliteDB(t *testing.T) *SqliteStore {
 	t.Helper()
 
-	t.Logf("Creating new SQLite DB for testing")
+	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
+	t.Logf("Creating new SQLite DB for testing: %s", dbFileName)
 
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
-	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		DatabaseFileName: dbFileName,
 		SkipMigrations:   false,

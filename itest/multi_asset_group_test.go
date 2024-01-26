@@ -97,10 +97,6 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// ensure that they can be sent and received correctly.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = 4
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
@@ -128,10 +124,6 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, normalGroupSend,
 		normalMember.AssetGenesis.AssetId,
 		[]uint64{0, normalMember.Amount}, 0, 1,
-	)
-	_ = sendProof(
-		t, t.tapd, secondTapd, bobNormalAddr.ScriptKey,
-		normalMemberGenInfo,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
 
@@ -169,10 +161,6 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		t.t, t.lndHarness.Miner.Client, t.tapd, collectGroupSend,
 		collectMember.AssetGenesis.AssetId,
 		[]uint64{0, collectMember.Amount}, 1, 2,
-	)
-	sendProof(
-		t, t.tapd, secondTapd, bobCollectAddr.ScriptKey,
-		collectMemberGenInfo,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 2)
 
@@ -333,10 +321,6 @@ func testMultiAssetGroupSend(t *harnessTest) {
 	// assets made above.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.startupSyncNode = t.tapd
-			params.startupSyncNumAssets = groupCount
-		},
 	)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))

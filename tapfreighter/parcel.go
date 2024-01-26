@@ -183,7 +183,7 @@ func (p *AddressParcel) Validate() error {
 		tapAddr := p.destAddrs[idx]
 
 		// Validate proof courier addresses.
-		_, err := proof.ParseCourierAddrUrl(tapAddr.ProofCourierAddr)
+		err := proof.ValidateCourierAddress(&tapAddr.ProofCourierAddr)
 		if err != nil {
 			return fmt.Errorf("invalid proof courier address: %w",
 				err)
