@@ -25,8 +25,12 @@ fi
 
 target_go_version="$1"
 
+# Create array to store multiple directories to be excluded from the .Dockerfile search
+exclusionDirectories=("./vendor")
+# Append all directories with not -path to create `find` parameters to exclude directories.
+findExclusionArgs=( "${exclusionDirectories[@]/#/"-not -path" }" )
 # Search for Dockerfiles in the current directory and its subdirectories
-dockerfiles=$(find . -type f -name "*.Dockerfile" -o -name "Dockerfile")
+dockerfiles=$(find . -type f $findExclusionArgs -name "*.Dockerfile" -o -name "Dockerfile" )
 
 # Check each Dockerfile
 for file in $dockerfiles; do
