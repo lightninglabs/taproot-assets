@@ -17,6 +17,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
+const (
+	// MaxStatusEventsLogSize is the maximum number of status events that
+	// are kept in memory. This is used to deliver existing events to new
+	// subscribers.
+	MaxStatusEventsLogSize = 100
+)
+
 // AssetReceiveCompleteEvent is an event that is sent to a subscriber once the
 // asset receive process has finished for a given address and outpoint.
 type AssetReceiveCompleteEvent struct {
@@ -149,6 +156,11 @@ type Custodian struct {
 	// statusEventsSubs is a map of subscribers that want to be notified on
 	// new status events, keyed by their subscription ID.
 	statusEventsSubs map[uint64]*fn.EventReceiver[fn.Event]
+
+	// statusEventsLog is a limited runtime log of status events that have
+	// been published so far. This is used to deliver existing events to new
+	// subscribers.
+	statusEventsLog []fn.Event
 
 	// statusEventsSubsMtx guards the general status events subscribers map.
 	statusEventsSubsMtx sync.Mutex
@@ -940,15 +952,29 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will
 // be notified of any new status update events.
-//
-// TODO(ffranr): Add support for delivering existing events to new subscribers.
 func (c *Custodian) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
-	deliverExisting bool, deliverFrom bool) error {
+	deliverExisting bool) error {
 
 	c.statusEventsSubsMtx.Lock()
 	defer c.statusEventsSubsMtx.Unlock()
 
 	c.statusEventsSubs[receiver.ID()] = receiver
+
+	// No delivery of existing items requested, we're done here.
+	if !deliverExisting {
+		return nil
+	}
+
+	// Deliver existing events to the new subscriber.
+	for idx := range c.statusEventsLog {
+		event := c.statusEventsLog[idx]
+
+		if !fn.SendOrQuit(receiver.NewItemCreated.ChanIn(),
+			event, c.Quit) {
+
+			return fmt.Errorf("custodian shutting down")
+		}
+	}
 
 	return nil
 }
@@ -960,6 +986,14 @@ func (c *Custodian) publishSubscriberStatusEvent(event fn.Event) error {
 	// subscriber map while we're iterating over it.
 	c.statusEventsSubsMtx.Lock()
 	defer c.statusEventsSubsMtx.Unlock()
+
+	// Add the event to the log of status events.
+	c.statusEventsLog = append(c.statusEventsLog, event)
+
+	// If the log is too long, remove the oldest event.
+	if len(c.statusEventsLog) > MaxStatusEventsLogSize {
+		c.statusEventsLog = c.statusEventsLog[1:]
+	}
 
 	for _, sub := range c.statusEventsSubs {
 		if !fn.SendOrQuit(sub.NewItemCreated.ChanIn(), event, c.Quit) {
