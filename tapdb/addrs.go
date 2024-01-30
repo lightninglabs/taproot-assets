@@ -64,6 +64,10 @@ type (
 
 	// ScriptKey is a type alias for fetching the script key information.
 	ScriptKey = sqlc.FetchScriptKeyByTweakedKeyRow
+
+	// KeyLocator is a type alias for fetching the key locator information
+	// for an internal key.
+	KeyLocator = sqlc.FetchInternalKeyLocatorRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -139,6 +143,10 @@ type AddrBook interface {
 	// corresponding internal key from the database.
 	FetchScriptKeyByTweakedKey(ctx context.Context,
 		tweakedScriptKey []byte) (ScriptKey, error)
+
+	// FetchInternalKeyLocator fetches the key locator for an internal key.
+	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (KeyLocator,
+		error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -1071,6 +1079,42 @@ func (t *TapAddressBook) FetchScriptKey(ctx context.Context,
 	}
 
 	return scriptKey, nil
+}
+
+// FetchInternalKeyLocator attempts to fetch the key locator information for the
+// given raw internal key. If the key cannot be found, then
+// ErrInternalKeyNotFound is returned.
+func (t *TapAddressBook) FetchInternalKeyLocator(ctx context.Context,
+	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
+
+	var (
+		readOpts = NewAddrBookReadTx()
+		keyLoc   keychain.KeyLocator
+	)
+	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		dbKey, err := db.FetchInternalKeyLocator(
+			ctx, rawKey.SerializeCompressed(),
+		)
+		if err != nil {
+			return err
+		}
+
+		keyLoc = keychain.KeyLocator{
+			Family: keychain.KeyFamily(dbKey.KeyFamily),
+			Index:  uint32(dbKey.KeyIndex),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return keyLoc, address.ErrInternalKeyNotFound
+
+	case err != nil:
+		return keyLoc, err
+	}
+
+	return keyLoc, nil
 }
 
 // A set of compile-time assertions to ensure that TapAddressBook meets the

@@ -36,6 +36,18 @@ func PayToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
 		Script()
 }
 
+// FlipParity turns the given public key from even to odd parity or vice versa.
+func FlipParity(pubKey *btcec.PublicKey) *btcec.PublicKey {
+	keyCompressed := pubKey.SerializeCompressed()
+	keyCompressed[0] ^= 1
+
+	// We already know the given key is a valid point on the curve, so we
+	// don't need to check the error here as the flipped key will also be
+	// valid.
+	flippedKey, _ := btcec.ParsePubKey(keyCompressed)
+	return flippedKey
+}
+
 // EstimateFee provides a worst-case fee and vsize estimate for a transaction
 // built from the given inputs and outputs. This mirrors the fee estimation
 // implemented in btcwallet/wallet/txauthor/author.go:NewUnsignedTransaction()

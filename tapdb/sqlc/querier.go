@@ -63,6 +63,7 @@ type Querier interface {
 	// Sort and limit to return the genesis ID for initial genesis of the group.
 	FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (FetchGroupByGroupKeyRow, error)
 	FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error)
+	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error)
 	FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error)
 	FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error)
 	FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error)

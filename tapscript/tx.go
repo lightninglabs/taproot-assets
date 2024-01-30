@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -320,7 +319,14 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 			"one at a time")
 	}
 
-	derivation := vIn.TaprootBip32Derivation[0]
+	derivation := vIn.Bip32Derivation[0]
+	trDerivation := vIn.TaprootBip32Derivation[0]
+
+	keyDesc, err := tappsbt.KeyDescFromBip32Derivation(derivation)
+	if err != nil {
+		return nil, fmt.Errorf("error identifying input asset key "+
+			"descriptor from BIP-0032 derivation: %w", err)
+	}
 
 	// Compute a virtual prevOut from the input asset for the signer.
 	prevOut, err := InputAssetPrevOut(*vIn.Asset())
@@ -331,9 +337,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	// Start with a default sign descriptor and the BIP-0086 sign method
 	// then adjust depending on the input parameters.
 	spendDesc := lndclient.SignDescriptor{
-		KeyDesc: keychain.KeyDescriptor{
-			PubKey: vIn.Asset().ScriptKey.RawKey.PubKey,
-		},
+		KeyDesc:    keyDesc,
 		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
 		Output:     prevOut,
 		HashType:   vIn.SighashType,
@@ -350,7 +354,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	// No leaf hash means we're not signing a specific script, so this is
 	// the key spend path with a script root.
 	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
-		len(derivation.LeafHashes) == 0:
+		len(trDerivation.LeafHashes) == 0:
 
 		spendDesc.SignMethod = input.TaprootKeySpendSignMethod
 		spendDesc.TapTweak = vIn.TaprootMerkleRoot
@@ -359,7 +363,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	// script. There can be other scripts in the tree, but we only support
 	// creating a signature for a single one at a time.
 	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
-		len(derivation.LeafHashes) == 1:
+		len(trDerivation.LeafHashes) == 1:
 
 		// If we're supposed to be signing for a leaf hash, we also
 		// expect the leaf script that hashes to that hash in the
@@ -376,7 +380,7 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 			Script:      leafScript.Script,
 		}
 		leafHash := leaf.TapHash()
-		if !bytes.Equal(leafHash[:], derivation.LeafHashes[0]) {
+		if !bytes.Equal(leafHash[:], trDerivation.LeafHashes[0]) {
 			return nil, fmt.Errorf("specified leaf hash in " +
 				"taproot BIP-0032 derivation but " +
 				"corresponding taproot leaf script was not " +

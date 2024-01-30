@@ -146,6 +146,56 @@ func RegisterAssetWalletJSONCallbacks(registry map[string]func(ctx context.Conte
 		callback(string(respBytes), nil)
 	}
 
+	registry["assetwalletrpc.AssetWallet.QueryInternalKey"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &QueryInternalKeyRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewAssetWalletClient(conn)
+		resp, err := client.QueryInternalKey(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["assetwalletrpc.AssetWallet.QueryScriptKey"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &QueryScriptKeyRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewAssetWalletClient(conn)
+		resp, err := client.QueryScriptKey(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
 	registry["assetwalletrpc.AssetWallet.ProveAssetOwnership"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 

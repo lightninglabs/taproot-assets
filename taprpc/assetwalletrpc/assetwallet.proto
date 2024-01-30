@@ -49,6 +49,18 @@ service AssetWallet {
     */
     rpc NextScriptKey (NextScriptKeyRequest) returns (NextScriptKeyResponse);
 
+    /*
+    QueryInternalKey returns the key descriptor for the given internal key.
+    */
+    rpc QueryInternalKey (QueryInternalKeyRequest)
+        returns (QueryInternalKeyResponse);
+
+    /*
+    QueryScriptKey returns the full script key descriptor for the given tweaked
+    script key.
+    */
+    rpc QueryScriptKey (QueryScriptKeyRequest) returns (QueryScriptKeyResponse);
+
     /* tapcli: `proofs proveownership`
     ProveAssetOwnership creates an ownership proof embedded in an asset
     transition proof. That ownership proof is a signed virtual transaction
@@ -193,6 +205,27 @@ message NextScriptKeyRequest {
 }
 
 message NextScriptKeyResponse {
+    taprpc.ScriptKey script_key = 1;
+}
+
+message QueryInternalKeyRequest {
+    // The internal key to look for. This can either be the 32-byte x-only raw
+    // internal key or the 33-byte raw internal key with the parity byte.
+    bytes internal_key = 1;
+}
+
+message QueryInternalKeyResponse {
+    taprpc.KeyDescriptor internal_key = 1;
+}
+
+message QueryScriptKeyRequest {
+    // The tweaked script key to look for. This can either be the 32-byte
+    // x-only tweaked script key or the 33-byte tweaked script key with the
+    // parity byte.
+    bytes tweaked_script_key = 1;
+}
+
+message QueryScriptKeyResponse {
     taprpc.ScriptKey script_key = 1;
 }
 

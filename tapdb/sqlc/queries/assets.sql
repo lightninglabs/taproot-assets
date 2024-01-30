@@ -771,6 +771,11 @@ JOIN internal_keys
   ON script_keys.internal_key_id = internal_keys.key_id
 WHERE script_keys.tweaked_script_key = $1;
 
+-- name: FetchInternalKeyLocator :one
+SELECT key_family, key_index
+FROM internal_keys
+WHERE raw_key = $1;
+
 -- name: FetchGenesisByAssetID :one
 SELECT * 
 FROM genesis_info_view

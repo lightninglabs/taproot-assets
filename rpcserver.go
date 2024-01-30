@@ -1707,7 +1707,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 
 // SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
 // commitments of the inputs and outputs.
-func (r *rpcServer) SignVirtualPsbt(_ context.Context,
+func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 	req *wrpc.SignVirtualPsbtRequest) (*wrpc.SignVirtualPsbtResponse,
 	error) {
 
@@ -1720,6 +1720,43 @@ func (r *rpcServer) SignVirtualPsbt(_ context.Context,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding packet: %w", err)
+	}
+
+	// Make sure the input keys are known.
+	for _, input := range vPkt.Inputs {
+		// If we have all the derivation information, we don't need to
+		// do anything.
+		if len(input.Bip32Derivation) > 0 &&
+			len(input.TaprootBip32Derivation) > 0 {
+
+			continue
+		}
+
+		scriptKey := input.Asset().ScriptKey
+
+		// If the full tweaked script key isn't set on the asset, we
+		// need to look it up in the local database, to make sure we'll
+		// be able to sign for it.
+		if scriptKey.TweakedScriptKey == nil {
+			tweakedScriptKey, err := r.cfg.AssetWallet.FetchScriptKey(
+				ctx, scriptKey.PubKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error fetching "+
+					"script key: %w", err)
+			}
+
+			scriptKey.TweakedScriptKey = tweakedScriptKey
+		}
+
+		derivation, trDerivation := tappsbt.Bip32DerivationFromKeyDesc(
+			scriptKey.TweakedScriptKey.RawKey,
+			r.cfg.ChainParams.HDCoinType,
+		)
+		input.Bip32Derivation = []*psbt.Bip32Derivation{derivation}
+		input.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trDerivation,
+		}
 	}
 
 	signedInputs, err := r.cfg.AssetWallet.SignVirtualPacket(vPkt)
@@ -1852,6 +1889,149 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 
 	return &wrpc.NextScriptKeyResponse{
 		ScriptKey: marshalScriptKey(scriptKey),
+	}, nil
+}
+
+// QueryInternalKey returns the key descriptor for the given internal key.
+func (r *rpcServer) QueryInternalKey(ctx context.Context,
+	req *wrpc.QueryInternalKeyRequest) (*wrpc.QueryInternalKeyResponse,
+	error) {
+
+	var (
+		internalKey *btcec.PublicKey
+		keyLocator  keychain.KeyLocator
+		err         error
+	)
+
+	// We allow the user to specify the key either in the 33-byte compressed
+	// format or the 32-byte x-only format.
+	switch {
+	case len(req.InternalKey) == 33:
+		internalKey, err = btcec.ParsePubKey(req.InternalKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing internal key: %w",
+				err)
+		}
+
+		// If the full 33-byte key was specified, we expect the user to
+		// already know the parity byte, so we only try once.
+		keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+			ctx, internalKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching internal key: "+
+				"%w", err)
+		}
+
+	case len(req.InternalKey) == 32:
+		internalKey, err = schnorr.ParsePubKey(req.InternalKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing internal key: %w",
+				err)
+		}
+
+		keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+			ctx, internalKey,
+		)
+
+		switch {
+		// If the key can't be found with the even parity, we'll try
+		// the odd parity.
+		case errors.Is(err, address.ErrInternalKeyNotFound):
+			internalKey = tapscript.FlipParity(internalKey)
+
+			keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+				ctx, internalKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error fetching "+
+					"internal key: %w", err)
+			}
+
+		// For any other error from above, we'll return it to the user.
+		case err != nil:
+			return nil, fmt.Errorf("error fetching internal key: "+
+				"%w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid internal key length")
+	}
+
+	return &wrpc.QueryInternalKeyResponse{
+		InternalKey: marshalKeyDescriptor(keychain.KeyDescriptor{
+			PubKey:     internalKey,
+			KeyLocator: keyLocator,
+		}),
+	}, nil
+}
+
+// QueryScriptKey returns the full script key descriptor for the given tweaked
+// script key.
+func (r *rpcServer) QueryScriptKey(ctx context.Context,
+	req *wrpc.QueryScriptKeyRequest) (*wrpc.QueryScriptKeyResponse, error) {
+
+	var (
+		scriptKey  *btcec.PublicKey
+		tweakedKey *asset.TweakedScriptKey
+		err        error
+	)
+
+	// We allow the user to specify the key either in the 33-byte compressed
+	// format or the 32-byte x-only format.
+	switch {
+	case len(req.TweakedScriptKey) == 33:
+		scriptKey, err = btcec.ParsePubKey(req.TweakedScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing script key: %w",
+				err)
+		}
+
+		tweakedKey, err = r.cfg.AssetWallet.FetchScriptKey(
+			ctx, scriptKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error fetching script key: %w",
+				err)
+		}
+
+	case len(req.TweakedScriptKey) == 32:
+		scriptKey, err = schnorr.ParsePubKey(req.TweakedScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing script key: %w",
+				err)
+		}
+
+		tweakedKey, err = r.cfg.AssetWallet.FetchScriptKey(
+			ctx, scriptKey,
+		)
+
+		// If the key can't be found with the even parity, we'll try
+		// the odd parity.
+		if errors.Is(err, address.ErrScriptKeyNotFound) {
+			scriptKey = tapscript.FlipParity(scriptKey)
+
+			tweakedKey, err = r.cfg.AssetWallet.FetchScriptKey(
+				ctx, scriptKey,
+			)
+		}
+
+		// Return either the original error or the error from the re-try
+		// with odd parity.
+		if err != nil {
+			return nil, fmt.Errorf("error fetching script key: %w",
+				err)
+		}
+
+	default:
+		return nil, fmt.Errorf("invalid script key length")
+	}
+
+	return &wrpc.QueryScriptKeyResponse{
+		ScriptKey: marshalScriptKey(asset.ScriptKey{
+			PubKey:           scriptKey,
+			TweakedScriptKey: tweakedKey,
+		}),
 	}, nil
 }
 

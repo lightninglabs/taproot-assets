@@ -141,6 +141,20 @@ type Wallet interface {
 	// owned asset. The ownership proof consists of a valid witness of a
 	// signed virtual packet that spends the asset fully to the NUMS key.
 	SignOwnershipProof(ownedAsset *asset.Asset) (wire.TxWitness, error)
+
+	// FetchScriptKey attempts to fetch the full tweaked script key struct
+	// (including the key descriptor) for the given tweaked script key. If
+	// the key cannot be found, then address.ErrScriptKeyNotFound is
+	// returned.
+	FetchScriptKey(ctx context.Context,
+		tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey,
+		error)
+
+	// FetchInternalKeyLocator attempts to fetch the key locator information
+	// for the given raw internal key. If the key cannot be found, then
+	// address.ErrInternalKeyNotFound is returned.
+	FetchInternalKeyLocator(ctx context.Context,
+		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
 }
 
 // AddrBook is an interface that provides access to the address book.
@@ -151,6 +165,12 @@ type AddrBook interface {
 	FetchScriptKey(ctx context.Context,
 		tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey,
 		error)
+
+	// FetchInternalKeyLocator attempts to fetch the key locator information
+	// for the given raw internal key. If the key cannot be found, then
+	// ErrInternalKeyNotFound is returned.
+	FetchInternalKeyLocator(ctx context.Context,
+		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
 }
 
 // AnchorVTxnsParams holds all the parameters needed to create a BTC level
@@ -1492,6 +1512,24 @@ func (f *AssetWallet) SignOwnershipProof(
 	}
 
 	return vPkt.Outputs[0].Asset.PrevWitnesses[0].TxWitness, nil
+}
+
+// FetchScriptKey attempts to fetch the full tweaked script key struct
+// (including the key descriptor) for the given tweaked script key. If the key
+// cannot be found, then address.ErrScriptKeyNotFound is returned.
+func (f *AssetWallet) FetchScriptKey(ctx context.Context,
+	tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
+
+	return f.cfg.AddrBook.FetchScriptKey(ctx, tweakedScriptKey)
+}
+
+// FetchInternalKeyLocator attempts to fetch the key locator information for the
+// given raw internal key. If the key cannot be found, then
+// address.ErrInternalKeyNotFound is returned.
+func (f *AssetWallet) FetchInternalKeyLocator(ctx context.Context,
+	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
+
+	return f.cfg.AddrBook.FetchInternalKeyLocator(ctx, rawKey)
 }
 
 // inputAnchorPkScript returns the top-level Taproot output script of the input

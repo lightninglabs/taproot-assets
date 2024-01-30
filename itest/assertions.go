@@ -20,7 +20,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
@@ -35,6 +37,16 @@ var (
 	statusConfirmed = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
 	statusCompleted = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
 )
+
+// tapClient is an interface that covers all currently available RPC interfaces
+// a client should implement.
+type tapClient interface {
+	taprpc.TaprootAssetsClient
+	wrpc.AssetWalletClient
+	tapdevrpc.TapDevClient
+	mintrpc.MintClient
+	unirpc.UniverseClient
+}
 
 // AssetCheck is a function type that checks an RPC asset's property.
 type AssetCheck func(a *taprpc.Asset) error
@@ -593,7 +605,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 // AssertAddrCreated makes sure an address was created correctly for the given
 // asset.
-func AssertAddrCreated(t *testing.T, client taprpc.TaprootAssetsClient,
+func AssertAddrCreated(t *testing.T, client tapClient,
 	expected *taprpc.Asset, actual *taprpc.Addr) {
 
 	// Was the address created correctly?
@@ -631,6 +643,43 @@ func AssertAddrCreated(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	// Does the address in the list contain all information we expect?
 	AssertAddr(t, expected, rpcAddr)
+
+	// We also make sure we can query the script and internal keys of the
+	// address correctly.
+	scriptKeyResp, err := client.QueryScriptKey(
+		ctxt, &wrpc.QueryScriptKeyRequest{
+			TweakedScriptKey: actual.ScriptKey,
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, scriptKeyResp.ScriptKey)
+	require.NotNil(t, scriptKeyResp.ScriptKey.KeyDesc)
+	require.NotNil(t, scriptKeyResp.ScriptKey.KeyDesc.KeyLoc)
+	require.EqualValues(
+		t, asset.TaprootAssetsKeyFamily,
+		scriptKeyResp.ScriptKey.KeyDesc.KeyLoc.KeyFamily,
+	)
+	require.NotEqual(
+		t, scriptKeyResp.ScriptKey.PubKey,
+		scriptKeyResp.ScriptKey.KeyDesc.RawKeyBytes,
+	)
+
+	internalKeyResp, err := client.QueryInternalKey(
+		ctxt, &wrpc.QueryInternalKeyRequest{
+			InternalKey: actual.InternalKey,
+		},
+	)
+	require.NoError(t, err)
+	require.NotNil(t, internalKeyResp.InternalKey)
+	require.NotNil(t, internalKeyResp.InternalKey.KeyLoc)
+	require.EqualValues(
+		t, asset.TaprootAssetsKeyFamily,
+		internalKeyResp.InternalKey.KeyLoc.KeyFamily,
+	)
+	require.Equal(
+		t, actual.InternalKey,
+		internalKeyResp.InternalKey.RawKeyBytes,
+	)
 }
 
 // AssertAddrEvent makes sure the given address was detected by the given
@@ -850,11 +899,8 @@ func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	if expected.AssetGroup == nil {
 		require.Nil(t, actual.GroupKey)
 	} else {
-		// TODO(guggero): Address 33-byte vs. 32-byte issue in encoded
-		// address vs. database.
 		require.Equal(
-			t, expected.AssetGroup.TweakedGroupKey[1:],
-			actual.GroupKey[1:],
+			t, expected.AssetGroup.TweakedGroupKey, actual.GroupKey,
 		)
 	}
 
@@ -863,7 +909,7 @@ func AssertAddr(t *testing.T, expected *taprpc.Asset, actual *taprpc.Addr) {
 	require.NotEqual(t, expected.ScriptKey, actual.ScriptKey)
 }
 
-// assertEqualAsset asserts that two taprpc.Asset objects are equal, ignoring
+// AssertAsset asserts that two taprpc.Asset objects are equal, ignoring
 // node-specific fields like if script keys are local, if the asset is spent,
 // or if the anchor information is populated.
 func AssertAsset(t *testing.T, expected, actual *taprpc.Asset) {

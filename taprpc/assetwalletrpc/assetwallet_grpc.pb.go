@@ -42,6 +42,11 @@ type AssetWalletClient interface {
 	// key) and stores them both in the database to make sure they are identified
 	// as local keys later on when importing proofs.
 	NextScriptKey(ctx context.Context, in *NextScriptKeyRequest, opts ...grpc.CallOption) (*NextScriptKeyResponse, error)
+	// QueryInternalKey returns the key descriptor for the given internal key.
+	QueryInternalKey(ctx context.Context, in *QueryInternalKeyRequest, opts ...grpc.CallOption) (*QueryInternalKeyResponse, error)
+	// QueryScriptKey returns the full script key descriptor for the given tweaked
+	// script key.
+	QueryScriptKey(ctx context.Context, in *QueryScriptKeyRequest, opts ...grpc.CallOption) (*QueryScriptKeyResponse, error)
 	// tapcli: `proofs proveownership`
 	// ProveAssetOwnership creates an ownership proof embedded in an asset
 	// transition proof. That ownership proof is a signed virtual transaction
@@ -110,6 +115,24 @@ func (c *assetWalletClient) NextScriptKey(ctx context.Context, in *NextScriptKey
 	return out, nil
 }
 
+func (c *assetWalletClient) QueryInternalKey(ctx context.Context, in *QueryInternalKeyRequest, opts ...grpc.CallOption) (*QueryInternalKeyResponse, error) {
+	out := new(QueryInternalKeyResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/QueryInternalKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *assetWalletClient) QueryScriptKey(ctx context.Context, in *QueryScriptKeyRequest, opts ...grpc.CallOption) (*QueryScriptKeyResponse, error) {
+	out := new(QueryScriptKeyResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/QueryScriptKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *assetWalletClient) ProveAssetOwnership(ctx context.Context, in *ProveAssetOwnershipRequest, opts ...grpc.CallOption) (*ProveAssetOwnershipResponse, error) {
 	out := new(ProveAssetOwnershipResponse)
 	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/ProveAssetOwnership", in, out, opts...)
@@ -164,6 +187,11 @@ type AssetWalletServer interface {
 	// key) and stores them both in the database to make sure they are identified
 	// as local keys later on when importing proofs.
 	NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error)
+	// QueryInternalKey returns the key descriptor for the given internal key.
+	QueryInternalKey(context.Context, *QueryInternalKeyRequest) (*QueryInternalKeyResponse, error)
+	// QueryScriptKey returns the full script key descriptor for the given tweaked
+	// script key.
+	QueryScriptKey(context.Context, *QueryScriptKeyRequest) (*QueryScriptKeyResponse, error)
 	// tapcli: `proofs proveownership`
 	// ProveAssetOwnership creates an ownership proof embedded in an asset
 	// transition proof. That ownership proof is a signed virtual transaction
@@ -198,6 +226,12 @@ func (UnimplementedAssetWalletServer) NextInternalKey(context.Context, *NextInte
 }
 func (UnimplementedAssetWalletServer) NextScriptKey(context.Context, *NextScriptKeyRequest) (*NextScriptKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextScriptKey not implemented")
+}
+func (UnimplementedAssetWalletServer) QueryInternalKey(context.Context, *QueryInternalKeyRequest) (*QueryInternalKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryInternalKey not implemented")
+}
+func (UnimplementedAssetWalletServer) QueryScriptKey(context.Context, *QueryScriptKeyRequest) (*QueryScriptKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryScriptKey not implemented")
 }
 func (UnimplementedAssetWalletServer) ProveAssetOwnership(context.Context, *ProveAssetOwnershipRequest) (*ProveAssetOwnershipResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ProveAssetOwnership not implemented")
@@ -311,6 +345,42 @@ func _AssetWallet_NextScriptKey_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AssetWallet_QueryInternalKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryInternalKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).QueryInternalKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/QueryInternalKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).QueryInternalKey(ctx, req.(*QueryInternalKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AssetWallet_QueryScriptKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryScriptKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).QueryScriptKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/QueryScriptKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).QueryScriptKey(ctx, req.(*QueryScriptKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _AssetWallet_ProveAssetOwnership_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(ProveAssetOwnershipRequest)
 	if err := dec(in); err != nil {
@@ -391,6 +461,14 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "NextScriptKey",
 			Handler:    _AssetWallet_NextScriptKey_Handler,
+		},
+		{
+			MethodName: "QueryInternalKey",
+			Handler:    _AssetWallet_QueryInternalKey_Handler,
+		},
+		{
+			MethodName: "QueryScriptKey",
+			Handler:    _AssetWallet_QueryScriptKey_Handler,
 		},
 		{
 			MethodName: "ProveAssetOwnership",

@@ -60,6 +60,10 @@ var (
 	// the local database.
 	ErrScriptKeyNotFound = errors.New("script key not found")
 
+	// ErrInternalKeyNotFound is returned when an internal key is not found
+	// in the local database.
+	ErrInternalKeyNotFound = errors.New("internal key not found")
+
 	// ErrUnknownVersion is returned when encountering an address with an
 	// unrecognised version number.
 	ErrUnknownVersion = errors.New("address: unknown version number")
