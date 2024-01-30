@@ -877,9 +877,19 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// We'll use these events to ensure that the receiver node is making
 	// multiple attempts to retrieve the asset proof.
 	eventNtfns, err := receiveTapd.SubscribeReceiveAssetEventNtfns(
-		ctxb, &taprpc.SubscribeReceiveAssetEventNtfnsRequest{},
+		ctxb, &taprpc.SubscribeReceiveAssetEventNtfnsRequest{
+			DeliverExistingEvents: true,
+		},
 	)
 	require.NoError(t.t, err)
+
+	// At this point, the receiving node should publish an event
+	// notification to indicate that it has started the asset receive
+	// process.
+	t.Logf("Check for asset recv start event from receiver tapd node")
+	assertAssetRecvStartEvent(
+		t, ctxb, 5*time.Second, recvAddr.Encoded, eventNtfns,
+	)
 
 	// Test to ensure that we receive the minimum expected number of backoff
 	// wait event notifications.
@@ -1156,6 +1166,29 @@ func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
 	require.Equal(t.t, expectedCount, countFound, "unexpected number of "+
 		"asset receive event notifications (expected=%d, actual=%d)",
 		expectedCount, countFound)
+}
+
+// assertAssetRecvStartEvent asserts that the given asset receive start event
+// notification was received. This function will block until the event is
+// received or the event stream is closed.
+func assertAssetRecvStartEvent(t *harnessTest, ctxb context.Context,
+	timeout time.Duration, encodedAddr string,
+	eventNtfns taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsClient) {
+
+	ctx, cancel := context.WithTimeout(ctxb, timeout)
+	defer cancel()
+
+	eventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
+		switch eventTyped := event.Event.(type) {
+		case *taprpc.ReceiveAssetEvent_AssetReceiveStartEvent:
+			ev := eventTyped.AssetReceiveStartEvent
+			return encodedAddr == ev.Address.Encoded
+		default:
+			return false
+		}
+	}
+
+	assertAssetRecvNtfsEvent(t, ctx, eventNtfns, eventSelector, 1)
 }
 
 // assertAssetRecvNtfsEvent asserts that the given asset receive complete event
