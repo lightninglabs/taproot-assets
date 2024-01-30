@@ -1005,6 +1005,17 @@ message ProofTransferBackoffWaitEvent {
 message SubscribeReceiveAssetEventNtfnsRequest {
 }
 
+message AssetReceiveStartEvent {
+    // Event creation timestamp.
+    int64 timestamp = 1;
+
+    // The address for receiving the asset.
+    Addr address = 2;
+
+    // The outpoint of the asset transfer transaction.
+    string outpoint = 3;
+}
+
 message AssetReceiveCompleteEvent {
     // Event creation timestamp.
     int64 timestamp = 1;
@@ -1024,6 +1035,9 @@ message ReceiveAssetEvent {
 
         // An event which indicates that an asset receive process has finished.
         AssetReceiveCompleteEvent asset_receive_complete_event = 2;
+
+        // An event which indicates that an asset receive process has started.
+        AssetReceiveStartEvent asset_receive_start_event = 3;
     }
 }
 

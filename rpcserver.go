@@ -2447,6 +2447,23 @@ func marshallReceiveAssetEvent(eventInterface fn.Event,
 			Event: &eventRpc,
 		}, nil
 
+	case *tapgarden.AssetReceiveStartEvent:
+		rpcAddr, err := marshalAddr(&event.Address, db)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling addr: %w", err)
+		}
+
+		eventRpc := taprpc.ReceiveAssetEvent_AssetReceiveStartEvent{
+			AssetReceiveStartEvent: &taprpc.AssetReceiveStartEvent{
+				Timestamp: event.Timestamp().UnixMicro(),
+				Address:   rpcAddr,
+				Outpoint:  event.OutPoint.String(),
+			},
+		}
+		return &taprpc.ReceiveAssetEvent{
+			Event: &eventRpc,
+		}, nil
+
 	case *tapgarden.AssetReceiveCompleteEvent:
 		rpcAddr, err := marshalAddr(&event.Address, db)
 		if err != nil {

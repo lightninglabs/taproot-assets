@@ -1247,6 +1247,24 @@
         }
       }
     },
+    "taprpcAssetReceiveStartEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Event creation timestamp."
+        },
+        "address": {
+          "$ref": "#/definitions/taprpcAddr",
+          "description": "The address for receiving the asset."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint of the asset transfer transaction."
+        }
+      }
+    },
     "taprpcAssetTransfer": {
       "type": "object",
       "properties": {
@@ -1876,6 +1894,10 @@
         "asset_receive_complete_event": {
           "$ref": "#/definitions/taprpcAssetReceiveCompleteEvent",
           "description": "An event which indicates that an asset receive process has finished."
+        },
+        "asset_receive_start_event": {
+          "$ref": "#/definitions/taprpcAssetReceiveStartEvent",
+          "description": "An event which indicates that an asset receive process has started."
         }
       }
     },
