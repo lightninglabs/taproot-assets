@@ -279,8 +279,11 @@ func (c *Custodian) watchInboundAssets() {
 		// If we did find a proof, we did import it now and can remove
 		// the event from our cache.
 		if available {
-			delete(c.events, event.Outpoint)
+			// TODO(ffranr): Call setReceiveCompleted here so as to
+			//  finalise the event correctly and so as to notify
+			//  subscribers about the completed receive event.
 
+			delete(c.events, event.Outpoint)
 			continue
 		}
 
@@ -821,6 +824,8 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 					err)
 			}
 
+			// TODO(ffranr): Remove event from local cache in
+			//  setReceiveCompleted call.
 			delete(c.events, event.Outpoint)
 		}
 	}
@@ -864,6 +869,9 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 		Hash:  lastProof.AnchorTx.TxHash(),
 		Index: lastProof.InclusionProof.OutputIndex,
 	}
+
+	// TODO(ffranr): Remove event from local cache after
+	//  AddrBook.CompleteEvent call.
 
 	return c.cfg.AddrBook.CompleteEvent(
 		ctxt, event, address.StatusCompleted, anchorPoint,
