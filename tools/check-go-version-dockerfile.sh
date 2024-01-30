@@ -25,12 +25,29 @@ fi
 
 target_go_version="$1"
 
-# Search for Dockerfiles in the current directory and its subdirectories
-dockerfiles=$(find . -type f -name "*.Dockerfile" -o -name "Dockerfile")
+# We find target files using the 'find' command in conjunction with the 'read'
+# command. We exclude some directories from the search.
+#
+# We use the 'read' command to help ensure that we correctly handle filenames
+# with spaces, newlines, and special characters. The '-print0' option in 'find'
+# outputs filenames separated by a null character. This allows the 'read'
+# command in the while loop to accurately distinguish each filename. The
+# 'target_files' array is then populated, preserving the integrity of each
+# filename. This approach ensures safe handling of filenames, regardless of
+# their complexity.
+while IFS= read -r -d '' file; do
+    target_files+=("$file")
+done < <(find . \
+    -path ./vendor -prune -o \
+    -type f \
+    \( -name "*.Dockerfile" -o -name "Dockerfile" \) \
+    -print0 \
+)
 
-# Check each Dockerfile
-for file in $dockerfiles; do
+# Check for the expected Go version in each file.
+for file in "${target_files[@]}"; do
     check_go_version "$file" "$target_go_version"
 done
+
 
 echo "All Dockerfiles pass the Go version check for Go version $target_go_version."
