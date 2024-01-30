@@ -47,6 +47,35 @@ func NewAssetRecvCompleteEvent(addr address.Tap,
 	}
 }
 
+// AssetReceiveStartEvent is an event that is sent to a subscriber once the
+// asset receive process has started for a given address and outpoint.
+type AssetReceiveStartEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// Address is the address associated with the asset.
+	Address address.Tap
+
+	// OutPoint is the outpoint of the asset transfer transaction.
+	OutPoint wire.OutPoint
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AssetReceiveStartEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// NewAssetReceiveStartEvent creates a new struct instance.
+func NewAssetReceiveStartEvent(addr address.Tap,
+	outpoint wire.OutPoint) *AssetReceiveStartEvent {
+
+	return &AssetReceiveStartEvent{
+		timestamp: time.Now().UTC(),
+		Address:   addr,
+		OutPoint:  outpoint,
+	}
+}
+
 // CustodianConfig houses all the items that the Custodian needs to carry out
 // its duties.
 type CustodianConfig struct {
@@ -372,6 +401,22 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		return nil
 	}
 
+	// emitReceiveStartNotice emits a "receive" start event for the given
+	// address and outpoint.
+	emitReceiveStartNotice := func(addr *address.Tap,
+		op wire.OutPoint) error {
+
+		statusEvent := NewAssetReceiveStartEvent(*addr, op)
+
+		err := c.publishSubscriberStatusEvent(statusEvent)
+		if err != nil {
+			return fmt.Errorf("unable publish receive start "+
+				"status event: %w", err)
+		}
+
+		return nil
+	}
+
 	// There is at least one Taproot output going to our wallet in that TX,
 	// let's now find out which one.
 	txHash := walletTx.Tx.TxHash()
@@ -405,6 +450,14 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				}
 
 				c.events[op] = event
+
+				// At this point the "receive" process has
+				// started. We will now notify all status event
+				// subscribers.
+				err = emitReceiveStartNotice(event.Addr.Tap, op)
+				if err != nil {
+					return err
+				}
 
 				// Now that we've seen this output confirm on
 				// chain, we'll launch a goroutine to use the
@@ -447,6 +500,13 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		// transaction is confirmed.
 		if walletTx.Confirmations == 0 {
 			continue
+		}
+
+		// At this point the "receive" process has started. We will now
+		// notify all status event subscribers.
+		err = emitReceiveStartNotice(addr, op)
+		if err != nil {
+			return err
 		}
 
 		// Now that we've seen this output confirm on chain, we'll
