@@ -1003,6 +1003,9 @@ message ProofTransferBackoffWaitEvent {
 }
 
 message SubscribeReceiveAssetEventNtfnsRequest {
+    // If set to true, the daemon will deliver existing events from the runtime
+    // log to the subscriber.
+    bool deliver_existing_events = 1;
 }
 
 message AssetReceiveStartEvent {

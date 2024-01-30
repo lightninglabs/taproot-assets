@@ -2356,7 +2356,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 // SubscribeReceiveAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset receiving process.
 func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
-	_ *taprpc.SubscribeReceiveAssetEventNtfnsRequest,
+	req *taprpc.SubscribeReceiveAssetEventNtfnsRequest,
 	ntfnStream subReceiveEventNtfnsStream) error {
 
 	// Create a new event subscriber and pass a copy to the component(s)
@@ -2367,7 +2367,7 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 
 	// Register the subscriber with the AssetCustodian.
 	err := r.cfg.AssetCustodian.RegisterSubscriber(
-		eventSubscriber, false, false,
+		eventSubscriber, req.DeliverExistingEvents,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to register custodian event"+

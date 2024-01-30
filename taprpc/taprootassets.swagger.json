@@ -1972,7 +1972,13 @@
       "type": "object"
     },
     "taprpcSubscribeReceiveAssetEventNtfnsRequest": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "deliver_existing_events": {
+          "type": "boolean",
+          "description": "If set to true, the daemon will deliver existing events from the runtime\nlog to the subscriber."
+        }
+      }
     },
     "taprpcSubscribeSendAssetEventNtfnsRequest": {
       "type": "object"
