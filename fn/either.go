@@ -35,3 +35,25 @@ func (e Either[L, R]) IsLeft() bool {
 func (e Either[L, R]) IsRight() bool {
 	return e.right.IsSome()
 }
+
+// MapLeft maps the left value of the Either to a new value.
+func MapLeft[L any, R any, O any](f func(L) O) func(Either[L, R]) Option[O] {
+	return func(e Either[L, R]) Option[O] {
+		if e.IsLeft() {
+			return MapOption(f)(e.left)
+		}
+
+		return None[O]()
+	}
+}
+
+// MapRight maps the right value of the Either to a new value.
+func MapRight[L any, R any, O any](f func(R) O) func(Either[L, R]) Option[O] {
+	return func(e Either[L, R]) Option[O] {
+		if e.IsRight() {
+			return MapOption(f)(e.right)
+		}
+
+		return None[O]()
+	}
+}
