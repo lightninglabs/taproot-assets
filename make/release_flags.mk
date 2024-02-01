@@ -1,5 +1,12 @@
+# One can either specify a git tag as the version suffix or one that is
+# generated from the current date.
 VERSION_TAG = $(shell date +%Y%m%d)-01
 VERSION_CHECK = @$(call print, "Building master with date version tag")
+
+ifneq ($(tag),)
+VERSION_TAG = $(tag)
+VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)" "$(VERSION_GO_FILE)"
+endif
 
 DOCKER_RELEASE_HELPER = docker run \
   -it \
@@ -21,13 +28,6 @@ linux-arm64 \
 windows-amd64
 
 RELEASE_TAGS = monitoring
-
-# One can either specify a git tag as the version suffix or one is generated
-# from the current date.
-ifneq ($(tag),)
-VERSION_TAG = $(tag)
-VERSION_CHECK = ./scripts/release.sh check-tag "$(VERSION_TAG)"
-endif
 
 # By default we will build all systems. But with the 'sys' tag, a specific
 # system can be specified. This is useful to release for a subset of

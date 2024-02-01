@@ -11,6 +11,9 @@ GOACC_BIN := $(GO_BIN)/go-acc
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
 
+# VERSION_GO_FILE is the golang file which defines the current project version.
+VERSION_GO_FILE := "version.go"
+
 COMMIT := $(shell git describe --tags --dirty)
 
 GOBUILD := GOEXPERIMENT=loopvar GO111MODULE=on go build -v
@@ -114,6 +117,17 @@ release:
 	@$(call print, "Releasing tapd and tapcli binaries.")
 	$(VERSION_CHECK)
 	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
+
+release-tag:
+	@$(call print, "Adding release tag.")
+
+	tag=$$(./scripts/get-git-tag-name.sh ${VERSION_GO_FILE}); \
+	exit_status=$$?; \
+	if [ $$exit_status -ne 0 ]; then \
+		echo "Script encountered an error with exit status $$exit_status."; \
+	fi; \
+	echo "Adding git tag: $$tag"; \
+	git tag -as -m "Tag generated using command \`make release-tag\`." "$$tag";
 
 docker-release:
 	@$(call print, "Building release helper docker image.")
