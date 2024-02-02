@@ -41,7 +41,7 @@ var testCases = []*testCase{
 		test: testReOrgMintAndSend,
 	},
 	{
-		name:             "basic send unidirectional",
+		name:             "basic send unidirectional hashmail courier",
 		test:             testBasicSendUnidirectional,
 		proofCourierType: proof.HashmailCourierType,
 	},
@@ -54,7 +54,8 @@ var testCases = []*testCase{
 		test: testRestartReceiverCheckBalance,
 	},
 	{
-		name:             "resume pending package send",
+		name: "resume pending package send hashmail " +
+			"courier",
 		test:             testResumePendingPackageSend,
 		proofCourierType: proof.HashmailCourierType,
 	},
@@ -72,7 +73,8 @@ var testCases = []*testCase{
 		test: testReattemptFailedReceiveUniCourier,
 	},
 	{
-		name:             "offline receiver eventually receives",
+		name: "offline receiver eventually receives " +
+			"hashmail courier",
 		test:             testOfflineReceiverEventuallyReceives,
 		proofCourierType: proof.HashmailCourierType,
 	},
@@ -81,7 +83,7 @@ var testCases = []*testCase{
 		test: testSendNoCourierUniverseImport,
 	},
 	{
-		name:             "basic send passive asset",
+		name:             "basic send passive asset hashmail courier",
 		test:             testBasicSendPassiveAsset,
 		proofCourierType: proof.HashmailCourierType,
 	},
@@ -123,7 +125,7 @@ var testCases = []*testCase{
 		test: testMintMultiAssetGroups,
 	},
 	{
-		name:             "sending multi asset groups",
+		name:             "sending multi asset groups hashmail courier",
 		test:             testMultiAssetGroupSend,
 		proofCourierType: proof.HashmailCourierType,
 	},
