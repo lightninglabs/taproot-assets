@@ -960,7 +960,9 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 		return proofs[0].Leaf.RawProof, nil
 	}
 
-	file, err := proof.FetchProofProvenance(ctx, originLocator, fetchProof)
+	file, err := proof.FetchProofProvenance(
+		ctx, nil, originLocator, fetchProof,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error fetching proof from archive: %w",
 			err)
