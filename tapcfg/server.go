@@ -325,6 +325,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		HashMailCfg:    cfg.HashMailCourier,
 		UniverseRpcCfg: cfg.UniverseRpcCourier,
 		TransferLog:    assetStore,
+		LocalArchive:   proofArchive,
 	})
 
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
