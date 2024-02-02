@@ -85,6 +85,7 @@ type custodianHarness struct {
 	t            *testing.T
 	c            *tapgarden.Custodian
 	cfg          *tapgarden.CustodianConfig
+	errChan      chan error
 	chainBridge  *tapgarden.MockChainBridge
 	walletAnchor *tapgarden.MockWalletAnchor
 	keyRing      *tapgarden.MockKeyRing
@@ -103,11 +104,27 @@ func (h *custodianHarness) assertStartup() {
 	)
 	require.NoError(h.t, err)
 
+	// Make sure we don't have an error on startup.
+	select {
+	case err := <-h.errChan:
+		require.NoError(h.t, err)
+
+	case <-time.After(testPollInterval):
+	}
+
 	// Make sure ListTransactions is called on startup.
 	_, err = fn.RecvOrTimeout(
 		h.walletAnchor.ListTxnsSignal, testTimeout,
 	)
 	require.NoError(h.t, err)
+
+	// Make sure we don't have an error on startup.
+	select {
+	case err := <-h.errChan:
+		require.NoError(h.t, err)
+
+	case <-time.After(testPollInterval):
+	}
 }
 
 // eventually is a shortcut for require.Eventually with the timeout and poll
@@ -197,6 +214,7 @@ func newHarness(t *testing.T,
 		require.NoError(t, err)
 	}
 
+	errChan := make(chan error, 1)
 	cfg := &tapgarden.CustodianConfig{
 		ChainParams:            chainParams,
 		ChainBridge:            chainBridge,
@@ -206,12 +224,13 @@ func newHarness(t *testing.T,
 		ProofNotifier:          assetDB,
 		ProofCourierDispatcher: courierDispatch,
 		ProofWatcher:           proofWatcher,
-		ErrChan:                make(chan error, 1),
+		ErrChan:                errChan,
 	}
 	return &custodianHarness{
 		t:            t,
 		c:            tapgarden.NewCustodian(cfg),
 		cfg:          cfg,
+		errChan:      errChan,
 		chainBridge:  chainBridge,
 		walletAnchor: walletAnchor,
 		keyRing:      keyRing,
