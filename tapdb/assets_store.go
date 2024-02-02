@@ -45,6 +45,9 @@ type (
 	// where the proofs for a specific asset are fetched.
 	AssetProofI = sqlc.FetchAssetProofRow
 
+	// FetchAssetProof are the query parameters for fetching an asset proof.
+	FetchAssetProof = sqlc.FetchAssetProofParams
+
 	// AssetProofByIDRow is the asset proof for a given asset, identified by
 	// its asset ID.
 	AssetProofByIDRow = sqlc.FetchAssetProofsByAssetIDRow
@@ -173,7 +176,7 @@ type ActiveAssetsStore interface {
 	// FetchAssetProof fetches the asset proof for a given asset identified
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
-		scriptKey []byte) (AssetProofI, error)
+		arg FetchAssetProof) (AssetProofI, error)
 
 	// HasAssetProof returns true if we have proof for a given asset
 	// identified by its script key.
@@ -1187,7 +1190,9 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 			serializedKey := asset.ToSerialized(scriptKey)
 
 			assetProof, err := q.FetchAssetProof(
-				ctx, serializedKey[:],
+				ctx, FetchAssetProof{
+					TweakedScriptKey: serializedKey[:],
+				},
 			)
 			if err != nil {
 				return fmt.Errorf("unable to fetch asset "+
@@ -1212,20 +1217,32 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 func (a *AssetStore) FetchProof(ctx context.Context,
 	locator proof.Locator) (proof.Blob, error) {
 
-	// We don't need anything else but the script key since we have an
-	// on-disk index for all proofs we store.
-	scriptKey := locator.ScriptKey
+	// We have an on-disk index for all proofs we store, so we can use the
+	// script key as the primary identifier.
+	args := FetchAssetProof{
+		TweakedScriptKey: locator.ScriptKey.SerializeCompressed(),
+	}
+
+	// But script keys aren't unique, so if the locator explicitly specifies
+	// an outpoint, we'll use that as well.
+	if locator.OutPoint != nil {
+		outpoint, err := encodeOutpoint(*locator.OutPoint)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode outpoint: %w",
+				err)
+		}
+
+		args.Outpoint = outpoint
+	}
 
 	var diskProof proof.Blob
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		assetProof, err := q.FetchAssetProof(
-			ctx, scriptKey.SerializeCompressed(),
-		)
+		assetProof, err := q.FetchAssetProof(ctx, args)
 		if err != nil {
-			return fmt.Errorf("unable to fetch asset "+
-				"proof: %w", err)
+			return fmt.Errorf("unable to fetch asset proof: %w",
+				err)
 		}
 
 		diskProof = assetProof.ProofFile
@@ -1500,6 +1517,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
 	return db.UpsertAssetProof(ctx, ProofUpdate{
 		TweakedScriptKey: scriptKeyBytes,
+		Outpoint:         anchorPoint,
 		ProofFile:        proof.Blob,
 	})
 }
@@ -1532,11 +1550,20 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 		return fmt.Errorf("unable to insert chain tx: %w", err)
 	}
 
+	outpointBytes, err := encodeOutpoint(wire.OutPoint{
+		Hash:  anchorTXID,
+		Index: proof.OutputIndex,
+	})
+	if err != nil {
+		return err
+	}
+
 	// As a final step, we'll insert the proof file we used to generate all
 	// the above information.
 	scriptKeyBytes := proof.Asset.ScriptKey.PubKey.SerializeCompressed()
 	return db.UpsertAssetProof(ctx, ProofUpdate{
 		TweakedScriptKey: scriptKeyBytes,
+		Outpoint:         outpointBytes,
 		ProofFile:        proof.Blob,
 	})
 }
@@ -1546,9 +1573,9 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
-func (a *AssetStore) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
-	replace bool, proofs ...*proof.AnnotatedProof) error {
+func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
+	_ proof.GroupVerifier, replace bool,
+	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
@@ -2604,6 +2631,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// this given delta.
 			err = q.UpsertAssetProof(ctx, ProofUpdate{
 				TweakedScriptKey: out.ScriptKeyBytes,
+				Outpoint:         out.AnchorOutpoint,
 				ProofFile:        receiverProof.Blob,
 			})
 			if err != nil {
@@ -2730,6 +2758,7 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 		// Update the asset proof.
 		err = q.UpsertAssetProof(ctx, ProofUpdate{
 			AssetID:   sqlInt64(passiveAsset.AssetID),
+			Outpoint:  passiveAsset.Outpoint,
 			ProofFile: proofFile,
 		})
 		if err != nil {
