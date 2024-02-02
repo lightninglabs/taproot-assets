@@ -662,6 +662,7 @@ JOIN assets
 WHERE (
     (assets.asset_id = $1) OR ($1 IS NULL)
 )
+ORDER BY witness_index
 `
 
 type FetchAssetWitnessesRow struct {
@@ -1749,36 +1750,6 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 	return err
 }
 
-const insertAssetWitness = `-- name: InsertAssetWitness :exec
-INSERT INTO asset_witnesses (
-    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
-    split_commitment_proof
-) VALUES (
-    $1, $2, $3, $4, $5, $6
-)
-`
-
-type InsertAssetWitnessParams struct {
-	AssetID              int64
-	PrevOutPoint         []byte
-	PrevAssetID          []byte
-	PrevScriptKey        []byte
-	WitnessStack         []byte
-	SplitCommitmentProof []byte
-}
-
-func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetWitness,
-		arg.AssetID,
-		arg.PrevOutPoint,
-		arg.PrevAssetID,
-		arg.PrevScriptKey,
-		arg.WitnessStack,
-		arg.SplitCommitmentProof,
-	)
-	return err
-}
-
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
@@ -2390,6 +2361,44 @@ type UpsertAssetProofByIDParams struct {
 
 func (q *Queries) UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error {
 	_, err := q.db.ExecContext(ctx, upsertAssetProofByID, arg.AssetID, arg.ProofFile)
+	return err
+}
+
+const upsertAssetWitness = `-- name: UpsertAssetWitness :exec
+INSERT INTO asset_witnesses (
+    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
+    split_commitment_proof, witness_index
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7
+)  ON CONFLICT (asset_id, witness_index)
+    -- We overwrite the witness with the new one.
+    DO UPDATE SET prev_out_point = EXCLUDED.prev_out_point,
+                  prev_asset_id = EXCLUDED.prev_asset_id,
+                  prev_script_key = EXCLUDED.prev_script_key,
+                  witness_stack = EXCLUDED.witness_stack,
+                  split_commitment_proof = EXCLUDED.split_commitment_proof
+`
+
+type UpsertAssetWitnessParams struct {
+	AssetID              int64
+	PrevOutPoint         []byte
+	PrevAssetID          []byte
+	PrevScriptKey        []byte
+	WitnessStack         []byte
+	SplitCommitmentProof []byte
+	WitnessIndex         int32
+}
+
+func (q *Queries) UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAssetWitness,
+		arg.AssetID,
+		arg.PrevOutPoint,
+		arg.PrevAssetID,
+		arg.PrevScriptKey,
+		arg.WitnessStack,
+		arg.SplitCommitmentProof,
+		arg.WitnessIndex,
+	)
 	return err
 }
 

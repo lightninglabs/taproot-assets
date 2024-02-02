@@ -54,7 +54,7 @@ type (
 
 	// PrevInput stores the full input information including the prev out,
 	// and also the witness information itself.
-	PrevInput = sqlc.InsertAssetWitnessParams
+	PrevInput = sqlc.UpsertAssetWitnessParams
 
 	// AssetWitness is the full prev input for an asset that also couples
 	// along the asset ID that the witness belong to.
@@ -207,9 +207,9 @@ type ActiveAssetsStore interface {
 	// proof on disk.
 	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
 
-	// InsertAssetWitness inserts a new prev input for an asset into the
+	// UpsertAssetWitness upserts a new prev input for an asset into the
 	// database.
-	InsertAssetWitness(context.Context, PrevInput) error
+	UpsertAssetWitness(context.Context, PrevInput) error
 
 	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
 	// on disk (NULL param), or the witness for a given asset ID.
@@ -1360,8 +1360,6 @@ func (a *AssetStore) FetchProofs(ctx context.Context,
 
 // insertAssetWitnesses attempts to insert the set of asset witnesses in to the
 // database, referencing the passed asset primary key.
-//
-// TODO(ffranr): Change insert function into an upsert.
 func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 	db ActiveAssetsStore, assetID int64, inputs []asset.Witness) error {
 
@@ -1404,13 +1402,14 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 			copy(splitCommitmentProof, b.Bytes())
 		}
 
-		err = db.InsertAssetWitness(ctx, PrevInput{
+		err = db.UpsertAssetWitness(ctx, PrevInput{
 			AssetID:              assetID,
 			PrevOutPoint:         prevOutpoint,
 			PrevAssetID:          prevID.ID[:],
 			PrevScriptKey:        prevID.ScriptKey.CopyBytes(),
 			WitnessStack:         witnessStack,
 			SplitCommitmentProof: splitCommitmentProof,
+			WitnessIndex:         int32(idx),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert witness: %v", err)
