@@ -506,7 +506,7 @@ func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (F
 	return i, err
 }
 
-const fetchAssetProof = `-- name: FetchAssetProof :one
+const fetchAssetProof = `-- name: FetchAssetProof :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
@@ -538,17 +538,33 @@ type FetchAssetProofRow struct {
 	Outpoint  []byte
 }
 
-func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) (FetchAssetProofRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
-	var i FetchAssetProofRow
-	err := row.Scan(
-		&i.ScriptKey,
-		&i.ProofFile,
-		&i.AssetID,
-		&i.ProofID,
-		&i.Outpoint,
-	)
-	return i, err
+func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofRow
+	for rows.Next() {
+		var i FetchAssetProofRow
+		if err := rows.Scan(
+			&i.ScriptKey,
+			&i.ProofFile,
+			&i.AssetID,
+			&i.ProofID,
+			&i.Outpoint,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const fetchAssetProofs = `-- name: FetchAssetProofs :many

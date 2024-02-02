@@ -796,15 +796,17 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// If we look up all the proofs by their specific script key, we should
 	// get the same set of proofs.
-	scriptKeys := fMapKeys(
-		assetProofs, func(k asset.SerializedKey) *btcec.PublicKey {
-			parsed, err := btcec.ParsePubKey(k.CopyBytes())
+	proofLocators := fMapKeys(
+		assetProofs, func(k asset.SerializedKey) proof.Locator {
+			parsedScriptKey, err := btcec.ParsePubKey(k.CopyBytes())
 			require.NoError(t, err)
 
-			return parsed
+			return proof.Locator{
+				ScriptKey: *parsedScriptKey,
+			}
 		},
 	)
-	diskProofs, err = confAssets.FetchAssetProofs(ctx, scriptKeys...)
+	diskProofs, err = confAssets.FetchAssetProofs(ctx, proofLocators...)
 	require.NoError(t, err)
 	require.Equal(t, assetProofs, diskProofs)
 

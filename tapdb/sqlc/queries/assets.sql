@@ -684,7 +684,7 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
--- name: FetchAssetProof :one
+-- name: FetchAssetProof :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
