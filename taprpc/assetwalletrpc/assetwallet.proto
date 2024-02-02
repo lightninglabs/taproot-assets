@@ -188,6 +188,8 @@ message ProveAssetOwnershipRequest {
     bytes asset_id = 1;
 
     bytes script_key = 2;
+
+    taprpc.OutPoint outpoint = 3;
 }
 
 message ProveAssetOwnershipResponse {
