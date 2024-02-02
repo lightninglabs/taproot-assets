@@ -458,7 +458,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		outputProofLocator := proof.Locator{
 			AssetID:   &firstInput.ID,
 			ScriptKey: *out.ScriptKey.PubKey,
-			OutPoint:  &firstInput.OutPoint,
+			OutPoint:  fn.Ptr(proofSuffix.OutPoint()),
 		}
 		outputProof := &proof.AnnotatedProof{
 			Locator: outputProofLocator,
@@ -536,7 +536,7 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 // updateAssetProofFile retrieves and updates the proof file for the given asset
 // ID and script key with the new proof.
 func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID,
-	scriptKeyPub *btcec.PublicKey, outPoint *wire.OutPoint,
+	scriptKeyPub *btcec.PublicKey, oldOutPoint *wire.OutPoint,
 	confEvent *chainntnfs.TxConfirmation,
 	newProof *proof.Proof) (*proof.AnnotatedProof, *proof.Proof, error) {
 
@@ -544,11 +544,12 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 	locator := proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKeyPub,
-		OutPoint:  outPoint,
+		OutPoint:  oldOutPoint,
 	}
 	currentProofFileBlob, err := p.cfg.AssetProofs.FetchProof(ctx, locator)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error fetching proof: %w", err)
+		return nil, nil, fmt.Errorf("error fetching current proof: %w",
+			err)
 	}
 	currentProofFile := proof.NewEmptyFile(proof.V0)
 	err = currentProofFile.Decode(bytes.NewReader(currentProofFileBlob))
@@ -585,7 +586,7 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context, assetID asset.ID
 		Locator: proof.Locator{
 			AssetID:   &assetID,
 			ScriptKey: *newProof.Asset.ScriptKey.PubKey,
-			OutPoint:  outPoint,
+			OutPoint:  fn.Ptr(newProof.OutPoint()),
 		},
 		Blob: newProofFileBuffer.Bytes(),
 	}
@@ -734,7 +735,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		proofLocator := proof.Locator{
 			AssetID:   &passiveAsset.GenesisID,
 			ScriptKey: *passiveAsset.ScriptKey.PubKey,
-			OutPoint:  &passiveAsset.PrevAnchorPoint,
+			OutPoint:  fn.Ptr(passiveAsset.NewProof.OutPoint()),
 		}
 		proofFileBlob, err := p.cfg.AssetProofs.FetchProof(
 			ctx, proofLocator,
