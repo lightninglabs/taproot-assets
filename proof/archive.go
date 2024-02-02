@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -21,9 +22,13 @@ import (
 )
 
 const (
+	// TaprootAssetsFileEnding is the main file suffix for the Taproot Asset
+	// proof files stored on disk, without the dot.
+	TaprootAssetsFileEnding = "assetproof"
+
 	// TaprootAssetsFileSuffix is the main file suffix for the Taproot Asset
-	// proof files stored on disk.
-	TaprootAssetsFileSuffix = ".assetproof"
+	// proof files stored on disk, including the dot.
+	TaprootAssetsFileSuffix = "." + TaprootAssetsFileEnding
 
 	// ProofDirName is the name of the directory we'll use to store our
 	// proofs.
@@ -61,6 +66,17 @@ var (
 	ErrMultipleProofs = fmt.Errorf(
 		"multiple proofs found with asset ID and script key, specify " +
 			"outpoint to disambiguate",
+	)
+
+	// OutPointFileNamePattern is the regular expression we use to find out
+	// if a proof file on disk already has the new naming scheme. The first
+	// number (66) is the number of hex characters in the compressed script
+	// key, the second number (32) is the number of hex characters in the
+	// truncated outpoint txid (16 bytes of the txid). The last part is the
+	// variable length outpoint index (at least one digit).
+	OutPointFileNamePattern = regexp.MustCompile(
+		`^[0-9a-f]{66}-[0-9a-f]{32}-[0-9]+\.` +
+			TaprootAssetsFileEnding + "$",
 	)
 )
 
@@ -280,6 +296,16 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 		return nil, fmt.Errorf("unable to create proof dir: %w", err)
 	}
 
+	// We need to make sure that all our proof files have the new naming
+	// scheme. If they don't, we'll rename them now. This might take quite a
+	// while since we need to read each proof file and parse it to extract
+	// the outpoint and then rename it.
+	err := migrateOldFileNames(proofPath)
+	if err != nil {
+		return nil, fmt.Errorf("error migrating old proof file "+
+			"names: %w", err)
+	}
+
 	return &FileArchiver{
 		proofPath:        proofPath,
 		eventDistributor: fn.NewEventDistributor[Blob](),
@@ -312,8 +338,9 @@ func genProofFileStoragePath(rootPath string, loc Locator) (string, error) {
 	assetID := hex.EncodeToString(loc.AssetID[:])
 
 	truncatedHash := loc.OutPoint.Hash.String()[:outpointTruncateLength]
-	fileName := fmt.Sprintf("%x-%s-%d%s", loc.ScriptKey.SerializeCompressed(),
-		truncatedHash, loc.OutPoint.Index, TaprootAssetsFileSuffix)
+	fileName := fmt.Sprintf("%x-%s-%d.%s",
+		loc.ScriptKey.SerializeCompressed(), truncatedHash,
+		loc.OutPoint.Index, TaprootAssetsFileEnding)
 
 	return filepath.Join(rootPath, assetID, fileName), nil
 }
@@ -394,6 +421,79 @@ func extractLastProof(fileContent Blob) (*Proof, error) {
 	}
 
 	return lastProof, nil
+}
+
+// migrateOldFileNames looks for proof files in the root path that don't conform
+// to the new naming scheme and renames them to the new scheme.
+func migrateOldFileNames(rootPath string) error {
+	// List all files matching rootPath/*/*.assetproof.
+	searchPattern := filepath.Join(
+		rootPath, "*", "*"+TaprootAssetsFileSuffix,
+	)
+	oldProofs, err := filepath.Glob(searchPattern)
+	if err != nil {
+		return fmt.Errorf("error listing old proof files: %w", err)
+	}
+
+	// Skip files that already have the new naming pattern.
+	oldProofs = fn.Filter(oldProofs, func(path string) bool {
+		return !OutPointFileNamePattern.MatchString(filepath.Base(path))
+	})
+
+	// Nothing to migrate, let's not even log a message to avoid startup
+	// log spam.
+	if len(oldProofs) == 0 {
+		return nil
+	}
+
+	log.Infof("Found %d proof files in %s with old naming scheme, "+
+		"renaming now (will take a while)", len(oldProofs), rootPath)
+
+	var (
+		startTime       = time.Now()
+		numFilesRenamed int
+	)
+	for _, oldPath := range oldProofs {
+		proofFile, err := os.ReadFile(oldPath)
+		if err != nil {
+			return fmt.Errorf("unable to read proof: %w", err)
+		}
+
+		// To find out the new file name, we need to parse the proof
+		// file and extract the last proof in it.
+		lastProof, err := extractLastProof(proofFile)
+		if err != nil {
+			return fmt.Errorf("unable to extract last proof from "+
+				"proof file: %w", err)
+		}
+
+		newFileName, err := genProofFileStoragePath(rootPath, Locator{
+			AssetID:   fn.Ptr(lastProof.Asset.ID()),
+			ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(lastProof.OutPoint()),
+		})
+		if err != nil {
+			return fmt.Errorf("error generating new file name: "+
+				"%w", err)
+		}
+
+		err = os.Rename(oldPath, newFileName)
+		if err != nil {
+			return fmt.Errorf("error renaming file %s to %s: %w",
+				oldPath, newFileName, err)
+		}
+
+		numFilesRenamed++
+		if numFilesRenamed%1000 == 0 {
+			log.Infof("Renamed %d of %d old files", numFilesRenamed,
+				len(oldProofs))
+		}
+	}
+
+	log.Infof("Done renaming  %d proof files, took %v", len(oldProofs),
+		time.Since(startTime))
+
+	return nil
 }
 
 // FetchProof fetches a proof for an asset uniquely identified by the passed
