@@ -2333,11 +2333,9 @@ WITH target_asset(asset_id) AS (
         ON assets.anchor_utxo_id = utxos.utxo_id
     WHERE
         (script_keys.tweaked_script_key = $2
-             OR $2 IS NULL)
-        AND (assets.asset_id = $3
-                 OR $3 IS NULL)
-        AND (utxos.outpoint = $4
-                 OR $4 IS NULL)
+            OR $2 IS NULL)
+        AND (utxos.outpoint = $3
+            OR $3 IS NULL)
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
@@ -2351,17 +2349,31 @@ INSERT INTO asset_proofs (
 type UpsertAssetProofParams struct {
 	ProofFile        []byte
 	TweakedScriptKey []byte
-	AssetID          sql.NullInt64
 	Outpoint         []byte
 }
 
 func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetProof,
-		arg.ProofFile,
-		arg.TweakedScriptKey,
-		arg.AssetID,
-		arg.Outpoint,
-	)
+	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.ProofFile, arg.TweakedScriptKey, arg.Outpoint)
+	return err
+}
+
+const upsertAssetProofByID = `-- name: UpsertAssetProofByID :exec
+INSERT INTO asset_proofs (
+    asset_id, proof_file
+) VALUES (
+    $1, $2
+) ON CONFLICT (asset_id)
+    -- This is not a NOP, we always overwrite the proof with the new one.
+    DO UPDATE SET proof_file = EXCLUDED.proof_file
+`
+
+type UpsertAssetProofByIDParams struct {
+	AssetID   int64
+	ProofFile []byte
+}
+
+func (q *Queries) UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAssetProofByID, arg.AssetID, arg.ProofFile)
 	return err
 }
 
