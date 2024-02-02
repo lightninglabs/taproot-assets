@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -3693,34 +3692,6 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	return resp, nil
 }
 
-// UnmarshalOutpoint un-marshals an outpoint from a string received via RPC.
-func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
-	parts := strings.Split(outpoint, ":")
-	if len(parts) != 2 {
-		return nil, errors.New("outpoint should be of form txid:index")
-	}
-
-	txidStr := parts[0]
-	if hex.DecodedLen(len(txidStr)) != chainhash.HashSize {
-		return nil, fmt.Errorf("invalid hex-encoded txid %v", txidStr)
-	}
-
-	txid, err := chainhash.NewHashFromStr(txidStr)
-	if err != nil {
-		return nil, err
-	}
-
-	outputIndex, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid output index: %v", err)
-	}
-
-	return &wire.OutPoint{
-		Hash:  *txid,
-		Index: uint32(outputIndex),
-	}, nil
-}
-
 // unmarshalLeafKey un-marshals a leaf key from the RPC form.
 func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	var leafKey universe.LeafKey
@@ -3760,8 +3731,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	case key.GetOpStr() != "":
 		// Parse a bitcoin outpoint in the form txid:index into a
 		// wire.OutPoint struct.
-		outpointStr := key.GetOpStr()
-		outpoint, err := UnmarshalOutpoint(outpointStr)
+		outpoint, err := wire.NewOutPointFromString(key.GetOpStr())
 		if err != nil {
 			return leafKey, err
 		}
