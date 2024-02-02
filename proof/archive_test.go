@@ -3,11 +3,15 @@ package proof
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -211,4 +215,122 @@ func TestFileArchiver(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestMigrateOldFileNames tests that we can migrate old file names to the new
+// format.
+func TestMigrateOldFileNames(t *testing.T) {
+	// First, we'll make a temp directory we'll use as the root of our file
+	// system.
+	tempDir := t.TempDir()
+	proofDir := filepath.Join(tempDir, ProofDirName)
+
+	toFileBlob := func(proof Proof) []byte {
+		file, err := NewFile(V0, proof, proof)
+		require.NoError(t, err)
+
+		var buf bytes.Buffer
+		err = file.Encode(&buf)
+		require.NoError(t, err)
+
+		return buf.Bytes()
+	}
+
+	// storeProofOldName is a helper that stores a proof file under the old
+	// naming scheme.
+	storeProofOldName := func(proof Proof) {
+		assetID := hex.EncodeToString(fn.ByteSlice(proof.Asset.ID()))
+		scriptKey := proof.Asset.ScriptKey.PubKey
+		fileName := filepath.Join(
+			proofDir, assetID, hex.EncodeToString(
+				scriptKey.SerializeCompressed(),
+			)+TaprootAssetsFileSuffix,
+		)
+
+		err := os.MkdirAll(filepath.Dir(fileName), 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(fileName, toFileBlob(proof), 0644)
+		require.NoError(t, err)
+	}
+
+	// storeProofNewName is a helper that stores a proof file under the new
+	// naming scheme.
+	storeProofNewName := func(proof Proof) {
+		fileName, err := genProofFileStoragePath(proofDir, Locator{
+			AssetID:   fn.Ptr(proof.Asset.ID()),
+			ScriptKey: *proof.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(proof.OutPoint()),
+		})
+		require.NoError(t, err)
+
+		err = os.MkdirAll(filepath.Dir(fileName), 0755)
+		require.NoError(t, err)
+		err = os.WriteFile(fileName, toFileBlob(proof), 0644)
+		require.NoError(t, err)
+	}
+
+	// assertProofAtNewName is a helper that asserts that a proof file is
+	// stored under the new naming scheme.
+	assertProofAtNewName := func(proof Proof) {
+		fileName, err := genProofFileStoragePath(proofDir, Locator{
+			AssetID:   fn.Ptr(proof.Asset.ID()),
+			ScriptKey: *proof.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(proof.OutPoint()),
+		})
+		require.NoError(t, err)
+
+		_, err = os.Stat(fileName)
+		require.NoError(t, err)
+	}
+
+	testBlocks := readTestData(t)
+	oddTxBlock := testBlocks[0]
+
+	genesis1 := asset.RandGenesis(t, asset.Collectible)
+	genesis2 := asset.RandGenesis(t, asset.Collectible)
+	scriptKey1 := test.RandPubKey(t)
+	scriptKey2 := test.RandPubKey(t)
+
+	// We create 4 different proofs with the old naming scheme.
+	proof1 := randomProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
+	storeProofOldName(proof1)
+	proof2 := randomProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
+	storeProofOldName(proof2)
+	proof3 := randomProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
+	storeProofOldName(proof3)
+	proof4 := randomProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
+	storeProofOldName(proof4)
+
+	// We also create a proof with the new naming scheme.
+	proof5 := randomProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
+	storeProofNewName(proof5)
+
+	// We now create the file archive and expect the 4 proofs to be renamed.
+	fileArchive, err := NewFileArchiver(tempDir)
+	require.NoError(t, err)
+
+	// After creating the archiver, we should now have all 4 proofs with the
+	// old name be moved/renamed to the new name.
+	assertProofAtNewName(proof1)
+	assertProofAtNewName(proof2)
+	assertProofAtNewName(proof3)
+	assertProofAtNewName(proof4)
+
+	// The proof that was already there with the new name should still be
+	// there.
+	assertProofAtNewName(proof5)
+
+	// We should be able to import a new proof, and it should be stored
+	// under the new naming scheme.
+	proof6 := randomProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
+	err = fileArchive.ImportProofs(nil, nil, nil, false, &AnnotatedProof{
+		Locator: Locator{
+			AssetID:   fn.Ptr(proof6.Asset.ID()),
+			ScriptKey: *proof6.Asset.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(proof6.OutPoint()),
+		},
+		Blob: toFileBlob(proof6),
+	})
+	require.NoError(t, err)
+	assertProofAtNewName(proof6)
 }

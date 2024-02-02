@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -136,17 +137,13 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	require.Equal(t, expected.ChallengeWitness, actual.ChallengeWitness)
 }
 
-func TestProofEncoding(t *testing.T) {
-	t.Parallel()
+func randomProof(t *testing.T, genesis asset.Genesis,
+	scriptKey *btcec.PublicKey, block wire.MsgBlock, txIndex int,
+	outputIndex uint32) Proof {
 
-	testBlocks := readTestData(t)
-	oddTxBlock := testBlocks[0]
-
-	txMerkleProof, err := NewTxMerkleProof(oddTxBlock.Transactions, 0)
+	txMerkleProof, err := NewTxMerkleProof(block.Transactions, txIndex)
 	require.NoError(t, err)
 
-	genesis := asset.RandGenesis(t, asset.Collectible)
-	scriptKey := test.RandPubKey(t)
 	tweakedScriptKey := asset.NewScriptKey(scriptKey)
 	protoAsset := asset.NewAssetNoErr(
 		t, genesis, 1, 0, 0, tweakedScriptKey, nil,
@@ -167,26 +164,26 @@ func TestProofEncoding(t *testing.T) {
 		},
 	)
 	require.NoError(t, err)
-	asset := assets[0]
-	asset.GroupKey.RawKey = keychain.KeyDescriptor{}
+	proofAsset := assets[0]
+	proofAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
 
 	// Empty the group witness, since it will eventually be stored as the
 	// asset's witness within the proof.
 	// TODO(guggero): Actually store the witness in the proof.
-	asset.GroupKey.Witness = nil
+	proofAsset.GroupKey.Witness = nil
 
 	// Empty the raw script key, since we only serialize the tweaked
 	// pubkey. We'll also force the main script key to be an x-only key as
 	// well.
-	asset.ScriptKey.PubKey, err = schnorr.ParsePubKey(
-		schnorr.SerializePubKey(asset.ScriptKey.PubKey),
+	proofAsset.ScriptKey.PubKey, err = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(proofAsset.ScriptKey.PubKey),
 	)
 	require.NoError(t, err)
 
-	asset.ScriptKey.TweakedScriptKey = nil
+	proofAsset.ScriptKey.TweakedScriptKey = nil
 
 	_, commitmentProof, err := mintCommitment.Proof(
-		asset.TapCommitmentKey(), asset.AssetCommitmentKey(),
+		proofAsset.TapCommitmentKey(), proofAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
 
@@ -197,15 +194,15 @@ func TestProofEncoding(t *testing.T) {
 	testBranchPreimage := commitment.NewPreimageFromBranch(
 		txscript.NewTapBranch(leaf1, leaf2),
 	)
-	proof := Proof{
+	return Proof{
 		PrevOut:       genesis.FirstPrevOut,
-		BlockHeader:   oddTxBlock.Header,
+		BlockHeader:   block.Header,
 		BlockHeight:   42,
-		AnchorTx:      *oddTxBlock.Transactions[0],
+		AnchorTx:      *block.Transactions[txIndex],
 		TxMerkleProof: *txMerkleProof,
-		Asset:         *asset,
+		Asset:         *proofAsset,
 		InclusionProof: TaprootProof{
-			OutputIndex: 1,
+			OutputIndex: outputIndex,
 			InternalKey: test.RandPubKey(t),
 			CommitmentProof: &CommitmentProof{
 				Proof:              *commitmentProof,
@@ -259,6 +256,18 @@ func TestProofEncoding(t *testing.T) {
 		GenesisReveal:    &genesis,
 		GroupKeyReveal:   &groupReveal,
 	}
+}
+
+func TestProofEncoding(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	oddTxBlock := testBlocks[0]
+
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+	proof := randomProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+
 	file, err := NewFile(V0, proof, proof)
 	require.NoError(t, err)
 	proof.AdditionalInputs = []File{*file, *file}
@@ -749,6 +758,12 @@ func TestProofVerification(t *testing.T) {
 	var buf bytes.Buffer
 	require.NoError(t, p.Asset.Encode(&buf))
 	t.Logf("Proof asset encoded: %x", buf.Bytes())
+
+	ta := asset.NewTestFromAsset(t, &p.Asset)
+	assetJSON, err := json.Marshal(ta)
+	require.NoError(t, err)
+
+	t.Logf("Proof asset JSON: %s", assetJSON)
 
 	// Ensure that verification of a proof of unknown version fails.
 	p.Version = TransitionVersion(212)
