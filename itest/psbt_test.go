@@ -132,7 +132,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 	// This is an interactive/PSBT based transfer, so we do need to manually
 	// send the proof from the sender to the receiver because the proof
 	// courier address gets lost in the address->PSBT conversion.
-	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
+	_ = sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
@@ -258,7 +258,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 	// This is an interactive/PSBT based transfer, so we do need to manually
 	// send the proof from the sender to the receiver because the proof
 	// courier address gets lost in the address->PSBT conversion.
-	_ = sendProof(t, bob, alice, aliceAddr.ScriptKey, genInfo)
+	_ = sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
@@ -434,7 +434,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		// This is an interactive transfer, so we do need to manually
 		// send the proof from the sender to the receiver.
 		_ = sendProof(
-			t, sender, receiver,
+			t, sender, receiver, sendResp,
 			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
 		)
 
@@ -647,7 +647,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		// This is an interactive transfer, so we do need to manually
 		// send the proof from the sender to the receiver.
 		_ = sendProof(
-			t, sender, receiver,
+			t, sender, receiver, sendResp,
 			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
 		)
 
@@ -769,7 +769,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 	// This is an interactive transfer, so we do need to manually send the
 	// proof from the sender to the receiver.
 	_ = sendProof(
-		t, alice, bob,
+		t, alice, bob, sendResp,
 		receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
 
@@ -916,11 +916,11 @@ func testPsbtMultiSend(t *harnessTest) {
 	// This is an interactive transfer, so we do need to manually send the
 	// proof from the sender to the receiver.
 	_ = sendProof(
-		t, sender, receiver,
+		t, sender, receiver, sendResp,
 		receiverScriptKey1.PubKey.SerializeCompressed(), genInfo,
 	)
 	_ = sendProof(
-		t, sender, receiver,
+		t, sender, receiver, sendResp,
 		receiverScriptKey2.PubKey.SerializeCompressed(), genInfo,
 	)
 
@@ -1158,7 +1158,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	// This is an interactive transfer. Therefore, we will manually transfer
 	// the proof from the sender to the receiver.
 	_ = sendProof(
-		t, secondaryTapd, primaryTapd,
+		t, secondaryTapd, primaryTapd, sendResp,
 		primaryNodeScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
 
@@ -1233,7 +1233,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	// This is an interactive transfer. Therefore, we will manually transfer
 	// the proof from the sender to the receiver.
 	_ = sendProof(
-		t, secondaryTapd, primaryTapd,
+		t, secondaryTapd, primaryTapd, sendResp,
 		primaryNodeScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
 
