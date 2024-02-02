@@ -454,6 +454,9 @@
         "script_key": {
           "type": "string",
           "format": "byte"
+        },
+        "outpoint": {
+          "$ref": "#/definitions/taprpcOutPoint"
         }
       }
     },
