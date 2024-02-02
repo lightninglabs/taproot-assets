@@ -201,8 +201,11 @@ type ActiveAssetsStore interface {
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
-	UpsertAssetProof(ctx context.Context,
-		arg sqlc.UpsertAssetProofParams) error
+	UpsertAssetProof(ctx context.Context, arg ProofUpdate) error
+
+	// UpsertAssetProofByID inserts a new or updates an existing asset
+	// proof on disk.
+	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
 
 	// InsertAssetWitness inserts a new prev input for an asset into the
 	// database.
@@ -2756,9 +2759,8 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 		}
 
 		// Update the asset proof.
-		err = q.UpsertAssetProof(ctx, ProofUpdate{
-			AssetID:   sqlInt64(passiveAsset.AssetID),
-			Outpoint:  passiveAsset.Outpoint,
+		err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
+			AssetID:   passiveAsset.AssetID,
 			ProofFile: proofFile,
 		})
 		if err != nil {

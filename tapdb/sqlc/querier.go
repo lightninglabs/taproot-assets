@@ -148,6 +148,7 @@ type Querier interface {
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
+	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)
