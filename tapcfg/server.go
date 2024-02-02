@@ -250,7 +250,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			}
 
 			return fn.Map(
-				assets, func(a *tapdb.ChainAsset) *asset.Asset {
+				assets, func(a *asset.ChainAsset) *asset.Asset {
 					return a.Asset
 				},
 			), nil

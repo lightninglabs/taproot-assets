@@ -10,6 +10,7 @@ import (
 	"io"
 	"reflect"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
@@ -1620,4 +1622,54 @@ func ValidateAssetName(name string) error {
 	}
 
 	return nil
+}
+
+// ChainAsset is a wrapper around the base asset struct that includes
+// information detailing where in the chain the asset is currently anchored.
+type ChainAsset struct {
+	*Asset
+
+	// IsSpent indicates whether the above asset was previously spent.
+	IsSpent bool
+
+	// AnchorTx is the transaction that anchors this chain asset.
+	AnchorTx *wire.MsgTx
+
+	// AnchorBlockHash is the blockhash that mined the anchor tx.
+	AnchorBlockHash chainhash.Hash
+
+	// AnchorBlockHeight is the height of the block that mined the anchor
+	// tx.
+	AnchorBlockHeight uint32
+
+	// AnchorOutpoint is the outpoint that commits to the asset.
+	AnchorOutpoint wire.OutPoint
+
+	// AnchorInternalKey is the raw internal key that was used to create the
+	// anchor Taproot output key.
+	AnchorInternalKey *btcec.PublicKey
+
+	// AnchorMerkleRoot is the Taproot merkle root hash of the anchor output
+	// the asset was committed to. If there is no Tapscript sibling, this is
+	// equal to the Taproot Asset root commitment hash.
+	AnchorMerkleRoot []byte
+
+	// AnchorTapscriptSibling is the serialized preimage of a Tapscript
+	// sibling, if there was one. If this is empty, then the
+	// AnchorTapscriptSibling hash is equal to the Taproot root hash of the
+	// anchor output.
+	AnchorTapscriptSibling []byte
+
+	// AnchorLeaseOwner is the identity of the application that currently
+	// has a lease on this UTXO. If empty/nil, then the UTXO is not
+	// currently leased. A lease means that the UTXO is being
+	// reserved/locked to be spent in an upcoming transaction and that it
+	// should not be available for coin selection through any of the wallet
+	// RPCs.
+	AnchorLeaseOwner [32]byte
+
+	// AnchorLeaseExpiry is the expiry of the lease. If the expiry is nil or
+	// the time is in the past, then the lease is not valid and the UTXO is
+	// available for coin selection.
+	AnchorLeaseExpiry *time.Time
 }

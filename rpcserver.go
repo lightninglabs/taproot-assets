@@ -29,7 +29,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
-	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -720,7 +719,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 	return rpcAssets, nil
 }
 
-func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
+func (r *rpcServer) marshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 	withWitness bool) (*taprpc.Asset, error) {
 
 	rpcAsset, err := taprpc.MarshalAsset(
@@ -1397,7 +1396,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
+	rpcAsset, err := r.marshalChainAsset(ctx, &asset.ChainAsset{
 		Asset:                  &p.Asset,
 		AnchorTx:               &p.AnchorTx,
 		AnchorBlockHash:        p.BlockHeader.BlockHash(),
