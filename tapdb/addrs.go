@@ -131,7 +131,7 @@ type AddrBook interface {
 
 	// FetchAssetProof fetches the asset proof for a given asset identified
 	// by its script key.
-	FetchAssetProof(ctx context.Context, scriptKey []byte) (AssetProofI,
+	FetchAssetProof(ctx context.Context, arg FetchAssetProof) (AssetProofI,
 		error)
 
 	// FetchGenesisByAssetID attempts to fetch asset genesis information
@@ -895,11 +895,19 @@ func (t *TapAddressBook) CompleteEvent(ctx context.Context,
 	event *address.Event, status address.Status,
 	anchorPoint wire.OutPoint) error {
 
-	scriptKeyBytes := event.Addr.ScriptKey.SerializeCompressed()
+	outpoint, err := encodeOutpoint(anchorPoint)
+	if err != nil {
+		return fmt.Errorf("unable to encode outpoint: %w", err)
+	}
+
+	args := FetchAssetProof{
+		TweakedScriptKey: event.Addr.ScriptKey.SerializeCompressed(),
+		Outpoint:         outpoint,
+	}
 
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(db AddrBook) error {
-		proofData, err := db.FetchAssetProof(ctx, scriptKeyBytes)
+		proofData, err := db.FetchAssetProof(ctx, args)
 		if err != nil {
 			return fmt.Errorf("error fetching asset proof: %w", err)
 		}
