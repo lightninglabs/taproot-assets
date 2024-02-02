@@ -42,7 +42,7 @@ type Querier interface {
 	FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error)
 	FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error)
 	FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error)
-	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) (FetchAssetProofRow, error)
+	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error)
