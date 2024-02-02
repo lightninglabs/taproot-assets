@@ -86,7 +86,6 @@ type Querier interface {
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error)
 	InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error
 	InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error
-	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
@@ -149,6 +148,7 @@ type Querier interface {
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
+	UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)

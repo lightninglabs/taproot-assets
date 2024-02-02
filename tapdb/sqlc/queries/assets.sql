@@ -715,13 +715,19 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
--- name: InsertAssetWitness :exec
+-- name: UpsertAssetWitness :exec
 INSERT INTO asset_witnesses (
     asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
-    split_commitment_proof
+    split_commitment_proof, witness_index
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
-);
+    $1, $2, $3, $4, $5, $6, $7
+)  ON CONFLICT (asset_id, witness_index)
+    -- We overwrite the witness with the new one.
+    DO UPDATE SET prev_out_point = EXCLUDED.prev_out_point,
+                  prev_asset_id = EXCLUDED.prev_asset_id,
+                  prev_script_key = EXCLUDED.prev_script_key,
+                  witness_stack = EXCLUDED.witness_stack,
+                  split_commitment_proof = EXCLUDED.split_commitment_proof;
 
 -- name: FetchAssetWitnesses :many
 SELECT 
@@ -732,7 +738,8 @@ JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
 WHERE (
     (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
-);
+)
+ORDER BY witness_index;
 
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
