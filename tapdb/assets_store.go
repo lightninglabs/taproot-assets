@@ -2655,9 +2655,12 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		finalProof := conf.FinalProofs[localKey]
 		a.eventDistributor.NotifySubscribers(finalProof.Blob)
 	}
-	for idx := range conf.PassiveAssetProofFiles {
-		passiveProof := conf.PassiveAssetProofFiles[idx]
-		a.eventDistributor.NotifySubscribers(passiveProof)
+	for assetID := range conf.PassiveAssetProofFiles {
+		passiveProofs := conf.PassiveAssetProofFiles[assetID]
+		for idx := range passiveProofs {
+			passiveProof := passiveProofs[idx]
+			a.eventDistributor.NotifySubscribers(passiveProof.Blob)
+		}
 	}
 
 	return nil
@@ -2667,7 +2670,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 // the given transfer output.
 func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 	q ActiveAssetsStore, transferID int64,
-	proofFiles map[[32]byte]proof.Blob) error {
+	proofFiles map[asset.ID][]*proof.AnnotatedProof) error {
 
 	passiveAssets, err := q.QueryPassiveAssets(ctx, transferID)
 	if err != nil {
@@ -2686,18 +2689,20 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 			return fmt.Errorf("failed to parse script key: %w", err)
 		}
 
-		// Fetch the proof file for this asset.
-		locator := proof.Locator{
-			AssetID:   &assetID,
-			ScriptKey: *scriptKey,
-		}
-		locatorHash, err := locator.Hash()
-		if err != nil {
-			return fmt.Errorf("failed to hash locator: %w", err)
+		var proofFile proof.Blob
+		for _, f := range proofFiles[assetID] {
+			// Check if this proof is for the script key of the
+			// passive asset.
+			if f.Locator.ScriptKey == *scriptKey {
+				proofFile = f.Blob
+
+				break
+			}
 		}
 
-		proofFile := proofFiles[locatorHash]
-		if proofFile == nil {
+		// Something wasn't mapped correctly, we should've found a proof
+		// for each passive asset.
+		if len(proofFile) == 0 {
 			return fmt.Errorf("failed to find proof file for " +
 				"passive asset")
 		}

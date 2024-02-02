@@ -728,7 +728,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		pkg.OutboundPkg.AnchorTx.TxHash())
 
 	// Load passive asset proof files from archive.
-	passiveAssetProofFiles := map[[32]byte]proof.Blob{}
+	passiveAssetProofFiles := map[asset.ID][]*proof.AnnotatedProof{}
 	for idx := range pkg.OutboundPkg.PassiveAssets {
 		passiveAsset := pkg.OutboundPkg.PassiveAssets[idx]
 		proofLocator := proof.Locator{
@@ -744,14 +744,13 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"proof file: %w", err)
 		}
 
-		// Hash proof locator.
-		hash, err := proofLocator.Hash()
-		if err != nil {
-			return fmt.Errorf("error hashing proof locator: %w",
-				err)
-		}
-
-		passiveAssetProofFiles[hash] = proofFileBlob
+		passiveAssetProofFiles[passiveAsset.GenesisID] = append(
+			passiveAssetProofFiles[passiveAsset.GenesisID],
+			&proof.AnnotatedProof{
+				Locator: proofLocator,
+				Blob:    proofFileBlob,
+			},
+		)
 	}
 
 	// At this point we have the confirmation signal, so we can mark the
