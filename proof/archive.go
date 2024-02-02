@@ -28,9 +28,18 @@ const (
 	// ProofDirName is the name of the directory we'll use to store our
 	// proofs.
 	ProofDirName = "proofs"
+
+	// outpointTruncateLength is the number of hex characters we use to
+	// represent the outpoint hash in the file name. This is to avoid
+	// problems with long file names on some operating systems.
+	outpointTruncateLength = 32
 )
 
 var (
+	// emptyKey is an empty public key that we use to check if a script key
+	// is valid.
+	emptyKey btcec.PublicKey
+
 	// ErrProofNotFound is returned when a user attempts to look up a proof
 	// based on a Locator, but we can't find it on disk.
 	ErrProofNotFound = fmt.Errorf("unable to find proof")
@@ -42,6 +51,17 @@ var (
 	// ErrInvalidLocatorKey is returned when a specified locator script key
 	// is invalid.
 	ErrInvalidLocatorKey = fmt.Errorf("invalid script key locator")
+
+	// ErrOutPointMissing is returned when a specified locator does not
+	// contain an outpoint. The outpoint is required when storing a proof.
+	ErrOutPointMissing = fmt.Errorf("outpoint missing in key locator")
+
+	// ErrMultipleProofs is returned if looking up a proof with only the
+	// asset ID and script key results in multiple proofs being found.
+	ErrMultipleProofs = fmt.Errorf(
+		"multiple proofs found with asset ID and script key, specify " +
+			"outpoint to disambiguate",
+	)
 )
 
 // Locator is able to uniquely identify a proof in the extended Taproot Asset
@@ -231,10 +251,10 @@ var _ NotifyArchiver = (*MultiArchiveNotifier)(nil)
 // archiver takes a single root directory then creates the following overlap
 // mapping:
 //
-// proofs/
-// ├─ asset_id1/
-// │  ├─ script_key1
-// │  ├─ script_key2
+//	proofs/
+//	├─ asset_id1/
+//	│  ├─ scriptKey1-outpointTxid[:32]-outpointIndex.assetproof
+//	│  ├─ scriptKey2-outpointTxid[:32]-outpointIndex.assetproof
 type FileArchiver struct {
 	// proofPath is the directory name that we'll use as the roof for all
 	// our files.
@@ -266,11 +286,65 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 	}, nil
 }
 
-// genProofFilePath generates the full proof file path based on a rootPath and
-// a valid locator. The final path is: root/assetID/scriptKey.assetproof
-func genProofFilePath(rootPath string, loc Locator) (string, error) {
-	var emptyKey btcec.PublicKey
+// genProofFileStoragePath generates the full proof file path for storing a
+// proof based on a rootPath and a valid locator.
+// The final path is:
+//
+//	root/assetID/scriptKey-outpointTxid[:32]-outpointIndex.assetproof
+//
+// NOTE: Because some operating systems have issues with paths longer than 256
+// characters, we don't use the full outpoint in the file name, but only the
+// first 16 bytes (32 hex characters) of the hash. That should be enough to
+// avoid collisions but saves us a full 32 characters (we already use 130 for
+// the hex encoded asset ID and script key).
+func genProofFileStoragePath(rootPath string, loc Locator) (string, error) {
+	switch {
+	case loc.AssetID == nil:
+		return "", ErrInvalidLocatorID
 
+	case loc.ScriptKey.IsEqual(&emptyKey):
+		return "", ErrInvalidLocatorKey
+
+	case loc.OutPoint == nil:
+		return "", ErrOutPointMissing
+	}
+
+	assetID := hex.EncodeToString(loc.AssetID[:])
+
+	truncatedHash := loc.OutPoint.Hash.String()[:outpointTruncateLength]
+	fileName := fmt.Sprintf("%x-%s-%d%s", loc.ScriptKey.SerializeCompressed(),
+		truncatedHash, loc.OutPoint.Index, TaprootAssetsFileSuffix)
+
+	return filepath.Join(rootPath, assetID, fileName), nil
+}
+
+// lookupProofFilePath returns the full path for reading a proof file, based on
+// the given locator. If the locator does not contain an outpoint, we'll check
+// if there is just a single proof available on disk. If there is, we return
+// that. If there are multiple, then the user needs to also specify the outpoint
+// and we return ErrMultipleProofs.
+func lookupProofFilePath(rootPath string, loc Locator) (string, error) {
+	// If an outpoint is specified, we want to look up a very specific file
+	// on disk.
+	if loc.OutPoint != nil {
+		fullName, err := genProofFileStoragePath(rootPath, loc)
+		if err != nil {
+			return "", err
+		}
+
+		// If the file doesn't exist under the full name, we know there
+		// just isn't a proof file for that asset yet.
+		if !lnrpc.FileExists(fullName) {
+			return "", fmt.Errorf("proof file %s does not "+
+				"exist: %w", fullName, ErrProofNotFound)
+		}
+
+		return fullName, nil
+	}
+
+	// If the user didn't specify an outpoint, we look up all proof files
+	// that start with the script key given. If there is exactly one, we
+	// return it.
 	switch {
 	case loc.AssetID == nil:
 		return "", ErrInvalidLocatorID
@@ -278,25 +352,61 @@ func genProofFilePath(rootPath string, loc Locator) (string, error) {
 	case loc.ScriptKey.IsEqual(&emptyKey):
 		return "", ErrInvalidLocatorKey
 	}
-
 	assetID := hex.EncodeToString(loc.AssetID[:])
 	scriptKey := hex.EncodeToString(loc.ScriptKey.SerializeCompressed())
 
-	return filepath.Join(rootPath, assetID, scriptKey+TaprootAssetsFileSuffix), nil
+	searchPattern := filepath.Join(rootPath, assetID, scriptKey+"*")
+	matches, err := filepath.Glob(searchPattern)
+	if err != nil {
+		return "", fmt.Errorf("error listing proof files: %w", err)
+	}
+
+	switch {
+	// We have no proof for this script key.
+	case len(matches) == 0:
+		return "", ErrProofNotFound
+
+	// Exactly one proof for this script key, we'll return it.
+	case len(matches) == 1:
+		return matches[0], nil
+
+	// User needs to specify the outpoint as well, since we have multiple
+	// proofs for this script key.
+	default:
+		return "", ErrMultipleProofs
+	}
 }
 
-// FetchProof fetches a proof for an asset uniquely identified by the
-// passed ProofIdentifier.
+// extractLastProof extracts the last proof from a proof file.
+func extractLastProof(fileContent Blob) (*Proof, error) {
+	parsedFile := &File{}
+	err := parsedFile.Decode(bytes.NewReader(fileContent))
+	if err != nil {
+		return nil, fmt.Errorf("error parsing proof file: %w", err)
+	}
+
+	// To find out the new file name, we need to parse the proof
+	// file and extract the last proof in it.
+	lastProof, err := parsedFile.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("error extracting last proof from "+
+			"proof file: %w", err)
+	}
+
+	return lastProof, nil
+}
+
+// FetchProof fetches a proof for an asset uniquely identified by the passed
+// ProofIdentifier.
 //
-// If a proof cannot be found, then ErrProofNotFound should be
-// returned.
+// If a proof cannot be found, then ErrProofNotFound should be returned.
 //
 // NOTE: This implements the Archiver interface.
 func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 	// All our on-disk storage is based on asset IDs, so to look up a path,
 	// we just need to compute the full file path and see if it exists on
 	// disk.
-	proofPath, err := genProofFilePath(f.proofPath, id)
+	proofPath, err := lookupProofFilePath(f.proofPath, id)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make proof file path: %w",
 			err)
@@ -320,7 +430,7 @@ func (f *FileArchiver) HasProof(_ context.Context, id Locator) (bool, error) {
 	// All our on-disk storage is based on asset IDs, so to look up a path,
 	// we just need to compute the full file path and see if it exists on
 	// disk.
-	proofPath, err := genProofFilePath(f.proofPath, id)
+	proofPath, err := lookupProofFilePath(f.proofPath, id)
 	if err != nil {
 		return false, fmt.Errorf("unable to make proof file path: %w",
 			err)
@@ -352,9 +462,16 @@ func (f *FileArchiver) FetchProofs(_ context.Context,
 			continue
 		}
 
-		scriptKeyBytes, err := hex.DecodeString(strings.ReplaceAll(
+		parts := strings.Split(strings.ReplaceAll(
 			fileName, TaprootAssetsFileSuffix, "",
-		))
+		), "-")
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("malformed proof file name "+
+				"'%s', expected two parts, got %d", fileName,
+				len(parts))
+		}
+
+		scriptKeyBytes, err := hex.DecodeString(parts[0])
 		if err != nil {
 			return nil, fmt.Errorf("malformed proof file name, "+
 				"unable to decode script key: %w", err)
@@ -372,10 +489,21 @@ func (f *FileArchiver) FetchProofs(_ context.Context,
 			return nil, fmt.Errorf("unable to read proof: %w", err)
 		}
 
+		// We only have part of the outpoint in the file name, so we
+		// need to read the file and parse the last proof to extract the
+		// outpoint.
+		lastProof, err := extractLastProof(proofFile)
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract last proof "+
+				"from proof file: %w", err)
+		}
+
+		outPoint := lastProof.OutPoint()
 		proofs[idx] = &AnnotatedProof{
 			Locator: Locator{
 				AssetID:   &id,
 				ScriptKey: *scriptKey,
+				OutPoint:  &outPoint,
 			},
 			Blob: proofFile,
 		}
@@ -396,7 +524,9 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 	proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
-		proofPath, err := genProofFilePath(f.proofPath, proof.Locator)
+		proofPath, err := genProofFileStoragePath(
+			f.proofPath, proof.Locator,
+		)
 		if err != nil {
 			return err
 		}
@@ -410,6 +540,9 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 			return fmt.Errorf("cannot replace proof because file "+
 				"%s does not exist", proofPath)
 		}
+
+		log.Tracef("Importing proof file %s (replace=%v)", proofPath,
+			replace)
 
 		err = os.WriteFile(proofPath, proof.Blob, 0666)
 		if err != nil {
