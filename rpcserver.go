@@ -1523,14 +1523,34 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
+	// We need to parse the proof file and extract the last proof, so we can
+	// get the locator that is required for storage.
+	var proofFile proof.File
+	err := proofFile.Decode(bytes.NewReader(req.ProofFile))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	lastProof, err := proofFile.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("error extracting last proof: %w", err)
+	}
+
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
-	err := r.cfg.ProofArchive.ImportProofs(
+	err = r.cfg.ProofArchive.ImportProofs(
 		ctx, headerVerifier, groupVerifier, false,
-		&proof.AnnotatedProof{Blob: req.ProofFile},
+		&proof.AnnotatedProof{
+			Locator: proof.Locator{
+				AssetID:   fn.Ptr(lastProof.Asset.ID()),
+				ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
+				OutPoint:  fn.Ptr(lastProof.OutPoint()),
+			},
+			Blob: req.ProofFile,
+		},
 	)
 	if err != nil {
 		return nil, err

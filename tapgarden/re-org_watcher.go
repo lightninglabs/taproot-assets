@@ -73,7 +73,7 @@ type ReOrgWatcherConfig struct {
 	// NonBuriedAssetFetcher is a function that returns all assets that are
 	// not yet sufficiently deep buried.
 	NonBuriedAssetFetcher func(ctx context.Context,
-		minHeight int32) ([]*asset.Asset, error)
+		minHeight int32) ([]*asset.ChainAsset, error)
 
 	// SafeDepth is the number of confirmations we require before we
 	// consider a transaction to be safely buried in the chain.
@@ -159,12 +159,15 @@ func (w *ReOrgWatcher) Start() error {
 			locator := proof.Locator{
 				AssetID:   fn.Ptr(assets[idx].ID()),
 				ScriptKey: *assets[idx].ScriptKey.PubKey,
+				OutPoint:  &assets[idx].AnchorOutpoint,
 			}
 			blob, err := w.cfg.ProofArchive.FetchProof(ctx, locator)
 			if err != nil {
 				startErr = fmt.Errorf("unable to fetch proof "+
-					"for asset %v: %w", assets[idx].ID(),
-					err)
+					"for asset_id=%v, script_key=%x, "+
+					"outpoint=%v: %w", assets[idx].ID(),
+					locator.ScriptKey.SerializeCompressed(),
+					locator.OutPoint, err)
 				return
 			}
 
