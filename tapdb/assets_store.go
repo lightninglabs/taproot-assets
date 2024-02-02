@@ -1275,10 +1275,26 @@ func (a *AssetStore) FetchProofs(ctx context.Context,
 						"script key: %w", err)
 				}
 
+				f := proof.File{}
+				err = f.Decode(bytes.NewReader(dbRow.ProofFile))
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"decoding proof file: %w", err)
+				}
+
+				lastProof, err := f.LastProof()
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"decoding last proof: %w", err)
+				}
+
 				return &proof.AnnotatedProof{
 					Locator: proof.Locator{
 						AssetID:   &id,
 						ScriptKey: *scriptKey,
+						OutPoint: fn.Ptr(
+							lastProof.OutPoint(),
+						),
 					},
 					Blob: dbRow.ProofFile,
 				}, nil

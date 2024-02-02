@@ -12,7 +12,6 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -238,22 +237,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		),
 		ProofArchive: proofArchive,
 		NonBuriedAssetFetcher: func(ctx context.Context,
-			minHeight int32) ([]*asset.Asset, error) {
+			minHeight int32) ([]*asset.ChainAsset, error) {
 
-			assets, err := assetStore.FetchAllAssets(
+			return assetStore.FetchAllAssets(
 				ctx, false, true, &tapdb.AssetQueryFilters{
 					MinAnchorHeight: minHeight,
 				},
 			)
-			if err != nil {
-				return nil, err
-			}
-
-			return fn.Map(
-				assets, func(a *asset.ChainAsset) *asset.Asset {
-					return a.Asset
-				},
-			), nil
 		},
 		SafeDepth: cfg.ReOrgSafeDepth,
 		ErrChan:   mainErrChan,
