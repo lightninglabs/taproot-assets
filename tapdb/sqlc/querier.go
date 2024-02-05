@@ -30,6 +30,11 @@ type Querier interface {
 	DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
+	// TODO(jhb): This query does not delete any nodes. Separate query to delete
+	// nodes with no edges? (Which may be different from all child nodes of this
+	// root, if a node is in multiple trees).
+	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
+	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
 	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
 	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
@@ -75,6 +80,10 @@ type Querier interface {
 	FetchSeedlingByID(ctx context.Context, seedlingID int64) (AssetSeedling, error)
 	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
+	// Deocoding of the tree nodes differs if they are TapLeaf of TapHash objects.
+	// We also sort by node_index here vs. having the caller sort the query results.
+	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
+	FetchTapscriptTreeRoots(ctx context.Context) ([]TapscriptRoot, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
 	FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error)
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
@@ -165,6 +174,9 @@ type Querier interface {
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)
+	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
+	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
+	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
 	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 }

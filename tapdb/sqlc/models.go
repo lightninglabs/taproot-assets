@@ -304,6 +304,24 @@ type ScriptKey struct {
 	Tweak            []byte
 }
 
+type TapscriptEdge struct {
+	EdgeID     int64
+	RootHashID int64
+	NodeIndex  int64
+	RawNodeID  int64
+}
+
+type TapscriptNode struct {
+	NodeID  int64
+	RawNode []byte
+}
+
+type TapscriptRoot struct {
+	RootID     int64
+	RootHash   []byte
+	BranchOnly bool
+}
+
 type UniverseEvent struct {
 	EventID        int64
 	EventType      string

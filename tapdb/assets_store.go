@@ -141,6 +141,14 @@ type (
 	// QueryProofTransAttemptsParams is a type alias for the params needed
 	// to query the proof transfer attempts log.
 	QueryProofTransAttemptsParams = sqlc.QueryProofTransferAttemptsParams
+
+	TapscriptTreeRootHash = sqlc.UpsertTapscriptTreeRootHashParams
+
+	TapscriptTreeEdge = sqlc.UpsertTapscriptTreeEdgeParams
+
+	TapscriptTreeRoot = sqlc.TapscriptRoot
+
+	TapscriptTreeNode = sqlc.FetchTapscriptTreeRow
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that

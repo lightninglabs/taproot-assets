@@ -436,6 +436,39 @@ func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error 
 	return err
 }
 
+const deleteTapscriptTreeEdges = `-- name: DeleteTapscriptTreeEdges :exec
+WITH tree_info AS (
+    -- We use this CTE to fetch all edges that link the given tapscript tree
+    -- root hash to child nodes.
+    SELECT tapscript_roots.root_id, tapscript_roots.root_hash,
+        tapscript_edges.edge_id
+    FROM tapscript_roots
+    JOIN tapscript_edges
+        ON tapscript_roots.root_id = tapscript_edges.root_hash_id
+    WHERE tapscript_roots.root_hash = $1
+)
+DELETE FROM tapscript_edges
+WHERE edge_id IN (SELECT edge_id FROM tree_info)
+`
+
+// TODO(jhb): This query does not delete any nodes. Separate query to delete
+// nodes with no edges? (Which may be different from all child nodes of this
+// root, if a node is in multiple trees).
+func (q *Queries) DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeEdges, rootHash)
+	return err
+}
+
+const deleteTapscriptTreeRoot = `-- name: DeleteTapscriptTreeRoot :exec
+DELETE FROM tapscript_roots
+WHERE root_hash = $1
+`
+
+func (q *Queries) DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeRoot, rootHash)
+	return err
+}
+
 const deleteUTXOLease = `-- name: DeleteUTXOLease :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
@@ -1580,6 +1613,84 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 	return items, nil
 }
 
+const fetchTapscriptTree = `-- name: FetchTapscriptTree :many
+WITH tree_info AS (
+    -- We use this CTE to fetch all edges that link the given tapscript tree
+    -- root hash to child nodes. Each edge also contains the index of the child
+    -- node in the tapscript tree.
+    SELECT tapscript_roots.root_id, tapscript_roots.root_hash,
+        tapscript_roots.branch_only, tapscript_edges.node_index,
+        tapscript_edges.raw_node_id
+    FROM tapscript_roots
+    JOIN tapscript_edges
+        ON tapscript_roots.root_id = tapscript_edges.root_hash_id
+    WHERE tapscript_roots.root_hash = $1
+)
+SELECT tree_info.branch_only, tapscript_nodes.raw_node
+FROM tapscript_nodes
+JOIN tree_info
+    ON tree_info.raw_node_id = tapscript_nodes.node_id
+ORDER BY tree_info.node_index ASC
+`
+
+type FetchTapscriptTreeRow struct {
+	BranchOnly bool
+	RawNode    []byte
+}
+
+// Deocoding of the tree nodes differs if they are TapLeaf of TapHash objects.
+// We also sort by node_index here vs. having the caller sort the query results.
+func (q *Queries) FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchTapscriptTree, rootHash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchTapscriptTreeRow
+	for rows.Next() {
+		var i FetchTapscriptTreeRow
+		if err := rows.Scan(&i.BranchOnly, &i.RawNode); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchTapscriptTreeRoots = `-- name: FetchTapscriptTreeRoots :many
+SELECT root_id, root_hash, branch_only
+FROM tapscript_roots
+`
+
+func (q *Queries) FetchTapscriptTreeRoots(ctx context.Context) ([]TapscriptRoot, error) {
+	rows, err := q.db.QueryContext(ctx, fetchTapscriptTreeRoots)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []TapscriptRoot
+	for rows.Next() {
+		var i TapscriptRoot
+		if err := rows.Scan(&i.RootID, &i.RootHash, &i.BranchOnly); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const genesisAssets = `-- name: GenesisAssets :many
 SELECT gen_asset_id, asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id 
 FROM genesis_assets
@@ -2587,4 +2698,73 @@ func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams
 	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
+}
+
+const upsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one
+INSERT INTO tapscript_edges (
+    root_hash_id, node_index, raw_node_id
+) VALUES (
+    $1, $2, $3
+) ON CONFLICT (root_hash_id, node_index, raw_node_id)
+    -- This is a NOP, root_hash_id, node_index, and raw_node_id are the unique
+    -- fields that caused the conflict.
+    DO UPDATE SET root_hash_id = EXCLUDED.root_hash_id,
+    node_index = EXCLUDED.node_index, raw_node_id = EXCLUDED.raw_node_id
+RETURNING edge_id
+`
+
+type UpsertTapscriptTreeEdgeParams struct {
+	RootHashID int64
+	NodeIndex  int64
+	RawNodeID  int64
+}
+
+func (q *Queries) UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeEdge, arg.RootHashID, arg.NodeIndex, arg.RawNodeID)
+	var edge_id int64
+	err := row.Scan(&edge_id)
+	return edge_id, err
+}
+
+const upsertTapscriptTreeNode = `-- name: UpsertTapscriptTreeNode :one
+INSERT INTO tapscript_nodes (
+    raw_node
+) VALUES (
+    $1
+) ON CONFLICT (raw_node)
+    -- This is a NOP, raw_node is the unique field that caused the conflict.
+    DO UPDATE SET raw_node = EXCLUDED.raw_node
+RETURNING node_id
+`
+
+func (q *Queries) UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeNode, rawNode)
+	var node_id int64
+	err := row.Scan(&node_id)
+	return node_id, err
+}
+
+const upsertTapscriptTreeRootHash = `-- name: UpsertTapscriptTreeRootHash :one
+INSERT INTO tapscript_roots (
+    root_hash, branch_only
+) VALUES (
+    $1, $2
+) ON CONFLICT (root_hash)
+    -- This is a NOP, the root_hash is the unique field that caused the
+    -- conflict. The tree should be deleted before switching between branch and
+    -- leaf storage.
+    DO UPDATE SET root_hash = EXCLUDED.root_hash
+RETURNING root_id
+`
+
+type UpsertTapscriptTreeRootHashParams struct {
+	RootHash   []byte
+	BranchOnly bool
+}
+
+func (q *Queries) UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeRootHash, arg.RootHash, arg.BranchOnly)
+	var root_id int64
+	err := row.Scan(&root_id)
+	return root_id, err
 }
