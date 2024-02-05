@@ -358,6 +358,22 @@ func RandTxWitnesses(t testing.TB) wire.TxWitness {
 	return w
 }
 
+func RandTapLeaf(customScriptLen *int) txscript.TapLeaf {
+	scriptLen := 500
+
+	// Ensure that we never have an empty script.
+	randScriptLen := RandIntn(scriptLen)
+	if randScriptLen == 0 {
+		randScriptLen = 1
+	}
+
+	if customScriptLen != nil {
+		randScriptLen = *customScriptLen
+	}
+
+	return txscript.NewBaseTapLeaf(RandBytes(randScriptLen))
+}
+
 // ScriptHashLock returns a simple bitcoin script that locks the funds to a hash
 // lock of the given preimage.
 func ScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {

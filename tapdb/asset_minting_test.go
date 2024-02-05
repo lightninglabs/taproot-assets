@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -150,6 +151,146 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 		Genesis:  &assetGen,
 		GroupKey: groupKey,
 	}
+}
+
+// treeFromLeaves generates a tapscript tree in multiple forms from a list of
+// tapscript leaves.
+func treeFromLeaves(t *testing.T, leaves []txscript.TapLeaf) (chainhash.Hash,
+	asset.TapscriptTreeNodes, [][]byte) {
+
+	tree, err := asset.TapTreeNodesFromLeaves(leaves)
+	require.NoError(t, err)
+
+	checkedLeaves := asset.GetLeaves(*tree).UnwrapToPtr()
+	require.NotNil(t, checkedLeaves)
+
+	treeBytes, err := asset.EncodeTapLeafNodes(*checkedLeaves)
+	require.NoError(t, err)
+
+	return asset.LeafNodesRootHash(*checkedLeaves), *tree, treeBytes
+}
+
+// treeFromBranch generates a tapscript tree in multiple forms from a set of
+// byte slices.
+func treeFromBranch(t *testing.T, children [][]byte) (chainhash.Hash,
+	asset.TapscriptTreeNodes, [][]byte) {
+
+	branch, err := asset.DecodeTapBranchNodes(children)
+	require.NoError(t, err)
+
+	tree := asset.FromBranch(*branch)
+	treeBytes := asset.EncodeTapBranchNodes(*branch)
+
+	return asset.BranchNodesRootHash(*branch), tree, treeBytes
+}
+
+// storeTapscriptTreeWrapper wraps a DB transaction that stores a tapscript
+// tree.
+func storeTapscriptTreeWrapper(t *testing.T, ctx context.Context, isBranch bool,
+	store *AssetMintingStore, rootHash []byte, nodes [][]byte) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return store.db.ExecTx(ctx, &writeTxOpts,
+		func(q PendingAssetStore) error {
+			return upsertTapscriptTree(
+				ctx, q, rootHash, isBranch, nodes,
+			)
+		})
+}
+
+// fetchTapscriptTreeWrapper wraps a DB transaction that fetches a tapscript
+// tree.
+func fetchTapscriptTreeWrapper(t *testing.T, ctx context.Context,
+	rootHash []byte, store *AssetMintingStore) ([]TapscriptTreeNode,
+	error) {
+
+	var (
+		dbTreeNodes []TapscriptTreeNode
+		err         error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := store.db.ExecTx(ctx, &readOpts,
+		func(q PendingAssetStore) error {
+			dbTreeNodes, err = q.FetchTapscriptTree(ctx, rootHash)
+			return err
+		})
+
+	return dbTreeNodes, dbErr
+}
+
+// deleteTapscriptTreeWrapper wraps a DB transaction that deletes a tapscript
+// tree.
+func deleteTapscriptTreeWrapper(t *testing.T, ctx context.Context,
+	rootHash []byte, store *AssetMintingStore) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return store.db.ExecTx(ctx, &writeTxOpts,
+		func(q PendingAssetStore) error {
+			return deleteTapscriptTree(ctx, q, rootHash[:])
+		})
+}
+
+// assertTreeDeletion asserts that a tapscript tree has been deleted properly.
+func assertTreeDeletion(t *testing.T, ctx context.Context, rootHash []byte,
+	store *AssetMintingStore) {
+
+	dbTree, err := fetchTapscriptTreeWrapper(t, ctx, rootHash, store)
+	require.NoError(t, err)
+	require.Empty(t, dbTree)
+}
+
+// assertStoredTreeEqual asserts that the tapscript tree fetched with a root
+// hash matches the expected bytes.
+func assertStoredTreeEqual(t *testing.T, ctx context.Context, isBranch bool,
+	store *AssetMintingStore, rootHash []byte, expected [][]byte) {
+
+	dbTree, err := fetchTapscriptTreeWrapper(t, ctx, rootHash, store)
+	require.NoError(t, err)
+
+	require.True(t, fn.All(dbTree, func(node TapscriptTreeNode) bool {
+		return node.BranchOnly == isBranch
+	}))
+	dbTreeBytes := fn.Map(dbTree, func(node TapscriptTreeNode) []byte {
+		return node.RawNode
+	})
+	require.Equal(t, expected, dbTreeBytes)
+}
+
+// storeTapscriptTreeChecked asserts that we can store a tapscript tree, and
+// that the root hash returned matches the one calculated from the tree.
+func storeTapscriptTreeChecked(t *testing.T, ctx context.Context,
+	store *AssetMintingStore, tree asset.TapscriptTreeNodes,
+	hash chainhash.Hash) {
+
+	dbRootHash, err := store.StoreTapscriptTree(ctx, tree)
+	require.NoError(t, err)
+	require.True(t, hash.IsEqual(dbRootHash))
+}
+
+// loadTapscriptTreeChecked asserts that we can load a tapscript tree, and that
+// the tapscript tree returned matches the initial tree.
+func loadTapscriptTreeChecked(t *testing.T, ctx context.Context,
+	store *AssetMintingStore, tree asset.TapscriptTreeNodes,
+	hash chainhash.Hash) {
+
+	dbTree, err := store.LoadTapscriptTree(ctx, hash)
+	require.NoError(t, err)
+	require.NotNil(t, dbTree)
+	require.Equal(t, tree, *dbTree)
+}
+
+// deleteTapscriptTreeChecked asserts that we can delete a tapscript tree, and
+// that future attempts to load the deleted tree return the expected error.
+func deleteTapscriptTreeChecked(t *testing.T, ctx context.Context,
+	store *AssetMintingStore, hash chainhash.Hash) {
+
+	err := store.DeleteTapscriptTree(ctx, hash)
+	require.NoError(t, err)
+
+	dbTree, err := store.LoadTapscriptTree(ctx, hash)
+	require.Empty(t, dbTree)
+	require.ErrorIs(t, err, asset.ErrTreeNotFound)
 }
 
 // addRandGroupToBatch selects a random seedling, generates an asset genesis to
@@ -1187,6 +1328,256 @@ func TestGroupAnchors(t *testing.T) {
 	})
 	require.Equal(t, anchorCount, len(rawGroupAnchors))
 	require.Equal(t, groupAnchors, rawGroupAnchors)
+}
+
+// TestTapscriptTreeStore tests the functions that use the queries of the
+// TapscriptTreeStore interface.
+func TestTapscriptTreeStore(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// First, we'll open up a new asset store. We only need the mintingStore
+	// pointer, as we're only testing the TapscriptTreeStore functionality
+	// here.
+	assetStore, _, _ := newAssetStore(t)
+
+	// Now we generate a set of tapLeafs and tapBranches to store.
+	randLeafCount := 4
+	var tapLeaves []txscript.TapLeaf
+	for i := 0; i < randLeafCount; i++ {
+		leaf := test.RandTapLeaf(nil)
+		tapLeaves = append(tapLeaves, leaf)
+	}
+
+	// Let's add a duplicate tapLeaf as well.
+	dupeNode := txscript.NewBaseTapLeaf(tapLeaves[1].Script)
+	tapLeaves = append(tapLeaves, dupeNode)
+
+	branchChildCount := 3
+	var tapBranchChildren [][]byte
+	for i := 0; i < branchChildCount; i++ {
+		tapBranchChildren = append(
+			tapBranchChildren, test.RandBytes(chainhash.HashSize),
+		)
+	}
+
+	// Now, let's compute root hashes for the trees we'll load and store.
+	// We will use 5 trees total, as drawn below.
+	//
+	// tree 1: tapLeaves[0]
+	// tree 2: tapLeaves[:3] (first three nodes)
+	// tree 3; tapLeaves[:] (five nodes, including a duplicate from tree 2)
+	// tree 4: tapBranchChildren[:2] (first two branch nodes)
+	// tree 5: tapBranchChildren[1:] (last two branch nodes)
+
+	tree1Hash, _, tree1 := treeFromLeaves(
+		t, []txscript.TapLeaf{tapLeaves[0]},
+	)
+	tree2Hash, _, tree2 := treeFromLeaves(t, tapLeaves[:3])
+	tree3Hash, _, tree3 := treeFromLeaves(t, tapLeaves[:])
+	tree4Hash, _, tree4 := treeFromBranch(t, tapBranchChildren[:2])
+	tree5Hash, _, tree5 := treeFromBranch(t, tapBranchChildren[1:])
+
+	// Start with the cases where tree insertion should fail.
+	badRootHashErr := storeTapscriptTreeWrapper(
+		t, ctx, false, assetStore, tree1Hash[1:], tree1,
+	)
+	require.ErrorContains(t, badRootHashErr, "must be 32 bytes")
+
+	emptyTreeErr := storeTapscriptTreeWrapper(
+		t, ctx, false, assetStore, tree1Hash[:], nil,
+	)
+	require.ErrorContains(t, emptyTreeErr, "no tapscript tree nodes")
+
+	invalidBranchErr := storeTapscriptTreeWrapper(
+		t, ctx, true, assetStore, tree4Hash[:], tree3,
+	)
+	require.ErrorContains(t, invalidBranchErr, "must be 2 nodes")
+
+	// Now, let's insert the first tree, and then assert that we can fetch
+	// and decode an identical tree.
+	err := storeTapscriptTreeWrapper(
+		t, ctx, false, assetStore, tree1Hash[:], tree1,
+	)
+	require.NoError(t, err)
+
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree1Hash[:], tree1)
+
+	// If we try to fetch a tree with a different root hash, that will not
+	// return an error, but the results should be empty.
+	dbTree2, err := fetchTapscriptTreeWrapper(
+		t, ctx, tree2Hash[:], assetStore,
+	)
+	require.Empty(t, dbTree2)
+	require.Nil(t, err)
+
+	// Trying to delete a tree we haven't inserted yet will not err.
+	err = deleteTapscriptTreeWrapper(t, ctx, tree2Hash[:], assetStore)
+	require.Nil(t, err)
+
+	// Insert the second tree, which has one node already inserted.
+	err = storeTapscriptTreeWrapper(
+		t, ctx, false, assetStore, tree2Hash[:], tree2,
+	)
+	require.NoError(t, err)
+
+	// Fetching both trees should still work.
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree1Hash[:], tree1)
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree2Hash[:], tree2)
+
+	// If we delete the first tree, we should still be able to fetch the
+	// second tree intact.
+	err = deleteTapscriptTreeWrapper(t, ctx, tree1Hash[:], assetStore)
+	require.NoError(t, err)
+	assertTreeDeletion(t, ctx, tree1Hash[:], assetStore)
+
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree2Hash[:], tree2)
+
+	// Let's insert the third tree, which contains a node that's a duplicate
+	// of an already-inserted node.
+	err = storeTapscriptTreeWrapper(
+		t, ctx, false, assetStore, tree3Hash[:], tree3,
+	)
+	require.NoError(t, err)
+
+	// Fetching the second and third trees should succeed.
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree2Hash[:], tree2)
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree3Hash[:], tree3)
+
+	// Deleting the third tree should not affect the second tree.
+	err = deleteTapscriptTreeWrapper(t, ctx, tree3Hash[:], assetStore)
+	require.NoError(t, err)
+	assertTreeDeletion(t, ctx, tree1Hash[:], assetStore)
+
+	assertStoredTreeEqual(t, ctx, false, assetStore, tree2Hash[:], tree2)
+
+	// Let's also test handling of tapscript branches.
+	err = storeTapscriptTreeWrapper(
+		t, ctx, true, assetStore, tree4Hash[:], tree4,
+	)
+	require.NoError(t, err)
+
+	assertStoredTreeEqual(t, ctx, true, assetStore, tree4Hash[:], tree4)
+
+	// The second tapscript branch shares a node with the first.
+	err = storeTapscriptTreeWrapper(
+		t, ctx, true, assetStore, tree5Hash[:], tree5,
+	)
+	require.NoError(t, err)
+
+	assertStoredTreeEqual(t, ctx, true, assetStore, tree4Hash[:], tree4)
+	assertStoredTreeEqual(t, ctx, true, assetStore, tree5Hash[:], tree5)
+
+	// Deleting the first set of branches should not affect the second.
+	err = deleteTapscriptTreeWrapper(t, ctx, tree4Hash[:], assetStore)
+	require.NoError(t, err)
+	assertTreeDeletion(t, ctx, tree4Hash[:], assetStore)
+
+	assertStoredTreeEqual(t, ctx, true, assetStore, tree5Hash[:], tree5)
+}
+
+// TestTapscriptTreeManager tests the functions that implement the
+// TapscriptTreeManager interface. This follows the same actions as
+// TestTapscriptTreeStore, but with higher-level functions.
+func TestTapscriptTreeManager(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	// First, we'll open up a new asset store. We only need the mintingStore
+	// pointer, as we're only testing the TapscriptTreeStore functionality
+	// here.
+	assetStore, _, _ := newAssetStore(t)
+
+	// Now we generate a set of tapLeafs and tapBranches to store.
+	randLeafCount := 4
+	var tapLeaves []txscript.TapLeaf
+	for i := 0; i < randLeafCount; i++ {
+		leaf := test.RandTapLeaf(nil)
+		tapLeaves = append(tapLeaves, leaf)
+	}
+
+	// Let's add a duplicate tapLeaf as well.
+	dupeNode := txscript.NewBaseTapLeaf(tapLeaves[1].Script)
+	tapLeaves = append(tapLeaves, dupeNode)
+
+	branchChildCount := 3
+	var tapBranchChildren [][]byte
+	for i := 0; i < branchChildCount; i++ {
+		tapBranchChildren = append(
+			tapBranchChildren, test.RandBytes(chainhash.HashSize),
+		)
+	}
+
+	// Now, let's compute root hashes for the trees we'll load and store.
+	// We will use 5 trees total, as drawn below.
+	//
+	// tree 1: tapLeaves[0]
+	// tree 2: tapLeaves[:3] (first three nodes)
+	// tree 3; tapLeaves[:] (five nodes, including a duplicate from tree 2)
+	// tree 4: tapBranchChildren[:2] (first two branch nodes)
+	// tree 5: tapBranchChildren[1:] (last two branch nodes)
+
+	tree1Hash, tree1, _ := treeFromLeaves(
+		t, []txscript.TapLeaf{tapLeaves[0]},
+	)
+	tree2Hash, tree2, _ := treeFromLeaves(t, tapLeaves[:3])
+	tree3Hash, tree3, _ := treeFromLeaves(t, tapLeaves[:])
+	tree4Hash, tree4, _ := treeFromBranch(t, tapBranchChildren[:2])
+	tree5Hash, tree5, _ := treeFromBranch(t, tapBranchChildren[1:])
+
+	// Now, let's insert the first tree, and then assert that we can fetch
+	// and decode an identical tree.
+	storeTapscriptTreeChecked(t, ctx, assetStore, tree1, tree1Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree1, tree1Hash)
+
+	// If we try to fetch a tree with a different root hash, that will
+	// return an error.
+	tree2empty, err := assetStore.LoadTapscriptTree(ctx, tree2Hash)
+	require.ErrorContains(t, err, "tree not found")
+	require.Nil(t, tree2empty)
+
+	// Trying to delete a tree we haven't inserted yet will not err.
+	err = assetStore.DeleteTapscriptTree(ctx, tree2Hash)
+	require.Nil(t, err)
+
+	// Insert the second tree, which has one node already inserted.
+	storeTapscriptTreeChecked(t, ctx, assetStore, tree2, tree2Hash)
+
+	// Fetching both trees should still work.
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree1, tree1Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree2, tree2Hash)
+
+	// If we delete the first tree, we should still be able to fetch the
+	// second tree intact.
+	deleteTapscriptTreeChecked(t, ctx, assetStore, tree1Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree2, tree2Hash)
+
+	// Let's insert the third tree, which contains a node that's a duplicate
+	// of an already-inserted node.
+	storeTapscriptTreeChecked(t, ctx, assetStore, tree3, tree3Hash)
+
+	// Fetching the second and third trees should succeed.
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree2, tree2Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree3, tree3Hash)
+
+	// Deleting the third tree should not affect the second tree.
+	deleteTapscriptTreeChecked(t, ctx, assetStore, tree3Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree2, tree2Hash)
+
+	// Let's also test handling of tapscript branches.
+	storeTapscriptTreeChecked(t, ctx, assetStore, tree4, tree4Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree4, tree4Hash)
+
+	// The second tapscript branch shares a node with the first.
+	storeTapscriptTreeChecked(t, ctx, assetStore, tree5, tree5Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree4, tree4Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree5, tree5Hash)
+
+	// Deleting the first set of branches should not affect the second.
+	deleteTapscriptTreeChecked(t, ctx, assetStore, tree4Hash)
+	loadTapscriptTreeChecked(t, ctx, assetStore, tree5, tree5Hash)
 }
 
 func init() {

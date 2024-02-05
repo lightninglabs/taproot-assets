@@ -137,6 +137,10 @@ type PendingAssetStore interface {
 	// GroupStore houses the methods related to querying asset groups.
 	GroupStore
 
+	// TapscriptTreeStore houses the methods related to storing, fetching,
+	// and deleting tapscript trees.
+	TapscriptTreeStore
+
 	// NewMintingBatch creates a new minting batch.
 	NewMintingBatch(ctx context.Context, arg MintingBatchInit) error
 
@@ -1220,6 +1224,122 @@ func (a *AssetMintingStore) FetchGroupByGroupKey(ctx context.Context,
 	return dbGroup, nil
 }
 
+// StoreTapscriptTree persists a Tapscript tree given a validated set of
+// TapLeafs or a TapBranch. If the store succeeds, the root hash of the
+// Tapscript tree is returned.
+func (a *AssetMintingStore) StoreTapscriptTree(ctx context.Context,
+	treeNodes asset.TapscriptTreeNodes) (*chainhash.Hash, error) {
+
+	var (
+		rootHash       chainhash.Hash
+		isBranch       bool
+		treeNodesBytes [][]byte
+		err            error
+	)
+
+	asset.GetLeaves(treeNodes).WhenSome(func(tln asset.TapLeafNodes) {
+		rootHash = asset.LeafNodesRootHash(tln)
+		treeNodesBytes, err = asset.EncodeTapLeafNodes(tln)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// For a TapBranch, we must set isBranch to ensure that the branch data
+	// will be decoded correctly.
+	asset.GetBranch(treeNodes).WhenSome(func(tbn asset.TapBranchNodes) {
+		isBranch = true
+		rootHash = asset.BranchNodesRootHash(tbn)
+		treeNodesBytes = asset.EncodeTapBranchNodes(tbn)
+	})
+
+	// If no tapscript tree data was encoded, the given tapscript tree was
+	// malformed. Return before modifying the database.
+	if len(treeNodesBytes) == 0 {
+		return nil, fmt.Errorf("unable to encode tapscript tree")
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(a PendingAssetStore) error {
+		return upsertTapscriptTree(
+			ctx, a, rootHash[:], isBranch, treeNodesBytes,
+		)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &rootHash, nil
+}
+
+// LoadTapscriptTree loads the Tapscript tree with the given root hash, and
+// decodes the tree into a TapscriptTreeNodes object.
+func (a *AssetMintingStore) LoadTapscriptTree(ctx context.Context,
+	rootHash chainhash.Hash) (*asset.TapscriptTreeNodes, error) {
+
+	var (
+		dbTreeNodes []TapscriptTreeNode
+		err         error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(a PendingAssetStore) error {
+		dbTreeNodes, err = a.FetchTapscriptTree(ctx, rootHash[:])
+		return err
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	// The query can return zero nodes without returning an error, so handle
+	// that case explicitly here.
+	if len(dbTreeNodes) == 0 {
+		return nil, asset.ErrTreeNotFound
+	}
+
+	nodeBytes := fn.Map(dbTreeNodes, func(dbNode TapscriptTreeNode) []byte {
+		return dbNode.RawNode
+	})
+
+	// Each node signals if the tree was stored as a set of leaves or a
+	// branch, so we can read this flag from any node.
+	isBranch := dbTreeNodes[0].BranchOnly
+	if isBranch {
+		// For a tree stored as a TapBranch, there can only be two nodes
+		// returned.
+		if len(dbTreeNodes) != 2 {
+			return nil, asset.ErrInvalidTapBranch
+		}
+
+		branchNodes, err := asset.DecodeTapBranchNodes(nodeBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		return fn.Ptr(asset.FromBranch(*branchNodes)), nil
+	}
+
+	// If the tree was not stored as a branch, it must be a set of leaves.
+	leafNodes, err := asset.DecodeTapLeafNodes(nodeBytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return fn.Ptr(asset.FromLeaves(*leafNodes)), nil
+}
+
+// DeleteTapscriptTree deletes the Tapscript tree with the given root hash,
+// including all nodes and edges.
+func (a *AssetMintingStore) DeleteTapscriptTree(ctx context.Context,
+	rootHash chainhash.Hash) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(a PendingAssetStore) error {
+		return deleteTapscriptTree(ctx, a, rootHash[:])
+	})
+}
+
 // A compile-time assertion to ensure that AssetMintingStore meets the
 // tapgarden.MintingStore interface.
 var _ tapgarden.MintingStore = (*AssetMintingStore)(nil)
+var _ asset.TapscriptTreeManager = (*AssetMintingStore)(nil)
