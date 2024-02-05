@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -595,4 +596,86 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	}
 
 	return assetMetaID, nil
+}
+
+type TapscriptTreeStore interface {
+	UpsertTapscriptTreeRootHash(ctx context.Context,
+		rootHash TapscriptTreeRootHash) (int64, error)
+
+	UpsertTapscriptTreeEdge(ctx context.Context,
+		edge TapscriptTreeEdge) (int64, error)
+
+	UpsertTapscriptTreeNode(ctx context.Context, node []byte) (int64, error)
+
+	FetchTapscriptTreeRoots(ctx context.Context) ([]TapscriptTreeRoot,
+		error)
+
+	FetchTapscriptTree(ctx context.Context,
+		rootHash []byte) ([]TapscriptTreeNode, error)
+
+	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
+
+	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
+}
+
+func upsertTapscriptTree(ctx context.Context, q TapscriptTreeStore,
+	rootHash []byte, branchOnly bool, nodes [][]byte) error {
+
+	if len(rootHash) != chainhash.HashSize {
+		return fmt.Errorf("root hash must be 32 bytes")
+	}
+
+	nodeCount := len(nodes)
+	switch {
+	case nodeCount == 0:
+		return fmt.Errorf("no tapscript tree nodes provided")
+
+	case branchOnly && nodeCount != 2:
+		return fmt.Errorf("tapscript tree of branches must only have" +
+			"2 nodes")
+	}
+
+	treeRoot := TapscriptTreeRootHash{
+		RootHash:   rootHash,
+		BranchOnly: branchOnly,
+	}
+	rootId, err := q.UpsertTapscriptTreeRootHash(ctx, treeRoot)
+	if err != nil {
+		return err
+	}
+
+	for i := int64(0); i < int64(len(nodes)); i++ {
+		nodeId, err := q.UpsertTapscriptTreeNode(ctx, nodes[i])
+		if err != nil {
+			return err
+		}
+
+		edge := TapscriptTreeEdge{
+			RootHashID: rootId,
+			NodeIndex:  i,
+			RawNodeID:  nodeId,
+		}
+		_, err = q.UpsertTapscriptTreeEdge(ctx, edge)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+func deleteTapscriptTree(ctx context.Context, q TapscriptTreeStore,
+	rootHash []byte) error {
+
+	err := q.DeleteTapscriptTreeEdges(ctx, rootHash)
+	if err != nil {
+		return err
+	}
+
+	err = q.DeleteTapscriptTreeRoot(ctx, rootHash)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
