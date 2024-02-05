@@ -795,6 +795,85 @@ SELECT key_family, key_index
 FROM internal_keys
 WHERE raw_key = $1;
 
+-- name: UpsertTapscriptTreeRootHash :one
+INSERT INTO tapscript_roots (
+    root_hash, branch_only
+) VALUES (
+    $1, $2
+) ON CONFLICT (root_hash)
+    -- This is a NOP, the root_hash is the unique field that caused the
+    -- conflict. The tree should be deleted before switching between branch and
+    -- leaf storage for the same root hash.
+    DO UPDATE SET root_hash = EXCLUDED.root_hash
+RETURNING root_id;
+
+-- name: UpsertTapscriptTreeNode :one
+INSERT INTO tapscript_nodes (
+    raw_node
+) VALUES (
+    $1
+) ON CONFLICT (raw_node)
+    -- This is a NOP, raw_node is the unique field that caused the conflict.
+    DO UPDATE SET raw_node = EXCLUDED.raw_node
+RETURNING node_id;
+
+-- name: UpsertTapscriptTreeEdge :one
+INSERT INTO tapscript_edges (
+    root_hash_id, node_index, raw_node_id
+) VALUES (
+    $1, $2, $3
+) ON CONFLICT (root_hash_id, node_index, raw_node_id)
+    -- This is a NOP, root_hash_id, node_index, and raw_node_id are the unique
+    -- fields that caused the conflict.
+    DO UPDATE SET root_hash_id = EXCLUDED.root_hash_id,
+    node_index = EXCLUDED.node_index, raw_node_id = EXCLUDED.raw_node_id
+RETURNING edge_id;
+
+-- name: FetchTapscriptTree :many
+WITH tree_info AS (
+    -- This CTE is used to fetch all edges that link the given tapscript tree
+    -- root hash to child nodes. Each edge also contains the index of the child
+    -- node in the tapscript tree.
+    SELECT tapscript_roots.branch_only, tapscript_edges.raw_node_id,
+        tapscript_edges.node_index
+    FROM tapscript_roots
+    JOIN tapscript_edges
+        ON tapscript_roots.root_id = tapscript_edges.root_hash_id
+    WHERE tapscript_roots.root_hash = @root_hash
+)
+SELECT tree_info.branch_only, tapscript_nodes.raw_node
+FROM tapscript_nodes
+JOIN tree_info
+    ON tree_info.raw_node_id = tapscript_nodes.node_id
+-- Sort the nodes by node_index here instead of returning the indices.
+ORDER BY tree_info.node_index ASC;
+
+-- name: DeleteTapscriptTreeEdges :exec
+WITH tree_info AS (
+    -- This CTE is used to fetch all edges that link the given tapscript tree
+    -- root hash to child nodes.
+    SELECT tapscript_edges.edge_id
+    FROM tapscript_edges
+    JOIN tapscript_roots
+        ON tapscript_edges.root_hash_id = tapscript_roots.root_id
+    WHERE tapscript_roots.root_hash = @root_hash
+)
+DELETE FROM tapscript_edges
+WHERE edge_id IN (SELECT edge_id FROM tree_info);
+
+-- name: DeleteTapscriptTreeNodes :exec
+DELETE FROM tapscript_nodes
+WHERE NOT EXISTS (
+    SELECT 1
+        FROM tapscript_edges
+        -- Delete any node that is not referenced by any edge.
+        WHERE tapscript_edges.raw_node_id = tapscript_nodes.node_id
+);
+
+-- name: DeleteTapscriptTreeRoot :exec
+DELETE FROM tapscript_roots
+WHERE root_hash = @root_hash;
+
 -- name: FetchGenesisByAssetID :one
 SELECT * 
 FROM genesis_info_view
