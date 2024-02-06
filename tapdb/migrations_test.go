@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -50,4 +51,35 @@ func TestMigrationSteps(t *testing.T) {
 	// what we expected it to do. But this is just an example, illustrating
 	// the steps that can be taken to test migrations, so we are done for
 	// this test.
+}
+
+// TestMigration15 tests that the migration to version 15 works as expected.
+func TestMigration15(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 14)
+
+	// We need to insert some test data that will be affected by the
+	// migration number 15.
+	InsertTestdata(t, db.BaseDB, "migrations_test_00015_dummy_data.sql")
+
+	// And now that we have test data inserted, we can migrate to the latest
+	// version.
+	err := db.ExecuteMigrations(TargetLatest)
+	require.NoError(t, err)
+
+	// Make sure the single asset that was inserted actually has two
+	// witnesses with the correct order.
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+	assets, err := assetStore.FetchAllAssets(ctx, false, false, nil)
+	require.NoError(t, err)
+
+	require.Len(t, assets, 1)
+	require.Len(t, assets[0].PrevWitnesses, 2)
+	require.Equal(
+		t, wire.TxWitness{{0xaa}}, assets[0].PrevWitnesses[0].TxWitness,
+	)
+	require.Equal(
+		t, wire.TxWitness{{0xbb}}, assets[0].PrevWitnesses[1].TxWitness,
+	)
 }
