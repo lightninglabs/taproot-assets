@@ -139,6 +139,7 @@ type AssetWitness struct {
 	PrevScriptKey        []byte
 	WitnessStack         []byte
 	SplitCommitmentProof []byte
+	WitnessIndex         int32
 }
 
 type AssetsMetum struct {

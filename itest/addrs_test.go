@@ -5,6 +5,7 @@ import (
 	"context"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -515,16 +516,34 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 
 // sendProof manually exports a proof from the given source node and imports it
 // using the development only ImportProof RPC on the destination node.
-func sendProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
+func sendProof(t *harnessTest, src, dst *tapdHarness,
+	sendResp *taprpc.SendAssetResponse, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
 
 	ctxb := context.Background()
+
+	// We need to find the outpoint of the asset we sent to the address.
+	var outpoint *taprpc.OutPoint
+	for _, out := range sendResp.Transfer.Outputs {
+		if bytes.Equal(out.ScriptKey, scriptKey) {
+			wireOutPoint, err := wire.NewOutPointFromString(
+				out.Anchor.Outpoint,
+			)
+			require.NoError(t.t, err)
+
+			outpoint = &taprpc.OutPoint{
+				Txid:        wireOutPoint.Hash[:],
+				OutputIndex: wireOutPoint.Index,
+			}
+		}
+	}
 
 	var proofResp *taprpc.ProofFile
 	waitErr := wait.NoError(func() error {
 		resp, err := src.ExportProof(ctxb, &taprpc.ExportProofRequest{
 			AssetId:   genInfo.AssetId,
 			ScriptKey: scriptKey,
+			Outpoint:  outpoint,
 		})
 		if err != nil {
 			return err

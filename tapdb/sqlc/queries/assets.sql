@@ -632,19 +632,27 @@ WITH target_asset(asset_id) AS (
     FROM assets
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
     WHERE
         (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key')
-             OR sqlc.narg('tweaked_script_key') IS NULL)
-        AND (assets.asset_id = sqlc.narg('asset_id')
-                 OR sqlc.narg('asset_id') IS NULL)
-    -- TODO(guggero): Fix this by disallowing multiple assets with the same
-    -- script key!
-    LIMIT 1
+            OR sqlc.narg('tweaked_script_key') IS NULL)
+        AND (utxos.outpoint = sqlc.narg('outpoint')
+            OR sqlc.narg('outpoint') IS NULL)
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
     (SELECT asset_id FROM target_asset), @proof_file
+) ON CONFLICT (asset_id)
+    -- This is not a NOP, we always overwrite the proof with the new one.
+    DO UPDATE SET proof_file = EXCLUDED.proof_file;
+
+-- name: UpsertAssetProofByID :exec
+INSERT INTO asset_proofs (
+    asset_id, proof_file
+) VALUES (
+    @asset_id, @proof_file
 ) ON CONFLICT (asset_id)
     -- This is not a NOP, we always overwrite the proof with the new one.
     DO UPDATE SET proof_file = EXCLUDED.proof_file;
@@ -676,19 +684,23 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
--- name: FetchAssetProof :one
+-- name: FetchAssetProof :many
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key
+    SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = $1
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
+   WHERE script_keys.tweaked_script_key = $1
+     AND (utxos.outpoint = sqlc.narg('outpoint') OR sqlc.narg('outpoint') IS NULL)
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
-       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id,
+       asset_info.outpoint as outpoint
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id;
+  ON asset_info.asset_id = asset_proofs.asset_id;
 
 -- name: HasAssetProof :one
 WITH asset_info AS (
@@ -703,13 +715,19 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
--- name: InsertAssetWitness :exec
+-- name: UpsertAssetWitness :exec
 INSERT INTO asset_witnesses (
     asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
-    split_commitment_proof
+    split_commitment_proof, witness_index
 ) VALUES (
-    $1, $2, $3, $4, $5, $6
-);
+    $1, $2, $3, $4, $5, $6, $7
+)  ON CONFLICT (asset_id, witness_index)
+    -- We overwrite the witness with the new one.
+    DO UPDATE SET prev_out_point = EXCLUDED.prev_out_point,
+                  prev_asset_id = EXCLUDED.prev_asset_id,
+                  prev_script_key = EXCLUDED.prev_script_key,
+                  witness_stack = EXCLUDED.witness_stack,
+                  split_commitment_proof = EXCLUDED.split_commitment_proof;
 
 -- name: FetchAssetWitnesses :many
 SELECT 
@@ -720,7 +738,8 @@ JOIN assets
     ON asset_witnesses.asset_id = assets.asset_id
 WHERE (
     (assets.asset_id = sqlc.narg('asset_id')) OR (sqlc.narg('asset_id') IS NULL)
-);
+)
+ORDER BY witness_index;
 
 -- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos

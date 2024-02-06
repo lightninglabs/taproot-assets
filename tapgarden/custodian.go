@@ -647,12 +647,13 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	// be a multi archiver that includes file based storage) to make sure
 	// the proof is available in the relational database. If the proof is
 	// not in the DB, we can't update the event.
-	blob, err := c.cfg.ProofNotifier.FetchProof(ctxt, proof.Locator{
+	locator := proof.Locator{
 		AssetID:   fn.Ptr(event.Addr.AssetID),
 		GroupKey:  event.Addr.GroupKey,
 		ScriptKey: event.Addr.ScriptKey,
 		OutPoint:  &event.Outpoint,
-	})
+	}
+	blob, err := c.cfg.ProofNotifier.FetchProof(ctxt, locator)
 	switch {
 	case errors.Is(err, proof.ErrProofNotFound):
 		return false, nil
@@ -669,6 +670,19 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	if !blob.IsFile() {
 		return false, fmt.Errorf("expected proof to be a full file, " +
 			"but got something else")
+	}
+
+	// In case we missed a notification from the local universe and didn't
+	// previously import the proof (for example because we were shutting
+	// down), we could be in a situation where the local database doesn't
+	// have the proof yet. So we make sure to import it now.
+	err = c.assertProofInLocalArchive(&proof.AnnotatedProof{
+		Locator: locator,
+		Blob:    blob,
+	})
+	if err != nil {
+		return false, fmt.Errorf("error asserting proof in local "+
+			"archive: %w", err)
 	}
 
 	file, err := blob.AsFile()
@@ -755,29 +769,13 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 		// local universe instead of the local proof archive (which the
 		// couriers use). This is mainly an optimization to make sure we
 		// don't unnecessarily overwrite the proofs in our main archive.
-		haveProof, err := c.cfg.ProofArchive.HasProof(ctxt, loc)
+		err := c.assertProofInLocalArchive(&proof.AnnotatedProof{
+			Locator: loc,
+			Blob:    proofBlob,
+		})
 		if err != nil {
-			return fmt.Errorf("error checking if proof is "+
-				"available: %w", err)
-		}
-
-		// We don't have the proof yet, or not in all backends, so we
-		// need to import it now.
-		if !haveProof {
-			headerVerifier := GenHeaderVerifier(
-				ctxt, c.cfg.ChainBridge,
-			)
-			err = c.cfg.ProofArchive.ImportProofs(
-				ctxt, headerVerifier, c.cfg.GroupVerifier,
-				false, &proof.AnnotatedProof{
-					Locator: loc,
-					Blob:    proofBlob,
-				},
-			)
-			if err != nil {
-				return fmt.Errorf("error importing proof "+
-					"file into main archive: %w", err)
-			}
+			return fmt.Errorf("error asserting proof in local "+
+				"archive: %w", err)
 		}
 	}
 
@@ -822,6 +820,34 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 			}
 
 			delete(c.events, event.Outpoint)
+		}
+	}
+
+	return nil
+}
+
+// assertProofInLocalArchive checks if the proof is already in the local proof
+// archive. If it isn't, it is imported now.
+func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
+	ctxt, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	haveProof, err := c.cfg.ProofArchive.HasProof(ctxt, p.Locator)
+	if err != nil {
+		return fmt.Errorf("error checking if proof is available: %w",
+			err)
+	}
+
+	// We don't have the proof yet, or not in all backends, so we
+	// need to import it now.
+	if !haveProof {
+		headerVerifier := GenHeaderVerifier(ctxt, c.cfg.ChainBridge)
+		err = c.cfg.ProofArchive.ImportProofs(
+			ctxt, headerVerifier, c.cfg.GroupVerifier, false, p,
+		)
+		if err != nil {
+			return fmt.Errorf("error importing proof file into "+
+				"main archive: %w", err)
 		}
 	}
 

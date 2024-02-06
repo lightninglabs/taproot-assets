@@ -109,6 +109,10 @@ type (
 	// ProofUpdate is used to update a proof file on disk.
 	ProofUpdate = sqlc.UpsertAssetProofParams
 
+	// ProofUpdateByID is used to update a proof file on disk by asset
+	// database ID.
+	ProofUpdateByID = sqlc.UpsertAssetProofByIDParams
+
 	// NewScriptKey wraps the params needed to insert a new script key on
 	// disk.
 	NewScriptKey = sqlc.UpsertScriptKeyParams

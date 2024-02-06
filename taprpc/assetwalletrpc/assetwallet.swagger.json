@@ -425,26 +425,11 @@
         }
       }
     },
-    "assetwalletrpcOutPoint": {
-      "type": "object",
-      "properties": {
-        "txid": {
-          "type": "string",
-          "format": "byte",
-          "description": "Raw bytes representing the transaction id."
-        },
-        "output_index": {
-          "type": "integer",
-          "format": "int64",
-          "description": "The index of the output on the transaction."
-        }
-      }
-    },
     "assetwalletrpcPrevId": {
       "type": "object",
       "properties": {
         "outpoint": {
-          "$ref": "#/definitions/assetwalletrpcOutPoint",
+          "$ref": "#/definitions/taprpcOutPoint",
           "description": "The bitcoin anchor output on chain that contains the input asset."
         },
         "id": {
@@ -469,6 +454,9 @@
         "script_key": {
           "type": "string",
           "format": "byte"
+        },
+        "outpoint": {
+          "$ref": "#/definitions/taprpcOutPoint"
         }
       }
     },
@@ -501,7 +489,7 @@
       "type": "object",
       "properties": {
         "outpoint": {
-          "$ref": "#/definitions/assetwalletrpcOutPoint",
+          "$ref": "#/definitions/taprpcOutPoint",
           "description": "The outpoint of the UTXO to remove the lease for."
         }
       }
@@ -675,6 +663,21 @@
           "type": "integer",
           "format": "int32",
           "description": "The precise index of the key being identified."
+        }
+      }
+    },
+    "taprpcOutPoint": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "Raw bytes representing the transaction id."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output on the transaction."
         }
       }
     },

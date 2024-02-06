@@ -1174,6 +1174,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		Locator: proof.Locator{
 			AssetID:   &assetID,
 			ScriptKey: *a.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(mintingProof.OutPoint()),
 		},
 		Blob: blob,
 	}

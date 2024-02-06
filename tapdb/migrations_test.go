@@ -18,17 +18,17 @@ func TestMigrationSteps(t *testing.T) {
 	db := NewTestDBWithVersion(t, 1)
 
 	// If we create an assets store now, there should be no tables for the
-	// assets yet.
+	// managed UTXOs yet.
 	_, assetStore := newAssetStoreFromDB(db.BaseDB)
-	_, err := assetStore.FetchAllAssets(ctx, true, true, nil)
+	_, err := assetStore.FetchManagedUTXOs(ctx)
 	require.True(t, IsSchemaError(MapSQLError(err)))
 
 	// We now migrate to a later but not yet latest version.
 	err = db.ExecuteMigrations(TargetVersion(11))
 	require.NoError(t, err)
 
-	// Now there should be an asset table.
-	_, err = assetStore.FetchAllAssets(ctx, true, true, nil)
+	// Now there should be a managed UTXOs table.
+	_, err = assetStore.FetchManagedUTXOs(ctx)
 	require.NoError(t, err)
 
 	// Assuming the next version does some changes to the data within the
@@ -37,9 +37,9 @@ func TestMigrationSteps(t *testing.T) {
 	InsertTestdata(t, db.BaseDB, "migrations_test_00011_dummy_data.sql")
 
 	// Make sure we now have actual assets in the database.
-	dbAssets, err := assetStore.FetchAllAssets(ctx, true, true, nil)
+	utxos, err := assetStore.FetchManagedUTXOs(ctx)
 	require.NoError(t, err)
-	require.Len(t, dbAssets, 4)
+	require.Len(t, utxos, 2)
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.

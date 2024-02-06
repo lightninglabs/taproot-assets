@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -150,7 +151,7 @@ func testUniverseSync(t *harnessTest) {
 	// query for that asset with the compressed script key.
 	firstAssetID := rpcSimpleAssets[0].AssetGenesis.AssetId
 	firstScriptKey := hex.EncodeToString(rpcSimpleAssets[0].ScriptKey)
-	firstOutpoint, err := tap.UnmarshalOutpoint(
+	firstOutpoint, err := wire.NewOutPointFromString(
 		rpcSimpleAssets[0].ChainAnchor.AnchorOutpoint,
 	)
 	require.NoError(t.t, err)
@@ -326,7 +327,7 @@ func testUniverseManualSync(t *harnessTest) {
 
 	// We should also be able to fetch an asset from Bob's Universe, and
 	// query for that asset with the compressed script key.
-	firstOutpoint, err := tap.UnmarshalOutpoint(
+	firstOutpoint, err := wire.NewOutPointFromString(
 		firstAsset.ChainAnchor.AnchorOutpoint,
 	)
 	require.NoError(t.t, err)

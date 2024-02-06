@@ -45,13 +45,16 @@ type (
 	// where the proofs for a specific asset are fetched.
 	AssetProofI = sqlc.FetchAssetProofRow
 
+	// FetchAssetProof are the query parameters for fetching an asset proof.
+	FetchAssetProof = sqlc.FetchAssetProofParams
+
 	// AssetProofByIDRow is the asset proof for a given asset, identified by
 	// its asset ID.
 	AssetProofByIDRow = sqlc.FetchAssetProofsByAssetIDRow
 
 	// PrevInput stores the full input information including the prev out,
 	// and also the witness information itself.
-	PrevInput = sqlc.InsertAssetWitnessParams
+	PrevInput = sqlc.UpsertAssetWitnessParams
 
 	// AssetWitness is the full prev input for an asset that also couples
 	// along the asset ID that the witness belong to.
@@ -173,7 +176,7 @@ type ActiveAssetsStore interface {
 	// FetchAssetProof fetches the asset proof for a given asset identified
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
-		scriptKey []byte) (AssetProofI, error)
+		arg FetchAssetProof) ([]AssetProofI, error)
 
 	// HasAssetProof returns true if we have proof for a given asset
 	// identified by its script key.
@@ -198,12 +201,15 @@ type ActiveAssetsStore interface {
 
 	// UpsertAssetProof inserts a new or updates an existing asset proof on
 	// disk.
-	UpsertAssetProof(ctx context.Context,
-		arg sqlc.UpsertAssetProofParams) error
+	UpsertAssetProof(ctx context.Context, arg ProofUpdate) error
 
-	// InsertAssetWitness inserts a new prev input for an asset into the
+	// UpsertAssetProofByID inserts a new or updates an existing asset
+	// proof on disk.
+	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
+
+	// UpsertAssetWitness upserts a new prev input for an asset into the
 	// database.
-	InsertAssetWitness(context.Context, PrevInput) error
+	UpsertAssetWitness(context.Context, PrevInput) error
 
 	// FetchAssetWitnesses attempts to fetch either all the asset witnesses
 	// on disk (NULL param), or the witness for a given asset ID.
@@ -353,56 +359,6 @@ func NewAssetStore(db BatchedAssetStore, clock clock.Clock) *AssetStore {
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
 		clock:            clock,
 	}
-}
-
-// ChainAsset is a wrapper around the base asset struct that includes
-// information detailing where in the chain the asset is currently anchored.
-type ChainAsset struct {
-	*asset.Asset
-
-	// IsSpent indicates whether the above asset was previously spent.
-	IsSpent bool
-
-	// AnchorTx is the transaction that anchors this chain asset.
-	AnchorTx *wire.MsgTx
-
-	// AnchorBlockHash is the blockhash that mined the anchor tx.
-	AnchorBlockHash chainhash.Hash
-
-	// AnchorBlockHeight is the height of the block that mined the anchor
-	// tx.
-	AnchorBlockHeight uint32
-
-	// AnchorOutpoint is the outpoint that commits to the asset.
-	AnchorOutpoint wire.OutPoint
-
-	// AnchorInternalKey is the raw internal key that was used to create the
-	// anchor Taproot output key.
-	AnchorInternalKey *btcec.PublicKey
-
-	// AnchorMerkleRoot is the Taproot merkle root hash of the anchor output
-	// the asset was committed to. If there is no Tapscript sibling, this is
-	// equal to the Taproot Asset root commitment hash.
-	AnchorMerkleRoot []byte
-
-	// AnchorTapscriptSibling is the serialized preimage of a Tapscript
-	// sibling, if there was one. If this is empty, then the
-	// AnchorTapscriptSibling hash is equal to the Taproot root hash of the
-	// anchor output.
-	AnchorTapscriptSibling []byte
-
-	// AnchorLeaseOwner is the identity of the application that currently
-	// has a lease on this UTXO. If empty/nil, then the UTXO is not
-	// currently leased. A lease means that the UTXO is being
-	// reserved/locked to be spent in an upcoming transaction and that it
-	// should not be available for coin selection through any of the wallet
-	// RPCs.
-	AnchorLeaseOwner [32]byte
-
-	// AnchorLeaseExpiry is the expiry of the lease. If the expiry is nil or
-	// the time is in the past, then the lease is not valid and the UTXO is
-	// available for coin selection.
-	AnchorLeaseExpiry *time.Time
 }
 
 // ManagedUTXO holds information about a given UTXO we manage.
@@ -565,9 +521,9 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 // the witnesses of those assets to a set of normal ChainAsset structs needed
 // by a higher level application.
 func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
-	witnesses assetWitnesses) ([]*ChainAsset, error) {
+	witnesses assetWitnesses) ([]*asset.ChainAsset, error) {
 
-	chainAssets := make([]*ChainAsset, len(dbAssets))
+	chainAssets := make([]*asset.ChainAsset, len(dbAssets))
 	for i := range dbAssets {
 		sprout := dbAssets[i]
 
@@ -758,7 +714,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 				"internal key: %w", err)
 		}
 
-		chainAssets[i] = &ChainAsset{
+		chainAssets[i] = &asset.ChainAsset{
 			Asset:                  assetSprout,
 			IsSpent:                sprout.Spent,
 			AnchorTx:               anchorTx,
@@ -1048,7 +1004,8 @@ func (a *AssetStore) FetchGroupedAssets(ctx context.Context) (
 
 // FetchAllAssets fetches the set of confirmed assets stored on disk.
 func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
-	includeLeased bool, query *AssetQueryFilters) ([]*ChainAsset, error) {
+	includeLeased bool, query *AssetQueryFilters) ([]*asset.ChainAsset,
+	error) {
 
 	var (
 		dbAssets       []ConfirmedAsset
@@ -1149,7 +1106,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 // TODO(roasbeef): potentially have a version that writes thru a reader
 // instead?
 func (a *AssetStore) FetchAssetProofs(ctx context.Context,
-	targetAssets ...*btcec.PublicKey) (proof.AssetBlobs, error) {
+	targetAssets ...proof.Locator) (proof.AssetBlobs, error) {
 
 	proofs := make(proof.AssetBlobs)
 
@@ -1182,19 +1139,32 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 		// TODO(roasbeef): can modify the query to use IN somewhere
 		// instead? then would take input params and insert into
 		// virtual rows to use
-		for _, scriptKey := range targetAssets {
-			scriptKey := scriptKey
-			serializedKey := asset.ToSerialized(scriptKey)
+		for _, locator := range targetAssets {
+			args, err := locatorToProofQuery(locator)
+			if err != nil {
+				return err
+			}
 
-			assetProof, err := q.FetchAssetProof(
-				ctx, serializedKey[:],
-			)
+			assetProofs, err := q.FetchAssetProof(ctx, args)
 			if err != nil {
 				return fmt.Errorf("unable to fetch asset "+
 					"proof: %w", err)
 			}
 
-			proofs[serializedKey] = assetProof.ProofFile
+			switch {
+			// We have no proof for this script key.
+			case len(assetProofs) == 0:
+				return proof.ErrProofNotFound
+
+			// Something went wrong, presumably because the outpoint
+			// was not specified in the locator, and we got multiple
+			// proofs.
+			case len(assetProofs) > 1:
+				return proof.ErrMultipleProofs
+			}
+
+			serializedKey := asset.ToSerialized(&locator.ScriptKey)
+			proofs[serializedKey] = assetProofs[0].ProofFile
 		}
 		return nil
 	})
@@ -1208,29 +1178,48 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 // FetchProof fetches a proof for an asset uniquely identified by the passed
 // ProofIdentifier.
 //
+// If a proof cannot be found, then ErrProofNotFound should be returned. If
+// multiple proofs exist for the given fields of the locator then
+// ErrMultipleProofs is returned to indicate more specific fields need to be set
+// in the Locator (e.g. the OutPoint).
+//
 // NOTE: This implements the proof.Archiver interface.
 func (a *AssetStore) FetchProof(ctx context.Context,
 	locator proof.Locator) (proof.Blob, error) {
 
-	// We don't need anything else but the script key since we have an
-	// on-disk index for all proofs we store.
-	scriptKey := locator.ScriptKey
+	args, err := locatorToProofQuery(locator)
+	if err != nil {
+		return nil, err
+	}
 
 	var diskProof proof.Blob
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		assetProof, err := q.FetchAssetProof(
-			ctx, scriptKey.SerializeCompressed(),
-		)
+		assetProofs, err := q.FetchAssetProof(ctx, args)
 		if err != nil {
-			return fmt.Errorf("unable to fetch asset "+
-				"proof: %w", err)
+			return fmt.Errorf("unable to fetch asset proof: %w",
+				err)
 		}
 
-		diskProof = assetProof.ProofFile
+		switch {
+		// We have no proof for this script key.
+		case len(assetProofs) == 0:
+			return proof.ErrProofNotFound
 
-		return nil
+		// If the query without the outpoint returns exactly one proof
+		// then we're fine. If there actually are multiple proofs, we
+		// require the user to specify the outpoint as well.
+		case len(assetProofs) == 1:
+			diskProof = assetProofs[0].ProofFile
+
+			return nil
+
+		// User needs to specify the outpoint as well, since we have
+		// multiple proofs for this script key.
+		default:
+			return proof.ErrMultipleProofs
+		}
 	})
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
@@ -1240,6 +1229,30 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 	}
 
 	return diskProof, nil
+}
+
+// locatorToProofQuery turns a proof locator into a FetchAssetProof query
+// struct.
+func locatorToProofQuery(locator proof.Locator) (FetchAssetProof, error) {
+	// We have an on-disk index for all proofs we store, so we can use the
+	// script key as the primary identifier.
+	args := FetchAssetProof{
+		TweakedScriptKey: locator.ScriptKey.SerializeCompressed(),
+	}
+
+	// But script keys aren't unique, so if the locator explicitly specifies
+	// an outpoint, we'll use that as well.
+	if locator.OutPoint != nil {
+		outpoint, err := encodeOutpoint(*locator.OutPoint)
+		if err != nil {
+			return args, fmt.Errorf("unable to encode outpoint: %w",
+				err)
+		}
+
+		args.Outpoint = outpoint
+	}
+
+	return args, nil
 }
 
 // HasProof returns true if the proof for the given locator exists. This is
@@ -1304,10 +1317,26 @@ func (a *AssetStore) FetchProofs(ctx context.Context,
 						"script key: %w", err)
 				}
 
+				f := proof.File{}
+				err = f.Decode(bytes.NewReader(dbRow.ProofFile))
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"decoding proof file: %w", err)
+				}
+
+				lastProof, err := f.LastProof()
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"decoding last proof: %w", err)
+				}
+
 				return &proof.AnnotatedProof{
 					Locator: proof.Locator{
 						AssetID:   &id,
 						ScriptKey: *scriptKey,
+						OutPoint: fn.Ptr(
+							lastProof.OutPoint(),
+						),
 					},
 					Blob: dbRow.ProofFile,
 				}, nil
@@ -1331,8 +1360,6 @@ func (a *AssetStore) FetchProofs(ctx context.Context,
 
 // insertAssetWitnesses attempts to insert the set of asset witnesses in to the
 // database, referencing the passed asset primary key.
-//
-// TODO(ffranr): Change insert function into an upsert.
 func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 	db ActiveAssetsStore, assetID int64, inputs []asset.Witness) error {
 
@@ -1375,13 +1402,14 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 			copy(splitCommitmentProof, b.Bytes())
 		}
 
-		err = db.InsertAssetWitness(ctx, PrevInput{
+		err = db.UpsertAssetWitness(ctx, PrevInput{
 			AssetID:              assetID,
 			PrevOutPoint:         prevOutpoint,
 			PrevAssetID:          prevID.ID[:],
 			PrevScriptKey:        prevID.ScriptKey.CopyBytes(),
 			WitnessStack:         witnessStack,
 			SplitCommitmentProof: splitCommitmentProof,
+			WitnessIndex:         int32(idx),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert witness: %v", err)
@@ -1500,6 +1528,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
 	return db.UpsertAssetProof(ctx, ProofUpdate{
 		TweakedScriptKey: scriptKeyBytes,
+		Outpoint:         anchorPoint,
 		ProofFile:        proof.Blob,
 	})
 }
@@ -1532,11 +1561,20 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 		return fmt.Errorf("unable to insert chain tx: %w", err)
 	}
 
+	outpointBytes, err := encodeOutpoint(wire.OutPoint{
+		Hash:  anchorTXID,
+		Index: proof.OutputIndex,
+	})
+	if err != nil {
+		return err
+	}
+
 	// As a final step, we'll insert the proof file we used to generate all
 	// the above information.
 	scriptKeyBytes := proof.Asset.ScriptKey.PubKey.SerializeCompressed()
 	return db.UpsertAssetProof(ctx, ProofUpdate{
 		TweakedScriptKey: scriptKeyBytes,
+		Outpoint:         outpointBytes,
 		ProofFile:        proof.Blob,
 	})
 }
@@ -1546,9 +1584,9 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
-func (a *AssetStore) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
-	replace bool, proofs ...*proof.AnnotatedProof) error {
+func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
+	_ proof.GroupVerifier, replace bool,
+	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
@@ -1628,7 +1666,7 @@ func (a *AssetStore) RemoveSubscriber(
 // queryChainAssets queries the database for assets matching the passed filter.
 // The returned assets have all anchor and witness information populated.
 func (a *AssetStore) queryChainAssets(ctx context.Context, q ActiveAssetsStore,
-	filter QueryAssetFilters) ([]*ChainAsset, error) {
+	filter QueryAssetFilters) ([]*asset.ChainAsset, error) {
 
 	dbAssets, assetWitnesses, err := fetchAssetsWithWitness(
 		ctx, q, filter,
@@ -1791,10 +1829,12 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 	error) {
 
 	var (
-		matchingAssets      []*ChainAsset
-		chainAnchorToAssets = make(map[wire.OutPoint][]*ChainAsset)
-		anchorPoints        = make(map[wire.OutPoint]AnchorPoint)
-		err                 error
+		matchingAssets      []*asset.ChainAsset
+		chainAnchorToAssets = make(
+			map[wire.OutPoint][]*asset.ChainAsset,
+		)
+		anchorPoints = make(map[wire.OutPoint]AnchorPoint)
+		err          error
 	)
 
 	readOpts := NewAssetStoreReadTx()
@@ -1875,7 +1915,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 
 		// Fetch the asset leaves from each chain asset, and then
 		// build a Taproot Asset commitment from this set of assets.
-		fetchAsset := func(cAsset *ChainAsset) *asset.Asset {
+		fetchAsset := func(cAsset *asset.ChainAsset) *asset.Asset {
 			return cAsset.Asset
 		}
 
@@ -2604,6 +2644,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// this given delta.
 			err = q.UpsertAssetProof(ctx, ProofUpdate{
 				TweakedScriptKey: out.ScriptKeyBytes,
+				Outpoint:         out.AnchorOutpoint,
 				ProofFile:        receiverProof.Blob,
 			})
 			if err != nil {
@@ -2655,9 +2696,12 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		finalProof := conf.FinalProofs[localKey]
 		a.eventDistributor.NotifySubscribers(finalProof.Blob)
 	}
-	for idx := range conf.PassiveAssetProofFiles {
-		passiveProof := conf.PassiveAssetProofFiles[idx]
-		a.eventDistributor.NotifySubscribers(passiveProof)
+	for assetID := range conf.PassiveAssetProofFiles {
+		passiveProofs := conf.PassiveAssetProofFiles[assetID]
+		for idx := range passiveProofs {
+			passiveProof := passiveProofs[idx]
+			a.eventDistributor.NotifySubscribers(passiveProof.Blob)
+		}
 	}
 
 	return nil
@@ -2667,7 +2711,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 // the given transfer output.
 func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 	q ActiveAssetsStore, transferID int64,
-	proofFiles map[[32]byte]proof.Blob) error {
+	proofFiles map[asset.ID][]*proof.AnnotatedProof) error {
 
 	passiveAssets, err := q.QueryPassiveAssets(ctx, transferID)
 	if err != nil {
@@ -2686,18 +2730,20 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 			return fmt.Errorf("failed to parse script key: %w", err)
 		}
 
-		// Fetch the proof file for this asset.
-		locator := proof.Locator{
-			AssetID:   &assetID,
-			ScriptKey: *scriptKey,
-		}
-		locatorHash, err := locator.Hash()
-		if err != nil {
-			return fmt.Errorf("failed to hash locator: %w", err)
+		var proofFile proof.Blob
+		for _, f := range proofFiles[assetID] {
+			// Check if this proof is for the script key of the
+			// passive asset.
+			if f.Locator.ScriptKey == *scriptKey {
+				proofFile = f.Blob
+
+				break
+			}
 		}
 
-		proofFile := proofFiles[locatorHash]
-		if proofFile == nil {
+		// Something wasn't mapped correctly, we should've found a proof
+		// for each passive asset.
+		if len(proofFile) == 0 {
 			return fmt.Errorf("failed to find proof file for " +
 				"passive asset")
 		}
@@ -2728,8 +2774,8 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 		}
 
 		// Update the asset proof.
-		err = q.UpsertAssetProof(ctx, ProofUpdate{
-			AssetID:   sqlInt64(passiveAsset.AssetID),
+		err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
+			AssetID:   passiveAsset.AssetID,
 			ProofFile: proofFile,
 		})
 		if err != nil {
