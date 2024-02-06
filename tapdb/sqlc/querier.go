@@ -41,7 +41,7 @@ type Querier interface {
 	FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error)
 	FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error)
 	FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error)
-	FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error)
+	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error)
@@ -86,7 +86,6 @@ type Querier interface {
 	InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error)
 	InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error
 	InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error
-	InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
@@ -148,6 +147,8 @@ type Querier interface {
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
 	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
+	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
+	UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)
 	UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error
 	UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error)

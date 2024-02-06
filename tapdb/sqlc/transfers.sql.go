@@ -455,12 +455,15 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 const queryPassiveAssets = `-- name: QueryPassiveAssets :many
 SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
        passive.new_witness_stack, passive.new_proof,
-       genesis_assets.asset_id AS genesis_id, passive.asset_version
+       genesis_assets.asset_id AS genesis_id, passive.asset_version,
+       utxos.outpoint
 FROM passive_assets as passive
     JOIN assets
         ON passive.asset_id = assets.asset_id
     JOIN genesis_assets
         ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+        ON passive.new_anchor_utxo = utxos.utxo_id
 WHERE passive.transfer_id = $1
 `
 
@@ -472,6 +475,7 @@ type QueryPassiveAssetsRow struct {
 	NewProof        []byte
 	GenesisID       []byte
 	AssetVersion    int32
+	Outpoint        []byte
 }
 
 func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error) {
@@ -491,6 +495,7 @@ func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]Q
 			&i.NewProof,
 			&i.GenesisID,
 			&i.AssetVersion,
+			&i.Outpoint,
 		); err != nil {
 			return nil, err
 		}

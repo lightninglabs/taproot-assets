@@ -53,7 +53,7 @@ func newReOrgWatcherHarness(t *testing.T) *reOrgWatcherHarness {
 		ChainBridge:   chainBridge,
 		GroupVerifier: GenMockGroupVerifier(),
 		NonBuriedAssetFetcher: func(ctx context.Context,
-			minHeight int32) ([]*asset.Asset, error) {
+			minHeight int32) ([]*asset.ChainAsset, error) {
 
 			return nil, nil
 		},

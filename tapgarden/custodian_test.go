@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"math/rand"
 	"net/url"
 	"testing"
@@ -23,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -59,9 +61,46 @@ func newAddrBookForDB(db *tapdb.BaseDB, keyRing *tapgarden.MockKeyRing,
 	return book, tapdbBook
 }
 
+type mockVerifier struct {
+	t *testing.T
+}
+
+func newMockVerifier(t *testing.T) *mockVerifier {
+	return &mockVerifier{
+		t: t,
+	}
+}
+
+func (m *mockVerifier) Verify(_ context.Context, r io.Reader,
+	headerVerifier proof.HeaderVerifier,
+	groupVerifier proof.GroupVerifier) (*proof.AssetSnapshot, error) {
+
+	f := &proof.File{}
+	err := f.Decode(r)
+	require.NoError(m.t, err)
+
+	lastProof, err := f.LastProof()
+	require.NoError(m.t, err)
+
+	ac, err := commitment.NewAssetCommitment(&lastProof.Asset)
+	require.NoError(m.t, err)
+	tc, err := commitment.NewTapCommitment(ac)
+	require.NoError(m.t, err)
+
+	return &proof.AssetSnapshot{
+		Asset:           &lastProof.Asset,
+		OutPoint:        lastProof.OutPoint(),
+		OutputIndex:     lastProof.InclusionProof.OutputIndex,
+		AnchorBlockHash: lastProof.BlockHeader.BlockHash(),
+		AnchorTx:        &lastProof.AnchorTx,
+		InternalKey:     lastProof.InclusionProof.InternalKey,
+		ScriptRoot:      tc,
+	}, nil
+}
+
 // newProofArchive creates a new instance of the MultiArchiver.
 func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
-	*tapdb.AssetStore) {
+	*tapdb.AssetStore, *tapdb.MultiverseStore) {
 
 	txCreator := func(tx *sql.Tx) tapdb.ActiveAssetsStore {
 		return db.WithTx(tx)
@@ -78,13 +117,21 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 		assetStore,
 	)
 
-	return proofArchive, assetStore
+	multiverseDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.BaseMultiverseStore {
+			return db.WithTx(tx)
+		},
+	)
+	multiverse := tapdb.NewMultiverseStore(multiverseDB)
+
+	return proofArchive, assetStore, multiverse
 }
 
 type custodianHarness struct {
 	t            *testing.T
 	c            *tapgarden.Custodian
 	cfg          *tapgarden.CustodianConfig
+	errChan      chan error
 	chainBridge  *tapgarden.MockChainBridge
 	walletAnchor *tapgarden.MockWalletAnchor
 	keyRing      *tapgarden.MockKeyRing
@@ -92,6 +139,7 @@ type custodianHarness struct {
 	addrBook     *address.Book
 	syncer       *tapgarden.MockAssetSyncer
 	assetDB      *tapdb.AssetStore
+	multiverse   *tapdb.MultiverseStore
 	courier      *proof.MockProofCourier
 }
 
@@ -103,11 +151,27 @@ func (h *custodianHarness) assertStartup() {
 	)
 	require.NoError(h.t, err)
 
+	// Make sure we don't have an error on startup.
+	select {
+	case err := <-h.errChan:
+		require.NoError(h.t, err)
+
+	case <-time.After(testPollInterval):
+	}
+
 	// Make sure ListTransactions is called on startup.
 	_, err = fn.RecvOrTimeout(
 		h.walletAnchor.ListTxnsSignal, testTimeout,
 	)
 	require.NoError(h.t, err)
+
+	// Make sure we don't have an error on startup.
+	select {
+	case err := <-h.errChan:
+		require.NoError(h.t, err)
+
+	case <-time.After(testPollInterval):
+	}
 }
 
 // eventually is a shortcut for require.Eventually with the timeout and poll
@@ -175,6 +239,48 @@ func (h *custodianHarness) assertAddrsRegistered(
 	}
 }
 
+// addProofFileToMultiverse adds the given proof to the multiverse store.
+func (h *custodianHarness) addProofFileToMultiverse(p *proof.AnnotatedProof) {
+	f := &proof.File{}
+	err := f.Decode(bytes.NewReader(p.Blob))
+	require.NoError(h.t, err)
+
+	ctx := context.Background()
+	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
+	defer cancel()
+
+	for i := uint32(0); i < uint32(f.NumProofs()); i++ {
+		transition, err := f.ProofAt(i)
+		require.NoError(h.t, err)
+
+		rawTransition, err := f.RawProofAt(i)
+		require.NoError(h.t, err)
+
+		id := universe.NewUniIDFromAsset(transition.Asset)
+		key := universe.LeafKey{
+			OutPoint: transition.OutPoint(),
+			ScriptKey: fn.Ptr(asset.NewScriptKey(
+				transition.Asset.ScriptKey.PubKey,
+			)),
+		}
+		leaf := &universe.Leaf{
+			GenesisWithGroup: universe.GenesisWithGroup{
+				Genesis:  transition.Asset.Genesis,
+				GroupKey: transition.Asset.GroupKey,
+			},
+			RawProof: rawTransition,
+			Asset:    &transition.Asset,
+			Amt:      transition.Asset.Amount,
+		}
+		h.t.Logf("Importing proof with script key %x and outpoint %v "+
+			"into multiverse",
+			key.ScriptKey.PubKey.SerializeCompressed(),
+			key.OutPoint)
+		_, err = h.multiverse.UpsertProofLeaf(ctxt, id, key, leaf, nil)
+		require.NoError(h.t, err)
+	}
+}
+
 func newHarness(t *testing.T,
 	initialAddrs []*address.AddrWithKeyInfo) *custodianHarness {
 
@@ -184,7 +290,10 @@ func newHarness(t *testing.T,
 	syncer := tapgarden.NewMockAssetSyncer()
 	db := tapdb.NewTestDB(t)
 	addrBook, tapdbBook := newAddrBookForDB(db.BaseDB, keyRing, syncer)
-	_, assetDB := newProofArchiveForDB(t, db.BaseDB)
+
+	_, assetDB, multiverse := newProofArchiveForDB(t, db.BaseDB)
+	notifier := proof.NewMultiArchiveNotifier(assetDB, multiverse)
+
 	courier := proof.NewMockProofCourier()
 	courierDispatch := &proof.MockProofCourierDispatcher{
 		Courier: courier,
@@ -197,21 +306,27 @@ func newHarness(t *testing.T,
 		require.NoError(t, err)
 	}
 
+	archive := proof.NewMultiArchiver(
+		newMockVerifier(t), testTimeout, assetDB,
+	)
+
+	errChan := make(chan error, 1)
 	cfg := &tapgarden.CustodianConfig{
 		ChainParams:            chainParams,
 		ChainBridge:            chainBridge,
 		WalletAnchor:           walletAnchor,
 		AddrBook:               addrBook,
-		ProofArchive:           assetDB,
-		ProofNotifier:          assetDB,
+		ProofArchive:           archive,
+		ProofNotifier:          notifier,
 		ProofCourierDispatcher: courierDispatch,
 		ProofWatcher:           proofWatcher,
-		ErrChan:                make(chan error, 1),
+		ErrChan:                errChan,
 	}
 	return &custodianHarness{
 		t:            t,
 		c:            tapgarden.NewCustodian(cfg),
 		cfg:          cfg,
+		errChan:      errChan,
 		chainBridge:  chainBridge,
 		walletAnchor: walletAnchor,
 		keyRing:      keyRing,
@@ -219,6 +334,7 @@ func newHarness(t *testing.T,
 		addrBook:     addrBook,
 		syncer:       syncer,
 		assetDB:      assetDB,
+		multiverse:   multiverse,
 		courier:      courier,
 	}
 }
@@ -296,6 +412,11 @@ func randProof(t *testing.T, outputIndex int, tx *wire.MsgTx,
 		Genesis:   *genesis,
 		Amount:    addr.Amount,
 		ScriptKey: asset.NewScriptKey(&addr.ScriptKey),
+		PrevWitnesses: []asset.Witness{
+			{
+				PrevID: &asset.PrevID{},
+			},
+		},
 	}
 	if addr.GroupKey != nil {
 		a.GroupKey = &asset.GroupKey{
@@ -632,6 +753,49 @@ func mustMakeAddr(t *testing.T,
 	require.NoError(t, err)
 
 	return addr
+}
+
+// TestProofInMultiverseOnly tests that the custodian imports a proof correctly
+// into the local archive if it's only present in the multiverse.
+func TestProofInMultiverseOnly(t *testing.T) {
+	h := newHarness(t, nil)
+
+	// Before we start the custodian, we create a random address and a
+	// corresponding wallet transaction.
+	ctx := context.Background()
+
+	addr, genesis := randAddr(h)
+	err := h.tapdbBook.InsertAddrs(ctx, *addr)
+	require.NoError(t, err)
+
+	// We now start the custodian and make sure it's started up correctly
+	// and the pending event is registered.
+	require.NoError(t, h.c.Start())
+	h.assertStartup()
+	h.assertAddrsRegistered(addr)
+
+	// Receiving a TX for it should create a pending event and cause the
+	// proof courier to attempt to fetch it. But the courier won't find it.
+	outputIdx, tx := randWalletTx(addr)
+	h.walletAnchor.SubscribeTx <- *tx
+	h.assertEventsPresent(1, address.StatusTransactionDetected)
+
+	// We now stop the custodian again.
+	require.NoError(t, h.c.Stop())
+
+	// The proof is only in the multiverse, not in the local archive. And we
+	// add the proof to the multiverse before starting the custodian, so the
+	// notification for it doesn't trigger.
+	mockProof := randProof(t, outputIdx, tx.Tx, genesis, addr)
+	h.addProofFileToMultiverse(mockProof)
+
+	// And a new start should import the proof into the local archive.
+	h.c = tapgarden.NewCustodian(h.cfg)
+	require.NoError(t, h.c.Start())
+	t.Cleanup(func() {
+		require.NoError(t, h.c.Stop())
+	})
+	h.assertStartup()
 }
 
 // TestAddrMatchesAsset tests that the AddrMatchesAsset function works

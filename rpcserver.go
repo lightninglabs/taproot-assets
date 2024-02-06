@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"math"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -30,7 +29,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
-	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -723,7 +721,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 	return rpcAssets, nil
 }
 
-func (r *rpcServer) marshalChainAsset(ctx context.Context, a *tapdb.ChainAsset,
+func (r *rpcServer) marshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 	withWitness bool) (*taprpc.Asset, error) {
 
 	rpcAsset, err := taprpc.MarshalAsset(
@@ -1388,7 +1386,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	rpcAsset, err := r.marshalChainAsset(ctx, &tapdb.ChainAsset{
+	rpcAsset, err := r.marshalChainAsset(ctx, &asset.ChainAsset{
 		Asset:                  &p.Asset,
 		AnchorTx:               &p.AnchorTx,
 		AnchorBlockHash:        p.BlockHeader.BlockHash(),
@@ -1477,12 +1475,32 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
-	var assetID asset.ID
+	var (
+		assetID  asset.ID
+		outPoint *wire.OutPoint
+	)
 	copy(assetID[:], req.AssetId)
+
+	// The outpoint is optional when querying for a proof file. But if
+	// multiple proofs exist for the same assetID and script key, then an
+	// error will be returned and the outpoint needs to be specified to
+	// disambiguate.
+	if req.Outpoint != nil {
+		txid, err := chainhash.NewHash(req.Outpoint.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+		outPoint = &wire.OutPoint{
+			Hash:  *txid,
+			Index: req.Outpoint.OutputIndex,
+		}
+	}
 
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
+		OutPoint:  outPoint,
 	})
 	if err != nil {
 		return nil, err
@@ -1505,14 +1523,34 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, fmt.Errorf("proof file must be specified")
 	}
 
+	// We need to parse the proof file and extract the last proof, so we can
+	// get the locator that is required for storage.
+	var proofFile proof.File
+	err := proofFile.Decode(bytes.NewReader(req.ProofFile))
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	lastProof, err := proofFile.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("error extracting last proof: %w", err)
+	}
+
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
-	err := r.cfg.ProofArchive.ImportProofs(
+	err = r.cfg.ProofArchive.ImportProofs(
 		ctx, headerVerifier, groupVerifier, false,
-		&proof.AnnotatedProof{Blob: req.ProofFile},
+		&proof.AnnotatedProof{
+			Locator: proof.Locator{
+				AssetID:   fn.Ptr(lastProof.Asset.ID()),
+				ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
+				OutPoint:  fn.Ptr(lastProof.OutPoint()),
+			},
+			Blob: req.ProofFile,
+		},
 	)
 	if err != nil {
 		return nil, err
@@ -3421,34 +3459,6 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	return resp, nil
 }
 
-// UnmarshalOutpoint un-marshals an outpoint from a string received via RPC.
-func UnmarshalOutpoint(outpoint string) (*wire.OutPoint, error) {
-	parts := strings.Split(outpoint, ":")
-	if len(parts) != 2 {
-		return nil, errors.New("outpoint should be of form txid:index")
-	}
-
-	txidStr := parts[0]
-	if hex.DecodedLen(len(txidStr)) != chainhash.HashSize {
-		return nil, fmt.Errorf("invalid hex-encoded txid %v", txidStr)
-	}
-
-	txid, err := chainhash.NewHashFromStr(txidStr)
-	if err != nil {
-		return nil, err
-	}
-
-	outputIndex, err := strconv.Atoi(parts[1])
-	if err != nil {
-		return nil, fmt.Errorf("invalid output index: %v", err)
-	}
-
-	return &wire.OutPoint{
-		Hash:  *txid,
-		Index: uint32(outputIndex),
-	}, nil
-}
-
 // unmarshalLeafKey un-marshals a leaf key from the RPC form.
 func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	var (
@@ -3491,8 +3501,7 @@ func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
 	case key.GetOpStr() != "":
 		// Parse a bitcoin outpoint in the form txid:index into a
 		// wire.OutPoint struct.
-		outpointStr := key.GetOpStr()
-		outpoint, err := UnmarshalOutpoint(outpointStr)
+		outpoint, err := wire.NewOutPointFromString(key.GetOpStr())
 		if err != nil {
 			return leafKey, err
 		}
@@ -4136,10 +4145,31 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
-	assetID := fn.ToArray[asset.ID](req.AssetId)
+	var (
+		assetID  = fn.ToArray[asset.ID](req.AssetId)
+		outPoint *wire.OutPoint
+	)
+
+	// The outpoint is optional when querying for a proof file. But if
+	// multiple proofs exist for the same assetID and script key, then an
+	// error will be returned and the outpoint needs to be specified to
+	// disambiguate.
+	if req.Outpoint != nil {
+		txid, err := chainhash.NewHash(req.Outpoint.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+		outPoint = &wire.OutPoint{
+			Hash:  *txid,
+			Index: req.Outpoint.OutputIndex,
+		}
+	}
+
 	proofBlob, err := r.cfg.ProofArchive.FetchProof(ctx, proof.Locator{
 		AssetID:   &assetID,
 		ScriptKey: *scriptKey,
+		OutPoint:  outPoint,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("cannot fetch proof: %w", err)

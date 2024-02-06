@@ -752,17 +752,17 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// Count the number of assets with a group key. Each grouped asset
 	// should have a grouped genesis witness.
-	groupCount := fn.Count(assets, func(a *ChainAsset) bool {
+	groupCount := fn.Count(assets, func(a *asset.ChainAsset) bool {
 		return a.GroupKey != nil
 	})
-	groupWitnessCount := fn.Count(assets, func(a *ChainAsset) bool {
+	groupWitnessCount := fn.Count(assets, func(a *asset.ChainAsset) bool {
 		return a.HasGenesisWitnessForGroup()
 	})
 	require.Equal(t, groupCount, groupWitnessCount)
 
 	// All the assets returned should have the genesis prev ID set up.
 	ungroupedCount := len(assets) - groupCount
-	genesisWitnessCount := fn.Count(assets, func(a *ChainAsset) bool {
+	genesisWitnessCount := fn.Count(assets, func(a *asset.ChainAsset) bool {
 		return a.HasGenesisWitness()
 	})
 	require.Equal(t, ungroupedCount, genesisWitnessCount)
@@ -770,7 +770,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// All the assets should also have a matching asset version as the
 	// seedlings we created.
 	mintingBatch := randAssetCtx.mintingBatch
-	require.True(t, fn.All(assets, func(dbAsset *ChainAsset) bool {
+	require.True(t, fn.All(assets, func(dbAsset *asset.ChainAsset) bool {
 		seedling, ok := mintingBatch.Seedlings[dbAsset.Genesis.Tag]
 		if !ok {
 			t.Logf("seedling for %v not found",
@@ -796,15 +796,17 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// If we look up all the proofs by their specific script key, we should
 	// get the same set of proofs.
-	scriptKeys := fMapKeys(
-		assetProofs, func(k asset.SerializedKey) *btcec.PublicKey {
-			parsed, err := btcec.ParsePubKey(k.CopyBytes())
+	proofLocators := fMapKeys(
+		assetProofs, func(k asset.SerializedKey) proof.Locator {
+			parsedScriptKey, err := btcec.ParsePubKey(k.CopyBytes())
 			require.NoError(t, err)
 
-			return parsed
+			return proof.Locator{
+				ScriptKey: *parsedScriptKey,
+			}
 		},
 	)
-	diskProofs, err = confAssets.FetchAssetProofs(ctx, scriptKeys...)
+	diskProofs, err = confAssets.FetchAssetProofs(ctx, proofLocators...)
 	require.NoError(t, err)
 	require.Equal(t, assetProofs, diskProofs)
 
