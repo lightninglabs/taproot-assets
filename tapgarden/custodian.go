@@ -846,7 +846,6 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 			ctxt, headerVerifier, c.cfg.GroupVerifier, false, p,
 		)
 		if err != nil {
-			log.Errorf("ERROOOORRR: %v", err)
 			return fmt.Errorf("error importing proof file into "+
 				"main archive: %w", err)
 		}
