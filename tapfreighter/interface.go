@@ -271,7 +271,7 @@ type AssetConfirmEvent struct {
 
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.
-	PassiveAssetProofFiles map[[32]byte]proof.Blob
+	PassiveAssetProofFiles map[asset.ID][]*proof.AnnotatedProof
 }
 
 // PassiveAssetReAnchor includes the information needed to re-anchor a passive

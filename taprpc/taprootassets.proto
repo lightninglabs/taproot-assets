@@ -848,6 +848,7 @@ message DecodeProofResponse {
 message ExportProofRequest {
     bytes asset_id = 1;
     bytes script_key = 2;
+    OutPoint outpoint = 3;
 
     // TODO(roasbeef): specify information to make new state transition in proof
     // file?
@@ -1062,4 +1063,16 @@ message BurnAssetResponse {
 
     // The burn transition proof for the asset burn output.
     DecodedProof burn_proof = 2;
+}
+
+message OutPoint {
+    /*
+    Raw bytes representing the transaction id.
+    */
+    bytes txid = 1;
+
+    /*
+    The index of the output on the transaction.
+    */
+    uint32 output_index = 2;
 }

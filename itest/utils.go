@@ -2,9 +2,6 @@ package itest
 
 import (
 	"context"
-	"fmt"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
@@ -44,34 +41,10 @@ func CopyRequests(
 	return copied
 }
 
-// ParseOutPoint
-func ParseOutPoint(s string) (*wire.OutPoint, error) {
-	split := strings.Split(s, ":")
-	if len(split) != 2 {
-		return nil, fmt.Errorf("expecting outpoint to be in format " +
-			"of: txid:index")
-	}
-
-	index, err := strconv.ParseInt(split[1], 10, 32)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode output index: %v", err)
-	}
-
-	txid, err := chainhash.NewHashFromStr(split[0])
-	if err != nil {
-		return nil, fmt.Errorf("unable to parse hex string: %v", err)
-	}
-
-	return &wire.OutPoint{
-		Hash:  *txid,
-		Index: uint32(index),
-	}, nil
-}
-
 // ParseGenInfo converts a taprpc.GenesisInfo into its asset.Genesis
 // counterpart.
 func ParseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
-	genPoint, err := ParseOutPoint(genInfo.GenesisPoint)
+	genPoint, err := wire.NewOutPointFromString(genInfo.GenesisPoint)
 	require.NoError(t, err)
 
 	parsedGenesis := asset.Genesis{

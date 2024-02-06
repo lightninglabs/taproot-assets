@@ -506,38 +506,65 @@ func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (F
 	return i, err
 }
 
-const fetchAssetProof = `-- name: FetchAssetProof :one
+const fetchAssetProof = `-- name: FetchAssetProof :many
 WITH asset_info AS (
-    SELECT assets.asset_id, script_keys.tweaked_script_key
+    SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
     JOIN script_keys
         ON assets.script_key_id = script_keys.script_key_id
-    WHERE script_keys.tweaked_script_key = $1
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
+   WHERE script_keys.tweaked_script_key = $1
+     AND (utxos.outpoint = $2 OR $2 IS NULL)
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
-       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id
+       asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id,
+       asset_info.outpoint as outpoint
 FROM asset_proofs
 JOIN asset_info
-    ON asset_info.asset_id = asset_proofs.asset_id
+  ON asset_info.asset_id = asset_proofs.asset_id
 `
+
+type FetchAssetProofParams struct {
+	TweakedScriptKey []byte
+	Outpoint         []byte
+}
 
 type FetchAssetProofRow struct {
 	ScriptKey []byte
 	ProofFile []byte
 	AssetID   int64
 	ProofID   int64
+	Outpoint  []byte
 }
 
-func (q *Queries) FetchAssetProof(ctx context.Context, tweakedScriptKey []byte) (FetchAssetProofRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAssetProof, tweakedScriptKey)
-	var i FetchAssetProofRow
-	err := row.Scan(
-		&i.ScriptKey,
-		&i.ProofFile,
-		&i.AssetID,
-		&i.ProofID,
-	)
-	return i, err
+func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofRow
+	for rows.Next() {
+		var i FetchAssetProofRow
+		if err := rows.Scan(
+			&i.ScriptKey,
+			&i.ProofFile,
+			&i.AssetID,
+			&i.ProofID,
+			&i.Outpoint,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const fetchAssetProofs = `-- name: FetchAssetProofs :many
@@ -635,6 +662,7 @@ JOIN assets
 WHERE (
     (assets.asset_id = $1) OR ($1 IS NULL)
 )
+ORDER BY witness_index
 `
 
 type FetchAssetWitnessesRow struct {
@@ -1704,36 +1732,6 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 	return err
 }
 
-const insertAssetWitness = `-- name: InsertAssetWitness :exec
-INSERT INTO asset_witnesses (
-    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
-    split_commitment_proof
-) VALUES (
-    $1, $2, $3, $4, $5, $6
-)
-`
-
-type InsertAssetWitnessParams struct {
-	AssetID              int64
-	PrevOutPoint         []byte
-	PrevAssetID          []byte
-	PrevScriptKey        []byte
-	WitnessStack         []byte
-	SplitCommitmentProof []byte
-}
-
-func (q *Queries) InsertAssetWitness(ctx context.Context, arg InsertAssetWitnessParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetWitness,
-		arg.AssetID,
-		arg.PrevOutPoint,
-		arg.PrevAssetID,
-		arg.PrevScriptKey,
-		arg.WitnessStack,
-		arg.SplitCommitmentProof,
-	)
-	return err
-}
-
 const insertNewAsset = `-- name: InsertNewAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
@@ -2300,14 +2298,13 @@ WITH target_asset(asset_id) AS (
     FROM assets
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
     WHERE
         (script_keys.tweaked_script_key = $2
-             OR $2 IS NULL)
-        AND (assets.asset_id = $3
-                 OR $3 IS NULL)
-    -- TODO(guggero): Fix this by disallowing multiple assets with the same
-    -- script key!
-    LIMIT 1
+            OR $2 IS NULL)
+        AND (utxos.outpoint = $3
+            OR $3 IS NULL)
 )
 INSERT INTO asset_proofs (
     asset_id, proof_file
@@ -2321,11 +2318,69 @@ INSERT INTO asset_proofs (
 type UpsertAssetProofParams struct {
 	ProofFile        []byte
 	TweakedScriptKey []byte
-	AssetID          sql.NullInt64
+	Outpoint         []byte
 }
 
 func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.ProofFile, arg.TweakedScriptKey, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.ProofFile, arg.TweakedScriptKey, arg.Outpoint)
+	return err
+}
+
+const upsertAssetProofByID = `-- name: UpsertAssetProofByID :exec
+INSERT INTO asset_proofs (
+    asset_id, proof_file
+) VALUES (
+    $1, $2
+) ON CONFLICT (asset_id)
+    -- This is not a NOP, we always overwrite the proof with the new one.
+    DO UPDATE SET proof_file = EXCLUDED.proof_file
+`
+
+type UpsertAssetProofByIDParams struct {
+	AssetID   int64
+	ProofFile []byte
+}
+
+func (q *Queries) UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAssetProofByID, arg.AssetID, arg.ProofFile)
+	return err
+}
+
+const upsertAssetWitness = `-- name: UpsertAssetWitness :exec
+INSERT INTO asset_witnesses (
+    asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
+    split_commitment_proof, witness_index
+) VALUES (
+    $1, $2, $3, $4, $5, $6, $7
+)  ON CONFLICT (asset_id, witness_index)
+    -- We overwrite the witness with the new one.
+    DO UPDATE SET prev_out_point = EXCLUDED.prev_out_point,
+                  prev_asset_id = EXCLUDED.prev_asset_id,
+                  prev_script_key = EXCLUDED.prev_script_key,
+                  witness_stack = EXCLUDED.witness_stack,
+                  split_commitment_proof = EXCLUDED.split_commitment_proof
+`
+
+type UpsertAssetWitnessParams struct {
+	AssetID              int64
+	PrevOutPoint         []byte
+	PrevAssetID          []byte
+	PrevScriptKey        []byte
+	WitnessStack         []byte
+	SplitCommitmentProof []byte
+	WitnessIndex         int32
+}
+
+func (q *Queries) UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error {
+	_, err := q.db.ExecContext(ctx, upsertAssetWitness,
+		arg.AssetID,
+		arg.PrevOutPoint,
+		arg.PrevAssetID,
+		arg.PrevScriptKey,
+		arg.WitnessStack,
+		arg.SplitCommitmentProof,
+		arg.WitnessIndex,
+	)
 	return err
 }
 

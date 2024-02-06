@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -413,7 +414,7 @@ func parseAssetKey(ctx *cli.Context) (*unirpc.AssetKey, error) {
 		return nil, fmt.Errorf("outpoint and script key must be set")
 	}
 
-	outpoint, err := tap.UnmarshalOutpoint(ctx.String(outpointName))
+	outpoint, err := wire.NewOutPointFromString(ctx.String(outpointName))
 	if err != nil {
 		return nil, err
 	}

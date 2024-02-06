@@ -127,7 +127,7 @@ func testRoundTripSend(t *harnessTest) {
 	// recipient's output is the second one.
 	bobToAliceOutput := transferResp.Transfers[0].Outputs[1]
 	bobToAliceAnchor := bobToAliceOutput.Anchor
-	outpoint, err := ParseOutPoint(bobToAliceAnchor.Outpoint)
+	outpoint, err := wire.NewOutPointFromString(bobToAliceAnchor.Outpoint)
 	require.NoError(t.t, err)
 
 	internalKey, err := btcec.ParsePubKey(bobToAliceAnchor.InternalKey)

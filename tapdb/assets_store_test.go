@@ -320,6 +320,14 @@ func TestImportAssetProof(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, updatedBlob, []byte(currentBlob))
 
+	// Make sure we get the same result if we also query by proof outpoint.
+	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
+		ScriptKey: *testAsset.ScriptKey.PubKey,
+		OutPoint:  &testProof.AssetSnapshot.OutPoint,
+	})
+	require.NoError(t, err)
+	require.Equal(t, updatedBlob, []byte(currentBlob))
+
 	// Make sure the chain TX was updated as well.
 	assets, err = assetStore.FetchAllAssets(ctxb, false, false, nil)
 	require.NoError(t, err)
@@ -337,6 +345,45 @@ func TestImportAssetProof(t *testing.T) {
 		t, testProof.AssetSnapshot.OutPoint, dbAsset.AnchorOutpoint,
 	)
 	require.Equal(t, testProof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
+
+	// We now add a second proof for the same script key but a different
+	// outpoint and expect that to be stored and retrieved correctly.
+	oldOutpoint := testProof.AssetSnapshot.OutPoint
+	newChainTx := wire.NewMsgTx(2)
+	newChainTx.TxIn = []*wire.TxIn{{
+		PreviousOutPoint: test.RandOp(t),
+	}}
+	newChainTx.TxOut = []*wire.TxOut{{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+	}}
+	newOutpoint := wire.OutPoint{
+		Hash:  newChainTx.TxHash(),
+		Index: 0,
+	}
+	testProof.AssetSnapshot.AnchorTx = newChainTx
+	testProof.AssetSnapshot.OutPoint = newOutpoint
+	testProof.Blob = []byte("new proof")
+
+	require.NoError(t, assetStore.ImportProofs(
+		ctxb, proof.MockHeaderVerifier, proof.MockGroupVerifier, false,
+		testProof,
+	))
+
+	// We should still be able to fetch the old proof.
+	dbBlob, err := assetStore.FetchProof(ctxb, proof.Locator{
+		ScriptKey: *testAsset.ScriptKey.PubKey,
+		OutPoint:  &oldOutpoint,
+	})
+	require.NoError(t, err)
+	require.Equal(t, updatedBlob, []byte(dbBlob))
+
+	// But also the new one.
+	dbBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
+		ScriptKey: *testAsset.ScriptKey.PubKey,
+		OutPoint:  &newOutpoint,
+	})
+	require.NoError(t, err)
+	require.EqualValues(t, testProof.Blob, []byte(dbBlob))
 }
 
 // TestInternalKeyUpsert tests that if we insert an internal key that's a
@@ -1390,11 +1437,11 @@ func TestAssetExportLog(t *testing.T) {
 
 	// As a final check for the asset, we'll fetch its blob to ensure it's
 	// been updated on disk.
-	diskSenderBlob, err := db.FetchAssetProof(
-		ctx, newScriptKey.PubKey.SerializeCompressed(),
-	)
+	diskSenderBlob, err := db.FetchAssetProof(ctx, FetchAssetProof{
+		TweakedScriptKey: newScriptKey.PubKey.SerializeCompressed(),
+	})
 	require.NoError(t, err)
-	require.Equal(t, receiverBlob, diskSenderBlob.ProofFile)
+	require.Equal(t, receiverBlob, diskSenderBlob[0].ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.
