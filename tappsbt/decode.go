@@ -278,10 +278,14 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 			),
 		},
 		{
-			key: PsbtKeyTypeOutputAssetVersion,
+			key: PsbtKeyTypeOutputTapAssetVersion,
 			decoder: tlvDecoder(
 				&o.AssetVersion, vOutputAssetVersionDecoder,
 			),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
+			decoder: tlvDecoder(&o.ProofSuffix, tlv.DVarBytes),
 		},
 	}
 

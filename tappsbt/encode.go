@@ -277,10 +277,14 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			),
 		},
 		{
-			key: PsbtKeyTypeOutputAssetVersion,
+			key: PsbtKeyTypeOutputTapAssetVersion,
 			encoder: tlvEncoder(
 				&o.AssetVersion, vOutputAssetVersionEncoder,
 			),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
+			encoder: bytesEncoder(o.ProofSuffix),
 		},
 	}
 
@@ -312,6 +316,32 @@ func tlvEncoder(val any, enc tlv.Encoder) encoderFunc {
 			scratch [8]byte
 		)
 		if err := enc(&b, val, &scratch); err != nil {
+			return nil, fmt.Errorf("error encoding TLV record: %w",
+				err)
+		}
+
+		return []*customPsbtField{
+			{
+				Key:   fn.CopySlice(key),
+				Value: b.Bytes(),
+			},
+		}, nil
+	}
+}
+
+// bytesEncoder returns a function that encodes the given byte slice as a custom
+// PSBT field.
+func bytesEncoder(val []byte) encoderFunc {
+	return func(key []byte) ([]*customPsbtField, error) {
+		if len(val) == 0 {
+			return nil, nil
+		}
+
+		var (
+			b       bytes.Buffer
+			scratch [8]byte
+		)
+		if err := tlv.EVarBytes(&b, val, &scratch); err != nil {
 			return nil, fmt.Errorf("error encoding TLV record: %w",
 				err)
 		}
