@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -18,8 +19,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1263,6 +1267,356 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Len(t.t, secondaryNodeAssets.Assets, 0)
+}
+
+// testPsbtSighashNone tests that the SIGHASH_NONE flag of vPSBTs is properly
+// accounted for in the generated signatures,
+func testPsbtSighashNone(t *harnessTest) {
+	// First, we'll make a normal asset with enough units to allow us to
+	// send it around a few times.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := rpcAssets[0].AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	var (
+		alice    = t.tapd
+		bob      = secondTapd
+		numUnits = uint64(500)
+	)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
+
+	// Now we create a script tree consisting of two simple scripts.
+	preImage := []byte("hash locks are cool")
+	leaf1 := test.ScriptHashLock(t.t, preImage)
+	leaf2 := test.ScriptSchnorrSig(t.t, bobScriptKey.RawKey.PubKey)
+	leaf1Hash := leaf1.TapHash()
+	leaf2Hash := leaf2.TapHash()
+	tapScript := input.TapscriptPartialReveal(
+		bobScriptKey.RawKey.PubKey, leaf2, leaf1Hash[:],
+	)
+	rootHash := tapScript.ControlBlock.RootHash(leaf2.Script)
+
+	sendToTapscriptAddr(
+		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		bobScriptKey, bobInternalKey, tapScript, rootHash,
+	)
+
+	// Now try to send back those assets using the PSBT flow.
+	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId:      genInfo.AssetId,
+		Amt:          numUnits / 5,
+		AssetVersion: mintedAsset.Version,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
+
+	fundResp := fundAddressSendPacket(t, bob, aliceAddr)
+	t.Logf("Funded PSBT: %v",
+		base64.StdEncoding.EncodeToString(fundResp.FundedPsbt))
+
+	fundedPacket, err := tappsbt.NewFromRawBytes(
+		bytes.NewReader(fundResp.FundedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// We can now ask the wallet to sign the script path, since we only need
+	// a signature.
+	controlBlockBytes, err := tapScript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+	fundedPacket.Inputs[0].TaprootMerkleRoot = rootHash[:]
+	fundedPacket.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+		{
+			ControlBlock: controlBlockBytes,
+			Script:       leaf2.Script,
+			LeafVersion:  leaf2.LeafVersion,
+		},
+	}
+	fundedPacket.Inputs[0].TaprootBip32Derivation[0].LeafHashes = [][]byte{
+		leaf2Hash[:],
+	}
+
+	// Before signing, we set the sighash of the first input to SIGHASH_NONE
+	// which allows us to alter the outputs of the PSBT after the signature
+	// has been generated.
+	fundedPacket.Inputs[0].SighashType = txscript.SigHashNone
+
+	var b bytes.Buffer
+	err = fundedPacket.Serialize(&b)
+	require.NoError(t.t, err)
+
+	signedResp, err := bob.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: b.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+	require.Contains(t.t, signedResp.SignedInputs, uint32(0))
+
+	// Now we deserialize the signed packet again in order to edit it
+	// and then anchor it.
+	signedPacket, err := tappsbt.NewFromRawBytes(
+		bytes.NewReader(signedResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// Edit the already signed PSBT and change the output amounts. This
+	// should be ok as we used SIGHASH_NONE for the input's signature.
+	signedPacket.Outputs[0].Amount -= 1
+	signedPacket.Outputs[1].Amount += 1
+
+	// Keep a backup of the PrevWitnesses as our input is already signed.
+	// When Bob re-creates the outputs for the vPSBT we will need to
+	// re-attach the witnesses to the new vPkt as the inputs are already
+	// signed.
+	witnessBackup := signedPacket.Outputs[0].Asset.PrevWitnesses
+
+	// Bob now creates the output assets.
+	err = tapscript.PrepareOutputAssets(context.Background(), signedPacket)
+	require.NoError(t.t, err)
+
+	// We attach the backed-up Previous Witnesses to the newly created
+	// outputs by Bob.
+	signedPacket.Outputs[0].Asset.PrevWitnesses = witnessBackup
+	signedPacket.Outputs[1].Asset.PrevWitnesses[0].SplitCommitment.RootAsset.
+		PrevWitnesses = witnessBackup
+
+	// Serialize the edited signed packet.
+	var buffer bytes.Buffer
+	err = signedPacket.Serialize(&buffer)
+	require.NoError(t.t, err)
+	signedBytes := buffer.Bytes()
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := bob.AnchorVirtualPsbts(
+		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedBytes},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, bob, sendResp,
+		genInfo.AssetId,
+		[]uint64{(4*numUnits)/5 - 1, (numUnits / 5) + 1}, 0, 1,
+	)
+
+	// This is an interactive/PSBT based transfer, so we do need to manually
+	// send the proof from the sender to the receiver because the proof
+	// courier address gets lost in the address->PSBT conversion.
+	_ = sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
+
+	// If Bob was successful in his attempt to edit the outputs, Alice
+	// should see an asset with an amount of 399.
+	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
+		WithWitness: true,
+	})
+	require.NoError(t.t, err)
+
+	found := false
+	for _, asset := range aliceAssets.Assets {
+		if asset.Amount == (numUnits/5)+1 {
+			found = true
+		}
+	}
+
+	require.True(t.t, found)
+}
+
+// testPsbtSighashNoneInvalid tests that the SIGHASH_NONE flag of vPSBTs is
+// properly accounted for in the generated signatures. This case tests that the
+// transfer is invalidated when the flag is not used.
+func testPsbtSighashNoneInvalid(t *harnessTest) {
+	// First, we'll make a normal asset with enough units to allow us to
+	// send it around a few times.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := rpcAssets[0].AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	var (
+		alice    = t.tapd
+		bob      = secondTapd
+		numUnits = uint64(500)
+	)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
+
+	// Now we create a script tree consisting of two simple scripts.
+	preImage := []byte("hash locks are cool")
+	leaf1 := test.ScriptHashLock(t.t, preImage)
+	leaf2 := test.ScriptSchnorrSig(t.t, bobScriptKey.RawKey.PubKey)
+	leaf1Hash := leaf1.TapHash()
+	leaf2Hash := leaf2.TapHash()
+	tapScript := input.TapscriptPartialReveal(
+		bobScriptKey.RawKey.PubKey, leaf2, leaf1Hash[:],
+	)
+	rootHash := tapScript.ControlBlock.RootHash(leaf2.Script)
+
+	sendToTapscriptAddr(
+		ctxt, t, alice, bob, numUnits, genInfo, mintedAsset,
+		bobScriptKey, bobInternalKey, tapScript, rootHash,
+	)
+
+	// Now try to send back those assets using the PSBT flow.
+	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId:      genInfo.AssetId,
+		Amt:          numUnits / 5,
+		AssetVersion: mintedAsset.Version,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, alice, rpcAssets[0], aliceAddr)
+
+	fundResp := fundAddressSendPacket(t, bob, aliceAddr)
+	t.Logf("Funded PSBT: %v",
+		base64.StdEncoding.EncodeToString(fundResp.FundedPsbt))
+
+	fundedPacket, err := tappsbt.NewFromRawBytes(
+		bytes.NewReader(fundResp.FundedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// We can now ask the wallet to sign the script path, since we only need
+	// a signature.
+	controlBlockBytes, err := tapScript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+	fundedPacket.Inputs[0].TaprootMerkleRoot = rootHash[:]
+	fundedPacket.Inputs[0].TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+		{
+			ControlBlock: controlBlockBytes,
+			Script:       leaf2.Script,
+			LeafVersion:  leaf2.LeafVersion,
+		},
+	}
+	fundedPacket.Inputs[0].TaprootBip32Derivation[0].LeafHashes = [][]byte{
+		leaf2Hash[:],
+	}
+
+	// This is where we would normally set the sighash flag to SIGHASH_NONE,
+	// but instead we skip that step to verify that the VM will invalidate
+	// the transfer when any inputs or outputs are mutated.
+
+	var b bytes.Buffer
+	err = fundedPacket.Serialize(&b)
+	require.NoError(t.t, err)
+
+	signedResp, err := bob.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: b.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+	require.Contains(t.t, signedResp.SignedInputs, uint32(0))
+
+	// Now we deserialize the signed packet again in order to edit it
+	// and then anchor it.
+	signedPacket, err := tappsbt.NewFromRawBytes(
+		bytes.NewReader(signedResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// Edit the already signed PSBT and change the output amounts. This
+	// should be ok as we used SIGHASH_NONE for the input's signature.
+	signedPacket.Outputs[0].Amount -= 1
+	signedPacket.Outputs[1].Amount += 1
+
+	// Keep a backup of the PrevWitnesses as our input is already signed.
+	// When Bob re-creates the outputs for the vPSBT we will need to
+	// re-attach the witnesses to the new vPkt as the inputs are already
+	// signed.
+	witnessBackup := signedPacket.Outputs[0].Asset.PrevWitnesses
+
+	// Bob now creates the output assets.
+	err = tapscript.PrepareOutputAssets(context.Background(), signedPacket)
+	require.NoError(t.t, err)
+
+	// We attach the backed-up Previous Witnesses to the newly created
+	// outputs by Bob.
+	signedPacket.Outputs[0].Asset.PrevWitnesses = witnessBackup
+	signedPacket.Outputs[1].Asset.PrevWitnesses[0].SplitCommitment.RootAsset.
+		PrevWitnesses = witnessBackup
+
+	// Serialize the edited signed packet.
+	var buffer bytes.Buffer
+	err = signedPacket.Serialize(&buffer)
+	require.NoError(t.t, err)
+	signedBytes := buffer.Bytes()
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := bob.AnchorVirtualPsbts(
+		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedBytes},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner.Client, bob, sendResp,
+		genInfo.AssetId,
+		[]uint64{(4*numUnits)/5 - 1, (numUnits / 5) + 1}, 0, 1,
+	)
+
+	// Export Bob's faulty proof for this transfer.
+	var proofResp *taprpc.ProofFile
+	waitErr := wait.NoError(func() error {
+		resp, err := bob.ExportProof(ctxb, &taprpc.ExportProofRequest{
+			AssetId:   genInfo.AssetId,
+			ScriptKey: aliceAddr.ScriptKey,
+		})
+		if err != nil {
+			return err
+		}
+
+		proofResp = resp
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t.t, waitErr)
+
+	// Alice now attempts to import the proof. This will also trigger a
+	// transfer validation. This is where we expect the VM to invalidate
+	// the proof.
+	_, err = alice.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
+		ProofFile:    proofResp.RawProofFile,
+		GenesisPoint: genInfo.GenesisPoint,
+	})
+	require.ErrorContains(t.t, err, "unable to verify proof")
 }
 
 func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
