@@ -77,6 +77,7 @@ type spendData struct {
 	asset2GenesisTx               wire.MsgTx
 	asset2GenesisProof            proof.Proof
 	validator                     tapscript.TxValidator
+	witnessValidator              tapscript.WitnessValidator
 	signer                        *tapscript.MockSigner
 }
 
@@ -171,6 +172,9 @@ func initSpendScenario(t *testing.T) spendData {
 
 	// Validator instance needed to call the Taproot Asset VM.
 	state.validator = &tap.ValidatorV0{}
+
+	// VPsbtValidator helper method of the VM is needed for signing vPSBTs.
+	state.witnessValidator = &tap.WitnessValidatorV0{}
 
 	// Signer needed to generate a witness for the spend.
 	state.signer = tapscript.NewMockSigner(&state.spenderPrivKey)
@@ -887,7 +891,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		pkt.Inputs[0].Asset().Genesis = state.genesis1collect
 		return tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 	},
 	err: vm.Error{Kind: vm.ErrIDMismatch},
@@ -908,7 +912,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		firstPrevID.OutPoint.Index = 1337
 
 		return tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 	},
 	err: vm.ErrNoInputs,
@@ -928,7 +932,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -953,7 +957,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -977,7 +981,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1000,7 +1004,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1025,7 +1029,7 @@ var signVirtualTransactionTestCases = []testCase{{
 
 		unvalidatedAsset := pkt.Outputs[0].Asset.Copy()
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1093,7 +1097,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1127,7 +1131,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1165,7 +1169,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1193,7 +1197,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1221,7 +1225,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1250,7 +1254,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1280,7 +1284,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1327,7 +1331,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1363,7 +1367,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1399,7 +1403,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1438,7 +1442,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1477,7 +1481,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1517,7 +1521,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1558,7 +1562,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 		require.NoError(t, err)
 		err = tapscript.SignVirtualTransaction(
-			pkt, state.signer, state.validator,
+			pkt, state.signer, state.witnessValidator,
 		)
 		require.NoError(t, err)
 
@@ -1611,7 +1615,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	err := tapscript.PrepareOutputAssets(context.Background(), pkt)
 	require.NoError(t, err)
 	err = tapscript.SignVirtualTransaction(
-		pkt, state.signer, state.validator,
+		pkt, state.signer, state.witnessValidator,
 	)
 	require.NoError(t, err)
 

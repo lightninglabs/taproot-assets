@@ -384,6 +384,10 @@ type WalletConfig struct {
 	// transaction we create.
 	TxValidator tapscript.TxValidator
 
+	// WitnessValidator allows us to validate the witnesses of vPSBTs
+	// we create.
+	WitnessValidator tapscript.WitnessValidator
+
 	// Wallet is used to fund+sign PSBTs for the transfer transaction.
 	Wallet WalletAnchor
 
@@ -1103,7 +1107,7 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 	// Asset leaves. The witness data for each input will be assigned for
 	// us.
 	err := tapscript.SignVirtualTransaction(
-		vPkt, f.cfg.Signer, f.cfg.TxValidator,
+		vPkt, f.cfg.Signer, f.cfg.WitnessValidator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate Taproot Asset "+
@@ -1505,7 +1509,7 @@ func (f *AssetWallet) SignOwnershipProof(
 		ownedAsset.Copy(), f.cfg.ChainParams,
 	)
 	err := tapscript.SignVirtualTransaction(
-		vPkt, f.cfg.Signer, f.cfg.TxValidator,
+		vPkt, f.cfg.Signer, f.cfg.WitnessValidator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate Taproot Asset "+
