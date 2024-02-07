@@ -3,15 +3,15 @@ module github.com/lightninglabs/taproot-assets
 go 1.21
 
 require (
-	github.com/btcsuite/btcd v0.23.5-0.20230905170901-80f5a0ffdf36
+	github.com/btcsuite/btcd v0.24.1-0.20240123000108-62e6af035ec5
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
-	github.com/btcsuite/btcd/btcutil v1.1.4-0.20230904040416-d4f519f5dc05
+	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
-	github.com/btcsuite/btcd/chaincfg/chainhash v1.0.2
+	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20231017144732-e3ff37491e9c
-	github.com/btcsuite/btcwallet/wallet/txrules v1.2.0
-	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.3
+	github.com/btcsuite/btcwallet v0.16.10-0.20240206195028-1f3534b00d14
+	github.com/btcsuite/btcwallet/wallet/txrules v1.2.1
+	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.4
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
@@ -32,15 +32,15 @@ require (
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/ticker v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.1.1
+	github.com/lightningnetwork/lnd/tlv v1.2.1
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/prometheus/client_golang v1.14.0
 	github.com/stretchr/testify v1.8.4
 	github.com/urfave/cli v1.22.9
-	golang.org/x/exp v0.0.0-20230315142452-642cacee5cc0
+	golang.org/x/exp v0.0.0-20231006140011-7918f672742d
 	golang.org/x/net v0.17.0
-	golang.org/x/sync v0.3.0
+	golang.org/x/sync v0.4.0
 	golang.org/x/term v0.13.0
 	golang.org/x/time v0.0.0-20220224211638-0e9765cccd65
 	google.golang.org/grpc v1.59.0
@@ -61,9 +61,9 @@ require (
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/andybalholm/brotli v1.0.3 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.2 // indirect
-	github.com/btcsuite/btcwallet/walletdb v1.4.0 // indirect
-	github.com/btcsuite/btcwallet/wtxmgr v1.5.0 // indirect
+	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 // indirect
+	github.com/btcsuite/btcwallet/walletdb v1.4.1 // indirect
+	github.com/btcsuite/btcwallet/wtxmgr v1.5.1 // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect
@@ -77,7 +77,7 @@ require (
 	github.com/decred/dcrd/crypto/blake256 v1.0.0 // indirect
 	github.com/decred/dcrd/lru v1.0.0 // indirect
 	github.com/docker/cli v20.10.17+incompatible // indirect
-	github.com/docker/docker v20.10.24+incompatible // indirect
+	github.com/docker/docker v24.0.7+incompatible // indirect
 	github.com/docker/go-connections v0.4.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
 	github.com/dsnet/compress v0.0.1 // indirect
@@ -92,7 +92,7 @@ require (
 	github.com/google/btree v1.0.1 // indirect
 	github.com/google/shlex v0.0.0-20191202100458-e7afc7fbc510 // indirect
 	github.com/google/uuid v1.3.1 // indirect
-	github.com/gorilla/websocket v1.4.2 // indirect
+	github.com/gorilla/websocket v1.5.0 // indirect
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.0.0-rc.3 // indirect
 	github.com/grpc-ecosystem/go-grpc-prometheus v1.2.0 // indirect
 	github.com/grpc-ecosystem/grpc-gateway v1.16.0 // indirect
@@ -123,6 +123,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect v0.2.5-alpha // indirect
 	github.com/lightninglabs/neutrino v0.16.0 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f // indirect
+	github.com/lightningnetwork/lnd/fn v1.0.1 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.3 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.4 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
@@ -186,10 +187,10 @@ require (
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.23.0 // indirect
 	golang.org/x/crypto v0.14.0 // indirect
-	golang.org/x/mod v0.10.0 // indirect
+	golang.org/x/mod v0.13.0 // indirect
 	golang.org/x/sys v0.13.0 // indirect
 	golang.org/x/text v0.13.0 // indirect
-	golang.org/x/tools v0.9.1 // indirect
+	golang.org/x/tools v0.14.0 // indirect
 	google.golang.org/genproto v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20230822172742-b8732ec3820d // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20230822172742-b8732ec3820d // indirect
@@ -209,6 +210,8 @@ require (
 	nhooyr.io/websocket v1.8.7 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
+
+replace github.com/lightningnetwork/lnd => github.com/guggero/lnd v0.11.0-beta.rc4.0.20240206195519-1656b4f97823
 
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
