@@ -2,9 +2,11 @@ package main
 
 import (
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"math"
 	"os"
+	"strconv"
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
@@ -88,9 +90,11 @@ var mintAssetCommand = cli.Command{
 			Usage: "a path to a file on disk that should be read " +
 				"and used as the asset meta",
 		},
-		cli.IntFlag{
-			Name:  assetMetaTypeName,
-			Usage: "the type of the meta data for the asset",
+		cli.StringFlag{
+			Name: assetMetaTypeName,
+			Usage: "the type of the meta data for the asset, must " +
+				"be either: opaque or json",
+			Value: "opaque",
 		},
 		cli.BoolFlag{
 			Name: assetNewGroupedAssetName,
@@ -142,6 +146,36 @@ func parseAssetType(ctx *cli.Context) (taprpc.AssetType, error) {
 	}
 }
 
+func parseMetaType(metaType string,
+	metaBytes []byte) (taprpc.AssetMetaType, error) {
+
+	switch metaType {
+	case "opaque":
+		fallthrough
+	case "blob":
+		return taprpc.AssetMetaType_META_TYPE_OPAQUE, nil
+
+	case "json":
+		// If JSON is selected, the bytes must be valid.
+		if !json.Valid(metaBytes) {
+			return 0, fmt.Errorf("invalid JSON for meta: %s",
+				metaBytes)
+		}
+
+		return taprpc.AssetMetaType_META_TYPE_JSON, nil
+
+	// Otherwise, this is a custom meta type, we may not understand it, but
+	// we want to support specifying arbitrary meta types.
+	default:
+		intType, err := strconv.Atoi(metaType)
+		if err != nil {
+			return 0, fmt.Errorf("invalid meta type: %s", metaType)
+		}
+
+		return taprpc.AssetMetaType(intType), nil
+	}
+}
+
 func mintAsset(ctx *cli.Context) error {
 	switch {
 	case ctx.String(assetTagName) == "":
@@ -163,6 +197,8 @@ func mintAsset(ctx *cli.Context) error {
 		}
 	}
 
+	metaTypeStr := ctx.String(assetMetaTypeName)
+
 	// Both the meta bytes and the meta path can be set.
 	var assetMeta *taprpc.AssetMeta
 	switch {
@@ -174,7 +210,11 @@ func mintAsset(ctx *cli.Context) error {
 	case ctx.String(assetMetaBytesName) != "":
 		assetMeta = &taprpc.AssetMeta{
 			Data: []byte(ctx.String(assetMetaBytesName)),
-			Type: taprpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
+		}
+
+		assetMeta.Type, err = parseMetaType(metaTypeStr, assetMeta.Data)
+		if err != nil {
+			return fmt.Errorf("unable to parse meta type: %w", err)
 		}
 
 	case ctx.String(assetMetaFilePathName) != "":
@@ -188,7 +228,11 @@ func mintAsset(ctx *cli.Context) error {
 
 		assetMeta = &taprpc.AssetMeta{
 			Data: metaFileBytes,
-			Type: taprpc.AssetMetaType(ctx.Int(assetMetaTypeName)),
+		}
+
+		assetMeta.Type, err = parseMetaType(metaTypeStr, assetMeta.Data)
+		if err != nil {
+			return fmt.Errorf("unable to parse meta type: %w", err)
 		}
 	}
 
