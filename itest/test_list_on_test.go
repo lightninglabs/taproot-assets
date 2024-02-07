@@ -10,6 +10,10 @@ var testCases = []*testCase{
 		test: testMintAssets,
 	},
 	{
+		name: "asset meta validation",
+		test: testAssetMeta,
+	},
+	{
 		name: "asset name collision raises mint error",
 		test: testMintAssetNameCollisionError,
 	},
