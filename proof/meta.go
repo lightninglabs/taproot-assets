@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"io"
 
@@ -18,6 +19,11 @@ const (
 	// bytes without any specific interpretation.
 	MetaOpaque MetaType = 0
 
+	// MetaJson signals that the meta data is a JSON object.
+	MetaJson MetaType = 1
+)
+
+const (
 	// MetaDataMaxSizeBytes is the maximum length of the meta data. We limit
 	// this to 1MiB for now. This should be of sufficient size to commit to
 	// any JSON data or even medium resolution images. If there is need to
@@ -35,6 +41,9 @@ var (
 
 	// ErrMetaDataTooLarge signals that the meta data is too large.
 	ErrMetaDataTooLarge = errors.New("meta data too large")
+
+	// ErrInvalidJSON signals that the meta data is not a valid JSON.
+	ErrInvalidJSON = errors.New("invalid JSON")
 )
 
 // MetaReveal is an optional TLV type that can be added to the proof of a
@@ -64,6 +73,13 @@ func (m *MetaReveal) Validate() error {
 
 	if len(m.Data) > MetaDataMaxSizeBytes {
 		return ErrMetaDataTooLarge
+	}
+
+	// If the type is JSON, then it should be parseable as a JSON string.
+	if m.Type == MetaJson {
+		if !json.Valid(m.Data) {
+			return ErrInvalidJSON
+		}
 	}
 
 	return nil
