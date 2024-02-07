@@ -830,8 +830,11 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 func createDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output.
 	newOutput := wire.TxOut{
-		Value:    int64(tapscript.DummyAmtSats),
-		PkScript: make([]byte, 34),
+		Value: int64(tapscript.DummyAmtSats),
+		PkScript: append(
+			[]byte{txscript.OP_1, txscript.OP_DATA_32},
+			make([]byte, 32)...,
+		),
 	}
 	return &newOutput
 }
