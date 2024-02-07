@@ -515,6 +515,37 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 		require.NoError(t, err)
 		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
 
+		// If the signature is not committing to the outputs, let's
+		// change things up a bit.
+		if sigHashType == txscript.SigHashNone {
+			// Now we pay 2 units to the root output and 1 unit to
+			// the split output.
+			rootLocator := &commitment.SplitLocator{
+				OutputIndex: 0,
+				AssetID:     assetID,
+				ScriptKey: asset.ToSerialized(
+					genesisAsset.ScriptKey.PubKey,
+				),
+				Amount: 2,
+			}
+			externalLocators := []*commitment.SplitLocator{{
+				OutputIndex: 1,
+				AssetID:     assetID,
+				ScriptKey:   asset.RandSerializedKey(t),
+				Amount:      1,
+			}}
+
+			splitCommitment, err = commitment.NewSplitCommitment(
+				context.Background(), inputs, rootLocator,
+				externalLocators...,
+			)
+			require.NoError(t, err)
+
+			// We need to recover the previously generated witness.
+			splitCommitment.RootAsset.PrevWitnesses[0].TxWitness =
+				newWitness
+		}
+
 		return splitCommitment.RootAsset, splitCommitment.SplitAssets,
 			splitCommitment.PrevAssets
 	}
@@ -711,6 +742,22 @@ func TestVM(t *testing.T) {
 				"sighash single",
 			f: scriptTreeSpendStateTransition(
 				t, false, true, txscript.SigHashSingle,
+			),
+			err: nil,
+		},
+		{
+			name: "script tree spend state transition valid sig " +
+				"sighash single",
+			f: scriptTreeSpendStateTransition(
+				t, false, true, txscript.SigHashSingle,
+			),
+			err: nil,
+		},
+		{
+			name: "script tree spend state transition valid sig " +
+				"sighash none",
+			f: scriptTreeSpendStateTransition(
+				t, false, true, txscript.SigHashNone,
 			),
 			err: nil,
 		},
