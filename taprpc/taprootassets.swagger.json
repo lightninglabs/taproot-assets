@@ -1224,10 +1224,11 @@
     "taprpcAssetMetaType": {
       "type": "string",
       "enum": [
-        "META_TYPE_OPAQUE"
+        "META_TYPE_OPAQUE",
+        "META_TYPE_JSON"
       ],
       "default": "META_TYPE_OPAQUE",
-      "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs."
+      "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
     },
     "taprpcAssetReceiveCompleteEvent": {
       "type": "object",

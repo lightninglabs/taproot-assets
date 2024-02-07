@@ -152,6 +152,12 @@ enum AssetMetaType {
     should be interpreted as opaque blobs.
     */
     META_TYPE_OPAQUE = 0;
+
+    /*
+    JSON is used for asset meta blobs that are to be interpreted as valid JSON
+    strings.
+    */
+    META_TYPE_JSON = 1;
 }
 
 message AssetMeta {
