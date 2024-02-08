@@ -5,6 +5,7 @@ import (
 	"fmt"
 	prand "math/rand"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/lightninglabs/taproot-assets/itest"
@@ -44,7 +45,7 @@ func sendTest(t *testing.T, ctx context.Context, cfg *Config) {
 
 		sendAssets(
 			t, ctxt, cfg.NumAssets, cfg.SendType, send, receive,
-			bitcoinClient,
+			bitcoinClient, cfg.TestTimeout,
 		)
 
 		t.Logf("Finished %d of %d send operations", i, cfg.NumSends)
@@ -55,7 +56,7 @@ func sendTest(t *testing.T, ctx context.Context, cfg *Config) {
 // node to the other node.
 func sendAssets(t *testing.T, ctx context.Context, numAssets uint64,
 	assetType taprpc.AssetType, send, receive *rpcClient,
-	bitcoinClient *rpcclient.Client) {
+	bitcoinClient *rpcclient.Client, timeout time.Duration) {
 
 	// Query the asset we'll be sending, so we can assert some things about
 	// it later.
@@ -91,16 +92,20 @@ func sendAssets(t *testing.T, ctx context.Context, numAssets uint64,
 	require.Eventually(t, func() bool {
 		newTransfers := send.listTransfersSince(t, ctx, transfersBefore)
 		return len(newTransfers) == 1
-	}, defaultTimeout, wait.PollInterval)
+	}, timeout, wait.PollInterval)
 
 	// And for it to be detected on the receiving node.
-	itest.AssertAddrEvent(t, receive, addr, 1, statusDetected)
+	itest.AssertAddrEventCustomTimeout(
+		t, receive, addr, 1, statusDetected, timeout,
+	)
 
 	// Mine a block to confirm the transfer.
 	itest.MineBlocks(t, bitcoinClient, 1, 1)
 
 	// Now the transfer should go to completed eventually.
-	itest.AssertAddrEvent(t, receive, addr, 1, statusCompleted)
+	itest.AssertAddrEventCustomTimeout(
+		t, receive, addr, 1, statusCompleted, timeout,
+	)
 }
 
 // pickSendNode picks a node at random, checks whether it has enough assets of
