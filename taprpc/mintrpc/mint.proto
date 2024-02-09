@@ -177,6 +177,12 @@ message FinalizeBatchRequest {
 
     // The optional fee rate to use for the minting transaction, in sat/kw.
     uint32 fee_rate = 2;
+
+    oneof batch_sibling {
+        taprpc.TapscriptFullTree full_tree = 3;
+
+        taprpc.TapBranch branch = 4;
+    }
 }
 
 message FinalizeBatchResponse {

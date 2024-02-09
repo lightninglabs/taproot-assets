@@ -749,6 +749,27 @@ message KeyDescriptor {
     KeyLocator key_loc = 2;
 }
 
+message TapscriptFullTree {
+    /*
+    The complete, ordered list of all tap leaves of the tree.
+    */
+    repeated TapLeaf all_leaves = 1;
+}
+
+message TapLeaf {
+    // The leaf version. Should be 0xc0 (192) in case of a SegWit v1 script.
+    uint32 leaf_version = 1;
+
+    // The script of the tap leaf.
+    bytes script = 2;
+}
+
+message TapBranch {
+    bytes left_taphash = 1;
+
+    bytes right_taphash = 2;
+}
+
 message DecodeAddrRequest {
     string addr = 1;
 }
