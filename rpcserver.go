@@ -1097,7 +1097,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
-	// Was there a tapscript sibling preimage specified?
+	// Was there a tapscript sibling preimage specified? If so, decode it
+	// and check that it is not a Taproot Asset Commitment.
 	tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
 		req.TapscriptSibling,
 	)

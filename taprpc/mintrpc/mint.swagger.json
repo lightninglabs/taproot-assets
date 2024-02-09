@@ -196,6 +196,14 @@
           "type": "integer",
           "format": "int64",
           "description": "The optional fee rate to use for the minting transaction, in sat/kw."
+        },
+        "full_tree": {
+          "$ref": "#/definitions/taprpcTapscriptFullTree",
+          "description": "An ordered list of TapLeafs, which will be used to construct a\nTapscript tree."
+        },
+        "branch": {
+          "$ref": "#/definitions/taprpcTapBranch",
+          "description": "A TapBranch that represents a Tapscript tree managed externally."
         }
       }
     },
@@ -423,6 +431,43 @@
       ],
       "default": "ASSET_VERSION_V0",
       "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
+    },
+    "taprpcTapBranch": {
+      "type": "object",
+      "properties": {
+        "left_taphash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The TapHash of the left child of the root hash of a Tapscript tree."
+        },
+        "right_taphash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The TapHash of the right child of the root hash of a Tapscript tree."
+        }
+      }
+    },
+    "taprpcTapLeaf": {
+      "type": "object",
+      "properties": {
+        "script": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script of the tap leaf."
+        }
+      }
+    },
+    "taprpcTapscriptFullTree": {
+      "type": "object",
+      "properties": {
+        "all_leaves": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcTapLeaf"
+          },
+          "description": "The complete, ordered list of all tap leaves of the tree."
+        }
+      }
     }
   }
 }

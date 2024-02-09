@@ -177,6 +177,22 @@ message FinalizeBatchRequest {
 
     // The optional fee rate to use for the minting transaction, in sat/kw.
     uint32 fee_rate = 2;
+
+    /*
+    The optional tapscript sibling that will be used when deriving the genesis
+    output for the batch. This sibling is a tapscript tree, which allows the
+    minter to encumber future transfers of assets in the batch with Tapscript.
+    */
+    oneof batch_sibling {
+        /*
+        An ordered list of TapLeafs, which will be used to construct a
+        Tapscript tree.
+        */
+        taprpc.TapscriptFullTree full_tree = 3;
+
+        // A TapBranch that represents a Tapscript tree managed externally.
+        taprpc.TapBranch branch = 4;
+    }
 }
 
 message FinalizeBatchResponse {
