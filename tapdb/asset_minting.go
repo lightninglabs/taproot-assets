@@ -312,6 +312,19 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 				"batch: %w", err)
 		}
 
+		newBatchSibling := newBatch.TapSibling()
+		if newBatchSibling != nil {
+			err = q.BindMintingBatchWithTapSibling(ctx,
+				BatchTapSiblingUpdate{
+					RawKey:           rawBatchKey,
+					TapscriptSibling: newBatchSibling,
+				})
+			if err != nil {
+				return fmt.Errorf("unable to insert batch "+
+					"sibling: %w", err)
+			}
+		}
+
 		// Now that our minting batch is in place, which references the
 		// internal key inserted above, we can create the set of new
 		// seedlings. We insert group anchors before other assets.
@@ -862,6 +875,15 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 
 	batch.UpdateState(batchState)
 
+	if len(dbBatch.TapscriptSibling) != 0 {
+		batchSibling, err := chainhash.NewHash(dbBatch.TapscriptSibling)
+		if err != nil {
+			return nil, err
+		}
+
+		batch.UpdateTapSibling(batchSibling)
+	}
+
 	if dbBatch.MintingTxPsbt != nil {
 		genesisPkt, err := psbt.NewFromRawBytes(
 			bytes.NewReader(dbBatch.MintingTxPsbt), false,
@@ -926,6 +948,20 @@ func (a *AssetMintingStore) UpdateBatchState(ctx context.Context,
 			RawKey:     batchKey.SerializeCompressed(),
 			BatchState: int16(newState),
 		})
+	})
+}
+
+func (a *AssetMintingStore) CommitBatchTapSibling(ctx context.Context,
+	batchKey *btcec.PublicKey, batchSibling *chainhash.Hash) error {
+
+	siblingUpdate := BatchTapSiblingUpdate{
+		RawKey:           batchKey.SerializeCompressed(),
+		TapscriptSibling: batchSibling[:],
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		return q.BindMintingBatchWithTapSibling(ctx, siblingUpdate)
 	})
 }
 
@@ -1019,7 +1055,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 	batchKey *btcec.PublicKey, genesisPkt *tapgarden.FundedPsbt,
-	anchorOutputIndex uint32, merkleRoot []byte) error {
+	anchorOutputIndex uint32, merkleRoot, tapTreeRoot, tapSibling []byte) error {
 
 	// The managed UTXO we'll insert only contains the raw tx of the
 	// genesis packet, so we'll extract that now.
@@ -1087,13 +1123,11 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// batch, we'll create a new managed UTXO for this batch as
 		// this is where all the assets will be anchored within.
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
-			RawKey:   rawBatchKey,
-			Outpoint: anchorOutpoint,
-			AmtSats:  anchorOutput.Value,
-			// When minting, we never have a tapscript sibling, so
-			// the TaprootAssetRoot root is always equal to the
-			// merkle root.
-			TaprootAssetRoot: merkleRoot,
+			RawKey:           rawBatchKey,
+			Outpoint:         anchorOutpoint,
+			AmtSats:          anchorOutput.Value,
+			TaprootAssetRoot: tapTreeRoot,
+			TapscriptSibling: tapSibling,
 			MerkleRoot:       merkleRoot,
 			TxnID:            chainTXID,
 		})
