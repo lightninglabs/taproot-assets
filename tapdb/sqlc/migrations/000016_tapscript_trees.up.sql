@@ -1,3 +1,8 @@
+-- The tapscript sibling is an optional hash that represents the root hash of a
+-- tapscript tree. On batch finalization, this hash is used with the Taproot
+-- Asset commitment to create the Taproot output key of the genesis output.
+ALTER TABLE asset_minting_batches ADD COLUMN tapscript_sibling BLOB;
+
 -- This table stores root hashes for tapscript trees, and a flag to ensure that
 -- the stored tree nodes are decoded correctly.
 CREATE TABLE IF NOT EXISTS tapscript_roots (
