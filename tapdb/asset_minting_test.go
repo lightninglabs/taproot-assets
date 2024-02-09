@@ -761,7 +761,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
 		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 2,
-		randAssetCtx.scriptRoot,
+		randAssetCtx.scriptRoot, randAssetCtx.scriptRoot, nil,
 	))
 
 	// The batch updated above should be found, with the batch state
