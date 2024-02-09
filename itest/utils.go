@@ -9,7 +9,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -130,6 +129,23 @@ type UTXORequest struct {
 	Amount int64
 }
 
+// MakeOutput creates a new TXO from a given output type and amount.
+func MakeOutput(t *harnessTest, wallet *node.HarnessNode,
+	addrType lnrpc.AddressType, amount int64) *wire.TxOut {
+
+	addrResp := wallet.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: addrType,
+	})
+	addr, err := btcutil.DecodeAddress(
+		addrResp.Address, harnessNetParams,
+	)
+	require.NoError(t.t, err)
+
+	addrScript := t.lndHarness.PayToAddrScript(addr)
+
+	return wire.NewTxOut(amount, addrScript)
+}
+
 // SetNodeUTXOs sets the wallet state for the given node wallet to a set of
 // UTXOs of a specific type and value.
 func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
@@ -146,28 +162,9 @@ func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
 
 	// Build TXOs from the UTXO requests, which will be used by the miner
 	// to build a TX.
-	makeOutputs := func(req *UTXORequest) *wire.TxOut {
-		addrResp := wallet.RPC.NewAddress(
-			&lnrpc.NewAddressRequest{
-				Type: req.Type,
-			},
-		)
-
-		addr, err := btcutil.DecodeAddress(
-			addrResp.Address, t.lndHarness.Miner.ActiveNet,
-		)
-		require.NoError(t.t, err)
-
-		addrScript, err := txscript.PayToAddrScript(addr)
-		require.NoError(t.t, err)
-
-		return &wire.TxOut{
-			PkScript: addrScript,
-			Value:    req.Amount,
-		}
-	}
-
-	aliceOutputs := fn.Map(reqs, makeOutputs)
+	aliceOutputs := fn.Map(reqs, func(r *UTXORequest) *wire.TxOut {
+		return MakeOutput(t, wallet, r.Type, r.Amount)
+	})
 
 	_ = t.lndHarness.Miner.SendOutputsWithoutChange(aliceOutputs, feeRate)
 	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
@@ -195,7 +192,9 @@ func ResetNodeWallet(t *harnessTest, wallet *node.HarnessNode) {
 type MintOption func(*MintOptions)
 
 type MintOptions struct {
-	mintingTimeout time.Duration
+	mintingTimeout  time.Duration
+	siblingBranch   *mintrpc.FinalizeBatchRequest_Branch
+	siblingFullTree *mintrpc.FinalizeBatchRequest_FullTree
 }
 
 func DefaultMintOptions() *MintOptions {
@@ -207,6 +206,18 @@ func DefaultMintOptions() *MintOptions {
 func WithMintingTimeout(timeout time.Duration) MintOption {
 	return func(options *MintOptions) {
 		options.mintingTimeout = timeout
+	}
+}
+
+func WithSiblingBranch(branch mintrpc.FinalizeBatchRequest_Branch) MintOption {
+	return func(options *MintOptions) {
+		options.siblingBranch = &branch
+	}
+}
+
+func WithSiblingTree(tree mintrpc.FinalizeBatchRequest_FullTree) MintOption {
+	return func(options *MintOptions) {
+		options.siblingFullTree = &tree
 	}
 }
 
@@ -234,10 +245,17 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		require.Len(t, assetResp.PendingBatch.Assets, idx+1)
 	}
 
+	finalizeReq := &mintrpc.FinalizeBatchRequest{}
+
+	if options.siblingBranch != nil {
+		finalizeReq.BatchSibling = options.siblingBranch
+	}
+	if options.siblingFullTree != nil {
+		finalizeReq.BatchSibling = options.siblingFullTree
+	}
+
 	// Instruct the daemon to finalize the batch.
-	batchResp, err := tapClient.FinalizeBatch(
-		ctxt, &mintrpc.FinalizeBatchRequest{},
-	)
+	batchResp, err := tapClient.FinalizeBatch(ctxt, finalizeReq)
 	require.NoError(t, err)
 	require.NotEmpty(t, batchResp.Batch)
 	require.Len(t, batchResp.Batch.Assets, len(assetRequests))

@@ -18,6 +18,10 @@ var testCases = []*testCase{
 		test: testMintAssetNameCollisionError,
 	},
 	{
+		name: "mint assets with tap sibling",
+		test: testMintAssetsWithTapscriptSibling,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
