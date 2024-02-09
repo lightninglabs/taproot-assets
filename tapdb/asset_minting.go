@@ -60,6 +60,8 @@ type (
 	// AssetGroupKey is used to insert a new asset key group into the DB.
 	AssetGroupKey = sqlc.UpsertAssetGroupKeyParams
 
+	BatchTapSiblingUpdate = sqlc.BindMintingBatchWithTapSiblingParams
+
 	// BatchChainUpdate is used to update a batch with the minting
 	// transaction associated with it.
 	BatchChainUpdate = sqlc.BindMintingBatchWithTxParams
@@ -176,6 +178,9 @@ type PendingAssetStore interface {
 	// FetchSeedlingByID is used to look up a specific seedling.
 	FetchSeedlingByID(ctx context.Context,
 		seedlingID int64) (AssetSeedling, error)
+
+	BindMintingBatchWithTapSibling(ctx context.Context,
+		arg BatchTapSiblingUpdate) error
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.

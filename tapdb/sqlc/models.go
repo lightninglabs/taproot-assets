@@ -77,6 +77,7 @@ type AssetMintingBatch struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 }
 
 type AssetProof struct {

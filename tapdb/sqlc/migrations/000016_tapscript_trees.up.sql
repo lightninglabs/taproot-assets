@@ -1,3 +1,5 @@
+ALTER TABLE asset_minting_batches ADD COLUMN tapscript_sibling BLOB;
+
 CREATE TABLE IF NOT EXISTS tapscript_roots (
         root_id BIGINT PRIMARY KEY,
 
