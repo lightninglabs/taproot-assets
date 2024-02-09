@@ -467,6 +467,18 @@ UPDATE asset_minting_batches
 SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
 WHERE batch_id IN (SELECT batch_id FROM target_batch);
 
+-- name: BindMintingBatchWithTapSibling :exec
+WITH target_batch AS (
+    SELECT batch_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys keys
+        ON batches.batch_id = keys.key_id
+    WHERE keys.raw_key = $1
+)
+UPDATE asset_minting_batches
+SET tapscript_sibling = $2
+WHERE batch_id IN (SELECT batch_id FROM target_batch);
+
 -- name: UpdateBatchGenesisTx :exec
 WITH target_batch AS (
     SELECT batch_id
