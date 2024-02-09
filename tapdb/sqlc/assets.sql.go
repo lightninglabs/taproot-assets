@@ -87,7 +87,7 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const allMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
 ON asset_minting_batches.batch_id = internal_keys.key_id
@@ -101,6 +101,7 @@ type AllMintingBatchesRow struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
@@ -124,6 +125,7 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 			&i.GenesisID,
 			&i.HeightHint,
 			&i.CreationTimeUnix,
+			&i.TapscriptSibling,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -326,6 +328,29 @@ func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInB
 		return nil, err
 	}
 	return items, nil
+}
+
+const bindMintingBatchWithTapSibling = `-- name: BindMintingBatchWithTapSibling :exec
+WITH target_batch AS (
+    SELECT batch_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys keys
+        ON batches.batch_id = keys.key_id
+    WHERE keys.raw_key = $1
+)
+UPDATE asset_minting_batches
+SET tapscript_sibling = $2
+WHERE batch_id IN (SELECT batch_id FROM target_batch)
+`
+
+type BindMintingBatchWithTapSiblingParams struct {
+	RawKey           []byte
+	TapscriptSibling []byte
+}
+
+func (q *Queries) BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error {
+	_, err := q.db.ExecContext(ctx, bindMintingBatchWithTapSibling, arg.RawKey, arg.TapscriptSibling)
+	return err
 }
 
 const bindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :exec
@@ -1364,7 +1389,7 @@ WITH target_batch AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -1379,6 +1404,7 @@ type FetchMintingBatchRow struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
@@ -1396,6 +1422,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 		&i.GenesisID,
 		&i.HeightHint,
 		&i.CreationTimeUnix,
+		&i.TapscriptSibling,
 		&i.KeyID,
 		&i.RawKey,
 		&i.KeyFamily,
@@ -1405,7 +1432,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 }
 
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -1420,6 +1447,7 @@ type FetchMintingBatchesByInverseStateRow struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
@@ -1443,6 +1471,7 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 			&i.GenesisID,
 			&i.HeightHint,
 			&i.CreationTimeUnix,
+			&i.TapscriptSibling,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
