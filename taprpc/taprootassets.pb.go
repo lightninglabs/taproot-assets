@@ -3119,6 +3119,166 @@ func (x *KeyDescriptor) GetKeyLoc() *KeyLocator {
 	return nil
 }
 
+type TapscriptFullTree struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The complete, ordered list of all tap leaves of the tree.
+	AllLeaves []*TapLeaf `protobuf:"bytes,1,rep,name=all_leaves,json=allLeaves,proto3" json:"all_leaves,omitempty"`
+}
+
+func (x *TapscriptFullTree) Reset() {
+	*x = TapscriptFullTree{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taprootassets_proto_msgTypes[39]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *TapscriptFullTree) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TapscriptFullTree) ProtoMessage() {}
+
+func (x *TapscriptFullTree) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[39]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TapscriptFullTree.ProtoReflect.Descriptor instead.
+func (*TapscriptFullTree) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{39}
+}
+
+func (x *TapscriptFullTree) GetAllLeaves() []*TapLeaf {
+	if x != nil {
+		return x.AllLeaves
+	}
+	return nil
+}
+
+type TapLeaf struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The leaf version. Should be 0xc0 (192) in case of a SegWit v1 script.
+	LeafVersion uint32 `protobuf:"varint,1,opt,name=leaf_version,json=leafVersion,proto3" json:"leaf_version,omitempty"`
+	// The script of the tap leaf.
+	Script []byte `protobuf:"bytes,2,opt,name=script,proto3" json:"script,omitempty"`
+}
+
+func (x *TapLeaf) Reset() {
+	*x = TapLeaf{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taprootassets_proto_msgTypes[40]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *TapLeaf) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TapLeaf) ProtoMessage() {}
+
+func (x *TapLeaf) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[40]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TapLeaf.ProtoReflect.Descriptor instead.
+func (*TapLeaf) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{40}
+}
+
+func (x *TapLeaf) GetLeafVersion() uint32 {
+	if x != nil {
+		return x.LeafVersion
+	}
+	return 0
+}
+
+func (x *TapLeaf) GetScript() []byte {
+	if x != nil {
+		return x.Script
+	}
+	return nil
+}
+
+type TapBranch struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	LeftTaphash  []byte `protobuf:"bytes,1,opt,name=left_taphash,json=leftTaphash,proto3" json:"left_taphash,omitempty"`
+	RightTaphash []byte `protobuf:"bytes,2,opt,name=right_taphash,json=rightTaphash,proto3" json:"right_taphash,omitempty"`
+}
+
+func (x *TapBranch) Reset() {
+	*x = TapBranch{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taprootassets_proto_msgTypes[41]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *TapBranch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TapBranch) ProtoMessage() {}
+
+func (x *TapBranch) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[41]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TapBranch.ProtoReflect.Descriptor instead.
+func (*TapBranch) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *TapBranch) GetLeftTaphash() []byte {
+	if x != nil {
+		return x.LeftTaphash
+	}
+	return nil
+}
+
+func (x *TapBranch) GetRightTaphash() []byte {
+	if x != nil {
+		return x.RightTaphash
+	}
+	return nil
+}
+
 type DecodeAddrRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -3130,7 +3290,7 @@ type DecodeAddrRequest struct {
 func (x *DecodeAddrRequest) Reset() {
 	*x = DecodeAddrRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[39]
+		mi := &file_taprootassets_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3143,7 +3303,7 @@ func (x *DecodeAddrRequest) String() string {
 func (*DecodeAddrRequest) ProtoMessage() {}
 
 func (x *DecodeAddrRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[39]
+	mi := &file_taprootassets_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3156,7 +3316,7 @@ func (x *DecodeAddrRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodeAddrRequest.ProtoReflect.Descriptor instead.
 func (*DecodeAddrRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{39}
+	return file_taprootassets_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *DecodeAddrRequest) GetAddr() string {
@@ -3180,7 +3340,7 @@ type ProofFile struct {
 func (x *ProofFile) Reset() {
 	*x = ProofFile{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[40]
+		mi := &file_taprootassets_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3193,7 +3353,7 @@ func (x *ProofFile) String() string {
 func (*ProofFile) ProtoMessage() {}
 
 func (x *ProofFile) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[40]
+	mi := &file_taprootassets_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3206,7 +3366,7 @@ func (x *ProofFile) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProofFile.ProtoReflect.Descriptor instead.
 func (*ProofFile) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{40}
+	return file_taprootassets_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *ProofFile) GetRawProofFile() []byte {
@@ -3276,7 +3436,7 @@ type DecodedProof struct {
 func (x *DecodedProof) Reset() {
 	*x = DecodedProof{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[41]
+		mi := &file_taprootassets_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3289,7 +3449,7 @@ func (x *DecodedProof) String() string {
 func (*DecodedProof) ProtoMessage() {}
 
 func (x *DecodedProof) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[41]
+	mi := &file_taprootassets_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3302,7 +3462,7 @@ func (x *DecodedProof) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodedProof.ProtoReflect.Descriptor instead.
 func (*DecodedProof) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{41}
+	return file_taprootassets_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *DecodedProof) GetProofAtDepth() uint32 {
@@ -3409,7 +3569,7 @@ type VerifyProofResponse struct {
 func (x *VerifyProofResponse) Reset() {
 	*x = VerifyProofResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[42]
+		mi := &file_taprootassets_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3422,7 +3582,7 @@ func (x *VerifyProofResponse) String() string {
 func (*VerifyProofResponse) ProtoMessage() {}
 
 func (x *VerifyProofResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[42]
+	mi := &file_taprootassets_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3435,7 +3595,7 @@ func (x *VerifyProofResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VerifyProofResponse.ProtoReflect.Descriptor instead.
 func (*VerifyProofResponse) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{42}
+	return file_taprootassets_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *VerifyProofResponse) GetValid() bool {
@@ -3475,7 +3635,7 @@ type DecodeProofRequest struct {
 func (x *DecodeProofRequest) Reset() {
 	*x = DecodeProofRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[43]
+		mi := &file_taprootassets_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3488,7 +3648,7 @@ func (x *DecodeProofRequest) String() string {
 func (*DecodeProofRequest) ProtoMessage() {}
 
 func (x *DecodeProofRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[43]
+	mi := &file_taprootassets_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3501,7 +3661,7 @@ func (x *DecodeProofRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodeProofRequest.ProtoReflect.Descriptor instead.
 func (*DecodeProofRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{43}
+	return file_taprootassets_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *DecodeProofRequest) GetRawProof() []byte {
@@ -3543,7 +3703,7 @@ type DecodeProofResponse struct {
 func (x *DecodeProofResponse) Reset() {
 	*x = DecodeProofResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[44]
+		mi := &file_taprootassets_proto_msgTypes[47]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3556,7 +3716,7 @@ func (x *DecodeProofResponse) String() string {
 func (*DecodeProofResponse) ProtoMessage() {}
 
 func (x *DecodeProofResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[44]
+	mi := &file_taprootassets_proto_msgTypes[47]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3569,7 +3729,7 @@ func (x *DecodeProofResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DecodeProofResponse.ProtoReflect.Descriptor instead.
 func (*DecodeProofResponse) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{44}
+	return file_taprootassets_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *DecodeProofResponse) GetDecodedProof() *DecodedProof {
@@ -3592,7 +3752,7 @@ type ExportProofRequest struct {
 func (x *ExportProofRequest) Reset() {
 	*x = ExportProofRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[45]
+		mi := &file_taprootassets_proto_msgTypes[48]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3605,7 +3765,7 @@ func (x *ExportProofRequest) String() string {
 func (*ExportProofRequest) ProtoMessage() {}
 
 func (x *ExportProofRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[45]
+	mi := &file_taprootassets_proto_msgTypes[48]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3618,7 +3778,7 @@ func (x *ExportProofRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExportProofRequest.ProtoReflect.Descriptor instead.
 func (*ExportProofRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{45}
+	return file_taprootassets_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *ExportProofRequest) GetAssetId() []byte {
@@ -3672,7 +3832,7 @@ type AddrEvent struct {
 func (x *AddrEvent) Reset() {
 	*x = AddrEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[46]
+		mi := &file_taprootassets_proto_msgTypes[49]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3685,7 +3845,7 @@ func (x *AddrEvent) String() string {
 func (*AddrEvent) ProtoMessage() {}
 
 func (x *AddrEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[46]
+	mi := &file_taprootassets_proto_msgTypes[49]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3698,7 +3858,7 @@ func (x *AddrEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddrEvent.ProtoReflect.Descriptor instead.
 func (*AddrEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{46}
+	return file_taprootassets_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *AddrEvent) GetCreationTimeUnixSeconds() uint64 {
@@ -3771,7 +3931,7 @@ type AddrReceivesRequest struct {
 func (x *AddrReceivesRequest) Reset() {
 	*x = AddrReceivesRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[47]
+		mi := &file_taprootassets_proto_msgTypes[50]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3784,7 +3944,7 @@ func (x *AddrReceivesRequest) String() string {
 func (*AddrReceivesRequest) ProtoMessage() {}
 
 func (x *AddrReceivesRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[47]
+	mi := &file_taprootassets_proto_msgTypes[50]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3797,7 +3957,7 @@ func (x *AddrReceivesRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddrReceivesRequest.ProtoReflect.Descriptor instead.
 func (*AddrReceivesRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{47}
+	return file_taprootassets_proto_rawDescGZIP(), []int{50}
 }
 
 func (x *AddrReceivesRequest) GetFilterAddr() string {
@@ -3826,7 +3986,7 @@ type AddrReceivesResponse struct {
 func (x *AddrReceivesResponse) Reset() {
 	*x = AddrReceivesResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[48]
+		mi := &file_taprootassets_proto_msgTypes[51]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3839,7 +3999,7 @@ func (x *AddrReceivesResponse) String() string {
 func (*AddrReceivesResponse) ProtoMessage() {}
 
 func (x *AddrReceivesResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[48]
+	mi := &file_taprootassets_proto_msgTypes[51]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3852,7 +4012,7 @@ func (x *AddrReceivesResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddrReceivesResponse.ProtoReflect.Descriptor instead.
 func (*AddrReceivesResponse) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{48}
+	return file_taprootassets_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *AddrReceivesResponse) GetEvents() []*AddrEvent {
@@ -3875,7 +4035,7 @@ type SendAssetRequest struct {
 func (x *SendAssetRequest) Reset() {
 	*x = SendAssetRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[49]
+		mi := &file_taprootassets_proto_msgTypes[52]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3888,7 +4048,7 @@ func (x *SendAssetRequest) String() string {
 func (*SendAssetRequest) ProtoMessage() {}
 
 func (x *SendAssetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[49]
+	mi := &file_taprootassets_proto_msgTypes[52]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3901,7 +4061,7 @@ func (x *SendAssetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendAssetRequest.ProtoReflect.Descriptor instead.
 func (*SendAssetRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{49}
+	return file_taprootassets_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *SendAssetRequest) GetTapAddrs() []string {
@@ -3932,7 +4092,7 @@ type PrevInputAsset struct {
 func (x *PrevInputAsset) Reset() {
 	*x = PrevInputAsset{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[50]
+		mi := &file_taprootassets_proto_msgTypes[53]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3945,7 +4105,7 @@ func (x *PrevInputAsset) String() string {
 func (*PrevInputAsset) ProtoMessage() {}
 
 func (x *PrevInputAsset) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[50]
+	mi := &file_taprootassets_proto_msgTypes[53]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3958,7 +4118,7 @@ func (x *PrevInputAsset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PrevInputAsset.ProtoReflect.Descriptor instead.
 func (*PrevInputAsset) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{50}
+	return file_taprootassets_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *PrevInputAsset) GetAnchorPoint() string {
@@ -4000,7 +4160,7 @@ type SendAssetResponse struct {
 func (x *SendAssetResponse) Reset() {
 	*x = SendAssetResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[51]
+		mi := &file_taprootassets_proto_msgTypes[54]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4013,7 +4173,7 @@ func (x *SendAssetResponse) String() string {
 func (*SendAssetResponse) ProtoMessage() {}
 
 func (x *SendAssetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[51]
+	mi := &file_taprootassets_proto_msgTypes[54]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4026,7 +4186,7 @@ func (x *SendAssetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendAssetResponse.ProtoReflect.Descriptor instead.
 func (*SendAssetResponse) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{51}
+	return file_taprootassets_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *SendAssetResponse) GetTransfer() *AssetTransfer {
@@ -4045,7 +4205,7 @@ type GetInfoRequest struct {
 func (x *GetInfoRequest) Reset() {
 	*x = GetInfoRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[52]
+		mi := &file_taprootassets_proto_msgTypes[55]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4058,7 +4218,7 @@ func (x *GetInfoRequest) String() string {
 func (*GetInfoRequest) ProtoMessage() {}
 
 func (x *GetInfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[52]
+	mi := &file_taprootassets_proto_msgTypes[55]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4071,7 +4231,7 @@ func (x *GetInfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInfoRequest.ProtoReflect.Descriptor instead.
 func (*GetInfoRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{52}
+	return file_taprootassets_proto_rawDescGZIP(), []int{55}
 }
 
 type GetInfoResponse struct {
@@ -4092,7 +4252,7 @@ type GetInfoResponse struct {
 func (x *GetInfoResponse) Reset() {
 	*x = GetInfoResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[53]
+		mi := &file_taprootassets_proto_msgTypes[56]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4105,7 +4265,7 @@ func (x *GetInfoResponse) String() string {
 func (*GetInfoResponse) ProtoMessage() {}
 
 func (x *GetInfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[53]
+	mi := &file_taprootassets_proto_msgTypes[56]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4118,7 +4278,7 @@ func (x *GetInfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetInfoResponse.ProtoReflect.Descriptor instead.
 func (*GetInfoResponse) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{53}
+	return file_taprootassets_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *GetInfoResponse) GetVersion() string {
@@ -4186,7 +4346,7 @@ type SubscribeSendAssetEventNtfnsRequest struct {
 func (x *SubscribeSendAssetEventNtfnsRequest) Reset() {
 	*x = SubscribeSendAssetEventNtfnsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[54]
+		mi := &file_taprootassets_proto_msgTypes[57]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4199,7 +4359,7 @@ func (x *SubscribeSendAssetEventNtfnsRequest) String() string {
 func (*SubscribeSendAssetEventNtfnsRequest) ProtoMessage() {}
 
 func (x *SubscribeSendAssetEventNtfnsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[54]
+	mi := &file_taprootassets_proto_msgTypes[57]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4212,7 +4372,7 @@ func (x *SubscribeSendAssetEventNtfnsRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use SubscribeSendAssetEventNtfnsRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeSendAssetEventNtfnsRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{54}
+	return file_taprootassets_proto_rawDescGZIP(), []int{57}
 }
 
 type SendAssetEvent struct {
@@ -4230,7 +4390,7 @@ type SendAssetEvent struct {
 func (x *SendAssetEvent) Reset() {
 	*x = SendAssetEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[55]
+		mi := &file_taprootassets_proto_msgTypes[58]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4243,7 +4403,7 @@ func (x *SendAssetEvent) String() string {
 func (*SendAssetEvent) ProtoMessage() {}
 
 func (x *SendAssetEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[55]
+	mi := &file_taprootassets_proto_msgTypes[58]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4256,7 +4416,7 @@ func (x *SendAssetEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendAssetEvent.ProtoReflect.Descriptor instead.
 func (*SendAssetEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{55}
+	return file_taprootassets_proto_rawDescGZIP(), []int{58}
 }
 
 func (m *SendAssetEvent) GetEvent() isSendAssetEvent_Event {
@@ -4313,7 +4473,7 @@ type ExecuteSendStateEvent struct {
 func (x *ExecuteSendStateEvent) Reset() {
 	*x = ExecuteSendStateEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[56]
+		mi := &file_taprootassets_proto_msgTypes[59]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4326,7 +4486,7 @@ func (x *ExecuteSendStateEvent) String() string {
 func (*ExecuteSendStateEvent) ProtoMessage() {}
 
 func (x *ExecuteSendStateEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[56]
+	mi := &file_taprootassets_proto_msgTypes[59]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4339,7 +4499,7 @@ func (x *ExecuteSendStateEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ExecuteSendStateEvent.ProtoReflect.Descriptor instead.
 func (*ExecuteSendStateEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{56}
+	return file_taprootassets_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *ExecuteSendStateEvent) GetTimestamp() int64 {
@@ -4376,7 +4536,7 @@ type ProofTransferBackoffWaitEvent struct {
 func (x *ProofTransferBackoffWaitEvent) Reset() {
 	*x = ProofTransferBackoffWaitEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[57]
+		mi := &file_taprootassets_proto_msgTypes[60]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4389,7 +4549,7 @@ func (x *ProofTransferBackoffWaitEvent) String() string {
 func (*ProofTransferBackoffWaitEvent) ProtoMessage() {}
 
 func (x *ProofTransferBackoffWaitEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[57]
+	mi := &file_taprootassets_proto_msgTypes[60]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4402,7 +4562,7 @@ func (x *ProofTransferBackoffWaitEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ProofTransferBackoffWaitEvent.ProtoReflect.Descriptor instead.
 func (*ProofTransferBackoffWaitEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{57}
+	return file_taprootassets_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *ProofTransferBackoffWaitEvent) GetTimestamp() int64 {
@@ -4442,7 +4602,7 @@ type SubscribeReceiveAssetEventNtfnsRequest struct {
 func (x *SubscribeReceiveAssetEventNtfnsRequest) Reset() {
 	*x = SubscribeReceiveAssetEventNtfnsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[58]
+		mi := &file_taprootassets_proto_msgTypes[61]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4455,7 +4615,7 @@ func (x *SubscribeReceiveAssetEventNtfnsRequest) String() string {
 func (*SubscribeReceiveAssetEventNtfnsRequest) ProtoMessage() {}
 
 func (x *SubscribeReceiveAssetEventNtfnsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[58]
+	mi := &file_taprootassets_proto_msgTypes[61]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4468,7 +4628,7 @@ func (x *SubscribeReceiveAssetEventNtfnsRequest) ProtoReflect() protoreflect.Mes
 
 // Deprecated: Use SubscribeReceiveAssetEventNtfnsRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeReceiveAssetEventNtfnsRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{58}
+	return file_taprootassets_proto_rawDescGZIP(), []int{61}
 }
 
 type AssetReceiveCompleteEvent struct {
@@ -4487,7 +4647,7 @@ type AssetReceiveCompleteEvent struct {
 func (x *AssetReceiveCompleteEvent) Reset() {
 	*x = AssetReceiveCompleteEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[59]
+		mi := &file_taprootassets_proto_msgTypes[62]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4500,7 +4660,7 @@ func (x *AssetReceiveCompleteEvent) String() string {
 func (*AssetReceiveCompleteEvent) ProtoMessage() {}
 
 func (x *AssetReceiveCompleteEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[59]
+	mi := &file_taprootassets_proto_msgTypes[62]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4513,7 +4673,7 @@ func (x *AssetReceiveCompleteEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetReceiveCompleteEvent.ProtoReflect.Descriptor instead.
 func (*AssetReceiveCompleteEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{59}
+	return file_taprootassets_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *AssetReceiveCompleteEvent) GetTimestamp() int64 {
@@ -4552,7 +4712,7 @@ type ReceiveAssetEvent struct {
 func (x *ReceiveAssetEvent) Reset() {
 	*x = ReceiveAssetEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[60]
+		mi := &file_taprootassets_proto_msgTypes[63]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4565,7 +4725,7 @@ func (x *ReceiveAssetEvent) String() string {
 func (*ReceiveAssetEvent) ProtoMessage() {}
 
 func (x *ReceiveAssetEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[60]
+	mi := &file_taprootassets_proto_msgTypes[63]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4578,7 +4738,7 @@ func (x *ReceiveAssetEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReceiveAssetEvent.ProtoReflect.Descriptor instead.
 func (*ReceiveAssetEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{60}
+	return file_taprootassets_proto_rawDescGZIP(), []int{63}
 }
 
 func (m *ReceiveAssetEvent) GetEvent() isReceiveAssetEvent_Event {
@@ -4638,7 +4798,7 @@ type FetchAssetMetaRequest struct {
 func (x *FetchAssetMetaRequest) Reset() {
 	*x = FetchAssetMetaRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[61]
+		mi := &file_taprootassets_proto_msgTypes[64]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4651,7 +4811,7 @@ func (x *FetchAssetMetaRequest) String() string {
 func (*FetchAssetMetaRequest) ProtoMessage() {}
 
 func (x *FetchAssetMetaRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[61]
+	mi := &file_taprootassets_proto_msgTypes[64]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4664,7 +4824,7 @@ func (x *FetchAssetMetaRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use FetchAssetMetaRequest.ProtoReflect.Descriptor instead.
 func (*FetchAssetMetaRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{61}
+	return file_taprootassets_proto_rawDescGZIP(), []int{64}
 }
 
 func (m *FetchAssetMetaRequest) GetAsset() isFetchAssetMetaRequest_Asset {
@@ -4754,7 +4914,7 @@ type BurnAssetRequest struct {
 func (x *BurnAssetRequest) Reset() {
 	*x = BurnAssetRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[62]
+		mi := &file_taprootassets_proto_msgTypes[65]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4767,7 +4927,7 @@ func (x *BurnAssetRequest) String() string {
 func (*BurnAssetRequest) ProtoMessage() {}
 
 func (x *BurnAssetRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[62]
+	mi := &file_taprootassets_proto_msgTypes[65]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4780,7 +4940,7 @@ func (x *BurnAssetRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BurnAssetRequest.ProtoReflect.Descriptor instead.
 func (*BurnAssetRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{62}
+	return file_taprootassets_proto_rawDescGZIP(), []int{65}
 }
 
 func (m *BurnAssetRequest) GetAsset() isBurnAssetRequest_Asset {
@@ -4850,7 +5010,7 @@ type BurnAssetResponse struct {
 func (x *BurnAssetResponse) Reset() {
 	*x = BurnAssetResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[63]
+		mi := &file_taprootassets_proto_msgTypes[66]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4863,7 +5023,7 @@ func (x *BurnAssetResponse) String() string {
 func (*BurnAssetResponse) ProtoMessage() {}
 
 func (x *BurnAssetResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[63]
+	mi := &file_taprootassets_proto_msgTypes[66]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4876,7 +5036,7 @@ func (x *BurnAssetResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BurnAssetResponse.ProtoReflect.Descriptor instead.
 func (*BurnAssetResponse) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{63}
+	return file_taprootassets_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *BurnAssetResponse) GetBurnTransfer() *AssetTransfer {
@@ -4907,7 +5067,7 @@ type OutPoint struct {
 func (x *OutPoint) Reset() {
 	*x = OutPoint{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[64]
+		mi := &file_taprootassets_proto_msgTypes[67]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -4920,7 +5080,7 @@ func (x *OutPoint) String() string {
 func (*OutPoint) ProtoMessage() {}
 
 func (x *OutPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[64]
+	mi := &file_taprootassets_proto_msgTypes[67]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4933,7 +5093,7 @@ func (x *OutPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutPoint.ProtoReflect.Descriptor instead.
 func (*OutPoint) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{64}
+	return file_taprootassets_proto_rawDescGZIP(), []int{67}
 }
 
 func (x *OutPoint) GetTxid() []byte {
@@ -5351,7 +5511,21 @@ var file_taprootassets_proto_rawDesc = []byte{
 	0x20, 0x01, 0x28, 0x0c, 0x52, 0x0b, 0x72, 0x61, 0x77, 0x4b, 0x65, 0x79, 0x42, 0x79, 0x74, 0x65,
 	0x73, 0x12, 0x2b, 0x0a, 0x07, 0x6b, 0x65, 0x79, 0x5f, 0x6c, 0x6f, 0x63, 0x18, 0x02, 0x20, 0x01,
 	0x28, 0x0b, 0x32, 0x12, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x4b, 0x65, 0x79, 0x4c,
-	0x6f, 0x63, 0x61, 0x74, 0x6f, 0x72, 0x52, 0x06, 0x6b, 0x65, 0x79, 0x4c, 0x6f, 0x63, 0x22, 0x27,
+	0x6f, 0x63, 0x61, 0x74, 0x6f, 0x72, 0x52, 0x06, 0x6b, 0x65, 0x79, 0x4c, 0x6f, 0x63, 0x22, 0x43,
+	0x0a, 0x11, 0x54, 0x61, 0x70, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x46, 0x75, 0x6c, 0x6c, 0x54,
+	0x72, 0x65, 0x65, 0x12, 0x2e, 0x0a, 0x0a, 0x61, 0x6c, 0x6c, 0x5f, 0x6c, 0x65, 0x61, 0x76, 0x65,
+	0x73, 0x18, 0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x0f, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63,
+	0x2e, 0x54, 0x61, 0x70, 0x4c, 0x65, 0x61, 0x66, 0x52, 0x09, 0x61, 0x6c, 0x6c, 0x4c, 0x65, 0x61,
+	0x76, 0x65, 0x73, 0x22, 0x44, 0x0a, 0x07, 0x54, 0x61, 0x70, 0x4c, 0x65, 0x61, 0x66, 0x12, 0x21,
+	0x0a, 0x0c, 0x6c, 0x65, 0x61, 0x66, 0x5f, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x01,
+	0x20, 0x01, 0x28, 0x0d, 0x52, 0x0b, 0x6c, 0x65, 0x61, 0x66, 0x56, 0x65, 0x72, 0x73, 0x69, 0x6f,
+	0x6e, 0x12, 0x16, 0x0a, 0x06, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x18, 0x02, 0x20, 0x01, 0x28,
+	0x0c, 0x52, 0x06, 0x73, 0x63, 0x72, 0x69, 0x70, 0x74, 0x22, 0x53, 0x0a, 0x09, 0x54, 0x61, 0x70,
+	0x42, 0x72, 0x61, 0x6e, 0x63, 0x68, 0x12, 0x21, 0x0a, 0x0c, 0x6c, 0x65, 0x66, 0x74, 0x5f, 0x74,
+	0x61, 0x70, 0x68, 0x61, 0x73, 0x68, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0b, 0x6c, 0x65,
+	0x66, 0x74, 0x54, 0x61, 0x70, 0x68, 0x61, 0x73, 0x68, 0x12, 0x23, 0x0a, 0x0d, 0x72, 0x69, 0x67,
+	0x68, 0x74, 0x5f, 0x74, 0x61, 0x70, 0x68, 0x61, 0x73, 0x68, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0c,
+	0x52, 0x0c, 0x72, 0x69, 0x67, 0x68, 0x74, 0x54, 0x61, 0x70, 0x68, 0x61, 0x73, 0x68, 0x22, 0x27,
 	0x0a, 0x11, 0x44, 0x65, 0x63, 0x6f, 0x64, 0x65, 0x41, 0x64, 0x64, 0x72, 0x52, 0x65, 0x71, 0x75,
 	0x65, 0x73, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x61, 0x64, 0x64, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28,
 	0x09, 0x52, 0x04, 0x61, 0x64, 0x64, 0x72, 0x22, 0x56, 0x0a, 0x09, 0x50, 0x72, 0x6f, 0x6f, 0x66,
@@ -5739,7 +5913,7 @@ func file_taprootassets_proto_rawDescGZIP() []byte {
 }
 
 var file_taprootassets_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_taprootassets_proto_msgTypes = make([]protoimpl.MessageInfo, 69)
+var file_taprootassets_proto_msgTypes = make([]protoimpl.MessageInfo, 72)
 var file_taprootassets_proto_goTypes = []interface{}{
 	(AssetType)(0),                                 // 0: taprpc.AssetType
 	(AssetMetaType)(0),                             // 1: taprpc.AssetMetaType
@@ -5786,36 +5960,39 @@ var file_taprootassets_proto_goTypes = []interface{}{
 	(*ScriptKey)(nil),                              // 42: taprpc.ScriptKey
 	(*KeyLocator)(nil),                             // 43: taprpc.KeyLocator
 	(*KeyDescriptor)(nil),                          // 44: taprpc.KeyDescriptor
-	(*DecodeAddrRequest)(nil),                      // 45: taprpc.DecodeAddrRequest
-	(*ProofFile)(nil),                              // 46: taprpc.ProofFile
-	(*DecodedProof)(nil),                           // 47: taprpc.DecodedProof
-	(*VerifyProofResponse)(nil),                    // 48: taprpc.VerifyProofResponse
-	(*DecodeProofRequest)(nil),                     // 49: taprpc.DecodeProofRequest
-	(*DecodeProofResponse)(nil),                    // 50: taprpc.DecodeProofResponse
-	(*ExportProofRequest)(nil),                     // 51: taprpc.ExportProofRequest
-	(*AddrEvent)(nil),                              // 52: taprpc.AddrEvent
-	(*AddrReceivesRequest)(nil),                    // 53: taprpc.AddrReceivesRequest
-	(*AddrReceivesResponse)(nil),                   // 54: taprpc.AddrReceivesResponse
-	(*SendAssetRequest)(nil),                       // 55: taprpc.SendAssetRequest
-	(*PrevInputAsset)(nil),                         // 56: taprpc.PrevInputAsset
-	(*SendAssetResponse)(nil),                      // 57: taprpc.SendAssetResponse
-	(*GetInfoRequest)(nil),                         // 58: taprpc.GetInfoRequest
-	(*GetInfoResponse)(nil),                        // 59: taprpc.GetInfoResponse
-	(*SubscribeSendAssetEventNtfnsRequest)(nil),    // 60: taprpc.SubscribeSendAssetEventNtfnsRequest
-	(*SendAssetEvent)(nil),                         // 61: taprpc.SendAssetEvent
-	(*ExecuteSendStateEvent)(nil),                  // 62: taprpc.ExecuteSendStateEvent
-	(*ProofTransferBackoffWaitEvent)(nil),          // 63: taprpc.ProofTransferBackoffWaitEvent
-	(*SubscribeReceiveAssetEventNtfnsRequest)(nil), // 64: taprpc.SubscribeReceiveAssetEventNtfnsRequest
-	(*AssetReceiveCompleteEvent)(nil),              // 65: taprpc.AssetReceiveCompleteEvent
-	(*ReceiveAssetEvent)(nil),                      // 66: taprpc.ReceiveAssetEvent
-	(*FetchAssetMetaRequest)(nil),                  // 67: taprpc.FetchAssetMetaRequest
-	(*BurnAssetRequest)(nil),                       // 68: taprpc.BurnAssetRequest
-	(*BurnAssetResponse)(nil),                      // 69: taprpc.BurnAssetResponse
-	(*OutPoint)(nil),                               // 70: taprpc.OutPoint
-	nil,                                            // 71: taprpc.ListUtxosResponse.ManagedUtxosEntry
-	nil,                                            // 72: taprpc.ListGroupsResponse.GroupsEntry
-	nil,                                            // 73: taprpc.ListBalancesResponse.AssetBalancesEntry
-	nil,                                            // 74: taprpc.ListBalancesResponse.AssetGroupBalancesEntry
+	(*TapscriptFullTree)(nil),                      // 45: taprpc.TapscriptFullTree
+	(*TapLeaf)(nil),                                // 46: taprpc.TapLeaf
+	(*TapBranch)(nil),                              // 47: taprpc.TapBranch
+	(*DecodeAddrRequest)(nil),                      // 48: taprpc.DecodeAddrRequest
+	(*ProofFile)(nil),                              // 49: taprpc.ProofFile
+	(*DecodedProof)(nil),                           // 50: taprpc.DecodedProof
+	(*VerifyProofResponse)(nil),                    // 51: taprpc.VerifyProofResponse
+	(*DecodeProofRequest)(nil),                     // 52: taprpc.DecodeProofRequest
+	(*DecodeProofResponse)(nil),                    // 53: taprpc.DecodeProofResponse
+	(*ExportProofRequest)(nil),                     // 54: taprpc.ExportProofRequest
+	(*AddrEvent)(nil),                              // 55: taprpc.AddrEvent
+	(*AddrReceivesRequest)(nil),                    // 56: taprpc.AddrReceivesRequest
+	(*AddrReceivesResponse)(nil),                   // 57: taprpc.AddrReceivesResponse
+	(*SendAssetRequest)(nil),                       // 58: taprpc.SendAssetRequest
+	(*PrevInputAsset)(nil),                         // 59: taprpc.PrevInputAsset
+	(*SendAssetResponse)(nil),                      // 60: taprpc.SendAssetResponse
+	(*GetInfoRequest)(nil),                         // 61: taprpc.GetInfoRequest
+	(*GetInfoResponse)(nil),                        // 62: taprpc.GetInfoResponse
+	(*SubscribeSendAssetEventNtfnsRequest)(nil),    // 63: taprpc.SubscribeSendAssetEventNtfnsRequest
+	(*SendAssetEvent)(nil),                         // 64: taprpc.SendAssetEvent
+	(*ExecuteSendStateEvent)(nil),                  // 65: taprpc.ExecuteSendStateEvent
+	(*ProofTransferBackoffWaitEvent)(nil),          // 66: taprpc.ProofTransferBackoffWaitEvent
+	(*SubscribeReceiveAssetEventNtfnsRequest)(nil), // 67: taprpc.SubscribeReceiveAssetEventNtfnsRequest
+	(*AssetReceiveCompleteEvent)(nil),              // 68: taprpc.AssetReceiveCompleteEvent
+	(*ReceiveAssetEvent)(nil),                      // 69: taprpc.ReceiveAssetEvent
+	(*FetchAssetMetaRequest)(nil),                  // 70: taprpc.FetchAssetMetaRequest
+	(*BurnAssetRequest)(nil),                       // 71: taprpc.BurnAssetRequest
+	(*BurnAssetResponse)(nil),                      // 72: taprpc.BurnAssetResponse
+	(*OutPoint)(nil),                               // 73: taprpc.OutPoint
+	nil,                                            // 74: taprpc.ListUtxosResponse.ManagedUtxosEntry
+	nil,                                            // 75: taprpc.ListGroupsResponse.GroupsEntry
+	nil,                                            // 76: taprpc.ListBalancesResponse.AssetBalancesEntry
+	nil,                                            // 77: taprpc.ListBalancesResponse.AssetGroupBalancesEntry
 }
 var file_taprootassets_proto_depIdxs = []int32{
 	1,  // 0: taprpc.AssetMeta.type:type_name -> taprpc.AssetMetaType
@@ -5826,19 +6003,19 @@ var file_taprootassets_proto_depIdxs = []int32{
 	10, // 5: taprpc.Asset.asset_group:type_name -> taprpc.AssetGroup
 	8,  // 6: taprpc.Asset.chain_anchor:type_name -> taprpc.AnchorInfo
 	14, // 7: taprpc.Asset.prev_witnesses:type_name -> taprpc.PrevWitness
-	56, // 8: taprpc.PrevWitness.prev_id:type_name -> taprpc.PrevInputAsset
+	59, // 8: taprpc.PrevWitness.prev_id:type_name -> taprpc.PrevInputAsset
 	15, // 9: taprpc.PrevWitness.split_commitment:type_name -> taprpc.SplitCommitment
 	13, // 10: taprpc.SplitCommitment.root_asset:type_name -> taprpc.Asset
 	13, // 11: taprpc.ListAssetResponse.assets:type_name -> taprpc.Asset
 	13, // 12: taprpc.ManagedUtxo.assets:type_name -> taprpc.Asset
-	71, // 13: taprpc.ListUtxosResponse.managed_utxos:type_name -> taprpc.ListUtxosResponse.ManagedUtxosEntry
+	74, // 13: taprpc.ListUtxosResponse.managed_utxos:type_name -> taprpc.ListUtxosResponse.ManagedUtxosEntry
 	0,  // 14: taprpc.AssetHumanReadable.type:type_name -> taprpc.AssetType
 	2,  // 15: taprpc.AssetHumanReadable.version:type_name -> taprpc.AssetVersion
 	21, // 16: taprpc.GroupedAssets.assets:type_name -> taprpc.AssetHumanReadable
-	72, // 17: taprpc.ListGroupsResponse.groups:type_name -> taprpc.ListGroupsResponse.GroupsEntry
+	75, // 17: taprpc.ListGroupsResponse.groups:type_name -> taprpc.ListGroupsResponse.GroupsEntry
 	9,  // 18: taprpc.AssetBalance.asset_genesis:type_name -> taprpc.GenesisInfo
-	73, // 19: taprpc.ListBalancesResponse.asset_balances:type_name -> taprpc.ListBalancesResponse.AssetBalancesEntry
-	74, // 20: taprpc.ListBalancesResponse.asset_group_balances:type_name -> taprpc.ListBalancesResponse.AssetGroupBalancesEntry
+	76, // 19: taprpc.ListBalancesResponse.asset_balances:type_name -> taprpc.ListBalancesResponse.AssetBalancesEntry
+	77, // 20: taprpc.ListBalancesResponse.asset_group_balances:type_name -> taprpc.ListBalancesResponse.AssetGroupBalancesEntry
 	30, // 21: taprpc.ListTransfersResponse.transfers:type_name -> taprpc.AssetTransfer
 	31, // 22: taprpc.AssetTransfer.inputs:type_name -> taprpc.TransferInput
 	33, // 23: taprpc.AssetTransfer.outputs:type_name -> taprpc.TransferOutput
@@ -5853,75 +6030,76 @@ var file_taprootassets_proto_depIdxs = []int32{
 	2,  // 32: taprpc.NewAddrRequest.asset_version:type_name -> taprpc.AssetVersion
 	44, // 33: taprpc.ScriptKey.key_desc:type_name -> taprpc.KeyDescriptor
 	43, // 34: taprpc.KeyDescriptor.key_loc:type_name -> taprpc.KeyLocator
-	13, // 35: taprpc.DecodedProof.asset:type_name -> taprpc.Asset
-	6,  // 36: taprpc.DecodedProof.meta_reveal:type_name -> taprpc.AssetMeta
-	12, // 37: taprpc.DecodedProof.genesis_reveal:type_name -> taprpc.GenesisReveal
-	11, // 38: taprpc.DecodedProof.group_key_reveal:type_name -> taprpc.GroupKeyReveal
-	47, // 39: taprpc.VerifyProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
-	47, // 40: taprpc.DecodeProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
-	70, // 41: taprpc.ExportProofRequest.outpoint:type_name -> taprpc.OutPoint
-	38, // 42: taprpc.AddrEvent.addr:type_name -> taprpc.Addr
-	4,  // 43: taprpc.AddrEvent.status:type_name -> taprpc.AddrEventStatus
-	4,  // 44: taprpc.AddrReceivesRequest.filter_status:type_name -> taprpc.AddrEventStatus
-	52, // 45: taprpc.AddrReceivesResponse.events:type_name -> taprpc.AddrEvent
-	30, // 46: taprpc.SendAssetResponse.transfer:type_name -> taprpc.AssetTransfer
-	62, // 47: taprpc.SendAssetEvent.execute_send_state_event:type_name -> taprpc.ExecuteSendStateEvent
-	63, // 48: taprpc.SendAssetEvent.proof_transfer_backoff_wait_event:type_name -> taprpc.ProofTransferBackoffWaitEvent
-	5,  // 49: taprpc.ProofTransferBackoffWaitEvent.transfer_type:type_name -> taprpc.ProofTransferType
-	38, // 50: taprpc.AssetReceiveCompleteEvent.address:type_name -> taprpc.Addr
-	63, // 51: taprpc.ReceiveAssetEvent.proof_transfer_backoff_wait_event:type_name -> taprpc.ProofTransferBackoffWaitEvent
-	65, // 52: taprpc.ReceiveAssetEvent.asset_receive_complete_event:type_name -> taprpc.AssetReceiveCompleteEvent
-	30, // 53: taprpc.BurnAssetResponse.burn_transfer:type_name -> taprpc.AssetTransfer
-	47, // 54: taprpc.BurnAssetResponse.burn_proof:type_name -> taprpc.DecodedProof
-	18, // 55: taprpc.ListUtxosResponse.ManagedUtxosEntry.value:type_name -> taprpc.ManagedUtxo
-	22, // 56: taprpc.ListGroupsResponse.GroupsEntry.value:type_name -> taprpc.GroupedAssets
-	25, // 57: taprpc.ListBalancesResponse.AssetBalancesEntry.value:type_name -> taprpc.AssetBalance
-	26, // 58: taprpc.ListBalancesResponse.AssetGroupBalancesEntry.value:type_name -> taprpc.AssetGroupBalance
-	7,  // 59: taprpc.TaprootAssets.ListAssets:input_type -> taprpc.ListAssetRequest
-	17, // 60: taprpc.TaprootAssets.ListUtxos:input_type -> taprpc.ListUtxosRequest
-	20, // 61: taprpc.TaprootAssets.ListGroups:input_type -> taprpc.ListGroupsRequest
-	24, // 62: taprpc.TaprootAssets.ListBalances:input_type -> taprpc.ListBalancesRequest
-	28, // 63: taprpc.TaprootAssets.ListTransfers:input_type -> taprpc.ListTransfersRequest
-	34, // 64: taprpc.TaprootAssets.StopDaemon:input_type -> taprpc.StopRequest
-	36, // 65: taprpc.TaprootAssets.DebugLevel:input_type -> taprpc.DebugLevelRequest
-	39, // 66: taprpc.TaprootAssets.QueryAddrs:input_type -> taprpc.QueryAddrRequest
-	41, // 67: taprpc.TaprootAssets.NewAddr:input_type -> taprpc.NewAddrRequest
-	45, // 68: taprpc.TaprootAssets.DecodeAddr:input_type -> taprpc.DecodeAddrRequest
-	53, // 69: taprpc.TaprootAssets.AddrReceives:input_type -> taprpc.AddrReceivesRequest
-	46, // 70: taprpc.TaprootAssets.VerifyProof:input_type -> taprpc.ProofFile
-	49, // 71: taprpc.TaprootAssets.DecodeProof:input_type -> taprpc.DecodeProofRequest
-	51, // 72: taprpc.TaprootAssets.ExportProof:input_type -> taprpc.ExportProofRequest
-	55, // 73: taprpc.TaprootAssets.SendAsset:input_type -> taprpc.SendAssetRequest
-	68, // 74: taprpc.TaprootAssets.BurnAsset:input_type -> taprpc.BurnAssetRequest
-	58, // 75: taprpc.TaprootAssets.GetInfo:input_type -> taprpc.GetInfoRequest
-	60, // 76: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns:input_type -> taprpc.SubscribeSendAssetEventNtfnsRequest
-	64, // 77: taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns:input_type -> taprpc.SubscribeReceiveAssetEventNtfnsRequest
-	67, // 78: taprpc.TaprootAssets.FetchAssetMeta:input_type -> taprpc.FetchAssetMetaRequest
-	16, // 79: taprpc.TaprootAssets.ListAssets:output_type -> taprpc.ListAssetResponse
-	19, // 80: taprpc.TaprootAssets.ListUtxos:output_type -> taprpc.ListUtxosResponse
-	23, // 81: taprpc.TaprootAssets.ListGroups:output_type -> taprpc.ListGroupsResponse
-	27, // 82: taprpc.TaprootAssets.ListBalances:output_type -> taprpc.ListBalancesResponse
-	29, // 83: taprpc.TaprootAssets.ListTransfers:output_type -> taprpc.ListTransfersResponse
-	35, // 84: taprpc.TaprootAssets.StopDaemon:output_type -> taprpc.StopResponse
-	37, // 85: taprpc.TaprootAssets.DebugLevel:output_type -> taprpc.DebugLevelResponse
-	40, // 86: taprpc.TaprootAssets.QueryAddrs:output_type -> taprpc.QueryAddrResponse
-	38, // 87: taprpc.TaprootAssets.NewAddr:output_type -> taprpc.Addr
-	38, // 88: taprpc.TaprootAssets.DecodeAddr:output_type -> taprpc.Addr
-	54, // 89: taprpc.TaprootAssets.AddrReceives:output_type -> taprpc.AddrReceivesResponse
-	48, // 90: taprpc.TaprootAssets.VerifyProof:output_type -> taprpc.VerifyProofResponse
-	50, // 91: taprpc.TaprootAssets.DecodeProof:output_type -> taprpc.DecodeProofResponse
-	46, // 92: taprpc.TaprootAssets.ExportProof:output_type -> taprpc.ProofFile
-	57, // 93: taprpc.TaprootAssets.SendAsset:output_type -> taprpc.SendAssetResponse
-	69, // 94: taprpc.TaprootAssets.BurnAsset:output_type -> taprpc.BurnAssetResponse
-	59, // 95: taprpc.TaprootAssets.GetInfo:output_type -> taprpc.GetInfoResponse
-	61, // 96: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns:output_type -> taprpc.SendAssetEvent
-	66, // 97: taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns:output_type -> taprpc.ReceiveAssetEvent
-	6,  // 98: taprpc.TaprootAssets.FetchAssetMeta:output_type -> taprpc.AssetMeta
-	79, // [79:99] is the sub-list for method output_type
-	59, // [59:79] is the sub-list for method input_type
-	59, // [59:59] is the sub-list for extension type_name
-	59, // [59:59] is the sub-list for extension extendee
-	0,  // [0:59] is the sub-list for field type_name
+	46, // 35: taprpc.TapscriptFullTree.all_leaves:type_name -> taprpc.TapLeaf
+	13, // 36: taprpc.DecodedProof.asset:type_name -> taprpc.Asset
+	6,  // 37: taprpc.DecodedProof.meta_reveal:type_name -> taprpc.AssetMeta
+	12, // 38: taprpc.DecodedProof.genesis_reveal:type_name -> taprpc.GenesisReveal
+	11, // 39: taprpc.DecodedProof.group_key_reveal:type_name -> taprpc.GroupKeyReveal
+	50, // 40: taprpc.VerifyProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
+	50, // 41: taprpc.DecodeProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
+	73, // 42: taprpc.ExportProofRequest.outpoint:type_name -> taprpc.OutPoint
+	38, // 43: taprpc.AddrEvent.addr:type_name -> taprpc.Addr
+	4,  // 44: taprpc.AddrEvent.status:type_name -> taprpc.AddrEventStatus
+	4,  // 45: taprpc.AddrReceivesRequest.filter_status:type_name -> taprpc.AddrEventStatus
+	55, // 46: taprpc.AddrReceivesResponse.events:type_name -> taprpc.AddrEvent
+	30, // 47: taprpc.SendAssetResponse.transfer:type_name -> taprpc.AssetTransfer
+	65, // 48: taprpc.SendAssetEvent.execute_send_state_event:type_name -> taprpc.ExecuteSendStateEvent
+	66, // 49: taprpc.SendAssetEvent.proof_transfer_backoff_wait_event:type_name -> taprpc.ProofTransferBackoffWaitEvent
+	5,  // 50: taprpc.ProofTransferBackoffWaitEvent.transfer_type:type_name -> taprpc.ProofTransferType
+	38, // 51: taprpc.AssetReceiveCompleteEvent.address:type_name -> taprpc.Addr
+	66, // 52: taprpc.ReceiveAssetEvent.proof_transfer_backoff_wait_event:type_name -> taprpc.ProofTransferBackoffWaitEvent
+	68, // 53: taprpc.ReceiveAssetEvent.asset_receive_complete_event:type_name -> taprpc.AssetReceiveCompleteEvent
+	30, // 54: taprpc.BurnAssetResponse.burn_transfer:type_name -> taprpc.AssetTransfer
+	50, // 55: taprpc.BurnAssetResponse.burn_proof:type_name -> taprpc.DecodedProof
+	18, // 56: taprpc.ListUtxosResponse.ManagedUtxosEntry.value:type_name -> taprpc.ManagedUtxo
+	22, // 57: taprpc.ListGroupsResponse.GroupsEntry.value:type_name -> taprpc.GroupedAssets
+	25, // 58: taprpc.ListBalancesResponse.AssetBalancesEntry.value:type_name -> taprpc.AssetBalance
+	26, // 59: taprpc.ListBalancesResponse.AssetGroupBalancesEntry.value:type_name -> taprpc.AssetGroupBalance
+	7,  // 60: taprpc.TaprootAssets.ListAssets:input_type -> taprpc.ListAssetRequest
+	17, // 61: taprpc.TaprootAssets.ListUtxos:input_type -> taprpc.ListUtxosRequest
+	20, // 62: taprpc.TaprootAssets.ListGroups:input_type -> taprpc.ListGroupsRequest
+	24, // 63: taprpc.TaprootAssets.ListBalances:input_type -> taprpc.ListBalancesRequest
+	28, // 64: taprpc.TaprootAssets.ListTransfers:input_type -> taprpc.ListTransfersRequest
+	34, // 65: taprpc.TaprootAssets.StopDaemon:input_type -> taprpc.StopRequest
+	36, // 66: taprpc.TaprootAssets.DebugLevel:input_type -> taprpc.DebugLevelRequest
+	39, // 67: taprpc.TaprootAssets.QueryAddrs:input_type -> taprpc.QueryAddrRequest
+	41, // 68: taprpc.TaprootAssets.NewAddr:input_type -> taprpc.NewAddrRequest
+	48, // 69: taprpc.TaprootAssets.DecodeAddr:input_type -> taprpc.DecodeAddrRequest
+	56, // 70: taprpc.TaprootAssets.AddrReceives:input_type -> taprpc.AddrReceivesRequest
+	49, // 71: taprpc.TaprootAssets.VerifyProof:input_type -> taprpc.ProofFile
+	52, // 72: taprpc.TaprootAssets.DecodeProof:input_type -> taprpc.DecodeProofRequest
+	54, // 73: taprpc.TaprootAssets.ExportProof:input_type -> taprpc.ExportProofRequest
+	58, // 74: taprpc.TaprootAssets.SendAsset:input_type -> taprpc.SendAssetRequest
+	71, // 75: taprpc.TaprootAssets.BurnAsset:input_type -> taprpc.BurnAssetRequest
+	61, // 76: taprpc.TaprootAssets.GetInfo:input_type -> taprpc.GetInfoRequest
+	63, // 77: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns:input_type -> taprpc.SubscribeSendAssetEventNtfnsRequest
+	67, // 78: taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns:input_type -> taprpc.SubscribeReceiveAssetEventNtfnsRequest
+	70, // 79: taprpc.TaprootAssets.FetchAssetMeta:input_type -> taprpc.FetchAssetMetaRequest
+	16, // 80: taprpc.TaprootAssets.ListAssets:output_type -> taprpc.ListAssetResponse
+	19, // 81: taprpc.TaprootAssets.ListUtxos:output_type -> taprpc.ListUtxosResponse
+	23, // 82: taprpc.TaprootAssets.ListGroups:output_type -> taprpc.ListGroupsResponse
+	27, // 83: taprpc.TaprootAssets.ListBalances:output_type -> taprpc.ListBalancesResponse
+	29, // 84: taprpc.TaprootAssets.ListTransfers:output_type -> taprpc.ListTransfersResponse
+	35, // 85: taprpc.TaprootAssets.StopDaemon:output_type -> taprpc.StopResponse
+	37, // 86: taprpc.TaprootAssets.DebugLevel:output_type -> taprpc.DebugLevelResponse
+	40, // 87: taprpc.TaprootAssets.QueryAddrs:output_type -> taprpc.QueryAddrResponse
+	38, // 88: taprpc.TaprootAssets.NewAddr:output_type -> taprpc.Addr
+	38, // 89: taprpc.TaprootAssets.DecodeAddr:output_type -> taprpc.Addr
+	57, // 90: taprpc.TaprootAssets.AddrReceives:output_type -> taprpc.AddrReceivesResponse
+	51, // 91: taprpc.TaprootAssets.VerifyProof:output_type -> taprpc.VerifyProofResponse
+	53, // 92: taprpc.TaprootAssets.DecodeProof:output_type -> taprpc.DecodeProofResponse
+	49, // 93: taprpc.TaprootAssets.ExportProof:output_type -> taprpc.ProofFile
+	60, // 94: taprpc.TaprootAssets.SendAsset:output_type -> taprpc.SendAssetResponse
+	72, // 95: taprpc.TaprootAssets.BurnAsset:output_type -> taprpc.BurnAssetResponse
+	62, // 96: taprpc.TaprootAssets.GetInfo:output_type -> taprpc.GetInfoResponse
+	64, // 97: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns:output_type -> taprpc.SendAssetEvent
+	69, // 98: taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns:output_type -> taprpc.ReceiveAssetEvent
+	6,  // 99: taprpc.TaprootAssets.FetchAssetMeta:output_type -> taprpc.AssetMeta
+	80, // [80:100] is the sub-list for method output_type
+	60, // [60:80] is the sub-list for method input_type
+	60, // [60:60] is the sub-list for extension type_name
+	60, // [60:60] is the sub-list for extension extendee
+	0,  // [0:60] is the sub-list for field type_name
 }
 
 func init() { file_taprootassets_proto_init() }
@@ -6399,7 +6577,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DecodeAddrRequest); i {
+			switch v := v.(*TapscriptFullTree); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6411,7 +6589,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ProofFile); i {
+			switch v := v.(*TapLeaf); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6423,7 +6601,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DecodedProof); i {
+			switch v := v.(*TapBranch); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6435,7 +6613,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*VerifyProofResponse); i {
+			switch v := v.(*DecodeAddrRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6447,7 +6625,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DecodeProofRequest); i {
+			switch v := v.(*ProofFile); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6459,7 +6637,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DecodeProofResponse); i {
+			switch v := v.(*DecodedProof); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6471,7 +6649,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExportProofRequest); i {
+			switch v := v.(*VerifyProofResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6483,7 +6661,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddrEvent); i {
+			switch v := v.(*DecodeProofRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6495,7 +6673,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddrReceivesRequest); i {
+			switch v := v.(*DecodeProofResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6507,7 +6685,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddrReceivesResponse); i {
+			switch v := v.(*ExportProofRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6519,7 +6697,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SendAssetRequest); i {
+			switch v := v.(*AddrEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6531,7 +6709,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[50].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*PrevInputAsset); i {
+			switch v := v.(*AddrReceivesRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6543,7 +6721,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[51].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SendAssetResponse); i {
+			switch v := v.(*AddrReceivesResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6555,7 +6733,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[52].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetInfoRequest); i {
+			switch v := v.(*SendAssetRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6567,7 +6745,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[53].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GetInfoResponse); i {
+			switch v := v.(*PrevInputAsset); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6579,7 +6757,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[54].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SubscribeSendAssetEventNtfnsRequest); i {
+			switch v := v.(*SendAssetResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6591,7 +6769,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[55].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SendAssetEvent); i {
+			switch v := v.(*GetInfoRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6603,7 +6781,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[56].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ExecuteSendStateEvent); i {
+			switch v := v.(*GetInfoResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6615,7 +6793,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[57].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ProofTransferBackoffWaitEvent); i {
+			switch v := v.(*SubscribeSendAssetEventNtfnsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6627,7 +6805,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[58].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SubscribeReceiveAssetEventNtfnsRequest); i {
+			switch v := v.(*SendAssetEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6639,7 +6817,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[59].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AssetReceiveCompleteEvent); i {
+			switch v := v.(*ExecuteSendStateEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6651,7 +6829,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[60].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReceiveAssetEvent); i {
+			switch v := v.(*ProofTransferBackoffWaitEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6663,7 +6841,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[61].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*FetchAssetMetaRequest); i {
+			switch v := v.(*SubscribeReceiveAssetEventNtfnsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6675,7 +6853,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[62].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BurnAssetRequest); i {
+			switch v := v.(*AssetReceiveCompleteEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6687,7 +6865,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[63].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*BurnAssetResponse); i {
+			switch v := v.(*ReceiveAssetEvent); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -6699,6 +6877,42 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[64].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*FetchAssetMetaRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taprootassets_proto_msgTypes[65].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BurnAssetRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taprootassets_proto_msgTypes[66].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*BurnAssetResponse); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taprootassets_proto_msgTypes[67].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*OutPoint); i {
 			case 0:
 				return &v.state
@@ -6715,21 +6929,21 @@ func file_taprootassets_proto_init() {
 		(*ListBalancesRequest_AssetId)(nil),
 		(*ListBalancesRequest_GroupKey)(nil),
 	}
-	file_taprootassets_proto_msgTypes[55].OneofWrappers = []interface{}{
+	file_taprootassets_proto_msgTypes[58].OneofWrappers = []interface{}{
 		(*SendAssetEvent_ExecuteSendStateEvent)(nil),
 		(*SendAssetEvent_ProofTransferBackoffWaitEvent)(nil),
 	}
-	file_taprootassets_proto_msgTypes[60].OneofWrappers = []interface{}{
+	file_taprootassets_proto_msgTypes[63].OneofWrappers = []interface{}{
 		(*ReceiveAssetEvent_ProofTransferBackoffWaitEvent)(nil),
 		(*ReceiveAssetEvent_AssetReceiveCompleteEvent)(nil),
 	}
-	file_taprootassets_proto_msgTypes[61].OneofWrappers = []interface{}{
+	file_taprootassets_proto_msgTypes[64].OneofWrappers = []interface{}{
 		(*FetchAssetMetaRequest_AssetId)(nil),
 		(*FetchAssetMetaRequest_MetaHash)(nil),
 		(*FetchAssetMetaRequest_AssetIdStr)(nil),
 		(*FetchAssetMetaRequest_MetaHashStr)(nil),
 	}
-	file_taprootassets_proto_msgTypes[62].OneofWrappers = []interface{}{
+	file_taprootassets_proto_msgTypes[65].OneofWrappers = []interface{}{
 		(*BurnAssetRequest_AssetId)(nil),
 		(*BurnAssetRequest_AssetIdStr)(nil),
 	}
@@ -6739,7 +6953,7 @@ func file_taprootassets_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_taprootassets_proto_rawDesc,
 			NumEnums:      6,
-			NumMessages:   69,
+			NumMessages:   72,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
