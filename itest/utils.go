@@ -195,7 +195,9 @@ func ResetNodeWallet(t *harnessTest, wallet *node.HarnessNode) {
 type MintOption func(*MintOptions)
 
 type MintOptions struct {
-	mintingTimeout time.Duration
+	mintingTimeout  time.Duration
+	siblingBranch   *mintrpc.FinalizeBatchRequest_Branch
+	siblingFullTree *mintrpc.FinalizeBatchRequest_FullTree
 }
 
 func DefaultMintOptions() *MintOptions {
@@ -207,6 +209,18 @@ func DefaultMintOptions() *MintOptions {
 func WithMintingTimeout(timeout time.Duration) MintOption {
 	return func(options *MintOptions) {
 		options.mintingTimeout = timeout
+	}
+}
+
+func WithSiblingBranch(branch mintrpc.FinalizeBatchRequest_Branch) MintOption {
+	return func(options *MintOptions) {
+		options.siblingBranch = &branch
+	}
+}
+
+func WithSiblingTree(tree mintrpc.FinalizeBatchRequest_FullTree) MintOption {
+	return func(options *MintOptions) {
+		options.siblingFullTree = &tree
 	}
 }
 
@@ -234,10 +248,17 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		require.Len(t, assetResp.PendingBatch.Assets, idx+1)
 	}
 
+	finalizeReq := &mintrpc.FinalizeBatchRequest{}
+
+	if options.siblingBranch != nil {
+		finalizeReq.BatchSibling = options.siblingBranch
+	}
+	if options.siblingFullTree != nil {
+		finalizeReq.BatchSibling = options.siblingFullTree
+	}
+
 	// Instruct the daemon to finalize the batch.
-	batchResp, err := tapClient.FinalizeBatch(
-		ctxt, &mintrpc.FinalizeBatchRequest{},
-	)
+	batchResp, err := tapClient.FinalizeBatch(ctxt, finalizeReq)
 	require.NoError(t, err)
 	require.NotEmpty(t, batchResp.Batch)
 	require.Len(t, batchResp.Batch.Assets, len(assetRequests))

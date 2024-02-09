@@ -1,19 +1,28 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"net/http"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
 )
 
@@ -333,4 +342,171 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	collideAssetName := rpcCollideAsset[0].AssetGenesis.Name
 	require.Equal(t.t, commonAssetName, collideAssetName)
+}
+
+func testMintAssetsWithTapscriptSibling(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	aliceUtxoResp := t.lndHarness.Alice.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{},
+	)
+	aliceUtxoCount := len(aliceUtxoResp.Utxos)
+
+	bobUtxoResp := t.lndHarness.Bob.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{},
+	)
+	bobUtxoCount := len(bobUtxoResp.Utxos)
+
+	t.Logf("initial UTXO counts: %d, %d", aliceUtxoCount, bobUtxoCount)
+
+	// Build the tapscript tree.
+	sigLockPrivKey := test.RandPrivKey(t.t)
+	hashLockPreimage := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t.t, hashLockPreimage)
+	sigLeaf := test.ScriptSchnorrSig(t.t, sigLockPrivKey.PubKey())
+	siblingTree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
+
+	siblingBranch := txscript.NewTapBranch(
+		siblingTree.RootNode.Left(), siblingTree.RootNode.Right(),
+	)
+	typedBranch := asset.TapTreeNodesFromBranch(siblingBranch)
+	innerBranch := asset.GetBranch(typedBranch).UnwrapToPtr()
+	rawBranch := asset.ToBranch(*innerBranch)
+	siblingReq := mintrpc.FinalizeBatchRequest_Branch{
+		Branch: &taprpc.TapBranch{
+			LeftTaphash:  rawBranch[0],
+			RightTaphash: rawBranch[1],
+		},
+	}
+
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
+		WithSiblingBranch(siblingReq),
+	)
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, issuableAssets,
+	)
+
+	AssertAssetBalances(t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets)
+	// assert on taproot_asset_root, merkle_root, and internal_key
+	// + assets have chain_anchor struct with tapscript_sibling
+
+	utxos, err := t.tapd.ListUtxos(ctxt, &taprpc.ListUtxosRequest{})
+	require.NoError(t.t, err)
+	utxosJSON, err := formatProtoJSON(utxos)
+	require.NoError(t.t, err)
+
+	t.Logf("UTXOs: %v", utxosJSON)
+
+	// Filter the managed UTXOs to select the genesis UTXO with the
+	// tapscript sibling.
+	utxoWithSibling := func(utxo *taprpc.ManagedUtxo) bool {
+		return !bytes.Equal(utxo.TaprootAssetRoot, utxo.MerkleRoot)
+	}
+	mintingOutputWithSibling := fn.Filter(
+		maps.Values(utxos.ManagedUtxos), utxoWithSibling,
+	)
+	require.Len(t.t, mintingOutputWithSibling, 1)
+	genesisWithSibling := mintingOutputWithSibling[0]
+
+	// Extract the fields needed to construct a script path spend.
+	mintTapTweak := genesisWithSibling.MerkleRoot
+	mintInternalKeyBytes := genesisWithSibling.InternalKey
+	mintInternalKey, err := btcec.ParsePubKey(mintInternalKeyBytes)
+	require.NoError(t.t, err)
+
+	mintTapTreeRoot := genesisWithSibling.TaprootAssetRoot
+	mintOutputKey := txscript.ComputeTaprootOutputKey(
+		mintInternalKey, mintTapTweak,
+	)
+	t.Logf("recomputed genesis output key: %x",
+		mintOutputKey.SerializeCompressed())
+
+	mintOutputKeyIsOdd := mintOutputKey.SerializeCompressed()[0] == 0x03
+	siblingScriptHash := sigLeaf.TapHash()
+
+	// Build the control block and witness.
+	inclusionProof := bytes.Join(
+		[][]byte{siblingScriptHash[:], mintTapTreeRoot}, []byte{},
+	)
+	hashLockControlBlock := txscript.ControlBlock{
+		InternalKey:     mintInternalKey,
+		OutputKeyYIsOdd: mintOutputKeyIsOdd,
+		LeafVersion:     txscript.BaseLeafVersion,
+		InclusionProof:  inclusionProof,
+	}
+	hashLockControlBlockBytes, err := hashLockControlBlock.ToBytes()
+	require.NoError(t.t, err)
+	hashLockWitness := wire.TxWitness{
+		hashLockPreimage, hashLockLeaf.Script, hashLockControlBlockBytes,
+	}
+
+	// Make a non-tap address from Bob to send Alice's genesis UTXO to.
+	burnAddrResp := t.lndHarness.Bob.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	})
+	burnAddr, err := btcutil.DecodeAddress(
+		burnAddrResp.Address, t.lndHarness.Miner.ActiveNet,
+	)
+	require.NoError(t.t, err)
+	burnScript, err := txscript.PayToAddrScript(burnAddr)
+	require.NoError(t.t, err)
+
+	// Construct and publish the TX.
+	genesisOutpoint, err := wire.NewOutPointFromString(
+		genesisWithSibling.OutPoint,
+	)
+	require.NoError(t.t, err)
+
+	burnTx := wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: *genesisOutpoint,
+			Witness:          hashLockWitness,
+		}},
+		TxOut: []*wire.TxOut{{
+			PkScript: burnScript,
+			Value:    500,
+		}},
+	}
+
+	var burnTxBuf bytes.Buffer
+	require.NoError(t.t, burnTx.Serialize(&burnTxBuf))
+	t.lndHarness.Bob.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: burnTxBuf.Bytes(),
+	})
+
+	// Bob should detect the TX.
+	t.lndHarness.Miner.AssertNumTxsInMempool(1)
+	newUtxos := t.lndHarness.Bob.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{
+			UnconfirmedOnly: true,
+		})
+	newUtxosJSON, err := formatProtoJSON(newUtxos)
+	require.NoError(t.t, err)
+	t.Logf("Bob unconfirmed UTXOs: %v", newUtxosJSON)
+
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+
+	aliceUtxoResp = t.lndHarness.Alice.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{},
+	)
+	aliceUtxoCount = len(aliceUtxoResp.Utxos)
+
+	bobUtxoResp = t.lndHarness.Bob.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{},
+	)
+	bobUtxoCount = len(bobUtxoResp.Utxos)
+
+	newUtxos = t.lndHarness.Bob.RPC.ListUnspent(
+		&walletrpc.ListUnspentRequest{
+			MaxConfs: 1,
+		})
+	newUtxosJSON, err = formatProtoJSON(newUtxos)
+	require.NoError(t.t, err)
+	t.Logf("Bob confirmed UTXOs: %v", newUtxosJSON)
+
+	t.Logf("UTXO counts after send: %d, %d", aliceUtxoCount, bobUtxoCount)
 }
