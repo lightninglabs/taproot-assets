@@ -7,8 +7,8 @@ check_go_version() {
     local dockerfile="$1"
     local required_go_version="$2"
 
-    # Use grep to find lines with 'FROM golang:'
-    local go_lines=$(grep -i '^FROM golang:' "$dockerfile")
+    # Extract the Go version used in $dockerfile
+    local extracted_go_version=$(grep -i '^FROM golang:' "$dockerfile" | tr -d "_-:' [:alpha:]")
 
     # Check if all lines have the required Go version
     if echo "$go_lines" | grep -q -v "$required_go_version"; then

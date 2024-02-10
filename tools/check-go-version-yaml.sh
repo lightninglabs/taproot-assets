@@ -18,7 +18,7 @@ check_go_version() {
         # GO_VERSION: 1.21.0
         # GO_VERSION:1.21.0
         #   GO_VERSION:1.21.0
-        local extracted_go_version=$(echo "$go_lines" | sed -n 's/^[[:space:]]*GO_VERSION:[[:space:]]*\(['\''"]\?\)\?\([0-9]\+\.[0-9]\+\.[0-9]\+\)\(['\''"]\?\)\?/\2/p')
+        local extracted_go_version=$(<<<"$go_lines" tr -d "[:alpha:] ':_\"")
 
         # Check if the extracted Go version matches the required version
         if [ "$extracted_go_version" != "$required_go_version" ]; then
