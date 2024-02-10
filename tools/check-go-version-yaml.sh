@@ -42,10 +42,19 @@ fi
 target_go_version="$1"
 
 # Run check_go_version on YAML files present in non pruned directory
-find . \
+# Display version-check results with tee
+version_check_results=$( find . \
     -path ./vendor -prune -o \
     -type f \
     \( -name "*.yaml" -o -name "*.yml" \) \
-    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \;
+    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \; | tee /dev/tty )
 
-echo "All YAML files pass the Go version check for Go version $target_go_version."
+# Produce exit status
+if [ -z "$version_check_results" ] || [[ "$version_check_results" =~ "FAIL:" ]]; then
+    # 'FAIL:'' contained in output, an error as occurred, exit with error
+    exit 1
+else
+    # no errors occurred, succeed
+    echo "PASS: All YAML files conform to Go version $target_go_version."
+    exit 0
+fi

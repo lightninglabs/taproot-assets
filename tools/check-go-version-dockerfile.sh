@@ -30,10 +30,19 @@ fi
 target_go_version="$1"
 
 # Run check_go_version on Dockerfiles files present in non pruned directory
-find . \
+# Display version-check results with tee
+version_check_results=$( find . \
     -path ./vendor -prune -o \
     -type f \
     \( -name "*.Dockerfile" -o -name "Dockerfile" \) \
-    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \;
+    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \; | tee /dev/tty )
 
-echo "All Dockerfiles pass the Go version check for Go version $target_go_version."
+# Produce exit status
+if [ -z "$version_check_results" ] || [[ "$version_check_results" =~ "FAIL:" ]]; then
+    # 'FAIL:'' contained in output, an error as occurred, exit with error
+    exit 1
+else
+    # no errors occurred, succeed
+    echo "PASS: All Dockerfiles files conform to Go version $target_go_version."
+    exit 0
+fi
