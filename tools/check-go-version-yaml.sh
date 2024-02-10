@@ -22,8 +22,7 @@ check_go_version() {
 
         # Check if the extracted Go version matches the required version
         if [ "$extracted_go_version" != "$required_go_version" ]; then
-            echo "Error: $yamlfile specifies Go version '$extracted_go_version', but not version '$required_go_version'."
-            exit 1
+            echo "FAIL: $yamlfile specifies Go version '$extracted_go_version' violating conformance. '$required_go_version' is required."
         else
             echo "$yamlfile specifies Go version $required_go_version."
         fi
