@@ -10,12 +10,11 @@ check_go_version() {
     # Extract the Go version used in $dockerfile
     local extracted_go_version=$(grep -i '^FROM golang:' "$dockerfile" | tr -d "_-:' [:alpha:]")
 
-    # Check if all lines have the required Go version
-    if echo "$go_lines" | grep -q -v "$required_go_version"; then
-        echo "Error: $dockerfile does not use Go version $required_go_version exclusively."
-        exit 1
+    # Check if Dockerfile only contains stipulated Go version
+    if [ "$extracted_go_version" != "$required_go_version" ]; then
+        echo "FAIL: $dockerfile specifies Go version '$extracted_go_version' violating conformance. '$required_go_version' is required."
     else
-        echo "$dockerfile is using Go version $required_go_version."
+        echo "$dockerfile specifies Go version $required_go_version."
     fi
 }
 
