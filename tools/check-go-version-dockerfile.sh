@@ -1,6 +1,8 @@
 #!/bin/bash
+# This script will check Go-version conformance in relevant docker files. Else, exit with error
+# A Makefile linter-target runs this script
 
-# Function to check if the Dockerfile contains only the specified Go version
+# Function to check if a Dockerfile contains only the stipulated Go version
 check_go_version() {
     local dockerfile="$1"
     local required_go_version="$2"

@@ -1,6 +1,8 @@
 #!/bin/bash
+# This script will check Go-version conformance in relevant docker files. Else, exit with error
+# A Makefile linter-target runs this script
 
-# Function to check if the YAML file contains the specified Go version after 'GO_VERSION:'
+# Function to check if a YAML file contains the stipulated Go version after 'GO_VERSION:'
 check_go_version() {
     local yamlfile="$1"
     local required_go_version="$2"
