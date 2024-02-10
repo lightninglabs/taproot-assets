@@ -17,6 +17,9 @@ check_go_version() {
     fi
 }
 
+# Export function to be accessible by subshells e.g. `find -exec`
+export -f check_go_version
+
 # Check if the target Go version argument is provided
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <target_go_version>"
@@ -25,12 +28,11 @@ fi
 
 target_go_version="$1"
 
-# Search for Dockerfiles in the current directory and its subdirectories
-dockerfiles=$(find . -type f -name "*.Dockerfile" -o -name "Dockerfile")
-
-# Check each Dockerfile
-for file in $dockerfiles; do
-    check_go_version "$file" "$target_go_version"
-done
+# Run check_go_version on Dockerfiles files present in non pruned directory
+find . \
+    -path ./vendor -prune -o \
+    -type f \
+    \( -name "*.Dockerfile" -o -name "Dockerfile" \) \
+    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \;
 
 echo "All Dockerfiles pass the Go version check for Go version $target_go_version."

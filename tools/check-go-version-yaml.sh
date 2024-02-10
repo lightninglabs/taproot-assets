@@ -28,6 +28,9 @@ check_go_version() {
     fi
 }
 
+# Export function to be accessible by subshells e.g. `find -exec`
+export -f check_go_version
+
 # Check if the target Go version argument is provided
 if [ $# -eq 0 ]; then
     echo "Usage: $0 <target_go_version>"
@@ -36,12 +39,11 @@ fi
 
 target_go_version="$1"
 
-# Search for YAML files in the current directory and its subdirectories
-yaml_files=$(find . -type f -name "*.yaml" -o -name "*.yml")
-
-# Check each YAML file
-for file in $yaml_files; do
-    check_go_version "$file" "$target_go_version"
-done
+# Run check_go_version on YAML files present in non pruned directory
+find . \
+    -path ./vendor -prune -o \
+    -type f \
+    \( -name "*.yaml" -o -name "*.yml" \) \
+    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \;
 
 echo "All YAML files pass the Go version check for Go version $target_go_version."
