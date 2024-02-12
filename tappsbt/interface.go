@@ -51,7 +51,7 @@ var (
 	PsbtKeyTypeOutputTapAsset                              = []byte{0x76}
 	PsbtKeyTypeOutputTapSplitAsset                         = []byte{0x77}
 	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
-	PsbtKeyTypeOutputAssetVersion                          = []byte{0x79}
+	PsbtKeyTypeOutputTapAssetVersion                       = []byte{0x79}
 )
 
 // The following keys are used as custom fields on the BTC level anchor

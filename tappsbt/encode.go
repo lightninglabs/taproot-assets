@@ -278,7 +278,7 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			),
 		},
 		{
-			key: PsbtKeyTypeOutputAssetVersion,
+			key: PsbtKeyTypeOutputTapAssetVersion,
 			encoder: tlvEncoder(
 				&o.AssetVersion, vOutputAssetVersionEncoder,
 			),
