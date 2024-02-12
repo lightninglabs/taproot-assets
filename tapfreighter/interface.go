@@ -238,7 +238,7 @@ type OutboundParcel struct {
 
 	// PassiveAssets is the set of passive assets that are re-anchored
 	// during the parcel confirmation process.
-	PassiveAssets []*PassiveAssetReAnchor
+	PassiveAssets []*tappsbt.VPacket
 
 	// Inputs represents the list of previous assets that were spent with
 	// this transfer.
@@ -272,37 +272,6 @@ type AssetConfirmEvent struct {
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.
 	PassiveAssetProofFiles map[asset.ID][]*proof.AnnotatedProof
-}
-
-// PassiveAssetReAnchor includes the information needed to re-anchor a passive
-// asset during asset send delivery confirmation.
-type PassiveAssetReAnchor struct {
-	// VPacket is a virtual packet which describes the virtual transaction
-	// which is used in re-anchoring the passive asset.
-	VPacket *tappsbt.VPacket
-
-	// GenesisID is the genesis ID of the passive asset.
-	GenesisID asset.ID
-
-	// PrevAnchorPoint is the previous anchor point of the passive asset
-	// before re-anchoring. This field is used to identify the correct asset
-	// to update.
-	PrevAnchorPoint wire.OutPoint
-
-	// ScriptKey is the previous script key of the passive asset before
-	// re-anchoring. This field is used to identify the correct asset to
-	// update.
-	ScriptKey asset.ScriptKey
-
-	// AssetVersion is the version of this passive asset. We make this
-	// explicit as the asset may have been upgraded during the re-anchor.
-	AssetVersion asset.Version
-
-	// NewProof is the proof set of the re-anchored passive asset.
-	NewProof *proof.Proof
-
-	// NewWitnessData is the new witness set for this asset.
-	NewWitnessData []asset.Witness
 }
 
 // ExportLog is used to track the state of outbound Taproot Asset parcels
