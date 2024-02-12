@@ -10,10 +10,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
-	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/vm"
 	"golang.org/x/sync/errgroup"
 )
@@ -255,26 +253,56 @@ func (p *Proof) verifyChallengeWitness() (bool, error) {
 	// independent of how the asset was created. The chain params are only
 	// needed when encoding/decoding a vPkt, so it doesn't matter what
 	// network we choose as we only need the packet to get the witness.
-	vPkt := tappsbt.OwnershipProofPacket(
-		p.Asset.Copy(), &address.MainNetTap,
-	)
-	vIn := vPkt.Inputs[0]
-	vOut := vPkt.Outputs[0]
+	ownedAsset := p.Asset.Copy()
+	prevId, proofAsset := CreateOwnershipProofAsset(ownedAsset)
 
 	// The 1-in-1-out packet for the challenge witness is well-defined, we
 	// don't have to do any extra checks, just set the witness and then
 	// validate it.
-	vOut.Asset.PrevWitnesses[0].TxWitness = p.ChallengeWitness
+	proofAsset.PrevWitnesses[0].TxWitness = p.ChallengeWitness
 
 	prevAssets := commitment.InputSet{
-		vIn.PrevID: vIn.Asset(),
+		prevId: ownedAsset,
 	}
-	engine, err := vm.New(vOut.Asset, nil, prevAssets)
+	engine, err := vm.New(proofAsset, nil, prevAssets)
 	if err != nil {
 		return false, err
 	}
 
 	return p.Asset.HasSplitCommitmentWitness(), engine.Execute()
+}
+
+// CreateOwnershipProofAsset creates a virtual asset that can be used to prove
+// ownership of an asset. The virtual asset is created by spending the full
+// asset into a NUMS key.
+func CreateOwnershipProofAsset(
+	ownedAsset *asset.Asset) (asset.PrevID, *asset.Asset) {
+
+	// We create the ownership proof by creating a virtual input and output
+	// that spends the full asset into a NUMS key. But in order to prevent
+	// that witness to be used in an actual state transition by a malicious
+	// actor, we create the signature over an empty outpoint. This means the
+	// witness is fully valid, but a full transition proof can never be
+	// created, as the previous outpoint would not match the one that
+	// actually goes on chain.
+	//
+	// TODO(guggero): Revisit this proof once we support pocket universes.
+	emptyOutPoint := wire.OutPoint{}
+	prevId := asset.PrevID{
+		ID:       ownedAsset.ID(),
+		OutPoint: emptyOutPoint,
+		ScriptKey: asset.ToSerialized(
+			ownedAsset.ScriptKey.PubKey,
+		),
+	}
+
+	outputAsset := ownedAsset.Copy()
+	outputAsset.ScriptKey = asset.NUMSScriptKey
+	outputAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &prevId,
+	}}
+
+	return prevId, outputAsset
 }
 
 // verifyGenesisReveal checks that the genesis reveal present in the proof at

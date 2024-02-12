@@ -3,9 +3,9 @@ package tappsbt
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -135,30 +135,7 @@ func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
 func OwnershipProofPacket(ownedAsset *asset.Asset,
 	chainParams *address.ChainParams) *VPacket {
 
-	// We create the ownership proof by creating a virtual packet that
-	// spends the full asset into a NUMS key. But in order to prevent that
-	// witness to be used in an actual state transition by a malicious
-	// actor, we create the signature over an empty outpoint. This means the
-	// witness is fully valid, but a full transition proof can never be
-	// created, as the previous outpoint would not match the one that
-	// actually goes on chain.
-	//
-	// TODO(guggero): Revisit this proof once we support pocket universes.
-	emptyOutPoint := wire.OutPoint{}
-	prevId := asset.PrevID{
-		ID:       ownedAsset.ID(),
-		OutPoint: emptyOutPoint,
-		ScriptKey: asset.ToSerialized(
-			ownedAsset.ScriptKey.PubKey,
-		),
-	}
-
-	outputAsset := ownedAsset.Copy()
-	outputAsset.ScriptKey = asset.NUMSScriptKey
-	outputAsset.PrevWitnesses = []asset.Witness{{
-		PrevID: &prevId,
-	}}
-
+	prevId, outputAsset := proof.CreateOwnershipProofAsset(ownedAsset)
 	vPkt := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: prevId,
