@@ -101,8 +101,7 @@ type Wallet interface {
 	// asset re-anchors and the Taproot Asset level commitment of the
 	// selected assets.
 	FundAddressSend(ctx context.Context,
-		receiverAddrs ...*address.Tap) (*FundedVPacket,
-		tappsbt.OutputIdxToAddr, error)
+		receiverAddrs ...*address.Tap) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
@@ -429,31 +428,29 @@ type FundedVPacket struct {
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
-	receiverAddrs ...*address.Tap) (*FundedVPacket,
-	tappsbt.OutputIdxToAddr, error) {
+	receiverAddrs ...*address.Tap) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
 	// hold the asset transfer. Because sending to an address is always a
 	// non-interactive process, we can use this function that always creates
 	// a change output.
-	vPkt, outputIdxToAddr, err := tappsbt.FromAddresses(receiverAddrs, 1)
+	vPkt, err := tappsbt.FromAddresses(receiverAddrs, 1)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to create virtual "+
-			"transaction from addresses: %w", err)
+		return nil, fmt.Errorf("unable to create virtual transaction "+
+			"from addresses: %w", err)
 	}
 
 	fundDesc, err := tapsend.DescribeAddrs(receiverAddrs)
 	if err != nil {
-		return nil, nil, fmt.Errorf("unable to describe recipients: "+
-			"%w", err)
+		return nil, fmt.Errorf("unable to describe recipients: %w", err)
 	}
 
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	return fundedVPkt, outputIdxToAddr, nil
+	return fundedVPkt, nil
 }
 
 // passiveAssetVPacket creates a virtual packet for the given passive asset.
