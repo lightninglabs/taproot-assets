@@ -289,6 +289,10 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			key:     PsbtKeyTypeOutputTapProofDeliveryAddress,
 			encoder: urlEncoder(o.ProofDeliveryAddress),
 		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
+			encoder: proofEncoder(o.ProofSuffix),
+		},
 	}
 
 	for idx := range mapping {
