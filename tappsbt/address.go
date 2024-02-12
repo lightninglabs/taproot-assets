@@ -9,21 +9,16 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
-// OutputIdxToAddr is a map from a VPacket's VOutput index to its associated
-// Tap address.
-type OutputIdxToAddr map[int]address.Tap
-
 // FromAddresses creates an empty virtual transaction packet from the given
 // addresses. Because sending to an address is always non-interactive, a change
 // output is also added to the packet.
 func FromAddresses(receiverAddrs []*address.Tap,
-	firstOutputIndex uint32) (*VPacket, OutputIdxToAddr, error) {
+	firstOutputIndex uint32) (*VPacket, error) {
 
 	// We need at least one address to send to. Any special cases or
 	// interactive sends should go through the FundPacket method.
 	if len(receiverAddrs) < 1 {
-		return nil, nil, fmt.Errorf("at least one address must be" +
-			"specified")
+		return nil, fmt.Errorf("at least one address must be specified")
 	}
 
 	firstAddr := receiverAddrs[0]
@@ -51,9 +46,6 @@ func FromAddresses(receiverAddrs []*address.Tap,
 		ScriptKey:         asset.NUMSScriptKey,
 	})
 
-	// Map from output index to address.
-	outputIdxToAddr := make(OutputIdxToAddr, len(receiverAddrs))
-
 	// We start at output index 1 because we also have the change output
 	// above. We also just use continuous integers for the anchor output
 	// index, but start at the first one indicated by the caller.
@@ -70,13 +62,11 @@ func FromAddresses(receiverAddrs []*address.Tap,
 			),
 			AnchorOutputInternalKey:      &addr.InternalKey,
 			AnchorOutputTapscriptSibling: addr.TapscriptSibling,
+			ProofDeliveryAddress:         &addr.ProofCourierAddr,
 		})
-
-		outputIndex := len(pkt.Outputs) - 1
-		outputIdxToAddr[outputIndex] = *addr
 	}
 
-	return pkt, outputIdxToAddr, nil
+	return pkt, nil
 }
 
 // ForInteractiveSend creates a virtual transaction packet for sending an output

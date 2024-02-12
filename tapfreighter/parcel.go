@@ -300,10 +300,6 @@ type sendPackage struct {
 	// virtual asset transition transaction.
 	VirtualPacket *tappsbt.VPacket
 
-	// OutputIdxToAddr is a map from a VPacket's VOutput index to its
-	// associated Tap address.
-	OutputIdxToAddr tappsbt.OutputIdxToAddr
-
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
 	InputCommitments tappsbt.InputCommitments
@@ -408,12 +404,10 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// Convert any proof courier address associated with this output
 		// to bytes for db storage.
 		var proofCourierAddrBytes []byte
-		if s.OutputIdxToAddr != nil {
-			if addr, ok := s.OutputIdxToAddr[idx]; ok {
-				proofCourierAddrBytes = []byte(
-					addr.ProofCourierAddr.String(),
-				)
-			}
+		if vOut.ProofDeliveryAddress != nil {
+			proofCourierAddrBytes = []byte(
+				vOut.ProofDeliveryAddress.String(),
+			)
 		}
 
 		anchorInternalKey := keychain.KeyDescriptor{
