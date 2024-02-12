@@ -2125,7 +2125,7 @@ func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
 // and returns its ID.
 func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 	transferID, txnID int64, output tapfreighter.TransferOutput,
-	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
+	passiveAssets []*tappsbt.VPacket) error {
 
 	anchor := output.Anchor
 	anchorPointBytes, err := encodeOutpoint(anchor.OutPoint)
@@ -2368,17 +2368,25 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 // logPendingPassiveAssets logs passive assets re-anchoring data to disk.
 func logPendingPassiveAssets(ctx context.Context,
 	q ActiveAssetsStore, transferID, newUtxoID int64,
-	passiveAssets []*tapfreighter.PassiveAssetReAnchor) error {
+	passiveAssets []*tappsbt.VPacket) error {
 
 	for idx := range passiveAssets {
+		passiveAsset := passiveAssets[idx]
+		passiveIn := passiveAsset.Inputs[0]
+		passiveOut := passiveAsset.Outputs[0]
+		witnesses, err := passiveOut.PrevWitnesses()
+		if err != nil {
+			return fmt.Errorf("unable to extract prev witnesses: "+
+				"%w", err)
+		}
+
 		// Encode new witness data.
 		var (
-			passiveAsset  = passiveAssets[idx]
 			newWitnessBuf bytes.Buffer
 			buf           [8]byte
 		)
-		err := asset.WitnessEncoder(
-			&newWitnessBuf, &passiveAsset.NewWitnessData, &buf,
+		err = asset.WitnessEncoder(
+			&newWitnessBuf, &witnesses, &buf,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to encode witness: "+
@@ -2387,7 +2395,7 @@ func logPendingPassiveAssets(ctx context.Context,
 
 		// Encode new proof.
 		var newProofBuf bytes.Buffer
-		err = passiveAsset.NewProof.Encode(&newProofBuf)
+		err = passiveOut.ProofSuffix.Encode(&newProofBuf)
 		if err != nil {
 			return fmt.Errorf("unable to encode new passive "+
 				"asset proof: %w", err)
@@ -2395,7 +2403,7 @@ func logPendingPassiveAssets(ctx context.Context,
 
 		// Encode previous anchor outpoint.
 		prevOutpointBytes, err := encodeOutpoint(
-			passiveAsset.PrevAnchorPoint,
+			passiveIn.PrevID.OutPoint,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to encode prev outpoint: "+
@@ -2403,7 +2411,7 @@ func logPendingPassiveAssets(ctx context.Context,
 		}
 
 		// Encode script key.
-		scriptKey := passiveAsset.ScriptKey
+		scriptKey := passiveOut.ScriptKey
 		scriptKeyBytes := scriptKey.PubKey.SerializeCompressed()
 
 		err = q.InsertPassiveAsset(
@@ -2414,8 +2422,8 @@ func logPendingPassiveAssets(ctx context.Context,
 				NewProof:        newProofBuf.Bytes(),
 				PrevOutpoint:    prevOutpointBytes,
 				ScriptKey:       scriptKeyBytes,
-				AssetGenesisID:  passiveAsset.GenesisID[:],
-				AssetVersion:    int32(passiveAsset.AssetVersion),
+				AssetGenesisID:  passiveIn.PrevID.ID[:],
+				AssetVersion:    int32(passiveOut.AssetVersion),
 			},
 		)
 		if err != nil {

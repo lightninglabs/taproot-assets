@@ -123,7 +123,7 @@ type Wallet interface {
 	// given input commitment and virtual packet that contains the active
 	// asset transfer.
 	SignPassiveAssets(vPkt *tappsbt.VPacket,
-		inputCommitments tappsbt.InputCommitments) ([]*PassiveAssetReAnchor,
+		inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket,
 		error)
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
@@ -1284,11 +1284,11 @@ func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
 // SignPassiveAssets creates and signs the passive asset packets for the given
 // virtual packet and input Taproot Asset commitments.
 func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
-	inputCommitments tappsbt.InputCommitments) ([]*PassiveAssetReAnchor,
+	inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket,
 	error) {
 
 	// Gather passive assets found in each input Taproot Asset commitment.
-	var passiveAssets []*PassiveAssetReAnchor
+	var passiveAssets []*tappsbt.VPacket
 	for inputIdx := range inputCommitments {
 		tapCommitment := inputCommitments[inputIdx]
 
@@ -1323,19 +1323,13 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 
 		for _, passiveCommitment := range passiveCommitments {
 			for _, passiveAsset := range passiveCommitment.Assets() {
-				passivePkt := f.passiveAssetVPacket(
-					passiveAsset, anchorPoint,
-					passiveOut.AnchorOutputIndex,
-					&changeInternalKey,
+				passiveAssets = append(
+					passiveAssets, f.passiveAssetVPacket(
+						passiveAsset, anchorPoint,
+						passiveOut.AnchorOutputIndex,
+						&changeInternalKey,
+					),
 				)
-				reAnchor := &PassiveAssetReAnchor{
-					VPacket:         passivePkt,
-					GenesisID:       passiveAsset.ID(),
-					PrevAnchorPoint: anchorPoint,
-					AssetVersion:    passiveAsset.Version,
-					ScriptKey:       passiveAsset.ScriptKey,
-				}
-				passiveAssets = append(passiveAssets, reAnchor)
 			}
 		}
 	}
@@ -1344,7 +1338,7 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 	for idx := range passiveAssets {
 		passiveAsset := passiveAssets[idx]
 		_, err := f.SignVirtualPacket(
-			passiveAsset.VPacket, SkipInputProofVerify(),
+			passiveAsset, SkipInputProofVerify(),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign passive asset "+

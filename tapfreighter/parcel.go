@@ -305,7 +305,7 @@ type sendPackage struct {
 	InputCommitments tappsbt.InputCommitments
 
 	// PassiveAssets is the data used in re-anchoring passive assets.
-	PassiveAssets []*PassiveAssetReAnchor
+	PassiveAssets []*tappsbt.VPacket
 
 	// Parcel is the asset transfer request that kicked off this transfer.
 	Parcel Parcel
@@ -337,15 +337,11 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		passiveAsset := s.PassiveAssets[idx]
 
 		// Generate passive asset re-anchoring proofs.
-		newProof, err := s.createReAnchorProof(passiveAsset.VPacket)
+		err := s.attachReAnchorProof(passiveAsset)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create re-anchor "+
 				"proof: %w", err)
 		}
-
-		passiveAsset.NewProof = newProof
-		signedAsset := passiveAsset.VPacket.Outputs[0].Asset
-		passiveAsset.NewWitnessData = signedAsset.PrevWitnesses
 	}
 
 	vPkt := s.VirtualPacket
@@ -749,9 +745,7 @@ func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 
 // createReAnchorProof creates the new proof for the re-anchoring of a passive
 // asset.
-func (s *sendPackage) createReAnchorProof(
-	passivePkt *tappsbt.VPacket) (*proof.Proof, error) {
-
+func (s *sendPackage) attachReAnchorProof(passivePkt *tappsbt.VPacket) error {
 	// Passive asset transfers only have a single input and a single output.
 	passiveIn := passivePkt.Inputs[0]
 	passiveOut := passivePkt.Outputs[0]
@@ -762,7 +756,7 @@ func (s *sendPackage) createReAnchorProof(
 	// active transfer or no change.
 	passiveCarrierOut, err := s.VirtualPacket.PassiveAssetsOutput()
 	if err != nil {
-		return nil, fmt.Errorf("anchor output for passive assets not "+
+		return fmt.Errorf("anchor output for passive assets not "+
 			"found: %w", err)
 	}
 
@@ -786,7 +780,7 @@ func (s *sendPackage) createReAnchorProof(
 		outputCommitments,
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Add exclusion proof(s) for any P2TR (=BIP-0086, not carrying any
@@ -808,8 +802,8 @@ func (s *sendPackage) createReAnchorProof(
 			s.AnchorTx.FundedPsbt.Pkt, isAnchor,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error adding exclusion "+
-				"proof for change output: %w", err)
+			return fmt.Errorf("error adding exclusion proof for "+
+				"change output: %w", err)
 		}
 	}
 
@@ -818,11 +812,11 @@ func (s *sendPackage) createReAnchorProof(
 		passiveIn.PrevID.OutPoint, passiveParams,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error creating re-anchor proof: %w",
-			err)
+		return fmt.Errorf("error creating re-anchor proof: %w", err)
 	}
+	passiveOut.ProofSuffix = reAnchorProof
 
-	return reAnchorProof, nil
+	return nil
 }
 
 // deliverTxBroadcastResp delivers a response for the parcel back to the
