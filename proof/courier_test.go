@@ -64,7 +64,7 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	proof := randomProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	proof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
 	file, err := NewFile(V0, proof, proof)
 	require.NoError(t, err)

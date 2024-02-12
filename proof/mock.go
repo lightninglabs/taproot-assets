@@ -11,14 +11,138 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
+
+func RandProof(t testing.TB, genesis asset.Genesis,
+	scriptKey *btcec.PublicKey, block wire.MsgBlock, txIndex int,
+	outputIndex uint32) Proof {
+
+	txMerkleProof, err := NewTxMerkleProof(block.Transactions, txIndex)
+	require.NoError(t, err)
+
+	tweakedScriptKey := asset.NewScriptKey(scriptKey)
+	protoAsset := asset.NewAssetNoErr(
+		t, genesis, 1, 0, 0, tweakedScriptKey, nil,
+	)
+	groupKey := asset.RandGroupKey(t, genesis, protoAsset)
+	groupReveal := asset.GroupKeyReveal{
+		RawKey:        asset.ToSerialized(&groupKey.GroupPubKey),
+		TapscriptRoot: test.RandBytes(32),
+	}
+
+	amount := uint64(1)
+	mintCommitment, assets, err := commitment.Mint(
+		genesis, groupKey, &commitment.AssetDetails{
+			Type:             genesis.Type,
+			ScriptKey:        test.PubToKeyDesc(scriptKey),
+			Amount:           &amount,
+			LockTime:         1337,
+			RelativeLockTime: 6,
+		},
+	)
+	require.NoError(t, err)
+	proofAsset := assets[0]
+	proofAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
+
+	// Empty the group witness, since it will eventually be stored as the
+	// asset's witness within the proof.
+	// TODO(guggero): Actually store the witness in the proof.
+	proofAsset.GroupKey.Witness = nil
+
+	// Empty the raw script key, since we only serialize the tweaked
+	// pubkey. We'll also force the main script key to be an x-only key as
+	// well.
+	proofAsset.ScriptKey.PubKey, err = schnorr.ParsePubKey(
+		schnorr.SerializePubKey(proofAsset.ScriptKey.PubKey),
+	)
+	require.NoError(t, err)
+
+	proofAsset.ScriptKey.TweakedScriptKey = nil
+
+	_, commitmentProof, err := mintCommitment.Proof(
+		proofAsset.TapCommitmentKey(), proofAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	leaf1 := txscript.NewBaseTapLeaf([]byte{1})
+	leaf2 := txscript.NewBaseTapLeaf([]byte{2})
+	testLeafPreimage := commitment.NewPreimageFromLeaf(leaf1)
+	testLeafPreimage2 := commitment.NewPreimageFromLeaf(leaf2)
+	testBranchPreimage := commitment.NewPreimageFromBranch(
+		txscript.NewTapBranch(leaf1, leaf2),
+	)
+	return Proof{
+		PrevOut:       genesis.FirstPrevOut,
+		BlockHeader:   block.Header,
+		BlockHeight:   42,
+		AnchorTx:      *block.Transactions[txIndex],
+		TxMerkleProof: *txMerkleProof,
+		Asset:         *proofAsset,
+		InclusionProof: TaprootProof{
+			OutputIndex: outputIndex,
+			InternalKey: test.RandPubKey(t),
+			CommitmentProof: &CommitmentProof{
+				Proof:              *commitmentProof,
+				TapSiblingPreimage: testLeafPreimage,
+			},
+			TapscriptProof: nil,
+		},
+		ExclusionProofs: []TaprootProof{
+			{
+				OutputIndex: 2,
+				InternalKey: test.RandPubKey(t),
+				CommitmentProof: &CommitmentProof{
+					Proof:              *commitmentProof,
+					TapSiblingPreimage: testLeafPreimage,
+				},
+				TapscriptProof: nil,
+			},
+			{
+				OutputIndex:     3,
+				InternalKey:     test.RandPubKey(t),
+				CommitmentProof: nil,
+				TapscriptProof: &TapscriptProof{
+					TapPreimage1: testBranchPreimage,
+					TapPreimage2: testLeafPreimage2,
+					Bip86:        true,
+				},
+			},
+			{
+				OutputIndex:     4,
+				InternalKey:     test.RandPubKey(t),
+				CommitmentProof: nil,
+				TapscriptProof: &TapscriptProof{
+					Bip86: true,
+				},
+			},
+		},
+		SplitRootProof: &TaprootProof{
+			OutputIndex: 4,
+			InternalKey: test.RandPubKey(t),
+			CommitmentProof: &CommitmentProof{
+				Proof:              *commitmentProof,
+				TapSiblingPreimage: nil,
+			},
+		},
+		MetaReveal: &MetaReveal{
+			Data: []byte("quoth the raven nevermore"),
+			Type: MetaOpaque,
+		},
+		ChallengeWitness: wire.TxWitness{[]byte("foo"), []byte("bar")},
+		GenesisReveal:    &genesis,
+		GroupKeyReveal:   &groupReveal,
+	}
+}
 
 type MockVerifier struct {
 	t *testing.T
