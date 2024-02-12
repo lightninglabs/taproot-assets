@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -181,7 +182,7 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		},
 		{
 			key:     PsbtKeyTypeInputTapAssetProof,
-			encoder: tlvEncoder(&i.proof, tlv.EVarBytes),
+			encoder: proofEncoder(i.Proof),
 		},
 	}
 
@@ -334,6 +335,28 @@ func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 	}
 
 	return tlvEncoder(&pubKey, tlv.EPubKey)
+}
+
+// proofEncoder is an encoder that does nothing if the given proof is nil.
+func proofEncoder(p *proof.Proof) encoderFunc {
+	return func(key []byte) ([]*customPsbtField, error) {
+		if p == nil {
+			return nil, nil
+		}
+
+		var buf bytes.Buffer
+		err := p.Encode(&buf)
+		if err != nil {
+			return nil, err
+		}
+
+		return []*customPsbtField{
+			{
+				Key:   fn.CopySlice(key),
+				Value: buf.Bytes(),
+			},
+		}, nil
+	}
 }
 
 // assetEncoder is an encoder that does nothing if the given asset is nil.

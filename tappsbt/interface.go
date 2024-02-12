@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -156,12 +157,11 @@ type VPacket struct {
 }
 
 // SetInputAsset sets the input asset that is being spent.
-func (p *VPacket) SetInputAsset(index int, a *asset.Asset, proof []byte) {
+func (p *VPacket) SetInputAsset(index int, a *asset.Asset) {
 	if index >= len(p.Inputs) {
 		p.Inputs = append(p.Inputs, &VInput{})
 	}
 	p.Inputs[index].asset = a.Copy()
-	p.Inputs[index].proof = proof
 	p.Inputs[index].serializeScriptKey(
 		a.ScriptKey, p.ChainParams.HDCoinType,
 	)
@@ -309,21 +309,14 @@ type VInput struct {
 	// input struct for the signing to work correctly.
 	asset *asset.Asset
 
-	// proof is the proof blob that proves the asset being spent was
-	// committed to in the anchor transaction above. This cannot be of type
-	// proof.Proof directly because that would cause a circular dependency.
-	proof []byte
+	// Proof is a transition proof that proves the asset being spent was
+	// committed to in the anchor transaction above.
+	Proof *proof.Proof
 }
 
 // Asset returns the input's asset that's being spent.
 func (i *VInput) Asset() *asset.Asset {
 	return i.asset
-}
-
-// Proof returns the proof blob that the asset being spent was committed to in
-// the anchor transaction.
-func (i *VInput) Proof() []byte {
-	return i.proof
 }
 
 // serializeScriptKey serializes the input asset's script key as the PSBT

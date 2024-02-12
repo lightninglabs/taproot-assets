@@ -510,7 +510,7 @@ func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
 
 	// Set the input asset. The input asset proof is not provided as it is
 	// not needed for the re-anchoring process.
-	vPacket.SetInputAsset(0, inputAsset, nil)
+	vPacket.SetInputAsset(0, inputAsset)
 
 	return vPacket
 }
@@ -995,7 +995,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 			return nil, fmt.Errorf("cannot decode proof for input "+
 				"asset: %w", err)
 		}
-		inputProof, err := inputProofFile.RawLastProof()
+		inputProof, err := inputProofFile.LastProof()
 		if err != nil {
 			return nil, fmt.Errorf("cannot get last proof for "+
 				"input asset: %w", err)
@@ -1033,11 +1033,12 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 					inTrBip32Derivation,
 				},
 			},
+			Proof: inputProof,
 			PInput: psbt.PInput{
 				SighashType: txscript.SigHashDefault,
 			},
 		}
-		vPkt.SetInputAsset(idx, assetInput.Asset, inputProof)
+		vPkt.SetInputAsset(idx, assetInput.Asset)
 
 		inputCommitments[idx] = assetInput.Commitment
 	}
@@ -1123,10 +1124,10 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 // verifyInclusionProof verifies that the given virtual input's asset is
 // actually committed in the anchor transaction.
 func verifyInclusionProof(vIn *tappsbt.VInput) error {
-	proofReader := bytes.NewReader(vIn.Proof())
-	assetProof := &proof.Proof{}
-	if err := assetProof.Decode(proofReader); err != nil {
-		return fmt.Errorf("unable to decode asset proof: %w", err)
+	assetProof := vIn.Proof
+
+	if assetProof == nil {
+		return fmt.Errorf("input proof is nil")
 	}
 
 	// Before we look at the inclusion proof, we'll make sure that the input
@@ -1139,8 +1140,7 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 
 	if op.Hash != anchorTxHash {
 		return fmt.Errorf("proof anchor tx hash %v doesn't match "+
-			"input anchor outpoint %v in proof %x", anchorTxHash,
-			op.Hash, vIn.Proof())
+			"input anchor outpoint %v", anchorTxHash, op.Hash)
 	}
 	if op.Index >= uint32(len(assetProof.AnchorTx.TxOut)) {
 		return fmt.Errorf("input anchor outpoint index out of range")
@@ -1149,8 +1149,8 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 	anchorTxOut := assetProof.AnchorTx.TxOut[op.Index]
 	if !bytes.Equal(anchorTxOut.PkScript, vIn.Anchor.PkScript) {
 		return fmt.Errorf("proof anchor tx pk script %x doesn't "+
-			"match input anchor script %x in proof %x",
-			anchorTxOut.PkScript, vIn.Anchor.PkScript, vIn.Proof())
+			"match input anchor script %x", anchorTxOut.PkScript,
+			vIn.Anchor.PkScript)
 	}
 
 	anchorKey, err := proof.ExtractTaprootKeyFromScript(vIn.Anchor.PkScript)

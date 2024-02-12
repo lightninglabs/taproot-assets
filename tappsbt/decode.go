@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -168,7 +169,7 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 		decoder: assetDecoder(&i.asset),
 	}, {
 		key:     PsbtKeyTypeInputTapAssetProof,
-		decoder: tlvDecoder(&i.proof, tlv.DVarBytes),
+		decoder: proofDecoder(&i.Proof),
 	}}
 
 	for idx := range mapping {
@@ -309,7 +310,7 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 	return nil
 }
 
-// tlvDecoder returns a function that encodes the given byte slice using the
+// tlvDecoder returns a function that decodes the given byte slice using the
 // given TLV tlvDecoder.
 func tlvDecoder(val any, dec tlv.Decoder) decoderFunc {
 	return func(_, byteVal []byte) error {
@@ -323,6 +324,20 @@ func tlvDecoder(val any, dec tlv.Decoder) decoderFunc {
 		}
 
 		return nil
+	}
+}
+
+// proofDecoder returns a decoder function that can handle nil proofs.
+func proofDecoder(p **proof.Proof) decoderFunc {
+	return func(key, byteVal []byte) error {
+		if len(byteVal) == 0 {
+			return nil
+		}
+
+		if *p == nil {
+			*p = &proof.Proof{}
+		}
+		return (*p).Decode(bytes.NewReader(byteVal))
 	}
 }
 
