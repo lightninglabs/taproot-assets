@@ -688,8 +688,19 @@ func AssertAddrEvent(t *testing.T, client taprpc.TaprootAssetsClient,
 	addr *taprpc.Addr, numEvents int,
 	expectedStatus taprpc.AddrEventStatus) {
 
+	AssertAddrEventCustomTimeout(
+		t, client, addr, numEvents, expectedStatus, defaultWaitTimeout,
+	)
+}
+
+// AssertAddrEventCustomTimeout makes sure the given address was detected by
+// the given daemon within the given timeout.
+func AssertAddrEventCustomTimeout(t *testing.T,
+	client taprpc.TaprootAssetsClient, addr *taprpc.Addr, numEvents int,
+	expectedStatus taprpc.AddrEventStatus, timeout time.Duration) {
+
 	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	ctxt, cancel := context.WithTimeout(ctxb, timeout)
 	defer cancel()
 
 	err := wait.NoError(func() error {
@@ -717,7 +728,7 @@ func AssertAddrEvent(t *testing.T, client taprpc.TaprootAssetsClient,
 		t.Logf("Got address event %s", eventJSON)
 
 		return nil
-	}, defaultWaitTimeout)
+	}, timeout)
 	require.NoError(t, err)
 }
 
