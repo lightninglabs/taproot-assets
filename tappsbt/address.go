@@ -150,7 +150,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 		}},
 		ChainParams: chainParams,
 	}
-	vPkt.SetInputAsset(0, ownedAsset, nil)
+	vPkt.SetInputAsset(0, ownedAsset)
 
 	return vPkt
 }

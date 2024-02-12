@@ -372,7 +372,7 @@ func createPacket(addr address.Tap, prevInput asset.PrevID,
 		Outputs:     outputs,
 		ChainParams: addr.ChainParams,
 	}
-	vPacket.SetInputAsset(0, inputAsset, nil)
+	vPacket.SetInputAsset(0, inputAsset)
 
 	return vPacket
 }
