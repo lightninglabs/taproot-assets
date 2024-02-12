@@ -115,6 +115,6 @@ func newProofCourierAddrRecord(addr *url.URL) tlv.Record {
 
 	return tlv.MakeDynamicRecord(
 		addrProofCourierAddrType, addr, recordSize,
-		urlEncoder, urlDecoder,
+		UrlEncoder, UrlDecoder,
 	)
 }
