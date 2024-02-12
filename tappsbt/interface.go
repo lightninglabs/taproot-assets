@@ -261,6 +261,27 @@ func (p *VPacket) FirstInteractiveOutput() (*VOutput, error) {
 	return result, nil
 }
 
+// AssetID returns the asset ID of the virtual transaction. It returns an error
+// if the virtual transaction has no inputs or if the inputs have different
+// asset IDs.
+func (p *VPacket) AssetID() (asset.ID, error) {
+	if len(p.Inputs) == 0 {
+		return asset.ID{}, fmt.Errorf("no inputs")
+	}
+
+	firstID := p.Inputs[0].PrevID.ID
+	for idx := range p.Inputs {
+		if p.Inputs[idx].PrevID.ID != firstID {
+			return asset.ID{}, fmt.Errorf("packet has inputs with "+
+				"different asset IDs, index 0 has ID %v and "+
+				"index %d has ID %v", firstID, idx,
+				p.Inputs[idx].PrevID.ID)
+		}
+	}
+
+	return firstID, nil
+}
+
 // Anchor is a struct that contains all the information about an anchor output.
 type Anchor struct {
 	// Value is output value of the anchor output.
@@ -582,6 +603,23 @@ func (o *VOutput) AnchorKeyToDesc() (keychain.KeyDescriptor, error) {
 	}
 
 	return KeyDescFromBip32Derivation(o.AnchorOutputBip32Derivation[0])
+}
+
+// PrevWitnesses returns the previous witnesses of the asset output. If the
+// asset is a split root, the witness of the root asset is returned. If the
+// output asset is nil an error is returned.
+func (o *VOutput) PrevWitnesses() ([]asset.Witness, error) {
+	if o.Asset == nil {
+		return nil, fmt.Errorf("asset is not set")
+	}
+
+	prevWitness := o.Asset.PrevWitnesses
+	if o.Asset.HasSplitCommitmentWitness() {
+		rootAsset := prevWitness[0].SplitCommitment.RootAsset
+		prevWitness = rootAsset.PrevWitnesses
+	}
+
+	return prevWitness, nil
 }
 
 // KeyDescFromBip32Derivation attempts to extract the key descriptor from the
