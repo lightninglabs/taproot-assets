@@ -152,6 +152,12 @@ func (p *BaseProofParams) HaveExclusionProof(anchorOutputIndex uint32) bool {
 	return false
 }
 
+// HaveInclusionProof returns true if the inclusion proof is for the given
+// anchor output index.
+func (p *BaseProofParams) HaveInclusionProof(anchorOutputIndex uint32) bool {
+	return p.OutputIndex == int(anchorOutputIndex)
+}
+
 // MintParams holds the set of chain level information needed to make a proof
 // file for the set of assets minted in a batch.
 type MintParams struct {

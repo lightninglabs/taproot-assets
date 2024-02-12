@@ -466,7 +466,9 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// In any other case we expect an active asset transfer to be
 		// committed to.
 		case vOut.Asset != nil:
-			proofSuffix, err := s.createProofSuffix(idx)
+			proofSuffix, err := CreateProofSuffix(
+				s.AnchorTx, s.VirtualPacket, idx, nil,
+			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
 					"proof %d: %w", idx, err)
@@ -513,33 +515,51 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 	return parcel, nil
 }
 
-// createProofSuffix creates the new proof for the given output. This is the
+// CreateProofSuffix creates the new proof for the given output. This is the
 // final state transition that will be added to the proofs of the receiver. The
 // proof returned will have all the Taproot Asset level proof information, but
 // contains dummy data for the on-chain part.
-func (s *sendPackage) createProofSuffix(outIndex int) (*proof.Proof, error) {
-	inputPrevID := s.VirtualPacket.Inputs[0].PrevID
+func CreateProofSuffix(anchorTx *AnchorTransaction, vPacket *tappsbt.VPacket,
+	outIndex int, allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof,
+	error) {
 
-	params, err := proofParams(s.AnchorTx, s.VirtualPacket, outIndex)
+	inputPrevID := vPacket.Inputs[0].PrevID
+
+	params, err := proofParams(
+		anchorTx, vPacket, outIndex, allAnchoredVPackets,
+	)
 	if err != nil {
 		return nil, err
 	}
 
-	// We also need to account for any P2TR change outputs.
-	if len(s.AnchorTx.FundedPsbt.Pkt.UnsignedTx.TxOut) > 1 {
-		isAnchor := func(idx uint32) bool {
-			for outIdx := range s.VirtualPacket.Outputs {
-				vOut := s.VirtualPacket.Outputs[outIdx]
-				if vOut.AnchorOutputIndex == idx {
+	isAnchor := func(anchorOutputIndex uint32) bool {
+		// Does the current virtual packet anchor into this output?
+		for outIdx := range vPacket.Outputs {
+			vOut := vPacket.Outputs[outIdx]
+			if vOut.AnchorOutputIndex == anchorOutputIndex {
+				return true
+			}
+		}
+
+		// Maybe any of the other anchored virtual packets anchor into
+		// this output?
+		for _, vPkt := range allAnchoredVPackets {
+			for _, vOut := range vPkt.Outputs {
+				if vOut.AnchorOutputIndex == anchorOutputIndex {
 					return true
 				}
 			}
-
-			return false
 		}
 
+		// No virtual packet anchors into this output, it must be a
+		// pure BTC output.
+		return false
+	}
+
+	// We also need to account for any P2TR change outputs.
+	if len(anchorTx.FundedPsbt.Pkt.UnsignedTx.TxOut) > 1 {
 		err := proof.AddExclusionProofs(
-			&params.BaseProofParams, s.AnchorTx.FundedPsbt.Pkt,
+			&params.BaseProofParams, anchorTx.FundedPsbt.Pkt,
 			isAnchor,
 		)
 		if err != nil {
@@ -585,13 +605,21 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 // proofParams creates the set of parameters that will be used to create the
 // proofs for the sender and receiver.
 func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
-	outIndex int) (*proof.TransitionParams, error) {
+	outIndex int,
+	allAnchoredVPackets []*tappsbt.VPacket) (*proof.TransitionParams, error) {
 
 	outputCommitments := anchorTx.OutputCommitments
 
 	isSplit, err := vPkt.HasSplitCommitment()
 	if err != nil {
 		return nil, err
+	}
+
+	allVirtualOutputs := append([]*tappsbt.VOutput{}, vPkt.Outputs...)
+	for _, otherVPkt := range allAnchoredVPackets {
+		allVirtualOutputs = append(
+			allVirtualOutputs, otherVPkt.Outputs...,
+		)
 	}
 
 	// Is this the split root? Then we need exclusion proofs from all the
@@ -612,11 +640,8 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 
 		// Add exclusion proofs for all the other outputs.
 		err = addOtherOutputExclusionProofs(
-			vPkt.Outputs, rootOut.Asset, rootParams,
+			allVirtualOutputs, rootOut.Asset, rootParams,
 			outputCommitments,
-			func(i int, _ *tappsbt.VOutput) bool {
-				return i == outIndex
-			},
 		)
 		if err != nil {
 			return nil, err
@@ -668,16 +693,8 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 
 	// Add exclusion proofs for all the other outputs.
 	err = addOtherOutputExclusionProofs(
-		vPkt.Outputs, splitOut.Asset, splitParams, outputCommitments,
-		func(i int, vOut *tappsbt.VOutput) bool {
-			// We don't need exclusion proofs for:
-			//	- The split output itself.
-			//	- The split root output.
-			//	- Any output that is committed to the same
-			//	  anchor output as our split output.
-			return i == outIndex || vOut == splitRootOut ||
-				vOut.AnchorOutputIndex == splitIndex
-		},
+		allVirtualOutputs, splitOut.Asset, splitParams,
+		outputCommitments,
 	)
 	if err != nil {
 		return nil, err
@@ -691,14 +708,14 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 // return false for not yet processed outputs, otherwise they'll be skipped).
 func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 	asset *asset.Asset, params *proof.TransitionParams,
-	outputCommitments map[uint32]*commitment.TapCommitment,
-	skip func(int, *tappsbt.VOutput) bool) error {
+	outputCommitments map[uint32]*commitment.TapCommitment) error {
 
 	for idx := range outputs {
 		vOut := outputs[idx]
 
-		haveProof := params.HaveExclusionProof(vOut.AnchorOutputIndex)
-		if skip(idx, vOut) || haveProof {
+		haveIProof := params.HaveInclusionProof(vOut.AnchorOutputIndex)
+		haveEProof := params.HaveExclusionProof(vOut.AnchorOutputIndex)
+		if haveIProof || haveEProof {
 			continue
 		}
 
@@ -772,9 +789,7 @@ func (s *sendPackage) createReAnchorProof(
 	// BTC level outputs.
 	err = addOtherOutputExclusionProofs(
 		s.VirtualPacket.Outputs, passiveOut.Asset, passiveParams,
-		outputCommitments, func(i int, vOut *tappsbt.VOutput) bool {
-			return vOut.AnchorOutputIndex == passiveOutputIndex
-		},
+		outputCommitments,
 	)
 	if err != nil {
 		return nil, err
