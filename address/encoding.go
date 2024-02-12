@@ -42,8 +42,8 @@ func compressedPubKeyDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error
 	)
 }
 
-// urlEncoder encodes a url.URL as a variable length byte slice.
-func urlEncoder(w io.Writer, val any, buf *[8]byte) error {
+// UrlEncoder encodes a url.URL as a variable length byte slice.
+func UrlEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*url.URL); ok {
 		addrBytes := []byte((*t).String())
 		return tlv.EVarBytes(w, &addrBytes, buf)
@@ -51,8 +51,8 @@ func urlEncoder(w io.Writer, val any, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "*url.URL")
 }
 
-// urlDecoder decodes a variable length byte slice as an url.URL.
-func urlDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+// UrlDecoder decodes a variable length byte slice as an url.URL.
+func UrlDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	if t, ok := val.(*url.URL); ok {
 		var addrBytes []byte
 		err := tlv.DVarBytes(r, &addrBytes, buf, l)
@@ -68,9 +68,7 @@ func urlDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 
 		return nil
 	}
-	return tlv.NewTypeForDecodingErr(
-		val, "*url.URL", l, l,
-	)
+	return tlv.NewTypeForDecodingErr(val, "*url.URL", l, l)
 }
 
 func VersionEncoder(w io.Writer, val any, buf *[8]byte) error {

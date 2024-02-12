@@ -3,6 +3,7 @@ package tappsbt
 import (
 	"bytes"
 	"encoding/hex"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -100,6 +101,9 @@ func RandPacket(t testing.TB) *VPacket {
 		t, testAsset.Genesis, inputScriptKey.PubKey, oddTxBlock, 1, 0,
 	)
 
+	courierAddress, err := url.Parse("https://example.com")
+	require.NoError(t, err)
+
 	vPacket := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: asset.PrevID{
@@ -136,6 +140,7 @@ func RandPacket(t testing.TB) *VPacket {
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			SplitAsset:                         testOutputAsset,
 			AnchorOutputTapscriptSibling:       testPreimage1,
+			ProofDeliveryAddress:               courierAddress,
 		}, {
 			Amount: 345,
 			AssetVersion: asset.Version(
@@ -493,6 +498,10 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		vo.Asset = asset.NewTestFromAsset(t, v.Asset)
 	}
 
+	if v.ProofDeliveryAddress != nil {
+		vo.ProofDeliveryAddress = v.ProofDeliveryAddress.String()
+	}
+
 	if v.ScriptKey.TweakedScriptKey != nil {
 		bip32Derivation, trBip32Derivation := Bip32DerivationFromKeyDesc(
 			v.ScriptKey.RawKey, coinType,
@@ -572,6 +581,7 @@ type TestVOutput struct {
 	TrBip32Derivation             []*TestTrBip32Derivation `json:"tr_bip32_derivation"`
 	TrInternalKey                 string                   `json:"tr_internal_key"`
 	TrMerkleRoot                  string                   `json:"tr_merkle_root"`
+	ProofDeliveryAddress          string                   `json:"proof_delivery_address"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -607,6 +617,12 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 
 	if to.SplitAsset != nil {
 		v.SplitAsset = to.SplitAsset.ToAsset(t)
+	}
+
+	if to.ProofDeliveryAddress != "" {
+		var err error
+		v.ProofDeliveryAddress, err = url.Parse(to.ProofDeliveryAddress)
+		require.NoError(t, err)
 	}
 
 	if len(to.Bip32Derivation) > 0 && to.TrInternalKey != "" {

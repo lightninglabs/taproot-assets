@@ -3,6 +3,7 @@ package tappsbt
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -52,6 +53,7 @@ var (
 	PsbtKeyTypeOutputTapSplitAsset                         = []byte{0x77}
 	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
 	PsbtKeyTypeOutputTapAssetVersion                       = []byte{0x79}
+	PsbtKeyTypeOutputTapProofDeliveryAddress               = []byte{0x7a}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -522,6 +524,10 @@ type VOutput struct {
 	// serialized, this will be stored in the TaprootInternalKey and
 	// TaprootDerivationPath fields of the PSBT output.
 	ScriptKey asset.ScriptKey
+
+	// ProofDeliveryAddress is the address to which the proof of the asset
+	// transfer should be delivered.
+	ProofDeliveryAddress *url.URL
 }
 
 // SplitLocator creates a split locator from the output. The asset ID is passed

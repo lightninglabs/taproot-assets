@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -284,6 +285,10 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 				&o.AssetVersion, vOutputAssetVersionDecoder,
 			),
 		},
+		{
+			key:     PsbtKeyTypeOutputTapProofDeliveryAddress,
+			decoder: urlDecoder(&o.ProofDeliveryAddress),
+		},
 	}
 
 	for idx := range mapping {
@@ -477,4 +482,18 @@ func vOutputAssetVersionDecoder(r io.Reader, val any, buf *[8]byte,
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "VOutputAssetVersion", 8, l)
+}
+
+// urlDecoder returns a decoder function that can handle nil URLs.
+func urlDecoder(u **url.URL) decoderFunc {
+	return func(key, byteVal []byte) error {
+		if len(byteVal) == 0 {
+			return nil
+		}
+
+		if *u == nil {
+			*u = &url.URL{}
+		}
+		return tlvDecoder(*u, address.UrlDecoder)(key, byteVal)
+	}
 }

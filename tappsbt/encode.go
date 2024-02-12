@@ -6,12 +6,14 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -283,6 +285,10 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 				&o.AssetVersion, vOutputAssetVersionEncoder,
 			),
 		},
+		{
+			key:     PsbtKeyTypeOutputTapProofDeliveryAddress,
+			encoder: urlEncoder(o.ProofDeliveryAddress),
+		},
 	}
 
 	for idx := range mapping {
@@ -480,4 +486,30 @@ func vOutputAssetVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
 		return tlv.EUint8T(w, num, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "VOutputAssetVersion")
+}
+
+// urlEncoder returns a function that encodes the given URL as a custom PSBT
+// field.
+func urlEncoder(val *url.URL) encoderFunc {
+	return func(key []byte) ([]*customPsbtField, error) {
+		if val == nil {
+			return nil, nil
+		}
+
+		var (
+			b       bytes.Buffer
+			scratch [8]byte
+		)
+		if err := address.UrlEncoder(&b, val, &scratch); err != nil {
+			return nil, fmt.Errorf("error encoding TLV record: %w",
+				err)
+		}
+
+		return []*customPsbtField{
+			{
+				Key:   fn.CopySlice(key),
+				Value: b.Bytes(),
+			},
+		}, nil
+	}
 }
