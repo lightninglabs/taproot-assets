@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -830,7 +831,7 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 func createDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output.
 	newOutput := wire.TxOut{
-		Value:    int64(tapscript.DummyAmtSats),
+		Value:    int64(tapsend.DummyAmtSats),
 		PkScript: make([]byte, 34),
 	}
 	return &newOutput
@@ -923,7 +924,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		default:
 			feeRate, err = p.cfg.ChainBridge.EstimateFee(
-				ctx, tapscript.SendConfTarget,
+				ctx, tapsend.SendConfTarget,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to estimate "+

@@ -1,8 +1,9 @@
-package tapscript
+package tapsend
 
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -19,10 +20,13 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightningnetwork/lnd/input"
 	"golang.org/x/exp/slices"
 )
 
@@ -616,8 +620,8 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 // full asset in case of an interactive full amount send) by creating a
 // signature over the asset transfer, verifying the transfer with the Taproot
 // Asset VM, and attaching that signature to the new Asset.
-func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
-	validator TxValidator) error {
+func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer tapscript.Signer,
+	validator tapscript.TxValidator) error {
 
 	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
@@ -650,7 +654,7 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 
 	// Create a Taproot Asset virtual transaction representing the asset
 	// transfer.
-	virtualTx, _, err := VirtualTx(newAsset, prevAssets)
+	virtualTx, _, err := tapscript.VirtualTx(newAsset, prevAssets)
 	if err != nil {
 		return err
 	}
@@ -733,6 +737,134 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 	}
 
 	return nil
+}
+
+// CreateTaprootSignature creates a Taproot signature for the given asset input.
+// Depending on the fields set in the input, this will either create a key path
+// spend or a script path spend.
+func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
+	idx int, txSigner tapscript.Signer) (wire.TxWitness, error) {
+
+	// Before we even attempt to sign anything, we need to make sure all the
+	// input information we require is present.
+	if len(vIn.TaprootBip32Derivation) == 0 {
+		return nil, fmt.Errorf("missing input Taproot BIP-0032 " +
+			"derivation")
+	}
+
+	// Currently, we only support creating one signature per input.
+	//
+	// TODO(guggero): Should we support signing multiple paths at the same
+	// time? What are the performance and security implications?
+	if len(vIn.TaprootBip32Derivation) > 1 {
+		return nil, fmt.Errorf("unsupported multiple taproot " +
+			"BIP-0032 derivation info found, can only sign for " +
+			"one at a time")
+	}
+	if len(vIn.TaprootBip32Derivation[0].LeafHashes) > 1 {
+		return nil, fmt.Errorf("unsupported number of leaf hashes in " +
+			"taproot BIP-0032 derivation info, can only sign for " +
+			"one at a time")
+	}
+
+	derivation := vIn.Bip32Derivation[0]
+	trDerivation := vIn.TaprootBip32Derivation[0]
+
+	keyDesc, err := tappsbt.KeyDescFromBip32Derivation(derivation)
+	if err != nil {
+		return nil, fmt.Errorf("error identifying input asset key "+
+			"descriptor from BIP-0032 derivation: %w", err)
+	}
+
+	// Compute a virtual prevOut from the input asset for the signer.
+	prevOut, err := tapscript.InputAssetPrevOut(*vIn.Asset())
+	if err != nil {
+		return nil, err
+	}
+
+	// Start with a default sign descriptor and the BIP-0086 sign method
+	// then adjust depending on the input parameters.
+	spendDesc := lndclient.SignDescriptor{
+		KeyDesc:    keyDesc,
+		SignMethod: input.TaprootKeySpendBIP0086SignMethod,
+		Output:     prevOut,
+		HashType:   vIn.SighashType,
+		InputIndex: idx,
+	}
+
+	// There are three possible signing cases: BIP-0086 key spend path, key
+	// spend path with a script root, and script spend path.
+	switch {
+	// If there is no merkle root, we're doing a BIP-0086 key spend.
+	case len(vIn.TaprootMerkleRoot) == 0:
+		// This is the default case, so we don't need to do anything.
+
+	// No leaf hash means we're not signing a specific script, so this is
+	// the key spend path with a script root.
+	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
+		len(trDerivation.LeafHashes) == 0:
+
+		spendDesc.SignMethod = input.TaprootKeySpendSignMethod
+		spendDesc.TapTweak = vIn.TaprootMerkleRoot
+
+	// One leaf hash and a merkle root means we're signing a specific
+	// script. There can be other scripts in the tree, but we only support
+	// creating a signature for a single one at a time.
+	case len(vIn.TaprootMerkleRoot) == sha256.Size &&
+		len(trDerivation.LeafHashes) == 1:
+
+		// If we're supposed to be signing for a leaf hash, we also
+		// expect the leaf script that hashes to that hash in the
+		// appropriate field.
+		if len(vIn.TaprootLeafScript) != 1 {
+			return nil, fmt.Errorf("specified leaf hash in " +
+				"taproot BIP-0032 derivation but missing " +
+				"taproot leaf script")
+		}
+
+		leafScript := vIn.TaprootLeafScript[0]
+		leaf := txscript.TapLeaf{
+			LeafVersion: leafScript.LeafVersion,
+			Script:      leafScript.Script,
+		}
+		leafHash := leaf.TapHash()
+		if !bytes.Equal(leafHash[:], trDerivation.LeafHashes[0]) {
+			return nil, fmt.Errorf("specified leaf hash in " +
+				"taproot BIP-0032 derivation but " +
+				"corresponding taproot leaf script was not " +
+				"found")
+		}
+
+		spendDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		spendDesc.WitnessScript = leafScript.Script
+
+	// Some invalid combination of fields was specified, it's not clear what
+	// we should do. So rather than fail later, let's return an explicit
+	// error here.
+	default:
+		return nil, fmt.Errorf("unable to determine signing method " +
+			"from virtual transaction packet")
+	}
+
+	sig, err := txSigner.SignVirtualTx(&spendDesc, virtualTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	witness := wire.TxWitness{sig.Serialize()}
+	if vIn.SighashType != txscript.SigHashDefault {
+		witness[0] = append(witness[0], byte(vIn.SighashType))
+	}
+
+	// If this was a script spend, we also have to add the script itself and
+	// the control block to the witness, otherwise the verifier will reject
+	// the generated witness.
+	if spendDesc.SignMethod == input.TaprootScriptSpendSignMethod {
+		witness = append(witness, spendDesc.WitnessScript)
+		witness = append(witness, vIn.TaprootLeafScript[0].ControlBlock)
+	}
+
+	return witness, nil
 }
 
 // CreateOutputCommitments creates the final set of Taproot asset commitments
@@ -1133,7 +1265,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 
 		// Create the scripts corresponding to the receiver's
 		// TapCommitment.
-		script, err := PayToAddrScript(
+		script, err := tapscript.PayToAddrScript(
 			*internalKey, siblingHash, *anchorCommitment,
 		)
 		if err != nil {

@@ -29,6 +29,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -106,13 +107,13 @@ type Wallet interface {
 	// FundPacket funds a virtual transaction, selecting assets to spend
 	// in order to pay the given recipient. The selected input is then added
 	// to the given virtual transaction.
-	FundPacket(ctx context.Context, fundDesc *tapscript.FundingDescriptor,
+	FundPacket(ctx context.Context, fundDesc *tapsend.FundingDescriptor,
 		vPkt *tappsbt.VPacket) (*FundedVPacket, error)
 
 	// FundBurn funds a virtual transaction for burning the given amount of
 	// units of the given asset.
 	FundBurn(ctx context.Context,
-		fundDesc *tapscript.FundingDescriptor) (*FundedVPacket, error)
+		fundDesc *tapsend.FundingDescriptor) (*FundedVPacket, error)
 
 	// SignVirtualPacket signs the virtual transaction of the given packet
 	// and returns the input indexes that were signed.
@@ -437,7 +438,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 			"transaction from addresses: %w", err)
 	}
 
-	fundDesc, err := tapscript.DescribeAddrs(receiverAddrs)
+	fundDesc, err := tapsend.DescribeAddrs(receiverAddrs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to describe recipients: "+
 			"%w", err)
@@ -518,7 +519,7 @@ func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
 // pay the given recipient. The selected input is then added to the given
 // virtual transaction.
 func (f *AssetWallet) FundPacket(ctx context.Context,
-	fundDesc *tapscript.FundingDescriptor,
+	fundDesc *tapsend.FundingDescriptor,
 	vPkt *tappsbt.VPacket) (*FundedVPacket, error) {
 
 	// The input and address networks must match.
@@ -547,7 +548,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 // FundBurn funds a virtual transaction for burning the given amount of units of
 // the given asset.
 func (f *AssetWallet) FundBurn(ctx context.Context,
-	fundDesc *tapscript.FundingDescriptor) (*FundedVPacket, error) {
+	fundDesc *tapsend.FundingDescriptor) (*FundedVPacket, error) {
 
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
@@ -698,7 +699,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 
 // fundPacketWithInputs funds a virtual transaction with the given inputs.
 func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
-	fundDesc *tapscript.FundingDescriptor, vPkt *tappsbt.VPacket,
+	fundDesc *tapsend.FundingDescriptor, vPkt *tappsbt.VPacket,
 	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
 
 	log.Infof("Selected %v asset inputs for send of %d to %x",
@@ -742,7 +743,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		},
 	)
 
-	fullValue, err := tapscript.ValidateInputs(
+	fullValue, err := tapsend.ValidateInputs(
 		inputCommitments, inputsScriptKeys, assetType, fundDesc,
 	)
 	if err != nil {
@@ -910,7 +911,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		)
 	}
 
-	if err := tapscript.PrepareOutputAssets(ctx, vPkt); err != nil {
+	if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
 		return nil, fmt.Errorf("unable to create split commit: %w", err)
 	}
 
@@ -964,7 +965,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// to be in the commitment we spend (we did the same when
 		// creating the output, so differences should be apparent when
 		// debugging).
-		tapscript.LogCommitment(
+		tapsend.LogCommitment(
 			"Input", idx, assetInput.Commitment, internalKey.PubKey,
 			anchorPkScript, anchorMerkleRoot[:],
 		)
@@ -1102,7 +1103,7 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 	// Now we'll use the signer to sign all the inputs for the new Taproot
 	// Asset leaves. The witness data for each input will be assigned for
 	// us.
-	err := tapscript.SignVirtualTransaction(
+	err := tapsend.SignVirtualTransaction(
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
 	if err != nil {
@@ -1378,7 +1379,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 	vPacket := params.VPkts[0]
 
-	outputCommitments, err := tapscript.CreateOutputCommitments(
+	outputCommitments, err := tapsend.CreateOutputCommitments(
 		params.InputCommitments, vPacket, params.PassiveAssetsVPkts,
 	)
 	if err != nil {
@@ -1388,7 +1389,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
-	sendPacket, err := tapscript.CreateAnchorTx(vPacket.Outputs)
+	sendPacket, err := tapsend.CreateAnchorTx(vPacket.Outputs)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
@@ -1424,7 +1425,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// First, we'll update the PSBT packets to insert the _real_ outputs we
 	// need to commit to the asset transfer.
-	mergedCommitments, err := tapscript.UpdateTaprootOutputKeys(
+	mergedCommitments, err := tapsend.UpdateTaprootOutputKeys(
 		signAnchorPkt, vPacket, outputCommitments,
 	)
 	if err != nil {
@@ -1504,7 +1505,7 @@ func (f *AssetWallet) SignOwnershipProof(
 	vPkt := tappsbt.OwnershipProofPacket(
 		ownedAsset.Copy(), f.cfg.ChainParams,
 	)
-	err := tapscript.SignVirtualTransaction(
+	err := tapsend.SignVirtualTransaction(
 		vPkt, f.cfg.Signer, f.cfg.TxValidator,
 	)
 	if err != nil {

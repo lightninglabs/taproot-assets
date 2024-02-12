@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"math/rand"
 	"sync"
 	"testing"
@@ -457,7 +458,7 @@ func (t *mintingTestHarness) assertGenesisTxFunded() *tapgarden.FundedPsbt {
 		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
 			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
 			isDummyScript := bytes.Equal(
-				txOut.PkScript, tapscript.GenesisDummyScript[:],
+				txOut.PkScript, tapsend.GenesisDummyScript[:],
 			)
 
 			if isP2TR || isDummyScript {
