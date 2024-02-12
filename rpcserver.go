@@ -38,6 +38,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -1675,7 +1676,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		// Extract the recipient information from the packet. This
 		// basically assembles the asset ID we want to send to and the
 		// sum of all output amounts.
-		desc, err := tapscript.DescribeRecipients(
+		desc, err := tapsend.DescribeRecipients(
 			ctx, vPkt, r.cfg.TapAddrBook,
 		)
 		if err != nil {
@@ -2349,7 +2350,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		in.AmountToBurn)
 
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
-		ctx, &tapscript.FundingDescriptor{
+		ctx, &tapsend.FundingDescriptor{
 			ID:       assetID,
 			GroupKey: groupKey,
 			Amount:   in.AmountToBurn,

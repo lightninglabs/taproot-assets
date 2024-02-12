@@ -21,7 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -394,7 +394,7 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 		b.batchKey[:])
 
 	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(tapscript.CreateDummyOutput())
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
 	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
 	if err != nil {
 		return nil, fmt.Errorf("unable to make psbt packet: %w", err)

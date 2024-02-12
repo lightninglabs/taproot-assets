@@ -9,7 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
-	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/signal"
@@ -99,9 +99,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(root, proof.Subsystem, interceptor, proof.UseLogger)
 	AddSubLogger(root, tapdb.Subsystem, interceptor, tapdb.UseLogger)
 	AddSubLogger(root, address.Subsystem, interceptor, address.UseLogger)
-	AddSubLogger(
-		root, tapscript.Subsystem, interceptor, tapscript.UseLogger,
-	)
+	AddSubLogger(root, tapsend.Subsystem, interceptor, tapsend.UseLogger)
 	AddSubLogger(root, universe.Subsystem, interceptor, universe.UseLogger)
 	AddSubLogger(
 		root, commitment.Subsystem, interceptor, commitment.UseLogger,

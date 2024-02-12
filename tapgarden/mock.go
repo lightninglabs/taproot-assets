@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"math/rand"
 	"testing"
 	"time"
@@ -22,7 +23,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -108,7 +108,7 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	anchorInput := psbt.PInput{
 		WitnessUtxo: &wire.TxOut{
 			Value:    100000,
-			PkScript: bytes.Clone(tapscript.GenesisDummyScript),
+			PkScript: bytes.Clone(tapsend.GenesisDummyScript),
 		},
 		SighashType: txscript.SigHashDefault,
 	}
@@ -118,7 +118,7 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	// exclusion proofs.
 	changeOutput := wire.TxOut{
 		Value:    50000,
-		PkScript: bytes.Clone(tapscript.GenesisDummyScript),
+		PkScript: bytes.Clone(tapsend.GenesisDummyScript),
 	}
 	changeOutput.PkScript[0] = txscript.OP_0
 	packet.UnsignedTx.AddTxOut(&changeOutput)
