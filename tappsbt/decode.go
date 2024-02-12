@@ -289,6 +289,10 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 			key:     PsbtKeyTypeOutputTapProofDeliveryAddress,
 			decoder: urlDecoder(&o.ProofDeliveryAddress),
 		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
+			decoder: proofDecoder(&o.ProofSuffix),
+		},
 	}
 
 	for idx := range mapping {

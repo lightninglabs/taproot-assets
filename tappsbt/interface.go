@@ -54,6 +54,7 @@ var (
 	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
 	PsbtKeyTypeOutputTapAssetVersion                       = []byte{0x79}
 	PsbtKeyTypeOutputTapProofDeliveryAddress               = []byte{0x7a}
+	PsbtKeyTypeOutputTapAssetProofSuffix                   = []byte{0x7b}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -528,6 +529,13 @@ type VOutput struct {
 	// ProofDeliveryAddress is the address to which the proof of the asset
 	// transfer should be delivered.
 	ProofDeliveryAddress *url.URL
+
+	// ProofSuffix is the optional new transition proof blob that is created
+	// once the asset output was successfully committed to the anchor
+	// transaction referenced above. The proof suffix is not yet complete
+	// since the header information needs to be added once the anchor
+	// transaction was confirmed in a block.
+	ProofSuffix *proof.Proof
 }
 
 // SplitLocator creates a split locator from the output. The asset ID is passed
@@ -748,4 +756,20 @@ func deserializeTweakedScriptKey(pOut psbt.POutput) (*asset.TweakedScriptKey,
 		RawKey: rawKeyDesc,
 		Tweak:  tweak,
 	}, nil
+}
+
+// Encode encodes the virtual packet into a byte slice.
+func Encode(vPkt *VPacket) ([]byte, error) {
+	var buf bytes.Buffer
+	err := vPkt.Serialize(&buf)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// Decode decodes a virtual packet from a byte slice.
+func Decode(encoded []byte) (*VPacket, error) {
+	return NewFromRawBytes(bytes.NewReader(encoded), false)
 }

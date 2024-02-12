@@ -141,6 +141,7 @@ func RandPacket(t testing.TB) *VPacket {
 			SplitAsset:                         testOutputAsset,
 			AnchorOutputTapscriptSibling:       testPreimage1,
 			ProofDeliveryAddress:               courierAddress,
+			ProofSuffix:                        &inputProof,
 		}, {
 			Amount: 345,
 			AssetVersion: asset.Version(
@@ -502,6 +503,10 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		vo.ProofDeliveryAddress = v.ProofDeliveryAddress.String()
 	}
 
+	if v.ProofSuffix != nil {
+		vo.ProofSuffix = proof.NewTestFromProof(t, v.ProofSuffix)
+	}
+
 	if v.ScriptKey.TweakedScriptKey != nil {
 		bip32Derivation, trBip32Derivation := Bip32DerivationFromKeyDesc(
 			v.ScriptKey.RawKey, coinType,
@@ -582,6 +587,7 @@ type TestVOutput struct {
 	TrInternalKey                 string                   `json:"tr_internal_key"`
 	TrMerkleRoot                  string                   `json:"tr_merkle_root"`
 	ProofDeliveryAddress          string                   `json:"proof_delivery_address"`
+	ProofSuffix                   *proof.TestProof         `json:"proof_suffix"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -623,6 +629,10 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 		var err error
 		v.ProofDeliveryAddress, err = url.Parse(to.ProofDeliveryAddress)
 		require.NoError(t, err)
+	}
+
+	if to.ProofSuffix != nil {
+		v.ProofSuffix = to.ProofSuffix.ToProof(t)
 	}
 
 	if len(to.Bip32Derivation) > 0 && to.TrInternalKey != "" {
