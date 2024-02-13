@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"sync"
@@ -305,10 +306,18 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 		}
 	}()
 
-	time.Sleep(1 * time.Second)
+	// Let's wait until the RPC server is actually listening before we
+	// connect our client to it.
+	listenerAddr := hs.clientCfg.RpcConf.RawRPCListeners[0]
+	err = wait.NoError(func() error {
+		_, err := net.Dial("tcp", listenerAddr)
+		return err
+	}, defaultTimeout)
+	if err != nil {
+		return fmt.Errorf("error waiting for server to start: %v", err)
+	}
 
 	// Create our client to interact with the tapd RPC server directly.
-	listenerAddr := hs.clientCfg.RpcConf.RawRPCListeners[0]
 	rpcConn, err := dialServer(
 		listenerAddr, hs.clientCfg.RpcConf.TLSCertPath,
 		hs.clientCfg.RpcConf.MacaroonPath,
