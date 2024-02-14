@@ -50,6 +50,13 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 
 	lndHarness.SetupStandbyNodes()
 
+	// Create a new LND node for use with the universe server.
+	t.Log("Starting universe server LND node")
+	uniServerLndHarness := lndHarness.NewNode("uni-server-lnd", nil)
+
+	// Wait for the new LND node to be fully synced to the blockchain.
+	lndHarness.WaitForBlockchainSync(uniServerLndHarness)
+
 	t.Logf("Running %v integration tests", len(testList))
 	for _, testCase := range testList {
 		logLine := fmt.Sprintf("STARTING ============ %v ============\n",
@@ -60,11 +67,17 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 			// created and later discarded for each test run to
 			// assure no state is taken over between runs.
 			tapdHarness, uniHarness, proofCourier := setupHarnesses(
-				t1, ht, lndHarness,
+				t1, ht, lndHarness, uniServerLndHarness,
 				testCase.proofCourierType,
 			)
 			lndHarness.EnsureConnected(
 				lndHarness.Alice, lndHarness.Bob,
+			)
+			lndHarness.EnsureConnected(
+				lndHarness.Alice, uniServerLndHarness,
+			)
+			lndHarness.EnsureConnected(
+				lndHarness.Bob, uniServerLndHarness,
 			)
 
 			lndHarness.Alice.AddToLogf(logLine)

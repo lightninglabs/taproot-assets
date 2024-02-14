@@ -14,6 +14,10 @@ type universeServerHarness struct {
 
 	// ListenAddr is the address that the service is listening on.
 	ListenAddr string
+
+	// lndHarness is the instance of the lnd harness that the service is
+	// using.
+	LndHarness *node.HarnessNode
 }
 
 func newUniverseServerHarness(t *testing.T, ht *harnessTest,
@@ -28,6 +32,7 @@ func newUniverseServerHarness(t *testing.T, ht *harnessTest,
 	return &universeServerHarness{
 		service:    service,
 		ListenAddr: service.rpcHost(),
+		LndHarness: lndHarness,
 	}
 }
 
