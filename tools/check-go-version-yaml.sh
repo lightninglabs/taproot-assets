@@ -36,11 +36,27 @@ fi
 
 target_go_version="$1"
 
-# Search for YAML files in the current directory and its subdirectories
-yaml_files=$(find . -type f -name "*.yaml" -o -name "*.yml")
+# We find target files using the 'find' command in conjunction with the 'read'
+# command. We exclude some directories from the search.
+#
+# We use the 'read' command to help ensure that we correctly handle filenames
+# with spaces, newlines, and special characters. The '-print0' option in 'find'
+# outputs filenames separated by a null character. This allows the 'read'
+# command in the while loop to accurately distinguish each filename. The
+# 'target_files' array is then populated, preserving the integrity of each
+# filename. This approach ensures safe handling of filenames, regardless of
+# their complexity.
+while IFS= read -r -d '' file; do
+    target_files+=("$file")
+done < <(find . \
+    -path ./vendor -prune -o \
+    -type f \
+    \( -name "*.yaml" -o -name "*.yml" \) \
+    -print0 \
+)
 
-# Check each YAML file
-for file in $yaml_files; do
+# Check for the expected Go version in each file.
+for file in "${target_files[@]}"; do
     check_go_version "$file" "$target_go_version"
 done
 
