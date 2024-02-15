@@ -1,21 +1,25 @@
 #!/bin/bash
+# This script will check Go-version conformance in relevant docker files. Else, exit with error
+# A Makefile linter-target runs this script
 
-# Function to check if the Dockerfile contains only the specified Go version
+# Function to check if a Dockerfile contains only the stipulated Go version
 check_go_version() {
     local dockerfile="$1"
     local required_go_version="$2"
 
-    # Use grep to find lines with 'FROM golang:'
-    local go_lines=$(grep -i '^FROM golang:' "$dockerfile")
+    # Extract the Go version used in $dockerfile
+    local extracted_go_version=$(grep -i '^FROM golang:' "$dockerfile" | tr -d "_-:' [:alpha:]")
 
-    # Check if all lines have the required Go version
-    if echo "$go_lines" | grep -q -v "$required_go_version"; then
-        echo "Error: $dockerfile does not use Go version $required_go_version exclusively."
-        exit 1
+    # Check if Dockerfile only contains stipulated Go version
+    if [ "$extracted_go_version" != "$required_go_version" ]; then
+        echo "FAIL: $dockerfile specifies Go version '$extracted_go_version' violating conformance. '$required_go_version' is required."
     else
-        echo "$dockerfile is using Go version $required_go_version."
+        echo "$dockerfile specifies Go version $required_go_version."
     fi
 }
+
+# Export function to be accessible by subshells e.g. `find -exec`
+export -f check_go_version
 
 # Check if the target Go version argument is provided
 if [ $# -eq 0 ]; then
@@ -25,12 +29,20 @@ fi
 
 target_go_version="$1"
 
-# Search for Dockerfiles in the current directory and its subdirectories
-dockerfiles=$(find . -type f -name "*.Dockerfile" -o -name "Dockerfile")
+# Run check_go_version on Dockerfiles files present in non pruned directory
+# Display version-check results with tee
+version_check_results=$( find . \
+    -path ./vendor -prune -o \
+    -type f \
+    \( -name "*.Dockerfile" -o -name "Dockerfile" \) \
+    -exec bash -c 'check_go_version $1 '"$target_go_version" bash {} \; | tee /dev/tty )
 
-# Check each Dockerfile
-for file in $dockerfiles; do
-    check_go_version "$file" "$target_go_version"
-done
-
-echo "All Dockerfiles pass the Go version check for Go version $target_go_version."
+# Produce exit status
+if [ -z "$version_check_results" ] || [[ "$version_check_results" =~ "FAIL:" ]]; then
+    # 'FAIL:'' contained in output, an error as occurred, exit with error
+    exit 1
+else
+    # no errors occurred, succeed
+    echo "PASS: All Dockerfiles files conform to Go version $target_go_version."
+    exit 0
+fi
