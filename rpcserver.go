@@ -2558,7 +2558,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 		eventSubscriber, false, false,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to register chain porter event"+
+		return fmt.Errorf("failed to register chain porter event "+
 			"notifications subscription: %w", err)
 	}
 
