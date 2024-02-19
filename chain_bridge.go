@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
@@ -203,3 +204,61 @@ func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
 // A compile time assertion to ensure LndRpcChainBridge meets the
 // tapgarden.ChainBridge interface.
 var _ tapgarden.ChainBridge = (*LndRpcChainBridge)(nil)
+
+// LndMsgTransportClient is an LND RPC message transport client.
+type LndMsgTransportClient struct {
+	lnd *lndclient.LndServices
+}
+
+// NewLndMsgTransportClient creates a new message transport RPC client for a
+// given LND service.
+func NewLndMsgTransportClient(
+	lnd *lndclient.LndServices) *LndMsgTransportClient {
+
+	return &LndMsgTransportClient{
+		lnd: lnd,
+	}
+}
+
+// SubscribeCustomMessages creates a subscription to custom messages received
+// from our peers.
+func (l *LndMsgTransportClient) SubscribeCustomMessages(
+	ctx context.Context) (<-chan lndclient.CustomMessage,
+	<-chan error, error) {
+
+	return l.lnd.Client.SubscribeCustomMessages(ctx)
+}
+
+// SendCustomMessage sends a custom message to a peer.
+func (l *LndMsgTransportClient) SendCustomMessage(ctx context.Context,
+	msg lndclient.CustomMessage) error {
+
+	return l.lnd.Client.SendCustomMessage(ctx, msg)
+}
+
+// Ensure LndMsgTransportClient implements the rfq.PeerMessenger interface.
+var _ rfq.PeerMessenger = (*LndMsgTransportClient)(nil)
+
+// LndRouterClient is an LND router RPC client.
+type LndRouterClient struct {
+	lnd *lndclient.LndServices
+}
+
+// NewLndRouterClient creates a new LND router client for a given LND service.
+func NewLndRouterClient(lnd *lndclient.LndServices) *LndRouterClient {
+	return &LndRouterClient{
+		lnd: lnd,
+	}
+}
+
+// InterceptHtlcs intercepts all incoming HTLCs and calls the given handler
+// function with the HTLC details. The handler function can then decide whether
+// to accept or reject the HTLC.
+func (l *LndRouterClient) InterceptHtlcs(
+	ctx context.Context, handler lndclient.HtlcInterceptHandler) error {
+
+	return l.lnd.Router.InterceptHtlcs(ctx, handler)
+}
+
+// Ensure LndRouterClient implements the rfq.HtlcInterceptor interface.
+var _ rfq.HtlcInterceptor = (*LndRouterClient)(nil)
