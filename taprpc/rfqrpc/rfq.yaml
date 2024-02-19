@@ -1,0 +1,25 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: rfqrpc.Rfq.AddAssetBuyOrder
+      post: "/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}"
+      body: "*"
+      additional_bindings:
+        - post: "/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}"
+          body: "*"
+
+    - selector: rfqrpc.Rfq.AddAssetSellOffer
+      post: "/v1/taproot-assets/rfq/selloffer/asset-id/{asset_specifier.asset_id_str}"
+      body: "*"
+      additional_bindings:
+        - post: "/v1/taproot-assets/rfq/selloffer/group-key/{asset_specifier.group_key_str}"
+          body: "*"
+
+    - selector: rfqrpc.Rfq.QueryRfqAcceptedQuotes
+      get: "/v1/taproot-assets/rfq/quotes/accepted"
+
+    - selector: rfqrpc.Rfq.SubscribeRfqEventNtfns
+      post: "/v1/taproot-assets/rfq/ntfs"
+      body: "*"

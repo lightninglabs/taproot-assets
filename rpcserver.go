@@ -29,6 +29,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -36,6 +38,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -45,6 +48,8 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
@@ -106,6 +111,7 @@ type rpcServer struct {
 	taprpc.UnimplementedTaprootAssetsServer
 	wrpc.UnimplementedAssetWalletServer
 	mintrpc.UnimplementedMintServer
+	rfqrpc.UnimplementedRfqServer
 	unirpc.UnimplementedUniverseServer
 	tapdevrpc.UnimplementedTapDevServer
 
@@ -178,6 +184,7 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	taprpc.RegisterTaprootAssetsServer(grpcServer, r)
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	mintrpc.RegisterMintServer(grpcServer, r)
+	rfqrpc.RegisterRfqServer(grpcServer, r)
 	unirpc.RegisterUniverseServer(grpcServer, r)
 	tapdevrpc.RegisterGrpcServer(grpcServer, r)
 	return nil
@@ -4806,4 +4813,315 @@ func MarshalAssetFedSyncCfg(
 		AllowSyncInsert: config.AllowSyncInsert,
 		AllowSyncExport: config.AllowSyncExport,
 	}, nil
+}
+
+// unmarshalAssetSpecifier unmarshals an asset specifier from the RPC form.
+func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
+	*btcec.PublicKey, error) {
+
+	// Attempt to decode the asset specifier from the RPC request. In cases
+	// where both the asset ID and asset group key are provided, we will
+	// give precedence to the asset ID due to its higher level of
+	// specificity.
+	var (
+		assetID *asset.ID
+
+		groupKeyBytes []byte
+		groupKey      *btcec.PublicKey
+
+		err error
+	)
+
+	switch {
+	// Parse the asset ID if it's set.
+	case len(req.GetAssetId()) > 0:
+		var assetIdBytes [32]byte
+		copy(assetIdBytes[:], req.GetAssetId())
+		id := asset.ID(assetIdBytes)
+		assetID = &id
+
+	case len(req.GetAssetIdStr()) > 0:
+		assetIDBytes, err := hex.DecodeString(req.GetAssetIdStr())
+		if err != nil {
+			return nil, nil, fmt.Errorf("error decoding asset "+
+				"ID: %w", err)
+		}
+
+		var id asset.ID
+		copy(id[:], assetIDBytes)
+		assetID = &id
+
+	// Parse the group key if it's set.
+	case len(req.GetGroupKey()) > 0:
+		groupKeyBytes = req.GetGroupKey()
+		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing group "+
+				"key: %w", err)
+		}
+
+	case len(req.GetGroupKeyStr()) > 0:
+		groupKeyBytes, err := hex.DecodeString(
+			req.GetGroupKeyStr(),
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error decoding group "+
+				"key: %w", err)
+		}
+
+		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing group "+
+				"key: %w", err)
+		}
+
+	default:
+		// At this point, we know that neither the asset ID nor the
+		// group key are specified. Return an error.
+		return nil, nil, fmt.Errorf("either asset ID or asset group " +
+			"key must be specified")
+	}
+
+	return assetID, groupKey, nil
+}
+
+// unmarshalAssetBuyOrder unmarshals an asset buy order from the RPC form.
+func unmarshalAssetBuyOrder(
+	req *rfqrpc.AddAssetBuyOrderRequest) (*rfq.BuyOrder, error) {
+
+	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
+		req.AssetSpecifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
+			"%w", err)
+	}
+
+	// Unmarshal the peer if specified.
+	var peer *route.Vertex
+	if len(req.PeerPubKey) > 0 {
+		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshalling peer "+
+				"route vertex: %w", err)
+		}
+
+		peer = &pv
+	}
+
+	return &rfq.BuyOrder{
+		AssetID:        assetId,
+		AssetGroupKey:  assetGroupKey,
+		MinAssetAmount: req.MinAssetAmount,
+		MaxBid:         lnwire.MilliSatoshi(req.MaxBid),
+		Expiry:         req.Expiry,
+		Peer:           peer,
+	}, nil
+}
+
+// AddAssetBuyOrder upserts a new buy order for the given asset into the RFQ
+// manager. If the order already exists for the given asset, it will be updated.
+func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
+	req *rfqrpc.AddAssetBuyOrderRequest) (*rfqrpc.AddAssetBuyOrderResponse,
+	error) {
+
+	// Unmarshal the buy order from the RPC form.
+	buyOrder, err := unmarshalAssetBuyOrder(req)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling buy order: %w", err)
+	}
+
+	var peer string
+	if buyOrder.Peer != nil {
+		peer = buyOrder.Peer.String()
+	}
+	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting buy order "+
+		"(dest_peer=%s)", peer)
+
+	// Upsert the buy order into the RFQ manager.
+	err = r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
+	if err != nil {
+		return nil, fmt.Errorf("error upserting buy order into RFQ "+
+			"manager: %w", err)
+	}
+
+	return &rfqrpc.AddAssetBuyOrderResponse{}, nil
+}
+
+// AddAssetSellOffer upserts a new sell offer for the given asset into the
+// RFQ manager. If the offer already exists for the given asset, it will be
+// updated.
+func (r *rpcServer) AddAssetSellOffer(_ context.Context,
+	req *rfqrpc.AddAssetSellOfferRequest) (*rfqrpc.AddAssetSellOfferResponse,
+	error) {
+
+	// Unmarshal the sell offer from the RPC form.
+	assetID, assetGroupKey, err := unmarshalAssetSpecifier(
+		req.AssetSpecifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
+			"%w", err)
+	}
+
+	sellOffer := &rfq.SellOffer{
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		MaxUnits:      req.MaxUnits,
+	}
+
+	rpcsLog.Debugf("[AddAssetSellOffer]: upserting sell offer "+
+		"(sell_offer=%v)", sellOffer)
+
+	// Upsert the sell offer into the RFQ manager.
+	err = r.cfg.RfqManager.UpsertAssetSellOffer(*sellOffer)
+	if err != nil {
+		return nil, fmt.Errorf("error upserting sell offer into RFQ "+
+			"manager: %w", err)
+	}
+
+	return &rfqrpc.AddAssetSellOfferResponse{}, nil
+}
+
+// marshalAcceptedQuotes marshals a map of accepted quotes into the RPC form.
+func marshalAcceptedQuotes(
+	acceptedQuotes map[rfq.SerialisedScid]rfqmsg.Accept) []*rfqrpc.AcceptedQuote {
+
+	// Marshal the accepted quotes into the RPC form.
+	rpcQuotes := make([]*rfqrpc.AcceptedQuote, 0, len(acceptedQuotes))
+	for scid, quote := range acceptedQuotes {
+		rpcQuote := &rfqrpc.AcceptedQuote{
+			Peer:        quote.Peer.String(),
+			Id:          quote.ID[:],
+			Scid:        uint64(scid),
+			AssetAmount: quote.AssetAmount,
+			AskPrice:    uint64(quote.AskPrice),
+			Expiry:      quote.Expiry,
+		}
+		rpcQuotes = append(rpcQuotes, rpcQuote)
+	}
+
+	return rpcQuotes
+}
+
+// QueryRfqAcceptedQuotes queries for accepted quotes from the RFQ system.
+func (r *rpcServer) QueryRfqAcceptedQuotes(_ context.Context,
+	_ *rfqrpc.QueryRfqAcceptedQuotesRequest) (
+	*rfqrpc.QueryRfqAcceptedQuotesResponse, error) {
+
+	// Query the RFQ manager for accepted quotes.
+	acceptedQuotes := r.cfg.RfqManager.QueryAcceptedQuotes()
+
+	rpcQuotes := marshalAcceptedQuotes(acceptedQuotes)
+
+	return &rfqrpc.QueryRfqAcceptedQuotesResponse{
+		AcceptedQuotes: rpcQuotes,
+	}, nil
+}
+
+// marshallRfqEvent marshals an RFQ event into the RPC form.
+func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
+	timestamp := eventInterface.Timestamp().UTC().Unix()
+
+	switch event := eventInterface.(type) {
+	case *rfq.IncomingAcceptQuoteEvent:
+		acceptedQuote := &rfqrpc.AcceptedQuote{
+			Peer:        event.Peer.String(),
+			Id:          event.ID[:],
+			Scid:        uint64(event.ShortChannelId()),
+			AssetAmount: event.AssetAmount,
+			AskPrice:    uint64(event.AskPrice),
+			Expiry:      event.Expiry,
+		}
+
+		eventRpc := &rfqrpc.RfqEvent_IncomingAcceptQuote{
+			IncomingAcceptQuote: &rfqrpc.IncomingAcceptQuoteEvent{
+				Timestamp:     uint64(timestamp),
+				AcceptedQuote: acceptedQuote,
+			},
+		}
+		return &rfqrpc.RfqEvent{
+			Event: eventRpc,
+		}, nil
+
+	case *rfq.AcceptHtlcEvent:
+		eventRpc := &rfqrpc.RfqEvent_AcceptHtlc{
+			AcceptHtlc: &rfqrpc.AcceptHtlcEvent{
+				Timestamp: uint64(timestamp),
+				Scid:      uint64(event.ChannelRemit.Scid),
+			},
+		}
+		return &rfqrpc.RfqEvent{
+			Event: eventRpc,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown RFQ event type: %T",
+			eventInterface)
+	}
+}
+
+// SubscribeRfqEventNtfns subscribes to RFQ event notifications.
+func (r *rpcServer) SubscribeRfqEventNtfns(
+	_ *rfqrpc.SubscribeRfqEventNtfnsRequest,
+	ntfnStream rfqrpc.Rfq_SubscribeRfqEventNtfnsServer) error {
+
+	// Create a new event subscriber and pass a copy to the RFQ manager.
+	// We will then read events from the subscriber.
+	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	defer eventSubscriber.Stop()
+
+	// Register the subscriber with the ChainPorter.
+	err := r.cfg.RfqManager.RegisterSubscriber(
+		eventSubscriber, false, 0,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to register RFQ manager event "+
+			"notifications subscription: %w", err)
+	}
+
+	for {
+		select {
+		// Handle new events from the subscriber.
+		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			// Marshal the event into its RPC form.
+			rpcEvent, err := marshallRfqEvent(event)
+			if err != nil {
+				return fmt.Errorf("failed to marshall RFQ "+
+					"event into RPC form: %w", err)
+			}
+
+			err = ntfnStream.Send(rpcEvent)
+			if err != nil {
+				return err
+			}
+
+		// Handle the case where the RPC stream is closed by the client.
+		case <-ntfnStream.Context().Done():
+			// Remove the subscriber from the RFQ manager.
+			err := r.cfg.RfqManager.RemoveSubscriber(
+				eventSubscriber,
+			)
+			if err != nil {
+				return fmt.Errorf("failed to remove RFQ "+
+					"manager event notifications "+
+					"subscription: %w", err)
+			}
+
+			// Don't return an error if a normal context
+			// cancellation has occurred.
+			isCanceledContext := errors.Is(
+				ntfnStream.Context().Err(), context.Canceled,
+			)
+			if isCanceledContext {
+				return nil
+			}
+
+			return ntfnStream.Context().Err()
+
+		// Handle the case where the RPC server is shutting down.
+		case <-r.quit:
+			return nil
+		}
+	}
 }
