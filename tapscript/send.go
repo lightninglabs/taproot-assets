@@ -617,7 +617,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 // signature over the asset transfer, verifying the transfer with the Taproot
 // Asset VM, and attaching that signature to the new Asset.
 func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
-	validator TxValidator) error {
+	validator WitnessValidator) error {
 
 	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
@@ -632,6 +632,7 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 	// Identify new output asset. For splits, the new asset that receives
 	// the signature is the one with the split root set to true.
 	newAsset := outputs[0].Asset
+	var splitAssets []*commitment.SplitAsset
 	if isSplit {
 		splitOut, err := vPkt.SplitRootOutput()
 		if err != nil {
@@ -639,6 +640,27 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 				"split transaction: %w", err)
 		}
 		newAsset = splitOut.Asset
+
+		// If the transfer includes an asset split, we have to validate
+		// each split asset to ensure that our new Asset is committing
+		// to a valid SplitCommitment.
+		splitAssets = make([]*commitment.SplitAsset, len(outputs))
+		for idx := range outputs {
+			splitAssets[idx] = &commitment.SplitAsset{
+				Asset:       *outputs[idx].Asset,
+				OutputIndex: outputs[idx].AnchorOutputIndex,
+			}
+
+			// The output that houses the root asset in case of a
+			// split has a special field for the split asset, which
+			// actually contains the split commitment proof. We need
+			// to use that one for the validation, as the root asset
+			// is already validated as the newAsset.
+			if outputs[idx].Type.IsSplitRoot() {
+				splitAssets[idx].Asset =
+					*outputs[idx].SplitAsset
+			}
+		}
 	}
 
 	// Construct input set from all input assets.
@@ -679,57 +701,32 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer Signer,
 		newAsset.PrevWitnesses[idx].TxWitness = newWitness
 	}
 
-	// Create an instance of the Taproot Asset VM and validate the transfer.
-	verifySpend := func(splitAssets []*commitment.SplitAsset) error {
-		newAssetCopy := newAsset.Copy()
-		return validator.Execute(newAssetCopy, splitAssets, prevAssets)
-	}
-
-	// If the transfer contains no asset splits, we only need to validate
-	// the new asset with its witness attached, then we can exit early.
-	if !isSplit {
-		return verifySpend(nil)
-	}
-
-	// If the transfer includes an asset split, we have to validate each
-	// split asset to ensure that our new Asset is committing to a valid
-	// SplitCommitment.
-	splitAssets := make([]*commitment.SplitAsset, len(outputs))
-	for idx := range outputs {
-		splitAssets[idx] = &commitment.SplitAsset{
-			Asset:       *outputs[idx].Asset,
-			OutputIndex: outputs[idx].AnchorOutputIndex,
-		}
-
-		// The output that houses the root asset in case of a split has
-		// a special field for the split asset, which actually contains
-		// the split commitment proof. We need to use that one for the
-		// validation, as the root asset is already validated as the
-		// newAsset.
-		if outputs[idx].Type.IsSplitRoot() {
-			splitAssets[idx].Asset = *outputs[idx].SplitAsset
-		}
-	}
-	if err := verifySpend(splitAssets); err != nil {
+	err = validator.ValidateWitnesses(newAsset, splitAssets, prevAssets)
+	if err != nil {
 		return err
 	}
 
-	// Update each split asset to store the root asset with the witness
-	// attached, so the receiver can verify inclusion of the root asset.
-	for idx := range outputs {
-		splitAsset := outputs[idx].Asset
+	if isSplit {
+		// Update each split asset to store the root asset with the
+		// witness attached, so the receiver can verify inclusion of the
+		// root asset.
+		for idx := range outputs {
+			splitAsset := outputs[idx].Asset
 
-		// The output that houses the root asset in case of a split has
-		// a special field for the split asset. That asset is no longer
-		// needed (and isn't committed to anywhere), but in order for it
-		// to be validated externally, we still want to include it and
-		// therefore also want to update it with the signed root asset.
-		if outputs[idx].Type.IsSplitRoot() {
-			splitAsset = outputs[idx].SplitAsset
+			// The output that houses the root asset in case of a
+			// split has a special field for the split asset. That
+			// asset is no longer needed (and isn't committed to
+			// anywhere), but in order for it to be validated
+			// externally, we still want to include it and therefore
+			// also want to update it with the signed root asset.
+			if outputs[idx].Type.IsSplitRoot() {
+				splitAsset = outputs[idx].SplitAsset
+			}
+
+			splitCommitment :=
+				splitAsset.PrevWitnesses[0].SplitCommitment
+			splitCommitment.RootAsset = *newAsset.Copy()
 		}
-
-		splitCommitment := splitAsset.PrevWitnesses[0].SplitCommitment
-		splitCommitment.RootAsset = *newAsset.Copy()
 	}
 
 	return nil

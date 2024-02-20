@@ -31,3 +31,19 @@ func (v *ValidatorV0) Execute(newAsset *asset.Asset,
 // A compile time assertion to ensure ValidatorV0 meets the
 // tapscript.TxValidator interface.
 var _ tapscript.TxValidator = (*ValidatorV0)(nil)
+
+// WitnessValidatorV0 is an implementation of the tapscript.WitnessValidator
+// interface that supports Taproot Asset script version 0.
+type WitnessValidatorV0 struct{}
+
+// ValidateWitnesses validates the created witnesses of an asset transfer.
+func (v *WitnessValidatorV0) ValidateWitnesses(newAsset *asset.Asset,
+	splitAssets []*commitment.SplitAsset,
+	prevAssets commitment.InputSet) error {
+
+	return vm.ValidateWitnesses(newAsset, splitAssets, prevAssets)
+}
+
+// A compile time assertion to ensure WitnessValidatorV0 meets the
+// tapscript.WitnessValidator interface.
+var _ tapscript.WitnessValidator = (*WitnessValidatorV0)(nil)

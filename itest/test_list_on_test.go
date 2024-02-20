@@ -174,6 +174,14 @@ var testCases = []*testCase{
 		test: testPsbtMultiSend,
 	},
 	{
+		name: "psbt sighash none",
+		test: testPsbtSighashNone,
+	},
+	{
+		name: "psbt sighash none invalid",
+		test: testPsbtSighashNoneInvalid,
+	},
+	{
 		name: "multi input psbt single asset id",
 		test: testMultiInputPsbtSingleAssetID,
 	},

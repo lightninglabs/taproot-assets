@@ -102,6 +102,70 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 	return nil
 }
 
+// ValidateWitnesses is a helper method that checks the witnesses provided over
+// an asset transfer. This method may be used for transfers that are not yet
+// complete, in order to check if the existing signatures are valid.
+func ValidateWitnesses(newAsset *asset.Asset,
+	splitAssets []*commitment.SplitAsset,
+	prevAssets commitment.InputSet) error {
+
+	vm, err := New(newAsset, splitAssets, prevAssets)
+	if err != nil {
+		return err
+	}
+
+	// If we have an asset split, then we need to validate the state
+	// transition by verifying the split commitment proof before verify the
+	// final asset witness.
+	for _, splitAsset := range vm.splitAssets {
+		if err := vm.validateSplit(splitAsset); err != nil {
+			return err
+		}
+	}
+
+	switch {
+	case len(vm.newAsset.PrevWitnesses) == 0:
+		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
+
+	case vm.newAsset.Type == asset.Collectible &&
+		len(vm.newAsset.PrevWitnesses) > 1:
+
+		return newErrKind(ErrInvalidTransferWitness)
+	}
+
+	// Now that we know we're not dealing with a genesis state
+	// transition, we'll map our set of asset inputs and outputs to
+	// the 1-input 1-output virtual transaction.
+	virtualTx, _, err := tapscript.VirtualTx(vm.newAsset, vm.prevAssets)
+	if err != nil {
+		return err
+	}
+
+	for i, witness := range vm.newAsset.PrevWitnesses {
+		witness := witness
+		prevAsset, ok := vm.prevAssets[*witness.PrevID]
+		if !ok {
+			return fmt.Errorf("%w: no prev asset for "+
+				"input_prev_id=%v", ErrNoInputs,
+				spew.Sdump(witness.PrevID))
+		}
+
+		switch prevAsset.ScriptVersion {
+		case asset.ScriptV0:
+			err := vm.validateWitnessV0(
+				virtualTx, uint32(i), &witness, prevAsset,
+			)
+			if err != nil {
+				return err
+			}
+		default:
+			return ErrInvalidScriptVersion
+		}
+	}
+
+	return nil
+}
+
 // validateSplit attempts to validate an asset resulting from a split on its
 // input. This is done by verifying the asset split is committed to within the
 // new asset's split commitment root through its split commitment proof.
@@ -174,6 +238,7 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	if err != nil {
 		return err
 	}
+
 	if !mssmt.VerifyMerkleProof(
 		locator.Hash(), splitLeaf, &splitWitness.SplitCommitment.Proof,
 		vm.newAsset.SplitCommitmentRoot,
@@ -268,7 +333,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 // an asset (normal or collectible) is fully consumed without splits. This is
 // done by verifying each input has a valid witness generated over the virtual
 // transaction representing the state transition.
-func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
+func (vm *Engine) validateStateTransition() error {
 	switch {
 	case len(vm.newAsset.PrevWitnesses) == 0:
 		return fmt.Errorf("%w: prev witness zero", ErrNoInputs)
@@ -277,6 +342,27 @@ func (vm *Engine) validateStateTransition(virtualTx *wire.MsgTx) error {
 		len(vm.newAsset.PrevWitnesses) > 1:
 
 		return newErrKind(ErrInvalidTransferWitness)
+	}
+
+	// Now that we know we're not dealing with a genesis state
+	// transition, we'll map our set of asset inputs and outputs to
+	// the 1-input 1-output virtual transaction.
+	virtualTx, inputTree, err := tapscript.VirtualTx(
+		vm.newAsset, vm.prevAssets,
+	)
+	if err != nil {
+		return err
+	}
+
+	// Enforce that assets aren't being inflated.
+	treeRoot, err := inputTree.Root(context.Background())
+	if err != nil {
+		return err
+	}
+	if treeRoot.NodeSum() !=
+		uint64(virtualTx.TxOut[0].Value) {
+
+		return newErrKind(ErrAmountMismatch)
 	}
 
 	for i, witness := range vm.newAsset.PrevWitnesses {
@@ -345,25 +431,5 @@ func (vm *Engine) Execute() error {
 		}
 	}
 
-	// Now that we know we're not dealing with a genesis state transition,
-	// we'll map our set of asset inputs and outputs to the 1-input 1-output
-	// virtual transaction.
-	virtualTx, inputTree, err := tapscript.VirtualTx(
-		vm.newAsset, vm.prevAssets,
-	)
-	if err != nil {
-		return err
-	}
-
-	// Enforce that assets aren't being inflated.
-	treeRoot, err := inputTree.Root(context.Background())
-	if err != nil {
-		return err
-	}
-	if treeRoot.NodeSum() != uint64(virtualTx.TxOut[0].Value) {
-		return newErrKind(ErrAmountMismatch)
-	}
-
-	// Finally, we'll validate the asset witness.
-	return vm.validateStateTransition(virtualTx)
+	return vm.validateStateTransition()
 }

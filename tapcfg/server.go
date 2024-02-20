@@ -298,14 +298,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	virtualTxSigner := tap.NewLndRpcVirtualTxSigner(lndServices)
 	coinSelect := tapfreighter.NewCoinSelect(assetStore)
 	assetWallet := tapfreighter.NewAssetWallet(&tapfreighter.WalletConfig{
-		CoinSelector: coinSelect,
-		AssetProofs:  proofArchive,
-		AddrBook:     tapdbAddrBook,
-		KeyRing:      keyRing,
-		Signer:       virtualTxSigner,
-		TxValidator:  &tap.ValidatorV0{},
-		Wallet:       walletAnchor,
-		ChainParams:  &tapChainParams,
+		CoinSelector:     coinSelect,
+		AssetProofs:      proofArchive,
+		AddrBook:         tapdbAddrBook,
+		KeyRing:          keyRing,
+		Signer:           virtualTxSigner,
+		TxValidator:      &tap.ValidatorV0{},
+		WitnessValidator: &tap.WitnessValidatorV0{},
+		Wallet:           walletAnchor,
+		ChainParams:      &tapChainParams,
 	})
 
 	// Addresses can have different proof couriers configured, but both

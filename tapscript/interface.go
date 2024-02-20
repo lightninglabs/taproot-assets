@@ -17,6 +17,17 @@ type TxValidator interface {
 		prevAssets commitment.InputSet) error
 }
 
+// WitnessValidator is the interface used to validate the witnesses of an asset
+// transfer. This method may be used in partially constructed asset transfers
+// to only check signature validity.
+type WitnessValidator interface {
+	// ValidateWitnesses validates the generated witnesses of an asset
+	// transfer.
+	ValidateWitnesses(newAsset *asset.Asset,
+		splitAssets []*commitment.SplitAsset,
+		prevAssets commitment.InputSet) error
+}
+
 // Signer is the interface used to compute the witness for a Taproot Asset
 // virtual TX.
 type Signer interface {
