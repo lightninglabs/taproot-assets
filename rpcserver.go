@@ -455,7 +455,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
 		if err := seedling.Meta.Validate(); err != nil {
-			return nil, err
+			return nil, fmt.Errorf("invalid asset meta: %v", err)
 		}
 	}
 

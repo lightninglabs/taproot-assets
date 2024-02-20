@@ -13,32 +13,53 @@ func TestValidateMetaReveal(t *testing.T) {
 		name        string
 		reveal      *MetaReveal
 		expectedErr error
-	}{{
-		name:        "nil reveal",
-		reveal:      nil,
-		expectedErr: nil,
-	}, {
-		name: "valid reveal",
-		reveal: &MetaReveal{
-			Type: MetaOpaque,
-			Data: []byte("data"),
+	}{
+		{
+			name:        "nil reveal",
+			reveal:      nil,
+			expectedErr: nil,
 		},
-		expectedErr: nil,
-	}, {
-		name: "missing data",
-		reveal: &MetaReveal{
-			Type: MetaOpaque,
-			Data: nil,
+		{
+			name: "valid reveal",
+			reveal: &MetaReveal{
+				Type: MetaOpaque,
+				Data: []byte("data"),
+			},
+			expectedErr: nil,
 		},
-		expectedErr: ErrMetaDataMissing,
-	}, {
-		name: "too much data",
-		reveal: &MetaReveal{
-			Type: MetaOpaque,
-			Data: make([]byte, MetaDataMaxSizeBytes+1),
+		{
+			name: "missing data",
+			reveal: &MetaReveal{
+				Type: MetaOpaque,
+				Data: nil,
+			},
+			expectedErr: ErrMetaDataMissing,
 		},
-		expectedErr: ErrMetaDataTooLarge,
-	}}
+		{
+			name: "too much data",
+			reveal: &MetaReveal{
+				Type: MetaOpaque,
+				Data: make([]byte, MetaDataMaxSizeBytes+1),
+			},
+			expectedErr: ErrMetaDataTooLarge,
+		},
+		{
+			name: "invalid JSON",
+			reveal: &MetaReveal{
+				Type: MetaJson,
+				Data: []byte("invalid"),
+			},
+			expectedErr: ErrInvalidJSON,
+		},
+		{
+			name: "valid JSON",
+			reveal: &MetaReveal{
+				Type: MetaJson,
+				Data: []byte(`{"key": "value"}`),
+			},
+			expectedErr: nil,
+		},
+	}
 
 	for _, tc := range testCases {
 		tc := tc
