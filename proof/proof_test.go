@@ -371,9 +371,12 @@ func TestGenesisProofVerification(t *testing.T) {
 	scriptInternalKey := test.RandPrivKey(t).PubKey()
 	leaf1 := test.ScriptHashLock(t, []byte("foobar"))
 	leaf2 := test.ScriptSchnorrSig(t, scriptInternalKey)
+	testLeafPreimage, err := commitment.NewPreimageFromLeaf(leaf1)
+	require.NoError(t, err)
 
 	// The order doesn't matter here as they are sorted before hashing.
 	branch := txscript.NewTapBranch(leaf1, leaf2)
+	testBranchPreimage := commitment.NewPreimageFromBranch(branch)
 	amount := uint64(5000)
 
 	testCases := []struct {
@@ -402,20 +405,16 @@ func TestGenesisProofVerification(t *testing.T) {
 			assetVersion: asset.V1,
 		},
 		{
-			name:      "collectible with leaf preimage",
-			assetType: asset.Collectible,
-			tapscriptPreimage: commitment.NewPreimageFromLeaf(
-				leaf1,
-			),
-			noMetaHash: true,
+			name:              "collectible with leaf preimage",
+			assetType:         asset.Collectible,
+			tapscriptPreimage: testLeafPreimage,
+			noMetaHash:        true,
 		},
 		{
-			name:      "collectible with branch preimage",
-			assetType: asset.Collectible,
-			tapscriptPreimage: commitment.NewPreimageFromBranch(
-				branch,
-			),
-			noMetaHash: true,
+			name:              "collectible with branch preimage",
+			assetType:         asset.Collectible,
+			tapscriptPreimage: &testBranchPreimage,
+			noMetaHash:        true,
 		},
 		{
 			name:       "normal genesis",
@@ -431,22 +430,18 @@ func TestGenesisProofVerification(t *testing.T) {
 			assetVersion: asset.V1,
 		},
 		{
-			name:      "normal with leaf preimage",
-			assetType: asset.Normal,
-			amount:    &amount,
-			tapscriptPreimage: commitment.NewPreimageFromLeaf(
-				leaf1,
-			),
-			noMetaHash: true,
+			name:              "normal with leaf preimage",
+			assetType:         asset.Normal,
+			amount:            &amount,
+			tapscriptPreimage: testLeafPreimage,
+			noMetaHash:        true,
 		},
 		{
-			name:      "normal with branch preimage",
-			assetType: asset.Normal,
-			amount:    &amount,
-			tapscriptPreimage: commitment.NewPreimageFromBranch(
-				branch,
-			),
-			noMetaHash: true,
+			name:              "normal with branch preimage",
+			assetType:         asset.Normal,
+			amount:            &amount,
+			tapscriptPreimage: &testBranchPreimage,
+			noMetaHash:        true,
 		},
 		{
 			name:      "normal asset with a meta reveal",

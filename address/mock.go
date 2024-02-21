@@ -70,9 +70,11 @@ func RandAddr(t testing.TB, params *ChainParams,
 		groupPubKey = &groupInfo.GroupPubKey
 		groupWitness = groupInfo.Witness
 
-		tapscriptSibling = commitment.NewPreimageFromLeaf(
+		var err error
+		tapscriptSibling, err = commitment.NewPreimageFromLeaf(
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
 		)
+		require.NoError(t, err)
 	}
 
 	tapAddr, err := New(

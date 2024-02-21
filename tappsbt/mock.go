@@ -80,7 +80,8 @@ func RandPacket(t testing.TB) *VPacket {
 		LeafVersion: txscript.BaseLeafVersion,
 		Script:      []byte("not a valid script"),
 	}
-	testPreimage1 := commitment.NewPreimageFromLeaf(leaf1)
+	testPreimage1, err := commitment.NewPreimageFromLeaf(leaf1)
+	require.NoError(t, err)
 	testPreimage2 := commitment.NewPreimageFromBranch(
 		txscript.NewTapBranch(leaf1, leaf1),
 	)
@@ -155,7 +156,7 @@ func RandPacket(t testing.TB) *VPacket {
 			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
 			Asset:                              testOutputAsset,
 			ScriptKey:                          testOutputAsset.ScriptKey,
-			AnchorOutputTapscriptSibling:       testPreimage2,
+			AnchorOutputTapscriptSibling:       &testPreimage2,
 		}},
 		ChainParams: testParams,
 	}

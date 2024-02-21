@@ -1070,18 +1070,19 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		tpl := pkt.Outputs[1]
 
-		testPreimage := commitment.NewPreimageFromLeaf(
+		testPreimage, err := commitment.NewPreimageFromLeaf(
 			txscript.TapLeaf{
 				LeafVersion: txscript.BaseLeafVersion,
 				Script:      []byte("not a valid script"),
 			},
 		)
+		require.NoError(t, err)
 		pkt.Outputs = append(pkt.Outputs, &tappsbt.VOutput{
 			AnchorOutputIndex:            tpl.AnchorOutputIndex,
 			AnchorOutputTapscriptSibling: testPreimage,
 		})
 
-		_, err := tapsend.CreateOutputCommitments(nil, pkt, nil)
+		_, err = tapsend.CreateOutputCommitments(nil, pkt, nil)
 		return err
 	},
 	err: tapsend.ErrInvalidAnchorInfo,
@@ -2171,9 +2172,10 @@ func TestPayToAddrScript(t *testing.T) {
 	)
 
 	// And now the same with an address that has a tapscript sibling.
-	sibling := commitment.NewPreimageFromLeaf(txscript.NewBaseTapLeaf(
+	sibling, err := commitment.NewPreimageFromLeaf(txscript.NewBaseTapLeaf(
 		[]byte("not a valid script"),
 	))
+	require.NoError(t, err)
 	addr2, err := address.New(
 		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
 		*internalKey, sendAmt, sibling, &address.RegressionNetTap,

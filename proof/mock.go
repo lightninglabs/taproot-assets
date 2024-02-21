@@ -76,8 +76,10 @@ func RandProof(t testing.TB, genesis asset.Genesis,
 
 	leaf1 := txscript.NewBaseTapLeaf([]byte{1})
 	leaf2 := txscript.NewBaseTapLeaf([]byte{2})
-	testLeafPreimage := commitment.NewPreimageFromLeaf(leaf1)
-	testLeafPreimage2 := commitment.NewPreimageFromLeaf(leaf2)
+	testLeafPreimage, err := commitment.NewPreimageFromLeaf(leaf1)
+	require.NoError(t, err)
+	testLeafPreimage2, err := commitment.NewPreimageFromLeaf(leaf2)
+	require.NoError(t, err)
 	testBranchPreimage := commitment.NewPreimageFromBranch(
 		txscript.NewTapBranch(leaf1, leaf2),
 	)
@@ -112,7 +114,7 @@ func RandProof(t testing.TB, genesis asset.Genesis,
 				InternalKey:     test.RandPubKey(t),
 				CommitmentProof: nil,
 				TapscriptProof: &TapscriptProof{
-					TapPreimage1: testBranchPreimage,
+					TapPreimage1: &testBranchPreimage,
 					TapPreimage2: testLeafPreimage2,
 					Bip86:        true,
 				},
