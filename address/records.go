@@ -1,6 +1,7 @@
 package address
 
 import (
+	"bytes"
 	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -86,8 +87,14 @@ func newAddressTapscriptSiblingRecord(
 	tapscriptSibling **commitment.TapscriptPreimage) tlv.Record {
 
 	sizeFunc := func() uint64 {
-		// 1 byte for the type, and then the pre-image itself.
-		return 1 + uint64(len((*tapscriptSibling).SiblingPreimage))
+		var buf bytes.Buffer
+		err := commitment.TapscriptPreimageEncoder(
+			&buf, tapscriptSibling, &[8]byte{},
+		)
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
 		addrTapscriptSiblingType, tapscriptSibling, sizeFunc,
