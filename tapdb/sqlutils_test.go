@@ -280,13 +280,6 @@ func newDbHandleFromDb(db *BaseDB) *DbHandler {
 	}
 }
 
-// NewDbHandleFromPath creates a new database store handle given a database file
-// path.
-func NewDbHandleFromPath(t *testing.T, dbPath string) *DbHandler {
-	db := NewTestDbHandleFromPath(t, dbPath)
-	return newDbHandleFromDb(db.BaseDB)
-}
-
 // NewDbHandle creates a new database store handle.
 func NewDbHandle(t *testing.T) *DbHandler {
 	// Create a new test database with the default database file path.

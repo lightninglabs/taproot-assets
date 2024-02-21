@@ -402,3 +402,38 @@ func (t *taprootAssetTreeStoreTx) UpdateRoot(rootNode *mssmt.BranchNode) error {
 		Namespace: t.namespace,
 	})
 }
+
+func init() {
+	driver := mssmt.TreeStoreDriver{
+		Name: activeTestDB,
+		New: func(args ...interface{}) (mssmt.TreeStore, error) {
+			dbPath, ok := args[0].(string)
+			if !ok {
+				return nil, fmt.Errorf("invalid db path: "+
+					"want string, got %T", args[0])
+			}
+			namespace, ok := args[1].(string)
+			if !ok {
+				return nil, fmt.Errorf("invalid db path: "+
+					"want string, got %T", args[0])
+			}
+
+			sqlDB, err := NewDbHandleFromPath(dbPath)
+			if err != nil {
+				return nil, err
+			}
+
+			txCreator := func(tx *sql.Tx) TreeStore {
+				return sqlDB.WithTx(tx)
+			}
+
+			treeDB := NewTransactionExecutor(sqlDB, txCreator)
+
+			return NewTaprootAssetTreeStore(treeDB, namespace), nil
+		},
+	}
+	if err := mssmt.RegisterTreeStore(&driver); err != nil {
+		panic(fmt.Errorf("failed to register db=%v): %v",
+			activeTestDB, err))
+	}
+}

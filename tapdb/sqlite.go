@@ -196,6 +196,20 @@ func NewTestSqliteDbHandleFromPath(t *testing.T, dbPath string) *SqliteStore {
 	return sqlDB
 }
 
+// NewSqliteDbHandleFromPath is a helper function that creates a SQLite
+// database handle given a database file path.
+func NewSqliteDbHandleFromPath(dbPath string) (*SqliteStore, error) {
+	sqlDB, err := NewSqliteStore(&SqliteConfig{
+		DatabaseFileName: dbPath,
+		SkipMigrations:   false,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return sqlDB, nil
+}
+
 // NewTestSqliteDBWithVersion is a helper function that creates an SQLite
 // database for testing and migrates it to the given version.
 func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
