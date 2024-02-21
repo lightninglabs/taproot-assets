@@ -6,15 +6,18 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -181,7 +184,7 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		},
 		{
 			key:     PsbtKeyTypeInputTapAssetProof,
-			encoder: tlvEncoder(&i.proof, tlv.EVarBytes),
+			encoder: proofEncoder(i.Proof),
 		},
 	}
 
@@ -277,10 +280,18 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			),
 		},
 		{
-			key: PsbtKeyTypeOutputAssetVersion,
+			key: PsbtKeyTypeOutputTapAssetVersion,
 			encoder: tlvEncoder(
 				&o.AssetVersion, vOutputAssetVersionEncoder,
 			),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapProofDeliveryAddress,
+			encoder: urlEncoder(o.ProofDeliveryAddress),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
+			encoder: proofEncoder(o.ProofSuffix),
 		},
 	}
 
@@ -334,6 +345,28 @@ func pubKeyEncoder(pubKey *btcec.PublicKey) encoderFunc {
 	}
 
 	return tlvEncoder(&pubKey, tlv.EPubKey)
+}
+
+// proofEncoder is an encoder that does nothing if the given proof is nil.
+func proofEncoder(p *proof.Proof) encoderFunc {
+	return func(key []byte) ([]*customPsbtField, error) {
+		if p == nil {
+			return nil, nil
+		}
+
+		var buf bytes.Buffer
+		err := p.Encode(&buf)
+		if err != nil {
+			return nil, err
+		}
+
+		return []*customPsbtField{
+			{
+				Key:   fn.CopySlice(key),
+				Value: buf.Bytes(),
+			},
+		}, nil
+	}
 }
 
 // assetEncoder is an encoder that does nothing if the given asset is nil.
@@ -457,4 +490,30 @@ func vOutputAssetVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
 		return tlv.EUint8T(w, num, buf)
 	}
 	return tlv.NewTypeForEncodingErr(val, "VOutputAssetVersion")
+}
+
+// urlEncoder returns a function that encodes the given URL as a custom PSBT
+// field.
+func urlEncoder(val *url.URL) encoderFunc {
+	return func(key []byte) ([]*customPsbtField, error) {
+		if val == nil {
+			return nil, nil
+		}
+
+		var (
+			b       bytes.Buffer
+			scratch [8]byte
+		)
+		if err := address.UrlEncoder(&b, val, &scratch); err != nil {
+			return nil, fmt.Errorf("error encoding TLV record: %w",
+				err)
+		}
+
+		return []*customPsbtField{
+			{
+				Key:   fn.CopySlice(key),
+				Value: b.Bytes(),
+			},
+		}, nil
+	}
 }

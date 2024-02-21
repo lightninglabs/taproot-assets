@@ -3,6 +3,7 @@ package tappsbt
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -13,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -50,7 +52,9 @@ var (
 	PsbtKeyTypeOutputTapAsset                              = []byte{0x76}
 	PsbtKeyTypeOutputTapSplitAsset                         = []byte{0x77}
 	PsbtKeyTypeOutputTapAnchorTapscriptSibling             = []byte{0x78}
-	PsbtKeyTypeOutputAssetVersion                          = []byte{0x79}
+	PsbtKeyTypeOutputTapAssetVersion                       = []byte{0x79}
+	PsbtKeyTypeOutputTapProofDeliveryAddress               = []byte{0x7a}
+	PsbtKeyTypeOutputTapAssetProofSuffix                   = []byte{0x7b}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -156,12 +160,11 @@ type VPacket struct {
 }
 
 // SetInputAsset sets the input asset that is being spent.
-func (p *VPacket) SetInputAsset(index int, a *asset.Asset, proof []byte) {
+func (p *VPacket) SetInputAsset(index int, a *asset.Asset) {
 	if index >= len(p.Inputs) {
 		p.Inputs = append(p.Inputs, &VInput{})
 	}
 	p.Inputs[index].asset = a.Copy()
-	p.Inputs[index].proof = proof
 	p.Inputs[index].serializeScriptKey(
 		a.ScriptKey, p.ChainParams.HDCoinType,
 	)
@@ -258,6 +261,27 @@ func (p *VPacket) FirstInteractiveOutput() (*VOutput, error) {
 	return result, nil
 }
 
+// AssetID returns the asset ID of the virtual transaction. It returns an error
+// if the virtual transaction has no inputs or if the inputs have different
+// asset IDs.
+func (p *VPacket) AssetID() (asset.ID, error) {
+	if len(p.Inputs) == 0 {
+		return asset.ID{}, fmt.Errorf("no inputs")
+	}
+
+	firstID := p.Inputs[0].PrevID.ID
+	for idx := range p.Inputs {
+		if p.Inputs[idx].PrevID.ID != firstID {
+			return asset.ID{}, fmt.Errorf("packet has inputs with "+
+				"different asset IDs, index 0 has ID %v and "+
+				"index %d has ID %v", firstID, idx,
+				p.Inputs[idx].PrevID.ID)
+		}
+	}
+
+	return firstID, nil
+}
+
 // Anchor is a struct that contains all the information about an anchor output.
 type Anchor struct {
 	// Value is output value of the anchor output.
@@ -309,21 +333,14 @@ type VInput struct {
 	// input struct for the signing to work correctly.
 	asset *asset.Asset
 
-	// proof is the proof blob that proves the asset being spent was
-	// committed to in the anchor transaction above. This cannot be of type
-	// proof.Proof directly because that would cause a circular dependency.
-	proof []byte
+	// Proof is a transition proof that proves the asset being spent was
+	// committed to in the anchor transaction above.
+	Proof *proof.Proof
 }
 
 // Asset returns the input's asset that's being spent.
 func (i *VInput) Asset() *asset.Asset {
 	return i.asset
-}
-
-// Proof returns the proof blob that the asset being spent was committed to in
-// the anchor transaction.
-func (i *VInput) Proof() []byte {
-	return i.proof
 }
 
 // serializeScriptKey serializes the input asset's script key as the PSBT
@@ -529,6 +546,17 @@ type VOutput struct {
 	// serialized, this will be stored in the TaprootInternalKey and
 	// TaprootDerivationPath fields of the PSBT output.
 	ScriptKey asset.ScriptKey
+
+	// ProofDeliveryAddress is the address to which the proof of the asset
+	// transfer should be delivered.
+	ProofDeliveryAddress *url.URL
+
+	// ProofSuffix is the optional new transition proof blob that is created
+	// once the asset output was successfully committed to the anchor
+	// transaction referenced above. The proof suffix is not yet complete
+	// since the header information needs to be added once the anchor
+	// transaction was confirmed in a block.
+	ProofSuffix *proof.Proof
 }
 
 // SplitLocator creates a split locator from the output. The asset ID is passed
@@ -575,6 +603,23 @@ func (o *VOutput) AnchorKeyToDesc() (keychain.KeyDescriptor, error) {
 	}
 
 	return KeyDescFromBip32Derivation(o.AnchorOutputBip32Derivation[0])
+}
+
+// PrevWitnesses returns the previous witnesses of the asset output. If the
+// asset is a split root, the witness of the root asset is returned. If the
+// output asset is nil an error is returned.
+func (o *VOutput) PrevWitnesses() ([]asset.Witness, error) {
+	if o.Asset == nil {
+		return nil, fmt.Errorf("asset is not set")
+	}
+
+	prevWitness := o.Asset.PrevWitnesses
+	if o.Asset.HasSplitCommitmentWitness() {
+		rootAsset := prevWitness[0].SplitCommitment.RootAsset
+		prevWitness = rootAsset.PrevWitnesses
+	}
+
+	return prevWitness, nil
 }
 
 // KeyDescFromBip32Derivation attempts to extract the key descriptor from the
@@ -749,4 +794,20 @@ func deserializeTweakedScriptKey(pOut psbt.POutput) (*asset.TweakedScriptKey,
 		RawKey: rawKeyDesc,
 		Tweak:  tweak,
 	}, nil
+}
+
+// Encode encodes the virtual packet into a byte slice.
+func Encode(vPkt *VPacket) ([]byte, error) {
+	var buf bytes.Buffer
+	err := vPkt.Serialize(&buf)
+	if err != nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
+// Decode decodes a virtual packet from a byte slice.
+func Decode(encoded []byte) (*VPacket, error) {
+	return NewFromRawBytes(bytes.NewReader(encoded), false)
 }

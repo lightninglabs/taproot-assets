@@ -3,27 +3,22 @@ package tappsbt
 import (
 	"fmt"
 
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
-
-// OutputIdxToAddr is a map from a VPacket's VOutput index to its associated
-// Tap address.
-type OutputIdxToAddr map[int]address.Tap
 
 // FromAddresses creates an empty virtual transaction packet from the given
 // addresses. Because sending to an address is always non-interactive, a change
 // output is also added to the packet.
 func FromAddresses(receiverAddrs []*address.Tap,
-	firstOutputIndex uint32) (*VPacket, OutputIdxToAddr, error) {
+	firstOutputIndex uint32) (*VPacket, error) {
 
 	// We need at least one address to send to. Any special cases or
 	// interactive sends should go through the FundPacket method.
 	if len(receiverAddrs) < 1 {
-		return nil, nil, fmt.Errorf("at least one address must be" +
-			"specified")
+		return nil, fmt.Errorf("at least one address must be specified")
 	}
 
 	firstAddr := receiverAddrs[0]
@@ -51,9 +46,6 @@ func FromAddresses(receiverAddrs []*address.Tap,
 		ScriptKey:         asset.NUMSScriptKey,
 	})
 
-	// Map from output index to address.
-	outputIdxToAddr := make(OutputIdxToAddr, len(receiverAddrs))
-
 	// We start at output index 1 because we also have the change output
 	// above. We also just use continuous integers for the anchor output
 	// index, but start at the first one indicated by the caller.
@@ -70,13 +62,11 @@ func FromAddresses(receiverAddrs []*address.Tap,
 			),
 			AnchorOutputInternalKey:      &addr.InternalKey,
 			AnchorOutputTapscriptSibling: addr.TapscriptSibling,
+			ProofDeliveryAddress:         &addr.ProofCourierAddr,
 		})
-
-		outputIndex := len(pkt.Outputs) - 1
-		outputIdxToAddr[outputIndex] = *addr
 	}
 
-	return pkt, outputIdxToAddr, nil
+	return pkt, nil
 }
 
 // ForInteractiveSend creates a virtual transaction packet for sending an output
@@ -135,30 +125,7 @@ func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
 func OwnershipProofPacket(ownedAsset *asset.Asset,
 	chainParams *address.ChainParams) *VPacket {
 
-	// We create the ownership proof by creating a virtual packet that
-	// spends the full asset into a NUMS key. But in order to prevent that
-	// witness to be used in an actual state transition by a malicious
-	// actor, we create the signature over an empty outpoint. This means the
-	// witness is fully valid, but a full transition proof can never be
-	// created, as the previous outpoint would not match the one that
-	// actually goes on chain.
-	//
-	// TODO(guggero): Revisit this proof once we support pocket universes.
-	emptyOutPoint := wire.OutPoint{}
-	prevId := asset.PrevID{
-		ID:       ownedAsset.ID(),
-		OutPoint: emptyOutPoint,
-		ScriptKey: asset.ToSerialized(
-			ownedAsset.ScriptKey.PubKey,
-		),
-	}
-
-	outputAsset := ownedAsset.Copy()
-	outputAsset.ScriptKey = asset.NUMSScriptKey
-	outputAsset.PrevWitnesses = []asset.Witness{{
-		PrevID: &prevId,
-	}}
-
+	prevId, outputAsset := proof.CreateOwnershipProofAsset(ownedAsset)
 	vPkt := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: prevId,
@@ -173,7 +140,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 		}},
 		ChainParams: chainParams,
 	}
-	vPkt.SetInputAsset(0, ownedAsset, nil)
+	vPkt.SetInputAsset(0, ownedAsset)
 
 	return vPkt
 }

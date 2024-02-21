@@ -20,7 +20,7 @@ import (
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
-	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -1391,7 +1391,7 @@ func testPsbtSighashNone(t *harnessTest) {
 	witnessBackup := signedPacket.Outputs[0].Asset.PrevWitnesses
 
 	// Bob now creates the output assets.
-	err = tapscript.PrepareOutputAssets(context.Background(), signedPacket)
+	err = tapsend.PrepareOutputAssets(context.Background(), signedPacket)
 	require.NoError(t.t, err)
 
 	// We attach the backed-up Previous Witnesses to the newly created
@@ -1564,7 +1564,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	witnessBackup := signedPacket.Outputs[0].Asset.PrevWitnesses
 
 	// Bob now creates the output assets.
-	err = tapscript.PrepareOutputAssets(context.Background(), signedPacket)
+	err = tapsend.PrepareOutputAssets(context.Background(), signedPacket)
 	require.NoError(t.t, err)
 
 	// We attach the backed-up Previous Witnesses to the newly created

@@ -292,17 +292,17 @@ func TestMigrateOldFileNames(t *testing.T) {
 	scriptKey2 := test.RandPubKey(t)
 
 	// We create 4 different proofs with the old naming scheme.
-	proof1 := randomProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
+	proof1 := RandProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
 	storeProofOldName(proof1)
-	proof2 := randomProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
+	proof2 := RandProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
 	storeProofOldName(proof2)
-	proof3 := randomProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
+	proof3 := RandProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
 	storeProofOldName(proof3)
-	proof4 := randomProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
+	proof4 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
 	storeProofOldName(proof4)
 
 	// We also create a proof with the new naming scheme.
-	proof5 := randomProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
+	proof5 := RandProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
 	storeProofNewName(proof5)
 
 	// We now create the file archive and expect the 4 proofs to be renamed.
@@ -322,7 +322,7 @@ func TestMigrateOldFileNames(t *testing.T) {
 
 	// We should be able to import a new proof, and it should be stored
 	// under the new naming scheme.
-	proof6 := randomProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
+	proof6 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
 	err = fileArchive.ImportProofs(nil, nil, nil, false, &AnnotatedProof{
 		Locator: Locator{
 			AssetID:   fn.Ptr(proof6.Asset.ID()),

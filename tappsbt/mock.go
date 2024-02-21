@@ -1,23 +1,40 @@
 package tappsbt
 
 import (
+	"bytes"
 	"encoding/hex"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 )
 
+const (
+	// testDataFileName is the name of the directory with the test data.
+	testDataFileName = "testdata"
+)
+
 var (
 	testParams = &address.MainNetTap
+
+	// Block 100002 with 9 transactions on bitcoin mainnet.
+	oddTxBlockHexFileName = filepath.Join(
+		testDataFileName, "odd-block.hex",
+	)
 )
 
 // RandPacket generates a random virtual packet for testing purposes.
@@ -68,6 +85,25 @@ func RandPacket(t testing.TB) *VPacket {
 		txscript.NewTapBranch(leaf1, leaf1),
 	)
 
+	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
+	require.NoError(t, err)
+
+	oddTxBlockBytes, err := hex.DecodeString(
+		strings.Trim(string(oddTxBlockHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	var oddTxBlock wire.MsgBlock
+	err = oddTxBlock.Deserialize(bytes.NewReader(oddTxBlockBytes))
+	require.NoError(t, err)
+
+	inputProof := proof.RandProof(
+		t, testAsset.Genesis, inputScriptKey.PubKey, oddTxBlock, 1, 0,
+	)
+
+	courierAddress, err := url.Parse("https://example.com")
+	require.NoError(t, err)
+
 	vPacket := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: asset.PrevID{
@@ -85,12 +121,15 @@ func RandPacket(t testing.TB) *VPacket {
 				Bip32Derivation:   bip32Derivations,
 				TrBip32Derivation: trBip32Derivations,
 			},
+			Proof: &inputProof,
 		}, {
 			// Empty input.
 		}},
 		Outputs: []*VOutput{{
-			Amount:                             123,
-			AssetVersion:                       asset.Version(test.RandIntn(2)),
+			Amount: 123,
+			AssetVersion: asset.Version(
+				test.RandIntn(2),
+			),
 			Type:                               TypeSplitRoot,
 			Interactive:                        true,
 			AnchorOutputIndex:                  0,
@@ -101,9 +140,13 @@ func RandPacket(t testing.TB) *VPacket {
 			ScriptKey:                          testOutputAsset.ScriptKey,
 			SplitAsset:                         testOutputAsset,
 			AnchorOutputTapscriptSibling:       testPreimage1,
+			ProofDeliveryAddress:               courierAddress,
+			ProofSuffix:                        &inputProof,
 		}, {
-			Amount:                             345,
-			AssetVersion:                       asset.Version(test.RandIntn(2)),
+			Amount: 345,
+			AssetVersion: asset.Version(
+				test.RandIntn(2),
+			),
 			Type:                               TypeSplitRoot,
 			Interactive:                        false,
 			AnchorOutputIndex:                  1,
@@ -116,7 +159,7 @@ func RandPacket(t testing.TB) *VPacket {
 		}},
 		ChainParams: testParams,
 	}
-	vPacket.SetInputAsset(0, testAsset, []byte("this is a proof"))
+	vPacket.SetInputAsset(0, testAsset)
 
 	return vPacket
 }
@@ -207,7 +250,6 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 		TrMerkleRoot:  hex.EncodeToString(i.TaprootMerkleRoot),
 		PrevID:        asset.NewTestFromPrevID(&i.PrevID),
 		Anchor:        NewTestFromAnchor(&i.Anchor),
-		Proof:         hex.EncodeToString(i.proof),
 	}
 
 	for idx := range i.Bip32Derivation {
@@ -230,6 +272,10 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 		ti.Asset = asset.NewTestFromAsset(t, i.asset)
 	}
 
+	if i.Proof != nil {
+		ti.Proof = proof.NewTestFromProof(t, i.Proof)
+	}
+
 	return ti
 }
 
@@ -241,7 +287,7 @@ type TestVInput struct {
 	PrevID            *asset.TestPrevID        `json:"prev_id"`
 	Anchor            *TestAnchor              `json:"anchor"`
 	Asset             *asset.TestAsset         `json:"asset"`
-	Proof             string                   `json:"proof"`
+	Proof             *proof.TestProof         `json:"proof"`
 }
 
 func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
@@ -254,7 +300,6 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 		},
 		PrevID: *ti.PrevID.ToPrevID(t),
 		Anchor: *ti.Anchor.ToAnchor(t),
-		proof:  test.ParseHex(t, ti.Proof),
 	}
 
 	for idx := range ti.Bip32Derivation {
@@ -279,6 +324,10 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 		// fields.
 		err := vi.deserializeScriptKey()
 		require.NoError(t, err)
+	}
+
+	if ti.Proof != nil {
+		vi.Proof = ti.Proof.ToProof(t)
 	}
 
 	return vi
@@ -450,6 +499,14 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		vo.Asset = asset.NewTestFromAsset(t, v.Asset)
 	}
 
+	if v.ProofDeliveryAddress != nil {
+		vo.ProofDeliveryAddress = v.ProofDeliveryAddress.String()
+	}
+
+	if v.ProofSuffix != nil {
+		vo.ProofSuffix = proof.NewTestFromProof(t, v.ProofSuffix)
+	}
+
 	if v.ScriptKey.TweakedScriptKey != nil {
 		bip32Derivation, trBip32Derivation := Bip32DerivationFromKeyDesc(
 			v.ScriptKey.RawKey, coinType,
@@ -529,6 +586,8 @@ type TestVOutput struct {
 	TrBip32Derivation             []*TestTrBip32Derivation `json:"tr_bip32_derivation"`
 	TrInternalKey                 string                   `json:"tr_internal_key"`
 	TrMerkleRoot                  string                   `json:"tr_merkle_root"`
+	ProofDeliveryAddress          string                   `json:"proof_delivery_address"`
+	ProofSuffix                   *proof.TestProof         `json:"proof_suffix"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -564,6 +623,16 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 
 	if to.SplitAsset != nil {
 		v.SplitAsset = to.SplitAsset.ToAsset(t)
+	}
+
+	if to.ProofDeliveryAddress != "" {
+		var err error
+		v.ProofDeliveryAddress, err = url.Parse(to.ProofDeliveryAddress)
+		require.NoError(t, err)
+	}
+
+	if to.ProofSuffix != nil {
+		v.ProofSuffix = to.ProofSuffix.ToProof(t)
 	}
 
 	if len(to.Bip32Derivation) > 0 && to.TrInternalKey != "" {
