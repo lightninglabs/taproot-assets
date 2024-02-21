@@ -99,12 +99,12 @@ type TapscriptProof struct {
 // EncodeRecords returns the encoding records for TapscriptProof.
 func (p TapscriptProof) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 3)
-	if p.TapPreimage1 != nil && len(p.TapPreimage1.SiblingPreimage) > 0 {
+	if p.TapPreimage1 != nil && !p.TapPreimage1.IsEmpty() {
 		records = append(records, TapscriptProofTapPreimage1Record(
 			&p.TapPreimage1,
 		))
 	}
-	if p.TapPreimage2 != nil && len(p.TapPreimage2.SiblingPreimage) > 0 {
+	if p.TapPreimage2 != nil && !p.TapPreimage2.IsEmpty() {
 		records = append(records, TapscriptProofTapPreimage2Record(
 			&p.TapPreimage2,
 		))
@@ -373,23 +373,20 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 	// hashes. In this case, the tapscript tree has two elements, with both
 	// of them being leaves.
 	case !p.TapPreimage1.IsEmpty() && !p.TapPreimage2.IsEmpty() &&
-		p.TapPreimage1.SiblingType == commitment.LeafPreimage &&
-		p.TapPreimage2.SiblingType == commitment.LeafPreimage:
+		p.TapPreimage1.Type() == commitment.LeafPreimage &&
+		p.TapPreimage2.Type() == commitment.LeafPreimage:
 
-		leafHash1, err := commitment.TapLeafHash(
-			p.TapPreimage1.SiblingPreimage,
-		)
-		if err != nil {
-			return nil, err
-		}
-		leafHash2, err := commitment.TapLeafHash(
-			p.TapPreimage2.SiblingPreimage,
-		)
+		leafHash1, err := p.TapPreimage1.TapHash()
 		if err != nil {
 			return nil, err
 		}
 
-		rootHash := commitment.NewTapBranchHash(*leafHash1, *leafHash2)
+		leafHash2, err := p.TapPreimage2.TapHash()
+		if err != nil {
+			return nil, err
+		}
+
+		rootHash := asset.NewTapBranchHash(*leafHash1, *leafHash2)
 		tapscriptRoot = rootHash[:]
 
 	// Two pre-images are specified, with both of the pre-images being a
@@ -397,23 +394,19 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 	// we just care that these are actually branches and the hash up
 	// correctly.
 	case !p.TapPreimage1.IsEmpty() && !p.TapPreimage2.IsEmpty() &&
-		p.TapPreimage1.SiblingType == commitment.BranchPreimage &&
-		p.TapPreimage2.SiblingType == commitment.BranchPreimage:
+		p.TapPreimage1.Type() == commitment.BranchPreimage &&
+		p.TapPreimage2.Type() == commitment.BranchPreimage:
 
-		branch1, err := commitment.TapBranchHash(
-			p.TapPreimage1.SiblingPreimage,
-		)
+		branch1, err := p.TapPreimage1.TapHash()
 		if err != nil {
 			return nil, err
 		}
-		branch2, err := commitment.TapBranchHash(
-			p.TapPreimage2.SiblingPreimage,
-		)
+		branch2, err := p.TapPreimage2.TapHash()
 		if err != nil {
 			return nil, err
 		}
 
-		rootHash := commitment.NewTapBranchHash(*branch1, *branch2)
+		rootHash := asset.NewTapBranchHash(*branch1, *branch2)
 		tapscriptRoot = rootHash[:]
 
 	// Two pre-images are specified, with one of them being a leaf and the
@@ -421,33 +414,27 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 	// tree. We'll verify the first sibling is a leaf, and the other is
 	// actually a branch.
 	case !p.TapPreimage1.IsEmpty() && !p.TapPreimage2.IsEmpty() &&
-		p.TapPreimage1.SiblingType == commitment.LeafPreimage &&
-		p.TapPreimage2.SiblingType == commitment.BranchPreimage:
+		p.TapPreimage1.Type() == commitment.LeafPreimage &&
+		p.TapPreimage2.Type() == commitment.BranchPreimage:
 
-		leafHash, err := commitment.TapLeafHash(
-			p.TapPreimage1.SiblingPreimage,
-		)
+		leafHash, err := p.TapPreimage1.TapHash()
 		if err != nil {
 			return nil, err
 		}
 
-		branchHash, err := commitment.TapBranchHash(
-			p.TapPreimage2.SiblingPreimage,
-		)
+		branchHash, err := p.TapPreimage2.TapHash()
 		if err != nil {
 			return nil, err
 		}
 
-		rootHash := commitment.NewTapBranchHash(*leafHash, *branchHash)
+		rootHash := asset.NewTapBranchHash(*leafHash, *branchHash)
 		tapscriptRoot = rootHash[:]
 
 	// Only a single pre-image was specified, and the pre-image is a leaf.
-	case !p.TapPreimage1.IsEmpty() &&
-		p.TapPreimage1.SiblingType == commitment.BranchPreimage:
+	case !p.TapPreimage1.IsEmpty() && p.TapPreimage2.IsEmpty() &&
+		p.TapPreimage1.Type() == commitment.LeafPreimage:
 
-		tapHash, err := commitment.TapLeafHash(
-			p.TapPreimage1.SiblingPreimage,
-		)
+		tapHash, err := p.TapPreimage1.TapHash()
 		if err != nil {
 			return nil, err
 		}
