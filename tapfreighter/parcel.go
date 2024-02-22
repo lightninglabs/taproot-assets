@@ -327,42 +327,22 @@ type sendPackage struct {
 	TransferTxConfEvent *chainntnfs.TxConfirmation
 }
 
-// prepareForStorage prepares the send package for storing to the database.
-func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
-	error) {
+// ConvertToTransfer prepares the finished send data for storing to the database
+// as a transfer.
+func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
+	anchorTx *tapsend.AnchorTransaction,
+	passiveAssets []*tappsbt.VPacket) (*OutboundParcel, error) {
 
-	// Gather newly generated data required for re-anchoring passive assets.
-	allPackets := make([]*tappsbt.VPacket, 0, len(s.PassiveAssets)+1)
-	allPackets = append(allPackets, s.VirtualPacket)
-	allPackets = append(allPackets, s.PassiveAssets...)
-	for idx := range s.PassiveAssets {
-		passiveAsset := s.PassiveAssets[idx]
-
-		// Generate passive asset re-anchoring proofs. Passive assets
-		// only have one virtual output at index 0.
-		outIndex := 0
-		passiveProof, err := tapsend.CreateProofSuffix(
-			s.AnchorTx, passiveAsset, outIndex, allPackets,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create re-anchor "+
-				"proof: %w", err)
-		}
-
-		passiveAsset.Outputs[outIndex].ProofSuffix = passiveProof
-	}
-
-	vPkt := s.VirtualPacket
-	anchorTXID := s.AnchorTx.FinalTx.TxHash()
+	anchorTXID := anchorTx.FinalTx.TxHash()
 	parcel := &OutboundParcel{
-		AnchorTx:           s.AnchorTx.FinalTx,
+		AnchorTx:           anchorTx.FinalTx,
 		AnchorTxHeightHint: currentHeight,
 		// TODO(bhandras): use clock.Clock instead.
 		TransferTime:  time.Now(),
-		ChainFees:     s.AnchorTx.ChainFees,
+		ChainFees:     anchorTx.ChainFees,
 		Inputs:        make([]TransferInput, len(vPkt.Inputs)),
 		Outputs:       make([]TransferOutput, len(vPkt.Outputs)),
-		PassiveAssets: s.PassiveAssets,
+		PassiveAssets: passiveAssets,
 	}
 
 	for idx := range vPkt.Inputs {
@@ -371,15 +351,15 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// We don't know the actual outpoint the input is spending, so
 		// we need to look it up by the pkScript in the anchor TX.
 		var anchorOutPoint *wire.OutPoint
-		for inIdx := range s.AnchorTx.FundedPsbt.Pkt.Inputs {
-			pIn := s.AnchorTx.FundedPsbt.Pkt.Inputs[inIdx]
+		for inIdx := range anchorTx.FundedPsbt.Pkt.Inputs {
+			pIn := anchorTx.FundedPsbt.Pkt.Inputs[inIdx]
 			if pIn.WitnessUtxo == nil {
 				return nil, fmt.Errorf("anchor input %d has "+
 					"no witness utxo", idx)
 			}
 			utxo := pIn.WitnessUtxo
 			if bytes.Equal(utxo.PkScript, vIn.Anchor.PkScript) {
-				txIn := s.AnchorTx.FinalTx.TxIn[inIdx]
+				txIn := anchorTx.FinalTx.TxIn[inIdx]
 				anchorOutPoint = &txIn.PreviousOutPoint
 				break
 			}
@@ -401,7 +381,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		}
 	}
 
-	outputCommitments := s.AnchorTx.OutputCommitments
+	outputCommitments := anchorTx.OutputCommitments
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
 
@@ -448,7 +428,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// If there are passive assets, they are always committed to the
 		// output that is marked as the split root.
 		if vOut.Type.CanCarryPassive() {
-			numPassiveAssets = uint32(len(s.PassiveAssets))
+			numPassiveAssets = uint32(len(passiveAssets))
 		}
 
 		// Either we have an asset that we commit to or we have an
@@ -465,7 +445,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 		// committed to.
 		case vOut.Asset != nil:
 			proofSuffix, err := tapsend.CreateProofSuffix(
-				s.AnchorTx, s.VirtualPacket, idx, nil,
+				anchorTx, vPkt, idx, passiveAssets,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
@@ -485,7 +465,7 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 				idx)
 		}
 
-		txOut := s.AnchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
+		txOut := anchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
 		parcel.Outputs[idx] = TransferOutput{
 			Anchor: Anchor{
 				OutPoint: wire.OutPoint{

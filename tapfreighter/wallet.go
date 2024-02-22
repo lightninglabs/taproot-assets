@@ -1452,13 +1452,40 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("anchor TX failed final checks: %w", err)
 	}
 
-	return &tapsend.AnchorTransaction{
+	anchorTx := &tapsend.AnchorTransaction{
 		FundedPsbt:        anchorPkt,
 		FinalTx:           finalTx,
 		TargetFeeRate:     params.FeeRate,
 		ChainFees:         int64(chainFees),
 		OutputCommitments: mergedCommitments,
-	}, nil
+	}
+
+	// Now that we have a valid transaction, we can create the proof
+	// suffixes for the passive assets.
+	allPackets := make(
+		[]*tappsbt.VPacket, 0,
+		len(params.PassiveAssetsVPkts)+len(params.VPkts),
+	)
+	allPackets = append(allPackets, params.VPkts...)
+	allPackets = append(allPackets, params.PassiveAssetsVPkts...)
+	for idx := range params.PassiveAssetsVPkts {
+		passiveAsset := params.PassiveAssetsVPkts[idx]
+
+		// Generate passive asset re-anchoring proofs. Passive assets
+		// only have one virtual output at index 0.
+		outIndex := 0
+		passiveProof, err := tapsend.CreateProofSuffix(
+			anchorTx, passiveAsset, outIndex, allPackets,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create re-anchor "+
+				"proof: %w", err)
+		}
+
+		passiveAsset.Outputs[outIndex].ProofSuffix = passiveProof
+	}
+
+	return anchorTx, nil
 }
 
 // SignOwnershipProof creates and signs an ownership proof for the given owned
