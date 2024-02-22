@@ -850,17 +850,9 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		// We expect an error because an interactive output cannot be
 		// un-spendable.
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
-		require.ErrorIs(t, err, commitment.ErrInvalidScriptKey)
-
-		// We also need to update the slit root's type to one that can
-		// carry passive assets.
-		pkt.Outputs[0].Type = tappsbt.TypePassiveSplitRoot
-
-		// Now we shouldn't get an error anymore.
 		return tapsend.PrepareOutputAssets(context.Background(), pkt)
 	},
-	err: nil,
+	err: commitment.ErrInvalidScriptKey,
 }}
 
 // TestSignVirtualTransaction tests edge cases around signing a witness for

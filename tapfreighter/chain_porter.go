@@ -400,13 +400,6 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	for idx := range parcel.Outputs {
 		out := parcel.Outputs[idx]
 
-		// For outputs without assets (=anchor for passive assets), we
-		// don't need to store explicit proofs, they were created and
-		// imported above.
-		if out.Type == tappsbt.TypePassiveAssetsOnly {
-			continue
-		}
-
 		parsedSuffix := &proof.Proof{}
 		err := parsedSuffix.Decode(bytes.NewReader(out.ProofSuffix))
 		if err != nil {

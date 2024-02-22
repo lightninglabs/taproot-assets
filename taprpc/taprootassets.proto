@@ -539,24 +539,11 @@ enum OutputType {
     // output. In either case, the asset of this output has a tx witness.
     OUTPUT_TYPE_SPLIT_ROOT = 1;
 
-    // OUTPUT_TYPE_PASSIVE_ASSETS_ONLY indicates that this output only carries
-    // passive assets and therefore the asset in this output is nil. The passive
-    // assets themselves are signed in their own virtual transactions and
-    // are not present in this packet.
-    OUTPUT_TYPE_PASSIVE_ASSETS_ONLY = 2;
+    reserved 2;
 
-    // OUTPUT_TYPE_PASSIVE_SPLIT_ROOT is a split root output that carries the
-    // change from a split or a tombstone from a non-interactive full value send
-    // output, as well as passive assets.
-    OUTPUT_TYPE_PASSIVE_SPLIT_ROOT = 3;
+    reserved 3;
 
-    // OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS is a plain full-value interactive send
-    // output that also carries passive assets. This is a special case where we
-    // send the full value of a single asset in a commitment to a new script
-    // key, but also carry passive assets in the same output. This is useful for
-    // key rotation (send-to-self) scenarios or asset burns where we burn the
-    // full supply of a single asset within a commitment.
-    OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS = 4;
+    reserved 4;
 }
 
 message TransferOutput {
