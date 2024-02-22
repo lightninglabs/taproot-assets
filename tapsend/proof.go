@@ -56,7 +56,7 @@ type AnchorTransaction struct {
 	// each output of the anchor TX is committing to. This is the merged
 	// Taproot Asset tree of all the virtual asset transfer transactions
 	// that are within a single BTC level anchor output.
-	OutputCommitments map[uint32]*commitment.TapCommitment
+	OutputCommitments tappsbt.OutputCommitments
 }
 
 // CreateProofSuffix creates the new proof for the given output. This is the

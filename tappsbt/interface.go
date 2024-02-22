@@ -483,6 +483,10 @@ func (t VOutputType) String() string {
 // associated Taproot Asset commitment.
 type InputCommitments = map[asset.PrevID]*commitment.TapCommitment
 
+// OutputCommitments is a map from anchor transaction output index to its
+// associated Taproot Asset commitment.
+type OutputCommitments = map[uint32]*commitment.TapCommitment
+
 // VOutput represents an output of a virtual asset state transition.
 type VOutput struct {
 	// Amount is the amount of units of the asset that this output is
