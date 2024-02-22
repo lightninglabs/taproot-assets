@@ -1599,7 +1599,7 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
-	_ proof.GroupVerifier, replace bool,
+	_ proof.MerkleVerifier, _ proof.GroupVerifier, replace bool,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions

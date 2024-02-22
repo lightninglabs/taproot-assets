@@ -598,7 +598,10 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 		return nil
 	}
 
-	snapshot, err := f.Verify(ctxt, headerVerifier, groupVerifier)
+	snapshot, err := f.Verify(
+		ctxt, headerVerifier, proof.DefaultMerkleVerifier,
+		groupVerifier,
+	)
 	require.NoError(t, err)
 
 	return f, snapshot

@@ -1257,7 +1257,9 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-	_, err = proofFile.Verify(ctx, headerVerifier, groupVerifier)
+	_, err = proofFile.Verify(
+		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
+	)
 	if err != nil {
 		// We don't want to fail the RPC request because of a proof
 		// verification error, but we do want to log it for easier
@@ -1597,8 +1599,8 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	// Now that we know the proof file is at least present, we'll attempt
 	// to import it into the main archive.
 	err = r.cfg.ProofArchive.ImportProofs(
-		ctx, headerVerifier, groupVerifier, false,
-		&proof.AnnotatedProof{
+		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
+		false, &proof.AnnotatedProof{
 			Locator: proof.Locator{
 				AssetID:   fn.Ptr(lastProof.Asset.ID()),
 				ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
@@ -4511,7 +4513,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 	lastSnapshot, err := proofFile.Verify(
-		ctx, headerVerifier, groupVerifier,
+		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
@@ -4568,7 +4570,10 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-	_, err = p.Verify(ctx, nil, headerVerifier, groupVerifier)
+	_, err = p.Verify(
+		ctx, nil, headerVerifier, proof.DefaultMerkleVerifier,
+		groupVerifier,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
 	}

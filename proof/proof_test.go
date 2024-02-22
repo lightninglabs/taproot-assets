@@ -571,7 +571,7 @@ func TestGenesisProofVerification(t *testing.T) {
 			)
 			_, err := genesisProof.Verify(
 				context.Background(), nil, MockHeaderVerifier,
-				MockGroupVerifier,
+				MockMerkleVerifier, MockGroupVerifier,
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
 
@@ -632,7 +632,8 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// Verify that the original proof block header is as expected and
 	// therefore an error is not returned.
 	_, err := proof.Verify(
-		context.Background(), nil, headerVerifier, MockGroupVerifier,
+		context.Background(), nil, headerVerifier, MockMerkleVerifier,
+		MockGroupVerifier,
 	)
 	require.NoError(t, err)
 
@@ -640,7 +641,8 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// propagates the correct error.
 	proof.BlockHeader.Nonce += 1
 	_, actualErr := proof.Verify(
-		context.Background(), nil, headerVerifier, MockGroupVerifier,
+		context.Background(), nil, headerVerifier, MockMerkleVerifier,
+		MockGroupVerifier,
 	)
 	require.ErrorIs(t, actualErr, errHeaderVerifier)
 
@@ -651,7 +653,8 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// propagates the correct error.
 	proof.BlockHeight += 1
 	_, actualErr = proof.Verify(
-		context.Background(), nil, headerVerifier, MockGroupVerifier,
+		context.Background(), nil, headerVerifier, MockMerkleVerifier,
+		MockGroupVerifier,
 	)
 	require.ErrorIs(t, actualErr, errHeaderVerifier)
 }
@@ -672,7 +675,8 @@ func TestProofFileVerification(t *testing.T) {
 	require.NoError(t, err)
 
 	_, err = f.Verify(
-		context.Background(), MockHeaderVerifier, MockGroupVerifier,
+		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
+		MockGroupVerifier,
 	)
 	require.NoError(t, err)
 
@@ -680,7 +684,8 @@ func TestProofFileVerification(t *testing.T) {
 	f.Version = Version(212)
 
 	lastAsset, err := f.Verify(
-		context.Background(), MockHeaderVerifier, MockGroupVerifier,
+		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
+		MockGroupVerifier,
 	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
@@ -733,7 +738,7 @@ func TestProofVerification(t *testing.T) {
 
 	lastAsset, err := p.Verify(
 		context.Background(), nil, MockHeaderVerifier,
-		MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier,
 	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
@@ -756,7 +761,7 @@ func TestOwnershipProofVerification(t *testing.T) {
 
 	snapshot, err := p.Verify(
 		context.Background(), nil, MockHeaderVerifier,
-		MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, snapshot)

@@ -156,9 +156,8 @@ func NewMockVerifier(t *testing.T) *MockVerifier {
 	}
 }
 
-func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
-	headerVerifier HeaderVerifier,
-	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
+func (m *MockVerifier) Verify(context.Context, io.Reader,
+	HeaderVerifier, MerkleVerifier, GroupVerifier) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
@@ -177,6 +176,11 @@ func (m *MockVerifier) Verify(_ context.Context, _ io.Reader,
 // Chain data is not available in unit tests. This function is useful for unit
 // tests which are not primarily concerned with block header verification.
 func MockHeaderVerifier(header wire.BlockHeader, height uint32) error {
+	return nil
+}
+
+// MockMerkleVerifier is a mock verifier which approves of all merkle proofs.
+func MockMerkleVerifier(*wire.MsgTx, *TxMerkleProof, [32]byte) error {
 	return nil
 }
 
