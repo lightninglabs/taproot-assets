@@ -529,18 +529,20 @@ func checkTapCommitment(t *testing.T, assets []*asset.Asset,
 }
 
 func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
-	outputCommitments []*commitment.TapCommitment, isSplit bool) {
+	outputCommitments tappsbt.OutputCommitments, isSplit bool) {
 
 	t.Helper()
 
 	// Assert deletion of the input asset and possible deletion of the
 	// matching AssetCommitment tree.
-	senderTree := outputCommitments[0]
-	receiverTree := outputCommitments[0]
+	senderIdx := vPkt.Outputs[0].AnchorOutputIndex
+	senderTree := outputCommitments[senderIdx]
+	receiverTree := outputCommitments[senderIdx]
 
 	// If there are multiple outputs, the receiver should be the second one.
 	if len(vPkt.Outputs) > 1 {
-		receiverTree = outputCommitments[1]
+		receiverIdx := vPkt.Outputs[1].AnchorOutputIndex
+		receiverTree = outputCommitments[receiverIdx]
 	}
 
 	input := vPkt.Inputs[0]
@@ -606,24 +608,24 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 }
 
 func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
-	outputCommitments []*commitment.TapCommitment,
-	spendingPsbt *psbt.Packet, senderAsset *asset.Asset, isSplit bool) {
+	outputCommitments tappsbt.OutputCommitments, spendingPsbt *psbt.Packet,
+	senderAsset *asset.Asset, isSplit bool) {
 
 	t.Helper()
 
 	receiverAsset := outputs[0].Asset
 	receiverIndex := outputs[0].AnchorOutputIndex
-	receiverTapTree := outputCommitments[0]
+	receiverTapTree := outputCommitments[receiverIndex]
 	if len(outputs) > 1 {
 		receiverAsset = outputs[1].Asset
 		receiverIndex = outputs[1].AnchorOutputIndex
-		receiverTapTree = outputCommitments[1]
+		receiverTapTree = outputCommitments[receiverIndex]
 	}
 
 	// Build a TaprootProof for each receiver to prove inclusion or
 	// exclusion for each output.
 	senderIndex := outputs[0].AnchorOutputIndex
-	senderTapTree := outputCommitments[0]
+	senderTapTree := outputCommitments[senderIndex]
 	senderProofAsset, senderTapProof, err := senderTapTree.Proof(
 		senderAsset.TapCommitmentKey(),
 		senderAsset.AssetCommitmentKey(),
@@ -1082,7 +1084,9 @@ var createOutputCommitmentsTestCases = []testCase{{
 			AnchorOutputTapscriptSibling: testPreimage,
 		})
 
-		_, err = tapsend.CreateOutputCommitments(nil, pkt, nil)
+		_, err = tapsend.CreateOutputCommitments(
+			nil, []*tappsbt.VPacket{pkt}, nil,
+		)
 		return err
 	},
 	err: tapsend.ErrInvalidAnchorInfo,
@@ -1115,7 +1119,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		_, err = tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		return err
 	},
@@ -1152,7 +1156,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		_, err = tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		return err
 	},
@@ -1179,7 +1183,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1CollectGroupPrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
@@ -1207,7 +1211,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
@@ -1235,7 +1239,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset2PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
@@ -1264,7 +1268,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset2PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
@@ -1294,7 +1298,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1CollectGroupPrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
@@ -1341,7 +1345,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
@@ -1350,7 +1354,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 
 		outputCommitments[0] = nil
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		return err
@@ -1377,16 +1381,16 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
 		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		outputCommitments[1] = nil
+		outputCommitments[receiverExternalIdx] = nil
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		return err
@@ -1413,14 +1417,14 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1CollectGroupPrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
 		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1452,14 +1456,14 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
 		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1491,14 +1495,14 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset2PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
 		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1531,14 +1535,14 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset2PrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
 		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1572,14 +1576,14 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
 				state.asset1CollectGroupPrevID: inputCommitment,
-			}, pkt, nil,
+			}, []*tappsbt.VPacket{pkt}, nil,
 		)
 		require.NoError(t, err)
 
 		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1594,8 +1598,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 }}
 
 func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
-	full bool) (*psbt.Packet, *tappsbt.VPacket,
-	[]*commitment.TapCommitment) {
+	full bool) (*psbt.Packet, *tappsbt.VPacket, tappsbt.OutputCommitments) {
 
 	spendAddress := state.address1
 
@@ -1625,14 +1628,14 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	outputCommitments, err := tapsend.CreateOutputCommitments(
 		tappsbt.InputCommitments{
 			state.asset2PrevID: inputCommitment,
-		}, pkt, nil,
+		}, []*tappsbt.VPacket{pkt}, nil,
 	)
 	require.NoError(t, err)
 
 	btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
 	require.NoError(t, err)
 
-	_, err = tapsend.UpdateTaprootOutputKeys(
+	err = tapsend.UpdateTaprootOutputKeys(
 		btcPkt, pkt, outputCommitments,
 	)
 	require.NoError(t, err)
@@ -1642,7 +1645,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 
 func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 	btcPkt *psbt.Packet, pkt *tappsbt.VPacket,
-	outputCommitments []*commitment.TapCommitment) []proof.TransitionParams {
+	outputCommitments tappsbt.OutputCommitments) []proof.TransitionParams {
 
 	btcPkt.UnsignedTx.AddTxIn(&genesisTxIn)
 	spendTx := btcPkt.UnsignedTx.Copy()
@@ -1655,8 +1658,8 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 
 	senderAsset := pkt.Outputs[0].Asset
 	receiverAsset := pkt.Outputs[1].Asset
-	senderTapTree := outputCommitments[0]
-	receiverTapTree := outputCommitments[1]
+	senderTapTree := outputCommitments[pkt.Outputs[0].AnchorOutputIndex]
+	receiverTapTree := outputCommitments[pkt.Outputs[1].AnchorOutputIndex]
 
 	_, senderExclusionProof, err := receiverTapTree.Proof(
 		senderAsset.TapCommitmentKey(),

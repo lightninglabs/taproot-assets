@@ -1343,7 +1343,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	vPacket := params.VPkts[0]
 
 	outputCommitments, err := tapsend.CreateOutputCommitments(
-		params.InputCommitments, vPacket, params.PassiveAssetsVPkts,
+		params.InputCommitments, []*tappsbt.VPacket{vPacket},
+		params.PassiveAssetsVPkts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
@@ -1388,7 +1389,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// First, we'll update the PSBT packets to insert the _real_ outputs we
 	// need to commit to the asset transfer.
-	mergedCommitments, err := tapsend.UpdateTaprootOutputKeys(
+	err = tapsend.UpdateTaprootOutputKeys(
 		signAnchorPkt, vPacket, outputCommitments,
 	)
 	if err != nil {
@@ -1452,7 +1453,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		FinalTx:           finalTx,
 		TargetFeeRate:     params.FeeRate,
 		ChainFees:         int64(chainFees),
-		OutputCommitments: mergedCommitments,
+		OutputCommitments: outputCommitments,
 	}
 
 	// Now that we have a valid transaction, we can create the proof
