@@ -965,7 +965,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		// We need to prepare the parcel for storage.
-		parcel, err := currentPkg.prepareForStorage(currentHeight)
+		parcel, err := ConvertToTransfer(
+			currentHeight, currentPkg.VirtualPacket,
+			currentPkg.AnchorTx, currentPkg.PassiveAssets,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to prepare parcel for "+
 				"storage: %w", err)
