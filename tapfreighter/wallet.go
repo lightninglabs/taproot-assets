@@ -91,12 +91,14 @@ type Wallet interface {
 	SignVirtualPacket(vPkt *tappsbt.VPacket,
 		optFuncs ...SignVirtualPacketOption) ([]uint32, error)
 
-	// SignPassiveAssets creates and signs the passive asset packets for the
-	// given input commitment and virtual packet that contains the active
-	// asset transfer.
-	SignPassiveAssets(vPkt *tappsbt.VPacket,
+	// CreatePassiveAssets creates passive asset packets for the given
+	// active packets and input Taproot Asset commitments.
+	CreatePassiveAssets(vPkt *tappsbt.VPacket,
 		inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket,
 		error)
+
+	// SignPassiveAssets signs the given passive asset packets.
+	SignPassiveAssets(passiveAssets []*tappsbt.VPacket) error
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets (for both
@@ -1246,11 +1248,10 @@ func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
 	return passiveCommitments, nil
 }
 
-// SignPassiveAssets creates and signs the passive asset packets for the given
-// virtual packet and input Taproot Asset commitments.
-func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
-	inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket,
-	error) {
+// CreatePassiveAssets creates passive asset packets for the given active
+// packets and input Taproot Asset commitments.
+func (f *AssetWallet) CreatePassiveAssets(vPkt *tappsbt.VPacket,
+	inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket, error) {
 
 	// Gather passive assets found in each input Taproot Asset commitment.
 	var passiveAssets []*tappsbt.VPacket
@@ -1300,6 +1301,13 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 		}
 	}
 
+	return passiveAssets, nil
+}
+
+// SignPassiveAssets signs the given passive asset packets.
+func (f *AssetWallet) SignPassiveAssets(
+	passiveAssets []*tappsbt.VPacket) error {
+
 	// Sign all the passive assets virtual packets.
 	for idx := range passiveAssets {
 		passiveAsset := passiveAssets[idx]
@@ -1307,12 +1315,12 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 			passiveAsset, SkipInputProofVerify(),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to sign passive asset "+
+			return fmt.Errorf("unable to sign passive asset "+
 				"virtual packet: %w", err)
 		}
 	}
 
-	return passiveAssets, nil
+	return nil
 }
 
 // AnchorVirtualTransactions creates a BTC level anchor transaction that anchors
