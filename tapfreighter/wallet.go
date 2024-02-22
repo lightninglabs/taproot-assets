@@ -156,10 +156,6 @@ type AnchorVTxnsParams struct {
 	// anchored by the anchor transaction.
 	VPkts []*tappsbt.VPacket
 
-	// InputCommitments is a map from virtual package input index to its
-	// associated Taproot Assets commitment.
-	InputCommitments tappsbt.InputCommitments
-
 	// PassiveAssetsVPkts is a list of all the virtual transactions which
 	// re-anchor passive assets.
 	PassiveAssetsVPkts []*tappsbt.VPacket
@@ -1340,10 +1336,10 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 	vPacket := params.VPkts[0]
 
-	outputCommitments, err := tapsend.CreateOutputCommitments(
-		params.InputCommitments, []*tappsbt.VPacket{vPacket},
-		params.PassiveAssetsVPkts,
+	allPackets := append(
+		[]*tappsbt.VPacket{vPacket}, params.PassiveAssetsVPkts...,
 	)
+	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
@@ -1453,12 +1449,6 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Now that we have a valid transaction, we can create the proof
 	// suffixes for the passive assets.
-	allPackets := make(
-		[]*tappsbt.VPacket, 0,
-		len(params.PassiveAssetsVPkts)+len(params.VPkts),
-	)
-	allPackets = append(allPackets, params.VPkts...)
-	allPackets = append(allPackets, params.PassiveAssetsVPkts...)
 	for idx := range params.PassiveAssetsVPkts {
 		passiveAsset := params.PassiveAssetsVPkts[idx]
 

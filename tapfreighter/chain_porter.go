@@ -931,7 +931,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			ctx, &AnchorVTxnsParams{
 				FeeRate:            feeRate,
 				VPkts:              []*tappsbt.VPacket{vPacket},
-				InputCommitments:   currentPkg.InputCommitments,
 				PassiveAssetsVPkts: currentPkg.PassiveAssets,
 			},
 		)
