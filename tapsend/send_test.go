@@ -1114,7 +1114,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		_, err = tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		return err
@@ -1151,7 +1151,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		_, err = tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		return err
@@ -1178,7 +1178,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1CollectGroupPrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1206,7 +1206,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1234,7 +1234,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset2PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1263,7 +1263,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset2PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1293,7 +1293,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1CollectGroupPrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1340,7 +1340,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1376,7 +1376,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1412,7 +1412,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1CollectGroupPrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1451,7 +1451,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1490,7 +1490,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset2PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1530,7 +1530,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset2PrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1571,7 +1571,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
 			tappsbt.InputCommitments{
-				0: inputCommitment,
+				state.asset1CollectGroupPrevID: inputCommitment,
 			}, pkt, nil,
 		)
 		require.NoError(t, err)
@@ -1624,7 +1624,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	inputCommitment := &state.asset2TapTree
 	outputCommitments, err := tapsend.CreateOutputCommitments(
 		tappsbt.InputCommitments{
-			0: inputCommitment,
+			state.asset2PrevID: inputCommitment,
 		}, pkt, nil,
 	)
 	require.NoError(t, err)
@@ -1958,9 +1958,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1984,11 +1983,11 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 			return nil, nil, err
 		}
 
+		inputCommitment := &state.asset1CollectGroupTapTree
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1CollectGroupTapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1CollectGroupPrevID: inputCommitment,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2013,9 +2012,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset2TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset2PrevID: &state.asset2TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2040,9 +2038,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2067,9 +2064,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2103,9 +2099,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err

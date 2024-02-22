@@ -1889,7 +1889,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 				"commitment: %w", err)
 		}
 
-		inputCommitments[idx] = inputCommitment.Commitment
+		inputCommitments[prevID] = inputCommitment.Commitment
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(

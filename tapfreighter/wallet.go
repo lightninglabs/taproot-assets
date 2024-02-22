@@ -711,14 +711,8 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		)
 	}
 
-	inputsScriptKeys := fn.Map(
-		vPkt.Inputs, func(vInput *tappsbt.VInput) *btcec.PublicKey {
-			return vInput.Asset().ScriptKey.PubKey
-		},
-	)
-
 	fullValue, err := tapsend.ValidateInputs(
-		inputCommitments, inputsScriptKeys, assetType, fundDesc,
+		inputCommitments, assetType, fundDesc,
 	)
 	if err != nil {
 		return nil, err
@@ -986,14 +980,15 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// At this point, we have a valid "coin" to spend in the
 		// commitment, so we'll add the relevant information to the
 		// virtual TX's input.
+		prevID := asset.PrevID{
+			OutPoint: assetInput.AnchorPoint,
+			ID:       assetInput.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				assetInput.Asset.ScriptKey.PubKey,
+			),
+		}
 		vPkt.Inputs[idx] = &tappsbt.VInput{
-			PrevID: asset.PrevID{
-				OutPoint: assetInput.AnchorPoint,
-				ID:       assetInput.Asset.ID(),
-				ScriptKey: asset.ToSerialized(
-					assetInput.Asset.ScriptKey.PubKey,
-				),
-			},
+			PrevID: prevID,
 			Anchor: tappsbt.Anchor{
 				Value:            assetInput.AnchorOutputValue,
 				PkScript:         anchorPkScript,
@@ -1014,7 +1009,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		}
 		vPkt.SetInputAsset(idx, assetInput.Asset)
 
-		inputCommitments[idx] = assetInput.Commitment
+		inputCommitments[prevID] = assetInput.Commitment
 	}
 
 	return inputCommitments, nil
@@ -1266,8 +1261,8 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 
 	// Gather passive assets found in each input Taproot Asset commitment.
 	var passiveAssets []*tappsbt.VPacket
-	for inputIdx := range inputCommitments {
-		tapCommitment := inputCommitments[inputIdx]
+	for prevID := range inputCommitments {
+		tapCommitment := inputCommitments[prevID]
 
 		// Each virtual input is associated with a distinct Taproot
 		// Asset commitment. Therefore, each input may be associated
@@ -1285,7 +1280,7 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 		// When there are left over passive assets, we know we have a
 		// change output present, since we created one in a previous
 		// step if there was none to begin with.
-		anchorPoint := vPkt.Inputs[inputIdx].PrevID.OutPoint
+		anchorPoint := prevID.OutPoint
 		passiveOut, err := vPkt.PassiveAssetsOutput()
 		if err != nil {
 			return nil, fmt.Errorf("missing passive asset "+

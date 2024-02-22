@@ -479,9 +479,9 @@ func (t VOutputType) String() string {
 	}
 }
 
-// InputCommitments is a map from virtual package input index to its
+// InputCommitments is a map from virtual package input prevID to its
 // associated Taproot Asset commitment.
-type InputCommitments = map[int]*commitment.TapCommitment
+type InputCommitments = map[asset.PrevID]*commitment.TapCommitment
 
 // VOutput represents an output of a virtual asset state transition.
 type VOutput struct {
