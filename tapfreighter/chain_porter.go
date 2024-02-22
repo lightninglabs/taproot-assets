@@ -606,6 +606,17 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return nil
 		}
 
+		// We can only deliver proofs for outputs that have a proof
+		// courier address. If an output doesn't have one, we assume it
+		// is an interactive send where the recipient is already aware
+		// of the proof or learns of it through another channel.
+		if len(out.ProofCourierAddr) == 0 {
+			log.Debugf("Not transferring proof for output with "+
+				"script key %x as it has no proof courier "+
+				"address", key.SerializeCompressed())
+			return nil
+		}
+
 		// We just look for the full proof in the list of final proofs
 		// by matching the content of the proof suffix.
 		var receiverProof *proof.AnnotatedProof
@@ -677,21 +688,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	}
 
 	// If we have a non-interactive proof, then we'll launch several
-	// goroutines to deliver the proof(s) to the receiver(s). Since a
-	// pre-signed parcel (a parcel that uses the RPC driven vPSBT flow)
-	// doesn't have proof courier URLs (they aren't part of the vPSBT), the
-	// proofs must always be delivered in an interactive manner from sender
-	// to receiver, and we don't even need to attempt to use a proof
-	// courier.
-	_, isPreSigned := pkg.Parcel.(*PreSignedParcel)
-	if !isPreSigned {
-		ctx, cancel := p.WithCtxQuitNoTimeout()
-		defer cancel()
-
-		err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
-		if err != nil {
-			return fmt.Errorf("error delivering proof(s): %w", err)
-		}
+	// goroutines to deliver the proof(s) to the receiver(s).
+	err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
+	if err != nil {
+		return fmt.Errorf("error delivering proof(s): %w", err)
 	}
 
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
@@ -727,7 +727,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
-	err := p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
+	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
 		AnchorTXID:             pkg.OutboundPkg.AnchorTx.TxHash(),
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
