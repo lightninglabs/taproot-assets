@@ -418,11 +418,6 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 		numOutputs := 1
 		amounts := []uint64{fullAmt}
-		if i == 0 {
-			// Account for the passive asset in the first transfer.
-			numOutputs = 2
-			amounts = []uint64{fullAmt, 0}
-		}
 		ConfirmAndAssertOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner.Client, sender,
 			sendResp, genInfo.AssetId, amounts, i/2, (i/2)+1,
