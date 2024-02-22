@@ -249,14 +249,17 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 // ValidateInputs validates a set of inputs against a funding request. It
 // returns true if the inputs would be spent fully, otherwise false.
 func ValidateInputs(inputCommitments tappsbt.InputCommitments,
-	inputsScriptKeys []*btcec.PublicKey, expectedAssetType asset.Type,
-	desc *FundingDescriptor) (bool, error) {
+	expectedAssetType asset.Type, desc *FundingDescriptor) (bool, error) {
 
 	// Extract the input assets from the input commitments.
-	inputAssets := make([]*asset.Asset, len(inputsScriptKeys))
-	for inputIndex := range inputCommitments {
-		tapCommitment := inputCommitments[inputIndex]
-		senderScriptKey := inputsScriptKeys[inputIndex]
+	inputAssets := make([]*asset.Asset, 0, len(inputCommitments))
+	for prevID := range inputCommitments {
+		tapCommitment := inputCommitments[prevID]
+		senderScriptKey, err := prevID.ScriptKey.ToPubKey()
+		if err != nil {
+			return false, fmt.Errorf("unable to parse sender "+
+				"script key: %v", err)
+		}
 
 		// Gain the asset that we'll use as an input and in the process
 		// validate the selected input and commitment.
@@ -272,7 +275,7 @@ func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 			return false, fmt.Errorf("unexpected input asset type")
 		}
 
-		inputAssets[inputIndex] = inputAsset
+		inputAssets = append(inputAssets, inputAsset)
 	}
 
 	// Validate total amount of input assets and determine full value spend
@@ -895,14 +898,15 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	}
 
 	// Merge all input Taproot Asset commitments into a single commitment.
-	//
-	// TODO(ffranr): Use `fn.ForEach` and `inputTapCommitments[1:]`.
-	firstCommitment := inputTapCommitments[0]
-	for idx := range inputTapCommitments {
-		if idx == 0 {
+	var mergedCommitment *commitment.TapCommitment
+	for prevID := range inputTapCommitments {
+		if mergedCommitment == nil {
+			mergedCommitment = inputTapCommitments[prevID]
+
 			continue
 		}
-		err := firstCommitment.Merge(inputTapCommitments[idx])
+
+		err := mergedCommitment.Merge(inputTapCommitments[prevID])
 		if err != nil {
 			return nil, fmt.Errorf("failed to merge input Taproot "+
 				"Asset commitments: %w", err)
@@ -918,7 +922,7 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	// Remove the spent Asset from the AssetCommitment of the sender. Fail
 	// if the input AssetCommitment or Asset were not in the input
 	// TapCommitment.
-	inputTapCommitment, err := firstCommitment.Copy()
+	inputTapCommitment, err := mergedCommitment.Copy()
 	if err != nil {
 		return nil, err
 	}
@@ -930,8 +934,8 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 	}
 
 	for idx := range inputs {
-		input := inputs[idx]
-		inputAsset := input.Asset()
+		vIn := inputs[idx]
+		inputAsset := vIn.Asset()
 
 		// Just a sanity check that the asset we're spending really was
 		// in the list of input assets.
