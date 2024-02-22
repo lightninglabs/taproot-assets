@@ -903,23 +903,13 @@ func commitPacket(vPkt *tappsbt.VPacket,
 	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
-	// TODO(ffranr): Support multiple inputs with different asset IDs.
-	// Currently, every input asset must have the same asset ID. Ensure
-	// that's the case.
+	// One virtual packet is only allowed to contain inputs and outputs of
+	// the same asset ID. Fungible assets must be sent in separate packets.
+	firstInputID := inputs[0].Asset().ID()
 	assetsTapCommitmentKey := inputs[0].Asset().TapCommitmentKey()
 	for idx := range inputs {
-		inputAsset := inputs[idx].Asset()
-		if inputAsset.TapCommitmentKey() != assetsTapCommitmentKey {
-			return fmt.Errorf("inputs must have the same " +
-				"asset ID")
-		}
-
-		// For multi input, assert asset is not part of a group.
-		firstAssetGen := inputs[0].Asset().Genesis
-		assetInGroup := firstAssetGen.ID() != assetsTapCommitmentKey
-		if len(inputs) > 1 && assetInGroup {
-			return fmt.Errorf("multi input spend may not " +
-				"include input from asset group")
+		if inputs[idx].Asset().ID() != firstInputID {
+			return fmt.Errorf("inputs must have the same asset ID")
 		}
 	}
 
