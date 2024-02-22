@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"math/rand"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -604,9 +604,9 @@ func (m *MockProofArchive) FetchProofs(ctx context.Context,
 	return nil, nil
 }
 
-func (m *MockProofArchive) ImportProofs(ctx context.Context,
-	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
-	replace bool, proofs ...*proof.AnnotatedProof) error {
+func (m *MockProofArchive) ImportProofs(context.Context,
+	proof.HeaderVerifier, proof.MerkleVerifier, proof.GroupVerifier,
+	bool, ...*proof.AnnotatedProof) error {
 
 	return nil
 }

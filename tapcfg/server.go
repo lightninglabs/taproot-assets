@@ -142,6 +142,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			)
 		},
 		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
 		GroupVerifier:  groupVerifier,
 		Multiverse:     multiverse,
 		UniverseStats:  universeStats,

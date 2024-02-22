@@ -218,7 +218,8 @@ func WithAssetMetaReveals(
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
 func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
-	groupVerifier GroupVerifier, anchorVerifier GroupAnchorVerifier,
+	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
+	anchorVerifier GroupAnchorVerifier,
 	blobOpts ...MintingBlobOption) (AssetProofs, error) {
 
 	opts := defaultMintingBlobOpts()
@@ -244,7 +245,9 @@ func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 	for key := range proofs {
 		proof := proofs[key]
 
-		_, err := proof.Verify(ctx, nil, headerVerifier, groupVerifier)
+		_, err := proof.Verify(
+			ctx, nil, headerVerifier, merkleVerifier, groupVerifier,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof file generated: "+
 				"%w", err)

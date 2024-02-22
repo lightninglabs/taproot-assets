@@ -22,7 +22,7 @@ type Verifier interface {
 	// error if the proof file is valid. A valid file should return an
 	// AssetSnapshot of the final state transition of the file.
 	Verify(c context.Context, blobReader io.Reader,
-		headerVerifier HeaderVerifier,
+		headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
 		groupVerifier GroupVerifier) (*AssetSnapshot, error)
 }
 
@@ -35,7 +35,7 @@ type BaseVerifier struct {
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
 func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
-	headerVerifier HeaderVerifier,
+	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
 	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
 
 	var proofFile File
@@ -44,7 +44,9 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 		return nil, fmt.Errorf("unable to parse proof: %w", err)
 	}
 
-	return proofFile.Verify(ctx, headerVerifier, groupVerifier)
+	return proofFile.Verify(
+		ctx, headerVerifier, merkleVerifier, groupVerifier,
+	)
 }
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
@@ -164,7 +166,8 @@ func (p *Proof) verifyExclusionProofs() error {
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	prev *AssetSnapshot, headerVerifier HeaderVerifier,
-	groupVerifier GroupVerifier) (bool, error) {
+	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier) (bool,
+	error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -209,7 +212,8 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 
 		errGroup.Go(func() error {
 			result, err := inputProof.Verify(
-				ctx, headerVerifier, groupVerifier,
+				ctx, headerVerifier, merkleVerifier,
+				groupVerifier,
 			)
 			if err != nil {
 				return err
@@ -385,6 +389,24 @@ func (p *Proof) verifyGroupKeyReveal() error {
 // block header is invalid (usually: not present on chain).
 type HeaderVerifier func(blockHeader wire.BlockHeader, blockHeight uint32) error
 
+// MerkleVerifier is a callback function which returns an error if the given
+// merkle proof is invalid.
+type MerkleVerifier func(tx *wire.MsgTx, proof *TxMerkleProof,
+	merkleRoot [32]byte) error
+
+// DefaultMerkleVerifier is a default implementation of the MerkleVerifier
+// callback function. It verifies the merkle proof by checking that the
+// transaction hash is included in the merkle tree with the given merkle root.
+func DefaultMerkleVerifier(tx *wire.MsgTx, proof *TxMerkleProof,
+	merkleRoot [32]byte) error {
+
+	if !proof.Verify(tx, merkleRoot) {
+		return ErrInvalidTxMerkleProof
+	}
+
+	return nil
+}
+
 // GroupVerifier is a callback function which returns an error if the given
 // group key has not been imported by the tapd daemon. This can occur if the
 // issuance proof for the group anchor has not been imported or synced.
@@ -408,7 +430,7 @@ type GroupAnchorVerifier func(gen *asset.Genesis,
 //  5. A set of asset inputs with valid witnesses are included that satisfy the
 //     resulting state transition.
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
-	headerVerifier HeaderVerifier,
+	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
 	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
 
 	// 0. Check only for the proof version.
@@ -440,8 +462,13 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			"header: %w", err)
 	}
 
-	if !p.TxMerkleProof.Verify(&p.AnchorTx, p.BlockHeader.MerkleRoot) {
-		return nil, ErrInvalidTxMerkleProof
+	// Assert that the transaction is in the block via the merkle proof.
+	err = merkleVerifier(
+		&p.AnchorTx, &p.TxMerkleProof, p.BlockHeader.MerkleRoot,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("%w: failed to validate merkle proof: "+
+			"%w", err, ErrInvalidTxMerkleProof)
 	}
 
 	// TODO(jhb): check for genesis asset and populate asset fields before
@@ -535,7 +562,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 
 	default:
 		splitAsset, err = p.verifyAssetStateTransition(
-			ctx, prev, headerVerifier, groupVerifier,
+			ctx, prev, headerVerifier, merkleVerifier,
+			groupVerifier,
 		)
 	}
 	if err != nil {
@@ -575,7 +603,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 //
 // TODO(roasbeef): pass in the expected genesis point here?
 func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
-	groupVerifier GroupVerifier) (
+	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier) (
 
 	*AssetSnapshot, error) {
 
@@ -605,7 +633,8 @@ func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
 		}
 
 		result, err := decodedProof.Verify(
-			ctx, prev, headerVerifier, groupVerifier,
+			ctx, prev, headerVerifier, merkleVerifier,
+			groupVerifier,
 		)
 		if err != nil {
 			return nil, err

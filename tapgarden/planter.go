@@ -899,7 +899,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 
 		err := proof.ReplaceProofInBlob(
 			ctx, p, c.cfg.ProofUpdates, headerVerifier,
-			groupVerifier,
+			proof.DefaultMerkleVerifier, groupVerifier,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to update minted proofs: %w",
