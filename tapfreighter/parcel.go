@@ -464,8 +464,6 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 	passiveAssets []*tappsbt.VPacket) (*Anchor, error) {
 
 	anchorTXID := anchorTx.FinalTx.TxHash()
-	outputCommitments := anchorTx.OutputCommitments
-
 	anchorInternalKey := keychain.KeyDescriptor{
 		PubKey: vOut.AnchorOutputInternalKey,
 	}
@@ -478,7 +476,7 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 		}
 	}
 
-	preimageBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+	preimageBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
 		vOut.AnchorOutputTapscriptSibling,
 	)
 	if err != nil {
@@ -486,9 +484,13 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 			"preimage: %w", err)
 	}
 
-	outCommitment := outputCommitments[vOut.AnchorOutputIndex]
-	merkleRoot := outCommitment.TapscriptRoot(siblingHash)
-	taprootAssetRoot := outCommitment.TapscriptRoot(nil)
+	anchorOut := &anchorTx.FundedPsbt.Pkt.Outputs[vOut.AnchorOutputIndex]
+	merkleRoot := tappsbt.ExtractCustomField(
+		anchorOut.Unknowns, tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot,
+	)
+	taprootAssetRoot := tappsbt.ExtractCustomField(
+		anchorOut.Unknowns, tappsbt.PsbtKeyTypeOutputAssetRoot,
+	)
 
 	// If there are passive assets, are they anchored in the same anchor
 	// output as this transfer output? If yes, then we show this to the user

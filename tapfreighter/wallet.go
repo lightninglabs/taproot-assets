@@ -1440,11 +1440,10 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 
 	anchorTx := &tapsend.AnchorTransaction{
-		FundedPsbt:        anchorPkt,
-		FinalTx:           finalTx,
-		TargetFeeRate:     params.FeeRate,
-		ChainFees:         int64(chainFees),
-		OutputCommitments: outputCommitments,
+		FundedPsbt:    anchorPkt,
+		FinalTx:       finalTx,
+		TargetFeeRate: params.FeeRate,
+		ChainFees:     int64(chainFees),
 	}
 
 	// Now that we have a valid transaction, we can create the proof
@@ -1454,7 +1453,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 		for outIdx := range activeAsset.Outputs {
 			activeProof, err := tapsend.CreateProofSuffix(
-				anchorTx, activeAsset, outIdx, allPackets,
+				anchorTx, activeAsset, outputCommitments,
+				outIdx, allPackets,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create "+
@@ -1472,7 +1472,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		// only have one virtual output at index 0.
 		outIndex := 0
 		passiveProof, err := tapsend.CreateProofSuffix(
-			anchorTx, passiveAsset, outIndex, allPackets,
+			anchorTx, passiveAsset, outputCommitments,
+			outIndex, allPackets,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create re-anchor "+

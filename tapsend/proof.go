@@ -51,12 +51,6 @@ type AnchorTransaction struct {
 	// ChainFees is the actual, total amount of sats paid in chain fees by
 	// the anchor TX.
 	ChainFees int64
-
-	// OutputCommitments is a map of all the Taproot Asset level commitments
-	// each output of the anchor TX is committing to. This is the merged
-	// Taproot Asset tree of all the virtual asset transfer transactions
-	// that are within a single BTC level anchor output.
-	OutputCommitments tappsbt.OutputCommitments
 }
 
 // CreateProofSuffix creates the new proof for the given output. This is the
@@ -64,13 +58,14 @@ type AnchorTransaction struct {
 // proof returned will have all the Taproot Asset level proof information, but
 // contains dummy data for the on-chain part.
 func CreateProofSuffix(anchorTx *AnchorTransaction, vPacket *tappsbt.VPacket,
-	outIndex int, allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof,
-	error) {
+	outputCommitments tappsbt.OutputCommitments, outIndex int,
+	allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof, error) {
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
 	params, err := proofParams(
-		anchorTx, vPacket, outIndex, allAnchoredVPackets,
+		anchorTx, vPacket, outputCommitments, outIndex,
+		allAnchoredVPackets,
 	)
 	if err != nil {
 		return nil, err
@@ -149,10 +144,8 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 // proofParams creates the set of parameters that will be used to create the
 // proofs for the sender and receiver.
 func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
-	outIndex int,
+	outputCommitments tappsbt.OutputCommitments, outIndex int,
 	allAnchoredVPackets []*tappsbt.VPacket) (*proof.TransitionParams, error) {
-
-	outputCommitments := anchorTx.OutputCommitments
 
 	isSplit, err := vPkt.HasSplitCommitment()
 	if err != nil {

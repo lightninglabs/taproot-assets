@@ -79,18 +79,19 @@ func TestCreateProofSuffix(t *testing.T) {
 			Pkt:               pkt,
 			ChangeOutputIndex: 3,
 		},
-		FinalTx:           pkt.UnsignedTx,
-		OutputCommitments: make(map[uint32]*commitment.TapCommitment),
+		FinalTx: pkt.UnsignedTx,
 	}
+	outputCommitments := make(map[uint32]*commitment.TapCommitment)
 
-	addOutputCommitment(t, anchorTx, testPackets...)
+	addOutputCommitment(t, anchorTx, outputCommitments, testPackets...)
 	addBip86Output(t, anchorTx.FundedPsbt.Pkt)
 
 	// Create a proof suffix for all 4 packets now and validate it.
 	for _, vPkt := range testPackets {
 		for outIdx := range vPkt.Outputs {
 			proofSuffix, err := CreateProofSuffix(
-				anchorTx, vPkt, outIdx, testPackets,
+				anchorTx, vPkt, outputCommitments, outIdx,
+				testPackets,
 			)
 			require.NoError(t, err)
 
@@ -205,6 +206,7 @@ func createPacket(t *testing.T, a *asset.Asset, split bool,
 }
 
 func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
+	outputCommitments map[uint32]*commitment.TapCommitment,
 	vPackets ...*tappsbt.VPacket) {
 
 	packet := anchorTx.FundedPsbt.Pkt
@@ -241,7 +243,7 @@ func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 		packet.Outputs[idx].TaprootInternalKey = schnorr.SerializePubKey(
 			internalKey,
 		)
-		anchorTx.OutputCommitments[idx] = c
+		outputCommitments[idx] = c
 	}
 }
 

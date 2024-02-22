@@ -1061,7 +1061,7 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 			return ErrInvalidOutputIndexes
 		}
 
-		btcOut := btcPacket.Outputs[vOut.AnchorOutputIndex]
+		btcOut := &btcPacket.Outputs[vOut.AnchorOutputIndex]
 		internalKey, err := schnorr.ParsePubKey(
 			btcOut.TaprootInternalKey,
 		)
@@ -1097,6 +1097,21 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 
 		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
 		btcTxOut.PkScript = script
+
+		// Also set some additional fields in the PSBT output to make
+		// it easier to create the transfer database entry later.
+		merkleRoot := anchorCommitment.TapscriptRoot(siblingHash)
+		taprootAssetRoot := anchorCommitment.TapscriptRoot(nil)
+		btcOut.Unknowns = tappsbt.AddCustomField(
+			btcOut.Unknowns,
+			tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot,
+			merkleRoot[:],
+		)
+		btcOut.Unknowns = tappsbt.AddCustomField(
+			btcOut.Unknowns,
+			tappsbt.PsbtKeyTypeOutputAssetRoot,
+			taprootAssetRoot[:],
+		)
 	}
 
 	return nil
