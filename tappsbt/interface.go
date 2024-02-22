@@ -61,9 +61,17 @@ var (
 // transaction PSBTs only. They are defined here for completeness' sake but are
 // not directly used by the tappsbt package.
 var (
-	PsbtKeyTypeInputTapProof = []byte{0x70}
+	// PsbtKeyTypeOutputTaprootMerkleRoot is the key used to store the
+	// Taproot Merkle root in the BTC level anchor transaction PSBT. This
+	// is the top level Merkle root, meaning that it combines the Taproot
+	// Asset commitment root below and tapscript sibling (if present). If
+	// this is equal to the asset root then that means there is no tapscript
+	// sibling.
+	PsbtKeyTypeOutputTaprootMerkleRoot = []byte{0x70}
 
-	PsbtKeyTypeOutputTapProof = []byte{0x70}
+	// PsbtKeyTypeOutputAssetRoot is the key used to store the Taproot Asset
+	// commitment root hash in the BTC level anchor transaction PSBT.
+	PsbtKeyTypeOutputAssetRoot = []byte{0x71}
 )
 
 // VOutPredicate is a function that can be used to filter virtual outputs.
@@ -710,6 +718,39 @@ func AddTaprootBip32Derivation(derivations []*psbt.TaprootBip32Derivation,
 	}
 
 	return append(derivations, target)
+}
+
+// ExtractCustomField returns the value of a custom field in the given unknown
+// values by key. If the key is not found, nil is returned.
+func ExtractCustomField(unknowns []*psbt.Unknown, key []byte) []byte {
+	for _, customField := range unknowns {
+		if bytes.Equal(customField.Key, key) {
+			return customField.Value
+		}
+	}
+
+	return nil
+}
+
+// AddCustomField adds a custom field to the given unknown values. If the key is
+// already present, the value is updated.
+func AddCustomField(unknowns []*psbt.Unknown, key,
+	value []byte) []*psbt.Unknown {
+
+	// Do we already have a custom field with this key?
+	unknown, err := fn.First(unknowns, func(u *psbt.Unknown) bool {
+		return bytes.Equal(u.Key, key)
+	})
+	if err != nil {
+		// An error means no item found. So we add a new one.
+		return append(unknowns, &psbt.Unknown{
+			Key:   key,
+			Value: value,
+		})
+	}
+
+	unknown.Value = value
+	return unknowns
 }
 
 // extractLocatorFromPath extracts the key family and index from the given
