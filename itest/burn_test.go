@@ -146,7 +146,7 @@ func testBurnAssets(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
 		simpleAssetGen.AssetId,
-		[]uint64{outputAmounts[2] - burnAmt, burnAmt}, 1, 2, 2, true,
+		[]uint64{burnAmt, outputAmounts[2] - burnAmt}, 1, 2, 2, true,
 	)
 
 	// We'll now assert that the burned asset has the correct state.
@@ -230,7 +230,7 @@ func testBurnAssets(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
 		simpleAssetGen.AssetId,
-		[]uint64{changeAmt, multiBurnAmt}, 4, 5, 2, true,
+		[]uint64{multiBurnAmt, changeAmt}, 4, 5, 2, true,
 	)
 
 	// Our final asset balance should be reduced by both successful burn
@@ -270,7 +270,7 @@ func testBurnAssets(t *harnessTest) {
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
 		simpleGroupGen.AssetId,
-		[]uint64{simpleGroup.Amount - burnAmt, burnAmt}, 5, 6, 2, true,
+		[]uint64{burnAmt, simpleGroup.Amount - burnAmt}, 5, 6, 2, true,
 	)
 	AssertBalanceByID(
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount-burnAmt,
@@ -383,7 +383,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 	// Assert that the asset burn transfer occurred correctly.
 	AssertAssetOutboundTransferWithOutputs(
 		t.t, miner, t.tapd, burnResp.BurnTransfer,
-		burnAssetID, []uint64{postBurnAmt, burnAmt}, 0, 1, 2, true,
+		burnAssetID, []uint64{burnAmt, postBurnAmt}, 0, 1, 2, true,
 	)
 
 	// Ensure that the burnt asset has the correct state.
