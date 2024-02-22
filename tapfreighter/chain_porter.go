@@ -964,30 +964,26 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
+		// We now need to find out if this is a transfer to ourselves
+		// (e.g. a change output) or an outbound transfer. A key being
+		// local means the lnd node connected to this daemon knows how
+		// to derive the key.
+		isLocalKey := func(key asset.ScriptKey) bool {
+			return key.TweakedScriptKey != nil &&
+				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey)
+		}
+
 		// We need to prepare the parcel for storage.
 		parcel, err := ConvertToTransfer(
 			currentHeight, currentPkg.VirtualPacket,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
+			isLocalKey,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to prepare parcel for "+
 				"storage: %w", err)
 		}
 		currentPkg.OutboundPkg = parcel
-
-		// We now need to find out if this is a transfer to ourselves
-		// (e.g. a change output) or an outbound transfer. A key being
-		// local means the lnd node connected to this daemon knows how
-		// to derive the key.
-		for idx := range parcel.Outputs {
-			out := &parcel.Outputs[idx]
-			key := out.ScriptKey
-			if key.TweakedScriptKey != nil &&
-				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey) {
-
-				out.ScriptKeyLocal = true
-			}
-		}
 
 		// Don't allow shutdown while we're attempting to store proofs.
 		ctx, cancel = p.CtxBlocking()

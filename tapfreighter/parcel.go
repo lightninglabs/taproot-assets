@@ -330,8 +330,8 @@ type sendPackage struct {
 // ConvertToTransfer prepares the finished send data for storing to the database
 // as a transfer.
 func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
-	anchorTx *tapsend.AnchorTransaction,
-	passiveAssets []*tappsbt.VPacket) (*OutboundParcel, error) {
+	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
+	isLocalKey func(asset.ScriptKey) bool) (*OutboundParcel, error) {
 
 	anchorTXID := anchorTx.FinalTx.TxHash()
 	parcel := &OutboundParcel{
@@ -487,6 +487,7 @@ func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
 			SplitCommitmentRoot: splitCommitmentRoot,
 			ProofSuffix:         proofSuffixBuf.Bytes(),
 			ProofCourierAddr:    proofCourierAddrBytes,
+			ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
 		}
 	}
 
