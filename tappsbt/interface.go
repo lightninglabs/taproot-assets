@@ -92,12 +92,6 @@ var (
 		return o.Type.IsSplitRoot()
 	}
 
-	// VOutCanCarryPassive is a predicate that returns true if the virtual
-	// output can carry passive assets.
-	VOutCanCarryPassive = func(o *VOutput) bool {
-		return o.Type.CanCarryPassive()
-	}
-
 	// VOutIsNotSplitRoot is a predicate that returns true if the virtual
 	// output is NOT a split root output.
 	VOutIsNotSplitRoot = func(o *VOutput) bool {
@@ -233,18 +227,6 @@ func (p *VPacket) SplitRootOutput() (*VOutput, error) {
 	}
 
 	return fn.First(p.Outputs, VOutIsSplitRoot)
-}
-
-// PassiveAssetsOutput returns the output in the virtual transaction that can
-// carry passive assets, or an error if there is none or more than one.
-func (p *VPacket) PassiveAssetsOutput() (*VOutput, error) {
-	count := fn.Count(p.Outputs, VOutCanCarryPassive)
-	if count != 1 {
-		return nil, fmt.Errorf("expected 1 passive assets carrier "+
-			"output, got %d", count)
-	}
-
-	return fn.First(p.Outputs, VOutCanCarryPassive)
 }
 
 // FirstNonSplitRootOutput returns the first non-change output in the virtual
@@ -409,59 +391,12 @@ const (
 	// split or a tombstone from a non-interactive full value send output.
 	// In either case, the asset of this output has a tx witness.
 	TypeSplitRoot VOutputType = 1
-
-	// TypePassiveAssetsOnly indicates that this output only carries passive
-	// assets and therefore the asset in this output is nil. The passive
-	// assets themselves are signed in their own virtual transactions and
-	// are not present in this packet.
-	TypePassiveAssetsOnly VOutputType = 2
-
-	// TypePassiveSplitRoot is a split root output that carries the change
-	// from a split or a tombstone from a non-interactive full value send
-	// output, as well as passive assets.
-	TypePassiveSplitRoot VOutputType = 3
-
-	// TypeSimplePassiveAssets is a plain full-value interactive send output
-	// that also carries passive assets. This is a special case where we
-	// send the full value of a single asset in a commitment to a new script
-	// key, but also carry passive assets in the same output. This is useful
-	// for key rotation (send-to-self) scenarios or asset burns where we
-	// burn the full supply of a single asset within a commitment.
-	TypeSimplePassiveAssets VOutputType = 4
 )
 
 // IsSplitRoot returns true if the output type is a split root, indicating that
 // the asset has a tx witness instead of a split witness.
 func (t VOutputType) IsSplitRoot() bool {
-	return t == TypeSplitRoot || t == TypePassiveSplitRoot
-}
-
-// CanBeInteractive returns true if the output type is compatible with being an
-// interactive send.
-func (t VOutputType) CanBeInteractive() bool {
-	switch t {
-	case TypeSimple, TypeSplitRoot, TypePassiveAssetsOnly,
-		TypePassiveSplitRoot, TypeSimplePassiveAssets:
-
-		return true
-
-	default:
-		return false
-	}
-}
-
-// CanCarryPassive returns true if the output type is compatible with carrying
-// passive assets.
-func (t VOutputType) CanCarryPassive() bool {
-	switch t {
-	case TypePassiveAssetsOnly, TypePassiveSplitRoot,
-		TypeSimplePassiveAssets:
-
-		return true
-
-	default:
-		return false
-	}
+	return t == TypeSplitRoot
 }
 
 // String returns a human-readable string representation of the output type.
@@ -472,15 +407,6 @@ func (t VOutputType) String() string {
 
 	case TypeSplitRoot:
 		return "split_root"
-
-	case TypePassiveAssetsOnly:
-		return "passive_assets_only"
-
-	case TypePassiveSplitRoot:
-		return "passive_split_root"
-
-	case TypeSimplePassiveAssets:
-		return "simple_passive_assets"
 
 	default:
 		return fmt.Sprintf("unknown <%d>", t)

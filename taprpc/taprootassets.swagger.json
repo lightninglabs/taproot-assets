@@ -1782,13 +1782,10 @@
       "type": "string",
       "enum": [
         "OUTPUT_TYPE_SIMPLE",
-        "OUTPUT_TYPE_SPLIT_ROOT",
-        "OUTPUT_TYPE_PASSIVE_ASSETS_ONLY",
-        "OUTPUT_TYPE_PASSIVE_SPLIT_ROOT",
-        "OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS"
+        "OUTPUT_TYPE_SPLIT_ROOT"
       ],
       "default": "OUTPUT_TYPE_SIMPLE",
-      "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness.\n - OUTPUT_TYPE_PASSIVE_ASSETS_ONLY: OUTPUT_TYPE_PASSIVE_ASSETS_ONLY indicates that this output only carries\npassive assets and therefore the asset in this output is nil. The passive\nassets themselves are signed in their own virtual transactions and\nare not present in this packet.\n - OUTPUT_TYPE_PASSIVE_SPLIT_ROOT: OUTPUT_TYPE_PASSIVE_SPLIT_ROOT is a split root output that carries the\nchange from a split or a tombstone from a non-interactive full value send\noutput, as well as passive assets.\n - OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS: OUTPUT_TYPE_SIMPLE_PASSIVE_ASSETS is a plain full-value interactive send\noutput that also carries passive assets. This is a special case where we\nsend the full value of a single asset in a commitment to a new script\nkey, but also carry passive assets in the same output. This is useful for\nkey rotation (send-to-self) scenarios or asset burns where we burn the\nfull supply of a single asset within a commitment."
+      "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness."
     },
     "taprpcPrevInputAsset": {
       "type": "object",

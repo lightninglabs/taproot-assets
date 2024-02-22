@@ -2632,9 +2632,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			isNumsKey := scriptPubKey.IsEqual(asset.NUMSPubKey)
 			isTombstone := isNumsKey &&
 				out.Amount == 0 &&
-				out.OutputType != int16(
-					tappsbt.TypePassiveAssetsOnly,
-				)
+				out.OutputType == int16(tappsbt.TypeSplitRoot)
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
 

@@ -374,14 +374,6 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 	for idx := range outputs {
 		vOut := outputs[idx]
 
-		// Depending on the output type, an output can be interactive or
-		// not.
-		if vOut.Interactive && !vOut.Type.CanBeInteractive() {
-			return fmt.Errorf("output %d is interactive but "+
-				"output type %v cannot be interactive", idx,
-				vOut.Type)
-		}
-
 		// This method returns an error if the script key's public key
 		// isn't set, which should be the case right now.
 		isUnSpendable, err := vOut.ScriptKey.IsUnSpendable()
@@ -401,17 +393,12 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 
 		// Interactive outputs can't be un-spendable, since there is no
 		// need for a tombstone output and burns work in a different
-		// way, unless they are carrying the passive assets.
-		case vOut.Interactive && isUnSpendable &&
-			!vOut.Type.CanCarryPassive():
-
+		// way.
+		case vOut.Interactive && isUnSpendable:
 			return commitment.ErrInvalidScriptKey
 
-		// Interactive outputs can't have a zero amount, unless they
-		// are carrying the passive assets.
-		case vOut.Interactive && vOut.Amount == 0 &&
-			!vOut.Type.CanCarryPassive():
-
+		// Interactive outputs can't have a zero amount.
+		case vOut.Interactive && vOut.Amount == 0:
 			return commitment.ErrZeroSplitAmount
 		}
 	}
@@ -459,12 +446,9 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 				return ErrInvalidCollectibleSplit
 			}
 
-			// There should only be a tombstone output in an
-			// interactive flow if we need to transport passive
-			// assets. Otherwise, for an interactive send we don't
-			// need a tombstone output and this wouldn't be a two
-			// output collectible send.
-			if !rootOut.Type.CanCarryPassive() &&
+			// For an interactive transfer of a collectible there
+			// should be no split root output.
+			if rootOut.Type.IsSplitRoot() &&
 				recipientOut.Interactive {
 
 				return ErrInvalidCollectibleSplit
