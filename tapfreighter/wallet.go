@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -427,7 +426,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 }
 
 // passiveAssetVPacket creates a virtual packet for the given passive asset.
-func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
+func passiveAssetVPacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	anchorPoint wire.OutPoint, anchorOutputIndex uint32,
 	internalKey *keychain.KeyDescriptor) *tappsbt.VPacket {
 
@@ -471,15 +470,13 @@ func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
 	}
 
 	// Set output internal key.
-	vOutput.SetAnchorInternalKey(
-		*internalKey, f.cfg.ChainParams.HDCoinType,
-	)
+	vOutput.SetAnchorInternalKey(*internalKey, params.HDCoinType)
 
 	// Create VPacket.
 	vPacket := &tappsbt.VPacket{
 		Inputs:      []*tappsbt.VInput{&vInput},
 		Outputs:     []*tappsbt.VOutput{&vOutput},
-		ChainParams: f.cfg.ChainParams,
+		ChainParams: params,
 	}
 
 	// Set the input asset. The input asset proof is not provided as it is
@@ -1296,7 +1293,8 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 		for _, passiveCommitment := range passiveCommitments {
 			for _, passiveAsset := range passiveCommitment.Assets() {
 				passiveAssets = append(
-					passiveAssets, f.passiveAssetVPacket(
+					passiveAssets, passiveAssetVPacket(
+						f.cfg.ChainParams,
 						passiveAsset, anchorPoint,
 						passiveOut.AnchorOutputIndex,
 						&changeInternalKey,
@@ -1400,10 +1398,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// Now that all the real outputs are in the PSBT, we'll also
 	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	err = addAnchorPsbtInputs(
-		signAnchorPkt, vPacket, params.FeeRate,
-		f.cfg.ChainParams.Params,
-	)
+	err = addAnchorPsbtInputs(signAnchorPkt, vPacket, params.FeeRate)
 	if err != nil {
 		return nil, fmt.Errorf("error adding anchor input: %w", err)
 	}
@@ -1657,7 +1652,7 @@ func adjustFundedPsbt(fPkt *tapsend.FundedPsbt, anchorInputValue int64) {
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
 // packet. This is called after the PSBT has been funded, but before signing.
 func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
-	feeRate chainfee.SatPerKWeight, params *chaincfg.Params) error {
+	feeRate chainfee.SatPerKWeight) error {
 
 	for idx := range vPkt.Inputs {
 		// With the BIP-0032 information completed, we'll now add the
