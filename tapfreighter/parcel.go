@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -333,7 +334,6 @@ func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
 	isLocalKey func(asset.ScriptKey) bool) (*OutboundParcel, error) {
 
-	anchorTXID := anchorTx.FinalTx.TxHash()
 	parcel := &OutboundParcel{
 		AnchorTx:           anchorTx.FinalTx,
 		AnchorTxHeightHint: currentHeight,
@@ -348,150 +348,201 @@ func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
 	for idx := range vPkt.Inputs {
 		vIn := vPkt.Inputs[idx]
 
-		// We don't know the actual outpoint the input is spending, so
-		// we need to look it up by the pkScript in the anchor TX.
-		var anchorOutPoint *wire.OutPoint
-		for inIdx := range anchorTx.FundedPsbt.Pkt.Inputs {
-			pIn := anchorTx.FundedPsbt.Pkt.Inputs[inIdx]
-			if pIn.WitnessUtxo == nil {
-				return nil, fmt.Errorf("anchor input %d has "+
-					"no witness utxo", idx)
-			}
-			utxo := pIn.WitnessUtxo
-			if bytes.Equal(utxo.PkScript, vIn.Anchor.PkScript) {
-				txIn := anchorTx.FinalTx.TxIn[inIdx]
-				anchorOutPoint = &txIn.PreviousOutPoint
-				break
-			}
-		}
-		if anchorOutPoint == nil {
-			return nil, fmt.Errorf("unable to find anchor "+
-				"outpoint for input %d", idx)
+		tIn, err := transferInput(anchorTx.FundedPsbt.Pkt, vIn)
+		if err != nil {
+			return nil, fmt.Errorf("unable to convert input %d: %w",
+				idx, err)
 		}
 
-		parcel.Inputs[idx] = TransferInput{
-			PrevID: asset.PrevID{
-				OutPoint: *anchorOutPoint,
-				ID:       vIn.Asset().ID(),
-				ScriptKey: asset.ToSerialized(
-					vIn.Asset().ScriptKey.PubKey,
-				),
-			},
-			Amount: vIn.Asset().Amount,
-		}
+		parcel.Inputs = append(parcel.Inputs, *tIn)
 	}
 
-	outputCommitments := anchorTx.OutputCommitments
 	for idx := range vPkt.Outputs {
-		vOut := vPkt.Outputs[idx]
-
-		// Convert any proof courier address associated with this output
-		// to bytes for db storage.
-		var proofCourierAddrBytes []byte
-		if vOut.ProofDeliveryAddress != nil {
-			proofCourierAddrBytes = []byte(
-				vOut.ProofDeliveryAddress.String(),
-			)
-		}
-
-		anchorInternalKey := keychain.KeyDescriptor{
-			PubKey: vOut.AnchorOutputInternalKey,
-		}
-		if vOut.AnchorOutputBip32Derivation != nil {
-			var err error
-			anchorInternalKey, err = vOut.AnchorKeyToDesc()
-			if err != nil {
-				return nil, fmt.Errorf("unable to get anchor "+
-					"key desc: %w", err)
-			}
-		}
-
-		preimageBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
-			vOut.AnchorOutputTapscriptSibling,
+		tOut, err := transferOutput(
+			vPkt, idx, anchorTx, passiveAssets, isLocalKey,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to encode tapscript "+
-				"preimage: %w", err)
+			return nil, fmt.Errorf("unable to convert "+
+				"output %d: %w", idx, err)
 		}
 
-		outCommitment := outputCommitments[vOut.AnchorOutputIndex]
-		merkleRoot := outCommitment.TapscriptRoot(siblingHash)
-		taprootAssetRoot := outCommitment.TapscriptRoot(nil)
-
-		var (
-			numPassiveAssets    uint32
-			proofSuffixBuf      bytes.Buffer
-			witness             []asset.Witness
-			splitCommitmentRoot mssmt.Node
-		)
-
-		// If there are passive assets, they are always committed to the
-		// output that is marked as the split root.
-		if vOut.Type.CanCarryPassive() {
-			numPassiveAssets = uint32(len(passiveAssets))
-		}
-
-		// Either we have an asset that we commit to or we have an
-		// output just for the passive assets, which we mark as an
-		// interactive split root.
-		switch {
-		// This is a "valid" output for just carrying passive assets
-		// (marked as interactive split root and not committing to an
-		// active asset transfer).
-		case vOut.Interactive && vOut.Type.IsSplitRoot() && vOut.Asset == nil:
-			vOut.Type = tappsbt.TypePassiveAssetsOnly
-
-		// In any other case we expect an active asset transfer to be
-		// committed to.
-		case vOut.Asset != nil:
-			proofSuffix, err := tapsend.CreateProofSuffix(
-				anchorTx, vPkt, idx, passiveAssets,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create "+
-					"proof %d: %w", idx, err)
-			}
-			err = proofSuffix.Encode(&proofSuffixBuf)
-			if err != nil {
-				return nil, fmt.Errorf("unable to encode "+
-					"proof %d: %w", idx, err)
-			}
-			witness = vOut.Asset.PrevWitnesses
-			splitCommitmentRoot = vOut.Asset.SplitCommitmentRoot
-
-		default:
-			return nil, fmt.Errorf("invalid output %d, asset "+
-				"missing and not marked for passive assets",
-				idx)
-		}
-
-		txOut := anchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
-		parcel.Outputs[idx] = TransferOutput{
-			Anchor: Anchor{
-				OutPoint: wire.OutPoint{
-					Hash:  anchorTXID,
-					Index: vOut.AnchorOutputIndex,
-				},
-				Value:            btcutil.Amount(txOut.Value),
-				InternalKey:      anchorInternalKey,
-				TaprootAssetRoot: taprootAssetRoot[:],
-				MerkleRoot:       merkleRoot[:],
-				TapscriptSibling: preimageBytes,
-				NumPassiveAssets: numPassiveAssets,
-			},
-			Type:                vOut.Type,
-			ScriptKey:           vOut.ScriptKey,
-			Amount:              vOut.Amount,
-			AssetVersion:        vOut.AssetVersion,
-			WitnessData:         witness,
-			SplitCommitmentRoot: splitCommitmentRoot,
-			ProofSuffix:         proofSuffixBuf.Bytes(),
-			ProofCourierAddr:    proofCourierAddrBytes,
-			ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
-		}
+		parcel.Outputs = append(parcel.Outputs, *tOut)
 	}
 
 	return parcel, nil
+}
+
+// transferInput creates a TransferInput from a virtual input and the anchor
+// packet.
+func transferInput(anchorPacket *psbt.Packet,
+	vIn *tappsbt.VInput) (*TransferInput, error) {
+
+	// We don't know the actual outpoint the input is spending, so we need
+	// to look it up by the pkScript in the anchor TX.
+	var anchorOutPoint *wire.OutPoint
+	for inIdx := range anchorPacket.Inputs {
+		pIn := anchorPacket.Inputs[inIdx]
+		if pIn.WitnessUtxo == nil {
+			return nil, fmt.Errorf("anchor input has no witness " +
+				"utxo")
+		}
+		utxo := pIn.WitnessUtxo
+		if bytes.Equal(utxo.PkScript, vIn.Anchor.PkScript) {
+			txIn := anchorPacket.UnsignedTx.TxIn[inIdx]
+			anchorOutPoint = &txIn.PreviousOutPoint
+			break
+		}
+	}
+	if anchorOutPoint == nil {
+		return nil, fmt.Errorf("unable to find anchor outpoint for " +
+			"input")
+	}
+
+	return &TransferInput{
+		PrevID: asset.PrevID{
+			OutPoint: *anchorOutPoint,
+			ID:       vIn.Asset().ID(),
+			ScriptKey: asset.ToSerialized(
+				vIn.Asset().ScriptKey.PubKey,
+			),
+		},
+		Amount: vIn.Asset().Amount,
+	}, nil
+}
+
+// transferOutput creates a TransferOutput from a virtual output and the anchor
+// packet.
+func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int,
+	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
+	isLocalKey func(asset.ScriptKey) bool) (*TransferOutput, error) {
+
+	vOut := vPkt.Outputs[vOutIdx]
+
+	// Convert any proof courier address associated with this output
+	// to bytes for db storage.
+	var proofCourierAddrBytes []byte
+	if vOut.ProofDeliveryAddress != nil {
+		proofCourierAddrBytes = []byte(
+			vOut.ProofDeliveryAddress.String(),
+		)
+	}
+
+	var (
+		proofSuffixBuf      bytes.Buffer
+		witness             []asset.Witness
+		splitCommitmentRoot mssmt.Node
+	)
+
+	// Either we have an asset that we commit to or we have an
+	// output just for the passive assets, which we mark as an
+	// interactive split root.
+	switch {
+	// This is a "valid" output for just carrying passive assets
+	// (marked as interactive split root and not committing to an
+	// active asset transfer).
+	case vOut.Interactive && vOut.Type.IsSplitRoot() && vOut.Asset == nil:
+		vOut.Type = tappsbt.TypePassiveAssetsOnly
+
+	// In any other case we expect an active asset transfer to be
+	// committed to.
+	case vOut.Asset != nil:
+		proofSuffix, err := tapsend.CreateProofSuffix(
+			anchorTx, vPkt, vOutIdx, passiveAssets,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create "+
+				"proof %d: %w", vOutIdx, err)
+		}
+		err = proofSuffix.Encode(&proofSuffixBuf)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode "+
+				"proof %d: %w", vOutIdx, err)
+		}
+		witness = vOut.Asset.PrevWitnesses
+		splitCommitmentRoot = vOut.Asset.SplitCommitmentRoot
+
+	default:
+		return nil, fmt.Errorf("invalid output %d, asset "+
+			"missing and not marked for passive assets",
+			vOutIdx)
+	}
+
+	anchor, err := outputAnchor(anchorTx, vOut, passiveAssets)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create anchor: %w", err)
+	}
+
+	return &TransferOutput{
+		Anchor:              *anchor,
+		Type:                vOut.Type,
+		ScriptKey:           vOut.ScriptKey,
+		Amount:              vOut.Amount,
+		AssetVersion:        vOut.AssetVersion,
+		WitnessData:         witness,
+		SplitCommitmentRoot: splitCommitmentRoot,
+		ProofSuffix:         proofSuffixBuf.Bytes(),
+		ProofCourierAddr:    proofCourierAddrBytes,
+		ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
+	}, nil
+}
+
+// outputAnchor creates an Anchor from an anchor transaction and a virtual output.
+func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
+	passiveAssets []*tappsbt.VPacket) (*Anchor, error) {
+
+	anchorTXID := anchorTx.FinalTx.TxHash()
+	outputCommitments := anchorTx.OutputCommitments
+
+	anchorInternalKey := keychain.KeyDescriptor{
+		PubKey: vOut.AnchorOutputInternalKey,
+	}
+	if vOut.AnchorOutputBip32Derivation != nil {
+		var err error
+		anchorInternalKey, err = vOut.AnchorKeyToDesc()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get anchor "+
+				"key desc: %w", err)
+		}
+	}
+
+	preimageBytes, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		vOut.AnchorOutputTapscriptSibling,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode tapscript "+
+			"preimage: %w", err)
+	}
+
+	outCommitment := outputCommitments[vOut.AnchorOutputIndex]
+	merkleRoot := outCommitment.TapscriptRoot(siblingHash)
+	taprootAssetRoot := outCommitment.TapscriptRoot(nil)
+
+	// If there are passive assets, are they anchored in the same anchor
+	// output as this transfer output? If yes, then we show this to the user
+	// by just attaching the number of passive assets.
+	var numPassiveAssets uint32
+	if len(passiveAssets) > 0 {
+		// All passive assets should be at the same anchor output index.
+		firstPassive := passiveAssets[0]
+		anchorOutputIndex := firstPassive.Outputs[0].AnchorOutputIndex
+		if anchorOutputIndex == vOut.AnchorOutputIndex {
+			numPassiveAssets = uint32(len(passiveAssets))
+		}
+	}
+
+	txOut := anchorTx.FinalTx.TxOut[vOut.AnchorOutputIndex]
+	return &Anchor{
+		OutPoint: wire.OutPoint{
+			Hash:  anchorTXID,
+			Index: vOut.AnchorOutputIndex,
+		},
+		Value:            btcutil.Amount(txOut.Value),
+		InternalKey:      anchorInternalKey,
+		TaprootAssetRoot: taprootAssetRoot[:],
+		MerkleRoot:       merkleRoot[:],
+		TapscriptSibling: preimageBytes,
+		NumPassiveAssets: numPassiveAssets,
+	}, nil
 }
 
 // deliverTxBroadcastResp delivers a response for the parcel back to the
