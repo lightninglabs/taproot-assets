@@ -240,6 +240,11 @@ type OutboundParcel struct {
 	// during the parcel confirmation process.
 	PassiveAssets []*tappsbt.VPacket
 
+	// PassiveAssetsAnchor is the anchor point for the passive assets. This
+	// might be a distinct anchor from any active transfer in case the
+	// active transfers don't create any change going back to us.
+	PassiveAssetsAnchor *Anchor
+
 	// Inputs represents the list of previous assets that were spent with
 	// this transfer.
 	Inputs []TransferInput

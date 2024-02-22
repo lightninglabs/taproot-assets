@@ -332,15 +332,31 @@ func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
 	isLocalKey func(asset.ScriptKey) bool) (*OutboundParcel, error) {
 
+	var passiveAssetAnchor *Anchor
+	if len(passiveAssets) > 0 {
+		// If we have passive assets, we need to create a new anchor
+		// for them. They all anchor into the same output, so we can
+		// just use the first one.
+		var err error
+		passiveAssetAnchor, err = outputAnchor(
+			anchorTx, passiveAssets[0].Outputs[0], nil,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create passive "+
+				"asset anchor: %w", err)
+		}
+	}
+
 	parcel := &OutboundParcel{
 		AnchorTx:           anchorTx.FinalTx,
 		AnchorTxHeightHint: currentHeight,
 		// TODO(bhandras): use clock.Clock instead.
-		TransferTime:  time.Now(),
-		ChainFees:     anchorTx.ChainFees,
-		Inputs:        make([]TransferInput, len(vPkt.Inputs)),
-		Outputs:       make([]TransferOutput, len(vPkt.Outputs)),
-		PassiveAssets: passiveAssets,
+		TransferTime:        time.Now(),
+		ChainFees:           anchorTx.ChainFees,
+		Inputs:              make([]TransferInput, len(vPkt.Inputs)),
+		Outputs:             make([]TransferOutput, len(vPkt.Outputs)),
+		PassiveAssets:       passiveAssets,
+		PassiveAssetsAnchor: passiveAssetAnchor,
 	}
 
 	for idx := range vPkt.Inputs {
