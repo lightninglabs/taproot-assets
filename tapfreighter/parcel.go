@@ -333,15 +333,24 @@ func (s *sendPackage) prepareForStorage(currentHeight uint32) (*OutboundParcel,
 	error) {
 
 	// Gather newly generated data required for re-anchoring passive assets.
+	allPackets := make([]*tappsbt.VPacket, 0, len(s.PassiveAssets)+1)
+	allPackets = append(allPackets, s.VirtualPacket)
+	allPackets = append(allPackets, s.PassiveAssets...)
 	for idx := range s.PassiveAssets {
 		passiveAsset := s.PassiveAssets[idx]
 
-		// Generate passive asset re-anchoring proofs.
-		err := s.attachReAnchorProof(passiveAsset)
+		// Generate passive asset re-anchoring proofs. Passive assets
+		// only have one virtual output at index 0.
+		outIndex := 0
+		passiveProof, err := CreateProofSuffix(
+			s.AnchorTx, passiveAsset, outIndex, allPackets,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create re-anchor "+
 				"proof: %w", err)
 		}
+
+		passiveAsset.Outputs[outIndex].ProofSuffix = passiveProof
 	}
 
 	vPkt := s.VirtualPacket
@@ -739,82 +748,6 @@ func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 			params.ExclusionProofs, exclusionProof,
 		)
 	}
-
-	return nil
-}
-
-// createReAnchorProof creates the new proof for the re-anchoring of a passive
-// asset.
-func (s *sendPackage) attachReAnchorProof(passivePkt *tappsbt.VPacket) error {
-	// Passive asset transfers only have a single input and a single output.
-	passiveIn := passivePkt.Inputs[0]
-	passiveOut := passivePkt.Outputs[0]
-
-	// Passive assets are always anchored at a specific marked output, which
-	// normally contains asset change. But it can also be that the split
-	// root output was just created for the passive assets, if there is no
-	// active transfer or no change.
-	passiveCarrierOut, err := s.VirtualPacket.PassiveAssetsOutput()
-	if err != nil {
-		return fmt.Errorf("anchor output for passive assets not "+
-			"found: %w", err)
-	}
-
-	outputCommitments := s.AnchorTx.OutputCommitments
-	passiveOutputIndex := passiveOut.AnchorOutputIndex
-	passiveTapTree := outputCommitments[passiveOutputIndex]
-
-	// The base parameters include the inclusion proof of the passive asset
-	// in the split root output.
-	passiveParams := newParams(
-		s.AnchorTx, passiveOut.Asset, int(passiveOutputIndex),
-		passiveCarrierOut.AnchorOutputInternalKey, passiveTapTree,
-		passiveCarrierOut.AnchorOutputTapscriptSibling,
-	)
-
-	// Since a transfer might contain other anchor outputs, we need to
-	// provide an exclusion proof of the passive asset for each of the other
-	// BTC level outputs.
-	err = addOtherOutputExclusionProofs(
-		s.VirtualPacket.Outputs, passiveOut.Asset, passiveParams,
-		outputCommitments,
-	)
-	if err != nil {
-		return err
-	}
-
-	// Add exclusion proof(s) for any P2TR (=BIP-0086, not carrying any
-	// assets) change outputs.
-	if len(s.AnchorTx.FundedPsbt.Pkt.UnsignedTx.TxOut) > 1 {
-		isAnchor := func(idx uint32) bool {
-			for outIdx := range s.VirtualPacket.Outputs {
-				vOut := s.VirtualPacket.Outputs[outIdx]
-				if vOut.AnchorOutputIndex == idx {
-					return true
-				}
-			}
-
-			return false
-		}
-
-		err := proof.AddExclusionProofs(
-			&passiveParams.BaseProofParams,
-			s.AnchorTx.FundedPsbt.Pkt, isAnchor,
-		)
-		if err != nil {
-			return fmt.Errorf("error adding exclusion proof for "+
-				"change output: %w", err)
-		}
-	}
-
-	// Generate a proof of this new state transition.
-	reAnchorProof, err := proof.CreateTransitionProof(
-		passiveIn.PrevID.OutPoint, passiveParams,
-	)
-	if err != nil {
-		return fmt.Errorf("error creating re-anchor proof: %w", err)
-	}
-	passiveOut.ProofSuffix = reAnchorProof
 
 	return nil
 }
