@@ -1084,82 +1084,11 @@ var createOutputCommitmentsTestCases = []testCase{{
 		})
 
 		_, err := tapsend.CreateOutputCommitments(
-			nil, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		return err
 	},
 	err: tapsend.ErrInvalidAnchorInfo,
-}, {
-	name: "missing input asset commitment",
-	f: func(t *testing.T) error {
-		state := initSpendScenario(t)
-		state.spenderScriptKey = *asset.NUMSPubKey
-
-		pkt := createPacket(
-			state.address1, state.asset1PrevID,
-			state, state.asset1InputAssets, false,
-		)
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
-		require.NoError(t, err)
-		err = tapsend.SignVirtualTransaction(
-			pkt, state.signer, state.witnessValidator,
-		)
-		require.NoError(t, err)
-
-		inputCommitment := &state.asset1TapTree
-		inputCommitments := inputCommitment.Commitments()
-		asset1Key := state.asset1.TapCommitmentKey()
-		senderCommitment, ok := inputCommitments[asset1Key]
-		require.True(t, ok)
-
-		err = inputCommitment.Delete(senderCommitment)
-		require.NoError(t, err)
-
-		_, err = tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
-		)
-		return err
-	},
-	err: tapsend.ErrMissingAssetCommitment,
-}, {
-	name: "missing input asset",
-	f: func(t *testing.T) error {
-		state := initSpendScenario(t)
-		state.spenderScriptKey = *asset.NUMSPubKey
-
-		pkt := createPacket(
-			state.address1, state.asset1PrevID,
-			state, state.asset1InputAssets, false,
-		)
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
-		require.NoError(t, err)
-		err = tapsend.SignVirtualTransaction(
-			pkt, state.signer, state.witnessValidator,
-		)
-		require.NoError(t, err)
-
-		inputCommitment := &state.asset1TapTree
-		inputCommitments := inputCommitment.Commitments()
-		asset1Key := state.asset1.TapCommitmentKey()
-		senderCommitment, ok := inputCommitments[asset1Key]
-		require.True(t, ok)
-
-		err = senderCommitment.Delete(&state.asset1)
-		require.NoError(t, err)
-
-		err = inputCommitment.Upsert(senderCommitment)
-		require.NoError(t, err)
-
-		_, err = tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
-		)
-		return err
-	},
-	err: tapsend.ErrMissingAssetCommitment,
 }, {
 	name: "non-interactive collectible with group key",
 	f: func(t *testing.T) error {
@@ -1178,11 +1107,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1CollectGroupPrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1206,11 +1132,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1234,11 +1157,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset2PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1263,11 +1183,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset2PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1293,11 +1210,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1CollectGroupPrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1340,11 +1254,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1376,11 +1287,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1412,11 +1320,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1CollectGroupPrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1451,11 +1356,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1490,11 +1392,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset2PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1530,11 +1429,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset2PrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1571,11 +1467,8 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				state.asset1CollectGroupPrevID: inputCommitment,
-			}, []*tappsbt.VPacket{pkt}, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1623,11 +1516,8 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	)
 	require.NoError(t, err)
 
-	inputCommitment := &state.asset2TapTree
 	outputCommitments, err := tapsend.CreateOutputCommitments(
-		tappsbt.InputCommitments{
-			state.asset2PrevID: inputCommitment,
-		}, []*tappsbt.VPacket{pkt}, nil,
+		[]*tappsbt.VPacket{pkt},
 	)
 	require.NoError(t, err)
 
