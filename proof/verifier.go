@@ -425,10 +425,12 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
-		return nil, commitment.ErrInvalidTaprootProof // TODO
+		return nil, fmt.Errorf("%w: prev output mismatch",
+			commitment.ErrInvalidTaprootProof) // TODO
 	}
 	if !txSpendsPrevOut(&p.AnchorTx, &p.PrevOut) {
-		return nil, commitment.ErrInvalidTaprootProof // TODO
+		return nil, fmt.Errorf("%w: doesn't spend prev output",
+			commitment.ErrInvalidTaprootProof) // TODO
 	}
 
 	// Cross-check block header with a bitcoin node.
@@ -448,7 +450,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 2. A valid inclusion proof for the resulting asset is included.
 	tapCommitment, err := p.verifyInclusionProof()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid inclusion proof: %w", err)
 	}
 
 	// 3. A valid inclusion proof for the split root, if the resulting asset
@@ -466,7 +468,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 4. A set of valid exclusion proofs for the resulting asset are
 	// included.
 	if err := p.verifyExclusionProofs(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("invalid exclusion proof: %w", err)
 	}
 
 	// 5. If this is a genesis asset, start by verifying the
