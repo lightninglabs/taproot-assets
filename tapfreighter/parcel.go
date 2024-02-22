@@ -11,7 +11,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
-	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -427,44 +426,17 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int,
 		)
 	}
 
-	var (
-		proofSuffixBuf      bytes.Buffer
-		witness             []asset.Witness
-		splitCommitmentRoot mssmt.Node
-	)
+	// We should have an asset and proof suffix now.
+	if vOut.Asset == nil || vOut.ProofSuffix == nil {
+		return nil, fmt.Errorf("invalid output %d, asset or proof "+
+			"missing", vOutIdx)
+	}
 
-	// Either we have an asset that we commit to or we have an
-	// output just for the passive assets, which we mark as an
-	// interactive split root.
-	switch {
-	// This is a "valid" output for just carrying passive assets
-	// (marked as interactive split root and not committing to an
-	// active asset transfer).
-	case vOut.Interactive && vOut.Type.IsSplitRoot() && vOut.Asset == nil:
-		vOut.Type = tappsbt.TypePassiveAssetsOnly
-
-	// In any other case we expect an active asset transfer to be
-	// committed to.
-	case vOut.Asset != nil:
-		proofSuffix, err := tapsend.CreateProofSuffix(
-			anchorTx, vPkt, vOutIdx, passiveAssets,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create "+
-				"proof %d: %w", vOutIdx, err)
-		}
-		err = proofSuffix.Encode(&proofSuffixBuf)
-		if err != nil {
-			return nil, fmt.Errorf("unable to encode "+
-				"proof %d: %w", vOutIdx, err)
-		}
-		witness = vOut.Asset.PrevWitnesses
-		splitCommitmentRoot = vOut.Asset.SplitCommitmentRoot
-
-	default:
-		return nil, fmt.Errorf("invalid output %d, asset "+
-			"missing and not marked for passive assets",
-			vOutIdx)
+	var proofSuffixBuf bytes.Buffer
+	err := vOut.ProofSuffix.Encode(&proofSuffixBuf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to encode proof %d: %w",
+			vOutIdx, err)
 	}
 
 	anchor, err := outputAnchor(anchorTx, vOut, passiveAssets)
@@ -478,15 +450,16 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int,
 		ScriptKey:           vOut.ScriptKey,
 		Amount:              vOut.Amount,
 		AssetVersion:        vOut.AssetVersion,
-		WitnessData:         witness,
-		SplitCommitmentRoot: splitCommitmentRoot,
+		WitnessData:         vOut.Asset.PrevWitnesses,
+		SplitCommitmentRoot: vOut.Asset.SplitCommitmentRoot,
 		ProofSuffix:         proofSuffixBuf.Bytes(),
 		ProofCourierAddr:    proofCourierAddrBytes,
 		ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
 	}, nil
 }
 
-// outputAnchor creates an Anchor from an anchor transaction and a virtual output.
+// outputAnchor creates an Anchor from an anchor transaction and a virtual
+// output.
 func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 	passiveAssets []*tappsbt.VPacket) (*Anchor, error) {
 
