@@ -920,7 +920,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		wallet := p.cfg.AssetWallet
 
 		currentPkg.PassiveAssets, err = wallet.CreatePassiveAssets(
-			vPacket, currentPkg.InputCommitments,
+			ctx, []*tappsbt.VPacket{vPacket},
+			currentPkg.InputCommitments,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create passive "+
