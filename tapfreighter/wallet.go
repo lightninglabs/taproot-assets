@@ -1448,7 +1448,23 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 
 	// Now that we have a valid transaction, we can create the proof
-	// suffixes for the passive assets.
+	// suffixes for the active and passive assets.
+	for idx := range params.VPkts {
+		activeAsset := params.VPkts[idx]
+
+		for outIdx := range activeAsset.Outputs {
+			activeProof, err := tapsend.CreateProofSuffix(
+				anchorTx, activeAsset, outIdx, allPackets,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create "+
+					"proof: %w", err)
+			}
+
+			activeAsset.Outputs[outIdx].ProofSuffix = activeProof
+		}
+	}
+
 	for idx := range params.PassiveAssetsVPkts {
 		passiveAsset := params.PassiveAssetsVPkts[idx]
 
