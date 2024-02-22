@@ -328,8 +328,17 @@ type sendPackage struct {
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database
-// as a transfer.
-func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
+// as a transfer. We generally understand a "transfer" as everything that
+// happened on the asset level within a single bitcoin anchor transaction.
+// Virtual transactions grouped into "active" transfers are movements that the
+// user explicitly initiated. These usually can be identified as either creating
+// a split (for partial amounts) or (for full value sends) as sending to a
+// script key. Passive virtual transactions are state updates for all assets
+// that were committed to in the same anchor transaction as the active assets
+// being spent but remain under the daemon's control. These can be identified as
+// 1-input-1-output virtual transactions that send to the same script key as
+// they were already committed at.
+func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
 	isLocalKey func(asset.ScriptKey) bool) (*OutboundParcel, error) {
 
@@ -352,36 +361,50 @@ func ConvertToTransfer(currentHeight uint32, vPkt *tappsbt.VPacket,
 		AnchorTx:           anchorTx.FinalTx,
 		AnchorTxHeightHint: currentHeight,
 		// TODO(bhandras): use clock.Clock instead.
-		TransferTime:        time.Now(),
-		ChainFees:           anchorTx.ChainFees,
-		Inputs:              make([]TransferInput, len(vPkt.Inputs)),
-		Outputs:             make([]TransferOutput, len(vPkt.Outputs)),
+		TransferTime: time.Now(),
+		ChainFees:    anchorTx.ChainFees,
+		Inputs:       make([]TransferInput, 0, len(activeTransfers)),
+		Outputs: make(
+			// This is just a heuristic to pre-allocate something,
+			// assuming most transfers have around two outputs.
+			[]TransferOutput, 0, len(activeTransfers)*2,
+		),
 		PassiveAssets:       passiveAssets,
 		PassiveAssetsAnchor: passiveAssetAnchor,
 	}
 
-	for idx := range vPkt.Inputs {
-		vIn := vPkt.Inputs[idx]
+	for pIdx := range activeTransfers {
+		vPkt := activeTransfers[pIdx]
 
-		tIn, err := transferInput(anchorTx.FundedPsbt.Pkt, vIn)
-		if err != nil {
-			return nil, fmt.Errorf("unable to convert input %d: %w",
-				idx, err)
+		for idx := range vPkt.Inputs {
+			vIn := vPkt.Inputs[idx]
+
+			tIn, err := transferInput(
+				anchorTx.FundedPsbt.Pkt, vIn,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to convert "+
+					"input %d: %w", idx, err)
+			}
+
+			parcel.Inputs = append(parcel.Inputs, *tIn)
 		}
-
-		parcel.Inputs = append(parcel.Inputs, *tIn)
 	}
 
-	for idx := range vPkt.Outputs {
-		tOut, err := transferOutput(
-			vPkt, idx, anchorTx, passiveAssets, isLocalKey,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to convert "+
-				"output %d: %w", idx, err)
-		}
+	for pIdx := range activeTransfers {
+		vPkt := activeTransfers[pIdx]
 
-		parcel.Outputs = append(parcel.Outputs, *tOut)
+		for idx := range vPkt.Outputs {
+			tOut, err := transferOutput(
+				vPkt, idx, anchorTx, passiveAssets, isLocalKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to convert "+
+					"output %d: %w", idx, err)
+			}
+
+			parcel.Outputs = append(parcel.Outputs, *tOut)
+		}
 	}
 
 	return parcel, nil

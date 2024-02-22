@@ -974,8 +974,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We need to prepare the parcel for storage.
 		parcel, err := ConvertToTransfer(
-			currentHeight, currentPkg.VirtualPacket,
-			currentPkg.AnchorTx, currentPkg.PassiveAssets,
+			currentHeight, []*tappsbt.VPacket{
+				currentPkg.VirtualPacket,
+			}, currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			isLocalKey,
 		)
 		if err != nil {
