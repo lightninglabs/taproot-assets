@@ -436,7 +436,7 @@ func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
 
 // assertGenesisTxFunded asserts that a caretaker attempted to fund a new
 // genesis transaction.
-func (t *mintingTestHarness) assertGenesisTxFunded() *tapgarden.FundedPsbt {
+func (t *mintingTestHarness) assertGenesisTxFunded() *tapsend.FundedPsbt {
 	// In order to fund a transaction, we expect a call to estimate the
 	// fee, followed by a request to fund a new PSBT packet.
 	_, err := fn.RecvOrTimeout(

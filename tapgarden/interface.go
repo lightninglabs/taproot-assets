@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -204,7 +205,8 @@ type MintingStore interface {
 	// NOTE: The BatchState should transition to BatchStateCommitted upon a
 	// successful call.
 	AddSproutsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
-		genesisPacket *FundedPsbt, assets *commitment.TapCommitment) error
+		genesisPacket *tapsend.FundedPsbt,
+		assets *commitment.TapCommitment) error
 
 	// CommitSignedGenesisTx adds a fully signed genesis transaction to the
 	// batch, along with the Taproot Asset script root, which is the
@@ -214,7 +216,7 @@ type MintingStore interface {
 	// NOTE: The BatchState should transition to the BatchStateBroadcast
 	// state upon a successful call.
 	CommitSignedGenesisTx(ctx context.Context, batchKey *btcec.PublicKey,
-		genesisTx *FundedPsbt, anchorOutputIndex uint32,
+		genesisTx *tapsend.FundedPsbt, anchorOutputIndex uint32,
 		tapRoot []byte) error
 
 	// MarkBatchConfirmed marks the batch as confirmed on chain. The passed
@@ -280,32 +282,13 @@ type ChainBridge interface {
 		confTarget uint32) (chainfee.SatPerKWeight, error)
 }
 
-// FundedPsbt represents a fully funded PSBT transaction.
-type FundedPsbt struct {
-	// Pkt is the PSBT packet itself.
-	Pkt *psbt.Packet
-
-	// ChangeOutputIndex denotes which output in the PSBT packet is the
-	// change output. We use this to figure out which output will store our
-	// Taproot Asset commitment (the non-change output).
-	ChangeOutputIndex int32
-
-	// ChainFees is the amount in sats paid in on-chain fees for this
-	// transaction.
-	ChainFees int64
-
-	// LockedUTXOs is the set of UTXOs that were locked to create the PSBT
-	// packet.
-	LockedUTXOs []wire.OutPoint
-}
-
 // WalletAnchor is the main wallet interface used to managed PSBT packets, and
 // import public keys into the wallet.
 type WalletAnchor interface {
 	// FundPsbt attaches enough inputs to the target PSBT packet for it to
 	// be valid.
 	FundPsbt(ctx context.Context, packet *psbt.Packet, minConfs uint32,
-		feeRate chainfee.SatPerKWeight) (FundedPsbt, error)
+		feeRate chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error)
 
 	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
 	// packet.

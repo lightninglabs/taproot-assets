@@ -389,7 +389,9 @@ func (b *BatchCaretaker) assetCultivator() {
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
-func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, error) {
+func (b *BatchCaretaker) fundGenesisPsbt(
+	ctx context.Context) (*tapsend.FundedPsbt, error) {
+
 	log.Infof("BatchCaretaker(%x): attempting to fund GenesisPacket",
 		b.batchKey[:])
 
@@ -436,7 +438,7 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 	log.Infof("BatchCaretaker(%x): funded GenesisPacket", b.batchKey[:])
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
-	return &fundedGenesisPkt, nil
+	return fundedGenesisPkt, nil
 }
 
 // extractGenesisOutpoint extracts the genesis point (the first output from the

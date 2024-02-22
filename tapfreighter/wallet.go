@@ -26,7 +26,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -66,32 +65,6 @@ var (
 	ErrFullBurnNotSupported = errors.New("burning all assets of an " +
 		"anchor output is not supported")
 )
-
-// AnchorTransaction is a type that holds all information about a BTC level
-// anchor transaction that anchors multiple virtual asset transfer transactions.
-type AnchorTransaction struct {
-	// FundedPsbt is the funded anchor TX at the state before it was signed,
-	// with all the UTXO information intact for later exclusion proof
-	// creation.
-	FundedPsbt *tapgarden.FundedPsbt
-
-	// FinalTx is the fully signed and finalized anchor TX that can be
-	// broadcast to the network.
-	FinalTx *wire.MsgTx
-
-	// TargetFeeRate is the fee rate that was used to fund the anchor TX.
-	TargetFeeRate chainfee.SatPerKWeight
-
-	// ChainFees is the actual, total amount of sats paid in chain fees by
-	// the anchor TX.
-	ChainFees int64
-
-	// OutputCommitments is a map of all the Taproot Asset level commitments
-	// each output of the anchor TX is committing to. This is the merged
-	// Taproot Asset tree of all the virtual asset transfer transactions
-	// that are within a single BTC level anchor output.
-	OutputCommitments map[uint32]*commitment.TapCommitment
-}
 
 // Wallet is an interface for funding and signing asset transfers.
 type Wallet interface {
@@ -135,7 +108,7 @@ type Wallet interface {
 	// signed and finalized anchor TX along with the total amount of sats
 	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
-		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+		params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error)
 
 	// SignOwnershipProof creates and signs an ownership proof for the given
 	// owned asset. The ownership proof consists of a valid witness of a
@@ -1362,7 +1335,7 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 // anchor TX along with the total amount of sats paid in chain fees by the
 // anchor TX.
 func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
-	params *AnchorVTxnsParams) (*AnchorTransaction, error) {
+	params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error) {
 
 	// We currently only support anchoring a single virtual transaction.
 	//
@@ -1405,7 +1378,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// TODO(jhb): Do we need richer handling for the change output?
 	// We could reassign the change value to our Taproot Asset change output
 	// and remove the change output entirely.
-	adjustFundedPsbt(&anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
+	adjustFundedPsbt(anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
 
 	log.Infof("Received funded PSBT packet")
 	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
@@ -1479,8 +1452,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("anchor TX failed final checks: %w", err)
 	}
 
-	return &AnchorTransaction{
-		FundedPsbt:        &anchorPkt,
+	return &tapsend.AnchorTransaction{
+		FundedPsbt:        anchorPkt,
 		FinalTx:           finalTx,
 		TargetFeeRate:     params.FeeRate,
 		ChainFees:         int64(chainFees),
@@ -1616,7 +1589,7 @@ func trimSplitWitnesses(
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
 // and creates a new one with outputs shuffled such that the change output is
 // the last output.
-func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
+func adjustFundedPsbt(fPkt *tapsend.FundedPsbt, anchorInputValue int64) {
 	// If there is no change there's nothing we need to do.
 	changeIndex := fPkt.ChangeOutputIndex
 	if changeIndex == -1 {
