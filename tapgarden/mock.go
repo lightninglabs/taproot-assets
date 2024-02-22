@@ -69,7 +69,7 @@ func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
 }
 
 type MockWalletAnchor struct {
-	FundPsbtSignal     chan *FundedPsbt
+	FundPsbtSignal     chan *tapsend.FundedPsbt
 	SignPsbtSignal     chan struct{}
 	ImportPubKeySignal chan *btcec.PublicKey
 	ListUnspentSignal  chan struct{}
@@ -83,7 +83,7 @@ type MockWalletAnchor struct {
 
 func NewMockWalletAnchor() *MockWalletAnchor {
 	return &MockWalletAnchor{
-		FundPsbtSignal:     make(chan *FundedPsbt),
+		FundPsbtSignal:     make(chan *tapsend.FundedPsbt),
 		SignPsbtSignal:     make(chan struct{}),
 		ImportPubKeySignal: make(chan *btcec.PublicKey),
 		ListUnspentSignal:  make(chan struct{}),
@@ -94,7 +94,7 @@ func NewMockWalletAnchor() *MockWalletAnchor {
 }
 
 func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
-	_ uint32, _ chainfee.SatPerKWeight) (FundedPsbt, error) {
+	_ uint32, _ chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
 
 	// Take the PSBT packet and add an additional input and output to
 	// simulate the wallet funding the transaction.
@@ -126,12 +126,12 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 
 	// We always have the change output be the second output, so this means
 	// the Taproot Asset commitment will live in the first output.
-	pkt := FundedPsbt{
+	pkt := &tapsend.FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: 1,
 	}
 
-	m.FundPsbtSignal <- &pkt
+	m.FundPsbtSignal <- pkt
 
 	return pkt, nil
 }
