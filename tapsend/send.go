@@ -10,7 +10,6 @@ import (
 	"math"
 	"math/bits"
 	"reflect"
-	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -27,7 +26,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -975,65 +973,29 @@ func commitPacket(vPkt *tappsbt.VPacket,
 	return nil
 }
 
-// AreValidAnchorOutputIndexes checks a set of virtual outputs for the minimum
-// number of outputs, and tests if the external indexes could be used for a
-// Taproot Asset only spend, i.e. a TX that does not need other outputs added to
-// be valid.
-func AreValidAnchorOutputIndexes(outputs []*tappsbt.VOutput) (bool, error) {
-	// Sanity check the output indexes provided by the sender. There must be
-	// at least one output.
-	if len(outputs) < 1 {
-		return false, ErrInvalidOutputIndexes
-	}
-
-	// If the indexes start from 0 and form a continuous range, then the
-	// resulting TX would be valid without any changes (Taproot Asset only
-	// spend).
-	assetOnlySpend := true
-	sortedCopy := slices.Clone(outputs)
-	sort.Slice(sortedCopy, func(i, j int) bool {
-		return sortedCopy[i].AnchorOutputIndex <
-			sortedCopy[j].AnchorOutputIndex
-	})
-	for i := 0; i < len(sortedCopy); i++ {
-		if sortedCopy[i].AnchorOutputIndex != uint32(i) {
-			assetOnlySpend = false
-			break
-		}
-	}
-
-	return assetOnlySpend, nil
-}
-
 // CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
-func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
-	// Check if our outputs are valid, and if we will need to add extra
-	// outputs to fill in the gaps between outputs.
-	assetOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
-	if err != nil {
-		return nil, err
-	}
+func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
+	// We locate the highest anchor output index in all virtual packets to
+	// create a template TX with the correct number of outputs.
+	var maxOutputIndex uint32
+	for _, vPkt := range vPackets {
+		// Sanity check the output indexes provided by the sender. There
+		// must be at least one output.
+		if len(vPkt.Outputs) < 1 {
+			return nil, ErrInvalidOutputIndexes
+		}
 
-	// Calculate the number of outputs we need for our template TX.
-	maxOutputIndex := uint32(len(outputs))
-
-	// If there is a gap in our outputs, we need to find the
-	// largest output index to properly size our template TX.
-	if !assetOnlySpend {
-		maxOutputIndex = 0
-		for _, out := range outputs {
-			if out.AnchorOutputIndex > maxOutputIndex {
-				maxOutputIndex = out.AnchorOutputIndex
+		for _, vOut := range vPkt.Outputs {
+			if vOut.AnchorOutputIndex > maxOutputIndex {
+				maxOutputIndex = vOut.AnchorOutputIndex
 			}
 		}
-
-		// Output indexes are 0-indexed, so we need to increment this
-		// to account for the 0th output.
-		maxOutputIndex++
 	}
 
 	txTemplate := wire.NewMsgTx(2)
-	for i := uint32(0); i < maxOutputIndex; i++ {
+
+	// Zero is a valid anchor output index, so we need to do <= here.
+	for i := uint32(0); i <= maxOutputIndex; i++ {
 		txTemplate.AddTxOut(CreateDummyOutput())
 	}
 
@@ -1044,25 +1006,31 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 
 	// With the dummy packet created, we'll walk through of vOutputs to set
 	// the taproot internal key for each of the outputs.
-	for i := range outputs {
-		vOut := outputs[i]
+	for _, vPkt := range vPackets {
+		for i := range vPkt.Outputs {
+			vOut := vPkt.Outputs[i]
 
-		out := &spendPkt.Outputs[vOut.AnchorOutputIndex]
-		out.TaprootInternalKey = schnorr.SerializePubKey(
-			vOut.AnchorOutputInternalKey,
-		)
+			btcOut := &spendPkt.Outputs[vOut.AnchorOutputIndex]
+			btcOut.TaprootInternalKey = schnorr.SerializePubKey(
+				vOut.AnchorOutputInternalKey,
+			)
 
-		for idx := range vOut.AnchorOutputBip32Derivation {
-			out.Bip32Derivation = tappsbt.AddBip32Derivation(
-				out.Bip32Derivation,
-				vOut.AnchorOutputBip32Derivation[idx],
-			)
-		}
-		for idx := range vOut.AnchorOutputTaprootBip32Derivation {
-			out.TaprootBip32Derivation = tappsbt.AddTaprootBip32Derivation(
-				out.TaprootBip32Derivation,
-				vOut.AnchorOutputTaprootBip32Derivation[idx],
-			)
+			bip32 := vOut.AnchorOutputBip32Derivation
+			for idx := range bip32 {
+				btcOut.Bip32Derivation =
+					tappsbt.AddBip32Derivation(
+						btcOut.Bip32Derivation,
+						bip32[idx],
+					)
+			}
+			trBip32 := vOut.AnchorOutputTaprootBip32Derivation
+			for idx := range trBip32 {
+				btcOut.TaprootBip32Derivation =
+					tappsbt.AddTaprootBip32Derivation(
+						btcOut.TaprootBip32Derivation,
+						trBip32[idx],
+					)
+			}
 		}
 	}
 

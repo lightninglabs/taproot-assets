@@ -1259,7 +1259,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		outputCommitments[0] = nil
@@ -1292,7 +1292,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		outputCommitments[receiverExternalIdx] = nil
@@ -1325,7 +1325,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		err = tapsend.UpdateTaprootOutputKeys(
@@ -1361,7 +1361,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		err = tapsend.UpdateTaprootOutputKeys(
@@ -1397,7 +1397,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		err = tapsend.UpdateTaprootOutputKeys(
@@ -1434,7 +1434,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		err = tapsend.UpdateTaprootOutputKeys(
@@ -1472,7 +1472,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		err = tapsend.UpdateTaprootOutputKeys(
@@ -1521,7 +1521,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	)
 	require.NoError(t, err)
 
-	btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+	btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 	require.NoError(t, err)
 
 	err = tapsend.UpdateTaprootOutputKeys(
@@ -1755,48 +1755,6 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
-	require.NoError(t, err)
-}
-
-// TestAreValidAnchorOutputIndexes tests various sets of asset locators to
-// assert that we can detect an incomplete set of locators, and sets that form a
-// valid Bitcoin transaction.
-func TestAreValidAnchorOutputIndexes(t *testing.T) {
-	t.Parallel()
-
-	outputs := []*tappsbt.VOutput{}
-
-	// Reject groups of outputs smaller than 1.
-	assetOnlySpend, err := tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.False(t, assetOnlySpend)
-	require.ErrorIs(t, err, tapsend.ErrInvalidOutputIndexes)
-
-	// Insert a locator for the sender and for the receiver, that would form
-	// a Taproot Asset only spend.
-	outputs = []*tappsbt.VOutput{{
-		AnchorOutputIndex: 0,
-	}, {
-		AnchorOutputIndex: 1,
-	}}
-
-	assetOnlySpend, err = tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.True(t, assetOnlySpend)
-	require.NoError(t, err)
-
-	// Modify the receiver locator so the indexes are no longer continuous.
-	outputs[1].AnchorOutputIndex = 2
-
-	assetOnlySpend, err = tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.False(t, assetOnlySpend)
-	require.NoError(t, err)
-
-	// Check for correctness with more than 2 outputs.
-	outputs = append(outputs, &tappsbt.VOutput{
-		AnchorOutputIndex: 1,
-	})
-
-	assetOnlySpend, err = tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.True(t, assetOnlySpend)
 	require.NoError(t, err)
 }
 
