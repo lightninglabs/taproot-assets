@@ -329,7 +329,6 @@ type ActiveAssetsStore interface {
 // assets tracked by this daemon.
 type AssetBalance struct {
 	ID           asset.ID
-	Version      int32
 	Balance      uint64
 	Tag          string
 	MetaHash     [asset.MetaHashLen]byte
@@ -888,7 +887,6 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 			copy(assetID[:], assetBalance.AssetID[:])
 
 			assetIDBalance := AssetBalance{
-				Version:     assetBalance.Version,
 				Balance:     uint64(assetBalance.Balance),
 				Tag:         assetBalance.AssetTag,
 				Type:        asset.Type(assetBalance.AssetType),
