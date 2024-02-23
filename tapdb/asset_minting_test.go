@@ -244,7 +244,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
 	addRandGroupToBatch(t, assetStore, ctx, mintingBatch.Seedlings)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
-	require.NoError(t, err, "unable to write batch: %v", err)
+	require.NoError(t, err)
 
 	batchKey := mintingBatch.BatchKey.PubKey
 
@@ -267,11 +267,9 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// Pick a random seedling and give it a specific group.
 	addRandGroupToBatch(t, assetStore, ctx, seedlings)
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
-	require.NoError(t,
-		assetStore.AddSeedlingsToBatch(
-			ctx, batchKey, maps.Values(seedlings)...,
-		), "unable to write seedlings: %v", err,
-	)
+	require.NoError(t, assetStore.AddSeedlingsToBatch(
+		ctx, batchKey, maps.Values(seedlings)...,
+	))
 
 	// If we read the batch from disk again, then we should have 10 total
 	// seedlings, and the batch still matches what we wrote to disk.
@@ -1088,7 +1086,7 @@ func TestGroupAnchors(t *testing.T) {
 	)
 	addMultiAssetGroupToBatch(t, mintingBatch.Seedlings)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
-	require.NoError(t, err, "unable to write batch: %v", err)
+	require.NoError(t, err)
 
 	batchKey := mintingBatch.BatchKey.PubKey
 

@@ -538,7 +538,7 @@ func namespaceForProof(proofType universe.ProofType) (string, error) {
 		return transferMultiverseNS, nil
 
 	default:
-		return "", fmt.Errorf("unknown proof type: %v", int(proofType))
+		return "", fmt.Errorf("unknown proof type: %d", int(proofType))
 	}
 }
 
