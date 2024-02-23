@@ -194,8 +194,8 @@ func ConnectUniverse(
 
 	rawConn, err := grpc.Dial(uniAddr.String(), opts...)
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to RPC "+
-			"server: %v", err)
+		return nil, fmt.Errorf("unable to connect to RPC server: "+
+			"%w", err)
 	}
 
 	return &universeClientConn{

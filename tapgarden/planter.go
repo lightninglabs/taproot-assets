@@ -827,7 +827,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		defer cancel()
 		currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
 		if err != nil {
-			return fmt.Errorf("unable to get current height: %v",
+			return fmt.Errorf("unable to get current height: %w",
 				err)
 		}
 
@@ -934,7 +934,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		// here now.
 		var proofBuf bytes.Buffer
 		if err := p.Encode(&proofBuf); err != nil {
-			return fmt.Errorf("unable to encode proof: %v", err)
+			return fmt.Errorf("unable to encode proof: %w", err)
 		}
 
 		// With both of those assembled, we can now update issuance
@@ -955,7 +955,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 			ctx, uniID, leafKey, mintingLeaf,
 		)
 		if err != nil {
-			return fmt.Errorf("unable to update issuance: %v", err)
+			return fmt.Errorf("unable to update issuance: %w", err)
 		}
 	}
 

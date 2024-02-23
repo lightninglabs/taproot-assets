@@ -6,11 +6,12 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"math/rand"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/lightninglabs/taproot-assets/tapsend"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -589,7 +590,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		return true
 	}, defaultTimeout)
 	require.NoError(
-		t, err, fmt.Errorf("unable to read pending batch: %v", err),
+		t, err, fmt.Errorf("unable to read pending batch: %w", err),
 	)
 
 	// The amount of assets committed to in the Taproot Asset commitment

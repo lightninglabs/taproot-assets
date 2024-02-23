@@ -434,7 +434,7 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 			err = q.InsertAssetSeedlingIntoBatch(ctx, dbSeedling)
 			if err != nil {
 				return fmt.Errorf("unable to insert "+
-					"seedling into db: %v", err)
+					"seedling into db: %w", err)
 			}
 		}
 
@@ -647,7 +647,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
-				"%v", err)
+				"%w", err)
 		}
 
 		// TODO(roasbeef): need to update the above to set the
@@ -974,7 +974,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		// the genesis packet, and genesis point information.
 		var psbtBuf bytes.Buffer
 		if err := genesisPacket.Pkt.Serialize(&psbtBuf); err != nil {
-			return fmt.Errorf("unable to encode psbt: %v", err)
+			return fmt.Errorf("unable to encode psbt: %w", err)
 		}
 		err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 			RawKey:        rawBatchKey,
@@ -1096,7 +1096,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			AnchorUtxoID: sqlInt64(utxoID),
 		})
 		if err != nil {
-			return fmt.Errorf("unable to anchor pending assets: %v", err)
+			return fmt.Errorf("unable to anchor pending assets: %w", err)
 		}
 
 		// Next, we'll anchor the genesis point to point to the chain

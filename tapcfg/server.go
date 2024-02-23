@@ -61,7 +61,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			cfg.DatabaseBackend)
 	}
 	if err != nil {
-		return nil, fmt.Errorf("unable to open database: %v", err)
+		return nil, fmt.Errorf("unable to open database: %w", err)
 	}
 
 	defaultClock := clock.NewDefaultClock()
@@ -158,7 +158,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	proofFileStore, err := proof.NewFileArchiver(cfg.networkDir)
 	if err != nil {
-		return nil, fmt.Errorf("unable to open disk archive: %v", err)
+		return nil, fmt.Errorf("unable to open disk archive: %w", err)
 	}
 	proofArchive := proof.NewMultiArchiver(
 		&proof.BaseVerifier{}, tapdb.DefaultStoreTimeout,
@@ -216,7 +216,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse fallback proof "+
-			"courier address: %v", err)
+			"courier address: %w", err)
 	}
 
 	// If default proof courier address is set, use it as the default.
@@ -226,7 +226,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to parse default proof "+
-				"courier address: %v", err)
+				"courier address: %w", err)
 		}
 	}
 
@@ -261,7 +261,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	var runtimeIDBytes [8]byte
 	_, err = rand.Read(runtimeIDBytes[:])
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate runtime ID: %v", err)
+		return nil, fmt.Errorf("unable to generate runtime ID: %w", err)
 	}
 
 	runtimeID := int64(binary.BigEndian.Uint64(runtimeIDBytes[:]))
@@ -419,7 +419,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		cfg, cfgLogger,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to load TLS credentials: %v",
+		return nil, fmt.Errorf("unable to load TLS credentials: %w",
 			err)
 	}
 
@@ -429,7 +429,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		cfg.ChainConf.Network, cfg.Lnd, shutdownInterceptor,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to connect to lnd node: %v", err)
+		return nil, fmt.Errorf("unable to connect to lnd node: %w", err)
 	}
 
 	cfgLogger.Infof("lnd connection initialized")
@@ -438,7 +438,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		cfg, cfgLogger, &lndConn.LndServices, mainErrChan,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate server config: %v",
+		return nil, fmt.Errorf("unable to generate server config: %w",
 			err)
 	}
 
@@ -477,7 +477,7 @@ func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		cfg, cfgLogger, lndServices, mainErrChan,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate server config: %v",
+		return nil, fmt.Errorf("unable to generate server config: %w",
 			err)
 	}
 

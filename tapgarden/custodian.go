@@ -569,7 +569,7 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 
 	addrStr, err := addr.EncodeAddress()
 	if err != nil {
-		return nil, fmt.Errorf("unable to encode address: %v", err)
+		return nil, fmt.Errorf("unable to encode address: %w", err)
 	}
 
 	// Make sure we have an event registered for the transaction, since it

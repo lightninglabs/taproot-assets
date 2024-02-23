@@ -114,7 +114,7 @@ func (c Seedling) validateFields() error {
 	//
 	// TODO(roasbeef): lift into new constant?
 	case c.AssetType != asset.Normal && c.AssetType != asset.Collectible:
-		return fmt.Errorf("%v: %v", int(c.AssetType),
+		return fmt.Errorf("%v: %w", int(c.AssetType),
 			ErrInvalidAssetType)
 
 	// Creating an asset with zero available supply is not allowed.

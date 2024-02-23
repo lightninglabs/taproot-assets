@@ -71,7 +71,7 @@ func newAddr(ctx *cli.Context) error {
 
 	assetID, err := hex.DecodeString(ctx.String(assetIDName))
 	if err != nil {
-		return fmt.Errorf("unable to decode assetID: %v", err)
+		return fmt.Errorf("unable to decode assetID: %w", err)
 	}
 
 	ctxc := getContext()
@@ -168,7 +168,7 @@ func queryAddr(ctx *cli.Context) error {
 		Offset:        int32(ctx.Int64(offsetName)),
 	})
 	if err != nil {
-		return fmt.Errorf("unable to make addrs: %v", err)
+		return fmt.Errorf("unable to make addrs: %w", err)
 	}
 
 	printRespJSON(addrs)

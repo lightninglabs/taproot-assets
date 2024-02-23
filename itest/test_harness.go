@@ -184,13 +184,13 @@ func (h *harnessTest) shutdown(_ *testing.T) error {
 		err := h.proofCourier.Stop()
 		if err != nil {
 			return fmt.Errorf("unable to stop proof courier "+
-				"harness: %v", err)
+				"harness: %w", err)
 		}
 	}
 
 	err = h.tapd.stop(!*noDelete)
 	if err != nil {
-		return fmt.Errorf("unable to stop tapd: %v", err)
+		return fmt.Errorf("unable to stop tapd: %w", err)
 	}
 
 	return nil

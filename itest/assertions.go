@@ -86,7 +86,7 @@ func AssetAnchorCheck(txid, blockHash chainhash.Hash) AssetCheck {
 		out, err :=
 			wire.NewOutPointFromString(a.ChainAnchor.AnchorOutpoint)
 		if err != nil {
-			return fmt.Errorf("unable to parse outpoint: %v", err)
+			return fmt.Errorf("unable to parse outpoint: %w", err)
 		}
 
 		anchorTxid := out.Hash.String()

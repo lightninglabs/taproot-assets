@@ -787,7 +787,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 				pubKey, err = btcec.ParsePubKey(config.GroupKey)
 				if err != nil {
 					return fmt.Errorf("unable to parse "+
-						"group key: %v", err)
+						"group key: %w", err)
 				}
 			}
 

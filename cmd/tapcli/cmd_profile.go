@@ -118,7 +118,7 @@ func profileAdd(ctx *cli.Context) error {
 	// Create a profile struct from all the global options.
 	profile, err := profileFromContext(ctx, true, false)
 	if err != nil {
-		return fmt.Errorf("could not load global options: %v", err)
+		return fmt.Errorf("could not load global options: %w", err)
 	}
 
 	// Finally, all that's left is to get the profile name from either
@@ -149,7 +149,7 @@ func profileAdd(ctx *cli.Context) error {
 	// All done, store the updated profile file.
 	f.Profiles = append(f.Profiles, profile)
 	if err = saveProfileFile(defaultProfileFile, f); err != nil {
-		return fmt.Errorf("error writing profile file %s: %v",
+		return fmt.Errorf("error writing profile file %s: %w",
 			defaultProfileFile, err)
 	}
 
@@ -180,7 +180,7 @@ func profileRemove(ctx *cli.Context) error {
 	// Load the default profile file.
 	f, err := loadProfileFile(defaultProfileFile)
 	if err != nil {
-		return fmt.Errorf("could not load profile file: %v", err)
+		return fmt.Errorf("could not load profile file: %w", err)
 	}
 
 	// Get the profile name from either positional argument or flag.
@@ -255,7 +255,7 @@ func profileSetDefault(ctx *cli.Context) error {
 	// Load the default profile file.
 	f, err := loadProfileFile(defaultProfileFile)
 	if err != nil {
-		return fmt.Errorf("could not load profile file: %v", err)
+		return fmt.Errorf("could not load profile file: %w", err)
 	}
 
 	// Get the profile name from either positional argument or flag.
@@ -308,7 +308,7 @@ func profileUnsetDefault(_ *cli.Context) error {
 	// Load the default profile file.
 	f, err := loadProfileFile(defaultProfileFile)
 	if err != nil {
-		return fmt.Errorf("could not load profile file: %v", err)
+		return fmt.Errorf("could not load profile file: %w", err)
 	}
 
 	// Save the file with the flag disabled.
@@ -354,7 +354,7 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	// yet.
 	f, err := loadProfileFile(defaultProfileFile)
 	if err != nil {
-		return fmt.Errorf("could not load profile file: %v", err)
+		return fmt.Errorf("could not load profile file: %w", err)
 	}
 
 	// Finally, all that's left is to get the profile name from either
@@ -420,17 +420,17 @@ func profileAddMacaroon(ctx *cli.Context) error {
 	macPath := lncfg.CleanAndExpandPath(ctx.GlobalString("macaroonpath"))
 	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
-		return fmt.Errorf("unable to read macaroon path: %v", err)
+		return fmt.Errorf("unable to read macaroon path: %w", err)
 	}
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return fmt.Errorf("unable to decode macaroon: %v", err)
+		return fmt.Errorf("unable to decode macaroon: %w", err)
 	}
 	macEntry := &macaroonEntry{
 		Name: macName,
 	}
 	if err = macEntry.storeMacaroon(mac, nil); err != nil {
-		return fmt.Errorf("unable to store macaroon: %v", err)
+		return fmt.Errorf("unable to store macaroon: %w", err)
 	}
 
 	// All done, store the updated profile file.
@@ -438,7 +438,7 @@ func profileAddMacaroon(ctx *cli.Context) error {
 		selectedProfile.Macaroons.Jar, macEntry,
 	)
 	if err = saveProfileFile(defaultProfileFile, f); err != nil {
-		return fmt.Errorf("error writing profile file %s: %v",
+		return fmt.Errorf("error writing profile file %s: %w",
 			defaultProfileFile, err)
 	}
 
