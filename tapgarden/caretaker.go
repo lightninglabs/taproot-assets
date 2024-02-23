@@ -1417,8 +1417,9 @@ func GenGroupVerifier(ctx context.Context,
 		// tweaked group key.
 		_, err = mintingStore.FetchGroupByGroupKey(ctx, groupKey)
 		if err != nil {
-			return fmt.Errorf("%x: group verifier: %v: %w",
-				assetGroupKey[:], err, ErrGroupKeyUnknown)
+			return fmt.Errorf("%x: group verifier: %s: %w",
+				assetGroupKey[:], err.Error(),
+				ErrGroupKeyUnknown)
 		}
 
 		_, _ = assetGroups.Put(assetGroupKey, emptyCacheVal{})
