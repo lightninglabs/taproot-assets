@@ -2217,6 +2217,96 @@ func (r *rpcServer) validateInputAssets(ctx context.Context,
 	return nil
 }
 
+// PublishAndLogTransfer accepts a fully committed and signed anchor transaction
+// and publishes it to the Bitcoin network. It also logs the transfer of the
+// given active and passive assets in the database and ships any outgoing proofs
+// to the counterparties.
+func (r *rpcServer) PublishAndLogTransfer(ctx context.Context,
+	req *wrpc.PublishAndLogRequest) (*taprpc.SendAssetResponse, error) {
+
+	if len(req.VirtualPsbts) == 0 {
+		return nil, fmt.Errorf("no virtual PSBTs specified")
+	}
+
+	pkt, err := psbt.NewFromRawBytes(bytes.NewReader(req.AnchorPsbt), false)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding packet: %w", err)
+	}
+
+	activePackets, err := decodeVirtualPackets(req.VirtualPsbts)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding active packets: %w", err)
+	}
+
+	passivePackets, err := decodeVirtualPackets(req.PassiveAssetPsbts)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding passive packets: %w",
+			err)
+	}
+
+	chainFees, err := pkt.GetTxFee()
+	if err != nil {
+		return nil, fmt.Errorf("error calculating transaction fees: %w",
+			err)
+	}
+
+	// The BTC level transaction must be fully complete, and we must be able
+	// to extract the final transaction from it.
+	finalTx, err := psbt.Extract(pkt)
+	if err != nil {
+		return nil, fmt.Errorf("error extracting final anchor "+
+			"transaction: %w", err)
+	}
+
+	anchorTx := &tapsend.AnchorTransaction{
+		FundedPsbt: &tapsend.FundedPsbt{
+			Pkt:               pkt,
+			ChangeOutputIndex: req.ChangeOutputIndex,
+			ChainFees:         int64(chainFees),
+			LockedUTXOs: make(
+				[]wire.OutPoint, len(req.LndLockedUtxos),
+			),
+		},
+		ChainFees: int64(chainFees),
+		FinalTx:   finalTx,
+	}
+	for idx, lndOutpoint := range req.LndLockedUtxos {
+		hash, err := chainhash.NewHash(lndOutpoint.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing txid: %w", err)
+		}
+
+		anchorTx.FundedPsbt.LockedUTXOs[idx] = wire.OutPoint{
+			Hash:  *hash,
+			Index: lndOutpoint.OutputIndex,
+		}
+	}
+
+	// We now have everything to ship the pre-anchored parcel using the
+	// freighter. This will publish the TX, create the transfer database
+	// entries and ship the proofs to the counterparties. It'll also wait
+	// for a confirmation and then update the proofs with the block header
+	// information.
+	resp, err := r.cfg.ChainPorter.RequestShipment(
+		tapfreighter.NewPreAnchoredParcel(
+			activePackets, passivePackets, anchorTx,
+		),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error requesting delivery: %w", err)
+	}
+
+	parcel, err := marshalOutboundParcel(resp)
+	if err != nil {
+		return nil, fmt.Errorf("error marshaling outbound parcel: %w",
+			err)
+	}
+
+	return &taprpc.SendAssetResponse{
+		Transfer: parcel,
+	}, nil
+}
+
 // NextInternalKey derives the next internal key for the given key family and
 // stores it as an internal key in the database to make sure it is identified
 // as a local key later on when importing proofs. While an internal key can

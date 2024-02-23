@@ -26,7 +26,12 @@ type AssetWalletClient interface {
 	// commitments of the inputs and outputs.
 	SignVirtualPsbt(ctx context.Context, in *SignVirtualPsbtRequest, opts ...grpc.CallOption) (*SignVirtualPsbtResponse, error)
 	// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-	// a single BTC level anchor transaction.
+	// a single BTC level anchor transaction. This RPC should be used if the BTC
+	// level anchor transaction of the assets to be spent are encumbered by a
+	// normal key and don't require any special spending conditions. For any custom
+	// spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
+	// PublishAndLogTransfer should be used instead (which in combination do the
+	// same as this RPC but allow for more flexibility).
 	//
 	// TODO(guggero): Actually implement accepting and merging multiple
 	// transactions.
@@ -36,6 +41,11 @@ type AssetWalletClient interface {
 	// In addition, the BTC level anchor transaction is funded and prepared up to
 	// the point where it is ready to be signed.
 	CommitVirtualPsbts(ctx context.Context, in *CommitVirtualPsbtsRequest, opts ...grpc.CallOption) (*CommitVirtualPsbtsResponse, error)
+	// PublishAndLogTransfer accepts a fully committed and signed anchor
+	// transaction and publishes it to the Bitcoin network. It also logs the
+	// transfer of the given active and passive assets in the database and ships
+	// any outgoing proofs to the counterparties.
+	PublishAndLogTransfer(ctx context.Context, in *PublishAndLogRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error)
 	// NextInternalKey derives the next internal key for the given key family and
 	// stores it as an internal key in the database to make sure it is identified
 	// as a local key later on when importing proofs. While an internal key can
@@ -105,6 +115,15 @@ func (c *assetWalletClient) AnchorVirtualPsbts(ctx context.Context, in *AnchorVi
 func (c *assetWalletClient) CommitVirtualPsbts(ctx context.Context, in *CommitVirtualPsbtsRequest, opts ...grpc.CallOption) (*CommitVirtualPsbtsResponse, error) {
 	out := new(CommitVirtualPsbtsResponse)
 	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/CommitVirtualPsbts", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *assetWalletClient) PublishAndLogTransfer(ctx context.Context, in *PublishAndLogRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error) {
+	out := new(taprpc.SendAssetResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/PublishAndLogTransfer", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -185,7 +204,12 @@ type AssetWalletServer interface {
 	// commitments of the inputs and outputs.
 	SignVirtualPsbt(context.Context, *SignVirtualPsbtRequest) (*SignVirtualPsbtResponse, error)
 	// AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-	// a single BTC level anchor transaction.
+	// a single BTC level anchor transaction. This RPC should be used if the BTC
+	// level anchor transaction of the assets to be spent are encumbered by a
+	// normal key and don't require any special spending conditions. For any custom
+	// spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
+	// PublishAndLogTransfer should be used instead (which in combination do the
+	// same as this RPC but allow for more flexibility).
 	//
 	// TODO(guggero): Actually implement accepting and merging multiple
 	// transactions.
@@ -195,6 +219,11 @@ type AssetWalletServer interface {
 	// In addition, the BTC level anchor transaction is funded and prepared up to
 	// the point where it is ready to be signed.
 	CommitVirtualPsbts(context.Context, *CommitVirtualPsbtsRequest) (*CommitVirtualPsbtsResponse, error)
+	// PublishAndLogTransfer accepts a fully committed and signed anchor
+	// transaction and publishes it to the Bitcoin network. It also logs the
+	// transfer of the given active and passive assets in the database and ships
+	// any outgoing proofs to the counterparties.
+	PublishAndLogTransfer(context.Context, *PublishAndLogRequest) (*taprpc.SendAssetResponse, error)
 	// NextInternalKey derives the next internal key for the given key family and
 	// stores it as an internal key in the database to make sure it is identified
 	// as a local key later on when importing proofs. While an internal key can
@@ -242,6 +271,9 @@ func (UnimplementedAssetWalletServer) AnchorVirtualPsbts(context.Context, *Ancho
 }
 func (UnimplementedAssetWalletServer) CommitVirtualPsbts(context.Context, *CommitVirtualPsbtsRequest) (*CommitVirtualPsbtsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method CommitVirtualPsbts not implemented")
+}
+func (UnimplementedAssetWalletServer) PublishAndLogTransfer(context.Context, *PublishAndLogRequest) (*taprpc.SendAssetResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PublishAndLogTransfer not implemented")
 }
 func (UnimplementedAssetWalletServer) NextInternalKey(context.Context, *NextInternalKeyRequest) (*NextInternalKeyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method NextInternalKey not implemented")
@@ -345,6 +377,24 @@ func _AssetWallet_CommitVirtualPsbts_Handler(srv interface{}, ctx context.Contex
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(AssetWalletServer).CommitVirtualPsbts(ctx, req.(*CommitVirtualPsbtsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _AssetWallet_PublishAndLogTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PublishAndLogRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).PublishAndLogTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/PublishAndLogTransfer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).PublishAndLogTransfer(ctx, req.(*PublishAndLogRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -497,6 +547,10 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CommitVirtualPsbts",
 			Handler:    _AssetWallet_CommitVirtualPsbts_Handler,
+		},
+		{
+			MethodName: "PublishAndLogTransfer",
+			Handler:    _AssetWallet_PublishAndLogTransfer_Handler,
 		},
 		{
 			MethodName: "NextInternalKey",
