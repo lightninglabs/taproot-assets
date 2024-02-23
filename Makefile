@@ -212,11 +212,15 @@ endif
 
 flakehunter: build-itest
 	@$(call print, "Flake hunting ${backend} integration tests.")
-	while [ $$? -eq 0 ]; do make itest-only; done
+	while [ $$? -eq 0 ]; do make itest-only-trace; done
 
 flake-unit:
 	@$(call print, "Flake hunting unit tests.")
-	while [ $$? -eq 0 ]; do '$(GOLIST) | $(XARGS) env $(GOTEST) -test.timeout=20m -count=1'; done
+	while [ $$? -eq 0 ]; do make unit nocache=1; done
+
+flake-unit-trace:
+	@$(call print, "Flake hunting unit tests in debug mode.")
+	while [ $$? -eq 0 ]; do make unit-trace nocache=1; done
 
 flake-unit-race:
 	@$(call print, "Flake hunting races in unit tests.")

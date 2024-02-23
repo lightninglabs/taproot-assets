@@ -317,6 +317,10 @@ func testMultiAssetGroupSend(t *harnessTest) {
 		collectibleGroupMembers + 1,
 	})
 
+	AssertUniverseRootEqualityEventually(
+		t.t, t.tapd, t.universeServer.service,
+	)
+
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
 	secondTapd := setupTapdHarness(
@@ -325,6 +329,10 @@ func testMultiAssetGroupSend(t *harnessTest) {
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
+
+	AssertUniverseRootEqualityEventually(
+		t.t, secondTapd, t.universeServer.service,
+	)
 
 	// Send 5 of the assets to Bob, and verify that they are received.
 	numUnits := issuableAsset.Asset.Amount

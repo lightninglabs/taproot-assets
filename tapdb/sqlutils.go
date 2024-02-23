@@ -167,7 +167,7 @@ func parseCoalesceNumericType[T constraints.Integer](value any) (T, error) {
 		parsedValue, err := strconv.ParseInt(typedValue, 10, 64)
 		if err != nil {
 			return 0, fmt.Errorf("unable to parse value '%v' as "+
-				"number: %v", value, err)
+				"number: %w", value, err)
 		}
 
 		return T(parsedValue), nil

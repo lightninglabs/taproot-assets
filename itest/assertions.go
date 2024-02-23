@@ -1198,6 +1198,34 @@ func AssertUniverseRootEquality(t *testing.T,
 	))
 }
 
+// AssertUniverseRootEqualityEventually checks that the universe roots returned
+// by two daemons are either equal eventually.
+func AssertUniverseRootEqualityEventually(t *testing.T,
+	clientA, clientB unirpc.UniverseClient) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	err := wait.NoError(func() error {
+		rootRequest := &unirpc.AssetRootRequest{}
+		universeRootsAlice, err := clientA.AssetRoots(ctxt, rootRequest)
+		require.NoError(t, err)
+		universeRootsBob, err := clientB.AssetRoots(ctxt, rootRequest)
+		require.NoError(t, err)
+
+		if !AssertUniverseRootsEqual(
+			universeRootsAlice, universeRootsBob,
+		) {
+
+			return fmt.Errorf("roots not equal")
+		}
+
+		return nil
+	}, defaultWaitTimeout)
+	require.NoError(t, err)
+}
+
 // AssertUniverseRoot makes sure the given universe root exists with the given
 // sum, either identified by the asset ID or group key.
 func AssertUniverseRoot(t *testing.T, client unirpc.UniverseClient,

@@ -1096,10 +1096,11 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			AnchorUtxoID: sqlInt64(utxoID),
 		})
 		if err != nil {
-			return fmt.Errorf("unable to anchor pending assets: %w", err)
+			return fmt.Errorf("unable to anchor pending assets: %w",
+				err)
 		}
 
-		// Next, we'll anchor the genesis point to point to the chain
+		// Next, we'll anchor the genesis point-to-point to the chain
 		// transaction we inserted above.
 		if err := q.AnchorGenesisPoint(ctx, GenesisPointAnchor{
 			PrevOut:    genesisOutpoint,
