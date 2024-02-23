@@ -268,7 +268,29 @@ func (m *MockProofCourier) ReceiveProof(_ context.Context,
 		return nil, ErrProofNotFound
 	}
 
-	return proof, nil
+	return &AnnotatedProof{
+		Locator: Locator{
+			AssetID:   proof.Locator.AssetID,
+			GroupKey:  proof.Locator.GroupKey,
+			ScriptKey: proof.Locator.ScriptKey,
+			OutPoint:  proof.Locator.OutPoint,
+		},
+		Blob: proof.Blob,
+		AssetSnapshot: &AssetSnapshot{
+			Asset:             proof.AssetSnapshot.Asset,
+			OutPoint:          proof.AssetSnapshot.OutPoint,
+			AnchorBlockHash:   proof.AssetSnapshot.AnchorBlockHash,
+			AnchorBlockHeight: proof.AssetSnapshot.AnchorBlockHeight,
+			AnchorTxIndex:     proof.AssetSnapshot.AnchorTxIndex,
+			AnchorTx:          proof.AssetSnapshot.AnchorTx,
+			OutputIndex:       proof.AssetSnapshot.OutputIndex,
+			InternalKey:       proof.AssetSnapshot.InternalKey,
+			ScriptRoot:        proof.AssetSnapshot.ScriptRoot,
+			TapscriptSibling:  proof.AssetSnapshot.TapscriptSibling,
+			SplitAsset:        proof.AssetSnapshot.SplitAsset,
+			MetaReveal:        proof.AssetSnapshot.MetaReveal,
+		},
+	}, nil
 }
 
 // SetSubscribers sets the set of subscribers that will be notified
