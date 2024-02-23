@@ -284,6 +284,14 @@ func (c *Custodian) watchInboundAssets() {
 			continue
 		}
 
+		// If this event is not yet confirmed, we don't yet expect a
+		// proof to be delivered. We'll wait for the confirmation to
+		// come in, and then we'll launch a goroutine to use the
+		// ProofCourier to import the proof into our local DB.
+		if event.ConfirmationHeight == 0 {
+			continue
+		}
+
 		// If we didn't find a proof, we'll launch a goroutine to use
 		// the ProofCourier to import the proof into our local DB.
 		c.Wg.Add(1)
@@ -530,7 +538,8 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) error {
 		ctx, headerVerifier, c.cfg.GroupVerifier, false, addrProof,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to import proofs: %w", err)
+		return fmt.Errorf("unable to import proofs script_key=%x, "+
+			"asset_id=%x: %w", scriptKeyBytes, assetID[:], err)
 	}
 
 	// The proof is now verified and in our local archive. We will now
