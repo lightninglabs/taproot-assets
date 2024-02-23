@@ -3873,7 +3873,7 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	}
 
 	rpcsLog.Tracef("[QueryProof]: fetching proof at (universeID=%v, "+
-		"leafKey=%x)", universeID, leafKey.UniverseKey())
+		"leafKey=%x)", universeID.StringForLog(), leafKey.UniverseKey())
 
 	// Retrieve proof export config for the given universe.
 	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
@@ -3937,7 +3937,8 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 
 			rpcsLog.Debugf("[QueryProof]: error querying for "+
 				"proof at (universeID=%v, leafKey=%x)",
-				universeID, leafKey.UniverseKey())
+				universeID.StringForLog(),
+				leafKey.UniverseKey())
 			return nil, err
 		}
 
@@ -3953,12 +3954,13 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 
 	// TODO(roasbeef): query may return multiple proofs, if allow key to
 	// not be fully specified
-	proof := proofs[0]
+	firstProof := proofs[0]
 
 	rpcsLog.Tracef("[QueryProof]: found proof at (universeID=%v, "+
-		"leafKey=%x)", universeID, leafKey.UniverseKey())
+		"leafKey=%x)", universeID.StringForLog(),
+		leafKey.UniverseKey())
 
-	return r.marshalUniverseProofLeaf(ctx, req, proof)
+	return r.marshalUniverseProofLeaf(ctx, req, firstProof)
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
