@@ -50,7 +50,7 @@ func genTestStores(t *testing.T) map[string]makeTestTreeStoreFunc {
 				if err != nil {
 					return nil, fmt.Errorf("unable to "+
 						"create new sqlite tree "+
-						"store: %v", err)
+						"store: %w", err)
 				}
 
 				return treeStore, nil

@@ -489,7 +489,7 @@ func getJSON[T proto.Message](url string) (T, error) {
 
 	err = taprpc.RESTJsonUnmarshalOpts.Unmarshal(body, jsonResp)
 	if err != nil {
-		return jsonType, fmt.Errorf("failed to unmarshal %s: %v", body,
+		return jsonType, fmt.Errorf("failed to unmarshal %s: %w", body,
 			err)
 	}
 

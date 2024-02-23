@@ -651,7 +651,7 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 
 		err = os.WriteFile(proofPath, proof.Blob, 0666)
 		if err != nil {
-			return fmt.Errorf("unable to store proof: %v", err)
+			return fmt.Errorf("unable to store proof: %w", err)
 		}
 
 		f.eventDistributor.NotifySubscribers(proof.Blob)

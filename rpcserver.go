@@ -456,7 +456,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
 		if err := seedling.Meta.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid asset meta: %v", err)
+			return nil, fmt.Errorf("invalid asset meta: %w", err)
 		}
 	}
 
@@ -959,7 +959,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 			groupKey, err = btcec.ParsePubKey(req.GroupKeyFilter)
 			if err != nil {
 				return nil, fmt.Errorf("invalid group key "+
-					"filter: %v", err)
+					"filter: %w", err)
 			}
 		}
 

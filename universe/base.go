@@ -306,7 +306,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to register new "+
-			"issuance: %v", err)
+			"issuance: %w", err)
 	}
 
 	// Log a sync event for the newly inserted leaf in the background as an
@@ -335,7 +335,7 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 		a.cfg.GroupVerifier,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to verify proof: %v", err)
+		return nil, fmt.Errorf("unable to verify proof: %w", err)
 	}
 
 	newAsset := assetSnapshot.Asset
@@ -555,7 +555,7 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse previous "+
-			"script key: %v", err)
+			"script key: %w", err)
 	}
 	prevScriptKey := asset.NewScriptKey(prevScriptKeyPubKey)
 

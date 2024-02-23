@@ -3,6 +3,9 @@ run:
   deadline: 4m
 
 linters-settings:
+  errorlint:
+    comparison: false
+    asserts: false
   govet:
     # Don't report about shadowed variables
     check-shadowing: false
@@ -26,6 +29,7 @@ linters-settings:
 
 linters:
   enable:
+    - errorlint
     - gofmt
     - tagliatelle
     - whitespace

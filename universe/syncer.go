@@ -234,7 +234,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 		return nil
 
 	case err != nil:
-		return fmt.Errorf("unable to fetch local root: %v", err)
+		return fmt.Errorf("unable to fetch local root: %w", err)
 	}
 
 	log.Infof("UniverseRoot(%v) diverges, performing leaf diff...",

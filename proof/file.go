@@ -308,7 +308,7 @@ func (f *File) ProofAt(index uint32) (*Proof, error) {
 		reader = bytes.NewReader(f.proofs[index].proofBytes)
 	)
 	if err := proof.Decode(reader); err != nil {
-		return nil, fmt.Errorf("error decoding proof: %v", err)
+		return nil, fmt.Errorf("error decoding proof: %w", err)
 	}
 
 	return proof, nil

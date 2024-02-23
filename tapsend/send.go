@@ -180,7 +180,7 @@ func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 		groupPubKey = &groupKey.GroupPubKey
 
 	case err != nil:
-		return nil, fmt.Errorf("unable to query asset group: %v", err)
+		return nil, fmt.Errorf("unable to query asset group: %w", err)
 	}
 
 	desc := &FundingDescriptor{

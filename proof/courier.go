@@ -129,7 +129,7 @@ func (u *URLDispatch) NewCourier(addr *url.URL,
 
 		hashMailBox, err := NewHashMailBox(addr)
 		if err != nil {
-			return nil, fmt.Errorf("unable to make mailbox: %v",
+			return nil, fmt.Errorf("unable to make mailbox: %w",
 				err)
 		}
 

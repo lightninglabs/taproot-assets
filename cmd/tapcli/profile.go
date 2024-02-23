@@ -170,7 +170,7 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		var err error
 		tlsCert, err = os.ReadFile(tlsCertPath)
 		if err != nil {
-			return nil, fmt.Errorf("could not load TLS cert file: %v", err)
+			return nil, fmt.Errorf("could not load TLS cert file: %w", err)
 		}
 	}
 
@@ -194,11 +194,11 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 	macBytes, err := os.ReadFile(macPath)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read macaroon path (check "+
-			"the network setting!): %v", err)
+			"the network setting!): %w", err)
 	}
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+		return nil, fmt.Errorf("unable to decode macaroon: %w", err)
 	}
 
 	var pw []byte
@@ -212,12 +212,12 @@ func profileFromContext(ctx *cli.Context, store, skipMacaroons bool) (
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get encryption "+
-				"password: %v", err)
+				"password: %w", err)
 		}
 	}
 	macEntry := &macaroonEntry{}
 	if err = macEntry.storeMacaroon(mac, pw); err != nil {
-		return nil, fmt.Errorf("unable to store macaroon: %v", err)
+		return nil, fmt.Errorf("unable to store macaroon: %w", err)
 	}
 
 	// We determine the name of the macaroon from the file itself but cut
@@ -248,7 +248,7 @@ func loadProfileFile(file string) (*profileFile, error) {
 
 	content, err := os.ReadFile(file)
 	if err != nil {
-		return nil, fmt.Errorf("could not load profile file %s: %v",
+		return nil, fmt.Errorf("could not load profile file %s: %w",
 			file, err)
 	}
 	f := &profileFile{}
@@ -265,7 +265,7 @@ func loadProfileFile(file string) (*profileFile, error) {
 func saveProfileFile(file string, f *profileFile) error {
 	content, err := f.marshalJSON()
 	if err != nil {
-		return fmt.Errorf("could not marshal profile: %v", err)
+		return fmt.Errorf("could not marshal profile: %w", err)
 	}
 	return os.WriteFile(file, content, 0644)
 }
@@ -286,14 +286,14 @@ func (f *profileFile) unmarshalJSON(content []byte) error {
 func (f *profileFile) marshalJSON() ([]byte, error) {
 	b, err := json.Marshal(f)
 	if err != nil {
-		return nil, fmt.Errorf("error JSON marshalling profile: %v",
+		return nil, fmt.Errorf("error JSON marshalling profile: %w",
 			err)
 	}
 
 	var out bytes.Buffer
 	err = json.Indent(&out, b, "", "  ")
 	if err != nil {
-		return nil, fmt.Errorf("error indenting profile JSON: %v", err)
+		return nil, fmt.Errorf("error indenting profile JSON: %w", err)
 	}
 	out.WriteString("\n")
 	return out.Bytes(), nil

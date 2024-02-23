@@ -635,7 +635,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new sprout: "+
-				"%v", err)
+				"%w", err)
 		}
 
 		// We cannot use 0 as the amount when creating a new asset with
@@ -1412,7 +1412,7 @@ func (a *AssetStore) insertAssetWitnesses(ctx context.Context,
 			WitnessIndex:         int32(idx),
 		})
 		if err != nil {
-			return fmt.Errorf("unable to insert witness: %v", err)
+			return fmt.Errorf("unable to insert witness: %w", err)
 		}
 	}
 

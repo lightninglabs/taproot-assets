@@ -961,7 +961,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to get current height: "+
-				"%v", err)
+				"%w", err)
 		}
 
 		// We need to prepare the parcel for storage.
@@ -998,7 +998,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to write send pkg to "+
-				"disk: %v", err)
+				"disk: %w", err)
 		}
 
 		// We've logged the state transition to disk, so now we can

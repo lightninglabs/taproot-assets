@@ -295,7 +295,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 		hs.clientCfg, cfgLogger, hs.ht.interceptor, mainErrChan,
 	)
 	if err != nil {
-		return fmt.Errorf("could not create tapd server: %v", err)
+		return fmt.Errorf("could not create tapd server: %w", err)
 	}
 
 	hs.wg.Add(1)
@@ -314,7 +314,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 		return err
 	}, defaultTimeout)
 	if err != nil {
-		return fmt.Errorf("error waiting for server to start: %v", err)
+		return fmt.Errorf("error waiting for server to start: %w", err)
 	}
 
 	// Create our client to interact with the tapd RPC server directly.
@@ -323,7 +323,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 		hs.clientCfg.RpcConf.MacaroonPath,
 	)
 	if err != nil {
-		return fmt.Errorf("could not connect to %v: %v",
+		return fmt.Errorf("could not connect to %v: %w",
 			listenerAddr, err)
 	}
 	hs.TaprootAssetsClient = taprpc.NewTaprootAssetsClient(rpcConn)
@@ -452,7 +452,7 @@ func defaultDialOptions(serverCertPath, macaroonPath string) ([]grpc.DialOption,
 	if macaroonPath != "" {
 		macaroonOptions, err := readMacaroon(macaroonPath)
 		if err != nil {
-			return nil, fmt.Errorf("unable to load macaroon %s: %v",
+			return nil, fmt.Errorf("unable to load macaroon %s: %w",
 				macaroonPath, err)
 		}
 		baseOpts = append(baseOpts, macaroonOptions)
@@ -467,18 +467,18 @@ func readMacaroon(macaroonPath string) (grpc.DialOption, error) {
 	// Load the specified macaroon file.
 	macBytes, err := os.ReadFile(macaroonPath)
 	if err != nil {
-		return nil, fmt.Errorf("unable to read macaroon path : %v", err)
+		return nil, fmt.Errorf("unable to read macaroon path : %w", err)
 	}
 
 	mac := &macaroon.Macaroon{}
 	if err = mac.UnmarshalBinary(macBytes); err != nil {
-		return nil, fmt.Errorf("unable to decode macaroon: %v", err)
+		return nil, fmt.Errorf("unable to decode macaroon: %w", err)
 	}
 
 	// Now we append the macaroon credentials to the dial options.
 	cred, err := macaroons.NewMacaroonCredential(mac)
 	if err != nil {
-		return nil, fmt.Errorf("error creating mac cred: %v", err)
+		return nil, fmt.Errorf("error creating mac cred: %w", err)
 	}
 	return grpc.WithPerRPCCredentials(cred), nil
 }

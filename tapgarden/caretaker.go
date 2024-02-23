@@ -674,7 +674,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to map seedlings to "+
-				"sprouts: %v", err)
+				"sprouts: %w", err)
 		}
 
 		b.cfg.Batch.RootAssetCommitment = tapCommitment
@@ -685,7 +685,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		genesisScript, err := b.cfg.Batch.genesisScript()
 		if err != nil {
 			return 0, fmt.Errorf("unable to create genesis "+
-				"script: %v", err)
+				"script: %w", err)
 		}
 
 		genesisTxPkt.Pkt.UnsignedTx.TxOut[b.anchorOutputIndex].PkScript = genesisScript
@@ -865,7 +865,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to register for "+
-				"minting tx conf: %v", err)
+				"minting tx conf: %w", err)
 		}
 
 		// Launch a goroutine that'll notify us when the transaction
@@ -1417,8 +1417,9 @@ func GenGroupVerifier(ctx context.Context,
 		// tweaked group key.
 		_, err = mintingStore.FetchGroupByGroupKey(ctx, groupKey)
 		if err != nil {
-			return fmt.Errorf("%x: group verifier: %v: %w",
-				assetGroupKey[:], err, ErrGroupKeyUnknown)
+			return fmt.Errorf("%x: group verifier: %s: %w",
+				assetGroupKey[:], err.Error(),
+				ErrGroupKeyUnknown)
 		}
 
 		_, _ = assetGroups.Put(assetGroupKey, emptyCacheVal{})
