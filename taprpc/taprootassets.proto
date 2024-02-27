@@ -755,6 +755,26 @@ message KeyDescriptor {
     KeyLocator key_loc = 2;
 }
 
+message TapscriptFullTree {
+    /*
+    The complete, ordered list of all tap leaves of the tree.
+    */
+    repeated TapLeaf all_leaves = 1;
+}
+
+message TapLeaf {
+    // The script of the tap leaf.
+    bytes script = 2;
+}
+
+message TapBranch {
+    // The TapHash of the left child of the root hash of a Tapscript tree.
+    bytes left_taphash = 1;
+
+    // The TapHash of the right child of the root hash of a Tapscript tree.
+    bytes right_taphash = 2;
+}
+
 message DecodeAddrRequest {
     string addr = 1;
 }

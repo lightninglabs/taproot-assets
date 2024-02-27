@@ -313,9 +313,6 @@ func IsTaprootAssetCommitmentScript(script []byte) bool {
 	if len(script) != TaprootAssetCommitmentScriptSize {
 		return false
 	}
-	if script[0] != byte(asset.V0) {
-		return false
-	}
 
 	return bytes.Equal(
 		script[1:1+len(TaprootAssetsMarker)], TaprootAssetsMarker[:],

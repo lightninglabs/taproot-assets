@@ -48,11 +48,15 @@ func randAddress(t *testing.T, net *ChainParams, v Version, groupPubKey,
 		amount = test.RandInt[uint64]()
 	}
 
-	var tapscriptSibling *commitment.TapscriptPreimage
+	var (
+		tapscriptSibling *commitment.TapscriptPreimage
+		err              error
+	)
 	if sibling {
-		tapscriptSibling = commitment.NewPreimageFromLeaf(
+		tapscriptSibling, err = commitment.NewPreimageFromLeaf(
 			txscript.NewBaseTapLeaf([]byte("not a valid script")),
 		)
+		require.NoError(t, err)
 	}
 
 	scriptKey := *pubKey

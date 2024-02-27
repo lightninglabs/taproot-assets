@@ -141,6 +141,20 @@ type (
 	// QueryProofTransAttemptsParams is a type alias for the params needed
 	// to query the proof transfer attempts log.
 	QueryProofTransAttemptsParams = sqlc.QueryProofTransferAttemptsParams
+
+	// TapscriptTreeRootHash is a type alias for the params needed to insert
+	// a tapscript tree root hash.
+	TapscriptTreeRootHash = sqlc.UpsertTapscriptTreeRootHashParams
+
+	// TapscriptTreeEdge is a type alias for the params needed to insert an
+	// edge that links a tapscript tree node to a root hash, and records
+	// the order of the node in the tapscript tree.
+	TapscriptTreeEdge = sqlc.UpsertTapscriptTreeEdgeParams
+
+	// TapscriptTreeNode is a type alias for a tapscript tree node returned
+	// when fetching a tapscript tree, which includes the serialized node
+	// and the node index in the tree.
+	TapscriptTreeNode = sqlc.FetchTapscriptTreeRow
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that

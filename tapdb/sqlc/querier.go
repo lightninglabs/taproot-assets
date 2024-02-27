@@ -19,6 +19,7 @@ type Querier interface {
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
+	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
@@ -30,6 +31,9 @@ type Querier interface {
 	DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error
 	DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error)
 	DeleteRoot(ctx context.Context, namespace string) (int64, error)
+	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
+	DeleteTapscriptTreeNodes(ctx context.Context) error
+	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
 	DeleteUTXOLease(ctx context.Context, outpoint []byte) error
 	DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error
 	DeleteUniverseLeaves(ctx context.Context, namespace string) error
@@ -75,6 +79,8 @@ type Querier interface {
 	FetchSeedlingByID(ctx context.Context, seedlingID int64) (AssetSeedling, error)
 	FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error)
 	FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error)
+	// Sort the nodes by node_index here instead of returning the indices.
+	FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error)
 	FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error)
 	FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error)
 	FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error)
@@ -165,6 +171,9 @@ type Querier interface {
 	UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error)
 	UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error
 	UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error)
+	UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error)
+	UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error)
+	UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error)
 	UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error
 	UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error)
 }

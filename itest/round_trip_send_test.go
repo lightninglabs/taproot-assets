@@ -54,7 +54,8 @@ func testRoundTripSend(t *harnessTest) {
 
 	hashLockPreimage := []byte("hash locks are cool")
 	scriptLeaf := test.ScriptHashLock(t.t, hashLockPreimage)
-	sibling := commitment.NewPreimageFromLeaf(scriptLeaf)
+	sibling, err := commitment.NewPreimageFromLeaf(scriptLeaf)
+	require.NoError(t.t, err)
 	siblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(sibling)
 	require.NoError(t.t, err)
 

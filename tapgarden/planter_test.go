@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"math/rand"
@@ -21,6 +22,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -32,6 +34,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +69,8 @@ type mintingTestHarness struct {
 
 	store tapgarden.MintingStore
 
+	treeStore *tapgarden.FallibleTapscriptTreeMgr
+
 	keyRing *tapgarden.MockKeyRing
 
 	genSigner *tapgarden.MockGenSigner
@@ -96,10 +101,12 @@ func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 
 	keyRing := tapgarden.NewMockKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
+	treeMgr := tapgarden.NewFallibleTapscriptTreeMgr(store)
 
 	return &mintingTestHarness{
 		T:            t,
 		store:        store,
+		treeStore:    &treeMgr,
 		ticker:       ticker.NewForce(interval),
 		wallet:       tapgarden.NewMockWalletAnchor(),
 		chain:        tapgarden.NewMockChainBridge(),
@@ -126,6 +133,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			Wallet:       t.wallet,
 			ChainBridge:  t.chain,
 			Log:          t.store,
+			TreeStore:    t.treeStore,
 			KeyRing:      t.keyRing,
 			GenSigner:    t.genSigner,
 			GenTxBuilder: t.genTxBuilder,
@@ -239,7 +247,7 @@ type FinalizeBatchResp struct {
 // finalizeBatch uses the public FinalizeBatch planter call to start a caretaker
 // for an existing batch. The caller must wait for the planter call to complete.
 func (t *mintingTestHarness) finalizeBatch(wg *sync.WaitGroup,
-	respChan chan *FinalizeBatchResp) {
+	respChan chan *FinalizeBatchResp, params *tapgarden.FinalizeParams) {
 
 	t.Helper()
 
@@ -247,7 +255,18 @@ func (t *mintingTestHarness) finalizeBatch(wg *sync.WaitGroup,
 	go func() {
 		defer wg.Done()
 
-		frozenBatch, finalizeErr := t.planter.FinalizeBatch(nil)
+		finalizeParams := tapgarden.FinalizeParams{
+			FeeRate:        fn.None[chainfee.SatPerKWeight](),
+			SiblingTapTree: fn.None[asset.TapscriptTreeNodes](),
+		}
+
+		if params != nil {
+			finalizeParams = *params
+		}
+
+		frozenBatch, finalizeErr := t.planter.FinalizeBatch(
+			finalizeParams,
+		)
 		resp := &FinalizeBatchResp{
 			Batch: frozenBatch,
 			Err:   finalizeErr,
@@ -258,7 +277,8 @@ func (t *mintingTestHarness) finalizeBatch(wg *sync.WaitGroup,
 }
 
 func (t *mintingTestHarness) assertFinalizeBatch(wg *sync.WaitGroup,
-	respChan chan *FinalizeBatchResp, errString string) {
+	respChan chan *FinalizeBatchResp,
+	errString string) *tapgarden.MintingBatch {
 
 	t.Helper()
 
@@ -268,16 +288,18 @@ func (t *mintingTestHarness) assertFinalizeBatch(wg *sync.WaitGroup,
 	switch {
 	case errString == "":
 		require.NoError(t, finalizeResp.Err)
+		return finalizeResp.Batch
 
 	default:
 		require.ErrorContains(t, finalizeResp.Err, errString)
+		return nil
 	}
 }
 
 // progressCaretaker uses the mock interfaces to progress a caretaker from start
 // to TX confirmation.
-func (t *mintingTestHarness) progressCaretaker(
-	seedlings []*tapgarden.Seedling) func() {
+func (t *mintingTestHarness) progressCaretaker(seedlings []*tapgarden.Seedling,
+	batchSibling *commitment.TapscriptPreimage) func() {
 
 	// Assert that the caretaker has requested a genesis TX to be funded.
 	_ = t.assertGenesisTxFunded()
@@ -295,7 +317,7 @@ func (t *mintingTestHarness) progressCaretaker(
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(batchSibling)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -626,7 +648,9 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 
 // assertGenesisPsbtFinalized asserts that a request to finalize the genesis
 // transaction has been requested by a caretaker.
-func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
+func (t *mintingTestHarness) assertGenesisPsbtFinalized(
+	sibling *commitment.TapscriptPreimage) {
+
 	t.Helper()
 
 	// Ensure that a request to finalize the PSBt has come across.
@@ -650,7 +674,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized() {
 
 	// The minting key of the batch should match the public key
 	// that was inserted into the wallet.
-	batchKey, _, err := pendingBatch.MintingOutputKey()
+	batchKey, _, err := pendingBatch.MintingOutputKey(sibling)
 	require.NoError(t, err)
 
 	importedKey, err := fn.RecvOrTimeout(
@@ -791,7 +815,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(nil)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -893,7 +917,7 @@ func testMintingTicker(t *mintingTestHarness) {
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(nil)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -1029,7 +1053,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
-	t.assertGenesisPsbtFinalized()
+	t.assertGenesisPsbtFinalized(nil)
 
 	// With the PSBT packet finalized for the caretaker, we should now
 	// receive a request to publish a transaction followed by a
@@ -1108,7 +1132,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	)
 
 	// Finalize the pending batch to start a caretaker.
-	t.finalizeBatch(&wg, respChan)
+	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
 	_, err := fn.RecvOrTimeout(
@@ -1134,10 +1158,10 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// caretaker to TX confirmation. The finalize call should report no
 	// error, but the caretaker should propagate the confirmation error to
 	// the shared error channel.
-	t.finalizeBatch(&wg, respChan)
+	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	_ = t.progressCaretaker(seedlings)
+	_ = t.progressCaretaker(seedlings, nil)
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1158,10 +1182,10 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.chain.EmptyConf(true)
 
 	// Start a new caretaker that should reach TX broadcast.
-	t.finalizeBatch(&wg, respChan)
+	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	sendConfNtfn := t.progressCaretaker(seedlings)
+	sendConfNtfn := t.progressCaretaker(seedlings, nil)
 	caretakerCount++
 
 	// Trigger the confirmation event, which should cause the caretaker to
@@ -1180,7 +1204,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// If we try to finalize without a pending batch, the finalize call
 	// should return an error.
-	t.finalizeBatch(&wg, respChan)
+	t.finalizeBatch(&wg, respChan, nil)
 	t.assertFinalizeBatch(&wg, respChan, "no pending batch")
 	t.assertNumCaretakersActive(caretakerCount)
 
@@ -1188,10 +1212,10 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	seedlings = t.queueInitialBatch(numSeedlings)
 	t.chain.EmptyConf(false)
 
-	t.finalizeBatch(&wg, respChan)
+	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	sendConfNtfn = t.progressCaretaker(seedlings)
+	sendConfNtfn = t.progressCaretaker(seedlings, nil)
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1199,6 +1223,156 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+}
+
+func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
+	// First, create a new chain planter instance using the supplied test
+	// harness.
+	t.refreshChainPlanter()
+
+	// Create an initial batch of 5 seedlings.
+	const numSeedlings = 5
+	seedlings := t.queueInitialBatch(numSeedlings)
+
+	var (
+		wg          sync.WaitGroup
+		respChan    = make(chan *FinalizeBatchResp, 1)
+		finalizeReq tapgarden.FinalizeParams
+		batchCount  = 0
+	)
+
+	// Build a standalone tapscript tree object, that matches the tree
+	// created by other test helpers.
+	sigLockKey := test.RandPubKey(t)
+	hashLockWitness := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t.T, hashLockWitness)
+	sigLeaf := test.ScriptSchnorrSig(t.T, sigLockKey)
+	tapTreePreimage, err := asset.TapTreeNodesFromLeaves(
+		[]txscript.TapLeaf{hashLockLeaf, sigLeaf},
+	)
+	require.NoError(t, err)
+
+	finalizeReq = tapgarden.FinalizeParams{
+		SiblingTapTree: fn.Some(*tapTreePreimage),
+	}
+
+	// Force tapscript tree storage to fail, which should cause batch
+	// finalization to fail.
+	t.treeStore.FailStore = true
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
+	finalizeErr := <-respChan
+	require.ErrorContains(t, finalizeErr.Err, "unable to store")
+
+	// Empty the main error channel before reattempting a mint.
+	select {
+	case <-t.errChan:
+	default:
+	}
+
+	// Allow tapscript tree storage to succeed, but force tapscript tree
+	// loading to fail.
+	t.treeStore.FailStore = false
+	t.treeStore.FailLoad = true
+
+	// Receive all the signals needed to progress the caretaker through
+	// the batch sprouting, which is when the sibling tapscript tree is
+	// used.
+	progressCaretakerToTxSigning := func(
+		currentSeedlings []*tapgarden.Seedling) {
+
+		_ = t.assertGenesisTxFunded()
+
+		for i := 0; i < len(currentSeedlings); i++ {
+			t.assertKeyDerived()
+
+			if currentSeedlings[i].EnableEmission {
+				t.assertKeyDerived()
+			}
+		}
+	}
+
+	// Finalize the batch with a tapscript tree sibling.
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
+	batchCount++
+
+	// The caretaker should fail when computing the Taproot output key.
+	progressCaretakerToTxSigning(seedlings)
+	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
+	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
+	t.assertNoPendingBatch()
+
+	// Reset the tapscript tree store to not force load or store failures.
+	t.treeStore.FailStore = false
+	t.treeStore.FailLoad = false
+
+	// Construct a tapscript tree with a single leaf that has the structure
+	// of a TapLeaf computed from a TapCommitment. This should be rejected
+	// by the caretaker, as the genesis TX for the batch should only commit
+	// to one TapCommitment.
+	var dummyRootSum [8]byte
+	binary.BigEndian.PutUint64(dummyRootSum[:], test.RandInt[uint64]())
+	dummyRootHashParts := [][]byte{
+		{byte(asset.V0)}, commitment.TaprootAssetsMarker[:],
+		fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+	}
+	dummyTapCommitmentRootHash := bytes.Join(dummyRootHashParts, nil)
+	dummyTapLeaf := txscript.NewBaseTapLeaf(dummyTapCommitmentRootHash)
+	dummyTapCommitmentPreimage, err := asset.TapTreeNodesFromLeaves(
+		[]txscript.TapLeaf{dummyTapLeaf},
+	)
+	require.NoError(t, err)
+
+	finalizeReq.SiblingTapTree = fn.Some(*dummyTapCommitmentPreimage)
+
+	// Queue another batch, and try to finalize with a sibling that is also
+	// a Taproot asset commitment.
+	seedlings = t.queueInitialBatch(numSeedlings)
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
+	batchCount++
+
+	progressCaretakerToTxSigning(seedlings)
+	t.assertFinalizeBatch(
+		&wg, respChan, "preimage is a Taproot Asset commitment",
+	)
+	t.assertNoPendingBatch()
+
+	// Queue another batch, and provide a valid sibling tapscript tree.
+	seedlings = t.queueInitialBatch(numSeedlings)
+	finalizeReq.SiblingTapTree = fn.Some(*tapTreePreimage)
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
+	batchCount++
+
+	// Verify that the final genesis TX uses the correct Taproot output key.
+	treeRootChildren := test.BuildTapscriptTreeNoReveal(t.T, sigLockKey)
+	siblingPreimage := commitment.NewPreimageFromBranch(treeRootChildren)
+	sendConfNtfn := t.progressCaretaker(seedlings, &siblingPreimage)
+	sendConfNtfn()
+
+	// Once the TX is broadcast, the caretaker should run to completion,
+	// storing issuance proofs and updating the batch state to finalized.
+	batchWithSibling := t.assertFinalizeBatch(&wg, respChan, "")
+	require.NotNil(t, batchWithSibling)
+	t.assertNoError()
+	t.assertNoPendingBatch()
+	t.assertNumCaretakersActive(0)
+	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+
+	// Verify that the final minting output key matches what we would derive
+	// manually.
+	batchRootCommitment := batchWithSibling.RootAssetCommitment
+	require.NotNil(t, batchRootCommitment)
+	siblingHash, err := siblingPreimage.TapHash()
+	require.NoError(t, err)
+	batchScriptRoot := batchRootCommitment.TapscriptRoot(siblingHash)
+	batchOutputKeyExpected := txscript.ComputeTaprootOutputKey(
+		batchWithSibling.BatchKey.PubKey, batchScriptRoot[:],
+	)
+	batchOutputKey, _, err := batchWithSibling.MintingOutputKey(nil)
+	require.NoError(t, err)
+	require.Equal(
+		t, batchOutputKeyExpected.SerializeCompressed(),
+		batchOutputKey.SerializeCompressed(),
+	)
 }
 
 // mintingStoreTestCase is used to programmatically run a series of test cases
@@ -1230,6 +1404,11 @@ var testCases = []mintingStoreTestCase{
 		name:     "finalize_batch",
 		interval: minterInterval,
 		testFunc: testFinalizeBatch,
+	},
+	{
+		name:     "finalize_with_tapscript_tree",
+		interval: minterInterval,
+		testFunc: testFinalizeWithTapscriptTree,
 	},
 }
 

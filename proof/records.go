@@ -224,8 +224,14 @@ func CommitmentProofTapSiblingPreimageRecord(
 	preimage **commitment.TapscriptPreimage) tlv.Record {
 
 	sizeFunc := func() uint64 {
-		// 1 byte for the type, and then the pre-image itself.
-		return 1 + uint64(len((*preimage).SiblingPreimage))
+		var buf bytes.Buffer
+		err := commitment.TapscriptPreimageEncoder(
+			&buf, preimage, &[8]byte{},
+		)
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
 		CommitmentProofTapSiblingPreimageType, preimage, sizeFunc,
@@ -238,10 +244,15 @@ func TapscriptProofTapPreimage1Record(
 	preimage **commitment.TapscriptPreimage) tlv.Record {
 
 	sizeFunc := func() uint64 {
-		// 1 byte for the type, and then the pre-image itself.
-		return 1 + uint64(len((*preimage).SiblingPreimage))
+		var buf bytes.Buffer
+		err := commitment.TapscriptPreimageEncoder(
+			&buf, preimage, &[8]byte{},
+		)
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
 	}
-
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage1, preimage,
 		sizeFunc, commitment.TapscriptPreimageEncoder,
@@ -253,10 +264,15 @@ func TapscriptProofTapPreimage2Record(
 	preimage **commitment.TapscriptPreimage) tlv.Record {
 
 	sizeFunc := func() uint64 {
-		// 1 byte for the type, and then the pre-image itself.
-		return 1 + uint64(len((*preimage).SiblingPreimage))
+		var buf bytes.Buffer
+		err := commitment.TapscriptPreimageEncoder(
+			&buf, preimage, &[8]byte{},
+		)
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
 	}
-
 	return tlv.MakeDynamicRecord(
 		TapscriptProofTapPreimage2, preimage,
 		sizeFunc, commitment.TapscriptPreimageEncoder,

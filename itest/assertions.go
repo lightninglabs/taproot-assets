@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -1560,6 +1561,30 @@ func AssertAssetsMinted(t *testing.T,
 	}
 
 	return assetList
+}
+
+func AssertGenesisOutput(t *testing.T, output *taprpc.ManagedUtxo,
+	sibling commitment.TapscriptPreimage) {
+
+	// Fetch the encoded tapscript sibling from an anchored asset, and check
+	// it against the expected sibling.
+	require.True(t, len(output.Assets) > 1)
+	rpcSibling := output.Assets[0].ChainAnchor.TapscriptSibling
+	require.True(t, fn.All(output.Assets, func(a *taprpc.Asset) bool {
+		return bytes.Equal(a.ChainAnchor.TapscriptSibling, rpcSibling)
+	}))
+	encodedSibling, siblingHash, err := commitment.
+		MaybeEncodeTapscriptPreimage(&sibling)
+	require.NoError(t, err)
+	require.Equal(t, encodedSibling, rpcSibling)
+
+	// We should be able to recompute a merkle root from the tapscript
+	// sibling hash and the Taproot Asset Commitment root that matches what
+	// is stored in the managed output.
+	expectedMerkleRoot := asset.NewTapBranchHash(
+		(chainhash.Hash)(output.TaprootAssetRoot), *siblingHash,
+	)
+	require.Equal(t, expectedMerkleRoot[:], output.MerkleRoot)
 }
 
 func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,

@@ -9,6 +9,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -595,4 +596,118 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	}
 
 	return assetMetaID, nil
+}
+
+// TapscriptTreeStore houses the methods related to storing, fetching, and
+// deleting tapscript trees.
+type TapscriptTreeStore interface {
+	// UpsertTapscriptTreeRootHash inserts a new tapscript tree root hash.
+	UpsertTapscriptTreeRootHash(ctx context.Context,
+		rootHash TapscriptTreeRootHash) (int64, error)
+
+	// UpsertTapscriptTreeEdge inserts a new tapscript tree edge that
+	// references both a tapscript tree node and a root hash.
+	UpsertTapscriptTreeEdge(ctx context.Context,
+		edge TapscriptTreeEdge) (int64, error)
+
+	// UpsertTapscriptTreeNode inserts a new tapscript tree node.
+	UpsertTapscriptTreeNode(ctx context.Context, node []byte) (int64, error)
+
+	// FetchTapscriptTree fetches all child nodes of a tapscript tree root
+	// hash, which can be used to reassemble the tapscript tree.
+	FetchTapscriptTree(ctx context.Context,
+		rootHash []byte) ([]TapscriptTreeNode, error)
+
+	// DeleteTapscriptTreeEdges deletes all edges that reference the given
+	// root hash.
+	DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error
+
+	// DeleteTapscriptTreeNodes deletes all nodes that are not referenced by
+	// any edge.
+	DeleteTapscriptTreeNodes(ctx context.Context) error
+
+	// DeleteTapscriptTreeRoot deletes a tapscript tree root hash.
+	DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error
+}
+
+// upsertTapscriptTree inserts a tapscript tree into the database, including the
+// nodes and edges needed to reassemble the tree.
+func upsertTapscriptTree(ctx context.Context, q TapscriptTreeStore,
+	rootHash []byte, isBranch bool, nodes [][]byte) error {
+
+	if len(rootHash) != chainhash.HashSize {
+		return fmt.Errorf("root hash must be 32 bytes")
+	}
+
+	// Perform final sanity checks on the given tapscript tree nodes.
+	nodeCount := len(nodes)
+	switch {
+	case nodeCount == 0:
+		return fmt.Errorf("no tapscript tree nodes provided")
+
+	case isBranch && nodeCount != 2:
+		return asset.ErrInvalidTapBranch
+	}
+
+	// Insert the root hash first.
+	treeRoot := TapscriptTreeRootHash{
+		RootHash:   rootHash,
+		BranchOnly: isBranch,
+	}
+	rootId, err := q.UpsertTapscriptTreeRootHash(ctx, treeRoot)
+	if err != nil {
+		return err
+	}
+
+	// Tree node ordering must be preserved. We'll use the loop counter as
+	// the node index in the tapscript edges we insert.
+	for i := 0; i < nodeCount; i++ {
+		nodeId, err := q.UpsertTapscriptTreeNode(ctx, nodes[i])
+		if err != nil {
+			return err
+		}
+
+		// Link each node to the root hash inserted earlier.
+		edge := TapscriptTreeEdge{
+			RootHashID: rootId,
+			NodeIndex:  int64(i),
+			RawNodeID:  nodeId,
+		}
+		_, err = q.UpsertTapscriptTreeEdge(ctx, edge)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// deleteTapscriptTree deletes a tapscript tree from the database, including the
+// edges and all nodes not referenced by another tapscript tree.
+func deleteTapscriptTree(ctx context.Context, q TapscriptTreeStore,
+	rootHash []byte) error {
+
+	// Delete the tree edges first, as they reference both tree nodes and
+	// the root hash.
+	err := q.DeleteTapscriptTreeEdges(ctx, rootHash)
+	if err != nil {
+		return err
+	}
+
+	// Any nodes not referenced by another tapscript tree will now not be
+	// referenced by any edges. Delete all such nodes. This will only affect
+	// nodes from this tree, as nodes in a properly inserted tree are
+	// referenced by at least one edge.
+	err = q.DeleteTapscriptTreeNodes(ctx)
+	if err != nil {
+		return err
+	}
+
+	// With all edges and nodes deleted, delete the root hash.
+	err = q.DeleteTapscriptTreeRoot(ctx, rootHash)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }

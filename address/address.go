@@ -196,9 +196,9 @@ func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	// We can only use a tapscript sibling that is not a Taproot Asset
 	// commitment.
 	if tapscriptSibling != nil {
-		if err := tapscriptSibling.VerifyNoCommitment(); err != nil {
+		if _, err := tapscriptSibling.TapHash(); err != nil {
 			return nil, errors.New("address: tapscript sibling " +
-				"is a Taproot Asset commitment")
+				"is invalid")
 		}
 	}
 

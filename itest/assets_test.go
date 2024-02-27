@@ -1,19 +1,28 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"net/http"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
 )
 
@@ -333,4 +342,131 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	collideAssetName := rpcCollideAsset[0].AssetGenesis.Name
 	require.Equal(t.t, commonAssetName, collideAssetName)
+}
+
+// testMintAssetsWithTapscriptSibling tests that a batch of assets can be minted
+// with a tapscript sibling, and that the genesis output from that mint can be
+// spend via the script path.
+func testMintAssetsWithTapscriptSibling(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Build the tapscript tree.
+	sigLockPrivKey := test.RandPrivKey(t.t)
+	hashLockPreimage := []byte("foobar")
+	hashLockLeaf := test.ScriptHashLock(t.t, hashLockPreimage)
+	sigLeaf := test.ScriptSchnorrSig(t.t, sigLockPrivKey.PubKey())
+	siblingTree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
+
+	siblingBranch := txscript.NewTapBranch(
+		siblingTree.RootNode.Left(), siblingTree.RootNode.Right(),
+	)
+	siblingPreimage := commitment.NewPreimageFromBranch(siblingBranch)
+	typedBranch := asset.TapTreeNodesFromBranch(siblingBranch)
+	rawBranch := fn.MapOptionZ(asset.GetBranch(typedBranch), asset.ToBranch)
+	require.Len(t.t, rawBranch, 2)
+	siblingReq := mintrpc.FinalizeBatchRequest_Branch{
+		Branch: &taprpc.TapBranch{
+			LeftTaphash:  rawBranch[0],
+			RightTaphash: rawBranch[1],
+		},
+	}
+
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
+		WithSiblingBranch(siblingReq),
+	)
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, issuableAssets,
+	)
+
+	AssertAssetBalances(t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets)
+
+	// Filter the managed UTXOs to select the genesis UTXO with the
+	// tapscript sibling.
+	utxos, err := t.tapd.ListUtxos(ctxt, &taprpc.ListUtxosRequest{})
+	require.NoError(t.t, err)
+
+	utxoWithTapSibling := func(utxo *taprpc.ManagedUtxo) bool {
+		return !bytes.Equal(utxo.TaprootAssetRoot, utxo.MerkleRoot)
+	}
+	mintingOutputWithSibling := fn.Filter(
+		maps.Values(utxos.ManagedUtxos), utxoWithTapSibling,
+	)
+	require.Len(t.t, mintingOutputWithSibling, 1)
+	genesisWithSibling := mintingOutputWithSibling[0]
+
+	// Verify that all assets anchored in the output with the tapscript
+	// sibling have the correct sibling preimage. Also verify that the final
+	// tweak used for the genesis output is derived from the tapscript
+	// sibling created above and the batch Taproot Asset commitment.
+	AssertGenesisOutput(t.t, genesisWithSibling, siblingPreimage)
+
+	// Extract the fields needed to construct a script path spend, which
+	// includes the Taproot Asset commitment root, the final tap tweak, and
+	// the internal key.
+	mintTapTweak := genesisWithSibling.MerkleRoot
+	mintTapTreeRoot := genesisWithSibling.TaprootAssetRoot
+	mintInternalKey, err := btcec.ParsePubKey(
+		genesisWithSibling.InternalKey,
+	)
+	require.NoError(t.t, err)
+
+	mintOutputKey := txscript.ComputeTaprootOutputKey(
+		mintInternalKey, mintTapTweak,
+	)
+	mintOutputKeyIsOdd := mintOutputKey.SerializeCompressed()[0] == 0x03
+	siblingScriptHash := sigLeaf.TapHash()
+
+	// Build the control block and witness.
+	inclusionProof := bytes.Join(
+		[][]byte{siblingScriptHash[:], mintTapTreeRoot}, nil,
+	)
+	hashLockControlBlock := txscript.ControlBlock{
+		InternalKey:     mintInternalKey,
+		OutputKeyYIsOdd: mintOutputKeyIsOdd,
+		LeafVersion:     txscript.BaseLeafVersion,
+		InclusionProof:  inclusionProof,
+	}
+	hashLockControlBlockBytes, err := hashLockControlBlock.ToBytes()
+	require.NoError(t.t, err)
+
+	hashLockWitness := wire.TxWitness{
+		hashLockPreimage, hashLockLeaf.Script, hashLockControlBlockBytes,
+	}
+
+	// Make a non-tap output from Bob to use in a TX spending Alice's
+	// genesis UTXO.
+	burnOutput := MakeOutput(
+		t, t.lndHarness.Bob, lnrpc.AddressType_TAPROOT_PUBKEY, 500,
+	)
+
+	// Construct and publish the TX.
+	genesisOutpoint, err := wire.NewOutPointFromString(
+		genesisWithSibling.OutPoint,
+	)
+	require.NoError(t.t, err)
+
+	burnTx := wire.MsgTx{
+		Version: 2,
+		TxIn: []*wire.TxIn{{
+			PreviousOutPoint: *genesisOutpoint,
+			Witness:          hashLockWitness,
+		}},
+		TxOut: []*wire.TxOut{burnOutput},
+	}
+
+	var burnTxBuf bytes.Buffer
+	require.NoError(t.t, burnTx.Serialize(&burnTxBuf))
+	t.lndHarness.Bob.RPC.PublishTransaction(&walletrpc.Transaction{
+		TxHex: burnTxBuf.Bytes(),
+	})
+
+	// Bob should detect the TX, and the resulting confirmed UTXO once
+	// a new block is mined.
+	t.lndHarness.Miner.AssertNumTxsInMempool(1)
+	t.lndHarness.AssertNumUTXOsUnconfirmed(t.lndHarness.Bob, 1)
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+	t.lndHarness.AssertNumUTXOsWithConf(t.lndHarness.Bob, 1, 1, 1)
 }

@@ -87,7 +87,7 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const allMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
 ON asset_minting_batches.batch_id = internal_keys.key_id
@@ -101,6 +101,7 @@ type AllMintingBatchesRow struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
@@ -124,6 +125,7 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 			&i.GenesisID,
 			&i.HeightHint,
 			&i.CreationTimeUnix,
+			&i.TapscriptSibling,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -328,6 +330,29 @@ func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInB
 	return items, nil
 }
 
+const bindMintingBatchWithTapSibling = `-- name: BindMintingBatchWithTapSibling :exec
+WITH target_batch AS (
+    SELECT batch_id
+    FROM asset_minting_batches batches
+    JOIN internal_keys keys
+        ON batches.batch_id = keys.key_id
+    WHERE keys.raw_key = $1
+)
+UPDATE asset_minting_batches
+SET tapscript_sibling = $2
+WHERE batch_id IN (SELECT batch_id FROM target_batch)
+`
+
+type BindMintingBatchWithTapSiblingParams struct {
+	RawKey           []byte
+	TapscriptSibling []byte
+}
+
+func (q *Queries) BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error {
+	_, err := q.db.ExecContext(ctx, bindMintingBatchWithTapSibling, arg.RawKey, arg.TapscriptSibling)
+	return err
+}
+
 const bindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :exec
 WITH target_batch AS (
     SELECT batch_id
@@ -433,6 +458,50 @@ WHERE outpoint = $1
 
 func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error {
 	_, err := q.db.ExecContext(ctx, deleteManagedUTXO, outpoint)
+	return err
+}
+
+const deleteTapscriptTreeEdges = `-- name: DeleteTapscriptTreeEdges :exec
+WITH tree_info AS (
+    -- This CTE is used to fetch all edges that link the given tapscript tree
+    -- root hash to child nodes.
+    SELECT tapscript_edges.edge_id
+    FROM tapscript_edges
+    JOIN tapscript_roots
+        ON tapscript_edges.root_hash_id = tapscript_roots.root_id
+    WHERE tapscript_roots.root_hash = $1
+)
+DELETE FROM tapscript_edges
+WHERE edge_id IN (SELECT edge_id FROM tree_info)
+`
+
+func (q *Queries) DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeEdges, rootHash)
+	return err
+}
+
+const deleteTapscriptTreeNodes = `-- name: DeleteTapscriptTreeNodes :exec
+DELETE FROM tapscript_nodes
+WHERE NOT EXISTS (
+    SELECT 1
+        FROM tapscript_edges
+        -- Delete any node that is not referenced by any edge.
+        WHERE tapscript_edges.raw_node_id = tapscript_nodes.node_id
+)
+`
+
+func (q *Queries) DeleteTapscriptTreeNodes(ctx context.Context) error {
+	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeNodes)
+	return err
+}
+
+const deleteTapscriptTreeRoot = `-- name: DeleteTapscriptTreeRoot :exec
+DELETE FROM tapscript_roots
+WHERE root_hash = $1
+`
+
+func (q *Queries) DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error {
+	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeRoot, rootHash)
 	return err
 }
 
@@ -1320,7 +1389,7 @@ WITH target_batch AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -1335,6 +1404,7 @@ type FetchMintingBatchRow struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
@@ -1352,6 +1422,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 		&i.GenesisID,
 		&i.HeightHint,
 		&i.CreationTimeUnix,
+		&i.TapscriptSibling,
 		&i.KeyID,
 		&i.RawKey,
 		&i.KeyFamily,
@@ -1361,7 +1432,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 }
 
 const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -1376,6 +1447,7 @@ type FetchMintingBatchesByInverseStateRow struct {
 	GenesisID         sql.NullInt64
 	HeightHint        int32
 	CreationTimeUnix  time.Time
+	TapscriptSibling  []byte
 	KeyID             int64
 	RawKey            []byte
 	KeyFamily         int32
@@ -1399,6 +1471,7 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 			&i.GenesisID,
 			&i.HeightHint,
 			&i.CreationTimeUnix,
+			&i.TapscriptSibling,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -1567,6 +1640,54 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.GroupGenesisID,
 			&i.GroupAnchorID,
 		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const fetchTapscriptTree = `-- name: FetchTapscriptTree :many
+WITH tree_info AS (
+    -- This CTE is used to fetch all edges that link the given tapscript tree
+    -- root hash to child nodes. Each edge also contains the index of the child
+    -- node in the tapscript tree.
+    SELECT tapscript_roots.branch_only, tapscript_edges.raw_node_id,
+        tapscript_edges.node_index
+    FROM tapscript_roots
+    JOIN tapscript_edges
+        ON tapscript_roots.root_id = tapscript_edges.root_hash_id
+    WHERE tapscript_roots.root_hash = $1
+)
+SELECT tree_info.branch_only, tapscript_nodes.raw_node
+FROM tapscript_nodes
+JOIN tree_info
+    ON tree_info.raw_node_id = tapscript_nodes.node_id
+ORDER BY tree_info.node_index ASC
+`
+
+type FetchTapscriptTreeRow struct {
+	BranchOnly bool
+	RawNode    []byte
+}
+
+// Sort the nodes by node_index here instead of returning the indices.
+func (q *Queries) FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchTapscriptTree, rootHash)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchTapscriptTreeRow
+	for rows.Next() {
+		var i FetchTapscriptTreeRow
+		if err := rows.Scan(&i.BranchOnly, &i.RawNode); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
@@ -2587,4 +2708,73 @@ func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams
 	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
+}
+
+const upsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one
+INSERT INTO tapscript_edges (
+    root_hash_id, node_index, raw_node_id
+) VALUES (
+    $1, $2, $3
+) ON CONFLICT (root_hash_id, node_index, raw_node_id)
+    -- This is a NOP, root_hash_id, node_index, and raw_node_id are the unique
+    -- fields that caused the conflict.
+    DO UPDATE SET root_hash_id = EXCLUDED.root_hash_id,
+    node_index = EXCLUDED.node_index, raw_node_id = EXCLUDED.raw_node_id
+RETURNING edge_id
+`
+
+type UpsertTapscriptTreeEdgeParams struct {
+	RootHashID int64
+	NodeIndex  int64
+	RawNodeID  int64
+}
+
+func (q *Queries) UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeEdge, arg.RootHashID, arg.NodeIndex, arg.RawNodeID)
+	var edge_id int64
+	err := row.Scan(&edge_id)
+	return edge_id, err
+}
+
+const upsertTapscriptTreeNode = `-- name: UpsertTapscriptTreeNode :one
+INSERT INTO tapscript_nodes (
+    raw_node
+) VALUES (
+    $1
+) ON CONFLICT (raw_node)
+    -- This is a NOP, raw_node is the unique field that caused the conflict.
+    DO UPDATE SET raw_node = EXCLUDED.raw_node
+RETURNING node_id
+`
+
+func (q *Queries) UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeNode, rawNode)
+	var node_id int64
+	err := row.Scan(&node_id)
+	return node_id, err
+}
+
+const upsertTapscriptTreeRootHash = `-- name: UpsertTapscriptTreeRootHash :one
+INSERT INTO tapscript_roots (
+    root_hash, branch_only
+) VALUES (
+    $1, $2
+) ON CONFLICT (root_hash)
+    -- This is a NOP, the root_hash is the unique field that caused the
+    -- conflict. The tree should be deleted before switching between branch and
+    -- leaf storage for the same root hash.
+    DO UPDATE SET root_hash = EXCLUDED.root_hash
+RETURNING root_id
+`
+
+type UpsertTapscriptTreeRootHashParams struct {
+	RootHash   []byte
+	BranchOnly bool
+}
+
+func (q *Queries) UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeRootHash, arg.RootHash, arg.BranchOnly)
+	var root_id int64
+	err := row.Scan(&root_id)
+	return root_id, err
 }

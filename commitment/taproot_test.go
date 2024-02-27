@@ -1,11 +1,16 @@
 package commitment
 
 import (
+	"bytes"
+	"encoding/binary"
 	"encoding/hex"
 	"testing"
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -31,6 +36,20 @@ func TestTapscriptPreimage(t *testing.T) {
 	branch := txscript.NewTapBranch(leaf1, leaf2)
 	branchHash := branch.TapHash()
 
+	// Create a random byte slice with the same structure as a Taproot
+	// Asset commitment root, that can be used in a TapLeaf.
+	randTapCommitmentRoot := func(version asset.Version) []byte {
+		var dummyRootSum [8]byte
+		binary.BigEndian.PutUint64(
+			dummyRootSum[:], test.RandInt[uint64](),
+		)
+		dummyRootHashParts := [][]byte{
+			{byte(version)}, TaprootAssetsMarker[:],
+			fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+		}
+		return bytes.Join(dummyRootHashParts, nil)
+	}
+
 	testCases := []struct {
 		name            string
 		makePreimage    func(t *testing.T) *TapscriptPreimage
@@ -43,11 +62,11 @@ func TestTapscriptPreimage(t *testing.T) {
 		name: "invalid type",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {
 			return &TapscriptPreimage{
-				SiblingType: 123,
+				siblingType: 123,
 			}
 		},
 		expectedType:    123,
-		expectedName:    "UnKnownSiblingType(123)",
+		expectedName:    "UnknownSiblingType(123)",
 		expectedEmpty:   true,
 		expectedHashErr: ErrInvalidEmptyTapscriptPreimage.Error(),
 	}, {
@@ -63,7 +82,7 @@ func TestTapscriptPreimage(t *testing.T) {
 		name: "empty branch pre-image",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {
 			return &TapscriptPreimage{
-				SiblingType: BranchPreimage,
+				siblingType: BranchPreimage,
 			}
 		},
 		expectedType:    BranchPreimage,
@@ -71,11 +90,22 @@ func TestTapscriptPreimage(t *testing.T) {
 		expectedEmpty:   true,
 		expectedHashErr: ErrInvalidEmptyTapscriptPreimage.Error(),
 	}, {
+		name: "invalid size leaf pre-image",
+		makePreimage: func(t *testing.T) *TapscriptPreimage {
+			return &TapscriptPreimage{
+				siblingPreimage: []byte("b"),
+			}
+		},
+		expectedType:    LeafPreimage,
+		expectedName:    "LeafPreimage",
+		expectedEmpty:   false,
+		expectedHashErr: ErrInvalidTapscriptPreimageLen.Error(),
+	}, {
 		name: "invalid size branch pre-image",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {
 			return &TapscriptPreimage{
-				SiblingType:     BranchPreimage,
-				SiblingPreimage: []byte("too short"),
+				siblingType:     BranchPreimage,
+				siblingPreimage: []byte("too short"),
 			}
 		},
 		expectedType:    BranchPreimage,
@@ -83,9 +113,33 @@ func TestTapscriptPreimage(t *testing.T) {
 		expectedEmpty:   false,
 		expectedHashErr: ErrInvalidTapscriptPreimageLen.Error(),
 	}, {
+		name: "tap commitment leaf pre-image",
+		makePreimage: func(t *testing.T) *TapscriptPreimage {
+			tapCommitmentRoot := randTapCommitmentRoot(asset.V0)
+			var encodedLeaf bytes.Buffer
+
+			_ = encodedLeaf.WriteByte(
+				byte(txscript.BaseLeafVersion),
+			)
+			_ = wire.WriteVarBytes(
+				&encodedLeaf, 0, tapCommitmentRoot,
+			)
+
+			return &TapscriptPreimage{
+				siblingType:     LeafPreimage,
+				siblingPreimage: encodedLeaf.Bytes(),
+			}
+		},
+		expectedType:    LeafPreimage,
+		expectedName:    "LeafPreimage",
+		expectedEmpty:   false,
+		expectedHashErr: ErrPreimageIsTapCommitment.Error(),
+	}, {
 		name: "valid leaf pre-image",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {
-			return NewPreimageFromLeaf(leaf1)
+			preimage, err := NewPreimageFromLeaf(leaf1)
+			require.NoError(t, err)
+			return preimage
 		},
 		expectedType:  LeafPreimage,
 		expectedName:  "LeafPreimage",
@@ -94,7 +148,7 @@ func TestTapscriptPreimage(t *testing.T) {
 	}, {
 		name: "valid branch pre-image",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {
-			return NewPreimageFromBranch(branch)
+			return fn.Ptr(NewPreimageFromBranch(branch))
 		},
 		expectedType:  BranchPreimage,
 		expectedName:  "BranchPreimage",
@@ -108,10 +162,10 @@ func TestTapscriptPreimage(t *testing.T) {
 		t.Run(tc.name, func(tt *testing.T) {
 			preimage := tc.makePreimage(tt)
 
-			require.Equal(tt, tc.expectedType, preimage.SiblingType)
+			require.Equal(tt, tc.expectedType, preimage.siblingType)
 			require.Equal(
 				tt, tc.expectedName,
-				preimage.SiblingType.String(),
+				preimage.siblingType.String(),
 			)
 			require.Equal(tt, tc.expectedEmpty, preimage.IsEmpty())
 
@@ -125,10 +179,6 @@ func TestTapscriptPreimage(t *testing.T) {
 
 			require.NoError(tt, err)
 			require.Equal(tt, tc.expectedHash, hash)
-
-			// Make sure that the preimage is detected as not being
-			// a Taproot Asset commitment.
-			require.NoError(tt, preimage.VerifyNoCommitment())
 		})
 	}
 }
@@ -150,9 +200,9 @@ func TestMaybeEncodeTapscriptPreimage(t *testing.T) {
 	preImage := []byte("hash locks are cool")
 	siblingLeaf := test.ScriptHashLock(t, preImage)
 
-	encodedPreimage, _, err := MaybeEncodeTapscriptPreimage(
-		NewPreimageFromLeaf(siblingLeaf),
-	)
+	leafPreimage, err := NewPreimageFromLeaf(siblingLeaf)
+	require.NoError(t, err)
+	encodedPreimage, _, err := MaybeEncodeTapscriptPreimage(leafPreimage)
 	require.NoError(t, err)
 
 	require.Equal(
