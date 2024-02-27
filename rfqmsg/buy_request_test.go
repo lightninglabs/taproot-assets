@@ -11,9 +11,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// TestRequestMsgDataEncodeDecode tests the encoding and decoding of a request
-// message.
-func TestRequestMsgDataEncodeDecode(t *testing.T) {
+// TestBuyRequestMsgDataEncodeDecode tests the encoding and decoding of a buy
+// request message.
+func TestBuyRequestMsgDataEncodeDecode(t *testing.T) {
 	t.Parallel()
 
 	// Create a random ID.
@@ -45,7 +45,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(tt *testing.T) {
-			req := requestMsgData{
+			req := buyRequestMsgData{
 				ID:            tc.id,
 				AssetID:       tc.assetId,
 				AssetGroupKey: tc.assetGroupKey,
@@ -58,7 +58,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			require.NoError(tt, err, "unable to encode request")
 
 			// Decode the request message.
-			decodedReq := requestMsgData{}
+			decodedReq := buyRequestMsgData{}
 			err = decodedReq.Decode(bytes.NewReader(reqBytes))
 			require.NoError(tt, err, "unable to decode request")
 

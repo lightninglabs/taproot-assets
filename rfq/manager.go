@@ -258,7 +258,7 @@ func (m *Manager) stopSubsystems() error {
 func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 	// Perform type specific handling of the incoming message.
 	switch msg := incomingMsg.(type) {
-	case *rfqmsg.Request:
+	case *rfqmsg.BuyRequest:
 		err := m.negotiator.HandleIncomingQuoteRequest(*msg)
 		if err != nil {
 			return fmt.Errorf("error handling incoming quote "+

@@ -168,7 +168,7 @@ type Accept struct {
 
 // NewAcceptFromRequest creates a new instance of a quote accept message given
 // a quote request message.
-func NewAcceptFromRequest(request Request, askPrice lnwire.MilliSatoshi,
+func NewAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 	expiry uint64) *Accept {
 
 	return &Accept{

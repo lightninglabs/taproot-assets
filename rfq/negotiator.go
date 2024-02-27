@@ -99,7 +99,7 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	// TODO(ffranr): Ensure that the expiryDelay time is valid and
 	//  sufficient.
 
-	request, err := rfqmsg.NewRequest(
+	request, err := rfqmsg.NewBuyRequest(
 		peer, assetId, assetGroupKey, assetAmount,
 		*oracleResponse.BidPrice,
 	)
@@ -152,7 +152,7 @@ func (n *Negotiator) RequestQuote(buyOrder BuyOrder) error {
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
 func (n *Negotiator) queryAskFromPriceOracle(
-	request rfqmsg.Request) (rfqmsg.OutgoingMsg, error) {
+	request rfqmsg.BuyRequest) (rfqmsg.OutgoingMsg, error) {
 
 	// Query the price oracle for an asking price.
 	ctx, cancel := n.WithCtxQuitNoTimeout()
@@ -214,7 +214,9 @@ func (n *Negotiator) queryAskFromPriceOracle(
 }
 
 // HandleIncomingQuoteRequest handles an incoming quote request.
-func (n *Negotiator) HandleIncomingQuoteRequest(request rfqmsg.Request) error {
+func (n *Negotiator) HandleIncomingQuoteRequest(
+	request rfqmsg.BuyRequest) error {
+
 	// Ensure that we have a suitable sell offer for the asset that is being
 	// requested. Here we can handle the case where this node does not wish
 	// to sell a particular asset.
