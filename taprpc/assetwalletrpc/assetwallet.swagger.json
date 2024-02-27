@@ -382,12 +382,20 @@
         "funded_psbt": {
           "type": "string",
           "format": "byte",
-          "description": "The funded but not yet signed PSBT packet."
+          "description": "The funded but not yet signed virtual PSBT packet."
         },
         "change_output_index": {
           "type": "integer",
           "format": "int32",
           "description": "The index of the added change output or -1 if no change was left over."
+        },
+        "passive_asset_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The list of passive virtual transactions that are anchored in the same BTC\nlevel anchor transaction inputs as the funded \"active\" asset above. These\nassets can be ignored when using the AnchorVirtualPsbts RPC, since they are\nretrieved, signed and committed automatically in that method. But the\npassive assets have to be included in the CommitVirtualPsbts RPC which is\nused when custom BTC level anchor transactions are created.\nThe main difference to the \"active\" asset above is that the passive assets\nwill not get their own entry in the transfer table of the database, since\nthey are just carried along and not directly affected by the direct user\naction."
         }
       }
     },
