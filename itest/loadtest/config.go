@@ -1,8 +1,10 @@
 package loadtest
 
 import (
+	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 )
@@ -21,6 +23,7 @@ const (
 // User defines the config options for a user in the network.
 type User struct {
 	Tapd *TapConfig `group:"tapd"  namespace:"tapd"`
+	Lnd  *LndConfig `group:"lnd" namespace:"lnd"`
 }
 
 // TapConfig are the main parameters needed for identifying and creating a grpc
@@ -32,6 +35,17 @@ type TapConfig struct {
 
 	TLSPath string `long:"tlspath" description:"Path to tapd's TLS certificate, leave empty if TLS is disabled"`
 	MacPath string `long:"macpath" description:"Path to tapd's macaroon file"`
+}
+
+// LndConfig are the main parameters needed for identifying and creating a grpc
+// client to a lnd subsystem.
+type LndConfig struct {
+	Name string `long:"name" description:"the name of the lnd instance"`
+	Host string `long:"host" description:"the host to connect to"`
+	Port int    `long:"port" description:"the port to connect to"`
+
+	TLSPath string `long:"tlspath" description:"Path to lnd's TLS certificate, leave empty if TLS is disabled"`
+	MacPath string `long:"macpath" description:"Path to tlnd's macaroon file"`
 }
 
 // BitcoinConfig defines exported config options for the connection to the
@@ -55,6 +69,9 @@ type Config struct {
 
 	// Bob is the configuration for the secondary user in the network.
 	Bob *User `group:"bob" namespace:"bob" description:"bob related configuration"`
+
+	// Network is the network that the nodes are connected to.
+	Network string `long:"network" description:"the network the nodes are connected to" choice:"regtest" choice:"testnet" choice:"mainnet"`
 
 	// Bitcoin is the configuration for the bitcoin backend.
 	Bitcoin *BitcoinConfig `group:"bitcoin" namespace:"bitcoin" long:"bitcoin" description:"bitcoin client configuration"`
@@ -96,6 +113,7 @@ func DefaultConfig() Config {
 				Name: "bob",
 			},
 		},
+		Network:          "regtest",
 		BatchSize:        100,
 		NumSends:         50,
 		NumAssets:        1, // We only mint collectibles.
@@ -139,4 +157,27 @@ func LoadConfig() (*Config, error) {
 func ValidateConfig(cfg Config) (*Config, error) {
 	// TODO (positiveblue): add validation logic.
 	return &cfg, nil
+}
+
+// networkParams parses the global network flag into a chaincfg.Params.
+func networkParams(network string) (*chaincfg.Params, error) {
+	switch network {
+	case "mainnet":
+		return &chaincfg.MainNetParams, nil
+
+	case "testnet":
+		return &chaincfg.TestNet3Params, nil
+
+	case "regtest":
+		return &chaincfg.RegressionNetParams, nil
+
+	case "simnet":
+		return &chaincfg.SimNetParams, nil
+
+	case "signet":
+		return &chaincfg.SigNetParams, nil
+
+	default:
+		return nil, fmt.Errorf("unknown network: %v", network)
+	}
 }

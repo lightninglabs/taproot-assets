@@ -19,6 +19,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -34,6 +36,7 @@ var (
 
 type rpcClient struct {
 	cfg *TapConfig
+	lnd *rpc.HarnessRPC
 	taprpc.TaprootAssetsClient
 	assetwalletrpc.AssetWalletClient
 	tapdevrpc.TapDevClient
@@ -96,16 +99,57 @@ func (r *rpcClient) listTransfersSince(t *testing.T, ctx context.Context,
 	return resp.Transfers[newIndex:]
 }
 
+func (r *rpcClient) syncToUniverse(ctx context.Context, t *testing.T,
+	target *rpcClient, timeout time.Duration) {
+
+	ctxt, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	targetHost := fmt.Sprintf("%s:%d", target.cfg.Host, target.cfg.Port)
+
+	_, err := r.AddFederationServer(
+		ctxt, &universerpc.AddFederationServerRequest{
+			Servers: []*universerpc.UniverseFederationServer{
+				{
+					Host: targetHost,
+				},
+			},
+		},
+	)
+	if err != nil {
+		// Only fail the test for other errors than duplicate universe
+		// errors, as we might have already added the server in a
+		// previous run.
+		require.ErrorContains(
+			t, err, universe.ErrDuplicateUniverse.Error(),
+		)
+
+		// If we've already added the server in a previous run, we'll
+		// just need to kick off a sync (as that would otherwise be done
+		// by adding the server request already).
+		mode := universerpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY
+		_, err := r.SyncUniverse(ctxt, &universerpc.SyncRequest{
+			UniverseHost: targetHost,
+			SyncMode:     mode,
+		})
+		require.NoError(t, err)
+	}
+
+	require.Eventually(t, func() bool {
+		return itest.AssertUniverseStateEqual(t, target, r)
+	}, timeout, time.Second)
+}
+
 func initClients(t *testing.T, ctx context.Context,
 	cfg *Config) (*rpcClient, *rpcClient, *rpcclient.Client) {
 
 	// Create tapd clients.
-	alice := getTapClient(t, ctx, cfg.Alice.Tapd)
+	alice := getTapClient(t, ctx, cfg.Alice.Tapd, cfg.Alice.Lnd)
 
 	_, err := alice.GetInfo(ctx, &taprpc.GetInfoRequest{})
 	require.NoError(t, err)
 
-	bob := getTapClient(t, ctx, cfg.Bob.Tapd)
+	bob := getTapClient(t, ctx, cfg.Bob.Tapd, cfg.Bob.Lnd)
 
 	_, err = bob.GetInfo(ctx, &taprpc.GetInfoRequest{})
 	require.NoError(t, err)
@@ -127,7 +171,7 @@ func initClients(t *testing.T, ctx context.Context,
 }
 
 func getTapClient(t *testing.T, ctx context.Context,
-	cfg *TapConfig) *rpcClient {
+	cfg *TapConfig, lndCfg *LndConfig) *rpcClient {
 
 	creds := credentials.NewTLS(&tls.Config{})
 	if cfg.TLSPath != "" {
@@ -167,6 +211,8 @@ func getTapClient(t *testing.T, ctx context.Context,
 	conn, err := grpc.DialContext(ctx, svrAddr, opts...)
 	require.NoError(t, err)
 
+	lnd := getLndClient(t, ctx, lndCfg)
+
 	assetsClient := taprpc.NewTaprootAssetsClient(conn)
 	assetWalletClient := assetwalletrpc.NewAssetWalletClient(conn)
 	devClient := tapdevrpc.NewTapDevClient(conn)
@@ -175,12 +221,63 @@ func getTapClient(t *testing.T, ctx context.Context,
 
 	client := &rpcClient{
 		cfg:                 cfg,
+		lnd:                 lnd,
 		TaprootAssetsClient: assetsClient,
 		AssetWalletClient:   assetWalletClient,
 		TapDevClient:        devClient,
 		MintClient:          mintMintClient,
 		UniverseClient:      universeClient,
 	}
+
+	t.Cleanup(func() {
+		err := conn.Close()
+		require.NoError(t, err)
+	})
+
+	return client
+}
+
+func getLndClient(t *testing.T, ctx context.Context,
+	cfg *LndConfig) *rpc.HarnessRPC {
+
+	creds := credentials.NewTLS(&tls.Config{})
+	if cfg.TLSPath != "" {
+		// Load the certificate file now, if specified.
+		tlsCert, err := os.ReadFile(cfg.TLSPath)
+		require.NoError(t, err)
+
+		cp := x509.NewCertPool()
+		ok := cp.AppendCertsFromPEM(tlsCert)
+		require.True(t, ok)
+
+		creds = credentials.NewClientTLSFromCert(cp, "")
+	}
+
+	// Create a dial options array.
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(creds),
+		grpc.WithDefaultCallOptions(tap.MaxMsgReceiveSize),
+	}
+
+	if cfg.MacPath != "" {
+		macBytes, err := os.ReadFile(cfg.MacPath)
+		require.NoError(t, err)
+
+		mac := &macaroon.Macaroon{}
+		err = mac.UnmarshalBinary(macBytes)
+		require.NoError(t, err)
+
+		macCred, err := macaroons.NewMacaroonCredential(mac)
+		require.NoError(t, err)
+
+		opts = append(opts, grpc.WithPerRPCCredentials(macCred))
+	}
+
+	svrAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	conn, err := grpc.DialContext(ctx, svrAddr, opts...)
+	require.NoError(t, err)
+
+	client := rpc.NewHarnessRPC(ctx, t, conn, cfg.Name)
 
 	t.Cleanup(func() {
 		err := conn.Close()

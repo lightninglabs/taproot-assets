@@ -9,14 +9,12 @@ import (
 	"math/rand"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
-	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,9 +39,6 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 		baseName       = fmt.Sprintf("jpeg-%d", rand.Int31())
 		metaPrefixSize = binary.MaxVarintLen16
 		metadataPrefix = make([]byte, metaPrefixSize)
-		aliceHost      = fmt.Sprintf(
-			"%s:%d", alice.cfg.Host, alice.cfg.Port,
-		)
 	)
 
 	// Before we mint a new group, let's first find out how many there
@@ -166,36 +161,5 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 	})
 	require.True(t, correctOp)
 
-	_, err = bob.AddFederationServer(
-		ctx, &unirpc.AddFederationServerRequest{
-			Servers: []*unirpc.UniverseFederationServer{
-				{
-					Host: aliceHost,
-				},
-			},
-		},
-	)
-	if err != nil {
-		// Only fail the test for other errors than duplicate universe
-		// errors, as we might have already added the server in a
-		// previous run.
-		require.ErrorContains(
-			t, err, universe.ErrDuplicateUniverse.Error(),
-		)
-
-		// If we've already added the server in a previous run, we'll
-		// just need to kick off a sync (as that would otherwise be done
-		// by adding the server request already).
-		_, err := bob.SyncUniverse(ctx, &unirpc.SyncRequest{
-			UniverseHost: aliceHost,
-			SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
-		})
-		require.NoError(t, err)
-	}
-
-	require.Eventually(t, func() bool {
-		return itest.AssertUniverseStateEqual(
-			t, alice, bob,
-		)
-	}, minterTimeout, time.Second)
+	bob.syncToUniverse(ctx, t, alice, cfg.TestTimeout)
 }
