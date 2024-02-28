@@ -69,6 +69,10 @@ func testMultiSignature(t *harnessTest) {
 	aliceScriptKey, aliceInternalKey := deriveKeys(t.t, aliceTapd)
 	bobScriptKey, bobInternalKey := deriveKeys(t.t, bobTapd)
 
+	// We're also simulating a third party that will be able to co-sign. But
+	// in this test Alice and Bob will sign.
+	thirdPartyScriptKey, _ := deriveKeys(t.t, bobTapd)
+
 	// Create the BTC level multisig script, using OP_CHECKSIGADD.
 	btcTapscript, err := txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(aliceInternalKey.PubKey)).
@@ -109,16 +113,39 @@ func testMultiSignature(t *harnessTest) {
 		aliceNonces, _ = musig2.GenNonces(aliceFundingNonceOpt)
 		bobNonces, _   = musig2.GenNonces(bobFundingNonceOpt)
 	)
-	muSig2Key, err := input.MuSig2CombineKeys(
+
+	muSig2Key1, err := input.MuSig2CombineKeys(
 		input.MuSig2Version100RC2, []*btcec.PublicKey{
 			aliceScriptKey.RawKey.PubKey,
 			bobScriptKey.RawKey.PubKey,
 		}, true, &input.MuSig2Tweaks{TaprootBIP0086Tweak: true},
 	)
 	require.NoError(t.t, err)
-	muSig2ScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
-		PubKey: muSig2Key.PreTweakedKey,
-	})
+	muSig2Key2, err := input.MuSig2CombineKeys(
+		input.MuSig2Version100RC2, []*btcec.PublicKey{
+			aliceScriptKey.RawKey.PubKey,
+			thirdPartyScriptKey.RawKey.PubKey,
+		}, true, &input.MuSig2Tweaks{TaprootBIP0086Tweak: true},
+	)
+	require.NoError(t.t, err)
+	muSig2Key3, err := input.MuSig2CombineKeys(
+		input.MuSig2Version100RC2, []*btcec.PublicKey{
+			bobScriptKey.RawKey.PubKey,
+			thirdPartyScriptKey.RawKey.PubKey,
+		}, true, &input.MuSig2Tweaks{TaprootBIP0086Tweak: true},
+	)
+	require.NoError(t.t, err)
+
+	t.Log("Creating tap leaves for MuSig2 combined keys:")
+	t.Logf("Alice+Bob: %x", schnorr.SerializePubKey(muSig2Key1.FinalKey))
+	t.Logf("Alice+ThirdParty: %x",
+		schnorr.SerializePubKey(muSig2Key2.FinalKey))
+	t.Logf("Bob+ThirdParty: %x",
+		schnorr.SerializePubKey(muSig2Key3.FinalKey))
+
+	tapScriptKey, tapLeaves, tapTree, tapControlBlock := createMuSigLeaves(
+		t.t, muSig2Key1, muSig2Key2, muSig2Key3,
+	)
 
 	// We now have everything we need to create the TAP address to receive
 	// the multisig secured assets. The recipient of the assets is going to
@@ -128,7 +155,7 @@ func testMultiSignature(t *harnessTest) {
 	muSig2Addr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId:   firstBatchGenesis.AssetId,
 		Amt:       assetsToSend,
-		ScriptKey: tap.MarshalScriptKey(muSig2ScriptKey),
+		ScriptKey: tap.MarshalScriptKey(tapScriptKey),
 		InternalKey: &taprpc.KeyDescriptor{
 			RawKeyBytes: pubKeyBytes(btcInternalKey),
 		},
@@ -216,19 +243,23 @@ func testMultiSignature(t *harnessTest) {
 	// session ID and Bob's partial signature since we'll use Alice's lnd to
 	// combine the signatures (which is a stateful operation, so the signing
 	// session remembers its own partial signature).
+	leafToSign := tapLeaves[0]
 	_, aliceSessID := tapCreatePartialSig(
-		t.t, aliceTapd, fundedWithdrawPkt, aliceScriptKey.RawKey,
-		aliceNonces, bobScriptKey.RawKey.PubKey, bobNonces.PubNonce,
+		t.t, aliceTapd, fundedWithdrawPkt, leafToSign,
+		aliceScriptKey.RawKey, aliceNonces, bobScriptKey.RawKey.PubKey,
+		bobNonces.PubNonce,
 	)
 	bobPartialSig, _ := tapCreatePartialSig(
-		t.t, bobTapd, fundedWithdrawPkt, bobScriptKey.RawKey, bobNonces,
-		aliceScriptKey.RawKey.PubKey, aliceNonces.PubNonce,
+		t.t, bobTapd, fundedWithdrawPkt, leafToSign,
+		bobScriptKey.RawKey, bobNonces, aliceScriptKey.RawKey.PubKey,
+		aliceNonces.PubNonce,
 	)
 
 	// With the two partial signatures obtained, we can now combine them to
 	// create the final.
 	finalTapWitness := combineSigs(
-		t.t, aliceLnd, aliceSessID, bobPartialSig,
+		t.t, aliceLnd, aliceSessID, bobPartialSig, leafToSign, tapTree,
+		tapControlBlock,
 	)
 
 	// We've now replaced the call to SignVirtualTransaction with a manual
@@ -311,20 +342,51 @@ func testMultiSignature(t *harnessTest) {
 	)
 }
 
-func fetchProofFile(t *testing.T, src *tapdHarness, assetID,
-	scriptKey []byte) []byte {
+func createMuSigLeaves(t *testing.T,
+	keys ...*musig2.AggregateKey) (asset.ScriptKey, []txscript.TapLeaf,
+	*txscript.IndexedTapScriptTree, *txscript.ControlBlock) {
 
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
+	leaves := make([]txscript.TapLeaf, len(keys))
+	for i, key := range keys {
+		muSigTapscript, err := txscript.NewScriptBuilder().
+			AddData(schnorr.SerializePubKey(key.FinalKey)).
+			AddOp(txscript.OP_CHECKSIG).
+			Script()
+		require.NoError(t, err)
+		leaves[i] = txscript.TapLeaf{
+			LeafVersion: txscript.BaseLeafVersion,
+			Script:      muSigTapscript,
+		}
+	}
 
-	resp, err := src.ExportProof(ctxt, &taprpc.ExportProofRequest{
-		AssetId:   assetID,
-		ScriptKey: scriptKey,
-	})
-	require.NoError(t, err)
+	tree := txscript.AssembleTaprootScriptTree(leaves...)
+	internalKey := asset.NUMSPubKey
+	controlBlock := &txscript.ControlBlock{
+		LeafVersion: txscript.BaseLeafVersion,
+		InternalKey: internalKey,
+	}
+	merkleRootHash := tree.RootNode.TapHash()
 
-	return resp.RawProofFile
+	tapKey := txscript.ComputeTaprootOutputKey(
+		internalKey, merkleRootHash[:],
+	)
+	tapScriptKey := asset.ScriptKey{
+		PubKey: tapKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: internalKey,
+			},
+			Tweak: merkleRootHash[:],
+		},
+	}
+
+	if tapKey.SerializeCompressed()[0] ==
+		secp256k1.PubKeyFormatCompressedOdd {
+
+		controlBlock.OutputKeyYIsOdd = true
+	}
+
+	return tapScriptKey, leaves, tree, controlBlock
 }
 
 func deserializeVPacket(t *testing.T, packetBytes []byte) *tappsbt.VPacket {
@@ -339,8 +401,8 @@ func pubKeyBytes(k *btcec.PublicKey) []byte {
 }
 
 func tapCreatePartialSig(t *testing.T, tapd *tapdHarness, vPkt *tappsbt.VPacket,
-	localKey keychain.KeyDescriptor, localNonces *musig2.Nonces,
-	otherKey *btcec.PublicKey,
+	leafToSign txscript.TapLeaf, localKey keychain.KeyDescriptor,
+	localNonces *musig2.Nonces, otherKey *btcec.PublicKey,
 	otherNonces [musig2.PubNonceSize]byte) ([]byte, []byte) {
 
 	lnd := tapd.cfg.LndNode
@@ -350,8 +412,9 @@ func tapCreatePartialSig(t *testing.T, tapd *tapdHarness, vPkt *tappsbt.VPacket,
 	)
 
 	partialSigner := &muSig2PartialSigner{
-		sessID: sessID,
-		lnd:    lnd,
+		sessID:     sessID,
+		lnd:        lnd,
+		leafToSign: leafToSign,
 	}
 
 	// The signing code requires us to specify the BIP-0032 derivation info
@@ -398,8 +461,9 @@ func tapCreatePartialSig(t *testing.T, tapd *tapdHarness, vPkt *tappsbt.VPacket,
 }
 
 type muSig2PartialSigner struct {
-	sessID []byte
-	lnd    *node.HarnessNode
+	sessID     []byte
+	lnd        *node.HarnessNode
+	leafToSign txscript.TapLeaf
 }
 
 func (m *muSig2PartialSigner) ValidateWitnesses(*asset.Asset,
@@ -416,8 +480,9 @@ func (m *muSig2PartialSigner) SignVirtualTx(_ *lndclient.SignDescriptor,
 	)
 	sighashes := txscript.NewTxSigHashes(tx, prevOutputFetcher)
 
-	sigHash, err := txscript.CalcTaprootSignatureHash(
+	sigHash, err := txscript.CalcTapscriptSignaturehash(
 		sighashes, txscript.SigHashDefault, tx, 0, prevOutputFetcher,
+		m.leafToSign,
 	)
 	if err != nil {
 		return nil, err
@@ -539,7 +604,9 @@ func partialSignWithKey(t *testing.T, lnd *node.HarnessNode, pkt *psbt.Packet,
 }
 
 func combineSigs(t *testing.T, lnd *node.HarnessNode, sessID,
-	otherPartialSig []byte) wire.TxWitness {
+	otherPartialSig []byte, leafToSign txscript.TapLeaf,
+	tree *txscript.IndexedTapScriptTree,
+	controlBlock *txscript.ControlBlock) wire.TxWitness {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -554,8 +621,19 @@ func combineSigs(t *testing.T, lnd *node.HarnessNode, sessID,
 	require.NoError(t, err)
 	require.True(t, resp.HaveAllSignatures)
 
-	commitmentWitness := make(wire.TxWitness, 1)
+	for _, leaf := range tree.LeafMerkleProofs {
+		if leaf.TapHash() == leafToSign.TapHash() {
+			controlBlock.InclusionProof = leaf.InclusionProof
+		}
+	}
+
+	controlBlockBytes, err := controlBlock.ToBytes()
+	require.NoError(t, err)
+
+	commitmentWitness := make(wire.TxWitness, 3)
 	commitmentWitness[0] = resp.FinalSignature
+	commitmentWitness[1] = leafToSign.Script
+	commitmentWitness[2] = controlBlockBytes
 
 	return commitmentWitness
 }
