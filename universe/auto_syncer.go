@@ -848,6 +848,7 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 		if err != nil {
 			log.Debugf("asset lookup for %v failed with remote"+
 				"server: %v", assetID.String(), addr.HostStr())
+			//lint:ignore nilerr failure is expected and logged
 			return nil
 		}
 
