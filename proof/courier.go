@@ -1163,9 +1163,6 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 			// Retrieve proof from courier.
 			resp, err := c.client.QueryProof(ctx, &universeKey)
 			if err != nil {
-				return err
-			}
-			if err != nil {
 				return fmt.Errorf("error retrieving proof "+
 					"from universe courier service: %w",
 					err)
