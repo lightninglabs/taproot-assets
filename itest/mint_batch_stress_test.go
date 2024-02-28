@@ -202,7 +202,7 @@ func mintBatchStressTest(
 	// outpoints matching the chain anchor of the group anchor.
 	mintOutpoint := collectibleAnchor.ChainAnchor.AnchorOutpoint
 
-	leafKeys, err := fetchAllLeafKeys(t, alice, &collectUniID)
+	leafKeys, err := fetchAllLeafKeys(alice, &collectUniID)
 	require.NoError(t, err)
 
 	require.Len(t, leafKeys, batchSize)

@@ -180,7 +180,7 @@ func mintBatchAssetsTest(
 		// all outpoints matching the chain anchor of the group anchor.
 		mintOutpoint := collectibleAnchor.ChainAnchor.AnchorOutpoint
 
-		leafKeys, err := fetchAllLeafKeys(t, alice, &collectUniID)
+		leafKeys, err := fetchAllLeafKeys(alice, &collectUniID)
 		require.NoError(t, err)
 
 		require.Len(t, leafKeys, len(mintBatch))
@@ -218,8 +218,8 @@ func mintBatchAssetsTest(
 }
 
 // fetchAllLeafKeys fetches all leaf keys for a given universe ID.
-func fetchAllLeafKeys(t *testing.T, alice TapdClient,
-	id *unirpc.ID) ([]*unirpc.AssetKey, error) {
+func fetchAllLeafKeys(alice TapdClient, id *unirpc.ID) ([]*unirpc.AssetKey,
+	error) {
 
 	keys := make([]*unirpc.AssetKey, 0)
 	offset := int32(0)
