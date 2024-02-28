@@ -89,7 +89,7 @@ func NewTxMerkleProof(txs []*wire.MsgTx, txIdx int) (*TxMerkleProof, error) {
 
 		// Update the currentIdx to reflect the next level in the tree.
 		// We divide by 2 since we always hash in pairs.
-		currentIdx = currentIdx / 2
+		currentIdx /= 2
 
 		// We've arrived at the root so our proof is complete.
 		if len(hashes) == 1 {

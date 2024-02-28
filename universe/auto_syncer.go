@@ -141,9 +141,7 @@ func (f *FederationEnvoy) Start() error {
 		// Before we start the main goroutine, we'll add the set of
 		// static Universe servers.
 		addrs := f.cfg.StaticFederationMembers
-		serverAddrs := fn.Map(addrs, func(a string) ServerAddr {
-			return NewServerAddrFromStr(a)
-		})
+		serverAddrs := fn.Map(addrs, NewServerAddrFromStr)
 
 		serverAddrs = fn.Filter(serverAddrs, func(a ServerAddr) bool {
 			// Before we add the server as a federation member, we

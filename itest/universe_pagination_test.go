@@ -88,7 +88,7 @@ func mintBatchAssetsTest(
 
 	// Update the asset name and metadata to match an index.
 	incrementMintAsset := func(asset *mintrpc.MintAsset, ind int) {
-		asset.Name = asset.Name + strconv.Itoa(ind)
+		asset.Name += strconv.Itoa(ind)
 		binary.PutUvarint(metadataPrefix, uint64(ind))
 		copy(asset.AssetMeta.Data[0:metaPrefixSize], metadataPrefix)
 	}

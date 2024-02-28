@@ -233,7 +233,7 @@ func (t *TapscriptPreimage) IsEmpty() bool {
 
 // Type returns the preimage type.
 func (t *TapscriptPreimage) Type() TapscriptPreimageType {
-	return TapscriptPreimageType(t.siblingType)
+	return t.siblingType
 }
 
 // TapHash returns the tap hash of this preimage according to its type.

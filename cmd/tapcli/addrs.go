@@ -162,7 +162,7 @@ func queryAddr(ctx *cli.Context) error {
 
 	addrs, err := client.QueryAddrs(ctxc, &taprpc.QueryAddrRequest{
 		CreatedAfter:  start,
-		CreatedBefore: int64(end),
+		CreatedBefore: end,
 		Limit:         int32(ctx.Int64(limitName)),
 		Offset:        int32(ctx.Int64(offsetName)),
 	})

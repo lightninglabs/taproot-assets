@@ -288,7 +288,7 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 					&addr.TaprootOutputKey,
 				),
 				Amount:           int64(addr.Amount),
-				AssetType:        int16(assetGen.AssetType),
+				AssetType:        assetGen.AssetType,
 				CreationTime:     addr.CreationTime.UTC(),
 				ProofCourierAddr: proofCourierAddrBytes,
 			})
