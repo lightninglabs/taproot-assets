@@ -38,7 +38,7 @@ target_go_version="$1"
 while IFS= read -r -d '' file; do
     target_files+=("$file")
 done < <(find . \
-    -path ./vendor -prune -o \
+    -path ".**/vendor" -prune -o \
     -type f \
     \( -name "*.Dockerfile" -o -name "Dockerfile" \) \
     -print0 \
