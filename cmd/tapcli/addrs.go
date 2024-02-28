@@ -64,8 +64,7 @@ var newAddrCommand = cli.Command{
 }
 
 func newAddr(ctx *cli.Context) error {
-	switch {
-	case ctx.String(assetIDName) == "":
+	if ctx.String(assetIDName) == "" {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 

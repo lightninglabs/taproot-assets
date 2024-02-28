@@ -296,8 +296,8 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 // messages that will be sent to a peer.
 func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	// Perform type specific handling of the outgoing message.
-	switch msg := outgoingMsg.(type) {
-	case *rfqmsg.Accept:
+	msg, ok := outgoingMsg.(*rfqmsg.Accept)
+	if ok {
 		// Before sending an accept message to a peer, inform the HTLC
 		// order handler that we've accepted the quote request.
 		m.orderHandler.RegisterChannelRemit(*msg)
