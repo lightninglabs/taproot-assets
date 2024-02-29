@@ -207,7 +207,7 @@ func (n *Negotiator) queryAskFromPriceOracle(
 		finalAskPrice = *oracleResponse.AskPrice
 	}
 
-	accept := rfqmsg.NewAcceptFromRequest(
+	accept := rfqmsg.NewBuyAcceptFromRequest(
 		request, finalAskPrice, oracleResponse.Expiry,
 	)
 	return accept, nil

@@ -35,7 +35,7 @@ type ChannelRemit struct {
 }
 
 // NewChannelRemit creates a new channel remit.
-func NewChannelRemit(quoteAccept rfqmsg.Accept) *ChannelRemit {
+func NewChannelRemit(quoteAccept rfqmsg.BuyAccept) *ChannelRemit {
 	// Compute the serialised short channel ID (SCID) for the channel.
 	scid := SerialisedScid(quoteAccept.ShortChannelId())
 
@@ -240,7 +240,7 @@ func (h *OrderHandler) Start() error {
 
 // RegisterChannelRemit registers a channel management remit. If a remit exists
 // for the channel SCID, it is overwritten.
-func (h *OrderHandler) RegisterChannelRemit(quoteAccept rfqmsg.Accept) {
+func (h *OrderHandler) RegisterChannelRemit(quoteAccept rfqmsg.BuyAccept) {
 	log.Debugf("Registering channel remit for SCID: %d",
 		quoteAccept.ShortChannelId())
 

@@ -36,9 +36,9 @@ const (
 	// quote request message.
 	MsgTypeBuyRequest = TapMessageTypeBaseOffset + 0
 
-	// MsgTypeAccept is the message type identifier for a quote accept
+	// MsgTypeBuyAccept is the message type identifier for a quote accept
 	// message.
-	MsgTypeAccept = TapMessageTypeBaseOffset + 1
+	MsgTypeBuyAccept = TapMessageTypeBaseOffset + 1
 
 	// MsgTypeReject is the message type identifier for a quote
 	// reject message.
@@ -68,8 +68,8 @@ func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	switch wireMsg.MsgType {
 	case MsgTypeBuyRequest:
 		return NewBuyRequestMsgFromWire(wireMsg)
-	case MsgTypeAccept:
-		return NewAcceptFromWireMsg(wireMsg)
+	case MsgTypeBuyAccept:
+		return NewBuyAcceptFromWireMsg(wireMsg)
 	case MsgTypeReject:
 		return NewQuoteRejectFromWireMsg(wireMsg)
 	default:

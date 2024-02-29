@@ -12,25 +12,25 @@ import (
 )
 
 const (
-	// Accept message type field TLV types.
+	// Buy accept message type field TLV types.
 
-	TypeAcceptID        tlv.Type = 0
-	TypeAcceptAskPrice  tlv.Type = 2
-	TypeAcceptExpiry    tlv.Type = 4
-	TypeAcceptSignature tlv.Type = 6
+	TypeBuyAcceptID        tlv.Type = 0
+	TypeBuyAcceptAskPrice  tlv.Type = 2
+	TypeBuyAcceptExpiry    tlv.Type = 4
+	TypeBuyAcceptSignature tlv.Type = 6
 )
 
-func TypeRecordAcceptID(id *ID) tlv.Record {
+func TypeRecordBuyAcceptID(id *ID) tlv.Record {
 	const recordSize = 32
 
 	return tlv.MakeStaticRecord(
-		TypeAcceptID, id, recordSize, IdEncoder, IdDecoder,
+		TypeBuyAcceptID, id, recordSize, IdEncoder, IdDecoder,
 	)
 }
 
-func TypeRecordAcceptAskPrice(askPrice *lnwire.MilliSatoshi) tlv.Record {
+func TypeRecordBuyAcceptAskPrice(askPrice *lnwire.MilliSatoshi) tlv.Record {
 	return tlv.MakeStaticRecord(
-		TypeAcceptAskPrice, askPrice, 8, milliSatoshiEncoder,
+		TypeBuyAcceptAskPrice, askPrice, 8, milliSatoshiEncoder,
 		milliSatoshiDecoder,
 	)
 }
@@ -61,21 +61,17 @@ func milliSatoshiDecoder(r io.Reader, val interface{}, buf *[8]byte,
 	return tlv.NewTypeForDecodingErr(val, "MilliSatoshi", l, 8)
 }
 
-func TypeRecordAcceptExpiry(expirySeconds *uint64) tlv.Record {
-	return tlv.MakePrimitiveRecord(
-		TypeAcceptExpiry, expirySeconds,
-	)
+func TypeRecordBuyAcceptExpiry(expirySeconds *uint64) tlv.Record {
+	return tlv.MakePrimitiveRecord(TypeBuyAcceptExpiry, expirySeconds)
 }
 
-func TypeRecordAcceptSig(sig *[64]byte) tlv.Record {
-	return tlv.MakePrimitiveRecord(
-		TypeAcceptSignature, sig,
-	)
+func TypeRecordBuyAcceptSig(sig *[64]byte) tlv.Record {
+	return tlv.MakePrimitiveRecord(TypeBuyAcceptSignature, sig)
 }
 
-// acceptMsgData is a struct that represents the data field of a quote
+// buyAcceptMsgData is a struct that represents the data field of a quote
 // accept message.
-type acceptMsgData struct {
+type buyAcceptMsgData struct {
 	// ID represents the unique identifier of the quote request message that
 	// this response is associated with.
 	ID ID
@@ -92,30 +88,26 @@ type acceptMsgData struct {
 
 // encodeRecords determines the non-nil records to include when encoding at
 // runtime.
-func (q *acceptMsgData) encodeRecords() []tlv.Record {
+func (q *buyAcceptMsgData) encodeRecords() []tlv.Record {
 	var records []tlv.Record
 
 	// Add id record.
-	records = append(records, TypeRecordAcceptID(&q.ID))
+	records = append(records, TypeRecordBuyAcceptID(&q.ID))
 
 	// Add ask price record.
-	records = append(records, TypeRecordAcceptAskPrice(&q.AskPrice))
+	records = append(records, TypeRecordBuyAcceptAskPrice(&q.AskPrice))
 
 	// Add expiry record.
-	records = append(
-		records, TypeRecordAcceptExpiry(&q.Expiry),
-	)
+	records = append(records, TypeRecordBuyAcceptExpiry(&q.Expiry))
 
 	// Add signature record.
-	records = append(
-		records, TypeRecordAcceptSig(&q.sig),
-	)
+	records = append(records, TypeRecordBuyAcceptSig(&q.sig))
 
 	return records
 }
 
 // Encode encodes the structure into a TLV stream.
-func (q *acceptMsgData) Encode(writer io.Writer) error {
+func (q *buyAcceptMsgData) Encode(writer io.Writer) error {
 	stream, err := tlv.NewStream(q.encodeRecords()...)
 	if err != nil {
 		return err
@@ -124,17 +116,17 @@ func (q *acceptMsgData) Encode(writer io.Writer) error {
 }
 
 // DecodeRecords provides all TLV records for decoding.
-func (q *acceptMsgData) decodeRecords() []tlv.Record {
+func (q *buyAcceptMsgData) decodeRecords() []tlv.Record {
 	return []tlv.Record{
-		TypeRecordAcceptID(&q.ID),
-		TypeRecordAcceptAskPrice(&q.AskPrice),
-		TypeRecordAcceptExpiry(&q.Expiry),
-		TypeRecordAcceptSig(&q.sig),
+		TypeRecordBuyAcceptID(&q.ID),
+		TypeRecordBuyAcceptAskPrice(&q.AskPrice),
+		TypeRecordBuyAcceptExpiry(&q.Expiry),
+		TypeRecordBuyAcceptSig(&q.sig),
 	}
 }
 
 // Decode decodes the structure from a TLV stream.
-func (q *acceptMsgData) Decode(r io.Reader) error {
+func (q *buyAcceptMsgData) Decode(r io.Reader) error {
 	stream, err := tlv.NewStream(q.decodeRecords()...)
 	if err != nil {
 		return err
@@ -143,7 +135,7 @@ func (q *acceptMsgData) Decode(r io.Reader) error {
 }
 
 // Bytes encodes the structure into a TLV stream and returns the bytes.
-func (q *acceptMsgData) Bytes() ([]byte, error) {
+func (q *buyAcceptMsgData) Bytes() ([]byte, error) {
 	var b bytes.Buffer
 	err := q.Encode(&b)
 	if err != nil {
@@ -153,8 +145,8 @@ func (q *acceptMsgData) Bytes() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
-// Accept is a struct that represents an accepted quote message.
-type Accept struct {
+// BuyAccept is a struct that represents a buy quote request accept message.
+type BuyAccept struct {
 	// Peer is the peer that sent the quote request.
 	Peer route.Vertex
 
@@ -162,19 +154,19 @@ type Accept struct {
 	// is for.
 	AssetAmount uint64
 
-	// acceptMsgData is the message data for the quote accept message.
-	acceptMsgData
+	// buyAcceptMsgData is the message data for the quote accept message.
+	buyAcceptMsgData
 }
 
-// NewAcceptFromRequest creates a new instance of a quote accept message given
-// a quote request message.
-func NewAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
-	expiry uint64) *Accept {
+// NewBuyAcceptFromRequest creates a new instance of a quote accept message
+// given a quote request message.
+func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
+	expiry uint64) *BuyAccept {
 
-	return &Accept{
+	return &BuyAccept{
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
-		acceptMsgData: acceptMsgData{
+		buyAcceptMsgData: buyAcceptMsgData{
 			ID:       request.ID,
 			AskPrice: askPrice,
 			Expiry:   expiry,
@@ -182,30 +174,30 @@ func NewAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 	}
 }
 
-// NewAcceptFromWireMsg instantiates a new instance from a wire message.
-func NewAcceptFromWireMsg(wireMsg WireMessage) (*Accept, error) {
+// NewBuyAcceptFromWireMsg instantiates a new instance from a wire message.
+func NewBuyAcceptFromWireMsg(wireMsg WireMessage) (*BuyAccept, error) {
 	// Ensure that the message type is an accept message.
-	if wireMsg.MsgType != MsgTypeAccept {
+	if wireMsg.MsgType != MsgTypeBuyAccept {
 		return nil, fmt.Errorf("unable to create an accept message "+
 			"from wire message of type %d", wireMsg.MsgType)
 	}
 
 	// Decode message data component from TLV bytes.
-	var msgData acceptMsgData
+	var msgData buyAcceptMsgData
 	err := msgData.Decode(bytes.NewReader(wireMsg.Data))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode quote accept "+
 			"message data: %w", err)
 	}
 
-	return &Accept{
-		Peer:          wireMsg.Peer,
-		acceptMsgData: msgData,
+	return &BuyAccept{
+		Peer:             wireMsg.Peer,
+		buyAcceptMsgData: msgData,
 	}, nil
 }
 
 // ShortChannelId returns the short channel ID of the quote accept.
-func (q *Accept) ShortChannelId() SerialisedScid {
+func (q *BuyAccept) ShortChannelId() SerialisedScid {
 	// Given valid RFQ message id, we then define a RFQ short chain id
 	// (SCID) by taking the last 8 bytes of the RFQ message id and
 	// interpreting them as a 64-bit integer.
@@ -219,9 +211,9 @@ func (q *Accept) ShortChannelId() SerialisedScid {
 //
 // TODO(ffranr): This method should accept a signer so that we can generate a
 // signature over the message data.
-func (q *Accept) ToWire() (WireMessage, error) {
+func (q *BuyAccept) ToWire() (WireMessage, error) {
 	// Encode message data component as TLV bytes.
-	msgDataBytes, err := q.acceptMsgData.Bytes()
+	msgDataBytes, err := q.buyAcceptMsgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
 			"data: %w", err)
@@ -229,19 +221,19 @@ func (q *Accept) ToWire() (WireMessage, error) {
 
 	return WireMessage{
 		Peer:    q.Peer,
-		MsgType: MsgTypeAccept,
+		MsgType: MsgTypeBuyAccept,
 		Data:    msgDataBytes,
 	}, nil
 }
 
 // String returns a human-readable string representation of the message.
-func (q *Accept) String() string {
-	return fmt.Sprintf("Accept(peer=%x, id=%x, ask_price=%d, expiry=%d)",
+func (q *BuyAccept) String() string {
+	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, expiry=%d)",
 		q.Peer[:], q.ID, q.AskPrice, q.Expiry)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
-var _ OutgoingMsg = (*Accept)(nil)
+var _ OutgoingMsg = (*BuyAccept)(nil)
 
 // Ensure that the message type implements the IncomingMsg interface.
-var _ IncomingMsg = (*Accept)(nil)
+var _ IncomingMsg = (*BuyAccept)(nil)
