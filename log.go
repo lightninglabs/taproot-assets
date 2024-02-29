@@ -6,6 +6,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -107,6 +108,7 @@ func SetupLoggers(root *build.RotatingLogWriter, interceptor signal.Interceptor)
 	AddSubLogger(
 		root, monitoring.Subsystem, interceptor, monitoring.UseLogger,
 	)
+	AddSubLogger(root, rfq.Subsystem, interceptor, rfq.UseLogger)
 }
 
 // AddSubLogger is a helper method to conveniently create and register the

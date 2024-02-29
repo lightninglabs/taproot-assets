@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -96,6 +97,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := tap.NewLndRpcChainBridge(lndServices)
+	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
+	lndRouterClient := tap.NewLndRouterClient(lndServices)
 
 	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
 
@@ -321,6 +324,22 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
 
+	// TODO(ffranr): Replace the mock price oracle with a real one.
+	priceOracle := rfq.NewMockPriceOracle(3600)
+
+	// Construct the RFQ manager.
+	rfqManager, err := rfq.NewManager(
+		rfq.ManagerCfg{
+			PeerMessenger:   msgTransportClient,
+			HtlcInterceptor: lndRouterClient,
+			PriceOracle:     priceOracle,
+			ErrChan:         mainErrChan,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
 		RuntimeID:    runtimeID,
@@ -394,6 +413,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniversePublicAccess:     cfg.Universe.PublicAccess,
 		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
+		RfqManager:               rfqManager,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

@@ -322,7 +322,7 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 		proofCourier = universeServer
 	}
 
-	// Create a tapd that uses Bob and connect it to the universe server.
+	// Create a tapd that uses Alice and connect it to the universe server.
 	tapdHarness := setupTapdHarness(
 		t, ht, lndHarness.Alice, universeServer,
 		func(params *tapdHarnessParams) {

@@ -1,0 +1,143 @@
+syntax = "proto3";
+
+package rfqrpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/rfqrpc";
+
+service Rfq {
+    /* tapcli: `rfq buyorder`
+    AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
+    order already exists for the asset, it will be updated.
+    */
+    rpc AddAssetBuyOrder (AddAssetBuyOrderRequest)
+        returns (AddAssetBuyOrderResponse);
+
+    /* tapcli: `rfq selloffer`
+    AddAssetSellOffer is used to add a sell offer for a specific asset. If a
+    sell offer already exists for the asset, it will be updated.
+    */
+    rpc AddAssetSellOffer (AddAssetSellOfferRequest)
+        returns (AddAssetSellOfferResponse);
+
+    /* tapcli: `rfq acceptedquotes`
+    QueryRfqAcceptedQuotes is used to upsert a sell order for a specific
+    asset.
+    */
+    rpc QueryRfqAcceptedQuotes (QueryRfqAcceptedQuotesRequest)
+        returns (QueryRfqAcceptedQuotesResponse);
+
+    /*
+    SubscribeRfqEventNtfns is used to subscribe to RFQ events.
+    */
+    rpc SubscribeRfqEventNtfns (SubscribeRfqEventNtfnsRequest)
+        returns (stream RfqEvent);
+}
+
+message AssetSpecifier {
+    oneof id {
+        // The 32-byte asset ID specified as raw bytes (gRPC only).
+        bytes asset_id = 1;
+
+        // The 32-byte asset ID encoded as a hex string (use this for REST).
+        string asset_id_str = 2;
+
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key = 3;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 4;
+    }
+}
+
+message AddAssetBuyOrderRequest {
+    // asset_specifier is the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // The minimum amount of the asset to buy.
+    uint64 min_asset_amount = 2;
+
+    // The maximum amount BTC to spend (units: millisats).
+    uint64 max_bid = 3;
+
+    // The unix timestamp after which the order is no longer valid.
+    uint64 expiry = 4;
+
+    // peer_pub_key is an optional field for specifying the public key of the
+    // intended recipient peer for the order.
+    bytes peer_pub_key = 5;
+}
+
+message AddAssetBuyOrderResponse {
+}
+
+message AddAssetSellOfferRequest {
+    // asset_specifier is the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // max_units is the maximum amount of the asset to sell.
+    uint64 max_units = 2;
+}
+
+message AddAssetSellOfferResponse {
+}
+
+message QueryRfqAcceptedQuotesRequest {
+}
+
+message AcceptedQuote {
+    // Quote counterparty peer.
+    string peer = 1;
+
+    // The unique identifier of the quote request.
+    bytes id = 2;
+
+    // scid is the short channel ID of the channel over which the payment for
+    // the quote should be made.
+    uint64 scid = 3;
+
+    // asset_amount is the amount of the subject asset.
+    uint64 asset_amount = 4;
+
+    // ask_price is the price in millisats for the entire asset amount.
+    uint64 ask_price = 5;
+
+    // The unix timestamp after which the quote is no longer valid.
+    uint64 expiry = 6;
+}
+
+message QueryRfqAcceptedQuotesResponse {
+    repeated AcceptedQuote accepted_quotes = 1;
+}
+
+message SubscribeRfqEventNtfnsRequest {
+}
+
+message IncomingAcceptQuoteEvent {
+    // Unix timestamp.
+    uint64 timestamp = 1;
+
+    // The accepted quote.
+    AcceptedQuote accepted_quote = 2;
+}
+
+message AcceptHtlcEvent {
+    // Unix timestamp.
+    uint64 timestamp = 1;
+
+    // scid is the short channel ID of the channel over which the payment for
+    // the quote is made.
+    uint64 scid = 2;
+}
+
+message RfqEvent {
+    oneof event {
+        // incoming_accept_quote is an event that is sent when an incoming
+        // accept quote message is received.
+        IncomingAcceptQuoteEvent incoming_accept_quote = 1;
+
+        // accept_htlc is an event that is sent when a HTLC is accepted by the
+        // RFQ service.
+        AcceptHtlcEvent accept_htlc = 2;
+    }
+}

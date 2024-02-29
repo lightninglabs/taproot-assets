@@ -158,6 +158,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 			"federation: %w", err)
 	}
 
+	// Start the request for quote (RFQ) manager.
+	if err := s.cfg.RfqManager.Start(); err != nil {
+		return fmt.Errorf("unable to start RFQ manager: %w", err)
+	}
+
 	if s.cfg.UniversePublicAccess {
 		err := s.cfg.UniverseFederation.SetAllowPublicAccess()
 		if err != nil {
@@ -583,6 +588,10 @@ func (s *Server) Stop() error {
 	}
 
 	if err := s.cfg.UniverseFederation.Start(); err != nil {
+		return err
+	}
+
+	if err := s.cfg.RfqManager.Stop(); err != nil {
 		return err
 	}
 
