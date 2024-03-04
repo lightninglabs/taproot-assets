@@ -15,6 +15,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
@@ -393,4 +395,45 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	require.NotEmpty(t, batch.BatchTxid)
 
 	return AssertAssetsMinted(t, tapClient, assetRequests, mintTXID, blockHash)
+}
+
+// SyncUniverses syncs the universes of two tapd instances and waits until they
+// are in sync.
+func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
+	universeTapd TapdClient, universeHost string, timeout time.Duration) {
+
+	ctxt, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	_, err := clientTapd.AddFederationServer(
+		ctxt, &universerpc.AddFederationServerRequest{
+			Servers: []*universerpc.UniverseFederationServer{
+				{
+					Host: universeHost,
+				},
+			},
+		},
+	)
+	if err != nil {
+		// Only fail the test for other errors than duplicate universe
+		// errors, as we might have already added the server in a
+		// previous run.
+		require.ErrorContains(
+			t, err, universe.ErrDuplicateUniverse.Error(),
+		)
+
+		// If we've already added the server in a previous run, we'll
+		// just need to kick off a sync (as that would otherwise be done
+		// by adding the server request already).
+		mode := universerpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY
+		_, err := clientTapd.SyncUniverse(ctxt, &universerpc.SyncRequest{
+			UniverseHost: universeHost,
+			SyncMode:     mode,
+		})
+		require.NoError(t, err)
+	}
+
+	require.Eventually(t, func() bool {
+		return AssertUniverseStateEqual(t, universeTapd, clientTapd)
+	}, timeout, time.Second)
 }

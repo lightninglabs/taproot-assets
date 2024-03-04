@@ -48,10 +48,10 @@ func testBurnAssets(t *harnessTest) {
 	// Preparation: We derive a couple of keys, so we can spread out our
 	// assets over several outputs, which we are going to use for the first
 	// couple of test cases.
-	scriptKey1, anchorInternalKeyDesc1 := deriveKeys(t.t, t.tapd)
-	scriptKey2, anchorInternalKeyDesc2 := deriveKeys(t.t, t.tapd)
-	scriptKey3, anchorInternalKeyDesc3 := deriveKeys(t.t, t.tapd)
-	scriptKey4, _ := deriveKeys(t.t, t.tapd)
+	scriptKey1, anchorInternalKeyDesc1 := DeriveKeys(t.t, t.tapd)
+	scriptKey2, anchorInternalKeyDesc2 := DeriveKeys(t.t, t.tapd)
+	scriptKey3, anchorInternalKeyDesc3 := DeriveKeys(t.t, t.tapd)
+	scriptKey4, _ := DeriveKeys(t.t, t.tapd)
 
 	// We create the following outputs:
 	// 	anchor index 0 (anchor internal key 1):
