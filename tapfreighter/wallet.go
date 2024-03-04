@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet/txrules"
@@ -548,14 +547,6 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		return nil, err
 	}
 
-	// Gather Taproot Asset commitments from the selected anchored assets.
-	var selectedTapCommitments []*commitment.TapCommitment
-	for _, selectedCommitment := range selectedCommitments {
-		selectedTapCommitments = append(
-			selectedTapCommitments, selectedCommitment.Commitment,
-		)
-	}
-
 	fullValue, err := tapsend.ValidateInputs(
 		inputCommitments, assetType, fundDesc,
 	)
@@ -661,7 +652,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		// of input versions. We need to set this now as in
 		// PrepareOutputAssets locators are created which includes the
 		// version from the vOut. If we don't set it here, a v1 asset
-		// spent that beocmes change will be a v0 if combined with such
+		// spent that becomes change will be a v0 if combined with such
 		// inputs.
 		//
 		// TODO(roasbeef): remove as not needed?
@@ -740,9 +731,11 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 				internalKey, f.cfg.ChainParams.HDCoinType,
 			)
 
-		anchorPkScript, anchorMerkleRoot, err := inputAnchorPkScript(
-			assetInput,
-		)
+		anchorPkScript, anchorMerkleRoot, _, err :=
+			tapsend.AnchorOutputScript(
+				internalKey.PubKey, assetInput.TapscriptSibling,
+				assetInput.Commitment,
+			)
 		if err != nil {
 			return nil, fmt.Errorf("cannot calculate input asset "+
 				"pk script: %w", err)
@@ -792,7 +785,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 				Value:            assetInput.AnchorOutputValue,
 				PkScript:         anchorPkScript,
 				InternalKey:      internalKey.PubKey,
-				MerkleRoot:       anchorMerkleRoot,
+				MerkleRoot:       anchorMerkleRoot[:],
 				TapscriptSibling: tapscriptSiblingBytes,
 				Bip32Derivation: []*psbt.Bip32Derivation{
 					inBip32Derivation,
@@ -1477,90 +1470,6 @@ func (f *AssetWallet) FetchInternalKeyLocator(ctx context.Context,
 	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
 
 	return f.cfg.AddrBook.FetchInternalKeyLocator(ctx, rawKey)
-}
-
-// inputAnchorPkScript returns the top-level Taproot output script of the input
-// anchor output as well as the Taproot Asset script root of the output (the
-// Taproot tweak).
-func inputAnchorPkScript(assetInput *AnchoredCommitment) ([]byte, []byte,
-	error) {
-
-	// If any of the assets were received non-interactively, then the
-	// Taproot Asset tree of the input anchor output was built with asset
-	// leaves that had empty SplitCommitments. We need to replicate this
-	// here as well.
-	inputCommitment, err := trimSplitWitnesses(assetInput.Commitment)
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to trim split "+
-			"witnesses: %w", err)
-	}
-
-	// Decode the Tapscript sibling preimage if there was one, so we can
-	// arrive at the correct merkle root hash.
-	var siblingHash *chainhash.Hash
-	if assetInput.TapscriptSibling != nil {
-		siblingHash, err = assetInput.TapscriptSibling.TapHash()
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-
-	merkleRoot := inputCommitment.TapscriptRoot(siblingHash)
-	anchorPubKey := txscript.ComputeTaprootOutputKey(
-		assetInput.InternalKey.PubKey, merkleRoot[:],
-	)
-
-	pkScript, err := tapscript.PayToTaprootScript(anchorPubKey)
-	return pkScript, merkleRoot[:], err
-}
-
-// trimSplitWitnesses returns a copy of the input commitment in which all assets
-// with a split commitment witness have their SplitCommitment field set to nil.
-func trimSplitWitnesses(
-	original *commitment.TapCommitment) (*commitment.TapCommitment,
-	error) {
-
-	// If the input asset was received non-interactively, then the Taproot
-	// Asset tree of the input anchor output was built with asset leaves
-	// that had empty SplitCommitments. However, the SplitCommitment field
-	// was populated when the transfer of the input asset was verified.
-	// To recompute the correct output script, we need to build a Taproot
-	// Asset tree from the input asset without any SplitCommitment.
-	tapCommitmentCopy, err := original.Copy()
-	if err != nil {
-		return nil, err
-	}
-
-	allAssets := tapCommitmentCopy.CommittedAssets()
-	for _, inputAsset := range allAssets {
-		inputAssetCopy := inputAsset.Copy()
-
-		// Assets received via non-interactive split should have one
-		// witness, with an empty PrevID and a SplitCommitment present.
-		if inputAssetCopy.HasSplitCommitmentWitness() &&
-			*inputAssetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
-
-			inputAssetCopy.PrevWitnesses[0].SplitCommitment = nil
-
-			// Build the new Taproot Asset tree by first updating
-			// the asset commitment tree with the new asset leaf,
-			// and then the top-level Taproot Asset tree.
-			inputCommitments := tapCommitmentCopy.Commitments()
-			inputCommitmentKey := inputAssetCopy.TapCommitmentKey()
-			inputAssetTree := inputCommitments[inputCommitmentKey]
-			err = inputAssetTree.Upsert(inputAssetCopy)
-			if err != nil {
-				return nil, err
-			}
-
-			err = tapCommitmentCopy.Upsert(inputAssetTree)
-			if err != nil {
-				return nil, err
-			}
-		}
-	}
-
-	return tapCommitmentCopy, nil
 }
 
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
