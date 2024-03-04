@@ -820,7 +820,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
-		currentPkg.VirtualPacket = fundSendRes.VPacket
+		currentPkg.VirtualPackets = []*tappsbt.VPacket{
+			fundSendRes.VPacket,
+		}
 		currentPkg.InputCommitments = fundSendRes.InputCommitments
 
 		currentPkg.SendState = SendStateVirtualSign
@@ -830,18 +832,21 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
-		vPacket := currentPkg.VirtualPacket
-		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
-		log.Infof("Generating Taproot Asset witnesses for send to: %x",
-			receiverScriptKey.SerializeCompressed())
+		vPackets := currentPkg.VirtualPackets
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// Taproot Asset leaves. The witness data for each input will be
 		// assigned for us.
-		_, err := p.cfg.AssetWallet.SignVirtualPacket(vPacket)
-		if err != nil {
-			return nil, fmt.Errorf("unable to sign and commit "+
-				"virtual packet: %w", err)
+		for idx := range vPackets {
+			vPkt := vPackets[idx]
+
+			logPacket(vPkt, "Generating Taproot Asset witnesses")
+
+			_, err := p.cfg.AssetWallet.SignVirtualPacket(vPkt)
+			if err != nil {
+				return nil, fmt.Errorf("unable to sign and "+
+					"commit virtual packet: %w", err)
+			}
 		}
 
 		currentPkg.SendState = SendStateAnchorSign
@@ -857,14 +862,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// Submit the template PSBT to the wallet for funding.
 		//
-		// TODO(roasbeef): unlock the input UTXOs of things fail
+		// TODO(roasbeef): unlock the input UTXOs if things fail
 		var (
 			feeRate chainfee.SatPerKWeight
 			err     error
 		)
 
 		// First, use a manual fee rate if specified by the parcel.
-		// TODO(jhb): Support PSBT flow / PreSignedParcels
 		addrParcel, ok := currentPkg.Parcel.(*AddressParcel)
 		switch {
 		case ok && addrParcel.transferFeeRate != nil:
@@ -882,23 +886,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		readableFeeRate := feeRate.FeePerKVByte().String()
-		log.Infof("sending with fee rate: %v", readableFeeRate)
+		log.Infof("Sending with fee rate: %v", readableFeeRate)
 
-		vPacket := currentPkg.VirtualPacket
-		firstRecipient, err := vPacket.FirstNonSplitRootOutput()
-		if err != nil {
-			return nil, fmt.Errorf("unable to get first "+
-				"interactive output: %w", err)
+		for idx := range currentPkg.VirtualPackets {
+			vPkt := currentPkg.VirtualPackets[idx]
+
+			logPacket(vPkt, "Constructing new Taproot Asset "+
+				"commitments")
 		}
-		receiverScriptKey := firstRecipient.ScriptKey.PubKey
-		log.Infof("Constructing new Taproot Asset commitments for "+
-			"send to: %x", receiverScriptKey.SerializeCompressed())
 
 		// Gather passive assets virtual packets and sign them.
 		wallet := p.cfg.AssetWallet
 
 		currentPkg.PassiveAssets, err = wallet.CreatePassiveAssets(
-			ctx, []*tappsbt.VPacket{vPacket},
+			ctx, currentPkg.VirtualPackets,
 			currentPkg.InputCommitments,
 		)
 		if err != nil {
@@ -917,7 +918,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
 				FeeRate:            feeRate,
-				VPkts:              []*tappsbt.VPacket{vPacket},
+				VPkts:              currentPkg.VirtualPackets,
 				PassiveAssetsVPkts: currentPkg.PassiveAssets,
 			},
 		)
@@ -961,9 +962,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We need to prepare the parcel for storage.
 		parcel, err := ConvertToTransfer(
-			currentHeight, []*tappsbt.VPacket{
-				currentPkg.VirtualPacket,
-			}, currentPkg.AnchorTx, currentPkg.PassiveAssets,
+			currentHeight, currentPkg.VirtualPackets,
+			currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			isLocalKey,
 		)
 		if err != nil {
@@ -1063,6 +1063,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		return &currentPkg, fmt.Errorf("unknown state: %v",
 			currentPkg.SendState)
 	}
+}
+
+// logPacket logs the virtual packet to the debug log.
+func logPacket(vPkt *tappsbt.VPacket, action string) {
+	firstRecipient, err := vPkt.FirstNonSplitRootOutput()
+	if err != nil {
+		// Fall back to the first output if there is no split output
+		// (probably a full-value send).
+		firstRecipient = vPkt.Outputs[0]
+	}
+
+	receiverScriptKey := firstRecipient.ScriptKey.PubKey
+	log.Infof("%s for send to: %x", action,
+		receiverScriptKey.SerializeCompressed())
 }
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will
