@@ -1115,27 +1115,11 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 			return err
 		}
 
-		// Prepare the anchor output's tapscript sibling, if there is
-		// one. We assume (and checked in an earlier step) that each
-		// virtual output declares the same tapscript sibling if
-		// multiple virtual outputs are committed to the same anchor
-		// output index.
-		var (
-			siblingPreimage = vOut.AnchorOutputTapscriptSibling
-			siblingHash     *chainhash.Hash
-		)
-		if siblingPreimage != nil {
-			siblingHash, err = siblingPreimage.TapHash()
-			if err != nil {
-				return fmt.Errorf("unable to get sibling "+
-					"hash: %w", err)
-			}
-		}
-
-		// Create the scripts corresponding to the receiver's
-		// TapCommitment.
-		script, err := tapscript.PayToAddrScript(
-			*internalKey, siblingHash, *anchorCommitment,
+		// We have all the information now to calculate the actual
+		// commitment output script.
+		script, merkleRoot, taprootAssetRoot, err := AnchorOutputScript(
+			internalKey, vOut.AnchorOutputTapscriptSibling,
+			anchorCommitment,
 		)
 		if err != nil {
 			return err
@@ -1146,8 +1130,6 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 
 		// Also set some additional fields in the PSBT output to make
 		// it easier to create the transfer database entry later.
-		merkleRoot := anchorCommitment.TapscriptRoot(siblingHash)
-		taprootAssetRoot := anchorCommitment.TapscriptRoot(nil)
 		btcOut.Unknowns = tappsbt.AddCustomField(
 			btcOut.Unknowns,
 			tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot,
@@ -1161,6 +1143,81 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 	}
 
 	return nil
+}
+
+// AnchorOutputScript creates the anchor output script given an internal key,
+// tapscript sibling and the TapCommitment. It also returns the merkle root and
+// taproot asset root for the commitment.
+func AnchorOutputScript(internalKey *btcec.PublicKey,
+	siblingPreimage *commitment.TapscriptPreimage,
+	anchorCommitment *commitment.TapCommitment) ([]byte, chainhash.Hash,
+	chainhash.Hash, error) {
+
+	var emptyHash chainhash.Hash
+
+	// If any of the assets were received non-interactively, then the
+	// Taproot Asset tree of the input anchor output was built with asset
+	// leaves that had empty SplitCommitments. We need to replicate this
+	// here as well.
+	trimmedCommitment, err := trimSplitWitnesses(anchorCommitment)
+	if err != nil {
+		return nil, emptyHash, emptyHash, fmt.Errorf("unable to trim "+
+			"split witnesses: %w", err)
+	}
+
+	// Decode the Tapscript sibling preimage if there was one, so we can
+	// arrive at the correct merkle root hash.
+	_, siblingHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		siblingPreimage,
+	)
+	if err != nil {
+		return nil, emptyHash, emptyHash, err
+	}
+
+	// Create the scripts corresponding to the receiver's TapCommitment.
+	script, err := tapscript.PayToAddrScript(
+		*internalKey, siblingHash, *trimmedCommitment,
+	)
+	if err != nil {
+		return nil, emptyHash, emptyHash, err
+	}
+
+	// Also set some additional fields in the PSBT output to make it easier
+	// to create the transfer database entry later.
+	merkleRoot := trimmedCommitment.TapscriptRoot(siblingHash)
+	taprootAssetRoot := trimmedCommitment.TapscriptRoot(nil)
+
+	return script, merkleRoot, taprootAssetRoot, nil
+}
+
+// trimSplitWitnesses returns a copy of the commitment in which all assets with
+// a split commitment witness have their SplitCommitment field set to nil.
+func trimSplitWitnesses(
+	c *commitment.TapCommitment) (*commitment.TapCommitment, error) {
+
+	// If the input asset was received non-interactively, then the Taproot
+	// Asset tree of the input anchor output was built with asset leaves
+	// that had empty SplitCommitments. However, the SplitCommitment field
+	// was populated when the transfer of the input asset was verified.
+	// To recompute the correct output script, we need to build a Taproot
+	// Asset tree from the input asset without any SplitCommitment.
+	originalAssets := c.CommittedAssets()
+	assetCopies := make([]*asset.Asset, len(originalAssets))
+	for idx, originalAsset := range originalAssets {
+		assetCopy := originalAsset.Copy()
+
+		// Assets received via non-interactive split should have one
+		// witness, with an empty PrevID and a SplitCommitment present.
+		if assetCopy.HasSplitCommitmentWitness() &&
+			*assetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
+
+			assetCopy.PrevWitnesses[0].SplitCommitment = nil
+		}
+
+		assetCopies[idx] = assetCopy
+	}
+
+	return commitment.FromAssets(assetCopies...)
 }
 
 // interactiveFullValueSend returns true (and the index of the recipient output)
