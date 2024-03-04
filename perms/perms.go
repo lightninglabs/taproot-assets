@@ -104,6 +104,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/PublishAndLogTransfer": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/assetwalletrpc.AssetWallet/NextInternalKey": {{
 			Entity: "assets",
 			Action: "write",

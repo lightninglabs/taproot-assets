@@ -167,6 +167,40 @@ func local_request_AssetWallet_CommitVirtualPsbts_0(ctx context.Context, marshal
 
 }
 
+func request_AssetWallet_PublishAndLogTransfer_0(ctx context.Context, marshaler runtime.Marshaler, client AssetWalletClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq PublishAndLogRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := client.PublishAndLogTransfer(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_AssetWallet_PublishAndLogTransfer_0(ctx context.Context, marshaler runtime.Marshaler, server AssetWalletServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq PublishAndLogRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	msg, err := server.PublishAndLogTransfer(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
 func request_AssetWallet_NextInternalKey_0(ctx context.Context, marshaler runtime.Marshaler, client AssetWalletClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq NextInternalKeyRequest
 	var metadata runtime.ServerMetadata
@@ -539,6 +573,29 @@ func RegisterAssetWalletHandlerServer(ctx context.Context, mux *runtime.ServeMux
 
 	})
 
+	mux.Handle("POST", pattern_AssetWallet_PublishAndLogTransfer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/PublishAndLogTransfer", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/log-transfer"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_AssetWallet_PublishAndLogTransfer_0(rctx, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_AssetWallet_PublishAndLogTransfer_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("POST", pattern_AssetWallet_NextInternalKey_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -821,6 +878,26 @@ func RegisterAssetWalletHandlerClient(ctx context.Context, mux *runtime.ServeMux
 
 	})
 
+	mux.Handle("POST", pattern_AssetWallet_PublishAndLogTransfer_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/assetwalletrpc.AssetWallet/PublishAndLogTransfer", runtime.WithHTTPPathPattern("/v1/taproot-assets/wallet/virtual-psbt/log-transfer"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_AssetWallet_PublishAndLogTransfer_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_AssetWallet_PublishAndLogTransfer_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("POST", pattern_AssetWallet_NextInternalKey_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -973,6 +1050,8 @@ var (
 
 	pattern_AssetWallet_CommitVirtualPsbts_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "virtual-psbt", "commit"}, ""))
 
+	pattern_AssetWallet_PublishAndLogTransfer_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "virtual-psbt", "log-transfer"}, ""))
+
 	pattern_AssetWallet_NextInternalKey_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "internal-key", "next"}, ""))
 
 	pattern_AssetWallet_NextScriptKey_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "wallet", "script-key", "next"}, ""))
@@ -996,6 +1075,8 @@ var (
 	forward_AssetWallet_AnchorVirtualPsbts_0 = runtime.ForwardResponseMessage
 
 	forward_AssetWallet_CommitVirtualPsbts_0 = runtime.ForwardResponseMessage
+
+	forward_AssetWallet_PublishAndLogTransfer_0 = runtime.ForwardResponseMessage
 
 	forward_AssetWallet_NextInternalKey_0 = runtime.ForwardResponseMessage
 

@@ -23,7 +23,12 @@ service AssetWallet {
 
     /*
     AnchorVirtualPsbts merges and then commits multiple virtual transactions in
-    a single BTC level anchor transaction.
+    a single BTC level anchor transaction. This RPC should be used if the BTC
+    level anchor transaction of the assets to be spent are encumbered by a
+    normal key and don't require any special spending conditions. For any custom
+    spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
+    PublishAndLogTransfer should be used instead (which in combination do the
+    same as this RPC but allow for more flexibility).
 
     TODO(guggero): Actually implement accepting and merging multiple
     transactions.
@@ -39,6 +44,15 @@ service AssetWallet {
     */
     rpc CommitVirtualPsbts (CommitVirtualPsbtsRequest)
         returns (CommitVirtualPsbtsResponse);
+
+    /*
+    PublishAndLogTransfer accepts a fully committed and signed anchor
+    transaction and publishes it to the Bitcoin network. It also logs the
+    transfer of the given active and passive assets in the database and ships
+    any outgoing proofs to the counterparties.
+    */
+    rpc PublishAndLogTransfer (PublishAndLogRequest)
+        returns (taprpc.SendAssetResponse);
 
     /*
     NextInternalKey derives the next internal key for the given key family and
@@ -303,6 +317,40 @@ message CommitVirtualPsbtsResponse {
     inputs that were already present in the PSBT are not locked.
     */
     repeated taprpc.OutPoint lnd_locked_utxos = 6;
+}
+
+message PublishAndLogRequest {
+    /*
+    The funded BTC level anchor transaction with all outputs updated to commit
+    to the virtual transactions given. The transaction is ready to be signed,
+    unless some of the asset inputs don't belong to this daemon, in which case
+    the anchor input derivation info must be added to those inputs first.
+    */
+    bytes anchor_psbt = 1;
+
+    /*
+    The updated virtual transactions that contain the state transition proofs
+    of being committed to the BTC level anchor transaction above.
+    */
+    repeated bytes virtual_psbts = 2;
+
+    /*
+    The updated passive virtual transactions that contain the state transition
+    proofs of being committed to the BTC level anchor transaction above.
+    */
+    repeated bytes passive_asset_psbts = 3;
+
+    /*
+    The index of the (added) change output or -1 if no change was left over.
+    */
+    int32 change_output_index = 4;
+
+    /*
+    The list of UTXO lock leases that were acquired for the inputs in the funded
+    PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
+    inputs that were already present in the PSBT are not locked.
+    */
+    repeated taprpc.OutPoint lnd_locked_utxos = 5;
 }
 
 message NextInternalKeyRequest {
