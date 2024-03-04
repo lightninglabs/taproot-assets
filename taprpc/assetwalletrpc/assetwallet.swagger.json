@@ -250,7 +250,6 @@
     "/v1/taproot-assets/wallet/virtual-psbt/anchor": {
       "post": {
         "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction. This RPC should be used if the BTC\nlevel anchor transaction of the assets to be spent are encumbered by a\nnormal key and don't require any special spending conditions. For any custom\nspending conditions on the BTC level, the two RPCs CommitVirtualPsbts and\nPublishAndLogTransfer should be used instead (which in combination do the\nsame as this RPC but allow for more flexibility).",
-        "description": "TODO(guggero): Actually implement accepting and merging multiple\ntransactions.",
         "operationId": "AssetWallet_AnchorVirtualPsbts",
         "responses": {
           "200": {
@@ -517,7 +516,7 @@
         "psbt": {
           "type": "string",
           "format": "byte",
-          "description": "Use an existing PSBT packet as the template for the funded PSBT.\n\nTODO(guggero): Actually implement this. We can't use the \"reserved\"\nkeyword here because we're in a oneof, so we add the field but implement\nit later."
+          "description": "Use an existing PSBT packet as the template for the funded PSBT."
         },
         "raw": {
           "$ref": "#/definitions/assetwalletrpcTxTemplate",
