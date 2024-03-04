@@ -100,6 +100,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/CommitVirtualPsbts": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/assetwalletrpc.AssetWallet/NextInternalKey": {{
 			Entity: "assets",
 			Action: "write",
