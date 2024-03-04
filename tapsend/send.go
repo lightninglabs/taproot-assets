@@ -921,7 +921,10 @@ func commitPacket(vPkt *tappsbt.VPacket,
 			return fmt.Errorf("output %d is missing asset", idx)
 		}
 
-		committedAsset := vOut.Asset
+		sendTapCommitment, err := commitment.FromAssets(vOut.Asset)
+		if err != nil {
+			return fmt.Errorf("error committing assets: %w", err)
+		}
 
 		// Because the receiver of this output might be receiving
 		// through an address (non-interactive), we need to blank out
@@ -932,23 +935,10 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// send. We do the same even for interactive sends to not need
 		// to distinguish between the two cases in the proof file
 		// itself.
-		if vOut.Type == tappsbt.TypeSimple {
-			committedAsset = committedAsset.Copy()
-			committedAsset.PrevWitnesses[0].SplitCommitment = nil
-		}
-
-		// Create the two levels of commitments for the output.
-		sendCommitment, err := commitment.NewAssetCommitment(
-			committedAsset,
-		)
+		sendTapCommitment, err = trimSplitWitnesses(sendTapCommitment)
 		if err != nil {
-			return err
-		}
-		sendTapCommitment, err := commitment.NewTapCommitment(
-			sendCommitment,
-		)
-		if err != nil {
-			return err
+			return fmt.Errorf("error trimming split witnesses: %w",
+				err)
 		}
 
 		// Merge the finished TAP level commitment with the existing
