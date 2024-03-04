@@ -92,10 +92,6 @@ type isFundVirtualPsbtRequest_Template interface {
 
 type FundVirtualPsbtRequest_Psbt struct {
 	// Use an existing PSBT packet as the template for the funded PSBT.
-	//
-	// TODO(guggero): Actually implement this. We can't use the "reserved"
-	// keyword here because we're in a oneof, so we add the field but implement
-	// it later.
 	Psbt []byte `protobuf:"bytes,1,opt,name=psbt,proto3,oneof"`
 }
 

@@ -1178,19 +1178,8 @@ func (f *AssetWallet) SignPassiveAssets(
 func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error) {
 
-	// We currently only support anchoring a single virtual transaction.
-	//
-	// TODO(guggero): Support merging and anchoring multiple virtual
-	// transactions.
-	if len(params.ActivePackets) != 1 {
-		return nil, fmt.Errorf("only a single virtual transaction is " +
-			"supported for now")
-	}
-	vPacket := params.ActivePackets[0]
-
-	allPackets := append(
-		[]*tappsbt.VPacket{vPacket}, params.PassivePackets...,
-	)
+	allPackets := append([]*tappsbt.VPacket{}, params.ActivePackets...)
+	allPackets = append(allPackets, params.PassivePackets...)
 	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
@@ -1211,6 +1200,21 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
 
+	// We'll need to know the total input value of all anchor transactions
+	// that are going to be spent.
+	amountByInput := make(map[wire.OutPoint]int64)
+	for _, vPkt := range params.ActivePackets {
+		for _, vIn := range vPkt.Inputs {
+			amountByInput[vIn.PrevID.OutPoint] = int64(
+				vIn.Anchor.Value,
+			)
+		}
+	}
+	inputSum := int64(0)
+	for _, amount := range amountByInput {
+		inputSum += amount
+	}
+
 	// TODO(roasbeef): also want to log the total fee to disk for
 	// accounting, etc.
 
@@ -1220,7 +1224,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// TODO(jhb): Do we need richer handling for the change output?
 	// We could reassign the change value to our Taproot Asset change output
 	// and remove the change output entirely.
-	adjustFundedPsbt(anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
+	adjustFundedPsbt(anchorPkt, inputSum)
 
 	log.Infof("Received funded PSBT packet")
 	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
@@ -1248,7 +1252,9 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// Now that all the real outputs are in the PSBT, we'll also
 	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	err = addAnchorPsbtInputs(signAnchorPkt, vPacket, params.FeeRate)
+	err = addAnchorPsbtInputs(
+		signAnchorPkt, params.ActivePackets, params.FeeRate,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error adding anchor input: %w", err)
 	}
@@ -1428,32 +1434,46 @@ func adjustFundedPsbt(fPkt *tapsend.FundedPsbt, anchorInputValue int64) {
 
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
 // packet. This is called after the PSBT has been funded, but before signing.
-func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
+func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket,
 	feeRate chainfee.SatPerKWeight) error {
 
-	for idx := range vPkt.Inputs {
-		// With the BIP-0032 information completed, we'll now add the
-		// information as a partial input and also add the input to the
-		// unsigned transaction.
-		vIn := vPkt.Inputs[idx]
-		btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
-			WitnessUtxo: &wire.TxOut{
-				Value:    int64(vIn.Anchor.Value),
-				PkScript: vIn.Anchor.PkScript,
-			},
-			SighashType:            vIn.Anchor.SigHashType,
-			Bip32Derivation:        vIn.Anchor.Bip32Derivation,
-			TaprootBip32Derivation: vIn.Anchor.TrBip32Derivation,
-			TaprootInternalKey: schnorr.SerializePubKey(
-				vIn.Anchor.InternalKey,
-			),
-			TaprootMerkleRoot: vIn.Anchor.MerkleRoot,
-		})
-		btcPkt.UnsignedTx.TxIn = append(
-			btcPkt.UnsignedTx.TxIn, &wire.TxIn{
-				PreviousOutPoint: vIn.PrevID.OutPoint,
-			},
-		)
+	for _, vPkt := range vPackets {
+		for idx := range vPkt.Inputs {
+			// With the BIP-0032 information completed, we'll now
+			// add the information as a partial input and also add
+			// the input to the unsigned transaction.
+			vIn := vPkt.Inputs[idx]
+			a := vIn.Anchor
+
+			// Multiple virtual transaction inputs can point to the
+			// same on-chain outpoint. We need to de-duplicate the
+			// inputs to avoid adding the same input multiple times.
+			if tapsend.HasInput(
+				btcPkt.UnsignedTx, vIn.PrevID.OutPoint,
+			) {
+
+				continue
+			}
+
+			btcPkt.Inputs = append(btcPkt.Inputs, psbt.PInput{
+				WitnessUtxo: &wire.TxOut{
+					Value:    int64(a.Value),
+					PkScript: a.PkScript,
+				},
+				SighashType:            a.SigHashType,
+				Bip32Derivation:        a.Bip32Derivation,
+				TaprootBip32Derivation: a.TrBip32Derivation,
+				TaprootInternalKey: schnorr.SerializePubKey(
+					a.InternalKey,
+				),
+				TaprootMerkleRoot: a.MerkleRoot,
+			})
+			btcPkt.UnsignedTx.TxIn = append(
+				btcPkt.UnsignedTx.TxIn, &wire.TxIn{
+					PreviousOutPoint: vIn.PrevID.OutPoint,
+				},
+			)
+		}
 	}
 
 	// Now that we've added an extra input, we'll want to re-calculate the
