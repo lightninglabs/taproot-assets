@@ -193,6 +193,10 @@ var testCases = []*testCase{
 		test: testPsbtSighashNoneInvalid,
 	},
 	{
+		name: "psbt external commit",
+		test: testPsbtExternalCommit,
+	},
+	{
 		name: "multi input psbt single asset id",
 		test: testMultiInputPsbtSingleAssetID,
 	},
