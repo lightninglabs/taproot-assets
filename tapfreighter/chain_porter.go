@@ -408,13 +408,22 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 				idx, err)
 		}
 
-		inputs := fn.Map(
-			parcel.Inputs, func(in TransferInput) asset.PrevID {
-				return in.PrevID
-			},
-		)
+		var inputsForAsset []asset.PrevID
+		for _, in := range parcel.Inputs {
+			witnesses := parsedSuffix.Asset.Witnesses()
+			for _, witness := range witnesses {
+				if witness.PrevID != nil &&
+					in.PrevID == *witness.PrevID {
+
+					inputsForAsset = append(
+						inputsForAsset, in.PrevID,
+					)
+				}
+			}
+		}
 		outputProof, err := p.updateAssetProofFile(
-			ctx, inputs, parsedSuffix, out.ScriptKey, confEvent,
+			ctx, inputsForAsset, parsedSuffix, out.ScriptKey,
+			confEvent,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to generate an updated "+
