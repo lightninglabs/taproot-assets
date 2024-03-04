@@ -111,9 +111,10 @@ var (
 var (
 	// GenesisDummyScript is a dummy script that we'll use to fund the
 	// initial PSBT packet that'll create initial set of assets. It's the
-	// same size as a encoded P2TR output and has a valid P2TR prefix.
+	// same size as an encoded P2TR output and has a valid P2TR prefix.
 	GenesisDummyScript = append(
-		[]byte{txscript.OP_1, 0x20}, bytes.Repeat([]byte{0x00}, 32)...,
+		[]byte{txscript.OP_1, txscript.OP_DATA_32},
+		bytes.Repeat([]byte{0x00}, 32)...,
 	)
 )
 
@@ -122,11 +123,10 @@ var (
 func CreateDummyOutput() *wire.TxOut {
 	// The dummy PkScript is the same size as an encoded P2TR output and has
 	// a valid P2TR prefix.
-	newOutput := wire.TxOut{
+	return &wire.TxOut{
 		Value:    int64(DummyAmtSats),
 		PkScript: bytes.Clone(GenesisDummyScript),
 	}
-	return &newOutput
 }
 
 // AssetGroupQuerier is an interface that allows us to query for asset groups by
@@ -1019,6 +1019,68 @@ func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 	}
 
 	return spendPkt, nil
+}
+
+// PrepareAnchoringTemplate creates a BTC level PSBT packet that can be used to
+// anchor the given virtual packets. The PSBT packet is created with the
+// necessary inputs and outputs to anchor the virtual packets, but without any
+// signatures. The main difference to CreateAnchorTx is that this function
+// populates the inputs with the witness UTXO and derivation path information.
+func PrepareAnchoringTemplate(
+	vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
+
+	btcPacket, err := CreateAnchorTx(vPackets)
+	if err != nil {
+		return nil, err
+	}
+
+	// Populate input information now. We add the witness UTXO and
+	// derivation path information for each asset input. Since the virtual
+	// transactions might refer to the same BTC level input, we need to make
+	// sure we don't add any duplicate inputs.
+	for pIdx := range vPackets {
+		for iIdx := range vPackets[pIdx].Inputs {
+			vIn := vPackets[pIdx].Inputs[iIdx]
+			anchor := vIn.Anchor
+
+			if HasInput(btcPacket.UnsignedTx, vIn.PrevID.OutPoint) {
+				continue
+			}
+
+			btcPacket.Inputs = append(btcPacket.Inputs, psbt.PInput{
+				WitnessUtxo: &wire.TxOut{
+					Value:    int64(anchor.Value),
+					PkScript: anchor.PkScript,
+				},
+				SighashType:            anchor.SigHashType,
+				Bip32Derivation:        anchor.Bip32Derivation,
+				TaprootBip32Derivation: anchor.TrBip32Derivation,
+				TaprootInternalKey: schnorr.SerializePubKey(
+					anchor.InternalKey,
+				),
+				TaprootMerkleRoot: anchor.MerkleRoot,
+			})
+			btcPacket.UnsignedTx.TxIn = append(
+				btcPacket.UnsignedTx.TxIn, &wire.TxIn{
+					PreviousOutPoint: vIn.PrevID.OutPoint,
+				},
+			)
+		}
+	}
+
+	return btcPacket, nil
+}
+
+// HasInput returns true if the given transaction has an input that spends the
+// given outpoint.
+func HasInput(tx *wire.MsgTx, outpoint wire.OutPoint) bool {
+	for _, in := range tx.TxIn {
+		if in.PreviousOutPoint == outpoint {
+			return true
+		}
+	}
+
+	return false
 }
 
 // UpdateTaprootOutputKeys updates a PSBT with outputs embedding TapCommitments

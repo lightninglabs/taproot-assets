@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -784,20 +783,6 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 	}
 
 	return nil
-}
-
-// createDummyOutput creates a new Bitcoin transaction output that is later
-// used to embed a Taproot Asset commitment.
-func createDummyOutput() *wire.TxOut {
-	// The dummy PkScript is the same size as an encoded P2TR output.
-	newOutput := wire.TxOut{
-		Value: int64(tapsend.DummyAmtSats),
-		PkScript: append(
-			[]byte{txscript.OP_1, txscript.OP_DATA_32},
-			make([]byte, 32)...,
-		),
-	}
-	return &newOutput
 }
 
 // stateStep attempts to step through the state machine to complete a Taproot
