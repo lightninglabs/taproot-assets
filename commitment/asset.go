@@ -279,6 +279,11 @@ func (c *AssetCommitment) Delete(oldAsset *asset.Asset) error {
 		return ErrAssetTypeMismatch
 	}
 
+	// Deleting from an empty tree is a no-op.
+	if len(c.assets) == 0 {
+		return nil
+	}
+
 	key := oldAsset.AssetCommitmentKey()
 
 	// TODO(bhandras): thread the context through.
