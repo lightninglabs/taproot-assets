@@ -1201,6 +1201,13 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 				"%w", err)
 		}
 
+		// If a script key was specified, it needs to contain the full
+		// key descriptor.
+		if scriptKey.TweakedScriptKey == nil {
+			return nil, fmt.Errorf("script key must contain the " +
+				"full tweaked key descriptor")
+		}
+
 		rpcsLog.Debugf("Decoded script key %x (internal %x, tweak %x)",
 			scriptKey.PubKey.SerializeCompressed(),
 			scriptKey.RawKey.PubKey.SerializeCompressed(),
