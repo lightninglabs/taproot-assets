@@ -193,7 +193,7 @@ func treeFromBranch(t *testing.T, children [][]byte) (chainhash.Hash,
 
 // storeTapscriptTreeWrapper wraps a DB transaction that stores a tapscript
 // tree.
-func storeTapscriptTreeWrapper(t *testing.T, ctx context.Context, isBranch bool,
+func storeTapscriptTreeWrapper(ctx context.Context, isBranch bool,
 	store *AssetMintingStore, rootHash []byte, nodes [][]byte) error {
 
 	var writeTxOpts AssetStoreTxOptions
@@ -207,9 +207,8 @@ func storeTapscriptTreeWrapper(t *testing.T, ctx context.Context, isBranch bool,
 
 // fetchTapscriptTreeWrapper wraps a DB transaction that fetches a tapscript
 // tree.
-func fetchTapscriptTreeWrapper(t *testing.T, ctx context.Context,
-	rootHash []byte, store *AssetMintingStore) ([]TapscriptTreeNode,
-	error) {
+func fetchTapscriptTreeWrapper(ctx context.Context, rootHash []byte,
+	store *AssetMintingStore) ([]TapscriptTreeNode, error) {
 
 	var (
 		dbTreeNodes []TapscriptTreeNode
@@ -228,8 +227,8 @@ func fetchTapscriptTreeWrapper(t *testing.T, ctx context.Context,
 
 // deleteTapscriptTreeWrapper wraps a DB transaction that deletes a tapscript
 // tree.
-func deleteTapscriptTreeWrapper(t *testing.T, ctx context.Context,
-	rootHash []byte, store *AssetMintingStore) error {
+func deleteTapscriptTreeWrapper(ctx context.Context, rootHash []byte,
+	store *AssetMintingStore) error {
 
 	var writeTxOpts AssetStoreTxOptions
 	return store.db.ExecTx(ctx, &writeTxOpts,
@@ -242,7 +241,7 @@ func deleteTapscriptTreeWrapper(t *testing.T, ctx context.Context,
 func assertTreeDeletion(t *testing.T, ctx context.Context, rootHash []byte,
 	store *AssetMintingStore) {
 
-	dbTree, err := fetchTapscriptTreeWrapper(t, ctx, rootHash, store)
+	dbTree, err := fetchTapscriptTreeWrapper(ctx, rootHash, store)
 	require.NoError(t, err)
 	require.Empty(t, dbTree)
 }
@@ -252,7 +251,7 @@ func assertTreeDeletion(t *testing.T, ctx context.Context, rootHash []byte,
 func assertStoredTreeEqual(t *testing.T, ctx context.Context, isBranch bool,
 	store *AssetMintingStore, rootHash []byte, expected [][]byte) {
 
-	dbTree, err := fetchTapscriptTreeWrapper(t, ctx, rootHash, store)
+	dbTree, err := fetchTapscriptTreeWrapper(ctx, rootHash, store)
 	require.NoError(t, err)
 
 	require.True(t, fn.All(dbTree, func(node TapscriptTreeNode) bool {
@@ -356,8 +355,8 @@ func addRandSiblingToBatch(t *testing.T, batch *tapgarden.MintingBatch) (
 // seedling is being issued into an existing group, and creates a multi-asset
 // group. Specifically, one seedling will have emission enabled, and the other
 // seedling will reference the first seedling as its group anchor.
-func addMultiAssetGroupToBatch(t *testing.T,
-	seedlings map[string]*tapgarden.Seedling) (string, string) {
+func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (string,
+	string) {
 
 	seedlingNames := maps.Keys(seedlings)
 	seedlingCount := len(seedlingNames)
@@ -1268,7 +1267,7 @@ func TestGroupAnchors(t *testing.T) {
 	_, seedlingGroups, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
-	addMultiAssetGroupToBatch(t, mintingBatch.Seedlings)
+	addMultiAssetGroupToBatch(mintingBatch.Seedlings)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err)
 
@@ -1283,9 +1282,7 @@ func TestGroupAnchors(t *testing.T) {
 	// Now we'll add an additional set of seedlings with
 	// another multi-asset group.
 	seedlings := tapgarden.RandSeedlings(t, numSeedlings)
-	secondAnchor, secondGrouped := addMultiAssetGroupToBatch(
-		t, seedlings,
-	)
+	secondAnchor, secondGrouped := addMultiAssetGroupToBatch(seedlings)
 
 	// We add seedlings one at a time, in order, as the planter does.
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
@@ -1424,24 +1421,24 @@ func TestTapscriptTreeStore(t *testing.T) {
 
 	// Start with the cases where tree insertion should fail.
 	badRootHashErr := storeTapscriptTreeWrapper(
-		t, ctx, false, assetStore, tree1Hash[1:], tree1,
+		ctx, false, assetStore, tree1Hash[1:], tree1,
 	)
 	require.ErrorContains(t, badRootHashErr, "must be 32 bytes")
 
 	emptyTreeErr := storeTapscriptTreeWrapper(
-		t, ctx, false, assetStore, tree1Hash[:], nil,
+		ctx, false, assetStore, tree1Hash[:], nil,
 	)
 	require.ErrorContains(t, emptyTreeErr, "no tapscript tree nodes")
 
 	invalidBranchErr := storeTapscriptTreeWrapper(
-		t, ctx, true, assetStore, tree4Hash[:], tree3,
+		ctx, true, assetStore, tree4Hash[:], tree3,
 	)
 	require.ErrorContains(t, invalidBranchErr, "must be 2 nodes")
 
 	// Now, let's insert the first tree, and then assert that we can fetch
 	// and decode an identical tree.
 	err := storeTapscriptTreeWrapper(
-		t, ctx, false, assetStore, tree1Hash[:], tree1,
+		ctx, false, assetStore, tree1Hash[:], tree1,
 	)
 	require.NoError(t, err)
 
@@ -1449,19 +1446,17 @@ func TestTapscriptTreeStore(t *testing.T) {
 
 	// If we try to fetch a tree with a different root hash, that will not
 	// return an error, but the results should be empty.
-	dbTree2, err := fetchTapscriptTreeWrapper(
-		t, ctx, tree2Hash[:], assetStore,
-	)
+	dbTree2, err := fetchTapscriptTreeWrapper(ctx, tree2Hash[:], assetStore)
 	require.Empty(t, dbTree2)
 	require.Nil(t, err)
 
 	// Trying to delete a tree we haven't inserted yet will not err.
-	err = deleteTapscriptTreeWrapper(t, ctx, tree2Hash[:], assetStore)
+	err = deleteTapscriptTreeWrapper(ctx, tree2Hash[:], assetStore)
 	require.Nil(t, err)
 
 	// Insert the second tree, which has one node already inserted.
 	err = storeTapscriptTreeWrapper(
-		t, ctx, false, assetStore, tree2Hash[:], tree2,
+		ctx, false, assetStore, tree2Hash[:], tree2,
 	)
 	require.NoError(t, err)
 
@@ -1471,7 +1466,7 @@ func TestTapscriptTreeStore(t *testing.T) {
 
 	// If we delete the first tree, we should still be able to fetch the
 	// second tree intact.
-	err = deleteTapscriptTreeWrapper(t, ctx, tree1Hash[:], assetStore)
+	err = deleteTapscriptTreeWrapper(ctx, tree1Hash[:], assetStore)
 	require.NoError(t, err)
 	assertTreeDeletion(t, ctx, tree1Hash[:], assetStore)
 
@@ -1480,7 +1475,7 @@ func TestTapscriptTreeStore(t *testing.T) {
 	// Let's insert the third tree, which contains a node that's a duplicate
 	// of an already-inserted node.
 	err = storeTapscriptTreeWrapper(
-		t, ctx, false, assetStore, tree3Hash[:], tree3,
+		ctx, false, assetStore, tree3Hash[:], tree3,
 	)
 	require.NoError(t, err)
 
@@ -1489,7 +1484,7 @@ func TestTapscriptTreeStore(t *testing.T) {
 	assertStoredTreeEqual(t, ctx, false, assetStore, tree3Hash[:], tree3)
 
 	// Deleting the third tree should not affect the second tree.
-	err = deleteTapscriptTreeWrapper(t, ctx, tree3Hash[:], assetStore)
+	err = deleteTapscriptTreeWrapper(ctx, tree3Hash[:], assetStore)
 	require.NoError(t, err)
 	assertTreeDeletion(t, ctx, tree1Hash[:], assetStore)
 
@@ -1497,7 +1492,7 @@ func TestTapscriptTreeStore(t *testing.T) {
 
 	// Let's also test handling of tapscript branches.
 	err = storeTapscriptTreeWrapper(
-		t, ctx, true, assetStore, tree4Hash[:], tree4,
+		ctx, true, assetStore, tree4Hash[:], tree4,
 	)
 	require.NoError(t, err)
 
@@ -1505,7 +1500,7 @@ func TestTapscriptTreeStore(t *testing.T) {
 
 	// The second tapscript branch shares a node with the first.
 	err = storeTapscriptTreeWrapper(
-		t, ctx, true, assetStore, tree5Hash[:], tree5,
+		ctx, true, assetStore, tree5Hash[:], tree5,
 	)
 	require.NoError(t, err)
 
@@ -1513,7 +1508,7 @@ func TestTapscriptTreeStore(t *testing.T) {
 	assertStoredTreeEqual(t, ctx, true, assetStore, tree5Hash[:], tree5)
 
 	// Deleting the first set of branches should not affect the second.
-	err = deleteTapscriptTreeWrapper(t, ctx, tree4Hash[:], assetStore)
+	err = deleteTapscriptTreeWrapper(ctx, tree4Hash[:], assetStore)
 	require.NoError(t, err)
 	assertTreeDeletion(t, ctx, tree4Hash[:], assetStore)
 

@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"math/rand"
 	"testing"
 	"time"
@@ -23,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -520,7 +520,7 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 
 	priv, err := btcec.NewPrivateKey()
 	if err != nil {
-		return keychain.KeyDescriptor{}, nil
+		return keychain.KeyDescriptor{}, err
 	}
 
 	loc := keychain.KeyLocator{

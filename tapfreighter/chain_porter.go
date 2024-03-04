@@ -657,10 +657,6 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 		// Deliver proof to proof courier service.
 		err = courier.DeliverProof(ctx, receiverProof)
-		if err != nil {
-			return fmt.Errorf("failed to deliver proof via "+
-				"courier service: %w", err)
-		}
 
 		// If the proof courier returned a backoff error, then
 		// we'll just return nil here so that we can retry
@@ -670,7 +666,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return nil
 		}
 		if err != nil {
-			return fmt.Errorf("error delivering proof: %w", err)
+			return fmt.Errorf("failed to deliver proof via "+
+				"courier service: %w", err)
 		}
 
 		return nil

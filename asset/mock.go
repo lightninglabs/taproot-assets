@@ -270,6 +270,8 @@ func SignOutputRaw(priv *btcec.PrivateKey, tx *wire.MsgTx,
 			signDesc.Output.Value, signDesc.Output.PkScript,
 			leaf, signDesc.HashType, privKey,
 		)
+	default:
+		// A witness V0 sign method should never appear here.
 	}
 	if err != nil {
 		return nil, err

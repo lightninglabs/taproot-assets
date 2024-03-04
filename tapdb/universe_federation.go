@@ -279,7 +279,7 @@ func (u *UniverseFederationDB) RemoveServers(ctx context.Context,
 			// host string instead. This avoids bugs where a user
 			// doesn't set the ID value, and we try to delete the
 			// very first server.
-			uniID := int64(a.ID)
+			uniID := a.ID
 			if a.HostStr() != "" {
 				uniID = -1
 			}

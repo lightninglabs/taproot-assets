@@ -64,8 +64,7 @@ var newAddrCommand = cli.Command{
 }
 
 func newAddr(ctx *cli.Context) error {
-	switch {
-	case ctx.String(assetIDName) == "":
+	if ctx.String(assetIDName) == "" {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
@@ -163,7 +162,7 @@ func queryAddr(ctx *cli.Context) error {
 
 	addrs, err := client.QueryAddrs(ctxc, &taprpc.QueryAddrRequest{
 		CreatedAfter:  start,
-		CreatedBefore: int64(end),
+		CreatedBefore: end,
 		Limit:         int32(ctx.Int64(limitName)),
 		Offset:        int32(ctx.Int64(offsetName)),
 	})

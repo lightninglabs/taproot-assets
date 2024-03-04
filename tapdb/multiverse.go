@@ -225,8 +225,8 @@ func newRootPageQuery(q universe.RootNodesQuery) rootPageQuery {
 		withAmountsById: q.WithAmountsById,
 		leafQuery: leafQuery{
 			sortDirection: q.SortDirection,
-			offset:        int32(q.Offset),
-			limit:         int32(q.Limit),
+			offset:        q.Offset,
+			limit:         q.Limit,
 		},
 	}
 }
@@ -401,8 +401,8 @@ type leafQuery struct {
 func newLeafQuery(q universe.UniverseLeafKeysQuery) leafQuery {
 	return leafQuery{
 		sortDirection: q.SortDirection,
-		offset:        int32(q.Offset),
-		limit:         int32(q.Limit),
+		offset:        q.Offset,
+		limit:         q.Limit,
 	}
 }
 
@@ -725,13 +725,13 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 
 	params := sqlc.UniverseRootsParams{
 		SortDirection: sqlInt16(q.SortDirection),
-		NumOffset:     int32(q.Offset),
+		NumOffset:     q.Offset,
 		NumLimit: func() int32 {
 			if q.Limit == 0 {
 				return universe.MaxPageSize
 			}
 
-			return int32(q.Limit)
+			return q.Limit
 		}(),
 	}
 

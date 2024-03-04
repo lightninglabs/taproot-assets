@@ -516,8 +516,7 @@ var universeProofInsertInsert = cli.Command{
 }
 
 func universeProofInsert(ctx *cli.Context) error {
-	switch {
-	case ctx.String(proofPathName) == "":
+	if ctx.String(proofPathName) == "" {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
@@ -617,8 +616,7 @@ var universeSyncCommand = cli.Command{
 }
 
 func universeSync(ctx *cli.Context) error {
-	switch {
-	case ctx.String(universeHostName) == "":
+	if ctx.String(universeHostName) == "" {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
@@ -721,8 +719,7 @@ var universeFederationAddCommand = cli.Command{
 }
 
 func universeFederationAdd(ctx *cli.Context) error {
-	switch {
-	case ctx.String(universeHostName) == "":
+	if ctx.String(universeHostName) == "" {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
@@ -771,9 +768,9 @@ var universeFederationDelCommand = cli.Command{
 }
 
 func universeFederationDel(ctx *cli.Context) error {
-	switch {
-	case ctx.String(universeHostName) == "" &&
-		ctx.Int(universeServerID) == 0:
+	if ctx.String(universeHostName) == "" &&
+		ctx.Int(universeServerID) == 0 {
+
 		return cli.ShowSubcommandHelp(ctx)
 	}
 

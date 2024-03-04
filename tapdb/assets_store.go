@@ -1153,7 +1153,8 @@ func (a *AssetStore) FetchAssetProofs(ctx context.Context,
 		// TODO(roasbeef): can modify the query to use IN somewhere
 		// instead? then would take input params and insert into
 		// virtual rows to use
-		for _, locator := range targetAssets {
+		for ind := range targetAssets {
+			locator := targetAssets[ind]
 			args, err := locatorToProofQuery(locator)
 			if err != nil {
 				return err

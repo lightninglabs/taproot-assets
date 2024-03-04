@@ -62,12 +62,13 @@ func NewTxMerkleProof(txs []*wire.MsgTx, txIdx int) (*TxMerkleProof, error) {
 			// If we are the left child, a right sibling may not
 			// exist.
 			hash := hashes[currentIdx+1]
-			if hash != nil {
+			switch {
+			case hash != nil:
 				sibling = *hash
-			} else if hashes[currentIdx] == nil {
-				return nil, errors.New("invalid merkle tree")
-			} else {
+			case hashes[currentIdx] != nil:
 				sibling = *hashes[currentIdx]
+			default:
+				return nil, errors.New("invalid merkle tree")
 			}
 		} else {
 			// If we are the right child, there'll always be a left
@@ -88,7 +89,7 @@ func NewTxMerkleProof(txs []*wire.MsgTx, txIdx int) (*TxMerkleProof, error) {
 
 		// Update the currentIdx to reflect the next level in the tree.
 		// We divide by 2 since we always hash in pairs.
-		currentIdx = currentIdx / 2
+		currentIdx /= 2
 
 		// We've arrived at the root so our proof is complete.
 		if len(hashes) == 1 {

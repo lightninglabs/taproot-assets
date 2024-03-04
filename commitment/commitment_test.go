@@ -450,15 +450,16 @@ func TestMintAndDeriveTapCommitment(t *testing.T) {
 
 			var tapCommitment *TapCommitment
 
-			if includesAsset && includesAssetGroup {
+			switch {
+			case includesAsset && includesAssetGroup:
 				tapCommitment, err = proof.DeriveByAssetInclusion(
 					asset,
 				)
-			} else if includesAssetGroup {
+			case !includesAsset && includesAssetGroup:
 				tapCommitment, err = proof.DeriveByAssetExclusion(
 					asset.AssetCommitmentKey(),
 				)
-			} else {
+			case !includesAsset && !includesAssetGroup:
 				tapCommitment, err = proof.DeriveByAssetCommitmentExclusion(
 					asset.TapCommitmentKey(),
 				)

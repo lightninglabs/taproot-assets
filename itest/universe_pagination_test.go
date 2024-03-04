@@ -88,7 +88,7 @@ func mintBatchAssetsTest(
 
 	// Update the asset name and metadata to match an index.
 	incrementMintAsset := func(asset *mintrpc.MintAsset, ind int) {
-		asset.Name = asset.Name + strconv.Itoa(ind)
+		asset.Name += strconv.Itoa(ind)
 		binary.PutUvarint(metadataPrefix, uint64(ind))
 		copy(asset.AssetMeta.Data[0:metaPrefixSize], metadataPrefix)
 	}
@@ -180,7 +180,7 @@ func mintBatchAssetsTest(
 		// all outpoints matching the chain anchor of the group anchor.
 		mintOutpoint := collectibleAnchor.ChainAnchor.AnchorOutpoint
 
-		leafKeys, err := fetchAllLeafKeys(t, alice, &collectUniID)
+		leafKeys, err := fetchAllLeafKeys(alice, &collectUniID)
 		require.NoError(t, err)
 
 		require.Len(t, leafKeys, len(mintBatch))
@@ -218,8 +218,8 @@ func mintBatchAssetsTest(
 }
 
 // fetchAllLeafKeys fetches all leaf keys for a given universe ID.
-func fetchAllLeafKeys(t *testing.T, alice TapdClient,
-	id *unirpc.ID) ([]*unirpc.AssetKey, error) {
+func fetchAllLeafKeys(alice TapdClient, id *unirpc.ID) ([]*unirpc.AssetKey,
+	error) {
 
 	keys := make([]*unirpc.AssetKey, 0)
 	offset := int32(0)

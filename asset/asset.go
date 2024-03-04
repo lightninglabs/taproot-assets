@@ -778,11 +778,7 @@ func (g *GroupKey) IsEqual(otherGroupKey *GroupKey) bool {
 		return false
 	}
 
-	return slices.EqualFunc(
-		g.Witness, otherGroupKey.Witness, func(a, b []byte) bool {
-			return bytes.Equal(a, b)
-		},
-	)
+	return slices.EqualFunc(g.Witness, otherGroupKey.Witness, bytes.Equal)
 }
 
 // IsEqualGroup returns true if this group key describes the same asset group

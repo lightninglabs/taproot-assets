@@ -333,7 +333,7 @@ func (s *CoinSelect) selectForAmount(minTotalAmount uint64,
 
 			// Keep track of the total amount of assets we've seen
 			// so far.
-			amountSum += uint64(anchoredCommitment.Asset.Amount)
+			amountSum += anchoredCommitment.Asset.Amount
 			if amountSum >= minTotalAmount {
 				// At this point a target min amount was
 				// specified and has been reached.

@@ -101,7 +101,7 @@ func extractSqlInt32[T constraints.Integer](num sql.NullInt32) T {
 // NOTE: This function is intended to be used along with the wire.WriteOutPoint
 // function. Once the ReadOutPoint function is exported, then it can be used in
 // place of this.
-func readOutPoint(r io.Reader, pver uint32, version int32, op *wire.OutPoint) error {
+func readOutPoint(r io.Reader, _ uint32, _ uint32, op *wire.OutPoint) error {
 	_, err := io.ReadFull(r, op.Hash[:])
 	if err != nil {
 		return err

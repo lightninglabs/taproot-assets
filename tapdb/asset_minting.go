@@ -620,10 +620,8 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 						Index: extractSqlInt32[uint32](
 							sprout.GroupKeyIndex,
 						),
-						Family: keychain.KeyFamily(
-							extractSqlInt32[keychain.KeyFamily](
-								sprout.GroupKeyFamily,
-							),
+						Family: extractSqlInt32[keychain.KeyFamily](
+							sprout.GroupKeyFamily,
 						),
 					},
 				},

@@ -54,20 +54,9 @@ func testBasicSendUnidirectional(t *harnessTest) {
 
 		broadcastState := tapfreighter.SendStateBroadcast.String()
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
-			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ExecuteSendStateEvent:
-				ev := eventTyped.ExecuteSendStateEvent
-
-				// Log send state execution.
-				timestamp := time.UnixMicro(ev.Timestamp)
-				t.Logf("Executing send state (%v): %v",
-					timestamp.Format(time.RFC3339Nano),
-					ev.SendState)
-
-				return ev.SendState == broadcastState
-			}
-
-			return false
+			return AssertSendEventExecuteSendState(
+				t, event, broadcastState,
+			)
 		}
 
 		timeout := 2 * defaultProofTransferReceiverAckTimeout
@@ -168,20 +157,9 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 
 		broadcastState := tapfreighter.SendStateBroadcast.String()
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
-			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ExecuteSendStateEvent:
-				ev := eventTyped.ExecuteSendStateEvent
-
-				// Log send state execution.
-				timestamp := time.UnixMicro(ev.Timestamp)
-				t.Logf("Executing send state (%v): %v",
-					timestamp.Format(time.RFC3339Nano),
-					ev.SendState)
-
-				return ev.SendState == broadcastState
-			}
-
-			return false
+			return AssertSendEventExecuteSendState(
+				t, event, broadcastState,
+			)
 		}
 
 		timeout := 2 * defaultProofTransferReceiverAckTimeout
@@ -620,18 +598,9 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
-			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
-				ev := eventTyped.ProofTransferBackoffWaitEvent
-				if ev.TransferType != transferTypeSend {
-					return false
-				}
-
-				t.Logf("Found event ntfs: %v", ev)
-				return true
-			}
-
-			return false
+			return AssertSendEventProofTransferBackoffWaitTypeSend(
+				t, event,
+			)
 		}
 
 		// Expected number of events is one less than the number of
@@ -727,18 +696,9 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
-			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
-				ev := eventTyped.ProofTransferBackoffWaitEvent
-				if ev.TransferType != transferTypeSend {
-					return false
-				}
-
-				t.Logf("Found event ntfs: %v", ev)
-				return true
-			}
-
-			return false
+			return AssertSendEventProofTransferBackoffWaitTypeSend(
+				t, event,
+			)
 		}
 
 		// Expected number of events is one less than the number of
@@ -889,22 +849,21 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// Define a target event selector to match the backoff wait event. This
 	// function selects for a specific event type.
 	targetEventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
-		switch eventTyped := event.Event.(type) {
-		case *taprpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent:
-			ev := eventTyped.ProofTransferBackoffWaitEvent
-
-			// We are attempting to identify receive transfer types.
-			// Skip the event if it is not a receiving transfer
-			// type.
-			if ev.TransferType != taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE {
-				return false
-			}
-
-			t.Logf("Found event ntfs: %v", ev)
-			return true
+		ev := event.GetProofTransferBackoffWaitEvent()
+		if ev == nil {
+			return false
 		}
 
-		return false
+		// We are attempting to identify receive transfer types.
+		// Skip the event if it is not a receiving transfer
+		// type.
+		typeRecv := taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+		if ev.TransferType != typeRecv {
+			return false
+		}
+
+		t.Logf("Found event ntfs: %v", ev)
+		return true
 	}
 
 	// Expected minimum number of events to receive.
@@ -996,23 +955,12 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
 		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
-			switch eventTyped := event.Event.(type) {
-			case *taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent:
-				ev := eventTyped.ProofTransferBackoffWaitEvent
-
-				// We're listening for events on the sender
-				// node. We therefore expect to receive
-				// deliver transfer type backoff wait events
-				// for sending transfers.
-				if ev.TransferType != transferTypeSend {
-					return false
-				}
-
-				t.Logf("Found event ntfs: %v", ev)
-				return true
-			}
-
-			return false
+			// We're listening for events on the sender node. We
+			// therefore expect to receive deliver transfer type
+			// backoff wait events for sending transfers.
+			return AssertSendEventProofTransferBackoffWaitTypeSend(
+				t, event,
+			)
 		}
 
 		// Lower bound number of proof delivery attempts.

@@ -68,8 +68,8 @@ func genTestStores(t *testing.T) map[string]makeTestTreeStoreFunc {
 }
 
 func printStoreStats(t *testing.T, store mssmt.TreeStore) {
-	switch s := store.(type) {
-	case *mssmt.DefaultStore:
+	s, ok := store.(*mssmt.DefaultStore)
+	if ok {
 		t.Logf("%s: %s", t.Name(), s.Stats())
 	}
 }

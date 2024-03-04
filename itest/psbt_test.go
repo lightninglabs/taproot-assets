@@ -602,7 +602,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		// Swap the sender and receiver nodes starting at the second
 		// iteration.
 		if i > 0 {
-			sendAmt = sendAmt / 2
+			sendAmt /= 2
 			changeAmt = sendAmt
 			sender, receiver = receiver, sender
 			senderSum, receiverSum = receiverSum, senderSum

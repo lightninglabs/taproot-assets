@@ -59,6 +59,7 @@ func (m *migrationLogger) Printf(format string, v ...interface{}) {
 		m.log.Errorf(format, v...)
 	case btclog.LevelCritical:
 		m.log.Criticalf(format, v...)
+	case btclog.LevelOff:
 	}
 }
 

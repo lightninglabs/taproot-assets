@@ -121,7 +121,7 @@ func mintBatchStressTest(
 
 	// Update the asset name and metadata to match an index.
 	incrementMintAsset := func(asset *mintrpc.MintAsset, ind int) {
-		asset.Name = asset.Name + strconv.Itoa(ind)
+		asset.Name += strconv.Itoa(ind)
 		binary.PutUvarint(metadataPrefix, uint64(ind))
 		copy(asset.AssetMeta.Data[0:metaPrefixSize], metadataPrefix)
 	}
@@ -202,7 +202,7 @@ func mintBatchStressTest(
 	// outpoints matching the chain anchor of the group anchor.
 	mintOutpoint := collectibleAnchor.ChainAnchor.AnchorOutpoint
 
-	leafKeys, err := fetchAllLeafKeys(t, alice, &collectUniID)
+	leafKeys, err := fetchAllLeafKeys(alice, &collectUniID)
 	require.NoError(t, err)
 
 	require.Len(t, leafKeys, batchSize)

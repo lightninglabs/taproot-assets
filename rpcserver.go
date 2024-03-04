@@ -720,8 +720,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 func (r *rpcServer) ListAssets(ctx context.Context,
 	req *taprpc.ListAssetRequest) (*taprpc.ListAssetResponse, error) {
 
-	switch {
-	case req.IncludeSpent && req.IncludeLeased:
+	if req.IncludeSpent && req.IncludeLeased {
 		return nil, fmt.Errorf("cannot specify both include_spent " +
 			"and include_leased")
 	}
@@ -818,7 +817,7 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 
 		resp.AssetBalances[assetIDStr] = &taprpc.AssetBalance{
 			AssetGenesis: &taprpc.GenesisInfo{
-				Version:      int32(balance.Version),
+				Version:      balance.Version,
 				GenesisPoint: balance.GenesisPoint.String(),
 				AssetType:    taprpc.AssetType(balance.Type),
 				Name:         balance.Tag,

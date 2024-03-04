@@ -23,8 +23,15 @@ linters-settings:
     excludes:
       - G402 # Look for bad TLS connection settings.
       - G306 # Poor file permissions used when writing to a new file.
+  exhaustive:
+    default-signifies-exhaustive: true
+  gocritic:
+      enabled-checks:
+        - singleCaseSwitch
+        - ifElseChain
+        - assignOp
+        - unlambda
   staticcheck:
-    go: "1.19"
     checks: ["-SA1019"]
 
 linters:
@@ -34,6 +41,11 @@ linters:
     - tagliatelle
     - whitespace
     - gosec
+    - unused
+    - gocritic
+    - unconvert
+    - nilerr
+    - exhaustive
 
 issues:
   exclude-rules:

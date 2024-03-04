@@ -60,6 +60,47 @@ func ParseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
 	return &parsedGenesis
 }
 
+// AssertSendEventExecuteSendState asserts that the send asset event is an
+// ExecuteSendState event, and logs the event timestamp if so.
+func AssertSendEventExecuteSendState(t *harnessTest,
+	event *taprpc.SendAssetEvent, broadcastState string) bool {
+
+	ev := event.GetExecuteSendStateEvent()
+	if ev == nil {
+		return false
+	}
+
+	// Log send state execution.
+	timestamp := time.UnixMicro(ev.Timestamp)
+	t.Logf("Executing send state (%v): %v",
+		timestamp.Format(time.RFC3339Nano),
+		ev.SendState)
+
+	return ev.SendState == broadcastState
+}
+
+// AssertSendEventProofTransferBackoffWait asserts that the send asset event is
+// a ProofTransferBackoffWait event, with the transfer type set as send.
+func AssertSendEventProofTransferBackoffWaitTypeSend(t *harnessTest,
+	event *taprpc.SendAssetEvent) bool {
+
+	ev := event.GetProofTransferBackoffWaitEvent()
+	if ev == nil {
+		return false
+	}
+
+	// We're listening for events on the sender node. We therefore expect to
+	// receive deliver transfer type backoff wait events for sending
+	// transfers.
+	typeSend := taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+	if ev.TransferType != typeSend {
+		return false
+	}
+
+	t.Logf("Found event ntfs: %v", ev)
+	return true
+}
+
 // MineBlocks mine 'num' of blocks and check that blocks are present in
 // node blockchain. numTxs should be set to the number of transactions
 // (excluding the coinbase) we expect to be included in the first mined block.
