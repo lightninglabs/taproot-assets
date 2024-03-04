@@ -14,10 +14,10 @@ import (
 // node is offline at the time of the initial sync attempt.
 func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 	// Create a new minting node, without hooking it up to any existing
-	// Universe server. We will also set the sync ticker to 4 second, so
+	// Universe server. We will also set the sync ticker to 2 second, so
 	// that we can test that the proof push sync is retried and eventually
 	// succeeds after the fed server peer node reappears online.
-	syncTickerInterval := 4 * time.Second
+	syncTickerInterval := 2 * time.Second
 	mintingNode := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, nil,
 		func(params *tapdHarnessParams) {

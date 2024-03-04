@@ -1717,8 +1717,8 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 
 // assetRoots is a helper method that fetches all roots from a given universe
 // rpc by scanning for all pages.
-func assetRoots(ctx context.Context,
-	uni unirpc.UniverseClient, pageSize int32) (*unirpc.AssetRootResponse, error) {
+func assetRoots(ctx context.Context, uni unirpc.UniverseClient,
+	pageSize int32) (*unirpc.AssetRootResponse, error) {
 
 	offset := int32(0)
 	roots := make(map[string]*unirpc.UniverseRoot)
