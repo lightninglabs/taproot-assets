@@ -249,7 +249,7 @@
     },
     "/v1/taproot-assets/wallet/virtual-psbt/anchor": {
       "post": {
-        "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction.",
+        "summary": "AnchorVirtualPsbts merges and then commits multiple virtual transactions in\na single BTC level anchor transaction. This RPC should be used if the BTC\nlevel anchor transaction of the assets to be spent are encumbered by a\nnormal key and don't require any special spending conditions. For any custom\nspending conditions on the BTC level, the two RPCs CommitVirtualPsbts and\nPublishAndLogTransfer should be used instead (which in combination do the\nsame as this RPC but allow for more flexibility).",
         "description": "TODO(guggero): Actually implement accepting and merging multiple\ntransactions.",
         "operationId": "AssetWallet_AnchorVirtualPsbts",
         "responses": {
@@ -339,6 +339,39 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/assetwalletrpcFundVirtualPsbtRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taproot-assets/wallet/virtual-psbt/log-transfer": {
+      "post": {
+        "summary": "PublishAndLogTransfer accepts a fully committed and signed anchor\ntransaction and publishes it to the Bitcoin network. It also logs the\ntransfer of the given active and passive assets in the database and ships\nany outgoing proofs to the counterparties.",
+        "operationId": "AssetWallet_PublishAndLogTransfer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcSendAssetResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcPublishAndLogRequest"
             }
           }
         ],
@@ -590,6 +623,44 @@
         "proof_with_witness": {
           "type": "string",
           "format": "byte"
+        }
+      }
+    },
+    "assetwalletrpcPublishAndLogRequest": {
+      "type": "object",
+      "properties": {
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The funded BTC level anchor transaction with all outputs updated to commit\nto the virtual transactions given. The transaction is ready to be signed,\nunless some of the asset inputs don't belong to this daemon, in which case\nthe anchor input derivation info must be added to those inputs first."
+        },
+        "virtual_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The updated virtual transactions that contain the state transition proofs\nof being committed to the BTC level anchor transaction above."
+        },
+        "passive_asset_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The updated passive virtual transactions that contain the state transition\nproofs of being committed to the BTC level anchor transaction above."
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the (added) change output or -1 if no change was left over."
+        },
+        "lnd_locked_utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcOutPoint"
+          },
+          "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
         }
       }
     },
