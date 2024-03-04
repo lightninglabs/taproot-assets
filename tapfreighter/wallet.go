@@ -20,7 +20,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -500,14 +499,14 @@ func (f *AssetWallet) hasOtherAssets(inputCommitments tappsbt.InputCommitments,
 	for idx := range inputCommitments {
 		tapCommitment := inputCommitments[idx]
 
-		passiveCommitments, err := removeActiveCommitments(
+		passiveCommitments, err := tapsend.RemovePacketsFromCommitment(
 			tapCommitment, vPackets,
 		)
 		if err != nil {
 			return false, err
 		}
 
-		if len(passiveCommitments) > 0 {
+		if len(passiveCommitments.CommittedAssets()) > 0 {
 			return true, nil
 		}
 	}
@@ -579,17 +578,6 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		default:
 			return nil, fmt.Errorf("cannot fetch script key: %w",
 				err)
-		}
-	}
-
-	// We now also need to remove all tombstone or burns from our active
-	// commitments.
-	for idx := range inputCommitments {
-		inputCommitments[idx], err = pruneTombstonesAndBurns(
-			inputCommitments[idx],
-		)
-		if err != nil {
-			return nil, err
 		}
 	}
 
@@ -964,118 +952,6 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 	return nil
 }
 
-// pruneTombstonesAndBurns removes all tombstones and burns from the active
-// input commitment.
-func pruneTombstonesAndBurns(
-	inputCommitment *commitment.TapCommitment) (*commitment.TapCommitment,
-	error) {
-
-	committedAssets := inputCommitment.CommittedAssets()
-	committedAssets = fn.Filter(committedAssets, func(a *asset.Asset) bool {
-		return !a.IsUnSpendable() && !a.IsBurn()
-	})
-
-	return commitment.FromAssets(committedAssets...)
-}
-
-// removeActiveCommitments removes all active commitments from the given input
-// commitment and only returns a tree of passive commitments.
-func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
-	vPackets []*tappsbt.VPacket) (commitment.AssetCommitments, error) {
-
-	// Gather passive assets found in the commitment. This creates a copy of
-	// the commitment map, so we can remove things freely.
-	passiveCommitments := inputCommitment.Commitments()
-
-	// removeAsset is a helper function that removes the given asset from
-	// the passed asset commitment and updates the top level Taproot Asset
-	// commitment with the new asset commitment, if that still contains any
-	// assets.
-	removeAsset := func(assetCommitment *commitment.AssetCommitment,
-		toRemove *asset.Asset, tapKey [32]byte) error {
-
-		// We need to make a copy in order to not modify the original
-		// commitment, as the above call to get all commitments just
-		// creates a new slice, but we still have a pointer to the
-		// original asset commitment.
-		var err error
-		assetCommitment, err = assetCommitment.Copy()
-		if err != nil {
-			return fmt.Errorf("unable to copy asset commitment: %w",
-				err)
-		}
-
-		// Now we can remove the asset from the commitment.
-		err = assetCommitment.Delete(toRemove)
-		if err != nil {
-			return fmt.Errorf("unable to delete asset "+
-				"commitment: %w", err)
-		}
-
-		// Since we're not returning the root Taproot Asset commitment
-		// but a map of all asset commitments, we need to prune the
-		// asset commitment manually if it is empty now.
-		rootHash := assetCommitment.TreeRoot.NodeHash()
-		if rootHash == mssmt.EmptyTreeRootHash {
-			delete(passiveCommitments, tapKey)
-
-			return nil
-		}
-
-		// There are other leaves of this asset in our asset tree, let's
-		// now update our passive commitment map so these will be
-		// carried along.
-		passiveCommitments[tapKey] = assetCommitment
-
-		return nil
-	}
-
-	// First, we remove any tombstones or burns that might be in the
-	// commitment. We needed to select them from the DB to arrive at the
-	// correct input Taproot Asset tree but can now remove them for good as
-	// they are no longer relevant and don't need to be carried over to the
-	// next tree.
-	for tapKey := range passiveCommitments {
-		assetCommitment := passiveCommitments[tapKey]
-		committedAssets := assetCommitment.Assets()
-
-		for assetKey := range committedAssets {
-			committedAsset := committedAssets[assetKey]
-			if committedAsset.IsUnSpendable() ||
-				committedAsset.IsBurn() {
-
-				err := removeAsset(
-					assetCommitment, committedAsset, tapKey,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("unable to "+
-						"delete asset: %w", err)
-				}
-			}
-		}
-	}
-
-	// Remove input assets (the assets being spent) from list of assets to
-	// re-sign.
-	for _, vPkt := range vPackets {
-		for _, vIn := range vPkt.Inputs {
-			key := vIn.Asset().TapCommitmentKey()
-			assetCommitment, ok := passiveCommitments[key]
-			if !ok {
-				continue
-			}
-
-			err := removeAsset(assetCommitment, vIn.Asset(), key)
-			if err != nil {
-				return nil, fmt.Errorf("unable to "+
-					"delete asset: %w", err)
-			}
-		}
-	}
-
-	return passiveCommitments, nil
-}
-
 // determinePassiveAssetAnchorOutput determines the best anchor output to attach
 // passive assets to. If no suitable output is found, a new anchor output is
 // created.
@@ -1189,49 +1065,56 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 	}
 
 	// Gather passive assets found in each input Taproot Asset commitment.
-	var passiveAssets []*tappsbt.VPacket
+	var passivePackets []*tappsbt.VPacket
 	for prevID := range inputCommitments {
 		tapCommitment := inputCommitments[prevID]
 
 		// Each virtual input is associated with a distinct Taproot
 		// Asset commitment. Therefore, each input may be associated
 		// with a distinct set of passive assets.
-		passiveCommitments, err := removeActiveCommitments(
+		passiveCommitments, err := tapsend.RemovePacketsFromCommitment(
 			tapCommitment, activePackets,
 		)
 		if err != nil {
 			return nil, err
 		}
-		if len(passiveCommitments) == 0 {
+
+		prunedAssets := tapsend.ExtractUnSpendable(passiveCommitments)
+		passiveCommitments, err = tapsend.RemoveAssetsFromCommitment(
+			passiveCommitments, prunedAssets,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		passiveAssets := passiveCommitments.CommittedAssets()
+		if len(passiveAssets) == 0 {
 			continue
 		}
 
 		// When there are left over passive assets, we need to create
 		// packets for them as well.
-		for tapKey := range passiveCommitments {
-			passiveCommitment := passiveCommitments[tapKey]
-			for _, passiveAsset := range passiveCommitment.Assets() {
-				inputProof, err := f.fetchInputProof(
-					ctx, passiveAsset, prevID.OutPoint,
-				)
-				if err != nil {
-					return nil, fmt.Errorf("error "+
-						"fetching input proof: %w", err)
-				}
-
-				passiveAssets = append(
-					passiveAssets, passiveAssetVPacket(
-						f.cfg.ChainParams,
-						passiveAsset, prevID.OutPoint,
-						anchorOutIdx, inputProof,
-						anchorOutDesc,
-					),
-				)
+		for _, passiveAsset := range passiveAssets {
+			inputProof, err := f.fetchInputProof(
+				ctx, passiveAsset, prevID.OutPoint,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error "+
+					"fetching input proof: %w", err)
 			}
+
+			passivePackets = append(
+				passivePackets, passiveAssetVPacket(
+					f.cfg.ChainParams,
+					passiveAsset, prevID.OutPoint,
+					anchorOutIdx, inputProof,
+					anchorOutDesc,
+				),
+			)
 		}
 	}
 
-	return passiveAssets, nil
+	return passivePackets, nil
 }
 
 // SignPassiveAssets signs the given passive asset packets.
