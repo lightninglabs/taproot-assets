@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
@@ -1353,6 +1354,58 @@ func AssertInputAnchorsEqual(packets []*tappsbt.VPacket) error {
 	}
 
 	return nil
+}
+
+// ExtractUnSpendable extracts all tombstones and burns from the active input
+// commitment.
+func ExtractUnSpendable(c *commitment.TapCommitment) []*asset.Asset {
+	return fn.Filter(c.CommittedAssets(), func(a *asset.Asset) bool {
+		return a.IsUnSpendable() || a.IsBurn()
+	})
+}
+
+// RemoveAssetsFromCommitment removes all assets from the given commitment and
+// only returns a tree of the remaining commitments.
+func RemoveAssetsFromCommitment(c *commitment.TapCommitment,
+	assets []*asset.Asset) (*commitment.TapCommitment, error) {
+
+	// Gather remaining assets ot the commitment. This creates a copy of
+	// the commitment map, so we can remove things freely.
+	remainingCommitments, err := c.Copy()
+	if err != nil {
+		return nil, fmt.Errorf("unable to copy commitment: %w", err)
+	}
+
+	// Remove input assets (the assets being spent) from list of assets to
+	// re-sign.
+	for _, a := range assets {
+		assetCommitment, ok := remainingCommitments.Commitment(a)
+		if !ok {
+			continue
+		}
+
+		err = assetCommitment.Delete(a)
+		if err != nil {
+			return nil, fmt.Errorf("unable to delete asset: %w",
+				err)
+		}
+	}
+
+	return remainingCommitments, nil
+}
+
+// RemovePacketsFromCommitment removes all assets within the virtual
+// transactions from the given commitment.
+func RemovePacketsFromCommitment(c *commitment.TapCommitment,
+	packets []*tappsbt.VPacket) (*commitment.TapCommitment, error) {
+
+	var activeAssets []*asset.Asset
+	fn.ForEach(packets, func(vPkt *tappsbt.VPacket) {
+		for _, vIn := range vPkt.Inputs {
+			activeAssets = append(activeAssets, vIn.Asset())
+		}
+	})
+	return RemoveAssetsFromCommitment(c, activeAssets)
 }
 
 // LogCommitment logs the given Taproot Asset commitment to the log as a trace
