@@ -262,6 +262,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 // passiveAssetVPacket creates a virtual packet for the given passive asset.
 func passiveAssetVPacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	anchorPoint wire.OutPoint, anchorOutputIndex uint32,
+	inputProof *proof.Proof,
 	internalKey *keychain.KeyDescriptor) *tappsbt.VPacket {
 
 	// Specify virtual input.
@@ -273,8 +274,16 @@ func passiveAssetVPacket(params *address.ChainParams, passiveAsset *asset.Asset,
 			inputAsset.ScriptKey.PubKey,
 		),
 	}
+
+	inputAnchorIdx := inputProof.InclusionProof.OutputIndex
+	anchorOut := inputProof.AnchorTx.TxOut[inputAnchorIdx]
 	vInput := tappsbt.VInput{
 		PrevID: inputPrevId,
+		Anchor: tappsbt.Anchor{
+			Value:    btcutil.Amount(anchorOut.Value),
+			PkScript: anchorOut.PkScript,
+		},
+		Proof: inputProof,
 	}
 
 	// Specify virtual output.
@@ -751,32 +760,12 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// We'll also include an inclusion proof for the input asset in
 		// the virtual transaction. With that a signer can verify that
 		// the asset was actually committed to in the anchor output.
-		assetID := assetInput.Asset.ID()
-		proofLocator := proof.Locator{
-			AssetID:   &assetID,
-			ScriptKey: *assetInput.Asset.ScriptKey.PubKey,
-			OutPoint:  &assetInput.AnchorPoint,
-		}
-		if assetInput.Asset.GroupKey != nil {
-			proofLocator.GroupKey = &assetInput.Asset.GroupKey.GroupPubKey
-		}
-		inputProofBlob, err := f.cfg.AssetProofs.FetchProof(
-			ctx, proofLocator,
+		inputProof, err := f.fetchInputProof(
+			ctx, assetInput.Asset, assetInput.AnchorPoint,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("cannot fetch proof for input "+
-				"asset: %w", err)
-		}
-		inputProofFile := &proof.File{}
-		err = inputProofFile.Decode(bytes.NewReader(inputProofBlob))
-		if err != nil {
-			return nil, fmt.Errorf("cannot decode proof for input "+
-				"asset: %w", err)
-		}
-		inputProof, err := inputProofFile.LastProof()
-		if err != nil {
-			return nil, fmt.Errorf("cannot get last proof for "+
-				"input asset: %w", err)
+			return nil, fmt.Errorf("error fetching input proof: %w",
+				err)
 		}
 
 		tapscriptSiblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
@@ -823,6 +812,42 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 	}
 
 	return inputCommitments, nil
+}
+
+// fetchInputProof fetches the proof for the given asset input from the archive.
+func (f *AssetWallet) fetchInputProof(ctx context.Context,
+	inputAsset *asset.Asset, anchorPoint wire.OutPoint) (*proof.Proof,
+	error) {
+
+	assetID := inputAsset.ID()
+	proofLocator := proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *inputAsset.ScriptKey.PubKey,
+		OutPoint:  &anchorPoint,
+	}
+	if inputAsset.GroupKey != nil {
+		proofLocator.GroupKey = &inputAsset.GroupKey.GroupPubKey
+	}
+	inputProofBlob, err := f.cfg.AssetProofs.FetchProof(
+		ctx, proofLocator,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("cannot fetch proof for input "+
+			"asset: %w", err)
+	}
+	inputProofFile := &proof.File{}
+	err = inputProofFile.Decode(bytes.NewReader(inputProofBlob))
+	if err != nil {
+		return nil, fmt.Errorf("cannot decode proof for input "+
+			"asset: %w", err)
+	}
+	inputProof, err := inputProofFile.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("cannot get last proof for "+
+			"input asset: %w", err)
+	}
+
+	return inputProof, nil
 }
 
 // SignVirtualPacketOptions is a set of functional options that allow callers to
@@ -1200,11 +1225,20 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 		for tapKey := range passiveCommitments {
 			passiveCommitment := passiveCommitments[tapKey]
 			for _, passiveAsset := range passiveCommitment.Assets() {
+				inputProof, err := f.fetchInputProof(
+					ctx, passiveAsset, prevID.OutPoint,
+				)
+				if err != nil {
+					return nil, fmt.Errorf("error "+
+						"fetching input proof: %w", err)
+				}
+
 				passiveAssets = append(
 					passiveAssets, passiveAssetVPacket(
 						f.cfg.ChainParams,
 						passiveAsset, prevID.OutPoint,
-						anchorOutIdx, anchorOutDesc,
+						anchorOutIdx, inputProof,
+						anchorOutDesc,
 					),
 				)
 			}
@@ -1221,9 +1255,7 @@ func (f *AssetWallet) SignPassiveAssets(
 	// Sign all the passive assets virtual packets.
 	for idx := range passiveAssets {
 		passiveAsset := passiveAssets[idx]
-		_, err := f.SignVirtualPacket(
-			passiveAsset, SkipInputProofVerify(),
-		)
+		_, err := f.SignVirtualPacket(passiveAsset)
 		if err != nil {
 			return fmt.Errorf("unable to sign passive asset "+
 				"virtual packet: %w", err)
