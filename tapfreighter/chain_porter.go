@@ -914,9 +914,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
-				FeeRate:            feeRate,
-				VPkts:              currentPkg.VirtualPackets,
-				PassiveAssetsVPkts: currentPkg.PassiveAssets,
+				FeeRate:        feeRate,
+				ActivePackets:  currentPkg.VirtualPackets,
+				PassivePackets: currentPkg.PassiveAssets,
 			},
 		)
 		if err != nil {
