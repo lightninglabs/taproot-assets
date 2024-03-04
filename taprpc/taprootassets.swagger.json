@@ -1526,11 +1526,6 @@
           "type": "integer",
           "format": "int64",
           "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
-        },
-        "version": {
-          "type": "integer",
-          "format": "int32",
-          "description": "The version of the Taproot Asset commitment that created this asset."
         }
       }
     },
