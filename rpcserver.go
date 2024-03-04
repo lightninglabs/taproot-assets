@@ -21,8 +21,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -48,6 +50,8 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -64,6 +68,21 @@ var (
 	// ServerMaxMsgReceiveSize is the largest message our server will
 	// receive.
 	ServerMaxMsgReceiveSize = grpc.MaxRecvMsgSize(lnrpc.MaxGrpcMsgSize)
+
+	// P2TRChangeType is the type of change address that should be used for
+	// funding PSBTs, as we'll always want to use P2TR change addresses.
+	P2TRChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+
+	// fundPsbtCoinSelectVersion is the version of lnd that enabled better
+	// coin selection support in the FundPsbt RPC call.
+	fundPsbtCoinSelectVersion = &verrpc.Version{
+		AppMajor: 0,
+		AppMinor: 17,
+		AppPatch: 99,
+		BuildTags: []string{
+			"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
+		},
+	}
 )
 
 const (
@@ -1927,6 +1946,405 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 	}, nil
 }
 
+// CommitVirtualPsbts creates the output commitments and proofs for the given
+// virtual transactions by committing them to the BTC level anchor transaction.
+// In addition, the BTC level anchor transaction is funded and prepared up to
+// the point where it is ready to be signed.
+func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
+	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
+	error) {
+
+	// For this call we require `lnd` to be at least v0.17.99-beta (which
+	// will become v0.18.0-beta eventually) as we need the new coin
+	// selection mode in the FundPsbt call.
+	fundPsbtCoinSelectNotSupportedErr := fmt.Errorf("connected lnd "+
+		"version %v does not support advanced coin selection in the "+
+		"FundPsbt RPC, need at least v%d.%d.%d for this call",
+		r.cfg.Lnd.Version.Version, fundPsbtCoinSelectVersion.AppMajor,
+		fundPsbtCoinSelectVersion.AppMinor,
+		fundPsbtCoinSelectVersion.AppPatch)
+	verErr := lndclient.AssertVersionCompatible(
+		r.cfg.Lnd.Version, fundPsbtCoinSelectVersion,
+	)
+	if verErr != nil {
+		return nil, fundPsbtCoinSelectNotSupportedErr
+	}
+
+	if len(req.VirtualPsbts) == 0 {
+		return nil, fmt.Errorf("no virtual PSBTs specified")
+	}
+
+	pkt, err := psbt.NewFromRawBytes(bytes.NewReader(req.AnchorPsbt), false)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding packet: %w", err)
+	}
+
+	activePackets, err := decodeVirtualPackets(req.VirtualPsbts)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding active packets: %w", err)
+	}
+
+	passivePackets, err := decodeVirtualPackets(req.PassiveAssetPsbts)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding passive packets: %w",
+			err)
+	}
+
+	// Make sure the assets given fully satisfy the input commitments.
+	allPackets := append([]*tappsbt.VPacket{}, activePackets...)
+	allPackets = append(allPackets, passivePackets...)
+	err = r.validateInputAssets(ctx, pkt, allPackets)
+	if err != nil {
+		return nil, fmt.Errorf("error validating input assets: %w", err)
+	}
+
+	// We're ready to attempt to fund the transaction now. For that we first
+	// need to re-serialize our packet.
+	packetBytes, err := serialize(pkt)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing packet: %w", err)
+	}
+
+	// The change output and fee parameters of this RPC are identical to the
+	// walletrpc.FundPsbt, so we just map them 1:1 and let lnd do the
+	// validation.
+	coinSelect := &walletrpc.PsbtCoinSelect{
+		Psbt: packetBytes,
+	}
+	fundRequest := &walletrpc.FundPsbtRequest{
+		Template: &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: coinSelect,
+		},
+		MinConfs:   1,
+		ChangeType: P2TRChangeType,
+	}
+
+	// Unfortunately we can't use the same RPC types, so we have to do a
+	// 1:1 mapping to the walletrpc types for the anchor change output and
+	// fee "oneof" fields.
+	type existingIndex = walletrpc.PsbtCoinSelect_ExistingOutputIndex
+	switch change := req.AnchorChangeOutput.(type) {
+	case *wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex:
+		coinSelect.ChangeOutput = &existingIndex{
+			ExistingOutputIndex: change.ExistingOutputIndex,
+		}
+
+	case *wrpc.CommitVirtualPsbtsRequest_Add:
+		coinSelect.ChangeOutput = &walletrpc.PsbtCoinSelect_Add{
+			Add: change.Add,
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown change output type")
+	}
+
+	switch fee := req.Fees.(type) {
+	case *wrpc.CommitVirtualPsbtsRequest_TargetConf:
+		fundRequest.Fees = &walletrpc.FundPsbtRequest_TargetConf{
+			TargetConf: fee.TargetConf,
+		}
+
+	case *wrpc.CommitVirtualPsbtsRequest_SatPerVbyte:
+		fundRequest.Fees = &walletrpc.FundPsbtRequest_SatPerVbyte{
+			SatPerVbyte: fee.SatPerVbyte,
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown fee type")
+	}
+
+	lndWallet := r.cfg.Lnd.WalletKit
+	fundedPacket, changeIndex, lockedUTXO, err := lndWallet.FundPsbt(
+		ctx, fundRequest,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error funding packet: %w", err)
+	}
+
+	// Validate the actual fee rate of the transaction.
+	txFees, err := fundedPacket.GetTxFee()
+	if err != nil {
+		return nil, fmt.Errorf("error calculating transaction fees: %w",
+			err)
+	}
+
+	lockedOutpoints := fn.Map(
+		lockedUTXO, func(utxo *walletrpc.UtxoLease) wire.OutPoint {
+			var hash chainhash.Hash
+			copy(hash[:], utxo.Outpoint.TxidBytes)
+			return wire.OutPoint{
+				Hash:  hash,
+				Index: utxo.Outpoint.OutputIndex,
+			}
+		},
+	)
+
+	// From now on, if we error out, we need to make sure we unlock the
+	// UTXOs that lnd just locked for us.
+	success := false
+	defer func() {
+		if !success {
+			for idx, utxo := range lockedUTXO {
+				var lockID wtxmgr.LockID
+				copy(lockID[:], utxo.Id)
+
+				op := lockedOutpoints[idx]
+				err := lndWallet.ReleaseOutput(ctx, lockID, op)
+				if err != nil {
+					rpcsLog.Errorf("Error unlocking lnd "+
+						"UTXO %v: %v", op, err)
+				}
+			}
+		}
+	}()
+
+	// We can now update the anchor outputs as we have the final
+	// commitments.
+	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create new output "+
+			"commitments: %w", err)
+	}
+
+	for _, vPkt := range allPackets {
+		err = tapsend.UpdateTaprootOutputKeys(
+			fundedPacket, vPkt, outputCommitments,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error updating taproot output "+
+				"keys: %w", err)
+		}
+	}
+
+	// We're done creating the output commitments, we can now create the
+	// transition proof suffixes.
+	fundingPacket := &tapsend.AnchorTransaction{
+		FundedPsbt: &tapsend.FundedPsbt{
+			Pkt:               fundedPacket,
+			ChangeOutputIndex: changeIndex,
+			ChainFees:         int64(txFees),
+			LockedUTXOs:       lockedOutpoints,
+		},
+		FinalTx:   fundedPacket.UnsignedTx,
+		ChainFees: int64(txFees),
+	}
+	for idx := range allPackets {
+		vPkt := allPackets[idx]
+
+		for vOutIdx := range vPkt.Outputs {
+			proofSuffix, err := tapsend.CreateProofSuffix(
+				fundingPacket, vPkt, outputCommitments,
+				vOutIdx, allPackets,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to create "+
+					"proof suffix for output %d of vPSBT "+
+					"%d: %w", vOutIdx, idx, err)
+			}
+
+			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
+		}
+	}
+
+	// We can now prepare the full answer, beginning with the serialized
+	// final packet.
+	response := &wrpc.CommitVirtualPsbtsResponse{
+		ChangeOutputIndex: changeIndex,
+	}
+
+	response.AnchorPsbt, err = serialize(fundedPacket)
+	if err != nil {
+		return nil, fmt.Errorf("error serializing packet: %w", err)
+	}
+
+	// Serialize the final active and passive virtual packets.
+	response.VirtualPsbts, err = encodeVirtualPackets(activePackets)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding active packets: %w", err)
+	}
+	response.PassiveAssetPsbts, err = encodeVirtualPackets(passivePackets)
+	if err != nil {
+		return nil, fmt.Errorf("error encoding passive packets: %w",
+			err)
+	}
+
+	// And finally, we need to also return the locked UTXOs. We just return
+	// the outpoint, as any additional information can be fetched from the
+	// lnd wallet directly (we don't want to create pass-through RPCs for
+	// all those methods).
+	response.LndLockedUtxos = make([]*taprpc.OutPoint, len(lockedOutpoints))
+	for idx := range lockedOutpoints {
+		response.LndLockedUtxos[idx] = &taprpc.OutPoint{
+			Txid:        lockedOutpoints[idx].Hash[:],
+			OutputIndex: lockedOutpoints[idx].Index,
+		}
+	}
+
+	// We were successful, let's cancel the UTXO release in the defer.
+	success = true
+
+	return response, nil
+}
+
+// validateInputAssets makes sure that the input assets are correct and their
+// combined commitments match the inputs of the BTC level anchor transaction.
+func (r *rpcServer) validateInputAssets(ctx context.Context,
+	btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) error {
+
+	// Make sure we decorate all asset inputs with the correct internal key
+	// derivation path (if it's indeed a key this daemon owns).
+	for idx := range btcPkt.Inputs {
+		pIn := &btcPkt.Inputs[idx]
+
+		// We only care about asset inputs which always specify a
+		// Taproot merkle root.
+		if len(pIn.TaprootMerkleRoot) == 0 {
+			continue
+		}
+
+		// We can't query the internal key if there is none specified.
+		if len(pIn.TaprootInternalKey) != schnorr.PubKeyBytesLen {
+			continue
+		}
+
+		// If we already have the derivation info, we can skip this
+		// input.
+		if len(pIn.TaprootBip32Derivation) > 0 {
+			continue
+		}
+
+		// Let's query our node for the internal key information now.
+		internalKey, keyLocator, err := r.querySchnorrInternalKey(
+			ctx, pIn.TaprootInternalKey,
+		)
+
+		switch {
+		case errors.Is(err, address.ErrInternalKeyNotFound):
+			// If the internal key is not known, we can't add the
+			// derivation info. Most likely this asset input is not
+			// owned by this daemon but another party.
+			continue
+
+		case err != nil:
+			return fmt.Errorf("error querying internal key: "+
+				"%w", err)
+		}
+
+		keyDesc := keychain.KeyDescriptor{
+			PubKey:     internalKey,
+			KeyLocator: keyLocator,
+		}
+		derivation, trDerivation := tappsbt.Bip32DerivationFromKeyDesc(
+			keyDesc, r.cfg.ChainParams.HDCoinType,
+		)
+		pIn.Bip32Derivation = []*psbt.Bip32Derivation{derivation}
+		pIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trDerivation,
+		}
+	}
+
+	// We also want to make sure we actually have the assets that are being
+	// spent in our database. We fetch the input commitments of all packets
+	// to asset that. And while we're doing that, we also extract all the
+	// pruned assets that are not re-created in the outputs, which we need
+	// for the final validation. We de-duplicate the pruned assets in a
+	// temporary map keyed by input outpoint and the asset commitment key.
+	purgedAssetsDeDup := make(map[wire.OutPoint]map[[32]byte]*asset.Asset)
+	for _, vPkt := range vPackets {
+		for _, vIn := range vPkt.Inputs {
+			inputAsset := vIn.Asset()
+			outpoint := vIn.PrevID.OutPoint
+
+			input, err := r.cfg.AssetStore.FetchCommitment(
+				ctx, inputAsset.ID(), outpoint,
+				inputAsset.GroupKey, &inputAsset.ScriptKey,
+				true,
+			)
+			if err != nil {
+				// If we can't fetch the input commitment, it
+				// means this input asset isn't ours. We cannot
+				// find out if there were any purged assets in
+				// the commitment, so we just rely on all assets
+				// being present. If some purged assets are
+				// missing, then the anchor input equality check
+				// further down will fail.
+				rpcsLog.Warnf("Could not fetch input "+
+					"commitment for outpoint %v: %v",
+					outpoint, err)
+
+				continue
+			}
+
+			assetsToPurge := tapsend.ExtractUnSpendable(
+				input.Commitment,
+			)
+			for _, a := range assetsToPurge {
+				key := a.AssetCommitmentKey()
+				if purgedAssetsDeDup[outpoint] == nil {
+					purgedAssetsDeDup[outpoint] = make(
+						map[[32]byte]*asset.Asset,
+					)
+				}
+
+				purgedAssetsDeDup[outpoint][key] = a
+			}
+		}
+	}
+
+	// With the assets de-duplicated by their asset commitment key, we can
+	// now collect them grouped by input outpoint.
+	purgedAssets := make(map[wire.OutPoint][]*asset.Asset)
+	for outpoint, assets := range purgedAssetsDeDup {
+		for key := range assets {
+			purgedAssets[outpoint] = append(
+				purgedAssets[outpoint], assets[key],
+			)
+		}
+	}
+
+	// At this point all the virtual packet inputs and outputs should fully
+	// match the BTC level anchor transaction. Version 0 assets should also
+	// be signed now.
+	if err := tapsend.AssertInputAnchorsEqual(vPackets); err != nil {
+		return fmt.Errorf("input anchors don't match: %w", err)
+	}
+	if err := tapsend.AssertOutputAnchorsEqual(vPackets); err != nil {
+		return fmt.Errorf("output anchors don't match: %w", err)
+	}
+	err := tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
+	if err != nil {
+		return fmt.Errorf("error validating anchor inputs: %w", err)
+	}
+
+	// Now that we know the packet inputs match the anchored assets, we can
+	// also check that we don't inflate or deflate the asset supply with the
+	// active and passive assets. We explicitly don't look at the pruned
+	// assets. We have already made sure that the total sum of all inputs
+	// that was committed to in the input anchor is accounted for with the
+	// active, passive and pruned assets. Now we just need to make sure the
+	// active and passive transfers don't create or destroy assets.
+	inputBalances := make(map[asset.ID]uint64)
+	outputBalances := make(map[asset.ID]uint64)
+	for _, vPkt := range vPackets {
+		for _, vIn := range vPkt.Inputs {
+			inputBalances[vIn.Asset().ID()] += vIn.Asset().Amount
+		}
+		for _, vOut := range vPkt.Outputs {
+			outputBalances[vOut.Asset.ID()] += vOut.Asset.Amount
+		}
+	}
+	for assetID, inputBalance := range inputBalances {
+		outputBalance := outputBalances[assetID]
+		if inputBalance != outputBalance {
+			return fmt.Errorf("input and output balances don't "+
+				"match for asset %x: %d != %d", assetID[:],
+				inputBalance, outputBalance)
+		}
+	}
+
+	return nil
+}
+
 // NextInternalKey derives the next internal key for the given key family and
 // stores it as an internal key in the database to make sure it is identified
 // as a local key later on when importing proofs. While an internal key can
@@ -2014,34 +2432,11 @@ func (r *rpcServer) QueryInternalKey(ctx context.Context,
 		}
 
 	case len(req.InternalKey) == 32:
-		internalKey, err = schnorr.ParsePubKey(req.InternalKey)
-		if err != nil {
-			return nil, fmt.Errorf("error parsing internal key: %w",
-				err)
-		}
-
-		keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
-			ctx, internalKey,
+		internalKey, keyLocator, err = r.querySchnorrInternalKey(
+			ctx, req.InternalKey,
 		)
-
-		switch {
-		// If the key can't be found with the even parity, we'll try
-		// the odd parity.
-		case errors.Is(err, address.ErrInternalKeyNotFound):
-			internalKey = tapscript.FlipParity(internalKey)
-
-			keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
-				ctx, internalKey,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("error fetching "+
-					"internal key: %w", err)
-			}
-
-		// For any other error from above, we'll return it to the user.
-		case err != nil:
-			return nil, fmt.Errorf("error fetching internal key: "+
-				"%w", err)
+		if err != nil {
+			return nil, err
 		}
 
 	default:
@@ -2054,6 +2449,47 @@ func (r *rpcServer) QueryInternalKey(ctx context.Context,
 			KeyLocator: keyLocator,
 		}),
 	}, nil
+}
+
+// querySchnorrInternalKey returns the key descriptor for the given internal
+// key. This is a special method for the case where the key is a Schnorr key,
+// and we need to try both parities.
+func (r *rpcServer) querySchnorrInternalKey(ctx context.Context,
+	schnorrKey []byte) (*btcec.PublicKey, keychain.KeyLocator, error) {
+
+	var keyLocator keychain.KeyLocator
+
+	internalKey, err := schnorr.ParsePubKey(schnorrKey)
+	if err != nil {
+		return nil, keyLocator, fmt.Errorf("error parsing internal "+
+			"key: %w", err)
+	}
+
+	keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+		ctx, internalKey,
+	)
+
+	switch {
+	// If the key can't be found with the even parity, we'll try
+	// the odd parity.
+	case errors.Is(err, address.ErrInternalKeyNotFound):
+		internalKey = tapscript.FlipParity(internalKey)
+
+		keyLocator, err = r.cfg.AssetWallet.FetchInternalKeyLocator(
+			ctx, internalKey,
+		)
+		if err != nil {
+			return nil, keyLocator, fmt.Errorf("error fetching "+
+				"internal key: %w", err)
+		}
+
+	// For any other error from above, we'll return it to the user.
+	case err != nil:
+		return nil, keyLocator, fmt.Errorf("error fetching internal "+
+			"key: %w", err)
+	}
+
+	return internalKey, keyLocator, nil
 }
 
 // QueryScriptKey returns the full script key descriptor for the given tweaked
@@ -5141,4 +5577,36 @@ func serialize(s interface{ Serialize(io.Writer) error }) ([]byte, error) {
 	}
 
 	return b.Bytes(), nil
+}
+
+// decodeVirtualPackets decodes a slice of raw virtual packet bytes into a slice
+// of virtual packets.
+func decodeVirtualPackets(rawPackets [][]byte) ([]*tappsbt.VPacket, error) {
+	packets := make([]*tappsbt.VPacket, len(rawPackets))
+	for idx := range rawPackets {
+		var err error
+		packets[idx], err = tappsbt.Decode(rawPackets[idx])
+		if err != nil {
+			return nil, fmt.Errorf("error decoding virtual packet "+
+				"at index %d: %w", idx, err)
+		}
+	}
+
+	return packets, nil
+}
+
+// encodeVirtualPackets encodes a slice of virtual packets into a slice of raw
+// virtual packet bytes.
+func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
+	rawPackets := make([][]byte, len(packets))
+	for idx := range packets {
+		var err error
+		rawPackets[idx], err = tappsbt.Encode(packets[idx])
+		if err != nil {
+			return nil, fmt.Errorf("error serializing packet: %w",
+				err)
+		}
+	}
+
+	return rawPackets, nil
 }

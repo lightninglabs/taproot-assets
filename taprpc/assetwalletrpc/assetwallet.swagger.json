@@ -281,6 +281,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/wallet/virtual-psbt/commit": {
+      "post": {
+        "summary": "CommitVirtualPsbts creates the output commitments and proofs for the given\nvirtual transactions by committing them to the BTC level anchor transaction.\nIn addition, the BTC level anchor transaction is funded and prepared up to\nthe point where it is ready to be signed.",
+        "operationId": "AssetWallet_CommitVirtualPsbts",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcCommitVirtualPsbtsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcCommitVirtualPsbtsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/virtual-psbt/fund": {
       "post": {
         "summary": "FundVirtualPsbt selects inputs from the available asset commitments to fund\na virtual transaction matching the template.",
@@ -359,6 +392,89 @@
             "format": "byte"
           },
           "description": "The list of virtual transactions that should be merged and committed to in\nthe BTC level anchor transaction."
+        }
+      }
+    },
+    "assetwalletrpcCommitVirtualPsbtsRequest": {
+      "type": "object",
+      "properties": {
+        "virtual_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The list of virtual transactions that should be mapped to the given BTC\nlevel anchor transaction template. The virtual transactions are expected to\nbe signed (or use ASSET_VERSION_V1 with segregated witness to allow for\nsigning after committing) and ready to be committed to the anchor\ntransaction."
+        },
+        "passive_asset_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The list of passive virtual transactions that are anchored in the same BTC\nlevel anchor transaction inputs as the \"active\" assets above. These can be\nobtained by calling FundVirtualPsbt and using the passive assets returned.\nThe virtual transactions are expected to be signed (or use ASSET_VERSION_V1\nwith segregated witness to allow for signing after committing) and ready to\nbe committed to the anchor transaction.\nThe main difference to the \"active\" assets above is that the passive assets\nwill not get their own entry in the transfer table of the database, since\nthey are just carried along and not directly affected by the direct user\naction."
+        },
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The template of the BTC level anchor transaction that the virtual\ntransactions should be mapped to. The template is expected to already\ncontain all asset related inputs and outputs corresponding to the virtual\ntransactions given above. This can be achieved by using\ntapfreighter.PrepareAnchoringTemplate for example."
+        },
+        "existing_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Use the existing output within the anchor PSBT with the specified\nindex as the change output. Any leftover change will be added to the\nalready specified amount of that output. To add a new change output to\nthe PSBT, set the \"add\" field below instead."
+        },
+        "add": {
+          "type": "boolean",
+          "description": "Add a new P2TR change output to the PSBT if required."
+        },
+        "target_conf": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The target number of blocks that the transaction should be confirmed in."
+        },
+        "sat_per_vbyte": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The fee rate, expressed in sat/vbyte, that should be used to fund the\nBTC level anchor transaction."
+        }
+      }
+    },
+    "assetwalletrpcCommitVirtualPsbtsResponse": {
+      "type": "object",
+      "properties": {
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The funded BTC level anchor transaction with all outputs updated to commit\nto the virtual transactions given. The transaction is ready to be signed,\nunless some of the asset inputs don't belong to this daemon, in which case\nthe anchor input derivation info must be added to those inputs first."
+        },
+        "virtual_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The updated virtual transactions that now contain the state transition\nproofs for being committed to the BTC level anchor transaction above. If the\nassets in the virtual transaction outputs are ASSET_VERSION_V1 and not yet\nsigned, then the proofs need to be updated to include the witness before\nthey become fully valid."
+        },
+        "passive_asset_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The updated passive virtual transactions that were committed to the same BTC\nlevel anchor transaction as the \"active\" virtual transactions given. If the\nassets in the virtual transaction outputs are ASSET_VERSION_V1 and not yet\nsigned, then the proofs need to be updated to include the witness before\nthey become fully valid."
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the (added) change output or -1 if no change was left over."
+        },
+        "lnd_locked_utxos": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/taprpcOutPoint"
+          },
+          "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
         }
       }
     },

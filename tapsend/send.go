@@ -1608,8 +1608,8 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 
 // ValidateAnchorInputs checks that the anchor inputs of the virtual packets
 // are valid and consistent with the provided BTC level PSBT packet.
-func ValidateAnchorInputs(anchorPacket *psbt.Packet,
-	packets []*tappsbt.VPacket) error {
+func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
+	prunedAssets map[wire.OutPoint][]*asset.Asset) error {
 
 	// We first make sure the "static" anchor information in the virtual
 	// packets is consistent with the provided BTC level PSBT packet.
@@ -1712,6 +1712,14 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet,
 			inputScripts[outpoint] = anchorIn.WitnessUtxo.PkScript
 			inputAnchors[outpoint] = vIn.Anchor
 		}
+	}
+
+	// Add the pruned assets to the input assets, as we know they were
+	// originally present in the input commitment.
+	for outpoint := range prunedAssets {
+		inputAssets[outpoint] = append(
+			inputAssets[outpoint], prunedAssets[outpoint]...,
+		)
 	}
 
 	// We can now go through each anchor input that contains assets being
