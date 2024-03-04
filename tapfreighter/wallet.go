@@ -1712,7 +1712,7 @@ func adjustFundedPsbt(fPkt *tapsend.FundedPsbt, anchorInputValue int64) {
 
 	// Overwrite the existing change output, and restore in at the
 	// highest-index output.
-	fPkt.Pkt.UnsignedTx.TxOut[changeIndex] = createDummyOutput()
+	fPkt.Pkt.UnsignedTx.TxOut[changeIndex] = tapsend.CreateDummyOutput()
 	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeOutput.PkScript
 	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeOutput.Value
 
