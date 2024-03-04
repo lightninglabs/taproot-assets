@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"strings"
@@ -771,13 +772,11 @@ func (r *rpcServer) marshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 
 	var anchorTxBytes []byte
 	if a.AnchorTx != nil {
-		var anchorTxBuf bytes.Buffer
-		err := a.AnchorTx.Serialize(&anchorTxBuf)
+		anchorTxBytes, err = serialize(a.AnchorTx)
 		if err != nil {
 			return nil, fmt.Errorf("unable to serialize anchor "+
 				"tx: %w", err)
 		}
-		anchorTxBytes = anchorTxBuf.Bytes()
 	}
 
 	rpcAsset.ChainAnchor = &taprpc.AnchorInfo{
@@ -939,7 +938,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 			return nil, err
 		}
 
-		asset := &taprpc.AssetHumanReadable{
+		rpcAsset := &taprpc.AssetHumanReadable{
 			Id:               a.ID[:],
 			Version:          assetVersion,
 			Amount:           a.Amount,
@@ -958,7 +957,7 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 		}
 
 		groupsWithAssets[groupKey].Assets = append(
-			groupsWithAssets[groupKey].Assets, asset,
+			groupsWithAssets[groupKey].Assets, rpcAsset,
 		)
 	}
 
@@ -1255,8 +1254,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 		return nil, fmt.Errorf("invalid proof file: %w", err)
 	}
 
-	var proofFile proof.File
-	err := proofFile.Decode(bytes.NewReader(req.RawProofFile))
+	proofFile, err := proof.DecodeFile(req.RawProofFile)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
@@ -1297,21 +1295,17 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 func (r *rpcServer) DecodeProof(ctx context.Context,
 	req *taprpc.DecodeProofRequest) (*taprpc.DecodeProofResponse, error) {
 
-	var (
-		proofReader = bytes.NewReader(req.RawProof)
-		rpcProof    *taprpc.DecodedProof
-	)
+	var rpcProof *taprpc.DecodedProof
 	switch {
 	case proof.IsSingleProof(req.RawProof):
-		var p proof.Proof
-		err := p.Decode(proofReader)
+		p, err := proof.Decode(req.RawProof)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode proof: %w",
 				err)
 		}
 
 		rpcProof, err = r.marshalProof(
-			ctx, &p, req.WithPrevWitnesses, req.WithMetaReveal,
+			ctx, p, req.WithPrevWitnesses, req.WithMetaReveal,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal proof: %w",
@@ -1325,8 +1319,8 @@ func (r *rpcServer) DecodeProof(ctx context.Context,
 			return nil, fmt.Errorf("invalid proof file: %w", err)
 		}
 
-		var proofFile proof.File
-		if err := proofFile.Decode(proofReader); err != nil {
+		proofFile, err := proof.DecodeFile(req.RawProof)
+		if err != nil {
 			return nil, fmt.Errorf("unable to decode proof file: "+
 				"%w", err)
 		}
@@ -1588,8 +1582,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 
 	// We need to parse the proof file and extract the last proof, so we can
 	// get the locator that is required for storage.
-	var proofFile proof.File
-	err := proofFile.Decode(bytes.NewReader(req.ProofFile))
+	proofFile, err := proof.DecodeFile(req.ProofFile)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode proof file: %w", err)
 	}
@@ -1773,15 +1766,17 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			"specified")
 	}
 
-	var b bytes.Buffer
-	if err := fundedVPkt.VPacket.Serialize(&b); err != nil {
+	var err error
+	response := &wrpc.FundVirtualPsbtResponse{
+		ChangeOutputIndex: 0,
+	}
+
+	response.FundedPsbt, err = serialize(fundedVPkt.VPacket)
+	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
 
-	return &wrpc.FundVirtualPsbtResponse{
-		FundedPsbt:        b.Bytes(),
-		ChangeOutputIndex: 0,
-	}, nil
+	return response, nil
 }
 
 // SignVirtualPsbt signs the inputs of a virtual transaction and prepares the
@@ -1794,9 +1789,7 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("request cannot be nil")
 	}
 
-	vPkt, err := tappsbt.NewFromRawBytes(
-		bytes.NewReader(req.FundedPsbt), false,
-	)
+	vPkt, err := tappsbt.Decode(req.FundedPsbt)
 	if err != nil {
 		return nil, fmt.Errorf("error decoding packet: %w", err)
 	}
@@ -1843,13 +1836,13 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
 
-	var b bytes.Buffer
-	if err := vPkt.Serialize(&b); err != nil {
+	signedPsbtBytes, err := serialize(vPkt)
+	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
 
 	return &wrpc.SignVirtualPsbtResponse{
-		SignedPsbt:   b.Bytes(),
+		SignedPsbt:   signedPsbtBytes,
 		SignedInputs: signedInputs,
 	}, nil
 }
@@ -1871,9 +1864,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("only one virtual PSBT supported")
 	}
 
-	vPacket, err := tappsbt.NewFromRawBytes(
-		bytes.NewReader(req.VirtualPsbts[0]), false,
-	)
+	vPacket, err := tappsbt.Decode(req.VirtualPsbts[0])
 	if err != nil {
 		return nil, fmt.Errorf("error decoding packet: %w", err)
 	}
@@ -2426,14 +2417,13 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		vOut := fundResp.VPacket.Outputs[idx]
 		tOut := resp.Outputs[idx]
 		if vOut.Asset.IsBurn() {
-			var p proof.Proof
-			err = p.Decode(bytes.NewReader(tOut.ProofSuffix))
+			p, err := proof.Decode(tOut.ProofSuffix)
 			if err != nil {
 				return nil, fmt.Errorf("error decoding "+
 					"burn proof: %w", err)
 			}
 
-			burnProof, err = r.marshalProof(ctx, &p, true, false)
+			burnProof, err = r.marshalProof(ctx, p, true, false)
 			if err != nil {
 				return nil, fmt.Errorf("error decoding "+
 					"burn proof: %w", err)
@@ -4023,10 +4013,10 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
-	var assetProof proof.Proof
-	if err := assetProof.Decode(
-		bytes.NewReader(leaf.Proof),
-	); err != nil {
+	var proofAsset asset.Asset
+	assetRecord := proof.AssetLeafRecord(&proofAsset)
+	err := proof.SparseDecode(bytes.NewReader(leaf.Proof), assetRecord)
+	if err != nil {
 		return nil, err
 	}
 
@@ -4035,12 +4025,12 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 
 	return &universe.Leaf{
 		GenesisWithGroup: universe.GenesisWithGroup{
-			Genesis:  assetProof.Asset.Genesis,
-			GroupKey: assetProof.Asset.GroupKey,
+			Genesis:  proofAsset.Genesis,
+			GroupKey: proofAsset.GroupKey,
 		},
 		RawProof: leaf.Proof,
-		Asset:    &assetProof.Asset,
-		Amt:      assetProof.Asset.Amount,
+		Asset:    &proofAsset,
+		Amt:      proofAsset.Amount,
 	}, nil
 }
 
@@ -4133,8 +4123,8 @@ func (r *rpcServer) Info(ctx context.Context,
 
 // unmarshalUniverseSyncType maps an RPC universe sync type into a concrete
 // type.
-func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
-	universe.SyncType, error) {
+func unmarshalUniverseSyncType(
+	req unirpc.UniverseSyncMode) (universe.SyncType, error) {
 
 	switch req {
 	case unirpc.UniverseSyncMode_SYNC_FULL:
@@ -4149,7 +4139,9 @@ func unmarshalUniverseSyncType(req unirpc.UniverseSyncMode) (
 }
 
 // unmarshalSyncTargets maps an RPC sync target into a concrete type.
-func unmarshalSyncTargets(targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
+func unmarshalSyncTargets(
+	targets []*unirpc.SyncTarget) ([]universe.Identifier, error) {
+
 	uniIDs := make([]universe.Identifier, 0, len(targets))
 	for _, target := range targets {
 		uniID, err := UnmarshalUniID(target.Id)
@@ -4254,8 +4246,8 @@ func (r *rpcServer) SyncUniverse(ctx context.Context,
 	return r.marshalUniverseDiff(ctx, universeDiff)
 }
 
-func marshalUniverseServer(server universe.ServerAddr,
-) *unirpc.UniverseFederationServer {
+func marshalUniverseServer(
+	server universe.ServerAddr) *unirpc.UniverseFederationServer {
 
 	return &unirpc.UniverseFederationServer{
 		Host: server.HostStr(),
@@ -4264,7 +4256,7 @@ func marshalUniverseServer(server universe.ServerAddr,
 }
 
 // ListFederationServers lists the set of servers that make up the federation
-// of the local Universe server. This servers are used to push out new proofs,
+// of the local Universe server. These servers are used to push out new proofs,
 // and also periodically call sync new proofs from the remote server.
 func (r *rpcServer) ListFederationServers(ctx context.Context,
 	_ *unirpc.ListFederationServersRequest,
@@ -4501,8 +4493,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot fetch proof: %w", err)
 	}
 
-	proofFile := &proof.File{}
-	err = proofFile.Decode(bytes.NewReader(proofBlob))
+	proofFile, err := proof.DecodeFile(proofBlob)
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode proof: %w", err)
 	}
@@ -4559,8 +4550,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("a valid proof must be specified")
 	}
 
-	p := &proof.Proof{}
-	err := p.Decode(bytes.NewReader(req.ProofWithWitness))
+	p, err := proof.Decode(req.ProofWithWitness)
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode proof file: %w", err)
 	}
@@ -5119,4 +5109,16 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 			return nil
 		}
 	}
+}
+
+// serialize is a helper function that serializes a serializable object into a
+// byte slice.
+func serialize(s interface{ Serialize(io.Writer) error }) ([]byte, error) {
+	var b bytes.Buffer
+	err := s.Serialize(&b)
+	if err != nil {
+		return nil, err
+	}
+
+	return b.Bytes(), nil
 }
