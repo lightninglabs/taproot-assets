@@ -2862,7 +2862,7 @@ func TestValidateAnchorInputs(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			err := tapsend.ValidateAnchorInputs(
-				tc.anchor, tc.packets,
+				tc.anchor, tc.packets, nil,
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
 
