@@ -248,6 +248,10 @@ var testCases = []*testCase{
 		name: "multi signature on all levels",
 		test: testMultiSignature,
 	},
+	{
+		name: "anchor multiple virtual transactions",
+		test: testAnchorMultipleVirtualTransactions,
+	},
 }
 
 var optionalTestCases = []*testCase{
