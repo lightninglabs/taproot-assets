@@ -2502,7 +2502,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.NextScriptKeyResponse{
-		ScriptKey: marshalScriptKey(scriptKey),
+		ScriptKey: MarshalScriptKey(scriptKey),
 	}, nil
 }
 
@@ -2660,7 +2660,7 @@ func (r *rpcServer) QueryScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.QueryScriptKeyResponse{
-		ScriptKey: marshalScriptKey(asset.ScriptKey{
+		ScriptKey: MarshalScriptKey(asset.ScriptKey{
 			PubKey:           scriptKey,
 			TweakedScriptKey: tweakedKey,
 		}),
@@ -3556,8 +3556,8 @@ func UnmarshalScriptKey(rpcKey *taprpc.ScriptKey) (*asset.ScriptKey, error) {
 	return &scriptKey, nil
 }
 
-// marshalScriptKey marshals the native script key into the RPC counterpart.
-func marshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
+// MarshalScriptKey marshals the native script key into the RPC counterpart.
+func MarshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
 	rpcScriptKey := &taprpc.ScriptKey{
 		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
 	}
