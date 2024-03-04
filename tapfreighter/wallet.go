@@ -883,13 +883,6 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// now we just put this check in place.
 		assetInput := eligibleCommitments[idx]
 		internalKey := assetInput.InternalKey
-		if !f.cfg.KeyRing.IsLocalKey(ctx, internalKey) {
-			return nil, fmt.Errorf("invalid internal key family "+
-				"for selected input, not known to lnd: "+
-				"key=%x, fam=%v, idx=%v",
-				internalKey.PubKey.SerializeCompressed(),
-				internalKey.Family, internalKey.Index)
-		}
 
 		inBip32Derivation, inTrBip32Derivation :=
 			tappsbt.Bip32DerivationFromKeyDesc(
