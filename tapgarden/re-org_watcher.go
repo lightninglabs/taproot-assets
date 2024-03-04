@@ -278,11 +278,16 @@ func (w *ReOrgWatcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 				// in a new block in the re-organized chain.
 
 			case err := <-errChan:
-				if !fn.IsCanceled(err) {
+				if !fn.IsRpcErr(
+					err,
+					chainntnfs.ErrChainNotifierShuttingDown,
+				) && !fn.IsCanceled(err) {
+
 					w.reportErr(fmt.Errorf("error while "+
 						"waiting for conf: %w", err))
-					return
 				}
+
+				return
 
 			case <-ctx.Done():
 				if !fn.IsCanceled(ctx.Err()) {
@@ -464,8 +469,14 @@ func (w *ReOrgWatcher) watchTransactions() {
 			}
 
 		case err := <-blockErr:
-			w.reportErr(fmt.Errorf("unable to receive new block "+
-				"notifications: %w", err))
+			if !fn.IsRpcErr(
+				err, chainntnfs.ErrChainNotifierShuttingDown,
+			) && !fn.IsCanceled(err) {
+
+				w.reportErr(fmt.Errorf("unable to receive "+
+					"new block notifications: %w", err))
+			}
+
 			return
 
 		case <-w.Quit:

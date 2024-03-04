@@ -171,8 +171,10 @@ func testReOrgSend(t *harnessTest) {
 	miner.AssertTxInBlock(initialBlock, sendTXID)
 	t.Logf("Send TX %v mined in block %v", sendTXID, initialBlockHash)
 
-	// We now generate the re-org.
+	// We now generate the re-org. That should put the minting TX back into
+	// the mempool.
 	generateReOrg(t.t, t.lndHarness, tempMiner, 3, 2)
+	t.lndHarness.Miner.AssertNumTxsInMempool(1)
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
@@ -285,8 +287,10 @@ func testReOrgMintAndSend(t *harnessTest) {
 	miner.AssertTxInBlock(initialBlock, sendTXID)
 	t.Logf("Send TX %v mined in block %v", sendTXID, initialBlockHash)
 
-	// We now generate the re-org.
+	// We now generate the re-org. That should put the minting and send TX
+	// back into the mempool.
 	generateReOrg(t.t, t.lndHarness, tempMiner, 4, 2)
+	t.lndHarness.Miner.AssertNumTxsInMempool(2)
 
 	// This should have caused a reorg, and Alice should sync to the longer
 	// chain, where the funding transaction is not confirmed.
@@ -371,8 +375,7 @@ func generateReOrg(t *testing.T, lnd *lntest.HarnessTest,
 	tempMiner *lntest.HarnessMiner, depth uint32, expectedDelta int32) {
 
 	// Now we generate a longer chain with the temp miner.
-	_, err := tempMiner.Client.Generate(depth)
-	require.NoError(t, err, "unable to generate blocks")
+	tempMiner.MineEmptyBlocks(int(depth))
 
 	// Ensure the chain lengths are what we expect, with the temp miner
 	// being 2 blocks ahead.
