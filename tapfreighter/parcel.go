@@ -652,3 +652,36 @@ func (s *sendPackage) deliverTxBroadcastResp() {
 
 	s.Parcel.kit().respChan <- s.OutboundPkg
 }
+
+// validateReadyForPublish checks that the virtual packets are ready to be
+// published to the network. The pruned assets (assets that were present in the
+// input TAP tree but are not re-created by any of the active or passive packets
+// because they were burns or tombstones) are required to be supplied in order
+// for the full input TAP tree to be reconstructed and validated.
+func (s *sendPackage) validateReadyForPublish(
+	prunedAssets map[wire.OutPoint][]*asset.Asset) error {
+
+	// At this point all the virtual packet inputs and outputs should fully
+	// match the BTC level anchor transaction. Version 0 assets should also
+	// be signed now.
+	allPackets := append([]*tappsbt.VPacket{}, s.VirtualPackets...)
+	allPackets = append(allPackets, s.PassiveAssets...)
+	if err := tapsend.AssertInputAnchorsEqual(allPackets); err != nil {
+		return fmt.Errorf("input anchors don't match: %w", err)
+	}
+	if err := tapsend.AssertOutputAnchorsEqual(allPackets); err != nil {
+		return fmt.Errorf("output anchors don't match: %w", err)
+	}
+
+	btcPkt := s.AnchorTx.FundedPsbt.Pkt
+	err := tapsend.ValidateAnchorInputs(btcPkt, allPackets, prunedAssets)
+	if err != nil {
+		return fmt.Errorf("error validating anchor inputs: %w", err)
+	}
+	err = tapsend.ValidateAnchorOutputs(btcPkt, allPackets, true)
+	if err != nil {
+		return fmt.Errorf("error validating anchor outputs: %w", err)
+	}
+
+	return nil
+}

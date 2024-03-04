@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -932,6 +933,25 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// signing process with a copy to avoid clearing the info on
 		// finalization.
 		currentPkg.AnchorTx = anchorTx
+
+		// For the final validation, we need to also supply the assets
+		// that were committed to the input tree but pruned because they
+		// were burns or tombstones.
+		prunedAssets := make(map[wire.OutPoint][]*asset.Asset)
+		for prevID := range currentPkg.InputCommitments {
+			c := currentPkg.InputCommitments[prevID]
+			prunedAssets[prevID.OutPoint] = append(
+				prunedAssets[prevID.OutPoint],
+				tapsend.ExtractUnSpendable(c)...,
+			)
+		}
+
+		// Make sure everything is ready for the finalization.
+		err = currentPkg.validateReadyForPublish(prunedAssets)
+		if err != nil {
+			return nil, fmt.Errorf("unable to validate send "+
+				"package: %w", err)
+		}
 
 		currentPkg.SendState = SendStateLogCommit
 
