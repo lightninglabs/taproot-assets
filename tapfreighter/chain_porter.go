@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -859,8 +860,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		defer cancel()
 
 		// Submit the template PSBT to the wallet for funding.
-		//
-		// TODO(roasbeef): unlock the input UTXOs if things fail
 		var (
 			feeRate chainfee.SatPerKWeight
 			err     error
@@ -946,6 +945,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Make sure everything is ready for the finalization.
 		err = currentPkg.validateReadyForPublish(prunedAssets)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to validate send "+
 				"package: %w", err)
 		}
@@ -964,6 +965,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		defer cancel()
 		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to get current height: "+
 				"%w", err)
 		}
@@ -984,6 +987,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			isLocalKey,
 		)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to prepare parcel for "+
 				"storage: %w", err)
 		}
@@ -1000,6 +1005,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			time.Now().Add(defaultBroadcastCoinLeaseDuration),
 		)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %w", err)
 		}
@@ -1018,20 +1025,41 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		err := p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to import local "+
 				"addresses: %w", err)
 		}
 
-		log.Infof("Broadcasting new transfer tx, txid=%v",
-			currentPkg.OutboundPkg.AnchorTx.TxHash())
+		txHash := currentPkg.OutboundPkg.AnchorTx.TxHash()
+		log.Infof("Broadcasting new transfer tx, txid=%v", txHash)
 
 		// With the public key imported, we can now broadcast to the
 		// network.
 		err = p.cfg.ChainBridge.PublishTransaction(
 			ctx, currentPkg.OutboundPkg.AnchorTx,
 		)
-		if err != nil {
-			return nil, err
+		switch {
+		case errors.Is(err, lnwallet.ErrDoubleSpend):
+			// A double spend error means the transaction will never
+			// make it into the mempool or chain, so we'll never be
+			// able to confirm it. At this point we should probably
+			// put the transfer in a failed state and not re-try on
+			// next startup... But since we don't have that state
+			// yet, we just return an error here. But what we can do
+			// is release any fee sponsoring inputs we selected from
+			// lnd's wallet to avoid locking up balance.
+			//
+			// TODO(guggero): Put this transfer into a failed state
+			// and don't retry on next startup.
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to broadcast "+
+				"transaction %v: %w", txHash, err)
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to broadcast "+
+				"transaction %v: %w", txHash, err)
 		}
 
 		// With the transaction broadcast, we'll deliver a
@@ -1079,6 +1107,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	default:
 		return &currentPkg, fmt.Errorf("unknown state: %v",
 			currentPkg.SendState)
+	}
+}
+
+// unlockInputs unlocks the inputs that were locked for the given package.
+func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
+	if pkg == nil || pkg.AnchorTx == nil || pkg.AnchorTx.FundedPsbt == nil {
+		return
+	}
+
+	for _, op := range pkg.AnchorTx.FundedPsbt.LockedUTXOs {
+		err := p.cfg.Wallet.UnlockInput(ctx, op)
+		if err != nil {
+			log.Warnf("Unable to unlock input %v: %v", op, err)
+		}
 	}
 }
 
