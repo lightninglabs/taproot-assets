@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/davecgh/go-spew/spew"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -23,8 +24,15 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	feeRateSatPerKVByte chainfee.SatPerKVByte = 2000
 )
 
 // testPsbtScriptHashLockSend tests that we can properly send assets with a hash
@@ -1609,6 +1617,178 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	require.ErrorContains(t.t, err, "unable to verify proof")
 }
 
+// testPsbtExternalCommit tests the ability to fully customize the BTC level of
+// an asset transfer using a PSBT. This exercises the CommitVirtualPsbts and
+// PublishAndLogTransfer RPCs. The test case moves some assets into an output
+// that has a hash lock tapscript.
+func testPsbtExternalCommit(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We mint some grouped assets to use in the test. These assets are
+	// minted on the default tapd instance that is always created in the
+	// integration test (connected to lnd "Alice").
+	assets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			issuableAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+	targetAsset := assets[0]
+
+	var (
+		targetAssetGenesis = targetAsset.AssetGenesis
+		aliceTapd          = t.tapd
+		aliceLnd           = t.lndHarness.Alice
+		bobLnd             = t.lndHarness.Bob
+	)
+
+	// We create a second tapd node that will be used to simulate a second
+	// party in the test. This tapd node is connected to lnd "Bob".
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
+	}()
+
+	// And now we prepare the hash lock script for the BTC level.
+	btcTapLeaf := test.ScriptHashLock(t.t, []byte("hash locks are cool"))
+
+	// The actual internal key of the BTC level Taproot output will be the
+	// provably un-spendable NUMS key.
+	siblingPreimage, err := commitment.NewPreimageFromLeaf(btcTapLeaf)
+	require.NoError(t.t, err)
+	siblingPreimageBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
+		siblingPreimage,
+	)
+	require.NoError(t.t, err)
+
+	// We now have everything we need to create the TAP address to receive
+	// the multisig secured assets. The recipient of the assets is going to
+	// be the Bob node, but the custody will be shared between Alice and Bob
+	// on both levels.
+	const assetsToSend = 1000
+	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:          targetAssetGenesis.AssetId,
+		Amt:              assetsToSend,
+		TapscriptSibling: siblingPreimageBytes,
+	})
+	require.NoError(t.t, err)
+
+	// Now we can create our virtual transaction and ask Alice's tapd to
+	// fund it.
+	recipients := map[string]uint64{
+		bobAddr.Encoded: bobAddr.Amount,
+	}
+	fundResp, err := aliceTapd.FundVirtualPsbt(
+		ctxt, &wrpc.FundVirtualPsbtRequest{
+			Template: &wrpc.FundVirtualPsbtRequest_Raw{
+				Raw: &wrpc.TxTemplate{
+					Recipients: recipients,
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// We expect a passive asset to be returned.
+	require.Equal(t.t, 1, len(fundResp.PassiveAssetPsbts))
+
+	// With the virtual transaction funded, we can simply sign it and the
+	// passive assets.
+	activeAsset, err := tappsbt.Decode(fundResp.FundedPsbt)
+	require.NoError(t.t, err)
+
+	activeAssets := []*tappsbt.VPacket{
+		signVirtualPacket(t.t, aliceTapd, activeAsset),
+	}
+
+	passiveAssets := make(
+		[]*tappsbt.VPacket, len(fundResp.PassiveAssetPsbts),
+	)
+	for idx := range fundResp.PassiveAssetPsbts {
+		passiveAsset, err := tappsbt.Decode(
+			fundResp.PassiveAssetPsbts[idx],
+		)
+		require.NoError(t.t, err)
+
+		passiveAssets[idx] = signVirtualPacket(
+			t.t, aliceTapd, passiveAsset,
+		)
+	}
+
+	allPackets := append([]*tappsbt.VPacket{}, activeAssets...)
+	allPackets = append(allPackets, passiveAssets...)
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(allPackets)
+	require.NoError(t.t, err)
+
+	var commitResp *wrpc.CommitVirtualPsbtsResponse
+	btcPacket, activeAssets, passiveAssets, commitResp = commitVirtualPsbts(
+		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets, -1,
+	)
+
+	t.Logf("Committed transaction: %v", toJSON(t.t, commitResp))
+
+	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
+	btcPacket = finalizePacket(t.t, aliceLnd, btcPacket)
+	sendResp := logAndPublish(
+		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
+		commitResp,
+	)
+
+	expectedAmounts := []uint64{
+		targetAsset.Amount - assetsToSend, assetsToSend,
+	}
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, aliceTapd,
+		sendResp, targetAssetGenesis.AssetId, expectedAmounts,
+		0, 1, len(expectedAmounts),
+	)
+
+	// And now the event should be completed on both sides.
+	AssertAddrEvent(t.t, bobTapd, bobAddr, 1, statusCompleted)
+	AssertNonInteractiveRecvComplete(t.t, bobTapd, 1)
+	AssertBalanceByID(
+		t.t, bobTapd, targetAssetGenesis.AssetId, assetsToSend,
+	)
+}
+
+func signVirtualPacket(t *testing.T, tapd *tapdHarness,
+	packet *tappsbt.VPacket) *tappsbt.VPacket {
+
+	ctx := context.Background()
+	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
+	defer cancel()
+
+	rawPacket, err := tappsbt.Encode(packet)
+	require.NoError(t, err)
+
+	signResp, err := tapd.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: rawPacket,
+		},
+	)
+	require.NoError(t, err)
+
+	require.NotEmpty(t, signResp.SignedInputs)
+
+	parsedPacket, err := tappsbt.Decode(signResp.SignedPsbt)
+	require.NoError(t, err)
+
+	return parsedPacket
+}
+
 func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
 	keychain.KeyDescriptor) {
 
@@ -1706,4 +1886,161 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	// There are now two receive events (since only non-interactive sends
 	// appear in that RPC output).
 	AssertNonInteractiveRecvComplete(t.t, bob, numInTransfers)
+}
+
+func commitVirtualPsbts(t *testing.T, funder *tapdHarness, packet *psbt.Packet,
+	activePackets []*tappsbt.VPacket, passivePackets []*tappsbt.VPacket,
+	changeOutputIndex int32) (*psbt.Packet, []*tappsbt.VPacket,
+	[]*tappsbt.VPacket, *wrpc.CommitVirtualPsbtsResponse) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	t.Logf("Funding packet: %v\n", spew.Sdump(packet))
+
+	var buf bytes.Buffer
+	err := packet.Serialize(&buf)
+	require.NoError(t, err)
+
+	request := &wrpc.CommitVirtualPsbtsRequest{
+		AnchorPsbt: buf.Bytes(),
+		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
+			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
+		},
+	}
+
+	type existingIndex = wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex
+	if changeOutputIndex < 0 {
+		request.AnchorChangeOutput = &wrpc.CommitVirtualPsbtsRequest_Add{
+			Add: true,
+		}
+	} else {
+		request.AnchorChangeOutput = &existingIndex{
+			ExistingOutputIndex: changeOutputIndex,
+		}
+	}
+
+	request.VirtualPsbts = make([][]byte, len(activePackets))
+	for idx := range activePackets {
+		request.VirtualPsbts[idx], err = tappsbt.Encode(
+			activePackets[idx],
+		)
+		require.NoError(t, err)
+	}
+	request.PassiveAssetPsbts = make([][]byte, len(passivePackets))
+	for idx := range passivePackets {
+		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
+			passivePackets[idx],
+		)
+		require.NoError(t, err)
+	}
+
+	// Now we can map the virtual packets to the PSBT.
+	commitResponse, err := funder.CommitVirtualPsbts(ctxt, request)
+	require.NoError(t, err)
+
+	fundedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(commitResponse.AnchorPsbt), false,
+	)
+	require.NoError(t, err)
+
+	activePackets = make(
+		[]*tappsbt.VPacket, len(commitResponse.VirtualPsbts),
+	)
+	for idx := range commitResponse.VirtualPsbts {
+		activePackets[idx], err = tappsbt.Decode(
+			commitResponse.VirtualPsbts[idx],
+		)
+		require.NoError(t, err)
+	}
+
+	passivePackets = make(
+		[]*tappsbt.VPacket, len(commitResponse.PassiveAssetPsbts),
+	)
+	for idx := range commitResponse.PassiveAssetPsbts {
+		passivePackets[idx], err = tappsbt.Decode(
+			commitResponse.PassiveAssetPsbts[idx],
+		)
+		require.NoError(t, err)
+	}
+
+	return fundedPacket, activePackets, passivePackets, commitResponse
+}
+
+func signPacket(t *testing.T, lnd *node.HarnessNode,
+	pkt *psbt.Packet) *psbt.Packet {
+
+	var buf bytes.Buffer
+	err := pkt.Serialize(&buf)
+	require.NoError(t, err)
+
+	signResp := lnd.RPC.SignPsbt(&walletrpc.SignPsbtRequest{
+		FundedPsbt: buf.Bytes(),
+	})
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp.SignedPsbt), false,
+	)
+	require.NoError(t, err)
+
+	return signedPacket
+}
+
+func finalizePacket(t *testing.T, lnd *node.HarnessNode,
+	pkt *psbt.Packet) *psbt.Packet {
+
+	var buf bytes.Buffer
+	err := pkt.Serialize(&buf)
+	require.NoError(t, err)
+
+	finalizeResp := lnd.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: buf.Bytes(),
+	})
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(finalizeResp.SignedPsbt), false,
+	)
+	require.NoError(t, err)
+
+	return signedPacket
+}
+
+func logAndPublish(t *testing.T, tapd *tapdHarness, btcPkt *psbt.Packet,
+	activeAssets []*tappsbt.VPacket, passiveAssets []*tappsbt.VPacket,
+	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	var buf bytes.Buffer
+	err := btcPkt.Serialize(&buf)
+	require.NoError(t, err)
+
+	request := &wrpc.PublishAndLogRequest{
+		AnchorPsbt:        buf.Bytes(),
+		VirtualPsbts:      make([][]byte, len(activeAssets)),
+		PassiveAssetPsbts: make([][]byte, len(passiveAssets)),
+		ChangeOutputIndex: commitResp.ChangeOutputIndex,
+		LndLockedUtxos:    commitResp.LndLockedUtxos,
+	}
+
+	for idx := range activeAssets {
+		request.VirtualPsbts[idx], err = tappsbt.Encode(
+			activeAssets[idx],
+		)
+		require.NoError(t, err)
+	}
+	for idx := range passiveAssets {
+		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
+			passiveAssets[idx],
+		)
+		require.NoError(t, err)
+	}
+
+	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
+	require.NoError(t, err)
+
+	return resp
 }
