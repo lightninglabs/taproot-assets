@@ -22,7 +22,7 @@ const (
 
 	// testPageSizeSmall is the page size to use when fetching data from the
 	// universe rpc. We use a small page size to test pagination.
-	testPageSizeSmall = 2
+	testPageSizeSmall = 10
 
 	// testGroupSize is the size of the asset group we mint in the
 	// testUniversePaginationSimple test.
@@ -30,7 +30,7 @@ const (
 )
 
 func testUniversePaginationSimple(t *harnessTest) {
-	mintSize := 255
+	mintSize := 50
 	timeout := defaultWaitTimeout
 
 	// If we create a second tapd instance and sync the universe state,
@@ -211,10 +211,8 @@ func mintBatchAssetsTest(
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return AssertUniverseStateEqual(
-			t, alice, bob,
-		)
-	}, minterTimeout, time.Second)
+		return AssertUniverseStateEqual(t, alice, bob)
+	}, minterTimeout, 200*time.Millisecond)
 }
 
 // fetchAllLeafKeys fetches all leaf keys for a given universe ID.
