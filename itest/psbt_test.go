@@ -4,16 +4,22 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"fmt"
+	"net/url"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -22,7 +28,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
@@ -1610,6 +1618,350 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	require.ErrorContains(t.t, err, "unable to verify proof")
 }
 
+// testPsbtTrustlessSwap tests that the SIGHASH_NONE flag of vPSBTs can be used
+// to execute a trustless swap between two parties. This is done by using
+// different sighashes for the bitcoin psbt and taproot asset vpsbt. One is able
+// to "claim" the assets only by bringing their own bitcoin to fulfill the
+// outputs of the bitcoin transaction.
+func testPsbtTrustlessSwap(t *harnessTest) {
+	// First, we'll make a normal asset.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+
+	var (
+		alice       = t.tapd
+		numUnits    = mintedAsset.Amount
+		chainParams = &address.RegressionNetTap
+		assetID     asset.ID
+	)
+	copy(assetID[:], genInfo.AssetId)
+
+	// Now Alice will derive the script and anchor internal keys that will
+	// be used to bootstrap an interactive full send of her assets. This
+	// generated script key is only used to create the template of the asset
+	// transfer that will be later be changed by the receiver.
+	aliceDummyScriptKey, aliceAnchorInternalKey := DeriveKeys(t.t, alice)
+	vPkt := tappsbt.ForInteractiveSend(
+		assetID, numUnits, aliceDummyScriptKey, 1,
+		aliceAnchorInternalKey, asset.V0, chainParams,
+	)
+
+	// Now we fund the vPSBT, which creates 1 input and 1 output, which
+	// correspond to Alice's anchor that carries the asset and the output to
+	// which Alice is sending all of the assets.
+	fundResp := fundPacket(t, alice, vPkt)
+
+	var err error
+	vPkt, err = tappsbt.Decode(fundResp.FundedPsbt)
+	require.NoError(t.t, err)
+
+	require.Len(t.t, vPkt.Inputs, 1)
+	require.Len(t.t, vPkt.Outputs, 1)
+
+	// On the vPSBT level, which describes the assets transfer, we do not
+	// commit to any outputs.
+	vPkt.Inputs[0].SighashType = txscript.SigHashNone
+
+	// Let's do some sanity checks on the structure of the vPSBT, and
+	// prepare its outputs before signing.
+	require.Equal(t.t, vPkt.Outputs[0].Type, tappsbt.TypeSimple)
+	require.NoError(t.t, tapsend.PrepareOutputAssets(ctxb, vPkt))
+	require.Nil(t.t, vPkt.Outputs[0].Asset.SplitCommitmentRoot)
+	require.Len(t.t, vPkt.Outputs[0].Asset.PrevWitnesses, 1)
+	require.Nil(t.t, vPkt.Outputs[0].Asset.PrevWitnesses[0].SplitCommitment)
+
+	fundedPsbtBytes, err := tappsbt.Encode(vPkt)
+	require.NoError(t.t, err)
+
+	// Alice signs the vPSBT.
+	signedResp, err := alice.SignVirtualPsbt(
+		ctxb, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundedPsbtBytes,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Contains(t.t, signedResp.SignedInputs, uint32(0))
+
+	// Deserialize the signed vPSBT.
+	vPkt, err = tappsbt.Decode(signedResp.SignedPsbt)
+	require.NoError(t.t, err)
+
+	// Now we need to create the bitcoin PSBT where the previously created
+	// vPSBT will be anchored to.
+	btcpsbt, err := tapsend.PrepareAnchoringTemplate([]*tappsbt.VPacket{
+		vPkt,
+	})
+	require.NoError(t.t, err)
+
+	// This bitcoin PSBT should have 1 input, which is the anchor of Alice's
+	// assets, and 2 outputs that correspond to Alice's bitcoin change
+	// (index 0) and the anchor that carries the assets (index 1).
+	require.Len(t.t, btcpsbt.Inputs, 1)
+	require.Len(t.t, btcpsbt.Outputs, 2)
+
+	// Let's set an actual address for Alice's output.
+	addrResp := t.lndHarness.Alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
+	})
+
+	aliceP2TR, err := btcutil.DecodeAddress(
+		addrResp.Address, harnessNetParams,
+	)
+	require.NoError(t.t, err)
+
+	alicePkScript, err := txscript.PayToAddrScript(aliceP2TR)
+	require.NoError(t.t, err)
+
+	// These are basically Alice's terms that she signs the assets over:
+	// Send me 69420 satoshis to this address that belongs to me, and you
+	// will get assets in return.
+	btcpsbt.UnsignedTx.TxOut[0].PkScript = alicePkScript
+	btcpsbt.UnsignedTx.TxOut[0].Value = 69420
+	derivation, trDerivation := getAddressBip32Derivation(
+		t.t, addrResp.Address, t.lndHarness.Alice,
+	)
+
+	// Add the derivation info and internal key for alice's taproot address.
+	btcpsbt.Outputs[0].Bip32Derivation = []*psbt.Bip32Derivation{
+		derivation,
+	}
+	btcpsbt.Outputs[0].TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trDerivation,
+	}
+	btcpsbt.Outputs[0].TaprootInternalKey = trDerivation.XOnlyPubKey
+
+	var b bytes.Buffer
+	err = btcpsbt.Serialize(&b)
+	require.NoError(t.t, err)
+
+	// Now we need to commit the vPSBT and PSBT, creating all the related
+	// proofs for this transfer to be valid.
+	resp, err := alice.CommitVirtualPsbts(
+		ctxb, &wrpc.CommitVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedResp.SignedPsbt},
+			AnchorPsbt:   b.Bytes(),
+			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
+				Add: true,
+			},
+			Fees: &wrpc.CommitVirtualPsbtsRequest_TargetConf{
+				TargetConf: 12,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we retrieve the bitcoin PSBT from the response.
+	btcpsbt, err = psbt.NewFromRawBytes(
+		bytes.NewReader(resp.AnchorPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// The first input is the anchor that carries Alice's assets. This input
+	// will only commit to itself and Alice's output at same index (0),
+	// which is Alice's btc reward for swapping the assets. With the
+	// following sighash flag we commit to exactly that input and output,
+	// but we also allow anyone to add their own inputs, which will allow
+	// Bob later to add his btc input to pay Alice.
+	btcpsbt.Inputs[0].SighashType = txscript.SigHashSingle |
+		txscript.SigHashAnyOneCanPay
+
+	// We now strip the extra input that was only used to fund the bitcoin
+	// psbt. This is meant to be filled later by the person redeeming this
+	// swap offer.
+	btcpsbt.Inputs = append(
+		btcpsbt.Inputs[:1], btcpsbt.Inputs[2:]...,
+	)
+	btcpsbt.UnsignedTx.TxIn = append(
+		btcpsbt.UnsignedTx.TxIn[:1], btcpsbt.UnsignedTx.TxIn[2:]...,
+	)
+
+	// Let's get rid of the change output that we no longer need.
+	btcpsbt.Outputs = btcpsbt.Outputs[:2]
+	btcpsbt.UnsignedTx.TxOut = btcpsbt.UnsignedTx.TxOut[:2]
+
+	t.Logf("Alice BTC PSBT: %v", spew.Sdump(btcpsbt))
+
+	b.Reset()
+	err = btcpsbt.Serialize(&b)
+	require.NoError(t.t, err)
+
+	// Now alice signs the bitcoin psbt.
+	signPsbtResp := t.lndHarness.Alice.RPC.SignPsbt(
+		&walletrpc.SignPsbtRequest{
+			FundedPsbt: b.Bytes(),
+		},
+	)
+
+	require.Len(t.t, signPsbtResp.SignedInputs, 1)
+	require.Equal(t.t, uint32(0), signPsbtResp.SignedInputs[0])
+
+	btcpsbt, err = psbt.NewFromRawBytes(
+		bytes.NewReader(signPsbtResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// Let's do some sanity checks.
+	require.Len(t.t, btcpsbt.Inputs, 1)
+	require.Len(t.t, btcpsbt.Outputs, 2)
+
+	signedVpsbtBytes, err := tappsbt.Encode(vPkt)
+	require.NoError(t.t, err)
+
+	// Now let's spin up the receiver of this swap offer.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	var bob = secondTapd
+
+	// Bob begins by decoding the vPSBT.
+	bobVPsbt, err := tappsbt.Decode(signedVpsbtBytes)
+	require.NoError(t.t, err)
+
+	require.Len(t.t, bobVPsbt.Outputs, 1)
+
+	// And then he replaces the asset output with one of his own.
+	bobScriptKey, bobAnchorInternalKey := DeriveKeys(t.t, bob)
+
+	bobVOut := bobVPsbt.Outputs[0]
+	bobVOut.ScriptKey = bobScriptKey
+	bobVOut.AnchorOutputBip32Derivation = nil
+	bobVOut.AnchorOutputTaprootBip32Derivation = nil
+	bobVOut.SetAnchorInternalKey(
+		bobAnchorInternalKey, harnessNetParams.HDCoinType,
+	)
+	deliveryAddrStr := fmt.Sprintf(
+		"%s://%s", proof.UniverseRpcCourierType,
+		t.universeServer.ListenAddr,
+	)
+	deliveryAddr, err := url.Parse(deliveryAddrStr)
+	require.NoError(t.t, err)
+	bobVPsbt.Outputs[0].ProofDeliveryAddress = deliveryAddr
+
+	// The key information on the btc level, including the derivation path,
+	// needs to be updated to point to Bob's keys as well. Otherwise, he
+	// wouldn't be able to take over custody of the anchor carrying the
+	// assets.
+	btcpsbt.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
+		bobAnchorInternalKey.PubKey,
+	)
+	btcpsbt.Outputs[1].Bip32Derivation = bobVOut.AnchorOutputBip32Derivation
+	btcpsbt.Outputs[1].TaprootBip32Derivation =
+		bobVOut.AnchorOutputTaprootBip32Derivation
+
+	// Before Bob tidies up the output commitments he keeps a backup of the
+	// transfer witnesses. This is where Alice's SIGHASH_NONE signature
+	// lies.
+	witnessBackup := bobVPsbt.Outputs[0].Asset.PrevWitnesses
+
+	// Bob tidies up the outputs.
+	err = tapsend.PrepareOutputAssets(ctxb, bobVPsbt)
+	require.NoError(t.t, err)
+
+	require.Len(t.t, bobVPsbt.Outputs, 1)
+	require.Equal(
+		t.t, bobVPsbt.Outputs[0].ScriptKey,
+		bobVPsbt.Outputs[0].Asset.ScriptKey,
+	)
+
+	// Bob restores Alice's signature for the asset input.
+	bobVPsbt.Outputs[0].Asset.PrevWitnesses = witnessBackup
+
+	bobVPsbtBytes, err := tappsbt.Encode(bobVPsbt)
+	require.NoError(t.t, err)
+
+	// Now let's serialize the edited vPSBT and commit it to our bitcoin
+	// PSBT.
+	b.Reset()
+	err = btcpsbt.Serialize(&b)
+	require.NoError(t.t, err)
+
+	// This call will also fund the PSBT, which means that the bitcoin that
+	// Alice "requested" previously by bumping her output will now be
+	// provided by Bob.
+	resp, err = bob.CommitVirtualPsbts(
+		ctxb, &wrpc.CommitVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{bobVPsbtBytes},
+			AnchorPsbt:   b.Bytes(),
+			AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
+				Add: true,
+			},
+			Fees: &wrpc.CommitVirtualPsbtsRequest_TargetConf{
+				TargetConf: 12,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	bobVPsbt, err = tappsbt.Decode(resp.VirtualPsbts[0])
+	require.NoError(t.t, err)
+
+	// Since Bob brings in a new input to the bitcoin transaction, he needs
+	// to sign it. We do not care about the sighash flag here, that can be
+	// the default, as as we will not edit the bitcoin transaction further.
+	signResp := t.lndHarness.Bob.RPC.SignPsbt(
+		&walletrpc.SignPsbtRequest{
+			FundedPsbt: resp.AnchorPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	finalPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(signResp.SignedPsbt), false,
+	)
+	require.NoError(t.t, err)
+
+	// Bob must have brought his own input in order to pay Alice.
+	require.Len(t.t, finalPsbt.Inputs, 2)
+
+	// Bob's input should be at index 1, as index 0 is Alice's assets
+	// anchor.
+	bobInputIdx := uint32(1)
+
+	// Bob should sign exactly 1 input.
+	require.Len(t.t, signResp.SignedInputs, 1)
+	// Bob should have signed the input at the expected index.
+	require.Equal(t.t, bobInputIdx, signResp.SignedInputs[0])
+	require.NoError(t.t, finalPsbt.SanityCheck())
+
+	signedPkt := finalizePacket(t.t, t.lndHarness.Bob, finalPsbt)
+	require.True(t.t, signedPkt.IsComplete())
+
+	logResp := logAndPublish(
+		t.t, alice, signedPkt, []*tappsbt.VPacket{bobVPsbt}, nil, resp,
+	)
+	t.Logf("Logged transaction: %v", toJSON(t.t, logResp))
+
+	// Mine a block to confirm the transfer.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	// We also need to push the proof for this transfer to the universe
+	// server.
+	bobScriptKeyBytes := bobScriptKey.PubKey.SerializeCompressed()
+	sendUniProof(
+		t, t.universeServer.service, bob, bobScriptKeyBytes, genInfo,
+		mintedAsset.AssetGroup,
+		logResp.Transfer.Outputs[0].Anchor.Outpoint,
+	)
+
+	bobAssets, err := bob.ListAssets(ctxb, &taprpc.ListAssetRequest{})
+	require.NoError(t.t, err)
+
+	// Verify that Bob now holds the asset.
+	require.Len(t.t, bobAssets.Assets, 1)
+	require.Equal(t.t, bobAssets.Assets[0].Amount, numUnits)
+}
+
 // testPsbtExternalCommit tests the ability to fully customize the BTC level of
 // an asset transfer using a PSBT. This exercises the CommitVirtualPsbts and
 // PublishAndLogTransfer RPCs. The test case moves some assets into an output
@@ -1868,4 +2220,112 @@ func signPacket(t *testing.T, lnd *node.HarnessNode,
 	require.NoError(t, err)
 
 	return signedPacket
+}
+
+func finalizePacket(t *testing.T, lnd *node.HarnessNode,
+	pkt *psbt.Packet) *psbt.Packet {
+
+	var buf bytes.Buffer
+	err := pkt.Serialize(&buf)
+	require.NoError(t, err)
+
+	finalizeResp := lnd.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
+		FundedPsbt: buf.Bytes(),
+	})
+
+	signedPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(finalizeResp.SignedPsbt), false,
+	)
+	require.NoError(t, err)
+
+	return signedPacket
+}
+
+func logAndPublish(t *testing.T, tapd *tapdHarness, btcPkt *psbt.Packet,
+	activeAssets []*tappsbt.VPacket, passiveAssets []*tappsbt.VPacket,
+	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	var buf bytes.Buffer
+	err := btcPkt.Serialize(&buf)
+	require.NoError(t, err)
+
+	request := &wrpc.PublishAndLogRequest{
+		AnchorPsbt:        buf.Bytes(),
+		VirtualPsbts:      make([][]byte, len(activeAssets)),
+		PassiveAssetPsbts: make([][]byte, len(passiveAssets)),
+		ChangeOutputIndex: commitResp.ChangeOutputIndex,
+		LndLockedUtxos:    commitResp.LndLockedUtxos,
+	}
+
+	for idx := range activeAssets {
+		request.VirtualPsbts[idx], err = tappsbt.Encode(
+			activeAssets[idx],
+		)
+		require.NoError(t, err)
+	}
+	for idx := range passiveAssets {
+		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
+			passiveAssets[idx],
+		)
+		require.NoError(t, err)
+	}
+
+	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
+	require.NoError(t, err)
+
+	return resp
+}
+
+// getAddressBip32Derivation returns the PSBT BIP-0032 derivation info of an
+// address.
+func getAddressBip32Derivation(t testing.TB, addr string,
+	node *node.HarnessNode) (*psbt.Bip32Derivation,
+	*psbt.TaprootBip32Derivation) {
+
+	// We can't query a single address directly, so we just query all wallet
+	// addresses.
+	addresses := node.RPC.ListAddresses(
+		&walletrpc.ListAddressesRequest{},
+	)
+
+	var (
+		path        []uint32
+		pubKeyBytes []byte
+		err         error
+	)
+	for _, account := range addresses.AccountWithAddresses {
+		for _, address := range account.Addresses {
+			if address.Address == addr {
+				path, err = lntest.ParseDerivationPath(
+					address.DerivationPath,
+				)
+				require.NoError(t, err)
+
+				pubKeyBytes = address.PublicKey
+			}
+		}
+	}
+
+	if len(path) != 5 || len(pubKeyBytes) == 0 {
+		t.Fatalf("Derivation path for address %s not found or invalid",
+			addr)
+	}
+
+	// The actual derivation path in a PSBT needs to be using the hardened
+	// uint32 notation for the first three elements.
+	path[0] += hdkeychain.HardenedKeyStart
+	path[1] += hdkeychain.HardenedKeyStart
+	path[2] += hdkeychain.HardenedKeyStart
+
+	return &psbt.Bip32Derivation{
+			PubKey:    pubKeyBytes,
+			Bip32Path: path,
+		}, &psbt.TaprootBip32Derivation{
+			XOnlyPubKey: pubKeyBytes[1:],
+			Bip32Path:   path,
+		}
 }
