@@ -243,8 +243,8 @@ func (p *PendingParcel) Validate() error {
 type PreSignedParcel struct {
 	*parcelKit
 
-	// vPkt is the virtual transaction that should be delivered.
-	vPkt *tappsbt.VPacket
+	// vPackets is the list of virtual transaction that should be delivered.
+	vPackets []*tappsbt.VPacket
 
 	// inputCommitments are the commitments for the input that are being
 	// spent in the virtual transaction.
@@ -256,7 +256,7 @@ type PreSignedParcel struct {
 var _ Parcel = (*PreSignedParcel)(nil)
 
 // NewPreSignedParcel creates a new PreSignedParcel.
-func NewPreSignedParcel(vPkt *tappsbt.VPacket,
+func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
 	inputCommitments tappsbt.InputCommitments) *PreSignedParcel {
 
 	return &PreSignedParcel{
@@ -264,22 +264,22 @@ func NewPreSignedParcel(vPkt *tappsbt.VPacket,
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		vPkt:             vPkt,
+		vPackets:         vPackets,
 		inputCommitments: inputCommitments,
 	}
 }
 
 // pkg returns the send package that should be delivered.
 func (p *PreSignedParcel) pkg() *sendPackage {
-	log.Infof("New signed delivery request with %d outputs",
-		len(p.vPkt.Outputs))
+	log.Infof("New signed delivery request with %d packets",
+		len(p.vPackets))
 
 	// Initialize a package the signed virtual transaction and input
 	// commitment.
 	return &sendPackage{
 		Parcel:           p,
 		SendState:        SendStateAnchorSign,
-		VirtualPackets:   []*tappsbt.VPacket{p.vPkt},
+		VirtualPackets:   p.vPackets,
 		InputCommitments: p.inputCommitments,
 	}
 }
@@ -293,12 +293,14 @@ func (p *PreSignedParcel) kit() *parcelKit {
 // being present in order for the porter not to panic. Any business logic
 // validation is assumed to already have happened.
 func (p *PreSignedParcel) Validate() error {
-	if p.vPkt == nil {
+	if len(p.vPackets) == 0 {
 		return fmt.Errorf("no virtual transaction in pre-signed parcel")
 	}
 
-	if len(p.vPkt.Outputs) == 0 {
-		return fmt.Errorf("no outputs in virtual transaction")
+	for _, vPkt := range p.vPackets {
+		if len(vPkt.Outputs) == 0 {
+			return fmt.Errorf("no outputs in virtual transaction")
+		}
 	}
 
 	if p.inputCommitments == nil {
