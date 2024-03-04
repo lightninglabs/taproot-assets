@@ -153,13 +153,13 @@ type AnchorVTxnsParams struct {
 	// transaction.
 	FeeRate chainfee.SatPerKWeight
 
-	// VPkts is a list of all the virtual transactions that should be
-	// anchored by the anchor transaction.
-	VPkts []*tappsbt.VPacket
+	// ActivePackets is a list of all the virtual transactions that should
+	// be anchored by the anchor transaction.
+	ActivePackets []*tappsbt.VPacket
 
-	// PassiveAssetsVPkts is a list of all the virtual transactions which
+	// PassivePackets is a list of all the virtual transactions which
 	// re-anchor passive assets.
-	PassiveAssetsVPkts []*tappsbt.VPacket
+	PassivePackets []*tappsbt.VPacket
 }
 
 // NewCoinSelect creates a new CoinSelect.
@@ -1347,14 +1347,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	//
 	// TODO(guggero): Support merging and anchoring multiple virtual
 	// transactions.
-	if len(params.VPkts) != 1 {
+	if len(params.ActivePackets) != 1 {
 		return nil, fmt.Errorf("only a single virtual transaction is " +
 			"supported for now")
 	}
-	vPacket := params.VPkts[0]
+	vPacket := params.ActivePackets[0]
 
 	allPackets := append(
-		[]*tappsbt.VPacket{vPacket}, params.PassiveAssetsVPkts...,
+		[]*tappsbt.VPacket{vPacket}, params.PassivePackets...,
 	)
 	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
 	if err != nil {
@@ -1467,8 +1467,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Now that we have a valid transaction, we can create the proof
 	// suffixes for the active and passive assets.
-	for idx := range params.VPkts {
-		activeAsset := params.VPkts[idx]
+	for idx := range params.ActivePackets {
+		activeAsset := params.ActivePackets[idx]
 
 		for outIdx := range activeAsset.Outputs {
 			activeProof, err := tapsend.CreateProofSuffix(
@@ -1484,8 +1484,8 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		}
 	}
 
-	for idx := range params.PassiveAssetsVPkts {
-		passiveAsset := params.PassiveAssetsVPkts[idx]
+	for idx := range params.PassivePackets {
+		passiveAsset := params.PassivePackets[idx]
 
 		// Generate passive asset re-anchoring proofs. Passive assets
 		// only have one virtual output at index 0.
