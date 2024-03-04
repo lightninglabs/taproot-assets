@@ -44,10 +44,13 @@ var testCases = []*testCase{
 		name: "re-org send",
 		test: testReOrgSend,
 	},
-	{
-		name: "re-org mint and send",
-		test: testReOrgMintAndSend,
-	},
+	// Skipping due to re-org bug in btcd.
+	// TODO(guggero): Re-enable this test once we have a re-org fix for
+	// btcd.
+	//{
+	//	name: "re-org mint and send",
+	//	test: testReOrgMintAndSend,
+	//},
 	{
 		name:             "basic send unidirectional hashmail courier",
 		test:             testBasicSendUnidirectional,

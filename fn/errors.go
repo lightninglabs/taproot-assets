@@ -34,3 +34,13 @@ func IsCanceled(err error) bool {
 
 	return false
 }
+
+// IsRpcErr returns true if the given error is a gRPC error with the given
+// candidate error as the cause.
+func IsRpcErr(err error, candidate error) bool {
+	if err == nil {
+		return false
+	}
+
+	return strings.Contains(err.Error(), candidate.Error())
+}
