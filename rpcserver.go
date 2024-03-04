@@ -1766,9 +1766,29 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			"specified")
 	}
 
-	var err error
+	// Extract the passive assets that are needed for the fully RPC driven
+	// flow.
+	passivePackets, err := r.cfg.AssetWallet.CreatePassiveAssets(
+		ctx, []*tappsbt.VPacket{fundedVPkt.VPacket},
+		fundedVPkt.InputCommitments,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating passive assets: %w", err)
+	}
+
+	// Serialize the active and passive packets into the response now.
 	response := &wrpc.FundVirtualPsbtResponse{
+		PassiveAssetPsbts: make([][]byte, len(passivePackets)),
 		ChangeOutputIndex: 0,
+	}
+	for idx := range passivePackets {
+		response.PassiveAssetPsbts[idx], err = serialize(
+			passivePackets[idx],
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error serializing passive "+
+				"packet: %w", err)
+		}
 	}
 
 	response.FundedPsbt, err = serialize(fundedVPkt.VPacket)

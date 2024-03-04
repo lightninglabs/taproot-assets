@@ -105,7 +105,7 @@ message FundVirtualPsbtRequest {
 
 message FundVirtualPsbtResponse {
     /*
-    The funded but not yet signed PSBT packet.
+    The funded but not yet signed virtual PSBT packet.
     */
     bytes funded_psbt = 1;
 
@@ -113,6 +113,20 @@ message FundVirtualPsbtResponse {
     The index of the added change output or -1 if no change was left over.
     */
     int32 change_output_index = 2;
+
+    /*
+    The list of passive virtual transactions that are anchored in the same BTC
+    level anchor transaction inputs as the funded "active" asset above. These
+    assets can be ignored when using the AnchorVirtualPsbts RPC, since they are
+    retrieved, signed and committed automatically in that method. But the
+    passive assets have to be included in the CommitVirtualPsbts RPC which is
+    used when custom BTC level anchor transactions are created.
+    The main difference to the "active" asset above is that the passive assets
+    will not get their own entry in the transfer table of the database, since
+    they are just carried along and not directly affected by the direct user
+    action.
+    */
+    repeated bytes passive_asset_psbts = 3;
 }
 
 message TxTemplate {
