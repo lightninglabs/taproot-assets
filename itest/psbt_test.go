@@ -10,8 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcwallet/waddrmgr"
-	"github.com/davecgh/go-spew/spew"
-	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -27,12 +25,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
-	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
-)
-
-var (
-	feeRateSatPerKVByte chainfee.SatPerKVByte = 2000
 )
 
 // testPsbtScriptHashLockSend tests that we can properly send assets with a hash
@@ -69,7 +62,7 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
 
 	// Now we create a script tree consisting of two simple scripts.
 	preImage := []byte("hash locks are cool")
@@ -188,7 +181,7 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
 
 	// Now we create a script tree consisting of two simple scripts.
 	preImage := []byte("hash locks are cool")
@@ -396,7 +389,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 		// We need to derive two keys, one for the new script key and
 		// one for the internal key.
-		receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(
+		receiverScriptKey, receiverAnchorIntKeyDesc := DeriveKeys(
 			t.t, receiver,
 		)
 
@@ -610,7 +603,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 
 		// We need to derive two keys, one for the new script key and
 		// one for the internal key.
-		receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(
+		receiverScriptKey, receiverAnchorIntKeyDesc := DeriveKeys(
 			t.t, receiver,
 		)
 
@@ -726,7 +719,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	receiverScriptKey, receiverAnchorIntKeyDesc := deriveKeys(t.t, bob)
+	receiverScriptKey, receiverAnchorIntKeyDesc := DeriveKeys(t.t, bob)
 
 	var (
 		sendAmt   = uint64(1000)
@@ -851,17 +844,17 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// We need to derive two sets of keys, one for the new script key and
 	// one for the internal key each.
-	receiverScriptKey1, receiverAnchorIntKeyDesc1 := deriveKeys(
+	receiverScriptKey1, receiverAnchorIntKeyDesc1 := DeriveKeys(
 		t.t, receiver,
 	)
-	receiverScriptKey2, receiverAnchorIntKeyDesc2 := deriveKeys(
+	receiverScriptKey2, receiverAnchorIntKeyDesc2 := DeriveKeys(
 		t.t, receiver,
 	)
 
 	// We'll also do an internal split back to the sender itself. So we also
 	// need two sets of keys for the sender.
-	senderScriptKey1, senderAnchorIntKeyDesc1 := deriveKeys(t.t, sender)
-	senderScriptKey2, _ := deriveKeys(t.t, sender)
+	senderScriptKey1, senderAnchorIntKeyDesc1 := DeriveKeys(t.t, sender)
+	senderScriptKey2, _ := DeriveKeys(t.t, sender)
 
 	// We create the output at anchor index 0 for the first address.
 	outputAmounts := []uint64{1200, 1300, 1400, 800, 300}
@@ -1100,7 +1093,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	// We need to derive two keys for the receiver node, one for the new
 	// script key and one for the internal key.
-	primaryNodeScriptKey, primaryNodeAnchorIntKeyDesc := deriveKeys(
+	primaryNodeScriptKey, primaryNodeAnchorIntKeyDesc := DeriveKeys(
 		t.t, primaryTapd,
 	)
 
@@ -1301,7 +1294,7 @@ func testPsbtSighashNone(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
 
 	// Now we create a script tree consisting of two simple scripts.
 	preImage := []byte("hash locks are cool")
@@ -1475,7 +1468,7 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and one for
 	// the internal key.
-	bobScriptKey, bobInternalKey := deriveKeys(t.t, bob)
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
 
 	// Now we create a script tree consisting of two simple scripts.
 	preImage := []byte("hash locks are cool")
@@ -1734,15 +1727,15 @@ func testPsbtExternalCommit(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	var commitResp *wrpc.CommitVirtualPsbtsResponse
-	btcPacket, activeAssets, passiveAssets, commitResp = commitVirtualPsbts(
+	btcPacket, activeAssets, passiveAssets, commitResp = CommitVirtualPsbts(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets, -1,
 	)
 
 	t.Logf("Committed transaction: %v", toJSON(t.t, commitResp))
 
 	btcPacket = signPacket(t.t, aliceLnd, btcPacket)
-	btcPacket = finalizePacket(t.t, aliceLnd, btcPacket)
-	sendResp := logAndPublish(
+	btcPacket = FinalizePacket(t.t, aliceLnd.RPC, btcPacket)
+	sendResp := LogAndPublish(
 		t.t, aliceTapd, btcPacket, activeAssets, passiveAssets,
 		commitResp,
 	)
@@ -1787,36 +1780,6 @@ func signVirtualPacket(t *testing.T, tapd *tapdHarness,
 	require.NoError(t, err)
 
 	return parsedPacket
-}
-
-func deriveKeys(t *testing.T, tapd *tapdHarness) (asset.ScriptKey,
-	keychain.KeyDescriptor) {
-
-	ctx := context.Background()
-	ctxt, cancel := context.WithTimeout(ctx, defaultTimeout)
-	defer cancel()
-
-	scriptKeyDesc, err := tapd.NextScriptKey(
-		ctxt, &wrpc.NextScriptKeyRequest{
-			KeyFamily: uint32(asset.TaprootAssetsKeyFamily),
-		},
-	)
-	require.NoError(t, err)
-	scriptKey, err := tap.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
-	require.NoError(t, err)
-
-	internalKeyDesc, err := tapd.NextInternalKey(
-		ctxt, &wrpc.NextInternalKeyRequest{
-			KeyFamily: uint32(asset.TaprootAssetsKeyFamily),
-		},
-	)
-	require.NoError(t, err)
-	internalKeyLnd, err := tap.UnmarshalKeyDescriptor(
-		internalKeyDesc.InternalKey,
-	)
-	require.NoError(t, err)
-
-	return *scriptKey, internalKeyLnd
 }
 
 func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
@@ -1888,86 +1851,6 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	AssertNonInteractiveRecvComplete(t.t, bob, numInTransfers)
 }
 
-func commitVirtualPsbts(t *testing.T, funder *tapdHarness, packet *psbt.Packet,
-	activePackets []*tappsbt.VPacket, passivePackets []*tappsbt.VPacket,
-	changeOutputIndex int32) (*psbt.Packet, []*tappsbt.VPacket,
-	[]*tappsbt.VPacket, *wrpc.CommitVirtualPsbtsResponse) {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	t.Logf("Funding packet: %v\n", spew.Sdump(packet))
-
-	var buf bytes.Buffer
-	err := packet.Serialize(&buf)
-	require.NoError(t, err)
-
-	request := &wrpc.CommitVirtualPsbtsRequest{
-		AnchorPsbt: buf.Bytes(),
-		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
-			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
-		},
-	}
-
-	type existingIndex = wrpc.CommitVirtualPsbtsRequest_ExistingOutputIndex
-	if changeOutputIndex < 0 {
-		request.AnchorChangeOutput = &wrpc.CommitVirtualPsbtsRequest_Add{
-			Add: true,
-		}
-	} else {
-		request.AnchorChangeOutput = &existingIndex{
-			ExistingOutputIndex: changeOutputIndex,
-		}
-	}
-
-	request.VirtualPsbts = make([][]byte, len(activePackets))
-	for idx := range activePackets {
-		request.VirtualPsbts[idx], err = tappsbt.Encode(
-			activePackets[idx],
-		)
-		require.NoError(t, err)
-	}
-	request.PassiveAssetPsbts = make([][]byte, len(passivePackets))
-	for idx := range passivePackets {
-		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
-			passivePackets[idx],
-		)
-		require.NoError(t, err)
-	}
-
-	// Now we can map the virtual packets to the PSBT.
-	commitResponse, err := funder.CommitVirtualPsbts(ctxt, request)
-	require.NoError(t, err)
-
-	fundedPacket, err := psbt.NewFromRawBytes(
-		bytes.NewReader(commitResponse.AnchorPsbt), false,
-	)
-	require.NoError(t, err)
-
-	activePackets = make(
-		[]*tappsbt.VPacket, len(commitResponse.VirtualPsbts),
-	)
-	for idx := range commitResponse.VirtualPsbts {
-		activePackets[idx], err = tappsbt.Decode(
-			commitResponse.VirtualPsbts[idx],
-		)
-		require.NoError(t, err)
-	}
-
-	passivePackets = make(
-		[]*tappsbt.VPacket, len(commitResponse.PassiveAssetPsbts),
-	)
-	for idx := range commitResponse.PassiveAssetPsbts {
-		passivePackets[idx], err = tappsbt.Decode(
-			commitResponse.PassiveAssetPsbts[idx],
-		)
-		require.NoError(t, err)
-	}
-
-	return fundedPacket, activePackets, passivePackets, commitResponse
-}
-
 func signPacket(t *testing.T, lnd *node.HarnessNode,
 	pkt *psbt.Packet) *psbt.Packet {
 
@@ -1985,62 +1868,4 @@ func signPacket(t *testing.T, lnd *node.HarnessNode,
 	require.NoError(t, err)
 
 	return signedPacket
-}
-
-func finalizePacket(t *testing.T, lnd *node.HarnessNode,
-	pkt *psbt.Packet) *psbt.Packet {
-
-	var buf bytes.Buffer
-	err := pkt.Serialize(&buf)
-	require.NoError(t, err)
-
-	finalizeResp := lnd.RPC.FinalizePsbt(&walletrpc.FinalizePsbtRequest{
-		FundedPsbt: buf.Bytes(),
-	})
-
-	signedPacket, err := psbt.NewFromRawBytes(
-		bytes.NewReader(finalizeResp.SignedPsbt), false,
-	)
-	require.NoError(t, err)
-
-	return signedPacket
-}
-
-func logAndPublish(t *testing.T, tapd *tapdHarness, btcPkt *psbt.Packet,
-	activeAssets []*tappsbt.VPacket, passiveAssets []*tappsbt.VPacket,
-	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	var buf bytes.Buffer
-	err := btcPkt.Serialize(&buf)
-	require.NoError(t, err)
-
-	request := &wrpc.PublishAndLogRequest{
-		AnchorPsbt:        buf.Bytes(),
-		VirtualPsbts:      make([][]byte, len(activeAssets)),
-		PassiveAssetPsbts: make([][]byte, len(passiveAssets)),
-		ChangeOutputIndex: commitResp.ChangeOutputIndex,
-		LndLockedUtxos:    commitResp.LndLockedUtxos,
-	}
-
-	for idx := range activeAssets {
-		request.VirtualPsbts[idx], err = tappsbt.Encode(
-			activeAssets[idx],
-		)
-		require.NoError(t, err)
-	}
-	for idx := range passiveAssets {
-		request.PassiveAssetPsbts[idx], err = tappsbt.Encode(
-			passiveAssets[idx],
-		)
-		require.NoError(t, err)
-	}
-
-	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
-	require.NoError(t, err)
-
-	return resp
 }

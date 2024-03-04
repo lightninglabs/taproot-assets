@@ -244,6 +244,10 @@ var testCases = []*testCase{
 		name: "mint proof repeat fed sync attempt",
 		test: testMintProofRepeatFedSyncAttempt,
 	},
+	{
+		name: "multi signature on all levels",
+		test: testMultiSignature,
+	},
 }
 
 var optionalTestCases = []*testCase{
