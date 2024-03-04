@@ -129,8 +129,28 @@ func (l *LndRpcWalletAnchor) ImportTaprootOutput(ctx context.Context,
 	return addr, nil
 }
 
-// UnlockInput unlocks the set of target inputs after a batch is abandoned.
-func (l *LndRpcWalletAnchor) UnlockInput(ctx context.Context) error {
+// UnlockInput unlocks the set of target inputs after a batch or send
+// transaction is abandoned.
+func (l *LndRpcWalletAnchor) UnlockInput(ctx context.Context,
+	op wire.OutPoint) error {
+
+	leases, err := l.lnd.WalletKit.ListLeases(ctx)
+	if err != nil {
+		return fmt.Errorf("error listing existing leases: %w", err)
+	}
+
+	for _, lease := range leases {
+		if lease.Outpoint == op {
+			err = l.lnd.WalletKit.ReleaseOutput(
+				ctx, lease.LockID, lease.Outpoint,
+			)
+			if err != nil {
+				return fmt.Errorf("error releasing lease: %w",
+					err)
+			}
+		}
+	}
+
 	return nil
 }
 

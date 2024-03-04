@@ -173,7 +173,9 @@ func (m *MockWalletAnchor) ImportTaprootOutput(ctx context.Context,
 	)
 }
 
-func (m *MockWalletAnchor) UnlockInput(_ context.Context) error {
+// UnlockInput unlocks the set of target inputs after a batch or send
+// transaction is abandoned.
+func (m *MockWalletAnchor) UnlockInput(context.Context, wire.OutPoint) error {
 	return nil
 }
 

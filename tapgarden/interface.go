@@ -306,11 +306,12 @@ type WalletAnchor interface {
 
 	// ImportTaprootOutput imports a new public key into the wallet, as a
 	// P2TR output.
-	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address, error)
+	ImportTaprootOutput(context.Context, *btcec.PublicKey) (btcutil.Address,
+		error)
 
-	// UnlockInput unlocks the set of target inputs after a batch is
-	// abandoned.
-	UnlockInput(context.Context) error
+	// UnlockInput unlocks the set of target inputs after a batch or send
+	// transaction is abandoned.
+	UnlockInput(context.Context, wire.OutPoint) error
 
 	// ListUnspentImportScripts lists all UTXOs of the imported Taproot
 	// scripts.

@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -1025,16 +1026,42 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"addresses: %w", err)
 		}
 
-		log.Infof("Broadcasting new transfer tx, txid=%v",
-			currentPkg.OutboundPkg.AnchorTx.TxHash())
+		txHash := currentPkg.OutboundPkg.AnchorTx.TxHash()
+		log.Infof("Broadcasting new transfer tx, txid=%v", txHash)
 
 		// With the public key imported, we can now broadcast to the
 		// network.
 		err = p.cfg.ChainBridge.PublishTransaction(
 			ctx, currentPkg.OutboundPkg.AnchorTx,
 		)
-		if err != nil {
-			return nil, err
+		switch {
+		case errors.Is(err, lnwallet.ErrDoubleSpend):
+			// A double spend error means the transaction will never
+			// make it into the mempool or chain, so we'll never be
+			// able to confirm it. At this point we should probably
+			// put the transfer in a failed state and not re-try on
+			// next startup... But since we don't have that state
+			// yet, we just return an error here. But what we can do
+			// is release any fee sponsoring inputs we selected from
+			// lnd's wallet to avoid locking up balance.
+			//
+			// TODO(guggero): Put this transfer into a failed state
+			// and don't retry on next startup.
+			fundedPacket := currentPkg.AnchorTx.FundedPsbt
+			for _, op := range fundedPacket.LockedUTXOs {
+				unlockErr := p.cfg.Wallet.UnlockInput(ctx, op)
+				if unlockErr != nil {
+					log.Warnf("Unable to unlock input %v: "+
+						"%v", op, unlockErr)
+				}
+			}
+
+			return nil, fmt.Errorf("unable to broadcast "+
+				"transaction %v: %w", txHash, err)
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to broadcast "+
+				"transaction %v: %w", txHash, err)
 		}
 
 		// With the transaction broadcast, we'll deliver a
