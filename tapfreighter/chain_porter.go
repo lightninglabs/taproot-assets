@@ -361,8 +361,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	log.Infof("Importing %d passive asset proofs into local Proof "+
 		"Archive", len(passiveAssetProofFiles))
 	err := p.cfg.AssetProofs.ImportProofs(
-		ctx, headerVerifier, p.cfg.GroupVerifier, false,
-		passiveAssetProofFiles...,
+		ctx, headerVerifier, proof.DefaultMerkleVerifier,
+		p.cfg.GroupVerifier, false, passiveAssetProofFiles...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
@@ -400,13 +400,6 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	for idx := range parcel.Outputs {
 		out := parcel.Outputs[idx]
 
-		// For outputs without assets (=anchor for passive assets), we
-		// don't need to store explicit proofs, they were created and
-		// imported above.
-		if out.Type == tappsbt.TypePassiveAssetsOnly {
-			continue
-		}
-
 		parsedSuffix := &proof.Proof{}
 		err := parsedSuffix.Decode(bytes.NewReader(out.ProofSuffix))
 		if err != nil {
@@ -434,8 +427,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)
 		err = p.cfg.AssetProofs.ImportProofs(
-			ctx, headerVerifier, p.cfg.GroupVerifier, false,
-			outputProof,
+			ctx, headerVerifier, proof.DefaultMerkleVerifier,
+			p.cfg.GroupVerifier, false, outputProof,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof: %w", err)
@@ -606,6 +599,17 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return nil
 		}
 
+		// We can only deliver proofs for outputs that have a proof
+		// courier address. If an output doesn't have one, we assume it
+		// is an interactive send where the recipient is already aware
+		// of the proof or learns of it through another channel.
+		if len(out.ProofCourierAddr) == 0 {
+			log.Debugf("Not transferring proof for output with "+
+				"script key %x as it has no proof courier "+
+				"address", key.SerializeCompressed())
+			return nil
+		}
+
 		// We just look for the full proof in the list of final proofs
 		// by matching the content of the proof suffix.
 		var receiverProof *proof.AnnotatedProof
@@ -674,21 +678,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	}
 
 	// If we have a non-interactive proof, then we'll launch several
-	// goroutines to deliver the proof(s) to the receiver(s). Since a
-	// pre-signed parcel (a parcel that uses the RPC driven vPSBT flow)
-	// doesn't have proof courier URLs (they aren't part of the vPSBT), the
-	// proofs must always be delivered in an interactive manner from sender
-	// to receiver, and we don't even need to attempt to use a proof
-	// courier.
-	_, isPreSigned := pkg.Parcel.(*PreSignedParcel)
-	if !isPreSigned {
-		ctx, cancel := p.WithCtxQuitNoTimeout()
-		defer cancel()
-
-		err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
-		if err != nil {
-			return fmt.Errorf("error delivering proof(s): %w", err)
-		}
+	// goroutines to deliver the proof(s) to the receiver(s).
+	err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
+	if err != nil {
+		return fmt.Errorf("error delivering proof(s): %w", err)
 	}
 
 	log.Infof("Marking parcel (txid=%v) as confirmed!",
@@ -724,7 +717,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
-	err := p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
+	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
 		AnchorTXID:             pkg.OutboundPkg.AnchorTx.TxHash(),
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
@@ -916,9 +909,18 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// Gather passive assets virtual packets and sign them.
 		wallet := p.cfg.AssetWallet
 
-		currentPkg.PassiveAssets, err = wallet.SignPassiveAssets(
-			vPacket, currentPkg.InputCommitments,
+		currentPkg.PassiveAssets, err = wallet.CreatePassiveAssets(
+			ctx, []*tappsbt.VPacket{vPacket},
+			currentPkg.InputCommitments,
 		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create passive "+
+				"assets: %w", err)
+		}
+
+		log.Debugf("Signing %d passive assets",
+			len(currentPkg.PassiveAssets))
+		err = wallet.SignPassiveAssets(currentPkg.PassiveAssets)
 		if err != nil {
 			return nil, fmt.Errorf("unable to sign passive "+
 				"assets: %w", err)
@@ -928,7 +930,6 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			ctx, &AnchorVTxnsParams{
 				FeeRate:            feeRate,
 				VPkts:              []*tappsbt.VPacket{vPacket},
-				InputCommitments:   currentPkg.InputCommitments,
 				PassiveAssetsVPkts: currentPkg.PassiveAssets,
 			},
 		)
@@ -961,27 +962,27 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
+		// We now need to find out if this is a transfer to ourselves
+		// (e.g. a change output) or an outbound transfer. A key being
+		// local means the lnd node connected to this daemon knows how
+		// to derive the key.
+		isLocalKey := func(key asset.ScriptKey) bool {
+			return key.TweakedScriptKey != nil &&
+				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey)
+		}
+
 		// We need to prepare the parcel for storage.
-		parcel, err := currentPkg.prepareForStorage(currentHeight)
+		parcel, err := ConvertToTransfer(
+			currentHeight, []*tappsbt.VPacket{
+				currentPkg.VirtualPacket,
+			}, currentPkg.AnchorTx, currentPkg.PassiveAssets,
+			isLocalKey,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to prepare parcel for "+
 				"storage: %w", err)
 		}
 		currentPkg.OutboundPkg = parcel
-
-		// We now need to find out if this is a transfer to ourselves
-		// (e.g. a change output) or an outbound transfer. A key being
-		// local means the lnd node connected to this daemon knows how
-		// to derive the key.
-		for idx := range parcel.Outputs {
-			out := &parcel.Outputs[idx]
-			key := out.ScriptKey
-			if key.TweakedScriptKey != nil &&
-				p.cfg.KeyRing.IsLocalKey(ctx, key.RawKey) {
-
-				out.ScriptKeyLocal = true
-			}
-		}
 
 		// Don't allow shutdown while we're attempting to store proofs.
 		ctx, cancel = p.CtxBlocking()

@@ -133,11 +133,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 
-	// This is an interactive/PSBT based transfer, so we do need to manually
-	// send the proof from the sender to the receiver because the proof
-	// courier address gets lost in the address->PSBT conversion.
-	_ = sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
+	AssertAddrEvent(t.t, alice, aliceAddr, 1, statusCompleted)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
 		WithWitness: true,
@@ -259,11 +256,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 		genInfo.AssetId, []uint64{numUnits / 2, numUnits / 2}, 0, 1,
 	)
 
-	// This is an interactive/PSBT based transfer, so we do need to manually
-	// send the proof from the sender to the receiver because the proof
-	// courier address gets lost in the address->PSBT conversion.
-	_ = sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
 	AssertNonInteractiveRecvComplete(t.t, alice, 1)
+	AssertAddrEvent(t.t, alice, aliceAddr, 1, statusCompleted)
 
 	aliceAssets, err := alice.ListAssets(ctxb, &taprpc.ListAssetRequest{
 		WithWitness: true,
@@ -424,11 +418,6 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 		numOutputs := 1
 		amounts := []uint64{fullAmt}
-		if i == 0 {
-			// Account for the passive asset in the first transfer.
-			numOutputs = 2
-			amounts = []uint64{fullAmt, 0}
-		}
 		ConfirmAndAssertOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner.Client, sender,
 			sendResp, genInfo.AssetId, amounts, i/2, (i/2)+1,

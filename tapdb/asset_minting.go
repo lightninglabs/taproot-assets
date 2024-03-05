@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
 )
@@ -891,7 +892,7 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		if err != nil {
 			return nil, err
 		}
-		batch.GenesisPacket = &tapgarden.FundedPsbt{
+		batch.GenesisPacket = &tapsend.FundedPsbt{
 			Pkt: genesisPkt,
 			ChangeOutputIndex: extractSqlInt32[int32](
 				dbBatch.ChangeOutputIndex,
@@ -983,7 +984,7 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPacket *tapgarden.FundedPsbt,
+	batchKey *btcec.PublicKey, genesisPacket *tapsend.FundedPsbt,
 	assetRoot *commitment.TapCommitment) error {
 
 	// Before we open the DB transaction below, we'll fetch the set of
@@ -1056,7 +1057,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 // TODO(roasbeef): or could just re-read assets from disk and set the script
 // root manually?
 func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPkt *tapgarden.FundedPsbt,
+	batchKey *btcec.PublicKey, genesisPkt *tapsend.FundedPsbt,
 	anchorOutputIndex uint32, merkleRoot, tapTreeRoot []byte,
 	tapSibling []byte) error {
 

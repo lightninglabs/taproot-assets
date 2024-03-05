@@ -39,8 +39,8 @@ type TransitionParams struct {
 // the proof for. This method returns both the encoded full provenance (proof
 // chain) and the added latest proof.
 func AppendTransition(blob Blob, params *TransitionParams,
-	headerVerifier HeaderVerifier, groupVerifier GroupVerifier) (Blob,
-	*Proof, error) {
+	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
+	groupVerifier GroupVerifier) (Blob, *Proof, error) {
 
 	// Decode the proof blob into a proper file structure first.
 	f := NewEmptyFile(V0)
@@ -78,7 +78,8 @@ func AppendTransition(blob Blob, params *TransitionParams,
 	if err := f.AppendProof(*newProof); err != nil {
 		return nil, nil, fmt.Errorf("error appending proof: %w", err)
 	}
-	if _, err := f.Verify(ctx, headerVerifier, groupVerifier); err != nil {
+	_, err = f.Verify(ctx, headerVerifier, merkleVerifier, groupVerifier)
+	if err != nil {
 		return nil, nil, fmt.Errorf("error verifying proof: %w", err)
 	}
 

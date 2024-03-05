@@ -1600,7 +1600,7 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
-	_ proof.GroupVerifier, replace bool,
+	_ proof.MerkleVerifier, _ proof.GroupVerifier, replace bool,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
@@ -2047,11 +2047,27 @@ func (a *AssetStore) LogPendingParcel(ctx context.Context,
 			}
 		}
 
+		// Then the passive assets.
+		if len(spend.PassiveAssets) > 0 {
+			if spend.PassiveAssetsAnchor == nil {
+				return fmt.Errorf("passive assets anchor is " +
+					"required")
+			}
+
+			err = insertPassiveAssets(
+				ctx, q, transferID, txnID,
+				spend.PassiveAssetsAnchor, spend.PassiveAssets,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to insert passive "+
+					"assets: %w", err)
+			}
+		}
+
 		// And then finally the outputs.
 		for idx := range spend.Outputs {
 			err = insertAssetTransferOutput(
 				ctx, q, transferID, txnID, spend.Outputs[idx],
-				spend.PassiveAssets,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to insert asset "+
@@ -2136,13 +2152,14 @@ func fetchAssetTransferInputs(ctx context.Context, q ActiveAssetsStore,
 	return inputs, nil
 }
 
-// insertAssetTransferOutput inserts a new asset transfer output into the DB
-// and returns its ID.
-func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
-	transferID, txnID int64, output tapfreighter.TransferOutput,
+// insertPassiveAssets creates the database entries for the passive assets. The
+// main difference between an active and passive asset on the database level is
+// that we do not create a new asset entry for the passive assets. Instead, we
+// simply re-anchor the existing asset entry to the new anchor point.
+func insertPassiveAssets(ctx context.Context, q ActiveAssetsStore,
+	transferID, txnID int64, anchor *tapfreighter.Anchor,
 	passiveAssets []*tappsbt.VPacket) error {
 
-	anchor := output.Anchor
 	anchorPointBytes, err := encodeOutpoint(anchor.OutPoint)
 	if err != nil {
 		return err
@@ -2177,17 +2194,57 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to insert new managed utxo: %w", err)
 	}
 
-	// Is this the output that will be used to re-anchor the passive asset?
-	if output.Anchor.NumPassiveAssets > 0 {
-		// And now that we know the ID of that new anchor TX, we can
-		// store the passive assets, referencing that new UTXO.
-		err = logPendingPassiveAssets(
-			ctx, q, transferID, newUtxoID, passiveAssets,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to log passive assets: %w",
-				err)
-		}
+	// And now that we know the ID of that new anchor TX, we can
+	// store the passive assets, referencing that new UTXO.
+	err = logPendingPassiveAssets(
+		ctx, q, transferID, newUtxoID, passiveAssets,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to log passive assets: %w",
+			err)
+	}
+
+	return nil
+}
+
+// insertAssetTransferOutput inserts a new asset transfer output into the DB
+// and returns its ID.
+func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
+	transferID, txnID int64, output tapfreighter.TransferOutput) error {
+
+	anchor := output.Anchor
+	anchorPointBytes, err := encodeOutpoint(anchor.OutPoint)
+	if err != nil {
+		return err
+	}
+
+	internalKeyBytes := anchor.InternalKey.PubKey.SerializeCompressed()
+
+	// First, we'll insert the new internal on disk, so we can reference it
+	// later when we go to apply the new transfer.
+	_, err = q.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    internalKeyBytes,
+		KeyFamily: int32(anchor.InternalKey.Family),
+		KeyIndex:  int32(anchor.InternalKey.Index),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to upsert internal key: %w", err)
+	}
+
+	// Now that the chain transaction has been inserted, we can now insert
+	// a _new_ managed UTXO which houses the information related to the new
+	// anchor point of the transaction.
+	newUtxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
+		RawKey:           internalKeyBytes,
+		Outpoint:         anchorPointBytes,
+		AmtSats:          int64(anchor.Value),
+		TaprootAssetRoot: anchor.TaprootAssetRoot,
+		MerkleRoot:       anchor.MerkleRoot,
+		TapscriptSibling: anchor.TapscriptSibling,
+		TxnID:            txnID,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to insert new managed utxo: %w", err)
 	}
 
 	var (
@@ -2595,9 +2652,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			isNumsKey := scriptPubKey.IsEqual(asset.NUMSPubKey)
 			isTombstone := isNumsKey &&
 				out.Amount == 0 &&
-				out.OutputType != int16(
-					tappsbt.TypePassiveAssetsOnly,
-				)
+				out.OutputType == int16(tappsbt.TypeSplitRoot)
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
 

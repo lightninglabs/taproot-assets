@@ -28,6 +28,10 @@ type ArchiveConfig struct {
 	// genesis proof.
 	HeaderVerifier proof.HeaderVerifier
 
+	// MerkleVerifier is used to verify the validity of the transaction
+	// merkle proof.
+	MerkleVerifier proof.MerkleVerifier
+
 	// GroupVerifier is used to verify the validity of the group key for a
 	// genesis proof.
 	GroupVerifier proof.GroupVerifier
@@ -332,7 +336,7 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 
 	assetSnapshot, err := newProof.Verify(
 		ctx, prevAssetSnapshot, a.cfg.HeaderVerifier,
-		a.cfg.GroupVerifier,
+		a.cfg.MerkleVerifier, a.cfg.GroupVerifier,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %w", err)

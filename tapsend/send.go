@@ -10,7 +10,6 @@ import (
 	"math"
 	"math/bits"
 	"reflect"
-	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -27,7 +26,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
-	"golang.org/x/exp/slices"
 )
 
 const (
@@ -249,14 +247,17 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 // ValidateInputs validates a set of inputs against a funding request. It
 // returns true if the inputs would be spent fully, otherwise false.
 func ValidateInputs(inputCommitments tappsbt.InputCommitments,
-	inputsScriptKeys []*btcec.PublicKey, expectedAssetType asset.Type,
-	desc *FundingDescriptor) (bool, error) {
+	expectedAssetType asset.Type, desc *FundingDescriptor) (bool, error) {
 
 	// Extract the input assets from the input commitments.
-	inputAssets := make([]*asset.Asset, len(inputsScriptKeys))
-	for inputIndex := range inputCommitments {
-		tapCommitment := inputCommitments[inputIndex]
-		senderScriptKey := inputsScriptKeys[inputIndex]
+	inputAssets := make([]*asset.Asset, 0, len(inputCommitments))
+	for prevID := range inputCommitments {
+		tapCommitment := inputCommitments[prevID]
+		senderScriptKey, err := prevID.ScriptKey.ToPubKey()
+		if err != nil {
+			return false, fmt.Errorf("unable to parse sender "+
+				"script key: %v", err)
+		}
 
 		// Gain the asset that we'll use as an input and in the process
 		// validate the selected input and commitment.
@@ -272,7 +273,7 @@ func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 			return false, fmt.Errorf("unexpected input asset type")
 		}
 
-		inputAssets[inputIndex] = inputAsset
+		inputAssets = append(inputAssets, inputAsset)
 	}
 
 	// Validate total amount of input assets and determine full value spend
@@ -373,14 +374,6 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 	for idx := range outputs {
 		vOut := outputs[idx]
 
-		// Depending on the output type, an output can be interactive or
-		// not.
-		if vOut.Interactive && !vOut.Type.CanBeInteractive() {
-			return fmt.Errorf("output %d is interactive but "+
-				"output type %v cannot be interactive", idx,
-				vOut.Type)
-		}
-
 		// This method returns an error if the script key's public key
 		// isn't set, which should be the case right now.
 		isUnSpendable, err := vOut.ScriptKey.IsUnSpendable()
@@ -400,17 +393,12 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 
 		// Interactive outputs can't be un-spendable, since there is no
 		// need for a tombstone output and burns work in a different
-		// way, unless they are carrying the passive assets.
-		case vOut.Interactive && isUnSpendable &&
-			!vOut.Type.CanCarryPassive():
-
+		// way.
+		case vOut.Interactive && isUnSpendable:
 			return commitment.ErrInvalidScriptKey
 
-		// Interactive outputs can't have a zero amount, unless they
-		// are carrying the passive assets.
-		case vOut.Interactive && vOut.Amount == 0 &&
-			!vOut.Type.CanCarryPassive():
-
+		// Interactive outputs can't have a zero amount.
+		case vOut.Interactive && vOut.Amount == 0:
 			return commitment.ErrZeroSplitAmount
 		}
 	}
@@ -458,12 +446,9 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 				return ErrInvalidCollectibleSplit
 			}
 
-			// There should only be a tombstone output in an
-			// interactive flow if we need to transport passive
-			// assets. Otherwise, for an interactive send we don't
-			// need a tombstone output and this wouldn't be a two
-			// output collectible send.
-			if !rootOut.Type.CanCarryPassive() &&
+			// For an interactive transfer of a collectible there
+			// should be no split root output.
+			if rootOut.Type.IsSplitRoot() &&
 				recipientOut.Interactive {
 
 				return ErrInvalidCollectibleSplit
@@ -865,160 +850,59 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 }
 
 // CreateOutputCommitments creates the final set of Taproot asset commitments
-// representing the asset send.
-func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
-	vPkt *tappsbt.VPacket,
-	passiveAssets []*tappsbt.VPacket) ([]*commitment.TapCommitment,
-	error) {
+// representing the asset sends of the given packets of active and passive
+// assets.
+func CreateOutputCommitments(
+	packets []*tappsbt.VPacket) (tappsbt.OutputCommitments, error) {
+
+	// We create an empty output commitment map, keyed by the anchor output
+	// index.
+	outputCommitments := make(tappsbt.OutputCommitments)
+
+	// And now we commit each packet to the respective anchor output
+	// commitments.
+	for _, vPkt := range packets {
+		err := commitPacket(vPkt, outputCommitments)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return outputCommitments, nil
+}
+
+// commitPacket creates the output commitments for a virtual packet and merges
+// it with the existing commitments for the anchor outputs.
+func commitPacket(vPkt *tappsbt.VPacket,
+	outputCommitments tappsbt.OutputCommitments) error {
 
 	inputs := vPkt.Inputs
 	outputs := vPkt.Outputs
 
-	// TODO(ffranr): Support multiple inputs with different asset IDs.
-	// Currently, every input asset must have the same asset ID. Ensure
-	// that's the case.
-	assetsTapCommitmentKey := inputs[0].Asset().TapCommitmentKey()
+	// One virtual packet is only allowed to contain inputs and outputs of
+	// the same asset ID. Fungible assets must be sent in separate packets.
+	firstInputID := inputs[0].Asset().ID()
 	for idx := range inputs {
-		inputAsset := inputs[idx].Asset()
-		if inputAsset.TapCommitmentKey() != assetsTapCommitmentKey {
-			return nil, fmt.Errorf("inputs must have the same " +
-				"asset ID")
-		}
-
-		// For multi input, assert asset is not part of a group.
-		firstAssetGen := inputs[0].Asset().Genesis
-		assetInGroup := firstAssetGen.ID() != assetsTapCommitmentKey
-		if len(inputs) > 1 && assetInGroup {
-			return nil, fmt.Errorf("multi input spend may not " +
-				"include input from asset group")
-		}
-	}
-
-	// Merge all input Taproot Asset commitments into a single commitment.
-	//
-	// TODO(ffranr): Use `fn.ForEach` and `inputTapCommitments[1:]`.
-	firstCommitment := inputTapCommitments[0]
-	for idx := range inputTapCommitments {
-		if idx == 0 {
-			continue
-		}
-		err := firstCommitment.Merge(inputTapCommitments[idx])
-		if err != nil {
-			return nil, fmt.Errorf("failed to merge input Taproot "+
-				"Asset commitments: %w", err)
+		if inputs[idx].Asset().ID() != firstInputID {
+			return fmt.Errorf("inputs must have the same asset ID")
 		}
 	}
 
 	// We require all outputs that reference the same anchor output to be
 	// identical, otherwise some assumptions in the code below don't hold.
 	if err := assertAnchorsEqual(vPkt); err != nil {
-		return nil, err
+		return err
 	}
 
-	// Remove the spent Asset from the AssetCommitment of the sender. Fail
-	// if the input AssetCommitment or Asset were not in the input
-	// TapCommitment.
-	inputTapCommitment, err := firstCommitment.Copy()
-	if err != nil {
-		return nil, err
-	}
-
-	assetCommitments := inputTapCommitment.Commitments()
-	assetCommitment, ok := assetCommitments[assetsTapCommitmentKey]
-	if !ok {
-		return nil, ErrMissingAssetCommitment
-	}
-
-	for idx := range inputs {
-		input := inputs[idx]
-		inputAsset := input.Asset()
-
-		// Just a sanity check that the asset we're spending really was
-		// in the list of input assets.
-		_, ok = assetCommitment.Asset(inputAsset.AssetCommitmentKey())
-		if !ok {
-			return nil, ErrMissingInputAsset
-		}
-
-		// Remove all input assets from the asset commitment tree.
-		err = assetCommitment.Delete(inputAsset)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	outputCommitments := make([]*commitment.TapCommitment, len(outputs))
 	for idx := range outputs {
 		vOut := outputs[idx]
+		anchorOutputIdx := vOut.AnchorOutputIndex
 
-		// The output that houses the split root will carry along the
-		// existing Taproot Asset commitment of the sender (also known
-		// as passive assets). There can be passive assets without a
-		// split root, in case it's a full value interactive send or
-		// burn.
-		if vOut.Type.IsSplitRoot() || vOut.Type.CanCarryPassive() {
-			// In the interactive case we might have a full value
-			// send without an actual split root output but just the
-			// anchor output for the passive assets. We can skip
-			// that as we'll create the commitment for the passive
-			// assets later.
-			switch {
-			// The asset is present, just commit it to the input
-			// asset commitment.
-			case vOut.Asset != nil:
-				err = assetCommitment.Upsert(vOut.Asset)
-				if err != nil {
-					return nil, err
-				}
-
-			// There is no asset, but we have an interactive output
-			// that has IsSplitRoot set to true, so it means we need
-			// to anchor the passive assets to this output, which
-			// we'll do below.
-			case vOut.Asset == nil && vOut.Interactive:
-				// Continue below.
-
-			default:
-				return nil, fmt.Errorf("non-interactive "+
-					"output %d is missing asset", idx)
-			}
-
-			// Update the top-level TapCommitment of the change
-			// output (sender). This'll effectively commit to all
-			// the new spend details. If there is nothing contained
-			// in the input commitment, it is removed from the
-			// Taproot Asset tree automatically.
-			err = inputTapCommitment.Upsert(assetCommitment)
-			if err != nil {
-				return nil, err
-			}
-
-			log.Tracef("Adding %d passive assets to output with %d "+
-				"current assets", len(passiveAssets),
-				len(inputTapCommitment.CommittedAssets()))
-
-			// Anchor passive assets to this output, since it's the
-			// split root (=change output).
-			err = AnchorPassiveAssets(
-				passiveAssets, inputTapCommitment,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to anchor "+
-					"passive assets: %w", err)
-			}
-
-			// Add some trace logging for easier debugging of what
-			// goes into the output commitment (we'll do the same
-			// for the input commitment).
-			LogCommitment(
-				"Output", idx, inputTapCommitment,
-				vOut.AnchorOutputInternalKey, nil, nil,
-			)
-
-			outputCommitments[idx] = inputTapCommitment
-
-			continue
+		if vOut.Asset == nil {
+			return fmt.Errorf("output %d is missing asset", idx)
 		}
+
+		committedAsset := vOut.Asset
 
 		// Because the receiver of this output might be receiving
 		// through an address (non-interactive), we need to blank out
@@ -1029,135 +913,73 @@ func CreateOutputCommitments(inputTapCommitments tappsbt.InputCommitments,
 		// send. We do the same even for interactive sends to not need
 		// to distinguish between the two cases in the proof file
 		// itself.
-		committedAsset := vOut.Asset.Copy()
-		committedAsset.PrevWitnesses[0].SplitCommitment = nil
+		if vOut.Type == tappsbt.TypeSimple {
+			committedAsset = committedAsset.Copy()
+			committedAsset.PrevWitnesses[0].SplitCommitment = nil
+		}
 
-		// This is a new output which only commits to a single asset
-		// leaf.
+		// Create the two levels of commitments for the output.
 		sendCommitment, err := commitment.NewAssetCommitment(
 			committedAsset,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
-		outputCommitments[idx], err = commitment.NewTapCommitment(
+		sendTapCommitment, err := commitment.NewTapCommitment(
 			sendCommitment,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
+
+		// Merge the finished TAP level commitment with the existing
+		// one (if any) for the anchor output.
+		anchorOutputCommitment, ok := outputCommitments[anchorOutputIdx]
+		if ok {
+			err = sendTapCommitment.Merge(anchorOutputCommitment)
+			if err != nil {
+				return fmt.Errorf("unable to merge output "+
+					"commitment: %w", err)
+			}
+		}
+
+		outputCommitments[anchorOutputIdx] = sendTapCommitment
 
 		// Add some trace logging for easier debugging of what goes into
 		// the output commitment (we'll do the same for the input
 		// commitment).
 		LogCommitment(
-			"Output", idx, outputCommitments[idx],
+			"Output", idx, outputCommitments[anchorOutputIdx],
 			vOut.AnchorOutputInternalKey, nil, nil,
 		)
-	}
-
-	return outputCommitments, nil
-}
-
-// AnchorPassiveAssets anchors the passive assets within the given Taproot Asset
-// commitment.
-func AnchorPassiveAssets(passiveAssets []*tappsbt.VPacket,
-	tapCommitment *commitment.TapCommitment) error {
-
-	for idx := range passiveAssets {
-		passiveAsset := passiveAssets[idx].Outputs[0].Asset
-		var err error
-
-		// Ensure that a commitment for this asset exists.
-		assetCommitment, ok := tapCommitment.Commitment(passiveAsset)
-		if ok {
-			err = assetCommitment.Upsert(passiveAsset)
-			if err != nil {
-				return fmt.Errorf("unable to upsert passive "+
-					"asset into asset commitment: %w", err)
-			}
-		} else {
-			// If no commitment exists yet, create one and insert
-			// the passive asset into it.
-			assetCommitment, err = commitment.NewAssetCommitment(
-				passiveAsset,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to create "+
-					"commitment for passive asset: %w", err)
-			}
-		}
-
-		err = tapCommitment.Upsert(assetCommitment)
-		if err != nil {
-			return fmt.Errorf("unable to upsert passive "+
-				"asset commitment into Taproot Asset "+
-				"commitment: %w", err)
-		}
 	}
 
 	return nil
 }
 
-// AreValidAnchorOutputIndexes checks a set of virtual outputs for the minimum
-// number of outputs, and tests if the external indexes could be used for a
-// Taproot Asset only spend, i.e. a TX that does not need other outputs added to
-// be valid.
-func AreValidAnchorOutputIndexes(outputs []*tappsbt.VOutput) (bool, error) {
-	// Sanity check the output indexes provided by the sender. There must be
-	// at least one output.
-	if len(outputs) < 1 {
-		return false, ErrInvalidOutputIndexes
-	}
-
-	// If the indexes start from 0 and form a continuous range, then the
-	// resulting TX would be valid without any changes (Taproot Asset only
-	// spend).
-	assetOnlySpend := true
-	sortedCopy := slices.Clone(outputs)
-	sort.Slice(sortedCopy, func(i, j int) bool {
-		return sortedCopy[i].AnchorOutputIndex <
-			sortedCopy[j].AnchorOutputIndex
-	})
-	for i := 0; i < len(sortedCopy); i++ {
-		if sortedCopy[i].AnchorOutputIndex != uint32(i) {
-			assetOnlySpend = false
-			break
-		}
-	}
-
-	return assetOnlySpend, nil
-}
-
 // CreateAnchorTx creates a template BTC anchor TX with dummy outputs.
-func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
-	// Check if our outputs are valid, and if we will need to add extra
-	// outputs to fill in the gaps between outputs.
-	assetOnlySpend, err := AreValidAnchorOutputIndexes(outputs)
-	if err != nil {
-		return nil, err
-	}
+func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
+	// We locate the highest anchor output index in all virtual packets to
+	// create a template TX with the correct number of outputs.
+	var maxOutputIndex uint32
+	for _, vPkt := range vPackets {
+		// Sanity check the output indexes provided by the sender. There
+		// must be at least one output.
+		if len(vPkt.Outputs) == 0 {
+			return nil, ErrInvalidOutputIndexes
+		}
 
-	// Calculate the number of outputs we need for our template TX.
-	maxOutputIndex := uint32(len(outputs))
-
-	// If there is a gap in our outputs, we need to find the
-	// largest output index to properly size our template TX.
-	if !assetOnlySpend {
-		maxOutputIndex = 0
-		for _, out := range outputs {
-			if out.AnchorOutputIndex > maxOutputIndex {
-				maxOutputIndex = out.AnchorOutputIndex
+		for _, vOut := range vPkt.Outputs {
+			if vOut.AnchorOutputIndex > maxOutputIndex {
+				maxOutputIndex = vOut.AnchorOutputIndex
 			}
 		}
-
-		// Output indexes are 0-indexed, so we need to increment this
-		// to account for the 0th output.
-		maxOutputIndex++
 	}
 
 	txTemplate := wire.NewMsgTx(2)
-	for i := uint32(0); i < maxOutputIndex; i++ {
+
+	// Zero is a valid anchor output index, so we need to do <= here.
+	for i := uint32(0); i <= maxOutputIndex; i++ {
 		txTemplate.AddTxOut(CreateDummyOutput())
 	}
 
@@ -1168,25 +990,31 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 
 	// With the dummy packet created, we'll walk through of vOutputs to set
 	// the taproot internal key for each of the outputs.
-	for i := range outputs {
-		vOut := outputs[i]
+	for _, vPkt := range vPackets {
+		for i := range vPkt.Outputs {
+			vOut := vPkt.Outputs[i]
 
-		out := &spendPkt.Outputs[vOut.AnchorOutputIndex]
-		out.TaprootInternalKey = schnorr.SerializePubKey(
-			vOut.AnchorOutputInternalKey,
-		)
+			btcOut := &spendPkt.Outputs[vOut.AnchorOutputIndex]
+			btcOut.TaprootInternalKey = schnorr.SerializePubKey(
+				vOut.AnchorOutputInternalKey,
+			)
 
-		for idx := range vOut.AnchorOutputBip32Derivation {
-			out.Bip32Derivation = tappsbt.AddBip32Derivation(
-				out.Bip32Derivation,
-				vOut.AnchorOutputBip32Derivation[idx],
-			)
-		}
-		for idx := range vOut.AnchorOutputTaprootBip32Derivation {
-			out.TaprootBip32Derivation = tappsbt.AddTaprootBip32Derivation(
-				out.TaprootBip32Derivation,
-				vOut.AnchorOutputTaprootBip32Derivation[idx],
-			)
+			bip32 := vOut.AnchorOutputBip32Derivation
+			for idx := range bip32 {
+				btcOut.Bip32Derivation =
+					tappsbt.AddBip32Derivation(
+						btcOut.Bip32Derivation,
+						bip32[idx],
+					)
+			}
+			trBip32 := vOut.AnchorOutputTaprootBip32Derivation
+			for idx := range trBip32 {
+				btcOut.TaprootBip32Derivation =
+					tappsbt.AddTaprootBip32Derivation(
+						btcOut.TaprootBip32Derivation,
+						trBip32[idx],
+					)
+			}
 		}
 	}
 
@@ -1198,49 +1026,31 @@ func CreateAnchorTx(outputs []*tappsbt.VOutput) (*psbt.Packet, error) {
 // the corresponding Taproot Asset input asset to this PSBT before finalizing
 // the TX. Locators MUST be checked beforehand.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
-	outputCommitments []*commitment.TapCommitment) (
-	map[uint32]*commitment.TapCommitment, error) {
+	outputCommitments tappsbt.OutputCommitments) error {
 
 	// Add the commitment outputs to the BTC level PSBT now.
-	anchorCommitments := make(map[uint32]*commitment.TapCommitment)
 	for idx := range vPkt.Outputs {
 		vOut := vPkt.Outputs[idx]
-		vOutCommitment := outputCommitments[idx]
+		anchorCommitment := outputCommitments[vOut.AnchorOutputIndex]
 
 		// The commitment must be defined at this point.
-		if vOutCommitment == nil {
-			return nil, ErrMissingTapCommitment
+		if anchorCommitment == nil {
+			return ErrMissingTapCommitment
 		}
-
-		// It could be that we have multiple outputs that are being
-		// committed into the same anchor output. We need to merge them
-		// into a single commitment.
-		anchorIdx := vOut.AnchorOutputIndex
-		anchorCommitment, ok := anchorCommitments[anchorIdx]
-		if ok {
-			err := anchorCommitment.Merge(vOutCommitment)
-			if err != nil {
-				return nil, fmt.Errorf("cannot merge output "+
-					"commitments: %w", err)
-			}
-		} else {
-			anchorCommitment = vOutCommitment
-		}
-		anchorCommitments[anchorIdx] = anchorCommitment
 
 		// The external output index cannot be out of bounds of the
 		// actual TX outputs. This should be checked earlier and is just
 		// a final safeguard here.
 		if vOut.AnchorOutputIndex >= uint32(len(btcPacket.Outputs)) {
-			return nil, ErrInvalidOutputIndexes
+			return ErrInvalidOutputIndexes
 		}
 
-		btcOut := btcPacket.Outputs[vOut.AnchorOutputIndex]
+		btcOut := &btcPacket.Outputs[vOut.AnchorOutputIndex]
 		internalKey, err := schnorr.ParsePubKey(
 			btcOut.TaprootInternalKey,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		// Prepare the anchor output's tapscript sibling, if there is
@@ -1255,8 +1065,8 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 		if siblingPreimage != nil {
 			siblingHash, err = siblingPreimage.TapHash()
 			if err != nil {
-				return nil, fmt.Errorf("unable to get "+
-					"sibling hash: %w", err)
+				return fmt.Errorf("unable to get sibling "+
+					"hash: %w", err)
 			}
 		}
 
@@ -1266,14 +1076,29 @@ func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 			*internalKey, siblingHash, *anchorCommitment,
 		)
 		if err != nil {
-			return nil, err
+			return err
 		}
 
 		btcTxOut := btcPacket.UnsignedTx.TxOut[vOut.AnchorOutputIndex]
 		btcTxOut.PkScript = script
+
+		// Also set some additional fields in the PSBT output to make
+		// it easier to create the transfer database entry later.
+		merkleRoot := anchorCommitment.TapscriptRoot(siblingHash)
+		taprootAssetRoot := anchorCommitment.TapscriptRoot(nil)
+		btcOut.Unknowns = tappsbt.AddCustomField(
+			btcOut.Unknowns,
+			tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot,
+			merkleRoot[:],
+		)
+		btcOut.Unknowns = tappsbt.AddCustomField(
+			btcOut.Unknowns,
+			tappsbt.PsbtKeyTypeOutputAssetRoot,
+			taprootAssetRoot[:],
+		)
 	}
 
-	return anchorCommitments, nil
+	return nil
 }
 
 // interactiveFullValueSend returns true (and the index of the recipient output)

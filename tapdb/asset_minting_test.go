@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -613,7 +614,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	return tapCommitment
 }
 
-func randGenesisPacket(t *testing.T) *tapgarden.FundedPsbt {
+func randGenesisPacket(t *testing.T) *tapsend.FundedPsbt {
 	tx := wire.NewMsgTx(2)
 
 	var hash chainhash.Hash
@@ -641,14 +642,14 @@ func randGenesisPacket(t *testing.T) *tapgarden.FundedPsbt {
 
 	packet, err := psbt.NewFromUnsignedTx(tx)
 	require.NoError(t, err)
-	return &tapgarden.FundedPsbt{
+	return &tapsend.FundedPsbt{
 		Pkt:               packet,
 		ChangeOutputIndex: 1,
 		ChainFees:         100,
 	}
 }
 
-func assertPsbtEqual(t *testing.T, a, b *tapgarden.FundedPsbt) {
+func assertPsbtEqual(t *testing.T, a, b *tapsend.FundedPsbt) {
 	require.Equal(t, a.ChangeOutputIndex, b.ChangeOutputIndex)
 	require.Equal(t, a.LockedUTXOs, b.LockedUTXOs)
 
@@ -767,7 +768,7 @@ type randAssetCtx struct {
 	batchKey        *btcec.PublicKey
 	groupKey        *btcec.PublicKey
 	groupGenAmt     uint64
-	genesisPkt      *tapgarden.FundedPsbt
+	genesisPkt      *tapsend.FundedPsbt
 	assetRoot       *commitment.TapCommitment
 	merkleRoot      []byte
 	scriptRoot      []byte

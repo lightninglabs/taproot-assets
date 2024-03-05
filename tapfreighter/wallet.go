@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -26,7 +25,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -67,32 +65,6 @@ var (
 		"anchor output is not supported")
 )
 
-// AnchorTransaction is a type that holds all information about a BTC level
-// anchor transaction that anchors multiple virtual asset transfer transactions.
-type AnchorTransaction struct {
-	// FundedPsbt is the funded anchor TX at the state before it was signed,
-	// with all the UTXO information intact for later exclusion proof
-	// creation.
-	FundedPsbt *tapgarden.FundedPsbt
-
-	// FinalTx is the fully signed and finalized anchor TX that can be
-	// broadcast to the network.
-	FinalTx *wire.MsgTx
-
-	// TargetFeeRate is the fee rate that was used to fund the anchor TX.
-	TargetFeeRate chainfee.SatPerKWeight
-
-	// ChainFees is the actual, total amount of sats paid in chain fees by
-	// the anchor TX.
-	ChainFees int64
-
-	// OutputCommitments is a map of all the Taproot Asset level commitments
-	// each output of the anchor TX is committing to. This is the merged
-	// Taproot Asset tree of all the virtual asset transfer transactions
-	// that are within a single BTC level anchor output.
-	OutputCommitments map[uint32]*commitment.TapCommitment
-}
-
 // Wallet is an interface for funding and signing asset transfers.
 type Wallet interface {
 	// FundAddressSend funds a virtual transaction, selecting assets to
@@ -119,12 +91,15 @@ type Wallet interface {
 	SignVirtualPacket(vPkt *tappsbt.VPacket,
 		optFuncs ...SignVirtualPacketOption) ([]uint32, error)
 
-	// SignPassiveAssets creates and signs the passive asset packets for the
-	// given input commitment and virtual packet that contains the active
-	// asset transfer.
-	SignPassiveAssets(vPkt *tappsbt.VPacket,
+	// CreatePassiveAssets creates passive asset packets for the given
+	// active packets and input Taproot Asset commitments.
+	CreatePassiveAssets(ctx context.Context,
+		activePackets []*tappsbt.VPacket,
 		inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket,
 		error)
+
+	// SignPassiveAssets signs the given passive asset packets.
+	SignPassiveAssets(passiveAssets []*tappsbt.VPacket) error
 
 	// AnchorVirtualTransactions creates a BTC level anchor transaction that
 	// anchors all the virtual transactions of the given packets (for both
@@ -135,7 +110,7 @@ type Wallet interface {
 	// signed and finalized anchor TX along with the total amount of sats
 	// paid in chain fees by the anchor TX.
 	AnchorVirtualTransactions(ctx context.Context,
-		params *AnchorVTxnsParams) (*AnchorTransaction, error)
+		params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error)
 
 	// SignOwnershipProof creates and signs an ownership proof for the given
 	// owned asset. The ownership proof consists of a valid witness of a
@@ -183,10 +158,6 @@ type AnchorVTxnsParams struct {
 	// VPkts is a list of all the virtual transactions that should be
 	// anchored by the anchor transaction.
 	VPkts []*tappsbt.VPacket
-
-	// InputCommitments is a map from virtual package input index to its
-	// associated Taproot Assets commitment.
-	InputCommitments tappsbt.InputCommitments
 
 	// PassiveAssetsVPkts is a list of all the virtual transactions which
 	// re-anchor passive assets.
@@ -454,7 +425,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 }
 
 // passiveAssetVPacket creates a virtual packet for the given passive asset.
-func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
+func passiveAssetVPacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	anchorPoint wire.OutPoint, anchorOutputIndex uint32,
 	internalKey *keychain.KeyDescriptor) *tappsbt.VPacket {
 
@@ -498,15 +469,13 @@ func (f *AssetWallet) passiveAssetVPacket(passiveAsset *asset.Asset,
 	}
 
 	// Set output internal key.
-	vOutput.SetAnchorInternalKey(
-		*internalKey, f.cfg.ChainParams.HDCoinType,
-	)
+	vOutput.SetAnchorInternalKey(*internalKey, params.HDCoinType)
 
 	// Create VPacket.
 	vPacket := &tappsbt.VPacket{
 		Inputs:      []*tappsbt.VInput{&vInput},
 		Outputs:     []*tappsbt.VOutput{&vOutput},
-		ChainParams: f.cfg.ChainParams,
+		ChainParams: params,
 	}
 
 	// Set the input asset. The input asset proof is not provided as it is
@@ -626,20 +595,6 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			},
 		}},
 		Outputs: []*tappsbt.VOutput{{
-			Amount:            0,
-			Type:              tappsbt.TypeSplitRoot,
-			AnchorOutputIndex: 0,
-			AssetVersion:      maxVersion,
-
-			// The wallet will look for a "change" output where it
-			// can attach any passive assets that might be in the
-			// same commitment. If we don't give it one, it'll
-			// create one by itself, but on a different anchor
-			// output, which means we have multiple BTC level
-			// outputs. If there are no passive assets, we'll remove
-			// this asset level tombstone output again below.
-			ScriptKey: asset.NUMSScriptKey,
-		}, {
 			Amount:            fundDesc.Amount,
 			Type:              tappsbt.TypeSimple,
 			Interactive:       true,
@@ -650,9 +605,6 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		ChainParams: f.cfg.ChainParams,
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
-		newInternalKey, f.cfg.ChainParams.HDCoinType,
-	)
-	vPkt.Outputs[1].SetAnchorInternalKey(
 		newInternalKey, f.cfg.ChainParams.HDCoinType,
 	)
 
@@ -669,33 +621,55 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 	// without an actual commitment in it. So if we are not getting any
 	// change or passive assets in this output, we'll not want to go through
 	// with it.
-	changeOut := fundedPkt.VPacket.Outputs[0]
-	if changeOut.Amount == 0 {
+	firstOut := fundedPkt.VPacket.Outputs[0]
+	if len(fundedPkt.VPacket.Outputs) == 1 &&
+		firstOut.Amount == fundDesc.Amount {
+
 		// A burn is an interactive transfer. So we don't expect there
 		// to be a tombstone unless there are passive assets in the same
 		// commitment, in which case the wallet has marked the change
 		// output as tappsbt.TypePassiveSplitRoot. If that's not the
 		// case, we'll return as burning all assets in an anchor output
 		// is not supported.
-		if changeOut.Type != tappsbt.TypePassiveSplitRoot {
-			return nil, ErrFullBurnNotSupported
+		otherAssets, err := f.hasOtherAssets(
+			fundedPkt.InputCommitments, []*tappsbt.VPacket{vPkt},
+		)
+		if err != nil {
+			return nil, err
 		}
 
-		// There are passive assets. Since we don't create a tombstone
-		// output the asset for the change output would be nil, and it
-		// would only serve to carry the passive assets. So we can
-		// instead add the passive assets to the burn output directly,
-		// since that is an interactive transfer.
-		fundedPkt.VPacket.Outputs = []*tappsbt.VOutput{
-			fundedPkt.VPacket.Outputs[1],
+		if !otherAssets {
+			return nil, ErrFullBurnNotSupported
 		}
-		fundedPkt.VPacket.Outputs[0].Type = tappsbt.TypeSimplePassiveAssets
 	}
 
 	// Don't release the coins we've selected, as so far we've been
 	// successful.
 	success = true
 	return fundedPkt, nil
+}
+
+// hasOtherAssets returns true if the given input commitments contain any other
+// assets than the ones given in the virtual packets.
+func (f *AssetWallet) hasOtherAssets(inputCommitments tappsbt.InputCommitments,
+	vPackets []*tappsbt.VPacket) (bool, error) {
+
+	for idx := range inputCommitments {
+		tapCommitment := inputCommitments[idx]
+
+		passiveCommitments, err := removeActiveCommitments(
+			tapCommitment, vPackets,
+		)
+		if err != nil {
+			return false, err
+		}
+
+		if len(passiveCommitments) > 0 {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }
 
 // fundPacketWithInputs funds a virtual transaction with the given inputs.
@@ -738,14 +712,8 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		)
 	}
 
-	inputsScriptKeys := fn.Map(
-		vPkt.Inputs, func(vInput *tappsbt.VInput) *btcec.PublicKey {
-			return vInput.Asset().ScriptKey.PubKey
-		},
-	)
-
 	fullValue, err := tapsend.ValidateInputs(
-		inputCommitments, inputsScriptKeys, assetType, fundDesc,
+		inputCommitments, assetType, fundDesc,
 	)
 	if err != nil {
 		return nil, err
@@ -779,26 +747,6 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 		}
 	}
 
-	// For now, we just need to know _if_ there are any passive assets, so
-	// we can create a change output if needed. We'll actually sign the
-	// passive packets later.
-	passiveAssetsPresent := false
-	for idx := range inputCommitments {
-		tapCommitment := inputCommitments[idx]
-
-		passiveCommitments, err := removeActiveCommitments(
-			tapCommitment, vPkt,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if len(passiveCommitments) > 0 {
-			passiveAssetsPresent = true
-			break
-		}
-	}
-
 	// We now also need to remove all tombstone or burns from our active
 	// commitments.
 	for idx := range inputCommitments {
@@ -813,7 +761,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 	// We expect some change back, or have passive assets to commit to, so
 	// let's make sure we create a transfer output.
 	var changeOut *tappsbt.VOutput
-	if !fullValue || passiveAssetsPresent {
+	if !fullValue {
 		// Do we need to add a change output?
 		changeOut, err = vPkt.SplitRootOutput()
 		if err != nil {
@@ -830,12 +778,6 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 			}
 
 			vPkt.Outputs = append(vPkt.Outputs, changeOut)
-		}
-
-		// Bump the output type from "just" split root to split root
-		// with passive assets if we have any.
-		if passiveAssetsPresent {
-			changeOut.Type = tappsbt.TypePassiveSplitRoot
 		}
 
 		// Since we know we're going to receive some change back, we
@@ -1013,14 +955,15 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		// At this point, we have a valid "coin" to spend in the
 		// commitment, so we'll add the relevant information to the
 		// virtual TX's input.
+		prevID := asset.PrevID{
+			OutPoint: assetInput.AnchorPoint,
+			ID:       assetInput.Asset.ID(),
+			ScriptKey: asset.ToSerialized(
+				assetInput.Asset.ScriptKey.PubKey,
+			),
+		}
 		vPkt.Inputs[idx] = &tappsbt.VInput{
-			PrevID: asset.PrevID{
-				OutPoint: assetInput.AnchorPoint,
-				ID:       assetInput.Asset.ID(),
-				ScriptKey: asset.ToSerialized(
-					assetInput.Asset.ScriptKey.PubKey,
-				),
-			},
+			PrevID: prevID,
 			Anchor: tappsbt.Anchor{
 				Value:            assetInput.AnchorOutputValue,
 				PkScript:         anchorPkScript,
@@ -1041,7 +984,7 @@ func (f *AssetWallet) setVPacketInputs(ctx context.Context,
 		}
 		vPkt.SetInputAsset(idx, assetInput.Asset)
 
-		inputCommitments[idx] = assetInput.Commitment
+		inputCommitments[prevID] = assetInput.Commitment
 	}
 
 	return inputCommitments, nil
@@ -1192,7 +1135,7 @@ func pruneTombstonesAndBurns(
 // removeActiveCommitments removes all active commitments from the given input
 // commitment and only returns a tree of passive commitments.
 func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
-	vPkt *tappsbt.VPacket) (commitment.AssetCommitments, error) {
+	vPackets []*tappsbt.VPacket) (commitment.AssetCommitments, error) {
 
 	// Gather passive assets found in the commitment. This creates a copy of
 	// the commitment map, so we can remove things freely.
@@ -1268,39 +1211,147 @@ func removeActiveCommitments(inputCommitment *commitment.TapCommitment,
 
 	// Remove input assets (the assets being spent) from list of assets to
 	// re-sign.
-	for _, vIn := range vPkt.Inputs {
-		key := vIn.Asset().TapCommitmentKey()
-		assetCommitment, ok := passiveCommitments[key]
-		if !ok {
-			continue
-		}
+	for _, vPkt := range vPackets {
+		for _, vIn := range vPkt.Inputs {
+			key := vIn.Asset().TapCommitmentKey()
+			assetCommitment, ok := passiveCommitments[key]
+			if !ok {
+				continue
+			}
 
-		err := removeAsset(assetCommitment, vIn.Asset(), key)
-		if err != nil {
-			return nil, fmt.Errorf("unable to "+
-				"delete asset: %w", err)
+			err := removeAsset(assetCommitment, vIn.Asset(), key)
+			if err != nil {
+				return nil, fmt.Errorf("unable to "+
+					"delete asset: %w", err)
+			}
 		}
 	}
 
 	return passiveCommitments, nil
 }
 
-// SignPassiveAssets creates and signs the passive asset packets for the given
-// virtual packet and input Taproot Asset commitments.
-func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
-	inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket,
+// determinePassiveAssetAnchorOutput determines the best anchor output to attach
+// passive assets to. If no suitable output is found, a new anchor output is
+// created.
+func (f *AssetWallet) determinePassiveAssetAnchorOutput(ctx context.Context,
+	activePackets []*tappsbt.VPacket) (*keychain.KeyDescriptor, uint32,
 	error) {
+
+	var (
+		maxAnchorOutputIndex uint32
+		candidates           []*tappsbt.VOutput
+		candidateDescriptors []*keychain.KeyDescriptor
+	)
+	for idx := range activePackets {
+		vPkt := activePackets[idx]
+
+		for _, vOut := range vPkt.Outputs {
+			anchorKeyDesc, err := vOut.AnchorKeyToDesc()
+			if err != nil {
+				// We can't determine the key descriptor for
+				// this output, so we'll skip it as it very
+				// likely doesn't belong to us then.
+				continue
+			}
+
+			// Ignore any anchor outputs that are not local to us.
+			if !f.cfg.KeyRing.IsLocalKey(ctx, anchorKeyDesc) {
+				continue
+			}
+
+			candidates = append(candidates, vOut)
+			candidateDescriptors = append(
+				candidateDescriptors, &anchorKeyDesc,
+			)
+		}
+
+		// In case we need to create a new anchor output, we'll want to
+		// know the next anchor output index we can use. So we find the
+		// maximum currently used index.
+		for _, vOut := range vPkt.Outputs {
+			if vOut.AnchorOutputIndex > maxAnchorOutputIndex {
+				maxAnchorOutputIndex = vOut.AnchorOutputIndex
+			}
+		}
+	}
+
+	// From the candidates, we want to select one in descending order of
+	// preference:
+	//	1. A split root output (as that's usually the change).
+	//	2. A normal output to a new script key (probably a full-value
+	//	   send to ourselves).
+	//
+	// We start with the split root outputs:
+	for idx, vOut := range candidates {
+		if vOut.Type == tappsbt.TypeSplitRoot {
+			return candidateDescriptors[idx], vOut.AnchorOutputIndex,
+				nil
+		}
+	}
+
+	// We're still here, so let's try to find a normal output to a new
+	// script key.
+	for idx, vOut := range candidates {
+		// Skip any incomplete outputs that would cause the below
+		// statement to panic.
+		if vOut.Asset == nil || len(vOut.Asset.PrevWitnesses) == 0 ||
+			vOut.ScriptKey.PubKey == nil {
+
+			continue
+		}
+
+		fromKey := vOut.Asset.PrevWitnesses[0].PrevID.ScriptKey
+		toKey := asset.ToSerialized(vOut.ScriptKey.PubKey)
+		if fromKey != toKey {
+			return candidateDescriptors[idx], vOut.AnchorOutputIndex,
+				nil
+		}
+	}
+
+	// If we're _still_ here, it means we haven't found a good candidate to
+	// attach our passive assets to. We'll create a new anchor output for
+	// them.
+	newInternalKey, err := f.cfg.KeyRing.DeriveNextKey(
+		ctx, asset.TaprootAssetsKeyFamily,
+	)
+	if err != nil {
+		return nil, 0, fmt.Errorf("error deriving new anchor internal "+
+			"key for passive assets: %w", err)
+	}
+
+	return &newInternalKey, maxAnchorOutputIndex + 1, nil
+}
+
+// CreatePassiveAssets creates passive asset packets for the given active
+// packets and input Taproot Asset commitments.
+func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
+	activePackets []*tappsbt.VPacket,
+	inputCommitments tappsbt.InputCommitments) ([]*tappsbt.VPacket, error) {
+
+	// We want to identify the best anchor output to use to attach our
+	// passive assets. This is only for the database entry, so we can show
+	// the number of passive assets in a transfer to the user somewhere. If
+	// we don't find an appropriate output, it might mean we're not creating
+	// transfer input/output entries at all, and we can just create a new
+	// output for them.
+	anchorOutDesc, anchorOutIdx, err := f.determinePassiveAssetAnchorOutput(
+		ctx, activePackets,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to determine passive asset "+
+			"anchor output: %w", err)
+	}
 
 	// Gather passive assets found in each input Taproot Asset commitment.
 	var passiveAssets []*tappsbt.VPacket
-	for inputIdx := range inputCommitments {
-		tapCommitment := inputCommitments[inputIdx]
+	for prevID := range inputCommitments {
+		tapCommitment := inputCommitments[prevID]
 
 		// Each virtual input is associated with a distinct Taproot
 		// Asset commitment. Therefore, each input may be associated
 		// with a distinct set of passive assets.
 		passiveCommitments, err := removeActiveCommitments(
-			tapCommitment, vPkt,
+			tapCommitment, activePackets,
 		)
 		if err != nil {
 			return nil, err
@@ -1309,34 +1360,28 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 			continue
 		}
 
-		// When there are left over passive assets, we know we have a
-		// change output present, since we created one in a previous
-		// step if there was none to begin with.
-		anchorPoint := vPkt.Inputs[inputIdx].PrevID.OutPoint
-		passiveOut, err := vPkt.PassiveAssetsOutput()
-		if err != nil {
-			return nil, fmt.Errorf("missing passive asset "+
-				"carrying output: %w", err)
-		}
-
-		changeInternalKey, err := passiveOut.AnchorKeyToDesc()
-		if err != nil {
-			return nil, fmt.Errorf("unable to get change "+
-				"internal key: %w", err)
-		}
-
-		for _, passiveCommitment := range passiveCommitments {
+		// When there are left over passive assets, we need to create
+		// packets for them as well.
+		for tapKey := range passiveCommitments {
+			passiveCommitment := passiveCommitments[tapKey]
 			for _, passiveAsset := range passiveCommitment.Assets() {
 				passiveAssets = append(
-					passiveAssets, f.passiveAssetVPacket(
-						passiveAsset, anchorPoint,
-						passiveOut.AnchorOutputIndex,
-						&changeInternalKey,
+					passiveAssets, passiveAssetVPacket(
+						f.cfg.ChainParams,
+						passiveAsset, prevID.OutPoint,
+						anchorOutIdx, anchorOutDesc,
 					),
 				)
 			}
 		}
 	}
+
+	return passiveAssets, nil
+}
+
+// SignPassiveAssets signs the given passive asset packets.
+func (f *AssetWallet) SignPassiveAssets(
+	passiveAssets []*tappsbt.VPacket) error {
 
 	// Sign all the passive assets virtual packets.
 	for idx := range passiveAssets {
@@ -1345,12 +1390,12 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 			passiveAsset, SkipInputProofVerify(),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to sign passive asset "+
+			return fmt.Errorf("unable to sign passive asset "+
 				"virtual packet: %w", err)
 		}
 	}
 
-	return passiveAssets, nil
+	return nil
 }
 
 // AnchorVirtualTransactions creates a BTC level anchor transaction that anchors
@@ -1362,7 +1407,7 @@ func (f *AssetWallet) SignPassiveAssets(vPkt *tappsbt.VPacket,
 // anchor TX along with the total amount of sats paid in chain fees by the
 // anchor TX.
 func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
-	params *AnchorVTxnsParams) (*AnchorTransaction, error) {
+	params *AnchorVTxnsParams) (*tapsend.AnchorTransaction, error) {
 
 	// We currently only support anchoring a single virtual transaction.
 	//
@@ -1374,9 +1419,10 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	}
 	vPacket := params.VPkts[0]
 
-	outputCommitments, err := tapsend.CreateOutputCommitments(
-		params.InputCommitments, vPacket, params.PassiveAssetsVPkts,
+	allPackets := append(
+		[]*tappsbt.VPacket{vPacket}, params.PassiveAssetsVPkts...,
 	)
+	outputCommitments, err := tapsend.CreateOutputCommitments(allPackets)
 	if err != nil {
 		return nil, fmt.Errorf("unable to create new output "+
 			"commitments: %w", err)
@@ -1384,7 +1430,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// Construct our template PSBT to commits to the set of dummy locators
 	// we use to make fee estimation work.
-	sendPacket, err := tapsend.CreateAnchorTx(vPacket.Outputs)
+	sendPacket, err := tapsend.CreateAnchorTx(allPackets)
 	if err != nil {
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
@@ -1405,7 +1451,7 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// TODO(jhb): Do we need richer handling for the change output?
 	// We could reassign the change value to our Taproot Asset change output
 	// and remove the change output entirely.
-	adjustFundedPsbt(&anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
+	adjustFundedPsbt(anchorPkt, int64(vPacket.Inputs[0].Anchor.Value))
 
 	log.Infof("Received funded PSBT packet")
 	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
@@ -1420,21 +1466,20 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 
 	// First, we'll update the PSBT packets to insert the _real_ outputs we
 	// need to commit to the asset transfer.
-	mergedCommitments, err := tapsend.UpdateTaprootOutputKeys(
-		signAnchorPkt, vPacket, outputCommitments,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error updating taproot output keys: %w",
-			err)
+	for _, vPkt := range allPackets {
+		err = tapsend.UpdateTaprootOutputKeys(
+			signAnchorPkt, vPkt, outputCommitments,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error updating taproot "+
+				"output keys: %w", err)
+		}
 	}
 
 	// Now that all the real outputs are in the PSBT, we'll also
 	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	err = addAnchorPsbtInputs(
-		signAnchorPkt, vPacket, params.FeeRate,
-		f.cfg.ChainParams.Params,
-	)
+	err = addAnchorPsbtInputs(signAnchorPkt, vPacket, params.FeeRate)
 	if err != nil {
 		return nil, fmt.Errorf("error adding anchor input: %w", err)
 	}
@@ -1479,13 +1524,51 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("anchor TX failed final checks: %w", err)
 	}
 
-	return &AnchorTransaction{
-		FundedPsbt:        &anchorPkt,
-		FinalTx:           finalTx,
-		TargetFeeRate:     params.FeeRate,
-		ChainFees:         int64(chainFees),
-		OutputCommitments: mergedCommitments,
-	}, nil
+	anchorTx := &tapsend.AnchorTransaction{
+		FundedPsbt:    anchorPkt,
+		FinalTx:       finalTx,
+		TargetFeeRate: params.FeeRate,
+		ChainFees:     int64(chainFees),
+	}
+
+	// Now that we have a valid transaction, we can create the proof
+	// suffixes for the active and passive assets.
+	for idx := range params.VPkts {
+		activeAsset := params.VPkts[idx]
+
+		for outIdx := range activeAsset.Outputs {
+			activeProof, err := tapsend.CreateProofSuffix(
+				anchorTx, activeAsset, outputCommitments,
+				outIdx, allPackets,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create "+
+					"proof: %w", err)
+			}
+
+			activeAsset.Outputs[outIdx].ProofSuffix = activeProof
+		}
+	}
+
+	for idx := range params.PassiveAssetsVPkts {
+		passiveAsset := params.PassiveAssetsVPkts[idx]
+
+		// Generate passive asset re-anchoring proofs. Passive assets
+		// only have one virtual output at index 0.
+		outIndex := 0
+		passiveProof, err := tapsend.CreateProofSuffix(
+			anchorTx, passiveAsset, outputCommitments,
+			outIndex, allPackets,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create re-anchor "+
+				"proof: %w", err)
+		}
+
+		passiveAsset.Outputs[outIndex].ProofSuffix = passiveProof
+	}
+
+	return anchorTx, nil
 }
 
 // SignOwnershipProof creates and signs an ownership proof for the given owned
@@ -1616,7 +1699,7 @@ func trimSplitWitnesses(
 // adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
 // and creates a new one with outputs shuffled such that the change output is
 // the last output.
-func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
+func adjustFundedPsbt(fPkt *tapsend.FundedPsbt, anchorInputValue int64) {
 	// If there is no change there's nothing we need to do.
 	changeIndex := fPkt.ChangeOutputIndex
 	if changeIndex == -1 {
@@ -1661,7 +1744,7 @@ func adjustFundedPsbt(fPkt *tapgarden.FundedPsbt, anchorInputValue int64) {
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
 // packet. This is called after the PSBT has been funded, but before signing.
 func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket,
-	feeRate chainfee.SatPerKWeight, params *chaincfg.Params) error {
+	feeRate chainfee.SatPerKWeight) error {
 
 	for idx := range vPkt.Inputs {
 		// With the BIP-0032 information completed, we'll now add the

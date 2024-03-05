@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -51,7 +52,7 @@ type MintingBatch struct {
 	//
 	// NOTE: This field is only set if the state is beyond
 	// BatchStateCommitted.
-	GenesisPacket *FundedPsbt
+	GenesisPacket *tapsend.FundedPsbt
 
 	// RootAssetCommitment is the root Taproot Asset commitment for all the
 	// assets contained in this batch.

@@ -389,7 +389,9 @@ func (b *BatchCaretaker) assetCultivator() {
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
-func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, error) {
+func (b *BatchCaretaker) fundGenesisPsbt(
+	ctx context.Context) (*tapsend.FundedPsbt, error) {
+
 	log.Infof("BatchCaretaker(%x): attempting to fund GenesisPacket",
 		b.batchKey[:])
 
@@ -436,7 +438,7 @@ func (b *BatchCaretaker) fundGenesisPsbt(ctx context.Context) (*FundedPsbt, erro
 	log.Infof("BatchCaretaker(%x): funded GenesisPacket", b.batchKey[:])
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
-	return &fundedGenesisPkt, nil
+	return fundedGenesisPkt, nil
 }
 
 // extractGenesisOutpoint extracts the genesis point (the first output from the
@@ -1024,6 +1026,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		defer cancel()
 
 		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+		merkleVerifier := proof.DefaultMerkleVerifier
 		groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
 		groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
 
@@ -1078,8 +1081,8 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		}
 
 		mintingProofs, err := proof.NewMintingBlobs(
-			baseProof, headerVerifier, groupVerifier,
-			groupAnchorVerifier,
+			baseProof, headerVerifier, merkleVerifier,
+			groupVerifier, groupAnchorVerifier,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 			proof.WithSiblingPreimage(batchSibling),
 		)
@@ -1141,7 +1144,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 			proofBlob, uniProof, err := b.storeMintingProof(
 				ctx, newAsset, mintingProof, mintTxHash,
-				headerVerifier, groupVerifier,
+				headerVerifier, merkleVerifier, groupVerifier,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to store "+
@@ -1230,7 +1233,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 // can be used to register the asset with the universe.
 func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
-	headerVerifier proof.HeaderVerifier,
+	headerVerifier proof.HeaderVerifier, merkleVerifier proof.MerkleVerifier,
 	groupVerifier proof.GroupVerifier) (proof.Blob, *universe.Item,
 	error) {
 
@@ -1251,7 +1254,8 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	}
 
 	err = b.cfg.ProofFiles.ImportProofs(
-		ctx, headerVerifier, groupVerifier, false, fullProof,
+		ctx, headerVerifier, merkleVerifier, groupVerifier, false,
+		fullProof,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)

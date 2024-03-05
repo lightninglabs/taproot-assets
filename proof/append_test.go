@@ -206,7 +206,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// Append the new transition to the genesis blob.
 	transitionBlob, transitionProof, err := AppendTransition(
 		genesisBlob, transitionParams, MockHeaderVerifier,
-		MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
@@ -399,7 +399,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split1Blob, split1Proof, err := AppendTransition(
 		transitionBlob, split1Params, MockHeaderVerifier,
-		MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
@@ -441,7 +441,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split2Blob, split2Proof, err := AppendTransition(
 		transitionBlob, split2Params, MockHeaderVerifier,
-		MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
@@ -484,7 +484,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split3Blob, split3Proof, err := AppendTransition(
 		transitionBlob, split3Params, MockHeaderVerifier,
-		MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))
@@ -544,7 +544,8 @@ func verifyBlob(t testing.TB, blob Blob) *AssetSnapshot {
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	finalSnapshot, err := f.Verify(
-		context.Background(), MockHeaderVerifier, MockGroupVerifier,
+		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
+		MockGroupVerifier,
 	)
 	require.NoError(t, err)
 

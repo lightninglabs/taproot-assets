@@ -529,18 +529,20 @@ func checkTapCommitment(t *testing.T, assets []*asset.Asset,
 }
 
 func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
-	outputCommitments []*commitment.TapCommitment, isSplit bool) {
+	outputCommitments tappsbt.OutputCommitments, isSplit bool) {
 
 	t.Helper()
 
 	// Assert deletion of the input asset and possible deletion of the
 	// matching AssetCommitment tree.
-	senderTree := outputCommitments[0]
-	receiverTree := outputCommitments[0]
+	senderIdx := vPkt.Outputs[0].AnchorOutputIndex
+	senderTree := outputCommitments[senderIdx]
+	receiverTree := outputCommitments[senderIdx]
 
 	// If there are multiple outputs, the receiver should be the second one.
 	if len(vPkt.Outputs) > 1 {
-		receiverTree = outputCommitments[1]
+		receiverIdx := vPkt.Outputs[1].AnchorOutputIndex
+		receiverTree = outputCommitments[receiverIdx]
 	}
 
 	input := vPkt.Inputs[0]
@@ -606,24 +608,24 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 }
 
 func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
-	outputCommitments []*commitment.TapCommitment,
-	spendingPsbt *psbt.Packet, senderAsset *asset.Asset, isSplit bool) {
+	outputCommitments tappsbt.OutputCommitments, spendingPsbt *psbt.Packet,
+	senderAsset *asset.Asset, isSplit bool) {
 
 	t.Helper()
 
 	receiverAsset := outputs[0].Asset
 	receiverIndex := outputs[0].AnchorOutputIndex
-	receiverTapTree := outputCommitments[0]
+	receiverTapTree := outputCommitments[receiverIndex]
 	if len(outputs) > 1 {
 		receiverAsset = outputs[1].Asset
 		receiverIndex = outputs[1].AnchorOutputIndex
-		receiverTapTree = outputCommitments[1]
+		receiverTapTree = outputCommitments[receiverIndex]
 	}
 
 	// Build a TaprootProof for each receiver to prove inclusion or
 	// exclusion for each output.
 	senderIndex := outputs[0].AnchorOutputIndex
-	senderTapTree := outputCommitments[0]
+	senderTapTree := outputCommitments[senderIndex]
 	senderProofAsset, senderTapProof, err := senderTapTree.Proof(
 		senderAsset.TapCommitmentKey(),
 		senderAsset.AssetCommitmentKey(),
@@ -848,17 +850,9 @@ var prepareOutputAssetsTestCases = []testCase{{
 
 		// We expect an error because an interactive output cannot be
 		// un-spendable.
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
-		require.ErrorIs(t, err, commitment.ErrInvalidScriptKey)
-
-		// We also need to update the slit root's type to one that can
-		// carry passive assets.
-		pkt.Outputs[0].Type = tappsbt.TypePassiveSplitRoot
-
-		// Now we shouldn't get an error anymore.
 		return tapsend.PrepareOutputAssets(context.Background(), pkt)
 	},
-	err: nil,
+	err: commitment.ErrInvalidScriptKey,
 }}
 
 // TestSignVirtualTransaction tests edge cases around signing a witness for
@@ -1082,81 +1076,12 @@ var createOutputCommitmentsTestCases = []testCase{{
 			AnchorOutputTapscriptSibling: testPreimage,
 		})
 
-		_, err = tapsend.CreateOutputCommitments(nil, pkt, nil)
+		_, err = tapsend.CreateOutputCommitments(
+			[]*tappsbt.VPacket{pkt},
+		)
 		return err
 	},
 	err: tapsend.ErrInvalidAnchorInfo,
-}, {
-	name: "missing input asset commitment",
-	f: func(t *testing.T) error {
-		state := initSpendScenario(t)
-		state.spenderScriptKey = *asset.NUMSPubKey
-
-		pkt := createPacket(
-			state.address1, state.asset1PrevID,
-			state, state.asset1InputAssets, false,
-		)
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
-		require.NoError(t, err)
-		err = tapsend.SignVirtualTransaction(
-			pkt, state.signer, state.witnessValidator,
-		)
-		require.NoError(t, err)
-
-		inputCommitment := &state.asset1TapTree
-		inputCommitments := inputCommitment.Commitments()
-		asset1Key := state.asset1.TapCommitmentKey()
-		senderCommitment, ok := inputCommitments[asset1Key]
-		require.True(t, ok)
-
-		err = inputCommitment.Delete(senderCommitment)
-		require.NoError(t, err)
-
-		_, err = tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
-		)
-		return err
-	},
-	err: tapsend.ErrMissingAssetCommitment,
-}, {
-	name: "missing input asset",
-	f: func(t *testing.T) error {
-		state := initSpendScenario(t)
-		state.spenderScriptKey = *asset.NUMSPubKey
-
-		pkt := createPacket(
-			state.address1, state.asset1PrevID,
-			state, state.asset1InputAssets, false,
-		)
-		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
-		require.NoError(t, err)
-		err = tapsend.SignVirtualTransaction(
-			pkt, state.signer, state.witnessValidator,
-		)
-		require.NoError(t, err)
-
-		inputCommitment := &state.asset1TapTree
-		inputCommitments := inputCommitment.Commitments()
-		asset1Key := state.asset1.TapCommitmentKey()
-		senderCommitment, ok := inputCommitments[asset1Key]
-		require.True(t, ok)
-
-		err = senderCommitment.Delete(&state.asset1)
-		require.NoError(t, err)
-
-		err = inputCommitment.Upsert(senderCommitment)
-		require.NoError(t, err)
-
-		_, err = tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
-		)
-		return err
-	},
-	err: tapsend.ErrMissingAssetCommitment,
 }, {
 	name: "non-interactive collectible with group key",
 	f: func(t *testing.T) error {
@@ -1175,11 +1100,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1203,11 +1125,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1231,11 +1150,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1260,11 +1176,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1290,11 +1203,8 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
@@ -1337,20 +1247,17 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
 		outputCommitments[0] = nil
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		return err
@@ -1373,20 +1280,17 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
-		outputCommitments[1] = nil
+		outputCommitments[receiverExternalIdx] = nil
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		return err
@@ -1409,18 +1313,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1448,18 +1349,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1487,18 +1385,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1527,18 +1422,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset2TapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1568,18 +1460,15 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		)
 		require.NoError(t, err)
 
-		inputCommitment := &state.asset1CollectGroupTapTree
 		outputCommitments, err := tapsend.CreateOutputCommitments(
-			tappsbt.InputCommitments{
-				0: inputCommitment,
-			}, pkt, nil,
+			[]*tappsbt.VPacket{pkt},
 		)
 		require.NoError(t, err)
 
-		btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+		btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 		require.NoError(t, err)
 
-		_, err = tapsend.UpdateTaprootOutputKeys(
+		err = tapsend.UpdateTaprootOutputKeys(
 			btcPkt, pkt, outputCommitments,
 		)
 		require.NoError(t, err)
@@ -1594,8 +1483,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 }}
 
 func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
-	full bool) (*psbt.Packet, *tappsbt.VPacket,
-	[]*commitment.TapCommitment) {
+	full bool) (*psbt.Packet, *tappsbt.VPacket, tappsbt.OutputCommitments) {
 
 	spendAddress := state.address1
 
@@ -1621,18 +1509,15 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	)
 	require.NoError(t, err)
 
-	inputCommitment := &state.asset2TapTree
 	outputCommitments, err := tapsend.CreateOutputCommitments(
-		tappsbt.InputCommitments{
-			0: inputCommitment,
-		}, pkt, nil,
+		[]*tappsbt.VPacket{pkt},
 	)
 	require.NoError(t, err)
 
-	btcPkt, err := tapsend.CreateAnchorTx(pkt.Outputs)
+	btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 	require.NoError(t, err)
 
-	_, err = tapsend.UpdateTaprootOutputKeys(
+	err = tapsend.UpdateTaprootOutputKeys(
 		btcPkt, pkt, outputCommitments,
 	)
 	require.NoError(t, err)
@@ -1642,7 +1527,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 
 func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 	btcPkt *psbt.Packet, pkt *tappsbt.VPacket,
-	outputCommitments []*commitment.TapCommitment) []proof.TransitionParams {
+	outputCommitments tappsbt.OutputCommitments) []proof.TransitionParams {
 
 	btcPkt.UnsignedTx.AddTxIn(&genesisTxIn)
 	spendTx := btcPkt.UnsignedTx.Copy()
@@ -1655,8 +1540,8 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 
 	senderAsset := pkt.Outputs[0].Asset
 	receiverAsset := pkt.Outputs[1].Asset
-	senderTapTree := outputCommitments[0]
-	receiverTapTree := outputCommitments[1]
+	senderTapTree := outputCommitments[pkt.Outputs[0].AnchorOutputIndex]
+	receiverTapTree := outputCommitments[pkt.Outputs[1].AnchorOutputIndex]
 
 	_, senderExclusionProof, err := receiverTapTree.Proof(
 		senderAsset.TapCommitmentKey(),
@@ -1767,20 +1652,20 @@ func TestProofVerify(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
 	_, err = senderFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
@@ -1788,7 +1673,7 @@ func TestProofVerify(t *testing.T) {
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
 	_, err = receiverFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 }
@@ -1840,7 +1725,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
@@ -1848,63 +1733,21 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
 	_, err = senderFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
 	_, err = receiverFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockGroupVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
 	)
-	require.NoError(t, err)
-}
-
-// TestAreValidAnchorOutputIndexes tests various sets of asset locators to
-// assert that we can detect an incomplete set of locators, and sets that form a
-// valid Bitcoin transaction.
-func TestAreValidAnchorOutputIndexes(t *testing.T) {
-	t.Parallel()
-
-	outputs := []*tappsbt.VOutput{}
-
-	// Reject groups of outputs smaller than 1.
-	assetOnlySpend, err := tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.False(t, assetOnlySpend)
-	require.ErrorIs(t, err, tapsend.ErrInvalidOutputIndexes)
-
-	// Insert a locator for the sender and for the receiver, that would form
-	// a Taproot Asset only spend.
-	outputs = []*tappsbt.VOutput{{
-		AnchorOutputIndex: 0,
-	}, {
-		AnchorOutputIndex: 1,
-	}}
-
-	assetOnlySpend, err = tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.True(t, assetOnlySpend)
-	require.NoError(t, err)
-
-	// Modify the receiver locator so the indexes are no longer continuous.
-	outputs[1].AnchorOutputIndex = 2
-
-	assetOnlySpend, err = tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.False(t, assetOnlySpend)
-	require.NoError(t, err)
-
-	// Check for correctness with more than 2 outputs.
-	outputs = append(outputs, &tappsbt.VOutput{
-		AnchorOutputIndex: 1,
-	})
-
-	assetOnlySpend, err = tapsend.AreValidAnchorOutputIndexes(outputs)
-	require.True(t, assetOnlySpend)
 	require.NoError(t, err)
 }
 
@@ -1958,9 +1801,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1984,11 +1826,11 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 			return nil, nil, err
 		}
 
+		inputCommitment := &state.asset1CollectGroupTapTree
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1CollectGroupTapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1CollectGroupPrevID: inputCommitment,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2013,9 +1855,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset2TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset2PrevID: &state.asset2TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2040,9 +1881,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2067,9 +1907,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2103,9 +1942,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
-				0: &state.asset1TapTree,
-			}, []*btcec.PublicKey{&state.spenderScriptKey},
-			inputAsset.Type, fundDesc,
+				state.asset1PrevID: &state.asset1TapTree,
+			}, inputAsset.Type, fundDesc,
 		)
 		if err != nil {
 			return nil, nil, err
