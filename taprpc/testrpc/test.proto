@@ -1,0 +1,17 @@
+syntax = "proto3";
+
+package testrpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/testrpc";
+
+service Test {
+    rpc SayHello (HelloRequest) returns (HelloResponse);
+}
+
+message HelloRequest {
+    string name = 1;
+}
+
+message HelloResponse {
+    string message = 1;
+}

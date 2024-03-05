@@ -261,6 +261,9 @@ rpc-check: rpc
 	cd ./taprpc; ../scripts/check-rest-annotations.sh
 	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with correct version"; git status; git diff; exit 1; fi
 
+wasm:
+	cd wasm; GOOS=wasip1 GOARCH=wasm go build -o tap.wasm main.go
+
 vendor:
 	@$(call print, "Re-creating vendor directory.")
 	rm -r vendor/; go mod vendor
@@ -345,4 +348,5 @@ clean:
 	rpc-format \
 	rpc-check \
 	vendor \
+	wasm \
 	clean
