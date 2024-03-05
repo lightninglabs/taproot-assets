@@ -60,9 +60,8 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		return nil, fmt.Errorf("unable to list eligible coins: %w", err)
 	}
 
-	log.Infof("Identified %v eligible asset inputs for send of %d to %x",
-		len(eligibleCommitments), constraints.MinAmt,
-		constraints.AssetID[:])
+	log.Infof("Identified %v eligible asset inputs for send of %d to %v",
+		len(eligibleCommitments), constraints)
 
 	selectedCoins, err := s.selectForAmount(
 		constraints.MinAmt, eligibleCommitments, strategy,

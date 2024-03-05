@@ -41,6 +41,19 @@ type CommitmentConstraints struct {
 	MinAmt uint64
 }
 
+// String returns the string representation of the commitment constraints.
+func (c *CommitmentConstraints) String() string {
+	var groupKeyBytes, assetIDBytes []byte
+	if c.GroupKey != nil {
+		groupKeyBytes = c.GroupKey.SerializeCompressed()
+	}
+	if c.AssetID != nil {
+		assetIDBytes = c.AssetID[:]
+	}
+	return fmt.Sprintf("group_key=%x, asset_id=%x, min_amt=%d",
+		groupKeyBytes, assetIDBytes, c.MinAmt)
+}
+
 // AnchoredCommitment is the response to satisfying the set of
 // CommitmentConstraints. This includes the asset itself, and also information
 // needed to locate the asset on-chain and also prove its existence.
