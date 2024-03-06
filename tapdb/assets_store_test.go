@@ -612,7 +612,7 @@ func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
 	return &id
 }
 
-func (a *assetGenerator) bindKeyGroup(i int, op wire.OutPoint) *btcec.PublicKey {
+func (a *assetGenerator) bindGroupKey(i int, op wire.OutPoint) *btcec.PublicKey {
 	gen := a.assetGens[i]
 	gen.FirstPrevOut = op
 	genTweak := gen.ID()
@@ -901,6 +901,7 @@ func TestSelectCommitment(t *testing.T) {
 		constraints tapfreighter.CommitmentConstraints
 
 		numAssets int
+		sum       int64
 
 		err error
 	}{
@@ -911,7 +912,7 @@ func TestSelectCommitment(t *testing.T) {
 			assets: []assetDesc{
 				{
 					assetGen: assetGen.assetGens[0],
-					amt:      5,
+					amt:      6,
 
 					anchorPoint: assetGen.anchorPoints[0],
 				},
@@ -923,6 +924,7 @@ func TestSelectCommitment(t *testing.T) {
 				MinAmt: 2,
 			},
 			numAssets: 1,
+			sum:       6,
 		},
 
 		// Asset matches all the params, but too small of a UTXO.  only
@@ -968,10 +970,10 @@ func TestSelectCommitment(t *testing.T) {
 			err:       tapfreighter.ErrMatchingAssetsNotFound,
 		},
 
-		// Create two assets, one has a key group the other doesn't.
+		// Create two assets, one has a group key the other doesn't.
 		// We should only get one asset back.
 		{
-			name: "asset with key group",
+			name: "asset with group key",
 			assets: []assetDesc{
 				{
 					assetGen: assetGen.assetGens[0],
@@ -983,19 +985,20 @@ func TestSelectCommitment(t *testing.T) {
 				},
 				{
 					assetGen: assetGen.assetGens[1],
-					amt:      10,
+					amt:      12,
 
 					anchorPoint: assetGen.anchorPoints[1],
 					noGroupKey:  true,
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				GroupKey: assetGen.bindKeyGroup(
+				GroupKey: assetGen.bindGroupKey(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 1,
 			},
 			numAssets: 1,
+			sum:       10,
 		},
 
 		// Leased assets shouldn't be returned, and neither should other
@@ -1027,6 +1030,46 @@ func TestSelectCommitment(t *testing.T) {
 			numAssets: 0,
 			err:       tapfreighter.ErrMatchingAssetsNotFound,
 		},
+
+		// Create three assets, the first two have a group key but
+		// different asset IDs, the other doesn't have a group key.
+		// We should only get the first two assets back.
+		{
+			name: "multiple different assets with same group key",
+			assets: []assetDesc{
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      10,
+
+					anchorPoint: assetGen.anchorPoints[0],
+
+					keyGroup: assetGen.groupKeys[0],
+				},
+				{
+					assetGen: assetGen.assetGens[0],
+					amt:      20,
+
+					anchorPoint: assetGen.anchorPoints[0],
+
+					keyGroup: assetGen.groupKeys[0],
+				},
+				{
+					assetGen: assetGen.assetGens[1],
+					amt:      15,
+
+					anchorPoint: assetGen.anchorPoints[1],
+					noGroupKey:  true,
+				},
+			},
+			constraints: tapfreighter.CommitmentConstraints{
+				GroupKey: assetGen.bindGroupKey(
+					0, assetGen.anchorPoints[0],
+				),
+				MinAmt: 1,
+			},
+			numAssets: 2,
+			sum:       30,
+		},
 	}
 
 	ctx := context.Background()
@@ -1052,6 +1095,14 @@ func TestSelectCommitment(t *testing.T) {
 			// The number of selected assets should match up
 			// properly.
 			require.Equal(t, tc.numAssets, len(selectedAssets))
+
+			// Also verify the expected sum of asset amounts
+			// selected.
+			var sum int64
+			for _, a := range selectedAssets {
+				sum += int64(a.Asset.Amount)
+			}
+			require.Equal(t, tc.sum, sum)
 
 			// If the expectation is to get a single asset, let's
 			// make sure we can fetch the same asset commitment with
