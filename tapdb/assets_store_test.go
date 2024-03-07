@@ -36,6 +36,8 @@ type assetGenOptions struct {
 
 	groupAnchorGen *asset.Genesis
 
+	groupAnchorGenPoint *wire.OutPoint
+
 	noGroupKey bool
 
 	groupKeyPriv *btcec.PrivateKey
@@ -84,6 +86,12 @@ func withAssetGenKeyGroup(key *btcec.PrivateKey) assetGenOpt {
 func withGroupAnchorGen(g *asset.Genesis) assetGenOpt {
 	return func(opt *assetGenOptions) {
 		opt.groupAnchorGen = g
+	}
+}
+
+func withGroupAnchorGenPoint(op wire.OutPoint) assetGenOpt {
+	return func(opt *assetGenOptions) {
+		opt.groupAnchorGenPoint = &op
 	}
 }
 
@@ -150,6 +158,9 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 
 	if opts.groupAnchorGen != nil {
 		initialGen = *opts.groupAnchorGen
+	}
+	if opts.groupAnchorGenPoint != nil {
+		initialGen.FirstPrevOut = *opts.groupAnchorGenPoint
 	}
 
 	groupReq := asset.NewGroupKeyRequestNoErr(
@@ -433,6 +444,8 @@ type assetDesc struct {
 
 	groupAnchorGen *asset.Genesis
 
+	groupAnchorGenPoint *wire.OutPoint
+
 	anchorPoint wire.OutPoint
 
 	keyGroup *btcec.PrivateKey
@@ -546,6 +559,11 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		if desc.groupAnchorGen != nil {
 			opts = append(opts, withGroupAnchorGen(
 				desc.groupAnchorGen,
+			))
+		}
+		if desc.groupAnchorGenPoint != nil {
+			opts = append(opts, withGroupAnchorGenPoint(
+				*desc.groupAnchorGenPoint,
 			))
 		}
 		if desc.assetVersion != nil {
@@ -1046,12 +1064,14 @@ func TestSelectCommitment(t *testing.T) {
 					keyGroup: assetGen.groupKeys[0],
 				},
 				{
-					assetGen: assetGen.assetGens[0],
+					assetGen: assetGen.assetGens[1],
 					amt:      20,
 
 					anchorPoint: assetGen.anchorPoints[0],
 
-					keyGroup: assetGen.groupKeys[0],
+					keyGroup:            assetGen.groupKeys[0],
+					groupAnchorGen:      &assetGen.assetGens[0],
+					groupAnchorGenPoint: &assetGen.anchorPoints[0],
 				},
 				{
 					assetGen: assetGen.assetGens[1],
