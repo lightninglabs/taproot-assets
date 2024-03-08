@@ -135,6 +135,27 @@ type FinalizeParams struct {
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
 }
 
+// FundParams are the options available to change how a batch is funded, and how
+// the genesis TX is constructed.
+type FundParams struct {
+	FeeRate        fn.Option[chainfee.SatPerKWeight]
+	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+	// TODO(jhb): follow-up PR: accept a PSBT here
+}
+
+// groupSeal specifies the group witness for a seedling in a funded batch.
+type groupSeal struct {
+	GroupMember  asset.ID
+	GroupWitness []wire.TxWitness
+}
+
+// SealParams change how asset groups in a minting batch are created.
+type SealParams struct {
+	GroupWitnesses []groupSeal
+	// TODO(jhb): follow-up PR: accept a witness for the genesis point here
+	// to enable script-path spends
+}
+
 func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
 	return &stateParamReq[T, S]{
 		stateReq: *newStateReq[T](req),
@@ -185,6 +206,8 @@ const (
 	reqTypeListBatches
 	reqTypeFinalizeBatch
 	reqTypeCancelBatch
+	reqTypeFundBatch
+	reqTypeSealBatch
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
@@ -662,6 +685,30 @@ func (c *ChainPlanter) gardener() {
 
 				req.Resolve(batches)
 
+			case reqTypeFundBatch:
+				log.Infof("Funding batch")
+
+				fundReqParams, err :=
+					typedParam[FundParams](req)
+				if err != nil {
+					req.Error(fmt.Errorf("bad fund "+
+						"params: %w", err))
+					break
+				}
+
+				ctx, cancel := c.WithCtxQuit()
+				err = c.fundBatch(ctx, *fundReqParams)
+				cancel()
+				if err != nil {
+					req.Error(fmt.Errorf("unable to fund "+
+						"minting batch: %w", err))
+					break
+				}
+
+			// TODO(jhb): follow-up PR: Implement SealBatch command
+			case reqTypeSealBatch:
+				req.Error(fmt.Errorf("not yet implemented"))
+
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
 					req.Error(fmt.Errorf("no pending batch"))
@@ -789,9 +836,7 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
-	ctx, cancel = c.WithCtxQuit()
 	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
-	cancel()
 	if err != nil {
 		return nil, fmt.Errorf("unable to freeze minting batch: %w",
 			err)
@@ -839,6 +884,30 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 	error) {
 
 	req := newStateParamReq[[]*MintingBatch](reqTypeListBatches, batchKey)
+
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
+}
+
+// FundBatch sends a signal to the planter to fund the current batch, or create
+// a funded batch.
+func (c *ChainPlanter) FundBatch(params FundParams) (*MintingBatch, error) {
+	req := newStateParamReq[*MintingBatch](reqTypeFundBatch, params)
+
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
+}
+
+// SealBatch attempts to seal the current batch, by providing or deriving all
+// witnesses necessary to create the final genesis TX.
+func (c *ChainPlanter) SealBatch(params SealParams) (*MintingBatch, error) {
+	req := newStateParamReq[*MintingBatch](reqTypeSealBatch, params)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
