@@ -371,6 +371,9 @@ func (t *mintingTestHarness) tickMintingBatch(
 		return nil
 	}
 
+	// Check that the batch was funded before being frozen.
+	_ = t.assertGenesisTxFunded(nil)
+
 	return t.assertNewBatchFrozen(existingBatches)
 }
 
@@ -817,16 +820,16 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.refreshChainPlanter()
 
 	// Now that the planter is back up, a single caretaker should have been
-	// launched as well. Next, assert that the caretaker has requested a
-	// genesis tx to be funded.
-	_ = t.assertGenesisTxFunded(nil)
+	// launched as well. The batch should already be funded.
+	batch := t.fetchSingleBatch(nil)
+	t.assertBatchGenesisTx(batch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
-	// state machine, we expect the PSBT packet to be funded again as well,
-	// since we didn't get a chance to write it to disk.
+	// state machine, we expect the PSBT packet to still be funded.
 	t.refreshChainPlanter()
-	_ = t.assertGenesisTxFunded(nil)
+	batch = t.fetchSingleBatch(nil)
+	t.assertBatchGenesisTx(batch.GenesisPacket)
 
 	// For each seedling created above, we expect a new set of keys to be
 	// created for the asset script key and an additional key if emission
@@ -930,8 +933,9 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.tickMintingBatch(false)
 
 	// A single caretaker should have been launched as well. Next, assert
-	// that the caretaker has requested a genesis tx to be funded.
-	_ = t.assertGenesisTxFunded(nil)
+	// that the batch is already funded.
+	currentBatch := t.fetchLastBatch()
+	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 
 	// For each seedling created above, we expect a new set of keys to be
@@ -1037,7 +1041,8 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// A single caretaker should have been launched as well. Next, assert
 	// that the caretaker has requested a genesis tx to be funded.
-	_ = t.assertGenesisTxFunded(nil)
+	currentBatch := t.fetchLastBatch()
+	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 
 	// For each seedling created above, we expect a new set of keys to be
@@ -1070,7 +1075,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	require.NotNil(t, thirdBatch.BatchKey.PubKey)
 	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
-	_ = t.assertGenesisTxFunded(nil)
+	t.assertBatchGenesisTx(thirdBatch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 
 	for i := 0; i < numSeedlings; i++ {
@@ -1179,13 +1184,17 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	)
 	require.NoError(t, err)
 
-	// If the caretaker failed, there should be no active caretakers nor
-	// pending batch. The caretaker error should be propagated to the caller
-	// of finalize.
+	// The planter should fail to finalize the batch, so there should be no
+	// active caretakers nor pending batch.
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
 	t.assertFinalizeBatch(&wg, respChan, "unable to estimate fee")
+
+	// This funding error is also sent on the main error channel, so drain
+	// that before continuing.
+	caretakerErr := <-t.errChan
+	require.ErrorContains(t, caretakerErr, "unable to fund minting PSBT")
 
 	// Queue another batch, reset fee estimation behavior, and set TX
 	// confirmation registration to fail.
@@ -1204,7 +1213,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
-	caretakerErr := <-t.errChan
+	caretakerErr = <-t.errChan
 	require.ErrorContains(t, caretakerErr, "error getting confirmation")
 
 	// The stopped caretaker will still exist but there should be no pending
