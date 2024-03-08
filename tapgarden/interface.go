@@ -43,6 +43,14 @@ type Planter interface {
 	// returned.
 	CancelSeedling() error
 
+	// FundBatch attempts to provide a genesis point for the current batch,
+	// or create a new funded batch.
+	FundBatch(params FundParams) (*MintingBatch, error)
+
+	// SealBatch attempts to seal the current batch, by providing or
+	// deriving all witnesses necessary to create the final genesis TX.
+	SealBatch(params SealParams) (*MintingBatch, error)
+
 	// FinalizeBatch signals that the asset minter should finalize
 	// the current batch, if one exists.
 	FinalizeBatch(params FinalizeParams) (*MintingBatch, error)
