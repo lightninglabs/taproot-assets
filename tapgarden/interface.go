@@ -256,6 +256,11 @@ type MintingStore interface {
 	// be committed to disk.
 	CommitBatchTapSibling(ctx context.Context, batchKey *btcec.PublicKey,
 		rootHash *chainhash.Hash) error
+
+	// CommitBatchTx adds a funded transaction to the batch, which also sets
+	// the genesis point for the batch.
+	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
+		genesisTx *tapsend.FundedPsbt) error
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation

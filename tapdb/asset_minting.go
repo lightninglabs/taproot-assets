@@ -328,6 +328,37 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 			}
 		}
 
+		// If the batch is funded, we can also insert the batch TX and
+		// batch genesis outpoint.
+		if newBatch.GenesisPacket != nil {
+			genesisPacket := newBatch.GenesisPacket
+			genesisTx := genesisPacket.Pkt.UnsignedTx
+			changeIdx := genesisPacket.ChangeOutputIndex
+			genesisOutpoint := genesisTx.TxIn[0].PreviousOutPoint
+
+			var psbtBuf bytes.Buffer
+			err := genesisPacket.Pkt.Serialize(&psbtBuf)
+			if err != nil {
+				return fmt.Errorf("unable to encode psbt: "+
+					"%w", err)
+			}
+
+			genesisPointID, err := upsertGenesisPoint(
+				ctx, q, genesisOutpoint,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to upsert genesis "+
+					"point: %w", err)
+			}
+
+			return q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+				RawKey:            rawBatchKey,
+				MintingTxPsbt:     psbtBuf.Bytes(),
+				ChangeOutputIndex: sqlInt32(changeIdx),
+				GenesisID:         sqlInt64(genesisPointID),
+			})
+		}
+
 		// Now that our minting batch is in place, which references the
 		// internal key inserted above, we can create the set of new
 		// seedlings. We insert group anchors before other assets.
@@ -473,8 +504,8 @@ func (a *AssetMintingStore) AddSeedlingsToBatch(ctx context.Context,
 
 // fetchSeedlingID attempts to fetch the ID for a seedling from a specific
 // batch. This is performed within the context of a greater DB transaction.
-func fetchSeedlingID(ctx context.Context, q PendingAssetStore,
-	batchKey []byte, seedlingName string) (int64, error) {
+func fetchSeedlingID(ctx context.Context, q PendingAssetStore, batchKey []byte,
+	seedlingName string) (int64, error) {
 
 	seedlingParams := AssetSeedlingTuple{
 		SeedlingName: seedlingName,
@@ -978,6 +1009,40 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 	}
 
 	return b.Bytes(), nil
+}
+
+// CommitBatchTx updates the genesis transaction of a batch based on the batch
+// key.
+func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
+	batchKey *btcec.PublicKey, genesisPacket *tapsend.FundedPsbt) error {
+
+	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	rawBatchKey := batchKey.SerializeCompressed()
+
+	var psbtBuf bytes.Buffer
+	if err := genesisPacket.Pkt.Serialize(&psbtBuf); err != nil {
+		return fmt.Errorf("unable to encode psbt: %w", err)
+	}
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		genesisPointID, err := upsertGenesisPoint(
+			ctx, q, genesisOutpoint,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to upsert genesis point: %w",
+				err)
+		}
+
+		return q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+			RawKey:        rawBatchKey,
+			MintingTxPsbt: psbtBuf.Bytes(),
+			ChangeOutputIndex: sqlInt32(
+				genesisPacket.ChangeOutputIndex,
+			),
+			GenesisID: sqlInt64(genesisPointID),
+		})
+	})
 }
 
 // AddSproutsToBatch updates a batch with the passed batch transaction and also
