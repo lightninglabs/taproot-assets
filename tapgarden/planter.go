@@ -381,6 +381,40 @@ func (c *ChainPlanter) stopCaretakers() {
 	}
 }
 
+// newBatch creates a new minting batch, which includes deriving a new internal
+// key. The batch is not written to disk nor set as the pending batch.
+func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	// To create a new batch we'll first need to grab a new internal key,
+	// which will be used in the output we create, and also will serve as
+	// the primary identifier for a batch.
+	log.Infof("Creating new MintingBatch")
+	newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
+		ctx, asset.TaprootAssetsKeyFamily,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get current height: %w", err)
+	}
+
+	// Create the new batch.
+	newBatch := &MintingBatch{
+		CreationTime: time.Now(),
+		HeightHint:   currentHeight,
+		BatchKey:     newInternalKey,
+		Seedlings:    make(map[string]*Seedling),
+		AssetMetas:   make(AssetMetas),
+	}
+	newBatch.UpdateState(BatchStatePending)
+	return newBatch, nil
+}
+
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
 func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
@@ -392,23 +426,12 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 		batchKey.SerializeCompressed(), len(batch.Seedlings))
 
 	// In order to freeze a batch, we need to update the state of the batch
-	// to BatchStateFinalized, meaning that no other changes can happen.
+	// to BatchStateFrozen, meaning that no other changes can happen.
 	//
 	// TODO(roasbeef): assert not in some other state first?
 	return batchStore.UpdateBatchState(
 		ctx, batchKey, BatchStateFrozen,
 	)
-}
-
-func commitBatchSibling(ctx context.Context, batchStore MintingStore,
-	batch *MintingBatch, sibling *chainhash.Hash) error {
-
-	batchKey := batch.BatchKey.PubKey
-
-	log.Infof("Committing tapscript sibling hash(batch_key=%x, sibling=%x)",
-		batchKey.SerializeCompressed(), sibling[:])
-
-	return batchStore.CommitBatchTapSibling(ctx, batchKey, sibling)
 }
 
 // ListBatches returns the single batch specified by the batch key, or the set
@@ -753,8 +776,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	if rootHash != nil {
 		ctx, cancel = c.WithCtxQuit()
 		defer cancel()
-		err = commitBatchSibling(
-			ctx, c.cfg.Log, c.pendingBatch, rootHash,
+		err = c.cfg.Log.CommitBatchTapSibling(
+			ctx, c.pendingBatch.BatchKey.PubKey, rootHash,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to commit tapscript "+
@@ -859,6 +882,14 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		return err
 	}
 
+	// The seedling name must be unique within the pending batch.
+	if c.pendingBatch != nil {
+		if _, ok := c.pendingBatch.Seedlings[req.AssetName]; ok {
+			return fmt.Errorf("asset with name %v already in batch",
+				req.AssetName)
+		}
+	}
+
 	// If emission is enabled and a group key is specified, we need to
 	// make sure the asset types match and that we can sign with that key.
 	if req.HasGroupKey() {
@@ -900,39 +931,16 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// No batch, so we'll create a new one with only this seedling as part
 	// of the batch.
 	case c.pendingBatch == nil:
-		log.Infof("Creating new MintingBatch w/ %v", req)
-
-		// To create a new batch we'll first need to grab a new
-		// internal key, which'll be used in the output we create, and
-		// also will serve as the primary identifier for a batch.
-		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
+		newBatch, err := c.newBatch()
 		if err != nil {
 			return err
 		}
 
-		ctx, cancel := c.WithCtxQuit()
-		defer cancel()
-		currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to get current height: %w",
-				err)
-		}
+		log.Infof("Adding %v to new MintingBatch", req)
 
-		// Create a new batch and commit it to disk so we can pick up
-		// where we left off upon restart.
-		newBatch := &MintingBatch{
-			CreationTime: time.Now(),
-			HeightHint:   currentHeight,
-			BatchKey:     newInternalKey,
-			Seedlings: map[string]*Seedling{
-				req.AssetName: req,
-			},
-			AssetMetas: make(AssetMetas),
-		}
-		newBatch.UpdateState(BatchStatePending)
-		ctx, cancel = c.WithCtxQuit()
+		newBatch.Seedlings[req.AssetName] = req
+
+		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
@@ -946,15 +954,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	case c.pendingBatch != nil:
 		log.Infof("Adding %v to existing MintingBatch", req)
 
-		// First attempt to add the seedling to our pending batch, if
-		// this name is already taken (in the batch), then an error
-		// will be returned.
-		//
-		// TODO(roasbeef): unique constraint below? will trigger on the
-		// name?
-		if err := c.pendingBatch.addSeedling(req); err != nil {
-			return err
-		}
+		c.pendingBatch.Seedlings[req.AssetName] = req
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()

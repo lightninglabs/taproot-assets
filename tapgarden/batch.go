@@ -122,19 +122,6 @@ func (m *MintingBatch) Copy() *MintingBatch {
 	return batchCopy
 }
 
-// TODO(roasbeef): add batch validate method re unique names?
-
-// AddSeedling adds a new seedling to the batch.
-func (m *MintingBatch) addSeedling(s *Seedling) error {
-	if _, ok := m.Seedlings[s.AssetName]; ok {
-		return fmt.Errorf("asset with name %v already in batch",
-			s.AssetName)
-	}
-
-	m.Seedlings[s.AssetName] = s
-	return nil
-}
-
 // validateGroupAnchor checks if the group anchor for a seedling is valid.
 // A valid anchor must already be part of the batch and have emission enabled.
 func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
