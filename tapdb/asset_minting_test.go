@@ -82,7 +82,7 @@ func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 	require.Equal(t, a.TapSibling(), b.TapSibling())
 	require.Equal(t, a.BatchKey, b.BatchKey)
 	require.Equal(t, a.Seedlings, b.Seedlings)
-	require.Equal(t, a.GenesisPacket, b.GenesisPacket)
+	assertPsbtEqual(t, a.GenesisPacket, b.GenesisPacket)
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
 }
 
@@ -417,6 +417,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// have it be exactly the same as what we wrote.
 	mintingBatches := noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
+	require.NotNil(t, mintingBatches[0].GenesisPacket)
 	assertBatchEqual(t, mintingBatch, mintingBatches[0])
 	assertBatchSibling(t, mintingBatch, randSiblingHash)
 
@@ -614,43 +615,9 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	return tapCommitment
 }
 
-func randGenesisPacket(t *testing.T) *tapsend.FundedPsbt {
-	tx := wire.NewMsgTx(2)
-
-	var hash chainhash.Hash
-	_, err := rand.Read(hash[:])
-	require.NoError(t, err)
-
-	tx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  hash,
-			Index: 1,
-		},
-	})
-	tx.AddTxOut(&wire.TxOut{
-		PkScript: bytes.Repeat([]byte{0x01}, 34),
-		Value:    5,
-	})
-	tx.AddTxOut(&wire.TxOut{
-		PkScript: bytes.Repeat([]byte{0x02}, 34),
-		Value:    10,
-	})
-	tx.AddTxOut(&wire.TxOut{
-		PkScript: bytes.Repeat([]byte{0x02}, 34),
-		Value:    15,
-	})
-
-	packet, err := psbt.NewFromUnsignedTx(tx)
-	require.NoError(t, err)
-	return &tapsend.FundedPsbt{
-		Pkt:               packet,
-		ChangeOutputIndex: 1,
-		ChainFees:         100,
-	}
-}
-
 func assertPsbtEqual(t *testing.T, a, b *tapsend.FundedPsbt) {
 	require.Equal(t, a.ChangeOutputIndex, b.ChangeOutputIndex)
+	require.Equal(t, a.ChainFees, b.ChainFees)
 	require.Equal(t, a.LockedUTXOs, b.LockedUTXOs)
 
 	var aBuf, bBuf bytes.Buffer
@@ -721,7 +688,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	// Now that the batch is on disk, we'll map those seedlings to an
 	// actual asset commitment, then insert them into the DB as sprouts.
-	genesisPacket := randGenesisPacket(t)
+	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
@@ -788,8 +755,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	batchKey := mintingBatch.BatchKey.PubKey
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
-	genesisPacket := randGenesisPacket(t)
-
+	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
@@ -848,7 +814,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// to disk, along with the Taproot Asset script root that's stored
 	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
-		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 2,
+		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 0,
 		randAssetCtx.merkleRoot, randAssetCtx.scriptRoot,
 		randAssetCtx.tapSiblingBytes,
 	))
@@ -1326,7 +1292,7 @@ func TestGroupAnchors(t *testing.T) {
 
 	// Now we'll map these seedlings to an asset commitment and insert them
 	// into the DB as sprouts.
-	genesisPacket := randGenesisPacket(t)
+	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,

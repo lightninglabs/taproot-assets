@@ -56,6 +56,7 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 // RandSeedlingMintingBatch creates a new minting batch with only random
 // seedlings populated for testing.
 func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
+	genesisTx := NewGenesisTx(t, chainfee.FeePerKwFloor)
 	return &MintingBatch{
 		BatchKey: keychain.KeyDescriptor{
 			PubKey: test.RandPubKey(t),
@@ -67,6 +68,10 @@ func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
 		Seedlings:    RandSeedlings(t, numSeedlings),
 		HeightHint:   rand.Uint32(),
 		CreationTime: time.Now(),
+		GenesisPacket: &tapsend.FundedPsbt{
+			Pkt:               &genesisTx,
+			ChangeOutputIndex: 1,
+		},
 	}
 }
 
@@ -95,8 +100,16 @@ func NewMockWalletAnchor() *MockWalletAnchor {
 	}
 }
 
-func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
-	_ uint32, feeRate chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+// NewGenesisTx creates a funded genesis PSBT with the given fee rate.
+func NewGenesisTx(t testing.TB, feeRate chainfee.SatPerKWeight) psbt.Packet {
+	txTemplate := wire.NewMsgTx(2)
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	require.NoError(t, err)
+
+	FundGenesisTx(genesisPkt, feeRate)
+	return *genesisPkt
+}
 
 // FundGenesisTx add a genesis input and change output to a 1-output TX.
 func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
