@@ -383,64 +383,6 @@ func (b *BatchCaretaker) assetCultivator() {
 	}
 }
 
-// fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
-// order to be able to create an asset, we need an initial genesis outpoint. To
-// obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
-// (all outputs need to hold some BTC to not be dust), and with a dummy script.
-// We need to use a dummy script as we can't know the actual script key since
-// that's dependent on the genesis outpoint.
-func (b *BatchCaretaker) fundGenesisPsbt(
-	ctx context.Context) (*tapsend.FundedPsbt, error) {
-
-	log.Infof("BatchCaretaker(%x): attempting to fund GenesisPacket",
-		b.batchKey[:])
-
-	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
-	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
-	}
-
-	log.Infof("BatchCaretaker(%x): creating skeleton PSBT", b.batchKey[:])
-	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
-
-	var feeRate chainfee.SatPerKWeight
-	switch {
-	// If a fee rate was manually assigned for this batch, use that instead
-	// of a fee rate estimate.
-	case b.cfg.BatchFeeRate != nil:
-		feeRate = *b.cfg.BatchFeeRate
-		log.Infof("BatchCaretaker(%x): using manual fee rate: %s, %d "+
-			"sat/vB", b.batchKey[:], feeRate.String(),
-			feeRate.FeePerKVByte()/1000)
-
-	default:
-		feeRate, err = b.cfg.ChainBridge.EstimateFee(
-			ctx, GenesisConfTarget,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to estimate fee: %w",
-				err)
-		}
-
-		log.Infof("BatchCaretaker(%x): estimated fee rate: %s",
-			b.batchKey[:], feeRate.FeePerKVByte().String())
-	}
-
-	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
-		ctx, genesisPkt, 1, feeRate,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fund psbt: %w", err)
-	}
-
-	log.Infof("BatchCaretaker(%x): funded GenesisPacket", b.batchKey[:])
-	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
-
-	return fundedGenesisPkt, nil
-}
-
 // extractGenesisOutpoint extracts the genesis point (the first output from the
 // genesis transaction).
 func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
@@ -646,29 +588,37 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// batch, so we'll use the batch key as the internal key for the
 	// genesis transaction that'll create the batch.
 	case BatchStateFrozen:
-		// First, we'll fund a PSBT packet with enough coins allocated
-		// as inputs to be able to create our genesis output for the
-		// asset and also pay for fees.
-		//
 		// TODO(roasbeef): need to invalidate asset creation if on
 		// restart leases are gone
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
-		genesisTxPkt, err := b.fundGenesisPsbt(ctx)
+
+		// Make a copy of the batch PSBT, which we'll modify and then
+		// update the batch with.
+		var psbtBuf bytes.Buffer
+		err := b.cfg.Batch.GenesisPacket.Pkt.Serialize(&psbtBuf)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("unable to serialize genesis "+
+				"PSBT: %w", err)
 		}
 
-		genesisPoint := extractGenesisOutpoint(
-			genesisTxPkt.Pkt.UnsignedTx,
-		)
+		genesisTxPkt, err := psbt.NewFromRawBytes(&psbtBuf, false)
+		if err != nil {
+			return 0, fmt.Errorf("unable to deserialize genesis "+
+				"PSBT: %w", err)
+		}
+		changeOutputIndex := b.cfg.Batch.GenesisPacket.ChangeOutputIndex
 
 		// If the change output is first, then our commitment is second,
 		// and vice versa.
+		// TODO(jhb): return the anchor index instead of change? or both
+		// so this works for N outputs
 		b.anchorOutputIndex = 0
-		if genesisTxPkt.ChangeOutputIndex == 0 {
+		if changeOutputIndex == 0 {
 			b.anchorOutputIndex = 1
 		}
+
+		genesisPoint := extractGenesisOutpoint(genesisTxPkt.UnsignedTx)
 
 		// First, we'll turn all the seedlings into actual taproot assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(
@@ -708,23 +658,28 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"script: %w", err)
 		}
 
-		genesisTxPkt.Pkt.UnsignedTx.TxOut[b.anchorOutputIndex].PkScript = genesisScript
+		genesisTxPkt.UnsignedTx.
+			TxOut[b.anchorOutputIndex].PkScript = genesisScript
 
 		log.Infof("BatchCaretaker(%x): committing sprouts to disk",
 			b.batchKey[:])
 
+		fundedGenesisPsbt := tapsend.FundedPsbt{
+			Pkt:               genesisTxPkt,
+			ChangeOutputIndex: changeOutputIndex,
+		}
 		// With all our commitments created, we'll commit them to disk,
 		// replacing the existing seedlings we had created for each of
 		// these assets.
 		err = b.cfg.Log.AddSproutsToBatch(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
-			genesisTxPkt, b.cfg.Batch.RootAssetCommitment,
+			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)
 		}
 
-		b.cfg.Batch.GenesisPacket = genesisTxPkt
+		b.cfg.Batch.GenesisPacket.Pkt = genesisTxPkt
 
 		// Now that we know the script key for all the assets, we'll
 		// populate the asset metas map as we need that to create the

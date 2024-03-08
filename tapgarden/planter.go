@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -15,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/ticker"
@@ -420,6 +422,66 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
+// order to be able to create an asset, we need an initial genesis outpoint. To
+// obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
+// (all outputs need to hold some BTC to not be dust), and with a dummy script.
+// We need to use a dummy script as we can't know the actual script key since
+// that's dependent on the genesis outpoint.
+func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
+	batchKey asset.SerializedKey,
+	manualFeeRate *chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+
+	log.Infof("Attempting to fund batch: %x", batchKey)
+
+	// Construct a 1-output TX as a template for our genesis TX, which the
+	// backing wallet will fund.
+	txTemplate := wire.NewMsgTx(2)
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	log.Infof("creating skeleton PSBT for batch: %x", batchKey)
+	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
+
+	var feeRate chainfee.SatPerKWeight
+	switch {
+	// If a fee rate was manually assigned for this batch, use that instead
+	// of a fee rate estimate.
+	case manualFeeRate != nil:
+		feeRate = *manualFeeRate
+		log.Infof("using manual fee rate for batch: %x, %s, %d sat/vB",
+			batchKey[:], feeRate.String(),
+			feeRate.FeePerKVByte()/1000)
+
+	default:
+		feeRate, err = c.cfg.ChainBridge.EstimateFee(
+			ctx, GenesisConfTarget,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to estimate fee: %w",
+				err)
+		}
+
+		log.Infof("estimated fee rate for batch: %x, %s",
+			batchKey[:], feeRate.FeePerKVByte().String())
+	}
+
+	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
+		ctx, genesisPkt, 1, feeRate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fund psbt: %w", err)
+	}
+
+	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
+	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
+
+	return fundedGenesisPkt, nil
+}
+
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
 func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
@@ -773,18 +835,14 @@ func (c *ChainPlanter) gardener() {
 	}
 }
 
-// finalizeBatch creates a new caretaker for the batch and starts it.
-func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
-	error) {
-
+// If funding fails should we delete the batch?
+func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 	var (
 		feeRate  *chainfee.SatPerKWeight
 		rootHash *chainhash.Hash
 		err      error
 	)
 
-	ctx, cancel := c.WithCtxQuit()
-	defer cancel()
 	// If a tapscript tree was specified for this batch, we'll store it on
 	// disk. The caretaker we start for this batch will use it when deriving
 	// the final Taproot output key.
@@ -797,31 +855,139 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to store tapscript "+
-			"tree for minting batch: %w", err)
+		return fmt.Errorf("unable to store tapscript tree for minting "+
+			"batch: %w", err)
 	}
 
-	if rootHash != nil {
-		ctx, cancel = c.WithCtxQuit()
-		defer cancel()
-		err = c.cfg.Log.CommitBatchTapSibling(
-			ctx, c.pendingBatch.BatchKey.PubKey, rootHash,
+	// Update the batch by adding the sibling root hash and genesis TX.
+	updateBatch := func(batch *MintingBatch) error {
+		// Add the batch sibling root hash if present.
+		if rootHash != nil {
+			batch.tapSibling = rootHash
+		}
+
+		// Fund the batch with the specified fee rate.
+		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
+		batchTX, err := c.fundGenesisPsbt(ctx, batchKey, feeRate)
+		if err != nil {
+			return fmt.Errorf("unable to fund minting PSBT for "+
+				"batch: %x %w", batchKey[:], err)
+		}
+
+		batch.GenesisPacket = batchTX
+
+		return nil
+	}
+
+	switch {
+	// If we don't have a batch, we'll create an empty batch before funding
+	// and writing to disk.
+	case c.pendingBatch == nil:
+		newBatch, err := c.newBatch()
+		if err != nil {
+			return fmt.Errorf("unable to create new batch: %w", err)
+		}
+
+		err = updateBatch(newBatch)
+		if err != nil {
+			return err
+		}
+
+		// Now that we're done populating parts of the batch, write it
+		// to disk.
+		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		if err != nil {
+			return err
+		}
+
+		c.pendingBatch = newBatch
+
+	// If we already have a batch, we need to attach the optional sibling
+	// root hash and fund the batch.
+	case c.pendingBatch != nil:
+		err = updateBatch(c.pendingBatch)
+		if err != nil {
+			return err
+		}
+
+		// Write the associated sibling root hash and TX to disk.
+		if c.pendingBatch.tapSibling != nil {
+			err = c.cfg.Log.CommitBatchTapSibling(
+				ctx, c.pendingBatch.BatchKey.PubKey, rootHash,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to commit tapscript "+
+					"sibling for minting batch %w", err)
+			}
+		}
+
+		err = c.cfg.Log.CommitBatchTx(
+			ctx, c.pendingBatch.BatchKey.PubKey,
+			c.pendingBatch.GenesisPacket,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to commit tapscript "+
-				"sibling for minting batch %w", err)
+			return err
 		}
 	}
 
-	c.pendingBatch.tapSibling = rootHash
+	return nil
+}
 
+func (c *ChainPlanter) sealBatch(params SealParams) error {
+	return nil
+}
+
+// finalizeBatch creates a new caretaker for the batch and starts it.
+func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
+	error) {
+
+	var (
+		feeRate *chainfee.SatPerKWeight
+		err     error
+	)
+
+	// Process the finalize parameters.
+	params.FeeRate.WhenSome(func(fr chainfee.SatPerKWeight) {
+		feeRate = &fr
+	})
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
+		_, err = c.cfg.TreeStore.
+			StoreTapscriptTree(ctx, tn)
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to store tapscript tree for "+
+			"minting batch: %w", err)
+	}
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
 	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
 	if err != nil {
-		return nil, fmt.Errorf("unable to freeze minting batch: %w",
-			err)
+		return nil, err
 	}
+
+	// If the batch already has a funded TX, we can skip funding the batch.
+	if c.pendingBatch.GenesisPacket == nil {
+		fundParams := FundParams(params)
+
+		// Fund the batch before starting the caretaker. If funding
+		// fails, we can't start a caretaker for the batch, so we'll
+		// clear the pending batch. The batch will exist on disk for
+		// the user to recreate it if necessary.
+		err = c.fundBatch(ctx, fundParams)
+		if err != nil {
+			c.pendingBatch = nil
+			return nil, err
+		}
+	}
+
+	// TODO(jhb): move batch sibling handling entirely to fundBatch, remove
+	// logic around sibling storage
+	// TODO(jhb): check for batch sealing
 
 	// Now that the batch has been frozen on disk, we can update the batch
 	// state to frozen before launching a new caretaker state machine for
