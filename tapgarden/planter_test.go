@@ -299,10 +299,11 @@ func (t *mintingTestHarness) assertFinalizeBatch(wg *sync.WaitGroup,
 // progressCaretaker uses the mock interfaces to progress a caretaker from start
 // to TX confirmation.
 func (t *mintingTestHarness) progressCaretaker(seedlings []*tapgarden.Seedling,
-	batchSibling *commitment.TapscriptPreimage) func() {
+	batchSibling *commitment.TapscriptPreimage,
+	feeRate *chainfee.SatPerKWeight) func() {
 
 	// Assert that the caretaker has requested a genesis TX to be funded.
-	_ = t.assertGenesisTxFunded()
+	_ = t.assertGenesisTxFunded(feeRate)
 
 	// For each seedling created above, we expect a new set of keys to be
 	// created for the asset script key and an additional key if emission
@@ -458,40 +459,31 @@ func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
 
 // assertGenesisTxFunded asserts that a caretaker attempted to fund a new
 // genesis transaction.
-func (t *mintingTestHarness) assertGenesisTxFunded() *tapsend.FundedPsbt {
+func (t *mintingTestHarness) assertGenesisTxFunded(
+	manualFee *chainfee.SatPerKWeight) *tapsend.FundedPsbt {
+
 	// In order to fund a transaction, we expect a call to estimate the
 	// fee, followed by a request to fund a new PSBT packet.
-	_, err := fn.RecvOrTimeout(
-		t.chain.FeeEstimateSignal, defaultTimeout,
-	)
-	require.NoError(t, err)
+	if manualFee == nil {
+		_, err := fn.RecvOrTimeout(
+			t.chain.FeeEstimateSignal, defaultTimeout,
+		)
+		require.NoError(t, err)
+	}
 
 	pkt, err := fn.RecvOrTimeout(
 		t.wallet.FundPsbtSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
+	require.NotNil(t, pkt)
 
-	// Finally, we'll assert that the dummy output or a valid P2TR output
-	// is found in the packet.
-	var found bool
-	for _, txOut := range (*pkt).Pkt.UnsignedTx.TxOut {
-		txOut := txOut
-
-		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
-			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
-			isDummyScript := bytes.Equal(
-				txOut.PkScript, tapsend.GenesisDummyScript[:],
-			)
-
-			if isP2TR || isDummyScript {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("unable to find dummy tx out in genesis tx: %v",
-			spew.Sdump(pkt))
+	// Our genesis TX in unit tests is always 1 P2TR in, 1 P2TR out &
+	// 1 P2WSH out. This has a fixed size of 155 vB.
+	const mintTxSize = 155
+	txFee := t.assertBatchGenesisTx(*pkt)
+	if manualFee != nil {
+		expectedFee := manualFee.FeePerKVByte().FeeForVSize(mintTxSize)
+		require.GreaterOrEqual(t, txFee, expectedFee)
 	}
 
 	return *pkt
@@ -560,13 +552,7 @@ func isCancelledBatch(batch *tapgarden.MintingBatch) bool {
 func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
 	batchState tapgarden.BatchState) {
 
-	t.Helper()
-
-	batches, err := t.planter.ListBatches(batchKey)
-	require.NoError(t, err)
-	require.Len(t, batches, 1)
-
-	batch := batches[0]
+	batch := t.fetchSingleBatch(batchKey)
 	require.Equal(t, batchState, batch.State())
 }
 
@@ -574,12 +560,65 @@ func (t *mintingTestHarness) assertLastBatchState(numBatches int,
 	batchState tapgarden.BatchState) {
 
 	t.Helper()
-
 	batches, err := t.planter.ListBatches(nil)
 	require.NoError(t, err)
 
 	require.Len(t, batches, numBatches)
 	require.Equal(t, batchState, batches[len(batches)-1].State())
+}
+
+func (t *mintingTestHarness) fetchSingleBatch(
+	batchKey *btcec.PublicKey) *tapgarden.MintingBatch {
+
+	t.Helper()
+	batches, err := t.planter.ListBatches(batchKey)
+	require.NoError(t, err)
+	require.Len(t, batches, 1)
+
+	return batches[0]
+}
+
+func (t *mintingTestHarness) fetchLastBatch() *tapgarden.MintingBatch {
+	t.Helper()
+	batches, err := t.planter.ListBatches(nil)
+	require.NoError(t, err)
+	require.NotEmpty(t, batches)
+
+	return batches[len(batches)-1]
+}
+
+func (t *mintingTestHarness) assertBatchGenesisTx(
+	pkt *tapsend.FundedPsbt) btcutil.Amount {
+
+	t.Helper()
+
+	// Finally, we'll assert that the dummy output or a valid P2TR output
+	// is found in the packet.
+	var found bool
+	for _, txOut := range pkt.Pkt.UnsignedTx.TxOut {
+		txOut := txOut
+
+		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
+			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
+			isDummyScript := bytes.Equal(
+				txOut.PkScript, tapsend.GenesisDummyScript[:],
+			)
+
+			if isP2TR || isDummyScript {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("unable to find dummy tx out in genesis tx: %v",
+			spew.Sdump(pkt))
+	}
+
+	genesisTxFee, err := pkt.Pkt.GetTxFee()
+	require.NoError(t, err)
+
+	return genesisTxFee
 }
 
 // assertSeedlingsMatchSprouts asserts that the seedlings were properly matched
@@ -653,7 +692,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized(
 
 	t.Helper()
 
-	// Ensure that a request to finalize the PSBt has come across.
+	// Ensure that a request to finalize the PSBT has come across.
 	_, err := fn.RecvOrTimeout(
 		t.wallet.SignPsbtSignal, defaultTimeout,
 	)
@@ -780,14 +819,14 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// Now that the planter is back up, a single caretaker should have been
 	// launched as well. Next, assert that the caretaker has requested a
 	// genesis tx to be funded.
-	_ = t.assertGenesisTxFunded()
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertNumCaretakersActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
 	// state machine, we expect the PSBT packet to be funded again as well,
 	// since we didn't get a chance to write it to disk.
 	t.refreshChainPlanter()
-	_ = t.assertGenesisTxFunded()
+	_ = t.assertGenesisTxFunded(nil)
 
 	// For each seedling created above, we expect a new set of keys to be
 	// created for the asset script key and an additional key if emission
@@ -892,7 +931,7 @@ func testMintingTicker(t *mintingTestHarness) {
 
 	// A single caretaker should have been launched as well. Next, assert
 	// that the caretaker has requested a genesis tx to be funded.
-	_ = t.assertGenesisTxFunded()
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertNumCaretakersActive(1)
 
 	// For each seedling created above, we expect a new set of keys to be
@@ -998,7 +1037,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// A single caretaker should have been launched as well. Next, assert
 	// that the caretaker has requested a genesis tx to be funded.
-	_ = t.assertGenesisTxFunded()
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertNumCaretakersActive(1)
 
 	// For each seedling created above, we expect a new set of keys to be
@@ -1031,7 +1070,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	require.NotNil(t, thirdBatch.BatchKey.PubKey)
 	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
-	_ = t.assertGenesisTxFunded()
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertNumCaretakersActive(1)
 
 	for i := 0; i < numSeedlings; i++ {
@@ -1161,7 +1200,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	_ = t.progressCaretaker(seedlings, nil)
+	_ = t.progressCaretaker(seedlings, nil, nil)
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1185,7 +1224,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	sendConfNtfn := t.progressCaretaker(seedlings, nil)
+	sendConfNtfn := t.progressCaretaker(seedlings, nil, nil)
 	caretakerCount++
 
 	// Trigger the confirmation event, which should cause the caretaker to
@@ -1212,10 +1251,15 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	seedlings = t.queueInitialBatch(numSeedlings)
 	t.chain.EmptyConf(false)
 
-	t.finalizeBatch(&wg, respChan, nil)
+	// Use a custom feerate and verify that the TX uses that feerate.
+	manualFeeRate := chainfee.FeePerKwFloor * 2
+	finalizeReq := tapgarden.FinalizeParams{
+		FeeRate: fn.Some(manualFeeRate),
+	}
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
-	sendConfNtfn = t.progressCaretaker(seedlings, nil)
+	sendConfNtfn = t.progressCaretaker(seedlings, nil, &manualFeeRate)
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1280,7 +1324,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	progressCaretakerToTxSigning := func(
 		currentSeedlings []*tapgarden.Seedling) {
 
-		_ = t.assertGenesisTxFunded()
+		_ = t.assertGenesisTxFunded(nil)
 
 		for i := 0; i < len(currentSeedlings); i++ {
 			t.assertKeyDerived()
@@ -1345,7 +1389,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// Verify that the final genesis TX uses the correct Taproot output key.
 	treeRootChildren := test.BuildTapscriptTreeNoReveal(t.T, sigLockKey)
 	siblingPreimage := commitment.NewPreimageFromBranch(treeRootChildren)
-	sendConfNtfn := t.progressCaretaker(seedlings, &siblingPreimage)
+	sendConfNtfn := t.progressCaretaker(seedlings, &siblingPreimage, nil)
 	sendConfNtfn()
 
 	// Once the TX is broadcast, the caretaker should run to completion,
