@@ -300,7 +300,7 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	if ok {
 		// Before sending an accept message to a peer, inform the HTLC
 		// order handler that we've accepted the quote request.
-		m.orderHandler.RegisterChannelRemit(*msg)
+		m.orderHandler.RegisterAssetSalePolicy(*msg)
 	}
 
 	// Send the outgoing message to the peer.

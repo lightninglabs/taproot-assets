@@ -238,13 +238,14 @@ func (h *OrderHandler) Start() error {
 	return startErr
 }
 
-// RegisterChannelRemit registers a channel management remit. If a remit exists
-// for the channel SCID, it is overwritten.
-func (h *OrderHandler) RegisterChannelRemit(quoteAccept rfqmsg.BuyAccept) {
+// RegisterAssetSalePolicy generates and registers an asset sale policy with the
+// order handler. This function takes an outgoing buy accept message as an
+// argument.
+func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	log.Debugf("Registering channel remit for SCID: %d",
-		quoteAccept.ShortChannelId())
+		buyAccept.ShortChannelId())
 
-	channelRemit := NewChannelRemit(quoteAccept)
+	channelRemit := NewChannelRemit(buyAccept)
 	h.channelRemits.Store(channelRemit.Scid, channelRemit)
 }
 
