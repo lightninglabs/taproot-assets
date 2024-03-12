@@ -133,7 +133,7 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	log.Debug("Handling incoming HTLC")
 
 	scid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	channelRemit, ok := h.FetchChannelRemit(scid)
+	channelRemit, ok := h.fetchChannelRemit(scid)
 
 	// If a channel remit does not exist for the channel SCID, we resume the
 	// HTLC. This is because the HTLC may be relevant to another interceptor
@@ -249,10 +249,10 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	h.channelRemits.Store(channelRemit.Scid, channelRemit)
 }
 
-// FetchChannelRemit fetches a channel remit given a serialised SCID. If a
+// fetchChannelRemit fetches a channel remit given a serialised SCID. If a
 // channel remit is not found, false is returned. Expired channel remits are
 // not returned and are removed from the cache.
-func (h *OrderHandler) FetchChannelRemit(scid SerialisedScid) (*ChannelRemit,
+func (h *OrderHandler) fetchChannelRemit(scid SerialisedScid) (*ChannelRemit,
 	bool) {
 
 	remit, ok := h.channelRemits.Load(scid)
