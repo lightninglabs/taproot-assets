@@ -242,8 +242,8 @@ func (h *OrderHandler) Start() error {
 // order handler. This function takes an outgoing buy accept message as an
 // argument.
 func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
-	log.Debugf("Registering channel remit for SCID: %d",
-		buyAccept.ShortChannelId())
+	log.Debugf("Order handler is registering an asset sale policy given a "+
+		"buy accept message: %s", buyAccept.String())
 
 	channelRemit := NewChannelRemit(buyAccept)
 	h.channelRemits.Store(channelRemit.Scid, channelRemit)

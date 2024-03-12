@@ -228,8 +228,9 @@ func (q *BuyAccept) ToWire() (WireMessage, error) {
 
 // String returns a human-readable string representation of the message.
 func (q *BuyAccept) String() string {
-	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, expiry=%d)",
-		q.Peer[:], q.ID, q.AskPrice, q.Expiry)
+	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, "+
+		"expiry=%d, scid=%d)",
+		q.Peer[:], q.ID, q.AskPrice, q.Expiry, q.ShortChannelId())
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
