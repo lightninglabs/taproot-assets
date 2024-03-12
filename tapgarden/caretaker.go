@@ -1440,7 +1440,7 @@ func GenHeaderVerifier(ctx context.Context,
 // assetGroupCacheSize is the size of the cache for group keys.
 const assetGroupCacheSize = 10000
 
-// emptyVal is a simple type def around struct{} to use as a dummy value in in
+// emptyVal is a simple type def around struct{} to use as a dummy value in
 // the cache.
 type emptyVal struct{}
 
