@@ -213,8 +213,8 @@ func (n *Negotiator) queryAskFromPriceOracle(
 	return accept, nil
 }
 
-// HandleIncomingQuoteRequest handles an incoming quote request.
-func (n *Negotiator) HandleIncomingQuoteRequest(
+// HandleIncomingBuyRequest handles an incoming asset buy quote request.
+func (n *Negotiator) HandleIncomingBuyRequest(
 	request rfqmsg.BuyRequest) error {
 
 	// Ensure that we have a suitable sell offer for the asset that is being

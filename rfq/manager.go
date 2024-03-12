@@ -259,9 +259,9 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 	// Perform type specific handling of the incoming message.
 	switch msg := incomingMsg.(type) {
 	case *rfqmsg.BuyRequest:
-		err := m.negotiator.HandleIncomingQuoteRequest(*msg)
+		err := m.negotiator.HandleIncomingBuyRequest(*msg)
 		if err != nil {
-			return fmt.Errorf("error handling incoming quote "+
+			return fmt.Errorf("error handling incoming buy "+
 				"request: %w", err)
 		}
 
