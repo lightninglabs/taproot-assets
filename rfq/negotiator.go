@@ -111,8 +111,10 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	return request, nil
 }
 
-// RequestQuote requests a bid quote (buying an asset) from a peer.
-func (n *Negotiator) RequestQuote(buyOrder BuyOrder) error {
+// HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
+// requests and passing them to the outgoing messages channel. These requests
+// are sent to peers.
+func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 	// Query the price oracle for a reasonable bid price. We perform this
 	// query and response handling in a separate goroutine in case it is a
 	// remote service and takes a long time to respond.

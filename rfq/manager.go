@@ -417,7 +417,7 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	}
 
 	// Request a quote from a peer via the negotiator.
-	err := m.negotiator.RequestQuote(order)
+	err := m.negotiator.HandleOutgoingBuyOrder(order)
 	if err != nil {
 		return fmt.Errorf("error registering asset buy order: %w", err)
 	}
