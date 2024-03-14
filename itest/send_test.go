@@ -110,7 +110,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 
 		AssertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
 
-		sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
+		sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 		ConfirmAndAssertOutboundTransfer(
 			t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
@@ -118,6 +118,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 			[]uint64{currentUnits, numUnits}, i, i+1,
 		)
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
+		AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
 	}
 
 	// Close event stream.
@@ -225,7 +226,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 
 	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], bobAddr)
 
-	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
@@ -233,6 +234,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 		[]uint64{currentUnits, numUnits}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
+	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
 
 	// Close event stream.
 	err = events.CloseSend()
@@ -458,7 +460,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	AssertAddrCreated(t.t, recvTapd, firstAsset, recvAddr)
 
 	// Send the assets to the receiving node.
-	sendResp := sendAssetsToAddr(t, t.tapd, recvAddr)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, recvAddr)
 
 	addProofTestVectorFromProof(
 		t.t, "valid regtest proof for split root", testVectors,
@@ -478,6 +480,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
+	AssertSendEventsComplete(t.t, recvAddr.ScriptKey, sendEvents)
 
 	// Assert that the sending node returns the correct asset list via RPC.
 	AssertListAssets(
@@ -503,7 +506,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	AssertAddrCreated(t.t, recvTapd, secondAsset, recvAddr)
 
 	// Send the assets to the receiving node.
-	sendResp = sendAssetsToAddr(t, t.tapd, recvAddr)
+	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, recvAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = assets[1].Asset.Amount - numUnitsSend
@@ -514,6 +517,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend}, 1, 2,
 	)
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 2)
+	AssertSendEventsComplete(t.t, recvAddr.ScriptKey, sendEvents)
 
 	// And now send part of the first asset back again, so we get a bit of a
 	// longer proof chain in the file.
@@ -525,7 +529,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 	AssertAddrCreated(t.t, t.tapd, firstAsset, newAddr)
 
 	// Send the assets back to the first node.
-	sendResp = sendAssetsToAddr(t, recvTapd, newAddr)
+	sendResp, sendEvents = sendAssetsToAddr(t, recvTapd, newAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend = numUnitsSend - numUnitsSend/2
@@ -535,6 +539,7 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 		[]uint64{expectedAmtAfterSend, numUnitsSend / 2}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
+	AssertSendEventsComplete(t.t, newAddr.ScriptKey, sendEvents)
 
 	// We also want to generate an ownership proof of the asset we received
 	// back.
@@ -1025,7 +1030,7 @@ type assetRpcEvent interface {
 // received. This function will block until the event is received or the event
 // stream is closed.
 func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
-	stream *eventSubscription[T], timeout time.Duration,
+	stream *EventSubscription[T], timeout time.Duration,
 	targetEventSelector func(T) bool, expectedCount int) {
 
 	success := make(chan struct{})
@@ -1036,7 +1041,7 @@ func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
 	go func() {
 		select {
 		case <-timeoutChan:
-			stream.cancel()
+			stream.Cancel()
 
 		case <-success:
 
@@ -1086,7 +1091,7 @@ func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
 // event stream is closed.
 func assertAssetCompleteEvent(t *harnessTest,
 	timeout time.Duration, encodedAddr string,
-	stream *eventSubscription[*tapdevrpc.ReceiveAssetEvent]) {
+	stream *EventSubscription[*tapdevrpc.ReceiveAssetEvent]) {
 
 	eventSelector := func(event *tapdevrpc.ReceiveAssetEvent) bool {
 		switch eventTyped := event.Event.(type) {
@@ -1143,7 +1148,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	AssertAddrCreated(t.t, bobTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp := sendAssetsToAddr(t, t.tapd, addr)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
@@ -1151,6 +1156,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 1)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 
 	// Second of two send events from minting node to the secondary node.
 	addr, err = bobTapd.NewAddr(
@@ -1163,7 +1169,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	AssertAddrCreated(t.t, bobTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp = sendAssetsToAddr(t, t.tapd, addr)
+	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
@@ -1171,6 +1177,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, bobTapd, 2)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 
 	t.Logf("Two separate send events complete, now attempting to send " +
 		"back the full amount in a single multi input send event")
@@ -1186,7 +1193,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	AssertAddrCreated(t.t, t.tapd, rpcAsset, addr)
 
 	// Send the assets to the minting node.
-	sendResp = sendAssetsToAddr(t, bobTapd, addr)
+	sendResp, sendEvents = sendAssetsToAddr(t, bobTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, bobTapd, sendResp,
@@ -1194,6 +1201,7 @@ func testMultiInputSendNonInteractiveSingleID(t *harnessTest) {
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 }
 
 // testSendMultipleCoins tests that we can send multiple transfers at the same
@@ -1239,7 +1247,7 @@ func testSendMultipleCoins(t *harnessTest) {
 
 	// We created 5 addresses in our first node now, so we can initiate the
 	// transfer to send the coins back to our wallet in 5 pieces now.
-	sendResp := sendAssetsToAddr(t, t.tapd, addrs...)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addrs...)
 	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		genInfo.AssetId, []uint64{
@@ -1248,10 +1256,14 @@ func testSendMultipleCoins(t *harnessTest) {
 		}, 0, 1, numParts+1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 5)
+	AssertSendEventsComplete(t.t, addrs[0].ScriptKey, sendEvents)
 
 	// Next, we'll attempt to complete 5 parallel transfers with distinct
 	// addresses from our main node to Bob.
 	bobAddrs := make([]*taprpc.Addr, numParts)
+	addrSendEvents := make(
+		[]*EventSubscription[*taprpc.SendEvent], numParts,
+	)
 	for i := 0; i < numParts; i++ {
 		var err error
 		bobAddrs[i], err = secondTapd.NewAddr(
@@ -1262,7 +1274,9 @@ func testSendMultipleCoins(t *harnessTest) {
 		)
 		require.NoError(t.t, err)
 
-		sendResp := sendAssetsToAddr(t, t.tapd, bobAddrs[i])
+		sendResp, addrSendEvents[i] = sendAssetsToAddr(
+			t, t.tapd, bobAddrs[i],
+		)
 		AssertAssetOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner.Client, t.tapd,
 			sendResp.Transfer, genInfo.AssetId,
@@ -1292,6 +1306,9 @@ func testSendMultipleCoins(t *harnessTest) {
 	// expected.
 	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 5)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 5)
+	for idx, events := range addrSendEvents {
+		AssertSendEventsComplete(t.t, bobAddrs[idx].ScriptKey, events)
+	}
 }
 
 // testSendNoCourierUniverseImport tests that we can send assets to a node that
@@ -1336,7 +1353,7 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 	AssertAddrCreated(t.t, secondTapd, firstAsset, receiveAddr)
 
 	// Send the assets to the receiving node.
-	sendResp := sendAssetsToAddr(t, t.tapd, receiveAddr)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, receiveAddr)
 
 	// Assert that the outbound transfer was confirmed.
 	expectedAmtAfterSend := firstAsset.Amount - numUnitsSend
@@ -1353,6 +1370,7 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 
 	// And now, the transfer should be completed on the receiver side too.
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	AssertSendEventsComplete(t.t, receiveAddr.ScriptKey, sendEvents)
 }
 
 // addProofTestVectorFromFile adds a proof test vector by extracting it from the

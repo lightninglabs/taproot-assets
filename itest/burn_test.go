@@ -173,19 +173,22 @@ func testBurnAssets(t *harnessTest) {
 	// the anchor output it was in (together with the change). So let's test
 	// that we can successfully spend the change output.
 	secondSendAmt := outputAmounts[2] - burnAmt
-	fullSendAddr, err := t.tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
-		AssetId: simpleAssetGen.AssetId,
-		Amt:     secondSendAmt,
-	})
+	fullSendAddr, stream := NewAddrWithEventStream(
+		t.t, t.tapd, &taprpc.NewAddrRequest{
+			AssetId: simpleAssetGen.AssetId,
+			Amt:     secondSendAmt,
+		},
+	)
 	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, t.tapd, simpleAsset, fullSendAddr)
-	sendResp = sendAssetsToAddr(t, t.tapd, fullSendAddr)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, fullSendAddr)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, minerClient, t.tapd, sendResp, simpleAssetGen.AssetId,
 		[]uint64{0, secondSendAmt}, 2, 3,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
+	AssertReceiveEvents(t.t, fullSendAddr, stream)
 
 	// Test case 3: Burn all assets of one asset ID (in this case a single
 	// collectible from the original mint TX), while there are other,
@@ -207,6 +210,7 @@ func testBurnAssets(t *harnessTest) {
 		t.t, minerClient, t.tapd, burnResp.BurnTransfer,
 		simpleCollectibleGen.AssetId, []uint64{1}, 3, 4, 1, true,
 	)
+	AssertSendEventsComplete(t.t, fullSendAddr.ScriptKey, sendEvents)
 
 	// Test case 4: Burn assets from multiple inputs. This will select the
 	// two largest inputs we have, the one over 1500 we sent above and the

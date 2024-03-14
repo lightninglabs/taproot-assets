@@ -5,6 +5,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 )
 
@@ -15,4 +16,5 @@ type TapdClient interface {
 	mintrpc.MintClient
 	rfqrpc.RfqClient
 	assetwalletrpc.AssetWalletClient
+	tapdevrpc.TapDevClient
 }
