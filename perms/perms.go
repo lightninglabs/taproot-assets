@@ -80,6 +80,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/SubscribeReceiveEvents": {{
+			Entity: "assets",
+			Action: "read",
+		}},
 		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
 			Entity: "assets",
 			Action: "write",

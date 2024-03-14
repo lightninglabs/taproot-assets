@@ -92,6 +92,10 @@ type TaprootAssetsClient interface {
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error)
+	// tapcli: `events receive`
+	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
+	// incoming asset transfers.
+	SubscribeReceiveEvents(ctx context.Context, in *SubscribeReceiveEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveEventsClient, error)
 }
 
 type taprootAssetsClient struct {
@@ -264,6 +268,38 @@ func (c *taprootAssetsClient) FetchAssetMeta(ctx context.Context, in *FetchAsset
 	return out, nil
 }
 
+func (c *taprootAssetsClient) SubscribeReceiveEvents(ctx context.Context, in *SubscribeReceiveEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TaprootAssets_ServiceDesc.Streams[0], "/taprpc.TaprootAssets/SubscribeReceiveEvents", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taprootAssetsSubscribeReceiveEventsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TaprootAssets_SubscribeReceiveEventsClient interface {
+	Recv() (*ReceiveEvent, error)
+	grpc.ClientStream
+}
+
+type taprootAssetsSubscribeReceiveEventsClient struct {
+	grpc.ClientStream
+}
+
+func (x *taprootAssetsSubscribeReceiveEventsClient) Recv() (*ReceiveEvent, error) {
+	m := new(ReceiveEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // TaprootAssetsServer is the server API for TaprootAssets service.
 // All implementations must embed UnimplementedTaprootAssetsServer
 // for forward compatibility
@@ -342,6 +378,10 @@ type TaprootAssetsServer interface {
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
 	FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error)
+	// tapcli: `events receive`
+	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
+	// incoming asset transfers.
+	SubscribeReceiveEvents(*SubscribeReceiveEventsRequest, TaprootAssets_SubscribeReceiveEventsServer) error
 	mustEmbedUnimplementedTaprootAssetsServer()
 }
 
@@ -402,6 +442,9 @@ func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest
 }
 func (UnimplementedTaprootAssetsServer) FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchAssetMeta not implemented")
+}
+func (UnimplementedTaprootAssetsServer) SubscribeReceiveEvents(*SubscribeReceiveEventsRequest, TaprootAssets_SubscribeReceiveEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeReceiveEvents not implemented")
 }
 func (UnimplementedTaprootAssetsServer) mustEmbedUnimplementedTaprootAssetsServer() {}
 
@@ -740,6 +783,27 @@ func _TaprootAssets_FetchAssetMeta_Handler(srv interface{}, ctx context.Context,
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_SubscribeReceiveEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeReceiveEventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaprootAssetsServer).SubscribeReceiveEvents(m, &taprootAssetsSubscribeReceiveEventsServer{stream})
+}
+
+type TaprootAssets_SubscribeReceiveEventsServer interface {
+	Send(*ReceiveEvent) error
+	grpc.ServerStream
+}
+
+type taprootAssetsSubscribeReceiveEventsServer struct {
+	grpc.ServerStream
+}
+
+func (x *taprootAssetsSubscribeReceiveEventsServer) Send(m *ReceiveEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // TaprootAssets_ServiceDesc is the grpc.ServiceDesc for TaprootAssets service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -820,6 +884,12 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TaprootAssets_FetchAssetMeta_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeReceiveEvents",
+			Handler:       _TaprootAssets_SubscribeReceiveEvents_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "taprootassets.proto",
 }
