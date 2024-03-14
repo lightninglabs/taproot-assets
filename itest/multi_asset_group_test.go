@@ -119,13 +119,16 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	normalGroupSend := sendAssetsToAddr(t, t.tapd, bobNormalAddr)
+	normalGroupSend, normalSendEvents := sendAssetsToAddr(
+		t, t.tapd, bobNormalAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, normalGroupSend,
 		normalMember.AssetGenesis.AssetId,
 		[]uint64{0, normalMember.Amount}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	AssertSendEventsComplete(t.t, bobNormalAddr.ScriptKey, normalSendEvents)
 
 	AssertBalanceByGroup(
 		t.t, secondTapd, normalGroupKey, normalMember.Amount,
@@ -156,13 +159,16 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	collectGroupSend := sendAssetsToAddr(t, t.tapd, bobCollectAddr)
+	collectGroupSend, groupSendEvents := sendAssetsToAddr(
+		t, t.tapd, bobCollectAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, collectGroupSend,
 		collectMember.AssetGenesis.AssetId,
 		[]uint64{0, collectMember.Amount}, 1, 2,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 2)
+	AssertSendEventsComplete(t.t, bobCollectAddr.ScriptKey, groupSendEvents)
 
 	AssertBalanceByGroup(
 		t.t, secondTapd, collectGroupKey, collectMember.Amount,
@@ -354,7 +360,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 		require.NoError(t.t, err)
 		AssertAddrCreated(t.t, secondTapd, sendAsset, addr)
 
-		sendResp := sendAssetsToAddr(t, t.tapd, addr)
+		sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 
 		ConfirmAndAssertOutboundTransfer(
 			t.t, t.lndHarness.Miner.Client, t.tapd,
@@ -363,6 +369,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 		)
 
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, i+1)
+		AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 	}
 }
 

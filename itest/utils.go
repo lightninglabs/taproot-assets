@@ -31,18 +31,18 @@ var (
 	regtestParams     = &chaincfg.RegressionNetParams
 )
 
-// clientEventStream is a generic interface for a client stream that allows us
+// ClientEventStream is a generic interface for a client stream that allows us
 // to receive events from a server.
-type clientEventStream[T any] interface {
+type ClientEventStream[T any] interface {
 	Recv() (T, error)
 	grpc.ClientStream
 }
 
-// eventSubscription holds a generic client stream and its context cancel
+// EventSubscription holds a generic client stream and its context cancel
 // function.
-type eventSubscription[T any] struct {
-	clientEventStream[T]
-	cancel context.CancelFunc
+type EventSubscription[T any] struct {
+	ClientEventStream[T]
+	Cancel context.CancelFunc
 }
 
 // CopyRequest is a helper function to copy a request so that we can modify it.
@@ -411,7 +411,9 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	batch := batchResp.Batches[0]
 	require.NotEmpty(t, batch.BatchTxid)
 
-	return AssertAssetsMinted(t, tapClient, assetRequests, mintTXID, blockHash)
+	return AssertAssetsMinted(
+		t, tapClient, assetRequests, mintTXID, blockHash,
+	)
 }
 
 // SyncUniverses syncs the universes of two tapd instances and waits until they
@@ -457,7 +459,7 @@ func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 
 // SubscribeSendEvents subscribes to send events and returns the event stream.
 func SubscribeSendEvents(t *testing.T,
-	tapd TapdClient) *eventSubscription[*tapdevrpc.SendAssetEvent] {
+	tapd TapdClient) *EventSubscription[*tapdevrpc.SendAssetEvent] {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithCancel(ctxb)
@@ -467,16 +469,16 @@ func SubscribeSendEvents(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	return &eventSubscription[*tapdevrpc.SendAssetEvent]{
-		clientEventStream: stream,
-		cancel:            cancel,
+	return &EventSubscription[*tapdevrpc.SendAssetEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
 	}
 }
 
 // SubscribeReceiveEvents subscribes to receive events and returns the event
 // stream.
 func SubscribeReceiveEvents(t *testing.T,
-	tapd TapdClient) *eventSubscription[*tapdevrpc.ReceiveAssetEvent] {
+	tapd TapdClient) *EventSubscription[*tapdevrpc.ReceiveAssetEvent] {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithCancel(ctxb)
@@ -486,9 +488,9 @@ func SubscribeReceiveEvents(t *testing.T,
 	)
 	require.NoError(t, err)
 
-	return &eventSubscription[*tapdevrpc.ReceiveAssetEvent]{
-		clientEventStream: stream,
-		cancel:            cancel,
+	return &EventSubscription[*tapdevrpc.ReceiveAssetEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
 	}
 }
 
@@ -496,7 +498,7 @@ func SubscribeReceiveEvents(t *testing.T,
 // event stream for receive events for the address.
 func NewAddrWithEventStream(t *testing.T, tapd TapdClient,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr,
-	*eventSubscription[*taprpc.ReceiveEvent]) {
+	*EventSubscription[*taprpc.ReceiveEvent]) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -506,7 +508,6 @@ func NewAddrWithEventStream(t *testing.T, tapd TapdClient,
 	require.NoError(t, err)
 
 	ctxc, cancel := context.WithCancel(ctxb)
-
 	stream, err := tapd.SubscribeReceiveEvents(
 		ctxc, &taprpc.SubscribeReceiveEventsRequest{
 			FilterAddr: addr.Encoded,
@@ -514,8 +515,8 @@ func NewAddrWithEventStream(t *testing.T, tapd TapdClient,
 	)
 	require.NoError(t, err)
 
-	return addr, &eventSubscription[*taprpc.ReceiveEvent]{
-		clientEventStream: stream,
-		cancel:            cancel,
+	return addr, &EventSubscription[*taprpc.ReceiveEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
 	}
 }
