@@ -3168,7 +3168,16 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 	}
 
 	filter := func(event fn.Event) (bool, error) {
-		return true, nil
+		switch e := event.(type) {
+		case *proof.BackoffWaitEvent:
+			return true, nil
+
+		case *tapgarden.AssetReceiveEvent:
+			return e.Status == address.StatusCompleted, nil
+
+		default:
+			return false, fmt.Errorf("unknown event type: %T", e)
+		}
 	}
 
 	return handleEvents[bool, *tapdevrpc.ReceiveAssetEvent](
@@ -3292,7 +3301,7 @@ func marshallReceiveAssetEvent(event fn.Event,
 			},
 		}, nil
 
-	case *tapgarden.AssetReceiveCompleteEvent:
+	case *tapgarden.AssetReceiveEvent:
 		rpcAddr, err := marshalAddr(&e.Address, db)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling addr: %w", err)
