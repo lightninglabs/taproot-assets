@@ -427,6 +427,46 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	return nil
 }
 
+// SellOrder is a struct that represents an asset sell order.
+type SellOrder struct {
+	// AssetID is the ID of the asset to sell.
+	AssetID *asset.ID
+
+	// AssetGroupKey is the public key of the asset group to sell.
+	AssetGroupKey *btcec.PublicKey
+
+	// MaxAssetAmount is the maximum amount of the asset that can be sold as
+	// part of the order.
+	MaxAssetAmount uint64
+
+	// MinAsk is the minimum ask price that the seller is willing to accept.
+	MinAsk lnwire.MilliSatoshi
+
+	// Expiry is the unix timestamp at which the order expires.
+	Expiry uint64
+
+	// Peer is the peer that the buy order is intended for. This field is
+	// optional.
+	Peer *route.Vertex
+}
+
+// UpsertAssetSellOrder upserts an asset sell order for management.
+func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
+	// For now, a peer must be specified.
+	//
+	// TODO(ffranr): Add support for peerless sell orders. The negotiator
+	//  should be able to determine the optimal peer.
+	if order.Peer == nil {
+		return fmt.Errorf("sell order peer must be specified")
+	}
+
+	// Pass the asset sell order to the negotiator which will generate sell
+	// request messages to send to peers.
+	m.negotiator.HandleOutgoingSellOrder(order)
+
+	return nil
+}
+
 // QueryPeerAcceptedQuotes returns quotes that were requested by our node and
 // have been accepted by our peers. These quotes are exclusively available to
 // our node for the acquisition/sale of assets.

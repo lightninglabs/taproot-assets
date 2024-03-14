@@ -293,6 +293,55 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	return nil
 }
 
+// HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
+// requests and passing them to the outgoing messages channel. These requests
+// are sent to peers.
+func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
+	// Query the price oracle for a reasonable ask price. We perform this
+	// query and response handling in a separate goroutine in case it is a
+	// remote service and takes a long time to respond.
+	n.Wg.Add(1)
+	go func() {
+		defer n.Wg.Done()
+
+		// Query the price oracle for an asking price.
+		askPrice, _, err := n.queryAskFromPriceOracle(
+			order.Peer, order.AssetID, order.AssetGroupKey,
+			order.MaxAssetAmount, nil,
+		)
+		if err != nil {
+			err := fmt.Errorf("negotiator failed to handle price "+
+				"oracle response: %w", err)
+			n.cfg.ErrChan <- err
+			return
+		}
+
+		request, err := rfqmsg.NewSellRequest(
+			*order.Peer, order.AssetID, order.AssetGroupKey,
+			order.MaxAssetAmount, askPrice,
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to create sell request "+
+				"message: %w", err)
+			n.cfg.ErrChan <- err
+			return
+		}
+
+		// Send the response message to the outgoing messages channel.
+		var msg rfqmsg.OutgoingMsg = request
+		sendSuccess := fn.SendOrQuit(
+			n.cfg.OutgoingMessages, msg, n.Quit,
+		)
+		if !sendSuccess {
+			err := fmt.Errorf("negotiator failed to add sell " +
+				"request message to the outgoing messages " +
+				"channel")
+			n.cfg.ErrChan <- err
+			return
+		}
+	}()
+}
+
 // SellOffer is a struct that represents an asset sell offer. This
 // data structure describes the maximum amount of an asset that is available
 // for sale.
