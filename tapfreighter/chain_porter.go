@@ -801,8 +801,7 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// Notify subscribers that the state machine is about to execute a
 	// state.
-	stateEvent := NewExecuteSendStateEvent(currentPkg.SendState)
-	p.publishSubscriberEvent(stateEvent)
+	p.publishSubscriberEvent(newAssetSendEvent(currentPkg))
 
 	switch currentPkg.SendState {
 	// At this point we have the initial package information populated, so
@@ -1199,25 +1198,59 @@ func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPorter)(nil)
 
-// ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
-// subscribers before a state is executed.
-type ExecuteSendStateEvent struct {
+// AssetSendEvent is an event which is sent to the ChainPorter's event
+// subscribers after a state was executed.
+type AssetSendEvent struct {
 	// timestamp is the time the event was created.
 	timestamp time.Time
 
-	// SendState is the state that is about to be executed.
+	// SendState is the state that was just executed successfully.
 	SendState SendState
+
+	// Parcel is the parcel that is being sent.
+	Parcel Parcel
+
+	// VirtualPackets is the list of virtual packets that describes the
+	// "active" parts of the asset transfer.
+	VirtualPackets []*tappsbt.VPacket
+
+	// PassivePackets is the list of virtual packets that describes the
+	// "passive" parts of the asset transfer.
+	PassivePackets []*tappsbt.VPacket
+
+	// AnchorTx is the BTC level anchor transaction with all its information
+	// as it was used when funding/signing it.
+	AnchorTx *tapsend.AnchorTransaction
+
+	// Transfer is the on-disk level information that tracks the pending
+	// transfer.
+	Transfer *OutboundParcel
 }
 
 // Timestamp returns the timestamp of the event.
-func (e *ExecuteSendStateEvent) Timestamp() time.Time {
+func (e *AssetSendEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
-// NewExecuteSendStateEvent creates a new ExecuteSendStateEvent.
-func NewExecuteSendStateEvent(state SendState) *ExecuteSendStateEvent {
-	return &ExecuteSendStateEvent{
+// newAssetSendEvent creates a new AssetSendEvent from the given send package.
+func newAssetSendEvent(pkg sendPackage) *AssetSendEvent {
+	newSendEvent := &AssetSendEvent{
 		timestamp: time.Now().UTC(),
-		SendState: state,
+		SendState: pkg.SendState,
+		// The parcel remains static throughout the state machine, so we
+		// don't need to copy it, there can be no data race.
+		Parcel:         pkg.Parcel,
+		VirtualPackets: fn.CopyAll(pkg.VirtualPackets),
+		PassivePackets: fn.CopyAll(pkg.PassiveAssets),
 	}
+
+	if pkg.AnchorTx != nil {
+		newSendEvent.AnchorTx = pkg.AnchorTx.Copy()
+	}
+
+	if pkg.OutboundPkg != nil {
+		newSendEvent.Transfer = pkg.OutboundPkg.Copy()
+	}
+
+	return newSendEvent
 }

@@ -3326,7 +3326,7 @@ func marshallReceiveAssetEvent(event fn.Event,
 // marshallSendAssetEvent maps an asset send event to its RPC counterpart.
 func marshallSendAssetEvent(event fn.Event) (*tapdevrpc.SendAssetEvent, error) {
 	switch e := event.(type) {
-	case *tapfreighter.ExecuteSendStateEvent:
+	case *tapfreighter.AssetSendEvent:
 		evt := &tapdevrpc.ExecuteSendStateEvent{
 			Timestamp: e.Timestamp().UnixMicro(),
 			SendState: e.SendState.String(),
