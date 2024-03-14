@@ -57,10 +57,14 @@ WHERE batch_id in (SELECT batch_id FROM target_batch);
 -- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id, group_anchor_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id,
+    script_key_id, group_internal_key_id, group_tapscript_root
 ) VALUES (
-   $1, $2, $3, $4, $5, $6, $7,
-   sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
+   @asset_name, @asset_type, @asset_version, @asset_supply,
+   @asset_meta_id, @emission_enabled, @batch_id,
+   sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
+   sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
+   @group_tapscript_root
 );
 
 -- name: FetchSeedlingID :one
@@ -108,11 +112,15 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id, group_anchor_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id,
+    script_key_id, group_internal_key_id, group_tapscript_root
 ) VALUES (
-    $2, $3, $4, $5, $6, $7,
+    @asset_name, @asset_type, @asset_version, @asset_supply,
+    @asset_meta_id, @emission_enabled,
     (SELECT key_id FROM target_key_id),
-    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id')
+    sqlc.narg('group_genesis_id'), sqlc.narg('group_anchor_id'),
+    sqlc.narg('script_key_id'), sqlc.narg('group_internal_key_id'),
+    @group_tapscript_root
 );
 
 -- name: FetchSeedlingsForBatch :many
@@ -126,10 +134,24 @@ WITH target_batch(batch_id) AS (
 SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
-    group_genesis_id, group_anchor_id
+    group_genesis_id, group_anchor_id, group_tapscript_root,
+    script_keys.tweak AS script_key_tweak,
+    script_keys.tweaked_script_key,
+    internal_keys.raw_key AS script_key_raw,
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index,
+    group_internal_keys.raw_key AS group_key_raw,
+    group_internal_keys.key_family AS group_key_fam,
+    group_internal_keys.key_index AS group_key_index
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
+LEFT JOIN script_keys
+    ON asset_seedlings.script_key_id = script_keys.script_key_id
+LEFT JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+LEFT JOIN internal_keys group_internal_keys
+    ON asset_seedlings.group_internal_key_id = group_internal_keys.key_id
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch);
 
 -- name: UpsertGenesisPoint :one
