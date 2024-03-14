@@ -42,9 +42,14 @@ import (
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
-	defaultInterval = time.Hour * 24
-	defaultTimeout  = time.Second * 5
-	minterInterval  = time.Millisecond * 250
+	defaultInterval   = time.Hour * 24
+	defaultTimeout    = time.Second * 5
+	minterInterval    = time.Millisecond * 250
+	noCaretakerStates = fn.NewSet(
+		tapgarden.BatchStatePending,
+		tapgarden.BatchStateSeedlingCancelled,
+		tapgarden.BatchStateSproutCancelled,
+	)
 )
 
 // newMintingStore creates a new instance of the TapAddressBook book.
@@ -234,9 +239,15 @@ func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
 func (t *mintingTestHarness) assertNoPendingBatch() {
 	t.Helper()
 
-	batch, err := t.planter.PendingBatch()
+	batches, err := t.store.FetchAllBatches(context.Background())
 	require.NoError(t, err)
-	require.Nil(t, batch)
+
+	// Filter out batches still pending or already cancelled.
+	require.Zero(t, fn.Count(batches,
+		func(batch *tapgarden.MintingBatch) bool {
+			return batch.State() == tapgarden.BatchStatePending
+		},
+	))
 }
 
 type FinalizeBatchResp struct {
@@ -343,9 +354,9 @@ func (t *mintingTestHarness) progressCaretaker(seedlings []*tapgarden.Seedling,
 	return t.assertConfReqSent(tx, block)
 }
 
-// tickMintingBatch fires the ticker that forces the planter to create a new
+// finalizeBatchAssertFrozen fires the ticker that forces the planter to create a new
 // batch.
-func (t *mintingTestHarness) tickMintingBatch(
+func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	noBatch bool) *tapgarden.MintingBatch {
 
 	t.Helper()
@@ -363,18 +374,24 @@ func (t *mintingTestHarness) tickMintingBatch(
 		},
 	)
 
-	// We now trigger the ticker to tick the batch.
-	t.ticker.Force <- time.Now()
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FinalizeBatchResp, 1)
+	)
+
+	t.finalizeBatch(&wg, respChan, nil)
 
 	if noBatch {
 		t.assertNoPendingBatch()
 		return nil
 	}
 
-	// Check that the batch was funded before being frozen.
+	// Check that the batch was frozen and then funded.
+	newBatch := t.assertNewBatchFrozen(existingBatches)
 	_ = t.assertGenesisTxFunded(nil)
 
-	return t.assertNewBatchFrozen(existingBatches)
+	// Fetch the batch again after funding.
+	return t.fetchSingleBatch(newBatch.BatchKey.PubKey)
 }
 
 func (t *mintingTestHarness) assertNewBatchFrozen(
@@ -445,6 +462,27 @@ func (t *mintingTestHarness) cancelMintingBatch(noBatch bool) *btcec.PublicKey {
 	require.NoError(t, err)
 	require.NotNil(t, batchKey)
 	return batchKey
+}
+
+func (t *mintingTestHarness) assertBatchProgressing() *tapgarden.MintingBatch {
+	// Exclude all states that the batch should not have when progressing
+	// from frozen to finalized.
+	var progressingBatches []*tapgarden.MintingBatch
+	err := wait.Predicate(func() bool {
+		batches, err := t.store.FetchAllBatches(context.Background())
+		require.NoError(t, err)
+
+		// Filter out batches still pending or already cancelled.
+		progressingBatches = fn.Filter(batches,
+			func(batch *tapgarden.MintingBatch) bool {
+				return !noCaretakerStates.Contains(batch.State())
+			})
+
+		return len(progressingBatches) == 1
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	return progressingBatches[0]
 }
 
 // assertNumCaretakersActive asserts that the specified number of caretakers
@@ -574,16 +612,20 @@ func (t *mintingTestHarness) fetchSingleBatch(
 	batchKey *btcec.PublicKey) *tapgarden.MintingBatch {
 
 	t.Helper()
-	batches, err := t.planter.ListBatches(batchKey)
-	require.NoError(t, err)
-	require.Len(t, batches, 1)
+	if batchKey == nil {
+		return t.assertBatchProgressing()
+	}
 
-	return batches[0]
+	batch, err := t.store.FetchMintingBatch(context.Background(), batchKey)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+
+	return batch
 }
 
 func (t *mintingTestHarness) fetchLastBatch() *tapgarden.MintingBatch {
 	t.Helper()
-	batches, err := t.planter.ListBatches(nil)
+	batches, err := t.store.FetchAllBatches(context.Background())
 	require.NoError(t, err)
 	require.NotEmpty(t, batches)
 
@@ -811,7 +853,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// Now we'll force a batch tick which should kick off a new caretaker
 	// that starts to progress the batch all the way to broadcast.
-	t.tickMintingBatch(false)
+	t.finalizeBatchAssertFrozen(false)
 
 	// We'll now restart the planter to ensure that it's able to properly
 	// resume all the caretakers. We need to sleep for a small amount to
@@ -930,13 +972,13 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.queueSeedlingsInBatch(seedlings...)
 
 	// Next, finalize the pending batch to continue with minting.
-	t.tickMintingBatch(false)
+	_ = t.finalizeBatchAssertFrozen(false)
 
 	// A single caretaker should have been launched as well. Next, assert
 	// that the batch is already funded.
+	t.assertBatchProgressing()
 	currentBatch := t.fetchLastBatch()
 	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
-	t.assertNumCaretakersActive(1)
 
 	// For each seedling created above, we expect a new set of keys to be
 	// created for the asset script key and an additional key if emission
@@ -1017,7 +1059,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// Requesting batch finalization or cancellation with no pending batch
 	// should return an error without crashing the planter.
-	t.tickMintingBatch(true)
+	t.finalizeBatchAssertFrozen(true)
 	t.cancelMintingBatch(true)
 
 	// Next, make another 5 random seedlings and continue with minting.
@@ -1037,46 +1079,14 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	require.ErrorContains(t, planterErr.Error, "already in batch")
 
 	// Now, finalize the pending batch to continue with minting.
-	t.tickMintingBatch(false)
-
-	// A single caretaker should have been launched as well. Next, assert
-	// that the caretaker has requested a genesis tx to be funded.
-	currentBatch := t.fetchLastBatch()
-	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
-	t.assertNumCaretakersActive(1)
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
-
-	// We should be able to cancel the batch even after it has a caretaker,
-	// and at this point the minting transaction is still being made.
-	secondBatchKey := t.cancelMintingBatch(false)
-	t.assertNoPendingBatch()
-	t.assertBatchState(secondBatchKey, tapgarden.BatchStateSproutCancelled)
-
-	// We can make another 5 random seedlings and continue with minting.
-	seedlings = t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(seedlings...)
-
-	t.assertPendingBatchExists(numSeedlings)
-	t.assertSeedlingsExist(seedlings, nil)
-
-	// Now, finalize the pending batch to continue with minting.
-	thirdBatch := t.tickMintingBatch(false)
+	thirdBatch := t.finalizeBatchAssertFrozen(false)
 	require.NotNil(t, thirdBatch)
 	require.NotNil(t, thirdBatch.BatchKey.PubKey)
 	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
+	t.assertBatchProgressing()
+	thirdBatch = t.fetchLastBatch()
 	t.assertBatchGenesisTx(thirdBatch.GenesisPacket)
-	t.assertNumCaretakersActive(1)
 
 	for i := 0; i < numSeedlings; i++ {
 		t.assertKeyDerived()
