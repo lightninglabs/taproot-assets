@@ -208,12 +208,12 @@ func (c *Custodian) Stop() error {
 		}
 
 		// Remove all status event subscribers.
-		for _, sub := range c.statusEventsSubs {
-			err := c.RemoveSubscriber(sub)
-			if err != nil {
-				stopErr = err
-				break
-			}
+		c.statusEventsSubsMtx.Lock()
+		defer c.statusEventsSubsMtx.Unlock()
+
+		for _, subscriber := range c.statusEventsSubs {
+			subscriber.Stop()
+			delete(c.statusEventsSubs, subscriber.ID())
 		}
 	})
 
