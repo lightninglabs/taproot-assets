@@ -3198,6 +3198,17 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 			"notifications subscription: %w", err)
 	}
 
+	// Remove the subscriber when we're done. Otherwise, the event source
+	// will be blocked on sending new events, since we have a defer to stop
+	// the concurrent queue above.
+	defer func() {
+		err := eventSource.RemoveSubscriber(eventSubscriber)
+		if err != nil {
+			rpcsLog.Errorf("Error unsubscribing subscriber: %v",
+				err)
+		}
+	}()
+
 	// Loop and read from the event subscription and forward to the RPC
 	// stream.
 	for {
