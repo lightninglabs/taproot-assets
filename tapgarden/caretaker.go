@@ -425,20 +425,16 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
 
-		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to obtain script "+
-				"key: %w", err)
+		if seedling.ScriptKey == nil {
+			return nil, fmt.Errorf("unable to obtain script key")
 		}
-		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
 			amount         uint64
 			groupInfo      *asset.AssetGroup
 			protoAsset     *asset.Asset
 			sproutGroupKey *asset.GroupKey
+			err            error
 		)
 
 		// Determine the amount for the actual asset.
@@ -468,7 +464,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// partially filled asset as part of the signing process.
 		if groupInfo != nil || seedling.EnableEmission {
 			protoAsset, err = asset.New(
-				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+				assetGen, amount, 0, 0, *seedling.ScriptKey,
+				nil,
 				asset.WithAssetVersion(seedling.AssetVersion),
 			)
 			if err != nil {
@@ -501,16 +498,14 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// then use that to derive the key group signature
 		// along with the tweaked key group.
 		if seedling.EnableEmission {
-			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
-				ctx, asset.TaprootAssetsKeyFamily,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to derive "+
-					"group key: %w", err)
+			if seedling.GroupInternalKey == nil {
+				return nil, fmt.Errorf("unable to derive " +
+					"group key")
 			}
 
 			groupReq, err := asset.NewGroupKeyRequest(
-				rawGroupKey, assetGen, protoAsset, nil,
+				*seedling.GroupInternalKey, assetGen,
+				protoAsset, nil,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to request "+
@@ -534,7 +529,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		// With the necessary keys components assembled, we'll create
 		// the actual asset now.
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, tweakedScriptKey,
+			assetGen, amount, 0, 0, *seedling.ScriptKey,
 			sproutGroupKey,
 			asset.WithAssetVersion(seedling.AssetVersion),
 		)

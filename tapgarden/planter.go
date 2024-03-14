@@ -1133,6 +1133,40 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		}
 	}
 
+	if c.pendingBatch != nil {
+		if _, ok := c.pendingBatch.Seedlings[req.AssetName]; ok {
+			return fmt.Errorf("asset with name %v already in batch",
+				req.AssetName)
+		}
+	}
+
+	// Now that we've validated the seedling, we can derive a script key to
+	// be used for this asset.
+	scriptKey, err := c.cfg.KeyRing.DeriveNextKey(
+		ctx, asset.TaprootAssetsKeyFamily,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to obtain script key for seedling: "+
+			"%s %w", req.AssetName, err)
+	}
+
+	// Default to BIP86 for the script key tweaking method.
+	req.ScriptKey = fn.Ptr(asset.NewScriptKeyBip86(scriptKey))
+
+	// For group anchors, derive an internal key for the future group key.
+	if req.EnableEmission {
+		groupInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to obtain internal key for "+
+				"group key for seedling: %s %w", req.AssetName,
+				err)
+		}
+
+		req.GroupInternalKey = &groupInternalKey
+	}
+
 	// Now that we know the field are valid, we'll check to see if a batch
 	// already exists.
 	switch {
