@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -65,7 +66,7 @@ func ParseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
 // AssertSendEventExecuteSendState asserts that the send asset event is an
 // ExecuteSendState event, and logs the event timestamp if so.
 func AssertSendEventExecuteSendState(t *harnessTest,
-	event *taprpc.SendAssetEvent, broadcastState string) bool {
+	event *tapdevrpc.SendAssetEvent, broadcastState string) bool {
 
 	ev := event.GetExecuteSendStateEvent()
 	if ev == nil {
@@ -81,10 +82,11 @@ func AssertSendEventExecuteSendState(t *harnessTest,
 	return ev.SendState == broadcastState
 }
 
-// AssertSendEventProofTransferBackoffWait asserts that the send asset event is
-// a ProofTransferBackoffWait event, with the transfer type set as send.
+// AssertSendEventProofTransferBackoffWaitTypeSend asserts that the send asset
+// event is a ProofTransferBackoffWait event, with the transfer type set as
+// send.
 func AssertSendEventProofTransferBackoffWaitTypeSend(t *harnessTest,
-	event *taprpc.SendAssetEvent) bool {
+	event *tapdevrpc.SendAssetEvent) bool {
 
 	ev := event.GetProofTransferBackoffWaitEvent()
 	if ev == nil {
@@ -94,7 +96,7 @@ func AssertSendEventProofTransferBackoffWaitTypeSend(t *harnessTest,
 	// We're listening for events on the sender node. We therefore expect to
 	// receive deliver transfer type backoff wait events for sending
 	// transfers.
-	typeSend := taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+	typeSend := tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
 	if ev.TransferType != typeSend {
 		return false
 	}
