@@ -3145,8 +3145,13 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 	_ *tapdevrpc.SubscribeSendAssetEventNtfnsRequest,
 	ntfnStream devSendEventStream) error {
 
+	filter := func(event fn.Event) (bool, error) {
+		return true, nil
+	}
+
 	return handleEvents[bool, *tapdevrpc.SendAssetEvent](
-		r.cfg.ChainPorter, ntfnStream, marshallSendAssetEvent, r.quit,
+		r.cfg.ChainPorter, ntfnStream, marshallSendAssetEvent, filter,
+		r.quit,
 	)
 }
 
@@ -3162,8 +3167,12 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 		)
 	}
 
+	filter := func(event fn.Event) (bool, error) {
+		return true, nil
+	}
+
 	return handleEvents[bool, *tapdevrpc.ReceiveAssetEvent](
-		r.cfg.AssetCustodian, ntfnStream, marshaler, r.quit,
+		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
 	)
 }
 
@@ -3171,7 +3180,7 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 // forwards them to an RPC stream.
 func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 	stream EventStream[Q], marshaler func(fn.Event) (Q, error),
-	quit <-chan struct{}) error {
+	filter func(fn.Event) (bool, error), quit <-chan struct{}) error {
 
 	// Create a new event subscriber and pass a copy to the event source.
 	// We will then read events from the subscriber.
@@ -3197,6 +3206,19 @@ func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 		// will be mapped to the RPC event type and sent over the
 		// stream.
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			// Give the caller a chance to decide if this event
+			// should be notified on or not.
+			shouldNotify, err := filter(event)
+			if err != nil {
+				return fmt.Errorf("error filtering event: %w",
+					err)
+			}
+			if !shouldNotify {
+				continue
+			}
+
+			// We want the event, so let's marshal it to RPC and
+			// send it out.
 			rpcEvent, err := marshaler(event)
 			if err != nil {
 				return fmt.Errorf("failed to marshall event "+
@@ -5627,8 +5649,12 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 	_ *rfqrpc.SubscribeRfqEventNtfnsRequest,
 	ntfnStream rfqrpc.Rfq_SubscribeRfqEventNtfnsServer) error {
 
+	filter := func(event fn.Event) (bool, error) {
+		return true, nil
+	}
+
 	return handleEvents[uint64, *rfqrpc.RfqEvent](
-		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, r.quit,
+		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, filter, r.quit,
 	)
 }
 
