@@ -1159,6 +1159,50 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		}
 	}
 
+	// If a group internal key or tapscript root is specified, emission must
+	// also be enabled.
+	if !req.EnableEmission {
+		if req.GroupInternalKey != nil {
+			return fmt.Errorf("cannot specify group internal key " +
+				"without enabling emission")
+		}
+
+		if req.GroupTapscriptRoot != nil {
+			return fmt.Errorf("cannot specify group tapscript " +
+				"root without enabling emission")
+		}
+	}
+
+	// For group anchors, derive an internal key for the future group key if
+	// none was provided.
+	if req.EnableEmission && req.GroupInternalKey == nil {
+		groupInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to obtain internal key for "+
+				"group key for seedling: %s %w", req.AssetName,
+				err)
+		}
+
+		req.GroupInternalKey = &groupInternalKey
+	}
+
+	// Now that we've validated the seedling, we can derive a script key to
+	// be used for this asset, if an external script key was not provided.
+	if req.ScriptKey.PubKey == nil {
+		scriptKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to obtain script key for "+
+				"seedling: %s %w", req.AssetName, err)
+		}
+
+		// Default to BIP86 for the script key tweaking method.
+		req.ScriptKey = asset.NewScriptKeyBip86(scriptKey)
+	}
+
 	// Now that we know the field are valid, we'll check to see if a batch
 	// already exists.
 	switch {
