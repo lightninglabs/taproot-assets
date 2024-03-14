@@ -1092,12 +1092,10 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 		return nil, fmt.Errorf("unable to query addrs: %w", err)
 	}
 
-	// TODO(roasbeef): just stop storing the hrp in the addr?
-	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-
 	addrs := make([]*taprpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
-		dbAddr.ChainParams = &tapParams
+		// TODO(roasbeef): just stop storing the hrp in the addr?
+		dbAddr.ChainParams = &r.cfg.ChainParams
 
 		addrs[i], err = marshalAddr(dbAddr.Tap, r.cfg.TapAddrBook)
 		if err != nil {
@@ -1250,9 +1248,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 		return nil, fmt.Errorf("must specify an addr")
 	}
 
-	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-
-	addr, err := address.DecodeAddress(req.Addr, &tapParams)
+	addr, err := address.DecodeAddress(req.Addr, &r.cfg.ChainParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
@@ -1649,9 +1645,9 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	var sqlQuery address.EventQueryParams
 
 	if len(req.FilterAddr) > 0 {
-		tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-
-		addr, err := address.DecodeAddress(req.FilterAddr, &tapParams)
+		addr, err := address.DecodeAddress(
+			req.FilterAddr, &r.cfg.ChainParams,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
@@ -1762,14 +1758,11 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		var (
-			tapParams = address.ParamsForChain(
-				r.cfg.ChainParams.Name,
-			)
 			addr *address.Tap
 			err  error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &tapParams)
+			addr, err = address.DecodeAddress(a, &r.cfg.ChainParams)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
@@ -2840,9 +2833,8 @@ func (r *rpcServer) SendAsset(_ context.Context,
 	}
 
 	var (
-		tapParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		tapAddrs  = make([]*address.Tap, len(req.TapAddrs))
-		err       error
+		tapAddrs = make([]*address.Tap, len(req.TapAddrs))
+		err      error
 	)
 	for idx := range req.TapAddrs {
 		if req.TapAddrs[idx] == "" {
@@ -2850,7 +2842,7 @@ func (r *rpcServer) SendAsset(_ context.Context,
 		}
 
 		tapAddrs[idx], err = address.DecodeAddress(
-			req.TapAddrs[idx], &tapParams,
+			req.TapAddrs[idx], &r.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
