@@ -105,6 +105,32 @@ LEFT JOIN internal_keys
        ON managed_utxos.internal_key_id = internal_keys.key_id
 WHERE id = $1;
 
+-- name: FetchAddrEventByAddrKeyAndOutpoint :one
+WITH target_addr(addr_id) AS (
+    SELECT id
+    FROM addrs
+    WHERE addrs.taproot_output_key = $1
+)
+SELECT
+    addr_events.id, creation_time, status, asset_proof_id, asset_id,
+    chain_txns.txid as txid,
+    chain_txns.block_height as confirmation_height,
+    chain_txn_output_index as output_index,
+    managed_utxos.amt_sats as amt_sats,
+    managed_utxos.tapscript_sibling as tapscript_sibling,
+    internal_keys.raw_key as internal_key
+FROM addr_events
+JOIN target_addr
+  ON addr_events.addr_id = target_addr.addr_id
+LEFT JOIN chain_txns
+       ON addr_events.chain_txn_id = chain_txns.txn_id
+LEFT JOIN managed_utxos
+       ON addr_events.managed_utxo_id = managed_utxos.utxo_id
+LEFT JOIN internal_keys
+       ON managed_utxos.internal_key_id = internal_keys.key_id
+WHERE chain_txns.txid = $2
+  AND chain_txn_output_index = $3;
+
 -- name: QueryEventIDs :many
 SELECT
     addr_events.id as event_id, addrs.taproot_output_key as taproot_output_key

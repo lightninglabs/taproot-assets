@@ -346,19 +346,19 @@ func TestAddressQuery(t *testing.T) {
 			numAddrs:      numAddrs,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			dbAddrs, err := addrBook.QueryAddrs(
 				ctx, address.QueryParams{
-					CreatedAfter:  test.createdAfter,
-					CreatedBefore: test.createdBefore,
-					Offset:        test.offset,
-					Limit:         test.limit,
-					UnmanagedOnly: test.unmanagedOnly,
+					CreatedAfter:  tc.createdAfter,
+					CreatedBefore: tc.createdBefore,
+					Offset:        tc.offset,
+					Limit:         tc.limit,
+					UnmanagedOnly: tc.unmanagedOnly,
 				},
 			)
 			require.NoError(t, err)
-			require.Len(t, dbAddrs, test.numAddrs)
+			require.Len(t, dbAddrs, tc.numAddrs)
 		})
 	}
 }
@@ -591,23 +591,41 @@ func TestAddressEventQuery(t *testing.T) {
 			firstID:  5,
 		},
 	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			test := test
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			tc := tc
 			dbAddrs, err := addrBook.QueryAddrEvents(
 				ctx, address.EventQueryParams{
-					AddrTaprootOutputKey: test.addrTaprootKey,
-					StatusFrom:           test.stateFrom,
-					StatusTo:             test.stateTo,
+					AddrTaprootOutputKey: tc.addrTaprootKey,
+					StatusFrom:           tc.stateFrom,
+					StatusTo:             tc.stateTo,
 				},
 			)
 			require.NoError(t, err)
-			require.Len(t, dbAddrs, test.numAddrs)
+			require.Len(t, dbAddrs, tc.numAddrs)
 
-			if test.firstID > 0 {
+			if tc.firstID > 0 {
 				require.EqualValues(
-					t, dbAddrs[0].ID, test.firstID,
+					t, dbAddrs[0].ID, tc.firstID,
 				)
+			}
+
+			// Make sure we get the correct error if we're querying
+			// for an invalid status.
+			_, err = addrBook.QueryEvent(
+				ctx, &addrs[0], wire.OutPoint{},
+			)
+			require.ErrorIs(t, err, address.ErrNoEvent)
+
+			// If we did get any events returned in the first query,
+			// make sure we can also fetch them using the QueryEvent
+			// method.
+			for _, dbEvent := range dbAddrs {
+				event, err := addrBook.QueryEvent(
+					ctx, dbEvent.Addr, dbEvent.Outpoint,
+				)
+				require.NoError(t, err)
+				assertEqualAddrEvent(t, *dbEvent, *event)
 			}
 		})
 	}
