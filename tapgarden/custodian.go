@@ -17,9 +17,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
-// AssetReceiveCompleteEvent is an event that is sent to a subscriber once the
+// AssetReceiveEvent is an event that is sent to a subscriber once the
 // asset receive process has finished for a given address and outpoint.
-type AssetReceiveCompleteEvent struct {
+type AssetReceiveEvent struct {
 	// timestamp is the time the event was created.
 	timestamp time.Time
 
@@ -29,21 +29,31 @@ type AssetReceiveCompleteEvent struct {
 	// OutPoint is the outpoint of the transaction that was used to receive
 	// the asset.
 	OutPoint wire.OutPoint
+
+	// Status is the status of the asset receive event.
+	Status address.Status
+
+	// ConfirmationHeight is the height of the block the asset receive
+	// transaction was mined in. This is only set if the status is
+	// StatusConfirmed or later.
+	ConfirmationHeight uint32
 }
 
 // Timestamp returns the timestamp of the event.
-func (e *AssetReceiveCompleteEvent) Timestamp() time.Time {
+func (e *AssetReceiveEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
-// NewAssetRecvCompleteEvent creates a new AssetReceiveCompleteEvent.
-func NewAssetRecvCompleteEvent(addr address.Tap,
-	outpoint wire.OutPoint) *AssetReceiveCompleteEvent {
+// NewAssetReceiveEvent creates a new AssetReceiveEvent.
+func NewAssetReceiveEvent(addr address.Tap, outpoint wire.OutPoint,
+	confHeight uint32, status address.Status) *AssetReceiveEvent {
 
-	return &AssetReceiveCompleteEvent{
-		timestamp: time.Now().UTC(),
-		Address:   addr,
-		OutPoint:  outpoint,
+	return &AssetReceiveEvent{
+		timestamp:          time.Now().UTC(),
+		Address:            addr,
+		OutPoint:           outpoint,
+		Status:             status,
+		ConfirmationHeight: confHeight,
 	}
 }
 
@@ -295,7 +305,10 @@ func (c *Custodian) watchInboundAssets() {
 		go func() {
 			defer c.Wg.Done()
 
-			recErr := c.receiveProof(event.Addr.Tap, event.Outpoint)
+			recErr := c.receiveProof(
+				event.Addr.Tap, event.Outpoint,
+				event.ConfirmationHeight,
+			)
 			if recErr != nil {
 				reportErr(recErr)
 			}
@@ -418,6 +431,7 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 
 					recErr := c.receiveProof(
 						event.Addr.Tap, op,
+						event.ConfirmationHeight,
 					)
 					if recErr != nil {
 						log.Errorf("Unable to receive "+
@@ -451,6 +465,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 			continue
 		}
 
+		// The event should now be available.
+		event = c.events[op]
+
 		// Now that we've seen this output confirm on chain, we'll
 		// launch a goroutine to use the ProofCourier to import the
 		// proof into our local DB.
@@ -458,7 +475,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 		go func() {
 			defer c.Wg.Done()
 
-			recErr := c.receiveProof(addr, op)
+			recErr := c.receiveProof(
+				addr, op, event.ConfirmationHeight,
+			)
 			if recErr != nil {
 				log.Errorf("Unable to receive proof: %v",
 					recErr)
@@ -471,7 +490,9 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 
 // receiveProof attempts to receive a proof for the given address and outpoint
 // via the proof courier service.
-func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) error {
+func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
+	confHeight uint32) error {
+
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
@@ -479,6 +500,10 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint) error {
 
 	scriptKeyBytes := addr.ScriptKey.SerializeCompressed()
 	log.Debugf("Waiting to receive proof for script key %x", scriptKeyBytes)
+
+	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+		*addr, op, confHeight, address.StatusTransactionConfirmed,
+	))
 
 	// Initiate proof courier service handle from the proof courier address
 	// found in the Tap address.
@@ -621,6 +646,11 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 		return nil, fmt.Errorf("error creating event: %w", err)
 	}
 
+	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+		*event.Addr.Tap, event.Outpoint, event.ConfirmationHeight,
+		status,
+	))
+
 	// Let's update our cache of ongoing events.
 	c.events[op] = event
 
@@ -670,6 +700,11 @@ func (c *Custodian) importAddrToWallet(addr *address.AddrWithKeyInfo) error {
 func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 	ctxt, cancel := c.WithCtxQuit()
 	defer cancel()
+
+	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+		*event.Addr.Tap, event.Outpoint, event.ConfirmationHeight,
+		address.StatusTransactionConfirmed,
+	))
 
 	// We check if the local proof is already available. We check the same
 	// source that would notify us and not the proof archive (which might
@@ -838,6 +873,12 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 	// Check if any of our in-flight events match the last proof's state.
 	for _, event := range c.events {
 		if EventMatchesProof(event, lastProof) {
+			c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+				*event.Addr.Tap, event.Outpoint,
+				event.ConfirmationHeight,
+				address.StatusProofReceived,
+			))
+
 			// Importing a proof already creates the asset in the
 			// database. Therefore, all we need to do is update the
 			// state of the address event to mark it as completed
@@ -922,13 +963,12 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 
 	// At this point the "receive" process is complete. We will now notify
 	// all status event subscribers.
-	receiveCompleteEvent := NewAssetRecvCompleteEvent(
-		*event.Addr.Tap, event.Outpoint,
-	)
-	err = c.publishSubscriberStatusEvent(receiveCompleteEvent)
-	if err != nil {
-		log.Errorf("Unable publish status event: %v", err)
-	}
+	// At this point the "receive" process is complete. We will now notify
+	// all status event subscribers.
+	c.publishSubscriberStatusEvent(NewAssetReceiveEvent(
+		*event.Addr.Tap, event.Outpoint, event.ConfirmationHeight,
+		address.StatusCompleted,
+	))
 
 	return nil
 }
@@ -950,7 +990,7 @@ func (c *Custodian) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
 
 // publishSubscriberStatusEvent publishes an event to all status events
 // subscribers.
-func (c *Custodian) publishSubscriberStatusEvent(event fn.Event) error {
+func (c *Custodian) publishSubscriberStatusEvent(event fn.Event) {
 	// Lock the subscriber mutex to ensure that we don't modify the
 	// subscriber map while we're iterating over it.
 	c.statusEventsSubsMtx.Lock()
@@ -958,11 +998,10 @@ func (c *Custodian) publishSubscriberStatusEvent(event fn.Event) error {
 
 	for _, sub := range c.statusEventsSubs {
 		if !fn.SendOrQuit(sub.NewItemCreated.ChanIn(), event, c.Quit) {
-			return fmt.Errorf("custodian shutting down")
+			log.Errorf("Unable publish status event, custodian " +
+				"shutting down")
 		}
 	}
-
-	return nil
 }
 
 // RemoveSubscriber removes a subscriber from the set of status event
