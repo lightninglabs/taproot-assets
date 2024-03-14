@@ -332,6 +332,7 @@ func main() {
 	}
 	app.Commands = append(app.Commands, assetsCommands...)
 	app.Commands = append(app.Commands, addrCommands...)
+	app.Commands = append(app.Commands, eventCommands...)
 	app.Commands = append(app.Commands, proofCommands...)
 	app.Commands = append(app.Commands, universeCommands...)
 	app.Commands = append(app.Commands, devCommands...)
