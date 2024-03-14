@@ -604,6 +604,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/events/asset-send": {
+      "post": {
+        "summary": "tapcli: `events send`\nSubscribeSendEvents allows a caller to subscribe to send events for outgoing\nasset transfers.",
+        "operationId": "TaprootAssets_SubscribeSendEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcSendEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcSendEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeSendEventsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/getinfo": {
       "get": {
         "summary": "tapcli: `getinfo`\nGetInfo returns the information for the node.",
@@ -991,6 +1033,43 @@
           "type": "integer",
           "format": "int64",
           "description": "The height of the block which contains the anchor transaction."
+        }
+      }
+    },
+    "taprpcAnchorTransaction": {
+      "type": "object",
+      "properties": {
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte"
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the (added) change output or -1 if no change was left over."
+        },
+        "chain_fees_sats": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total number of satoshis in on-chain fees paid by the anchor\ntransaction."
+        },
+        "target_fee_rate_sat_kw": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The fee rate in sat/kWU that was targeted by the anchor transaction."
+        },
+        "lnd_locked_utxos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcOutPoint"
+          },
+          "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
+        },
+        "final_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The final, signed anchor transaction that was broadcast to the network."
         }
       }
     },
@@ -1714,6 +1793,16 @@
       "default": "OUTPUT_TYPE_SIMPLE",
       "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness."
     },
+    "taprpcParcelType": {
+      "type": "string",
+      "enum": [
+        "PARCEL_TYPE_ADDRESS",
+        "PARCEL_TYPE_PRE_SIGNED",
+        "PARCEL_TYPE_PENDING"
+      ],
+      "default": "PARCEL_TYPE_ADDRESS",
+      "description": " - PARCEL_TYPE_ADDRESS: The parcel is an address parcel.\n - PARCEL_TYPE_PRE_SIGNED: The parcel type is a pre-signed parcel where the virtual transactions are\nsigned outside of the send state machine. Parcels of this type will only\nget send states starting from SEND_STATE_ANCHOR_SIGN.\n - PARCEL_TYPE_PENDING: The parcel is pending and was resumed on the latest restart of the\ndaemon. The original parcel type (address or pre-signed) is not known\nanymore, as it's not relevant for the remaining steps. Parcels of this\ntype will only get send states starting from SEND_STATE_BROADCAST."
+    },
     "taprpcPrevInputAsset": {
       "type": "object",
       "properties": {
@@ -1847,6 +1936,56 @@
         }
       }
     },
+    "taprpcSendEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Execute timestamp (Unix timestamp in microseconds)."
+        },
+        "send_state": {
+          "type": "string",
+          "description": "The send state that was executed successfully."
+        },
+        "parcel_type": {
+          "$ref": "#/definitions/taprpcParcelType",
+          "description": "The type of the outbound send parcel."
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAddr"
+          },
+          "description": "The list of addresses the parcel sends to (recipient addresses only, not\nincluding change going back to own wallet). This is only set for parcels\nof type PARCEL_TYPE_ADDRESS."
+        },
+        "virtual_packets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The virtual packets that are part of the parcel."
+        },
+        "passive_virtual_packets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The passive virtual packets that are carried along with the parcel. This\nis empty if there were no other assets in the input commitment that is\nbeing spent with the \"active\" virtual packets above."
+        },
+        "anchor_transaction": {
+          "$ref": "#/definitions/taprpcAnchorTransaction",
+          "description": "The Bitcoin on-chain anchor transaction that commits the sent assets\non-chain. This is only set after the send state SEND_STATE_ANCHOR_SIGN."
+        },
+        "transfer": {
+          "$ref": "#/definitions/taprpcAssetTransfer",
+          "description": "The final transfer as it will be stored in the database. This is only set\nafter the send state SEND_STATE_LOG_COMMITMENT."
+        }
+      }
+    },
     "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
@@ -1867,6 +2006,16 @@
         "filter_addr": {
           "type": "string",
           "description": "Filter receives by a specific address. Leave empty to get all receive\nevents for all addresses."
+        }
+      }
+    },
+    "taprpcSubscribeSendEventsRequest": {
+      "type": "object",
+      "properties": {
+        "filter_script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "Filter send events by a specific recipient script key. Leave empty to get\nall receive events for all parcels."
         }
       }
     },
