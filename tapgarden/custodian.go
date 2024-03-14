@@ -579,6 +579,28 @@ func (c *Custodian) mapToTapAddr(walletTx *lndclient.Transaction,
 		return nil, fmt.Errorf("unable to encode address: %w", err)
 	}
 
+	// Skip already completed events.
+	ctxt, cancel = c.CtxBlocking()
+	existingEvent, err := c.cfg.AddrBook.QueryEvent(ctxt, addr, op)
+	cancel()
+	switch {
+	// Skip events that are already completed.
+	case err == nil && existingEvent.Status >= address.StatusCompleted:
+		log.Debugf("Skiping already completed inbound asset transfer "+
+			"(asset_id=%x) for Taproot Asset address %s in %s",
+			addr.AssetID[:], addrStr, op.String())
+
+		return nil, nil
+
+	// If we don't have an event yet, we'll create a new one further below.
+	case errors.Is(err, address.ErrNoEvent):
+		// Continue below.
+
+	// Something went wrong while querying for events.
+	case err != nil:
+		return nil, fmt.Errorf("error querying event: %w", err)
+	}
+
 	// Make sure we have an event registered for the transaction, since it
 	// is now clear that it is an incoming asset that is being received with
 	// a Taproot Asset address.
