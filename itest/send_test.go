@@ -5,8 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"io"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -42,10 +40,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	)
 
 	// Subscribe to receive assent send events from primary tapd node.
-	eventNtfns, err := t.tapd.SubscribeSendAssetEventNtfns(
-		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
+	events := SubscribeSendEvents(t.t, t.tapd)
 
 	// Test to ensure that we execute the transaction broadcast state.
 	// This test is executed in a goroutine to ensure that we can receive
@@ -70,10 +65,8 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		// waiting on the receiver ACK.
 		timeout += timeoutMargin
 
-		ctx, cancel := context.WithTimeout(ctxb, timeout)
-		defer cancel()
-		assertAssetSendNtfsEvent(
-			t, ctx, eventNtfns, targetEventSelector, numSends,
+		assertAssetNtfsEvent(
+			t, events, timeout, targetEventSelector, numSends,
 		)
 	}()
 
@@ -128,7 +121,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	}
 
 	// Close event stream.
-	err = eventNtfns.CloseSend()
+	err = events.CloseSend()
 	require.NoError(t.t, err)
 
 	wg.Wait()
@@ -152,10 +145,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	)
 
 	// Subscribe to receive assent send events from primary tapd node.
-	eventNtfns, err := t.tapd.SubscribeSendAssetEventNtfns(
-		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
+	events := SubscribeSendEvents(t.t, t.tapd)
 
 	// Test to ensure that we execute the transaction broadcast state.
 	// This test is executed in a goroutine to ensure that we can receive
@@ -180,10 +170,8 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 		// waiting on the receiver ACK.
 		timeout += timeoutMargin
 
-		ctx, cancel := context.WithTimeout(ctxb, timeout)
-		defer cancel()
-		assertAssetSendNtfsEvent(
-			t, ctx, eventNtfns, targetEventSelector, 1,
+		assertAssetNtfsEvent(
+			t, events, timeout, targetEventSelector, 1,
 		)
 	}()
 
@@ -247,7 +235,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 	AssertNonInteractiveRecvComplete(t.t, recvTapd, 1)
 
 	// Close event stream.
-	err = eventNtfns.CloseSend()
+	err = events.CloseSend()
 	require.NoError(t.t, err)
 
 	wg.Wait()
@@ -598,10 +586,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 	)
 
 	// Subscribe to receive asset send events from primary tapd node.
-	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
-		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
+	events := SubscribeSendEvents(t.t, sendTapd)
 
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
@@ -636,11 +621,8 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 		// waiting on the receiver ACK.
 		timeout += timeoutMargin
 
-		ctx, cancel := context.WithTimeout(ctxb, timeout)
-		defer cancel()
-
-		assertAssetSendNtfsEvent(
-			t, ctx, eventNtfns, targetEventSelector,
+		assertAssetNtfsEvent(
+			t, events, timeout, targetEventSelector,
 			expectedEventCount,
 		)
 	}()
@@ -701,10 +683,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	)
 
 	// Subscribe to receive asset send events from the sending tapd node.
-	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
-		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
+	events := SubscribeSendEvents(t.t, sendTapd)
 
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
@@ -739,11 +718,8 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		// waiting on the receiver ACK.
 		timeout += timeoutMargin
 
-		ctx, cancel := context.WithTimeout(ctxb, timeout)
-		defer cancel()
-
-		assertAssetSendNtfsEvent(
-			t, ctx, eventNtfns, targetEventSelector,
+		assertAssetNtfsEvent(
+			t, events, timeout, targetEventSelector,
 			expectedEventCount,
 		)
 	}()
@@ -863,10 +839,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// Subscribe to receive asset receive events from receiving tapd node.
 	// We'll use these events to ensure that the receiver node is making
 	// multiple attempts to retrieve the asset proof.
-	eventNtfns, err := receiveTapd.SubscribeReceiveAssetEventNtfns(
-		ctxb, &tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
+	events := SubscribeReceiveEvents(t.t, receiveTapd)
 
 	// Test to ensure that we receive the minimum expected number of backoff
 	// wait event notifications.
@@ -903,13 +876,10 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// waiting on the receiver ACK.
 	timeout += timeoutMargin
 
-	ctx, cancel := context.WithTimeout(ctxb, timeout)
-	defer cancel()
-
 	// Assert that the receiver tapd node has accomplished our minimum
 	// expected number of backoff procedure receive attempts.
-	assertAssetRecvNtfsEvent(
-		t, ctx, eventNtfns, targetEventSelector, expectedEventCount,
+	assertAssetNtfsEvent(
+		t, events, timeout, targetEventSelector, expectedEventCount,
 	)
 
 	t.Logf("Finished waiting for the receiving tapd node to complete " +
@@ -930,8 +900,8 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// Confirm that the sender tapd node eventually receives the asset
 	// transfer and publishes an asset recv complete event.
 	t.Logf("Check for asset recv complete event from receiver tapd node")
-	assertAssetRecvCompleteEvent(
-		t, ctxb, 5*time.Second, recvAddr.Encoded, eventNtfns,
+	assertAssetCompleteEvent(
+		t, 5*time.Second, recvAddr.Encoded, events,
 	)
 }
 
@@ -967,10 +937,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	recvTapd := t.tapd
 
 	// Subscribe to receive asset send events from primary tapd node.
-	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
-		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
-	)
-	require.NoError(t.t, err)
+	events := SubscribeSendEvents(t.t, sendTapd)
 
 	// Test to ensure that we receive the expected number of backoff wait
 	// event notifications.
@@ -999,11 +966,9 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 		// Events must be received before a timeout.
 		timeout := 5 * time.Second
-		ctx, cancel := context.WithTimeout(ctxb, timeout)
-		defer cancel()
 
-		assertAssetSendNtfsEvent(
-			t, ctx, eventNtfns, targetEventSelector,
+		assertAssetNtfsEvent(
+			t, events, timeout, targetEventSelector,
 			expectedEventCount,
 		)
 	}()
@@ -1051,80 +1016,59 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 	wg.Wait()
 }
 
-// assertAssetSendNtfsEvent asserts that the given asset send event notification
-// was received. This function will block until the event is received or the
-// event stream is closed.
-func assertAssetSendNtfsEvent(t *harnessTest, ctx context.Context,
-	eventNtfns tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsClient,
-	targetEventSelector func(*tapdevrpc.SendAssetEvent) bool,
-	expectedCount int) {
-
-	countFound := 0
-	for {
-		// Ensure that the context has not been cancelled.
-		require.NoError(t.t, ctx.Err())
-
-		if countFound == expectedCount {
-			break
-		}
-
-		event, err := eventNtfns.Recv()
-
-		// Break if we get an EOF, which means the stream was
-		// closed.
-		//
-		// Use string comparison here because the RPC protocol
-		// does not transport wrapped error structures.
-		if err != nil &&
-			strings.Contains(err.Error(), io.EOF.Error()) {
-
-			break
-		}
-
-		// If err is not EOF, then we expect it to be nil.
-		require.NoError(t.t, err)
-
-		// Check for target state.
-		if targetEventSelector(event) {
-			countFound++
-		}
-	}
-
-	require.Equal(t.t, expectedCount, countFound)
+// assetRpcEvent is a generic type that catches all asset events.
+type assetRpcEvent interface {
+	*tapdevrpc.SendAssetEvent | *tapdevrpc.ReceiveAssetEvent
 }
 
-// assertAssetRecvNtfsEvent asserts that the given asset receive event
-// notification was received. This function will block until the event is
-// received or the event stream is closed.
-func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
-	eventNtfns tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsClient,
-	targetEventSelector func(event *tapdevrpc.ReceiveAssetEvent) bool,
-	expectedCount int) {
+// assertAssetNtfsEvent asserts that the given asset event notification was
+// received. This function will block until the event is received or the event
+// stream is closed.
+func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
+	stream *eventSubscription[T], timeout time.Duration,
+	targetEventSelector func(T) bool, expectedCount int) {
+
+	success := make(chan struct{})
+	timeoutChan := time.After(timeout)
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeoutChan:
+			stream.cancel()
+
+		case <-success:
+
+		case <-stream.Context().Done():
+		}
+	}()
 
 	countFound := 0
 	for {
 		// Ensure that the context has not been cancelled.
-		require.NoError(t.t, ctx.Err())
+		select {
+		case <-stream.Context().Done():
+			require.NoError(t.t, stream.Context().Err())
+
+			break
+		default:
+		}
 
 		if countFound == expectedCount {
-			break
-		}
-
-		event, err := eventNtfns.Recv()
-
-		// Break if we get an EOF, which means the stream was
-		// closed.
-		//
-		// Use string comparison here because the RPC protocol
-		// does not transport wrapped error structures.
-		if err != nil &&
-			strings.Contains(err.Error(), io.EOF.Error()) {
+			close(success)
 
 			break
 		}
 
-		// If err is not EOF, then we expect it to be nil.
-		require.NoError(t.t, err)
+		event, err := stream.Recv()
+		if err != nil {
+			close(success)
+
+			require.NoError(t.t, err)
+
+			break
+		}
 
 		// Check for target state.
 		if targetEventSelector(event) {
@@ -1133,19 +1077,16 @@ func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
 	}
 
 	require.Equal(t.t, expectedCount, countFound, "unexpected number of "+
-		"asset receive event notifications (expected=%d, actual=%d)",
+		"asset event notifications (expected=%d, actual=%d)",
 		expectedCount, countFound)
 }
 
-// assertAssetRecvNtfsEvent asserts that the given asset receive complete event
-// notification was received. This function will block until the event is
-// received or the event stream is closed.
-func assertAssetRecvCompleteEvent(t *harnessTest, ctxb context.Context,
+// assertAssetNtfsEvent asserts that the given asset complete event notification
+// was received. This function will block until the event is received or the
+// event stream is closed.
+func assertAssetCompleteEvent(t *harnessTest,
 	timeout time.Duration, encodedAddr string,
-	eventNtfns tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsClient) {
-
-	ctx, cancel := context.WithTimeout(ctxb, timeout)
-	defer cancel()
+	stream *eventSubscription[*tapdevrpc.ReceiveAssetEvent]) {
 
 	eventSelector := func(event *tapdevrpc.ReceiveAssetEvent) bool {
 		switch eventTyped := event.Event.(type) {
@@ -1157,7 +1098,7 @@ func assertAssetRecvCompleteEvent(t *harnessTest, ctxb context.Context,
 		}
 	}
 
-	assertAssetRecvNtfsEvent(t, ctx, eventNtfns, eventSelector, 1)
+	assertAssetNtfsEvent(t, stream, timeout, eventSelector, 1)
 }
 
 // testMultiInputSendNonInteractiveSingleID tests that we can properly

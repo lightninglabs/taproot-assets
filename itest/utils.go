@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -29,6 +30,20 @@ var (
 	regtestMiningAddr = "n1VgRjYDzJT2TV72PnungWgWu18SWorXZS"
 	regtestParams     = &chaincfg.RegressionNetParams
 )
+
+// clientEventStream is a generic interface for a client stream that allows us
+// to receive events from a server.
+type clientEventStream[T any] interface {
+	Recv() (T, error)
+	grpc.ClientStream
+}
+
+// eventSubscription holds a generic client stream and its context cancel
+// function.
+type eventSubscription[T any] struct {
+	clientEventStream[T]
+	cancel context.CancelFunc
+}
 
 // CopyRequest is a helper function to copy a request so that we can modify it.
 func CopyRequest(req *mintrpc.MintAssetRequest) *mintrpc.MintAssetRequest {
@@ -438,4 +453,69 @@ func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 	require.Eventually(t, func() bool {
 		return AssertUniverseStateEqual(t, universeTapd, clientTapd)
 	}, timeout, time.Second)
+}
+
+// SubscribeSendEvents subscribes to send events and returns the event stream.
+func SubscribeSendEvents(t *testing.T,
+	tapd TapdClient) *eventSubscription[*tapdevrpc.SendAssetEvent] {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithCancel(ctxb)
+
+	stream, err := tapd.SubscribeSendAssetEventNtfns(
+		ctxt, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
+	)
+	require.NoError(t, err)
+
+	return &eventSubscription[*tapdevrpc.SendAssetEvent]{
+		clientEventStream: stream,
+		cancel:            cancel,
+	}
+}
+
+// SubscribeReceiveEvents subscribes to receive events and returns the event
+// stream.
+func SubscribeReceiveEvents(t *testing.T,
+	tapd TapdClient) *eventSubscription[*tapdevrpc.ReceiveAssetEvent] {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithCancel(ctxb)
+
+	stream, err := tapd.SubscribeReceiveAssetEventNtfns(
+		ctxt, &tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest{},
+	)
+	require.NoError(t, err)
+
+	return &eventSubscription[*tapdevrpc.ReceiveAssetEvent]{
+		clientEventStream: stream,
+		cancel:            cancel,
+	}
+}
+
+// NewAddrWithEventStream creates a new TAP address and also registers a new
+// event stream for receive events for the address.
+func NewAddrWithEventStream(t *testing.T, tapd TapdClient,
+	req *taprpc.NewAddrRequest) (*taprpc.Addr,
+	*eventSubscription[*taprpc.ReceiveEvent]) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	addr, err := tapd.NewAddr(ctxt, req)
+	require.NoError(t, err)
+
+	ctxc, cancel := context.WithCancel(ctxb)
+
+	stream, err := tapd.SubscribeReceiveEvents(
+		ctxc, &taprpc.SubscribeReceiveEventsRequest{
+			FilterAddr: addr.Encoded,
+		},
+	)
+	require.NoError(t, err)
+
+	return addr, &eventSubscription[*taprpc.ReceiveEvent]{
+		clientEventStream: stream,
+		cancel:            cancel,
+	}
 }
