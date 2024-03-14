@@ -121,6 +121,13 @@ service TaprootAssets {
     */
     rpc SubscribeReceiveEvents (SubscribeReceiveEventsRequest)
         returns (stream ReceiveEvent);
+
+    /* tapcli: `events send`
+    SubscribeSendEvents allows a caller to subscribe to send events for outgoing
+    asset transfers.
+    */
+    rpc SubscribeSendEvents (SubscribeSendEventsRequest)
+        returns (stream SendEvent);
 }
 
 enum AssetType {
@@ -1025,4 +1032,126 @@ message ReceiveEvent {
 
     // The status of the event.
     AddrEventStatus status = 4;
+}
+
+message SubscribeSendEventsRequest {
+    // Filter send events by a specific recipient script key. Leave empty to get
+    // all receive events for all parcels.
+    bytes filter_script_key = 1;
+}
+
+enum SendState {
+    // Input coin selection to pick out which asset inputs should be spent is
+    // executed during this state.
+    SEND_STATE_VIRTUAL_INPUT_SELECT = 0;
+
+    // The virtual transaction is signed during this state.
+    SEND_STATE_VIRTUAL_SIGN = 1;
+
+    // The Bitcoin anchor transaction is signed during this state.
+    SEND_STATE_ANCHOR_SIGN = 2;
+
+    // The outbound packet is written to the database during this state,
+    // including the partial proof suffixes. Only parcels that complete this
+    // state can be resumed on restart.
+    SEND_STATE_LOG_COMMITMENT = 3;
+
+    // The Bitcoin anchor transaction is broadcast to the network during this
+    // state.
+    SEND_STATE_BROADCAST = 4;
+
+    // The on-chain anchor transaction needs to reach at least 1 confirmation.
+    // This state waits for the confirmation.
+    SEND_STATE_WAIT_CONFIRMATION = 5;
+
+    // The anchor transaction was confirmed in a block and the full proofs can
+    // now be constructed during this stage.
+    SEND_STATE_STORE_PROOFS = 6;
+
+    // The full proofs are sent to the recipient(s) with the proof courier
+    // service during this state.
+    SEND_STATE_TRANSFER_PROOFS = 7;
+
+    // The send state machine has completed the send process.
+    SEND_STATE_COMPLETED = 8;
+}
+
+enum ParcelType {
+    // The parcel is an address parcel.
+    PARCEL_TYPE_ADDRESS = 0;
+
+    // The parcel type is a pre-signed parcel where the virtual transactions are
+    // signed outside of the send state machine. Parcels of this type will only
+    // get send states starting from SEND_STATE_ANCHOR_SIGN.
+    PARCEL_TYPE_PRE_SIGNED = 1;
+
+    // The parcel is pending and was resumed on the latest restart of the
+    // daemon. The original parcel type (address or pre-signed) is not known
+    // anymore, as it's not relevant for the remaining steps. Parcels of this
+    // type will only get send states starting from SEND_STATE_BROADCAST.
+    PARCEL_TYPE_PENDING = 2;
+}
+
+message SendEvent {
+    // Execute timestamp (microseconds).
+    int64 timestamp = 1;
+
+    // The send state that was executed successfully.
+    string send_state = 2;
+
+    // The type of the outbound send parcel.
+    ParcelType parcel_type = 3;
+
+    // The list of addresses the parcel sends to (recipient addresses only, not
+    // including change going back to own wallet). This is only set for parcels
+    // of type PARCEL_TYPE_ADDRESS.
+    repeated taprpc.Addr addresses = 4;
+
+    // The virtual packets that are part of the parcel.
+    repeated bytes virtual_packets = 5;
+
+    // The passive virtual packets that are carried along with the parcel. This
+    // is empty if there were no other assets in the input commitment that is
+    // being spent with the "active" virtual packets above.
+    repeated bytes passive_virtual_packets = 6;
+
+    // The Bitcoin on-chain anchor transaction that commits the sent assets
+    // on-chain. This is only set after the send state SEND_STATE_ANCHOR_SIGN.
+    AnchorTransaction anchor_transaction = 7;
+
+    // The final transfer as it will be stored in the database. This is only set
+    // after the send state SEND_STATE_LOG_COMMITMENT.
+    AssetTransfer transfer = 8;
+}
+
+message AnchorTransaction {
+    bytes anchor_psbt = 1;
+
+    /*
+    The index of the (added) change output or -1 if no change was left over.
+    */
+    int32 change_output_index = 2;
+
+    /*
+    The total number of satoshis in on-chain fees paid by the anchor
+    transaction.
+    */
+    int64 chain_fees_sats = 3;
+
+    /*
+    The fee rate in sat/kWU that was targeted by the anchor transaction.
+    */
+    int32 target_fee_rate_sat_kw = 4;
+
+    /*
+    The list of UTXO lock leases that were acquired for the inputs in the funded
+    PSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,
+    inputs that were already present in the PSBT are not locked.
+    */
+    repeated taprpc.OutPoint lnd_locked_utxos = 5;
+
+    /*
+    The final, signed anchor transaction that was broadcast to the network.
+    */
+    bytes final_tx = 6;
 }

@@ -96,6 +96,10 @@ type TaprootAssetsClient interface {
 	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
 	// incoming asset transfers.
 	SubscribeReceiveEvents(ctx context.Context, in *SubscribeReceiveEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveEventsClient, error)
+	// tapcli: `events send`
+	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
+	// asset transfers.
+	SubscribeSendEvents(ctx context.Context, in *SubscribeSendEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendEventsClient, error)
 }
 
 type taprootAssetsClient struct {
@@ -300,6 +304,38 @@ func (x *taprootAssetsSubscribeReceiveEventsClient) Recv() (*ReceiveEvent, error
 	return m, nil
 }
 
+func (c *taprootAssetsClient) SubscribeSendEvents(ctx context.Context, in *SubscribeSendEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TaprootAssets_ServiceDesc.Streams[1], "/taprpc.TaprootAssets/SubscribeSendEvents", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taprootAssetsSubscribeSendEventsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TaprootAssets_SubscribeSendEventsClient interface {
+	Recv() (*SendEvent, error)
+	grpc.ClientStream
+}
+
+type taprootAssetsSubscribeSendEventsClient struct {
+	grpc.ClientStream
+}
+
+func (x *taprootAssetsSubscribeSendEventsClient) Recv() (*SendEvent, error) {
+	m := new(SendEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // TaprootAssetsServer is the server API for TaprootAssets service.
 // All implementations must embed UnimplementedTaprootAssetsServer
 // for forward compatibility
@@ -382,6 +418,10 @@ type TaprootAssetsServer interface {
 	// SubscribeReceiveEvents allows a caller to subscribe to receive events for
 	// incoming asset transfers.
 	SubscribeReceiveEvents(*SubscribeReceiveEventsRequest, TaprootAssets_SubscribeReceiveEventsServer) error
+	// tapcli: `events send`
+	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
+	// asset transfers.
+	SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error
 	mustEmbedUnimplementedTaprootAssetsServer()
 }
 
@@ -445,6 +485,9 @@ func (UnimplementedTaprootAssetsServer) FetchAssetMeta(context.Context, *FetchAs
 }
 func (UnimplementedTaprootAssetsServer) SubscribeReceiveEvents(*SubscribeReceiveEventsRequest, TaprootAssets_SubscribeReceiveEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeReceiveEvents not implemented")
+}
+func (UnimplementedTaprootAssetsServer) SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeSendEvents not implemented")
 }
 func (UnimplementedTaprootAssetsServer) mustEmbedUnimplementedTaprootAssetsServer() {}
 
@@ -804,6 +847,27 @@ func (x *taprootAssetsSubscribeReceiveEventsServer) Send(m *ReceiveEvent) error 
 	return x.ServerStream.SendMsg(m)
 }
 
+func _TaprootAssets_SubscribeSendEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeSendEventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaprootAssetsServer).SubscribeSendEvents(m, &taprootAssetsSubscribeSendEventsServer{stream})
+}
+
+type TaprootAssets_SubscribeSendEventsServer interface {
+	Send(*SendEvent) error
+	grpc.ServerStream
+}
+
+type taprootAssetsSubscribeSendEventsServer struct {
+	grpc.ServerStream
+}
+
+func (x *taprootAssetsSubscribeSendEventsServer) Send(m *SendEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // TaprootAssets_ServiceDesc is the grpc.ServiceDesc for TaprootAssets service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -888,6 +952,11 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "SubscribeReceiveEvents",
 			Handler:       _TaprootAssets_SubscribeReceiveEvents_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeSendEvents",
+			Handler:       _TaprootAssets_SubscribeSendEvents_Handler,
 			ServerStreams: true,
 		},
 	},

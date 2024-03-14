@@ -117,6 +117,10 @@ type (
 	// notification stream.
 	devSendEventStream = tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsServer
 
+	// sendEventStream is a type alias for the asset send event notification
+	// stream.
+	sendEventStream = taprpc.TaprootAssets_SubscribeSendEventsServer
+
 	// sendBackoff is a type alias for the backoff event that is sent when a
 	// proof transfer receive process failed and needs to re-try.
 	sendBackoff = tapdevrpc.SendAssetEvent_ProofTransferBackoffWaitEvent
@@ -3274,6 +3278,78 @@ func (r *rpcServer) SubscribeReceiveEvents(
 	)
 }
 
+// SubscribeSendEvents registers a subscription to the event notification
+// stream which relates to the asset sending process.
+func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
+	ntfnStream sendEventStream) error {
+
+	var (
+		targetScriptKey *btcec.PublicKey
+		err             error
+	)
+	if len(req.FilterScriptKey) > 0 {
+		targetScriptKey, err = btcec.ParsePubKey(req.FilterScriptKey)
+		if err != nil {
+			return fmt.Errorf("error parsing script key: %w", err)
+		}
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		var e *tapfreighter.AssetSendEvent
+		switch typedEvent := event.(type) {
+		case *tapfreighter.AssetSendEvent:
+			// Continue below.
+			e = typedEvent
+
+		case *proof.BackoffWaitEvent:
+			// We're not interested in any backoff events.
+			return false, nil
+
+		default:
+			return false, fmt.Errorf("invalid event type: %T",
+				event)
+		}
+
+		// If we're not filtering on a specific script key, we return
+		// all events.
+		if targetScriptKey == nil {
+			return true, nil
+		}
+
+		// We can only match the script key on the active virtual
+		// packets, so if there are none, then this isn't an event we're
+		// interested in.
+		if len(e.VirtualPackets) == 0 {
+			return false, nil
+		}
+
+		for _, vPacket := range e.VirtualPackets {
+			for _, vOut := range vPacket.Outputs {
+				if vOut.ScriptKey.PubKey == nil {
+					continue
+				}
+
+				// This packet sends to the filtered script key,
+				// we want to include this event.
+				if vOut.ScriptKey.PubKey.IsEqual(
+					targetScriptKey,
+				) {
+
+					return true, nil
+				}
+			}
+		}
+
+		// No packets with outputs going to the filtered script key
+		// found.
+		return false, nil
+	}
+
+	return handleEvents[bool, *taprpc.SendEvent](
+		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, filter, r.quit,
+	)
+}
+
 // handleEvents is a helper function that reads events from an event source and
 // forwards them to an RPC stream.
 func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
@@ -3453,6 +3529,110 @@ func marshallSendAssetEvent(event fn.Event) (*tapdevrpc.SendAssetEvent, error) {
 	default:
 		return nil, fmt.Errorf("unknown event type: %T", e)
 	}
+}
+
+// marshalSendEvent marshals an asset send event into the RPC counterpart.
+func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
+	e, ok := event.(*tapfreighter.AssetSendEvent)
+	if !ok {
+		return nil, fmt.Errorf("invalid event type: %T", event)
+	}
+
+	result := &taprpc.SendEvent{
+		Timestamp:             e.Timestamp().UnixMicro(),
+		SendState:             e.SendState.String(),
+		VirtualPackets:        make([][]byte, len(e.VirtualPackets)),
+		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
+	}
+
+	var err error
+	for idx, vPkt := range e.VirtualPackets {
+		result.VirtualPackets[idx], err = tappsbt.Encode(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error encoding virtual "+
+				"packet: %w", err)
+		}
+	}
+	for idx, vPkt := range e.PassivePackets {
+		result.PassiveVirtualPackets[idx], err = tappsbt.Encode(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error encoding virtual "+
+				"packet: %w", err)
+		}
+	}
+
+	switch e.Parcel.(type) {
+	case *tapfreighter.AddressParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_ADDRESS
+
+	case *tapfreighter.PreSignedParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PRE_SIGNED
+
+	case *tapfreighter.PendingParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PENDING
+
+	default:
+		return nil, fmt.Errorf("unknown parcel type %T", e.Parcel)
+	}
+
+	if e.AnchorTx != nil {
+		var (
+			psbtBuf, finalTxBuf bytes.Buffer
+			changeOutputIndex   int32
+			lockedOutpoints     []*taprpc.OutPoint
+		)
+		if e.AnchorTx.FundedPsbt != nil {
+			fundedPsbt := e.AnchorTx.FundedPsbt
+			changeOutputIndex = fundedPsbt.ChangeOutputIndex
+
+			if fundedPsbt.Pkt == nil {
+				return nil, fmt.Errorf("funded PSBT is missing")
+			}
+
+			err = fundedPsbt.Pkt.Serialize(&psbtBuf)
+			if err != nil {
+				return nil, fmt.Errorf("error serializing "+
+					"funded PSBT: %w", err)
+			}
+
+			for idx := range fundedPsbt.LockedUTXOs {
+				utxo := fundedPsbt.LockedUTXOs[idx]
+				lockedOutpoints = append(
+					lockedOutpoints, &taprpc.OutPoint{
+						Txid:        utxo.Hash[:],
+						OutputIndex: utxo.Index,
+					},
+				)
+			}
+		}
+
+		if e.AnchorTx.FinalTx != nil {
+			err = e.AnchorTx.FinalTx.Serialize(&finalTxBuf)
+			if err != nil {
+				return nil, fmt.Errorf("error serializing "+
+					"final tx: %w", err)
+			}
+		}
+
+		result.AnchorTransaction = &taprpc.AnchorTransaction{
+			AnchorPsbt:         psbtBuf.Bytes(),
+			ChangeOutputIndex:  changeOutputIndex,
+			ChainFeesSats:      e.AnchorTx.ChainFees,
+			TargetFeeRateSatKw: int32(e.AnchorTx.TargetFeeRate),
+			LndLockedUtxos:     lockedOutpoints,
+			FinalTx:            finalTxBuf.Bytes(),
+		}
+	}
+
+	if e.Transfer != nil {
+		result.Transfer, err = marshalOutboundParcel(e.Transfer)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling transfer: %w",
+				err)
+		}
+	}
+
+	return result, nil
 }
 
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
