@@ -88,12 +88,6 @@ type TaprootAssetsClient interface {
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
-	// SubscribeSendAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset sending process.
-	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendAssetEventNtfnsClient, error)
-	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset receive process.
-	SubscribeReceiveAssetEventNtfns(ctx context.Context, in *SubscribeReceiveAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveAssetEventNtfnsClient, error)
 	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
@@ -261,70 +255,6 @@ func (c *taprootAssetsClient) GetInfo(ctx context.Context, in *GetInfoRequest, o
 	return out, nil
 }
 
-func (c *taprootAssetsClient) SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendAssetEventNtfnsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &TaprootAssets_ServiceDesc.Streams[0], "/taprpc.TaprootAssets/SubscribeSendAssetEventNtfns", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &taprootAssetsSubscribeSendAssetEventNtfnsClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type TaprootAssets_SubscribeSendAssetEventNtfnsClient interface {
-	Recv() (*SendAssetEvent, error)
-	grpc.ClientStream
-}
-
-type taprootAssetsSubscribeSendAssetEventNtfnsClient struct {
-	grpc.ClientStream
-}
-
-func (x *taprootAssetsSubscribeSendAssetEventNtfnsClient) Recv() (*SendAssetEvent, error) {
-	m := new(SendAssetEvent)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func (c *taprootAssetsClient) SubscribeReceiveAssetEventNtfns(ctx context.Context, in *SubscribeReceiveAssetEventNtfnsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeReceiveAssetEventNtfnsClient, error) {
-	stream, err := c.cc.NewStream(ctx, &TaprootAssets_ServiceDesc.Streams[1], "/taprpc.TaprootAssets/SubscribeReceiveAssetEventNtfns", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &taprootAssetsSubscribeReceiveAssetEventNtfnsClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
-	return x, nil
-}
-
-type TaprootAssets_SubscribeReceiveAssetEventNtfnsClient interface {
-	Recv() (*ReceiveAssetEvent, error)
-	grpc.ClientStream
-}
-
-type taprootAssetsSubscribeReceiveAssetEventNtfnsClient struct {
-	grpc.ClientStream
-}
-
-func (x *taprootAssetsSubscribeReceiveAssetEventNtfnsClient) Recv() (*ReceiveAssetEvent, error) {
-	m := new(ReceiveAssetEvent)
-	if err := x.ClientStream.RecvMsg(m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
 func (c *taprootAssetsClient) FetchAssetMeta(ctx context.Context, in *FetchAssetMetaRequest, opts ...grpc.CallOption) (*AssetMeta, error) {
 	out := new(AssetMeta)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/FetchAssetMeta", in, out, opts...)
@@ -408,12 +338,6 @@ type TaprootAssetsServer interface {
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
-	// SubscribeSendAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset sending process.
-	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TaprootAssets_SubscribeSendAssetEventNtfnsServer) error
-	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
-	// notification stream which relates to the asset receive process.
-	SubscribeReceiveAssetEventNtfns(*SubscribeReceiveAssetEventNtfnsRequest, TaprootAssets_SubscribeReceiveAssetEventNtfnsServer) error
 	// tapcli: `assets meta`
 	// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
 	// either by the asset ID for that asset, or a meta hash.
@@ -475,12 +399,6 @@ func (UnimplementedTaprootAssetsServer) BurnAsset(context.Context, *BurnAssetReq
 }
 func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
-}
-func (UnimplementedTaprootAssetsServer) SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TaprootAssets_SubscribeSendAssetEventNtfnsServer) error {
-	return status.Errorf(codes.Unimplemented, "method SubscribeSendAssetEventNtfns not implemented")
-}
-func (UnimplementedTaprootAssetsServer) SubscribeReceiveAssetEventNtfns(*SubscribeReceiveAssetEventNtfnsRequest, TaprootAssets_SubscribeReceiveAssetEventNtfnsServer) error {
-	return status.Errorf(codes.Unimplemented, "method SubscribeReceiveAssetEventNtfns not implemented")
 }
 func (UnimplementedTaprootAssetsServer) FetchAssetMeta(context.Context, *FetchAssetMetaRequest) (*AssetMeta, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FetchAssetMeta not implemented")
@@ -804,48 +722,6 @@ func _TaprootAssets_GetInfo_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TaprootAssets_SubscribeSendAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(SubscribeSendAssetEventNtfnsRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(TaprootAssetsServer).SubscribeSendAssetEventNtfns(m, &taprootAssetsSubscribeSendAssetEventNtfnsServer{stream})
-}
-
-type TaprootAssets_SubscribeSendAssetEventNtfnsServer interface {
-	Send(*SendAssetEvent) error
-	grpc.ServerStream
-}
-
-type taprootAssetsSubscribeSendAssetEventNtfnsServer struct {
-	grpc.ServerStream
-}
-
-func (x *taprootAssetsSubscribeSendAssetEventNtfnsServer) Send(m *SendAssetEvent) error {
-	return x.ServerStream.SendMsg(m)
-}
-
-func _TaprootAssets_SubscribeReceiveAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(SubscribeReceiveAssetEventNtfnsRequest)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(TaprootAssetsServer).SubscribeReceiveAssetEventNtfns(m, &taprootAssetsSubscribeReceiveAssetEventNtfnsServer{stream})
-}
-
-type TaprootAssets_SubscribeReceiveAssetEventNtfnsServer interface {
-	Send(*ReceiveAssetEvent) error
-	grpc.ServerStream
-}
-
-type taprootAssetsSubscribeReceiveAssetEventNtfnsServer struct {
-	grpc.ServerStream
-}
-
-func (x *taprootAssetsSubscribeReceiveAssetEventNtfnsServer) Send(m *ReceiveAssetEvent) error {
-	return x.ServerStream.SendMsg(m)
-}
-
 func _TaprootAssets_FetchAssetMeta_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(FetchAssetMetaRequest)
 	if err := dec(in); err != nil {
@@ -944,17 +820,6 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TaprootAssets_FetchAssetMeta_Handler,
 		},
 	},
-	Streams: []grpc.StreamDesc{
-		{
-			StreamName:    "SubscribeSendAssetEventNtfns",
-			Handler:       _TaprootAssets_SubscribeSendAssetEventNtfns_Handler,
-			ServerStreams: true,
-		},
-		{
-			StreamName:    "SubscribeReceiveAssetEventNtfns",
-			Handler:       _TaprootAssets_SubscribeReceiveAssetEventNtfns_Handler,
-			ServerStreams: true,
-		},
-	},
+	Streams:  []grpc.StreamDesc{},
 	Metadata: "taprootassets.proto",
 }

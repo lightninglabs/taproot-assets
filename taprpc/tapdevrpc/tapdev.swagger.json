@@ -45,8 +45,173 @@
         }
       }
     },
+    "tapdevrpcAssetReceiveCompleteEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Event creation timestamp."
+        },
+        "address": {
+          "$ref": "#/definitions/taprpcAddr",
+          "description": "The address that received the asset."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint of the transaction that was used to receive the asset."
+        }
+      }
+    },
+    "tapdevrpcExecuteSendStateEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Execute timestamp (microseconds)."
+        },
+        "send_state": {
+          "type": "string",
+          "description": "The send state that is about to be executed."
+        }
+      }
+    },
     "tapdevrpcImportProofResponse": {
       "type": "object"
+    },
+    "tapdevrpcProofTransferBackoffWaitEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Transfer attempt timestamp (microseconds)."
+        },
+        "backoff": {
+          "type": "string",
+          "format": "int64",
+          "description": "Backoff is the active backoff wait duration."
+        },
+        "tries_counter": {
+          "type": "string",
+          "format": "int64",
+          "description": "Tries counter is the number of tries we've made so far during the\ncourse of the current backoff procedure to deliver the proof to the\nreceiver."
+        },
+        "transfer_type": {
+          "$ref": "#/definitions/tapdevrpcProofTransferType",
+          "description": "The type of proof transfer attempt."
+        }
+      }
+    },
+    "tapdevrpcProofTransferType": {
+      "type": "string",
+      "enum": [
+        "PROOF_TRANSFER_TYPE_SEND",
+        "PROOF_TRANSFER_TYPE_RECEIVE"
+      ],
+      "default": "PROOF_TRANSFER_TYPE_SEND",
+      "description": "ProofTransferType is the type of proof transfer attempt. The transfer is\neither a proof delivery to the transfer counterparty or receiving a proof\nfrom the transfer counterparty. Note that the transfer counterparty is\nusually the proof courier service.\n\n - PROOF_TRANSFER_TYPE_SEND: This value indicates that the proof transfer attempt is a delivery to the\ntransfer counterparty.\n - PROOF_TRANSFER_TYPE_RECEIVE: This value indicates that the proof transfer attempt is a receive from\nthe transfer counterparty."
+    },
+    "tapdevrpcReceiveAssetEvent": {
+      "type": "object",
+      "properties": {
+        "proof_transfer_backoff_wait_event": {
+          "$ref": "#/definitions/tapdevrpcProofTransferBackoffWaitEvent",
+          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
+        },
+        "asset_receive_complete_event": {
+          "$ref": "#/definitions/tapdevrpcAssetReceiveCompleteEvent",
+          "description": "An event which indicates that an asset receive process has finished."
+        }
+      }
+    },
+    "tapdevrpcSendAssetEvent": {
+      "type": "object",
+      "properties": {
+        "execute_send_state_event": {
+          "$ref": "#/definitions/tapdevrpcExecuteSendStateEvent",
+          "description": "An event which indicates that a send state is about to be executed."
+        },
+        "proof_transfer_backoff_wait_event": {
+          "$ref": "#/definitions/tapdevrpcProofTransferBackoffWaitEvent",
+          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
+        }
+      }
+    },
+    "taprpcAddr": {
+      "type": "object",
+      "properties": {
+        "encoded": {
+          "type": "string",
+          "description": "The bech32 encoded Taproot Asset address."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of the asset stored in this Taproot Asset UTXO."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "title": "The group key of the asset (if it exists)"
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The specific script key the asset must commit to in order to transfer\nownership to the creator of the address."
+        },
+        "internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The internal key used for the on-chain output."
+        },
+        "tapscript_sibling": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional serialized tapscript sibling preimage to use for the receiving\nasset. This is usually empty as it is only needed when there should be an\nadditional script path in the Taproot tree alongside the Taproot Asset\ncommitment of the asset."
+        },
+        "taproot_output_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked internal key that commits to the asset and represents the\non-chain output key the Bitcoin transaction must send to in order to\ntransfer assets described in this address."
+        },
+        "proof_courier_addr": {
+          "type": "string",
+          "description": "The address of the proof courier service used in proof transfer."
+        },
+        "asset_version": {
+          "$ref": "#/definitions/taprpcAssetVersion",
+          "description": "The asset version of the address."
+        }
+      }
+    },
+    "taprpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL",
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
+    "taprpcAssetVersion": {
+      "type": "string",
+      "enum": [
+        "ASSET_VERSION_V0",
+        "ASSET_VERSION_V1"
+      ],
+      "default": "ASSET_VERSION_V0",
+      "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
     }
   }
 }

@@ -99,6 +99,13 @@ const (
 	// AssetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
 	AssetBurnConfirmationText = "assets will be destroyed"
+
+	// proofTypeSend is an alias for the proof type used for sending assets.
+	proofTypeSend = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+
+	// proofTypeReceive is an alias for the proof type used for receiving
+	// assets.
+	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
 )
 
 type (
@@ -106,13 +113,13 @@ type (
 	// value in an LRU cache.
 	cacheableTimestamp uint32
 
-	// subSendEventNtfnsStream is a type alias for the asset send event
+	// devSendEventStream is a type alias for the asset send event
 	// notification stream.
-	subSendEventNtfnsStream = taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsServer
+	devSendEventStream = tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsServer
 
-	// subReceiveEventNtfnsStream is a type alias for the asset receive
-	// event notification stream.
-	subReceiveEventNtfnsStream = taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsServer
+	// devReceiveEventStream is a type alias for the asset receive event
+	// notification stream.
+	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer
 )
 
 // Size returns the size of the cacheable timestamp. Since we scale the cache by
@@ -3112,8 +3119,8 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
-	_ *taprpc.SubscribeSendAssetEventNtfnsRequest,
-	ntfnStream subSendEventNtfnsStream) error {
+	_ *tapdevrpc.SubscribeSendAssetEventNtfnsRequest,
+	ntfnStream devSendEventStream) error {
 
 	// Create a new event subscriber and pass a copy to the chain porter.
 	// We will then read events from the subscriber.
@@ -3174,8 +3181,8 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 // SubscribeReceiveAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset receiving process.
 func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
-	_ *taprpc.SubscribeReceiveAssetEventNtfnsRequest,
-	ntfnStream subReceiveEventNtfnsStream) error {
+	_ *tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest,
+	ntfnStream devReceiveEventStream) error {
 
 	// Create a new event subscriber and pass a copy to the component(s)
 	// which are involved in the asset receive process. We will then read
@@ -3238,30 +3245,31 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 
 // marshallReceiveAssetEvent maps an asset receive event to its RPC counterpart.
 func marshallReceiveAssetEvent(eventInterface fn.Event,
-	db address.Storage) (*taprpc.ReceiveAssetEvent, error) {
+	db address.Storage) (*tapdevrpc.ReceiveAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *proof.BackoffWaitEvent:
 		// Map the transfer type to the RPC counterpart. We only
 		// support the "receive" transfer type for asset receive events.
-		var transferTypeRpc taprpc.ProofTransferType
+		var transferTypeRpc tapdevrpc.ProofTransferType
 		switch event.TransferType {
 		case proof.ReceiveTransferType:
-			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+			transferTypeRpc = proofTypeReceive
 		default:
 			return nil, fmt.Errorf("unexpected transfer type: %v",
 				event.TransferType)
 		}
 
-		eventRpc := taprpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent{
-			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
-				Timestamp:    event.Timestamp().UnixMicro(),
-				Backoff:      event.Backoff.Microseconds(),
-				TriesCounter: event.TriesCounter,
-				TransferType: transferTypeRpc,
-			},
+		evt := &tapdevrpc.ProofTransferBackoffWaitEvent{
+			Timestamp:    event.Timestamp().UnixMicro(),
+			Backoff:      event.Backoff.Microseconds(),
+			TriesCounter: event.TriesCounter,
+			TransferType: transferTypeRpc,
 		}
-		return &taprpc.ReceiveAssetEvent{
+		eventRpc := tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent{
+			ProofTransferBackoffWaitEvent: evt,
+		}
+		return &tapdevrpc.ReceiveAssetEvent{
 			Event: &eventRpc,
 		}, nil
 
@@ -3271,14 +3279,15 @@ func marshallReceiveAssetEvent(eventInterface fn.Event,
 			return nil, fmt.Errorf("error marshaling addr: %w", err)
 		}
 
-		eventRpc := taprpc.ReceiveAssetEvent_AssetReceiveCompleteEvent{
-			AssetReceiveCompleteEvent: &taprpc.AssetReceiveCompleteEvent{
-				Timestamp: event.Timestamp().UnixMicro(),
-				Address:   rpcAddr,
-				Outpoint:  event.OutPoint.String(),
-			},
+		evt := &tapdevrpc.AssetReceiveCompleteEvent{
+			Timestamp: event.Timestamp().UnixMicro(),
+			Address:   rpcAddr,
+			Outpoint:  event.OutPoint.String(),
 		}
-		return &taprpc.ReceiveAssetEvent{
+		eventRpc := tapdevrpc.ReceiveAssetEvent_AssetReceiveCompleteEvent{
+			AssetReceiveCompleteEvent: evt,
+		}
+		return &tapdevrpc.ReceiveAssetEvent{
 			Event: &eventRpc,
 		}, nil
 
@@ -3289,41 +3298,42 @@ func marshallReceiveAssetEvent(eventInterface fn.Event,
 
 // marshallSendAssetEvent maps an asset send event to its RPC counterpart.
 func marshallSendAssetEvent(
-	eventInterface fn.Event) (*taprpc.SendAssetEvent, error) {
+	eventInterface fn.Event) (*tapdevrpc.SendAssetEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *tapfreighter.ExecuteSendStateEvent:
-		eventRpc := &taprpc.SendAssetEvent_ExecuteSendStateEvent{
-			ExecuteSendStateEvent: &taprpc.ExecuteSendStateEvent{
+		eventRpc := &tapdevrpc.SendAssetEvent_ExecuteSendStateEvent{
+			ExecuteSendStateEvent: &tapdevrpc.ExecuteSendStateEvent{
 				Timestamp: event.Timestamp().UnixMicro(),
 				SendState: event.SendState.String(),
 			},
 		}
-		return &taprpc.SendAssetEvent{
+		return &tapdevrpc.SendAssetEvent{
 			Event: eventRpc,
 		}, nil
 
 	case *proof.BackoffWaitEvent:
 		// Map the transfer type to the RPC counterpart. We only
 		// support the send transfer type for asset send events.
-		var transferTypeRpc taprpc.ProofTransferType
+		var transferTypeRpc tapdevrpc.ProofTransferType
 		switch event.TransferType {
 		case proof.SendTransferType:
-			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+			transferTypeRpc = proofTypeSend
 		default:
 			return nil, fmt.Errorf("unexpected transfer type: %v",
 				event.TransferType)
 		}
 
-		eventRpc := taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent{
-			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
-				Timestamp:    event.Timestamp().UnixMicro(),
-				Backoff:      event.Backoff.Microseconds(),
-				TriesCounter: event.TriesCounter,
-				TransferType: transferTypeRpc,
-			},
+		evt := &tapdevrpc.ProofTransferBackoffWaitEvent{
+			Timestamp:    event.Timestamp().UnixMicro(),
+			Backoff:      event.Backoff.Microseconds(),
+			TriesCounter: event.TriesCounter,
+			TransferType: transferTypeRpc,
 		}
-		return &taprpc.SendAssetEvent{
+		eventRpc := tapdevrpc.SendAssetEvent_ProofTransferBackoffWaitEvent{
+			ProofTransferBackoffWaitEvent: evt,
+		}
+		return &tapdevrpc.SendAssetEvent{
 			Event: &eventRpc,
 		}, nil
 

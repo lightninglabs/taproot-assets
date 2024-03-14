@@ -17,13 +17,15 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
 var (
-	transferTypeSend = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
-	timeoutMargin    = 5 * time.Second
+	transferTypeSend    = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+	transferTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+	timeoutMargin       = 5 * time.Second
 )
 
 // testBasicSendUnidirectional tests that we can properly send assets back and
@@ -41,7 +43,7 @@ func testBasicSendUnidirectional(t *harnessTest) {
 
 	// Subscribe to receive assent send events from primary tapd node.
 	eventNtfns, err := t.tapd.SubscribeSendAssetEventNtfns(
-		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -54,7 +56,9 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		defer wg.Done()
 
 		broadcastState := tapfreighter.SendStateBroadcast.String()
-		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
+		targetEventSelector := func(
+			event *tapdevrpc.SendAssetEvent) bool {
+
 			return AssertSendEventExecuteSendState(
 				t, event, broadcastState,
 			)
@@ -149,7 +153,7 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 
 	// Subscribe to receive assent send events from primary tapd node.
 	eventNtfns, err := t.tapd.SubscribeSendAssetEventNtfns(
-		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -162,7 +166,9 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 		defer wg.Done()
 
 		broadcastState := tapfreighter.SendStateBroadcast.String()
-		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
+		targetEventSelector := func(
+			event *tapdevrpc.SendAssetEvent) bool {
+
 			return AssertSendEventExecuteSendState(
 				t, event, broadcastState,
 			)
@@ -593,7 +599,7 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 
 	// Subscribe to receive asset send events from primary tapd node.
 	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
-		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -608,7 +614,9 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
+		targetEventSelector := func(
+			event *tapdevrpc.SendAssetEvent) bool {
+
 			return AssertSendEventProofTransferBackoffWaitTypeSend(
 				t, event,
 			)
@@ -694,7 +702,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 
 	// Subscribe to receive asset send events from the sending tapd node.
 	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
-		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -709,7 +717,9 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
+		targetEventSelector := func(
+			event *tapdevrpc.SendAssetEvent) bool {
+
 			return AssertSendEventProofTransferBackoffWaitTypeSend(
 				t, event,
 			)
@@ -854,7 +864,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// We'll use these events to ensure that the receiver node is making
 	// multiple attempts to retrieve the asset proof.
 	eventNtfns, err := receiveTapd.SubscribeReceiveAssetEventNtfns(
-		ctxb, &taprpc.SubscribeReceiveAssetEventNtfnsRequest{},
+		ctxb, &tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -865,7 +875,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 
 	// Define a target event selector to match the backoff wait event. This
 	// function selects for a specific event type.
-	targetEventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
+	targetEventSelector := func(event *tapdevrpc.ReceiveAssetEvent) bool {
 		ev := event.GetProofTransferBackoffWaitEvent()
 		if ev == nil {
 			return false
@@ -874,8 +884,7 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 		// We are attempting to identify receive transfer types.
 		// Skip the event if it is not a receiving transfer
 		// type.
-		typeRecv := taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
-		if ev.TransferType != typeRecv {
+		if ev.TransferType != transferTypeReceive {
 			return false
 		}
 
@@ -959,7 +968,7 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 	// Subscribe to receive asset send events from primary tapd node.
 	eventNtfns, err := sendTapd.SubscribeSendAssetEventNtfns(
-		ctxb, &taprpc.SubscribeSendAssetEventNtfnsRequest{},
+		ctxb, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
 	)
 	require.NoError(t.t, err)
 
@@ -974,7 +983,9 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 
 		// Define a target event selector to match the backoff wait
 		// event. This function selects for a specific event type.
-		targetEventSelector := func(event *taprpc.SendAssetEvent) bool {
+		targetEventSelector := func(
+			event *tapdevrpc.SendAssetEvent) bool {
+
 			// We're listening for events on the sender node. We
 			// therefore expect to receive deliver transfer type
 			// backoff wait events for sending transfers.
@@ -1044,8 +1055,8 @@ func testOfflineReceiverEventuallyReceives(t *harnessTest) {
 // was received. This function will block until the event is received or the
 // event stream is closed.
 func assertAssetSendNtfsEvent(t *harnessTest, ctx context.Context,
-	eventNtfns taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsClient,
-	targetEventSelector func(*taprpc.SendAssetEvent) bool,
+	eventNtfns tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsClient,
+	targetEventSelector func(*tapdevrpc.SendAssetEvent) bool,
 	expectedCount int) {
 
 	countFound := 0
@@ -1086,8 +1097,8 @@ func assertAssetSendNtfsEvent(t *harnessTest, ctx context.Context,
 // notification was received. This function will block until the event is
 // received or the event stream is closed.
 func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
-	eventNtfns taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsClient,
-	targetEventSelector func(event *taprpc.ReceiveAssetEvent) bool,
+	eventNtfns tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsClient,
+	targetEventSelector func(event *tapdevrpc.ReceiveAssetEvent) bool,
 	expectedCount int) {
 
 	countFound := 0
@@ -1131,14 +1142,14 @@ func assertAssetRecvNtfsEvent(t *harnessTest, ctx context.Context,
 // received or the event stream is closed.
 func assertAssetRecvCompleteEvent(t *harnessTest, ctxb context.Context,
 	timeout time.Duration, encodedAddr string,
-	eventNtfns taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsClient) {
+	eventNtfns tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsClient) {
 
 	ctx, cancel := context.WithTimeout(ctxb, timeout)
 	defer cancel()
 
-	eventSelector := func(event *taprpc.ReceiveAssetEvent) bool {
+	eventSelector := func(event *tapdevrpc.ReceiveAssetEvent) bool {
 		switch eventTyped := event.Event.(type) {
-		case *taprpc.ReceiveAssetEvent_AssetReceiveCompleteEvent:
+		case *tapdevrpc.ReceiveAssetEvent_AssetReceiveCompleteEvent:
 			ev := eventTyped.AssetReceiveCompleteEvent
 			return encodedAddr == ev.Address.Encoded
 		default:
