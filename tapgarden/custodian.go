@@ -865,23 +865,13 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 func (c *Custodian) setReceiveCompleted(event *address.Event,
 	lastProof *proof.Proof, proofFile *proof.File) error {
 
-	// At this point the "receive" process is complete. We will now notify
-	// all status event subscribers.
-	receiveCompleteEvent := NewAssetRecvCompleteEvent(
-		*event.Addr.Tap, event.Outpoint,
-	)
-	err := c.publishSubscriberStatusEvent(receiveCompleteEvent)
-	if err != nil {
-		log.Errorf("Unable publish status event: %v", err)
-	}
-
 	// The proof is created after a single confirmation. To make sure we
 	// notice if the anchor transaction is re-organized out of the chain, we
 	// give all the not-yet-sufficiently-buried proofs in the received proof
 	// file to the re-org watcher and replace the updated proof in the local
 	// proof archive if a re-org happens. The sender will do the same, so no
 	// re-send of the proof is necessary.
-	err = c.cfg.ProofWatcher.MaybeWatch(
+	err := c.cfg.ProofWatcher.MaybeWatch(
 		proofFile, c.cfg.ProofWatcher.DefaultUpdateCallback(),
 	)
 	if err != nil {
@@ -907,6 +897,16 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 	// The event has been fully processed, no need to keep it in the cache
 	// anymore.
 	delete(c.events, event.Outpoint)
+
+	// At this point the "receive" process is complete. We will now notify
+	// all status event subscribers.
+	receiveCompleteEvent := NewAssetRecvCompleteEvent(
+		*event.Addr.Tap, event.Outpoint,
+	)
+	err = c.publishSubscriberStatusEvent(receiveCompleteEvent)
+	if err != nil {
+		log.Errorf("Unable publish status event: %v", err)
+	}
 
 	return nil
 }
