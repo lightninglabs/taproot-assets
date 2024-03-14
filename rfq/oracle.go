@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -17,6 +18,19 @@ type OracleError struct {
 
 	// Msg is a human-readable error message.
 	Msg string
+}
+
+// Error returns a human-readable string representation of the error.
+func (o *OracleError) Error() string {
+	// Sanitise price oracle error message by truncating to 255 characters.
+	// The price oracle service might be a third-party service and could
+	// return an error message that is too long.
+	errMsg := o.Msg
+	if len(errMsg) > 255 {
+		errMsg = errMsg[:255]
+	}
+
+	return fmt.Sprintf("OracleError(code=%d, msg=%s)", o.Code, errMsg)
 }
 
 // OracleAskResponse is a struct that holds the price oracle's suggested ask
