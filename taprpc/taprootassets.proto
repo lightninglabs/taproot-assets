@@ -114,6 +114,13 @@ service TaprootAssets {
     either by the asset ID for that asset, or a meta hash.
     */
     rpc FetchAssetMeta (FetchAssetMetaRequest) returns (AssetMeta);
+
+    /* tapcli: `events receive`
+    SubscribeReceiveEvents allows a caller to subscribe to receive events for
+    incoming asset transfers.
+    */
+    rpc SubscribeReceiveEvents (SubscribeReceiveEventsRequest)
+        returns (stream ReceiveEvent);
 }
 
 enum AssetType {
@@ -998,4 +1005,29 @@ message OutPoint {
     The index of the output on the transaction.
     */
     uint32 output_index = 2;
+}
+
+message SubscribeReceiveEventsRequest {
+    // Filter receives by a specific address. Leave empty to get all receive
+    // events for all addresses.
+    string filter_addr = 1;
+}
+
+message ReceiveEvent {
+    // Event creation timestamp (Unix timestamp in microseconds).
+    int64 timestamp = 1;
+
+    // The address that received the asset.
+    taprpc.Addr address = 2;
+
+    // The outpoint of the transaction that was used to receive the asset.
+    string outpoint = 3;
+
+    // The status of the event.
+    AddrEventStatus status = 4;
+
+    // The height of the block the asset receive transaction was mined in. This
+    // is only set if the status is ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED or
+    // later.
+    uint32 confirmation_height = 5;
 }

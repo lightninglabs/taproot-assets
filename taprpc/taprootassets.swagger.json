@@ -562,6 +562,48 @@
         ]
       }
     },
+    "/v1/taproot-assets/events/asset-receive": {
+      "post": {
+        "summary": "tapcli: `events receive`\nSubscribeReceiveEvents allows a caller to subscribe to receive events for\nincoming asset transfers.",
+        "operationId": "TaprootAssets_SubscribeReceiveEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcReceiveEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcReceiveEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeReceiveEventsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/getinfo": {
       "get": {
         "summary": "tapcli: `getinfo`\nGetInfo returns the information for the node.",
@@ -1735,6 +1777,33 @@
         }
       }
     },
+    "taprpcReceiveEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Event creation timestamp (Unix timestamp in microseconds)."
+        },
+        "address": {
+          "$ref": "#/definitions/taprpcAddr",
+          "description": "The address that received the asset."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint of the transaction that was used to receive the asset."
+        },
+        "status": {
+          "$ref": "#/definitions/taprpcAddrEventStatus",
+          "description": "The status of the event."
+        },
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block the asset receive transaction was mined in. This\nis only set if the status is ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED or\nlater."
+        }
+      }
+    },
     "taprpcScriptKey": {
       "type": "object",
       "properties": {
@@ -1791,6 +1860,15 @@
     },
     "taprpcStopResponse": {
       "type": "object"
+    },
+    "taprpcSubscribeReceiveEventsRequest": {
+      "type": "object",
+      "properties": {
+        "filter_addr": {
+          "type": "string",
+          "description": "Filter receives by a specific address. Leave empty to get all receive\nevents for all addresses."
+        }
+      }
     },
     "taprpcTransferInput": {
       "type": "object",
