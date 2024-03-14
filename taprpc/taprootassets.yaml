@@ -74,3 +74,7 @@ http:
     - selector: taprpc.TaprootAssets.SubscribeReceiveEvents
       post: "/v1/taproot-assets/events/asset-receive"
       body: "*"
+
+    - selector: taprpc.TaprootAssets.SubscribeSendEvents
+      post: "/v1/taproot-assets/events/asset-send"
+      body: "*"
