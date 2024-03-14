@@ -84,6 +84,40 @@ type UpsertAssetStore interface {
 		error)
 }
 
+var (
+	// ErrEncodeGenesisPoint is returned when encoding a genesis point
+	// before upserting it fails.
+	ErrEncodeGenesisPoint = errors.New("unable to encode genesis point")
+
+	// ErrReadOutpoint is returned when decoding an outpoint fails.
+	ErrReadOutpoint = errors.New("unable to read outpoint")
+
+	// ErrUpsertGenesisPoint is returned when upserting a genesis point
+	// fails.
+	ErrUpsertGenesisPoint = errors.New("unable to upsert genesis point")
+
+	// ErrUpsertGroupKey is returned when upserting a group key fails.
+	ErrUpsertGroupKey = errors.New("unable to upsert group key")
+
+	// ErrUpsertInternalKey is returned when upserting an internal key
+	// fails.
+	ErrUpsertInternalKey = errors.New("unable to upsert internal key")
+
+	// ErrUpsertScriptKey is returned when upserting a script key fails.
+	ErrUpsertScriptKey = errors.New("unable to upsert script key")
+
+	// ErrNoAssetGroup is returned when no matching asset group is found.
+	ErrNoAssetGroup = errors.New("no matching asset group")
+
+	// ErrGroupGenesisInfo is returned when fetching genesis info for an
+	// asset group fails.
+	ErrGroupGenesisInfo = errors.New("unable to fetch group genesis info")
+
+	// ErrTapscriptRootSize is returned when the given tapscript root is not
+	// exactly 32 bytes.
+	ErrTapscriptRootSize = errors.New("tapscript root invalid: wrong size")
+)
+
 // upsertGenesis imports a new genesis point into the database or returns the
 // existing ID if that point already exists.
 func upsertGenesisPoint(ctx context.Context, q UpsertAssetStore,
@@ -91,14 +125,14 @@ func upsertGenesisPoint(ctx context.Context, q UpsertAssetStore,
 
 	genesisPoint, err := encodeOutpoint(genesisOutpoint)
 	if err != nil {
-		return 0, fmt.Errorf("unable to encode genesis point: %w", err)
+		return 0, fmt.Errorf("%w: %w", ErrEncodeGenesisPoint, err)
 	}
 
 	// First, we'll insert the component that ties together all the assets
 	// in a batch: the genesis point.
 	genesisPointID, err := q.UpsertGenesisPoint(ctx, genesisPoint)
 	if err != nil {
-		return 0, fmt.Errorf("unable to insert genesis point: %w", err)
+		return 0, fmt.Errorf("%w: %w", ErrUpsertGenesisPoint, err)
 	}
 
 	return genesisPointID, nil
@@ -134,7 +168,7 @@ func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
 
 	genPoint, err := encodeOutpoint(genesis.FirstPrevOut)
 	if err != nil {
-		return 0, fmt.Errorf("unable to encode genesis point: %w", err)
+		return 0, fmt.Errorf("%w: %w", ErrEncodeGenesisPoint, err)
 	}
 
 	assetID := genesis.ID()
@@ -189,14 +223,14 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 			ctx, a.GroupKey, q, genesisPointID, genAssetID,
 		)
 		if err != nil {
-			return 0, nil, fmt.Errorf("unable to upsert group "+
-				"key: %w", err)
+			return 0, nil, fmt.Errorf("%w: %w", ErrUpsertGroupKey,
+				err)
 		}
 
 		scriptKeyID, err := upsertScriptKey(ctx, a.ScriptKey, q)
 		if err != nil {
-			return 0, nil, fmt.Errorf("unable to upsert script "+
-				"key: %w", err)
+			return 0, nil, fmt.Errorf("%w: %w", ErrUpsertScriptKey,
+				err)
 		}
 
 		// Is the asset anchored already?
@@ -280,15 +314,14 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		KeyIndex:  int32(groupKey.RawKey.Index),
 	})
 	if err != nil {
-		return nullID, fmt.Errorf("unable to insert internal key: %w",
-			err)
+		return nullID, fmt.Errorf("%w: %w", ErrUpsertInternalKey, err)
 	}
 
 	// The only valid size for a non-empty Tapscript root is 32 bytes.
 	if len(groupKey.TapscriptRoot) != 0 &&
 		len(groupKey.TapscriptRoot) != sha256.Size {
 
-		return nullID, fmt.Errorf("tapscript root invalid: wrong size")
+		return nullID, ErrTapscriptRootSize
 	}
 
 	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
@@ -298,8 +331,7 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		GenesisPointID:  genesisPointID,
 	})
 	if err != nil {
-		return nullID, fmt.Errorf("unable to insert group key: %w",
-			err)
+		return nullID, fmt.Errorf("%w: %w", ErrUpsertGroupKey, err)
 	}
 
 	// With the statement above complete, we'll now insert the
@@ -340,8 +372,8 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 			KeyIndex:  int32(scriptKey.RawKey.Index),
 		})
 		if err != nil {
-			return 0, fmt.Errorf("unable to insert internal key: "+
-				"%w", err)
+			return 0, fmt.Errorf("%w: %w", ErrUpsertInternalKey,
+				err)
 		}
 		scriptKeyID, err := q.UpsertScriptKey(ctx, NewScriptKey{
 			InternalKeyID:    rawScriptKeyID,
@@ -349,8 +381,7 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 			Tweak:            scriptKey.Tweak,
 		})
 		if err != nil {
-			return 0, fmt.Errorf("unable to insert script key: "+
-				"%w", err)
+			return 0, fmt.Errorf("%w: %w", ErrUpsertScriptKey, err)
 		}
 
 		return scriptKeyID, nil
@@ -373,16 +404,15 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 			RawKey: scriptKey.PubKey.SerializeCompressed(),
 		})
 		if err != nil {
-			return 0, fmt.Errorf("unable to insert internal key: "+
-				"%w", err)
+			return 0, fmt.Errorf("%w: %w", ErrUpsertInternalKey,
+				err)
 		}
 		scriptKeyID, err = q.UpsertScriptKey(ctx, NewScriptKey{
 			InternalKeyID:    rawScriptKeyID,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
 		})
 		if err != nil {
-			return 0, fmt.Errorf("unable to insert script key: "+
-				"%w", err)
+			return 0, fmt.Errorf("%w: %w", ErrUpsertScriptKey, err)
 		}
 	}
 
@@ -415,8 +445,8 @@ func fetchGenesis(ctx context.Context, q FetchGenesisStore,
 	var genesisPrevOut wire.OutPoint
 	err = readOutPoint(bytes.NewReader(gen.PrevOut), 0, 0, &genesisPrevOut)
 	if err != nil {
-		return asset.Genesis{}, fmt.Errorf("unable to read outpoint: "+
-			"%w", err)
+		return asset.Genesis{}, fmt.Errorf("%w: %w", ErrReadOutpoint,
+			err)
 	}
 
 	var metaHash [32]byte
@@ -454,15 +484,14 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 	groupInfo, err := q.FetchGroupByGenesis(ctx, genID)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, fmt.Errorf("no matching asset group: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrNoAssetGroup, err)
 	case err != nil:
 		return nil, err
 	}
 
 	groupGenesis, err := fetchGenesis(ctx, q, genID)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch group genesis info: "+
-			"%w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGroupGenesisInfo, err)
 	}
 
 	groupKey, err := parseGroupKeyInfo(
@@ -489,15 +518,14 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	groupInfo, err := q.FetchGroupByGroupKey(ctx, groupKeyQuery[:])
 	switch {
 	case errors.Is(err, sql.ErrNoRows):
-		return nil, fmt.Errorf("no matching asset group: %w", err)
+		return nil, fmt.Errorf("%w: %w", ErrNoAssetGroup, err)
 	case err != nil:
 		return nil, err
 	}
 
 	groupGenesis, err := fetchGenesis(ctx, q, groupInfo.GenAssetID)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fetch group genesis info: "+
-			"%w", err)
+		return nil, fmt.Errorf("%w: %w", ErrGroupGenesisInfo, err)
 	}
 
 	groupKey, err := parseGroupKeyInfo(
