@@ -211,6 +211,15 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(
 			t.batchKey = t.assertKeyDerived()
 		}
 
+		// For each seedling queued, we expect a new set of keys to be
+		// created for the asset script key and an additional key if
+		// emission was enabled.
+		t.batchKey = t.assertKeyDerived()
+
+		if seedling.EnableEmission {
+			t.batchKey = t.assertKeyDerived()
+		}
+
 		// We should get an update from the update channel that the
 		// seedling is now pending.
 		update, err := fn.RecvOrTimeout(updates, defaultTimeout)
@@ -309,23 +318,12 @@ func (t *mintingTestHarness) assertFinalizeBatch(wg *sync.WaitGroup,
 
 // progressCaretaker uses the mock interfaces to progress a caretaker from start
 // to TX confirmation.
-func (t *mintingTestHarness) progressCaretaker(seedlings []*tapgarden.Seedling,
+func (t *mintingTestHarness) progressCaretaker(
 	batchSibling *commitment.TapscriptPreimage,
 	feeRate *chainfee.SatPerKWeight) func() {
 
 	// Assert that the caretaker has requested a genesis TX to be funded.
 	_ = t.assertGenesisTxFunded(feeRate)
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < len(seedlings); i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
 
 	// We should now transition to the next state where we'll attempt to
 	// sign this PSBT packet generated above.
@@ -873,17 +871,6 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	batch = t.fetchSingleBatch(nil)
 	t.assertBatchGenesisTx(batch.GenesisPacket)
 
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
-
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
 	t.assertNoPendingBatch()
@@ -979,17 +966,6 @@ func testMintingTicker(t *mintingTestHarness) {
 	t.assertBatchProgressing()
 	currentBatch := t.fetchLastBatch()
 	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -1087,14 +1063,6 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	t.assertBatchProgressing()
 	thirdBatch = t.fetchLastBatch()
 	t.assertBatchGenesisTx(thirdBatch.GenesisPacket)
-
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -1208,7 +1176,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// Queue another batch, reset fee estimation behavior, and set TX
 	// confirmation registration to fail.
-	seedlings := t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.chain.FailFeeEstimates(false)
 	t.chain.FailConf(true)
 
@@ -1219,7 +1187,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	_ = t.progressCaretaker(seedlings, nil, nil)
+	_ = t.progressCaretaker(nil, nil)
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1235,7 +1203,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// Queue another batch, set TX confirmation to succeed, and set the
 	// confirmation event to be empty.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.chain.FailConf(false)
 	t.chain.EmptyConf(true)
 
@@ -1243,7 +1211,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	sendConfNtfn := t.progressCaretaker(seedlings, nil, nil)
+	sendConfNtfn := t.progressCaretaker(nil, nil)
 	caretakerCount++
 
 	// Trigger the confirmation event, which should cause the caretaker to
@@ -1267,7 +1235,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(caretakerCount)
 
 	// Queue another batch and drive the caretaker to a successful minting.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.chain.EmptyConf(false)
 
 	// Use a custom feerate and verify that the TX uses that feerate.
@@ -1278,7 +1246,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
-	sendConfNtfn = t.progressCaretaker(seedlings, nil, &manualFeeRate)
+	sendConfNtfn = t.progressCaretaker(nil, &manualFeeRate)
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1295,7 +1263,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Create an initial batch of 5 seedlings.
 	const numSeedlings = 5
-	seedlings := t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 
 	var (
 		wg          sync.WaitGroup
@@ -1337,29 +1305,12 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	t.treeStore.FailStore = false
 	t.treeStore.FailLoad = true
 
-	// Receive all the signals needed to progress the caretaker through
-	// the batch sprouting, which is when the sibling tapscript tree is
-	// used.
-	progressCaretakerToTxSigning := func(
-		currentSeedlings []*tapgarden.Seedling) {
-
-		_ = t.assertGenesisTxFunded(nil)
-
-		for i := 0; i < len(currentSeedlings); i++ {
-			t.assertKeyDerived()
-
-			if currentSeedlings[i].EnableEmission {
-				t.assertKeyDerived()
-			}
-		}
-	}
-
 	// Finalize the batch with a tapscript tree sibling.
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
 	// The caretaker should fail when computing the Taproot output key.
-	progressCaretakerToTxSigning(seedlings)
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
 	t.assertNoPendingBatch()
@@ -1389,18 +1340,18 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Queue another batch, and try to finalize with a sibling that is also
 	// a Taproot asset commitment.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
-	progressCaretakerToTxSigning(seedlings)
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(
 		&wg, respChan, "preimage is a Taproot Asset commitment",
 	)
 	t.assertNoPendingBatch()
 
 	// Queue another batch, and provide a valid sibling tapscript tree.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	finalizeReq.SiblingTapTree = fn.Some(*tapTreePreimage)
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
@@ -1408,7 +1359,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// Verify that the final genesis TX uses the correct Taproot output key.
 	treeRootChildren := test.BuildTapscriptTreeNoReveal(t.T, sigLockKey)
 	siblingPreimage := commitment.NewPreimageFromBranch(treeRootChildren)
-	sendConfNtfn := t.progressCaretaker(seedlings, &siblingPreimage, nil)
+	sendConfNtfn := t.progressCaretaker(&siblingPreimage, nil)
 	sendConfNtfn()
 
 	// Once the TX is broadcast, the caretaker should run to completion,
