@@ -5519,6 +5519,70 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 	return &rfqrpc.AddAssetBuyOrderResponse{}, nil
 }
 
+// unmarshalAssetSellOrder unmarshals an asset sell order from the RPC form.
+func unmarshalAssetSellOrder(
+	req *rfqrpc.AddAssetSellOrderRequest) (*rfq.SellOrder, error) {
+
+	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
+		req.AssetSpecifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
+			"%w", err)
+	}
+
+	// Unmarshal the peer if specified.
+	var peer *route.Vertex
+	if len(req.PeerPubKey) > 0 {
+		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshalling peer "+
+				"route vertex: %w", err)
+		}
+
+		peer = &pv
+	}
+
+	return &rfq.SellOrder{
+		AssetID:        assetId,
+		AssetGroupKey:  assetGroupKey,
+		MaxAssetAmount: req.MaxAssetAmount,
+		MinAsk:         lnwire.MilliSatoshi(req.MinAsk),
+		Expiry:         req.Expiry,
+		Peer:           peer,
+	}, nil
+}
+
+// AddAssetSellOrder upserts a new sell order for the given asset into the RFQ
+// manager. If the order already exists for the given asset, it will be updated.
+func (r *rpcServer) AddAssetSellOrder(_ context.Context,
+	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
+	error) {
+
+	// Unmarshal the order from the RPC form.
+	sellOrder, err := unmarshalAssetSellOrder(req)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling sell order: %w",
+			err)
+	}
+
+	var peer string
+	if sellOrder.Peer != nil {
+		peer = sellOrder.Peer.String()
+	}
+	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting sell order "+
+		"(dest_peer=%s)", peer)
+
+	// Upsert the order into the RFQ manager.
+	err = r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
+	if err != nil {
+		return nil, fmt.Errorf("error upserting sell order into RFQ "+
+			"manager: %w", err)
+	}
+
+	return &rfqrpc.AddAssetSellOrderResponse{}, nil
+}
+
 // AddAssetSellOffer upserts a new sell offer for the given asset into the
 // RFQ manager. If the offer already exists for the given asset, it will be
 // updated.
