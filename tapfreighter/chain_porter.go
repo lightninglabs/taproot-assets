@@ -164,12 +164,12 @@ func (p *ChainPorter) Stop() error {
 		p.Wg.Wait()
 
 		// Remove all subscribers.
-		for _, sub := range p.subscribers {
-			err := p.RemoveSubscriber(sub)
-			if err != nil {
-				stopErr = err
-				break
-			}
+		p.subscriberMtx.Lock()
+		defer p.subscriberMtx.Unlock()
+
+		for _, subscriber := range p.subscribers {
+			subscriber.Stop()
+			delete(p.subscribers, subscriber.ID())
 		}
 	})
 
