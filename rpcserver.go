@@ -129,6 +129,10 @@ type (
 	// notification stream.
 	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer
 
+	// receiveEventStream is a type alias for the asset receive event
+	// notification stream.
+	receiveEventStream = taprpc.TaprootAssets_SubscribeReceiveEventsServer
+
 	// receiveBackOff is a type alias for the backoff event that is sent
 	// when a proof transfer process failed and needs to re-try.
 	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
@@ -3181,6 +3185,92 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 	}
 
 	return handleEvents[bool, *tapdevrpc.ReceiveAssetEvent](
+		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+	)
+}
+
+// SubscribeReceiveEvents registers a subscription to the event notification
+// stream which relates to the asset receiving process.
+func (r *rpcServer) SubscribeReceiveEvents(
+	req *taprpc.SubscribeReceiveEventsRequest,
+	ntfnStream receiveEventStream) error {
+
+	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+	// We just decode the address to make sure it's valid. But any
+	// comparison for filtering happens on the string representation, as
+	// that's easily comparable
+	var addrString string
+	if req.FilterAddr != "" {
+		addr, err := address.DecodeAddress(req.FilterAddr, &tapParams)
+		if err != nil {
+			return fmt.Errorf("error decoding address: %w", err)
+		}
+
+		addrString, err = addr.EncodeAddress()
+		if err != nil {
+			return fmt.Errorf("error encoding address: %w", err)
+		}
+	}
+
+	marshaler := func(event fn.Event) (*taprpc.ReceiveEvent, error) {
+		e, ok := event.(*tapgarden.AssetReceiveEvent)
+		if !ok {
+			return nil, fmt.Errorf("invalid event type: %T", event)
+		}
+
+		rpcAddr, err := marshalAddr(&e.Address, r.cfg.TapAddrBook)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling addr: %w", err)
+		}
+
+		rpcStatus, err := marshalAddrEventStatus(e.Status)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling status: %w",
+				err)
+		}
+
+		return &taprpc.ReceiveEvent{
+			Timestamp:          e.Timestamp().UnixMicro(),
+			Address:            rpcAddr,
+			Outpoint:           e.OutPoint.String(),
+			Status:             rpcStatus,
+			ConfirmationHeight: e.ConfirmationHeight,
+		}, nil
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		var (
+			eventAddrString string
+			err             error
+		)
+
+		switch e := event.(type) {
+		case *tapgarden.AssetReceiveEvent:
+			eventAddrString, err = e.Address.EncodeAddress()
+			if err != nil {
+				return false, fmt.Errorf("error encoding "+
+					"address: %w", err)
+			}
+
+		case *proof.BackoffWaitEvent:
+			// We're not interested in any backoff events.
+			return false, nil
+
+		default:
+			return false, fmt.Errorf("unknown event type: %T", e)
+		}
+
+		// If we're not filtering on a specific address, we return all
+		// events.
+		if addrString == "" {
+			return true, nil
+		}
+
+		return eventAddrString == addrString, nil
+	}
+
+	return handleEvents[bool, *taprpc.ReceiveEvent](
 		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
 	)
 }
