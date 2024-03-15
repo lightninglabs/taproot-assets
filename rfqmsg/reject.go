@@ -168,11 +168,13 @@ type Reject struct {
 }
 
 // NewReject creates a new instance of a quote reject message.
-func NewReject(request BuyRequest, rejectErr RejectErr) *Reject {
+func NewReject(peer route.Vertex, requestId ID,
+	rejectErr RejectErr) *Reject {
+
 	return &Reject{
-		Peer: request.Peer,
+		Peer: peer,
 		rejectMsgData: rejectMsgData{
-			ID:  request.ID,
+			ID:  requestId,
 			Err: rejectErr,
 		},
 	}

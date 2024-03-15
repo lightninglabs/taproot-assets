@@ -227,7 +227,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		// If we do not have a suitable sell offer, then we will reject
 		// the quote request with an error.
 		reject := rfqmsg.NewReject(
-			request, rfqmsg.ErrNoSuitableSellOffer,
+			request.Peer, request.ID, rfqmsg.ErrNoSuitableSellOffer,
 		)
 		var msg rfqmsg.OutgoingMsg = reject
 
@@ -271,7 +271,8 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		if err != nil {
 			// Send a reject message to the peer.
 			msg := rfqmsg.NewReject(
-				request, rfqmsg.ErrUnknownReject,
+				request.Peer, request.ID,
+				rfqmsg.ErrUnknownReject,
 			)
 			sendOutgoingMsg(msg)
 
