@@ -27,8 +27,8 @@ func TestAcceptShortChannelId(t *testing.T) {
 	binary.BigEndian.PutUint64(id[24:], scid.ToUint64())
 
 	// Create an accept message.
-	acceptMsg := Accept{
-		acceptMsgData: acceptMsgData{
+	acceptMsg := BuyAccept{
+		buyAcceptMsgData: buyAcceptMsgData{
 			ID: id,
 		},
 	}

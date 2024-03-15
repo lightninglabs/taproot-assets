@@ -35,7 +35,7 @@ type ChannelRemit struct {
 }
 
 // NewChannelRemit creates a new channel remit.
-func NewChannelRemit(quoteAccept rfqmsg.Accept) *ChannelRemit {
+func NewChannelRemit(quoteAccept rfqmsg.BuyAccept) *ChannelRemit {
 	// Compute the serialised short channel ID (SCID) for the channel.
 	scid := SerialisedScid(quoteAccept.ShortChannelId())
 
@@ -133,7 +133,7 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	log.Debug("Handling incoming HTLC")
 
 	scid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	channelRemit, ok := h.FetchChannelRemit(scid)
+	channelRemit, ok := h.fetchChannelRemit(scid)
 
 	// If a channel remit does not exist for the channel SCID, we resume the
 	// HTLC. This is because the HTLC may be relevant to another interceptor
@@ -238,20 +238,21 @@ func (h *OrderHandler) Start() error {
 	return startErr
 }
 
-// RegisterChannelRemit registers a channel management remit. If a remit exists
-// for the channel SCID, it is overwritten.
-func (h *OrderHandler) RegisterChannelRemit(quoteAccept rfqmsg.Accept) {
-	log.Debugf("Registering channel remit for SCID: %d",
-		quoteAccept.ShortChannelId())
+// RegisterAssetSalePolicy generates and registers an asset sale policy with the
+// order handler. This function takes an outgoing buy accept message as an
+// argument.
+func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
+	log.Debugf("Order handler is registering an asset sale policy given a "+
+		"buy accept message: %s", buyAccept.String())
 
-	channelRemit := NewChannelRemit(quoteAccept)
+	channelRemit := NewChannelRemit(buyAccept)
 	h.channelRemits.Store(channelRemit.Scid, channelRemit)
 }
 
-// FetchChannelRemit fetches a channel remit given a serialised SCID. If a
+// fetchChannelRemit fetches a channel remit given a serialised SCID. If a
 // channel remit is not found, false is returned. Expired channel remits are
 // not returned and are removed from the cache.
-func (h *OrderHandler) FetchChannelRemit(scid SerialisedScid) (*ChannelRemit,
+func (h *OrderHandler) fetchChannelRemit(scid SerialisedScid) (*ChannelRemit,
 	bool) {
 
 	remit, ok := h.channelRemits.Load(scid)

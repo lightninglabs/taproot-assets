@@ -4980,7 +4980,7 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 
 // marshalAcceptedQuotes marshals a map of accepted quotes into the RPC form.
 func marshalAcceptedQuotes(
-	acceptedQuotes map[rfq.SerialisedScid]rfqmsg.Accept) []*rfqrpc.AcceptedQuote {
+	acceptedQuotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.AcceptedQuote {
 
 	// Marshal the accepted quotes into the RPC form.
 	rpcQuotes := make([]*rfqrpc.AcceptedQuote, 0, len(acceptedQuotes))

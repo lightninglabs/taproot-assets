@@ -96,49 +96,7 @@ var (
 		Code: 1,
 		Msg:  "no suitable sell offer available",
 	}
-
-	// ErrPriceOracleUnavailable is the error code for when the price
-	// oracle is unavailable.
-	ErrPriceOracleUnavailable = RejectErr{
-		Code: 2,
-		Msg:  "price oracle service unavailable",
-	}
-
-	// ErrPriceOracleUnspecifiedError is the error code for when the price
-	// oracle returns an unspecified error.
-	ErrPriceOracleUnspecifiedError = RejectErr{
-		Code: 3,
-		Msg:  "price oracle service returned an unspecified error",
-	}
-
-	// ErrPriceOracleError is the error code for when the price oracle
-	// returns a specified error.
-	ErrPriceOracleError = RejectErr{
-		Code: 4,
-		Msg:  "price oracle service error: (err_code=%d, err_msg=%s)",
-	}
 )
-
-// NewErrPriceOracleError creates a new instance of a reject message price
-// oracle error.
-func NewErrPriceOracleError(oracleErrCode uint8,
-	oracleErrMsg string) RejectErr {
-
-	// Sanitise price oracle error message by truncating to 255 characters.
-	// The price oracle service might be a third-party service and could
-	// return an error message that is too long.
-	if len(oracleErrMsg) > 255 {
-		oracleErrMsg = oracleErrMsg[:255]
-	}
-
-	errMsg := fmt.Sprintf(
-		ErrPriceOracleError.Msg, oracleErrCode, oracleErrMsg,
-	)
-	return RejectErr{
-		Code: ErrPriceOracleError.Code,
-		Msg:  errMsg,
-	}
-}
 
 // rejectMsgData is a struct that represents the data field of a quote
 // reject message.
@@ -210,7 +168,7 @@ type Reject struct {
 }
 
 // NewReject creates a new instance of a quote reject message.
-func NewReject(request Request, rejectErr RejectErr) *Reject {
+func NewReject(request BuyRequest, rejectErr RejectErr) *Reject {
 	return &Reject{
 		Peer: request.Peer,
 		rejectMsgData: rejectMsgData{
