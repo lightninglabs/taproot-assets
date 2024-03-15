@@ -90,6 +90,8 @@ func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 		return NewBuyRequestMsgFromWire(wireMsg)
 	case MsgTypeBuyAccept:
 		return NewBuyAcceptFromWireMsg(wireMsg)
+	case MsgTypeSellRequest:
+		return NewSellRequestMsgFromWire(wireMsg)
 	case MsgTypeReject:
 		return NewQuoteRejectFromWireMsg(wireMsg)
 	default:
