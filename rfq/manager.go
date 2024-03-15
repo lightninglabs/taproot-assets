@@ -281,6 +281,13 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		event := NewPeerAcceptedBuyQuoteEvent(msg)
 		m.publishSubscriberEvent(event)
 
+	case *rfqmsg.SellRequest:
+		err := m.negotiator.HandleIncomingSellRequest(*msg)
+		if err != nil {
+			return fmt.Errorf("error handling incoming sell "+
+				"request: %w", err)
+		}
+
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
 		// the rejection.
