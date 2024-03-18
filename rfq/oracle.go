@@ -145,8 +145,13 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
+	askPrice := lnwire.MilliSatoshi(42000)
+	if suggestedBidPrice != nil {
+		askPrice = *suggestedBidPrice
+	}
+
 	return &OracleAskResponse{
-		AskPrice: suggestedBidPrice,
+		AskPrice: &askPrice,
 		Expiry:   expiry,
 	}, nil
 }
