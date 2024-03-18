@@ -19,7 +19,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/ticker"
 	"golang.org/x/exp/maps"
 )
 
@@ -78,10 +77,6 @@ type GardenKit struct {
 // PlanterConfig is the main config for the ChainPlanter.
 type PlanterConfig struct {
 	GardenKit
-
-	// BatchTicker is used to notify the planter than it should assemble
-	// all asset requests into a new batch.
-	BatchTicker *ticker.Force
 
 	// ProofUpdates is the storage backend for updated proofs.
 	ProofUpdates proof.Archiver
@@ -620,31 +615,6 @@ func (c *ChainPlanter) gardener() {
 
 	for {
 		select {
-		case <-c.cfg.BatchTicker.Ticks():
-			// There is no pending batch, so we can just abort.
-			if c.pendingBatch == nil {
-				log.Debugf("No batches pending...doing nothing")
-				continue
-			}
-
-			defaultFeeRate := fn.None[chainfee.SatPerKWeight]()
-			emptyTapSibling := fn.None[asset.TapscriptTreeNodes]()
-
-			defaultFinalizeParams := FinalizeParams{
-				FeeRate:        defaultFeeRate,
-				SiblingTapTree: emptyTapSibling,
-			}
-			_, err := c.finalizeBatch(defaultFinalizeParams)
-			if err != nil {
-				c.cfg.ErrChan <- fmt.Errorf("unable to freeze "+
-					"minting batch: %w", err)
-				continue
-			}
-
-			// Now that we have a caretaker launched for this
-			// batch, we'll set the pending batch to nil
-			c.pendingBatch = nil
-
 		// A request for new asset issuance just arrived, add this to
 		// the pending batch and acknowledge the receipt back to the
 		// caller.
