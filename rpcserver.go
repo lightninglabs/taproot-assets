@@ -5595,8 +5595,8 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 	timestamp := eventInterface.Timestamp().UTC().Unix()
 
 	switch event := eventInterface.(type) {
-	case *rfq.IncomingAcceptQuoteEvent:
-		acceptedQuote := &rfqrpc.AcceptedQuote{
+	case *rfq.PeerAcceptedBuyQuoteEvent:
+		acceptedQuote := &rfqrpc.PeerAcceptedBuyQuote{
 			Peer:        event.Peer.String(),
 			Id:          event.ID[:],
 			Scid:        uint64(event.ShortChannelId()),

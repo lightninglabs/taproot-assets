@@ -275,8 +275,9 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		scid := SerialisedScid(msg.ShortChannelId())
 		m.peerAcceptedQuotes.Store(scid, *msg)
 
-		// Notify subscribers of the incoming quote accept.
-		event := NewIncomingAcceptQuoteEvent(msg)
+		// Notify subscribers of the incoming peer accepted asset buy
+		// quote.
+		event := NewPeerAcceptedBuyQuoteEvent(msg)
 		m.publishSubscriberEvent(event)
 
 	case *rfqmsg.Reject:
@@ -487,34 +488,34 @@ func (m *Manager) publishSubscriberEvent(event fn.Event) {
 	)
 }
 
-// IncomingAcceptQuoteEvent is an event that is broadcast when the RFQ manager
-// receives an accept quote message from a peer.
-type IncomingAcceptQuoteEvent struct {
+// PeerAcceptedBuyQuoteEvent is an event that is broadcast when the RFQ manager
+// receives an accept quote message from a peer. This is a quote which was
+// requested by our node and has been accepted by a peer.
+type PeerAcceptedBuyQuoteEvent struct {
 	// timestamp is the event creation UTC timestamp.
 	timestamp time.Time
 
-	// BuyAccept is the accepted quote.
+	// BuyAccept is the accepted asset buy quote.
 	rfqmsg.BuyAccept
 }
 
-// NewIncomingAcceptQuoteEvent creates a new IncomingAcceptQuoteEvent.
-func NewIncomingAcceptQuoteEvent(
-	accept *rfqmsg.BuyAccept) *IncomingAcceptQuoteEvent {
+// NewPeerAcceptedBuyQuoteEvent creates a new PeerAcceptedBuyQuoteEvent.
+func NewPeerAcceptedBuyQuoteEvent(
+	buyAccept *rfqmsg.BuyAccept) *PeerAcceptedBuyQuoteEvent {
 
-	return &IncomingAcceptQuoteEvent{
+	return &PeerAcceptedBuyQuoteEvent{
 		timestamp: time.Now().UTC(),
-		BuyAccept: *accept,
+		BuyAccept: *buyAccept,
 	}
 }
 
 // Timestamp returns the event creation UTC timestamp.
-func (q *IncomingAcceptQuoteEvent) Timestamp() time.Time {
+func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 	return q.timestamp.UTC()
 }
 
-// Ensure that the IncomingAcceptQuoteEvent struct implements the Event
-// interface.
-var _ fn.Event = (*IncomingAcceptQuoteEvent)(nil)
+// Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event interface.
+var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
 
 // IncomingRejectQuoteEvent is an event that is broadcast when the RFQ manager
 // receives a reject quote message from a peer.
