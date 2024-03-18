@@ -64,11 +64,6 @@ const (
 
 	defaultConfigFileName = "tapd.conf"
 
-	// defaultBatchMintingInterval is the default interval used to
-	// determine when a set of pending assets should be flushed into a new
-	// batch.
-	defaultBatchMintingInterval = time.Minute * 10
-
 	// fallbackHashMailAddr is the fallback address we'll use to deliver
 	// proofs for asynchronous sends.
 	fallbackHashMailAddr = "mailbox.terminal.lightning.today:443"
@@ -298,8 +293,6 @@ type Config struct {
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
 
-	BatchMintingInterval time.Duration `long:"batch-minting-interval" description:"A duration (1m, 2h, etc) that governs how frequently pending assets are gather into a batch to be minted."`
-
 	ReOrgSafeDepth int32 `long:"reorgsafedepth" description:"The number of confirmations we'll wait for before considering a transaction safely buried in the chain."`
 
 	// The following options are used to configure the proof courier.
@@ -380,7 +373,6 @@ func DefaultConfig() Config {
 		},
 		LogWriter:               build.NewRotatingLogWriter(),
 		Prometheus:              monitoring.DefaultPrometheusConfig(),
-		BatchMintingInterval:    defaultBatchMintingInterval,
 		ReOrgSafeDepth:          defaultReOrgSafeDepth,
 		DefaultProofCourierAddr: defaultProofCourierAddr,
 		HashMailCourier: &proof.HashMailCourierCfg{
