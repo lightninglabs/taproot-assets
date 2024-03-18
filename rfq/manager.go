@@ -78,10 +78,11 @@ type Manager struct {
 	// events.
 	acceptHtlcEvents chan *AcceptHtlcEvent
 
-	// peerAcceptedQuotes is a map of serialised short channel IDs (SCIDs)
-	// to associated accepted quotes. These quotes have been accepted by
-	// peer nodes and are therefore available for use in buying assets.
-	peerAcceptedQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
+	// peerAcceptedBuyQuotes holds buy quotes for assets that our node has
+	// requested and that have been accepted by peer nodes. These quotes are
+	// exclusively used by our node for the acquisition of assets, as they
+	// represent agreed-upon terms for purchase transactions with our peers.
+	peerAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -104,7 +105,7 @@ func NewManager(cfg ManagerCfg) (*Manager, error) {
 		outgoingMessages: make(chan rfqmsg.OutgoingMsg),
 
 		acceptHtlcEvents: make(chan *AcceptHtlcEvent),
-		peerAcceptedQuotes: lnutils.SyncMap[
+		peerAcceptedBuyQuotes: lnutils.SyncMap[
 			SerialisedScid, rfqmsg.BuyAccept]{},
 
 		subscribers: lnutils.SyncMap[
@@ -273,7 +274,7 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		// so that it can be used to send a payment by our lightning
 		// node.
 		scid := SerialisedScid(msg.ShortChannelId())
-		m.peerAcceptedQuotes.Store(scid, *msg)
+		m.peerAcceptedBuyQuotes.Store(scid, *msg)
 
 		// Notify subscribers of the incoming peer accepted asset buy
 		// quote.
@@ -433,10 +434,10 @@ func (m *Manager) QueryAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 	// create a copy.
 	quotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 
-	m.peerAcceptedQuotes.ForEach(
+	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
 			if time.Now().Unix() > int64(accept.Expiry) {
-				m.peerAcceptedQuotes.Delete(scid)
+				m.peerAcceptedBuyQuotes.Delete(scid)
 				return nil
 			}
 
