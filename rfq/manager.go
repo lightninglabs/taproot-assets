@@ -305,11 +305,22 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 // messages that will be sent to a peer.
 func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	// Perform type specific handling of the outgoing message.
-	msg, ok := outgoingMsg.(*rfqmsg.BuyAccept)
-	if ok {
-		// Before sending an accept message to a peer, inform the HTLC
-		// order handler that we've accepted the quote request.
+	switch msg := outgoingMsg.(type) {
+	case *rfqmsg.BuyAccept:
+		// A peer sent us an asset buy quote request in an attempt to
+		// buy an asset from us. Having accepted the request, but before
+		// we inform our peer of our decision, we inform the order
+		// handler that we are willing to sell the asset subject to a
+		// sale policy.
 		m.orderHandler.RegisterAssetSalePolicy(*msg)
+
+	case *rfqmsg.SellAccept:
+		// A peer sent us an asset sell quote request in an attempt to
+		// sell an asset to us. Having accepted the request, but before
+		// we inform our peer of our decision, we inform the order
+		// handler that we are willing to buy the asset subject to a
+		// purchase policy.
+		m.orderHandler.RegisterAssetPurchasePolicy(*msg)
 	}
 
 	// Send the outgoing message to the peer.

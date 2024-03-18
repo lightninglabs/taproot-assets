@@ -13,6 +13,35 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
+const (
+	// LnCustomRecordType is a taproot-assets specific lightning payment hop
+	// custom record K-V value.
+	LnCustomRecordType = 65536 + uint64(rfqmsg.TapMessageTypeBaseOffset)
+)
+
+// parseHtlcCustomRecords parses a HTLC custom record to extract any data which
+// is relevant to the RFQ service. If the custom records map is nil or a
+// relevant record was not found, false is returned.
+func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*rfqmsg.ID,
+	bool) {
+
+	// If the given custom records map is nil, we return false.
+	if customRecords == nil {
+		return nil, false
+	}
+
+	// Check for the RFQ custom record key in the custom records map.
+	val, ok := customRecords[LnCustomRecordType]
+	if !ok {
+		return nil, false
+	}
+
+	// TODO(ffranr): val here should be a TLV.
+	var quoteId rfqmsg.ID
+	copy(quoteId[:], val)
+	return &quoteId, true
+}
+
 // SerialisedScid is a serialised short channel id (SCID).
 type SerialisedScid uint64
 
@@ -106,6 +135,90 @@ func (c *AssetSalePolicy) Scid() uint64 {
 // Ensure that AssetSalePolicy implements the Policy interface.
 var _ Policy = (*AssetSalePolicy)(nil)
 
+// AssetPurchasePolicy is a struct that holds the terms which determine whether
+// an asset purchase channel HTLC is accepted or rejected.
+type AssetPurchasePolicy struct {
+	// scid is the serialised short channel ID (SCID) of the channel to
+	// which the policy applies.
+	scid SerialisedScid
+
+	// AcceptedQuoteId is the ID of the accepted quote.
+	AcceptedQuoteId rfqmsg.ID
+
+	// AssetAmount is the amount of the tap asset that is being requested.
+	AssetAmount uint64
+
+	// MinimumChannelPayment is the minimum number of millisatoshis that
+	// must be sent in the HTLC.
+	MinimumChannelPayment lnwire.MilliSatoshi
+
+	// expiry is the policy's expiry unix timestamp in seconds after which
+	// the policy is no longer valid.
+	expiry uint64
+}
+
+// NewAssetPurchasePolicy creates a new asset purchase policy.
+func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
+	// Compute the serialised short channel ID (SCID) for the channel.
+	scid := SerialisedScid(quote.ShortChannelId())
+
+	return &AssetPurchasePolicy{
+		scid:                  scid,
+		AcceptedQuoteId:       quote.ID,
+		AssetAmount:           quote.AssetAmount,
+		MinimumChannelPayment: quote.BidPrice,
+		expiry:                quote.Expiry,
+	}
+}
+
+// CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
+// does not satisfy the subject policy.
+func (c *AssetPurchasePolicy) CheckHtlcCompliance(
+	htlc lndclient.InterceptedHtlc) error {
+
+	// Check that the HTLC contains the accepted quote ID.
+	quoteId, ok := parseHtlcCustomRecords(htlc.CustomRecords)
+	if !ok {
+		return fmt.Errorf("HTLC does not contain a relevant custom "+
+			"record (htlc=%v)", htlc)
+	}
+
+	if *quoteId != c.AcceptedQuoteId {
+		return fmt.Errorf("HTLC contains a custom record, but it does "+
+			"not contain the accepted quote ID (htlc=%v, "+
+			"accepted_quote_id=%v)", htlc, c.AcceptedQuoteId)
+	}
+
+	// Check that the HTLC amount is at least the minimum acceptable amount.
+	if htlc.AmountOutMsat < c.MinimumChannelPayment {
+		return fmt.Errorf("htlc out amount is less than the policy "+
+			"minimum (htlc_out_msat=%d, policy_min_msat=%d)",
+			htlc.AmountOutMsat, c.MinimumChannelPayment)
+	}
+
+	// Lastly, check to ensure that the policy has not expired.
+	if time.Now().Unix() > int64(c.expiry) {
+		return fmt.Errorf("policy has expired (expiry_unix_ts=%d)",
+			c.expiry)
+	}
+
+	return nil
+}
+
+// Expiry returns the policy's expiry time as a unix timestamp in seconds.
+func (c *AssetPurchasePolicy) Expiry() uint64 {
+	return c.expiry
+}
+
+// Scid returns the serialised short channel ID (SCID) of the channel to which
+// the policy applies.
+func (c *AssetPurchasePolicy) Scid() uint64 {
+	return uint64(c.scid)
+}
+
+// Ensure that AssetPurchasePolicy implements the Policy interface.
+var _ Policy = (*AssetPurchasePolicy)(nil)
+
 // OrderHandlerCfg is a struct that holds the configuration parameters for the
 // order handler service.
 type OrderHandlerCfg struct {
@@ -162,14 +275,13 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 
 	log.Debug("Handling incoming HTLC")
 
-	scid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	policy, ok := h.fetchPolicy(scid)
-
-	// If a policy does not exist for the channel SCID, we resume the HTLC.
-	// This is because the HTLC may be relevant to another interceptor
-	// service. We only reject HTLCs that are relevant to the RFQ service
-	// and do not comply with a known policy.
+	// Look up a policy for the HTLC. If a policy does not exist, we resume
+	// the HTLC. This is because the HTLC may be relevant to another
+	// interceptor service. We only reject HTLCs that are relevant to the
+	// RFQ service and do not comply with a known policy.
+	policy, ok := h.fetchPolicy(htlc)
 	if !ok {
+		log.Debug("Failed to find a policy for the HTLC. Resuming.")
 		return &lndclient.InterceptedHtlcResponse{
 			Action: lndclient.InterceptorActionResume,
 		}, nil
@@ -277,14 +389,71 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	h.policies.Store(policy.scid, policy)
 }
 
-// fetchPolicy fetches a policy given a serialised SCID. If a policy is not
-// found, false is returned. Expired policies are not returned and are removed
-// from the cache.
-func (h *OrderHandler) fetchPolicy(scid SerialisedScid) (Policy, bool) {
-	policy, ok := h.policies.Load(scid)
-	if !ok {
+// RegisterAssetPurchasePolicy generates and registers an asset buy policy with the
+// order handler. This function takes an incoming sell accept message as an
+// argument.
+func (h *OrderHandler) RegisterAssetPurchasePolicy(
+	sellAccept rfqmsg.SellAccept) {
+
+	log.Debugf("Order handler is registering an asset buy policy given a "+
+		"sell accept message: %s", sellAccept.String())
+
+	policy := NewAssetPurchasePolicy(sellAccept)
+	h.policies.Store(policy.scid, policy)
+}
+
+// fetchPolicy fetches a policy which is relevant to a given HTLC. If a policy
+// is not found, false is returned. Expired policies are not returned and are
+// removed from the cache.
+func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
+	bool) {
+
+	var (
+		foundPolicy *Policy
+		foundScid   *SerialisedScid
+	)
+
+	// If the HTLC has a custom record, we check if it is relevant to the
+	// RFQ service.
+	quoteId, ok := parseHtlcCustomRecords(htlc.CustomRecords)
+	if ok {
+		scid := SerialisedScid(quoteId.Scid())
+		policy, ok := h.policies.Load(scid)
+		if ok {
+			foundPolicy = &policy
+			foundScid = &scid
+		}
+	}
+
+	// If no policy has been found so far, we attempt to look up a policy by
+	// the outgoing channel SCID.
+	if foundPolicy == nil {
+		scid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
+		policy, ok := h.policies.Load(scid)
+		if ok {
+			foundPolicy = &policy
+			foundScid = &scid
+		}
+	}
+
+	// If no policy has been found so far, we attempt to look up a policy by
+	// the incoming channel SCID.
+	if foundPolicy == nil {
+		scid := SerialisedScid(htlc.IncomingCircuitKey.ChanID.ToUint64())
+		policy, ok := h.policies.Load(scid)
+		if ok {
+			foundPolicy = &policy
+			foundScid = &scid
+		}
+	}
+
+	// If no policy has been found, we return false.
+	if foundPolicy == nil {
 		return nil, false
 	}
+
+	policy := *foundPolicy
+	scid := *foundScid
 
 	// If the policy has expired, return false and clear it from the cache.
 	expireTime := time.Unix(int64(policy.Expiry()), 0).UTC()
