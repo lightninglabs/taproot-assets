@@ -427,9 +427,10 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	return nil
 }
 
-// QueryAcceptedQuotes returns a map of accepted quotes that have been
-// registered with the RFQ manager.
-func (m *Manager) QueryAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+// QueryPeerAcceptedQuotes returns quotes that were requested by our node and
+// have been accepted by our peers. These quotes are exclusively available to
+// our node for the acquisition/sale of assets.
+func (m *Manager) QueryPeerAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	quotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)

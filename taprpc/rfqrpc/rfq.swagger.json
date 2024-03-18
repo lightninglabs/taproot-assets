@@ -224,15 +224,15 @@
         ]
       }
     },
-    "/v1/taproot-assets/rfq/quotes/accepted": {
+    "/v1/taproot-assets/rfq/quotes/peeraccepted": {
       "get": {
-        "summary": "tapcli: `rfq acceptedquotes`\nQueryRfqAcceptedQuotes is used to upsert a sell order for a specific\nasset.",
-        "operationId": "Rfq_QueryRfqAcceptedQuotes",
+        "summary": "tapcli: `rfq peeracceptedquotes`\nQueryPeerAcceptedQuotes is used to query for quotes that were requested by\nour node and have been accepted our peers.",
+        "operationId": "Rfq_QueryPeerAcceptedQuotes",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/rfqrpcQueryRfqAcceptedQuotesResponse"
+              "$ref": "#/definitions/rfqrpcQueryPeerAcceptedQuotesResponse"
             }
           },
           "default": {
@@ -409,7 +409,36 @@
         }
       }
     },
-    "rfqrpcAcceptedQuote": {
+    "rfqrpcAddAssetBuyOrderResponse": {
+      "type": "object"
+    },
+    "rfqrpcAddAssetSellOfferResponse": {
+      "type": "object"
+    },
+    "rfqrpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+        },
+        "group_key_str": {
+          "type": "string",
+          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        }
+      }
+    },
+    "rfqrpcPeerAcceptedBuyQuote": {
       "type": "object",
       "properties": {
         "peer": {
@@ -443,36 +472,7 @@
         }
       }
     },
-    "rfqrpcAddAssetBuyOrderResponse": {
-      "type": "object"
-    },
-    "rfqrpcAddAssetSellOfferResponse": {
-      "type": "object"
-    },
-    "rfqrpcAssetSpecifier": {
-      "type": "object",
-      "properties": {
-        "asset_id": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-        },
-        "asset_id_str": {
-          "type": "string",
-          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-        },
-        "group_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-        },
-        "group_key_str": {
-          "type": "string",
-          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-        }
-      }
-    },
-    "rfqrpcIncomingAcceptQuoteEvent": {
+    "rfqrpcPeerAcceptedBuyQuoteEvent": {
       "type": "object",
       "properties": {
         "timestamp": {
@@ -480,30 +480,31 @@
           "format": "uint64",
           "description": "Unix timestamp."
         },
-        "accepted_quote": {
-          "$ref": "#/definitions/rfqrpcAcceptedQuote",
-          "description": "The accepted quote."
+        "peer_accepted_buy_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote",
+          "description": "The asset buy quote that was accepted by out peer."
         }
       }
     },
-    "rfqrpcQueryRfqAcceptedQuotesResponse": {
+    "rfqrpcQueryPeerAcceptedQuotesResponse": {
       "type": "object",
       "properties": {
-        "accepted_quotes": {
+        "buy_quotes": {
           "type": "array",
           "items": {
             "type": "object",
-            "$ref": "#/definitions/rfqrpcAcceptedQuote"
-          }
+            "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote"
+          },
+          "description": "buy_quotes is a list of asset buy quotes which were requested by our\nnode and have been accepted by our peers."
         }
       }
     },
     "rfqrpcRfqEvent": {
       "type": "object",
       "properties": {
-        "incoming_accept_quote": {
-          "$ref": "#/definitions/rfqrpcIncomingAcceptQuoteEvent",
-          "description": "incoming_accept_quote is an event that is sent when an incoming\naccept quote message is received."
+        "peer_accepted_buy_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuoteEvent",
+          "description": "peer_accepted_buy_quote is an event that is emitted when a peer\naccepted (incoming) asset buy quote message is received."
         },
         "accept_htlc": {
           "$ref": "#/definitions/rfqrpcAcceptHtlcEvent",

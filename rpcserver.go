@@ -5554,14 +5554,18 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 	return &rfqrpc.AddAssetSellOfferResponse{}, nil
 }
 
-// marshalAcceptedQuotes marshals a map of accepted quotes into the RPC form.
-func marshalAcceptedQuotes(
-	acceptedQuotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.AcceptedQuote {
+// marshalPeerAcceptedQuotes marshals a map of peer accepted quotes into the RPC
+// form. These are quotes that were requested by our node and have been accepted
+// by our peers.
+func marshalPeerAcceptedQuotes(
+	peerAcceptedQuotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
 
 	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make([]*rfqrpc.AcceptedQuote, 0, len(acceptedQuotes))
-	for scid, quote := range acceptedQuotes {
-		rpcQuote := &rfqrpc.AcceptedQuote{
+	rpcQuotes := make(
+		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(peerAcceptedQuotes),
+	)
+	for scid, quote := range peerAcceptedQuotes {
+		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
 			Peer:        quote.Peer.String(),
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
@@ -5575,18 +5579,20 @@ func marshalAcceptedQuotes(
 	return rpcQuotes
 }
 
-// QueryRfqAcceptedQuotes queries for accepted quotes from the RFQ system.
-func (r *rpcServer) QueryRfqAcceptedQuotes(_ context.Context,
-	_ *rfqrpc.QueryRfqAcceptedQuotesRequest) (
-	*rfqrpc.QueryRfqAcceptedQuotesResponse, error) {
+// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
+// our node and have been accepted our peers.
+func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
+	_ *rfqrpc.QueryPeerAcceptedQuotesRequest) (
+	*rfqrpc.QueryPeerAcceptedQuotesResponse, error) {
 
-	// Query the RFQ manager for accepted quotes.
-	acceptedQuotes := r.cfg.RfqManager.QueryAcceptedQuotes()
+	// Query the RFQ manager for quotes that were requested by our node and
+	// have been accepted by our peers.
+	peerAcceptedQuotes := r.cfg.RfqManager.QueryPeerAcceptedQuotes()
 
-	rpcQuotes := marshalAcceptedQuotes(acceptedQuotes)
+	rpcQuotes := marshalPeerAcceptedQuotes(peerAcceptedQuotes)
 
-	return &rfqrpc.QueryRfqAcceptedQuotesResponse{
-		AcceptedQuotes: rpcQuotes,
+	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
+		BuyQuotes: rpcQuotes,
 	}, nil
 }
 
@@ -5605,10 +5611,10 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 			Expiry:      event.Expiry,
 		}
 
-		eventRpc := &rfqrpc.RfqEvent_IncomingAcceptQuote{
-			IncomingAcceptQuote: &rfqrpc.IncomingAcceptQuoteEvent{
-				Timestamp:     uint64(timestamp),
-				AcceptedQuote: acceptedQuote,
+		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedBuyQuote{
+			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
+				Timestamp:            uint64(timestamp),
+				PeerAcceptedBuyQuote: acceptedQuote,
 			},
 		}
 		return &rfqrpc.RfqEvent{

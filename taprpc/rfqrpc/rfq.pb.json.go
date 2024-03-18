@@ -71,10 +71,10 @@ func RegisterRfqJSONCallbacks(registry map[string]func(ctx context.Context,
 		callback(string(respBytes), nil)
 	}
 
-	registry["rfqrpc.Rfq.QueryRfqAcceptedQuotes"] = func(ctx context.Context,
+	registry["rfqrpc.Rfq.QueryPeerAcceptedQuotes"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &QueryRfqAcceptedQuotesRequest{}
+		req := &QueryPeerAcceptedQuotesRequest{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)
@@ -82,7 +82,7 @@ func RegisterRfqJSONCallbacks(registry map[string]func(ctx context.Context,
 		}
 
 		client := NewRfqClient(conn)
-		resp, err := client.QueryRfqAcceptedQuotes(ctx, req)
+		resp, err := client.QueryPeerAcceptedQuotes(ctx, req)
 		if err != nil {
 			callback("", err)
 			return

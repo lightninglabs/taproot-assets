@@ -228,7 +228,7 @@ var (
 			Entity: "rfq",
 			Action: "write",
 		}},
-		"/rfqrpc.Rfq/QueryRfqAcceptedQuotes": {{
+		"/rfqrpc.Rfq/QueryPeerAcceptedQuotes": {{
 			Entity: "rfq",
 			Action: "read",
 		}},

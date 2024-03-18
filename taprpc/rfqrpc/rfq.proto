@@ -19,12 +19,12 @@ service Rfq {
     rpc AddAssetSellOffer (AddAssetSellOfferRequest)
         returns (AddAssetSellOfferResponse);
 
-    /* tapcli: `rfq acceptedquotes`
-    QueryRfqAcceptedQuotes is used to upsert a sell order for a specific
-    asset.
+    /* tapcli: `rfq peeracceptedquotes`
+    QueryPeerAcceptedQuotes is used to query for quotes that were requested by
+    our node and have been accepted our peers.
     */
-    rpc QueryRfqAcceptedQuotes (QueryRfqAcceptedQuotesRequest)
-        returns (QueryRfqAcceptedQuotesResponse);
+    rpc QueryPeerAcceptedQuotes (QueryPeerAcceptedQuotesRequest)
+        returns (QueryPeerAcceptedQuotesResponse);
 
     /*
     SubscribeRfqEventNtfns is used to subscribe to RFQ events.
@@ -82,10 +82,10 @@ message AddAssetSellOfferRequest {
 message AddAssetSellOfferResponse {
 }
 
-message QueryRfqAcceptedQuotesRequest {
+message QueryPeerAcceptedQuotesRequest {
 }
 
-message AcceptedQuote {
+message PeerAcceptedBuyQuote {
     // Quote counterparty peer.
     string peer = 1;
 
@@ -106,19 +106,21 @@ message AcceptedQuote {
     uint64 expiry = 6;
 }
 
-message QueryRfqAcceptedQuotesResponse {
-    repeated AcceptedQuote accepted_quotes = 1;
+message QueryPeerAcceptedQuotesResponse {
+    // buy_quotes is a list of asset buy quotes which were requested by our
+    // node and have been accepted by our peers.
+    repeated PeerAcceptedBuyQuote buy_quotes = 1;
 }
 
 message SubscribeRfqEventNtfnsRequest {
 }
 
-message IncomingAcceptQuoteEvent {
+message PeerAcceptedBuyQuoteEvent {
     // Unix timestamp.
     uint64 timestamp = 1;
 
-    // The accepted quote.
-    AcceptedQuote accepted_quote = 2;
+    // The asset buy quote that was accepted by out peer.
+    PeerAcceptedBuyQuote peer_accepted_buy_quote = 2;
 }
 
 message AcceptHtlcEvent {
@@ -132,9 +134,9 @@ message AcceptHtlcEvent {
 
 message RfqEvent {
     oneof event {
-        // incoming_accept_quote is an event that is sent when an incoming
-        // accept quote message is received.
-        IncomingAcceptQuoteEvent incoming_accept_quote = 1;
+        // peer_accepted_buy_quote is an event that is emitted when a peer
+        // accepted (incoming) asset buy quote message is received.
+        PeerAcceptedBuyQuoteEvent peer_accepted_buy_quote = 1;
 
         // accept_htlc is an event that is sent when a HTLC is accepted by the
         // RFQ service.
