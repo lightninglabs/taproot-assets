@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -214,6 +216,157 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
+// testRfqAssetSellHtlcIntercept tests RFQ negotiation, HTLC interception, and
+// validation between three peers. The RFQ negotiation is initiated by an asset
+// sell request.
+func testRfqAssetSellHtlcIntercept(t *harnessTest) {
+	// Initialize a new test scenario.
+	ts := newRfqTestScenario(t)
+
+	// Mint an asset with Alice's tapd node.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, ts.AliceTapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// TODO(ffranr): Add an asset buy offer to Bob's tapd node. This will
+	//  allow Alice to sell the newly minted asset to Bob.
+
+	// Subscribe to Alice's RFQ events stream.
+	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Alice sends a sell order to Bob for some amount of the newly minted
+	// asset.
+	purchaseAssetAmt := uint64(200)
+	askAmt := uint64(42000)
+	sellOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
+
+	_, err = ts.AliceTapd.AddAssetSellOrder(
+		ctxt, &rfqrpc.AddAssetSellOrderRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: mintedAssetId,
+				},
+			},
+			MaxAssetAmount: purchaseAssetAmt,
+			MinAsk:         askAmt,
+			Expiry:         sellOrderExpiry,
+
+			// Here we explicitly specify Bob as the destination
+			// peer for the sell order. This will prompt Alice's
+			// tapd node to send a request for quote message to
+			// Bob's node.
+			PeerPubKey: ts.BobLnd.PubKey[:],
+		},
+	)
+	require.NoError(t.t, err, "unable to upsert asset sell order")
+
+	// Wait until Alice receives an incoming sell quote accept message (sent
+	// from Bob) RFQ event notification.
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEventNtfns.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+	}, defaultWaitTimeout)
+
+	// Alice should have received an accepted quote from Bob. This accepted
+	// quote can be used by Alice to make a payment to Bob.
+	acceptedQuotes, err := ts.AliceTapd.QueryPeerAcceptedQuotes(
+		ctxt, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
+	)
+	require.NoError(t.t, err, "unable to query accepted quotes")
+	require.Len(t.t, acceptedQuotes.SellQuotes, 1)
+
+	acceptedQuote := acceptedQuotes.SellQuotes[0]
+
+	// Register to receive RFQ events from Bob's tapd node. We'll use this
+	// to wait for Bob to receive the HTLC with the asset transfer specific
+	// scid.
+	bobEventNtfns, err := ts.BobTapd.SubscribeRfqEventNtfns(
+		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Carol generates and invoice for Alice to settle via Bob.
+	addInvoiceResp := ts.CarolLnd.RPC.AddInvoice(&lnrpc.Invoice{
+		ValueMsat: int64(askAmt),
+	})
+	invoice := ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
+
+	// Decode the payment request to get the payment address.
+	payReq := ts.CarolLnd.RPC.DecodePayReq(invoice.PaymentRequest)
+
+	// We now need to construct a route for the payment from Alice to Carol.
+	// The route will be Alice -> Bob -> Carol. We'll add the accepted quote
+	// ID as a record to the custom records field of the route's first hop.
+	// This will allow Bob to validate the payment against the accepted
+	// quote.
+	routeBuildRequest := routerrpc.BuildRouteRequest{
+		AmtMsat: int64(askAmt),
+		HopPubkeys: [][]byte{
+			ts.BobLnd.PubKey[:],
+			ts.CarolLnd.PubKey[:],
+		},
+		PaymentAddr: payReq.PaymentAddr,
+	}
+	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(&routeBuildRequest)
+
+	// Add the accepted quote ID as a record to the custom records field of
+	// the route's first hop.
+	aliceBobHop := routeBuildResp.Route.Hops[0]
+	if aliceBobHop.CustomRecords == nil {
+		aliceBobHop.CustomRecords = make(map[uint64][]byte)
+	}
+
+	aliceBobHop.CustomRecords[rfq.LnCustomRecordType] =
+		acceptedQuote.Id[:]
+
+	// Update the route with the modified first hop.
+	routeBuildResp.Route.Hops[0] = aliceBobHop
+
+	// Send the payment to the route.
+	t.Log("Alice paying invoice")
+	routeReq := routerrpc.SendToRouteRequest{
+		PaymentHash: invoice.RHash,
+		Route:       routeBuildResp.Route,
+	}
+	sendAttempt := ts.AliceLnd.RPC.SendToRouteV2(&routeReq)
+	require.Equal(t.t, lnrpc.HTLCAttempt_SUCCEEDED, sendAttempt.Status)
+
+	// At this point Bob should have received a HTLC with the asset transfer
+	// specific scid. We'll wait for Bob to publish an accept HTLC event and
+	// then validate it against the accepted quote.
+	t.Log("Waiting for Bob to receive HTLC")
+	BeforeTimeout(t.t, func() {
+		event, err := bobEventNtfns.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
+		require.True(t.t, ok, "unexpected event: %v", event)
+	}, defaultWaitTimeout)
+
+	// Confirm that Carol receives the lightning payment from Alice via Bob.
+	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
+	require.Equal(t.t, invoice.State, lnrpc.Invoice_SETTLED)
+
+	// Close event notification streams.
+	err = aliceEventNtfns.CloseSend()
+	require.NoError(t.t, err)
+
+	err = bobEventNtfns.CloseSend()
+	require.NoError(t.t, err)
+}
+
 // newLndNode creates a new lnd node with the given name and funds its wallet
 // with the specified outputs.
 func newLndNode(name string, outputFunds []btcutil.Amount,
@@ -382,4 +535,30 @@ func randomString(randStrLen int) string {
 // to the given base name.
 func genRandomNodeName(baseName string) string {
 	return fmt.Sprintf("%s-%s", baseName, randomString(8))
+}
+
+// BeforeTimeout executes a function in a goroutine with a timeout. It waits for
+// the function to finish or for the timeout to expire, whichever happens first.
+// If the function exceeds the timeout, it logs a test error.
+func BeforeTimeout(t *testing.T, targetFunc func(),
+	timeout time.Duration) {
+
+	// Create a channel to signal when the target function has completed.
+	targetExecComplete := make(chan bool, 1)
+
+	// Execute the target function in a goroutine.
+	go func() {
+		targetFunc()
+		targetExecComplete <- true
+	}()
+
+	// Wait for the target function to complete or timeout.
+	select {
+	case <-targetExecComplete:
+		return
+
+	case <-time.After(timeout):
+		t.Errorf("targetFunc did not complete within timeout: %v",
+			timeout)
+	}
 }
