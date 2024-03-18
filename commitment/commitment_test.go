@@ -104,9 +104,14 @@ func TestNewAssetCommitment(t *testing.T) {
 		t, test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
 		nil,
 	)
+	group1ReissuedGenTx, err := group1ReissuedGroupReq.BuildGroupVirtualTx(
+		&genTxBuilder,
+	)
+	require.NoError(t, err)
+
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
-		asset.NewMockGenesisSigner(group1Priv), &genTxBuilder,
-		*group1ReissuedGroupReq,
+		asset.NewMockGenesisSigner(group1Priv), *group1ReissuedGenTx,
+		*group1ReissuedGroupReq, nil,
 	)
 	require.NoError(t, err)
 	group1Reissued = asset.NewAssetNoErr(
@@ -958,9 +963,14 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
 		t, test.PubToKeyDesc(group1Pub), genesis1, group1Reissued, nil,
 	)
+	group1ReissuedGenTx, err := group1ReissuedGroupReq.BuildGroupVirtualTx(
+		&genTxBuilder,
+	)
+	require.NoError(t, err)
+
 	group1ReissuedGroupKey, err := asset.DeriveGroupKey(
-		asset.NewMockGenesisSigner(group1Priv), &genTxBuilder,
-		*group1ReissuedGroupReq,
+		asset.NewMockGenesisSigner(group1Priv), *group1ReissuedGenTx,
+		*group1ReissuedGroupReq, nil,
 	)
 	require.NoError(t, err)
 	group1Reissued = asset.NewAssetNoErr(

@@ -128,9 +128,10 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 	groupReq := asset.NewGroupKeyRequestNoErr(
 		t, privDesc, initGen, genProtoAsset, nil,
 	)
-	groupKey, err := asset.DeriveGroupKey(
-		genSigner, &genTxBuilder, *groupReq,
-	)
+	genTx, err := groupReq.BuildGroupVirtualTx(&genTxBuilder)
+	require.NoError(t, err)
+
+	groupKey, err := asset.DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
 	require.NoError(t, err)
 
 	initialAsset := asset.RandAssetWithValues(
@@ -557,10 +558,16 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 				*groupInfo.Genesis, protoAsset,
 				groupInfo.GroupKey.TapscriptRoot,
 			)
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				&genTxBuilder,
+			)
+			require.NoError(t, err)
+
 			groupKey, err = asset.DeriveGroupKey(
 				asset.NewMockGenesisSigner(groupPriv),
-				&genTxBuilder, *groupReq,
+				*genTx, *groupReq, nil,
 			)
+			require.NoError(t, err)
 		}
 
 		if seedling.EnableEmission {
@@ -570,9 +577,15 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 				t, groupKeyRaw, assetGen, protoAsset,
 				seedling.GroupTapscriptRoot,
 			)
-			groupKey, err = asset.DeriveGroupKey(
-				genSigner, &genTxBuilder, *groupReq,
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				&genTxBuilder,
 			)
+			require.NoError(t, err)
+
+			groupKey, err = asset.DeriveGroupKey(
+				genSigner, *genTx, *groupReq, nil,
+			)
+			require.NoError(t, err)
 			newGroupPrivs[seedling.AssetName] = newGroupPriv
 			newGroupInfo[seedling.AssetName] = &asset.AssetGroup{
 				Genesis:  &assetGen,

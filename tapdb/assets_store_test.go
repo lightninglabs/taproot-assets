@@ -166,8 +166,11 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	groupReq := asset.NewGroupKeyRequestNoErr(
 		t, groupKeyDesc, initialGen, protoAsset, nil,
 	)
+	genTx, err := groupReq.BuildGroupVirtualTx(&genTxBuilder)
+	require.NoError(t, err)
+
 	assetGroupKey, err = asset.DeriveGroupKey(
-		genSigner, &genTxBuilder, *groupReq,
+		genSigner, *genTx, *groupReq, nil,
 	)
 
 	require.NoError(t, err)
