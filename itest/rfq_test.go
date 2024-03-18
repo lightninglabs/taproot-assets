@@ -20,18 +20,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testRfqHtlcIntercept tests RFQ negotiation and HTLC interception and
-// validation between three peers.
+// testRfqAssetBuyHtlcIntercept tests RFQ negotiation, HTLC interception, and
+// validation between three peers. The RFQ negotiation is initiated by an asset
+// buy request.
 //
 // The procedure is as follows:
-//  1. Carol sends a tap asset request for quote (buy order) to Bob.
+//  1. Carol sends a tap asset buy quote request to Bob.
 //  2. Bob's node accepts the quote.
-//  3. Carol uses the quote accept message to construct a lightning invoice which
-//     will pay for the quote accepted by Bob.
+//  3. Carol uses the buy accept message to construct a lightning invoice
+//     which will pay for the quote accepted by Bob.
 //  4. Alice pays the invoice.
 //  5. Bob's node intercepts the lightning payment from Alice and validates it
 //     against the quote accepted between Bob and Carol.
-func testRfqHtlcIntercept(t *harnessTest) {
+//
+// As a final step (which is not part of this test), Bob's node will transfer
+// the tap asset to Carol's node.
+func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// Initialize a new test scenario.
 	ts := newRfqTestScenario(t)
 

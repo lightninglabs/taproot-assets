@@ -244,8 +244,8 @@ var testCases = []*testCase{
 
 	// Request for quote (RFQ) tests.
 	{
-		name: "rfq htlc intercept",
-		test: testRfqHtlcIntercept,
+		name: "rfq asset buy htlc intercept",
+		test: testRfqAssetBuyHtlcIntercept,
 	},
 	{
 		name: "multi signature on all levels",
