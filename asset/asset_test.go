@@ -800,7 +800,10 @@ func TestAssetGroupKey(t *testing.T) {
 	// need to provide a copy to arrive at the same result.
 	protoAsset := NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
 	groupReq := NewGroupKeyRequestNoErr(t, fakeKeyDesc, g, protoAsset, nil)
-	keyGroup, err := DeriveGroupKey(genSigner, &genBuilder, *groupReq)
+	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
+	require.NoError(t, err)
+
+	keyGroup, err := DeriveGroupKey(genSigner, *genTx, *groupReq)
 	require.NoError(t, err)
 
 	require.Equal(
@@ -816,8 +819,11 @@ func TestAssetGroupKey(t *testing.T) {
 	groupReq = NewGroupKeyRequestNoErr(
 		t, test.PubToKeyDesc(privKey.PubKey()), g, protoAsset, tapTweak,
 	)
+	genTx, err = groupReq.BuildGroupVirtualTx(&genBuilder)
+	require.NoError(t, err)
+
 	keyGroup, err = DeriveCustomGroupKey(
-		genSigner, &genBuilder, *groupReq, nil, nil,
+		genSigner, *genTx, *groupReq, nil, nil,
 	)
 	require.NoError(t, err)
 
@@ -873,34 +879,36 @@ func TestDeriveGroupKey(t *testing.T) {
 	}
 
 	// A prototype asset is required for building the genesis virtual TX.
-	_, err := DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	_, err := groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.ErrorContains(t, err, "grouped asset cannot be nil")
 
 	// The prototype asset must have a genesis witness.
 	groupReq.NewAsset = nonGenProtoAsset
-	_, err = DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	_, err = groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.ErrorContains(t, err, "asset is not a genesis asset")
 
 	// The prototype asset must not have a group key set.
 	groupReq.NewAsset = groupedProtoAsset
-	_, err = DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	_, err = groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.ErrorContains(t, err, "asset already has group key")
 
 	// The anchor genesis used for signing must have the same asset type
 	// as the prototype asset being signed.
 	groupReq.AnchorGen = collectGen
 	groupReq.NewAsset = protoAsset
-	_, err = DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	_, err = groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.ErrorContains(t, err, "asset group type mismatch")
 
 	// The group key request must include an internal key.
 	groupReq.AnchorGen = baseGen
 	groupReq.RawKey.PubKey = nil
-	_, err = DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	_, err = groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.ErrorContains(t, err, "missing group internal key")
 
 	groupReq.RawKey = groupKeyDesc
-	groupKey, err := DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
+	require.NoError(t, err)
+	groupKey, err := DeriveGroupKey(genSigner, *genTx, groupReq)
 	require.NoError(t, err)
 	require.NotNil(t, groupKey)
 }
