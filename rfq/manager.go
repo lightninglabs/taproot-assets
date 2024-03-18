@@ -84,6 +84,13 @@ type Manager struct {
 	// represent agreed-upon terms for purchase transactions with our peers.
 	peerAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
 
+	// peerAcceptedSellQuotes holds sell quotes for assets that our node has
+	// requested and that have been accepted by peer nodes. These quotes are
+	// exclusively used by our node for the sale of assets, as they
+	// represent agreed-upon terms for sale transactions with our peers.
+	peerAcceptedSellQuotes lnutils.SyncMap[SerialisedScid,
+		rfqmsg.SellAccept]
+
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
 	subscribers lnutils.SyncMap[uint64, *fn.EventReceiver[fn.Event]]
@@ -107,6 +114,8 @@ func NewManager(cfg ManagerCfg) (*Manager, error) {
 		acceptHtlcEvents: make(chan *AcceptHtlcEvent),
 		peerAcceptedBuyQuotes: lnutils.SyncMap[
 			SerialisedScid, rfqmsg.BuyAccept]{},
+		peerAcceptedSellQuotes: lnutils.SyncMap[
+			SerialisedScid, rfqmsg.SellAccept]{},
 
 		subscribers: lnutils.SyncMap[
 			uint64, *fn.EventReceiver[fn.Event]]{},
@@ -287,6 +296,16 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			return fmt.Errorf("error handling incoming sell "+
 				"request: %w", err)
 		}
+
+	case *rfqmsg.SellAccept:
+		// TODO(ffranr): The stream handler should ensure that the
+		//  accept message corresponds to a request.
+		//
+		// The quote request has been accepted. Store accepted quote
+		// so that it can be used to send a payment by our lightning
+		// node.
+		scid := SerialisedScid(msg.ShortChannelId())
+		m.peerAcceptedSellQuotes.Store(scid, *msg)
 
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
