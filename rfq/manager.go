@@ -512,10 +512,12 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
 // QueryPeerAcceptedQuotes returns quotes that were requested by our node and
 // have been accepted by our peers. These quotes are exclusively available to
 // our node for the acquisition/sale of assets.
-func (m *Manager) QueryPeerAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+func (m *Manager) QueryPeerAcceptedQuotes() (map[SerialisedScid]rfqmsg.BuyAccept,
+	map[SerialisedScid]rfqmsg.SellAccept) {
+
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
-	quotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
+	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 
 	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
@@ -524,12 +526,28 @@ func (m *Manager) QueryPeerAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept 
 				return nil
 			}
 
-			quotesCopy[scid] = accept
+			buyQuotesCopy[scid] = accept
 			return nil
 		},
 	)
 
-	return quotesCopy
+	// Returning the map directly is not thread safe. We will therefore
+	// create a copy.
+	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
+
+	m.peerAcceptedSellQuotes.ForEach(
+		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
+			if time.Now().Unix() > int64(accept.Expiry) {
+				m.peerAcceptedBuyQuotes.Delete(scid)
+				return nil
+			}
+
+			sellQuotesCopy[scid] = accept
+			return nil
+		},
+	)
+
+	return buyQuotesCopy, sellQuotesCopy
 }
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will

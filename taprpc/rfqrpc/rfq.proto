@@ -159,6 +159,10 @@ message QueryPeerAcceptedQuotesResponse {
     // buy_quotes is a list of asset buy quotes which were requested by our
     // node and have been accepted by our peers.
     repeated PeerAcceptedBuyQuote buy_quotes = 1;
+
+    // sell_quotes is a list of asset sell quotes which were requested by our
+    // node and have been accepted by our peers.
+    repeated PeerAcceptedSellQuote sell_quotes = 2;
 }
 
 message SubscribeRfqEventNtfnsRequest {

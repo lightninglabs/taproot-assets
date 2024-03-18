@@ -5618,23 +5618,46 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 	return &rfqrpc.AddAssetSellOfferResponse{}, nil
 }
 
-// marshalPeerAcceptedQuotes marshals a map of peer accepted quotes into the RPC
-// form. These are quotes that were requested by our node and have been accepted
-// by our peers.
-func marshalPeerAcceptedQuotes(
-	peerAcceptedQuotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
+// marshalPeerAcceptedBuyQuotes marshals a map of peer accepted asset buy quotes
+// into the RPC form. These are quotes that were requested by our node and have
+// been accepted by our peers.
+func marshalPeerAcceptedBuyQuotes(
+	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
 
 	// Marshal the accepted quotes into the RPC form.
 	rpcQuotes := make(
-		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(peerAcceptedQuotes),
+		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
-	for scid, quote := range peerAcceptedQuotes {
+	for scid, quote := range quotes {
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
 			Peer:        quote.Peer.String(),
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
 			AssetAmount: quote.AssetAmount,
 			AskPrice:    uint64(quote.AskPrice),
+			Expiry:      quote.Expiry,
+		}
+		rpcQuotes = append(rpcQuotes, rpcQuote)
+	}
+
+	return rpcQuotes
+}
+
+// marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
+// quotes into the RPC form. These are quotes that were requested by our node
+// and have been accepted by our peers.
+func marshalPeerAcceptedSellQuotes(
+	quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) []*rfqrpc.PeerAcceptedSellQuote {
+
+	// Marshal the accepted quotes into the RPC form.
+	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
+	for scid, quote := range quotes {
+		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
+			Peer:        quote.Peer.String(),
+			Id:          quote.ID[:],
+			Scid:        uint64(scid),
+			AssetAmount: quote.AssetAmount,
+			BidPrice:    uint64(quote.BidPrice),
 			Expiry:      quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
@@ -5651,12 +5674,15 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 
 	// Query the RFQ manager for quotes that were requested by our node and
 	// have been accepted by our peers.
-	peerAcceptedQuotes := r.cfg.RfqManager.QueryPeerAcceptedQuotes()
+	peerAcceptedBuyQuotes, peerAcceptedSellQuotes :=
+		r.cfg.RfqManager.QueryPeerAcceptedQuotes()
 
-	rpcQuotes := marshalPeerAcceptedQuotes(peerAcceptedQuotes)
+	rpcBuyQuotes := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
+	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
-		BuyQuotes: rpcQuotes,
+		BuyQuotes:  rpcBuyQuotes,
+		SellQuotes: rpcSellQuotes,
 	}, nil
 }
 

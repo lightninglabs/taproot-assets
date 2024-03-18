@@ -713,6 +713,14 @@
             "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote"
           },
           "description": "buy_quotes is a list of asset buy quotes which were requested by our\nnode and have been accepted by our peers."
+        },
+        "sell_quotes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote"
+          },
+          "description": "sell_quotes is a list of asset sell quotes which were requested by our\nnode and have been accepted by our peers."
         }
       }
     },
