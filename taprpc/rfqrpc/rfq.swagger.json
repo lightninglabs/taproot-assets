@@ -655,6 +655,54 @@
         }
       }
     },
+    "rfqrpcPeerAcceptedSellQuote": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Quote counterparty peer."
+        },
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique identifier of the quote request."
+        },
+        "scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "scid is the short channel ID of the channel over which the payment for\nthe quote should be made."
+        },
+        "asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "asset_amount is the amount of the subject asset."
+        },
+        "bid_price": {
+          "type": "string",
+          "format": "uint64",
+          "description": "bid_price is the price in millisats for the entire asset amount."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unix timestamp in seconds after which the quote is no longer valid."
+        }
+      }
+    },
+    "rfqrpcPeerAcceptedSellQuoteEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Unix timestamp in microseconds."
+        },
+        "peer_accepted_sell_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote",
+          "description": "The asset sell quote that was accepted by out peer."
+        }
+      }
+    },
     "rfqrpcQueryPeerAcceptedQuotesResponse": {
       "type": "object",
       "properties": {
@@ -674,6 +722,10 @@
         "peer_accepted_buy_quote": {
           "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuoteEvent",
           "description": "peer_accepted_buy_quote is an event that is emitted when a peer\naccepted (incoming) asset buy quote message is received."
+        },
+        "peer_accepted_sell_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuoteEvent",
+          "description": "peer_accepted_sell_offer is an event that is emitted when a peer\naccepted (incoming) asset sell quote message is received."
         },
         "accept_htlc": {
           "$ref": "#/definitions/rfqrpcAcceptHtlcEvent",

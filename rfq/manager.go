@@ -307,6 +307,11 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		scid := SerialisedScid(msg.ShortChannelId())
 		m.peerAcceptedSellQuotes.Store(scid, *msg)
 
+		// Notify subscribers of the incoming peer accepted asset sell
+		// quote.
+		event := NewPeerAcceptedSellQuoteEvent(msg)
+		m.publishSubscriberEvent(event)
+
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
 		// the rejection.
@@ -593,8 +598,39 @@ func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 	return q.timestamp.UTC()
 }
 
-// Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event interface.
+// Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event
+// interface.
 var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
+
+// PeerAcceptedSellQuoteEvent is an event that is broadcast when the RFQ manager
+// receives an asset sell request accept quote message from a peer. This is a
+// quote which was requested by our node and has been accepted by a peer.
+type PeerAcceptedSellQuoteEvent struct {
+	// timestamp is the event creation UTC timestamp.
+	timestamp time.Time
+
+	// SellAccept is the accepted asset sell quote.
+	rfqmsg.SellAccept
+}
+
+// NewPeerAcceptedSellQuoteEvent creates a new PeerAcceptedSellQuoteEvent.
+func NewPeerAcceptedSellQuoteEvent(
+	sellAccept *rfqmsg.SellAccept) *PeerAcceptedSellQuoteEvent {
+
+	return &PeerAcceptedSellQuoteEvent{
+		timestamp:  time.Now().UTC(),
+		SellAccept: *sellAccept,
+	}
+}
+
+// Timestamp returns the event creation UTC timestamp.
+func (q *PeerAcceptedSellQuoteEvent) Timestamp() time.Time {
+	return q.timestamp.UTC()
+}
+
+// Ensure that the PeerAcceptedSellQuoteEvent struct implements the Event
+// interface.
+var _ fn.Event = (*PeerAcceptedSellQuoteEvent)(nil)
 
 // IncomingRejectQuoteEvent is an event that is broadcast when the RFQ manager
 // receives a reject quote message from a peer.

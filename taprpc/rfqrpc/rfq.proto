@@ -134,6 +134,27 @@ message PeerAcceptedBuyQuote {
     uint64 expiry = 6;
 }
 
+message PeerAcceptedSellQuote {
+    // Quote counterparty peer.
+    string peer = 1;
+
+    // The unique identifier of the quote request.
+    bytes id = 2;
+
+    // scid is the short channel ID of the channel over which the payment for
+    // the quote should be made.
+    uint64 scid = 3;
+
+    // asset_amount is the amount of the subject asset.
+    uint64 asset_amount = 4;
+
+    // bid_price is the price in millisats for the entire asset amount.
+    uint64 bid_price = 5;
+
+    // The unix timestamp in seconds after which the quote is no longer valid.
+    uint64 expiry = 6;
+}
+
 message QueryPeerAcceptedQuotesResponse {
     // buy_quotes is a list of asset buy quotes which were requested by our
     // node and have been accepted by our peers.
@@ -151,6 +172,14 @@ message PeerAcceptedBuyQuoteEvent {
     PeerAcceptedBuyQuote peer_accepted_buy_quote = 2;
 }
 
+message PeerAcceptedSellQuoteEvent {
+    // Unix timestamp in microseconds.
+    uint64 timestamp = 1;
+
+    // The asset sell quote that was accepted by out peer.
+    PeerAcceptedSellQuote peer_accepted_sell_quote = 2;
+}
+
 message AcceptHtlcEvent {
     // Unix timestamp.
     uint64 timestamp = 1;
@@ -166,8 +195,12 @@ message RfqEvent {
         // accepted (incoming) asset buy quote message is received.
         PeerAcceptedBuyQuoteEvent peer_accepted_buy_quote = 1;
 
+        // peer_accepted_sell_offer is an event that is emitted when a peer
+        // accepted (incoming) asset sell quote message is received.
+        PeerAcceptedSellQuoteEvent peer_accepted_sell_quote = 2;
+
         // accept_htlc is an event that is sent when a HTLC is accepted by the
         // RFQ service.
-        AcceptHtlcEvent accept_htlc = 2;
+        AcceptHtlcEvent accept_htlc = 3;
     }
 }

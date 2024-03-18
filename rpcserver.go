@@ -5662,7 +5662,7 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 
 // marshallRfqEvent marshals an RFQ event into the RPC form.
 func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
-	timestamp := eventInterface.Timestamp().UTC().Unix()
+	timestamp := eventInterface.Timestamp().UTC().UnixMicro()
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
@@ -5679,6 +5679,26 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
 				Timestamp:            uint64(timestamp),
 				PeerAcceptedBuyQuote: acceptedQuote,
+			},
+		}
+		return &rfqrpc.RfqEvent{
+			Event: eventRpc,
+		}, nil
+
+	case *rfq.PeerAcceptedSellQuoteEvent:
+		acceptedQuote := &rfqrpc.PeerAcceptedSellQuote{
+			Peer:        event.Peer.String(),
+			Id:          event.ID[:],
+			Scid:        uint64(event.ShortChannelId()),
+			AssetAmount: event.AssetAmount,
+			BidPrice:    uint64(event.BidPrice),
+			Expiry:      event.Expiry,
+		}
+
+		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
+			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
+				Timestamp:             uint64(timestamp),
+				PeerAcceptedSellQuote: acceptedQuote,
 			},
 		}
 		return &rfqrpc.RfqEvent{
