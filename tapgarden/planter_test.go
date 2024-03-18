@@ -35,16 +35,13 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
-	defaultInterval   = time.Hour * 24
 	defaultTimeout    = time.Second * 5
-	minterInterval    = time.Millisecond * 250
 	noCaretakerStates = fn.NewSet(
 		tapgarden.BatchStatePending,
 		tapgarden.BatchStateSeedlingCancelled,
@@ -84,8 +81,6 @@ type mintingTestHarness struct {
 
 	txValidator tapscript.TxValidator
 
-	ticker *ticker.Force
-
 	planter *tapgarden.ChainPlanter
 
 	batchKey *keychain.KeyDescriptor
@@ -101,8 +96,8 @@ type mintingTestHarness struct {
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
-	interval time.Duration) *mintingTestHarness {
+func newMintingTestHarness(t *testing.T,
+	store tapgarden.MintingStore) *mintingTestHarness {
 
 	keyRing := tapgarden.NewMockKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
@@ -112,7 +107,6 @@ func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 		T:            t,
 		store:        store,
 		treeStore:    &treeMgr,
-		ticker:       ticker.NewForce(interval),
 		wallet:       tapgarden.NewMockWalletAnchor(),
 		chain:        tapgarden.NewMockChainBridge(),
 		proofFiles:   &tapgarden.MockProofArchive{},
@@ -146,7 +140,6 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			ProofFiles:   t.proofFiles,
 			ProofWatcher: t.proofWatcher,
 		},
-		BatchTicker:  t.ticker,
 		ProofUpdates: t.proofFiles,
 		ErrChan:      t.errChan,
 	})
@@ -1397,7 +1390,6 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
 	name     string
-	interval time.Duration
 	testFunc func(t *mintingTestHarness)
 }
 
@@ -1405,27 +1397,22 @@ type mintingStoreTestCase struct {
 var testCases = []mintingStoreTestCase{
 	{
 		name:     "basic_asset_creation",
-		interval: defaultInterval,
 		testFunc: testBasicAssetCreation,
 	},
 	{
 		name:     "creation_by_minting_ticker",
-		interval: minterInterval,
 		testFunc: testMintingTicker,
 	},
 	{
 		name:     "minting_with_cancellation",
-		interval: minterInterval,
 		testFunc: testMintingCancelFinalize,
 	},
 	{
 		name:     "finalize_batch",
-		interval: minterInterval,
 		testFunc: testFinalizeBatch,
 	},
 	{
 		name:     "finalize_with_tapscript_tree",
-		interval: minterInterval,
 		testFunc: testFinalizeWithTapscriptTree,
 	},
 }
@@ -1441,9 +1428,7 @@ func TestBatchedAssetIssuance(t *testing.T) {
 		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
-			mintTest := newMintingTestHarness(
-				t, mintingStore, testCase.interval,
-			)
+			mintTest := newMintingTestHarness(t, mintingStore)
 			testCase.testFunc(mintTest)
 		})
 	}

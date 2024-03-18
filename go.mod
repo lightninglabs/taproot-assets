@@ -32,7 +32,6 @@ require (
 	github.com/lightningnetwork/lnd v0.17.0-beta.rc6.0.20240301195848-f61761277f14
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/ticker v1.1.1
 	github.com/lightningnetwork/lnd/tlv v1.2.3
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ory/dockertest/v3 v3.10.0
@@ -124,6 +123,7 @@ require (
 	github.com/lightningnetwork/lnd/healthcheck v1.2.3 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.5 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
+	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
