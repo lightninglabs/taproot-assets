@@ -480,8 +480,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 					"asset group membership: %w", err)
 			}
 
+			genTx, err := groupReq.BuildGenesisTx(
+				b.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				return nil, err
+			}
+
 			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, b.cfg.GenTxBuilder, *groupReq,
+				b.cfg.GenSigner, *genTx, *groupReq,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to tweak group "+
@@ -508,8 +515,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 					"asset group creation: %w", err)
 			}
 
+			genTx, err := groupReq.BuildGenesisTx(
+				b.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				return nil, err
+			}
+
 			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, b.cfg.GenTxBuilder, *groupReq,
+				b.cfg.GenSigner, *genTx, *groupReq,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to tweak group "+
