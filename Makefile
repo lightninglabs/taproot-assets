@@ -35,8 +35,6 @@ include make/testing_flags.mk
 include make/release_flags.mk
 include make/fuzz_flags.mk
 
-DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
-
 # We only return the part inside the double quote here to avoid escape issues
 # when calling the external release script. The second parameter can be used to
 # add additional ldflags if needed (currently only used for the release).
