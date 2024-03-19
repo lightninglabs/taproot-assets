@@ -1199,6 +1199,98 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 	})
 }
 
+// AddSeedlingGroups stores the asset groups for seedlings associated with a
+// batch.
+func (a *AssetMintingStore) AddSeedlingGroups(ctx context.Context,
+	genesisOutpoint wire.OutPoint, assetGroups []*asset.AssetGroup) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
+		// fetch the outpoint ID inserted during funding
+		genesisPointID, err := upsertGenesisPoint(
+			ctx, q, genesisOutpoint,
+		)
+		if err != nil {
+			return fmt.Errorf("%w: %w", ErrUpsertGenesisPoint, err)
+		}
+
+		// insert genesis and group key
+		for idx := range assetGroups {
+			genAssetID, err := upsertGenesis(
+				ctx, q, genesisPointID,
+				*assetGroups[idx].Genesis,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to upsert grouped "+
+					"seedling genesis: %w", err)
+			}
+
+			_, err = upsertGroupKey(
+				ctx, assetGroups[idx].GroupKey, q,
+				genesisPointID, genAssetID,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to upsert group for "+
+					"grouped seedling: %w", err)
+			}
+		}
+
+		return nil
+	})
+}
+
+// FetchSeedlingGroups is used to fetch the asset groups for seedlings
+// associated with a funded batch.
+func (a *AssetMintingStore) FetchSeedlingGroups(ctx context.Context,
+	genesisPoint wire.OutPoint, anchorOutputIndex uint32,
+	seedlings []*tapgarden.Seedling) ([]*asset.AssetGroup, error) {
+
+	seedlingGroups := make([]*asset.AssetGroup, 0, len(seedlings))
+	seedlingGens := make([]*asset.Genesis, 0, len(seedlings))
+
+	// Compute meta hashes and geneses before reading from the DB.
+	fn.ForEach(seedlings, func(seedling *tapgarden.Seedling) {
+		gen := &asset.Genesis{
+			FirstPrevOut: genesisPoint,
+			Tag:          seedling.AssetName,
+			OutputIndex:  anchorOutputIndex,
+			Type:         seedling.AssetType,
+		}
+
+		if seedling.Meta != nil {
+			gen.MetaHash = seedling.Meta.MetaHash()
+		}
+
+		seedlingGens = append(seedlingGens, gen)
+	})
+
+	// Read geneses and asset groups.
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		for i := range seedlingGens {
+			genID, err := fetchGenesisID(ctx, q, *seedlingGens[i])
+			if err != nil {
+				return err
+			}
+
+			groupKey, err := fetchGroupByGenesis(ctx, q, genID)
+			if err != nil {
+				return err
+			}
+
+			seedlingGroups = append(seedlingGroups, groupKey)
+		}
+
+		return nil
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return seedlingGroups, nil
+}
+
 // AddSproutsToBatch updates a batch with the passed batch transaction and also
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
