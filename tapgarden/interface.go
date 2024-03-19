@@ -208,6 +208,17 @@ type MintingStore interface {
 	FetchMintingBatch(ctx context.Context,
 		batchKey *btcec.PublicKey) (*MintingBatch, error)
 
+	// AddSeedlingGroups stores the asset groups for seedlings associated
+	// with a batch.
+	AddSeedlingGroups(ctx context.Context, genesisOutpoint wire.OutPoint,
+		assetGroups []*asset.AssetGroup) error
+
+	// FetchSeedlingGroups is used to fetch the asset groups for seedlings
+	// associated with a funded batch.
+	FetchSeedlingGroups(ctx context.Context, genesisOutpoint wire.OutPoint,
+		anchorOutputIndex uint32,
+		seedlings []*Seedling) ([]*asset.AssetGroup, error)
+
 	// AddSproutsToBatch adds a new set of sprouts to the batch, along with
 	// a GenesisPacket, that once signed and broadcast with create the
 	// set of assets on chain.
