@@ -495,6 +495,167 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	return fundedGenesisPkt, nil
 }
 
+// filterSeedlingsWithGroup separates a set of seedlings into two sets based on
+// their relation to an asset group, which has not been constructed yet.
+func filterSeedlingsWithGroup(
+	seedlings map[string]*Seedling) (map[string]*Seedling,
+	map[string]*Seedling) {
+
+	withGroup := make(map[string]*Seedling)
+	withoutGroup := make(map[string]*Seedling)
+	fn.ForEachMapItem(seedlings, func(name string, seedling *Seedling) {
+		switch {
+		case seedling.GroupInfo != nil || seedling.GroupAnchor != nil ||
+			seedling.EnableEmission:
+
+			withGroup[name] = seedling
+
+		default:
+			withoutGroup[name] = seedling
+		}
+	})
+
+	return withGroup, withoutGroup
+}
+
+// buildGroupReqs creates group key requests and asset group genesis TXs for
+// seedlings that are part of a funded batch.
+func (c *ChainPlanter) buildGroupReqs(genesisPoint wire.OutPoint,
+	assetOutputIndex uint32,
+	groupSeedlings map[string]*Seedling) ([]asset.GroupKeyRequest,
+	[]asset.GroupVirtualTx, error) {
+
+	// Seedlings that anchor a group may be referenced by other seedlings,
+	// and therefore need to be mapped to sprouts first so that we derive
+	// the initial tweaked group key early.
+	orderedSeedlings := SortSeedlings(maps.Values(groupSeedlings))
+	newGroups := make(map[string]*asset.AssetGroup)
+	groupReqs := make([]asset.GroupKeyRequest, 0, len(orderedSeedlings))
+	genTXs := make([]asset.GroupVirtualTx, 0, len(orderedSeedlings))
+
+	for _, seedlingName := range orderedSeedlings {
+		seedling := groupSeedlings[seedlingName]
+
+		assetGen := asset.Genesis{
+			FirstPrevOut: genesisPoint,
+			Tag:          seedling.AssetName,
+			OutputIndex:  assetOutputIndex,
+			Type:         seedling.AssetType,
+		}
+
+		// If the seedling has a meta data reveal set, then we'll bind
+		// that by including the hash of the meta data in the asset
+		// genesis.
+		if seedling.Meta != nil {
+			assetGen.MetaHash = seedling.Meta.MetaHash()
+		}
+
+		var (
+			amount     uint64
+			groupInfo  *asset.AssetGroup
+			protoAsset *asset.Asset
+			err        error
+		)
+
+		// Determine the amount for the actual asset.
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
+
+		// If the seedling has a group key specified,
+		// that group key was validated earlier. We need to
+		// sign the new genesis with that group key.
+		if seedling.HasGroupKey() {
+			groupInfo = seedling.GroupInfo
+		}
+
+		// If the seedling has a group anchor specified, that anchor
+		// was validated earlier and the corresponding group has already
+		// been created. We need to look up the group key and sign
+		// the asset genesis with that key.
+		if seedling.GroupAnchor != nil {
+			groupInfo = newGroups[*seedling.GroupAnchor]
+		}
+
+		// If a group witness needs to be produced, then we will need a
+		// partially filled asset as part of the signing process.
+		if groupInfo != nil || seedling.EnableEmission {
+			protoAsset, err = asset.New(
+				assetGen, amount, 0, 0, seedling.ScriptKey,
+				nil,
+				asset.WithAssetVersion(seedling.AssetVersion),
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to create "+
+					"asset for group key signing: %w", err)
+			}
+		}
+
+		if groupInfo != nil {
+			groupReq, err := asset.NewGroupKeyRequest(
+				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
+				protoAsset, groupInfo.GroupKey.TapscriptRoot,
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to "+
+					"request asset group membership: %w",
+					err)
+			}
+
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				c.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			groupReqs = append(groupReqs, *groupReq)
+			genTXs = append(genTXs, *genTx)
+		}
+
+		// If emission is enabled, an internal key for the group should
+		// already be specified. Use that to derive the key group
+		// signature along with the tweaked key group.
+		if seedling.EnableEmission {
+			if seedling.GroupInternalKey == nil {
+				return nil, nil, fmt.Errorf("unable to " +
+					"derive group key")
+			}
+
+			groupReq, err := asset.NewGroupKeyRequest(
+				*seedling.GroupInternalKey, assetGen,
+				protoAsset, seedling.GroupTapscriptRoot,
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to "+
+					"request asset group creation: %w", err)
+			}
+
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				c.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			groupReqs = append(groupReqs, *groupReq)
+			genTXs = append(genTXs, *genTx)
+
+			newGroups[seedlingName] = &asset.AssetGroup{
+				Genesis: &assetGen,
+				GroupKey: &asset.GroupKey{
+					RawKey: *seedling.GroupInternalKey,
+				},
+			}
+		}
+	}
+
+	return groupReqs, genTXs, nil
+}
+
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
 func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
@@ -924,7 +1085,99 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 	return nil
 }
 
-func (c *ChainPlanter) sealBatch(params SealParams) error {
+// sealBatch will verify that each grouped asset in the pending batch has an
+// asset group witness, and will attempt to create asset group witnesses when
+// possible if they are not provided. After all asset group witnesses have been
+// validated, they are saved to disk to be used by the caretaker during batch
+// finalization.
+func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
+	// A batch should exist with 1+ seedlings and be funded before being
+	// sealed.
+	if c.pendingBatch == nil {
+		return fmt.Errorf("no pending batch")
+	}
+
+	if len(c.pendingBatch.Seedlings) == 0 {
+		return fmt.Errorf("no seedlings in batch")
+	}
+
+	if !c.pendingBatch.IsFunded() {
+		return fmt.Errorf("batch is not funded")
+	}
+
+	// Filter the batch seedlings to only consider those that will become
+	// grouped assets. If there are no such seedlings, then there is nothing
+	// to seal and no action is needed.
+	groupSeedlings, _ := filterSeedlingsWithGroup(c.pendingBatch.Seedlings)
+	if len(groupSeedlings) == 0 {
+		return nil
+	}
+
+	// Before we can build the group key requests for each seedling, we must
+	// fetch the genesis point and anchor index for the batch.
+	anchorOutputIndex := uint32(0)
+	if c.pendingBatch.GenesisPacket.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+
+	genesisPoint := extractGenesisOutpoint(
+		c.pendingBatch.GenesisPacket.Pkt.UnsignedTx,
+	)
+
+	// Construct the group key requests and group virtual TXs for each
+	// seedling. With these we can verify provided asset group witnesses,
+	// or attempt to derive asset group witnesses if needed.
+	groupReqs, genTXs, err := c.buildGroupReqs(
+		genesisPoint, anchorOutputIndex, groupSeedlings,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to build group requests: %w", err)
+	}
+
+	assetGroups := make([]*asset.AssetGroup, 0, len(groupReqs))
+	for i := 0; i < len(groupReqs); i++ {
+		// Derive the asset group witness.
+		groupKey, err := asset.DeriveGroupKey(
+			c.cfg.GenSigner, genTXs[i], groupReqs[i], nil,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Recreate the asset with the populated group key and validate
+		// the asset group witness.
+		protoAsset := groupReqs[i].NewAsset
+		groupedAsset, err := asset.New(
+			protoAsset.Genesis, protoAsset.Amount,
+			protoAsset.LockTime, protoAsset.RelativeLockTime,
+			protoAsset.ScriptKey, groupKey,
+			asset.WithAssetVersion(protoAsset.Version),
+		)
+		if err != nil {
+			return err
+		}
+
+		err = c.cfg.TxValidator.Execute(groupedAsset, nil, nil)
+		if err != nil {
+			return fmt.Errorf("unable to verify asset "+
+				"group witness: %w", err)
+		}
+
+		newGroup := &asset.AssetGroup{
+			Genesis:  &groupReqs[i].NewAsset.Genesis,
+			GroupKey: groupKey,
+		}
+
+		assetGroups = append(assetGroups, newGroup)
+	}
+
+	// With all the asset group witnesses validated, we can now save them
+	// to disk.
+	err = c.cfg.Log.AddSeedlingGroups(ctx, genesisPoint, assetGroups)
+	if err != nil {
+		return fmt.Errorf("unable to write seedling groups: %w", err)
+	}
+
 	return nil
 }
 

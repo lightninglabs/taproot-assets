@@ -1595,10 +1595,10 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
 		groupAnchor, err := groupAnchors.Get(assetGroupKey)
 		if err != nil {
-			// TODO(jhb): add tapscript root support
 			singleTweak := gen.ID()
 			tweakedGroupKey, err := asset.GroupPubKey(
-				groupKey.RawKey.PubKey, singleTweak[:], nil,
+				groupKey.RawKey.PubKey, singleTweak[:],
+				groupKey.TapscriptRoot,
 			)
 			if err != nil {
 				return err
