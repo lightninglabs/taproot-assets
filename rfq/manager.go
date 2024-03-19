@@ -557,18 +557,18 @@ type AcceptHtlcEvent struct {
 	// Htlc is the intercepted HTLC.
 	Htlc lndclient.InterceptedHtlc
 
-	// ChannelRemit is the channel remit that the HTLC complies with.
-	ChannelRemit ChannelRemit
+	// Policy is the policy with which the HTLC is compliant.
+	Policy Policy
 }
 
 // NewAcceptHtlcEvent creates a new AcceptedHtlcEvent.
 func NewAcceptHtlcEvent(htlc lndclient.InterceptedHtlc,
-	channelRemit ChannelRemit) *AcceptHtlcEvent {
+	policy Policy) *AcceptHtlcEvent {
 
 	return &AcceptHtlcEvent{
-		timestamp:    uint64(time.Now().UTC().Unix()),
-		Htlc:         htlc,
-		ChannelRemit: channelRemit,
+		timestamp: uint64(time.Now().UTC().Unix()),
+		Htlc:      htlc,
+		Policy:    policy,
 	}
 }
 

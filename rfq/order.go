@@ -16,12 +16,27 @@ import (
 // SerialisedScid is a serialised short channel id (SCID).
 type SerialisedScid uint64
 
-// ChannelRemit is a struct that holds the terms which determine whether a
-// channel HTLC is accepted or rejected.
-type ChannelRemit struct {
-	// Scid is the serialised short channel ID (SCID) of the channel to
-	// which the remit applies.
-	Scid SerialisedScid
+// Policy is an interface that abstracts the terms which determine whether an
+// asset sale/purchase channel HTLC is accepted or rejected.
+type Policy interface {
+	// CheckHtlcCompliance returns an error if the given HTLC intercept
+	// descriptor does not satisfy the subject policy.
+	CheckHtlcCompliance(htlc lndclient.InterceptedHtlc) error
+
+	// Expiry returns the policy's expiry time as a unix timestamp.
+	Expiry() uint64
+
+	// Scid returns the serialised short channel ID (SCID) of the channel to
+	// which the policy applies.
+	Scid() uint64
+}
+
+// AssetSalePolicy is a struct that holds the terms which determine whether an
+// asset sale channel HTLC is accepted or rejected.
+type AssetSalePolicy struct {
+	// scid is the serialised short channel ID (SCID) of the channel to
+	// which the policy applies.
+	scid SerialisedScid
 
 	// AssetAmount is the amount of the tap asset that is being requested.
 	AssetAmount uint64
@@ -30,51 +45,66 @@ type ChannelRemit struct {
 	// must be sent in the HTLC.
 	MinimumChannelPayment lnwire.MilliSatoshi
 
-	// Expiry is the asking price expiryDelay lifetime unix timestamp.
-	Expiry uint64
+	// expiry is the policy's expiry unix timestamp after which the policy
+	// is no longer valid.
+	expiry uint64
 }
 
-// NewChannelRemit creates a new channel remit.
-func NewChannelRemit(quoteAccept rfqmsg.BuyAccept) *ChannelRemit {
+// NewAssetSalePolicy creates a new asset sale policy.
+func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	// Compute the serialised short channel ID (SCID) for the channel.
-	scid := SerialisedScid(quoteAccept.ShortChannelId())
+	scid := SerialisedScid(quote.ShortChannelId())
 
-	return &ChannelRemit{
-		Scid:                  scid,
-		AssetAmount:           quoteAccept.AssetAmount,
-		MinimumChannelPayment: quoteAccept.AskPrice,
-		Expiry:                quoteAccept.Expiry,
+	return &AssetSalePolicy{
+		scid:                  scid,
+		AssetAmount:           quote.AssetAmount,
+		MinimumChannelPayment: quote.AskPrice,
+		expiry:                quote.Expiry,
 	}
 }
 
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
-// does not satisfy the subject channel remit.
-func (c *ChannelRemit) CheckHtlcCompliance(
+// does not satisfy the subject policy.
+func (c *AssetSalePolicy) CheckHtlcCompliance(
 	htlc lndclient.InterceptedHtlc) error {
 
 	// Check that the channel SCID is as expected.
 	htlcScid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	if htlcScid != c.Scid {
+	if htlcScid != c.scid {
 		return fmt.Errorf("htlc outgoing channel ID does not match "+
-			"remit's SCID (htlc_scid=%d, remit_scid=%d)", htlcScid,
-			c.Scid)
+			"policy's SCID (htlc_scid=%d, policy_scid=%d)",
+			htlcScid, c.scid)
 	}
 
 	// Check that the HTLC amount is at least the minimum acceptable amount.
 	if htlc.AmountOutMsat < c.MinimumChannelPayment {
-		return fmt.Errorf("htlc out amount is less than the remit's "+
-			"minimum (htlc_out_msat=%d, remit_min_msat=%d)",
+		return fmt.Errorf("htlc out amount is less than the policy "+
+			"minimum (htlc_out_msat=%d, policy_min_msat=%d)",
 			htlc.AmountOutMsat, c.MinimumChannelPayment)
 	}
 
-	// Lastly, check to ensure that the channel remit has not expired.
-	if time.Now().Unix() > int64(c.Expiry) {
-		return fmt.Errorf("channel remit has expired "+
-			"(expiry_unix_ts=%d)", c.Expiry)
+	// Lastly, check to ensure that the policy has not expired.
+	if time.Now().Unix() > int64(c.expiry) {
+		return fmt.Errorf("policy has expired (expiry_unix_ts=%d)",
+			c.expiry)
 	}
 
 	return nil
 }
+
+// Expiry returns the policy's expiry time as a unix timestamp.
+func (c *AssetSalePolicy) Expiry() uint64 {
+	return c.expiry
+}
+
+// Scid returns the serialised short channel ID (SCID) of the channel to which
+// the policy applies.
+func (c *AssetSalePolicy) Scid() uint64 {
+	return uint64(c.scid)
+}
+
+// Ensure that AssetSalePolicy implements the Policy interface.
+var _ Policy = (*AssetSalePolicy)(nil)
 
 // OrderHandlerCfg is a struct that holds the configuration parameters for the
 // order handler service.
@@ -101,9 +131,9 @@ type OrderHandler struct {
 	// cfg holds the configuration parameters for the RFQ order handler.
 	cfg OrderHandlerCfg
 
-	// channelRemits is a map of serialised short channel IDs (SCIDs) to
-	// associated active channel remits.
-	channelRemits lnutils.SyncMap[SerialisedScid, *ChannelRemit]
+	// policies is a map of serialised short channel IDs (SCIDs) to
+	// associated asset transaction policies.
+	policies lnutils.SyncMap[SerialisedScid, Policy]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -113,8 +143,8 @@ type OrderHandler struct {
 // NewOrderHandler creates a new struct instance.
 func NewOrderHandler(cfg OrderHandlerCfg) (*OrderHandler, error) {
 	return &OrderHandler{
-		cfg:           cfg,
-		channelRemits: lnutils.SyncMap[SerialisedScid, *ChannelRemit]{},
+		cfg:      cfg,
+		policies: lnutils.SyncMap[SerialisedScid, Policy]{},
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -133,34 +163,33 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	log.Debug("Handling incoming HTLC")
 
 	scid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	channelRemit, ok := h.fetchChannelRemit(scid)
+	policy, ok := h.fetchPolicy(scid)
 
-	// If a channel remit does not exist for the channel SCID, we resume the
-	// HTLC. This is because the HTLC may be relevant to another interceptor
+	// If a policy does not exist for the channel SCID, we resume the HTLC.
+	// This is because the HTLC may be relevant to another interceptor
 	// service. We only reject HTLCs that are relevant to the RFQ service
-	// and do not comply with a known channel remit.
+	// and do not comply with a known policy.
 	if !ok {
 		return &lndclient.InterceptedHtlcResponse{
 			Action: lndclient.InterceptorActionResume,
 		}, nil
 	}
 
-	// At this point, we know that the channel remit exists and has not
-	// expired whilst sitting in the local cache. We can now check that the
-	// HTLC complies with the channel remit.
-	err := channelRemit.CheckHtlcCompliance(htlc)
+	// At this point, we know that a policy exists and has not expired
+	// whilst sitting in the local cache. We can now check that the HTLC
+	// complies with the policy.
+	err := policy.CheckHtlcCompliance(htlc)
 	if err != nil {
-		log.Warnf("HTLC does not comply with channel remit: %v "+
-			"(htlc=%v, channel_remit=%v)", err, htlc, channelRemit)
+		log.Warnf("HTLC does not comply with policy: %v "+
+			"(htlc=%v, policy=%v)", err, htlc, policy)
 
 		return &lndclient.InterceptedHtlcResponse{
 			Action: lndclient.InterceptorActionFail,
 		}, nil
 	}
 
-	log.Debug("HTLC complies with channel remit. Broadcasting accept " +
-		"event.")
-	acceptHtlcEvent := NewAcceptHtlcEvent(htlc, *channelRemit)
+	log.Debug("HTLC complies with policy. Broadcasting accept event.")
+	acceptHtlcEvent := NewAcceptHtlcEvent(htlc, policy)
 	h.cfg.AcceptHtlcEvents <- acceptHtlcEvent
 
 	return &lndclient.InterceptedHtlcResponse{
@@ -195,12 +224,11 @@ func (h *OrderHandler) mainEventLoop() {
 
 	for {
 		select {
-		// Periodically clean up expired channel remits from our local
-		// cache.
+		// Periodically clean up expired policies from our local cache.
 		case <-cleanupTicker.C:
-			log.Debug("Cleaning up any stale channel remits from " +
-				"the order handler")
-			h.cleanupStaleChannelRemits()
+			log.Debug("Cleaning up any stale policy from the " +
+				"order handler")
+			h.cleanupStalePolicies()
 
 		case <-h.Quit:
 			log.Debug("Received quit signal. Stopping negotiator " +
@@ -245,47 +273,44 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 	log.Debugf("Order handler is registering an asset sale policy given a "+
 		"buy accept message: %s", buyAccept.String())
 
-	channelRemit := NewChannelRemit(buyAccept)
-	h.channelRemits.Store(channelRemit.Scid, channelRemit)
+	policy := NewAssetSalePolicy(buyAccept)
+	h.policies.Store(policy.scid, policy)
 }
 
-// fetchChannelRemit fetches a channel remit given a serialised SCID. If a
-// channel remit is not found, false is returned. Expired channel remits are
-// not returned and are removed from the cache.
-func (h *OrderHandler) fetchChannelRemit(scid SerialisedScid) (*ChannelRemit,
-	bool) {
-
-	remit, ok := h.channelRemits.Load(scid)
+// fetchPolicy fetches a policy given a serialised SCID. If a policy is not
+// found, false is returned. Expired policies are not returned and are removed
+// from the cache.
+func (h *OrderHandler) fetchPolicy(scid SerialisedScid) (Policy, bool) {
+	policy, ok := h.policies.Load(scid)
 	if !ok {
 		return nil, false
 	}
 
-	// If the remit has expired, return false and clear it from the cache.
-	expireTime := time.Unix(int64(remit.Expiry), 0).UTC()
+	// If the policy has expired, return false and clear it from the cache.
+	expireTime := time.Unix(int64(policy.Expiry()), 0).UTC()
 	currentTime := time.Now().UTC()
 
 	if currentTime.After(expireTime) {
-		h.channelRemits.Delete(scid)
+		h.policies.Delete(scid)
 		return nil, false
 	}
 
-	return remit, true
+	return policy, true
 }
 
-// cleanupStaleChannelRemits removes expired channel remits from the local
-// cache.
-func (h *OrderHandler) cleanupStaleChannelRemits() {
-	// Iterate over the channel remits and remove any that have expired.
+// cleanupStalePolicies removes expired policies from the local cache.
+func (h *OrderHandler) cleanupStalePolicies() {
+	// Iterate over policies and remove any that have expired.
 	staleCounter := 0
 
-	h.channelRemits.ForEach(
-		func(scid SerialisedScid, remit *ChannelRemit) error {
-			expireTime := time.Unix(int64(remit.Expiry), 0).UTC()
+	h.policies.ForEach(
+		func(scid SerialisedScid, policy Policy) error {
+			expireTime := time.Unix(int64(policy.Expiry()), 0).UTC()
 			currentTime := time.Now().UTC()
 
 			if currentTime.After(expireTime) {
 				staleCounter++
-				h.channelRemits.Delete(scid)
+				h.policies.Delete(scid)
 			}
 
 			return nil
@@ -293,8 +318,8 @@ func (h *OrderHandler) cleanupStaleChannelRemits() {
 	)
 
 	if staleCounter > 0 {
-		log.Tracef("Removed stale channel remits from the order "+
-			"handler: (count=%d)", staleCounter)
+		log.Tracef("Removed stale policies from the order handler: "+
+			"(count=%d)", staleCounter)
 	}
 }
 

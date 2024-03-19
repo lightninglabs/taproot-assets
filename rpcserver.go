@@ -5625,7 +5625,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		eventRpc := &rfqrpc.RfqEvent_AcceptHtlc{
 			AcceptHtlc: &rfqrpc.AcceptHtlcEvent{
 				Timestamp: uint64(timestamp),
-				Scid:      uint64(event.ChannelRemit.Scid),
+				Scid:      event.Policy.Scid(),
 			},
 		}
 		return &rfqrpc.RfqEvent{
