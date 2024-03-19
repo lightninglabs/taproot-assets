@@ -1,6 +1,7 @@
 package rfqmsg
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"math"
@@ -8,6 +9,9 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
+
+// SerialisedScid is a serialised short channel id (SCID).
+type SerialisedScid uint64
 
 // ID is the identifier for a RFQ message.
 type ID [32]byte
@@ -17,8 +21,16 @@ func (id ID) String() string {
 	return hex.EncodeToString(id[:])
 }
 
-// SerialisedScid is a serialised short channel id (SCID).
-type SerialisedScid uint64
+// Scid returns the short channel id (SCID) of the RFQ message.
+func (id ID) Scid() SerialisedScid {
+	// Given valid RFQ message id, we then define a RFQ short channel id
+	// (SCID) by taking the last 8 bytes of the RFQ message id and
+	// interpreting them as a 64-bit integer.
+	scidBytes := id[24:]
+
+	scidInteger := binary.BigEndian.Uint64(scidBytes)
+	return SerialisedScid(scidInteger)
+}
 
 // MaxMessageType is the maximum supported message type value.
 const MaxMessageType = lnwire.MessageType(math.MaxUint16)

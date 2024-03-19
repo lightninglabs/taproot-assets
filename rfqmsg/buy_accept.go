@@ -2,7 +2,6 @@ package rfqmsg
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"io"
 
@@ -198,13 +197,7 @@ func NewBuyAcceptFromWireMsg(wireMsg WireMessage) (*BuyAccept, error) {
 
 // ShortChannelId returns the short channel ID of the quote accept.
 func (q *BuyAccept) ShortChannelId() SerialisedScid {
-	// Given valid RFQ message id, we then define a RFQ short chain id
-	// (SCID) by taking the last 8 bytes of the RFQ message id and
-	// interpreting them as a 64-bit integer.
-	scidBytes := q.ID[24:]
-
-	scidInteger := binary.BigEndian.Uint64(scidBytes)
-	return SerialisedScid(scidInteger)
+	return q.ID.Scid()
 }
 
 // ToWire returns a wire message with a serialized data field.
