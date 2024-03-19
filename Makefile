@@ -14,7 +14,7 @@ MIGRATE_BIN := $(GO_BIN)/migrate
 # VERSION_GO_FILE is the golang file which defines the current project version.
 VERSION_GO_FILE := "version.go"
 
-COMMIT := $(shell git describe --tags --dirty)
+COMMIT := $(shell git describe --tags --dirty --always)
 
 GOBUILD := GOEXPERIMENT=loopvar GO111MODULE=on go build -v
 GOINSTALL := GOEXPERIMENT=loopvar GO111MODULE=on go install -v
@@ -34,8 +34,6 @@ UNAME_S := $(shell uname -s)
 include make/testing_flags.mk
 include make/release_flags.mk
 include make/fuzz_flags.mk
-
-DEV_TAGS := $(if ${tags},$(DEV_TAGS) ${tags},$(DEV_TAGS))
 
 # We only return the part inside the double quote here to avoid escape issues
 # when calling the external release script. The second parameter can be used to
