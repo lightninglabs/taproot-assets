@@ -175,3 +175,7 @@ func (m *MintingBatch) TapSibling() []byte {
 func (m *MintingBatch) UpdateTapSibling(sibling *chainhash.Hash) {
 	m.tapSibling = sibling
 }
+
+func (m *MintingBatch) IsFunded() bool {
+	return m.GenesisPacket != nil
+}
