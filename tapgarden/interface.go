@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
@@ -28,10 +29,6 @@ type Planter interface {
 	// A channel is returned where future updates will be sent over. If an
 	// error is returned no issuance operation was possible.
 	QueueNewSeedling(req *Seedling) (SeedlingUpdates, error)
-
-	// TODO(roasbeef): list seeds, their pending state, etc, etc
-
-	// TODO(roasbeef): notification methods also?
 
 	// ListBatches lists the set of batches submitted for minting, or the
 	// details of a specific batch.
@@ -57,6 +54,10 @@ type Planter interface {
 	// Stop signals that the asset minter should attempt a graceful
 	// shutdown.
 	Stop() error
+
+	// EventPublisher is a subscription interface that allows callers to
+	// subscribe to events that are relevant to the Planter.
+	fn.EventPublisher[fn.Event, bool]
 }
 
 // BatchState an enum that represents the various stages of a minting batch.
