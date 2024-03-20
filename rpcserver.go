@@ -137,6 +137,10 @@ type (
 	// notification stream.
 	receiveEventStream = taprpc.TaprootAssets_SubscribeReceiveEventsServer
 
+	// mintEventStream is a type alias for the asset mint event notification
+	// stream.
+	mintEventStream = mintrpc.Mint_SubscribeMintEventsServer
+
 	// receiveBackOff is a type alias for the backoff event that is sent
 	// when a proof transfer process failed and needs to re-try.
 	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
@@ -3351,6 +3355,51 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 	)
 }
 
+// SubscribeMintEvents allows a caller to subscribe to mint events for asset
+// creation batches.
+func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
+	ntfnStream mintEventStream) error {
+
+	marshaler := func(event fn.Event) (*mintrpc.MintEvent, error) {
+		e, ok := event.(*tapgarden.AssetMintEvent)
+		if !ok {
+			return nil, fmt.Errorf("invalid event type: %T", event)
+		}
+
+		rpcState, err := marshalBatchState(e.BatchState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling batch state: "+
+				"%w", err)
+		}
+
+		rpcBatch, err := marshalMintingBatch(e.Batch, req.ShortResponse)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling minting "+
+				"batch: %w", err)
+		}
+
+		return &mintrpc.MintEvent{
+			Timestamp:  e.Timestamp().UnixMicro(),
+			BatchState: rpcState,
+			Batch:      rpcBatch,
+		}, nil
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		_, ok := event.(*tapgarden.AssetMintEvent)
+		if !ok {
+			return false, fmt.Errorf("invalid event type: %T",
+				event)
+		}
+
+		return true, nil
+	}
+
+	return handleEvents[bool, *mintrpc.MintEvent](
+		r.cfg.AssetMinter, ntfnStream, marshaler, filter, r.quit,
+	)
+}
+
 // handleEvents is a helper function that reads events from an event source and
 // forwards them to an RPC stream.
 func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
@@ -3640,14 +3689,16 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	skipSeedlings bool) (*mintrpc.MintingBatch, error) {
 
-	rpcBatchState, err := marshalBatchState(batch)
+	rpcBatchState, err := marshalBatchState(batch.State())
 	if err != nil {
 		return nil, err
 	}
 
 	rpcBatch := &mintrpc.MintingBatch{
-		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
-		State:    rpcBatchState,
+		BatchKey:   batch.BatchKey.PubKey.SerializeCompressed(),
+		State:      rpcBatchState,
+		CreatedAt:  batch.CreationTime.UTC().Unix(),
+		HeightHint: batch.HeightHint,
 	}
 
 	// If we have the genesis packet available (funded+signed), then we'll
@@ -3658,6 +3709,12 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			rpcBatch.BatchTxid = batchTx.TxHash().String()
 		} else {
 			rpcsLog.Errorf("unable to extract batch tx: %v", err)
+		}
+
+		rpcBatch.BatchPsbt, err = serialize(batch.GenesisPacket.Pkt)
+		if err != nil {
+			return nil, fmt.Errorf("error serializing batch PSBT: "+
+				"%w", err)
 		}
 	}
 
@@ -3785,12 +3842,8 @@ func marshalSprouts(sprouts []*asset.Asset,
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
-func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
-	error) {
-
-	currentBatchState := batch.State()
-
-	switch currentBatchState {
+func marshalBatchState(state tapgarden.BatchState) (mintrpc.BatchState, error) {
+	switch state {
 	case tapgarden.BatchStatePending:
 		return mintrpc.BatchState_BATCH_STATE_PENDING, nil
 
@@ -3816,8 +3869,7 @@ func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 		return mintrpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
-		return 0, fmt.Errorf("unknown batch state: %v",
-			currentBatchState.String())
+		return 0, fmt.Errorf("unknown batch state: %v", state)
 	}
 }
 
