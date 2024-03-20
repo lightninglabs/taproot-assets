@@ -31,6 +31,13 @@ service Mint {
     pending and cancelled batches.
     */
     rpc ListBatches (ListBatchRequest) returns (ListBatchResponse);
+
+    /* tapcli: `events mint`
+    SubscribeMintEvents allows a caller to subscribe to mint events for asset
+    creation batches.
+    */
+    rpc SubscribeMintEvents (SubscribeMintEventsRequest)
+        returns (stream MintEvent);
 }
 
 message PendingAsset {
@@ -153,6 +160,16 @@ message MintingBatch {
 
     // The assets that are part of the batch.
     repeated PendingAsset assets = 4;
+
+    // The time the batch was created as a Unix timestamp (in seconds).
+    int64 created_at = 5;
+
+    // The current height of the block chain at the time of the batch creation.
+    uint32 height_hint = 6;
+
+    // The genesis transaction as a PSBT packet. Only populated if the batch has
+    // been committed.
+    bytes batch_psbt = 7;
 }
 
 enum BatchState {
@@ -223,4 +240,24 @@ message ListBatchRequest {
 
 message ListBatchResponse {
     repeated MintingBatch batches = 1;
+}
+
+message SubscribeMintEventsRequest {
+    /*
+    If true, then the assets currently in the batch won't be returned in the
+    event's batch. This is mainly to avoid a lot of data being transmitted and
+    possibly printed on the command line in the case of a very large batch.
+    */
+    bool short_response = 1;
+}
+
+message MintEvent {
+    // Execute timestamp (Unix timestamp in microseconds).
+    int64 timestamp = 1;
+
+    // The last state of the batch that was successfully executed.
+    BatchState batch_state = 2;
+
+    // The batch that the event is for.
+    MintingBatch batch = 3;
 }

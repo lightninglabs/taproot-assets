@@ -35,6 +35,10 @@ type MintClient interface {
 	// ListBatches lists the set of batches submitted to the daemon, including
 	// pending and cancelled batches.
 	ListBatches(ctx context.Context, in *ListBatchRequest, opts ...grpc.CallOption) (*ListBatchResponse, error)
+	// tapcli: `events mint`
+	// SubscribeMintEvents allows a caller to subscribe to mint events for asset
+	// creation batches.
+	SubscribeMintEvents(ctx context.Context, in *SubscribeMintEventsRequest, opts ...grpc.CallOption) (Mint_SubscribeMintEventsClient, error)
 }
 
 type mintClient struct {
@@ -81,6 +85,38 @@ func (c *mintClient) ListBatches(ctx context.Context, in *ListBatchRequest, opts
 	return out, nil
 }
 
+func (c *mintClient) SubscribeMintEvents(ctx context.Context, in *SubscribeMintEventsRequest, opts ...grpc.CallOption) (Mint_SubscribeMintEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &Mint_ServiceDesc.Streams[0], "/mintrpc.Mint/SubscribeMintEvents", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &mintSubscribeMintEventsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type Mint_SubscribeMintEventsClient interface {
+	Recv() (*MintEvent, error)
+	grpc.ClientStream
+}
+
+type mintSubscribeMintEventsClient struct {
+	grpc.ClientStream
+}
+
+func (x *mintSubscribeMintEventsClient) Recv() (*MintEvent, error) {
+	m := new(MintEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // MintServer is the server API for Mint service.
 // All implementations must embed UnimplementedMintServer
 // for forward compatibility
@@ -102,6 +138,10 @@ type MintServer interface {
 	// ListBatches lists the set of batches submitted to the daemon, including
 	// pending and cancelled batches.
 	ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error)
+	// tapcli: `events mint`
+	// SubscribeMintEvents allows a caller to subscribe to mint events for asset
+	// creation batches.
+	SubscribeMintEvents(*SubscribeMintEventsRequest, Mint_SubscribeMintEventsServer) error
 	mustEmbedUnimplementedMintServer()
 }
 
@@ -120,6 +160,9 @@ func (UnimplementedMintServer) CancelBatch(context.Context, *CancelBatchRequest)
 }
 func (UnimplementedMintServer) ListBatches(context.Context, *ListBatchRequest) (*ListBatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBatches not implemented")
+}
+func (UnimplementedMintServer) SubscribeMintEvents(*SubscribeMintEventsRequest, Mint_SubscribeMintEventsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeMintEvents not implemented")
 }
 func (UnimplementedMintServer) mustEmbedUnimplementedMintServer() {}
 
@@ -206,6 +249,27 @@ func _Mint_ListBatches_Handler(srv interface{}, ctx context.Context, dec func(in
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Mint_SubscribeMintEvents_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeMintEventsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(MintServer).SubscribeMintEvents(m, &mintSubscribeMintEventsServer{stream})
+}
+
+type Mint_SubscribeMintEventsServer interface {
+	Send(*MintEvent) error
+	grpc.ServerStream
+}
+
+type mintSubscribeMintEventsServer struct {
+	grpc.ServerStream
+}
+
+func (x *mintSubscribeMintEventsServer) Send(m *MintEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // Mint_ServiceDesc is the grpc.ServiceDesc for Mint service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -230,6 +294,12 @@ var Mint_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _Mint_ListBatches_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeMintEvents",
+			Handler:       _Mint_SubscribeMintEvents_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "mintrpc/mint.proto",
 }
