@@ -222,6 +222,7 @@
         "batches": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/mintrpcMintingBatch"
           }
         }
@@ -311,6 +312,7 @@
         "assets": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/mintrpcPendingAsset"
           },
           "description": "The assets that are part of the batch."
@@ -359,14 +361,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -381,6 +380,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -463,6 +463,7 @@
         "all_leaves": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcTapLeaf"
           },
           "description": "The complete, ordered list of all tap leaves of the tree."

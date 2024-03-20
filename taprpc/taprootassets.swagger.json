@@ -839,14 +839,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -861,6 +858,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -993,6 +991,7 @@
         "events": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcAddrEvent"
           },
           "description": "The events that match the filter criteria."
@@ -1088,6 +1087,7 @@
         "prev_witnesses": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcPrevWitness"
           }
         },
@@ -1271,6 +1271,7 @@
         "inputs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcTransferInput"
           },
           "description": "Describes the set of spent assets."
@@ -1278,6 +1279,7 @@
         "outputs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
@@ -1589,6 +1591,7 @@
         "assets": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcAssetHumanReadable"
           },
           "description": "A list of assets with the same group key."
@@ -1630,6 +1633,7 @@
         "assets": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcAsset"
           }
         }
@@ -1670,6 +1674,7 @@
         "transfers": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcAssetTransfer"
           },
           "description": "The unordered list of outgoing asset transfers."
@@ -1718,6 +1723,7 @@
         "assets": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcAsset"
           },
           "description": "The assets held at this UTXO."
@@ -1872,6 +1878,7 @@
         "addrs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcAddr"
           }
         }
@@ -1934,7 +1941,7 @@
         "fee_rate": {
           "type": "integer",
           "format": "int64",
-          "description": "The optional fee rate to use for the minting transaction, in sat/kw."
+          "description": "The optional fee rate to use for the minting transaction, in sat/kw.\n\nTODO(roasbeef): maybe in future add details re type of ProofCourier or\n w/e"
         }
       }
     },
