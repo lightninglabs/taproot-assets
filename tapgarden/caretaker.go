@@ -97,6 +97,9 @@ type BatchCaretakerConfig struct {
 	// can happen (the batch is finalized after a single confirmation).
 	UpdateMintingProofs func([]*proof.Proof) error
 
+	// PublishMintEvent is used to publish a mint event to all subscribers.
+	PublishMintEvent func(event fn.Event)
+
 	// ErrChan is the main error channel the caretaker will report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -197,6 +200,10 @@ func (b *BatchCaretaker) Cancel() error {
 				"cancel failed: %w", batchKey, batchState, err)
 		}
 
+		b.cfg.PublishMintEvent(newAssetMintEvent(
+			BatchStateSeedlingCancelled, b.cfg.Batch),
+		)
+
 		cancelResp = CancelResp{true, err}
 
 	case BatchStateCommitted:
@@ -208,6 +215,10 @@ func (b *BatchCaretaker) Cancel() error {
 			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
 				"cancel failed: %w", batchKey, batchState, err)
 		}
+
+		b.cfg.PublishMintEvent(newAssetMintEvent(
+			BatchStateSproutCancelled, b.cfg.Batch,
+		))
 
 		cancelResp = CancelResp{true, err}
 
@@ -275,6 +286,12 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 			return 0, fmt.Errorf("unable to advance state "+
 				"machine: %w", err)
 		}
+
+		// We only want to notify _after_ executing the state step
+		// successfully.
+		b.cfg.PublishMintEvent(newAssetMintEvent(
+			currentState, b.cfg.Batch,
+		))
 
 		// We've reached a terminal state once the next state is our
 		// current state (state machine loops back to the current
@@ -1366,6 +1383,35 @@ func (b *BatchCaretaker) batchStreamUniverseItems(ctx context.Context,
 	}
 
 	return nil
+}
+
+// AssetMintEvent is an event which is sent to the BatchCaretaker's event
+// subscribers after a state was executed successfully.
+type AssetMintEvent struct {
+	// timestamp is the time the event was created.
+	timestamp time.Time
+
+	// BatchState is the last state that was executed before the event is
+	// received. This field takes precedence over Batch.State() as that
+	// might not always be updated when the event is created.
+	BatchState BatchState
+
+	// Batch is the batch that is being minted.
+	Batch *MintingBatch
+}
+
+// Timestamp returns the timestamp of the event.
+func (e *AssetMintEvent) Timestamp() time.Time {
+	return e.timestamp
+}
+
+// newAssetMintEvent creates a new AssetMintEvent from the given batch.
+func newAssetMintEvent(state BatchState, b *MintingBatch) *AssetMintEvent {
+	return &AssetMintEvent{
+		timestamp:  time.Now().UTC(),
+		BatchState: state,
+		Batch:      b.Copy(),
+	}
 }
 
 // SortSeedlings sorts the seedling names such that all seedlings that will be
