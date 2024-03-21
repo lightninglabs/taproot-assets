@@ -1187,23 +1187,24 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	}
 
 	// If the batch already has a funded TX, we can skip funding the batch.
-	if c.pendingBatch.GenesisPacket == nil {
-		fundParams := FundParams(params)
-
+	if !c.pendingBatch.IsFunded() {
 		// Fund the batch before starting the caretaker. If funding
 		// fails, we can't start a caretaker for the batch, so we'll
 		// clear the pending batch. The batch will exist on disk for
 		// the user to recreate it if necessary.
-		err = c.fundBatch(ctx, fundParams)
+		// TODO(jhb): Don't clear pending batch here
+		err = c.fundBatch(ctx, FundParams(params))
 		if err != nil {
 			c.pendingBatch = nil
 			return nil, err
 		}
 	}
 
-	// TODO(jhb): move batch sibling handling entirely to fundBatch, remove
-	// logic around sibling storage
-	// TODO(jhb): check for batch sealing
+	// TODO(jhb): follow-up PR: detect batches that were already sealed
+	err = c.sealBatch(ctx, SealParams{})
+	if err != nil {
+		return nil, err
+	}
 
 	// Now that the batch has been frozen on disk, we can update the batch
 	// state to frozen before launching a new caretaker state machine for
