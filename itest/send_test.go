@@ -23,6 +23,7 @@ import (
 
 var (
 	transferTypeSend = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+	timeoutMargin    = 5 * time.Second
 )
 
 // testBasicSendUnidirectional tests that we can properly send assets back and
@@ -60,6 +61,11 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		}
 
 		timeout := 2 * defaultProofTransferReceiverAckTimeout
+
+		// Allow for some margin for the operations that aren't pure
+		// waiting on the receiver ACK.
+		timeout += timeoutMargin
+
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 		assertAssetSendNtfsEvent(
@@ -163,6 +169,11 @@ func testRestartReceiverCheckBalance(t *harnessTest) {
 		}
 
 		timeout := 2 * defaultProofTransferReceiverAckTimeout
+
+		// Allow for some margin for the operations that aren't pure
+		// waiting on the receiver ACK.
+		timeout += timeoutMargin
+
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 		assertAssetSendNtfsEvent(
@@ -612,8 +623,11 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 		// Context timeout scales with expected number of events.
 		timeout := time.Duration(expectedEventCount) *
 			defaultProofTransferReceiverAckTimeout
-		// Add overhead buffer to context timeout.
-		timeout += 5 * time.Second
+
+		// Allow for some margin for the operations that aren't pure
+		// waiting on the receiver ACK.
+		timeout += timeoutMargin
+
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
@@ -710,8 +724,11 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		// Context timeout scales with expected number of events.
 		timeout := time.Duration(expectedEventCount) *
 			defaultProofTransferReceiverAckTimeout
-		// Add overhead buffer to context timeout.
-		timeout += 5 * time.Second
+
+		// Allow for some margin for the operations that aren't pure
+		// waiting on the receiver ACK.
+		timeout += timeoutMargin
+
 		ctx, cancel := context.WithTimeout(ctxb, timeout)
 		defer cancel()
 
@@ -872,8 +889,11 @@ func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	// Context timeout scales with expected number of events.
 	timeout := time.Duration(expectedEventCount) *
 		defaultProofTransferReceiverAckTimeout
-	// Add overhead buffer to context timeout.
-	timeout += 5 * time.Second
+
+	// Allow for some margin for the operations that aren't pure
+	// waiting on the receiver ACK.
+	timeout += timeoutMargin
+
 	ctx, cancel := context.WithTimeout(ctxb, timeout)
 	defer cancel()
 

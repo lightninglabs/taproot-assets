@@ -127,8 +127,8 @@ func MineBlocks(t *testing.T, client *rpcclient.Client,
 
 	var blockHashes []*chainhash.Hash
 
-	switch backend {
-	case rpcclient.BitcoindPost19:
+	switch backend.(type) {
+	case rpcclient.BitcoindVersion:
 		addr, err := btcutil.DecodeAddress(
 			regtestMiningAddr, regtestParams,
 		)
@@ -139,7 +139,7 @@ func MineBlocks(t *testing.T, client *rpcclient.Client,
 		)
 		require.NoError(t, err)
 
-	case rpcclient.Btcd:
+	case rpcclient.BtcdVersion:
 		blockHashes, err = client.Generate(num)
 		require.NoError(t, err)
 

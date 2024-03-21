@@ -524,6 +524,13 @@ func formatProtoJSON(resp proto.Message) (string, error) {
 	return string(jsonBytes), nil
 }
 
+func toJSON(t *testing.T, resp proto.Message) string {
+	jsonStr, err := formatProtoJSON(resp)
+	require.NoError(t, err)
+
+	return jsonStr
+}
+
 // lndKeyDescToTap converts an lnd key descriptor to a tap key descriptor.
 func lndKeyDescToTap(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
 	return &taprpc.KeyDescriptor{

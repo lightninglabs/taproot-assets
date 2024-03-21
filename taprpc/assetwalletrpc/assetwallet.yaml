@@ -15,6 +15,14 @@ http:
       post: "/v1/taproot-assets/wallet/virtual-psbt/anchor"
       body: "*"
 
+    - selector: assetwalletrpc.AssetWallet.CommitVirtualPsbts
+      post: "/v1/taproot-assets/wallet/virtual-psbt/commit"
+      body: "*"
+      
+    - selector: assetwalletrpc.AssetWallet.PublishAndLogTransfer
+      post: "/v1/taproot-assets/wallet/virtual-psbt/log-transfer"
+      body: "*"
+
     - selector: assetwalletrpc.AssetWallet.NextInternalKey
       post: "/v1/taproot-assets/wallet/internal-key/next"
       body: "*"

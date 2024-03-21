@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -786,20 +787,6 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 	return nil
 }
 
-// createDummyOutput creates a new Bitcoin transaction output that is later
-// used to embed a Taproot Asset commitment.
-func createDummyOutput() *wire.TxOut {
-	// The dummy PkScript is the same size as an encoded P2TR output.
-	newOutput := wire.TxOut{
-		Value: int64(tapsend.DummyAmtSats),
-		PkScript: append(
-			[]byte{txscript.OP_1, txscript.OP_DATA_32},
-			make([]byte, 32)...,
-		),
-	}
-	return &newOutput
-}
-
 // stateStep attempts to step through the state machine to complete a Taproot
 // Asset transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
@@ -832,7 +819,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
-		currentPkg.VirtualPacket = fundSendRes.VPacket
+		currentPkg.VirtualPackets = []*tappsbt.VPacket{
+			fundSendRes.VPacket,
+		}
 		currentPkg.InputCommitments = fundSendRes.InputCommitments
 
 		currentPkg.SendState = SendStateVirtualSign
@@ -842,18 +831,21 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
-		vPacket := currentPkg.VirtualPacket
-		receiverScriptKey := vPacket.Outputs[1].ScriptKey.PubKey
-		log.Infof("Generating Taproot Asset witnesses for send to: %x",
-			receiverScriptKey.SerializeCompressed())
+		vPackets := currentPkg.VirtualPackets
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// Taproot Asset leaves. The witness data for each input will be
 		// assigned for us.
-		_, err := p.cfg.AssetWallet.SignVirtualPacket(vPacket)
-		if err != nil {
-			return nil, fmt.Errorf("unable to sign and commit "+
-				"virtual packet: %w", err)
+		for idx := range vPackets {
+			vPkt := vPackets[idx]
+
+			logPacket(vPkt, "Generating Taproot Asset witnesses")
+
+			_, err := p.cfg.AssetWallet.SignVirtualPacket(vPkt)
+			if err != nil {
+				return nil, fmt.Errorf("unable to sign and "+
+					"commit virtual packet: %w", err)
+			}
 		}
 
 		currentPkg.SendState = SendStateAnchorSign
@@ -868,15 +860,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		defer cancel()
 
 		// Submit the template PSBT to the wallet for funding.
-		//
-		// TODO(roasbeef): unlock the input UTXOs of things fail
 		var (
 			feeRate chainfee.SatPerKWeight
 			err     error
 		)
 
 		// First, use a manual fee rate if specified by the parcel.
-		// TODO(jhb): Support PSBT flow / PreSignedParcels
 		addrParcel, ok := currentPkg.Parcel.(*AddressParcel)
 		switch {
 		case ok && addrParcel.transferFeeRate != nil:
@@ -894,23 +883,20 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		readableFeeRate := feeRate.FeePerKVByte().String()
-		log.Infof("sending with fee rate: %v", readableFeeRate)
+		log.Infof("Sending with fee rate: %v", readableFeeRate)
 
-		vPacket := currentPkg.VirtualPacket
-		firstRecipient, err := vPacket.FirstNonSplitRootOutput()
-		if err != nil {
-			return nil, fmt.Errorf("unable to get first "+
-				"interactive output: %w", err)
+		for idx := range currentPkg.VirtualPackets {
+			vPkt := currentPkg.VirtualPackets[idx]
+
+			logPacket(vPkt, "Constructing new Taproot Asset "+
+				"commitments")
 		}
-		receiverScriptKey := firstRecipient.ScriptKey.PubKey
-		log.Infof("Constructing new Taproot Asset commitments for "+
-			"send to: %x", receiverScriptKey.SerializeCompressed())
 
 		// Gather passive assets virtual packets and sign them.
 		wallet := p.cfg.AssetWallet
 
 		currentPkg.PassiveAssets, err = wallet.CreatePassiveAssets(
-			ctx, []*tappsbt.VPacket{vPacket},
+			ctx, currentPkg.VirtualPackets,
 			currentPkg.InputCommitments,
 		)
 		if err != nil {
@@ -929,7 +915,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		anchorTx, err := wallet.AnchorVirtualTransactions(
 			ctx, &AnchorVTxnsParams{
 				FeeRate:            feeRate,
-				VPkts:              []*tappsbt.VPacket{vPacket},
+				VPkts:              currentPkg.VirtualPackets,
 				PassiveAssetsVPkts: currentPkg.PassiveAssets,
 			},
 		)
@@ -943,6 +929,27 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		// signing process with a copy to avoid clearing the info on
 		// finalization.
 		currentPkg.AnchorTx = anchorTx
+
+		// For the final validation, we need to also supply the assets
+		// that were committed to the input tree but pruned because they
+		// were burns or tombstones.
+		prunedAssets := make(map[wire.OutPoint][]*asset.Asset)
+		for prevID := range currentPkg.InputCommitments {
+			c := currentPkg.InputCommitments[prevID]
+			prunedAssets[prevID.OutPoint] = append(
+				prunedAssets[prevID.OutPoint],
+				tapsend.ExtractUnSpendable(c)...,
+			)
+		}
+
+		// Make sure everything is ready for the finalization.
+		err = currentPkg.validateReadyForPublish(prunedAssets)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to validate send "+
+				"package: %w", err)
+		}
 
 		currentPkg.SendState = SendStateLogCommit
 
@@ -958,6 +965,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		defer cancel()
 		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to get current height: "+
 				"%w", err)
 		}
@@ -973,12 +982,13 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		// We need to prepare the parcel for storage.
 		parcel, err := ConvertToTransfer(
-			currentHeight, []*tappsbt.VPacket{
-				currentPkg.VirtualPacket,
-			}, currentPkg.AnchorTx, currentPkg.PassiveAssets,
+			currentHeight, currentPkg.VirtualPackets,
+			currentPkg.AnchorTx, currentPkg.PassiveAssets,
 			isLocalKey,
 		)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to prepare parcel for "+
 				"storage: %w", err)
 		}
@@ -995,6 +1005,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			time.Now().Add(defaultBroadcastCoinLeaseDuration),
 		)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to write send pkg to "+
 				"disk: %w", err)
 		}
@@ -1013,20 +1025,41 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		err := p.importLocalAddresses(ctx, currentPkg.OutboundPkg)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to import local "+
 				"addresses: %w", err)
 		}
 
-		log.Infof("Broadcasting new transfer tx, txid=%v",
-			currentPkg.OutboundPkg.AnchorTx.TxHash())
+		txHash := currentPkg.OutboundPkg.AnchorTx.TxHash()
+		log.Infof("Broadcasting new transfer tx, txid=%v", txHash)
 
 		// With the public key imported, we can now broadcast to the
 		// network.
 		err = p.cfg.ChainBridge.PublishTransaction(
 			ctx, currentPkg.OutboundPkg.AnchorTx,
 		)
-		if err != nil {
-			return nil, err
+		switch {
+		case errors.Is(err, lnwallet.ErrDoubleSpend):
+			// A double spend error means the transaction will never
+			// make it into the mempool or chain, so we'll never be
+			// able to confirm it. At this point we should probably
+			// put the transfer in a failed state and not re-try on
+			// next startup... But since we don't have that state
+			// yet, we just return an error here. But what we can do
+			// is release any fee sponsoring inputs we selected from
+			// lnd's wallet to avoid locking up balance.
+			//
+			// TODO(guggero): Put this transfer into a failed state
+			// and don't retry on next startup.
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to broadcast "+
+				"transaction %v: %w", txHash, err)
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to broadcast "+
+				"transaction %v: %w", txHash, err)
 		}
 
 		// With the transaction broadcast, we'll deliver a
@@ -1075,6 +1108,34 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		return &currentPkg, fmt.Errorf("unknown state: %v",
 			currentPkg.SendState)
 	}
+}
+
+// unlockInputs unlocks the inputs that were locked for the given package.
+func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
+	if pkg == nil || pkg.AnchorTx == nil || pkg.AnchorTx.FundedPsbt == nil {
+		return
+	}
+
+	for _, op := range pkg.AnchorTx.FundedPsbt.LockedUTXOs {
+		err := p.cfg.Wallet.UnlockInput(ctx, op)
+		if err != nil {
+			log.Warnf("Unable to unlock input %v: %v", op, err)
+		}
+	}
+}
+
+// logPacket logs the virtual packet to the debug log.
+func logPacket(vPkt *tappsbt.VPacket, action string) {
+	firstRecipient, err := vPkt.FirstNonSplitRootOutput()
+	if err != nil {
+		// Fall back to the first output if there is no split output
+		// (probably a full-value send).
+		firstRecipient = vPkt.Outputs[0]
+	}
+
+	receiverScriptKey := firstRecipient.ScriptKey.PubKey
+	log.Infof("%s for send to: %x", action,
+		receiverScriptKey.SerializeCompressed())
 }
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will

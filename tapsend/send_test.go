@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
@@ -1081,7 +1082,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		)
 		return err
 	},
-	err: tapsend.ErrInvalidAnchorInfo,
+	err: tapsend.ErrInvalidAnchorOutputInfo,
 }, {
 	name: "non-interactive collectible with group key",
 	f: func(t *testing.T) error {
@@ -2066,5 +2067,808 @@ func sendCommitment(t *testing.T, a *asset.Asset, sendAmt btcutil.Amount,
 		Version:  a.Version,
 		TapKey:   a.TapCommitmentKey(),
 		TreeRoot: root,
+	}
+}
+
+// TestAssertOutputAnchorsEqual tests that invalid output anchor information in
+// virtual packets are detected correctly.
+func TestAssertOutputAnchorsEqual(t *testing.T) {
+	packetWithOutputs := func(outs ...*tappsbt.VOutput) *tappsbt.VPacket {
+		return &tappsbt.VPacket{
+			Outputs: outs,
+		}
+	}
+
+	var (
+		key1 = test.RandPubKey(t)
+		key2 = test.RandPubKey(t)
+	)
+
+	testCases := []struct {
+		name        string
+		packets     []*tappsbt.VPacket
+		expectedErr error
+	}{
+		{
+			name: "valid, different anchor output index in same " +
+				"packet",
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}, &tappsbt.VOutput{
+					AnchorOutputIndex: 1,
+				}),
+			},
+		},
+		{
+			name: "valid, identical empty anchors",
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}, &tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}),
+			},
+		},
+		{
+			name: "valid, identical empty anchors in two packets",
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}),
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}),
+			},
+		},
+		{
+			name: "valid, different anchor output index in two " +
+				"packets",
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}),
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 1,
+				}),
+			},
+		},
+		{
+			name: "invalid, different key",
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key1,
+				}, &tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key2,
+				}),
+			},
+			expectedErr: tapsend.ErrInvalidAnchorOutputInfo,
+		},
+		{
+			name: "invalid, different key in two packets",
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key1,
+				}),
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key2,
+				}),
+			},
+			expectedErr: tapsend.ErrInvalidAnchorOutputInfo,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tapsend.AssertOutputAnchorsEqual(tc.packets)
+			require.ErrorIs(t, err, tc.expectedErr)
+		})
+	}
+}
+
+// TestAssertInputAnchorsEqual tests that invalid input anchor information in
+// virtual packets are detected correctly.
+func TestAssertInputAnchorsEqual(t *testing.T) {
+	packetWithInputs := func(ins ...*tappsbt.VInput) *tappsbt.VPacket {
+		return &tappsbt.VPacket{
+			Inputs: ins,
+		}
+	}
+
+	var (
+		op1  = wire.OutPoint{Hash: chainhash.Hash{1}, Index: 0}
+		op2  = wire.OutPoint{Hash: chainhash.Hash{2}, Index: 1}
+		key1 = test.RandPubKey(t)
+		key2 = test.RandPubKey(t)
+	)
+
+	testCases := []struct {
+		name        string
+		packets     []*tappsbt.VPacket
+		expectedErr error
+	}{
+		{
+			name: "valid, different anchor inputs in same packet",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}, &tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op2,
+					},
+				}),
+			},
+		},
+		{
+			name: "valid, identical empty anchors",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}, &tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}),
+			},
+		},
+		{
+			name: "valid, identical empty anchors in two packets",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}),
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}),
+			},
+		},
+		{
+			name: "valid, different anchor inputs in two packets",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}),
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op2,
+					},
+				}),
+			},
+		},
+		{
+			name: "invalid, different key",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key1,
+					},
+				}, &tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key2,
+					},
+				}),
+			},
+			expectedErr: tapsend.ErrInvalidAnchorInputInfo,
+		},
+		{
+			name: "invalid, different key in two packets",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key1,
+					},
+				}),
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key2,
+					},
+				}),
+			},
+			expectedErr: tapsend.ErrInvalidAnchorInputInfo,
+		},
+		{
+			name: "invalid, different pk script in two packets",
+			packets: []*tappsbt.VPacket{
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key1,
+						MerkleRoot:  []byte("foo"),
+					},
+				}),
+				packetWithInputs(&tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key1,
+						MerkleRoot:  []byte("bar"),
+					},
+				}),
+			},
+			expectedErr: tapsend.ErrInvalidAnchorInputInfo,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tapsend.AssertInputAnchorsEqual(tc.packets)
+			require.ErrorIs(t, err, tc.expectedErr)
+		})
+	}
+}
+
+// TestAssertOutputAnchorsEqual tests that invalid output anchor information in
+// virtual packets are detected correctly.
+func TestValidateAnchorOutputs(t *testing.T) {
+	psbtWithOutputs := func(outs ...psbt.POutput) *psbt.Packet {
+		return &psbt.Packet{
+			Outputs: outs,
+		}
+	}
+	withTxOuts := func(p *psbt.Packet, txOuts ...*wire.TxOut) *psbt.Packet {
+		p.UnsignedTx = &wire.MsgTx{TxOut: txOuts}
+		return p
+	}
+	packetWithOutputs := func(outs ...*tappsbt.VOutput) *tappsbt.VPacket {
+		return &tappsbt.VPacket{
+			Outputs: outs,
+		}
+	}
+
+	sibling, err := commitment.NewPreimageFromLeaf(txscript.NewBaseTapLeaf(
+		[]byte("not a valid script"),
+	))
+	require.NoError(t, err)
+
+	var (
+		key1        = test.RandPubKey(t)
+		key2        = test.RandPubKey(t)
+		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		vOutSibling = &tappsbt.VOutput{
+			AnchorOutputIndex:            0,
+			AnchorOutputInternalKey:      key1,
+			Asset:                        asset1,
+			AnchorOutputTapscriptSibling: sibling,
+		}
+		vOutNoSibling = &tappsbt.VOutput{
+			AnchorOutputIndex:       0,
+			AnchorOutputInternalKey: key1,
+			Asset:                   asset1,
+		}
+		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
+	)
+	asset1Commitment, err := commitment.FromAssets(asset1)
+	require.NoError(t, err)
+
+	scriptSibling, rootSibling, _, err := tapsend.AnchorOutputScript(
+		key1, sibling, asset1Commitment,
+	)
+	require.NoError(t, err)
+	scriptNoSibling, rootNoSibling, _, err := tapsend.AnchorOutputScript(
+		key1, nil, asset1Commitment,
+	)
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name         string
+		anchor       *psbt.Packet
+		packets      []*tappsbt.VPacket
+		expectedErr  error
+		errSubstring string
+		expectedRoot *chainhash.Hash
+	}{
+		{
+			name: "invalid, wrong anchor output index",
+			anchor: &psbt.Packet{
+				Outputs: nil,
+			},
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 1,
+				}),
+			},
+			expectedErr:  tapsend.ErrInvalidOutputIndexes,
+			errSubstring: "output index 1 is invalid",
+		},
+		{
+			name:   "invalid, missing anchor internal key",
+			anchor: psbtWithOutputs(psbt.POutput{}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex: 0,
+				}),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorOutputInfo,
+			errSubstring: "internal key missing",
+		},
+		{
+			name: "invalid, different anchor internal key",
+			anchor: psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key2,
+				}),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorOutputInfo,
+			errSubstring: "internal key mismatch",
+		},
+		{
+			name: "invalid, different bip32 derivation",
+			anchor: psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+				Bip32Derivation: []*psbt.Bip32Derivation{
+					{},
+					{},
+				},
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key1,
+				}),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorOutputInfo,
+			errSubstring: "bip32 derivation",
+		},
+		{
+			name: "invalid, asset missing",
+			anchor: psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key1,
+				}),
+			},
+			expectedErr: tapsend.ErrAssetMissing,
+		},
+		{
+			name: "invalid, asset has no witness",
+			anchor: psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key1,
+					Asset:                   &asset.Asset{},
+				}),
+			},
+			expectedErr: tapsend.ErrAssetNotSigned,
+		},
+		{
+			name: "invalid, asset not signed",
+			anchor: psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(&tappsbt.VOutput{
+					AnchorOutputIndex:       0,
+					AnchorOutputInternalKey: key1,
+					Asset: &asset.Asset{
+						PrevWitnesses: []asset.Witness{
+							{},
+						},
+					},
+				}),
+			},
+			expectedErr: tapsend.ErrAssetNotSigned,
+		},
+		{
+			name: "invalid, invalid script",
+			anchor: withTxOuts(psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}), &wire.TxOut{
+				PkScript: bytes.Repeat([]byte{0x00}, 32),
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(vOutNoSibling),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorOutputInfo,
+			errSubstring: "output script mismatch for anchor",
+		},
+		{
+			name: "valid, no sibling",
+			anchor: withTxOuts(psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}), &wire.TxOut{
+				PkScript: scriptNoSibling,
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(vOutNoSibling),
+			},
+			expectedRoot: &rootNoSibling,
+		},
+		{
+			name: "valid, with sibling",
+			anchor: withTxOuts(psbtWithOutputs(psbt.POutput{
+				TaprootInternalKey: schnorr.SerializePubKey(
+					key1,
+				),
+			}), &wire.TxOut{
+				PkScript: scriptSibling,
+			}),
+			packets: []*tappsbt.VPacket{
+				packetWithOutputs(vOutSibling),
+			},
+			expectedRoot: &rootSibling,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tapsend.ValidateAnchorOutputs(
+				tc.anchor, tc.packets, true,
+			)
+			require.ErrorIs(t, err, tc.expectedErr)
+
+			if tc.expectedErr != nil {
+				require.ErrorContains(t, err, tc.errSubstring)
+			}
+
+			if tc.expectedRoot != nil {
+				require.NoError(t, err)
+				root := tappsbt.ExtractCustomField(
+					tc.anchor.Outputs[0].Unknowns, keyRoot,
+				)
+				require.Equal(t, tc.expectedRoot[:], root)
+			}
+		})
+	}
+}
+
+// TestValidateAnchorInputs tests that invalid input anchor information in
+// virtual packets are detected correctly.
+func TestValidateAnchorInputs(t *testing.T) {
+	psbtWithInputs := func(ins ...psbt.PInput) *psbt.Packet {
+		return &psbt.Packet{
+			Inputs: ins,
+		}
+	}
+	withTxIns := func(p *psbt.Packet, txIns ...*wire.TxIn) *psbt.Packet {
+		p.UnsignedTx = &wire.MsgTx{TxIn: txIns}
+		return p
+	}
+	packetWithInput := func(in tappsbt.VInput,
+		a *asset.Asset) *tappsbt.VPacket {
+
+		vPkt := &tappsbt.VPacket{
+			ChainParams: &address.RegressionNetTap,
+			Inputs: []*tappsbt.VInput{
+				&in,
+			},
+		}
+		if a != nil {
+			vPkt.SetInputAsset(0, a)
+		}
+
+		return vPkt
+	}
+
+	sibling, err := commitment.NewPreimageFromLeaf(txscript.NewBaseTapLeaf(
+		[]byte("not a valid script"),
+	))
+	require.NoError(t, err)
+	siblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(sibling)
+	require.NoError(t, err)
+
+	var (
+		op1        = wire.OutPoint{Hash: chainhash.Hash{1}, Index: 0}
+		op2        = wire.OutPoint{Hash: chainhash.Hash{2}, Index: 1}
+		key1       = test.RandPubKey(t)
+		key2       = test.RandPubKey(t)
+		key1Bytes  = schnorr.SerializePubKey(key1)
+		asset1     = asset.RandAsset(t, asset.RandAssetType(t))
+		vInSibling = tappsbt.VInput{
+			PrevID: asset.PrevID{
+				OutPoint: op1,
+			},
+			Anchor: tappsbt.Anchor{
+				InternalKey:      key1,
+				TapscriptSibling: siblingBytes,
+			},
+		}
+		vInNoSibling = tappsbt.VInput{
+			PrevID: asset.PrevID{
+				OutPoint: op1,
+			},
+			Anchor: tappsbt.Anchor{
+				InternalKey: key1,
+			},
+		}
+	)
+	asset1Commitment, err := commitment.FromAssets(asset1)
+	require.NoError(t, err)
+
+	scriptSibling, rootSibling, _, err := tapsend.AnchorOutputScript(
+		key1, sibling, asset1Commitment,
+	)
+	require.NoError(t, err)
+	scriptNoSibling, rootNoSibling, _, err := tapsend.AnchorOutputScript(
+		key1, nil, asset1Commitment,
+	)
+	require.NoError(t, err)
+
+	packetSibling := packetWithInput(vInSibling, asset1)
+	packetSibling.Inputs[0].Anchor.MerkleRoot = rootSibling[:]
+
+	packetNoSibling := packetWithInput(vInNoSibling, asset1)
+	packetNoSibling.Inputs[0].Anchor.MerkleRoot = rootNoSibling[:]
+
+	testCases := []struct {
+		name         string
+		anchor       *psbt.Packet
+		packets      []*tappsbt.VPacket
+		expectedErr  error
+		errSubstring string
+	}{
+		{
+			name:   "invalid, empty inputs",
+			anchor: withTxIns(psbtWithInputs()),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op2,
+					},
+				}, nil),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "prev ID outpoint",
+		},
+		{
+			name: "invalid, wrong inputs",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{}), &wire.TxIn{},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op2,
+					},
+				}, nil),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "prev ID outpoint",
+		},
+		{
+			name: "invalid, missing internal key",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+				}, nil),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "internal key missing",
+		},
+		{
+			name: "invalid, invalid internal key",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: []byte("invalid"),
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key2,
+					},
+				}, nil),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "error parsing internal key",
+		},
+		{
+			name: "invalid, wrong internal key",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key2,
+					},
+				}, nil),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "internal key mismatch",
+		},
+		{
+			name: "invalid, invalid sibling preimage",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey: key1,
+						TapscriptSibling: []byte(
+							"invalid",
+						),
+					},
+				}, nil),
+			},
+			expectedErr: tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "error parsing anchor input tapscript " +
+				"sibling",
+		},
+		{
+			name: "invalid, missing utxo info",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(tappsbt.VInput{
+					PrevID: asset.PrevID{
+						OutPoint: op1,
+					},
+					Anchor: tappsbt.Anchor{
+						InternalKey:      key1,
+						TapscriptSibling: siblingBytes,
+					},
+				}, nil),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "witness UTXO missing",
+		},
+		{
+			name: "invalid, incorrect pk script",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+					WitnessUtxo: &wire.TxOut{
+						PkScript: []byte("invalid"),
+					},
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(vInSibling, asset1),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "anchor input script mismatch",
+		},
+		{
+			name: "invalid, invalid merkle root",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+					WitnessUtxo: &wire.TxOut{
+						PkScript: scriptSibling,
+					},
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetWithInput(vInSibling, asset1),
+			},
+			expectedErr:  tapsend.ErrInvalidAnchorInputInfo,
+			errSubstring: "merkle root mismatch for anchor",
+		},
+		{
+			name: "valid, no sibling",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+					WitnessUtxo: &wire.TxOut{
+						PkScript: scriptNoSibling,
+					},
+					TaprootMerkleRoot: rootNoSibling[:],
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetNoSibling,
+			},
+		},
+		{
+			name: "valid, with sibling",
+			anchor: withTxIns(
+				psbtWithInputs(psbt.PInput{
+					TaprootInternalKey: key1Bytes,
+					WitnessUtxo: &wire.TxOut{
+						PkScript: scriptSibling,
+					},
+					TaprootMerkleRoot: rootSibling[:],
+				}), &wire.TxIn{
+					PreviousOutPoint: op1,
+				},
+			),
+			packets: []*tappsbt.VPacket{
+				packetSibling,
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := tapsend.ValidateAnchorInputs(
+				tc.anchor, tc.packets, nil,
+			)
+			require.ErrorIs(t, err, tc.expectedErr)
+
+			if tc.expectedErr != nil {
+				require.ErrorContains(t, err, tc.errSubstring)
+			}
+		})
 	}
 }

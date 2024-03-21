@@ -107,7 +107,9 @@ type Parcel interface {
 	// kit returns the parcel kit used for delivery.
 	kit() *parcelKit
 
-	// Validate validates the parcel.
+	// Validate validates the parcel. The validation focuses on the
+	// necessary fields being present in order for the porter not to panic.
+	// Any business logic validation is assumed to already have happened.
 	Validate() error
 }
 
@@ -169,7 +171,9 @@ func (p *AddressParcel) kit() *parcelKit {
 	return p.parcelKit
 }
 
-// Validate validates the parcel.
+// Validate validates the parcel. The validation focuses on the necessary fields
+// being present in order for the porter not to panic. Any business logic
+// validation is assumed to already have happened.
 func (p *AddressParcel) Validate() error {
 	// We need at least one address to send to in an address parcel.
 	if len(p.destAddrs) < 1 {
@@ -225,7 +229,9 @@ func (p *PendingParcel) kit() *parcelKit {
 	return p.parcelKit
 }
 
-// Validate validates the parcel.
+// Validate validates the parcel. The validation focuses on the necessary fields
+// being present in order for the porter not to panic. Any business logic
+// validation is assumed to already have happened.
 func (p *PendingParcel) Validate() error {
 	// A pending parcel should have already been validated.
 	return nil
@@ -273,7 +279,7 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 	return &sendPackage{
 		Parcel:           p,
 		SendState:        SendStateAnchorSign,
-		VirtualPacket:    p.vPkt,
+		VirtualPackets:   []*tappsbt.VPacket{p.vPkt},
 		InputCommitments: p.inputCommitments,
 	}
 }
@@ -283,9 +289,107 @@ func (p *PreSignedParcel) kit() *parcelKit {
 	return p.parcelKit
 }
 
-// Validate validates the parcel.
+// Validate validates the parcel. The validation focuses on the necessary fields
+// being present in order for the porter not to panic. Any business logic
+// validation is assumed to already have happened.
 func (p *PreSignedParcel) Validate() error {
-	// TODO(ffranr): Add validation where appropriate.
+	if p.vPkt == nil {
+		return fmt.Errorf("no virtual transaction in pre-signed parcel")
+	}
+
+	if len(p.vPkt.Outputs) == 0 {
+		return fmt.Errorf("no outputs in virtual transaction")
+	}
+
+	if p.inputCommitments == nil {
+		return fmt.Errorf("no input commitments in pre-signed parcel")
+	}
+
+	return nil
+}
+
+// PreAnchoredParcel is a request to log and publish an asset transfer of a
+// pre-anchored parcel. All virtual PSBTs and the on-chain BTC level anchor
+// transaction must be fully signed and ready to be broadcast.
+type PreAnchoredParcel struct {
+	*parcelKit
+
+	virtualPackets []*tappsbt.VPacket
+
+	passiveAssets []*tappsbt.VPacket
+
+	anchorTx *tapsend.AnchorTransaction
+}
+
+// A compile-time assertion to ensure PreAnchoredParcel implements the Parcel
+// interface.
+var _ Parcel = (*PreAnchoredParcel)(nil)
+
+// NewPreAnchoredParcel creates a new PreAnchoredParcel.
+func NewPreAnchoredParcel(vPackets []*tappsbt.VPacket,
+	passiveAssets []*tappsbt.VPacket,
+	anchorTx *tapsend.AnchorTransaction) *PreAnchoredParcel {
+
+	return &PreAnchoredParcel{
+		parcelKit: &parcelKit{
+			respChan: make(chan *OutboundParcel, 1),
+			errChan:  make(chan error, 1),
+		},
+		virtualPackets: vPackets,
+		passiveAssets:  passiveAssets,
+		anchorTx:       anchorTx,
+	}
+}
+
+// pkg returns the send package that should be delivered.
+func (p *PreAnchoredParcel) pkg() *sendPackage {
+	log.Infof("New anchored delivery request with %d packets",
+		len(p.virtualPackets))
+
+	// Initialize a package the signed virtual transaction and input
+	// commitment.
+	return &sendPackage{
+		Parcel:         p,
+		SendState:      SendStateLogCommit,
+		VirtualPackets: p.virtualPackets,
+		PassiveAssets:  p.passiveAssets,
+		AnchorTx:       p.anchorTx,
+	}
+}
+
+// kit returns the parcel kit used for delivery.
+func (p *PreAnchoredParcel) kit() *parcelKit {
+	return p.parcelKit
+}
+
+// Validate validates the parcel. The validation focuses on the necessary fields
+// being present in order for the porter not to panic. Any business logic
+// validation is assumed to already have happened.
+func (p *PreAnchoredParcel) Validate() error {
+	if len(p.virtualPackets) == 0 {
+		return fmt.Errorf("no virtual transactions in pre-anchored " +
+			"parcel")
+	}
+
+	for _, vPkt := range p.virtualPackets {
+		if len(vPkt.Outputs) == 0 {
+			return fmt.Errorf("no outputs in virtual transaction")
+		}
+	}
+
+	if p.anchorTx == nil {
+		return fmt.Errorf("no anchor transaction in pre-anchored " +
+			"parcel")
+	}
+
+	if p.anchorTx.FinalTx == nil {
+		return fmt.Errorf("no final transaction in anchor transaction")
+	}
+
+	if p.anchorTx.FundedPsbt == nil {
+		return fmt.Errorf("no funded PSBT in anchor transaction")
+	}
+
 	return nil
 }
 
@@ -294,9 +398,8 @@ type sendPackage struct {
 	// SendState is the current send state of this parcel.
 	SendState SendState
 
-	// VirtualPacket is the virtual packet that we'll use to construct the
-	// virtual asset transition transaction.
-	VirtualPacket *tappsbt.VPacket
+	// VirtualPackets is the list of virtual packets that should be shipped.
+	VirtualPackets []*tappsbt.VPacket
 
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
@@ -548,4 +651,37 @@ func (s *sendPackage) deliverTxBroadcastResp() {
 		len(s.OutboundPkg.Inputs), len(s.OutboundPkg.Outputs))
 
 	s.Parcel.kit().respChan <- s.OutboundPkg
+}
+
+// validateReadyForPublish checks that the virtual packets are ready to be
+// published to the network. The pruned assets (assets that were present in the
+// input TAP tree but are not re-created by any of the active or passive packets
+// because they were burns or tombstones) are required to be supplied in order
+// for the full input TAP tree to be reconstructed and validated.
+func (s *sendPackage) validateReadyForPublish(
+	prunedAssets map[wire.OutPoint][]*asset.Asset) error {
+
+	// At this point all the virtual packet inputs and outputs should fully
+	// match the BTC level anchor transaction. Version 0 assets should also
+	// be signed now.
+	allPackets := append([]*tappsbt.VPacket{}, s.VirtualPackets...)
+	allPackets = append(allPackets, s.PassiveAssets...)
+	if err := tapsend.AssertInputAnchorsEqual(allPackets); err != nil {
+		return fmt.Errorf("input anchors don't match: %w", err)
+	}
+	if err := tapsend.AssertOutputAnchorsEqual(allPackets); err != nil {
+		return fmt.Errorf("output anchors don't match: %w", err)
+	}
+
+	btcPkt := s.AnchorTx.FundedPsbt.Pkt
+	err := tapsend.ValidateAnchorInputs(btcPkt, allPackets, prunedAssets)
+	if err != nil {
+		return fmt.Errorf("error validating anchor inputs: %w", err)
+	}
+	err = tapsend.ValidateAnchorOutputs(btcPkt, allPackets, true)
+	if err != nil {
+		return fmt.Errorf("error validating anchor outputs: %w", err)
+	}
+
+	return nil
 }

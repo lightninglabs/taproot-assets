@@ -96,6 +96,56 @@ func RegisterAssetWalletJSONCallbacks(registry map[string]func(ctx context.Conte
 		callback(string(respBytes), nil)
 	}
 
+	registry["assetwalletrpc.AssetWallet.CommitVirtualPsbts"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &CommitVirtualPsbtsRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewAssetWalletClient(conn)
+		resp, err := client.CommitVirtualPsbts(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
+	registry["assetwalletrpc.AssetWallet.PublishAndLogTransfer"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &PublishAndLogRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewAssetWalletClient(conn)
+		resp, err := client.PublishAndLogTransfer(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
 	registry["assetwalletrpc.AssetWallet.NextInternalKey"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 

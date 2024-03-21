@@ -466,3 +466,41 @@ func SparseDecode(r io.Reader, records ...tlv.Record) error {
 
 	return proofStream.Decode(r)
 }
+
+// Encode encodes a proof into a byte slice.
+func Encode(p *Proof) ([]byte, error) {
+	var b bytes.Buffer
+	if err := p.Encode(&b); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// Decode decodes a proof from a byte slice.
+func Decode(blob []byte) (*Proof, error) {
+	var p Proof
+	err := p.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+	return &p, nil
+}
+
+// EncodeFile encodes a proof file into a byte slice.
+func EncodeFile(f *File) ([]byte, error) {
+	var b bytes.Buffer
+	if err := f.Encode(&b); err != nil {
+		return nil, err
+	}
+	return b.Bytes(), nil
+}
+
+// DecodeFile decodes a proof file from a byte slice.
+func DecodeFile(blob []byte) (*File, error) {
+	var f File
+	err := f.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+	return &f, nil
+}
