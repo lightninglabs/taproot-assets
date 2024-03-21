@@ -96,7 +96,7 @@ build-itest:
 	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest $(BTCD_PKG)
 
 	@$(call print, "Building itest lnd.")
-	CGO_ENABLED=0 $(GOBUILD) -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
+	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
 build-loadtest:
 	CGO_ENABLED=0 $(GOTEST) -c -tags="$(LOADTEST_TAGS)" -o loadtest $(PKG)/itest/loadtest
