@@ -20,18 +20,22 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// testRfqHtlcIntercept tests RFQ negotiation and HTLC interception and
-// validation between three peers.
+// testRfqAssetBuyHtlcIntercept tests RFQ negotiation, HTLC interception, and
+// validation between three peers. The RFQ negotiation is initiated by an asset
+// buy request.
 //
 // The procedure is as follows:
-//  1. Carol sends a tap asset request for quote (buy order) to Bob.
+//  1. Carol sends a tap asset buy quote request to Bob.
 //  2. Bob's node accepts the quote.
-//  3. Carol uses the quote accept message to construct a lightning invoice which
-//     will pay for the quote accepted by Bob.
+//  3. Carol uses the buy accept message to construct a lightning invoice
+//     which will pay for the quote accepted by Bob.
 //  4. Alice pays the invoice.
 //  5. Bob's node intercepts the lightning payment from Alice and validates it
 //     against the quote accepted between Bob and Carol.
-func testRfqHtlcIntercept(t *harnessTest) {
+//
+// As a final step (which is not part of this test), Bob's node will transfer
+// the tap asset to Carol's node.
+func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// Initialize a new test scenario.
 	ts := newRfqTestScenario(t)
 
@@ -98,7 +102,7 @@ func testRfqHtlcIntercept(t *harnessTest) {
 		event, err := carolEventNtfns.Recv()
 		require.NoError(t.t, err)
 
-		_, ok := event.Event.(*rfqrpc.RfqEvent_IncomingAcceptQuote)
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
 
 		return nil
@@ -107,11 +111,11 @@ func testRfqHtlcIntercept(t *harnessTest) {
 
 	// Carol should have received an accepted quote from Bob. This accepted
 	// quote can be used by Carol to make a payment to Bob.
-	acceptedQuotes, err := ts.CarolTapd.QueryRfqAcceptedQuotes(
-		ctxt, &rfqrpc.QueryRfqAcceptedQuotesRequest{},
+	acceptedQuotes, err := ts.CarolTapd.QueryPeerAcceptedQuotes(
+		ctxt, &rfqrpc.QueryPeerAcceptedQuotesRequest{},
 	)
 	require.NoError(t.t, err, "unable to query accepted quotes")
-	require.Len(t.t, acceptedQuotes.AcceptedQuotes, 1)
+	require.Len(t.t, acceptedQuotes.BuyQuotes, 1)
 
 	// Carol will now use the accepted quote (received from Bob) to create
 	// a lightning invoice which will be given to and settled by Alice.
@@ -126,7 +130,7 @@ func testRfqHtlcIntercept(t *harnessTest) {
 	// pays the invoice, the payment will arrive to Bob's node with the
 	// expected scid. Bob will then use the scid to identify the HTLC as
 	// relating to the accepted quote.
-	acceptedQuote := acceptedQuotes.AcceptedQuotes[0]
+	acceptedQuote := acceptedQuotes.BuyQuotes[0]
 	t.Logf("Accepted quote scid: %d", acceptedQuote.Scid)
 	scid := lnwire.NewShortChanIDFromInt(acceptedQuote.Scid)
 

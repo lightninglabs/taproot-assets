@@ -78,10 +78,11 @@ type Manager struct {
 	// events.
 	acceptHtlcEvents chan *AcceptHtlcEvent
 
-	// peerAcceptedQuotes is a map of serialised short channel IDs (SCIDs)
-	// to associated accepted quotes. These quotes have been accepted by
-	// peer nodes and are therefore available for use in buying assets.
-	peerAcceptedQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
+	// peerAcceptedBuyQuotes holds buy quotes for assets that our node has
+	// requested and that have been accepted by peer nodes. These quotes are
+	// exclusively used by our node for the acquisition of assets, as they
+	// represent agreed-upon terms for purchase transactions with our peers.
+	peerAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -104,7 +105,7 @@ func NewManager(cfg ManagerCfg) (*Manager, error) {
 		outgoingMessages: make(chan rfqmsg.OutgoingMsg),
 
 		acceptHtlcEvents: make(chan *AcceptHtlcEvent),
-		peerAcceptedQuotes: lnutils.SyncMap[
+		peerAcceptedBuyQuotes: lnutils.SyncMap[
 			SerialisedScid, rfqmsg.BuyAccept]{},
 
 		subscribers: lnutils.SyncMap[
@@ -273,10 +274,11 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		// so that it can be used to send a payment by our lightning
 		// node.
 		scid := SerialisedScid(msg.ShortChannelId())
-		m.peerAcceptedQuotes.Store(scid, *msg)
+		m.peerAcceptedBuyQuotes.Store(scid, *msg)
 
-		// Notify subscribers of the incoming quote accept.
-		event := NewIncomingAcceptQuoteEvent(msg)
+		// Notify subscribers of the incoming peer accepted asset buy
+		// quote.
+		event := NewPeerAcceptedBuyQuoteEvent(msg)
 		m.publishSubscriberEvent(event)
 
 	case *rfqmsg.Reject:
@@ -425,17 +427,18 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	return nil
 }
 
-// QueryAcceptedQuotes returns a map of accepted quotes that have been
-// registered with the RFQ manager.
-func (m *Manager) QueryAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+// QueryPeerAcceptedQuotes returns quotes that were requested by our node and
+// have been accepted by our peers. These quotes are exclusively available to
+// our node for the acquisition/sale of assets.
+func (m *Manager) QueryPeerAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	quotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 
-	m.peerAcceptedQuotes.ForEach(
+	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
 			if time.Now().Unix() > int64(accept.Expiry) {
-				m.peerAcceptedQuotes.Delete(scid)
+				m.peerAcceptedBuyQuotes.Delete(scid)
 				return nil
 			}
 
@@ -487,34 +490,34 @@ func (m *Manager) publishSubscriberEvent(event fn.Event) {
 	)
 }
 
-// IncomingAcceptQuoteEvent is an event that is broadcast when the RFQ manager
-// receives an accept quote message from a peer.
-type IncomingAcceptQuoteEvent struct {
+// PeerAcceptedBuyQuoteEvent is an event that is broadcast when the RFQ manager
+// receives an accept quote message from a peer. This is a quote which was
+// requested by our node and has been accepted by a peer.
+type PeerAcceptedBuyQuoteEvent struct {
 	// timestamp is the event creation UTC timestamp.
 	timestamp time.Time
 
-	// BuyAccept is the accepted quote.
+	// BuyAccept is the accepted asset buy quote.
 	rfqmsg.BuyAccept
 }
 
-// NewIncomingAcceptQuoteEvent creates a new IncomingAcceptQuoteEvent.
-func NewIncomingAcceptQuoteEvent(
-	accept *rfqmsg.BuyAccept) *IncomingAcceptQuoteEvent {
+// NewPeerAcceptedBuyQuoteEvent creates a new PeerAcceptedBuyQuoteEvent.
+func NewPeerAcceptedBuyQuoteEvent(
+	buyAccept *rfqmsg.BuyAccept) *PeerAcceptedBuyQuoteEvent {
 
-	return &IncomingAcceptQuoteEvent{
+	return &PeerAcceptedBuyQuoteEvent{
 		timestamp: time.Now().UTC(),
-		BuyAccept: *accept,
+		BuyAccept: *buyAccept,
 	}
 }
 
 // Timestamp returns the event creation UTC timestamp.
-func (q *IncomingAcceptQuoteEvent) Timestamp() time.Time {
+func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 	return q.timestamp.UTC()
 }
 
-// Ensure that the IncomingAcceptQuoteEvent struct implements the Event
-// interface.
-var _ fn.Event = (*IncomingAcceptQuoteEvent)(nil)
+// Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event interface.
+var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
 
 // IncomingRejectQuoteEvent is an event that is broadcast when the RFQ manager
 // receives a reject quote message from a peer.
@@ -554,18 +557,18 @@ type AcceptHtlcEvent struct {
 	// Htlc is the intercepted HTLC.
 	Htlc lndclient.InterceptedHtlc
 
-	// ChannelRemit is the channel remit that the HTLC complies with.
-	ChannelRemit ChannelRemit
+	// Policy is the policy with which the HTLC is compliant.
+	Policy Policy
 }
 
 // NewAcceptHtlcEvent creates a new AcceptedHtlcEvent.
 func NewAcceptHtlcEvent(htlc lndclient.InterceptedHtlc,
-	channelRemit ChannelRemit) *AcceptHtlcEvent {
+	policy Policy) *AcceptHtlcEvent {
 
 	return &AcceptHtlcEvent{
-		timestamp:    uint64(time.Now().UTC().Unix()),
-		Htlc:         htlc,
-		ChannelRemit: channelRemit,
+		timestamp: uint64(time.Now().UTC().Unix()),
+		Htlc:      htlc,
+		Policy:    policy,
 	}
 }
 

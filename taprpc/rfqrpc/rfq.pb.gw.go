@@ -303,20 +303,20 @@ func local_request_Rfq_AddAssetSellOffer_1(ctx context.Context, marshaler runtim
 
 }
 
-func request_Rfq_QueryRfqAcceptedQuotes_0(ctx context.Context, marshaler runtime.Marshaler, client RfqClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryRfqAcceptedQuotesRequest
+func request_Rfq_QueryPeerAcceptedQuotes_0(ctx context.Context, marshaler runtime.Marshaler, client RfqClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryPeerAcceptedQuotesRequest
 	var metadata runtime.ServerMetadata
 
-	msg, err := client.QueryRfqAcceptedQuotes(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	msg, err := client.QueryPeerAcceptedQuotes(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
 	return msg, metadata, err
 
 }
 
-func local_request_Rfq_QueryRfqAcceptedQuotes_0(ctx context.Context, marshaler runtime.Marshaler, server RfqServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
-	var protoReq QueryRfqAcceptedQuotesRequest
+func local_request_Rfq_QueryPeerAcceptedQuotes_0(ctx context.Context, marshaler runtime.Marshaler, server RfqServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq QueryPeerAcceptedQuotesRequest
 	var metadata runtime.ServerMetadata
 
-	msg, err := server.QueryRfqAcceptedQuotes(ctx, &protoReq)
+	msg, err := server.QueryPeerAcceptedQuotes(ctx, &protoReq)
 	return msg, metadata, err
 
 }
@@ -452,7 +452,7 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 
 	})
 
-	mux.Handle("GET", pattern_Rfq_QueryRfqAcceptedQuotes_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Rfq_QueryPeerAcceptedQuotes_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		var stream runtime.ServerTransportStream
@@ -460,12 +460,12 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/QueryRfqAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/accepted"))
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/QueryPeerAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/peeraccepted"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_QueryRfqAcceptedQuotes_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
@@ -473,7 +473,7 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 			return
 		}
 
-		forward_Rfq_QueryRfqAcceptedQuotes_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -613,25 +613,25 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 
 	})
 
-	mux.Handle("GET", pattern_Rfq_QueryRfqAcceptedQuotes_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+	mux.Handle("GET", pattern_Rfq_QueryPeerAcceptedQuotes_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
 		var err error
 		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/QueryRfqAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/accepted"))
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/QueryPeerAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/peeraccepted"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_QueryRfqAcceptedQuotes_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		resp, md, err := request_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, inboundMarshaler, client, req, pathParams)
 		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
 		if err != nil {
 			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_QueryRfqAcceptedQuotes_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -669,7 +669,7 @@ var (
 
 	pattern_Rfq_AddAssetSellOffer_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "rfq", "selloffer", "group-key", "asset_specifier.group_key_str"}, ""))
 
-	pattern_Rfq_QueryRfqAcceptedQuotes_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "rfq", "quotes", "accepted"}, ""))
+	pattern_Rfq_QueryPeerAcceptedQuotes_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4}, []string{"v1", "taproot-assets", "rfq", "quotes", "peeraccepted"}, ""))
 
 	pattern_Rfq_SubscribeRfqEventNtfns_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "rfq", "ntfs"}, ""))
 )
@@ -683,7 +683,7 @@ var (
 
 	forward_Rfq_AddAssetSellOffer_1 = runtime.ForwardResponseMessage
 
-	forward_Rfq_QueryRfqAcceptedQuotes_0 = runtime.ForwardResponseMessage
+	forward_Rfq_QueryPeerAcceptedQuotes_0 = runtime.ForwardResponseMessage
 
 	forward_Rfq_SubscribeRfqEventNtfns_0 = runtime.ForwardResponseStream
 )
