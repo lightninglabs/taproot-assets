@@ -16,13 +16,4 @@ docker run \
   -e UID=$UID \
   -v "$DIR/../:/build" \
   -w /build \
-  sqlc/sqlc:1.21.0 generate
-
-# Until https://github.com/kyleconroy/sqlc/issues/1334 is fixed, we need to
-# manually modify some types so LEFT JOIN queries compile properly.
-echo "Fixing LEFT JOIN issue..."
-sed -i.bak -E 's/GroupKeyFamily([[:space:]])+int32/GroupKeyFamily\1sql.NullInt32/g' tapdb/sqlc/assets.sql.go
-sed -i.bak -E 's/GroupKeyIndex([[:space:]])+int32/GroupKeyIndex\1sql.NullInt32/g' tapdb/sqlc/assets.sql.go
-
-echo "Reformatting modified files.."
-go fmt tapdb/sqlc/assets.sql.go
+  sqlc/sqlc:1.25.0 generate

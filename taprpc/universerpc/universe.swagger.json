@@ -691,7 +691,61 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/universerpcAssetProof"
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "object",
+                      "properties": {
+                        "asset_id": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                        },
+                        "group_key": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                        },
+                        "group_key_str": {
+                          "type": "string",
+                          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+                        },
+                        "proof_type": {
+                          "$ref": "#/definitions/universerpcProofType"
+                        }
+                      },
+                      "description": "The ID of the asset to query for.",
+                      "title": "The ID of the asset to query for."
+                    },
+                    "leaf_key": {
+                      "type": "object",
+                      "properties": {
+                        "op_str": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "object"
+                        },
+                        "script_key_bytes": {
+                          "type": "string",
+                          "format": "byte"
+                        }
+                      },
+                      "description": "The asset key to query for.",
+                      "title": "The asset key to query for."
+                    }
+                  },
+                  "description": "The ID of the asset to insert the proof for.",
+                  "title": "The ID of the asset to insert the proof for."
+                },
+                "asset_leaf": {
+                  "$ref": "#/definitions/universerpcAssetLeaf",
+                  "description": "The asset leaf to insert into the Universe tree."
+                }
+              }
             }
           }
         ],
@@ -853,7 +907,61 @@
             "in": "body",
             "required": true,
             "schema": {
-              "$ref": "#/definitions/universerpcAssetProof"
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "object",
+                      "properties": {
+                        "asset_id": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                        },
+                        "asset_id_str": {
+                          "type": "string",
+                          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+                        },
+                        "group_key": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                        },
+                        "proof_type": {
+                          "$ref": "#/definitions/universerpcProofType"
+                        }
+                      },
+                      "description": "The ID of the asset to query for.",
+                      "title": "The ID of the asset to query for."
+                    },
+                    "leaf_key": {
+                      "type": "object",
+                      "properties": {
+                        "op_str": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "object"
+                        },
+                        "script_key_bytes": {
+                          "type": "string",
+                          "format": "byte"
+                        }
+                      },
+                      "description": "The asset key to query for.",
+                      "title": "The asset key to query for."
+                    }
+                  },
+                  "description": "The ID of the asset to insert the proof for.",
+                  "title": "The ID of the asset to insert the proof for."
+                },
+                "asset_leaf": {
+                  "$ref": "#/definitions/universerpcAssetLeaf",
+                  "description": "The asset leaf to insert into the Universe tree."
+                }
+              }
             }
           }
         ],
@@ -1302,14 +1410,11 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "type_url": {
+        "@type": {
           "type": "string"
-        },
-        "value": {
-          "type": "string",
-          "format": "byte"
         }
-      }
+      },
+      "additionalProperties": {}
     },
     "rpcStatus": {
       "type": "object",
@@ -1324,6 +1429,7 @@
         "details": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -1418,6 +1524,7 @@
         "prev_witnesses": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/taprpcPrevWitness"
           }
         },
@@ -1563,6 +1670,7 @@
         "servers": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcUniverseFederationServer"
           }
         }
@@ -1627,6 +1735,7 @@
         "asset_keys": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcAssetKey"
           },
           "description": "The set of asset leaf keys for the given asset ID or group key."
@@ -1639,22 +1748,10 @@
         "leaves": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcAssetLeaf"
           },
           "description": "The set of asset leaves for the given asset ID or group key."
-        }
-      }
-    },
-    "universerpcAssetProof": {
-      "type": "object",
-      "properties": {
-        "key": {
-          "$ref": "#/definitions/universerpcUniverseKey",
-          "description": "The ID of the asset to insert the proof for."
-        },
-        "asset_leaf": {
-          "$ref": "#/definitions/universerpcAssetLeaf",
-          "description": "The asset leaf to insert into the Universe tree."
         }
       }
     },
@@ -1873,6 +1970,7 @@
         "servers": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcUniverseFederationServer"
           }
         }
@@ -1903,6 +2001,7 @@
         "specific_ids": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcID"
           },
           "description": "An optional list of universe IDs to include in the multiverse root. If\nnone are specified, then all known universes of the given proof type are\nincluded. NOTE: The proof type within the IDs must either be unspecified\nor match the proof type above."
@@ -1947,6 +2046,7 @@
         "events": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcGroupedUniverseEvents"
           }
         }
@@ -1958,12 +2058,14 @@
         "global_sync_configs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
           }
         },
         "asset_sync_configs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
           }
         }
@@ -1988,12 +2090,14 @@
         "global_sync_configs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcGlobalFederationSyncConfig"
           }
         },
         "asset_sync_configs": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcAssetFederationSyncConfig"
           }
         }
@@ -2045,6 +2149,7 @@
         "sync_targets": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcSyncTarget"
           },
           "description": "The set of assets to sync. If none are specified, then all assets are\nsynced."
@@ -2057,6 +2162,7 @@
         "synced_universes": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcSyncedUniverse"
           },
           "description": "The set of synced asset Universes."
@@ -2085,6 +2191,7 @@
         "new_asset_leaves": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcAssetLeaf"
           },
           "description": "The set of new asset leaves that were synced."
@@ -2097,6 +2204,7 @@
         "asset_stats": {
           "type": "array",
           "items": {
+            "type": "object",
             "$ref": "#/definitions/universerpcAssetStatsSnapshot"
           }
         }
