@@ -23,6 +23,10 @@ var loadTestCases = []testCase{
 		name: "send",
 		fn:   sendTest,
 	},
+	{
+		name: "multisig",
+		fn:   multisigTest,
+	},
 }
 
 // TestPerformance executes the configured performance tests.

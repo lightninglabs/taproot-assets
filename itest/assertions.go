@@ -956,9 +956,6 @@ func assertProofReveals(t *testing.T, expected *taprpc.Asset,
 	actual *taprpc.DecodedProof) {
 
 	if actual.GenesisReveal != nil {
-		actual.GenesisReveal.GenesisBaseReveal.Version =
-			expected.AssetGenesis.Version
-
 		require.Equal(
 			t, expected.AssetGenesis,
 			actual.GenesisReveal.GenesisBaseReveal,
@@ -977,7 +974,6 @@ func AssertAssetGenesis(t *testing.T, expected, actual *taprpc.GenesisInfo) {
 	require.Equal(t, expected.MetaHash, actual.MetaHash)
 	require.Equal(t, expected.AssetId, actual.AssetId)
 	require.Equal(t, expected.OutputIndex, actual.OutputIndex)
-	require.Equal(t, expected.Version, actual.Version)
 }
 
 // AssertBalanceByID asserts that the balance of a single asset,
@@ -1619,7 +1615,10 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	for _, balance := range assetIDBalances.AssetBalances {
 		for _, rpcAsset := range allAssets {
-			if balance.AssetGenesis.Name == rpcAsset.AssetGenesis.Name {
+			balanceGen := balance.AssetGenesis
+			targetGen := rpcAsset.AssetGenesis
+
+			if balanceGen.Name == targetGen.Name {
 				require.Equal(
 					t, balance.Balance, rpcAsset.Amount,
 				)

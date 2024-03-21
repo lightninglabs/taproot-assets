@@ -247,6 +247,10 @@ var testCases = []*testCase{
 		name: "rfq htlc intercept",
 		test: testRfqHtlcIntercept,
 	},
+	{
+		name: "multi signature on all levels",
+		test: testMultiSignature,
+	},
 }
 
 var optionalTestCases = []*testCase{

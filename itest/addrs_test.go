@@ -554,11 +554,20 @@ func sendProof(t *harnessTest, src, dst *tapdHarness,
 	}, defaultWaitTimeout)
 	require.NoError(t.t, waitErr)
 
-	t.Logf("Importing proof %x", proofResp.RawProofFile)
+	return importProof(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
+}
 
+// importProof manually imports a proof using the development only ImportProof
+// RPC.
+func importProof(t *harnessTest, dst *tapdHarness, rawFile []byte,
+	genesisPoint string) *tapdevrpc.ImportProofResponse {
+
+	t.Logf("Importing proof %x", rawFile)
+
+	ctxb := context.Background()
 	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
-		ProofFile:    proofResp.RawProofFile,
-		GenesisPoint: genInfo.GenesisPoint,
+		ProofFile:    rawFile,
+		GenesisPoint: genesisPoint,
 	})
 	require.NoError(t.t, err)
 

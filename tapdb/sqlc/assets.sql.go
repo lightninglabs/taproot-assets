@@ -1930,7 +1930,7 @@ func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams
 
 const queryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
 SELECT
-    genesis_info_view.asset_id, version, SUM(amount) balance,
+    genesis_info_view.asset_id, SUM(amount) balance,
     genesis_info_view.asset_tag, genesis_info_view.meta_hash,
     genesis_info_view.asset_type, genesis_info_view.output_index,
     genesis_info_view.prev_out AS genesis_point
@@ -1943,14 +1943,13 @@ LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
 WHERE spent = FALSE
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
-         version, genesis_info_view.asset_tag, genesis_info_view.meta_hash,
+         genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
          genesis_info_view.prev_out
 `
 
 type QueryAssetBalancesByAssetRow struct {
 	AssetID      []byte
-	Version      int32
 	Balance      int64
 	AssetTag     string
 	MetaHash     []byte
@@ -1974,7 +1973,6 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter [
 		var i QueryAssetBalancesByAssetRow
 		if err := rows.Scan(
 			&i.AssetID,
-			&i.Version,
 			&i.Balance,
 			&i.AssetTag,
 			&i.MetaHash,

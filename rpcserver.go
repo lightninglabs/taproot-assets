@@ -835,7 +835,6 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 
 		resp.AssetBalances[assetIDStr] = &taprpc.AssetBalance{
 			AssetGenesis: &taprpc.GenesisInfo{
-				Version:      balance.Version,
 				GenesisPoint: balance.GenesisPoint.String(),
 				AssetType:    taprpc.AssetType(balance.Type),
 				Name:         balance.Tag,
@@ -1199,6 +1198,13 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
+		}
+
+		// If a script key was specified, it needs to contain the full
+		// key descriptor.
+		if scriptKey.TweakedScriptKey == nil {
+			return nil, fmt.Errorf("script key must contain the " +
+				"full tweaked key descriptor")
 		}
 
 		rpcsLog.Debugf("Decoded script key %x (internal %x, tweak %x)",
@@ -2502,7 +2508,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.NextScriptKeyResponse{
-		ScriptKey: marshalScriptKey(scriptKey),
+		ScriptKey: MarshalScriptKey(scriptKey),
 	}, nil
 }
 
@@ -2660,7 +2666,7 @@ func (r *rpcServer) QueryScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.QueryScriptKeyResponse{
-		ScriptKey: marshalScriptKey(asset.ScriptKey{
+		ScriptKey: MarshalScriptKey(asset.ScriptKey{
 			PubKey:           scriptKey,
 			TweakedScriptKey: tweakedKey,
 		}),
@@ -3556,8 +3562,8 @@ func UnmarshalScriptKey(rpcKey *taprpc.ScriptKey) (*asset.ScriptKey, error) {
 	return &scriptKey, nil
 }
 
-// marshalScriptKey marshals the native script key into the RPC counterpart.
-func marshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
+// MarshalScriptKey marshals the native script key into the RPC counterpart.
+func MarshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
 	rpcScriptKey := &taprpc.ScriptKey{
 		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
 	}
