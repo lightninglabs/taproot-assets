@@ -32,9 +32,6 @@ type AssetWalletClient interface {
 	// spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
 	// PublishAndLogTransfer should be used instead (which in combination do the
 	// same as this RPC but allow for more flexibility).
-	//
-	// TODO(guggero): Actually implement accepting and merging multiple
-	// transactions.
 	AnchorVirtualPsbts(ctx context.Context, in *AnchorVirtualPsbtsRequest, opts ...grpc.CallOption) (*taprpc.SendAssetResponse, error)
 	// CommitVirtualPsbts creates the output commitments and proofs for the given
 	// virtual transactions by committing them to the BTC level anchor transaction.
@@ -210,9 +207,6 @@ type AssetWalletServer interface {
 	// spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
 	// PublishAndLogTransfer should be used instead (which in combination do the
 	// same as this RPC but allow for more flexibility).
-	//
-	// TODO(guggero): Actually implement accepting and merging multiple
-	// transactions.
 	AnchorVirtualPsbts(context.Context, *AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse, error)
 	// CommitVirtualPsbts creates the output commitments and proofs for the given
 	// virtual transactions by committing them to the BTC level anchor transaction.

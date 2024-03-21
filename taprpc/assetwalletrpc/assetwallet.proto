@@ -29,9 +29,6 @@ service AssetWallet {
     spending conditions on the BTC level, the two RPCs CommitVirtualPsbts and
     PublishAndLogTransfer should be used instead (which in combination do the
     same as this RPC but allow for more flexibility).
-
-    TODO(guggero): Actually implement accepting and merging multiple
-    transactions.
     */
     rpc AnchorVirtualPsbts (AnchorVirtualPsbtsRequest)
         returns (taprpc.SendAssetResponse);
@@ -112,10 +109,6 @@ message FundVirtualPsbtRequest {
     oneof template {
         /*
         Use an existing PSBT packet as the template for the funded PSBT.
-
-        TODO(guggero): Actually implement this. We can't use the "reserved"
-        keyword here because we're in a oneof, so we add the field but implement
-        it later.
         */
         bytes psbt = 1;
 

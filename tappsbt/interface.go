@@ -551,13 +551,7 @@ func (o *VOutput) PrevWitnesses() ([]asset.Witness, error) {
 		return nil, fmt.Errorf("asset is not set")
 	}
 
-	prevWitness := o.Asset.PrevWitnesses
-	if o.Asset.HasSplitCommitmentWitness() {
-		rootAsset := prevWitness[0].SplitCommitment.RootAsset
-		prevWitness = rootAsset.PrevWitnesses
-	}
-
-	return prevWitness, nil
+	return o.Asset.Witnesses(), nil
 }
 
 // KeyDescFromBip32Derivation attempts to extract the key descriptor from the

@@ -1894,9 +1894,6 @@ func (r *rpcServer) SignVirtualPsbt(ctx context.Context,
 
 // AnchorVirtualPsbts merges and then commits multiple virtual transactions in
 // a single BTC level anchor transaction.
-//
-// TODO(guggero): Actually implement accepting and merging multiple
-// transactions.
 func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 	req *wrpc.AnchorVirtualPsbtsRequest) (*taprpc.SendAssetResponse,
 	error) {
@@ -1905,37 +1902,57 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("no virtual PSBTs specified")
 	}
 
-	if len(req.VirtualPsbts) > 1 {
-		return nil, fmt.Errorf("only one virtual PSBT supported")
-	}
-
-	vPacket, err := tappsbt.Decode(req.VirtualPsbts[0])
-	if err != nil {
-		return nil, fmt.Errorf("error decoding packet: %w", err)
+	vPackets := make([]*tappsbt.VPacket, len(req.VirtualPsbts))
+	for idx := range req.VirtualPsbts {
+		var err error
+		vPackets[idx], err = tappsbt.Decode(req.VirtualPsbts[idx])
+		if err != nil {
+			return nil, fmt.Errorf("error decoding packet %d: %w",
+				idx, err)
+		}
 	}
 
 	// Query the asset store to gather tap commitments for all inputs.
-	inputCommitments := make(tappsbt.InputCommitments, len(vPacket.Inputs))
-	for idx := range vPacket.Inputs {
-		input := vPacket.Inputs[idx]
+	inputCommitments := make(tappsbt.InputCommitments, len(vPackets))
+	for _, vPkt := range vPackets {
+		for idx := range vPkt.Inputs {
+			input := vPkt.Inputs[idx]
 
-		inputAsset := input.Asset()
-		prevID := input.PrevID
+			inputAsset := input.Asset()
+			prevID := input.PrevID
 
-		inputCommitment, err := r.cfg.AssetStore.FetchCommitment(
-			ctx, inputAsset.ID(), prevID.OutPoint,
-			inputAsset.GroupKey, &inputAsset.ScriptKey, true,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error fetching input "+
-				"commitment: %w", err)
+			// If we've previously fetched the commitment for a prev
+			// ID we can skip it, as we know it's going to be
+			// identical.
+			if _, ok := inputCommitments[prevID]; ok {
+				continue
+			}
+
+			store := r.cfg.AssetStore
+
+			inputCommitment, err := store.FetchCommitment(
+				ctx, inputAsset.ID(), prevID.OutPoint,
+				inputAsset.GroupKey, &inputAsset.ScriptKey,
+				true,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error fetching input "+
+					"commitment: %w", err)
+			}
+
+			inputCommitments[prevID] = inputCommitment.Commitment
 		}
+	}
 
-		inputCommitments[prevID] = inputCommitment.Commitment
+	rpcsLog.Debugf("Selected %d input commitments for send of %d virtual "+
+		"transactions", len(inputCommitments), len(vPackets))
+	for prevID := range inputCommitments {
+		rpcsLog.Tracef("Selected input %v for send",
+			prevID.OutPoint.String())
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewPreSignedParcel(vPacket, inputCommitments),
+		tapfreighter.NewPreSignedParcel(vPackets, inputCommitments),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
@@ -2967,7 +2984,8 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
-			fundResp.VPacket, fundResp.InputCommitments,
+			[]*tappsbt.VPacket{fundResp.VPacket},
+			fundResp.InputCommitments,
 		),
 	)
 	if err != nil {
