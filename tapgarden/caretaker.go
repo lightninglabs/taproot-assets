@@ -402,15 +402,71 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 	newAssets := make([]*asset.Asset, 0, len(b.cfg.Batch.Seedlings))
 
-	// Seedlings that anchor a group may be referenced by other seedlings,
-	// and therefore need to be mapped to sprouts first so that we derive
-	// the initial tweaked group key early.
-	orderedSeedlings := SortSeedlings(maps.Values(b.cfg.Batch.Seedlings))
-	newGroups := make(map[string]*asset.AssetGroup, len(orderedSeedlings))
+	// separate grouped assets from ungrouped
+	groupedSeedlings, ungroupedSeedlings := filterSeedlingsWithGroup(
+		b.cfg.Batch.Seedlings,
+	)
+	groupedSeedlingCount := len(groupedSeedlings)
 
-	for _, seedlingName := range orderedSeedlings {
-		seedling := b.cfg.Batch.Seedlings[seedlingName]
+	// load seedling asset groups and check for correct group count
+	seedlingGroups, err := b.cfg.Log.FetchSeedlingGroups(
+		ctx, genesisPoint, assetOutputIndex,
+		maps.Values(groupedSeedlings),
+	)
+	if err != nil {
+		return nil, err
+	}
+	seedlingGroupCount := len(seedlingGroups)
 
+	if groupedSeedlingCount != seedlingGroupCount {
+		return nil, fmt.Errorf("wrong number of grouped assets and "+
+			"asset groups: %d, %d", groupedSeedlingCount,
+			seedlingGroupCount)
+	}
+
+	for i := range seedlingGroups {
+		// check that asset group has a witness, and that the group
+		// has a matching seedling
+		seedlingGroup := seedlingGroups[i]
+		if len(seedlingGroup.GroupKey.Witness) == 0 {
+			return nil, fmt.Errorf("not all seedling groups have " +
+				"witnesses")
+		}
+
+		seedling, ok := groupedSeedlings[seedlingGroup.Tag]
+		if !ok {
+			groupTweakedKey := seedlingGroup.GroupKey.GroupPubKey.
+				SerializeCompressed()
+			return nil, fmt.Errorf("no seedling with tag matching "+
+				"group: %v, %x", seedlingGroup.Tag,
+				groupTweakedKey)
+		}
+
+		// build assets for grouped seedlings
+		var amount uint64
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
+
+		newAsset, err := asset.New(
+			*seedlingGroup.Genesis, amount, 0, 0,
+			seedling.ScriptKey, seedlingGroup.GroupKey,
+			asset.WithAssetVersion(seedling.AssetVersion),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create new asset: %w",
+				err)
+		}
+
+		newAssets = append(newAssets, newAsset)
+	}
+
+	// build assets for ungrouped seedlings
+	for seedlingName := range ungroupedSeedlings {
+		seedling := ungroupedSeedlings[seedlingName]
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
@@ -425,15 +481,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
 
-		var (
-			amount         uint64
-			groupInfo      *asset.AssetGroup
-			protoAsset     *asset.Asset
-			sproutGroupKey *asset.GroupKey
-			err            error
-		)
-
 		// Determine the amount for the actual asset.
+		var amount uint64
 		switch seedling.AssetType {
 		case asset.Normal:
 			amount = seedling.Amount
@@ -441,120 +490,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			amount = 1
 		}
 
-		// If the seedling has a group key specified,
-		// that group key was validated earlier. We need to
-		// sign the new genesis with that group key.
-		if seedling.HasGroupKey() {
-			groupInfo = seedling.GroupInfo
-		}
-
-		// If the seedling has a group anchor specified, that anchor
-		// was validated earlier and the corresponding group has already
-		// been created. We need to look up the group key and sign
-		// the asset genesis with that key.
-		if seedling.GroupAnchor != nil {
-			groupInfo = newGroups[*seedling.GroupAnchor]
-		}
-
-		// If a group witness needs to be produced, then we will need a
-		// partially filled asset as part of the signing process.
-		if groupInfo != nil || seedling.EnableEmission {
-			protoAsset, err = asset.New(
-				assetGen, amount, 0, 0, seedling.ScriptKey,
-				nil,
-				asset.WithAssetVersion(seedling.AssetVersion),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create "+
-					"asset for group key signing: %w", err)
-			}
-		}
-
-		if groupInfo != nil {
-			groupReq, err := asset.NewGroupKeyRequest(
-				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
-				protoAsset, nil,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to request "+
-					"asset group membership: %w", err)
-			}
-
-			genTx, err := groupReq.BuildGenesisTx(
-				b.cfg.GenTxBuilder,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, *genTx, *groupReq,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to tweak group "+
-					"key: %w", err)
-			}
-		}
-
-		// If emission is enabled without a group key specified,
-		// then we'll need to generate another public key,
-		// then use that to derive the key group signature
-		// along with the tweaked key group.
-		if seedling.EnableEmission {
-			if seedling.GroupInternalKey == nil {
-				return nil, fmt.Errorf("unable to derive " +
-					"group key")
-			}
-
-			groupReq, err := asset.NewGroupKeyRequest(
-				*seedling.GroupInternalKey, assetGen,
-				protoAsset, nil,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to request "+
-					"asset group creation: %w", err)
-			}
-
-			genTx, err := groupReq.BuildGenesisTx(
-				b.cfg.GenTxBuilder,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, *genTx, *groupReq,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to tweak group "+
-					"key: %w", err)
-			}
-
-			newGroups[seedlingName] = &asset.AssetGroup{
-				Genesis:  &assetGen,
-				GroupKey: sproutGroupKey,
-			}
-		}
-
 		// With the necessary keys components assembled, we'll create
 		// the actual asset now.
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, seedling.ScriptKey,
-			sproutGroupKey,
+			assetGen, amount, 0, 0, seedling.ScriptKey, nil,
 			asset.WithAssetVersion(seedling.AssetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %w",
 				err)
-		}
-
-		// Verify the group witness if present.
-		if sproutGroupKey != nil {
-			err := b.cfg.TxValidator.Execute(newAsset, nil, nil)
-			if err != nil {
-				return nil, fmt.Errorf("unable to verify "+
-					"asset group witness: %w", err)
-			}
 		}
 
 		newAssets = append(newAssets, newAsset)
