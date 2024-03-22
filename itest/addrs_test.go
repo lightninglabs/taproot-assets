@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"context"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -568,6 +570,99 @@ func importProof(t *harnessTest, dst *tapdHarness, rawFile []byte,
 	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
 		ProofFile:    rawFile,
 		GenesisPoint: genesisPoint,
+	})
+	require.NoError(t.t, err)
+
+	return importResp
+}
+
+// sendUniProof manually exports a proof from the given source using the
+// universe RPCs and then imports it into the destination node.
+func sendUniProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
+	genInfo *taprpc.GenesisInfo, group *taprpc.AssetGroup,
+	outpoint string) *tapdevrpc.ImportProofResponse {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	fetchUniProof := func(ctx context.Context,
+		loc proof.Locator) (proof.Blob, error) {
+
+		uniID := universe.Identifier{
+			AssetID: *loc.AssetID,
+		}
+		if loc.GroupKey != nil {
+			uniID.GroupKey = loc.GroupKey
+		}
+
+		rpcUniID, err := tap.MarshalUniID(uniID)
+		require.NoError(t.t, err)
+
+		op := &unirpc.Outpoint{
+			HashStr: loc.OutPoint.Hash.String(),
+			Index:   int32(loc.OutPoint.Index),
+		}
+		scriptKeyBytes := loc.ScriptKey.SerializeCompressed()
+
+		uniProof, err := src.QueryProof(ctx, &unirpc.UniverseKey{
+			Id: rpcUniID,
+			LeafKey: &unirpc.AssetKey{
+				Outpoint: &unirpc.AssetKey_Op{
+					Op: op,
+				},
+				ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
+					ScriptKeyBytes: scriptKeyBytes,
+				},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		return uniProof.AssetLeaf.Proof, nil
+	}
+
+	var assetID asset.ID
+	copy(assetID[:], genInfo.AssetId)
+
+	scriptPubKey, err := btcec.ParsePubKey(scriptKey)
+	require.NoError(t.t, err)
+
+	op, err := wire.NewOutPointFromString(outpoint)
+	require.NoError(t.t, err)
+
+	loc := proof.Locator{
+		AssetID:   &assetID,
+		ScriptKey: *scriptPubKey,
+		OutPoint:  op,
+	}
+
+	if group != nil {
+		groupKey, err := btcec.ParsePubKey(group.TweakedGroupKey)
+		require.NoError(t.t, err)
+
+		loc.GroupKey = groupKey
+	}
+
+	var proofFile *proof.File
+	err = wait.NoError(func() error {
+		proofFile, err = proof.FetchProofProvenance(
+			ctxt, nil, loc, fetchUniProof,
+		)
+		return err
+	}, defaultWaitTimeout)
+	require.NoError(t.t, err)
+
+	var buf bytes.Buffer
+	err = proofFile.Encode(&buf)
+	require.NoError(t.t, err)
+
+	t.Logf("Importing proof %x", buf.Bytes())
+
+	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
+		ProofFile:    buf.Bytes(),
+		GenesisPoint: genInfo.GenesisPoint,
 	})
 	require.NoError(t.t, err)
 

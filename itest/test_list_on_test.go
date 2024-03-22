@@ -190,6 +190,10 @@ var testCases = []*testCase{
 		test: testPsbtSighashNoneInvalid,
 	},
 	{
+		name: "psbt trustless swap",
+		test: testPsbtTrustlessSwap,
+	},
+	{
 		name: "psbt external commit",
 		test: testPsbtExternalCommit,
 	},
