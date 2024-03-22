@@ -353,14 +353,19 @@ func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 
 // Cleanup cleans up the test scenario.
 func (s *rfqTestScenario) Cleanup() {
-	// Close the LND channels.
-	s.testHarness.lndHarness.CloseChannel(s.AliceLnd, s.AliceBobChannel)
-	s.testHarness.lndHarness.CloseChannel(s.BobLnd, s.BobCarolChannel)
+	s.testHarness.t.Log("Cleaning up test scenario")
 
 	// Stop the tapd nodes.
 	require.NoError(s.testHarness.t, s.AliceTapd.stop(!*noDelete))
 	require.NoError(s.testHarness.t, s.BobTapd.stop(!*noDelete))
 	require.NoError(s.testHarness.t, s.CarolTapd.stop(!*noDelete))
+
+	// Kill the LND nodes in the test harness node manager. If we don't
+	// perform this step the LND test harness node manager will continue to
+	// run the nodes in the background as "active nodes".
+	s.testHarness.lndHarness.KillNode(s.AliceLnd)
+	s.testHarness.lndHarness.KillNode(s.BobLnd)
+	s.testHarness.lndHarness.KillNode(s.CarolLnd)
 }
 
 // randomString generates a random string of the given length.
