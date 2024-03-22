@@ -799,6 +799,7 @@ func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 
 		require.True(t, proto.Equal(event.Address, addr))
 		require.Equal(t, startStatus, event.Status)
+		require.Empty(t, event.Error)
 
 		if event.Status == statusCompleted {
 			close(success)
