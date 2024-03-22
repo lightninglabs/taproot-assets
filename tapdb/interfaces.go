@@ -49,7 +49,7 @@ type TxOptions interface {
 type BatchedTx[Q any] interface {
 	// ExecTx will execute the passed txBody, operating upon generic
 	// parameter Q (usually a storage interface) in a single transaction.
-	// The set of TxOptions are passed in in order to allow the caller to
+	// The set of TxOptions are passed in order to allow the caller to
 	// specify if a transaction should be read-only and optionally what
 	// type of concurrency control should be used.
 	ExecTx(ctx context.Context, txOptions TxOptions,

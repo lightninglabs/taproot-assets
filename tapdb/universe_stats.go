@@ -127,7 +127,7 @@ const eventQueryBucket = time.Hour
 
 // newEventQuery creates a new event query from the given query.
 func newEventQuery(q universe.GroupedStatsQuery) eventQuery {
-	// For both the start and time time, we'll round down to the nearest
+	// For both the start and time, we'll round down to the nearest
 	// hour. This'll serve to bucket queries into hourly buckets.
 	startTime := q.StartTime.UTC().Truncate(eventQueryBucket).Unix()
 	endTime := q.EndTime.UTC().Truncate(eventQueryBucket).Unix()
