@@ -255,9 +255,14 @@ message MintEvent {
     // Execute timestamp (Unix timestamp in microseconds).
     int64 timestamp = 1;
 
-    // The last state of the batch that was successfully executed.
+    // The last state of the batch that was successfully executed. If error
+    // below is set, then the batch_state is the state that lead to the error
+    // during its execution.
     BatchState batch_state = 2;
 
     // The batch that the event is for.
     MintingBatch batch = 3;
+
+    // An optional error, indicating that executing the batch_state failed.
+    string error = 4;
 }

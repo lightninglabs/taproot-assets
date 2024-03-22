@@ -918,6 +918,7 @@ func AssertMintEvents(t *testing.T, batchKey []byte,
 
 		require.Equal(t, batchKey, event.Batch.BatchKey)
 		require.Equal(t, startStatus, event.BatchState)
+		require.Empty(t, event.Error)
 
 		if event.BatchState == batchFinalized {
 			close(success)

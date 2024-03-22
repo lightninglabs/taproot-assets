@@ -3378,9 +3378,15 @@ func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 				"batch: %w", err)
 		}
 
+		var errString string
+		if e.Error != nil {
+			errString = e.Error.Error()
+		}
+
 		return &mintrpc.MintEvent{
 			Timestamp:  e.Timestamp().UnixMicro(),
 			BatchState: rpcState,
+			Error:      errString,
 			Batch:      rpcBatch,
 		}, nil
 	}
