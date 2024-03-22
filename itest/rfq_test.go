@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"math/rand"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -286,10 +287,15 @@ func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 		outputFunds[i] = fundAmount
 	}
 
+	// Generate a unique name for each new node.
+	aliceName := genRandomNodeName("AliceLnd")
+	bobName := genRandomNodeName("BobLnd")
+	carolName := genRandomNodeName("CarolLnd")
+
 	// Create three new nodes.
-	aliceLnd := newLndNode("AliceLnd", outputFunds[:], t.lndHarness)
-	bobLnd := newLndNode("BobLnd", outputFunds[:], t.lndHarness)
-	carolLnd := newLndNode("CarolLnd", outputFunds[:], t.lndHarness)
+	aliceLnd := newLndNode(aliceName, outputFunds[:], t.lndHarness)
+	bobLnd := newLndNode(bobName, outputFunds[:], t.lndHarness)
+	carolLnd := newLndNode(carolName, outputFunds[:], t.lndHarness)
 
 	// Now we want to wait for the nodes to catch up.
 	t.lndHarness.WaitForBlockchainSync(aliceLnd)
@@ -355,4 +361,20 @@ func (s *rfqTestScenario) Cleanup() {
 	require.NoError(s.testHarness.t, s.AliceTapd.stop(!*noDelete))
 	require.NoError(s.testHarness.t, s.BobTapd.stop(!*noDelete))
 	require.NoError(s.testHarness.t, s.CarolTapd.stop(!*noDelete))
+}
+
+// randomString generates a random string of the given length.
+func randomString(randStrLen int) string {
+	const letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+	b := make([]byte, randStrLen)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+// genRandomNodeName generates a random node name by appending a random string
+// to the given base name.
+func genRandomNodeName(baseName string) string {
+	return fmt.Sprintf("%s-%s", baseName, randomString(8))
 }
