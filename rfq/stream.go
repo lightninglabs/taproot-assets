@@ -178,8 +178,8 @@ func (h *StreamHandler) mainEventLoop() {
 			}
 
 		case errSubCustomMessages := <-h.errRecvRawMessages:
-			// If we receive an error from the peer message
-			// subscription, we'll terminate the stream handler.
+			// Report any error that we receive from the peer
+			// message subscription.
 			log.Warnf("Error received from stream handler wire "+
 				"message channel: %v", errSubCustomMessages)
 
