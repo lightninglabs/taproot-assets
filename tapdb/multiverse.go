@@ -201,7 +201,9 @@ func (p *proofCache) insertProof(id universe.Identifier,
 		id.StringForLog(), leafKey, proofKey[:])
 
 	proofVal := cachedProof(proof)
-	_, _ = assetProofCache.Put(proofKey, &proofVal)
+	if _, err := assetProofCache.Put(proofKey, &proofVal); err != nil {
+		log.Errorf("unable to insert into proof cache: %v", err)
+	}
 }
 
 // delProofsForAsset deletes all the proofs for the given asset.
@@ -350,7 +352,10 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 
 	// Store the main root pointer, then update the root index.
 	rootPageCache := r.allRoots.Load()
-	_, _ = rootPageCache.Put(newRootPageQuery(q), rootNodes)
+	_, err := rootPageCache.Put(newRootPageQuery(q), rootNodes)
+	if err != nil {
+		log.Errorf("unable to insert into root cache: %v", err)
+	}
 
 	rootIndex := r.rootIndex.Load()
 	for _, rootNode := range rootNodes {
@@ -482,11 +487,19 @@ func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 		}
 
 		// Store the cache in the top level cache.
-		_, _ = u.leafCache.Put(idStr, pageCache)
+		if _, err := u.leafCache.Put(idStr, pageCache); err != nil {
+			// If we encounter an error here, we'll exit to avoid a
+			// panic below.
+			log.Errorf("unable to store entry in page cache: %v",
+				err)
+			return
+		}
 	}
 
 	// Add the to the page cache.
-	_, _ = pageCache.Put(newLeafQuery(q), &cachedKeys)
+	if _, err := pageCache.Put(newLeafQuery(q), &cachedKeys); err != nil {
+		log.Errorf("unable to store leaf resp: %v", err)
+	}
 }
 
 // wipeCache wipes the cache of leaf keys for a given universe ID.
