@@ -3163,7 +3163,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 	return handleEvents[bool, *tapdevrpc.SendAssetEvent](
 		r.cfg.ChainPorter, ntfnStream, marshallSendAssetEvent, filter,
-		r.quit,
+		r.quit, false,
 	)
 }
 
@@ -3192,8 +3192,9 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 		}
 	}
 
-	return handleEvents[bool, *tapdevrpc.ReceiveAssetEvent](
+	return handleEvents[time.Time, *tapdevrpc.ReceiveAssetEvent](
 		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+		time.Time{},
 	)
 }
 
@@ -3204,6 +3205,14 @@ func (r *rpcServer) SubscribeReceiveEvents(
 	ntfnStream receiveEventStream) error {
 
 	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+	var deliverFrom time.Time
+	if req.StartTimestamp != 0 {
+		// The request timestamp is in microseconds, same as the event
+		// timestamp we return.
+		startTimestampNano := req.StartTimestamp * 1000
+		deliverFrom = time.Unix(0, startTimestampNano)
+	}
 
 	// We just decode the address to make sure it's valid. But any
 	// comparison for filtering happens on the string representation, as
@@ -3284,8 +3293,9 @@ func (r *rpcServer) SubscribeReceiveEvents(
 		return eventAddrString == addrString, nil
 	}
 
-	return handleEvents[bool, *taprpc.ReceiveEvent](
+	return handleEvents[time.Time, *taprpc.ReceiveEvent](
 		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+		deliverFrom,
 	)
 }
 
@@ -3358,6 +3368,7 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 
 	return handleEvents[bool, *taprpc.SendEvent](
 		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, filter, r.quit,
+		false,
 	)
 }
 
@@ -3409,6 +3420,7 @@ func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 
 	return handleEvents[bool, *mintrpc.MintEvent](
 		r.cfg.AssetMinter, ntfnStream, marshaler, filter, r.quit,
+		false,
 	)
 }
 
@@ -3416,19 +3428,17 @@ func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
 // forwards them to an RPC stream.
 func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 	stream EventStream[Q], marshaler func(fn.Event) (Q, error),
-	filter func(fn.Event) (bool, error), quit <-chan struct{}) error {
+	filter func(fn.Event) (bool, error), quit <-chan struct{},
+	deliverFrom T) error {
 
 	// Create a new event subscriber and pass a copy to the event source.
 	// We will then read events from the subscriber.
 	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
 	defer eventSubscriber.Stop()
 
-	// The last argument in the RegisterSubscriber method is the deliverFrom
-	// argument, which is currently not used. Since we don't know if it's a
-	// pointer, struct or primitive type, we need to use the `var unused T`
-	// notation to pass in an empty value.
-	var unused T
-	err := eventSource.RegisterSubscriber(eventSubscriber, false, unused)
+	err := eventSource.RegisterSubscriber(
+		eventSubscriber, false, deliverFrom,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to register event source "+
 			"notifications subscription: %w", err)
@@ -6013,6 +6023,7 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 
 	return handleEvents[uint64, *rfqrpc.RfqEvent](
 		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, filter, r.quit,
+		0,
 	)
 }
 

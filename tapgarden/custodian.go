@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -1038,15 +1039,32 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will
 // be notified of any new status update events.
-//
-// TODO(ffranr): Add support for delivering existing events to new subscribers.
 func (c *Custodian) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
-	deliverExisting bool, deliverFrom bool) error {
+	deliverExisting bool, deliverFrom time.Time) error {
 
 	c.statusEventsSubsMtx.Lock()
 	defer c.statusEventsSubsMtx.Unlock()
 
 	c.statusEventsSubs[receiver.ID()] = receiver
+
+	if deliverExisting {
+		ctx := context.Background()
+		events, err := c.cfg.AddrBook.QueryEvents(
+			ctx, address.EventQueryParams{
+				CreationTimeFrom: &deliverFrom,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error querying events: %w", err)
+		}
+
+		for _, event := range events {
+			receiver.NewItemCreated.ChanIn() <- NewAssetReceiveEvent(
+				*event.Addr.Tap, event.Outpoint,
+				event.ConfirmationHeight, event.Status,
+			)
+		}
+	}
 
 	return nil
 }
