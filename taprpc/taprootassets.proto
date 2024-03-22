@@ -1018,6 +1018,10 @@ message SubscribeReceiveEventsRequest {
     // Filter receives by a specific address. Leave empty to get all receive
     // events for all addresses.
     string filter_addr = 1;
+
+    // The start time as a Unix timestamp in microseconds. If not set (default
+    // value 0), the daemon will start streaming events from the current time.
+    int64 start_timestamp = 2;
 }
 
 message ReceiveEvent {

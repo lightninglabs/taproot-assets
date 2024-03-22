@@ -2014,6 +2014,11 @@
         "filter_addr": {
           "type": "string",
           "description": "Filter receives by a specific address. Leave empty to get all receive\nevents for all addresses."
+        },
+        "start_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "The start time as a Unix timestamp in microseconds. If not set (default\nvalue 0), the daemon will start streaming events from the current time."
         }
       }
     },
