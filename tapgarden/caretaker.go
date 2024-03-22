@@ -198,6 +198,10 @@ func (b *BatchCaretaker) Cancel() error {
 		if err != nil {
 			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
 				"cancel failed: %w", batchKey, batchState, err)
+
+			b.cfg.PublishMintEvent(newAssetMintErrorEvent(
+				err, BatchStateSeedlingCancelled, b.cfg.Batch,
+			))
 		}
 
 		b.cfg.PublishMintEvent(newAssetMintEvent(
@@ -214,6 +218,10 @@ func (b *BatchCaretaker) Cancel() error {
 		if err != nil {
 			err = fmt.Errorf("BatchCaretaker(%x), batch state(%v), "+
 				"cancel failed: %w", batchKey, batchState, err)
+
+			b.cfg.PublishMintEvent(newAssetMintErrorEvent(
+				err, BatchStateSproutCancelled, b.cfg.Batch,
+			))
 		}
 
 		b.cfg.PublishMintEvent(newAssetMintEvent(
@@ -283,6 +291,10 @@ func (b *BatchCaretaker) advanceStateUntil(currentState,
 
 		nextState, err := b.stateStep(currentState)
 		if err != nil {
+			b.cfg.PublishMintEvent(newAssetMintErrorEvent(
+				err, currentState, b.cfg.Batch,
+			))
+
 			return 0, fmt.Errorf("unable to advance state "+
 				"machine: %w", err)
 		}
@@ -1393,8 +1405,14 @@ type AssetMintEvent struct {
 
 	// BatchState is the last state that was executed before the event is
 	// received. This field takes precedence over Batch.State() as that
-	// might not always be updated when the event is created.
+	// might not always be updated when the event is created. In case Error
+	// below is set, the BatchState is the state that was executed that lead
+	// to the error.
 	BatchState BatchState
+
+	// Error is an optional error, indicating that something went wrong
+	// during the execution of the BatchState above.
+	Error error
 
 	// Batch is the batch that is being minted.
 	Batch *MintingBatch
@@ -1410,6 +1428,19 @@ func newAssetMintEvent(state BatchState, b *MintingBatch) *AssetMintEvent {
 	return &AssetMintEvent{
 		timestamp:  time.Now().UTC(),
 		BatchState: state,
+		Batch:      b.Copy(),
+	}
+}
+
+// newAssetMintErrorEvent creates a new AssetMintErrorEvent from the given
+// error, state and batch.
+func newAssetMintErrorEvent(err error, state BatchState,
+	b *MintingBatch) *AssetMintEvent {
+
+	return &AssetMintEvent{
+		timestamp:  time.Now().UTC(),
+		BatchState: state,
+		Error:      err,
 		Batch:      b.Copy(),
 	}
 }

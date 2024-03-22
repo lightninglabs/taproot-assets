@@ -345,11 +345,15 @@
         },
         "batch_state": {
           "$ref": "#/definitions/mintrpcBatchState",
-          "description": "The last state of the batch that was successfully executed."
+          "description": "The last state of the batch that was successfully executed. If error\nbelow is set, then the batch_state is the state that lead to the error\nduring its execution."
         },
         "batch": {
           "$ref": "#/definitions/mintrpcMintingBatch",
           "description": "The batch that the event is for."
+        },
+        "error": {
+          "type": "string",
+          "description": "An optional error, indicating that executing the batch_state failed."
         }
       }
     },
