@@ -3238,12 +3238,18 @@ func (r *rpcServer) SubscribeReceiveEvents(
 				err)
 		}
 
+		var errString string
+		if e.Error != nil {
+			errString = e.Error.Error()
+		}
+
 		return &taprpc.ReceiveEvent{
 			Timestamp:          e.Timestamp().UnixMicro(),
 			Address:            rpcAddr,
 			Outpoint:           e.OutPoint.String(),
 			Status:             rpcStatus,
 			ConfirmationHeight: e.ConfirmationHeight,
+			Error:              errString,
 		}, nil
 	}
 

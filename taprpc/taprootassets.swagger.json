@@ -1884,12 +1884,16 @@
         },
         "status": {
           "$ref": "#/definitions/taprpcAddrEventStatus",
-          "description": "The status of the event."
+          "description": "The status of the event. If error below is set, then the status is the\nstate that lead to the error during its execution."
         },
         "confirmation_height": {
           "type": "integer",
           "format": "int64",
           "description": "The height of the block the asset receive transaction was mined in. This\nis only set if the status is ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED or\nlater."
+        },
+        "error": {
+          "type": "string",
+          "description": "An optional error, indicating that executing the status above failed."
         }
       }
     },

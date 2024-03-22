@@ -1030,13 +1030,17 @@ message ReceiveEvent {
     // The outpoint of the transaction that was used to receive the asset.
     string outpoint = 3;
 
-    // The status of the event.
+    // The status of the event. If error below is set, then the status is the
+    // state that lead to the error during its execution.
     AddrEventStatus status = 4;
 
     // The height of the block the asset receive transaction was mined in. This
     // is only set if the status is ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED or
     // later.
     uint32 confirmation_height = 5;
+
+    // An optional error, indicating that executing the status above failed.
+    string error = 6;
 }
 
 message SubscribeSendEventsRequest {
