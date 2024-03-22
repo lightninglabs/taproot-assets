@@ -41,6 +41,9 @@ var (
 	statusConfirmed = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
 	proofReceived   = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED
 	statusCompleted = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
+
+	batchFrozen    = mintrpc.BatchState_BATCH_STATE_FROZEN
+	batchFinalized = mintrpc.BatchState_BATCH_STATE_FINALIZED
 )
 
 // tapClient is an interface that covers all currently available RPC interfaces
@@ -882,6 +885,44 @@ func AssertSendEvents(t *testing.T, scriptKey []byte,
 
 		if event.SendState == to.String() {
 			close(success)
+			return
+		}
+
+		startStatus++
+	}
+}
+
+// AssertMintEvents makes sure all events with incremental status are sent
+// on the stream for the given minting batch.
+func AssertMintEvents(t *testing.T, batchKey []byte,
+	stream *EventSubscription[*mintrpc.MintEvent]) {
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+	startStatus := batchFrozen
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	for {
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving mint event")
+
+		require.Equal(t, batchKey, event.Batch.BatchKey)
+		require.Equal(t, startStatus, event.BatchState)
+
+		if event.BatchState == batchFinalized {
+			close(success)
+			stream.Cancel()
+
 			return
 		}
 
