@@ -1101,7 +1101,9 @@ message SendEvent {
     // Execute timestamp (Unix timestamp in microseconds).
     int64 timestamp = 1;
 
-    // The send state that was executed successfully.
+    // The send state that was executed successfully. If error below is set,
+    // then the send_state is the state that lead to the error during its
+    // execution.
     string send_state = 2;
 
     // The type of the outbound send parcel.
@@ -1127,6 +1129,9 @@ message SendEvent {
     // The final transfer as it will be stored in the database. This is only set
     // after the send state SEND_STATE_LOG_COMMITMENT.
     AssetTransfer transfer = 8;
+
+    // An optional error, indicating that executing the send_state failed.
+    string error = 9;
 }
 
 message AnchorTransaction {

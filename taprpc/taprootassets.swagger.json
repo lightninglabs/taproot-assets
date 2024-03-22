@@ -1946,7 +1946,7 @@
         },
         "send_state": {
           "type": "string",
-          "description": "The send state that was executed successfully."
+          "description": "The send state that was executed successfully. If error below is set,\nthen the send_state is the state that lead to the error during its\nexecution."
         },
         "parcel_type": {
           "$ref": "#/definitions/taprpcParcelType",
@@ -1983,6 +1983,10 @@
         "transfer": {
           "$ref": "#/definitions/taprpcAssetTransfer",
           "description": "The final transfer as it will be stored in the database. This is only set\nafter the send state SEND_STATE_LOG_COMMITMENT."
+        },
+        "error": {
+          "type": "string",
+          "description": "An optional error, indicating that executing the send_state failed."
         }
       }
     },

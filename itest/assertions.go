@@ -876,6 +876,7 @@ func AssertSendEvents(t *testing.T, scriptKey []byte,
 
 		require.True(t, sendsToKey(event))
 		require.Equal(t, startStatus.String(), event.SendState)
+		require.Empty(t, event.Error)
 
 		// Fully close the stream once we definitely no longer need the
 		// stream.
