@@ -155,7 +155,7 @@ type assetEventsCache = *lru.Cache[eventQuery, cachedAssetEvents]
 
 // statsQueryCacheSize is the total number of asset query responses that we'll
 // hold inside the cache.
-const statsQueryCacheSize = 80_000
+const statsQueryCacheSize = 200_000
 
 // cachedSyncStats is a cached set of sync stats.
 type cachedSyncStats []universe.AssetSyncSnapshot
