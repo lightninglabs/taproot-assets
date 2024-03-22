@@ -3601,6 +3601,10 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
 	}
 
+	if e.Error != nil {
+		result.Error = e.Error.Error()
+	}
+
 	var err error
 	for idx, vPkt := range e.VirtualPackets {
 		result.VirtualPackets[idx], err = tappsbt.Encode(vPkt)
