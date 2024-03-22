@@ -33,6 +33,26 @@ type FundedPsbt struct {
 	LockedUTXOs []wire.OutPoint
 }
 
+// Copy creates a deep copy of the FundedPsbt.
+func (f *FundedPsbt) Copy() *FundedPsbt {
+	newFundedPsbt := &FundedPsbt{
+		ChangeOutputIndex: f.ChangeOutputIndex,
+		ChainFees:         f.ChainFees,
+		LockedUTXOs:       fn.CopySlice(f.LockedUTXOs),
+	}
+
+	if f.Pkt != nil {
+		newFundedPsbt.Pkt = &psbt.Packet{
+			UnsignedTx: f.Pkt.UnsignedTx.Copy(),
+			Inputs:     fn.CopySlice(f.Pkt.Inputs),
+			Outputs:    fn.CopySlice(f.Pkt.Outputs),
+			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),
+		}
+	}
+
+	return newFundedPsbt
+}
+
 // AnchorTransaction is a type that holds all information about a BTC level
 // anchor transaction that anchors multiple virtual asset transfer transactions.
 type AnchorTransaction struct {
@@ -51,6 +71,24 @@ type AnchorTransaction struct {
 	// ChainFees is the actual, total amount of sats paid in chain fees by
 	// the anchor TX.
 	ChainFees int64
+}
+
+// Copy creates a deep copy of the AnchorTransaction.
+func (a *AnchorTransaction) Copy() *AnchorTransaction {
+	newAnchorTx := &AnchorTransaction{
+		TargetFeeRate: a.TargetFeeRate,
+		ChainFees:     a.ChainFees,
+	}
+
+	if a.FundedPsbt != nil {
+		newAnchorTx.FundedPsbt = a.FundedPsbt.Copy()
+	}
+
+	if a.FinalTx != nil {
+		newAnchorTx.FinalTx = a.FinalTx.Copy()
+	}
+
+	return newAnchorTx
 }
 
 // CreateProofSuffix creates the new proof for the given output. This is the
