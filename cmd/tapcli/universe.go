@@ -9,7 +9,6 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lncfg"
@@ -539,28 +538,29 @@ func universeProofInsert(ctx *cli.Context) error {
 	client, cleanUp := getUniverseClient(ctx)
 	defer cleanUp()
 
-	// The input should be the raw state transition proof, so we'll
-	// partially parse the proof so we can hand the raw proof bytes
-	// (without the checksum) to the server.
-	var proofFile proof.File
-	if err := proofFile.Decode(bytes.NewReader(rawFile)); err != nil {
-		return fmt.Errorf("unable to decode proof file: %w", err)
-	}
+	// The server always expects the raw state transition proof, so
+	// depending on the input we get, we either need to extract the last
+	// state transition proof or can use it directly.
+	var rawProof []byte
+	switch {
+	case proof.IsProofFile(rawFile):
+		var proofFile proof.File
+		err := proofFile.Decode(bytes.NewReader(rawFile))
+		if err != nil {
+			return fmt.Errorf("unable to decode proof file: %w",
+				err)
+		}
 
-	assetProof, err := proofFile.LastProof()
-	if err != nil {
-		return err
-	}
-	rpcAsset, err := taprpc.MarshalAsset(
-		ctxc, &assetProof.Asset, false, true, nil,
-	)
-	if err != nil {
-		return err
-	}
+		rawProof, err = proofFile.RawLastProof()
+		if err != nil {
+			return err
+		}
 
-	rawProof, err := proofFile.RawLastProof()
-	if err != nil {
-		return err
+	case proof.IsSingleProof(rawFile):
+		rawProof = rawFile
+
+	default:
+		return fmt.Errorf("invalid proof file format")
 	}
 
 	req := &unirpc.AssetProof{
@@ -569,7 +569,6 @@ func universeProofInsert(ctx *cli.Context) error {
 			LeafKey: assetKey,
 		},
 		AssetLeaf: &unirpc.AssetLeaf{
-			Asset: rpcAsset,
 			Proof: rawProof,
 		},
 	}
