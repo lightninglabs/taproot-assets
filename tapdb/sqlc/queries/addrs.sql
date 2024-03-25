@@ -140,4 +140,5 @@ JOIN addrs
 WHERE addr_events.status >= @status_from 
   AND addr_events.status <= @status_to
   AND COALESCE(@addr_taproot_key, addrs.taproot_output_key) = addrs.taproot_output_key
+  AND addr_events.creation_time >= @created_after
 ORDER by addr_events.creation_time;
