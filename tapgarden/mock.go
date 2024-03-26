@@ -37,6 +37,7 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	for i := 0; i < numSeedlings; i++ {
 		metaBlob := test.RandBytes(32)
 		assetName := hex.EncodeToString(test.RandBytes(32))
+		scriptKey, _ := test.RandKeyDesc(t)
 		seedlings[assetName] = &Seedling{
 			// For now, we only test the v0 and v1 versions.
 			AssetVersion: asset.Version(rand.Int31n(2)),
@@ -46,6 +47,7 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 				Data: metaBlob,
 			},
 			Amount:         uint64(rand.Int31()),
+			ScriptKey:      asset.NewScriptKeyBip86(scriptKey),
 			EnableEmission: test.RandBool(),
 		}
 	}

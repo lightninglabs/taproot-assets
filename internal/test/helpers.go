@@ -91,6 +91,19 @@ func RandPrivKey(_ testing.TB) *btcec.PrivateKey {
 	return priv
 }
 
+func RandKeyDesc(t testing.TB) (keychain.KeyDescriptor, *btcec.PrivateKey) {
+	priv, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
+	return keychain.KeyDescriptor{
+		PubKey: priv.PubKey(),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	}, priv
+}
+
 func SchnorrPubKey(t testing.TB, privKey *btcec.PrivateKey) *btcec.PublicKey {
 	return SchnorrKey(t, privKey.PubKey())
 }
