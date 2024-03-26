@@ -315,7 +315,7 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 
 	// Generate a random genesis and group to use as a group anchor
 	// for this seedling.
-	privDesc, groupPriv := randKeyDesc(t)
+	privDesc, groupPriv := test.RandKeyDesc(t)
 	randGenesis := asset.RandGenesis(t, randAssetType)
 	genesisAmt, groupPriv, group := storeGroupGenesis(
 		t, ctx, randGenesis, nil, store, privDesc, groupPriv,
@@ -356,8 +356,8 @@ func addRandSiblingToBatch(t *testing.T, batch *tapgarden.MintingBatch) (
 // seedling is being issued into an existing group, and creates a multi-asset
 // group. Specifically, one seedling will have emission enabled, and the other
 // seedling will reference the first seedling as its group anchor.
-func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (string,
-	string) {
+func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (
+	string, string) {
 
 	seedlingNames := maps.Keys(seedlings)
 	seedlingCount := len(seedlingNames)
@@ -384,6 +384,7 @@ func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (string
 	// The anchor asset must have emission enabled, and the second asset
 	// must specify the first as its group anchor.
 	anchorSeedling.EnableEmission = true
+	anchorSeedling.GroupTapscriptRoot = test.RandBytes(32)
 	groupedSeedling.AssetType = anchorSeedling.AssetType
 	groupedSeedling.EnableEmission = false
 	groupedSeedling.GroupAnchor = &anchorSeedling.AssetName
@@ -486,19 +487,6 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
 }
 
-func randKeyDesc(t *testing.T) (keychain.KeyDescriptor, *btcec.PrivateKey) {
-	priv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	return keychain.KeyDescriptor{
-		PubKey: priv.PubKey(),
-		KeyLocator: keychain.KeyLocator{
-			Index:  uint32(rand.Int31()),
-			Family: keychain.KeyFamily(rand.Int31()),
-		},
-	}, priv
-}
-
 // seedlingsToAssetRoot maps a set of seedlings to an asset root.
 //
 // TODO(roasbeef): same func in tapgarden can just re-use?
@@ -524,9 +512,6 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		if seedling.Meta != nil {
 			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
-
-		scriptKey, _ := randKeyDesc(t)
-		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
 			genTxBuilder = tapscript.GroupTxBuilder{}
@@ -561,7 +546,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		if groupInfo != nil || seedling.EnableEmission {
 			protoAsset, err = asset.New(
-				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+				assetGen, amount, 0, 0, seedling.ScriptKey, nil,
 			)
 			require.NoError(t, err)
 		}
@@ -569,7 +554,8 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		if groupInfo != nil {
 			groupReq := asset.NewGroupKeyRequestNoErr(
 				t, groupInfo.GroupKey.RawKey,
-				*groupInfo.Genesis, protoAsset, nil,
+				*groupInfo.Genesis, protoAsset,
+				groupInfo.GroupKey.TapscriptRoot,
 			)
 			groupKey, err = asset.DeriveGroupKey(
 				asset.NewMockGenesisSigner(groupPriv),
@@ -578,10 +564,11 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		}
 
 		if seedling.EnableEmission {
-			groupKeyRaw, newGroupPriv := randKeyDesc(t)
+			groupKeyRaw, newGroupPriv := test.RandKeyDesc(t)
 			genSigner := asset.NewMockGenesisSigner(newGroupPriv)
 			groupReq := asset.NewGroupKeyRequestNoErr(
-				t, groupKeyRaw, assetGen, protoAsset, nil,
+				t, groupKeyRaw, assetGen, protoAsset,
+				seedling.GroupTapscriptRoot,
 			)
 			groupKey, err = asset.DeriveGroupKey(
 				genSigner, &genTxBuilder, *groupReq,
@@ -596,7 +583,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		require.NoError(t, err)
 
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, tweakedScriptKey, groupKey,
+			assetGen, amount, 0, 0, seedling.ScriptKey, groupKey,
 			asset.WithAssetVersion(seedling.AssetVersion),
 		)
 		require.NoError(t, err)
@@ -1037,7 +1024,7 @@ func TestDuplicateGroupKey(t *testing.T) {
 
 	// Now that we have the DB, we'll insert a new random internal key, and
 	// then a key family linked to that internal key.
-	keyDesc, _ := randKeyDesc(t)
+	keyDesc, _ := test.RandKeyDesc(t)
 	rawKey := keyDesc.PubKey.SerializeCompressed()
 
 	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
@@ -1084,12 +1071,12 @@ func TestGroupStore(t *testing.T) {
 
 	// Now we generate and store one group of two assets, and
 	// a collectible in its own group.
-	privDesc1, groupPriv1 := randKeyDesc(t)
+	privDesc1, groupPriv1 := test.RandKeyDesc(t)
 	gen1 := asset.RandGenesis(t, asset.Normal)
 	_, _, group1 := storeGroupGenesis(
 		t, ctx, gen1, nil, assetStore, privDesc1, groupPriv1,
 	)
-	privDesc2, groupPriv2 := randKeyDesc(t)
+	privDesc2, groupPriv2 := test.RandKeyDesc(t)
 	gen2 := asset.RandGenesis(t, asset.Collectible)
 	_, _, group2 := storeGroupGenesis(
 		t, ctx, gen2, nil, assetStore, privDesc2, groupPriv2,

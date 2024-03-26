@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -37,15 +36,17 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	for i := 0; i < numSeedlings; i++ {
 		metaBlob := test.RandBytes(32)
 		assetName := hex.EncodeToString(test.RandBytes(32))
+		scriptKey, _ := test.RandKeyDesc(t)
 		seedlings[assetName] = &Seedling{
 			// For now, we only test the v0 and v1 versions.
-			AssetVersion: asset.Version(rand.Int31n(2)),
-			AssetType:    asset.Type(rand.Int31n(2)),
+			AssetVersion: asset.Version(test.RandIntn(2)),
+			AssetType:    asset.Type(test.RandIntn(2)),
 			AssetName:    assetName,
 			Meta: &proof.MetaReveal{
 				Data: metaBlob,
 			},
-			Amount:         uint64(rand.Int31()),
+			Amount:         uint64(test.RandInt[uint32]()),
+			ScriptKey:      asset.NewScriptKeyBip86(scriptKey),
 			EnableEmission: test.RandBool(),
 		}
 	}
@@ -57,16 +58,11 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 // seedlings populated for testing.
 func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
 	genesisTx := NewGenesisTx(t, chainfee.FeePerKwFloor)
+	BatchKey, _ := test.RandKeyDesc(t)
 	return &MintingBatch{
-		BatchKey: keychain.KeyDescriptor{
-			PubKey: test.RandPubKey(t),
-			KeyLocator: keychain.KeyLocator{
-				Index:  uint32(rand.Int31()),
-				Family: keychain.KeyFamily(rand.Int31()),
-			},
-		},
+		BatchKey:     BatchKey,
 		Seedlings:    RandSeedlings(t, numSeedlings),
-		HeightHint:   rand.Uint32(),
+		HeightHint:   test.RandInt[uint32](),
 		CreationTime: time.Now(),
 		GenesisPacket: &tapsend.FundedPsbt{
 			Pkt:               &genesisTx,
@@ -119,7 +115,7 @@ func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
 	// simulate the wallet funding the transaction.
 	packet.UnsignedTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
-			Index: rand.Uint32(),
+			Index: test.RandInt[uint32](),
 		},
 	})
 
