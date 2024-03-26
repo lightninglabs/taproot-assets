@@ -219,6 +219,13 @@ type ChainPlanter struct {
 	// the planter will come across.
 	stateReqs chan stateRequest
 
+	// subscribers is a map of components that want to be notified on new
+	// events, keyed by their subscription ID.
+	subscribers map[uint64]*fn.EventReceiver[fn.Event]
+
+	// subscriberMtx guards the subscribers map.
+	subscriberMtx sync.Mutex
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -232,6 +239,7 @@ func NewChainPlanter(cfg PlanterConfig) *ChainPlanter {
 		completionSignals: make(chan BatchKey),
 		seedlingReqs:      make(chan *Seedling),
 		stateReqs:         make(chan stateRequest),
+		subscribers:       make(map[uint64]*fn.EventReceiver[fn.Event]),
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -256,6 +264,7 @@ func (c *ChainPlanter) newCaretakerForBatch(batch *MintingBatch,
 		CancelReqChan:       make(chan struct{}, 1),
 		CancelRespChan:      make(chan CancelResp, 1),
 		UpdateMintingProofs: c.updateMintingProofs,
+		PublishMintEvent:    c.publishSubscriberEvent,
 		ErrChan:             c.cfg.ErrChan,
 	}
 	if feeRate != nil {
@@ -343,6 +352,15 @@ func (c *ChainPlanter) Stop() error {
 
 		close(c.Quit)
 		c.Wg.Wait()
+
+		// Remove all subscribers.
+		c.subscriberMtx.Lock()
+		defer c.subscriberMtx.Unlock()
+
+		for _, subscriber := range c.subscribers {
+			subscriber.Stop()
+			delete(c.subscribers, subscriber.ID())
+		}
 	})
 
 	return stopErr
@@ -1061,6 +1079,55 @@ func (c *ChainPlanter) CancelSeedling() error {
 	return nil
 }
 
+// RegisterSubscriber adds a new subscriber to the set of subscribers that will
+// be notified of any new events that are broadcast.
+func (c *ChainPlanter) RegisterSubscriber(
+	receiver *fn.EventReceiver[fn.Event], _, _ bool) error {
+
+	c.subscriberMtx.Lock()
+	defer c.subscriberMtx.Unlock()
+
+	c.subscribers[receiver.ID()] = receiver
+
+	return nil
+}
+
+// RemoveSubscriber removes a subscriber from the set of subscribers that will
+// be notified of any new events that are broadcast.
+func (c *ChainPlanter) RemoveSubscriber(
+	subscriber *fn.EventReceiver[fn.Event]) error {
+
+	c.subscriberMtx.Lock()
+	defer c.subscriberMtx.Unlock()
+
+	_, ok := c.subscribers[subscriber.ID()]
+	if !ok {
+		return fmt.Errorf("subscriber with ID %d not found",
+			subscriber.ID())
+	}
+
+	subscriber.Stop()
+	delete(c.subscribers, subscriber.ID())
+
+	return nil
+}
+
+// publishSubscriberEvent publishes an event to all subscribers.
+func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
+	// Lock the subscriber mutex to ensure that we don't modify the
+	// subscriber map while we're iterating over it.
+	c.subscriberMtx.Lock()
+	defer c.subscriberMtx.Unlock()
+
+	for _, sub := range c.subscribers {
+		sub.NewItemCreated.ChanIn() <- event
+	}
+}
+
 // A compile-time assertion to make sure that ChainPlanter implements the
 // tapgarden.Planter interface.
 var _ Planter = (*ChainPlanter)(nil)
+
+// A compile-time assertion to make sure BatchCaretaker satisfies the
+// fn.EventPublisher interface.
+var _ fn.EventPublisher[fn.Event, bool] = (*ChainPlanter)(nil)

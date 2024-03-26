@@ -48,6 +48,11 @@ type EventQueryParams struct {
 	// StatusTo is the largest status to query for (inclusive). Can be
 	// set to nil to return events of all states.
 	StatusTo *Status
+
+	// CreationTimeFrom is the earliest creation time to query for
+	// (inclusive). Can be set to nil to return events of all creation
+	// times.
+	CreationTimeFrom *time.Time
 }
 
 // Event represents a single incoming asset transfer that was initiated by

@@ -152,6 +152,10 @@ var (
 			Entity: "mint",
 			Action: "read",
 		}},
+		"/mintrpc.Mint/SubscribeMintEvents": {{
+			Entity: "mint",
+			Action: "read",
+		}},
 		"/universerpc.Universe/MultiverseRoot": {{
 			Entity: "universe",
 			Action: "read",

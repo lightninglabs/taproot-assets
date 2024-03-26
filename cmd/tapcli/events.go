@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/urfave/cli"
 )
 
@@ -18,6 +19,7 @@ var eventCommands = []cli.Command{
 		Subcommands: []cli.Command{
 			receiveEventsCommand,
 			sendEventsCommand,
+			mintEventsCommand,
 		},
 	},
 }
@@ -105,6 +107,50 @@ func sendEvents(ctx *cli.Context) error {
 
 	for {
 		event, err := send.Recv()
+		if err != nil {
+			return fmt.Errorf("unable to receive event: %w", err)
+		}
+
+		printRespJSON(event)
+	}
+}
+
+var mintEventsCommand = cli.Command{
+	Name:      "mint",
+	ShortName: "m",
+	Usage:     "Subscribe to events around minting assets",
+	Description: "Get live updates on the status of minting asset " +
+		"batches on the local node. This command will block " +
+		"until aborted manually by hitting Ctrl+C.",
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: shortResponseName,
+			Usage: "if true, then the current assets within the " +
+				"batch of an event will not be returned in " +
+				"the response in order to avoid printing a " +
+				"large amount of data in case of large batches",
+		},
+	},
+	Action: mintEvents,
+}
+
+func mintEvents(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
+
+	mint, err := client.SubscribeMintEvents(
+		ctxc, &mintrpc.SubscribeMintEventsRequest{
+			ShortResponse: ctx.Bool(shortResponseName),
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to subscribe to mint events: %w",
+			err)
+	}
+
+	for {
+		event, err := mint.Recv()
 		if err != nil {
 			return fmt.Errorf("unable to receive event: %w", err)
 		}

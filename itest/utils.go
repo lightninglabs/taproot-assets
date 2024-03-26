@@ -377,6 +377,16 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) []*taprpc.Asset {
 
+	ctxc, streamCancel := context.WithCancel(context.Background())
+	stream, err := tapClient.SubscribeMintEvents(
+		ctxc, &mintrpc.SubscribeMintEventsRequest{},
+	)
+	require.NoError(t, err)
+	sub := &EventSubscription[*mintrpc.MintEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
 	mintTXID, batchKey := MintAssetUnconfirmed(
 		t, minerClient, tapClient, assetRequests, opts...,
 	)
@@ -397,6 +407,8 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 		t, ctxt, tapClient, options.mintingTimeout, batchKey,
 		mintrpc.BatchState_BATCH_STATE_FINALIZED,
 	)
+
+	AssertMintEvents(t, batchKey, sub)
 
 	// We should be able to fetch the batch, and also find that the txid of
 	// the batch tx is populated.

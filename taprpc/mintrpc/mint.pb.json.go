@@ -120,4 +120,46 @@ func RegisterMintJSONCallbacks(registry map[string]func(ctx context.Context,
 		}
 		callback(string(respBytes), nil)
 	}
+
+	registry["mintrpc.Mint.SubscribeMintEvents"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &SubscribeMintEventsRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewMintClient(conn)
+		stream, err := client.SubscribeMintEvents(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		go func() {
+			for {
+				select {
+				case <-stream.Context().Done():
+					callback("", stream.Context().Err())
+					return
+				default:
+				}
+
+				resp, err := stream.Recv()
+				if err != nil {
+					callback("", err)
+					return
+				}
+
+				respBytes, err := marshaler.Marshal(resp)
+				if err != nil {
+					callback("", err)
+					return
+				}
+				callback(string(respBytes), nil)
+			}
+		}()
+	}
 }

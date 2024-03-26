@@ -1884,12 +1884,16 @@
         },
         "status": {
           "$ref": "#/definitions/taprpcAddrEventStatus",
-          "description": "The status of the event."
+          "description": "The status of the event. If error below is set, then the status is the\nstate that lead to the error during its execution."
         },
         "confirmation_height": {
           "type": "integer",
           "format": "int64",
           "description": "The height of the block the asset receive transaction was mined in. This\nis only set if the status is ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED or\nlater."
+        },
+        "error": {
+          "type": "string",
+          "description": "An optional error, indicating that executing the status above failed."
         }
       }
     },
@@ -1946,7 +1950,7 @@
         },
         "send_state": {
           "type": "string",
-          "description": "The send state that was executed successfully."
+          "description": "The send state that was executed successfully. If error below is set,\nthen the send_state is the state that lead to the error during its\nexecution."
         },
         "parcel_type": {
           "$ref": "#/definitions/taprpcParcelType",
@@ -1983,6 +1987,10 @@
         "transfer": {
           "$ref": "#/definitions/taprpcAssetTransfer",
           "description": "The final transfer as it will be stored in the database. This is only set\nafter the send state SEND_STATE_LOG_COMMITMENT."
+        },
+        "error": {
+          "type": "string",
+          "description": "An optional error, indicating that executing the send_state failed."
         }
       }
     },
@@ -2006,6 +2014,11 @@
         "filter_addr": {
           "type": "string",
           "description": "Filter receives by a specific address. Leave empty to get all receive\nevents for all addresses."
+        },
+        "start_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "The start time as a Unix timestamp in microseconds. If not set (default\nvalue 0), the daemon will start streaming events from the current time."
         }
       }
     },
