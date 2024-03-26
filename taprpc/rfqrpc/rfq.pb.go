@@ -145,7 +145,7 @@ type AddAssetBuyOrderRequest struct {
 	MinAssetAmount uint64 `protobuf:"varint,2,opt,name=min_asset_amount,json=minAssetAmount,proto3" json:"min_asset_amount,omitempty"`
 	// The maximum amount BTC to spend (units: millisats).
 	MaxBid uint64 `protobuf:"varint,3,opt,name=max_bid,json=maxBid,proto3" json:"max_bid,omitempty"`
-	// The unix timestamp after which the order is no longer valid.
+	// The unix timestamp in seconds after which the order is no longer valid.
 	Expiry uint64 `protobuf:"varint,4,opt,name=expiry,proto3" json:"expiry,omitempty"`
 	// peer_pub_key is an optional field for specifying the public key of the
 	// intended recipient peer for the order.
@@ -529,7 +529,7 @@ type PeerAcceptedBuyQuote struct {
 	AssetAmount uint64 `protobuf:"varint,4,opt,name=asset_amount,json=assetAmount,proto3" json:"asset_amount,omitempty"`
 	// ask_price is the price in millisats for the entire asset amount.
 	AskPrice uint64 `protobuf:"varint,5,opt,name=ask_price,json=askPrice,proto3" json:"ask_price,omitempty"`
-	// The unix timestamp after which the quote is no longer valid.
+	// The unix timestamp in seconds after which the quote is no longer valid.
 	Expiry uint64 `protobuf:"varint,6,opt,name=expiry,proto3" json:"expiry,omitempty"`
 }
 
@@ -803,7 +803,7 @@ type PeerAcceptedBuyQuoteEvent struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Unix timestamp.
+	// Unix timestamp in microseconds.
 	Timestamp uint64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// The asset buy quote that was accepted by out peer.
 	PeerAcceptedBuyQuote *PeerAcceptedBuyQuote `protobuf:"bytes,2,opt,name=peer_accepted_buy_quote,json=peerAcceptedBuyQuote,proto3" json:"peer_accepted_buy_quote,omitempty"`
@@ -917,7 +917,7 @@ type AcceptHtlcEvent struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// Unix timestamp.
+	// Unix timestamp in microseconds.
 	Timestamp uint64 `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	// scid is the short channel ID of the channel over which the payment for
 	// the quote is made.
