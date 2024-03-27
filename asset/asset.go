@@ -2011,6 +2011,12 @@ func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
 	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
 }
 
+// Specifier returns the asset's specifier.
+func (a *Asset) Specifier() Specifier {
+	id := a.Genesis.ID()
+	return NewSpecifierOptionalGroupKey(id, a.GroupKey)
+}
+
 // Validate ensures that an asset is valid.
 func (a *Asset) Validate() error {
 	// TODO(ffranr): Add validation check for remaining fields.
