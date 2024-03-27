@@ -276,7 +276,11 @@ func (a *Tap) AttachGenesis(gen asset.Genesis) {
 // TapCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a Taproot Asset address.
 func (a *Tap) TapCommitmentKey() [32]byte {
-	return asset.TapCommitmentKey(a.AssetID, a.GroupKey)
+	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
+		a.AssetID, a.GroupKey,
+	)
+
+	return asset.TapCommitmentKey(assetSpecifier)
 }
 
 // AssetCommitmentKey is the key that maps to the asset leaf for the asset

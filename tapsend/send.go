@@ -172,7 +172,12 @@ type FundingDescriptor struct {
 // TapCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a recipient descriptor.
 func (r *FundingDescriptor) TapCommitmentKey() [32]byte {
-	return asset.TapCommitmentKey(r.ID, r.GroupKey)
+	assetSpecifier := asset.NewIdSpecifier(r.ID)
+	if r.GroupKey != nil {
+		assetSpecifier = asset.NewSpecifier(r.ID, *r.GroupKey)
+	}
+
+	return asset.TapCommitmentKey(assetSpecifier)
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taproot Asset

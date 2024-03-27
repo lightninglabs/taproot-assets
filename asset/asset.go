@@ -1552,23 +1552,38 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for a specific
-// asset group within a TapCommitment.
+// asset within a TapCommitment.
 //
 // NOTE: This function is also used outside the asset package.
-func TapCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
-	if groupKey == nil {
-		return assetID
+func TapCommitmentKey(assetSpecifier Specifier) [32]byte {
+	var commitmentKey [32]byte
+
+	switch {
+	case assetSpecifier.HasGroupPubKey():
+		assetSpecifier.WhenGroupPubKey(func(pubKey btcec.PublicKey) {
+			serializedPubKey := schnorr.SerializePubKey(&pubKey)
+			commitmentKey = sha256.Sum256(serializedPubKey)
+		})
+
+	case assetSpecifier.HasId():
+		assetSpecifier.WhenId(func(id ID) {
+			commitmentKey = id
+		})
+
+	default:
+		// We should never reach this point as the asset specifier
+		// should always have either a group public key, an asset ID, or
+		// both.
+		panic("invalid asset specifier")
 	}
-	return sha256.Sum256(schnorr.SerializePubKey(groupKey))
+
+	return commitmentKey
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for a specific
 // asset group within a TapCommitment.
 func (a *Asset) TapCommitmentKey() [32]byte {
-	if a.GroupKey == nil {
-		return TapCommitmentKey(a.Genesis.ID(), nil)
-	}
-	return TapCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
+	return TapCommitmentKey(a.Specifier())
 }
 
 // AssetCommitmentKey returns a key which can be used to locate an
