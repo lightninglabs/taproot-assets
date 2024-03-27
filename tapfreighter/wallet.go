@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcwallet/wallet/txrules"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -1193,55 +1192,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 		return nil, fmt.Errorf("error creating anchor TX: %w", err)
 	}
 
-	anchorPkt, err := f.cfg.Wallet.FundPsbt(
-		ctx, sendPacket, 1, params.FeeRate,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fund psbt: %w", err)
-	}
-
-	// We'll need to know the total input value of all anchor transactions
-	// that are going to be spent.
-	amountByInput := make(map[wire.OutPoint]int64)
-	for _, vPkt := range params.ActivePackets {
-		for _, vIn := range vPkt.Inputs {
-			amountByInput[vIn.PrevID.OutPoint] = int64(
-				vIn.Anchor.Value,
-			)
-		}
-	}
-	inputSum := int64(0)
-	for _, amount := range amountByInput {
-		inputSum += amount
-	}
-
 	// TODO(roasbeef): also want to log the total fee to disk for
 	// accounting, etc.
-
-	// Move the change output to the highest-index output, so that
-	// we don't overwrite it when embedding our Taproot Asset commitments.
-	//
-	// TODO(jhb): Do we need richer handling for the change output?
-	// We could reassign the change value to our Taproot Asset change output
-	// and remove the change output entirely.
-	adjustFundedPsbt(anchorPkt, inputSum)
-
-	log.Infof("Received funded PSBT packet")
-	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
-
-	// We need the PSBT output information in the unsigned packet later to
-	// create the exclusion proofs. So we continue on a copy of the PSBT
-	// because those fields get removed when we sign it.
-	signAnchorPkt, err := copyPsbt(anchorPkt.Pkt)
-	if err != nil {
-		return nil, fmt.Errorf("unable to copy PSBT: %w", err)
-	}
 
 	// First, we'll update the PSBT packets to insert the _real_ outputs we
 	// need to commit to the asset transfer.
 	for _, vPkt := range allPackets {
 		err = tapsend.UpdateTaprootOutputKeys(
-			signAnchorPkt, vPkt, outputCommitments,
+			sendPacket, vPkt, outputCommitments,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error updating taproot "+
@@ -1252,20 +1210,25 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 	// Now that all the real outputs are in the PSBT, we'll also
 	// add our anchor inputs as well, since the wallet can sign for
 	// it itself.
-	err = addAnchorPsbtInputs(
-		signAnchorPkt, params.ActivePackets, params.FeeRate,
+	addAnchorPsbtInputs(sendPacket, params.ActivePackets)
+
+	// We now fund the packet, placing the change on the last output.
+	anchorPkt, err := f.cfg.Wallet.FundPsbt(
+		ctx, sendPacket, 1, params.FeeRate, -1,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error adding anchor input: %w", err)
+		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
-	anchorPkt.Pkt = signAnchorPkt
+
+	log.Infof("Received funded PSBT packet")
+	log.Tracef("Packet: %v", spew.Sdump(anchorPkt.Pkt))
 
 	// With all the input and output information in the packet, we
 	// can now ask lnd to sign it, and then extract the final
 	// version ourselves.
 	log.Debugf("Signing PSBT")
-	log.Tracef("PSBT: %s", spew.Sdump(signAnchorPkt))
-	signedPsbt, err := f.cfg.Wallet.SignPsbt(ctx, signAnchorPkt)
+	log.Tracef("PSBT: %s", spew.Sdump(anchorPkt))
+	signedPsbt, err := f.cfg.Wallet.SignPsbt(ctx, anchorPkt.Pkt)
 	if err != nil {
 		return nil, fmt.Errorf("unable to sign psbt: %w", err)
 	}
@@ -1387,56 +1350,9 @@ func (f *AssetWallet) FetchInternalKeyLocator(ctx context.Context,
 	return f.cfg.AddrBook.FetchInternalKeyLocator(ctx, rawKey)
 }
 
-// adjustFundedPsbt takes a funded PSBT which may have used BIP-0069 sorting,
-// and creates a new one with outputs shuffled such that the change output is
-// the last output.
-func adjustFundedPsbt(fPkt *tapsend.FundedPsbt, anchorInputValue int64) {
-	// If there is no change there's nothing we need to do.
-	changeIndex := fPkt.ChangeOutputIndex
-	if changeIndex == -1 {
-		return
-	}
-
-	// Store the script and value of the change output.
-	maxOutputIndex := len(fPkt.Pkt.UnsignedTx.TxOut) - 1
-	changeOutput := fPkt.Pkt.UnsignedTx.TxOut[changeIndex]
-
-	// Overwrite the existing change output, and restore in at the
-	// highest-index output.
-	fPkt.Pkt.UnsignedTx.TxOut[changeIndex] = tapsend.CreateDummyOutput()
-	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].PkScript = changeOutput.PkScript
-	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].Value = changeOutput.Value
-
-	// Since we're adding the input of the anchor output of our prior asset
-	// later, we need to add this value here, so we don't lose the amount
-	// to fees.
-	fPkt.Pkt.UnsignedTx.TxOut[maxOutputIndex].Value += anchorInputValue
-
-	// If the change output already is the last output, we don't need to
-	// overwrite anything in the PSBT outputs.
-	if changeIndex == int32(maxOutputIndex) {
-		return
-	}
-
-	// We also need to re-assign the PSBT level output information.
-	changeOutputInfo := fPkt.Pkt.Outputs[changeIndex]
-	fPkt.Pkt.Outputs[maxOutputIndex] = psbt.POutput{
-		RedeemScript:           changeOutputInfo.RedeemScript,
-		WitnessScript:          changeOutputInfo.WitnessScript,
-		Bip32Derivation:        changeOutputInfo.Bip32Derivation,
-		TaprootInternalKey:     changeOutputInfo.TaprootInternalKey,
-		TaprootTapTree:         changeOutputInfo.TaprootTapTree,
-		TaprootBip32Derivation: changeOutputInfo.TaprootBip32Derivation,
-	}
-	fPkt.Pkt.Outputs[changeIndex] = psbt.POutput{}
-	fPkt.ChangeOutputIndex = int32(maxOutputIndex)
-}
-
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
 // packet. This is called after the PSBT has been funded, but before signing.
-func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket,
-	feeRate chainfee.SatPerKWeight) error {
-
+func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) {
 	for _, vPkt := range vPackets {
 		for idx := range vPkt.Inputs {
 			// With the BIP-0032 information completed, we'll now
@@ -1475,84 +1391,4 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket,
 			)
 		}
 	}
-
-	// Now that we've added an extra input, we'll want to re-calculate the
-	// total vsize of the transaction and the necessary fee at the desired
-	// fee rate.
-	inputScripts := make([][]byte, 0, len(btcPkt.Inputs))
-	for inputIdx, input := range btcPkt.Inputs {
-		if input.WitnessUtxo == nil {
-			return fmt.Errorf("PSBT input %d doesn't specify "+
-				"witness UTXO, which is not supported",
-				inputIdx)
-		}
-
-		if len(input.WitnessUtxo.PkScript) == 0 {
-			return fmt.Errorf("input %d on psbt missing "+
-				"pkscript", inputIdx)
-		}
-
-		inputScripts = append(inputScripts, input.WitnessUtxo.PkScript)
-	}
-
-	estimatedSize, requiredFee := tapscript.EstimateFee(
-		inputScripts, btcPkt.UnsignedTx.TxOut, feeRate,
-	)
-	log.Infof("Estimated TX vsize: %d", estimatedSize)
-	log.Infof("TX required fee before change adjustment: %d at feerate "+
-		"%d sat/vB", requiredFee, feeRate.FeePerKVByte()/1000)
-
-	// Given the current fee (which doesn't account for our input) and the
-	// total fee we want to pay, we'll adjust the wallet's change output
-	// accordingly.
-	//
-	// Earlier in adjustFundedPsbt we set wallet's change output to be the
-	// very last output in the transaction.
-	lastIdx := len(btcPkt.UnsignedTx.TxOut) - 1
-	currentFee, err := btcPkt.GetTxFee()
-	if err != nil {
-		return err
-	}
-
-	feeDelta := int64(requiredFee) - int64(currentFee)
-	changeValue := btcPkt.UnsignedTx.TxOut[lastIdx].Value
-
-	log.Infof("Current fee: %d, fee delta: %d", currentFee, feeDelta)
-	// The fee may exceed the total value of the change output, which means
-	// this spend is impossible with the given inputs and fee rate.
-	if changeValue-feeDelta < 0 {
-		return fmt.Errorf("fee exceeds change amount: (fee=%d, "+
-			"change=%d) ", requiredFee, changeValue)
-	}
-
-	// Even if the change amount would be non-negative, it may still be
-	// below the dust threshold.
-	// TODO(jhb): Remove the change output in this case instead of failing
-	possibleChangeOutput := wire.NewTxOut(
-		changeValue-feeDelta, btcPkt.UnsignedTx.TxOut[lastIdx].PkScript,
-	)
-	err = txrules.CheckOutput(
-		possibleChangeOutput, txrules.DefaultRelayFeePerKb,
-	)
-	if err != nil {
-		return fmt.Errorf("change output is dust: %w", err)
-	}
-
-	btcPkt.UnsignedTx.TxOut[lastIdx].Value -= feeDelta
-
-	log.Infof("Adjusting send pkt fee by delta of %d from %d sats to %d "+
-		"sats", feeDelta, currentFee, requiredFee)
-
-	return nil
-}
-
-// copyPsbt creates a deep copy of a PSBT packet by serializing and
-// de-serializing it.
-func copyPsbt(packet *psbt.Packet) (*psbt.Packet, error) {
-	var buf bytes.Buffer
-	if err := packet.Serialize(&buf); err != nil {
-		return nil, err
-	}
-
-	return psbt.NewFromRawBytes(&buf, false)
 }
