@@ -323,7 +323,8 @@ type WalletAnchor interface {
 	// FundPsbt attaches enough inputs to the target PSBT packet for it to
 	// be valid.
 	FundPsbt(ctx context.Context, packet *psbt.Packet, minConfs uint32,
-		feeRate chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error)
+		feeRate chainfee.SatPerKWeight,
+		changeIdx int32) (*tapsend.FundedPsbt, error)
 
 	// SignAndFinalizePsbt fully signs and finalizes the target PSBT
 	// packet.

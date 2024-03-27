@@ -483,7 +483,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	}
 
 	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
-		ctx, genesisPkt, 1, feeRate,
+		ctx, genesisPkt, 1, feeRate, -1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
