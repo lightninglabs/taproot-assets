@@ -1531,7 +1531,7 @@ func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScrip
 }
 
 const fetchSeedlingByID = `-- name: FetchSeedlingByID :one
-SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id
+SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id, script_key_id, group_internal_key_id, group_tapscript_root
 FROM asset_seedlings
 WHERE seedling_id = $1
 `
@@ -1550,6 +1550,9 @@ func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (Asse
 		&i.BatchID,
 		&i.GroupGenesisID,
 		&i.GroupAnchorID,
+		&i.ScriptKeyID,
+		&i.GroupInternalKeyID,
+		&i.GroupTapscriptRoot,
 	)
 	return i, err
 }
@@ -1595,26 +1598,49 @@ WITH target_batch(batch_id) AS (
 SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
     assets_meta.meta_data_blob, emission_enabled, batch_id, 
-    group_genesis_id, group_anchor_id
+    group_genesis_id, group_anchor_id, group_tapscript_root,
+    script_keys.tweak AS script_key_tweak,
+    script_keys.tweaked_script_key,
+    internal_keys.raw_key AS script_key_raw,
+    internal_keys.key_family AS script_key_fam,
+    internal_keys.key_index AS script_key_index,
+    group_internal_keys.raw_key AS group_key_raw,
+    group_internal_keys.key_family AS group_key_fam,
+    group_internal_keys.key_index AS group_key_index
 FROM asset_seedlings 
 LEFT JOIN assets_meta
     ON asset_seedlings.asset_meta_id = assets_meta.meta_id
+LEFT JOIN script_keys
+    ON asset_seedlings.script_key_id = script_keys.script_key_id
+LEFT JOIN internal_keys
+    ON script_keys.internal_key_id = internal_keys.key_id
+LEFT JOIN internal_keys group_internal_keys
+    ON asset_seedlings.group_internal_key_id = group_internal_keys.key_id
 WHERE asset_seedlings.batch_id in (SELECT batch_id FROM target_batch)
 `
 
 type FetchSeedlingsForBatchRow struct {
-	SeedlingID      int64
-	AssetName       string
-	AssetType       int16
-	AssetVersion    int16
-	AssetSupply     int64
-	MetaDataHash    []byte
-	MetaDataType    sql.NullInt16
-	MetaDataBlob    []byte
-	EmissionEnabled bool
-	BatchID         int64
-	GroupGenesisID  sql.NullInt64
-	GroupAnchorID   sql.NullInt64
+	SeedlingID         int64
+	AssetName          string
+	AssetType          int16
+	AssetVersion       int16
+	AssetSupply        int64
+	MetaDataHash       []byte
+	MetaDataType       sql.NullInt16
+	MetaDataBlob       []byte
+	EmissionEnabled    bool
+	BatchID            int64
+	GroupGenesisID     sql.NullInt64
+	GroupAnchorID      sql.NullInt64
+	GroupTapscriptRoot []byte
+	ScriptKeyTweak     []byte
+	TweakedScriptKey   []byte
+	ScriptKeyRaw       []byte
+	ScriptKeyFam       sql.NullInt32
+	ScriptKeyIndex     sql.NullInt32
+	GroupKeyRaw        []byte
+	GroupKeyFam        sql.NullInt32
+	GroupKeyIndex      sql.NullInt32
 }
 
 func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
@@ -1639,6 +1665,15 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.BatchID,
 			&i.GroupGenesisID,
 			&i.GroupAnchorID,
+			&i.GroupTapscriptRoot,
+			&i.ScriptKeyTweak,
+			&i.TweakedScriptKey,
+			&i.ScriptKeyRaw,
+			&i.ScriptKeyFam,
+			&i.ScriptKeyIndex,
+			&i.GroupKeyRaw,
+			&i.GroupKeyFam,
+			&i.GroupKeyIndex,
 		); err != nil {
 			return nil, err
 		}
@@ -1789,23 +1824,30 @@ func (q *Queries) HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (b
 const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id, group_anchor_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id,
+    script_key_id, group_internal_key_id, group_tapscript_root
 ) VALUES (
-   $1, $2, $3, $4, $5, $6, $7,
-   $8, $9
+   $1, $2, $3, $4,
+   $5, $6, $7,
+   $8, $9,
+   $10, $11,
+   $12
 )
 `
 
 type InsertAssetSeedlingParams struct {
-	AssetName       string
-	AssetType       int16
-	AssetVersion    int16
-	AssetSupply     int64
-	AssetMetaID     int64
-	EmissionEnabled bool
-	BatchID         int64
-	GroupGenesisID  sql.NullInt64
-	GroupAnchorID   sql.NullInt64
+	AssetName          string
+	AssetType          int16
+	AssetVersion       int16
+	AssetSupply        int64
+	AssetMetaID        int64
+	EmissionEnabled    bool
+	BatchID            int64
+	GroupGenesisID     sql.NullInt64
+	GroupAnchorID      sql.NullInt64
+	ScriptKeyID        sql.NullInt64
+	GroupInternalKeyID sql.NullInt64
+	GroupTapscriptRoot []byte
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
@@ -1819,6 +1861,9 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 		arg.BatchID,
 		arg.GroupGenesisID,
 		arg.GroupAnchorID,
+		arg.ScriptKeyID,
+		arg.GroupInternalKeyID,
+		arg.GroupTapscriptRoot,
 	)
 	return err
 }
@@ -1836,24 +1881,31 @@ WITH target_key_id AS (
 )
 INSERT INTO asset_seedlings(
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
-    emission_enabled, batch_id, group_genesis_id, group_anchor_id
+    emission_enabled, batch_id, group_genesis_id, group_anchor_id,
+    script_key_id, group_internal_key_id, group_tapscript_root
 ) VALUES (
-    $2, $3, $4, $5, $6, $7,
+    $2, $3, $4, $5,
+    $6, $7,
     (SELECT key_id FROM target_key_id),
-    $8, $9
+    $8, $9,
+    $10, $11,
+    $12
 )
 `
 
 type InsertAssetSeedlingIntoBatchParams struct {
-	RawKey          []byte
-	AssetName       string
-	AssetType       int16
-	AssetVersion    int16
-	AssetSupply     int64
-	AssetMetaID     int64
-	EmissionEnabled bool
-	GroupGenesisID  sql.NullInt64
-	GroupAnchorID   sql.NullInt64
+	RawKey             []byte
+	AssetName          string
+	AssetType          int16
+	AssetVersion       int16
+	AssetSupply        int64
+	AssetMetaID        int64
+	EmissionEnabled    bool
+	GroupGenesisID     sql.NullInt64
+	GroupAnchorID      sql.NullInt64
+	ScriptKeyID        sql.NullInt64
+	GroupInternalKeyID sql.NullInt64
+	GroupTapscriptRoot []byte
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
@@ -1867,6 +1919,9 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 		arg.EmissionEnabled,
 		arg.GroupGenesisID,
 		arg.GroupAnchorID,
+		arg.ScriptKeyID,
+		arg.GroupInternalKeyID,
+		arg.GroupTapscriptRoot,
 	)
 	return err
 }

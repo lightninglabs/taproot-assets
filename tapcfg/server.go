@@ -23,7 +23,6 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/lightningnetwork/lnd/ticker"
 )
 
 // databaseBackend is an interface that contains all methods our different
@@ -362,7 +361,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ProofWatcher:          reOrgWatcher,
 				UniversePushBatchSize: defaultUniverseSyncBatchSize,
 			},
-			BatchTicker:  ticker.NewForce(cfg.BatchMintingInterval),
 			ProofUpdates: proofArchive,
 			ErrChan:      mainErrChan,
 		}),

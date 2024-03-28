@@ -1,10 +1,12 @@
 package tapgarden
 
 import (
+	"crypto/sha256"
 	"fmt"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightningnetwork/lnd/keychain"
 )
 
 var (
@@ -95,6 +97,22 @@ type Seedling struct {
 
 	// update is used to send updates w.r.t the state of the batch.
 	updates SeedlingUpdates
+
+	// ScriptKey is the tweaked Taproot key that will be used to spend the
+	// asset after minting. By default, this key is constructed with a
+	// BIP-0086 style tweak.
+	ScriptKey asset.ScriptKey
+
+	// GroupInternalKey is the raw group key before the tweak with the
+	// genesis point or tapscript root has been applied.
+	GroupInternalKey *keychain.KeyDescriptor
+
+	// GroupTapscriptRoot is the root of the Tapscript tree that commits to
+	// all script spend conditions for the group key. Instead of spending an
+	// asset, these scripts are used to define witnesses more complex than
+	// a Schnorr signature for reissuing assets. A group key with an empty
+	// Tapscript root can only authorize reissuance with a signature.
+	GroupTapscriptRoot []byte
 }
 
 // validateFields attempts to validate the set of input fields for the passed
@@ -120,6 +138,13 @@ func (c Seedling) validateFields() error {
 	// Creating an asset with zero available supply is not allowed.
 	case c.Amount == 0:
 		return ErrInvalidAssetAmt
+	}
+
+	// The group tapscript root must be 32 bytes.
+	tapscriptRootSize := len(c.GroupTapscriptRoot)
+	if tapscriptRootSize != 0 && tapscriptRootSize != sha256.Size {
+		return fmt.Errorf("tapscript root must be %d bytes",
+			sha256.Size)
 	}
 
 	return nil

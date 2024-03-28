@@ -78,19 +78,6 @@ type MintingBatch struct {
 	taprootAssetScriptRoot []byte
 }
 
-// TODO(roasbeef): add batch validate method re unique names?
-
-// AddSeedling adds a new seedling to the batch.
-func (m *MintingBatch) addSeedling(s *Seedling) error {
-	if _, ok := m.Seedlings[s.AssetName]; ok {
-		return fmt.Errorf("asset with name %v already in batch",
-			s.AssetName)
-	}
-
-	m.Seedlings[s.AssetName] = s
-	return nil
-}
-
 // validateGroupAnchor checks if the group anchor for a seedling is valid.
 // A valid anchor must already be part of the batch and have emission enabled.
 func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
@@ -187,4 +174,8 @@ func (m *MintingBatch) TapSibling() []byte {
 // UpdateTapSibling updates the optional tapscript sibling for the batch.
 func (m *MintingBatch) UpdateTapSibling(sibling *chainhash.Hash) {
 	m.tapSibling = sibling
+}
+
+func (m *MintingBatch) IsFunded() bool {
+	return m.GenesisPacket != nil
 }

@@ -87,16 +87,19 @@ type AssetProof struct {
 }
 
 type AssetSeedling struct {
-	SeedlingID      int64
-	AssetName       string
-	AssetVersion    int16
-	AssetType       int16
-	AssetSupply     int64
-	AssetMetaID     int64
-	EmissionEnabled bool
-	BatchID         int64
-	GroupGenesisID  sql.NullInt64
-	GroupAnchorID   sql.NullInt64
+	SeedlingID         int64
+	AssetName          string
+	AssetVersion       int16
+	AssetType          int16
+	AssetSupply        int64
+	AssetMetaID        int64
+	EmissionEnabled    bool
+	BatchID            int64
+	GroupGenesisID     sql.NullInt64
+	GroupAnchorID      sql.NullInt64
+	ScriptKeyID        sql.NullInt64
+	GroupInternalKeyID sql.NullInt64
+	GroupTapscriptRoot []byte
 }
 
 type AssetTransfer struct {
