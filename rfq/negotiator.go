@@ -76,6 +76,13 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	assetId *asset.ID, assetGroupKey *btcec.PublicKey,
 	assetAmount uint64) (lnwire.MilliSatoshi, uint64, error) {
 
+	// TODO(ffranr): Optionally accept a peer's proposed ask price as an
+	//  arg to this func and pass it to the price oracle. The price oracle
+	//  service might be intelligent enough to use the peer's proposed ask
+	//  price as a factor when computing the bid price. This argument must
+	//  be optional because at some call sites we are initiating a request
+	//  and do not have a peer's proposed ask price.
+
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
@@ -291,6 +298,116 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	}()
 
 	return nil
+}
+
+// HandleIncomingSellRequest handles an incoming asset sell quote request.
+// This is a request by our peer to sell an asset to us.
+func (n *Negotiator) HandleIncomingSellRequest(
+	request rfqmsg.SellRequest) error {
+
+	// TODO(ffranr): Ensure that we have a suitable buy offer for the asset
+	//  that our peer is trying to sell to us.
+
+	// Define a thread safe helper function for adding outgoing message to
+	// the outgoing messages channel.
+	sendOutgoingMsg := func(msg rfqmsg.OutgoingMsg) {
+		sendSuccess := fn.SendOrQuit(
+			n.cfg.OutgoingMessages, msg, n.Quit,
+		)
+		if !sendSuccess {
+			err := fmt.Errorf("negotiator failed to add message "+
+				"to the outgoing messages channel (msg=%v)",
+				msg)
+			n.cfg.ErrChan <- err
+		}
+	}
+
+	// Query the price oracle asynchronously using a separate goroutine.
+	// The price oracle might be an external service, responses could be
+	// delayed.
+	n.Wg.Add(1)
+	go func() {
+		defer n.Wg.Done()
+
+		// Query the price oracle for a bid price. This is the price we
+		// are willing to pay for the asset that our peer is trying to
+		// sell to us.
+		bidPrice, bidExpiry, err := n.queryBidFromPriceOracle(
+			request.Peer, request.AssetID, request.AssetGroupKey,
+			request.AssetAmount,
+		)
+		if err != nil {
+			// Send a reject message to the peer.
+			msg := rfqmsg.NewReject(
+				request.Peer, request.ID,
+				rfqmsg.ErrUnknownReject,
+			)
+			sendOutgoingMsg(msg)
+
+			// Add an error to the error channel and return.
+			err = fmt.Errorf("failed to query ask price from "+
+				"oracle: %w", err)
+			n.cfg.ErrChan <- err
+			return
+		}
+
+		// Construct and send a sell accept message.
+		msg := rfqmsg.NewSellAcceptFromRequest(
+			request, bidPrice, bidExpiry,
+		)
+		sendOutgoingMsg(msg)
+	}()
+
+	return nil
+}
+
+// HandleOutgoingSellOrder handles an outgoing sell order by constructing sell
+// requests and passing them to the outgoing messages channel. These requests
+// are sent to peers.
+func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
+	// Query the price oracle for a reasonable ask price. We perform this
+	// query and response handling in a separate goroutine in case it is a
+	// remote service and takes a long time to respond.
+	n.Wg.Add(1)
+	go func() {
+		defer n.Wg.Done()
+
+		// Query the price oracle for an asking price.
+		askPrice, _, err := n.queryAskFromPriceOracle(
+			order.Peer, order.AssetID, order.AssetGroupKey,
+			order.MaxAssetAmount, nil,
+		)
+		if err != nil {
+			err := fmt.Errorf("negotiator failed to handle price "+
+				"oracle response: %w", err)
+			n.cfg.ErrChan <- err
+			return
+		}
+
+		request, err := rfqmsg.NewSellRequest(
+			*order.Peer, order.AssetID, order.AssetGroupKey,
+			order.MaxAssetAmount, askPrice,
+		)
+		if err != nil {
+			err := fmt.Errorf("unable to create sell request "+
+				"message: %w", err)
+			n.cfg.ErrChan <- err
+			return
+		}
+
+		// Send the response message to the outgoing messages channel.
+		var msg rfqmsg.OutgoingMsg = request
+		sendSuccess := fn.SendOrQuit(
+			n.cfg.OutgoingMessages, msg, n.Quit,
+		)
+		if !sendSuccess {
+			err := fmt.Errorf("negotiator failed to add sell " +
+				"request message to the outgoing messages " +
+				"channel")
+			n.cfg.ErrChan <- err
+			return
+		}
+	}()
 }
 
 // SellOffer is a struct that represents an asset sell offer. This

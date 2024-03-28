@@ -52,9 +52,17 @@ const (
 	// message.
 	MsgTypeBuyAccept = TapMessageTypeBaseOffset + 1
 
+	// MsgTypeSellRequest is the message type identifier for an asset sell
+	// quote request message.
+	MsgTypeSellRequest = TapMessageTypeBaseOffset + 2
+
+	// MsgTypeSellAccept is the message type identifier for an asset sell
+	// quote accept message.
+	MsgTypeSellAccept = TapMessageTypeBaseOffset + 3
+
 	// MsgTypeReject is the message type identifier for a quote
 	// reject message.
-	MsgTypeReject = TapMessageTypeBaseOffset + 2
+	MsgTypeReject = TapMessageTypeBaseOffset + 4
 )
 
 var (
@@ -82,6 +90,10 @@ func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 		return NewBuyRequestMsgFromWire(wireMsg)
 	case MsgTypeBuyAccept:
 		return NewBuyAcceptFromWireMsg(wireMsg)
+	case MsgTypeSellRequest:
+		return NewSellRequestMsgFromWire(wireMsg)
+	case MsgTypeSellAccept:
+		return NewSellAcceptFromWireMsg(wireMsg)
 	case MsgTypeReject:
 		return NewQuoteRejectFromWireMsg(wireMsg)
 	default:

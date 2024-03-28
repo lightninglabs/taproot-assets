@@ -84,6 +84,13 @@ type Manager struct {
 	// represent agreed-upon terms for purchase transactions with our peers.
 	peerAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
 
+	// peerAcceptedSellQuotes holds sell quotes for assets that our node has
+	// requested and that have been accepted by peer nodes. These quotes are
+	// exclusively used by our node for the sale of assets, as they
+	// represent agreed-upon terms for sale transactions with our peers.
+	peerAcceptedSellQuotes lnutils.SyncMap[SerialisedScid,
+		rfqmsg.SellAccept]
+
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
 	subscribers lnutils.SyncMap[uint64, *fn.EventReceiver[fn.Event]]
@@ -107,6 +114,8 @@ func NewManager(cfg ManagerCfg) (*Manager, error) {
 		acceptHtlcEvents: make(chan *AcceptHtlcEvent),
 		peerAcceptedBuyQuotes: lnutils.SyncMap[
 			SerialisedScid, rfqmsg.BuyAccept]{},
+		peerAcceptedSellQuotes: lnutils.SyncMap[
+			SerialisedScid, rfqmsg.SellAccept]{},
 
 		subscribers: lnutils.SyncMap[
 			uint64, *fn.EventReceiver[fn.Event]]{},
@@ -281,6 +290,28 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		event := NewPeerAcceptedBuyQuoteEvent(msg)
 		m.publishSubscriberEvent(event)
 
+	case *rfqmsg.SellRequest:
+		err := m.negotiator.HandleIncomingSellRequest(*msg)
+		if err != nil {
+			return fmt.Errorf("error handling incoming sell "+
+				"request: %w", err)
+		}
+
+	case *rfqmsg.SellAccept:
+		// TODO(ffranr): The stream handler should ensure that the
+		//  accept message corresponds to a request.
+		//
+		// The quote request has been accepted. Store accepted quote
+		// so that it can be used to send a payment by our lightning
+		// node.
+		scid := SerialisedScid(msg.ShortChannelId())
+		m.peerAcceptedSellQuotes.Store(scid, *msg)
+
+		// Notify subscribers of the incoming peer accepted asset sell
+		// quote.
+		event := NewPeerAcceptedSellQuoteEvent(msg)
+		m.publishSubscriberEvent(event)
+
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
 		// the rejection.
@@ -298,11 +329,22 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 // messages that will be sent to a peer.
 func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	// Perform type specific handling of the outgoing message.
-	msg, ok := outgoingMsg.(*rfqmsg.BuyAccept)
-	if ok {
-		// Before sending an accept message to a peer, inform the HTLC
-		// order handler that we've accepted the quote request.
+	switch msg := outgoingMsg.(type) {
+	case *rfqmsg.BuyAccept:
+		// A peer sent us an asset buy quote request in an attempt to
+		// buy an asset from us. Having accepted the request, but before
+		// we inform our peer of our decision, we inform the order
+		// handler that we are willing to sell the asset subject to a
+		// sale policy.
 		m.orderHandler.RegisterAssetSalePolicy(*msg)
+
+	case *rfqmsg.SellAccept:
+		// A peer sent us an asset sell quote request in an attempt to
+		// sell an asset to us. Having accepted the request, but before
+		// we inform our peer of our decision, we inform the order
+		// handler that we are willing to buy the asset subject to a
+		// purchase policy.
+		m.orderHandler.RegisterAssetPurchasePolicy(*msg)
 	}
 
 	// Send the outgoing message to the peer.
@@ -427,13 +469,55 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	return nil
 }
 
+// SellOrder is a struct that represents an asset sell order.
+type SellOrder struct {
+	// AssetID is the ID of the asset to sell.
+	AssetID *asset.ID
+
+	// AssetGroupKey is the public key of the asset group to sell.
+	AssetGroupKey *btcec.PublicKey
+
+	// MaxAssetAmount is the maximum amount of the asset that can be sold as
+	// part of the order.
+	MaxAssetAmount uint64
+
+	// MinAsk is the minimum ask price that the seller is willing to accept.
+	MinAsk lnwire.MilliSatoshi
+
+	// Expiry is the unix timestamp at which the order expires.
+	Expiry uint64
+
+	// Peer is the peer that the buy order is intended for. This field is
+	// optional.
+	Peer *route.Vertex
+}
+
+// UpsertAssetSellOrder upserts an asset sell order for management.
+func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
+	// For now, a peer must be specified.
+	//
+	// TODO(ffranr): Add support for peerless sell orders. The negotiator
+	//  should be able to determine the optimal peer.
+	if order.Peer == nil {
+		return fmt.Errorf("sell order peer must be specified")
+	}
+
+	// Pass the asset sell order to the negotiator which will generate sell
+	// request messages to send to peers.
+	m.negotiator.HandleOutgoingSellOrder(order)
+
+	return nil
+}
+
 // QueryPeerAcceptedQuotes returns quotes that were requested by our node and
 // have been accepted by our peers. These quotes are exclusively available to
 // our node for the acquisition/sale of assets.
-func (m *Manager) QueryPeerAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+func (m *Manager) QueryPeerAcceptedQuotes() (map[SerialisedScid]rfqmsg.BuyAccept,
+	map[SerialisedScid]rfqmsg.SellAccept) {
+
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
-	quotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
+	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 
 	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
@@ -442,12 +526,28 @@ func (m *Manager) QueryPeerAcceptedQuotes() map[SerialisedScid]rfqmsg.BuyAccept 
 				return nil
 			}
 
-			quotesCopy[scid] = accept
+			buyQuotesCopy[scid] = accept
 			return nil
 		},
 	)
 
-	return quotesCopy
+	// Returning the map directly is not thread safe. We will therefore
+	// create a copy.
+	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
+
+	m.peerAcceptedSellQuotes.ForEach(
+		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
+			if time.Now().Unix() > int64(accept.Expiry) {
+				m.peerAcceptedBuyQuotes.Delete(scid)
+				return nil
+			}
+
+			sellQuotesCopy[scid] = accept
+			return nil
+		},
+	)
+
+	return buyQuotesCopy, sellQuotesCopy
 }
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will
@@ -516,8 +616,39 @@ func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 	return q.timestamp.UTC()
 }
 
-// Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event interface.
+// Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event
+// interface.
 var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
+
+// PeerAcceptedSellQuoteEvent is an event that is broadcast when the RFQ manager
+// receives an asset sell request accept quote message from a peer. This is a
+// quote which was requested by our node and has been accepted by a peer.
+type PeerAcceptedSellQuoteEvent struct {
+	// timestamp is the event creation UTC timestamp.
+	timestamp time.Time
+
+	// SellAccept is the accepted asset sell quote.
+	rfqmsg.SellAccept
+}
+
+// NewPeerAcceptedSellQuoteEvent creates a new PeerAcceptedSellQuoteEvent.
+func NewPeerAcceptedSellQuoteEvent(
+	sellAccept *rfqmsg.SellAccept) *PeerAcceptedSellQuoteEvent {
+
+	return &PeerAcceptedSellQuoteEvent{
+		timestamp:  time.Now().UTC(),
+		SellAccept: *sellAccept,
+	}
+}
+
+// Timestamp returns the event creation UTC timestamp.
+func (q *PeerAcceptedSellQuoteEvent) Timestamp() time.Time {
+	return q.timestamp.UTC()
+}
+
+// Ensure that the PeerAcceptedSellQuoteEvent struct implements the Event
+// interface.
+var _ fn.Event = (*PeerAcceptedSellQuoteEvent)(nil)
 
 // IncomingRejectQuoteEvent is an event that is broadcast when the RFQ manager
 // receives a reject quote message from a peer.

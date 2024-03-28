@@ -12,6 +12,13 @@ service Rfq {
     rpc AddAssetBuyOrder (AddAssetBuyOrderRequest)
         returns (AddAssetBuyOrderResponse);
 
+    /* tapcli: `rfq sellorder`
+    AddAssetSellOrder is used to add a sell order for a specific asset. If a
+    sell order already exists for the asset, it will be updated.
+    */
+    rpc AddAssetSellOrder (AddAssetSellOrderRequest)
+        returns (AddAssetSellOrderResponse);
+
     /* tapcli: `rfq selloffer`
     AddAssetSellOffer is used to add a sell offer for a specific asset. If a
     sell offer already exists for the asset, it will be updated.
@@ -71,6 +78,27 @@ message AddAssetBuyOrderRequest {
 message AddAssetBuyOrderResponse {
 }
 
+message AddAssetSellOrderRequest {
+    // asset_specifier is the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // The maximum amount of the asset to sell.
+    uint64 max_asset_amount = 2;
+
+    // The minimum amount of BTC to accept (units: millisats).
+    uint64 min_ask = 3;
+
+    // The unix timestamp in seconds after which the order is no longer valid.
+    uint64 expiry = 4;
+
+    // peer_pub_key is an optional field for specifying the public key of the
+    // intended recipient peer for the order.
+    bytes peer_pub_key = 5;
+}
+
+message AddAssetSellOrderResponse {
+}
+
 message AddAssetSellOfferRequest {
     // asset_specifier is the subject asset.
     AssetSpecifier asset_specifier = 1;
@@ -106,10 +134,35 @@ message PeerAcceptedBuyQuote {
     uint64 expiry = 6;
 }
 
+message PeerAcceptedSellQuote {
+    // Quote counterparty peer.
+    string peer = 1;
+
+    // The unique identifier of the quote request.
+    bytes id = 2;
+
+    // scid is the short channel ID of the channel over which the payment for
+    // the quote should be made.
+    uint64 scid = 3;
+
+    // asset_amount is the amount of the subject asset.
+    uint64 asset_amount = 4;
+
+    // bid_price is the price in millisats for the entire asset amount.
+    uint64 bid_price = 5;
+
+    // The unix timestamp in seconds after which the quote is no longer valid.
+    uint64 expiry = 6;
+}
+
 message QueryPeerAcceptedQuotesResponse {
     // buy_quotes is a list of asset buy quotes which were requested by our
     // node and have been accepted by our peers.
     repeated PeerAcceptedBuyQuote buy_quotes = 1;
+
+    // sell_quotes is a list of asset sell quotes which were requested by our
+    // node and have been accepted by our peers.
+    repeated PeerAcceptedSellQuote sell_quotes = 2;
 }
 
 message SubscribeRfqEventNtfnsRequest {
@@ -121,6 +174,14 @@ message PeerAcceptedBuyQuoteEvent {
 
     // The asset buy quote that was accepted by out peer.
     PeerAcceptedBuyQuote peer_accepted_buy_quote = 2;
+}
+
+message PeerAcceptedSellQuoteEvent {
+    // Unix timestamp in microseconds.
+    uint64 timestamp = 1;
+
+    // The asset sell quote that was accepted by out peer.
+    PeerAcceptedSellQuote peer_accepted_sell_quote = 2;
 }
 
 message AcceptHtlcEvent {
@@ -138,8 +199,12 @@ message RfqEvent {
         // accepted (incoming) asset buy quote message is received.
         PeerAcceptedBuyQuoteEvent peer_accepted_buy_quote = 1;
 
+        // peer_accepted_sell_offer is an event that is emitted when a peer
+        // accepted (incoming) asset sell quote message is received.
+        PeerAcceptedSellQuoteEvent peer_accepted_sell_quote = 2;
+
         // accept_htlc is an event that is sent when a HTLC is accepted by the
         // RFQ service.
-        AcceptHtlcEvent accept_htlc = 2;
+        AcceptHtlcEvent accept_htlc = 3;
     }
 }

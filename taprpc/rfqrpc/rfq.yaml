@@ -10,6 +10,13 @@ http:
         - post: "/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}"
           body: "*"
 
+    - selector: rfqrpc.Rfq.AddAssetSellOrder
+      post: "/v1/taproot-assets/rfq/sellorder/asset-id/{asset_specifier.asset_id_str}"
+      body: "*"
+      additional_bindings:
+        - post: "/v1/taproot-assets/rfq/sellorder/group-key/{asset_specifier.group_key_str}"
+          body: "*"
+
     - selector: rfqrpc.Rfq.AddAssetSellOffer
       post: "/v1/taproot-assets/rfq/selloffer/asset-id/{asset_specifier.asset_id_str}"
       body: "*"

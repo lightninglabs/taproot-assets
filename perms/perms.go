@@ -224,6 +224,10 @@ var (
 			Entity: "rfq",
 			Action: "write",
 		}},
+		"/rfqrpc.Rfq/AddAssetSellOrder": {{
+			Entity: "rfq",
+			Action: "write",
+		}},
 		"/rfqrpc.Rfq/AddAssetSellOffer": {{
 			Entity: "rfq",
 			Action: "write",

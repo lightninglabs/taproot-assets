@@ -5519,6 +5519,70 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 	return &rfqrpc.AddAssetBuyOrderResponse{}, nil
 }
 
+// unmarshalAssetSellOrder unmarshals an asset sell order from the RPC form.
+func unmarshalAssetSellOrder(
+	req *rfqrpc.AddAssetSellOrderRequest) (*rfq.SellOrder, error) {
+
+	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
+		req.AssetSpecifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
+			"%w", err)
+	}
+
+	// Unmarshal the peer if specified.
+	var peer *route.Vertex
+	if len(req.PeerPubKey) > 0 {
+		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
+		if err != nil {
+			return nil, fmt.Errorf("error unmarshalling peer "+
+				"route vertex: %w", err)
+		}
+
+		peer = &pv
+	}
+
+	return &rfq.SellOrder{
+		AssetID:        assetId,
+		AssetGroupKey:  assetGroupKey,
+		MaxAssetAmount: req.MaxAssetAmount,
+		MinAsk:         lnwire.MilliSatoshi(req.MinAsk),
+		Expiry:         req.Expiry,
+		Peer:           peer,
+	}, nil
+}
+
+// AddAssetSellOrder upserts a new sell order for the given asset into the RFQ
+// manager. If the order already exists for the given asset, it will be updated.
+func (r *rpcServer) AddAssetSellOrder(_ context.Context,
+	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
+	error) {
+
+	// Unmarshal the order from the RPC form.
+	sellOrder, err := unmarshalAssetSellOrder(req)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling sell order: %w",
+			err)
+	}
+
+	var peer string
+	if sellOrder.Peer != nil {
+		peer = sellOrder.Peer.String()
+	}
+	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting sell order "+
+		"(dest_peer=%s)", peer)
+
+	// Upsert the order into the RFQ manager.
+	err = r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
+	if err != nil {
+		return nil, fmt.Errorf("error upserting sell order into RFQ "+
+			"manager: %w", err)
+	}
+
+	return &rfqrpc.AddAssetSellOrderResponse{}, nil
+}
+
 // AddAssetSellOffer upserts a new sell offer for the given asset into the
 // RFQ manager. If the offer already exists for the given asset, it will be
 // updated.
@@ -5554,23 +5618,46 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 	return &rfqrpc.AddAssetSellOfferResponse{}, nil
 }
 
-// marshalPeerAcceptedQuotes marshals a map of peer accepted quotes into the RPC
-// form. These are quotes that were requested by our node and have been accepted
-// by our peers.
-func marshalPeerAcceptedQuotes(
-	peerAcceptedQuotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
+// marshalPeerAcceptedBuyQuotes marshals a map of peer accepted asset buy quotes
+// into the RPC form. These are quotes that were requested by our node and have
+// been accepted by our peers.
+func marshalPeerAcceptedBuyQuotes(
+	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
 
 	// Marshal the accepted quotes into the RPC form.
 	rpcQuotes := make(
-		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(peerAcceptedQuotes),
+		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
-	for scid, quote := range peerAcceptedQuotes {
+	for scid, quote := range quotes {
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
 			Peer:        quote.Peer.String(),
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
 			AssetAmount: quote.AssetAmount,
 			AskPrice:    uint64(quote.AskPrice),
+			Expiry:      quote.Expiry,
+		}
+		rpcQuotes = append(rpcQuotes, rpcQuote)
+	}
+
+	return rpcQuotes
+}
+
+// marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
+// quotes into the RPC form. These are quotes that were requested by our node
+// and have been accepted by our peers.
+func marshalPeerAcceptedSellQuotes(
+	quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) []*rfqrpc.PeerAcceptedSellQuote {
+
+	// Marshal the accepted quotes into the RPC form.
+	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
+	for scid, quote := range quotes {
+		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
+			Peer:        quote.Peer.String(),
+			Id:          quote.ID[:],
+			Scid:        uint64(scid),
+			AssetAmount: quote.AssetAmount,
+			BidPrice:    uint64(quote.BidPrice),
 			Expiry:      quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
@@ -5587,18 +5674,21 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 
 	// Query the RFQ manager for quotes that were requested by our node and
 	// have been accepted by our peers.
-	peerAcceptedQuotes := r.cfg.RfqManager.QueryPeerAcceptedQuotes()
+	peerAcceptedBuyQuotes, peerAcceptedSellQuotes :=
+		r.cfg.RfqManager.QueryPeerAcceptedQuotes()
 
-	rpcQuotes := marshalPeerAcceptedQuotes(peerAcceptedQuotes)
+	rpcBuyQuotes := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
+	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
-		BuyQuotes: rpcQuotes,
+		BuyQuotes:  rpcBuyQuotes,
+		SellQuotes: rpcSellQuotes,
 	}, nil
 }
 
 // marshallRfqEvent marshals an RFQ event into the RPC form.
 func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
-	timestamp := eventInterface.Timestamp().UTC().Unix()
+	timestamp := eventInterface.Timestamp().UTC().UnixMicro()
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
@@ -5615,6 +5705,26 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
 				Timestamp:            uint64(timestamp),
 				PeerAcceptedBuyQuote: acceptedQuote,
+			},
+		}
+		return &rfqrpc.RfqEvent{
+			Event: eventRpc,
+		}, nil
+
+	case *rfq.PeerAcceptedSellQuoteEvent:
+		acceptedQuote := &rfqrpc.PeerAcceptedSellQuote{
+			Peer:        event.Peer.String(),
+			Id:          event.ID[:],
+			Scid:        uint64(event.ShortChannelId()),
+			AssetAmount: event.AssetAmount,
+			BidPrice:    uint64(event.BidPrice),
+			Expiry:      event.Expiry,
+		}
+
+		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
+			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
+				Timestamp:             uint64(timestamp),
+				PeerAcceptedSellQuote: acceptedQuote,
 			},
 		}
 		return &rfqrpc.RfqEvent{

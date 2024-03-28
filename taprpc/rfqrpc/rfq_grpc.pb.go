@@ -22,6 +22,10 @@ type RfqClient interface {
 	// AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
 	// order already exists for the asset, it will be updated.
 	AddAssetBuyOrder(ctx context.Context, in *AddAssetBuyOrderRequest, opts ...grpc.CallOption) (*AddAssetBuyOrderResponse, error)
+	// tapcli: `rfq sellorder`
+	// AddAssetSellOrder is used to add a sell order for a specific asset. If a
+	// sell order already exists for the asset, it will be updated.
+	AddAssetSellOrder(ctx context.Context, in *AddAssetSellOrderRequest, opts ...grpc.CallOption) (*AddAssetSellOrderResponse, error)
 	// tapcli: `rfq selloffer`
 	// AddAssetSellOffer is used to add a sell offer for a specific asset. If a
 	// sell offer already exists for the asset, it will be updated.
@@ -45,6 +49,15 @@ func NewRfqClient(cc grpc.ClientConnInterface) RfqClient {
 func (c *rfqClient) AddAssetBuyOrder(ctx context.Context, in *AddAssetBuyOrderRequest, opts ...grpc.CallOption) (*AddAssetBuyOrderResponse, error) {
 	out := new(AddAssetBuyOrderResponse)
 	err := c.cc.Invoke(ctx, "/rfqrpc.Rfq/AddAssetBuyOrder", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rfqClient) AddAssetSellOrder(ctx context.Context, in *AddAssetSellOrderRequest, opts ...grpc.CallOption) (*AddAssetSellOrderResponse, error) {
+	out := new(AddAssetSellOrderResponse)
+	err := c.cc.Invoke(ctx, "/rfqrpc.Rfq/AddAssetSellOrder", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -109,6 +122,10 @@ type RfqServer interface {
 	// AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
 	// order already exists for the asset, it will be updated.
 	AddAssetBuyOrder(context.Context, *AddAssetBuyOrderRequest) (*AddAssetBuyOrderResponse, error)
+	// tapcli: `rfq sellorder`
+	// AddAssetSellOrder is used to add a sell order for a specific asset. If a
+	// sell order already exists for the asset, it will be updated.
+	AddAssetSellOrder(context.Context, *AddAssetSellOrderRequest) (*AddAssetSellOrderResponse, error)
 	// tapcli: `rfq selloffer`
 	// AddAssetSellOffer is used to add a sell offer for a specific asset. If a
 	// sell offer already exists for the asset, it will be updated.
@@ -128,6 +145,9 @@ type UnimplementedRfqServer struct {
 
 func (UnimplementedRfqServer) AddAssetBuyOrder(context.Context, *AddAssetBuyOrderRequest) (*AddAssetBuyOrderResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddAssetBuyOrder not implemented")
+}
+func (UnimplementedRfqServer) AddAssetSellOrder(context.Context, *AddAssetSellOrderRequest) (*AddAssetSellOrderResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddAssetSellOrder not implemented")
 }
 func (UnimplementedRfqServer) AddAssetSellOffer(context.Context, *AddAssetSellOfferRequest) (*AddAssetSellOfferResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddAssetSellOffer not implemented")
@@ -165,6 +185,24 @@ func _Rfq_AddAssetBuyOrder_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(RfqServer).AddAssetBuyOrder(ctx, req.(*AddAssetBuyOrderRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Rfq_AddAssetSellOrder_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddAssetSellOrderRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RfqServer).AddAssetSellOrder(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rfqrpc.Rfq/AddAssetSellOrder",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RfqServer).AddAssetSellOrder(ctx, req.(*AddAssetSellOrderRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -236,6 +274,10 @@ var Rfq_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddAssetBuyOrder",
 			Handler:    _Rfq_AddAssetBuyOrder_Handler,
+		},
+		{
+			MethodName: "AddAssetSellOrder",
+			Handler:    _Rfq_AddAssetSellOrder_Handler,
 		},
 		{
 			MethodName: "AddAssetSellOffer",
