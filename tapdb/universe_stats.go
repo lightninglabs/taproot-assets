@@ -155,7 +155,7 @@ type assetEventsCache = *lru.Cache[eventQuery, cachedAssetEvents]
 
 // statsQueryCacheSize is the total number of asset query responses that we'll
 // hold inside the cache.
-const statsQueryCacheSize = 80_000
+const statsQueryCacheSize = 200_000
 
 // cachedSyncStats is a cached set of sync stats.
 type cachedSyncStats []universe.AssetSyncSnapshot
@@ -271,7 +271,9 @@ func (a *atomicSyncStatsCache) storeQuery(q universe.SyncStatsQuery,
 
 	log.Debugf("Storing asset stats query: %v", spew.Sdump(q))
 
-	_, _ = statsCache.Put(query, cachedSyncStats(resp))
+	if _, err := statsCache.Put(query, cachedSyncStats(resp)); err != nil {
+		log.Errorf("unable to store assets stats query: %v", err)
+	}
 }
 
 // UniverseStats is an implementation of the universe.Telemetry interface that
@@ -728,7 +730,9 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 	}
 
 	// We have a fresh result, so we'll cache it now.
-	_, _ = u.assetEventsCache.Put(query, results)
+	if _, err := u.assetEventsCache.Put(query, results); err != nil {
+		log.Errorf("unable to query events cache: %v", err)
+	}
 
 	return results, nil
 }
