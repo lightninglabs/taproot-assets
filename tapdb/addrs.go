@@ -52,6 +52,14 @@ type (
 	// AddrEvent is a type alias for fetching an address event row.
 	AddrEvent = sqlc.FetchAddrEventRow
 
+	// FetchAddrEventByOutpoint is a type alias for the params to fetch an
+	// address event by address and outpoint.
+	FetchAddrEventByOutpoint = sqlc.FetchAddrEventByAddrKeyAndOutpointParams
+
+	// AddrEventByOutpoint is a type alias for fetching an address event
+	// row by outpoint.
+	AddrEventByOutpoint = sqlc.FetchAddrEventByAddrKeyAndOutpointRow
+
 	// AddrEventQuery is a type alias for a query into the set of known
 	// address events.
 	AddrEventQuery = sqlc.QueryEventIDsParams
@@ -124,6 +132,11 @@ type AddrBook interface {
 	// FetchAddrEvent returns a single address event based on its primary
 	// key.
 	FetchAddrEvent(ctx context.Context, id int64) (AddrEvent, error)
+
+	// FetchAddrEventByAddrKeyAndOutpoint returns a single address event
+	// based on its address Taproot output key and outpoint.
+	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context,
+		arg FetchAddrEventByOutpoint) (AddrEventByOutpoint, error)
 
 	// QueryEventIDs returns a list of event IDs and their corresponding
 	// address IDs that match the given query parameters.
@@ -787,6 +800,31 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 	return event, nil
 }
 
+// QueryEvent returns a single address event by its address and outpoint.
+func (t *TapAddressBook) QueryEvent(ctx context.Context,
+	addr *address.AddrWithKeyInfo, outpoint wire.OutPoint) (*address.Event,
+	error) {
+
+	var (
+		readTxOpts = NewAssetStoreReadTx()
+		event      *address.Event
+	)
+	dbErr := t.db.ExecTx(ctx, &readTxOpts, func(db AddrBook) error {
+		var err error
+		event, err = fetchEventByOutpoint(ctx, db, addr, outpoint)
+		return err
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, address.ErrNoEvent
+
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return event, nil
+}
+
 // QueryAddrEvents returns a list of event that match the given query
 // parameters.
 func (t *TapAddressBook) QueryAddrEvents(
@@ -879,6 +917,52 @@ func fetchEvent(ctx context.Context, db AddrBook, eventID int64,
 
 	return &address.Event{
 		ID:                 eventID,
+		CreationTime:       dbEvent.CreationTime.UTC(),
+		Addr:               addr,
+		Status:             address.Status(dbEvent.Status),
+		Outpoint:           op,
+		Amt:                btcutil.Amount(dbEvent.AmtSats.Int64),
+		InternalKey:        internalKey,
+		ConfirmationHeight: uint32(dbEvent.ConfirmationHeight.Int32),
+		HasProof:           dbEvent.AssetProofID.Valid,
+	}, nil
+}
+
+// fetchEventByOutpoint fetches a single address event identified by its address
+// and outpoint.
+func fetchEventByOutpoint(ctx context.Context, db AddrBook,
+	addr *address.AddrWithKeyInfo, outpoint wire.OutPoint) (*address.Event,
+	error) {
+
+	dbEvent, err := db.FetchAddrEventByAddrKeyAndOutpoint(
+		ctx, FetchAddrEventByOutpoint{
+			TaprootOutputKey: schnorr.SerializePubKey(
+				&addr.TaprootOutputKey,
+			),
+			Txid:                outpoint.Hash[:],
+			ChainTxnOutputIndex: int32(outpoint.Index),
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching addr event: %w", err)
+	}
+
+	internalKey, err := btcec.ParsePubKey(dbEvent.InternalKey)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing internal key: %w", err)
+	}
+
+	hash, err := chainhash.NewHash(dbEvent.Txid)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing txid: %w", err)
+	}
+	op := wire.OutPoint{
+		Hash:  *hash,
+		Index: uint32(dbEvent.OutputIndex),
+	}
+
+	return &address.Event{
+		ID:                 dbEvent.ID,
 		CreationTime:       dbEvent.CreationTime.UTC(),
 		Addr:               addr,
 		Status:             address.Status(dbEvent.Status),

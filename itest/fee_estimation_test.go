@@ -79,16 +79,15 @@ func testFeeEstimation(t *harnessTest) {
 	// Split the normal asset to create a transfer with two anchor outputs.
 	normalAssetId := rpcAssets[0].AssetGenesis.AssetId
 	splitAmount := rpcAssets[0].Amount / 2
-	addr, err := t.tapd.NewAddr(
-		ctxt, &taprpc.NewAddrRequest{
+	addr, stream := NewAddrWithEventStream(
+		t.t, t.tapd, &taprpc.NewAddrRequest{
 			AssetId: normalAssetId,
 			Amt:     splitAmount,
 		},
 	)
-	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], addr)
-	sendResp := sendAssetsToAddr(t, t.tapd, addr)
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 
 	transferIdx := 0
 	ConfirmAndAssertOutboundTransfer(
@@ -97,6 +96,8 @@ func testFeeEstimation(t *harnessTest) {
 	)
 	transferIdx += 1
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, transferIdx)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
+	AssertReceiveEvents(t.t, addr, stream)
 
 	sendInputAmt := anchorAmounts[1] + 1000
 	AssertTransferFeeRate(
@@ -108,16 +109,15 @@ func testFeeEstimation(t *harnessTest) {
 	t.lndHarness.SetFeeEstimateWithConf(higherFeeRate, 6)
 
 	secondSplitAmount := splitAmount / 2
-	addr2, err := t.tapd.NewAddr(
-		ctxt, &taprpc.NewAddrRequest{
+	addr2, stream2 := NewAddrWithEventStream(
+		t.t, t.tapd, &taprpc.NewAddrRequest{
 			AssetId: normalAssetId,
 			Amt:     secondSplitAmount,
 		},
 	)
-	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], addr2)
-	sendResp = sendAssetsToAddr(t, t.tapd, addr2)
+	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr2)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp, normalAssetId,
@@ -126,6 +126,8 @@ func testFeeEstimation(t *harnessTest) {
 	)
 	transferIdx += 1
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, transferIdx)
+	AssertSendEventsComplete(t.t, addr2.ScriptKey, sendEvents)
+	AssertReceiveEvents(t.t, addr2, stream2)
 
 	sendInputAmt = anchorAmounts[2] + 1000
 	AssertTransferFeeRate(
@@ -138,13 +140,12 @@ func testFeeEstimation(t *harnessTest) {
 	t.lndHarness.SetFeeEstimateWithConf(excessiveFeeRate, 6)
 
 	thirdSplitAmount := splitAmount / 4
-	addr3, err := t.tapd.NewAddr(
-		ctxt, &taprpc.NewAddrRequest{
+	addr3, stream3 := NewAddrWithEventStream(
+		t.t, t.tapd, &taprpc.NewAddrRequest{
 			AssetId: normalAssetId,
 			Amt:     thirdSplitAmount,
 		},
 	)
-	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], addr3)
 	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
@@ -163,7 +164,7 @@ func testFeeEstimation(t *harnessTest) {
 	// After failure at the high feerate, we should still be able to make a
 	// transfer at a very low feerate.
 	t.lndHarness.SetFeeEstimateWithConf(lowFeeRate, 6)
-	sendResp = sendAssetsToAddr(t, t.tapd, addr3)
+	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr3)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp, normalAssetId,
@@ -172,6 +173,8 @@ func testFeeEstimation(t *harnessTest) {
 	)
 	transferIdx += 1
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, transferIdx)
+	AssertSendEventsComplete(t.t, addr3.ScriptKey, sendEvents)
+	AssertReceiveEvents(t.t, addr3, stream3)
 
 	sendInputAmt = anchorAmounts[3] + 1000
 	AssertTransferFeeRate(

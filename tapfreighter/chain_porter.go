@@ -164,12 +164,12 @@ func (p *ChainPorter) Stop() error {
 		p.Wg.Wait()
 
 		// Remove all subscribers.
-		for _, sub := range p.subscribers {
-			err := p.RemoveSubscriber(sub)
-			if err != nil {
-				stopErr = err
-				break
-			}
+		p.subscriberMtx.Lock()
+		defer p.subscriberMtx.Unlock()
+
+		for _, subscriber := range p.subscribers {
+			subscriber.Stop()
+			delete(p.subscribers, subscriber.ID())
 		}
 	})
 
@@ -248,12 +248,24 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 		default:
 		}
 
+		stateToExecute := pkg.SendState
 		updatedPkg, err := p.stateStep(*pkg)
 		if err != nil {
 			kit.errChan <- err
 			log.Errorf("Error evaluating state (%v): %v",
 				pkg.SendState, err)
 			return
+		}
+
+		// Notify subscribers that the state machine has executed a
+		// state successfully. The only state that happens in a
+		// goroutine outside the state machine is sending the proof to
+		// the receiver using the proof courier service. That goroutine
+		// will notify the subscribers itself, so we skip it here.
+		if pkg.SendState < SendStateComplete {
+			p.publishSubscriberEvent(newAssetSendEvent(
+				stateToExecute, *updatedPkg,
+			))
 		}
 
 		pkg = updatedPkg
@@ -740,7 +752,12 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			"confirmation: %w", err)
 	}
 
+	// If we've reached this point, then the parcel has been successfully
+	// delivered. We'll send out the final notification.
+	p.publishSubscriberEvent(newAssetSendEvent(SendStateComplete, *pkg))
+
 	pkg.SendState = SendStateComplete
+
 	return nil
 }
 
@@ -799,11 +816,6 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 // stateStep attempts to step through the state machine to complete a Taproot
 // Asset transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
-	// Notify subscribers that the state machine is about to execute a
-	// state.
-	stateEvent := NewExecuteSendStateEvent(currentPkg.SendState)
-	p.publishSubscriberEvent(stateEvent)
-
 	switch currentPkg.SendState {
 	// At this point we have the initial package information populated, so
 	// we'll perform coin selection to see if the send request is even
@@ -1199,25 +1211,62 @@ func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPorter)(nil)
 
-// ExecuteSendStateEvent is an event which is sent to the ChainPorter's event
-// subscribers before a state is executed.
-type ExecuteSendStateEvent struct {
+// AssetSendEvent is an event which is sent to the ChainPorter's event
+// subscribers after a state was executed.
+type AssetSendEvent struct {
 	// timestamp is the time the event was created.
 	timestamp time.Time
 
-	// SendState is the state that is about to be executed.
+	// SendState is the state that was just executed successfully.
 	SendState SendState
+
+	// Parcel is the parcel that is being sent.
+	Parcel Parcel
+
+	// VirtualPackets is the list of virtual packets that describes the
+	// "active" parts of the asset transfer.
+	VirtualPackets []*tappsbt.VPacket
+
+	// PassivePackets is the list of virtual packets that describes the
+	// "passive" parts of the asset transfer.
+	PassivePackets []*tappsbt.VPacket
+
+	// AnchorTx is the BTC level anchor transaction with all its information
+	// as it was used when funding/signing it.
+	AnchorTx *tapsend.AnchorTransaction
+
+	// Transfer is the on-disk level information that tracks the pending
+	// transfer.
+	Transfer *OutboundParcel
 }
 
 // Timestamp returns the timestamp of the event.
-func (e *ExecuteSendStateEvent) Timestamp() time.Time {
+func (e *AssetSendEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
-// NewExecuteSendStateEvent creates a new ExecuteSendStateEvent.
-func NewExecuteSendStateEvent(state SendState) *ExecuteSendStateEvent {
-	return &ExecuteSendStateEvent{
+// newAssetSendEvent creates a new AssetSendEvent from the given send package
+// and executed state.
+func newAssetSendEvent(executedState SendState,
+	pkg sendPackage) *AssetSendEvent {
+
+	newSendEvent := &AssetSendEvent{
 		timestamp: time.Now().UTC(),
-		SendState: state,
+		SendState: executedState,
+		// The parcel remains static throughout the state machine, so we
+		// don't need to copy it, there can be no data race.
+		Parcel:         pkg.Parcel,
+		VirtualPackets: fn.CopyAll(pkg.VirtualPackets),
+		PassivePackets: fn.CopyAll(pkg.PassiveAssets),
 	}
+
+	if pkg.AnchorTx != nil {
+		newSendEvent.AnchorTx = pkg.AnchorTx.Copy()
+	}
+
+	if pkg.OutboundPkg != nil {
+		newSendEvent.Transfer = pkg.OutboundPkg.Copy()
+	}
+
+	return newSendEvent
 }

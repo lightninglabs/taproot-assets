@@ -5,7 +5,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/monitoring"
@@ -85,8 +84,7 @@ type Config struct {
 	// connecting to itself as a federation member.
 	RuntimeID int64
 
-	// TODO(roasbeef): use the Taproot Asset chain param wrapper here?
-	ChainParams chaincfg.Params
+	ChainParams address.ChainParams
 
 	Lnd *lndclient.LndServices
 

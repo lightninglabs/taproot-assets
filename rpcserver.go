@@ -99,6 +99,13 @@ const (
 	// AssetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
 	AssetBurnConfirmationText = "assets will be destroyed"
+
+	// proofTypeSend is an alias for the proof type used for sending assets.
+	proofTypeSend = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+
+	// proofTypeReceive is an alias for the proof type used for receiving
+	// assets.
+	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
 )
 
 type (
@@ -106,13 +113,44 @@ type (
 	// value in an LRU cache.
 	cacheableTimestamp uint32
 
-	// subSendEventNtfnsStream is a type alias for the asset send event
+	// devSendEventStream is a type alias for the asset send event
 	// notification stream.
-	subSendEventNtfnsStream = taprpc.TaprootAssets_SubscribeSendAssetEventNtfnsServer
+	devSendEventStream = tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsServer
 
-	// subReceiveEventNtfnsStream is a type alias for the asset receive
-	// event notification stream.
-	subReceiveEventNtfnsStream = taprpc.TaprootAssets_SubscribeReceiveAssetEventNtfnsServer
+	// sendEventStream is a type alias for the asset send event notification
+	// stream.
+	sendEventStream = taprpc.TaprootAssets_SubscribeSendEventsServer
+
+	// sendBackoff is a type alias for the backoff event that is sent when a
+	// proof transfer receive process failed and needs to re-try.
+	sendBackoff = tapdevrpc.SendAssetEvent_ProofTransferBackoffWaitEvent
+
+	// sendExecute is a type alias for the complete event that is sent when
+	// an asset is sent.
+	sendExecute = tapdevrpc.SendAssetEvent_ExecuteSendStateEvent
+
+	// devReceiveEventStream is a type alias for the asset receive event
+	// notification stream.
+	devReceiveEventStream = tapdevrpc.TapDev_SubscribeReceiveAssetEventNtfnsServer
+
+	// receiveEventStream is a type alias for the asset receive event
+	// notification stream.
+	receiveEventStream = taprpc.TaprootAssets_SubscribeReceiveEventsServer
+
+	// receiveBackOff is a type alias for the backoff event that is sent
+	// when a proof transfer process failed and needs to re-try.
+	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
+
+	// receiveComplete is a type alias for the complete event that is sent
+	// when an asset is received.
+	receiveComplete = tapdevrpc.ReceiveAssetEvent_AssetReceiveCompleteEvent
+
+	// EventStream is a generic interface type for notification streams.
+	EventStream[T any] interface {
+		// Send sends an event object to the notification stream.
+		Send(T) error
+		grpc.ServerStream
+	}
 )
 
 // Size returns the size of the cacheable timestamp. Since we scale the cache by
@@ -1092,12 +1130,10 @@ func (r *rpcServer) QueryAddrs(ctx context.Context,
 		return nil, fmt.Errorf("unable to query addrs: %w", err)
 	}
 
-	// TODO(roasbeef): just stop storing the hrp in the addr?
-	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-
 	addrs := make([]*taprpc.Addr, len(dbAddrs))
 	for i, dbAddr := range dbAddrs {
-		dbAddr.ChainParams = &tapParams
+		// TODO(roasbeef): just stop storing the hrp in the addr?
+		dbAddr.ChainParams = &r.cfg.ChainParams
 
 		addrs[i], err = marshalAddr(dbAddr.Tap, r.cfg.TapAddrBook)
 		if err != nil {
@@ -1250,9 +1286,7 @@ func (r *rpcServer) DecodeAddr(_ context.Context,
 		return nil, fmt.Errorf("must specify an addr")
 	}
 
-	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-
-	addr, err := address.DecodeAddress(req.Addr, &tapParams)
+	addr, err := address.DecodeAddress(req.Addr, &r.cfg.ChainParams)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode addr: %w", err)
 	}
@@ -1649,9 +1683,9 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	var sqlQuery address.EventQueryParams
 
 	if len(req.FilterAddr) > 0 {
-		tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
-
-		addr, err := address.DecodeAddress(req.FilterAddr, &tapParams)
+		addr, err := address.DecodeAddress(
+			req.FilterAddr, &r.cfg.ChainParams,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode addr: %w", err)
 		}
@@ -1762,14 +1796,11 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		var (
-			tapParams = address.ParamsForChain(
-				r.cfg.ChainParams.Name,
-			)
 			addr *address.Tap
 			err  error
 		)
 		for a := range raw.Recipients {
-			addr, err = address.DecodeAddress(a, &tapParams)
+			addr, err = address.DecodeAddress(a, &r.cfg.ChainParams)
 			if err != nil {
 				return nil, fmt.Errorf("unable to decode "+
 					"addr: %w", err)
@@ -2840,9 +2871,8 @@ func (r *rpcServer) SendAsset(_ context.Context,
 	}
 
 	var (
-		tapParams = address.ParamsForChain(r.cfg.ChainParams.Name)
-		tapAddrs  = make([]*address.Tap, len(req.TapAddrs))
-		err       error
+		tapAddrs = make([]*address.Tap, len(req.TapAddrs))
+		err      error
 	)
 	for idx := range req.TapAddrs {
 		if req.TapAddrs[idx] == "" {
@@ -2850,7 +2880,7 @@ func (r *rpcServer) SendAsset(_ context.Context,
 		}
 
 		tapAddrs[idx], err = address.DecodeAddress(
-			req.TapAddrs[idx], &tapParams,
+			req.TapAddrs[idx], &r.cfg.ChainParams,
 		)
 		if err != nil {
 			return nil, err
@@ -3120,39 +3150,268 @@ func marshalOutputType(outputType tappsbt.VOutputType) (taprpc.OutputType,
 // SubscribeSendAssetEventNtfns registers a subscription to the event
 // notification stream which relates to the asset sending process.
 func (r *rpcServer) SubscribeSendAssetEventNtfns(
-	_ *taprpc.SubscribeSendAssetEventNtfnsRequest,
-	ntfnStream subSendEventNtfnsStream) error {
+	_ *tapdevrpc.SubscribeSendAssetEventNtfnsRequest,
+	ntfnStream devSendEventStream) error {
 
-	// Create a new event subscriber and pass a copy to the chain porter.
+	filter := func(event fn.Event) (bool, error) {
+		return true, nil
+	}
+
+	return handleEvents[bool, *tapdevrpc.SendAssetEvent](
+		r.cfg.ChainPorter, ntfnStream, marshallSendAssetEvent, filter,
+		r.quit,
+	)
+}
+
+// SubscribeReceiveAssetEventNtfns registers a subscription to the event
+// notification stream which relates to the asset receiving process.
+func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
+	_ *tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest,
+	ntfnStream devReceiveEventStream) error {
+
+	marshaler := func(event fn.Event) (*tapdevrpc.ReceiveAssetEvent, error) {
+		return marshallReceiveAssetEvent(
+			event, r.cfg.TapAddrBook,
+		)
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		switch e := event.(type) {
+		case *proof.BackoffWaitEvent:
+			return true, nil
+
+		case *tapgarden.AssetReceiveEvent:
+			return e.Status == address.StatusCompleted, nil
+
+		default:
+			return false, fmt.Errorf("unknown event type: %T", e)
+		}
+	}
+
+	return handleEvents[bool, *tapdevrpc.ReceiveAssetEvent](
+		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+	)
+}
+
+// SubscribeReceiveEvents registers a subscription to the event notification
+// stream which relates to the asset receiving process.
+func (r *rpcServer) SubscribeReceiveEvents(
+	req *taprpc.SubscribeReceiveEventsRequest,
+	ntfnStream receiveEventStream) error {
+
+	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+	// We just decode the address to make sure it's valid. But any
+	// comparison for filtering happens on the string representation, as
+	// that's easily comparable
+	var addrString string
+	if req.FilterAddr != "" {
+		addr, err := address.DecodeAddress(req.FilterAddr, &tapParams)
+		if err != nil {
+			return fmt.Errorf("error decoding address: %w", err)
+		}
+
+		addrString, err = addr.EncodeAddress()
+		if err != nil {
+			return fmt.Errorf("error encoding address: %w", err)
+		}
+	}
+
+	marshaler := func(event fn.Event) (*taprpc.ReceiveEvent, error) {
+		e, ok := event.(*tapgarden.AssetReceiveEvent)
+		if !ok {
+			return nil, fmt.Errorf("invalid event type: %T", event)
+		}
+
+		rpcAddr, err := marshalAddr(&e.Address, r.cfg.TapAddrBook)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling addr: %w", err)
+		}
+
+		rpcStatus, err := marshalAddrEventStatus(e.Status)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling status: %w",
+				err)
+		}
+
+		return &taprpc.ReceiveEvent{
+			Timestamp:          e.Timestamp().UnixMicro(),
+			Address:            rpcAddr,
+			Outpoint:           e.OutPoint.String(),
+			Status:             rpcStatus,
+			ConfirmationHeight: e.ConfirmationHeight,
+		}, nil
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		var (
+			eventAddrString string
+			err             error
+		)
+
+		switch e := event.(type) {
+		case *tapgarden.AssetReceiveEvent:
+			eventAddrString, err = e.Address.EncodeAddress()
+			if err != nil {
+				return false, fmt.Errorf("error encoding "+
+					"address: %w", err)
+			}
+
+		case *proof.BackoffWaitEvent:
+			// We're not interested in any backoff events.
+			return false, nil
+
+		default:
+			return false, fmt.Errorf("unknown event type: %T", e)
+		}
+
+		// If we're not filtering on a specific address, we return all
+		// events.
+		if addrString == "" {
+			return true, nil
+		}
+
+		return eventAddrString == addrString, nil
+	}
+
+	return handleEvents[bool, *taprpc.ReceiveEvent](
+		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+	)
+}
+
+// SubscribeSendEvents registers a subscription to the event notification
+// stream which relates to the asset sending process.
+func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
+	ntfnStream sendEventStream) error {
+
+	var (
+		targetScriptKey *btcec.PublicKey
+		err             error
+	)
+	if len(req.FilterScriptKey) > 0 {
+		targetScriptKey, err = btcec.ParsePubKey(req.FilterScriptKey)
+		if err != nil {
+			return fmt.Errorf("error parsing script key: %w", err)
+		}
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		var e *tapfreighter.AssetSendEvent
+		switch typedEvent := event.(type) {
+		case *tapfreighter.AssetSendEvent:
+			// Continue below.
+			e = typedEvent
+
+		case *proof.BackoffWaitEvent:
+			// We're not interested in any backoff events.
+			return false, nil
+
+		default:
+			return false, fmt.Errorf("invalid event type: %T",
+				event)
+		}
+
+		// If we're not filtering on a specific script key, we return
+		// all events.
+		if targetScriptKey == nil {
+			return true, nil
+		}
+
+		// We can only match the script key on the active virtual
+		// packets, so if there are none, then this isn't an event we're
+		// interested in.
+		if len(e.VirtualPackets) == 0 {
+			return false, nil
+		}
+
+		for _, vPacket := range e.VirtualPackets {
+			for _, vOut := range vPacket.Outputs {
+				if vOut.ScriptKey.PubKey == nil {
+					continue
+				}
+
+				// This packet sends to the filtered script key,
+				// we want to include this event.
+				if vOut.ScriptKey.PubKey.IsEqual(
+					targetScriptKey,
+				) {
+
+					return true, nil
+				}
+			}
+		}
+
+		// No packets with outputs going to the filtered script key
+		// found.
+		return false, nil
+	}
+
+	return handleEvents[bool, *taprpc.SendEvent](
+		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, filter, r.quit,
+	)
+}
+
+// handleEvents is a helper function that reads events from an event source and
+// forwards them to an RPC stream.
+func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
+	stream EventStream[Q], marshaler func(fn.Event) (Q, error),
+	filter func(fn.Event) (bool, error), quit <-chan struct{}) error {
+
+	// Create a new event subscriber and pass a copy to the event source.
 	// We will then read events from the subscriber.
 	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
 	defer eventSubscriber.Stop()
 
-	// Register the subscriber with the ChainPorter.
-	err := r.cfg.ChainPorter.RegisterSubscriber(
-		eventSubscriber, false, false,
-	)
+	// The last argument in the RegisterSubscriber method is the deliverFrom
+	// argument, which is currently not used. Since we don't know if it's a
+	// pointer, struct or primitive type, we need to use the `var unused T`
+	// notation to pass in an empty value.
+	var unused T
+	err := eventSource.RegisterSubscriber(eventSubscriber, false, unused)
 	if err != nil {
-		return fmt.Errorf("failed to register chain porter event "+
+		return fmt.Errorf("failed to register event source "+
 			"notifications subscription: %w", err)
 	}
+
+	// Remove the subscriber when we're done. Otherwise, the event source
+	// will be blocked on sending new events, since we have a defer to stop
+	// the concurrent queue above.
+	defer func() {
+		err := eventSource.RemoveSubscriber(eventSubscriber)
+		if err != nil {
+			rpcsLog.Errorf("Error unsubscribing subscriber: %v",
+				err)
+		}
+	}()
 
 	// Loop and read from the event subscription and forward to the RPC
 	// stream.
 	for {
 		select {
-		// Handle receiving a new event from the ChainPorter.
-		// The event will be mapped to the RPC event type and
-		// sent over the stream.
+		// Handle receiving a new event from the event source. The event
+		// will be mapped to the RPC event type and sent over the
+		// stream.
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-
-			rpcEvent, err := marshallSendAssetEvent(event)
+			// Give the caller a chance to decide if this event
+			// should be notified on or not.
+			shouldNotify, err := filter(event)
 			if err != nil {
-				return fmt.Errorf("failed to marshall asset "+
-					"send event into RPC event: %w", err)
+				return fmt.Errorf("error filtering event: %w",
+					err)
+			}
+			if !shouldNotify {
+				continue
 			}
 
-			err = ntfnStream.Send(rpcEvent)
+			// We want the event, so let's marshal it to RPC and
+			// send it out.
+			rpcEvent, err := marshaler(event)
+			if err != nil {
+				return fmt.Errorf("failed to marshall event "+
+					"into RPC event: %w", err)
+			}
+
+			err = stream.Send(rpcEvent)
 			if err != nil {
 				return fmt.Errorf("failed to RPC stream send "+
 					"event: %w", err)
@@ -3160,184 +3419,221 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 		// Handle the case where the RPC stream is closed by the
 		// client.
-		case <-ntfnStream.Context().Done():
+		case <-stream.Context().Done():
 			// Don't return an error if a normal context
 			// cancellation has occurred.
 			isCanceledContext := errors.Is(
-				ntfnStream.Context().Err(), context.Canceled,
+				stream.Context().Err(), context.Canceled,
 			)
 			if isCanceledContext {
 				return nil
 			}
 
-			return ntfnStream.Context().Err()
+			return stream.Context().Err()
 
 		// Handle the case where the RPC server is shutting down.
-		case <-r.quit:
-			return nil
-		}
-	}
-}
-
-// SubscribeReceiveAssetEventNtfns registers a subscription to the event
-// notification stream which relates to the asset receiving process.
-func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
-	_ *taprpc.SubscribeReceiveAssetEventNtfnsRequest,
-	ntfnStream subReceiveEventNtfnsStream) error {
-
-	// Create a new event subscriber and pass a copy to the component(s)
-	// which are involved in the asset receive process. We will then read
-	// events from the subscriber.
-	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
-	defer eventSubscriber.Stop()
-
-	// Register the subscriber with the AssetCustodian.
-	err := r.cfg.AssetCustodian.RegisterSubscriber(
-		eventSubscriber, false, false,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to register custodian event"+
-			"notifications subscription: %w", err)
-	}
-
-	// Loop and read from the event subscription and forward to the RPC
-	// stream.
-	for {
-		select {
-		// Handle receiving a new event. The event will be mapped to the
-		// RPC event type and sent over the stream.
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-
-			rpcEvent, err := marshallReceiveAssetEvent(
-				event, r.cfg.TapAddrBook,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to marshall "+
-					"asset receive event into RPC event: "+
-					"%w", err)
-			}
-
-			err = ntfnStream.Send(rpcEvent)
-			if err != nil {
-				return fmt.Errorf("failed to RPC stream "+
-					"asset receive event: %w", err)
-			}
-
-		// Handle the case where the RPC stream is closed by the
-		// client.
-		case <-ntfnStream.Context().Done():
-			// Don't return an error if a normal context
-			// cancellation has occurred.
-			isCanceledContext := errors.Is(
-				ntfnStream.Context().Err(), context.Canceled,
-			)
-			if isCanceledContext {
-				return nil
-			}
-
-			return ntfnStream.Context().Err()
-
-		// Handle the case where the RPC server is shutting down.
-		case <-r.quit:
+		case <-quit:
 			return nil
 		}
 	}
 }
 
 // marshallReceiveAssetEvent maps an asset receive event to its RPC counterpart.
-func marshallReceiveAssetEvent(eventInterface fn.Event,
-	db address.Storage) (*taprpc.ReceiveAssetEvent, error) {
+func marshallReceiveAssetEvent(event fn.Event,
+	db address.Storage) (*tapdevrpc.ReceiveAssetEvent, error) {
 
-	switch event := eventInterface.(type) {
+	switch e := event.(type) {
 	case *proof.BackoffWaitEvent:
 		// Map the transfer type to the RPC counterpart. We only
 		// support the "receive" transfer type for asset receive events.
-		var transferTypeRpc taprpc.ProofTransferType
-		switch event.TransferType {
+		var transferTypeRpc tapdevrpc.ProofTransferType
+		switch e.TransferType {
 		case proof.ReceiveTransferType:
-			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+			transferTypeRpc = proofTypeReceive
 		default:
 			return nil, fmt.Errorf("unexpected transfer type: %v",
-				event.TransferType)
+				e.TransferType)
 		}
 
-		eventRpc := taprpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent{
-			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
-				Timestamp:    event.Timestamp().UnixMicro(),
-				Backoff:      event.Backoff.Microseconds(),
-				TriesCounter: event.TriesCounter,
-				TransferType: transferTypeRpc,
-			},
+		evt := &tapdevrpc.ProofTransferBackoffWaitEvent{
+			Timestamp:    e.Timestamp().UnixMicro(),
+			Backoff:      e.Backoff.Microseconds(),
+			TriesCounter: e.TriesCounter,
+			TransferType: transferTypeRpc,
 		}
-		return &taprpc.ReceiveAssetEvent{
-			Event: &eventRpc,
+		return &tapdevrpc.ReceiveAssetEvent{
+			Event: &receiveBackoff{
+				ProofTransferBackoffWaitEvent: evt,
+			},
 		}, nil
 
-	case *tapgarden.AssetReceiveCompleteEvent:
-		rpcAddr, err := marshalAddr(&event.Address, db)
+	case *tapgarden.AssetReceiveEvent:
+		rpcAddr, err := marshalAddr(&e.Address, db)
 		if err != nil {
 			return nil, fmt.Errorf("error marshaling addr: %w", err)
 		}
 
-		eventRpc := taprpc.ReceiveAssetEvent_AssetReceiveCompleteEvent{
-			AssetReceiveCompleteEvent: &taprpc.AssetReceiveCompleteEvent{
-				Timestamp: event.Timestamp().UnixMicro(),
-				Address:   rpcAddr,
-				Outpoint:  event.OutPoint.String(),
-			},
+		evt := &tapdevrpc.AssetReceiveCompleteEvent{
+			Timestamp: e.Timestamp().UnixMicro(),
+			Address:   rpcAddr,
+			Outpoint:  e.OutPoint.String(),
 		}
-		return &taprpc.ReceiveAssetEvent{
-			Event: &eventRpc,
+		return &tapdevrpc.ReceiveAssetEvent{
+			Event: &receiveComplete{
+				AssetReceiveCompleteEvent: evt,
+			},
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
+		return nil, fmt.Errorf("unknown event type: %T", e)
 	}
 }
 
 // marshallSendAssetEvent maps an asset send event to its RPC counterpart.
-func marshallSendAssetEvent(
-	eventInterface fn.Event) (*taprpc.SendAssetEvent, error) {
-
-	switch event := eventInterface.(type) {
-	case *tapfreighter.ExecuteSendStateEvent:
-		eventRpc := &taprpc.SendAssetEvent_ExecuteSendStateEvent{
-			ExecuteSendStateEvent: &taprpc.ExecuteSendStateEvent{
-				Timestamp: event.Timestamp().UnixMicro(),
-				SendState: event.SendState.String(),
-			},
+func marshallSendAssetEvent(event fn.Event) (*tapdevrpc.SendAssetEvent, error) {
+	switch e := event.(type) {
+	case *tapfreighter.AssetSendEvent:
+		evt := &tapdevrpc.ExecuteSendStateEvent{
+			Timestamp: e.Timestamp().UnixMicro(),
+			SendState: e.SendState.String(),
 		}
-		return &taprpc.SendAssetEvent{
-			Event: eventRpc,
+		return &tapdevrpc.SendAssetEvent{
+			Event: &sendExecute{
+				ExecuteSendStateEvent: evt,
+			},
 		}, nil
 
 	case *proof.BackoffWaitEvent:
 		// Map the transfer type to the RPC counterpart. We only
 		// support the send transfer type for asset send events.
-		var transferTypeRpc taprpc.ProofTransferType
-		switch event.TransferType {
+		var transferTypeRpc tapdevrpc.ProofTransferType
+		switch e.TransferType {
 		case proof.SendTransferType:
-			transferTypeRpc = taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+			transferTypeRpc = proofTypeSend
 		default:
 			return nil, fmt.Errorf("unexpected transfer type: %v",
-				event.TransferType)
+				e.TransferType)
 		}
 
-		eventRpc := taprpc.SendAssetEvent_ProofTransferBackoffWaitEvent{
-			ProofTransferBackoffWaitEvent: &taprpc.ProofTransferBackoffWaitEvent{
-				Timestamp:    event.Timestamp().UnixMicro(),
-				Backoff:      event.Backoff.Microseconds(),
-				TriesCounter: event.TriesCounter,
-				TransferType: transferTypeRpc,
-			},
+		evt := &tapdevrpc.ProofTransferBackoffWaitEvent{
+			Timestamp:    e.Timestamp().UnixMicro(),
+			Backoff:      e.Backoff.Microseconds(),
+			TriesCounter: e.TriesCounter,
+			TransferType: transferTypeRpc,
 		}
-		return &taprpc.SendAssetEvent{
-			Event: &eventRpc,
+		return &tapdevrpc.SendAssetEvent{
+			Event: &sendBackoff{
+				ProofTransferBackoffWaitEvent: evt,
+			},
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("unknown event type: %T", eventInterface)
+		return nil, fmt.Errorf("unknown event type: %T", e)
 	}
+}
+
+// marshalSendEvent marshals an asset send event into the RPC counterpart.
+func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
+	e, ok := event.(*tapfreighter.AssetSendEvent)
+	if !ok {
+		return nil, fmt.Errorf("invalid event type: %T", event)
+	}
+
+	result := &taprpc.SendEvent{
+		Timestamp:             e.Timestamp().UnixMicro(),
+		SendState:             e.SendState.String(),
+		VirtualPackets:        make([][]byte, len(e.VirtualPackets)),
+		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
+	}
+
+	var err error
+	for idx, vPkt := range e.VirtualPackets {
+		result.VirtualPackets[idx], err = tappsbt.Encode(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error encoding virtual "+
+				"packet: %w", err)
+		}
+	}
+	for idx, vPkt := range e.PassivePackets {
+		result.PassiveVirtualPackets[idx], err = tappsbt.Encode(vPkt)
+		if err != nil {
+			return nil, fmt.Errorf("error encoding virtual "+
+				"packet: %w", err)
+		}
+	}
+
+	switch e.Parcel.(type) {
+	case *tapfreighter.AddressParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_ADDRESS
+
+	case *tapfreighter.PreSignedParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PRE_SIGNED
+
+	case *tapfreighter.PendingParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PENDING
+
+	default:
+		return nil, fmt.Errorf("unknown parcel type %T", e.Parcel)
+	}
+
+	if e.AnchorTx != nil {
+		var (
+			psbtBuf, finalTxBuf bytes.Buffer
+			changeOutputIndex   int32
+			lockedOutpoints     []*taprpc.OutPoint
+		)
+		if e.AnchorTx.FundedPsbt != nil {
+			fundedPsbt := e.AnchorTx.FundedPsbt
+			changeOutputIndex = fundedPsbt.ChangeOutputIndex
+
+			if fundedPsbt.Pkt == nil {
+				return nil, fmt.Errorf("funded PSBT is missing")
+			}
+
+			err = fundedPsbt.Pkt.Serialize(&psbtBuf)
+			if err != nil {
+				return nil, fmt.Errorf("error serializing "+
+					"funded PSBT: %w", err)
+			}
+
+			for idx := range fundedPsbt.LockedUTXOs {
+				utxo := fundedPsbt.LockedUTXOs[idx]
+				lockedOutpoints = append(
+					lockedOutpoints, &taprpc.OutPoint{
+						Txid:        utxo.Hash[:],
+						OutputIndex: utxo.Index,
+					},
+				)
+			}
+		}
+
+		if e.AnchorTx.FinalTx != nil {
+			err = e.AnchorTx.FinalTx.Serialize(&finalTxBuf)
+			if err != nil {
+				return nil, fmt.Errorf("error serializing "+
+					"final tx: %w", err)
+			}
+		}
+
+		result.AnchorTransaction = &taprpc.AnchorTransaction{
+			AnchorPsbt:         psbtBuf.Bytes(),
+			ChangeOutputIndex:  changeOutputIndex,
+			ChainFeesSats:      e.AnchorTx.ChainFees,
+			TargetFeeRateSatKw: int32(e.AnchorTx.TargetFeeRate),
+			LndLockedUtxos:     lockedOutpoints,
+			FinalTx:            finalTxBuf.Bytes(),
+		}
+	}
+
+	if e.Transfer != nil {
+		result.Transfer, err = marshalOutboundParcel(e.Transfer)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling transfer: %w",
+				err)
+		}
+	}
+
+	return result, nil
 }
 
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
@@ -5753,64 +6049,13 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 	_ *rfqrpc.SubscribeRfqEventNtfnsRequest,
 	ntfnStream rfqrpc.Rfq_SubscribeRfqEventNtfnsServer) error {
 
-	// Create a new event subscriber and pass a copy to the RFQ manager.
-	// We will then read events from the subscriber.
-	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
-	defer eventSubscriber.Stop()
+	filter := func(event fn.Event) (bool, error) {
+		return true, nil
+	}
 
-	// Register the subscriber with the ChainPorter.
-	err := r.cfg.RfqManager.RegisterSubscriber(
-		eventSubscriber, false, 0,
+	return handleEvents[uint64, *rfqrpc.RfqEvent](
+		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, filter, r.quit,
 	)
-	if err != nil {
-		return fmt.Errorf("failed to register RFQ manager event "+
-			"notifications subscription: %w", err)
-	}
-
-	for {
-		select {
-		// Handle new events from the subscriber.
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			// Marshal the event into its RPC form.
-			rpcEvent, err := marshallRfqEvent(event)
-			if err != nil {
-				return fmt.Errorf("failed to marshall RFQ "+
-					"event into RPC form: %w", err)
-			}
-
-			err = ntfnStream.Send(rpcEvent)
-			if err != nil {
-				return err
-			}
-
-		// Handle the case where the RPC stream is closed by the client.
-		case <-ntfnStream.Context().Done():
-			// Remove the subscriber from the RFQ manager.
-			err := r.cfg.RfqManager.RemoveSubscriber(
-				eventSubscriber,
-			)
-			if err != nil {
-				return fmt.Errorf("failed to remove RFQ "+
-					"manager event notifications "+
-					"subscription: %w", err)
-			}
-
-			// Don't return an error if a normal context
-			// cancellation has occurred.
-			isCanceledContext := errors.Is(
-				ntfnStream.Context().Err(), context.Canceled,
-			)
-			if isCanceledContext {
-				return nil
-			}
-
-			return ntfnStream.Context().Err()
-
-		// Handle the case where the RPC server is shutting down.
-		case <-r.quit:
-			return nil
-		}
-	}
 }
 
 // serialize is a helper function that serializes a serializable object into a

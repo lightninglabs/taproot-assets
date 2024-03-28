@@ -20,6 +20,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -31,11 +33,13 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
 	statusDetected  = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_DETECTED
 	statusConfirmed = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED
+	proofReceived   = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_PROOF_RECEIVED
 	statusCompleted = taprpc.AddrEventStatus_ADDR_EVENT_STATUS_COMPLETED
 )
 
@@ -764,6 +768,125 @@ func AssertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 		return nil
 	}, defaultWaitTimeout/2)
 	require.NoError(t, err)
+}
+
+// AssertReceiveEvents makes sure all events with incremental status are sent
+// on the stream for the given address.
+func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
+	stream *EventSubscription[*taprpc.ReceiveEvent]) {
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+	startStatus := statusDetected
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	for {
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving address receive event")
+
+		require.True(t, proto.Equal(event.Address, addr))
+		require.Equal(t, startStatus, event.Status)
+
+		if event.Status == statusCompleted {
+			close(success)
+			stream.Cancel()
+
+			return
+		}
+
+		startStatus++
+	}
+}
+
+// AssertSendEventsComplete makes sure the two remaining events for the given
+// script key are sent on the stream.
+func AssertSendEventsComplete(t *testing.T, scriptKey []byte,
+	stream *EventSubscription[*taprpc.SendEvent]) {
+
+	AssertSendEvents(
+		t, scriptKey, stream, tapfreighter.SendStateWaitTxConf,
+		tapfreighter.SendStateComplete,
+	)
+}
+
+// AssertSendEvents makes sure all events with incremental status are sent
+// on the stream for the given script key.
+func AssertSendEvents(t *testing.T, scriptKey []byte,
+	stream *EventSubscription[*taprpc.SendEvent], from,
+	to tapfreighter.SendState) {
+
+	success := make(chan struct{})
+	timeout := time.After(defaultWaitTimeout)
+	startStatus := from
+
+	targetScriptKey, err := btcec.ParsePubKey(scriptKey)
+	require.NoError(t, err)
+
+	sendsToKey := func(e *taprpc.SendEvent) bool {
+		for _, vPacketBytes := range e.VirtualPackets {
+			vPkt, err := tappsbt.Decode(vPacketBytes)
+			require.NoError(t, err)
+
+			for _, vOut := range vPkt.Outputs {
+				if vOut.ScriptKey.PubKey == nil {
+					continue
+				}
+
+				// This packet sends to the filtered script key,
+				// we want to include this event.
+				if vOut.ScriptKey.PubKey.IsEqual(
+					targetScriptKey,
+				) {
+
+					return true
+				}
+			}
+		}
+
+		return false
+	}
+
+	// To make sure we don't forever hang on receiving on the stream, we'll
+	// cancel it after the timeout.
+	go func() {
+		select {
+		case <-timeout:
+			stream.Cancel()
+
+		case <-success:
+		}
+	}()
+
+	for {
+		event, err := stream.Recv()
+		require.NoError(t, err, "receiving send event")
+
+		require.True(t, sendsToKey(event))
+		require.Equal(t, startStatus.String(), event.SendState)
+
+		// Fully close the stream once we definitely no longer need the
+		// stream.
+		if event.SendState == tapfreighter.SendStateComplete.String() {
+			stream.Cancel()
+		}
+
+		if event.SendState == to.String() {
+			close(success)
+			return
+		}
+
+		startStatus++
+	}
 }
 
 // ConfirmAndAssertOutboundTransfer makes sure the given outbound transfer has

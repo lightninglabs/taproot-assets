@@ -68,7 +68,7 @@ func testRoundTripSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 	sendRespJSON, err := formatProtoJSON(sendResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)
@@ -88,7 +88,7 @@ func testRoundTripSend(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], aliceAddr)
-	sendResp = sendAssetsToAddr(t, secondTapd, aliceAddr)
+	sendResp, _ = sendAssetsToAddr(t, secondTapd, aliceAddr)
 	sendRespJSON, err = formatProtoJSON(sendResp)
 	require.NoError(t.t, err)
 	t.Logf("Got response from sending assets: %v", sendRespJSON)

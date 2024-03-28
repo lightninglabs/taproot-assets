@@ -23,6 +23,12 @@ type TapDevClient interface {
 	// a new asset will be inserted on disk, spendable using the specified target
 	// script key, and internal key.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
+	// SubscribeSendAssetEventNtfns registers a subscription to the event
+	// notification stream which relates to the asset sending process.
+	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeSendAssetEventNtfnsClient, error)
+	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
+	// notification stream which relates to the asset receive process.
+	SubscribeReceiveAssetEventNtfns(ctx context.Context, in *SubscribeReceiveAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeReceiveAssetEventNtfnsClient, error)
 }
 
 type tapDevClient struct {
@@ -42,6 +48,70 @@ func (c *tapDevClient) ImportProof(ctx context.Context, in *ImportProofRequest, 
 	return out, nil
 }
 
+func (c *tapDevClient) SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeSendAssetEventNtfnsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TapDev_ServiceDesc.Streams[0], "/tapdevrpc.TapDev/SubscribeSendAssetEventNtfns", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &tapDevSubscribeSendAssetEventNtfnsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TapDev_SubscribeSendAssetEventNtfnsClient interface {
+	Recv() (*SendAssetEvent, error)
+	grpc.ClientStream
+}
+
+type tapDevSubscribeSendAssetEventNtfnsClient struct {
+	grpc.ClientStream
+}
+
+func (x *tapDevSubscribeSendAssetEventNtfnsClient) Recv() (*SendAssetEvent, error) {
+	m := new(SendAssetEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *tapDevClient) SubscribeReceiveAssetEventNtfns(ctx context.Context, in *SubscribeReceiveAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeReceiveAssetEventNtfnsClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TapDev_ServiceDesc.Streams[1], "/tapdevrpc.TapDev/SubscribeReceiveAssetEventNtfns", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &tapDevSubscribeReceiveAssetEventNtfnsClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TapDev_SubscribeReceiveAssetEventNtfnsClient interface {
+	Recv() (*ReceiveAssetEvent, error)
+	grpc.ClientStream
+}
+
+type tapDevSubscribeReceiveAssetEventNtfnsClient struct {
+	grpc.ClientStream
+}
+
+func (x *tapDevSubscribeReceiveAssetEventNtfnsClient) Recv() (*ReceiveAssetEvent, error) {
+	m := new(ReceiveAssetEvent)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
 // TapDevServer is the server API for TapDev service.
 // All implementations must embed UnimplementedTapDevServer
 // for forward compatibility
@@ -51,6 +121,12 @@ type TapDevServer interface {
 	// a new asset will be inserted on disk, spendable using the specified target
 	// script key, and internal key.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
+	// SubscribeSendAssetEventNtfns registers a subscription to the event
+	// notification stream which relates to the asset sending process.
+	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TapDev_SubscribeSendAssetEventNtfnsServer) error
+	// SubscribeReceiveAssetEventNtfns registers a subscription to the event
+	// notification stream which relates to the asset receive process.
+	SubscribeReceiveAssetEventNtfns(*SubscribeReceiveAssetEventNtfnsRequest, TapDev_SubscribeReceiveAssetEventNtfnsServer) error
 	mustEmbedUnimplementedTapDevServer()
 }
 
@@ -60,6 +136,12 @@ type UnimplementedTapDevServer struct {
 
 func (UnimplementedTapDevServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
+}
+func (UnimplementedTapDevServer) SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TapDev_SubscribeSendAssetEventNtfnsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeSendAssetEventNtfns not implemented")
+}
+func (UnimplementedTapDevServer) SubscribeReceiveAssetEventNtfns(*SubscribeReceiveAssetEventNtfnsRequest, TapDev_SubscribeReceiveAssetEventNtfnsServer) error {
+	return status.Errorf(codes.Unimplemented, "method SubscribeReceiveAssetEventNtfns not implemented")
 }
 func (UnimplementedTapDevServer) mustEmbedUnimplementedTapDevServer() {}
 
@@ -92,6 +174,48 @@ func _TapDev_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TapDev_SubscribeSendAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeSendAssetEventNtfnsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TapDevServer).SubscribeSendAssetEventNtfns(m, &tapDevSubscribeSendAssetEventNtfnsServer{stream})
+}
+
+type TapDev_SubscribeSendAssetEventNtfnsServer interface {
+	Send(*SendAssetEvent) error
+	grpc.ServerStream
+}
+
+type tapDevSubscribeSendAssetEventNtfnsServer struct {
+	grpc.ServerStream
+}
+
+func (x *tapDevSubscribeSendAssetEventNtfnsServer) Send(m *SendAssetEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _TapDev_SubscribeReceiveAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SubscribeReceiveAssetEventNtfnsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TapDevServer).SubscribeReceiveAssetEventNtfns(m, &tapDevSubscribeReceiveAssetEventNtfnsServer{stream})
+}
+
+type TapDev_SubscribeReceiveAssetEventNtfnsServer interface {
+	Send(*ReceiveAssetEvent) error
+	grpc.ServerStream
+}
+
+type tapDevSubscribeReceiveAssetEventNtfnsServer struct {
+	grpc.ServerStream
+}
+
+func (x *tapDevSubscribeReceiveAssetEventNtfnsServer) Send(m *ReceiveAssetEvent) error {
+	return x.ServerStream.SendMsg(m)
+}
+
 // TapDev_ServiceDesc is the grpc.ServiceDesc for TapDev service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -104,6 +228,17 @@ var TapDev_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TapDev_ImportProof_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SubscribeSendAssetEventNtfns",
+			Handler:       _TapDev_SubscribeSendAssetEventNtfns_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "SubscribeReceiveAssetEventNtfns",
+			Handler:       _TapDev_SubscribeReceiveAssetEventNtfns_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "tapdevrpc/tapdev.proto",
 }

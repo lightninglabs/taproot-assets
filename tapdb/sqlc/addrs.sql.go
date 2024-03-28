@@ -133,6 +133,72 @@ func (q *Queries) FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventR
 	return i, err
 }
 
+const fetchAddrEventByAddrKeyAndOutpoint = `-- name: FetchAddrEventByAddrKeyAndOutpoint :one
+WITH target_addr(addr_id) AS (
+    SELECT id
+    FROM addrs
+    WHERE addrs.taproot_output_key = $1
+)
+SELECT
+    addr_events.id, creation_time, status, asset_proof_id, asset_id,
+    chain_txns.txid as txid,
+    chain_txns.block_height as confirmation_height,
+    chain_txn_output_index as output_index,
+    managed_utxos.amt_sats as amt_sats,
+    managed_utxos.tapscript_sibling as tapscript_sibling,
+    internal_keys.raw_key as internal_key
+FROM addr_events
+JOIN target_addr
+  ON addr_events.addr_id = target_addr.addr_id
+LEFT JOIN chain_txns
+       ON addr_events.chain_txn_id = chain_txns.txn_id
+LEFT JOIN managed_utxos
+       ON addr_events.managed_utxo_id = managed_utxos.utxo_id
+LEFT JOIN internal_keys
+       ON managed_utxos.internal_key_id = internal_keys.key_id
+WHERE chain_txns.txid = $2
+  AND chain_txn_output_index = $3
+`
+
+type FetchAddrEventByAddrKeyAndOutpointParams struct {
+	TaprootOutputKey    []byte
+	Txid                []byte
+	ChainTxnOutputIndex int32
+}
+
+type FetchAddrEventByAddrKeyAndOutpointRow struct {
+	ID                 int64
+	CreationTime       time.Time
+	Status             int16
+	AssetProofID       sql.NullInt64
+	AssetID            sql.NullInt64
+	Txid               []byte
+	ConfirmationHeight sql.NullInt32
+	OutputIndex        int32
+	AmtSats            sql.NullInt64
+	TapscriptSibling   []byte
+	InternalKey        []byte
+}
+
+func (q *Queries) FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error) {
+	row := q.db.QueryRowContext(ctx, fetchAddrEventByAddrKeyAndOutpoint, arg.TaprootOutputKey, arg.Txid, arg.ChainTxnOutputIndex)
+	var i FetchAddrEventByAddrKeyAndOutpointRow
+	err := row.Scan(
+		&i.ID,
+		&i.CreationTime,
+		&i.Status,
+		&i.AssetProofID,
+		&i.AssetID,
+		&i.Txid,
+		&i.ConfirmationHeight,
+		&i.OutputIndex,
+		&i.AmtSats,
+		&i.TapscriptSibling,
+		&i.InternalKey,
+	)
+	return i, err
+}
+
 const fetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_version, genesis_asset_id, group_key, tapscript_sibling,

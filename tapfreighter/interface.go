@@ -267,6 +267,37 @@ type OutboundParcel struct {
 	Outputs []TransferOutput
 }
 
+// Copy creates a deep copy of the OutboundParcel.
+func (o *OutboundParcel) Copy() *OutboundParcel {
+	newParcel := &OutboundParcel{
+		AnchorTxHeightHint: o.AnchorTxHeightHint,
+		TransferTime:       o.TransferTime,
+		ChainFees:          o.ChainFees,
+		PassiveAssets:      fn.CopyAll(o.PassiveAssets),
+		Inputs:             fn.CopySlice(o.Inputs),
+		Outputs:            fn.CopySlice(o.Outputs),
+	}
+
+	if o.AnchorTx != nil {
+		newParcel.AnchorTx = o.AnchorTx.Copy()
+	}
+
+	if o.PassiveAssetsAnchor != nil {
+		oldAnchor := o.PassiveAssetsAnchor
+		newParcel.PassiveAssetsAnchor = &Anchor{
+			OutPoint:         oldAnchor.OutPoint,
+			Value:            oldAnchor.Value,
+			InternalKey:      oldAnchor.InternalKey,
+			TaprootAssetRoot: oldAnchor.TaprootAssetRoot,
+			MerkleRoot:       oldAnchor.MerkleRoot,
+			TapscriptSibling: oldAnchor.TapscriptSibling,
+			NumPassiveAssets: oldAnchor.NumPassiveAssets,
+		}
+	}
+
+	return newParcel
+}
+
 // AssetConfirmEvent is used to mark a batched spend as confirmed on disk.
 type AssetConfirmEvent struct {
 	// AnchorTXID is the anchor transaction's hash that was previously

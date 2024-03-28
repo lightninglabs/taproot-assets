@@ -41,6 +41,7 @@ type Querier interface {
 	DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error
 	FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error)
 	FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error)
+	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
 	FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error)

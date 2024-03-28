@@ -80,13 +80,13 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
-		"/taprpc.TaprootAssets/SubscribeSendAssetEventNtfns": {{
+		"/taprpc.TaprootAssets/SubscribeReceiveEvents": {{
 			Entity: "assets",
-			Action: "write",
+			Action: "read",
 		}},
-		"/taprpc.TaprootAssets/SubscribeReceiveAssetEventNtfns": {{
+		"/taprpc.TaprootAssets/SubscribeSendEvents": {{
 			Entity: "assets",
-			Action: "write",
+			Action: "read",
 		}},
 		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
 			Entity: "assets",
@@ -244,7 +244,14 @@ var (
 			Entity: "proofs",
 			Action: "write",
 		}},
-	}
+		"/tapdevrpc.TapDev/SubscribeSendAssetEventNtfns": {{
+			Entity: "assets",
+			Action: "write",
+		}},
+		"/tapdevrpc.TapDev/SubscribeReceiveAssetEventNtfns": {{
+			Entity: "assets",
+			Action: "write",
+		}}}
 
 	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
 	// don't require macaroons authentication.

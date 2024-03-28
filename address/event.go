@@ -111,6 +111,11 @@ type EventStorage interface {
 	QueryAddrEvents(ctx context.Context, params EventQueryParams) ([]*Event,
 		error)
 
+	// QueryEvent returns a single address event by its address and
+	// outpoint.
+	QueryEvent(ctx context.Context, addr *AddrWithKeyInfo,
+		outpoint wire.OutPoint) (*Event, error)
+
 	// CompleteEvent updates an address event as being complete and links it
 	// with the proof and asset that was imported/created for it.
 	CompleteEvent(ctx context.Context, event *Event, status Status,

@@ -68,12 +68,17 @@ func testReIssuance(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	firstCollectSend := sendAssetsToAddr(t, t.tapd, collectGroupAddr)
+	firstCollectSend, firstCollectEvents := sendAssetsToAddr(
+		t, t.tapd, collectGroupAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, firstCollectSend,
 		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	AssertSendEventsComplete(
+		t.t, collectGroupAddr.ScriptKey, firstCollectEvents,
+	)
 
 	// Check the state of both nodes. The first node should show one
 	// zero-value transfer representing the send of the collectible.
@@ -93,13 +98,18 @@ func testReIssuance(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	firstNormalSend := sendAssetsToAddr(t, t.tapd, normalGroupAddr)
+	firstNormalSend, firstNormalEvents := sendAssetsToAddr(
+		t, t.tapd, normalGroupAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, firstNormalSend,
 		normalGenInfo.AssetId,
 		[]uint64{normalGroupMintHalf, normalGroupMintHalf}, 1, 2,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 2)
+	AssertSendEventsComplete(
+		t.t, normalGroupAddr.ScriptKey, firstNormalEvents,
+	)
 
 	// Reissue one more collectible and half the original mint amount for
 	// the normal asset.
@@ -170,12 +180,17 @@ func testReIssuance(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	secondCollectSend := sendAssetsToAddr(t, t.tapd, collectReissueAddr)
+	secondCollectSend, secondCollectEvents := sendAssetsToAddr(
+		t, t.tapd, collectReissueAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, secondCollectSend,
 		collectReissueInfo.AssetId, []uint64{0, 1}, 2, 3,
 	)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 3)
+	AssertSendEventsComplete(
+		t.t, collectReissueAddr.ScriptKey, secondCollectEvents,
+	)
 
 	// The second node should show two groups, with two assets in
 	// the collectible group and a total balance of 2 for that group.
@@ -201,12 +216,17 @@ func testReIssuance(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	thirdCollectSend := sendAssetsToAddr(t, secondTapd, collectGenAddr)
+	thirdCollectSend, thirdCollectEvents := sendAssetsToAddr(
+		t, secondTapd, collectGenAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, secondTapd.ht.lndHarness.Miner.Client, secondTapd,
 		thirdCollectSend, collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, 1)
+	AssertSendEventsComplete(
+		t.t, collectGenAddr.ScriptKey, thirdCollectEvents,
+	)
 
 	// The collectible balance on the minting node should be 1, and there
 	// should still be only two groups.
@@ -356,11 +376,14 @@ func testMintWithGroupKeyErrors(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
-	collectSend := sendAssetsToAddr(t, t.tapd, collectGroupAddr)
+	collectSend, collectEvents := sendAssetsToAddr(
+		t, t.tapd, collectGroupAddr,
+	)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, collectSend,
 		collectGenInfo.AssetId, []uint64{0, 1}, 0, 1,
 	)
+	AssertSendEventsComplete(t.t, collectGroupAddr.ScriptKey, collectEvents)
 
 	// A re-issuance with the second node should still fail because the
 	// group key was not created by that node.

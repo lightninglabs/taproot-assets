@@ -156,7 +156,7 @@ func testReOrgSend(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 	initialBlock := ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		sendAssetGen.AssetId,
@@ -272,7 +272,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, secondTapd, sendAsset, bobAddr)
-	sendResp := sendAssetsToAddr(t, t.tapd, bobAddr)
+	sendResp, _ := sendAssetsToAddr(t, t.tapd, bobAddr)
 	initialBlock := ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
 		sendAssetGen.AssetId,

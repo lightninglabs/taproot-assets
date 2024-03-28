@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -53,17 +54,18 @@ func testAddresses(t *harnessTest) {
 	for idx, a := range rpcAssets {
 		// In order to force a split, we don't try to send the full
 		// asset.
-		addr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
-			AssetId:      a.AssetGenesis.AssetId,
-			Amt:          a.Amount - 1,
-			AssetVersion: a.Version,
-		})
-		require.NoError(t.t, err)
+		addr, events := NewAddrWithEventStream(
+			t.t, secondTapd, &taprpc.NewAddrRequest{
+				AssetId:      a.AssetGenesis.AssetId,
+				Amt:          a.Amount - 1,
+				AssetVersion: a.Version,
+			},
+		)
 		addresses = append(addresses, addr)
 
 		AssertAddrCreated(t.t, secondTapd, a, addr)
 
-		sendResp := sendAssetsToAddr(t, t.tapd, addr)
+		sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 		sendRespJSON, err := formatProtoJSON(sendResp)
 		require.NoError(t.t, err)
 
@@ -81,6 +83,11 @@ func testAddresses(t *harnessTest) {
 
 		// Make sure we have imported and finalized all proofs.
 		AssertNonInteractiveRecvComplete(t.t, secondTapd, idx+1)
+		AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
+
+		// Make sure the receiver has received all events in order for
+		// the address.
+		AssertReceiveEvents(t.t, addr, events)
 
 		// Make sure the asset meta is also fetched correctly.
 		assetResp, err := secondTapd.FetchAssetMeta(
@@ -403,7 +410,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	// group lookups by Bob.
 	AssertUniverseStats(t.t, t.tapd, 4, 4, 2)
 
-	// If Alice now mints a reissuance for the second asset group, Bob
+	// If Alice now mints a re-issuance for the second asset group, Bob
 	// should successfully sync that new asset.
 	secondGroupMember := CopyRequest(issuableAssets[1])
 	secondGroupMember.Asset.NewGroupedAsset = false
@@ -432,37 +439,40 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 
 	// In order to force a split, we don't try to send the full asset.
 	const sendAmt = 100
-	bobAddr1, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     sendAmt,
-	})
-	require.NoError(t.t, err)
+	bobAddr1, bobEvents1 := NewAddrWithEventStream(
+		t.t, bob, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     sendAmt,
+		},
+	)
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr1)
 
-	bobAddr2, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     sendAmt,
-	})
-	require.NoError(t.t, err)
+	bobAddr2, bobEvents2 := NewAddrWithEventStream(
+		t.t, bob, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     sendAmt,
+		})
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr2)
 
 	// To test that Alice can also receive to multiple addresses in a single
 	// transaction as well, we also add two addresses for her.
-	aliceAddr1, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     sendAmt,
-	})
-	require.NoError(t.t, err)
+	aliceAddr1, aliceEvents1 := NewAddrWithEventStream(
+		t.t, alice, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     sendAmt,
+		},
+	)
 	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
 
-	aliceAddr2, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     sendAmt,
-	})
-	require.NoError(t.t, err)
+	aliceAddr2, aliceEvents2 := NewAddrWithEventStream(
+		t.t, alice, &taprpc.NewAddrRequest{
+			AssetId: genInfo.AssetId,
+			Amt:     sendAmt,
+		},
+	)
 	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr2)
 
-	sendResp := sendAssetsToAddr(
+	sendResp, sendEvents := sendAssetsToAddr(
 		t, alice, bobAddr1, bobAddr2, aliceAddr1, aliceAddr2,
 	)
 	sendRespJSON, err := formatProtoJSON(sendResp)
@@ -488,6 +498,14 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	// Make sure we have imported and finalized all proofs.
 	AssertNonInteractiveRecvComplete(t.t, bob, numRuns*2)
 	AssertNonInteractiveRecvComplete(t.t, alice, numRuns*2)
+	AssertSendEventsComplete(t.t, bobAddr1.ScriptKey, sendEvents)
+
+	// Make sure the receivers have received all events in order for the
+	//addresses.
+	AssertReceiveEvents(t.t, bobAddr1, bobEvents1)
+	AssertReceiveEvents(t.t, bobAddr2, bobEvents2)
+	AssertReceiveEvents(t.t, aliceAddr1, aliceEvents1)
+	AssertReceiveEvents(t.t, aliceAddr2, aliceEvents2)
 
 	// Now sanity check that we can actually list the transfer.
 	const (
@@ -751,15 +769,31 @@ func sendProofUniRPC(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 // sendAssetsToAddr spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
 func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
-	receiverAddrs ...*taprpc.Addr) *taprpc.SendAssetResponse {
+	receiverAddrs ...*taprpc.Addr) (*taprpc.SendAssetResponse,
+	*EventSubscription[*taprpc.SendEvent]) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
+	require.NotEmpty(t.t, receiverAddrs)
+	scriptKey := receiverAddrs[0].ScriptKey
+
 	encodedAddrs := make([]string, len(receiverAddrs))
 	for i, addr := range receiverAddrs {
 		encodedAddrs[i] = addr.Encoded
+	}
+
+	ctxc, streamCancel := context.WithCancel(ctxb)
+	stream, err := sender.SubscribeSendEvents(
+		ctxc, &taprpc.SubscribeSendEventsRequest{
+			FilterScriptKey: scriptKey,
+		},
+	)
+	require.NoError(t.t, err)
+	sub := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
 	}
 
 	resp, err := sender.SendAsset(ctxt, &taprpc.SendAssetRequest{
@@ -767,7 +801,14 @@ func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
 	})
 	require.NoError(t.t, err)
 
-	return resp
+	// We'll get events up to the point where we broadcast the transaction.
+	AssertSendEvents(
+		t.t, scriptKey, sub,
+		tapfreighter.SendStateVirtualCommitmentSelect,
+		tapfreighter.SendStateBroadcast,
+	)
+
+	return resp, sub
 }
 
 // fundAddressSendPacket asks the wallet to fund a new virtual packet with the

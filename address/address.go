@@ -56,6 +56,9 @@ var (
 	// ErrNoAddr is returned if no address is found in the address store.
 	ErrNoAddr = errors.New("address: no address found")
 
+	// ErrNoEvent is returned if no event is found in the event store.
+	ErrNoEvent = errors.New("address: no event found")
+
 	// ErrScriptKeyNotFound is returned when a script key is not found in
 	// the local database.
 	ErrScriptKeyNotFound = errors.New("script key not found")

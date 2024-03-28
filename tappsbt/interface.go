@@ -161,6 +161,16 @@ type VPacket struct {
 	Version uint8
 }
 
+// Copy creates a deep copy of the VPacket.
+func (p *VPacket) Copy() *VPacket {
+	return &VPacket{
+		Inputs:      fn.CopyAll(p.Inputs),
+		Outputs:     fn.CopyAll(p.Outputs),
+		ChainParams: p.ChainParams,
+		Version:     p.Version,
+	}
+}
+
 // SetInputAsset sets the input asset that is being spent.
 func (p *VPacket) SetInputAsset(index int, a *asset.Asset) {
 	if index >= len(p.Inputs) {
@@ -326,6 +336,20 @@ type VInput struct {
 	// Proof is a transition proof that proves the asset being spent was
 	// committed to in the anchor transaction above.
 	Proof *proof.Proof
+}
+
+// Copy creates a deep copy of the VInput.
+func (i *VInput) Copy() *VInput {
+	return &VInput{
+		PInput: i.PInput,
+		PrevID: i.PrevID,
+		Anchor: i.Anchor,
+		asset:  i.asset.Copy(),
+		// We never expect the individual fields of the proof to change
+		// while it is assigned to a virtual input. So not deep copying
+		// it here is fine.
+		Proof: i.Proof,
+	}
 }
 
 // Asset returns the input's asset that's being spent.
@@ -495,6 +519,34 @@ type VOutput struct {
 	// since the header information needs to be added once the anchor
 	// transaction was confirmed in a block.
 	ProofSuffix *proof.Proof
+}
+
+// Copy creates a deep copy of the VOutput.
+func (o *VOutput) Copy() *VOutput {
+	return &VOutput{
+		Amount:            o.Amount,
+		AssetVersion:      o.AssetVersion,
+		Type:              o.Type,
+		Interactive:       o.Interactive,
+		AnchorOutputIndex: o.AnchorOutputIndex,
+		// We don't expect the actual values of the following fields to
+		// change. The fields are only overwritten, which leads to a new
+		// pointer being assigned. So not deep copying them here is
+		// fine.
+		AnchorOutputInternalKey: o.AnchorOutputInternalKey,
+		AnchorOutputBip32Derivation: fn.CopySlice(
+			o.AnchorOutputBip32Derivation,
+		),
+		AnchorOutputTaprootBip32Derivation: fn.CopySlice(
+			o.AnchorOutputTaprootBip32Derivation,
+		),
+		AnchorOutputTapscriptSibling: o.AnchorOutputTapscriptSibling,
+		Asset:                        o.Asset,
+		SplitAsset:                   o.SplitAsset,
+		ScriptKey:                    o.ScriptKey,
+		ProofDeliveryAddress:         o.ProofDeliveryAddress,
+		ProofSuffix:                  o.ProofSuffix,
+	}
 }
 
 // SplitLocator creates a split locator from the output. The asset ID is passed

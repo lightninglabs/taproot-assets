@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -898,6 +899,21 @@ func testPsbtMultiSend(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
+	// Before we anchor the transaction, we'll subscribe for send events, so
+	// we can track the state of the parcel.
+	ctxc, streamCancel := context.WithCancel(ctxb)
+	scriptKey1Bytes := receiverScriptKey1.PubKey.SerializeCompressed()
+	stream, err := sender.SubscribeSendEvents(
+		ctxc, &taprpc.SubscribeSendEventsRequest{
+			FilterScriptKey: scriptKey1Bytes,
+		},
+	)
+	require.NoError(t.t, err)
+	sendEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := sender.AnchorVirtualPsbts(
 		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
@@ -905,6 +921,12 @@ func testPsbtMultiSend(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
+
+	AssertSendEvents(
+		t.t, scriptKey1Bytes, sendEvents,
+		tapfreighter.SendStateAnchorSign,
+		tapfreighter.SendStateBroadcast,
+	)
 
 	// We end up with a transfer with 5 outputs: 2 for the two different
 	// receiver addresses (with an anchor output each), 2 for the sender
@@ -916,11 +938,16 @@ func testPsbtMultiSend(t *harnessTest) {
 		genInfo.AssetId, outputAmounts, 0, 1, numOutputs,
 	)
 
+	AssertSendEvents(
+		t.t, scriptKey1Bytes, sendEvents,
+		tapfreighter.SendStateWaitTxConf,
+		tapfreighter.SendStateComplete,
+	)
+
 	// This is an interactive transfer, so we do need to manually send the
 	// proof from the sender to the receiver.
 	_ = sendProof(
-		t, sender, receiver, sendResp,
-		receiverScriptKey1.PubKey.SerializeCompressed(), genInfo,
+		t, sender, receiver, sendResp, scriptKey1Bytes, genInfo,
 	)
 	_ = sendProof(
 		t, sender, receiver, sendResp,
@@ -1011,7 +1038,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	AssertAddrCreated(t.t, secondaryTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp := sendAssetsToAddr(t, primaryTapd, addr)
+	sendResp, sendEvents := sendAssetsToAddr(t, primaryTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, primaryTapd, sendResp,
@@ -1019,6 +1046,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, secondaryTapd, 1)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 
 	primaryTapdAssetAmt -= sendAmt
 
@@ -1038,7 +1066,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	AssertAddrCreated(t.t, secondaryTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp = sendAssetsToAddr(t, primaryTapd, addr)
+	sendResp, sendEvents = sendAssetsToAddr(t, primaryTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, primaryTapd, sendResp,
@@ -1046,6 +1074,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, secondaryTapd, 2)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 
 	primaryTapdAssetAmt -= sendAmt
 
@@ -1064,7 +1093,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	AssertAddrCreated(t.t, secondaryTapd, rpcAsset, addr)
 
 	// Send the assets to the secondary node.
-	sendResp = sendAssetsToAddr(t, primaryTapd, addr)
+	sendResp, sendEvents = sendAssetsToAddr(t, primaryTapd, addr)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, primaryTapd, sendResp,
@@ -1072,6 +1101,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	)
 
 	AssertNonInteractiveRecvComplete(t.t, secondaryTapd, 3)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
 
 	primaryTapdAssetAmt -= sendAmt
 
@@ -2166,7 +2196,7 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 
 	// Send the asset to Bob using the script key with an actual script
 	// tree.
-	sendResp := sendAssetsToAddr(t, alice, bobAddr)
+	sendResp, sendEvents := sendAssetsToAddr(t, alice, bobAddr)
 
 	changeUnits := mintedAsset.Amount - numUnits
 	ConfirmAndAssertOutboundTransfer(
@@ -2174,6 +2204,7 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		genInfo.AssetId, []uint64{changeUnits, numUnits}, 0, 1,
 	)
 	AssertNonInteractiveRecvComplete(t.t, bob, 1)
+	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
 }
 
 func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
@@ -2191,7 +2222,7 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	require.NoError(t.t, err)
 
 	AssertAddrCreated(t.t, bob, mintedAsset, bobAddr)
-	sendResp := sendAssetsToAddr(t, alice, bobAddr)
+	sendResp, sendEvents := sendAssetsToAddr(t, alice, bobAddr)
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner.Client, alice, sendResp,
 		genInfo.AssetId, []uint64{change, numUnits}, outTransferIdx,
@@ -2201,6 +2232,7 @@ func sendAssetAndAssert(ctx context.Context, t *harnessTest, alice,
 	// There are now two receive events (since only non-interactive sends
 	// appear in that RPC output).
 	AssertNonInteractiveRecvComplete(t.t, bob, numInTransfers)
+	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
 }
 
 func signPacket(t *testing.T, lnd *node.HarnessNode,

@@ -446,90 +446,6 @@ func RegisterTaprootAssetsJSONCallbacks(registry map[string]func(ctx context.Con
 		callback(string(respBytes), nil)
 	}
 
-	registry["taprpc.TaprootAssets.SubscribeSendAssetEventNtfns"] = func(ctx context.Context,
-		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
-
-		req := &SubscribeSendAssetEventNtfnsRequest{}
-		err := marshaler.Unmarshal([]byte(reqJSON), req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		client := NewTaprootAssetsClient(conn)
-		stream, err := client.SubscribeSendAssetEventNtfns(ctx, req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		go func() {
-			for {
-				select {
-				case <-stream.Context().Done():
-					callback("", stream.Context().Err())
-					return
-				default:
-				}
-
-				resp, err := stream.Recv()
-				if err != nil {
-					callback("", err)
-					return
-				}
-
-				respBytes, err := marshaler.Marshal(resp)
-				if err != nil {
-					callback("", err)
-					return
-				}
-				callback(string(respBytes), nil)
-			}
-		}()
-	}
-
-	registry["taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns"] = func(ctx context.Context,
-		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
-
-		req := &SubscribeReceiveAssetEventNtfnsRequest{}
-		err := marshaler.Unmarshal([]byte(reqJSON), req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		client := NewTaprootAssetsClient(conn)
-		stream, err := client.SubscribeReceiveAssetEventNtfns(ctx, req)
-		if err != nil {
-			callback("", err)
-			return
-		}
-
-		go func() {
-			for {
-				select {
-				case <-stream.Context().Done():
-					callback("", stream.Context().Err())
-					return
-				default:
-				}
-
-				resp, err := stream.Recv()
-				if err != nil {
-					callback("", err)
-					return
-				}
-
-				respBytes, err := marshaler.Marshal(resp)
-				if err != nil {
-					callback("", err)
-					return
-				}
-				callback(string(respBytes), nil)
-			}
-		}()
-	}
-
 	registry["taprpc.TaprootAssets.FetchAssetMeta"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
@@ -553,5 +469,89 @@ func RegisterTaprootAssetsJSONCallbacks(registry map[string]func(ctx context.Con
 			return
 		}
 		callback(string(respBytes), nil)
+	}
+
+	registry["taprpc.TaprootAssets.SubscribeReceiveEvents"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &SubscribeReceiveEventsRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaprootAssetsClient(conn)
+		stream, err := client.SubscribeReceiveEvents(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		go func() {
+			for {
+				select {
+				case <-stream.Context().Done():
+					callback("", stream.Context().Err())
+					return
+				default:
+				}
+
+				resp, err := stream.Recv()
+				if err != nil {
+					callback("", err)
+					return
+				}
+
+				respBytes, err := marshaler.Marshal(resp)
+				if err != nil {
+					callback("", err)
+					return
+				}
+				callback(string(respBytes), nil)
+			}
+		}()
+	}
+
+	registry["taprpc.TaprootAssets.SubscribeSendEvents"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &SubscribeSendEventsRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaprootAssetsClient(conn)
+		stream, err := client.SubscribeSendEvents(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		go func() {
+			for {
+				select {
+				case <-stream.Context().Done():
+					callback("", stream.Context().Err())
+					return
+				default:
+				}
+
+				resp, err := stream.Recv()
+				if err != nil {
+					callback("", err)
+					return
+				}
+
+				respBytes, err := marshaler.Marshal(resp)
+				if err != nil {
+					callback("", err)
+					return
+				}
+				callback(string(respBytes), nil)
+			}
+		}()
 	}
 }

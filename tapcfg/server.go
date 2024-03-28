@@ -345,7 +345,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		DebugLevel:   cfg.DebugLevel,
 		RuntimeID:    runtimeID,
 		Lnd:          lndServices,
-		ChainParams:  cfg.ActiveNetParams,
+		ChainParams:  address.ParamsForChain(cfg.ActiveNetParams.Name),
 		ReOrgWatcher: reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{

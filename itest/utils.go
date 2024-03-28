@@ -15,11 +15,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -28,6 +30,20 @@ var (
 	regtestMiningAddr = "n1VgRjYDzJT2TV72PnungWgWu18SWorXZS"
 	regtestParams     = &chaincfg.RegressionNetParams
 )
+
+// ClientEventStream is a generic interface for a client stream that allows us
+// to receive events from a server.
+type ClientEventStream[T any] interface {
+	Recv() (T, error)
+	grpc.ClientStream
+}
+
+// EventSubscription holds a generic client stream and its context cancel
+// function.
+type EventSubscription[T any] struct {
+	ClientEventStream[T]
+	Cancel context.CancelFunc
+}
 
 // CopyRequest is a helper function to copy a request so that we can modify it.
 func CopyRequest(req *mintrpc.MintAssetRequest) *mintrpc.MintAssetRequest {
@@ -65,7 +81,7 @@ func ParseGenInfo(t *testing.T, genInfo *taprpc.GenesisInfo) *asset.Genesis {
 // AssertSendEventExecuteSendState asserts that the send asset event is an
 // ExecuteSendState event, and logs the event timestamp if so.
 func AssertSendEventExecuteSendState(t *harnessTest,
-	event *taprpc.SendAssetEvent, broadcastState string) bool {
+	event *tapdevrpc.SendAssetEvent, broadcastState string) bool {
 
 	ev := event.GetExecuteSendStateEvent()
 	if ev == nil {
@@ -81,10 +97,11 @@ func AssertSendEventExecuteSendState(t *harnessTest,
 	return ev.SendState == broadcastState
 }
 
-// AssertSendEventProofTransferBackoffWait asserts that the send asset event is
-// a ProofTransferBackoffWait event, with the transfer type set as send.
+// AssertSendEventProofTransferBackoffWaitTypeSend asserts that the send asset
+// event is a ProofTransferBackoffWait event, with the transfer type set as
+// send.
 func AssertSendEventProofTransferBackoffWaitTypeSend(t *harnessTest,
-	event *taprpc.SendAssetEvent) bool {
+	event *tapdevrpc.SendAssetEvent) bool {
 
 	ev := event.GetProofTransferBackoffWaitEvent()
 	if ev == nil {
@@ -94,7 +111,7 @@ func AssertSendEventProofTransferBackoffWaitTypeSend(t *harnessTest,
 	// We're listening for events on the sender node. We therefore expect to
 	// receive deliver transfer type backoff wait events for sending
 	// transfers.
-	typeSend := taprpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
+	typeSend := tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_SEND
 	if ev.TransferType != typeSend {
 		return false
 	}
@@ -394,7 +411,9 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	batch := batchResp.Batches[0]
 	require.NotEmpty(t, batch.BatchTxid)
 
-	return AssertAssetsMinted(t, tapClient, assetRequests, mintTXID, blockHash)
+	return AssertAssetsMinted(
+		t, tapClient, assetRequests, mintTXID, blockHash,
+	)
 }
 
 // SyncUniverses syncs the universes of two tapd instances and waits until they
@@ -436,4 +455,68 @@ func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 	require.Eventually(t, func() bool {
 		return AssertUniverseStateEqual(t, universeTapd, clientTapd)
 	}, timeout, time.Second)
+}
+
+// SubscribeSendEvents subscribes to send events and returns the event stream.
+func SubscribeSendEvents(t *testing.T,
+	tapd TapdClient) *EventSubscription[*tapdevrpc.SendAssetEvent] {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithCancel(ctxb)
+
+	stream, err := tapd.SubscribeSendAssetEventNtfns(
+		ctxt, &tapdevrpc.SubscribeSendAssetEventNtfnsRequest{},
+	)
+	require.NoError(t, err)
+
+	return &EventSubscription[*tapdevrpc.SendAssetEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
+	}
+}
+
+// SubscribeReceiveEvents subscribes to receive events and returns the event
+// stream.
+func SubscribeReceiveEvents(t *testing.T,
+	tapd TapdClient) *EventSubscription[*tapdevrpc.ReceiveAssetEvent] {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithCancel(ctxb)
+
+	stream, err := tapd.SubscribeReceiveAssetEventNtfns(
+		ctxt, &tapdevrpc.SubscribeReceiveAssetEventNtfnsRequest{},
+	)
+	require.NoError(t, err)
+
+	return &EventSubscription[*tapdevrpc.ReceiveAssetEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
+	}
+}
+
+// NewAddrWithEventStream creates a new TAP address and also registers a new
+// event stream for receive events for the address.
+func NewAddrWithEventStream(t *testing.T, tapd TapdClient,
+	req *taprpc.NewAddrRequest) (*taprpc.Addr,
+	*EventSubscription[*taprpc.ReceiveEvent]) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	addr, err := tapd.NewAddr(ctxt, req)
+	require.NoError(t, err)
+
+	ctxc, cancel := context.WithCancel(ctxb)
+	stream, err := tapd.SubscribeReceiveEvents(
+		ctxc, &taprpc.SubscribeReceiveEventsRequest{
+			FilterAddr: addr.Encoded,
+		},
+	)
+	require.NoError(t, err)
+
+	return addr, &EventSubscription[*taprpc.ReceiveEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
+	}
 }

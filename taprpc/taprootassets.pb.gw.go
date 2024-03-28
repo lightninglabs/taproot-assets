@@ -639,56 +639,6 @@ func local_request_TaprootAssets_GetInfo_0(ctx context.Context, marshaler runtim
 
 }
 
-func request_TaprootAssets_SubscribeSendAssetEventNtfns_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetsClient, req *http.Request, pathParams map[string]string) (TaprootAssets_SubscribeSendAssetEventNtfnsClient, runtime.ServerMetadata, error) {
-	var protoReq SubscribeSendAssetEventNtfnsRequest
-	var metadata runtime.ServerMetadata
-
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	stream, err := client.SubscribeSendAssetEventNtfns(ctx, &protoReq)
-	if err != nil {
-		return nil, metadata, err
-	}
-	header, err := stream.Header()
-	if err != nil {
-		return nil, metadata, err
-	}
-	metadata.HeaderMD = header
-	return stream, metadata, nil
-
-}
-
-func request_TaprootAssets_SubscribeReceiveAssetEventNtfns_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetsClient, req *http.Request, pathParams map[string]string) (TaprootAssets_SubscribeReceiveAssetEventNtfnsClient, runtime.ServerMetadata, error) {
-	var protoReq SubscribeReceiveAssetEventNtfnsRequest
-	var metadata runtime.ServerMetadata
-
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
-	}
-
-	stream, err := client.SubscribeReceiveAssetEventNtfns(ctx, &protoReq)
-	if err != nil {
-		return nil, metadata, err
-	}
-	header, err := stream.Header()
-	if err != nil {
-		return nil, metadata, err
-	}
-	metadata.HeaderMD = header
-	return stream, metadata, nil
-
-}
-
 var (
 	filter_TaprootAssets_FetchAssetMeta_0 = &utilities.DoubleArray{Encoding: map[string]int{"asset_id_str": 0, "assetIdStr": 1}, Base: []int{1, 1, 2, 0, 0}, Check: []int{0, 1, 1, 2, 3}}
 )
@@ -846,6 +796,56 @@ func local_request_TaprootAssets_FetchAssetMeta_1(ctx context.Context, marshaler
 
 	msg, err := server.FetchAssetMeta(ctx, &protoReq)
 	return msg, metadata, err
+
+}
+
+func request_TaprootAssets_SubscribeReceiveEvents_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetsClient, req *http.Request, pathParams map[string]string) (TaprootAssets_SubscribeReceiveEventsClient, runtime.ServerMetadata, error) {
+	var protoReq SubscribeReceiveEventsRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.SubscribeReceiveEvents(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
+
+}
+
+func request_TaprootAssets_SubscribeSendEvents_0(ctx context.Context, marshaler runtime.Marshaler, client TaprootAssetsClient, req *http.Request, pathParams map[string]string) (TaprootAssets_SubscribeSendEventsClient, runtime.ServerMetadata, error) {
+	var protoReq SubscribeSendEventsRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	stream, err := client.SubscribeSendEvents(ctx, &protoReq)
+	if err != nil {
+		return nil, metadata, err
+	}
+	header, err := stream.Header()
+	if err != nil {
+		return nil, metadata, err
+	}
+	metadata.HeaderMD = header
+	return stream, metadata, nil
 
 }
 
@@ -1305,20 +1305,6 @@ func RegisterTaprootAssetsHandlerServer(ctx context.Context, mux *runtime.ServeM
 
 	})
 
-	mux.Handle("POST", pattern_TaprootAssets_SubscribeSendAssetEventNtfns_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
-		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-		return
-	})
-
-	mux.Handle("POST", pattern_TaprootAssets_SubscribeReceiveAssetEventNtfns_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
-		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-		return
-	})
-
 	mux.Handle("GET", pattern_TaprootAssets_FetchAssetMeta_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1367,6 +1353,20 @@ func RegisterTaprootAssetsHandlerServer(ctx context.Context, mux *runtime.ServeM
 
 		forward_TaprootAssets_FetchAssetMeta_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
+	})
+
+	mux.Handle("POST", pattern_TaprootAssets_SubscribeReceiveEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
+	})
+
+	mux.Handle("POST", pattern_TaprootAssets_SubscribeSendEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		err := status.Error(codes.Unimplemented, "streaming calls are not yet supported in the in-process transport")
+		_, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+		return
 	})
 
 	return nil
@@ -1806,50 +1806,6 @@ func RegisterTaprootAssetsHandlerClient(ctx context.Context, mux *runtime.ServeM
 
 	})
 
-	mux.Handle("POST", pattern_TaprootAssets_SubscribeSendAssetEventNtfns_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/taprpc.TaprootAssets/SubscribeSendAssetEventNtfns", runtime.WithHTTPPathPattern("/v1/taproot-assets/send/ntfs"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_TaprootAssets_SubscribeSendAssetEventNtfns_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_TaprootAssets_SubscribeSendAssetEventNtfns_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
-
-	})
-
-	mux.Handle("POST", pattern_TaprootAssets_SubscribeReceiveAssetEventNtfns_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
-		ctx, cancel := context.WithCancel(req.Context())
-		defer cancel()
-		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/taprpc.TaprootAssets/SubscribeReceiveAssetEventNtfns", runtime.WithHTTPPathPattern("/v1/taproot-assets/receive/ntfs"))
-		if err != nil {
-			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
-			return
-		}
-		resp, md, err := request_TaprootAssets_SubscribeReceiveAssetEventNtfns_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
-		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
-			return
-		}
-
-		forward_TaprootAssets_SubscribeReceiveAssetEventNtfns_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
-
-	})
-
 	mux.Handle("GET", pattern_TaprootAssets_FetchAssetMeta_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -1894,6 +1850,50 @@ func RegisterTaprootAssetsHandlerClient(ctx context.Context, mux *runtime.ServeM
 
 	})
 
+	mux.Handle("POST", pattern_TaprootAssets_SubscribeReceiveEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/taprpc.TaprootAssets/SubscribeReceiveEvents", runtime.WithHTTPPathPattern("/v1/taproot-assets/events/asset-receive"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TaprootAssets_SubscribeReceiveEvents_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssets_SubscribeReceiveEvents_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_TaprootAssets_SubscribeSendEvents_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/taprpc.TaprootAssets/SubscribeSendEvents", runtime.WithHTTPPathPattern("/v1/taproot-assets/events/asset-send"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_TaprootAssets_SubscribeSendEvents_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_TaprootAssets_SubscribeSendEvents_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+
+	})
+
 	return nil
 }
 
@@ -1934,13 +1934,13 @@ var (
 
 	pattern_TaprootAssets_GetInfo_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2}, []string{"v1", "taproot-assets", "getinfo"}, ""))
 
-	pattern_TaprootAssets_SubscribeSendAssetEventNtfns_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "send", "ntfs"}, ""))
-
-	pattern_TaprootAssets_SubscribeReceiveAssetEventNtfns_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "receive", "ntfs"}, ""))
-
 	pattern_TaprootAssets_FetchAssetMeta_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "assets", "meta", "asset-id", "asset_id_str"}, ""))
 
 	pattern_TaprootAssets_FetchAssetMeta_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5}, []string{"v1", "taproot-assets", "assets", "meta", "hash", "meta_hash_str"}, ""))
+
+	pattern_TaprootAssets_SubscribeReceiveEvents_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "events", "asset-receive"}, ""))
+
+	pattern_TaprootAssets_SubscribeSendEvents_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "events", "asset-send"}, ""))
 )
 
 var (
@@ -1980,11 +1980,11 @@ var (
 
 	forward_TaprootAssets_GetInfo_0 = runtime.ForwardResponseMessage
 
-	forward_TaprootAssets_SubscribeSendAssetEventNtfns_0 = runtime.ForwardResponseStream
-
-	forward_TaprootAssets_SubscribeReceiveAssetEventNtfns_0 = runtime.ForwardResponseStream
-
 	forward_TaprootAssets_FetchAssetMeta_0 = runtime.ForwardResponseMessage
 
 	forward_TaprootAssets_FetchAssetMeta_1 = runtime.ForwardResponseMessage
+
+	forward_TaprootAssets_SubscribeReceiveEvents_0 = runtime.ForwardResponseStream
+
+	forward_TaprootAssets_SubscribeSendEvents_0 = runtime.ForwardResponseStream
 )

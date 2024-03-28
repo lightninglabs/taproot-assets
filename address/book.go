@@ -439,6 +439,13 @@ func (b *Book) GetOrCreateEvent(ctx context.Context, status Status,
 	)
 }
 
+// QueryEvent returns a single address event by its address and outpoint.
+func (b *Book) QueryEvent(ctx context.Context,
+	addr *AddrWithKeyInfo, outpoint wire.OutPoint) (*Event, error) {
+
+	return b.cfg.Store.QueryEvent(ctx, addr, outpoint)
+}
+
 // GetPendingEvents returns all events that are not yet in status complete from
 // the database.
 func (b *Book) GetPendingEvents(ctx context.Context) ([]*Event, error) {
