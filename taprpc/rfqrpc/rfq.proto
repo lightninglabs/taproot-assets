@@ -67,7 +67,7 @@ message AddAssetBuyOrderRequest {
     // The maximum amount BTC to spend (units: millisats).
     uint64 max_bid = 3;
 
-    // The unix timestamp after which the order is no longer valid.
+    // The unix timestamp in seconds after which the order is no longer valid.
     uint64 expiry = 4;
 
     // peer_pub_key is an optional field for specifying the public key of the
@@ -130,7 +130,7 @@ message PeerAcceptedBuyQuote {
     // ask_price is the price in millisats for the entire asset amount.
     uint64 ask_price = 5;
 
-    // The unix timestamp after which the quote is no longer valid.
+    // The unix timestamp in seconds after which the quote is no longer valid.
     uint64 expiry = 6;
 }
 
@@ -169,7 +169,7 @@ message SubscribeRfqEventNtfnsRequest {
 }
 
 message PeerAcceptedBuyQuoteEvent {
-    // Unix timestamp.
+    // Unix timestamp in microseconds.
     uint64 timestamp = 1;
 
     // The asset buy quote that was accepted by out peer.
@@ -185,7 +185,7 @@ message PeerAcceptedSellQuoteEvent {
 }
 
 message AcceptHtlcEvent {
-    // Unix timestamp.
+    // Unix timestamp in microseconds.
     uint64 timestamp = 1;
 
     // scid is the short channel ID of the channel over which the payment for

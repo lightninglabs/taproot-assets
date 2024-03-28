@@ -85,37 +85,8 @@ type buyAcceptMsgData struct {
 	sig [64]byte
 }
 
-// encodeRecords determines the non-nil records to include when encoding at
-// runtime.
-func (q *buyAcceptMsgData) encodeRecords() []tlv.Record {
-	var records []tlv.Record
-
-	// Add id record.
-	records = append(records, TypeRecordBuyAcceptID(&q.ID))
-
-	// Add ask price record.
-	records = append(records, TypeRecordBuyAcceptAskPrice(&q.AskPrice))
-
-	// Add expiry record.
-	records = append(records, TypeRecordBuyAcceptExpiry(&q.Expiry))
-
-	// Add signature record.
-	records = append(records, TypeRecordBuyAcceptSig(&q.sig))
-
-	return records
-}
-
-// Encode encodes the structure into a TLV stream.
-func (q *buyAcceptMsgData) Encode(writer io.Writer) error {
-	stream, err := tlv.NewStream(q.encodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.Encode(writer)
-}
-
-// DecodeRecords provides all TLV records for decoding.
-func (q *buyAcceptMsgData) decodeRecords() []tlv.Record {
+// records provides all TLV records for encoding/decoding.
+func (q *buyAcceptMsgData) records() []tlv.Record {
 	return []tlv.Record{
 		TypeRecordBuyAcceptID(&q.ID),
 		TypeRecordBuyAcceptAskPrice(&q.AskPrice),
@@ -124,9 +95,18 @@ func (q *buyAcceptMsgData) decodeRecords() []tlv.Record {
 	}
 }
 
+// Encode encodes the structure into a TLV stream.
+func (q *buyAcceptMsgData) Encode(writer io.Writer) error {
+	stream, err := tlv.NewStream(q.records()...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(writer)
+}
+
 // Decode decodes the structure from a TLV stream.
 func (q *buyAcceptMsgData) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(q.decodeRecords()...)
+	stream, err := tlv.NewStream(q.records()...)
 	if err != nil {
 		return err
 	}

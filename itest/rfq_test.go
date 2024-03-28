@@ -101,16 +101,13 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 
 	// Wait until Carol receives an incoming quote accept message (sent from
 	// Bob) RFQ event notification.
-	waitErr := wait.NoError(func() error {
+	BeforeTimeout(t.t, func() {
 		event, err := carolEventNtfns.Recv()
 		require.NoError(t.t, err)
 
 		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
-
-		return nil
 	}, defaultWaitTimeout)
-	require.NoError(t.t, waitErr)
 
 	// Carol should have received an accepted quote from Bob. This accepted
 	// quote can be used by Carol to make a payment to Bob.
@@ -188,25 +185,22 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// At this point Bob should have received a HTLC with the asset transfer
 	// specific scid. We'll wait for Bob to publish an accept HTLC event and
 	// then validate it against the accepted quote.
-	waitErr = wait.NoError(func() error {
+	BeforeTimeout(t.t, func() {
 		t.Log("Waiting for Bob to receive HTLC")
 
 		event, err := bobEventNtfns.Recv()
 		require.NoError(t.t, err)
 
 		acceptHtlc, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
-		if ok {
-			require.Equal(
-				t.t, acceptedQuote.Scid,
-				acceptHtlc.AcceptHtlc.Scid,
-			)
-			t.Log("Bob has accepted the HTLC")
-			return nil
-		}
+		require.True(t.t, ok, "unexpected event type: %v", event)
 
-		return fmt.Errorf("unexpected event: %v", event)
+		// Ensure that the scid of the HTLC matches the scid of the
+		// accepted quote.
+		require.Equal(
+			t.t, acceptedQuote.Scid, acceptHtlc.AcceptHtlc.Scid,
+		)
+		t.Log("Bob has accepted the HTLC")
 	}, defaultWaitTimeout)
-	require.NoError(t.t, waitErr)
 
 	// Close event streams.
 	err = carolEventNtfns.CloseSend()

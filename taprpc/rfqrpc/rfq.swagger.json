@@ -83,7 +83,7 @@
                 "expiry": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The unix timestamp after which the order is no longer valid."
+                  "description": "The unix timestamp in seconds after which the order is no longer valid."
                 },
                 "peer_pub_key": {
                   "type": "string",
@@ -166,7 +166,7 @@
                 "expiry": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The unix timestamp after which the order is no longer valid."
+                  "description": "The unix timestamp in seconds after which the order is no longer valid."
                 },
                 "peer_pub_key": {
                   "type": "string",
@@ -566,7 +566,7 @@
         "timestamp": {
           "type": "string",
           "format": "uint64",
-          "description": "Unix timestamp."
+          "description": "Unix timestamp in microseconds."
         },
         "scid": {
           "type": "string",
@@ -637,7 +637,7 @@
         "expiry": {
           "type": "string",
           "format": "uint64",
-          "description": "The unix timestamp after which the quote is no longer valid."
+          "description": "The unix timestamp in seconds after which the quote is no longer valid."
         }
       }
     },
@@ -647,7 +647,7 @@
         "timestamp": {
           "type": "string",
           "format": "uint64",
-          "description": "Unix timestamp."
+          "description": "Unix timestamp in microseconds."
         },
         "peer_accepted_buy_quote": {
           "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote",
