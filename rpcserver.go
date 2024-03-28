@@ -5618,6 +5618,41 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 	return &rfqrpc.AddAssetSellOfferResponse{}, nil
 }
 
+// AddAssetBuyOffer upserts a new buy offer for the given asset into the RFQ
+// manager. If the offer already exists for the given asset, it will be updated.
+//
+// A buy offer is used by the node to selectively accept or reject incoming
+// asset sell quote requests before price is considered.
+func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
+	req *rfqrpc.AddAssetBuyOfferRequest) (*rfqrpc.AddAssetBuyOfferResponse,
+	error) {
+
+	// Unmarshal the asset specifier from the RPC form.
+	assetID, assetGroupKey, err := unmarshalAssetSpecifier(
+		req.AssetSpecifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
+			"%w", err)
+	}
+
+	// Upsert the offer into the RFQ manager.
+	buyOffer := rfq.BuyOffer{
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		MaxUnits:      req.MaxUnits,
+	}
+	rpcsLog.Debugf("[AddAssetBuyOffer]: upserting buy offer (buy_offer=%v)",
+		buyOffer)
+	err = r.cfg.RfqManager.UpsertAssetBuyOffer(buyOffer)
+	if err != nil {
+		return nil, fmt.Errorf("error upserting buy offer into RFQ "+
+			"manager: %w", err)
+	}
+
+	return &rfqrpc.AddAssetBuyOfferResponse{}, nil
+}
+
 // marshalPeerAcceptedBuyQuotes marshals a map of peer accepted asset buy quotes
 // into the RPC form. These are quotes that were requested by our node and have
 // been accepted by our peers.

@@ -30,6 +30,13 @@ type RfqClient interface {
 	// AddAssetSellOffer is used to add a sell offer for a specific asset. If a
 	// sell offer already exists for the asset, it will be updated.
 	AddAssetSellOffer(ctx context.Context, in *AddAssetSellOfferRequest, opts ...grpc.CallOption) (*AddAssetSellOfferResponse, error)
+	// tapcli: `rfq buyoffer`
+	// AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
+	// buy offer already exists for the asset, it will be updated.
+	//
+	// A buy offer is used by the node to selectively accept or reject incoming
+	// asset sell quote requests before price is considered.
+	AddAssetBuyOffer(ctx context.Context, in *AddAssetBuyOfferRequest, opts ...grpc.CallOption) (*AddAssetBuyOfferResponse, error)
 	// tapcli: `rfq peeracceptedquotes`
 	// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
 	// our node and have been accepted our peers.
@@ -67,6 +74,15 @@ func (c *rfqClient) AddAssetSellOrder(ctx context.Context, in *AddAssetSellOrder
 func (c *rfqClient) AddAssetSellOffer(ctx context.Context, in *AddAssetSellOfferRequest, opts ...grpc.CallOption) (*AddAssetSellOfferResponse, error) {
 	out := new(AddAssetSellOfferResponse)
 	err := c.cc.Invoke(ctx, "/rfqrpc.Rfq/AddAssetSellOffer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *rfqClient) AddAssetBuyOffer(ctx context.Context, in *AddAssetBuyOfferRequest, opts ...grpc.CallOption) (*AddAssetBuyOfferResponse, error) {
+	out := new(AddAssetBuyOfferResponse)
+	err := c.cc.Invoke(ctx, "/rfqrpc.Rfq/AddAssetBuyOffer", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -130,6 +146,13 @@ type RfqServer interface {
 	// AddAssetSellOffer is used to add a sell offer for a specific asset. If a
 	// sell offer already exists for the asset, it will be updated.
 	AddAssetSellOffer(context.Context, *AddAssetSellOfferRequest) (*AddAssetSellOfferResponse, error)
+	// tapcli: `rfq buyoffer`
+	// AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
+	// buy offer already exists for the asset, it will be updated.
+	//
+	// A buy offer is used by the node to selectively accept or reject incoming
+	// asset sell quote requests before price is considered.
+	AddAssetBuyOffer(context.Context, *AddAssetBuyOfferRequest) (*AddAssetBuyOfferResponse, error)
 	// tapcli: `rfq peeracceptedquotes`
 	// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
 	// our node and have been accepted our peers.
@@ -151,6 +174,9 @@ func (UnimplementedRfqServer) AddAssetSellOrder(context.Context, *AddAssetSellOr
 }
 func (UnimplementedRfqServer) AddAssetSellOffer(context.Context, *AddAssetSellOfferRequest) (*AddAssetSellOfferResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddAssetSellOffer not implemented")
+}
+func (UnimplementedRfqServer) AddAssetBuyOffer(context.Context, *AddAssetBuyOfferRequest) (*AddAssetBuyOfferResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddAssetBuyOffer not implemented")
 }
 func (UnimplementedRfqServer) QueryPeerAcceptedQuotes(context.Context, *QueryPeerAcceptedQuotesRequest) (*QueryPeerAcceptedQuotesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method QueryPeerAcceptedQuotes not implemented")
@@ -225,6 +251,24 @@ func _Rfq_AddAssetSellOffer_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _Rfq_AddAssetBuyOffer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddAssetBuyOfferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(RfqServer).AddAssetBuyOffer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/rfqrpc.Rfq/AddAssetBuyOffer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(RfqServer).AddAssetBuyOffer(ctx, req.(*AddAssetBuyOfferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _Rfq_QueryPeerAcceptedQuotes_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(QueryPeerAcceptedQuotesRequest)
 	if err := dec(in); err != nil {
@@ -282,6 +326,10 @@ var Rfq_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddAssetSellOffer",
 			Handler:    _Rfq_AddAssetSellOffer_Handler,
+		},
+		{
+			MethodName: "AddAssetBuyOffer",
+			Handler:    _Rfq_AddAssetBuyOffer_Handler,
 		},
 		{
 			MethodName: "QueryPeerAcceptedQuotes",

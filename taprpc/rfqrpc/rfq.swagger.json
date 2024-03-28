@@ -16,6 +16,144 @@
     "application/json"
   ],
   "paths": {
+    "/v1/taproot-assets/rfq/buyoffer/asset-id/{asset_specifier.asset_id_str}": {
+      "post": {
+        "summary": "tapcli: `rfq buyoffer`\nAddAssetBuyOffer is used to add a buy offer for a specific asset. If a\nbuy offer already exists for the asset, it will be updated.",
+        "description": "A buy offer is used by the node to selectively accept or reject incoming\nasset sell quote requests before price is considered.",
+        "operationId": "Rfq_AddAssetBuyOffer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/rfqrpcAddAssetBuyOfferResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_specifier.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "asset_specifier": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "type": "string",
+                      "format": "byte",
+                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                    },
+                    "group_key": {
+                      "type": "string",
+                      "format": "byte",
+                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                    },
+                    "group_key_str": {
+                      "type": "string",
+                      "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+                    }
+                  },
+                  "description": "asset_specifier is the subject asset.",
+                  "title": "asset_specifier is the subject asset."
+                },
+                "max_units": {
+                  "type": "string",
+                  "format": "uint64",
+                  "description": "max_units is the maximum amount of the asset to buy."
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Rfq"
+        ]
+      }
+    },
+    "/v1/taproot-assets/rfq/buyoffer/group-key/{asset_specifier.group_key_str}": {
+      "post": {
+        "summary": "tapcli: `rfq buyoffer`\nAddAssetBuyOffer is used to add a buy offer for a specific asset. If a\nbuy offer already exists for the asset, it will be updated.",
+        "description": "A buy offer is used by the node to selectively accept or reject incoming\nasset sell quote requests before price is considered.",
+        "operationId": "Rfq_AddAssetBuyOffer2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/rfqrpcAddAssetBuyOfferResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_specifier.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "asset_specifier": {
+                  "type": "object",
+                  "properties": {
+                    "asset_id": {
+                      "type": "string",
+                      "format": "byte",
+                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                    },
+                    "asset_id_str": {
+                      "type": "string",
+                      "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+                    },
+                    "group_key": {
+                      "type": "string",
+                      "format": "byte",
+                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                    }
+                  },
+                  "description": "asset_specifier is the subject asset.",
+                  "title": "asset_specifier is the subject asset."
+                },
+                "max_units": {
+                  "type": "string",
+                  "format": "uint64",
+                  "description": "max_units is the maximum amount of the asset to buy."
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Rfq"
+        ]
+      }
+    },
     "/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}": {
       "post": {
         "summary": "tapcli: `rfq buyorder`\nAddAssetBuyOrder is used to add a buy order for a specific asset. If a buy\norder already exists for the asset, it will be updated.",
@@ -574,6 +712,9 @@
           "description": "scid is the short channel ID of the channel over which the payment for\nthe quote is made."
         }
       }
+    },
+    "rfqrpcAddAssetBuyOfferResponse": {
+      "type": "object"
     },
     "rfqrpcAddAssetBuyOrderResponse": {
       "type": "object"
