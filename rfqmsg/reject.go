@@ -96,6 +96,13 @@ var (
 		Code: 1,
 		Msg:  "no suitable sell offer available",
 	}
+
+	// ErrNoSuitableBuyOffer is the error code for when there is no suitable
+	// buy offer available.
+	ErrNoSuitableBuyOffer = RejectErr{
+		Code: 2,
+		Msg:  "no suitable buy offer available",
+	}
 )
 
 // rejectMsgData is a struct that represents the data field of a quote

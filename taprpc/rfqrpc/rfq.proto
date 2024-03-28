@@ -26,6 +26,16 @@ service Rfq {
     rpc AddAssetSellOffer (AddAssetSellOfferRequest)
         returns (AddAssetSellOfferResponse);
 
+    /* tapcli: `rfq buyoffer`
+    AddAssetBuyOffer is used to add a buy offer for a specific asset. If a
+    buy offer already exists for the asset, it will be updated.
+
+    A buy offer is used by the node to selectively accept or reject incoming
+    asset sell quote requests before price is considered.
+    */
+    rpc AddAssetBuyOffer (AddAssetBuyOfferRequest)
+        returns (AddAssetBuyOfferResponse);
+
     /* tapcli: `rfq peeracceptedquotes`
     QueryPeerAcceptedQuotes is used to query for quotes that were requested by
     our node and have been accepted our peers.
@@ -108,6 +118,17 @@ message AddAssetSellOfferRequest {
 }
 
 message AddAssetSellOfferResponse {
+}
+
+message AddAssetBuyOfferRequest {
+    // asset_specifier is the subject asset.
+    AssetSpecifier asset_specifier = 1;
+
+    // max_units is the maximum amount of the asset to buy.
+    uint64 max_units = 2;
+}
+
+message AddAssetBuyOfferResponse {
 }
 
 message QueryPeerAcceptedQuotesRequest {
