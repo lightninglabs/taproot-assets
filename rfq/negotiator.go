@@ -44,6 +44,14 @@ type Negotiator struct {
 	// asset sell offers.
 	assetGroupSellOffers lnutils.SyncMap[btcec.PublicKey, SellOffer]
 
+	// assetBuyOffers is a map (keyed on asset ID) that holds asset buy
+	// offers.
+	assetBuyOffers lnutils.SyncMap[asset.ID, BuyOffer]
+
+	// assetGroupBuyOffers is a map (keyed on asset group key) that holds
+	// asset buy offers.
+	assetGroupBuyOffers lnutils.SyncMap[btcec.PublicKey, BuyOffer]
+
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
 	*fn.ContextGuard
@@ -62,6 +70,10 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 		assetSellOffers: lnutils.SyncMap[asset.ID, SellOffer]{},
 		assetGroupSellOffers: lnutils.SyncMap[
 			btcec.PublicKey, SellOffer]{},
+
+		assetBuyOffers: lnutils.SyncMap[asset.ID, BuyOffer]{},
+		assetGroupBuyOffers: lnutils.SyncMap[
+			btcec.PublicKey, BuyOffer]{},
 
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -573,6 +585,30 @@ func (a *BuyOffer) Validate() error {
 
 	if a.MaxUnits == 0 {
 		return fmt.Errorf("max asset amount is zero")
+	}
+
+	return nil
+}
+
+// UpsertAssetBuyOffer upserts an asset buy offer. If the offer already exists
+// for the given asset, it will be updated.
+func (n *Negotiator) UpsertAssetBuyOffer(offer BuyOffer) error {
+	// Validate the offer.
+	err := offer.Validate()
+	if err != nil {
+		return fmt.Errorf("invalid asset buy offer: %w", err)
+	}
+
+	// Store the offer in the appropriate map.
+	//
+	// If the asset group key is not nil, then we will use it as the key for
+	// the offer. Otherwise, we will use the asset ID as the key.
+	switch {
+	case offer.AssetGroupKey != nil:
+		n.assetGroupBuyOffers.Store(*offer.AssetGroupKey, offer)
+
+	case offer.AssetID != nil:
+		n.assetBuyOffers.Store(*offer.AssetID, offer)
 	}
 
 	return nil
