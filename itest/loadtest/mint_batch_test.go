@@ -164,5 +164,5 @@ func mintTest(t *testing.T, ctx context.Context, cfg *Config) {
 	})
 	require.True(t, correctOp)
 
-	itest.SyncUniverses(ctx, t, alice, bob, aliceHost, cfg.TestTimeout)
+	itest.SyncUniverses(ctx, t, bob, alice, aliceHost, cfg.TestTimeout)
 }
