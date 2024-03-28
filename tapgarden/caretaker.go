@@ -429,7 +429,7 @@ func (b *BatchCaretaker) fundGenesisPsbt(
 	}
 
 	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
-		ctx, genesisPkt, 1, feeRate,
+		ctx, genesisPkt, 1, feeRate, -1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
@@ -662,13 +662,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		genesisPoint := extractGenesisOutpoint(
 			genesisTxPkt.Pkt.UnsignedTx,
 		)
-
-		// If the change output is first, then our commitment is second,
-		// and vice versa.
-		b.anchorOutputIndex = 0
-		if genesisTxPkt.ChangeOutputIndex == 0 {
-			b.anchorOutputIndex = 1
-		}
 
 		// First, we'll turn all the seedlings into actual taproot assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(

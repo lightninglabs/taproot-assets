@@ -94,7 +94,8 @@ func NewMockWalletAnchor() *MockWalletAnchor {
 }
 
 func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
-	_ uint32, _ chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+	_ uint32, _ chainfee.SatPerKWeight,
+	changeIdx int32) (*tapsend.FundedPsbt, error) {
 
 	// Take the PSBT packet and add an additional input and output to
 	// simulate the wallet funding the transaction.
@@ -128,7 +129,7 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	// the Taproot Asset commitment will live in the first output.
 	pkt := &tapsend.FundedPsbt{
 		Pkt:               packet,
-		ChangeOutputIndex: 1,
+		ChangeOutputIndex: changeIdx,
 	}
 
 	m.FundPsbtSignal <- pkt

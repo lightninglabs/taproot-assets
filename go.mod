@@ -3,16 +3,15 @@ module github.com/lightninglabs/taproot-assets
 go 1.21
 
 require (
-	github.com/btcsuite/btcd v0.24.1-0.20240309015614-f0ec9fbccec8
+	github.com/btcsuite/btcd v0.24.1-0.20240318151728-2fc99e0496d2
 	github.com/btcsuite/btcd/btcec/v2 v2.3.2
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
-	github.com/btcsuite/btcwallet v0.16.10-0.20240206195028-1f3534b00d14
-	github.com/btcsuite/btcwallet/wallet/txrules v1.2.1
+	github.com/btcsuite/btcwallet v0.16.10-0.20240318155207-9a7dd2416f4d
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.4
-	github.com/btcsuite/btcwallet/wtxmgr v1.5.1
+	github.com/btcsuite/btcwallet/wtxmgr v1.5.3
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.0.1
@@ -29,7 +28,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
 	github.com/lightninglabs/lndclient v1.0.1-0.20240301093332-e39221e5a641
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lnd v0.17.0-beta.rc6.0.20240301195848-f61761277f14
+	github.com/lightningnetwork/lnd v0.17.0-beta.rc6.0.20240326083753-d3e5b2f79952
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/ticker v1.1.1
@@ -62,7 +61,8 @@ require (
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.4 // indirect
-	github.com/btcsuite/btcwallet/walletdb v1.4.1 // indirect
+	github.com/btcsuite/btcwallet/wallet/txrules v1.2.1 // indirect
+	github.com/btcsuite/btcwallet/walletdb v1.4.2 // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect
