@@ -541,6 +541,43 @@ func (n *Negotiator) HasAssetSellOffer(assetID *asset.ID,
 	return true
 }
 
+// BuyOffer is a struct that represents an asset buy offer. This data structure
+// describes the maximum amount of an asset that this node is willing to
+// purchase.
+//
+// A buy offer is passive (unlike a buy order), meaning that it does not
+// actively lead to a buy request being sent to a peer. Instead, it is used by
+// the node to selectively accept or reject incoming asset sell quote requests
+// before price is considered.
+type BuyOffer struct {
+	// AssetID represents the identifier of the subject asset.
+	AssetID *asset.ID
+
+	// AssetGroupKey is the public group key of the subject asset.
+	AssetGroupKey *btcec.PublicKey
+
+	// MaxUnits is the maximum amount of the asset which this node is
+	// willing to purchase.
+	MaxUnits uint64
+}
+
+// Validate validates the asset buy offer.
+func (a *BuyOffer) Validate() error {
+	if a.AssetID == nil && a.AssetGroupKey == nil {
+		return fmt.Errorf("asset ID is nil and asset group key is nil")
+	}
+
+	if a.AssetID != nil && a.AssetGroupKey != nil {
+		return fmt.Errorf("asset ID and asset group key are both set")
+	}
+
+	if a.MaxUnits == 0 {
+		return fmt.Errorf("max asset amount is zero")
+	}
+
+	return nil
+}
+
 // Start starts the service.
 func (n *Negotiator) Start() error {
 	var startErr error
