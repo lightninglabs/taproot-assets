@@ -50,9 +50,6 @@ type MintingBatch struct {
 	// GenesisPacket is the funded genesis packet that may or may not be
 	// fully signed. When broadcast, this will create all assets stored
 	// within this batch.
-	//
-	// NOTE: This field is only set if the state is beyond
-	// BatchStateCommitted.
 	GenesisPacket *tapsend.FundedPsbt
 
 	// RootAssetCommitment is the root Taproot Asset commitment for all the

@@ -879,7 +879,13 @@ func (c *ChainPlanter) gardener() {
 				req.Resolve(batches)
 
 			case reqTypeFundBatch:
-				log.Infof("Funding batch")
+				if c.pendingBatch != nil &&
+					c.pendingBatch.IsFunded() {
+
+					req.Error(fmt.Errorf("batch already " +
+						"funded"))
+					break
+				}
 
 				fundReqParams, err :=
 					typedParam[FundParams](req)
@@ -897,6 +903,8 @@ func (c *ChainPlanter) gardener() {
 						"minting batch: %w", err))
 					break
 				}
+
+				req.Resolve(c.pendingBatch)
 
 			// TODO(jhb): follow-up PR: Implement SealBatch command
 			case reqTypeSealBatch:
@@ -1190,6 +1198,15 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 		err     error
 	)
 
+	// Before modifying the pending batch, check if the batch was already
+	// funded. If so, reject any provided parameters, as they would conflict
+	// with those previously used for batch funding.
+	haveParams := params.FeeRate.IsSome() || params.SiblingTapTree.IsSome()
+	if haveParams && c.pendingBatch.IsFunded() {
+		return nil, fmt.Errorf("cannot provide finalize parameters " +
+			"if batch already funded")
+	}
+
 	// Process the finalize parameters.
 	feeRate = params.FeeRate.UnwrapToPtr()
 
@@ -1427,7 +1444,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		req.ScriptKey = asset.NewScriptKeyBip86(scriptKey)
 	}
 
-	// Now that we know the field are valid, we'll check to see if a batch
+	// Now that we know the seedling is valid, we'll check to see if a batch
 	// already exists.
 	switch {
 	// No batch, so we'll create a new one with only this seedling as part
