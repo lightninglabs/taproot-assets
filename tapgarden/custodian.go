@@ -690,7 +690,11 @@ func (c *Custodian) checkProofAvailable(event *address.Event) (bool, error) {
 		Locator: locator,
 		Blob:    blob,
 	})
-	if err != nil {
+	switch {
+	case errors.Is(err, proof.ErrProofNotFound):
+		return false, nil
+
+	case err != nil:
 		return false, fmt.Errorf("error asserting proof in local "+
 			"archive: %w", err)
 	}
