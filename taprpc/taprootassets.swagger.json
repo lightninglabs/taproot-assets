@@ -562,6 +562,90 @@
         ]
       }
     },
+    "/v1/taproot-assets/events/asset-receive": {
+      "post": {
+        "summary": "tapcli: `events receive`\nSubscribeReceiveEvents allows a caller to subscribe to receive events for\nincoming asset transfers.",
+        "operationId": "TaprootAssets_SubscribeReceiveEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcReceiveEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcReceiveEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeReceiveEventsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
+    "/v1/taproot-assets/events/asset-send": {
+      "post": {
+        "summary": "tapcli: `events send`\nSubscribeSendEvents allows a caller to subscribe to send events for outgoing\nasset transfers.",
+        "operationId": "TaprootAssets_SubscribeSendEvents",
+        "responses": {
+          "200": {
+            "description": "A successful response.(streaming responses)",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "result": {
+                  "$ref": "#/definitions/taprpcSendEvent"
+                },
+                "error": {
+                  "$ref": "#/definitions/rpcStatus"
+                }
+              },
+              "title": "Stream result of taprpcSendEvent"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcSubscribeSendEventsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/getinfo": {
       "get": {
         "summary": "tapcli: `getinfo`\nGetInfo returns the information for the node.",
@@ -684,48 +768,6 @@
         ]
       }
     },
-    "/v1/taproot-assets/receive/ntfs": {
-      "post": {
-        "summary": "SubscribeReceiveAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset receive process.",
-        "operationId": "TaprootAssets_SubscribeReceiveAssetEventNtfns",
-        "responses": {
-          "200": {
-            "description": "A successful response.(streaming responses)",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "result": {
-                  "$ref": "#/definitions/taprpcReceiveAssetEvent"
-                },
-                "error": {
-                  "$ref": "#/definitions/rpcStatus"
-                }
-              },
-              "title": "Stream result of taprpcReceiveAssetEvent"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/taprpcSubscribeReceiveAssetEventNtfnsRequest"
-            }
-          }
-        ],
-        "tags": [
-          "TaprootAssets"
-        ]
-      }
-    },
     "/v1/taproot-assets/send": {
       "post": {
         "summary": "tapcli: `assets send`\nSendAsset uses one or multiple passed Taproot Asset address(es) to attempt\nto complete an asset send. The method returns information w.r.t the on chain\nsend, as well as the proof file information the receiver needs to fully\nreceive the asset.",
@@ -751,48 +793,6 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/taprpcSendAssetRequest"
-            }
-          }
-        ],
-        "tags": [
-          "TaprootAssets"
-        ]
-      }
-    },
-    "/v1/taproot-assets/send/ntfs": {
-      "post": {
-        "summary": "SubscribeSendAssetEventNtfns registers a subscription to the event\nnotification stream which relates to the asset sending process.",
-        "operationId": "TaprootAssets_SubscribeSendAssetEventNtfns",
-        "responses": {
-          "200": {
-            "description": "A successful response.(streaming responses)",
-            "schema": {
-              "type": "object",
-              "properties": {
-                "result": {
-                  "$ref": "#/definitions/taprpcSendAssetEvent"
-                },
-                "error": {
-                  "$ref": "#/definitions/rpcStatus"
-                }
-              },
-              "title": "Stream result of taprpcSendAssetEvent"
-            }
-          },
-          "default": {
-            "description": "An unexpected error response.",
-            "schema": {
-              "$ref": "#/definitions/rpcStatus"
-            }
-          }
-        },
-        "parameters": [
-          {
-            "name": "body",
-            "in": "body",
-            "required": true,
-            "schema": {
-              "$ref": "#/definitions/taprpcSubscribeSendAssetEventNtfnsRequest"
             }
           }
         ],
@@ -1036,6 +1036,43 @@
         }
       }
     },
+    "taprpcAnchorTransaction": {
+      "type": "object",
+      "properties": {
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte"
+        },
+        "change_output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the (added) change output or -1 if no change was left over."
+        },
+        "chain_fees_sats": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total number of satoshis in on-chain fees paid by the anchor\ntransaction."
+        },
+        "target_fee_rate_sat_kw": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The fee rate in sat/kWU that was targeted by the anchor transaction."
+        },
+        "lnd_locked_utxos": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcOutPoint"
+          },
+          "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
+        },
+        "final_tx": {
+          "type": "string",
+          "format": "byte",
+          "description": "The final, signed anchor transaction that was broadcast to the network."
+        }
+      }
+    },
     "taprpcAsset": {
       "type": "object",
       "properties": {
@@ -1229,24 +1266,6 @@
       ],
       "default": "META_TYPE_OPAQUE",
       "description": " - META_TYPE_OPAQUE: Opaque is used for asset meta blobs that have no true structure and instead\nshould be interpreted as opaque blobs.\n - META_TYPE_JSON: JSON is used for asset meta blobs that are to be interpreted as valid JSON\nstrings."
-    },
-    "taprpcAssetReceiveCompleteEvent": {
-      "type": "object",
-      "properties": {
-        "timestamp": {
-          "type": "string",
-          "format": "int64",
-          "description": "Event creation timestamp."
-        },
-        "address": {
-          "$ref": "#/definitions/taprpcAddr",
-          "description": "The address that received the asset."
-        },
-        "outpoint": {
-          "type": "string",
-          "description": "The outpoint of the transaction that was used to receive the asset."
-        }
-      }
     },
     "taprpcAssetTransfer": {
       "type": "object",
@@ -1466,20 +1485,6 @@
         "group_key_reveal": {
           "$ref": "#/definitions/taprpcGroupKeyReveal",
           "description": "GroupKeyReveal is an optional field that includes the information needed\nto derive the tweaked group key."
-        }
-      }
-    },
-    "taprpcExecuteSendStateEvent": {
-      "type": "object",
-      "properties": {
-        "timestamp": {
-          "type": "string",
-          "format": "int64",
-          "description": "Execute timestamp (microseconds)."
-        },
-        "send_state": {
-          "type": "string",
-          "description": "The send state that is about to be executed."
         }
       }
     },
@@ -1788,6 +1793,16 @@
       "default": "OUTPUT_TYPE_SIMPLE",
       "description": " - OUTPUT_TYPE_SIMPLE: OUTPUT_TYPE_SIMPLE is a plain full-value or split output that is not a\nsplit root and does not carry passive assets. In case of a split, the\nasset of this output has a split commitment.\n - OUTPUT_TYPE_SPLIT_ROOT: OUTPUT_TYPE_SPLIT_ROOT is a split root output that carries the change\nfrom a split or a tombstone from a non-interactive full value send\noutput. In either case, the asset of this output has a tx witness."
     },
+    "taprpcParcelType": {
+      "type": "string",
+      "enum": [
+        "PARCEL_TYPE_ADDRESS",
+        "PARCEL_TYPE_PRE_SIGNED",
+        "PARCEL_TYPE_PENDING"
+      ],
+      "default": "PARCEL_TYPE_ADDRESS",
+      "description": " - PARCEL_TYPE_ADDRESS: The parcel is an address parcel.\n - PARCEL_TYPE_PRE_SIGNED: The parcel type is a pre-signed parcel where the virtual transactions are\nsigned outside of the send state machine. Parcels of this type will only\nget send states starting from SEND_STATE_ANCHOR_SIGN.\n - PARCEL_TYPE_PENDING: The parcel is pending and was resumed on the latest restart of the\ndaemon. The original parcel type (address or pre-signed) is not known\nanymore, as it's not relevant for the remaining steps. Parcels of this\ntype will only get send states starting from SEND_STATE_BROADCAST."
+    },
     "taprpcPrevInputAsset": {
       "type": "object",
       "properties": {
@@ -1839,39 +1854,6 @@
         }
       }
     },
-    "taprpcProofTransferBackoffWaitEvent": {
-      "type": "object",
-      "properties": {
-        "timestamp": {
-          "type": "string",
-          "format": "int64",
-          "description": "Transfer attempt timestamp (microseconds)."
-        },
-        "backoff": {
-          "type": "string",
-          "format": "int64",
-          "description": "Backoff is the active backoff wait duration."
-        },
-        "tries_counter": {
-          "type": "string",
-          "format": "int64",
-          "description": "Tries counter is the number of tries we've made so far during the\ncourse of the current backoff procedure to deliver the proof to the\nreceiver."
-        },
-        "transfer_type": {
-          "$ref": "#/definitions/taprpcProofTransferType",
-          "description": "The type of proof transfer attempt."
-        }
-      }
-    },
-    "taprpcProofTransferType": {
-      "type": "string",
-      "enum": [
-        "PROOF_TRANSFER_TYPE_SEND",
-        "PROOF_TRANSFER_TYPE_RECEIVE"
-      ],
-      "default": "PROOF_TRANSFER_TYPE_SEND",
-      "description": "ProofTransferType is the type of proof transfer attempt. The transfer is\neither a proof delivery to the transfer counterparty or receiving a proof\nfrom the transfer counterparty. Note that the transfer counterparty is\nusually the proof courier service.\n\n - PROOF_TRANSFER_TYPE_SEND: This value indicates that the proof transfer attempt is a delivery to the\ntransfer counterparty.\n - PROOF_TRANSFER_TYPE_RECEIVE: This value indicates that the proof transfer attempt is a receive from\nthe transfer counterparty."
-    },
     "taprpcQueryAddrResponse": {
       "type": "object",
       "properties": {
@@ -1884,16 +1866,30 @@
         }
       }
     },
-    "taprpcReceiveAssetEvent": {
+    "taprpcReceiveEvent": {
       "type": "object",
       "properties": {
-        "proof_transfer_backoff_wait_event": {
-          "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
-          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Event creation timestamp (Unix timestamp in microseconds)."
         },
-        "asset_receive_complete_event": {
-          "$ref": "#/definitions/taprpcAssetReceiveCompleteEvent",
-          "description": "An event which indicates that an asset receive process has finished."
+        "address": {
+          "$ref": "#/definitions/taprpcAddr",
+          "description": "The address that received the asset."
+        },
+        "outpoint": {
+          "type": "string",
+          "description": "The outpoint of the transaction that was used to receive the asset."
+        },
+        "status": {
+          "$ref": "#/definitions/taprpcAddrEventStatus",
+          "description": "The status of the event."
+        },
+        "confirmation_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The height of the block the asset receive transaction was mined in. This\nis only set if the status is ADDR_EVENT_STATUS_TRANSACTION_CONFIRMED or\nlater."
         }
       }
     },
@@ -1913,19 +1909,6 @@
           "type": "string",
           "format": "byte",
           "description": "The optional Taproot tweak to apply to the above internal key. If this is\nempty then a BIP-86 style tweak is applied to the internal key."
-        }
-      }
-    },
-    "taprpcSendAssetEvent": {
-      "type": "object",
-      "properties": {
-        "execute_send_state_event": {
-          "$ref": "#/definitions/taprpcExecuteSendStateEvent",
-          "description": "An event which indicates that a send state is about to be executed."
-        },
-        "proof_transfer_backoff_wait_event": {
-          "$ref": "#/definitions/taprpcProofTransferBackoffWaitEvent",
-          "description": "An event which indicates that the proof transfer backoff wait period\nwill start imminently."
         }
       }
     },
@@ -1953,6 +1936,56 @@
         }
       }
     },
+    "taprpcSendEvent": {
+      "type": "object",
+      "properties": {
+        "timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "Execute timestamp (Unix timestamp in microseconds)."
+        },
+        "send_state": {
+          "type": "string",
+          "description": "The send state that was executed successfully."
+        },
+        "parcel_type": {
+          "$ref": "#/definitions/taprpcParcelType",
+          "description": "The type of the outbound send parcel."
+        },
+        "addresses": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAddr"
+          },
+          "description": "The list of addresses the parcel sends to (recipient addresses only, not\nincluding change going back to own wallet). This is only set for parcels\nof type PARCEL_TYPE_ADDRESS."
+        },
+        "virtual_packets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The virtual packets that are part of the parcel."
+        },
+        "passive_virtual_packets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The passive virtual packets that are carried along with the parcel. This\nis empty if there were no other assets in the input commitment that is\nbeing spent with the \"active\" virtual packets above."
+        },
+        "anchor_transaction": {
+          "$ref": "#/definitions/taprpcAnchorTransaction",
+          "description": "The Bitcoin on-chain anchor transaction that commits the sent assets\non-chain. This is only set after the send state SEND_STATE_ANCHOR_SIGN."
+        },
+        "transfer": {
+          "$ref": "#/definitions/taprpcAssetTransfer",
+          "description": "The final transfer as it will be stored in the database. This is only set\nafter the send state SEND_STATE_LOG_COMMITMENT."
+        }
+      }
+    },
     "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
@@ -1967,11 +2000,24 @@
     "taprpcStopResponse": {
       "type": "object"
     },
-    "taprpcSubscribeReceiveAssetEventNtfnsRequest": {
-      "type": "object"
+    "taprpcSubscribeReceiveEventsRequest": {
+      "type": "object",
+      "properties": {
+        "filter_addr": {
+          "type": "string",
+          "description": "Filter receives by a specific address. Leave empty to get all receive\nevents for all addresses."
+        }
+      }
     },
-    "taprpcSubscribeSendAssetEventNtfnsRequest": {
-      "type": "object"
+    "taprpcSubscribeSendEventsRequest": {
+      "type": "object",
+      "properties": {
+        "filter_script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "Filter send events by a specific recipient script key. Leave empty to get\nall receive events for all parcels."
+        }
+      }
     },
     "taprpcTransferInput": {
       "type": "object",

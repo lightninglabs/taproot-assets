@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -76,6 +77,49 @@ type MintingBatch struct {
 	// taprootAssetScriptRoot is the root hash of the Taproot Asset
 	// commitment. If this is nil, then the mintingPubKey will be as well.
 	taprootAssetScriptRoot []byte
+}
+
+// Copy creates a deep copy of the batch.
+func (m *MintingBatch) Copy() *MintingBatch {
+	batchCopy := &MintingBatch{
+		CreationTime: m.CreationTime,
+		HeightHint:   m.HeightHint,
+		// The following values are expected to not change once they are
+		// set, so a shallow copy is sufficient.
+		BatchKey:            m.BatchKey,
+		RootAssetCommitment: m.RootAssetCommitment,
+		mintingPubKey:       m.mintingPubKey,
+		tapSibling:          m.tapSibling,
+	}
+	batchCopy.UpdateState(m.State())
+
+	if m.Seedlings != nil {
+		batchCopy.Seedlings = make(
+			map[string]*Seedling, len(m.Seedlings),
+		)
+		for k, v := range m.Seedlings {
+			batchCopy.Seedlings[k] = v
+		}
+	}
+
+	if m.GenesisPacket != nil {
+		batchCopy.GenesisPacket = m.GenesisPacket.Copy()
+	}
+
+	if m.AssetMetas != nil {
+		batchCopy.AssetMetas = make(AssetMetas, len(m.AssetMetas))
+		for k, v := range m.AssetMetas {
+			batchCopy.AssetMetas[k] = v
+		}
+	}
+
+	if m.taprootAssetScriptRoot != nil {
+		batchCopy.taprootAssetScriptRoot = fn.CopySlice(
+			m.taprootAssetScriptRoot,
+		)
+	}
+
+	return batchCopy
 }
 
 // TODO(roasbeef): add batch validate method re unique names?

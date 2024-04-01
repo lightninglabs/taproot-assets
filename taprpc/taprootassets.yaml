@@ -61,14 +61,6 @@ http:
       post: "/v1/taproot-assets/burn"
       body: "*"
 
-    - selector: taprpc.TaprootAssets.SubscribeSendAssetEventNtfns
-      post: "/v1/taproot-assets/send/ntfs"
-      body: "*"
-
-    - selector: taprpc.TaprootAssets.SubscribeReceiveAssetEventNtfns
-      post: "/v1/taproot-assets/receive/ntfs"
-      body: "*"
-
     - selector: taprpc.TaprootAssets.ListTransfers
       get: "/v1/taproot-assets/assets/transfers"
       additional_bindings:
@@ -78,3 +70,11 @@ http:
       get: "/v1/taproot-assets/assets/meta/asset-id/{asset_id_str}"
       additional_bindings:
         - get: "/v1/taproot-assets/assets/meta/hash/{meta_hash_str}"
+
+    - selector: taprpc.TaprootAssets.SubscribeReceiveEvents
+      post: "/v1/taproot-assets/events/asset-receive"
+      body: "*"
+
+    - selector: taprpc.TaprootAssets.SubscribeSendEvents
+      post: "/v1/taproot-assets/events/asset-send"
+      body: "*"

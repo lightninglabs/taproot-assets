@@ -77,7 +77,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			require.NoError(t.t, err)
 
 			AssertAddrCreated(t.t, bob, mintedAsset, receiverAddr)
-			sendResp := sendAssetsToAddr(t, alice, receiverAddr)
+			sendResp, sendEvents := sendAssetsToAddr(
+				t, alice, receiverAddr,
+			)
 			ConfirmAndAssertOutboundTransfer(
 				t.t, t.lndHarness.Miner.Client, alice,
 				sendResp, genInfo.AssetId,
@@ -86,6 +88,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			)
 			AssertNonInteractiveRecvComplete(
 				t.t, bob, senderTransferIdx+1,
+			)
+			AssertSendEventsComplete(
+				t.t, receiverAddr.ScriptKey, sendEvents,
 			)
 			senderTransferIdx++
 		} else {
@@ -98,7 +103,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			require.NoError(t.t, err)
 
 			AssertAddrCreated(t.t, alice, mintedAsset, receiverAddr)
-			sendResp := sendAssetsToAddr(t, bob, receiverAddr)
+			sendResp, sendEvents := sendAssetsToAddr(
+				t, bob, receiverAddr,
+			)
 			ConfirmAndAssertOutboundTransfer(
 				t.t, t.lndHarness.Miner.Client, bob, sendResp,
 				genInfo.AssetId, []uint64{0, fullAmount},
@@ -106,6 +113,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 			)
 			AssertNonInteractiveRecvComplete(
 				t.t, alice, receiverTransferIdx+1,
+			)
+			AssertSendEventsComplete(
+				t.t, receiverAddr.ScriptKey, sendEvents,
 			)
 			receiverTransferIdx++
 		}
