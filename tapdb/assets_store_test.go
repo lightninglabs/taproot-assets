@@ -280,7 +280,6 @@ func TestImportAssetProof(t *testing.T) {
 
 	// Add a random asset and corresponding proof into the database.
 	testAsset, testProof := dbHandle.AddRandomAssetProof(t)
-	assetID := testAsset.ID()
 	initialBlob := testProof.Blob
 
 	// We should now be able to retrieve the set of all assets inserted on
@@ -313,11 +312,8 @@ func TestImportAssetProof(t *testing.T) {
 	// We should also be able to fetch the created asset above based on
 	// either the asset ID, or key group via the main coin selection
 	// routine.
-	var assetConstraints tapfreighter.CommitmentConstraints
-	if testAsset.GroupKey != nil {
-		assetConstraints.GroupKey = &testAsset.GroupKey.GroupPubKey
-	} else {
-		assetConstraints.AssetID = &assetID
+	assetConstraints := tapfreighter.CommitmentConstraints{
+		AssetSpecifier: testAsset.Specifier(),
 	}
 	selectedAssets, err := assetStore.ListEligibleCoins(
 		ctxb, assetConstraints,
@@ -659,16 +655,20 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 	}
 }
 
-func (a *assetGenerator) bindAssetID(i int, op wire.OutPoint) *asset.ID {
+func (a *assetGenerator) assetSpecifierAssetID(i int,
+	op wire.OutPoint) asset.Specifier {
+
 	gen := a.assetGens[i]
 	gen.FirstPrevOut = op
 
 	id := gen.ID()
 
-	return &id
+	return asset.NewSpecifierFromId(id)
 }
 
-func (a *assetGenerator) bindGroupKey(i int, op wire.OutPoint) *btcec.PublicKey {
+func (a *assetGenerator) assetSpecifierGroupKey(i int,
+	op wire.OutPoint) asset.Specifier {
+
 	gen := a.assetGens[i]
 	gen.FirstPrevOut = op
 	genTweak := gen.ID()
@@ -677,8 +677,9 @@ func (a *assetGenerator) bindGroupKey(i int, op wire.OutPoint) *btcec.PublicKey 
 
 	internalPriv := input.TweakPrivKey(&groupPriv, genTweak[:])
 	tweakedPriv := txscript.TweakTaprootPrivKey(*internalPriv, nil)
+	groupPubKey := tweakedPriv.PubKey()
 
-	return tweakedPriv.PubKey()
+	return asset.NewSpecifierFromGroupKey(*groupPubKey)
 }
 
 // TestFetchAllAssets tests that the different AssetQueryFilters work as
@@ -1000,7 +1001,7 @@ func TestSelectCommitment(t *testing.T) {
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				AssetID: assetGen.bindAssetID(
+				AssetSpecifier: assetGen.assetSpecifierAssetID(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 2,
@@ -1022,7 +1023,7 @@ func TestSelectCommitment(t *testing.T) {
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				AssetID: assetGen.bindAssetID(
+				AssetSpecifier: assetGen.assetSpecifierAssetID(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 10,
@@ -1043,7 +1044,7 @@ func TestSelectCommitment(t *testing.T) {
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				AssetID: assetGen.bindAssetID(
+				AssetSpecifier: assetGen.assetSpecifierAssetID(
 					1, assetGen.anchorPoints[1],
 				),
 				MinAmt: 10,
@@ -1074,7 +1075,7 @@ func TestSelectCommitment(t *testing.T) {
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				GroupKey: assetGen.bindGroupKey(
+				AssetSpecifier: assetGen.assetSpecifierGroupKey(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 1,
@@ -1104,7 +1105,7 @@ func TestSelectCommitment(t *testing.T) {
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				AssetID: assetGen.bindAssetID(
+				AssetSpecifier: assetGen.assetSpecifierAssetID(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 2,
@@ -1146,7 +1147,7 @@ func TestSelectCommitment(t *testing.T) {
 				},
 			},
 			constraints: tapfreighter.CommitmentConstraints{
-				GroupKey: assetGen.bindGroupKey(
+				AssetSpecifier: assetGen.assetSpecifierGroupKey(
 					0, assetGen.anchorPoints[0],
 				),
 				MinAmt: 1,
