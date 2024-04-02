@@ -42,7 +42,7 @@ type Negotiator struct {
 
 	// assetGroupSellOffers is a map (keyed on asset group key) that holds
 	// asset sell offers.
-	assetGroupSellOffers lnutils.SyncMap[btcec.PublicKey, SellOffer]
+	assetGroupSellOffers lnutils.SyncMap[asset.SerializedKey, SellOffer]
 
 	// assetBuyOffers is a map (keyed on asset ID) that holds asset buy
 	// offers.
@@ -50,7 +50,7 @@ type Negotiator struct {
 
 	// assetGroupBuyOffers is a map (keyed on asset group key) that holds
 	// asset buy offers.
-	assetGroupBuyOffers lnutils.SyncMap[btcec.PublicKey, BuyOffer]
+	assetGroupBuyOffers lnutils.SyncMap[asset.SerializedKey, BuyOffer]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -69,11 +69,11 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 
 		assetSellOffers: lnutils.SyncMap[asset.ID, SellOffer]{},
 		assetGroupSellOffers: lnutils.SyncMap[
-			btcec.PublicKey, SellOffer]{},
+			asset.SerializedKey, SellOffer]{},
 
 		assetBuyOffers: lnutils.SyncMap[asset.ID, BuyOffer]{},
 		assetGroupBuyOffers: lnutils.SyncMap[
-			btcec.PublicKey, BuyOffer]{},
+			asset.SerializedKey, BuyOffer]{},
 
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -498,7 +498,13 @@ func (n *Negotiator) UpsertAssetSellOffer(offer SellOffer) error {
 	// the offer. Otherwise, we will use the asset ID as the key.
 	switch {
 	case offer.AssetGroupKey != nil:
-		n.assetGroupSellOffers.Store(*offer.AssetGroupKey, offer)
+		// We will serialize the public key to a fixed size byte array
+		// before using it as a map key. This is because functionally
+		// identical public keys can have different internal
+		// representations. These differences would cause the map to
+		// treat them as different keys.
+		keyFixedBytes := asset.ToSerialized(offer.AssetGroupKey)
+		n.assetGroupSellOffers.Store(keyFixedBytes, offer)
 
 	case offer.AssetID != nil:
 		n.assetSellOffers.Store(*offer.AssetID, offer)
@@ -517,7 +523,8 @@ func (n *Negotiator) RemoveAssetSellOffer(assetID *asset.ID,
 	// the offer. Otherwise, we will use the asset ID as the key.
 	switch {
 	case assetGroupKey != nil:
-		n.assetGroupSellOffers.Delete(*assetGroupKey)
+		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+		n.assetGroupSellOffers.Delete(keyFixedBytes)
 
 	case assetID != nil:
 		n.assetSellOffers.Delete(*assetID)
@@ -542,7 +549,8 @@ func (n *Negotiator) HasAssetSellOffer(assetID *asset.ID,
 	var sellOffer *SellOffer
 	switch {
 	case assetGroupKey != nil:
-		offer, ok := n.assetGroupSellOffers.Load(*assetGroupKey)
+		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+		offer, ok := n.assetGroupSellOffers.Load(keyFixedBytes)
 		if !ok {
 			// Corresponding offer not found.
 			return false
@@ -630,7 +638,13 @@ func (n *Negotiator) UpsertAssetBuyOffer(offer BuyOffer) error {
 	// the offer. Otherwise, we will use the asset ID as the key.
 	switch {
 	case offer.AssetGroupKey != nil:
-		n.assetGroupBuyOffers.Store(*offer.AssetGroupKey, offer)
+		// We will serialize the public key to a fixed size byte array
+		// before using it as a map key. This is because functionally
+		// identical public keys can have different internal
+		// representations. These differences would cause the map to
+		// treat them as different keys.
+		keyFixedBytes := asset.ToSerialized(offer.AssetGroupKey)
+		n.assetGroupBuyOffers.Store(keyFixedBytes, offer)
 
 	case offer.AssetID != nil:
 		n.assetBuyOffers.Store(*offer.AssetID, offer)
@@ -653,7 +667,8 @@ func (n *Negotiator) HasAssetBuyOffer(assetID *asset.ID,
 	var buyOffer *BuyOffer
 	switch {
 	case assetGroupKey != nil:
-		offer, ok := n.assetGroupBuyOffers.Load(*assetGroupKey)
+		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+		offer, ok := n.assetGroupBuyOffers.Load(keyFixedBytes)
 		if !ok {
 			// Corresponding offer not found.
 			return false
