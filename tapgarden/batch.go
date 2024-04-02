@@ -76,6 +76,14 @@ type MintingBatch struct {
 	taprootAssetScriptRoot []byte
 }
 
+// VerboseBatch is a MintingBatch that includes seedlings with their pending
+// asset group information. The Seedlings map is empty, and all seedlings are
+// stored as UnsealedSeedlings.
+type VerboseBatch struct {
+	*MintingBatch
+	UnsealedSeedlings map[string]*UnsealedSeedling
+}
+
 // Copy creates a deep copy of the batch.
 func (m *MintingBatch) Copy() *MintingBatch {
 	batchCopy := &MintingBatch{
@@ -217,6 +225,27 @@ func (m *MintingBatch) UpdateTapSibling(sibling *chainhash.Hash) {
 	m.tapSibling = sibling
 }
 
+// IsFunded checks if the batch already has a funded genesis packet.
 func (m *MintingBatch) IsFunded() bool {
 	return m.GenesisPacket != nil
+}
+
+// HasSeedlings checks if the batch has any seedlings. A batch with no seedlings
+// cannot be sealed nor finalized.
+func (m *MintingBatch) HasSeedlings() bool {
+	return len(m.Seedlings) != 0
+}
+
+func (v *VerboseBatch) ToMintingBatch() *MintingBatch {
+	newBatch := v.MintingBatch.Copy()
+	if v.UnsealedSeedlings != nil {
+		newBatch.Seedlings = make(
+			map[string]*Seedling, len(v.UnsealedSeedlings),
+		)
+		for k, v := range v.UnsealedSeedlings {
+			newBatch.Seedlings[k] = v.Seedling
+		}
+	}
+
+	return newBatch
 }

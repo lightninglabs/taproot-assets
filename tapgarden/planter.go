@@ -125,6 +125,21 @@ type stateParamReq[T, S any] struct {
 	param S
 }
 
+type ListBatchesParams struct {
+	BatchKey *btcec.PublicKey
+	Verbose  bool
+}
+
+type PendingAssetGroup struct {
+	asset.GroupKeyRequest
+	asset.GroupVirtualTx
+}
+
+type UnsealedSeedling struct {
+	*Seedling
+	*PendingAssetGroup
+}
+
 // FinalizeParams are the options available to change how a batch is finalized,
 // and how the genesis TX is constructed.
 type FinalizeParams struct {
@@ -143,7 +158,7 @@ type FundParams struct {
 // groupSeal specifies the group witness for a seedling in a funded batch.
 type groupSeal struct {
 	GroupMember  asset.ID
-	GroupWitness []wire.TxWitness
+	GroupWitness wire.TxWitness
 }
 
 // SealParams change how asset groups in a minting batch are created.
@@ -520,8 +535,8 @@ func filterSeedlingsWithGroup(
 
 // buildGroupReqs creates group key requests and asset group genesis TXs for
 // seedlings that are part of a funded batch.
-func (c *ChainPlanter) buildGroupReqs(genesisPoint wire.OutPoint,
-	assetOutputIndex uint32,
+func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
+	genBuilder asset.GenesisTxBuilder,
 	groupSeedlings map[string]*Seedling) ([]asset.GroupKeyRequest,
 	[]asset.GroupVirtualTx, error) {
 
@@ -606,7 +621,7 @@ func (c *ChainPlanter) buildGroupReqs(genesisPoint wire.OutPoint,
 			}
 
 			genTx, err := groupReq.BuildGroupVirtualTx(
-				c.cfg.GenTxBuilder,
+				genBuilder,
 			)
 			if err != nil {
 				return nil, nil, err
@@ -635,7 +650,7 @@ func (c *ChainPlanter) buildGroupReqs(genesisPoint wire.OutPoint,
 			}
 
 			genTx, err := groupReq.BuildGroupVirtualTx(
-				c.cfg.GenTxBuilder,
+				genBuilder,
 			)
 			if err != nil {
 				return nil, nil, err
@@ -644,11 +659,14 @@ func (c *ChainPlanter) buildGroupReqs(genesisPoint wire.OutPoint,
 			groupReqs = append(groupReqs, *groupReq)
 			genTXs = append(genTXs, *genTx)
 
+			newGroupKey := &asset.GroupKey{
+				RawKey:        *seedling.GroupInternalKey,
+				TapscriptRoot: seedling.GroupTapscriptRoot,
+			}
+
 			newGroups[seedlingName] = &asset.AssetGroup{
-				Genesis: &assetGen,
-				GroupKey: &asset.GroupKey{
-					RawKey: *seedling.GroupInternalKey,
-				},
+				Genesis:  &assetGen,
+				GroupKey: newGroupKey,
 			}
 		}
 	}
@@ -678,18 +696,133 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 // ListBatches returns the single batch specified by the batch key, or the set
 // of batches not yet finalized on disk.
 func listBatches(ctx context.Context, batchStore MintingStore,
-	batchKey *btcec.PublicKey) ([]*MintingBatch, error) {
+	genBuilder asset.GenesisTxBuilder,
+	params ListBatchesParams) ([]*VerboseBatch, error) {
 
-	if batchKey == nil {
-		return batchStore.FetchAllBatches(ctx)
+	var (
+		batches []*MintingBatch
+		err     error
+	)
+
+	switch {
+	case params.BatchKey == nil:
+		batches, err = batchStore.FetchAllBatches(ctx)
+	default:
+		var batch *MintingBatch
+		batch, err = batchStore.FetchMintingBatch(ctx, params.BatchKey)
+		batches = []*MintingBatch{batch}
 	}
-
-	batch, err := batchStore.FetchMintingBatch(ctx, batchKey)
 	if err != nil {
 		return nil, err
 	}
 
-	return []*MintingBatch{batch}, nil
+	verboseBatches := fn.Map(batches, func(b *MintingBatch) *VerboseBatch {
+		return &VerboseBatch{
+			b,
+			nil,
+		}
+	})
+
+	// Return the batches without any extra asset group info.
+	if !params.Verbose {
+		return verboseBatches, nil
+	}
+
+	for _, batch := range verboseBatches {
+		currentBatch := batch
+
+		// The batch must be pending, funded, and have seedlings for us
+		// to show pending asset group information.
+		switch {
+		case currentBatch.State() != BatchStatePending:
+			continue
+		case !currentBatch.IsFunded():
+			continue
+		case len(currentBatch.Seedlings) == 0:
+			continue
+		default:
+		}
+
+		// Compute the asset group info for seedlings in this
+		// batch.
+
+		// Filter the batch seedlings to only consider those that will
+		// become grouped assets. If there are no such seedlings, then
+		// there is no extra information to show.
+		groupSeedlings, _ := filterSeedlingsWithGroup(
+			currentBatch.Seedlings,
+		)
+		if len(groupSeedlings) == 0 {
+			continue
+		}
+
+		// Before we can build the group key requests for each seedling,
+		// we must fetch the genesis point and anchor index for the
+		// batch.
+		anchorOutputIndex := uint32(0)
+		if currentBatch.GenesisPacket.ChangeOutputIndex == 0 {
+			anchorOutputIndex = 1
+		}
+
+		genesisPoint := extractGenesisOutpoint(
+			currentBatch.GenesisPacket.Pkt.UnsignedTx,
+		)
+
+		// Construct the group key requests and group virtual TXs for
+		// each seedling. With these we can verify provided asset group
+		// witnesses, or attempt to derive asset group witnesses if
+		// needed.
+		groupReqs, genTXs, err := buildGroupReqs(
+			genesisPoint, anchorOutputIndex, genBuilder,
+			groupSeedlings,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to build group "+
+				"requests: %w", err)
+		}
+
+		if len(groupReqs) != len(genTXs) {
+			return nil, fmt.Errorf("mismatched number of group " +
+				"requests and virtual TXs")
+		}
+
+		// Copy existing seedlngs into the unsealed seedling map; we'll
+		// clear the batch seedlings after adding group information.
+		currentBatch.UnsealedSeedlings = make(
+			map[string]*UnsealedSeedling,
+			len(currentBatch.Seedlings),
+		)
+		for k, v := range currentBatch.Seedlings {
+			currentBatch.UnsealedSeedlings[k] = &UnsealedSeedling{
+				v,
+				nil,
+			}
+		}
+
+		// Match each group key request and group virtual TX with the
+		// corresponding seedling.
+		for i := 0; i < len(groupReqs); i++ {
+			seedlingName := groupReqs[i].NewAsset.Genesis.Tag
+			seedling, ok := currentBatch.
+				UnsealedSeedlings[seedlingName]
+			if !ok {
+				return nil, fmt.Errorf("unable to find "+
+					"seedling with tag matching asset "+
+					"group: %s", seedlingName)
+			}
+
+			seedling.PendingAssetGroup = &PendingAssetGroup{
+				groupReqs[i],
+				genTXs[i],
+			}
+		}
+
+		// Clear the original batch seedlings so each asset is only
+		// represented once.
+		currentBatch.Seedlings = nil
+	}
+
+	return verboseBatches, nil
 }
 
 // canCancelBatch returns a batch key if the planter is in a state where a batch
@@ -859,16 +992,18 @@ func (c *ChainPlanter) gardener() {
 				req.Resolve(len(c.caretakers))
 
 			case reqTypeListBatches:
-				batchKey, err := typedParam[*btcec.PublicKey](req)
+				listBatchesParams, err :=
+					typedParam[ListBatchesParams](req)
 				if err != nil {
-					req.Error(fmt.Errorf("bad batch key: "+
-						"%w", err))
+					req.Error(fmt.Errorf("bad list batch "+
+						"params: %w", err))
 					break
 				}
 
 				ctx, cancel := c.WithCtxQuit()
 				batches, err := listBatches(
-					ctx, c.cfg.Log, *batchKey,
+					ctx, c.cfg.Log, c.cfg.GenTxBuilder,
+					*listBatchesParams,
 				)
 				cancel()
 				if err != nil {
@@ -1286,10 +1421,10 @@ func (c *ChainPlanter) NumActiveBatches() (int, error) {
 
 // ListBatches returns the single batch specified by the batch key, or the set
 // of batches not yet finalized on disk.
-func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
+func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 	error) {
 
-	req := newStateParamReq[[]*MintingBatch](reqTypeListBatches, batchKey)
+	req := newStateParamReq[[]*VerboseBatch](reqTypeListBatches, params)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")

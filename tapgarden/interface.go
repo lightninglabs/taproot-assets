@@ -32,7 +32,7 @@ type Planter interface {
 
 	// ListBatches lists the set of batches submitted for minting, or the
 	// details of a specific batch.
-	ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch, error)
+	ListBatches(params ListBatchesParams) ([]*VerboseBatch, error)
 
 	// CancelSeedling attempts to cancel the creation of a new asset
 	// identified by its name. If the seedling has already progressed to a
