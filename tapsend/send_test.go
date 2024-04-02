@@ -1810,10 +1810,13 @@ func TestAddressValidInput(t *testing.T) {
 }
 
 func addrToFundDesc(addr address.Tap) *tapsend.FundingDescriptor {
+	assetSpecifier := asset.NewSpecifierOptionalGroupPubKey(
+		addr.AssetID, addr.GroupKey,
+	)
+
 	return &tapsend.FundingDescriptor{
-		ID:       addr.AssetID,
-		GroupKey: addr.GroupKey,
-		Amount:   addr.Amount,
+		AssetSpecifier: assetSpecifier,
+		Amount:         addr.Amount,
 	}
 }
 
@@ -2419,7 +2422,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 	vOutCommitmentProof := proof.CommitmentProof{
 		Proof: commitment.Proof{
 			TaprootAssetProof: commitment.
-				TaprootAssetProof{
+			TaprootAssetProof{
 				Version: asset1Commitment.Version,
 			},
 		},
