@@ -73,7 +73,9 @@ func (a *gardenCollector) Collect(ch chan<- prometheus.Metric) {
 	a.completedBatches.Set(0)
 
 	// Get the number of pending batches.
-	batches, err := a.cfg.AssetMinter.ListBatches(nil)
+	batches, err := a.cfg.AssetMinter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	if err != nil {
 		log.Errorf("unable to list batches: %v", err)
 		return

@@ -429,16 +429,21 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 
 	// Before we tick the batch, we record all existing batches, so we can
 	// make sure a new one was created.
-	existingBatches, err := t.planter.ListBatches(nil)
+	existingBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	require.NoError(t, err)
 
 	// We only want to know if a new batch gets to the frozen state. So the
 	// list of existing batches should only contain the already frozen.
-	existingBatches = fn.Filter(
-		existingBatches, func(batch *tapgarden.MintingBatch) bool {
-			return batch.State() == tapgarden.BatchStateFrozen
-		},
-	)
+	var existingFrozenBatches []*tapgarden.MintingBatch
+	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
+		if batch.State() == tapgarden.BatchStateFrozen {
+			existingFrozenBatches = append(
+				existingFrozenBatches, batch.ToMintingBatch(),
+			)
+		}
+	})
 
 	var (
 		wg       sync.WaitGroup
@@ -453,7 +458,7 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	}
 
 	// Check that the batch was frozen and then funded.
-	newBatch := t.assertNewBatchFrozen(existingBatches)
+	newBatch := t.assertNewBatchFrozen(existingFrozenBatches)
 	_ = t.assertGenesisTxFunded(nil)
 
 	// Fetch the batch again after funding.
@@ -698,7 +703,7 @@ func (t *mintingTestHarness) assertLastBatchState(numBatches int,
 	batchState tapgarden.BatchState) {
 
 	t.Helper()
-	batches, err := t.planter.ListBatches(nil)
+	batches, err := t.planter.ListBatches(tapgarden.ListBatchesParams{})
 	require.NoError(t, err)
 
 	require.Len(t, batches, numBatches)
@@ -969,18 +974,24 @@ func (t *mintingTestHarness) queueInitialBatch(
 
 	// Before we tick the batch, we record all existing batches, so we can
 	// make sure a new one was created.
-	existingBatches, err := t.planter.ListBatches(nil)
+	existingBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	require.NoError(t, err)
 
 	// We only want to know if a new batch gets to the frozen state. So the
 	// list of existing batches should only contain the already frozen.
-	existingBatches = fn.Filter(
-		existingBatches, func(batch *tapgarden.MintingBatch) bool {
-			return batch.State() == tapgarden.BatchStatePending
-		},
-	)
-	require.Len(t, existingBatches, 1)
-	batchKey := existingBatches[0].BatchKey.PubKey
+	var pendingBatches []*tapgarden.MintingBatch
+	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
+		if batch.State() == tapgarden.BatchStatePending {
+			pendingBatches = append(
+				pendingBatches, batch.ToMintingBatch(),
+			)
+		}
+	})
+
+	require.Len(t, pendingBatches, 1)
+	batchKey := pendingBatches[0].BatchKey.PubKey
 
 	t.assertSeedlingsExist(seedlings, batchKey)
 
@@ -1603,6 +1614,7 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 
 	// Set the final seedling to be ungrouped.
 	seedlings[4].EnableEmission = false
+	groupCount := 3
 
 	// Fund a batch with a tapscript sibling and a manual feerate. This
 	// should create a new batch.
@@ -1619,7 +1631,9 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 
 	// After funding, the planter should have persisted the batch. The new
 	// batch should be funded but have no seedlings.
-	fundedBatches, err := t.planter.ListBatches(nil)
+	fundedBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	require.NoError(t, err)
 	require.Len(t, fundedBatches, 1)
 
@@ -1656,6 +1670,25 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 	t.queueSeedlingsInBatch(true, seedlings...)
 	t.assertPendingBatchExists(numSeedlings)
 	t.assertSeedlingsExist(seedlings, nil)
+
+	observedGroupCount := 0
+	fundedSeedlings, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{
+			Verbose: true,
+		},
+	)
+	t.Logf("%v", spew.Sdump(fundedSeedlings[0]))
+	for seedlingName := range fundedSeedlings[0].UnsealedSeedlings {
+		seedling := *fundedSeedlings[0].UnsealedSeedlings[seedlingName]
+		t.Logf("%v", spew.Sdump(*seedling.Seedling))
+		if seedling.PendingAssetGroup != nil {
+			t.Logf("%v", spew.Sdump(*seedling.PendingAssetGroup))
+			observedGroupCount++
+		}
+	}
+
+	// Assert that ListBatches showed the correct number of asset groups.
+	require.Equal(t, groupCount, observedGroupCount)
 
 	// Finally, finalize the batch and check that the resulting assets match
 	// the seedlings.
