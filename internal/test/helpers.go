@@ -32,6 +32,8 @@ var (
 
 	HexCompressedPubKeyLen = hex.EncodedLen(btcec.PubKeyBytesLenCompressed)
 	HexTaprootPkScript     = hex.EncodedLen(input.P2TRSize)
+
+	DefaultHashLockWitness = []byte("foobar")
 )
 
 // RandBool rolls a random boolean.
@@ -426,8 +428,7 @@ func ReadTestDataFile(t *testing.T, fileName string) string {
 func BuildTapscriptTreeNoReveal(t *testing.T,
 	internalKey *btcec.PublicKey) txscript.TapBranch {
 
-	hashLockWitness := []byte("foobar")
-	hashLockLeaf := ScriptHashLock(t, hashLockWitness)
+	hashLockLeaf := ScriptHashLock(t, bytes.Clone(DefaultHashLockWitness))
 	sigLeaf := ScriptSchnorrSig(t, internalKey)
 
 	tree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
@@ -445,9 +446,8 @@ func BuildTapscriptTree(t *testing.T, useHashLock, valid bool,
 
 	// Let's create a taproot asset script now. This is a hash lock with a
 	// simple preimage of "foobar".
-	hashLockWitness := []byte("foobar")
 	invalidHashLockWitness := []byte("not-foobar")
-	hashLockLeaf := ScriptHashLock(t, hashLockWitness)
+	hashLockLeaf := ScriptHashLock(t, bytes.Clone(DefaultHashLockWitness))
 
 	// Let's add a second script output as well to test the partial reveal.
 	sigLeaf := ScriptSchnorrSig(t, internalKey)
@@ -465,7 +465,7 @@ func BuildTapscriptTree(t *testing.T, useHashLock, valid bool,
 		testTapScript = input.TapscriptPartialReveal(
 			internalKey, hashLockLeaf, inclusionProof[:],
 		)
-		scriptWitness = hashLockWitness
+		scriptWitness = DefaultHashLockWitness
 
 		if !valid {
 			scriptWitness = invalidHashLockWitness
