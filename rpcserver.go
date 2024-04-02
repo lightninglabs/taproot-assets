@@ -696,15 +696,20 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		}
 	}
 
-	batches, err := r.cfg.AssetMinter.ListBatches(batchKey)
+	batches, err := r.cfg.AssetMinter.ListBatches(
+		tapgarden.ListBatchesParams{
+			BatchKey: batchKey,
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list batches: %w", err)
 	}
 
 	rpcBatches, err := fn.MapErr(
-		batches,
-		func(b *tapgarden.MintingBatch) (*mintrpc.MintingBatch, error) {
-			return marshalMintingBatch(b, false)
+		batches, func(b *tapgarden.VerboseBatch) (*mintrpc.MintingBatch,
+			error) {
+
+			return marshalMintingBatch(b.ToMintingBatch(), false)
 		},
 	)
 	if err != nil {
