@@ -3,7 +3,9 @@ package tapgarden
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -158,20 +160,11 @@ type FinalizeParams struct {
 type FundParams struct {
 	FeeRate        fn.Option[chainfee.SatPerKWeight]
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
-	// TODO(jhb): follow-up PR: accept a PSBT here
-}
-
-// groupSeal specifies the group witness for a seedling in a funded batch.
-type groupSeal struct {
-	GroupMember  asset.ID
-	GroupWitness wire.TxWitness
 }
 
 // SealParams change how asset groups in a minting batch are created.
 type SealParams struct {
-	GroupWitnesses []groupSeal
-	// TODO(jhb): follow-up PR: accept a witness for the genesis point here
-	// to enable script-path spends
+	GroupWitnesses []asset.PendingGroupWitness
 }
 
 func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
@@ -749,9 +742,6 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		default:
 		}
 
-		// Compute the asset group info for seedlings in this
-		// batch.
-
 		// Filter the batch seedlings to only consider those that will
 		// become grouped assets. If there are no such seedlings, then
 		// there is no extra information to show.
@@ -1047,13 +1037,38 @@ func (c *ChainPlanter) gardener() {
 
 				req.Resolve(c.pendingBatch)
 
-			// TODO(jhb): follow-up PR: Implement SealBatch command
 			case reqTypeSealBatch:
-				req.Error(fmt.Errorf("not yet implemented"))
+				if c.pendingBatch == nil {
+					req.Error(fmt.Errorf("no pending " +
+						"batch"))
+					break
+				}
+
+				sealReqParams, err :=
+					typedParam[SealParams](req)
+				if err != nil {
+					req.Error(fmt.Errorf("bad seal "+
+						"params: %w", err))
+					break
+				}
+
+				ctx, cancel := c.WithCtxQuit()
+				sealedBatch, err := c.sealBatch(
+					ctx, *sealReqParams,
+				)
+				cancel()
+				if err != nil {
+					req.Error(fmt.Errorf("unable to seal "+
+						"minting batch: %w", err))
+					break
+				}
+
+				req.Resolve(sealedBatch)
 
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
-					req.Error(fmt.Errorf("no pending batch"))
+					req.Error(fmt.Errorf("no pending " +
+						"batch"))
 					break
 				}
 
@@ -1239,19 +1254,17 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 // possible if they are not provided. After all asset group witnesses have been
 // validated, they are saved to disk to be used by the caretaker during batch
 // finalization.
-func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
+func (c *ChainPlanter) sealBatch(ctx context.Context,
+	params SealParams) (*MintingBatch, error) {
+
 	// A batch should exist with 1+ seedlings and be funded before being
 	// sealed.
-	if c.pendingBatch == nil {
-		return fmt.Errorf("no pending batch")
-	}
-
-	if len(c.pendingBatch.Seedlings) == 0 {
-		return fmt.Errorf("no seedlings in batch")
+	if !c.pendingBatch.HasSeedlings() {
+		return nil, fmt.Errorf("no seedlings in batch")
 	}
 
 	if !c.pendingBatch.IsFunded() {
-		return fmt.Errorf("batch is not funded")
+		return nil, fmt.Errorf("batch is not funded")
 	}
 
 	// Filter the batch seedlings to only consider those that will become
@@ -1259,7 +1272,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
 	// to seal and no action is needed.
 	groupSeedlings, _ := filterSeedlingsWithGroup(c.pendingBatch.Seedlings)
 	if len(groupSeedlings) == 0 {
-		return nil
+		return c.pendingBatch, nil
 	}
 
 	// Before we can build the group key requests for each seedling, we must
@@ -1273,29 +1286,98 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
 		c.pendingBatch.GenesisPacket.Pkt.UnsignedTx,
 	)
 
+	// Check if the batch is already sealed by picking a random grouped
+	// seedling and trying to fetch the full asset group.
+	var singleSeedling []*Seedling
+	for _, seedling := range groupSeedlings {
+		singleSeedling = append(singleSeedling, seedling)
+		break
+	}
+
+	// If the batch was previously sealed, each grouped seedling will have
+	// its asset genesis already stored on disk.
+	existingGroups, err := c.cfg.Log.FetchSeedlingGroups(
+		ctx, genesisPoint, anchorOutputIndex, singleSeedling,
+	)
+
+	switch {
+	case len(existingGroups) != 0:
+		return nil, fmt.Errorf("batch is already sealed")
+	case err != nil:
+		// The only expected error is for a missing asset genesis.
+		if !errors.Is(err, ErrNoGenesis) {
+			return nil, err
+		}
+	}
+
 	// Construct the group key requests and group virtual TXs for each
 	// seedling. With these we can verify provided asset group witnesses,
 	// or attempt to derive asset group witnesses if needed.
-	groupReqs, genTXs, err := c.buildGroupReqs(
-		genesisPoint, anchorOutputIndex, groupSeedlings,
+	groupReqs, genTXs, err := buildGroupReqs(
+		genesisPoint, anchorOutputIndex, c.cfg.GenTxBuilder,
+		groupSeedlings,
 	)
 	if err != nil {
-		return fmt.Errorf("unable to build group requests: %w", err)
+		return nil, fmt.Errorf("unable to build group requests: "+
+			"%w", err)
+	}
+	if len(groupReqs) != len(genTXs) {
+		return nil, fmt.Errorf("mismatched number of group requests " +
+			"and virtual TXs")
+	}
+
+	// Each provided group witness must have a corresponding seedling in the
+	// current batch.
+	seedlingAssetIDs := fn.NewSet(fn.Map(
+		groupReqs, func(req asset.GroupKeyRequest) asset.ID {
+			return req.NewAsset.ID()
+		})...,
+	)
+
+	externalWitnesses := make(map[asset.ID]asset.PendingGroupWitness)
+	for _, wit := range params.GroupWitnesses {
+		if !seedlingAssetIDs.Contains(wit.GenID) {
+			return nil, fmt.Errorf("witness has no matching "+
+				"seedling: %v", wit)
+		}
+		externalWitnesses[wit.GenID] = wit
 	}
 
 	assetGroups := make([]*asset.AssetGroup, 0, len(groupReqs))
 	for i := 0; i < len(groupReqs); i++ {
-		// Derive the asset group witness.
-		groupKey, err := asset.DeriveGroupKey(
-			c.cfg.GenSigner, genTXs[i], groupReqs[i], nil,
+		var (
+			genTX      = genTXs[i]
+			groupReq   = groupReqs[i]
+			protoAsset = groupReq.NewAsset
+			groupKey   *asset.GroupKey
+			err        error
 		)
-		if err != nil {
-			return err
-		}
 
+		// Check for an externally-provided asset group witness before
+		// trying to derive a witness.
+		reqAssetID := protoAsset.ID()
+		groupWitness, ok := externalWitnesses[reqAssetID]
+		switch {
+		case ok:
+			// Set the provided witness; it will be validated below.
+			groupKey = &asset.GroupKey{
+				RawKey:        groupReq.RawKey,
+				GroupPubKey:   genTX.TweakedKey,
+				TapscriptRoot: groupReq.TapscriptRoot,
+				Witness:       groupWitness.Witness,
+			}
+
+		default:
+			// Derive the asset group witness.
+			groupKey, err = asset.DeriveGroupKey(
+				c.cfg.GenSigner, genTX, groupReq, nil,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
 		// Recreate the asset with the populated group key and validate
 		// the asset group witness.
-		protoAsset := groupReqs[i].NewAsset
 		groupedAsset, err := asset.New(
 			protoAsset.Genesis, protoAsset.Amount,
 			protoAsset.LockTime, protoAsset.RelativeLockTime,
@@ -1303,17 +1385,17 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
 			asset.WithAssetVersion(protoAsset.Version),
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
 
 		err = c.cfg.TxValidator.Execute(groupedAsset, nil, nil)
 		if err != nil {
-			return fmt.Errorf("unable to verify asset "+
-				"group witness: %w", err)
+			return nil, fmt.Errorf("unable to verify asset group"+
+				"witness: %s, %w", reqAssetID.String(), err)
 		}
 
 		newGroup := &asset.AssetGroup{
-			Genesis:  &groupReqs[i].NewAsset.Genesis,
+			Genesis:  &protoAsset.Genesis,
 			GroupKey: groupKey,
 		}
 
@@ -1324,10 +1406,18 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
 	// to disk.
 	err = c.cfg.Log.AddSeedlingGroups(ctx, genesisPoint, assetGroups)
 	if err != nil {
-		return fmt.Errorf("unable to write seedling groups: %w", err)
+		return nil, fmt.Errorf("unable to write seedling groups: "+
+			"%w", err)
 	}
 
-	return nil
+	// Populate the group info for each seedling, to display to the caller.
+	batchWithGroupInfo := c.pendingBatch.Copy()
+	for _, group := range assetGroups {
+		assetName := group.Genesis.Tag
+		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
+	}
+
+	return batchWithGroupInfo, nil
 }
 
 // finalizeBatch creates a new caretaker for the batch and starts it.
@@ -1383,10 +1473,15 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 		}
 	}
 
-	// TODO(jhb): follow-up PR: detect batches that were already sealed
-	err = c.sealBatch(ctx, SealParams{})
+	// If the batch needs to be sealed, we'll use the default behavior for
+	// generating asset group witnesses. Any custom behavior requires
+	// calling SealBatch() explicitly, before batch finalization.
+	_, err = c.sealBatch(ctx, SealParams{})
 	if err != nil {
-		return nil, err
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "batch is already sealed") {
+			return nil, err
+		}
 	}
 
 	// Now that the batch has been frozen on disk, we can update the batch

@@ -2,6 +2,7 @@ package tapgarden
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -378,3 +379,8 @@ type KeyRing interface {
 	// and can be derived by it.
 	IsLocalKey(context.Context, keychain.KeyDescriptor) bool
 }
+
+var (
+	// ErrNoGenesis is returned when fetching an asset genesis fails.
+	ErrNoGenesis = errors.New("unable to fetch genesis asset")
+)

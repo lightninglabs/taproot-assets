@@ -1271,6 +1271,13 @@ func (a *AssetMintingStore) FetchSeedlingGroups(ctx context.Context,
 		for i := range seedlingGens {
 			genID, err := fetchGenesisID(ctx, q, *seedlingGens[i])
 			if err != nil {
+				// Re-map the error about a missing asset
+				// genesis so it can be better handled in the
+				// planter.
+				if errors.Is(err, ErrFetchGenesisID) {
+					return tapgarden.ErrNoGenesis
+				}
+
 				return err
 			}
 

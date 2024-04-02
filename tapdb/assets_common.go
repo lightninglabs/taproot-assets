@@ -116,6 +116,10 @@ var (
 	// ErrTapscriptRootSize is returned when the given tapscript root is not
 	// exactly 32 bytes.
 	ErrTapscriptRootSize = errors.New("tapscript root invalid: wrong size")
+
+	// ErrFetchGenesisAsset is returned when fetching the database ID for an
+	// asset genesis fails.
+	ErrFetchGenesisID = errors.New("unable to fetch genesis asset")
 )
 
 // upsertGenesis imports a new genesis point into the database or returns the
@@ -181,7 +185,7 @@ func fetchGenesisID(ctx context.Context, q UpsertAssetStore,
 		PrevOut:     genPoint,
 	})
 	if err != nil {
-		return 0, fmt.Errorf("unable to fetch genesis asset: %w", err)
+		return 0, fmt.Errorf("%w: %w", ErrFetchGenesisID, err)
 	}
 
 	return genAssetID, nil

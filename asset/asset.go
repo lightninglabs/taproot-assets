@@ -706,7 +706,7 @@ type GroupKeyRequest struct {
 
 	// NewAsset is the asset which we are requesting group membership for.
 	// A successful request will produce a witness that authorizes this
-	// to be a member of this asset group.
+	// asset to be a member of this asset group.
 	NewAsset *Asset
 }
 
@@ -750,6 +750,13 @@ type GroupKeyReveal struct {
 	// a Schnorr signature for reissuing assets. This is either empty/nil or
 	// a 32-byte hash.
 	TapscriptRoot []byte
+}
+
+// PendingGroupWitness specifies the asset group witness for an asset seedling
+// in an unsealed minting batch.
+type PendingGroupWitness struct {
+	GenID   ID
+	Witness wire.TxWitness
 }
 
 // GroupPubKey returns the group public key derived from the group key reveal.
