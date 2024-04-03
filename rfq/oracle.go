@@ -76,12 +76,12 @@ type PriceOracle interface {
 
 //// RpcPriceOracle is a price oracle that uses an external RPC server to get
 //// exchange rate information.
-//type RpcPriceOracle struct {
-//}
+// type RpcPriceOracle struct {
+// }
 //
-//// serverDialOpts returns the set of server options needed to connect to the
-//// price oracle RPC server using a TLS connection.
-//func serverDialOpts() ([]grpc.DialOption, error) {
+// // serverDialOpts returns the set of server options needed to connect to the
+// // price oracle RPC server using a TLS connection.
+// func serverDialOpts() ([]grpc.DialOption, error) {
 //	var opts []grpc.DialOption
 //
 //	// Skip TLS certificate verification.
@@ -90,11 +90,11 @@ type PriceOracle interface {
 //	opts = append(opts, grpc.WithTransportCredentials(transportCredentials))
 //
 //	return opts, nil
-//}
+// }
 //
-//// NewRpcPriceOracle creates a new RPC price oracle handle given the address
-//// of the price oracle RPC server.
-//func NewRpcPriceOracle(addr url.URL) (*RpcPriceOracle, error) {
+// // NewRpcPriceOracle creates a new RPC price oracle handle given the address
+// // of the price oracle RPC server.
+// func NewRpcPriceOracle(addr url.URL) (*RpcPriceOracle, error) {
 //	//// Connect to the RPC server.
 //	//dialOpts, err := serverDialOpts()
 //	//if err != nil {
@@ -108,10 +108,10 @@ type PriceOracle interface {
 //	//}
 //
 //	return &RpcPriceOracle{}, nil
-//}
+// }
 //
-//// QueryAskingPrice returns the asking price for the given asset amount.
-//func (r *RpcPriceOracle) QueryAskingPrice(ctx context.Context,
+// // QueryAskingPrice returns the asking price for the given asset amount.
+// func (r *RpcPriceOracle) QueryAskingPrice(ctx context.Context,
 //	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
 //	bidPrice *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
 //
@@ -119,10 +119,10 @@ type PriceOracle interface {
 //	//conn := getClientConn(ctx, false)
 //
 //	return nil, nil
-//}
+// }
 //
-//// Ensure that RpcPriceOracle implements the PriceOracle interface.
-//var _ PriceOracle = (*RpcPriceOracle)(nil)
+// // Ensure that RpcPriceOracle implements the PriceOracle interface.
+// var _ PriceOracle = (*RpcPriceOracle)(nil)
 
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
 // It returns the suggested rate as the exchange rate.

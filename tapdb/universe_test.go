@@ -650,7 +650,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 				leaf.GroupKey.Witness = sharedWitness
 
 				//nolint:lll
-				//leaf.Proof.Asset.GroupKey.Witness = sharedWitness
+				// leaf.Proof.Asset.GroupKey.Witness = sharedWitness
 				leaf.Asset.GroupKey.Witness = sharedWitness
 				// TODO(roasbeef): circle back
 			}
