@@ -1,6 +1,6 @@
 run:
   # timeout for analysis
-  deadline: 4m
+  timeout: 4m
 
 linters-settings:
   errorlint:
@@ -26,13 +26,18 @@ linters-settings:
   exhaustive:
     default-signifies-exhaustive: true
   gocritic:
-      enabled-checks:
-        - singleCaseSwitch
-        - ifElseChain
-        - assignOp
-        - unlambda
+    enabled-checks:
+      - singleCaseSwitch
+      - ifElseChain
+      - assignOp
+      - unlambda
   staticcheck:
-    checks: ["-SA1019"]
+    checks: ['-SA1019']
+  lll:
+    # Max line length, lines longer will be reported.
+    line-length: 80
+    # Tab width in spaces.
+    tab-width: 8
 
 linters:
   enable:
@@ -46,6 +51,7 @@ linters:
     - unconvert
     - nilerr
     - exhaustive
+    - lll
 
 issues:
   exclude-rules:
@@ -66,3 +72,4 @@ issues:
         - unused
         - deadcode
         - varcheck
+  new-from-rev: c118c9095a3175d1d311fa9bf6555b44aa8d3912
