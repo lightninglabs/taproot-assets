@@ -228,8 +228,19 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	// TODO(ffranr): Add an asset buy offer to Bob's tapd node. This will
-	//  allow Alice to sell the newly minted asset to Bob.
+	// Upsert an asset buy offer to Bob's tapd node. This will allow Bob to
+	// buy the newly minted asset from Alice.
+	_, err := ts.BobTapd.AddAssetBuyOffer(
+		ctxt, &rfqrpc.AddAssetBuyOfferRequest{
+			AssetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
+					AssetId: mintedAssetId,
+				},
+			},
+			MaxUnits: 1000,
+		},
+	)
+	require.NoError(t.t, err, "unable to upsert asset buy offer")
 
 	// Subscribe to Alice's RFQ events stream.
 	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(

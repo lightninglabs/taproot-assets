@@ -232,6 +232,10 @@ var (
 			Entity: "rfq",
 			Action: "write",
 		}},
+		"/rfqrpc.Rfq/AddAssetBuyOffer": {{
+			Entity: "rfq",
+			Action: "write",
+		}},
 		"/rfqrpc.Rfq/QueryPeerAcceptedQuotes": {{
 			Entity: "rfq",
 			Action: "read",

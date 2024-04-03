@@ -426,6 +426,18 @@ func (m *Manager) RemoveAssetSellOffer(assetID *asset.ID,
 	return nil
 }
 
+// UpsertAssetBuyOffer upserts an asset buy offer for management by the RFQ
+// system. If the offer already exists for the given asset, it will be updated.
+func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
+	// Store the asset buy offer in the negotiator.
+	err := m.negotiator.UpsertAssetBuyOffer(offer)
+	if err != nil {
+		return fmt.Errorf("error registering asset buy offer: %w", err)
+	}
+
+	return nil
+}
+
 // BuyOrder is a struct that represents a buy order.
 type BuyOrder struct {
 	// AssetID is the ID of the asset that the buyer is interested in.

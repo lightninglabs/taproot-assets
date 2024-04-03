@@ -42,7 +42,15 @@ type Negotiator struct {
 
 	// assetGroupSellOffers is a map (keyed on asset group key) that holds
 	// asset sell offers.
-	assetGroupSellOffers lnutils.SyncMap[btcec.PublicKey, SellOffer]
+	assetGroupSellOffers lnutils.SyncMap[asset.SerializedKey, SellOffer]
+
+	// assetBuyOffers is a map (keyed on asset ID) that holds asset buy
+	// offers.
+	assetBuyOffers lnutils.SyncMap[asset.ID, BuyOffer]
+
+	// assetGroupBuyOffers is a map (keyed on asset group key) that holds
+	// asset buy offers.
+	assetGroupBuyOffers lnutils.SyncMap[asset.SerializedKey, BuyOffer]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -61,7 +69,11 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 
 		assetSellOffers: lnutils.SyncMap[asset.ID, SellOffer]{},
 		assetGroupSellOffers: lnutils.SyncMap[
-			btcec.PublicKey, SellOffer]{},
+			asset.SerializedKey, SellOffer]{},
+
+		assetBuyOffers: lnutils.SyncMap[asset.ID, BuyOffer]{},
+		assetGroupBuyOffers: lnutils.SyncMap[
+			asset.SerializedKey, BuyOffer]{},
 
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: DefaultTimeout,
@@ -305,8 +317,33 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 func (n *Negotiator) HandleIncomingSellRequest(
 	request rfqmsg.SellRequest) error {
 
-	// TODO(ffranr): Ensure that we have a suitable buy offer for the asset
-	//  that our peer is trying to sell to us.
+	// The sell request is attempting to sell some amount of an asset to our
+	// node. Here we ensure that we have a suitable buy offer for the asset.
+	// A buy offer is the criteria that this node uses to determine whether
+	// it is willing to buy a particular asset (before price is considered).
+	// At this point we can handle the case where this node does not wish
+	// to buy some amount of a particular asset regardless of its price.
+	offerAvailable := n.HasAssetBuyOffer(
+		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+	)
+	if !offerAvailable {
+		// If we do not have a suitable buy offer, then we will reject
+		// the asset sell quote request with an error.
+		reject := rfqmsg.NewReject(
+			request.Peer, request.ID, rfqmsg.ErrNoSuitableBuyOffer,
+		)
+		var msg rfqmsg.OutgoingMsg = reject
+
+		sendSuccess := fn.SendOrQuit(
+			n.cfg.OutgoingMessages, msg, n.Quit,
+		)
+		if !sendSuccess {
+			return fmt.Errorf("negotiator failed to send reject " +
+				"message")
+		}
+
+		return nil
+	}
 
 	// Define a thread safe helper function for adding outgoing message to
 	// the outgoing messages channel.
@@ -461,7 +498,13 @@ func (n *Negotiator) UpsertAssetSellOffer(offer SellOffer) error {
 	// the offer. Otherwise, we will use the asset ID as the key.
 	switch {
 	case offer.AssetGroupKey != nil:
-		n.assetGroupSellOffers.Store(*offer.AssetGroupKey, offer)
+		// We will serialize the public key to a fixed size byte array
+		// before using it as a map key. This is because functionally
+		// identical public keys can have different internal
+		// representations. These differences would cause the map to
+		// treat them as different keys.
+		keyFixedBytes := asset.ToSerialized(offer.AssetGroupKey)
+		n.assetGroupSellOffers.Store(keyFixedBytes, offer)
 
 	case offer.AssetID != nil:
 		n.assetSellOffers.Store(*offer.AssetID, offer)
@@ -480,7 +523,8 @@ func (n *Negotiator) RemoveAssetSellOffer(assetID *asset.ID,
 	// the offer. Otherwise, we will use the asset ID as the key.
 	switch {
 	case assetGroupKey != nil:
-		n.assetGroupSellOffers.Delete(*assetGroupKey)
+		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+		n.assetGroupSellOffers.Delete(keyFixedBytes)
 
 	case assetID != nil:
 		n.assetSellOffers.Delete(*assetID)
@@ -505,7 +549,8 @@ func (n *Negotiator) HasAssetSellOffer(assetID *asset.ID,
 	var sellOffer *SellOffer
 	switch {
 	case assetGroupKey != nil:
-		offer, ok := n.assetGroupSellOffers.Load(*assetGroupKey)
+		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+		offer, ok := n.assetGroupSellOffers.Load(keyFixedBytes)
 		if !ok {
 			// Corresponding offer not found.
 			return false
@@ -535,6 +580,126 @@ func (n *Negotiator) HasAssetSellOffer(assetID *asset.ID,
 		log.Warnf("asset amount is greater than sell offer max units "+
 			"(asset_amt=%d, sell_offer_max_units=%d)", assetAmt,
 			sellOffer.MaxUnits)
+		return false
+	}
+
+	return true
+}
+
+// BuyOffer is a struct that represents an asset buy offer. This data structure
+// describes the maximum amount of an asset that this node is willing to
+// purchase.
+//
+// A buy offer is passive (unlike a buy order), meaning that it does not
+// actively lead to a buy request being sent to a peer. Instead, it is used by
+// the node to selectively accept or reject incoming asset sell quote requests
+// before price is considered.
+type BuyOffer struct {
+	// AssetID represents the identifier of the subject asset.
+	AssetID *asset.ID
+
+	// AssetGroupKey is the public group key of the subject asset.
+	AssetGroupKey *btcec.PublicKey
+
+	// MaxUnits is the maximum amount of the asset which this node is
+	// willing to purchase.
+	MaxUnits uint64
+}
+
+// Validate validates the asset buy offer.
+func (a *BuyOffer) Validate() error {
+	if a.AssetID == nil && a.AssetGroupKey == nil {
+		return fmt.Errorf("asset ID is nil and asset group key is nil")
+	}
+
+	if a.AssetID != nil && a.AssetGroupKey != nil {
+		return fmt.Errorf("asset ID and asset group key are both set")
+	}
+
+	if a.MaxUnits == 0 {
+		return fmt.Errorf("max asset amount is zero")
+	}
+
+	return nil
+}
+
+// UpsertAssetBuyOffer upserts an asset buy offer. If the offer already exists
+// for the given asset, it will be updated.
+func (n *Negotiator) UpsertAssetBuyOffer(offer BuyOffer) error {
+	// Validate the offer.
+	err := offer.Validate()
+	if err != nil {
+		return fmt.Errorf("invalid asset buy offer: %w", err)
+	}
+
+	// Store the offer in the appropriate map.
+	//
+	// If the asset group key is not nil, then we will use it as the key for
+	// the offer. Otherwise, we will use the asset ID as the key.
+	switch {
+	case offer.AssetGroupKey != nil:
+		// We will serialize the public key to a fixed size byte array
+		// before using it as a map key. This is because functionally
+		// identical public keys can have different internal
+		// representations. These differences would cause the map to
+		// treat them as different keys.
+		keyFixedBytes := asset.ToSerialized(offer.AssetGroupKey)
+		n.assetGroupBuyOffers.Store(keyFixedBytes, offer)
+
+	case offer.AssetID != nil:
+		n.assetBuyOffers.Store(*offer.AssetID, offer)
+	}
+
+	return nil
+}
+
+// HasAssetBuyOffer returns true if the negotiator has an asset buy offer which
+// matches the given asset ID/group and asset amount.
+//
+// TODO(ffranr): This method should return errors which can be used to
+// differentiate between a missing offer and an invalid offer.
+func (n *Negotiator) HasAssetBuyOffer(assetID *asset.ID,
+	assetGroupKey *btcec.PublicKey, assetAmt uint64) bool {
+
+	// If the asset group key is not nil, then we will use it as the lookup
+	// key to retrieve an offer. Otherwise, we will use the asset ID as the
+	// lookup key.
+	var buyOffer *BuyOffer
+	switch {
+	case assetGroupKey != nil:
+		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+		offer, ok := n.assetGroupBuyOffers.Load(keyFixedBytes)
+		if !ok {
+			// Corresponding offer not found.
+			return false
+		}
+
+		buyOffer = &offer
+
+	case assetID != nil:
+		offer, ok := n.assetBuyOffers.Load(*assetID)
+		if !ok {
+			// Corresponding offer not found.
+			return false
+		}
+
+		buyOffer = &offer
+	}
+
+	// We should never have a nil buy offer at this point. Check added here
+	// for robustness.
+	if buyOffer == nil {
+		return false
+	}
+
+	// If the asset amount is greater than the maximum asset amount under
+	// offer, then we will return false (we do not have a suitable offer).
+	if assetAmt > buyOffer.MaxUnits {
+		// At this point, the sell request is asking us to buy more of
+		// the asset than we are willing to purchase.
+		log.Warnf("asset amount is greater than buy offer max units "+
+			"(asset_amt=%d, buy_offer_max_units=%d)", assetAmt,
+			buyOffer.MaxUnits)
 		return false
 	}
 
