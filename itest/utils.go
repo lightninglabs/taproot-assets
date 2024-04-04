@@ -215,8 +215,9 @@ func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
 
 	// Drain any funds held by the node.
 	wallet.RPC.SendCoins(&lnrpc.SendCoinsRequest{
-		Addr:    minerAddr.EncodeAddress(),
-		SendAll: true,
+		Addr:        minerAddr.EncodeAddress(),
+		SendAll:     true,
+		SatPerVbyte: 1,
 	})
 	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
 
