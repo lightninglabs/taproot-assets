@@ -72,4 +72,4 @@ issues:
         - unused
         - deadcode
         - varcheck
-  new-from-rev: c118c9095a3175d1d311fa9bf6555b44aa8d3912
+  new-from-rev: c723abd3c9db8a6a2f3f1eaa85ce5aefb52c8170
