@@ -3,13 +3,13 @@ name: CI
 on:
   push:
     branches:
-      - "main"
+      - 'main'
   pull_request:
     branches:
-      - "*"
+      - '*'
   merge_group:
     branches:
-      - "main"
+      - 'main'
 
 defaults:
   run:
@@ -110,13 +110,13 @@ jobs:
       - name: Build default image
         uses: docker/build-push-action@v4
         with:
-          tags: "default-taproot-assets"
+          tags: 'default-taproot-assets'
 
       - name: Build dev image
         uses: docker/build-push-action@v4
         with:
           file: dev.Dockerfile
-          tags: "dev-taproot-assets"
+          tags: 'dev-taproot-assets'
 
   ########################
   # cross compilation
@@ -143,6 +143,8 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
 
       - name: Setup go environment
         uses: ./.github/actions/setup-go
