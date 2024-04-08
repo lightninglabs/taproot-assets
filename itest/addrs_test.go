@@ -501,7 +501,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	AssertSendEventsComplete(t.t, bobAddr1.ScriptKey, sendEvents)
 
 	// Make sure the receivers have received all events in order for the
-	//addresses.
+	// addresses.
 	AssertReceiveEvents(t.t, bobAddr1, bobEvents1)
 	AssertReceiveEvents(t.t, bobAddr2, bobEvents2)
 	AssertReceiveEvents(t.t, aliceAddr1, aliceEvents1)

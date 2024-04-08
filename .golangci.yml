@@ -6,9 +6,6 @@ linters-settings:
   errorlint:
     comparison: false
     asserts: false
-  govet:
-    # Don't report about shadowed variables
-    check-shadowing: false
   gofmt:
     # simplify code: gofmt with `-s` option, true by default
     simplify: true
@@ -26,11 +23,12 @@ linters-settings:
   exhaustive:
     default-signifies-exhaustive: true
   gocritic:
-    enabled-checks:
-      - singleCaseSwitch
-      - ifElseChain
-      - assignOp
-      - unlambda
+    disabled-checks:
+      - unslice
+      - captLocal
+      - underef
+      - appendAssign
+      - exitAfterDefer
   staticcheck:
     checks: ['-SA1019']
   lll:
@@ -43,6 +41,8 @@ linters:
   enable:
     - errorlint
     - gofmt
+    - govet
+    - staticcheck
     - tagliatelle
     - whitespace
     - gosec
