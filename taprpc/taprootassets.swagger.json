@@ -1090,13 +1090,13 @@
           "description": "The total amount of the asset stored in this Taproot Asset UTXO."
         },
         "lock_time": {
-          "type": "integer",
-          "format": "int32",
+          "type": "string",
+          "format": "uint64",
           "description": "An optional locktime, as with Bitcoin transactions."
         },
         "relative_lock_time": {
-          "type": "integer",
-          "format": "int32",
+          "type": "string",
+          "format": "uint64",
           "description": "An optional relative lock time, same as Bitcoin transactions."
         },
         "script_version": {
@@ -1179,6 +1179,11 @@
           "type": "string",
           "format": "byte",
           "description": "A witness that authorizes a specific asset to be part of the asset group\nspecified by the above key."
+        },
+        "tapscript_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The root hash of a tapscript tree, which enables future issuance authorized\nwith a script witness."
         }
       }
     },
@@ -1211,13 +1216,13 @@
           "description": "The amount of the asset."
         },
         "lock_time": {
-          "type": "integer",
-          "format": "int32",
+          "type": "string",
+          "format": "uint64",
           "description": "An optional locktime, as with Bitcoin transactions."
         },
         "relative_lock_time": {
-          "type": "integer",
-          "format": "int32",
+          "type": "string",
+          "format": "uint64",
           "description": "An optional relative locktime, as with Bitcoin transactions."
         },
         "tag": {
@@ -1622,12 +1627,12 @@
       "properties": {
         "key_family": {
           "type": "integer",
-          "format": "int32",
+          "format": "int64",
           "description": "The family of key being identified."
         },
         "key_index": {
           "type": "integer",
-          "format": "int32",
+          "format": "int64",
           "description": "The precise index of the key being identified."
         }
       }

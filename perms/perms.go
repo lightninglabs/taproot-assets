@@ -140,6 +140,14 @@ var (
 			Entity: "mint",
 			Action: "write",
 		}},
+		"/mintrpc.Mint/FundBatch": {{
+			Entity: "mint",
+			Action: "write",
+		}},
+		"/mintrpc.Mint/SealBatch": {{
+			Entity: "mint",
+			Action: "write",
+		}},
 		"/mintrpc.Mint/FinalizeBatch": {{
 			Entity: "mint",
 			Action: "write",

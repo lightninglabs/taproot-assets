@@ -853,12 +853,12 @@
       "properties": {
         "key_family": {
           "type": "integer",
-          "format": "int32",
+          "format": "int64",
           "description": "The family of key being identified."
         },
         "key_index": {
           "type": "integer",
-          "format": "int32",
+          "format": "int64",
           "description": "The precise index of the key being identified."
         }
       }
