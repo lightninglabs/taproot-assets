@@ -412,64 +412,6 @@ func (b *BatchCaretaker) assetCultivator() {
 	}
 }
 
-// fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
-// order to be able to create an asset, we need an initial genesis outpoint. To
-// obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
-// (all outputs need to hold some BTC to not be dust), and with a dummy script.
-// We need to use a dummy script as we can't know the actual script key since
-// that's dependent on the genesis outpoint.
-func (b *BatchCaretaker) fundGenesisPsbt(
-	ctx context.Context) (*tapsend.FundedPsbt, error) {
-
-	log.Infof("BatchCaretaker(%x): attempting to fund GenesisPacket",
-		b.batchKey[:])
-
-	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
-	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
-	}
-
-	log.Infof("BatchCaretaker(%x): creating skeleton PSBT", b.batchKey[:])
-	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
-
-	var feeRate chainfee.SatPerKWeight
-	switch {
-	// If a fee rate was manually assigned for this batch, use that instead
-	// of a fee rate estimate.
-	case b.cfg.BatchFeeRate != nil:
-		feeRate = *b.cfg.BatchFeeRate
-		log.Infof("BatchCaretaker(%x): using manual fee rate: %s, %d "+
-			"sat/vB", b.batchKey[:], feeRate.String(),
-			feeRate.FeePerKVByte()/1000)
-
-	default:
-		feeRate, err = b.cfg.ChainBridge.EstimateFee(
-			ctx, GenesisConfTarget,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to estimate fee: %w",
-				err)
-		}
-
-		log.Infof("BatchCaretaker(%x): estimated fee rate: %s",
-			b.batchKey[:], feeRate.FeePerKVByte().String())
-	}
-
-	fundedGenesisPkt, err := b.cfg.Wallet.FundPsbt(
-		ctx, genesisPkt, 1, feeRate,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to fund psbt: %w", err)
-	}
-
-	log.Infof("BatchCaretaker(%x): funded GenesisPacket", b.batchKey[:])
-	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
-
-	return fundedGenesisPkt, nil
-}
-
 // extractGenesisOutpoint extracts the genesis point (the first output from the
 // genesis transaction).
 func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
@@ -489,15 +431,71 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 
 	newAssets := make([]*asset.Asset, 0, len(b.cfg.Batch.Seedlings))
 
-	// Seedlings that anchor a group may be referenced by other seedlings,
-	// and therefore need to be mapped to sprouts first so that we derive
-	// the initial tweaked group key early.
-	orderedSeedlings := SortSeedlings(maps.Values(b.cfg.Batch.Seedlings))
-	newGroups := make(map[string]*asset.AssetGroup, len(orderedSeedlings))
+	// separate grouped assets from ungrouped
+	groupedSeedlings, ungroupedSeedlings := filterSeedlingsWithGroup(
+		b.cfg.Batch.Seedlings,
+	)
+	groupedSeedlingCount := len(groupedSeedlings)
 
-	for _, seedlingName := range orderedSeedlings {
-		seedling := b.cfg.Batch.Seedlings[seedlingName]
+	// load seedling asset groups and check for correct group count
+	seedlingGroups, err := b.cfg.Log.FetchSeedlingGroups(
+		ctx, genesisPoint, assetOutputIndex,
+		maps.Values(groupedSeedlings),
+	)
+	if err != nil {
+		return nil, err
+	}
+	seedlingGroupCount := len(seedlingGroups)
 
+	if groupedSeedlingCount != seedlingGroupCount {
+		return nil, fmt.Errorf("wrong number of grouped assets and "+
+			"asset groups: %d, %d", groupedSeedlingCount,
+			seedlingGroupCount)
+	}
+
+	for i := range seedlingGroups {
+		// check that asset group has a witness, and that the group
+		// has a matching seedling
+		seedlingGroup := seedlingGroups[i]
+		if len(seedlingGroup.GroupKey.Witness) == 0 {
+			return nil, fmt.Errorf("not all seedling groups have " +
+				"witnesses")
+		}
+
+		seedling, ok := groupedSeedlings[seedlingGroup.Tag]
+		if !ok {
+			groupTweakedKey := seedlingGroup.GroupKey.GroupPubKey.
+				SerializeCompressed()
+			return nil, fmt.Errorf("no seedling with tag matching "+
+				"group: %v, %x", seedlingGroup.Tag,
+				groupTweakedKey)
+		}
+
+		// build assets for grouped seedlings
+		var amount uint64
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
+
+		newAsset, err := asset.New(
+			*seedlingGroup.Genesis, amount, 0, 0,
+			seedling.ScriptKey, seedlingGroup.GroupKey,
+			asset.WithAssetVersion(seedling.AssetVersion),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create new asset: %w",
+				err)
+		}
+
+		newAssets = append(newAssets, newAsset)
+	}
+
+	// build assets for ungrouped seedlings
+	for seedlingName := range ungroupedSeedlings {
+		seedling := ungroupedSeedlings[seedlingName]
 		assetGen := asset.Genesis{
 			FirstPrevOut: genesisPoint,
 			Tag:          seedling.AssetName,
@@ -512,23 +510,8 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
 
-		scriptKey, err := b.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to obtain script "+
-				"key: %w", err)
-		}
-		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
-
-		var (
-			amount         uint64
-			groupInfo      *asset.AssetGroup
-			protoAsset     *asset.Asset
-			sproutGroupKey *asset.GroupKey
-		)
-
 		// Determine the amount for the actual asset.
+		var amount uint64
 		switch seedling.AssetType {
 		case asset.Normal:
 			amount = seedling.Amount
@@ -536,107 +519,15 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			amount = 1
 		}
 
-		// If the seedling has a group key specified,
-		// that group key was validated earlier. We need to
-		// sign the new genesis with that group key.
-		if seedling.HasGroupKey() {
-			groupInfo = seedling.GroupInfo
-		}
-
-		// If the seedling has a group anchor specified, that anchor
-		// was validated earlier and the corresponding group has already
-		// been created. We need to look up the group key and sign
-		// the asset genesis with that key.
-		if seedling.GroupAnchor != nil {
-			groupInfo = newGroups[*seedling.GroupAnchor]
-		}
-
-		// If a group witness needs to be produced, then we will need a
-		// partially filled asset as part of the signing process.
-		if groupInfo != nil || seedling.EnableEmission {
-			protoAsset, err = asset.New(
-				assetGen, amount, 0, 0, tweakedScriptKey, nil,
-				asset.WithAssetVersion(seedling.AssetVersion),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to create "+
-					"asset for group key signing: %w", err)
-			}
-		}
-
-		if groupInfo != nil {
-			groupReq, err := asset.NewGroupKeyRequest(
-				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
-				protoAsset, nil,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to request "+
-					"asset group membership: %w", err)
-			}
-
-			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, b.cfg.GenTxBuilder, *groupReq,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to tweak group "+
-					"key: %w", err)
-			}
-		}
-
-		// If emission is enabled without a group key specified,
-		// then we'll need to generate another public key,
-		// then use that to derive the key group signature
-		// along with the tweaked key group.
-		if seedling.EnableEmission {
-			rawGroupKey, err := b.cfg.KeyRing.DeriveNextKey(
-				ctx, asset.TaprootAssetsKeyFamily,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to derive "+
-					"group key: %w", err)
-			}
-
-			groupReq, err := asset.NewGroupKeyRequest(
-				rawGroupKey, assetGen, protoAsset, nil,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to request "+
-					"asset group creation: %w", err)
-			}
-
-			sproutGroupKey, err = asset.DeriveGroupKey(
-				b.cfg.GenSigner, b.cfg.GenTxBuilder, *groupReq,
-			)
-			if err != nil {
-				return nil, fmt.Errorf("unable to tweak group "+
-					"key: %w", err)
-			}
-
-			newGroups[seedlingName] = &asset.AssetGroup{
-				Genesis:  &assetGen,
-				GroupKey: sproutGroupKey,
-			}
-		}
-
 		// With the necessary keys components assembled, we'll create
 		// the actual asset now.
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, tweakedScriptKey,
-			sproutGroupKey,
+			assetGen, amount, 0, 0, seedling.ScriptKey, nil,
 			asset.WithAssetVersion(seedling.AssetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create new asset: %w",
 				err)
-		}
-
-		// Verify the group witness if present.
-		if sproutGroupKey != nil {
-			err := b.cfg.TxValidator.Execute(newAsset, nil, nil)
-			if err != nil {
-				return nil, fmt.Errorf("unable to verify "+
-					"asset group witness: %w", err)
-			}
 		}
 
 		newAssets = append(newAssets, newAsset)
@@ -675,29 +566,37 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 	// batch, so we'll use the batch key as the internal key for the
 	// genesis transaction that'll create the batch.
 	case BatchStateFrozen:
-		// First, we'll fund a PSBT packet with enough coins allocated
-		// as inputs to be able to create our genesis output for the
-		// asset and also pay for fees.
-		//
 		// TODO(roasbeef): need to invalidate asset creation if on
 		// restart leases are gone
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
-		genesisTxPkt, err := b.fundGenesisPsbt(ctx)
+
+		// Make a copy of the batch PSBT, which we'll modify and then
+		// update the batch with.
+		var psbtBuf bytes.Buffer
+		err := b.cfg.Batch.GenesisPacket.Pkt.Serialize(&psbtBuf)
 		if err != nil {
-			return 0, err
+			return 0, fmt.Errorf("unable to serialize genesis "+
+				"PSBT: %w", err)
 		}
 
-		genesisPoint := extractGenesisOutpoint(
-			genesisTxPkt.Pkt.UnsignedTx,
-		)
+		genesisTxPkt, err := psbt.NewFromRawBytes(&psbtBuf, false)
+		if err != nil {
+			return 0, fmt.Errorf("unable to deserialize genesis "+
+				"PSBT: %w", err)
+		}
+		changeOutputIndex := b.cfg.Batch.GenesisPacket.ChangeOutputIndex
 
 		// If the change output is first, then our commitment is second,
 		// and vice versa.
+		// TODO(jhb): return the anchor index instead of change? or both
+		// so this works for N outputs
 		b.anchorOutputIndex = 0
-		if genesisTxPkt.ChangeOutputIndex == 0 {
+		if changeOutputIndex == 0 {
 			b.anchorOutputIndex = 1
 		}
+
+		genesisPoint := extractGenesisOutpoint(genesisTxPkt.UnsignedTx)
 
 		// First, we'll turn all the seedlings into actual taproot assets.
 		tapCommitment, err := b.seedlingsToAssetSprouts(
@@ -737,23 +636,28 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"script: %w", err)
 		}
 
-		genesisTxPkt.Pkt.UnsignedTx.TxOut[b.anchorOutputIndex].PkScript = genesisScript
+		genesisTxPkt.UnsignedTx.
+			TxOut[b.anchorOutputIndex].PkScript = genesisScript
 
 		log.Infof("BatchCaretaker(%x): committing sprouts to disk",
 			b.batchKey[:])
 
+		fundedGenesisPsbt := tapsend.FundedPsbt{
+			Pkt:               genesisTxPkt,
+			ChangeOutputIndex: changeOutputIndex,
+		}
 		// With all our commitments created, we'll commit them to disk,
 		// replacing the existing seedlings we had created for each of
 		// these assets.
 		err = b.cfg.Log.AddSproutsToBatch(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
-			genesisTxPkt, b.cfg.Batch.RootAssetCommitment,
+			&fundedGenesisPsbt, b.cfg.Batch.RootAssetCommitment,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit batch: %w", err)
 		}
 
-		b.cfg.Batch.GenesisPacket = genesisTxPkt
+		b.cfg.Batch.GenesisPacket.Pkt = genesisTxPkt
 
 		// Now that we know the script key for all the assets, we'll
 		// populate the asset metas map as we need that to create the
@@ -1635,10 +1539,10 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 		assetGroupKey := asset.ToSerialized(&groupKey.GroupPubKey)
 		groupAnchor, err := groupAnchors.Get(assetGroupKey)
 		if err != nil {
-			// TODO(jhb): add tapscript root support
 			singleTweak := gen.ID()
 			tweakedGroupKey, err := asset.GroupPubKey(
-				groupKey.RawKey.PubKey, singleTweak[:], nil,
+				groupKey.RawKey.PubKey, singleTweak[:],
+				groupKey.TapscriptRoot,
 			)
 			if err != nil {
 				return err

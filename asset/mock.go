@@ -56,8 +56,10 @@ func RandGroupKeyWithSigner(t testing.TB, genesis Genesis,
 		AnchorGen: genesis,
 		NewAsset:  newAsset,
 	}
+	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
+	require.NoError(t, err)
 
-	groupKey, err := DeriveGroupKey(genSigner, &genBuilder, groupReq)
+	groupKey, err := DeriveGroupKey(genSigner, *genTx, groupReq, nil)
 	require.NoError(t, err)
 
 	return groupKey, privateKey.Serialize()
@@ -343,10 +345,7 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 			"key types")
 	}
 
-	var (
-		groupKey *GroupKey
-		err      error
-	)
+	var groupKey *GroupKey
 
 	genID := gen.ID()
 	scriptKey := RandScriptKey(t)
@@ -369,15 +368,16 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 		AnchorGen: gen,
 		NewAsset:  protoAsset,
 	}
-
 	// Update the group key request and group key derivation arguments
 	// to match the requested group key type.
 	switch {
 	// Use an empty tapscript and script witness.
 	case BIP86:
-		groupKey, err = DeriveCustomGroupKey(
-			genSigner, &genBuilder, groupReq, nil, nil,
-		)
+		genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
+		require.NoError(t, err)
+
+		groupKey, err = DeriveGroupKey(genSigner, *genTx, groupReq, nil)
+		require.NoError(t, err)
 
 	// Derive a tapscipt root using the default tapscript tree used for
 	// testing, but use a signature as a witness.
@@ -388,9 +388,11 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 		treeTapHash := treeRootChildren.TapHash()
 
 		groupReq.TapscriptRoot = treeTapHash[:]
-		groupKey, err = DeriveCustomGroupKey(
-			genSigner, &genBuilder, groupReq, nil, nil,
-		)
+		genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
+		require.NoError(t, err)
+
+		groupKey, err = DeriveGroupKey(genSigner, *genTx, groupReq, nil)
+		require.NoError(t, err)
 
 	// For a script spend, we derive a tapscript root, and create the needed
 	// tapscript and script witness.
@@ -401,12 +403,22 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 		)
 
 		groupReq.TapscriptRoot = tapRootHash
-		groupKey, err = DeriveCustomGroupKey(
-			genSigner, &genBuilder, groupReq, tapLeaf, witness,
-		)
-	}
+		genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
+		require.NoError(t, err)
 
-	require.NoError(t, err)
+		switch {
+		case witness != nil:
+			groupKey, err = AssembleGroupKeyFromWitness(
+				*genTx, groupReq, tapLeaf, witness,
+			)
+
+		default:
+			groupKey, err = DeriveGroupKey(
+				genSigner, *genTx, groupReq, tapLeaf,
+			)
+		}
+		require.NoError(t, err)
+	}
 
 	return NewAssetNoErr(
 		t, gen, protoAsset.Amount, protoAsset.LockTime,

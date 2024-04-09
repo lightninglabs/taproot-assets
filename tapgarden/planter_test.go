@@ -35,16 +35,31 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/ticker"
 	"github.com/stretchr/testify/require"
 )
 
 // Default to a large interval so the planter never actually ticks and only
 // rely on our manual ticks.
 var (
-	defaultInterval = time.Hour * 24
-	defaultTimeout  = time.Second * 5
-	minterInterval  = time.Millisecond * 250
+	defaultTimeout    = time.Second * 5
+	noCaretakerStates = fn.NewSet(
+		tapgarden.BatchStatePending,
+		tapgarden.BatchStateSeedlingCancelled,
+		tapgarden.BatchStateSproutCancelled,
+	)
+	batchFrozenStates = fn.NewSet(
+		tapgarden.BatchStateFrozen,
+		tapgarden.BatchStateCommitted,
+		tapgarden.BatchStateBroadcast,
+		tapgarden.BatchStateConfirmed,
+		tapgarden.BatchStateFinalized,
+	)
+	batchCommittedStates = fn.NewSet(
+		tapgarden.BatchStateCommitted,
+		tapgarden.BatchStateBroadcast,
+		tapgarden.BatchStateConfirmed,
+		tapgarden.BatchStateFinalized,
+	)
 )
 
 // newMintingStore creates a new instance of the TapAddressBook book.
@@ -79,11 +94,7 @@ type mintingTestHarness struct {
 
 	txValidator tapscript.TxValidator
 
-	ticker *ticker.Force
-
 	planter *tapgarden.ChainPlanter
-
-	batchKey *keychain.KeyDescriptor
 
 	proofFiles *tapgarden.MockProofArchive
 
@@ -96,8 +107,8 @@ type mintingTestHarness struct {
 
 // newMintingTestHarness creates a new test harness from an active minting
 // store and an existing testing context.
-func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
-	interval time.Duration) *mintingTestHarness {
+func newMintingTestHarness(t *testing.T,
+	store tapgarden.MintingStore) *mintingTestHarness {
 
 	keyRing := tapgarden.NewMockKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
@@ -107,7 +118,6 @@ func newMintingTestHarness(t *testing.T, store tapgarden.MintingStore,
 		T:            t,
 		store:        store,
 		treeStore:    &treeMgr,
-		ticker:       ticker.NewForce(interval),
 		wallet:       tapgarden.NewMockWalletAnchor(),
 		chain:        tapgarden.NewMockChainBridge(),
 		proofFiles:   &tapgarden.MockProofArchive{},
@@ -141,7 +151,6 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			ProofFiles:   t.proofFiles,
 			ProofWatcher: t.proofWatcher,
 		},
-		BatchTicker:  t.ticker,
 		ProofUpdates: t.proofFiles,
 		ErrChan:      t.errChan,
 	})
@@ -154,10 +163,7 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tapgarden.See
 	seedlings := make([]*tapgarden.Seedling, numSeedlings)
 	for i := 0; i < numSeedlings; i++ {
 		var n [32]byte
-		if _, err := rand.Read(n[:]); err != nil {
-			t.Fatalf("unable to read str: %v", err)
-		}
-
+		test.RandRead(t, n[:])
 		assetName := hex.EncodeToString(n[:])
 		seedlings[i] = &tapgarden.Seedling{
 			AssetVersion: asset.Version(rand.Int31n(2)),
@@ -189,11 +195,30 @@ func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
 // raised if any of the seedlings aren't accepted.
-func (t *mintingTestHarness) queueSeedlingsInBatch(
+func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 	seedlings ...*tapgarden.Seedling) {
 
 	for i, seedling := range seedlings {
 		seedling := seedling
+		keyCount := 0
+
+		// For the first seedling sent, we should get a new request,
+		// representing the batch internal key.
+		if i == 0 && !isFunded {
+			keyCount++
+		}
+
+		// Seedlings without an external script key will have one
+		// derived.
+		if seedling.ScriptKey.PubKey == nil {
+			keyCount++
+		}
+
+		// Seedlings with emission enabled and without an external
+		// group internal key will have one derived.
+		if seedling.EnableEmission && seedling.GroupInternalKey == nil {
+			keyCount++
+		}
 
 		// Queue the new seedling for a batch.
 		//
@@ -201,9 +226,9 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(
 		updates, err := t.planter.QueueNewSeedling(seedling)
 		require.NoError(t, err)
 
-		// For the first seedlings sent, we should get a new request
-		if i == 0 {
-			t.batchKey = t.assertKeyDerived()
+		for keyCount != 0 {
+			t.assertKeyDerived()
+			keyCount--
 		}
 
 		// We should get an update from the update channel that the
@@ -234,9 +259,15 @@ func (t *mintingTestHarness) assertPendingBatchExists(numSeedlings int) {
 func (t *mintingTestHarness) assertNoPendingBatch() {
 	t.Helper()
 
-	batch, err := t.planter.PendingBatch()
+	batches, err := t.store.FetchAllBatches(context.Background())
 	require.NoError(t, err)
-	require.Nil(t, batch)
+
+	// Filter out batches still pending or already cancelled.
+	require.Zero(t, fn.Count(batches,
+		func(batch *tapgarden.MintingBatch) bool {
+			return batch.State() == tapgarden.BatchStatePending
+		},
+	))
 }
 
 type FinalizeBatchResp struct {
@@ -296,23 +327,69 @@ func (t *mintingTestHarness) assertFinalizeBatch(wg *sync.WaitGroup,
 	}
 }
 
+type FundBatchResp = FinalizeBatchResp
+
+// fundBatch uses the public FundBatch planter call to fund a minting batch.
+// The caller must wait for the planter call to complete.
+func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
+	respChan chan *FundBatchResp, params *tapgarden.FundParams) {
+
+	t.Helper()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		fundParams := tapgarden.FundParams{
+			FeeRate:        fn.None[chainfee.SatPerKWeight](),
+			SiblingTapTree: fn.None[asset.TapscriptTreeNodes](),
+		}
+
+		if params != nil {
+			fundParams = *params
+		}
+
+		fundedBatch, fundErr := t.planter.FundBatch(
+			fundParams,
+		)
+		resp := &FundBatchResp{
+			Batch: fundedBatch,
+			Err:   fundErr,
+		}
+
+		respChan <- resp
+	}()
+}
+
+func (t *mintingTestHarness) assertFundBatch(wg *sync.WaitGroup,
+	respChan chan *FundBatchResp,
+	errString string) *tapgarden.MintingBatch {
+
+	t.Helper()
+
+	wg.Wait()
+	fundResp := <-respChan
+
+	switch {
+	case errString == "":
+		require.NoError(t, fundResp.Err)
+		return fundResp.Batch
+
+	default:
+		require.ErrorContains(t, fundResp.Err, errString)
+		return nil
+	}
+}
+
 // progressCaretaker uses the mock interfaces to progress a caretaker from start
 // to TX confirmation.
-func (t *mintingTestHarness) progressCaretaker(seedlings []*tapgarden.Seedling,
-	batchSibling *commitment.TapscriptPreimage) func() {
+func (t *mintingTestHarness) progressCaretaker(isFunded bool,
+	batchSibling *commitment.TapscriptPreimage,
+	feeRate *chainfee.SatPerKWeight) func() {
 
 	// Assert that the caretaker has requested a genesis TX to be funded.
-	_ = t.assertGenesisTxFunded()
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < len(seedlings); i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
+	if !isFunded {
+		_ = t.assertGenesisTxFunded(feeRate)
 	}
 
 	// We should now transition to the next state where we'll attempt to
@@ -342,9 +419,9 @@ func (t *mintingTestHarness) progressCaretaker(seedlings []*tapgarden.Seedling,
 	return t.assertConfReqSent(tx, block)
 }
 
-// tickMintingBatch fires the ticker that forces the planter to create a new
-// batch.
-func (t *mintingTestHarness) tickMintingBatch(
+// finalizeBatchAssertFrozen fires the ticker that forces the planter to create
+// a new batch.
+func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	noBatch bool) *tapgarden.MintingBatch {
 
 	t.Helper()
@@ -362,15 +439,24 @@ func (t *mintingTestHarness) tickMintingBatch(
 		},
 	)
 
-	// We now trigger the ticker to tick the batch.
-	t.ticker.Force <- time.Now()
+	var (
+		wg       sync.WaitGroup
+		respChan = make(chan *FinalizeBatchResp, 1)
+	)
+
+	t.finalizeBatch(&wg, respChan, nil)
 
 	if noBatch {
 		t.assertNoPendingBatch()
 		return nil
 	}
 
-	return t.assertNewBatchFrozen(existingBatches)
+	// Check that the batch was frozen and then funded.
+	newBatch := t.assertNewBatchFrozen(existingBatches)
+	_ = t.assertGenesisTxFunded(nil)
+
+	// Fetch the batch again after funding.
+	return t.fetchSingleBatch(newBatch.BatchKey.PubKey)
 }
 
 func (t *mintingTestHarness) assertNewBatchFrozen(
@@ -397,7 +483,7 @@ func (t *mintingTestHarness) assertNewBatchFrozen(
 
 		if len(currentBatches) > len(existingBatches) {
 			for _, batch := range currentBatches {
-				if batch.State() != tapgarden.BatchStateFrozen {
+				if !batchFrozenStates.Contains(batch.State()) {
 					continue
 				}
 
@@ -443,6 +529,29 @@ func (t *mintingTestHarness) cancelMintingBatch(noBatch bool) *btcec.PublicKey {
 	return batchKey
 }
 
+func (t *mintingTestHarness) assertBatchProgressing() *tapgarden.MintingBatch {
+	// Exclude all states that the batch should not have when progressing
+	// from frozen to finalized.
+	var progressingBatches []*tapgarden.MintingBatch
+	err := wait.Predicate(func() bool {
+		batches, err := t.store.FetchAllBatches(context.Background())
+		require.NoError(t, err)
+
+		// Filter out batches still pending or already cancelled.
+		progressingBatches = fn.Filter(batches,
+			func(batch *tapgarden.MintingBatch) bool {
+				return !noCaretakerStates.Contains(
+					batch.State(),
+				)
+			})
+
+		return len(progressingBatches) == 1
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	return progressingBatches[0]
+}
+
 // assertNumCaretakersActive asserts that the specified number of caretakers
 // are active.
 func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
@@ -458,40 +567,31 @@ func (t *mintingTestHarness) assertNumCaretakersActive(n int) {
 
 // assertGenesisTxFunded asserts that a caretaker attempted to fund a new
 // genesis transaction.
-func (t *mintingTestHarness) assertGenesisTxFunded() *tapsend.FundedPsbt {
+func (t *mintingTestHarness) assertGenesisTxFunded(
+	manualFee *chainfee.SatPerKWeight) *tapsend.FundedPsbt {
+
 	// In order to fund a transaction, we expect a call to estimate the
 	// fee, followed by a request to fund a new PSBT packet.
-	_, err := fn.RecvOrTimeout(
-		t.chain.FeeEstimateSignal, defaultTimeout,
-	)
-	require.NoError(t, err)
+	if manualFee == nil {
+		_, err := fn.RecvOrTimeout(
+			t.chain.FeeEstimateSignal, defaultTimeout,
+		)
+		require.NoError(t, err)
+	}
 
 	pkt, err := fn.RecvOrTimeout(
 		t.wallet.FundPsbtSignal, defaultTimeout,
 	)
 	require.NoError(t, err)
+	require.NotNil(t, pkt)
 
-	// Finally, we'll assert that the dummy output or a valid P2TR output
-	// is found in the packet.
-	var found bool
-	for _, txOut := range (*pkt).Pkt.UnsignedTx.TxOut {
-		txOut := txOut
-
-		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
-			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
-			isDummyScript := bytes.Equal(
-				txOut.PkScript, tapsend.GenesisDummyScript[:],
-			)
-
-			if isP2TR || isDummyScript {
-				found = true
-				break
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("unable to find dummy tx out in genesis tx: %v",
-			spew.Sdump(pkt))
+	// Our genesis TX in unit tests is always 1 P2TR in, 1 P2TR out &
+	// 1 P2WSH out. This has a fixed size of 155 vB.
+	const mintTxSize = 155
+	txFee := t.assertBatchGenesisTx(*pkt)
+	if manualFee != nil {
+		expectedFee := manualFee.FeePerKVByte().FeeForVSize(mintTxSize)
+		require.GreaterOrEqual(t, txFee, expectedFee)
 	}
 
 	return *pkt
@@ -548,6 +648,35 @@ func (t *mintingTestHarness) assertSeedlingsExist(
 		require.Equal(
 			t, seedling.EnableEmission, batchSeedling.EnableEmission,
 		)
+		require.Equal(
+			t, seedling.GroupAnchor, batchSeedling.GroupAnchor,
+		)
+		require.NotNil(t, batchSeedling.ScriptKey.PubKey)
+		require.Equal(
+			t, seedling.GroupTapscriptRoot,
+			batchSeedling.GroupTapscriptRoot,
+		)
+
+		if seedling.ScriptKey.PubKey != nil {
+			require.True(
+				t,
+				seedling.ScriptKey.IsEqual(
+					&batchSeedling.ScriptKey,
+				))
+		}
+
+		if seedling.GroupInternalKey != nil {
+			require.True(
+				t, asset.EqualKeyDescriptors(
+					*seedling.GroupInternalKey,
+					*batchSeedling.GroupInternalKey,
+				),
+			)
+		}
+
+		if seedling.EnableEmission {
+			require.NotNil(t, batchSeedling.GroupInternalKey)
+		}
 	}
 }
 
@@ -560,13 +689,7 @@ func isCancelledBatch(batch *tapgarden.MintingBatch) bool {
 func (t *mintingTestHarness) assertBatchState(batchKey *btcec.PublicKey,
 	batchState tapgarden.BatchState) {
 
-	t.Helper()
-
-	batches, err := t.planter.ListBatches(batchKey)
-	require.NoError(t, err)
-	require.Len(t, batches, 1)
-
-	batch := batches[0]
+	batch := t.fetchSingleBatch(batchKey)
 	require.Equal(t, batchState, batch.State())
 }
 
@@ -574,12 +697,87 @@ func (t *mintingTestHarness) assertLastBatchState(numBatches int,
 	batchState tapgarden.BatchState) {
 
 	t.Helper()
-
 	batches, err := t.planter.ListBatches(nil)
 	require.NoError(t, err)
 
 	require.Len(t, batches, numBatches)
 	require.Equal(t, batchState, batches[len(batches)-1].State())
+}
+
+func (t *mintingTestHarness) fetchSingleBatch(
+	batchKey *btcec.PublicKey) *tapgarden.MintingBatch {
+
+	t.Helper()
+	if batchKey == nil {
+		return t.assertBatchProgressing()
+	}
+
+	batch, err := t.store.FetchMintingBatch(context.Background(), batchKey)
+	require.NoError(t, err)
+	require.NotNil(t, batch)
+
+	return batch
+}
+
+func (t *mintingTestHarness) fetchLastBatch() *tapgarden.MintingBatch {
+	t.Helper()
+	batches, err := t.store.FetchAllBatches(context.Background())
+	require.NoError(t, err)
+	require.NotEmpty(t, batches)
+
+	return batches[len(batches)-1]
+}
+
+func (t *mintingTestHarness) assertBatchGenesisTx(
+	pkt *tapsend.FundedPsbt) btcutil.Amount {
+
+	t.Helper()
+
+	// Finally, we'll assert that the dummy output or a valid P2TR output
+	// is found in the packet.
+	var found bool
+	for _, txOut := range pkt.Pkt.UnsignedTx.TxOut {
+		txOut := txOut
+
+		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
+			isP2TR := txscript.IsPayToTaproot(txOut.PkScript)
+			isDummyScript := bytes.Equal(
+				txOut.PkScript, tapsend.GenesisDummyScript[:],
+			)
+
+			if isP2TR || isDummyScript {
+				found = true
+				break
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("unable to find dummy tx out in genesis tx: %v",
+			spew.Sdump(pkt))
+	}
+
+	genesisTxFee, err := pkt.Pkt.GetTxFee()
+	require.NoError(t, err)
+
+	return genesisTxFee
+}
+
+// assertMintOutputKey asserts that the genesis output key for the batch was
+// computed correctly during minting and includes a tapscript sibling.
+func (t *mintingTestHarness) assertMintOutputKey(batch *tapgarden.MintingBatch,
+	siblingHash *chainhash.Hash) {
+
+	rootCommitment := batch.RootAssetCommitment
+	require.NotNil(t, rootCommitment)
+
+	scriptRoot := rootCommitment.TapscriptRoot(siblingHash)
+	expectedOutputKey := txscript.ComputeTaprootOutputKey(
+		batch.BatchKey.PubKey, scriptRoot[:],
+	)
+
+	outputKey, _, err := batch.MintingOutputKey(nil)
+	require.NoError(t, err)
+	require.True(t, expectedOutputKey.IsEqual(outputKey))
 }
 
 // assertSeedlingsMatchSprouts asserts that the seedlings were properly matched
@@ -600,7 +798,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 
 		// Filter out any cancelled batches.
 		isCommittedBatch := func(batch *tapgarden.MintingBatch) bool {
-			return batch.State() == tapgarden.BatchStateCommitted
+			return batchCommittedStates.Contains(batch.State())
 		}
 		batch, err := fn.First(pendingBatches, isCommittedBatch)
 		if err != nil {
@@ -637,12 +835,37 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		require.Equal(t, seedling.AssetType, assetSprout.Type)
 		require.Equal(t, seedling.AssetName, assetSprout.Genesis.Tag)
 		require.Equal(
-			t, seedling.Meta.MetaHash(), assetSprout.Genesis.MetaHash,
+			t, seedling.Meta.MetaHash(),
+			assetSprout.Genesis.MetaHash,
 		)
 		require.Equal(t, seedling.Amount, assetSprout.Amount)
-		require.Equal(
-			t, seedling.EnableEmission, assetSprout.GroupKey != nil,
+		require.True(
+			t, seedling.ScriptKey.IsEqual(&assetSprout.ScriptKey),
 		)
+
+		if seedling.EnableEmission {
+			require.NotNil(t, assetSprout.GroupKey)
+		}
+
+		if seedling.GroupInternalKey != nil {
+			require.NotNil(t, assetSprout.GroupKey)
+			require.True(t, asset.EqualKeyDescriptors(
+				*seedling.GroupInternalKey,
+				assetSprout.GroupKey.RawKey,
+			))
+		}
+
+		if seedling.GroupTapscriptRoot != nil {
+			require.NotNil(t, assetSprout.GroupKey)
+			require.Equal(
+				t, seedling.GroupTapscriptRoot,
+				assetSprout.GroupKey.TapscriptRoot,
+			)
+		}
+
+		if seedling.GroupAnchor != nil || seedling.GroupInfo != nil {
+			require.NotNil(t, assetSprout.GroupKey)
+		}
 	}
 }
 
@@ -653,7 +876,7 @@ func (t *mintingTestHarness) assertGenesisPsbtFinalized(
 
 	t.Helper()
 
-	// Ensure that a request to finalize the PSBt has come across.
+	// Ensure that a request to finalize the PSBT has come across.
 	_, err := fn.RecvOrTimeout(
 		t.wallet.SignPsbtSignal, defaultTimeout,
 	)
@@ -727,7 +950,7 @@ func (t *mintingTestHarness) queueInitialBatch(
 	// Next make new random seedlings, and queue each of them up within
 	// the main state machine for batched minting.
 	seedlings := t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(seedlings...)
+	t.queueSeedlingsInBatch(false, seedlings...)
 
 	// At this point, there should be a single pending batch with 5
 	// seedlings. The batch stored in the log should also match up exactly.
@@ -769,7 +992,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 
 	// Now we'll force a batch tick which should kick off a new caretaker
 	// that starts to progress the batch all the way to broadcast.
-	t.tickMintingBatch(false)
+	t.finalizeBatchAssertFrozen(false)
 
 	// We'll now restart the planter to ensure that it's able to properly
 	// resume all the caretakers. We need to sleep for a small amount to
@@ -778,27 +1001,16 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.refreshChainPlanter()
 
 	// Now that the planter is back up, a single caretaker should have been
-	// launched as well. Next, assert that the caretaker has requested a
-	// genesis tx to be funded.
-	_ = t.assertGenesisTxFunded()
+	// launched as well. The batch should already be funded.
+	batch := t.fetchSingleBatch(nil)
+	t.assertBatchGenesisTx(batch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
-	// state machine, we expect the PSBT packet to be funded again as well,
-	// since we didn't get a chance to write it to disk.
+	// state machine, we expect the PSBT packet to still be funded.
 	t.refreshChainPlanter()
-	_ = t.assertGenesisTxFunded()
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
+	batch = t.fetchSingleBatch(nil)
+	t.assertBatchGenesisTx(batch.GenesisPacket)
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -885,26 +1097,16 @@ func testMintingTicker(t *mintingTestHarness) {
 	// One seedling is a duplicate of a seedling from the cancelled batch,
 	// to ensure that we can store multiple versions of the same seedling.
 	seedlings := t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(seedlings...)
+	t.queueSeedlingsInBatch(false, seedlings...)
 
 	// Next, finalize the pending batch to continue with minting.
-	t.tickMintingBatch(false)
+	_ = t.finalizeBatchAssertFrozen(false)
 
 	// A single caretaker should have been launched as well. Next, assert
-	// that the caretaker has requested a genesis tx to be funded.
-	_ = t.assertGenesisTxFunded()
-	t.assertNumCaretakersActive(1)
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
+	// that the batch is already funded.
+	t.assertBatchProgressing()
+	currentBatch := t.fetchLastBatch()
+	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -974,13 +1176,17 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	// Requesting batch finalization or cancellation with no pending batch
 	// should return an error without crashing the planter.
-	t.tickMintingBatch(true)
+	t.finalizeBatchAssertFrozen(true)
 	t.cancelMintingBatch(true)
 
 	// Next, make another 5 random seedlings and continue with minting.
 	seedlings = t.newRandSeedlings(numSeedlings)
 	seedlings[0] = firstSeedling
-	t.queueSeedlingsInBatch(seedlings...)
+	seedlings[0].ScriptKey = asset.ScriptKey{}
+	if seedlings[0].EnableEmission {
+		seedlings[0].GroupInternalKey = nil
+	}
+	t.queueSeedlingsInBatch(false, seedlings...)
 
 	t.assertPendingBatchExists(numSeedlings)
 	t.assertSeedlingsExist(seedlings, nil)
@@ -994,53 +1200,14 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 	require.ErrorContains(t, planterErr.Error, "already in batch")
 
 	// Now, finalize the pending batch to continue with minting.
-	t.tickMintingBatch(false)
-
-	// A single caretaker should have been launched as well. Next, assert
-	// that the caretaker has requested a genesis tx to be funded.
-	_ = t.assertGenesisTxFunded()
-	t.assertNumCaretakersActive(1)
-
-	// For each seedling created above, we expect a new set of keys to be
-	// created for the asset script key and an additional key if emission
-	// was enabled.
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
-
-	// We should be able to cancel the batch even after it has a caretaker,
-	// and at this point the minting transaction is still being made.
-	secondBatchKey := t.cancelMintingBatch(false)
-	t.assertNoPendingBatch()
-	t.assertBatchState(secondBatchKey, tapgarden.BatchStateSproutCancelled)
-
-	// We can make another 5 random seedlings and continue with minting.
-	seedlings = t.newRandSeedlings(numSeedlings)
-	t.queueSeedlingsInBatch(seedlings...)
-
-	t.assertPendingBatchExists(numSeedlings)
-	t.assertSeedlingsExist(seedlings, nil)
-
-	// Now, finalize the pending batch to continue with minting.
-	thirdBatch := t.tickMintingBatch(false)
+	thirdBatch := t.finalizeBatchAssertFrozen(false)
 	require.NotNil(t, thirdBatch)
 	require.NotNil(t, thirdBatch.BatchKey.PubKey)
 	thirdBatchKey := thirdBatch.BatchKey.PubKey
 
-	_ = t.assertGenesisTxFunded()
-	t.assertNumCaretakersActive(1)
-
-	for i := 0; i < numSeedlings; i++ {
-		t.assertKeyDerived()
-
-		if seedlings[i].EnableEmission {
-			t.assertKeyDerived()
-		}
-	}
+	t.assertBatchProgressing()
+	thirdBatch = t.fetchLastBatch()
+	t.assertBatchGenesisTx(thirdBatch.GenesisPacket)
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -1140,17 +1307,21 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	)
 	require.NoError(t, err)
 
-	// If the caretaker failed, there should be no active caretakers nor
-	// pending batch. The caretaker error should be propagated to the caller
-	// of finalize.
+	// The planter should fail to finalize the batch, so there should be no
+	// active caretakers nor pending batch.
 	t.assertNoPendingBatch()
 	t.assertNumCaretakersActive(caretakerCount)
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
 	t.assertFinalizeBatch(&wg, respChan, "unable to estimate fee")
 
+	// This funding error is also sent on the main error channel, so drain
+	// that before continuing.
+	caretakerErr := <-t.errChan
+	require.ErrorContains(t, caretakerErr, "unable to fund minting PSBT")
+
 	// Queue another batch, reset fee estimation behavior, and set TX
 	// confirmation registration to fail.
-	seedlings := t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.chain.FailFeeEstimates(false)
 	t.chain.FailConf(true)
 
@@ -1161,11 +1332,11 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	_ = t.progressCaretaker(seedlings, nil)
+	_ = t.progressCaretaker(false, nil, nil)
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
-	caretakerErr := <-t.errChan
+	caretakerErr = <-t.errChan
 	require.ErrorContains(t, caretakerErr, "error getting confirmation")
 
 	// The stopped caretaker will still exist but there should be no pending
@@ -1177,7 +1348,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// Queue another batch, set TX confirmation to succeed, and set the
 	// confirmation event to be empty.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.chain.FailConf(false)
 	t.chain.EmptyConf(true)
 
@@ -1185,7 +1356,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, nil)
 	batchCount++
 
-	sendConfNtfn := t.progressCaretaker(seedlings, nil)
+	sendConfNtfn := t.progressCaretaker(false, nil, nil)
 	caretakerCount++
 
 	// Trigger the confirmation event, which should cause the caretaker to
@@ -1209,13 +1380,18 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(caretakerCount)
 
 	// Queue another batch and drive the caretaker to a successful minting.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.chain.EmptyConf(false)
 
-	t.finalizeBatch(&wg, respChan, nil)
+	// Use a custom feerate and verify that the TX uses that feerate.
+	manualFeeRate := chainfee.FeePerKwFloor * 2
+	finalizeReq := tapgarden.FinalizeParams{
+		FeeRate: fn.Some(manualFeeRate),
+	}
+	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
-	sendConfNtfn = t.progressCaretaker(seedlings, nil)
+	sendConfNtfn = t.progressCaretaker(false, nil, &manualFeeRate)
 	sendConfNtfn()
 
 	t.assertFinalizeBatch(&wg, respChan, "")
@@ -1232,7 +1408,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Create an initial batch of 5 seedlings.
 	const numSeedlings = 5
-	seedlings := t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 
 	var (
 		wg          sync.WaitGroup
@@ -1274,29 +1450,12 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	t.treeStore.FailStore = false
 	t.treeStore.FailLoad = true
 
-	// Receive all the signals needed to progress the caretaker through
-	// the batch sprouting, which is when the sibling tapscript tree is
-	// used.
-	progressCaretakerToTxSigning := func(
-		currentSeedlings []*tapgarden.Seedling) {
-
-		_ = t.assertGenesisTxFunded()
-
-		for i := 0; i < len(currentSeedlings); i++ {
-			t.assertKeyDerived()
-
-			if currentSeedlings[i].EnableEmission {
-				t.assertKeyDerived()
-			}
-		}
-	}
-
 	// Finalize the batch with a tapscript tree sibling.
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
 	// The caretaker should fail when computing the Taproot output key.
-	progressCaretakerToTxSigning(seedlings)
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(&wg, respChan, "failed to load tapscript tree")
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
 	t.assertNoPendingBatch()
@@ -1326,18 +1485,18 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Queue another batch, and try to finalize with a sibling that is also
 	// a Taproot asset commitment.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
 
-	progressCaretakerToTxSigning(seedlings)
+	_ = t.assertGenesisTxFunded(nil)
 	t.assertFinalizeBatch(
 		&wg, respChan, "preimage is a Taproot Asset commitment",
 	)
 	t.assertNoPendingBatch()
 
 	// Queue another batch, and provide a valid sibling tapscript tree.
-	seedlings = t.queueInitialBatch(numSeedlings)
+	t.queueInitialBatch(numSeedlings)
 	finalizeReq.SiblingTapTree = fn.Some(*tapTreePreimage)
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	batchCount++
@@ -1345,7 +1504,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	// Verify that the final genesis TX uses the correct Taproot output key.
 	treeRootChildren := test.BuildTapscriptTreeNoReveal(t.T, sigLockKey)
 	siblingPreimage := commitment.NewPreimageFromBranch(treeRootChildren)
-	sendConfNtfn := t.progressCaretaker(seedlings, &siblingPreimage)
+	sendConfNtfn := t.progressCaretaker(false, &siblingPreimage, nil)
 	sendConfNtfn()
 
 	// Once the TX is broadcast, the caretaker should run to completion,
@@ -1359,27 +1518,156 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 
 	// Verify that the final minting output key matches what we would derive
 	// manually.
-	batchRootCommitment := batchWithSibling.RootAssetCommitment
-	require.NotNil(t, batchRootCommitment)
 	siblingHash, err := siblingPreimage.TapHash()
 	require.NoError(t, err)
-	batchScriptRoot := batchRootCommitment.TapscriptRoot(siblingHash)
-	batchOutputKeyExpected := txscript.ComputeTaprootOutputKey(
-		batchWithSibling.BatchKey.PubKey, batchScriptRoot[:],
+	t.assertMintOutputKey(batchWithSibling, siblingHash)
+}
+
+func testFundBeforeFinalize(t *mintingTestHarness) {
+	// First, create a new chain planter instance using the supplied test
+	// harness.
+	t.refreshChainPlanter()
+
+	var (
+		wg               sync.WaitGroup
+		respChan         = make(chan *FundBatchResp, 1)
+		finalizeRespChan = make(chan *FinalizeBatchResp, 1)
+		fundReq          tapgarden.FundParams
 	)
-	batchOutputKey, _, err := batchWithSibling.MintingOutputKey(nil)
+
+	// Derive a set of keys that we'll supply for specific seedlings. First,
+	// a non-BIP86 script key.
+	scriptKeyInternalKey := test.RandPubKey(t)
+	scriptKeyTapTweak := test.RandBytes(32)
+	tweakedScriptKey := txscript.ComputeTaprootOutputKey(
+		scriptKeyInternalKey, scriptKeyTapTweak,
+	)
+	scriptTweakedKey := asset.ScriptKey{
+		PubKey: tweakedScriptKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: scriptKeyInternalKey,
+			},
+			Tweak: scriptKeyTapTweak,
+		},
+	}
+
+	// Let's also make an internal key for an asset group. We need to supply
+	// the private key so that the planter can produce an asset group
+	// witness during batch sealing.
+	groupInternalKeyDesc, groupInternalKeyPriv := test.RandKeyDesc(t)
+	t.keyRing.Keys[groupInternalKeyDesc.KeyLocator] = groupInternalKeyPriv
+
+	// We'll use the default test tapscript tree for both the batch
+	// tapscript sibling and a tapscript root for one asset group.
+	defaultTapBranch := test.BuildTapscriptTreeNoReveal(
+		t.T, groupInternalKeyDesc.PubKey,
+	)
+	defaultTapTree := asset.TapTreeNodesFromBranch(defaultTapBranch)
+	defaultPreimage := commitment.NewPreimageFromBranch(defaultTapBranch)
+	defaultTapHash := defaultTapBranch.TapHash()
+
+	// Make a set of 5 seedlings, which we'll modify manually.
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+
+	// Set an external script key for the first seedling.
+	seedlings[0].ScriptKey = scriptTweakedKey
+	seedlings[0].EnableEmission = false
+
+	// Set an external group key for the second seedling.
+	seedlings[1].EnableEmission = true
+	seedlings[1].GroupInternalKey = &groupInternalKeyDesc
+
+	// Set a group tapscript root for the third seedling.
+	seedlings[2].EnableEmission = true
+	seedlings[2].GroupTapscriptRoot = defaultTapHash[:]
+
+	// Set the fourth seedling to be a member of the second seedling's
+	// asset group.
+	seedlings[3].EnableEmission = false
+	seedlings[3].GroupAnchor = &seedlings[1].AssetName
+	seedlings[3].AssetType = seedlings[1].AssetType
+	seedlings[3].Amount = 1
+
+	// Set the final seedling to be ungrouped.
+	seedlings[4].EnableEmission = false
+
+	// Fund a batch with a tapscript sibling and a manual feerate. This
+	// should create a new batch.
+	manualFee := chainfee.FeePerKwFloor * 2
+	fundReq = tapgarden.FundParams{
+		SiblingTapTree: fn.Some(defaultTapTree),
+		FeeRate:        fn.Some(manualFee),
+	}
+	t.fundBatch(&wg, respChan, &fundReq)
+
+	t.assertKeyDerived()
+	t.assertGenesisTxFunded(&manualFee)
+	t.assertFundBatch(&wg, respChan, "")
+
+	// After funding, the planter should have persisted the batch. The new
+	// batch should be funded but have no seedlings.
+	fundedBatches, err := t.planter.ListBatches(nil)
 	require.NoError(t, err)
-	require.Equal(
-		t, batchOutputKeyExpected.SerializeCompressed(),
-		batchOutputKey.SerializeCompressed(),
-	)
+	require.Len(t, fundedBatches, 1)
+
+	fundedBatch := fundedBatches[0]
+	require.Len(t, fundedBatch.Seedlings, 0)
+	require.NotNil(t, fundedBatch.GenesisPacket)
+	t.assertBatchGenesisTx(fundedBatch.GenesisPacket)
+	require.Equal(t, defaultTapHash[:], fundedBatch.TapSibling())
+	require.True(t, fundedBatch.State() == tapgarden.BatchStatePending)
+
+	// Trying to fund a batch again should fail, as there is a pending batch
+	// that is already funded.
+	fundReq = tapgarden.FundParams{}
+	t.fundBatch(&wg, respChan, &fundReq)
+	t.assertFundBatch(&wg, respChan, "batch already funded")
+
+	// Trying to finalize the batch with finalize parameters should also
+	// fail, as those parameters should have been provided during batch
+	// funding.
+	finalizeReq := tapgarden.FinalizeParams{
+		SiblingTapTree: fn.Some(defaultTapTree),
+		FeeRate:        fn.Some(manualFee),
+	}
+	t.finalizeBatch(&wg, finalizeRespChan, &finalizeReq)
+	t.assertFinalizeBatch(&wg, finalizeRespChan, "batch already funded")
+
+	// This finalize error is also sent on the main error channel, so drain
+	// that before continuing.
+	caretakerErr := <-t.errChan
+	require.ErrorContains(t, caretakerErr, "batch already funded")
+
+	// Add the seedlings modified earlier to the batch, and check that they
+	// were added correctly.
+	t.queueSeedlingsInBatch(true, seedlings...)
+	t.assertPendingBatchExists(numSeedlings)
+	t.assertSeedlingsExist(seedlings, nil)
+
+	// Finally, finalize the batch and check that the resulting assets match
+	// the seedlings.
+	t.finalizeBatch(&wg, finalizeRespChan, nil)
+	t.assertBatchProgressing()
+	t.assertNoPendingBatch()
+
+	sendConfNtfn := t.progressCaretaker(true, &defaultPreimage, &manualFee)
+	mintedBatch := t.assertFinalizeBatch(&wg, finalizeRespChan, "")
+
+	t.assertSeedlingsMatchSprouts(seedlings)
+
+	sendConfNtfn()
+
+	t.assertNumCaretakersActive(0)
+	t.assertLastBatchState(1, tapgarden.BatchStateFinalized)
+	t.assertMintOutputKey(mintedBatch, &defaultTapHash)
 }
 
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
 	name     string
-	interval time.Duration
 	testFunc func(t *mintingTestHarness)
 }
 
@@ -1387,28 +1675,27 @@ type mintingStoreTestCase struct {
 var testCases = []mintingStoreTestCase{
 	{
 		name:     "basic_asset_creation",
-		interval: defaultInterval,
 		testFunc: testBasicAssetCreation,
 	},
 	{
 		name:     "creation_by_minting_ticker",
-		interval: minterInterval,
 		testFunc: testMintingTicker,
 	},
 	{
 		name:     "minting_with_cancellation",
-		interval: minterInterval,
 		testFunc: testMintingCancelFinalize,
 	},
 	{
 		name:     "finalize_batch",
-		interval: minterInterval,
 		testFunc: testFinalizeBatch,
 	},
 	{
 		name:     "finalize_with_tapscript_tree",
-		interval: minterInterval,
 		testFunc: testFinalizeWithTapscriptTree,
+	},
+	{
+		name:     "fund_before_finalize",
+		testFunc: testFundBeforeFinalize,
 	},
 }
 
@@ -1423,9 +1710,7 @@ func TestBatchedAssetIssuance(t *testing.T) {
 		testCase := testCase
 
 		t.Run(testCase.name, func(t *testing.T) {
-			mintTest := newMintingTestHarness(
-				t, mintingStore, testCase.interval,
-			)
+			mintTest := newMintingTestHarness(t, mintingStore)
 			testCase.testFunc(mintTest)
 		})
 	}

@@ -82,7 +82,7 @@ func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 	require.Equal(t, a.TapSibling(), b.TapSibling())
 	require.Equal(t, a.BatchKey, b.BatchKey)
 	require.Equal(t, a.Seedlings, b.Seedlings)
-	require.Equal(t, a.GenesisPacket, b.GenesisPacket)
+	assertPsbtEqual(t, a.GenesisPacket, b.GenesisPacket)
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
 }
 
@@ -128,9 +128,10 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 	groupReq := asset.NewGroupKeyRequestNoErr(
 		t, privDesc, initGen, genProtoAsset, nil,
 	)
-	groupKey, err := asset.DeriveGroupKey(
-		genSigner, &genTxBuilder, *groupReq,
-	)
+	genTx, err := groupReq.BuildGroupVirtualTx(&genTxBuilder)
+	require.NoError(t, err)
+
+	groupKey, err := asset.DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
 	require.NoError(t, err)
 
 	initialAsset := asset.RandAssetWithValues(
@@ -315,7 +316,7 @@ func addRandGroupToBatch(t *testing.T, store *AssetMintingStore,
 
 	// Generate a random genesis and group to use as a group anchor
 	// for this seedling.
-	privDesc, groupPriv := randKeyDesc(t)
+	privDesc, groupPriv := test.RandKeyDesc(t)
 	randGenesis := asset.RandGenesis(t, randAssetType)
 	genesisAmt, groupPriv, group := storeGroupGenesis(
 		t, ctx, randGenesis, nil, store, privDesc, groupPriv,
@@ -356,8 +357,8 @@ func addRandSiblingToBatch(t *testing.T, batch *tapgarden.MintingBatch) (
 // seedling is being issued into an existing group, and creates a multi-asset
 // group. Specifically, one seedling will have emission enabled, and the other
 // seedling will reference the first seedling as its group anchor.
-func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (string,
-	string) {
+func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (
+	string, string) {
 
 	seedlingNames := maps.Keys(seedlings)
 	seedlingCount := len(seedlingNames)
@@ -384,6 +385,7 @@ func addMultiAssetGroupToBatch(seedlings map[string]*tapgarden.Seedling) (string
 	// The anchor asset must have emission enabled, and the second asset
 	// must specify the first as its group anchor.
 	anchorSeedling.EnableEmission = true
+	anchorSeedling.GroupTapscriptRoot = test.RandBytes(32)
 	groupedSeedling.AssetType = anchorSeedling.AssetType
 	groupedSeedling.EnableEmission = false
 	groupedSeedling.GroupAnchor = &anchorSeedling.AssetName
@@ -417,6 +419,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// have it be exactly the same as what we wrote.
 	mintingBatches := noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
+	require.NotNil(t, mintingBatches[0].GenesisPacket)
 	assertBatchEqual(t, mintingBatch, mintingBatches[0])
 	assertBatchSibling(t, mintingBatch, randSiblingHash)
 
@@ -485,19 +488,6 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	assertSeedlingBatchLen(t, mintingBatches, 1, numSeedlings)
 }
 
-func randKeyDesc(t *testing.T) (keychain.KeyDescriptor, *btcec.PrivateKey) {
-	priv, err := btcec.NewPrivateKey()
-	require.NoError(t, err)
-
-	return keychain.KeyDescriptor{
-		PubKey: priv.PubKey(),
-		KeyLocator: keychain.KeyLocator{
-			Index:  uint32(rand.Int31()),
-			Family: keychain.KeyFamily(rand.Int31()),
-		},
-	}, priv
-}
-
 // seedlingsToAssetRoot maps a set of seedlings to an asset root.
 //
 // TODO(roasbeef): same func in tapgarden can just re-use?
@@ -523,9 +513,6 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		if seedling.Meta != nil {
 			assetGen.MetaHash = seedling.Meta.MetaHash()
 		}
-
-		scriptKey, _ := randKeyDesc(t)
-		tweakedScriptKey := asset.NewScriptKeyBip86(scriptKey)
 
 		var (
 			genTxBuilder = tapscript.GroupTxBuilder{}
@@ -560,7 +547,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 
 		if groupInfo != nil || seedling.EnableEmission {
 			protoAsset, err = asset.New(
-				assetGen, amount, 0, 0, tweakedScriptKey, nil,
+				assetGen, amount, 0, 0, seedling.ScriptKey, nil,
 			)
 			require.NoError(t, err)
 		}
@@ -568,23 +555,37 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		if groupInfo != nil {
 			groupReq := asset.NewGroupKeyRequestNoErr(
 				t, groupInfo.GroupKey.RawKey,
-				*groupInfo.Genesis, protoAsset, nil,
+				*groupInfo.Genesis, protoAsset,
+				groupInfo.GroupKey.TapscriptRoot,
 			)
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				&genTxBuilder,
+			)
+			require.NoError(t, err)
+
 			groupKey, err = asset.DeriveGroupKey(
 				asset.NewMockGenesisSigner(groupPriv),
-				&genTxBuilder, *groupReq,
+				*genTx, *groupReq, nil,
 			)
+			require.NoError(t, err)
 		}
 
 		if seedling.EnableEmission {
-			groupKeyRaw, newGroupPriv := randKeyDesc(t)
+			groupKeyRaw, newGroupPriv := test.RandKeyDesc(t)
 			genSigner := asset.NewMockGenesisSigner(newGroupPriv)
 			groupReq := asset.NewGroupKeyRequestNoErr(
-				t, groupKeyRaw, assetGen, protoAsset, nil,
+				t, groupKeyRaw, assetGen, protoAsset,
+				seedling.GroupTapscriptRoot,
 			)
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				&genTxBuilder,
+			)
+			require.NoError(t, err)
+
 			groupKey, err = asset.DeriveGroupKey(
-				genSigner, &genTxBuilder, *groupReq,
+				genSigner, *genTx, *groupReq, nil,
 			)
+			require.NoError(t, err)
 			newGroupPrivs[seedling.AssetName] = newGroupPriv
 			newGroupInfo[seedling.AssetName] = &asset.AssetGroup{
 				Genesis:  &assetGen,
@@ -595,7 +596,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		require.NoError(t, err)
 
 		newAsset, err := asset.New(
-			assetGen, amount, 0, 0, tweakedScriptKey, groupKey,
+			assetGen, amount, 0, 0, seedling.ScriptKey, groupKey,
 			asset.WithAssetVersion(seedling.AssetVersion),
 		)
 		require.NoError(t, err)
@@ -614,43 +615,9 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 	return tapCommitment
 }
 
-func randGenesisPacket(t *testing.T) *tapsend.FundedPsbt {
-	tx := wire.NewMsgTx(2)
-
-	var hash chainhash.Hash
-	_, err := rand.Read(hash[:])
-	require.NoError(t, err)
-
-	tx.AddTxIn(&wire.TxIn{
-		PreviousOutPoint: wire.OutPoint{
-			Hash:  hash,
-			Index: 1,
-		},
-	})
-	tx.AddTxOut(&wire.TxOut{
-		PkScript: bytes.Repeat([]byte{0x01}, 34),
-		Value:    5,
-	})
-	tx.AddTxOut(&wire.TxOut{
-		PkScript: bytes.Repeat([]byte{0x02}, 34),
-		Value:    10,
-	})
-	tx.AddTxOut(&wire.TxOut{
-		PkScript: bytes.Repeat([]byte{0x02}, 34),
-		Value:    15,
-	})
-
-	packet, err := psbt.NewFromUnsignedTx(tx)
-	require.NoError(t, err)
-	return &tapsend.FundedPsbt{
-		Pkt:               packet,
-		ChangeOutputIndex: 1,
-		ChainFees:         100,
-	}
-}
-
 func assertPsbtEqual(t *testing.T, a, b *tapsend.FundedPsbt) {
 	require.Equal(t, a.ChangeOutputIndex, b.ChangeOutputIndex)
+	require.Equal(t, a.ChainFees, b.ChainFees)
 	require.Equal(t, a.LockedUTXOs, b.LockedUTXOs)
 
 	var aBuf, bBuf bytes.Buffer
@@ -721,7 +688,7 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	// Now that the batch is on disk, we'll map those seedlings to an
 	// actual asset commitment, then insert them into the DB as sprouts.
-	genesisPacket := randGenesisPacket(t)
+	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
@@ -788,8 +755,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	batchKey := mintingBatch.BatchKey.PubKey
 	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
 
-	genesisPacket := randGenesisPacket(t)
-
+	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
@@ -848,7 +814,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// to disk, along with the Taproot Asset script root that's stored
 	// alongside any managed UTXOs.
 	require.NoError(t, assetStore.CommitSignedGenesisTx(
-		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 2,
+		ctx, randAssetCtx.batchKey, randAssetCtx.genesisPkt, 0,
 		randAssetCtx.merkleRoot, randAssetCtx.scriptRoot,
 		randAssetCtx.tapSiblingBytes,
 	))
@@ -1071,7 +1037,7 @@ func TestDuplicateGroupKey(t *testing.T) {
 
 	// Now that we have the DB, we'll insert a new random internal key, and
 	// then a key family linked to that internal key.
-	keyDesc, _ := randKeyDesc(t)
+	keyDesc, _ := test.RandKeyDesc(t)
 	rawKey := keyDesc.PubKey.SerializeCompressed()
 
 	keyID, err := db.UpsertInternalKey(ctx, InternalKey{
@@ -1118,12 +1084,12 @@ func TestGroupStore(t *testing.T) {
 
 	// Now we generate and store one group of two assets, and
 	// a collectible in its own group.
-	privDesc1, groupPriv1 := randKeyDesc(t)
+	privDesc1, groupPriv1 := test.RandKeyDesc(t)
 	gen1 := asset.RandGenesis(t, asset.Normal)
 	_, _, group1 := storeGroupGenesis(
 		t, ctx, gen1, nil, assetStore, privDesc1, groupPriv1,
 	)
-	privDesc2, groupPriv2 := randKeyDesc(t)
+	privDesc2, groupPriv2 := test.RandKeyDesc(t)
 	gen2 := asset.RandGenesis(t, asset.Collectible)
 	_, _, group2 := storeGroupGenesis(
 		t, ctx, gen2, nil, assetStore, privDesc2, groupPriv2,
@@ -1326,7 +1292,7 @@ func TestGroupAnchors(t *testing.T) {
 
 	// Now we'll map these seedlings to an asset commitment and insert them
 	// into the DB as sprouts.
-	genesisPacket := randGenesisPacket(t)
+	genesisPacket := mintingBatch.GenesisPacket
 	assetRoot := seedlingsToAssetRoot(
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,

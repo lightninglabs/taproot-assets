@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
-	"math/rand"
 	"testing"
 	"time"
 
@@ -22,11 +21,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/require"
 )
 
 // RandSeedlings creates a new set of random seedlings for testing.
@@ -35,15 +36,17 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	for i := 0; i < numSeedlings; i++ {
 		metaBlob := test.RandBytes(32)
 		assetName := hex.EncodeToString(test.RandBytes(32))
+		scriptKey, _ := test.RandKeyDesc(t)
 		seedlings[assetName] = &Seedling{
 			// For now, we only test the v0 and v1 versions.
-			AssetVersion: asset.Version(rand.Int31n(2)),
-			AssetType:    asset.Type(rand.Int31n(2)),
+			AssetVersion: asset.Version(test.RandIntn(2)),
+			AssetType:    asset.Type(test.RandIntn(2)),
 			AssetName:    assetName,
 			Meta: &proof.MetaReveal{
 				Data: metaBlob,
 			},
-			Amount:         uint64(rand.Int31()),
+			Amount:         uint64(test.RandInt[uint32]()),
+			ScriptKey:      asset.NewScriptKeyBip86(scriptKey),
 			EnableEmission: test.RandBool(),
 		}
 	}
@@ -54,17 +57,17 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 // RandSeedlingMintingBatch creates a new minting batch with only random
 // seedlings populated for testing.
 func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
+	genesisTx := NewGenesisTx(t, chainfee.FeePerKwFloor)
+	BatchKey, _ := test.RandKeyDesc(t)
 	return &MintingBatch{
-		BatchKey: keychain.KeyDescriptor{
-			PubKey: test.RandPubKey(t),
-			KeyLocator: keychain.KeyLocator{
-				Index:  uint32(rand.Int31()),
-				Family: keychain.KeyFamily(rand.Int31()),
-			},
-		},
+		BatchKey:     BatchKey,
 		Seedlings:    RandSeedlings(t, numSeedlings),
-		HeightHint:   rand.Uint32(),
+		HeightHint:   test.RandInt[uint32](),
 		CreationTime: time.Now(),
+		GenesisPacket: &tapsend.FundedPsbt{
+			Pkt:               &genesisTx,
+			ChangeOutputIndex: 1,
+		},
 	}
 }
 
@@ -93,21 +96,33 @@ func NewMockWalletAnchor() *MockWalletAnchor {
 	}
 }
 
-func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
-	_ uint32, _ chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+// NewGenesisTx creates a funded genesis PSBT with the given fee rate.
+func NewGenesisTx(t testing.TB, feeRate chainfee.SatPerKWeight) psbt.Packet {
+	txTemplate := wire.NewMsgTx(2)
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	require.NoError(t, err)
+
+	FundGenesisTx(genesisPkt, feeRate)
+	return *genesisPkt
+}
+
+// FundGenesisTx add a genesis input and change output to a 1-output TX.
+func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
+	const anchorBalance = int64(100000)
 
 	// Take the PSBT packet and add an additional input and output to
 	// simulate the wallet funding the transaction.
 	packet.UnsignedTx.AddTxIn(&wire.TxIn{
 		PreviousOutPoint: wire.OutPoint{
-			Index: rand.Uint32(),
+			Index: test.RandInt[uint32](),
 		},
 	})
 
 	// Use a P2TR input by default.
 	anchorInput := psbt.PInput{
 		WitnessUtxo: &wire.TxOut{
-			Value:    100000,
+			Value:    anchorBalance,
 			PkScript: bytes.Clone(tapsend.GenesisDummyScript),
 		},
 		SighashType: txscript.SigHashDefault,
@@ -117,12 +132,25 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	// Use a non-P2TR change output by default so we avoid generating
 	// exclusion proofs.
 	changeOutput := wire.TxOut{
-		Value:    50000,
+		Value:    anchorBalance - packet.UnsignedTx.TxOut[0].Value,
 		PkScript: bytes.Clone(tapsend.GenesisDummyScript),
 	}
 	changeOutput.PkScript[0] = txscript.OP_0
 	packet.UnsignedTx.AddTxOut(&changeOutput)
 	packet.Outputs = append(packet.Outputs, psbt.POutput{})
+
+	// Set a realistic change value.
+	_, fee := tapscript.EstimateFee(
+		[][]byte{tapsend.GenesisDummyScript}, packet.UnsignedTx.TxOut,
+		feeRate,
+	)
+	packet.UnsignedTx.TxOut[1].Value -= int64(fee)
+}
+
+func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
+	_ uint32, feeRate chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+
+	FundGenesisTx(packet, feeRate)
 
 	// We always have the change output be the second output, so this means
 	// the Taproot Asset commitment will live in the first output.
@@ -131,7 +159,15 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 		ChangeOutputIndex: 1,
 	}
 
-	m.FundPsbtSignal <- pkt
+	// Return a copy of the packet to the test harness.
+	var packetBuf bytes.Buffer
+	_ = packet.Serialize(&packetBuf)
+	packetCopy, _ := psbt.NewFromRawBytes(&packetBuf, false)
+
+	m.FundPsbtSignal <- &tapsend.FundedPsbt{
+		Pkt:               packetCopy,
+		ChangeOutputIndex: 1,
+	}
 
 	return pkt, nil
 }
@@ -402,7 +438,7 @@ func (m *MockChainBridge) EstimateFee(ctx context.Context,
 		return 0, fmt.Errorf("failed to estimate fee")
 	}
 
-	return 253, nil
+	return chainfee.FeePerKwFloor, nil
 }
 
 func GenMockGroupVerifier() func(*btcec.PublicKey) error {

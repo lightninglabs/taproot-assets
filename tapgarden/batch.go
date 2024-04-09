@@ -50,9 +50,6 @@ type MintingBatch struct {
 	// GenesisPacket is the funded genesis packet that may or may not be
 	// fully signed. When broadcast, this will create all assets stored
 	// within this batch.
-	//
-	// NOTE: This field is only set if the state is beyond
-	// BatchStateCommitted.
 	GenesisPacket *tapsend.FundedPsbt
 
 	// RootAssetCommitment is the root Taproot Asset commitment for all the
@@ -120,19 +117,6 @@ func (m *MintingBatch) Copy() *MintingBatch {
 	}
 
 	return batchCopy
-}
-
-// TODO(roasbeef): add batch validate method re unique names?
-
-// AddSeedling adds a new seedling to the batch.
-func (m *MintingBatch) addSeedling(s *Seedling) error {
-	if _, ok := m.Seedlings[s.AssetName]; ok {
-		return fmt.Errorf("asset with name %v already in batch",
-			s.AssetName)
-	}
-
-	m.Seedlings[s.AssetName] = s
-	return nil
 }
 
 // validateGroupAnchor checks if the group anchor for a seedling is valid.
@@ -231,4 +215,8 @@ func (m *MintingBatch) TapSibling() []byte {
 // UpdateTapSibling updates the optional tapscript sibling for the batch.
 func (m *MintingBatch) UpdateTapSibling(sibling *chainhash.Hash) {
 	m.tapSibling = sibling
+}
+
+func (m *MintingBatch) IsFunded() bool {
+	return m.GenesisPacket != nil
 }

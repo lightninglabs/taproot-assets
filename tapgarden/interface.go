@@ -40,6 +40,14 @@ type Planter interface {
 	// returned.
 	CancelSeedling() error
 
+	// FundBatch attempts to provide a genesis point for the current batch,
+	// or create a new funded batch.
+	FundBatch(params FundParams) (*MintingBatch, error)
+
+	// SealBatch attempts to seal the current batch, by providing or
+	// deriving all witnesses necessary to create the final genesis TX.
+	SealBatch(params SealParams) (*MintingBatch, error)
+
 	// FinalizeBatch signals that the asset minter should finalize
 	// the current batch, if one exists.
 	FinalizeBatch(params FinalizeParams) (*MintingBatch, error)
@@ -201,6 +209,17 @@ type MintingStore interface {
 	FetchMintingBatch(ctx context.Context,
 		batchKey *btcec.PublicKey) (*MintingBatch, error)
 
+	// AddSeedlingGroups stores the asset groups for seedlings associated
+	// with a batch.
+	AddSeedlingGroups(ctx context.Context, genesisOutpoint wire.OutPoint,
+		assetGroups []*asset.AssetGroup) error
+
+	// FetchSeedlingGroups is used to fetch the asset groups for seedlings
+	// associated with a funded batch.
+	FetchSeedlingGroups(ctx context.Context, genesisOutpoint wire.OutPoint,
+		anchorOutputIndex uint32,
+		seedlings []*Seedling) ([]*asset.AssetGroup, error)
+
 	// AddSproutsToBatch adds a new set of sprouts to the batch, along with
 	// a GenesisPacket, that once signed and broadcast with create the
 	// set of assets on chain.
@@ -249,6 +268,11 @@ type MintingStore interface {
 	// be committed to disk.
 	CommitBatchTapSibling(ctx context.Context, batchKey *btcec.PublicKey,
 		rootHash *chainhash.Hash) error
+
+	// CommitBatchTx adds a funded transaction to the batch, which also sets
+	// the genesis point for the batch.
+	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
+		genesisTx *tapsend.FundedPsbt) error
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation

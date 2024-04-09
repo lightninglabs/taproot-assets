@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
@@ -15,9 +16,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/ticker"
 	"golang.org/x/exp/maps"
 )
 
@@ -77,10 +78,6 @@ type GardenKit struct {
 type PlanterConfig struct {
 	GardenKit
 
-	// BatchTicker is used to notify the planter than it should assemble
-	// all asset requests into a new batch.
-	BatchTicker *ticker.Force
-
 	// ProofUpdates is the storage backend for updated proofs.
 	ProofUpdates proof.Archiver
 
@@ -135,6 +132,27 @@ type FinalizeParams struct {
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
 }
 
+// FundParams are the options available to change how a batch is funded, and how
+// the genesis TX is constructed.
+type FundParams struct {
+	FeeRate        fn.Option[chainfee.SatPerKWeight]
+	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
+	// TODO(jhb): follow-up PR: accept a PSBT here
+}
+
+// groupSeal specifies the group witness for a seedling in a funded batch.
+type groupSeal struct {
+	GroupMember  asset.ID
+	GroupWitness []wire.TxWitness
+}
+
+// SealParams change how asset groups in a minting batch are created.
+type SealParams struct {
+	GroupWitnesses []groupSeal
+	// TODO(jhb): follow-up PR: accept a witness for the genesis point here
+	// to enable script-path spends
+}
+
 func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
 	return &stateParamReq[T, S]{
 		stateReq: *newStateReq[T](req),
@@ -185,6 +203,8 @@ const (
 	reqTypeListBatches
 	reqTypeFinalizeBatch
 	reqTypeCancelBatch
+	reqTypeFundBatch
+	reqTypeSealBatch
 )
 
 // ChainPlanter is responsible for accepting new incoming requests to create
@@ -381,6 +401,261 @@ func (c *ChainPlanter) stopCaretakers() {
 	}
 }
 
+// newBatch creates a new minting batch, which includes deriving a new internal
+// key. The batch is not written to disk nor set as the pending batch.
+func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	// To create a new batch we'll first need to grab a new internal key,
+	// which will be used in the output we create, and also will serve as
+	// the primary identifier for a batch.
+	log.Infof("Creating new MintingBatch")
+	newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
+		ctx, asset.TaprootAssetsKeyFamily,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get current height: %w", err)
+	}
+
+	// Create the new batch.
+	newBatch := &MintingBatch{
+		CreationTime: time.Now(),
+		HeightHint:   currentHeight,
+		BatchKey:     newInternalKey,
+		Seedlings:    make(map[string]*Seedling),
+		AssetMetas:   make(AssetMetas),
+	}
+	newBatch.UpdateState(BatchStatePending)
+	return newBatch, nil
+}
+
+// fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
+// order to be able to create an asset, we need an initial genesis outpoint. To
+// obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
+// (all outputs need to hold some BTC to not be dust), and with a dummy script.
+// We need to use a dummy script as we can't know the actual script key since
+// that's dependent on the genesis outpoint.
+func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
+	batchKey asset.SerializedKey,
+	manualFeeRate *chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+
+	log.Infof("Attempting to fund batch: %x", batchKey)
+
+	// Construct a 1-output TX as a template for our genesis TX, which the
+	// backing wallet will fund.
+	txTemplate := wire.NewMsgTx(2)
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	log.Infof("creating skeleton PSBT for batch: %x", batchKey)
+	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
+
+	var feeRate chainfee.SatPerKWeight
+	switch {
+	// If a fee rate was manually assigned for this batch, use that instead
+	// of a fee rate estimate.
+	case manualFeeRate != nil:
+		feeRate = *manualFeeRate
+		log.Infof("using manual fee rate for batch: %x, %s, %d sat/vB",
+			batchKey[:], feeRate.String(),
+			feeRate.FeePerKVByte()/1000)
+
+	default:
+		feeRate, err = c.cfg.ChainBridge.EstimateFee(
+			ctx, GenesisConfTarget,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to estimate fee: %w",
+				err)
+		}
+
+		log.Infof("estimated fee rate for batch: %x, %s",
+			batchKey[:], feeRate.FeePerKVByte().String())
+	}
+
+	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
+		ctx, genesisPkt, 1, feeRate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fund psbt: %w", err)
+	}
+
+	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
+	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
+
+	return fundedGenesisPkt, nil
+}
+
+// filterSeedlingsWithGroup separates a set of seedlings into two sets based on
+// their relation to an asset group, which has not been constructed yet.
+func filterSeedlingsWithGroup(
+	seedlings map[string]*Seedling) (map[string]*Seedling,
+	map[string]*Seedling) {
+
+	withGroup := make(map[string]*Seedling)
+	withoutGroup := make(map[string]*Seedling)
+	fn.ForEachMapItem(seedlings, func(name string, seedling *Seedling) {
+		switch {
+		case seedling.GroupInfo != nil || seedling.GroupAnchor != nil ||
+			seedling.EnableEmission:
+
+			withGroup[name] = seedling
+
+		default:
+			withoutGroup[name] = seedling
+		}
+	})
+
+	return withGroup, withoutGroup
+}
+
+// buildGroupReqs creates group key requests and asset group genesis TXs for
+// seedlings that are part of a funded batch.
+func (c *ChainPlanter) buildGroupReqs(genesisPoint wire.OutPoint,
+	assetOutputIndex uint32,
+	groupSeedlings map[string]*Seedling) ([]asset.GroupKeyRequest,
+	[]asset.GroupVirtualTx, error) {
+
+	// Seedlings that anchor a group may be referenced by other seedlings,
+	// and therefore need to be mapped to sprouts first so that we derive
+	// the initial tweaked group key early.
+	orderedSeedlings := SortSeedlings(maps.Values(groupSeedlings))
+	newGroups := make(map[string]*asset.AssetGroup)
+	groupReqs := make([]asset.GroupKeyRequest, 0, len(orderedSeedlings))
+	genTXs := make([]asset.GroupVirtualTx, 0, len(orderedSeedlings))
+
+	for _, seedlingName := range orderedSeedlings {
+		seedling := groupSeedlings[seedlingName]
+
+		assetGen := asset.Genesis{
+			FirstPrevOut: genesisPoint,
+			Tag:          seedling.AssetName,
+			OutputIndex:  assetOutputIndex,
+			Type:         seedling.AssetType,
+		}
+
+		// If the seedling has a meta data reveal set, then we'll bind
+		// that by including the hash of the meta data in the asset
+		// genesis.
+		if seedling.Meta != nil {
+			assetGen.MetaHash = seedling.Meta.MetaHash()
+		}
+
+		var (
+			amount     uint64
+			groupInfo  *asset.AssetGroup
+			protoAsset *asset.Asset
+			err        error
+		)
+
+		// Determine the amount for the actual asset.
+		switch seedling.AssetType {
+		case asset.Normal:
+			amount = seedling.Amount
+		case asset.Collectible:
+			amount = 1
+		}
+
+		// If the seedling has a group key specified,
+		// that group key was validated earlier. We need to
+		// sign the new genesis with that group key.
+		if seedling.HasGroupKey() {
+			groupInfo = seedling.GroupInfo
+		}
+
+		// If the seedling has a group anchor specified, that anchor
+		// was validated earlier and the corresponding group has already
+		// been created. We need to look up the group key and sign
+		// the asset genesis with that key.
+		if seedling.GroupAnchor != nil {
+			groupInfo = newGroups[*seedling.GroupAnchor]
+		}
+
+		// If a group witness needs to be produced, then we will need a
+		// partially filled asset as part of the signing process.
+		if groupInfo != nil || seedling.EnableEmission {
+			protoAsset, err = asset.New(
+				assetGen, amount, 0, 0, seedling.ScriptKey,
+				nil,
+				asset.WithAssetVersion(seedling.AssetVersion),
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to create "+
+					"asset for group key signing: %w", err)
+			}
+		}
+
+		if groupInfo != nil {
+			groupReq, err := asset.NewGroupKeyRequest(
+				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
+				protoAsset, groupInfo.GroupKey.TapscriptRoot,
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to "+
+					"request asset group membership: %w",
+					err)
+			}
+
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				c.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			groupReqs = append(groupReqs, *groupReq)
+			genTXs = append(genTXs, *genTx)
+		}
+
+		// If emission is enabled, an internal key for the group should
+		// already be specified. Use that to derive the key group
+		// signature along with the tweaked key group.
+		if seedling.EnableEmission {
+			if seedling.GroupInternalKey == nil {
+				return nil, nil, fmt.Errorf("unable to " +
+					"derive group key")
+			}
+
+			groupReq, err := asset.NewGroupKeyRequest(
+				*seedling.GroupInternalKey, assetGen,
+				protoAsset, seedling.GroupTapscriptRoot,
+			)
+			if err != nil {
+				return nil, nil, fmt.Errorf("unable to "+
+					"request asset group creation: %w", err)
+			}
+
+			genTx, err := groupReq.BuildGroupVirtualTx(
+				c.cfg.GenTxBuilder,
+			)
+			if err != nil {
+				return nil, nil, err
+			}
+
+			groupReqs = append(groupReqs, *groupReq)
+			genTXs = append(genTXs, *genTx)
+
+			newGroups[seedlingName] = &asset.AssetGroup{
+				Genesis: &assetGen,
+				GroupKey: &asset.GroupKey{
+					RawKey: *seedling.GroupInternalKey,
+				},
+			}
+		}
+	}
+
+	return groupReqs, genTXs, nil
+}
+
 // freezeMintingBatch freezes a target minting batch which means that no new
 // assets can be added to the batch.
 func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
@@ -392,23 +667,12 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 		batchKey.SerializeCompressed(), len(batch.Seedlings))
 
 	// In order to freeze a batch, we need to update the state of the batch
-	// to BatchStateFinalized, meaning that no other changes can happen.
+	// to BatchStateFrozen, meaning that no other changes can happen.
 	//
 	// TODO(roasbeef): assert not in some other state first?
 	return batchStore.UpdateBatchState(
 		ctx, batchKey, BatchStateFrozen,
 	)
-}
-
-func commitBatchSibling(ctx context.Context, batchStore MintingStore,
-	batch *MintingBatch, sibling *chainhash.Hash) error {
-
-	batchKey := batch.BatchKey.PubKey
-
-	log.Infof("Committing tapscript sibling hash(batch_key=%x, sibling=%x)",
-		batchKey.SerializeCompressed(), sibling[:])
-
-	return batchStore.CommitBatchTapSibling(ctx, batchKey, sibling)
 }
 
 // ListBatches returns the single batch specified by the batch key, or the set
@@ -530,31 +794,6 @@ func (c *ChainPlanter) gardener() {
 
 	for {
 		select {
-		case <-c.cfg.BatchTicker.Ticks():
-			// There is no pending batch, so we can just abort.
-			if c.pendingBatch == nil {
-				log.Debugf("No batches pending...doing nothing")
-				continue
-			}
-
-			defaultFeeRate := fn.None[chainfee.SatPerKWeight]()
-			emptyTapSibling := fn.None[asset.TapscriptTreeNodes]()
-
-			defaultFinalizeParams := FinalizeParams{
-				FeeRate:        defaultFeeRate,
-				SiblingTapTree: emptyTapSibling,
-			}
-			_, err := c.finalizeBatch(defaultFinalizeParams)
-			if err != nil {
-				c.cfg.ErrChan <- fmt.Errorf("unable to freeze "+
-					"minting batch: %w", err)
-				continue
-			}
-
-			// Now that we have a caretaker launched for this
-			// batch, we'll set the pending batch to nil
-			c.pendingBatch = nil
-
 		// A request for new asset issuance just arrived, add this to
 		// the pending batch and acknowledge the receipt back to the
 		// caller.
@@ -639,6 +878,38 @@ func (c *ChainPlanter) gardener() {
 
 				req.Resolve(batches)
 
+			case reqTypeFundBatch:
+				if c.pendingBatch != nil &&
+					c.pendingBatch.IsFunded() {
+
+					req.Error(fmt.Errorf("batch already " +
+						"funded"))
+					break
+				}
+
+				fundReqParams, err :=
+					typedParam[FundParams](req)
+				if err != nil {
+					req.Error(fmt.Errorf("bad fund "+
+						"params: %w", err))
+					break
+				}
+
+				ctx, cancel := c.WithCtxQuit()
+				err = c.fundBatch(ctx, *fundReqParams)
+				cancel()
+				if err != nil {
+					req.Error(fmt.Errorf("unable to fund "+
+						"minting batch: %w", err))
+					break
+				}
+
+				req.Resolve(c.pendingBatch)
+
+			// TODO(jhb): follow-up PR: Implement SealBatch command
+			case reqTypeSealBatch:
+				req.Error(fmt.Errorf("not yet implemented"))
+
 			case reqTypeFinalizeBatch:
 				if c.pendingBatch == nil {
 					req.Error(fmt.Errorf("no pending batch"))
@@ -722,56 +993,259 @@ func (c *ChainPlanter) gardener() {
 	}
 }
 
-// finalizeBatch creates a new caretaker for the batch and starts it.
-func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
-	error) {
-
+// fundBatch attempts to fund a minting batch and create a funded genesis PSBT.
+// This PSBT is a template that the caretaker will modify when finalizing the
+// batch. If a feerate or tapscript sibling are provided, those will be used
+// when funding the batch. If no pending batch exists, a batch will be created
+// with the funded genesis PSBT. After funding, the pending batch will be
+// saved to disk and updated in memory.
+func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 	var (
 		feeRate  *chainfee.SatPerKWeight
 		rootHash *chainhash.Hash
 		err      error
 	)
 
-	ctx, cancel := c.WithCtxQuit()
-	defer cancel()
 	// If a tapscript tree was specified for this batch, we'll store it on
 	// disk. The caretaker we start for this batch will use it when deriving
 	// the final Taproot output key.
-	params.FeeRate.WhenSome(func(fr chainfee.SatPerKWeight) {
-		feeRate = &fr
-	})
+	feeRate = params.FeeRate.UnwrapToPtr()
 	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
-		rootHash, err = c.cfg.TreeStore.
-			StoreTapscriptTree(ctx, tn)
+		rootHash, err = c.cfg.TreeStore.StoreTapscriptTree(ctx, tn)
 	})
 
 	if err != nil {
-		return nil, fmt.Errorf("unable to store tapscript "+
-			"tree for minting batch: %w", err)
+		return fmt.Errorf("unable to store tapscript tree for minting "+
+			"batch: %w", err)
 	}
 
-	if rootHash != nil {
-		ctx, cancel = c.WithCtxQuit()
-		defer cancel()
-		err = commitBatchSibling(
-			ctx, c.cfg.Log, c.pendingBatch, rootHash,
+	// Update the batch by adding the sibling root hash and genesis TX.
+	updateBatch := func(batch *MintingBatch) error {
+		// Add the batch sibling root hash if present.
+		if rootHash != nil {
+			batch.tapSibling = rootHash
+		}
+
+		// Fund the batch with the specified fee rate.
+		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
+		batchTX, err := c.fundGenesisPsbt(ctx, batchKey, feeRate)
+		if err != nil {
+			return fmt.Errorf("unable to fund minting PSBT for "+
+				"batch: %x %w", batchKey[:], err)
+		}
+
+		batch.GenesisPacket = batchTX
+
+		return nil
+	}
+
+	switch {
+	// If we don't have a batch, we'll create an empty batch before funding
+	// and writing to disk.
+	case c.pendingBatch == nil:
+		newBatch, err := c.newBatch()
+		if err != nil {
+			return fmt.Errorf("unable to create new batch: %w", err)
+		}
+
+		err = updateBatch(newBatch)
+		if err != nil {
+			return err
+		}
+
+		// Now that we're done populating parts of the batch, write it
+		// to disk.
+		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		if err != nil {
+			return err
+		}
+
+		c.pendingBatch = newBatch
+
+	// If we already have a batch, we need to attach the optional sibling
+	// root hash and fund the batch.
+	case c.pendingBatch != nil:
+		err = updateBatch(c.pendingBatch)
+		if err != nil {
+			return err
+		}
+
+		// Write the associated sibling root hash and TX to disk.
+		if c.pendingBatch.tapSibling != nil {
+			err = c.cfg.Log.CommitBatchTapSibling(
+				ctx, c.pendingBatch.BatchKey.PubKey, rootHash,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to commit tapscript "+
+					"sibling for minting batch %w", err)
+			}
+		}
+
+		err = c.cfg.Log.CommitBatchTx(
+			ctx, c.pendingBatch.BatchKey.PubKey,
+			c.pendingBatch.GenesisPacket,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to commit tapscript "+
-				"sibling for minting batch %w", err)
+			return err
 		}
 	}
 
-	c.pendingBatch.tapSibling = rootHash
+	return nil
+}
 
+// sealBatch will verify that each grouped asset in the pending batch has an
+// asset group witness, and will attempt to create asset group witnesses when
+// possible if they are not provided. After all asset group witnesses have been
+// validated, they are saved to disk to be used by the caretaker during batch
+// finalization.
+func (c *ChainPlanter) sealBatch(ctx context.Context, _ SealParams) error {
+	// A batch should exist with 1+ seedlings and be funded before being
+	// sealed.
+	if c.pendingBatch == nil {
+		return fmt.Errorf("no pending batch")
+	}
+
+	if len(c.pendingBatch.Seedlings) == 0 {
+		return fmt.Errorf("no seedlings in batch")
+	}
+
+	if !c.pendingBatch.IsFunded() {
+		return fmt.Errorf("batch is not funded")
+	}
+
+	// Filter the batch seedlings to only consider those that will become
+	// grouped assets. If there are no such seedlings, then there is nothing
+	// to seal and no action is needed.
+	groupSeedlings, _ := filterSeedlingsWithGroup(c.pendingBatch.Seedlings)
+	if len(groupSeedlings) == 0 {
+		return nil
+	}
+
+	// Before we can build the group key requests for each seedling, we must
+	// fetch the genesis point and anchor index for the batch.
+	anchorOutputIndex := uint32(0)
+	if c.pendingBatch.GenesisPacket.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+
+	genesisPoint := extractGenesisOutpoint(
+		c.pendingBatch.GenesisPacket.Pkt.UnsignedTx,
+	)
+
+	// Construct the group key requests and group virtual TXs for each
+	// seedling. With these we can verify provided asset group witnesses,
+	// or attempt to derive asset group witnesses if needed.
+	groupReqs, genTXs, err := c.buildGroupReqs(
+		genesisPoint, anchorOutputIndex, groupSeedlings,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to build group requests: %w", err)
+	}
+
+	assetGroups := make([]*asset.AssetGroup, 0, len(groupReqs))
+	for i := 0; i < len(groupReqs); i++ {
+		// Derive the asset group witness.
+		groupKey, err := asset.DeriveGroupKey(
+			c.cfg.GenSigner, genTXs[i], groupReqs[i], nil,
+		)
+		if err != nil {
+			return err
+		}
+
+		// Recreate the asset with the populated group key and validate
+		// the asset group witness.
+		protoAsset := groupReqs[i].NewAsset
+		groupedAsset, err := asset.New(
+			protoAsset.Genesis, protoAsset.Amount,
+			protoAsset.LockTime, protoAsset.RelativeLockTime,
+			protoAsset.ScriptKey, groupKey,
+			asset.WithAssetVersion(protoAsset.Version),
+		)
+		if err != nil {
+			return err
+		}
+
+		err = c.cfg.TxValidator.Execute(groupedAsset, nil, nil)
+		if err != nil {
+			return fmt.Errorf("unable to verify asset "+
+				"group witness: %w", err)
+		}
+
+		newGroup := &asset.AssetGroup{
+			Genesis:  &groupReqs[i].NewAsset.Genesis,
+			GroupKey: groupKey,
+		}
+
+		assetGroups = append(assetGroups, newGroup)
+	}
+
+	// With all the asset group witnesses validated, we can now save them
+	// to disk.
+	err = c.cfg.Log.AddSeedlingGroups(ctx, genesisPoint, assetGroups)
+	if err != nil {
+		return fmt.Errorf("unable to write seedling groups: %w", err)
+	}
+
+	return nil
+}
+
+// finalizeBatch creates a new caretaker for the batch and starts it.
+func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
+	error) {
+
+	var (
+		feeRate *chainfee.SatPerKWeight
+		err     error
+	)
+
+	// Before modifying the pending batch, check if the batch was already
+	// funded. If so, reject any provided parameters, as they would conflict
+	// with those previously used for batch funding.
+	haveParams := params.FeeRate.IsSome() || params.SiblingTapTree.IsSome()
+	if haveParams && c.pendingBatch.IsFunded() {
+		return nil, fmt.Errorf("cannot provide finalize parameters " +
+			"if batch already funded")
+	}
+
+	// Process the finalize parameters.
+	feeRate = params.FeeRate.UnwrapToPtr()
+
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	params.SiblingTapTree.WhenSome(func(tn asset.TapscriptTreeNodes) {
+		_, err = c.cfg.TreeStore.StoreTapscriptTree(ctx, tn)
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("unable to store tapscript tree for "+
+			"minting batch: %w", err)
+	}
 	// At this point, we have a non-empty batch, so we'll first finalize it
 	// on disk. This means no further seedlings can be added to this batch.
-	ctx, cancel = c.WithCtxQuit()
 	err = freezeMintingBatch(ctx, c.cfg.Log, c.pendingBatch)
-	cancel()
 	if err != nil {
-		return nil, fmt.Errorf("unable to freeze minting batch: %w",
-			err)
+		return nil, err
+	}
+
+	// If the batch already has a funded TX, we can skip funding the batch.
+	if !c.pendingBatch.IsFunded() {
+		// Fund the batch before starting the caretaker. If funding
+		// fails, we can't start a caretaker for the batch, so we'll
+		// clear the pending batch. The batch will exist on disk for
+		// the user to recreate it if necessary.
+		// TODO(jhb): Don't clear pending batch here
+		err = c.fundBatch(ctx, FundParams(params))
+		if err != nil {
+			c.pendingBatch = nil
+			return nil, err
+		}
+	}
+
+	// TODO(jhb): follow-up PR: detect batches that were already sealed
+	err = c.sealBatch(ctx, SealParams{})
+	if err != nil {
+		return nil, err
 	}
 
 	// Now that the batch has been frozen on disk, we can update the batch
@@ -824,6 +1298,30 @@ func (c *ChainPlanter) ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch,
 	return <-req.resp, <-req.err
 }
 
+// FundBatch sends a signal to the planter to fund the current batch, or create
+// a funded batch.
+func (c *ChainPlanter) FundBatch(params FundParams) (*MintingBatch, error) {
+	req := newStateParamReq[*MintingBatch](reqTypeFundBatch, params)
+
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
+}
+
+// SealBatch attempts to seal the current batch, by providing or deriving all
+// witnesses necessary to create the final genesis TX.
+func (c *ChainPlanter) SealBatch(params SealParams) (*MintingBatch, error) {
+	req := newStateParamReq[*MintingBatch](reqTypeSealBatch, params)
+
+	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
+		return nil, fmt.Errorf("chain planter shutting down")
+	}
+
+	return <-req.resp, <-req.err
+}
+
 // FinalizeBatch sends a signal to the planter to finalize the current batch.
 func (c *ChainPlanter) FinalizeBatch(params FinalizeParams) (*MintingBatch,
 	error) {
@@ -857,6 +1355,14 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// First, we'll perform some basic validation for the seedling.
 	if err := req.validateFields(); err != nil {
 		return err
+	}
+
+	// The seedling name must be unique within the pending batch.
+	if c.pendingBatch != nil {
+		if _, ok := c.pendingBatch.Seedlings[req.AssetName]; ok {
+			return fmt.Errorf("asset with name %v already in batch",
+				req.AssetName)
+		}
 	}
 
 	// If emission is enabled and a group key is specified, we need to
@@ -894,45 +1400,66 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		}
 	}
 
-	// Now that we know the field are valid, we'll check to see if a batch
+	// If a group internal key or tapscript root is specified, emission must
+	// also be enabled.
+	if !req.EnableEmission {
+		if req.GroupInternalKey != nil {
+			return fmt.Errorf("cannot specify group internal key " +
+				"without enabling emission")
+		}
+
+		if req.GroupTapscriptRoot != nil {
+			return fmt.Errorf("cannot specify group tapscript " +
+				"root without enabling emission")
+		}
+	}
+
+	// For group anchors, derive an internal key for the future group key if
+	// none was provided.
+	if req.EnableEmission && req.GroupInternalKey == nil {
+		groupInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to obtain internal key for "+
+				"group key for seedling: %s %w", req.AssetName,
+				err)
+		}
+
+		req.GroupInternalKey = &groupInternalKey
+	}
+
+	// Now that we've validated the seedling, we can derive a script key to
+	// be used for this asset, if an external script key was not provided.
+	if req.ScriptKey.PubKey == nil {
+		scriptKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to obtain script key for "+
+				"seedling: %s %w", req.AssetName, err)
+		}
+
+		// Default to BIP86 for the script key tweaking method.
+		req.ScriptKey = asset.NewScriptKeyBip86(scriptKey)
+	}
+
+	// Now that we know the seedling is valid, we'll check to see if a batch
 	// already exists.
 	switch {
 	// No batch, so we'll create a new one with only this seedling as part
 	// of the batch.
 	case c.pendingBatch == nil:
-		log.Infof("Creating new MintingBatch w/ %v", req)
-
-		// To create a new batch we'll first need to grab a new
-		// internal key, which'll be used in the output we create, and
-		// also will serve as the primary identifier for a batch.
-		newInternalKey, err := c.cfg.KeyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
+		newBatch, err := c.newBatch()
 		if err != nil {
 			return err
 		}
 
-		ctx, cancel := c.WithCtxQuit()
-		defer cancel()
-		currentHeight, err := c.cfg.ChainBridge.CurrentHeight(ctx)
-		if err != nil {
-			return fmt.Errorf("unable to get current height: %w",
-				err)
-		}
+		log.Infof("Adding %v to new MintingBatch", req)
 
-		// Create a new batch and commit it to disk so we can pick up
-		// where we left off upon restart.
-		newBatch := &MintingBatch{
-			CreationTime: time.Now(),
-			HeightHint:   currentHeight,
-			BatchKey:     newInternalKey,
-			Seedlings: map[string]*Seedling{
-				req.AssetName: req,
-			},
-			AssetMetas: make(AssetMetas),
-		}
-		newBatch.UpdateState(BatchStatePending)
-		ctx, cancel = c.WithCtxQuit()
+		newBatch.Seedlings[req.AssetName] = req
+
+		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
 		if err != nil {
@@ -946,15 +1473,7 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	case c.pendingBatch != nil:
 		log.Infof("Adding %v to existing MintingBatch", req)
 
-		// First attempt to add the seedling to our pending batch, if
-		// this name is already taken (in the batch), then an error
-		// will be returned.
-		//
-		// TODO(roasbeef): unique constraint below? will trigger on the
-		// name?
-		if err := c.pendingBatch.addSeedling(req); err != nil {
-			return err
-		}
+		c.pendingBatch.Seedlings[req.AssetName] = req
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
