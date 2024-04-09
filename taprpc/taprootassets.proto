@@ -241,6 +241,77 @@ message GenesisInfo {
     uint32 output_index = 6;
 }
 
+message GroupKeyRequest {
+    // The internal key for the asset group before any tweaks have been applied.
+    KeyDescriptor raw_key = 1;
+
+    /*
+    The genesis of the group anchor asset, which is used to derive the single
+    tweak for the group key. For a new group key, this will be the genesis of
+    new_asset.
+    */
+    GenesisInfo anchor_genesis = 2;
+
+    /*
+    The optional root of a tapscript tree that will be used when constructing a
+    new asset group key. This enables future issuance authorized with a script
+    witness.
+    */
+    bytes tapscript_root = 3;
+
+    /*
+    The serialized asset which we are requesting group membership for. A
+    successful request will produce a witness that authorizes this asset to be a
+    member of this asset group.
+    */
+    bytes new_asset = 4;
+}
+
+message TxOut {
+    // The value of the output being spent.
+    int64 value = 1;
+
+    // The script of the output being spent.
+    bytes pk_script = 2;
+}
+
+message GroupVirtualTx {
+    /*
+    The virtual transaction that represents the genesis state transition of a
+    grouped asset.
+    */
+    bytes transaction = 1;
+
+    /*
+    The transaction output that represents a grouped asset. The tweaked
+    group key is set as the PkScript of this output. This is used in combination
+    with Tx to produce an asset group witness.
+    */
+    TxOut prev_out = 2;
+
+    /*
+    The asset ID of the grouped asset in a GroupKeyRequest. This ID is
+    needed to construct a sign descriptor, as it is the single tweak for the
+    group internal key.
+    */
+    bytes genesis_id = 3;
+
+    /*
+    The tweaked group key for a specific GroupKeyRequest. This is used to
+    construct a complete group key after producing an asset group witness.
+    */
+    bytes tweaked_key = 4;
+}
+
+message GroupWitness {
+    // The asset ID of the pending asset that should be assigned this asset
+    // group witness.
+    bytes genesis_id = 1;
+
+    // The serialized witness stack for the asset group.
+    repeated bytes witness = 2;
+}
+
 message AssetGroup {
     // The raw group key which is a normal public key.
     bytes raw_group_key = 1;
@@ -257,7 +328,11 @@ message AssetGroup {
     */
     bytes asset_witness = 3;
 
-    // TODO(jhb): update to include tapscript_root
+    /*
+    The root hash of a tapscript tree, which enables future issuance authorized
+    with a script witness.
+    */
+    bytes tapscript_root = 4;
 }
 
 message GroupKeyReveal {
