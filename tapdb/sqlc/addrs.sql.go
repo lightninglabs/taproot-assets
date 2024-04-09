@@ -358,6 +358,7 @@ JOIN addrs
 WHERE addr_events.status >= $1 
   AND addr_events.status <= $2
   AND COALESCE($3, addrs.taproot_output_key) = addrs.taproot_output_key
+  AND addr_events.creation_time >= $4
 ORDER by addr_events.creation_time
 `
 
@@ -365,6 +366,7 @@ type QueryEventIDsParams struct {
 	StatusFrom     int16
 	StatusTo       int16
 	AddrTaprootKey []byte
+	CreatedAfter   time.Time
 }
 
 type QueryEventIDsRow struct {
@@ -373,7 +375,12 @@ type QueryEventIDsRow struct {
 }
 
 func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryEventIDs, arg.StatusFrom, arg.StatusTo, arg.AddrTaprootKey)
+	rows, err := q.db.QueryContext(ctx, queryEventIDs,
+		arg.StatusFrom,
+		arg.StatusTo,
+		arg.AddrTaprootKey,
+		arg.CreatedAfter,
+	)
 	if err != nil {
 		return nil, err
 	}

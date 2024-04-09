@@ -254,6 +254,11 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 			kit.errChan <- err
 			log.Errorf("Error evaluating state (%v): %v",
 				pkg.SendState, err)
+
+			p.publishSubscriberEvent(newAssetSendErrorEvent(
+				err, stateToExecute, *pkg,
+			))
+
 			return
 		}
 
@@ -1120,6 +1125,11 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			if err != nil {
 				log.Errorf("unable to transfer receiver "+
 					"proof: %v", err)
+
+				p.publishSubscriberEvent(newAssetSendErrorEvent(
+					err, SendStateReceiverProofTransfer,
+					currentPkg,
+				))
 			}
 		}()
 
@@ -1217,8 +1227,13 @@ type AssetSendEvent struct {
 	// timestamp is the time the event was created.
 	timestamp time.Time
 
-	// SendState is the state that was just executed successfully.
+	// SendState is the state that was just executed successfully, unless
+	// Error below is set, then it means executing this state failed.
 	SendState SendState
+
+	// Error is an optional error, indicating that something went wrong
+	// during the execution of the SendState above.
+	Error error
 
 	// Parcel is the parcel that is being sent.
 	Parcel Parcel
@@ -1269,4 +1284,20 @@ func newAssetSendEvent(executedState SendState,
 	}
 
 	return newSendEvent
+}
+
+// newAssetSendErrorEvent creates a new AssetSendEvent with an error.
+func newAssetSendErrorEvent(err error, executedState SendState,
+	pkg sendPackage) *AssetSendEvent {
+
+	return &AssetSendEvent{
+		timestamp:      time.Now().UTC(),
+		SendState:      executedState,
+		Error:          err,
+		Parcel:         pkg.Parcel,
+		VirtualPackets: pkg.VirtualPackets,
+		PassivePackets: pkg.PassiveAssets,
+		AnchorTx:       pkg.AnchorTx,
+		Transfer:       pkg.OutboundPkg,
+	}
 }

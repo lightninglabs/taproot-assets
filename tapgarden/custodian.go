@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
@@ -30,13 +31,18 @@ type AssetReceiveEvent struct {
 	// the asset.
 	OutPoint wire.OutPoint
 
-	// Status is the status of the asset receive event.
+	// Status is the status of the asset receive event. If Error below is
+	// set, this is the status that lead to the error.
 	Status address.Status
 
 	// ConfirmationHeight is the height of the block the asset receive
 	// transaction was mined in. This is only set if the status is
 	// StatusConfirmed or later.
 	ConfirmationHeight uint32
+
+	// Error is an optional error, indicating that something went wrong
+	// during the execution of the Status above.
+	Error error
 }
 
 // Timestamp returns the timestamp of the event.
@@ -54,6 +60,21 @@ func NewAssetReceiveEvent(addr address.Tap, outpoint wire.OutPoint,
 		OutPoint:           outpoint,
 		Status:             status,
 		ConfirmationHeight: confHeight,
+	}
+}
+
+// NewAssetReceiveErrorEvent creates a new AssetReceiveEvent with an error.
+func NewAssetReceiveErrorEvent(err error, addr address.Tap,
+	outpoint wire.OutPoint, confHeight uint32,
+	status address.Status) *AssetReceiveEvent {
+
+	return &AssetReceiveEvent{
+		timestamp:          time.Now().UTC(),
+		Address:            addr,
+		OutPoint:           outpoint,
+		Status:             status,
+		ConfirmationHeight: confHeight,
+		Error:              err,
 	}
 }
 
@@ -282,6 +303,13 @@ func (c *Custodian) watchInboundAssets() {
 		// starting up, let's check now.
 		available, err := c.checkProofAvailable(event)
 		if err != nil {
+			c.publishSubscriberStatusEvent(
+				NewAssetReceiveErrorEvent(
+					err, *event.Addr.Tap, event.Outpoint,
+					event.ConfirmationHeight, event.Status,
+				),
+			)
+
 			reportErr(err)
 			return
 		}
@@ -310,6 +338,15 @@ func (c *Custodian) watchInboundAssets() {
 				event.ConfirmationHeight,
 			)
 			if recErr != nil {
+				c.publishSubscriberStatusEvent(
+					NewAssetReceiveErrorEvent(
+						recErr, *event.Addr.Tap,
+						event.Outpoint,
+						event.ConfirmationHeight,
+						event.Status,
+					),
+				)
+
 				reportErr(recErr)
 			}
 		}()
@@ -434,6 +471,17 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 						event.ConfirmationHeight,
 					)
 					if recErr != nil {
+						c.publishSubscriberStatusEvent(
+							//nolint:lll
+							NewAssetReceiveErrorEvent(
+								recErr,
+								*event.Addr.Tap,
+								event.Outpoint,
+								event.ConfirmationHeight,
+								event.Status,
+							),
+						)
+
 						log.Errorf("Unable to receive "+
 							"proof: %v", recErr)
 					}
@@ -479,6 +527,14 @@ func (c *Custodian) inspectWalletTx(walletTx *lndclient.Transaction) error {
 				addr, op, event.ConfirmationHeight,
 			)
 			if recErr != nil {
+				c.publishSubscriberStatusEvent(
+					NewAssetReceiveErrorEvent(
+						recErr, *addr, op,
+						event.ConfirmationHeight,
+						event.Status,
+					),
+				)
+
 				log.Errorf("Unable to receive proof: %v",
 					recErr)
 			}
@@ -889,6 +945,15 @@ func (c *Custodian) mapProofToEvent(p proof.Blob) error {
 			// successfully.
 			err = c.setReceiveCompleted(event, lastProof, file)
 			if err != nil {
+				c.publishSubscriberStatusEvent(
+					NewAssetReceiveErrorEvent(
+						err, *event.Addr.Tap,
+						event.Outpoint,
+						event.ConfirmationHeight,
+						event.Status,
+					),
+				)
+
 				return fmt.Errorf("error updating event: %w",
 					err)
 			}
@@ -979,15 +1044,33 @@ func (c *Custodian) setReceiveCompleted(event *address.Event,
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will
 // be notified of any new status update events.
-//
-// TODO(ffranr): Add support for delivering existing events to new subscribers.
 func (c *Custodian) RegisterSubscriber(receiver *fn.EventReceiver[fn.Event],
-	deliverExisting bool, deliverFrom bool) error {
+	deliverExisting bool, deliverFrom time.Time) error {
 
 	c.statusEventsSubsMtx.Lock()
 	defer c.statusEventsSubsMtx.Unlock()
 
 	c.statusEventsSubs[receiver.ID()] = receiver
+
+	if deliverExisting {
+		ctx := context.Background()
+		events, err := c.cfg.AddrBook.QueryEvents(
+			ctx, address.EventQueryParams{
+				CreationTimeFrom: &deliverFrom,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error querying events: %w", err)
+		}
+
+		for _, event := range events {
+			newItemChan := receiver.NewItemCreated.ChanIn()
+			newItemChan <- NewAssetReceiveEvent(
+				*event.Addr.Tap, event.Outpoint,
+				event.ConfirmationHeight, event.Status,
+			)
+		}
+	}
 
 	return nil
 }

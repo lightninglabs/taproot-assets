@@ -137,6 +137,10 @@ type (
 	// notification stream.
 	receiveEventStream = taprpc.TaprootAssets_SubscribeReceiveEventsServer
 
+	// mintEventStream is a type alias for the asset mint event notification
+	// stream.
+	mintEventStream = mintrpc.Mint_SubscribeMintEventsServer
+
 	// receiveBackOff is a type alias for the backoff event that is sent
 	// when a proof transfer process failed and needs to re-try.
 	receiveBackoff = tapdevrpc.ReceiveAssetEvent_ProofTransferBackoffWaitEvent
@@ -3159,7 +3163,7 @@ func (r *rpcServer) SubscribeSendAssetEventNtfns(
 
 	return handleEvents[bool, *tapdevrpc.SendAssetEvent](
 		r.cfg.ChainPorter, ntfnStream, marshallSendAssetEvent, filter,
-		r.quit,
+		r.quit, false,
 	)
 }
 
@@ -3188,8 +3192,9 @@ func (r *rpcServer) SubscribeReceiveAssetEventNtfns(
 		}
 	}
 
-	return handleEvents[bool, *tapdevrpc.ReceiveAssetEvent](
+	return handleEvents[time.Time, *tapdevrpc.ReceiveAssetEvent](
 		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+		time.Time{},
 	)
 }
 
@@ -3200,6 +3205,14 @@ func (r *rpcServer) SubscribeReceiveEvents(
 	ntfnStream receiveEventStream) error {
 
 	tapParams := address.ParamsForChain(r.cfg.ChainParams.Name)
+
+	var deliverFrom time.Time
+	if req.StartTimestamp != 0 {
+		// The request timestamp is in microseconds, same as the event
+		// timestamp we return.
+		startTimestampNano := req.StartTimestamp * 1000
+		deliverFrom = time.Unix(0, startTimestampNano)
+	}
 
 	// We just decode the address to make sure it's valid. But any
 	// comparison for filtering happens on the string representation, as
@@ -3234,12 +3247,18 @@ func (r *rpcServer) SubscribeReceiveEvents(
 				err)
 		}
 
+		var errString string
+		if e.Error != nil {
+			errString = e.Error.Error()
+		}
+
 		return &taprpc.ReceiveEvent{
 			Timestamp:          e.Timestamp().UnixMicro(),
 			Address:            rpcAddr,
 			Outpoint:           e.OutPoint.String(),
 			Status:             rpcStatus,
 			ConfirmationHeight: e.ConfirmationHeight,
+			Error:              errString,
 		}, nil
 	}
 
@@ -3274,8 +3293,9 @@ func (r *rpcServer) SubscribeReceiveEvents(
 		return eventAddrString == addrString, nil
 	}
 
-	return handleEvents[bool, *taprpc.ReceiveEvent](
+	return handleEvents[time.Time, *taprpc.ReceiveEvent](
 		r.cfg.AssetCustodian, ntfnStream, marshaler, filter, r.quit,
+		deliverFrom,
 	)
 }
 
@@ -3348,6 +3368,59 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 
 	return handleEvents[bool, *taprpc.SendEvent](
 		r.cfg.ChainPorter, ntfnStream, marshalSendEvent, filter, r.quit,
+		false,
+	)
+}
+
+// SubscribeMintEvents allows a caller to subscribe to mint events for asset
+// creation batches.
+func (r *rpcServer) SubscribeMintEvents(req *mintrpc.SubscribeMintEventsRequest,
+	ntfnStream mintEventStream) error {
+
+	marshaler := func(event fn.Event) (*mintrpc.MintEvent, error) {
+		e, ok := event.(*tapgarden.AssetMintEvent)
+		if !ok {
+			return nil, fmt.Errorf("invalid event type: %T", event)
+		}
+
+		rpcState, err := marshalBatchState(e.BatchState)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling batch state: "+
+				"%w", err)
+		}
+
+		rpcBatch, err := marshalMintingBatch(e.Batch, req.ShortResponse)
+		if err != nil {
+			return nil, fmt.Errorf("error marshaling minting "+
+				"batch: %w", err)
+		}
+
+		var errString string
+		if e.Error != nil {
+			errString = e.Error.Error()
+		}
+
+		return &mintrpc.MintEvent{
+			Timestamp:  e.Timestamp().UnixMicro(),
+			BatchState: rpcState,
+			Error:      errString,
+			Batch:      rpcBatch,
+		}, nil
+	}
+
+	filter := func(event fn.Event) (bool, error) {
+		_, ok := event.(*tapgarden.AssetMintEvent)
+		if !ok {
+			return false, fmt.Errorf("invalid event type: %T",
+				event)
+		}
+
+		return true, nil
+	}
+
+	return handleEvents[bool, *mintrpc.MintEvent](
+		r.cfg.AssetMinter, ntfnStream, marshaler, filter, r.quit,
+		false,
 	)
 }
 
@@ -3355,19 +3428,17 @@ func (r *rpcServer) SubscribeSendEvents(req *taprpc.SubscribeSendEventsRequest,
 // forwards them to an RPC stream.
 func handleEvents[T any, Q any](eventSource fn.EventPublisher[fn.Event, T],
 	stream EventStream[Q], marshaler func(fn.Event) (Q, error),
-	filter func(fn.Event) (bool, error), quit <-chan struct{}) error {
+	filter func(fn.Event) (bool, error), quit <-chan struct{},
+	deliverFrom T) error {
 
 	// Create a new event subscriber and pass a copy to the event source.
 	// We will then read events from the subscriber.
 	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
 	defer eventSubscriber.Stop()
 
-	// The last argument in the RegisterSubscriber method is the deliverFrom
-	// argument, which is currently not used. Since we don't know if it's a
-	// pointer, struct or primitive type, we need to use the `var unused T`
-	// notation to pass in an empty value.
-	var unused T
-	err := eventSource.RegisterSubscriber(eventSubscriber, false, unused)
+	err := eventSource.RegisterSubscriber(
+		eventSubscriber, false, deliverFrom,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to register event source "+
 			"notifications subscription: %w", err)
@@ -3546,6 +3617,10 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
 	}
 
+	if e.Error != nil {
+		result.Error = e.Error.Error()
+	}
+
 	var err error
 	for idx, vPkt := range e.VirtualPackets {
 		result.VirtualPackets[idx], err = tappsbt.Encode(vPkt)
@@ -3640,14 +3715,16 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	skipSeedlings bool) (*mintrpc.MintingBatch, error) {
 
-	rpcBatchState, err := marshalBatchState(batch)
+	rpcBatchState, err := marshalBatchState(batch.State())
 	if err != nil {
 		return nil, err
 	}
 
 	rpcBatch := &mintrpc.MintingBatch{
-		BatchKey: batch.BatchKey.PubKey.SerializeCompressed(),
-		State:    rpcBatchState,
+		BatchKey:   batch.BatchKey.PubKey.SerializeCompressed(),
+		State:      rpcBatchState,
+		CreatedAt:  batch.CreationTime.UTC().Unix(),
+		HeightHint: batch.HeightHint,
 	}
 
 	// If we have the genesis packet available (funded+signed), then we'll
@@ -3658,6 +3735,12 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 			rpcBatch.BatchTxid = batchTx.TxHash().String()
 		} else {
 			rpcsLog.Errorf("unable to extract batch tx: %v", err)
+		}
+
+		rpcBatch.BatchPsbt, err = serialize(batch.GenesisPacket.Pkt)
+		if err != nil {
+			return nil, fmt.Errorf("error serializing batch PSBT: "+
+				"%w", err)
 		}
 	}
 
@@ -3785,12 +3868,8 @@ func marshalSprouts(sprouts []*asset.Asset,
 }
 
 // marshalBatchState converts the batch state field into its RPC counterpart.
-func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
-	error) {
-
-	currentBatchState := batch.State()
-
-	switch currentBatchState {
+func marshalBatchState(state tapgarden.BatchState) (mintrpc.BatchState, error) {
+	switch state {
 	case tapgarden.BatchStatePending:
 		return mintrpc.BatchState_BATCH_STATE_PENDING, nil
 
@@ -3816,8 +3895,7 @@ func marshalBatchState(batch *tapgarden.MintingBatch) (mintrpc.BatchState,
 		return mintrpc.BatchState_BATCH_STATE_SPROUT_CANCELLED, nil
 
 	default:
-		return 0, fmt.Errorf("unknown batch state: %v",
-			currentBatchState.String())
+		return 0, fmt.Errorf("unknown batch state: %v", state)
 	}
 }
 
@@ -6090,6 +6168,7 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 
 	return handleEvents[uint64, *rfqrpc.RfqEvent](
 		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, filter, r.quit,
+		0,
 	)
 }
 

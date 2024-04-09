@@ -442,6 +442,10 @@ func TestAddrEventCreation(t *testing.T) {
 		require.NoError(t, err)
 
 		events[i] = event
+
+		// We need to advance the test clock a tiny bit to make our
+		// event timestamps unique.
+		testClock.SetTime(testClock.Now().Add(time.Millisecond))
 	}
 
 	// All 5 events should be returned when querying pending events.
@@ -450,6 +454,16 @@ func TestAddrEventCreation(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assertEqualAddrEvents(t, events, pendingEvents)
+
+	// When querying by timestamp of the 3rd event, we should only get that
+	// event and all events that were created after it.
+	timedEvents, err := addrBook.QueryAddrEvents(
+		ctx, address.EventQueryParams{
+			CreationTimeFrom: &events[2].CreationTime,
+		},
+	)
+	require.NoError(t, err)
+	assertEqualAddrEvents(t, events[2:], timedEvents)
 
 	// If we try to create the same events again, we should just get the
 	// exact same event back.
