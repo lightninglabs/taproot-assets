@@ -9,8 +9,10 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -185,6 +187,71 @@ func UnmarshalGenesisInfo(rpcGen *GenesisInfo) (*asset.Genesis, error) {
 		OutputIndex:  rpcGen.OutputIndex,
 		Type:         asset.Type(rpcGen.AssetType),
 	}, nil
+}
+
+// UnmarshalTapscriptFullTree parses a Tapscript tree from the RPC variant.
+func UnmarshalTapscriptFullTree(tree *TapscriptFullTree) (
+	*asset.TapscriptTreeNodes, error) {
+
+	rpcLeaves := tree.GetAllLeaves()
+	leaves := make([]txscript.TapLeaf, len(rpcLeaves))
+
+	// Check that none of the leaves are a Taproot Asset Commitment.
+	for i, leaf := range rpcLeaves {
+		if commitment.IsTaprootAssetCommitmentScript(leaf.Script) {
+			return nil, fmt.Errorf("tapscript leaf is a Taproot " +
+				"Asset Commitment")
+		}
+
+		leaves[i] = txscript.NewBaseTapLeaf(leaf.Script)
+	}
+
+	tapTreeNodes, err := asset.TapTreeNodesFromLeaves(leaves)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tapscript tree: %w", err)
+	}
+
+	return tapTreeNodes, nil
+}
+
+// UnmarshalTapscriptBranch parses a Tapscript branch from the RPC variant.
+func UnmarshalTapscriptBranch(branch *TapBranch) (*asset.TapscriptTreeNodes,
+	error) {
+
+	branchData := [][]byte{branch.LeftTaphash, branch.RightTaphash}
+	tapBranch, err := asset.DecodeTapBranchNodes(branchData)
+	if err != nil {
+		return nil, fmt.Errorf("invalid tapscript branch: %w", err)
+	}
+
+	return fn.Ptr(asset.FromBranch(*tapBranch)), nil
+}
+
+// UnmarshalTapscriptSibling parses a Tapscript sibling from the RPC variant.
+func UnmarshalTapscriptSibling(rpcTree *TapscriptFullTree,
+	rpcBranch *TapBranch) (fn.Option[asset.TapscriptTreeNodes], error) {
+
+	var (
+		tapSibling *asset.TapscriptTreeNodes
+		err        error
+	)
+	switch {
+	case rpcTree != nil && rpcBranch != nil:
+		err = fmt.Errorf("cannot specify both tapscript tree and " +
+			"tapscript tree branches")
+
+	case rpcTree != nil:
+		tapSibling, err = UnmarshalTapscriptFullTree(rpcTree)
+
+	case rpcBranch != nil:
+		tapSibling, err = UnmarshalTapscriptBranch(rpcBranch)
+	}
+
+	if err != nil {
+		return fn.None[asset.TapscriptTreeNodes](), err
+	}
+
+	return fn.MaybeSome(tapSibling), nil
 }
 
 // UnmarshalGroupKeyRequest parses a group key request from the RPC variant.
