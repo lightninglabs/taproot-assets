@@ -290,18 +290,20 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 	allBatches := rpcBatches.Batches
 	require.Len(t.t, allBatches, 2)
 
-	isCollidingBatch := func(batch *mintrpc.MintingBatch) bool {
-		if len(batch.Assets) == 0 {
+	isCollidingBatch := func(batch *mintrpc.VerboseBatch) bool {
+		if len(batch.Batch.Assets) == 0 {
 			return false
 		}
 
-		return batch.Assets[0].AssetType == taprpc.AssetType_COLLECTIBLE
+		assetType := batch.Batch.Assets[0].AssetType
+
+		return assetType == taprpc.AssetType_COLLECTIBLE
 	}
 	batchCollide, err := fn.First(allBatches, isCollidingBatch)
 	require.NoError(t.t, err)
 
-	require.Len(t.t, batchCollide.Assets, 1)
-	equalityCheck(assetCollide.Asset, batchCollide.Assets[0])
+	require.Len(t.t, batchCollide.Batch.Assets, 1)
+	equalityCheck(assetCollide.Asset, batchCollide.Batch.Assets[0])
 
 	cancelBatchKey, err := t.tapd.CancelBatch(
 		ctxt, &mintrpc.CancelBatchRequest{},
@@ -323,11 +325,12 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	require.Len(t.t, cancelBatch.Batches, 1)
 	cancelBatchCollide := cancelBatch.Batches[0]
-	require.Len(t.t, cancelBatchCollide.Assets, 1)
+	require.Len(t.t, cancelBatchCollide.Batch.Assets, 1)
 	equalityCheckSeedlings(
-		batchCollide.Assets[0], cancelBatchCollide.Assets[0],
+		batchCollide.Batch.Assets[0],
+		cancelBatchCollide.Batch.Assets[0],
 	)
-	cancelBatchState := cancelBatchCollide.State
+	cancelBatchState := cancelBatchCollide.Batch.State
 	require.Equal(
 		t.t, cancelBatchState,
 		mintrpc.BatchState_BATCH_STATE_SEEDLING_CANCELLED,

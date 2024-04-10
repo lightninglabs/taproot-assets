@@ -2184,11 +2184,13 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		Amt:          numUnits,
 		AssetVersion: mintedAsset.Version,
 		ScriptKey: &taprpc.ScriptKey{
-			PubKey:   schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc:  lndKeyDescToTap(bobScriptKey.RawKey),
+			PubKey: schnorr.SerializePubKey(bobAssetScriptKey),
+			KeyDesc: taprpc.MarshalKeyDescriptor(
+				bobScriptKey.RawKey,
+			),
 			TapTweak: rootHash,
 		},
-		InternalKey: lndKeyDescToTap(bobInternalKey),
+		InternalKey: taprpc.MarshalKeyDescriptor(bobInternalKey),
 	})
 
 	require.NoError(t.t, err)
