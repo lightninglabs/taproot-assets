@@ -421,7 +421,7 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	require.Len(t, batchResp.Batches, 1)
 
 	batch := batchResp.Batches[0]
-	require.NotEmpty(t, batch.BatchTxid)
+	require.NotEmpty(t, batch.Batch.BatchTxid)
 
 	return AssertAssetsMinted(
 		t, tapClient, assetRequests, mintTXID, blockHash,

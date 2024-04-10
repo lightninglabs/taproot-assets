@@ -17,7 +17,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/lndclient"
-	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -171,7 +170,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	muSig2Addr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
 		AssetId:   firstBatchGenesis.AssetId,
 		Amt:       assetsToSend,
-		ScriptKey: tap.MarshalScriptKey(tapScriptKey),
+		ScriptKey: taprpc.MarshalScriptKey(tapScriptKey),
 		InternalKey: &taprpc.KeyDescriptor{
 			RawKeyBytes: pubKeyBytes(btcInternalKey),
 		},
@@ -372,7 +371,7 @@ func DeriveKeys(t *testing.T, tapd TapdClient) (asset.ScriptKey,
 		},
 	)
 	require.NoError(t, err)
-	scriptKey, err := tap.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
+	scriptKey, err := taprpc.UnmarshalScriptKey(scriptKeyDesc.ScriptKey)
 	require.NoError(t, err)
 
 	internalKeyDesc, err := tapd.NextInternalKey(
@@ -381,7 +380,7 @@ func DeriveKeys(t *testing.T, tapd TapdClient) (asset.ScriptKey,
 		},
 	)
 	require.NoError(t, err)
-	internalKeyLnd, err := tap.UnmarshalKeyDescriptor(
+	internalKeyLnd, err := taprpc.UnmarshalKeyDescriptor(
 		internalKeyDesc.InternalKey,
 	)
 	require.NoError(t, err)

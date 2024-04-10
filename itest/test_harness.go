@@ -20,7 +20,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/build"
-	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -529,17 +528,6 @@ func toJSON(t *testing.T, resp proto.Message) string {
 	require.NoError(t, err)
 
 	return jsonStr
-}
-
-// lndKeyDescToTap converts an lnd key descriptor to a tap key descriptor.
-func lndKeyDescToTap(lnd keychain.KeyDescriptor) *taprpc.KeyDescriptor {
-	return &taprpc.KeyDescriptor{
-		RawKeyBytes: lnd.PubKey.SerializeCompressed(),
-		KeyLoc: &taprpc.KeyLocator{
-			KeyFamily: int32(lnd.Family),
-			KeyIndex:  int32(lnd.Index),
-		},
-	}
 }
 
 // LogfTimestamped logs the given message with the current timestamp.

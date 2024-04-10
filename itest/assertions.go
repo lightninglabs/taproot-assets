@@ -331,9 +331,9 @@ func WaitForBatchState(t *testing.T, ctx context.Context,
 				len(batchResp.Batches))
 		}
 
-		if batchResp.Batches[0].State != targetState {
+		if batchResp.Batches[0].Batch.State != targetState {
 			return fmt.Errorf("expected batch state %v, got %v",
-				targetState, batchResp.Batches[0].State)
+				targetState, batchResp.Batches[0].Batch.State)
 		}
 
 		return nil
