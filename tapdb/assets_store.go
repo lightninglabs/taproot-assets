@@ -576,6 +576,11 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 				return nil, err
 			}
 
+			var tapscriptRoot []byte
+			if len(sprout.TapscriptRoot) != 0 {
+				tapscriptRoot = sprout.TapscriptRoot
+			}
+
 			groupKey = &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					PubKey: rawGroupKey,
@@ -588,8 +593,9 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 						),
 					},
 				},
-				GroupPubKey: *tweakedGroupKey,
-				Witness:     groupWitness,
+				GroupPubKey:   *tweakedGroupKey,
+				Witness:       groupWitness,
+				TapscriptRoot: tapscriptRoot,
 			}
 		}
 
