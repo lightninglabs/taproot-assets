@@ -33,6 +33,10 @@ type Server struct {
 	started  int32
 	shutdown int32
 
+	// ready is a channel that is closed once the server is ready to do its
+	// work.
+	ready chan bool
+
 	cfg *Config
 
 	*rpcServer
@@ -45,9 +49,16 @@ type Server struct {
 // NewServer creates a new server given the passed config.
 func NewServer(cfg *Config) *Server {
 	return &Server{
-		cfg:  cfg,
-		quit: make(chan struct{}, 1),
+		cfg:   cfg,
+		ready: make(chan bool),
+		quit:  make(chan struct{}, 1),
 	}
+}
+
+// UpdateConfig updates the server's configuration. This MUST be called before
+// the server is started.
+func (s *Server) UpdateConfig(cfg *Config) {
+	s.cfg = cfg
 }
 
 // initialize creates and initializes an instance of the macaroon service and
@@ -72,12 +83,12 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		for serviceName, shutdownFn := range shutdownFuncs {
 			if err := shutdownFn(); err != nil {
 				srvrLog.Errorf("Error shutting down %s "+
-					"service: %w", serviceName, err)
+					"service: %v", serviceName, err)
 			}
 		}
 	}()
 
-	// If we're usign macaroons, then go ahead and instantiate the main
+	// If we're using macaroons, then go ahead and instantiate the main
 	// macaroon service.
 	if !s.cfg.RPCConfig.NoMacaroons {
 		var err error
@@ -187,6 +198,8 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 
 	shutdownFuncs = nil
 
+	close(s.ready)
+
 	return nil
 }
 
@@ -228,7 +241,9 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 				return mkErr("unable to listen on %s: %v",
 					grpcEndpoint, err)
 			}
-			defer lis.Close()
+			defer func() {
+				_ = lis.Close()
+			}()
 
 			grpcListeners = append(
 				grpcListeners, &lnd.ListenerWithSignal{

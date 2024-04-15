@@ -52,8 +52,7 @@ func MarshalAssetVersion(version asset.Version) (AssetVersion, error) {
 
 // MarshalAsset converts an asset to its rpc representation.
 func MarshalAsset(ctx context.Context, a *asset.Asset,
-	isSpent, withWitness bool,
-	keyRing KeyLookup) (*Asset, error) {
+	isSpent, withWitness bool, keyRing KeyLookup) (*Asset, error) {
 
 	assetID := a.Genesis.ID()
 	scriptKeyIsLocal := false
