@@ -14,6 +14,35 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// Encoder encodes a proof to the given writer.
+func Encoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*Proof); ok {
+		return (*t).Encode(w)
+	}
+	return tlv.NewTypeForEncodingErr(val, "Proof")
+}
+
+// Decoder decodes a proof from the given reader.
+func Decoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > FileMaxProofSizeBytes {
+		return tlv.ErrRecordTooLarge
+	}
+	if typ, ok := val.(*Proof); ok {
+		var proofBytes []byte
+		if err := tlv.DVarBytes(r, &proofBytes, buf, l); err != nil {
+			return err
+		}
+		var proof Proof
+		err := proof.Decode(bytes.NewReader(proofBytes))
+		if err != nil {
+			return err
+		}
+		*typ = proof
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "Proof")
+}
+
 func VersionEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*TransitionVersion); ok {
 		return tlv.EUint32T(w, uint32(*t), buf)
