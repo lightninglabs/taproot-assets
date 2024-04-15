@@ -19,7 +19,7 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOPATH: /home/runner/work/go
 
-  GO_VERSION: '1.21.4'
+  GO_VERSION: '1.22.3'
 
 jobs:
   #######################
@@ -31,6 +31,9 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: docker image cache
         uses: jpribyl/action-docker-layer-caching@v0.1.1
@@ -45,6 +48,9 @@ jobs:
     steps:
       - name: git checkout
         uses: actions/checkout@v3
+
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
 
       - name: Generate RPC stubs and check REST annotations
         run: make rpc-check

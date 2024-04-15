@@ -1,8 +1,8 @@
 module github.com/lightninglabs/taproot-assets
 
-go 1.21.4
+go 1.22
 
-toolchain go1.22.2
+toolchain go1.22.3
 
 require (
 	github.com/btcsuite/btcd v0.24.2-beta.rc1.0.20240403021926-ae5533602c46
