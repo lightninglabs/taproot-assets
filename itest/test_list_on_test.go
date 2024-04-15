@@ -22,6 +22,10 @@ var testCases = []*testCase{
 		test: testMintAssetsWithTapscriptSibling,
 	},
 	{
+		name: "mint fund seal assets",
+		test: testMintFundSealAssets,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
