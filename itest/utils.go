@@ -281,12 +281,8 @@ func WithSiblingTree(tree mintrpc.FinalizeBatchRequest_FullTree) MintOption {
 	}
 }
 
-// MintAssetUnconfirmed is a helper function that mints a batch of assets and
-// waits until the minting transaction is in the mempool but does not mine a
-// block.
-func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
-	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
-	opts ...MintOption) (chainhash.Hash, []byte) {
+func BuildMintingBatch(t *testing.T, tapClient TapdClient,
+	assetRequests []*mintrpc.MintAssetRequest, opts ...MintOption) {
 
 	options := DefaultMintOptions()
 	for _, opt := range opts {
@@ -304,6 +300,20 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		require.NotEmpty(t, assetResp.PendingBatch)
 		require.Len(t, assetResp.PendingBatch.Assets, idx+1)
 	}
+}
+
+func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
+	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	opts ...MintOption) (chainhash.Hash, []byte) {
+
+	options := DefaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, options.mintingTimeout)
+	defer cancel()
 
 	finalizeReq := &mintrpc.FinalizeBatchRequest{}
 
@@ -365,10 +375,34 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 			AssetAnchorCheck(*hashes[0], zeroHash),
 			AssetScriptKeyIsLocalCheck(true),
 			AssetVersionCheck(assetRequest.Asset.AssetVersion),
+			AssetScriptKeyCheck(assetRequest.Asset.ScriptKey),
+			AssetIsGroupedCheck(
+				assetRequest.Asset.NewGroupedAsset,
+				assetRequest.Asset.GroupedAsset,
+			),
+			AssetGroupTapscriptRootCheck(
+				assetRequest.Asset.GroupTapscriptRoot,
+			),
+			// add new checks here
 		)
 	}
 
 	return *hashes[0], batchResp.Batch.BatchKey
+}
+
+// MintAssetUnconfirmed is a helper function that mints a batch of assets and
+// waits until the minting transaction is in the mempool but does not mine a
+// block.
+func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
+	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	opts ...MintOption) (chainhash.Hash, []byte) {
+
+	// Submit all the assets in the same batch.
+	BuildMintingBatch(t, tapClient, assetRequests, opts...)
+
+	return FinalizeBatchUnconfirmed(
+		t, minerClient, tapClient, assetRequests, opts...,
+	)
 }
 
 // MintAssetsConfirmBatch mints all given assets in the same batch, confirms the
@@ -390,6 +424,17 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	mintTXID, batchKey := MintAssetUnconfirmed(
 		t, minerClient, tapClient, assetRequests, opts...,
 	)
+
+	return ConfirmBatch(
+		t, minerClient, tapClient, assetRequests, sub, mintTXID,
+		batchKey, opts...,
+	)
+}
+
+func ConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
+	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	sub *EventSubscription[*mintrpc.MintEvent], mintTXID chainhash.Hash,
+	batchKey []byte, opts ...MintOption) []*taprpc.Asset {
 
 	options := DefaultMintOptions()
 	for _, opt := range opts {
