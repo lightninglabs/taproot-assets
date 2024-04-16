@@ -14,6 +14,7 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -512,6 +513,84 @@ func DecodeCommitment(blob tlv.Blob) (*Commitment, error) {
 	return &c, nil
 }
 
+// CommitSig is a record that represents the commitment signatures for a certain
+// commit height.
+type CommitSig struct {
+	// HtlcPartialSigs is a map of HTLC indices to partial signatures and
+	// nonces for the HTLCs.
+	HtlcPartialSigs tlv.RecordT[HtlcSigsRecordType, HtlcPartialSigsRecord]
+}
+
+// NewCommitSig creates a new CommitSig record with the given partial Sigs.
+func NewCommitSig(htlcSigs [][]*AssetSig) *CommitSig {
+	var htlcPartialSigs []AssetSigListRecord
+	if len(htlcSigs) > 0 {
+		htlcPartialSigs = make([]AssetSigListRecord, len(htlcSigs))
+		for idx := range htlcSigs {
+			htlcPartialSigs[idx] = AssetSigListRecord{
+				Sigs: htlcSigs[idx],
+			}
+		}
+	}
+
+	return &CommitSig{
+		HtlcPartialSigs: tlv.NewRecordT[HtlcSigsRecordType](
+			HtlcPartialSigsRecord{
+				HtlcPartialSigs: htlcPartialSigs,
+			},
+		),
+	}
+}
+
+// records returns the records that make up the CommitSig.
+func (c *CommitSig) records() []tlv.Record {
+	return []tlv.Record{
+		c.HtlcPartialSigs.Record(),
+	}
+}
+
+// Encode serializes the CommitSig to the given io.Writer.
+func (c *CommitSig) Encode(w io.Writer) error {
+	tlvRecords := c.records()
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode deserializes the CommitSig from the given io.Reader.
+func (c *CommitSig) Decode(r io.Reader) error {
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(c.records()...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Decode(r)
+}
+
+// Bytes returns the serialized CommitSig record.
+func (c *CommitSig) Bytes() []byte {
+	var buf bytes.Buffer
+	_ = c.Encode(&buf)
+	return buf.Bytes()
+}
+
+// DecodeCommitSig deserializes a CommitSig from the given blob.
+func DecodeCommitSig(blob tlv.Blob) (*CommitSig, error) {
+	var c CommitSig
+	err := c.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+
+	return &c, nil
+}
+
 // HtlcAuxLeaf is a record that represents the auxiliary leaf of an HTLC and
 // the optional second level leaf. The second level leaf is optional because it
 // is not set in every case of the HTLC creation flow.
@@ -617,6 +696,358 @@ func DecodeHtlcAuxLeaf(blob tlv.Blob) (*HtlcAuxLeaf, error) {
 	return &h, nil
 }
 
+// AssetSig is a record that represents the signature for spending an asset
+// output.
+type AssetSig struct {
+	// AssetID is the asset ID that the signature is for.
+	AssetID tlv.RecordT[tlv.TlvType0, asset.ID]
+
+	// Sig is the signature for the asset spend.
+	Sig tlv.RecordT[tlv.TlvType1, lnwire.Sig]
+
+	// SigHashType is the sigHash type that was used to create the
+	// signature.
+	SigHashType tlv.RecordT[tlv.TlvType2, uint32]
+}
+
+// NewAssetSig creates a new AssetSig record with the given
+// asset ID and partial sig.
+func NewAssetSig(assetID asset.ID, sig lnwire.Sig,
+	sigHashType txscript.SigHashType) *AssetSig {
+
+	return &AssetSig{
+		AssetID: tlv.NewRecordT[tlv.TlvType0](assetID),
+		Sig:     tlv.NewRecordT[tlv.TlvType1](sig),
+		SigHashType: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint32(sigHashType),
+		),
+	}
+}
+
+// records returns the records that make up the AssetSig.
+func (a *AssetSig) records() []tlv.Record {
+	return []tlv.Record{
+		a.AssetID.Record(),
+		a.Sig.Record(),
+		a.SigHashType.Record(),
+	}
+}
+
+// Encode serializes the AssetOutput to the given io.Writer.
+func (a *AssetSig) Encode(w io.Writer) error {
+	tlvRecords := a.records()
+
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(tlvRecords...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode deserializes the AssetSig from the given io.Reader.
+func (a *AssetSig) Decode(r io.Reader) error {
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(a.records()...)
+	if err != nil {
+		return err
+	}
+
+	err = tlvStream.Decode(r)
+	if err != nil {
+		return err
+	}
+
+	// We need to force the signature type to be a Schnorr signature for the
+	// unit tests to pass.
+	a.Sig.Val.ForceSchnorr()
+
+	return nil
+}
+
+// Bytes returns the serialized AssetSig record.
+func (a *AssetSig) Bytes() []byte {
+	var buf bytes.Buffer
+	_ = a.Encode(&buf)
+	return buf.Bytes()
+}
+
+// DecodeAssetSig deserializes a AssetSig from the given blob.
+func DecodeAssetSig(blob tlv.Blob) (*AssetSig, error) {
+	var a AssetSig
+	err := a.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+
+	return &a, nil
+}
+
+// AssetSigListRecord is a record that represents a list of asset signatures.
+type AssetSigListRecord struct {
+	Sigs []*AssetSig
+}
+
+// Record creates a Record out of a AssetSigListRecord using the passed
+// eAssetSigListRecord and dAssetSigListRecord functions.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (l *AssetSigListRecord) Record() tlv.Record {
+	size := func() uint64 {
+		var (
+			buf     bytes.Buffer
+			scratch [8]byte
+		)
+		err := eAssetSigListRecord(&buf, &l.Sigs, &scratch)
+		if err != nil {
+			panic(err)
+		}
+
+		return uint64(buf.Len())
+	}
+
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeDynamicRecord(
+		0, &l.Sigs, size, eAssetSigListRecord, dAssetSigListRecord,
+	)
+}
+
+// Encode serializes the AssetSigListRecord to the given io.Writer.
+func (l *AssetSigListRecord) Encode(w io.Writer) error {
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(l.Record())
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode deserializes the AssetSigListRecord from the given io.Reader.
+func (l *AssetSigListRecord) Decode(r io.Reader) error {
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(l.Record())
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Decode(r)
+}
+
+// Bytes returns the serialized AssetSigListRecord record.
+func (l *AssetSigListRecord) Bytes() []byte {
+	var buf bytes.Buffer
+	_ = l.Encode(&buf)
+	return buf.Bytes()
+}
+
+// DecodeAssetSigListRecord deserializes a AssetSigListRecord from the
+// given blob.
+func DecodeAssetSigListRecord(rec []byte) (*AssetSigListRecord, error) {
+	var h AssetSigListRecord
+	err := h.Decode(bytes.NewReader(rec))
+	if err != nil {
+		return nil, err
+	}
+
+	return &h, nil
+}
+
+// eAssetSigListRecord is an encoder for AssetSigListRecord.
+func eAssetSigListRecord(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*[]*AssetSig); ok {
+		numOutputs := uint64(len(*v))
+		if err := tlv.WriteVarInt(w, numOutputs, buf); err != nil {
+			return err
+		}
+		var sigsBuf bytes.Buffer
+		for _, sig := range *v {
+			if err := sig.Encode(&sigsBuf); err != nil {
+				return err
+			}
+			sigBytes := sigsBuf.Bytes()
+			err := asset.InlineVarBytesEncoder(w, &sigBytes, buf)
+			if err != nil {
+				return err
+			}
+			sigsBuf.Reset()
+		}
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "*[]*AssetSig")
+}
+
+// dAssetSigListRecord is a decoder for AssetSigListRecord.
+func dAssetSigListRecord(r io.Reader, val interface{}, buf *[8]byte,
+	_ uint64) error {
+
+	if typ, ok := val.(*[]*AssetSig); ok {
+		numSigs, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		// Avoid OOM by limiting the number of Sigs we accept.
+		if numSigs > MaxNumOutputs {
+			return fmt.Errorf("%w: too many signatures",
+				ErrListInvalid)
+		}
+
+		if numSigs == 0 {
+			return nil
+		}
+
+		sigs := make([]*AssetSig, numSigs)
+		for i := uint64(0); i < numSigs; i++ {
+			var outputBytes []byte
+			err := asset.InlineVarBytesDecoder(
+				r, &outputBytes, buf, OutputMaxSize,
+			)
+			if err != nil {
+				return err
+			}
+			sigs[i] = &AssetSig{}
+			err = sigs[i].Decode(bytes.NewReader(outputBytes))
+			if err != nil {
+				return err
+			}
+		}
+		*typ = sigs
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "*[]*AssetSig")
+}
+
+// HtlcPartialSigsRecord is a record that represents a map of HTLC indices to
+// partial signatures (with nonce).
+type HtlcPartialSigsRecord struct {
+	HtlcPartialSigs []AssetSigListRecord
+}
+
+// Record creates a Record out of a HtlcPartialSigsRecord using the
+// eHtlcPartialSigsRecord and dHtlcPartialSigsRecord functions.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (h *HtlcPartialSigsRecord) Record() tlv.Record {
+	size := func() uint64 {
+		var (
+			buf     bytes.Buffer
+			scratch [8]byte
+		)
+		err := eHtlcPartialSigsRecord(
+			&buf, &h.HtlcPartialSigs, &scratch,
+		)
+		if err != nil {
+			panic(err)
+		}
+
+		return uint64(buf.Len())
+	}
+
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeDynamicRecord(
+		0, &h.HtlcPartialSigs, size, eHtlcPartialSigsRecord,
+		dHtlcPartialSigsRecord,
+	)
+}
+
+// Encode serializes the HtlcPartialSigsRecord to the given io.Writer.
+func (h *HtlcPartialSigsRecord) Encode(w io.Writer) error {
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(h.Record())
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode deserializes the HtlcPartialSigsRecord from the given io.Reader.
+func (h *HtlcPartialSigsRecord) Decode(r io.Reader) error {
+	// Create the tlv stream.
+	tlvStream, err := tlv.NewStream(h.Record())
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Decode(r)
+}
+
+// eHtlcPartialSigsRecord is an encoder for HtlcPartialSigsRecord.
+func eHtlcPartialSigsRecord(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*[]AssetSigListRecord); ok {
+		numHtlcs := uint64(len(*v))
+		if err := tlv.WriteVarInt(w, numHtlcs, buf); err != nil {
+			return err
+		}
+		var htlcBuf bytes.Buffer
+		for _, auxSig := range *v {
+			if err := auxSig.Encode(&htlcBuf); err != nil {
+				return err
+			}
+			htlcBytes := htlcBuf.Bytes()
+			err := asset.InlineVarBytesEncoder(
+				w, &htlcBytes, buf,
+			)
+			if err != nil {
+				return err
+			}
+			htlcBuf.Reset()
+		}
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(
+		val, "*[]AssetSigListRecord",
+	)
+}
+
+// dHtlcPartialSigsRecord is a decoder for HtlcPartialSigsRecord.
+func dHtlcPartialSigsRecord(r io.Reader, val interface{}, buf *[8]byte,
+	_ uint64) error {
+
+	if typ, ok := val.(*[]AssetSigListRecord); ok {
+		numHtlcs, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		// Avoid OOM by limiting the number of HTLCs we accept.
+		if numHtlcs > MaxNumHTLCs {
+			return fmt.Errorf("%w: too many HTLCs", ErrListInvalid)
+		}
+
+		if numHtlcs == 0 {
+			return nil
+		}
+
+		htlcs := make([]AssetSigListRecord, numHtlcs)
+		for i := uint64(0); i < numHtlcs; i++ {
+			var htlcBytes []byte
+			err = asset.InlineVarBytesDecoder(
+				r, &htlcBytes, buf, tlv.MaxRecordSize,
+			)
+			if err != nil {
+				return err
+			}
+			var rec AssetSigListRecord
+			err = rec.Decode(bytes.NewReader(htlcBytes))
+			if err != nil {
+				return err
+			}
+
+			htlcs[i] = rec
+		}
+		*typ = htlcs
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(
+		val, "*[]AssetSigListRecord",
+	)
+}
+
 // HtlcAuxLeafMapRecord is a record that represents a map of HTLC indices to
 // HtlcAuxLeaf records.
 type HtlcAuxLeafMapRecord struct {
@@ -668,7 +1099,7 @@ func (l *HtlcAuxLeafMapRecord) Record() tlv.Record {
 	)
 }
 
-// Encode serializes the htlcPartialSigsRecord to the given io.Writer.
+// Encode serializes the HtlcPartialSigsRecord to the given io.Writer.
 func (l *HtlcAuxLeafMapRecord) Encode(w io.Writer) error {
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(l.Record())
@@ -679,7 +1110,7 @@ func (l *HtlcAuxLeafMapRecord) Encode(w io.Writer) error {
 	return tlvStream.Encode(w)
 }
 
-// Decode deserializes the htlcPartialSigsRecord from the given io.Reader.
+// Decode deserializes the HtlcPartialSigsRecord from the given io.Reader.
 func (l *HtlcAuxLeafMapRecord) Decode(r io.Reader) error {
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(l.Record())

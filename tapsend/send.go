@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
 
 const (
@@ -790,6 +791,9 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 		InputIndex: idx,
 	}
 
+	// Add any tweak parameters that may be present in the PSBT.
+	addKeyTweaks(vIn.Unknowns, &spendDesc)
+
 	// There are three possible signing cases: BIP-0086 key spend path, key
 	// spend path with a script root, and script spend path.
 	switch {
@@ -863,6 +867,31 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	}
 
 	return witness, nil
+}
+
+// addKeyTweaks examines if there are any tweak parameters given in the
+// custom/proprietary PSBT fields and may add them to the given sign descriptor.
+func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
+	// There can be other custom/unknown keys in a PSBT that we just ignore.
+	// Key tweaking is optional and only one tweak (single _or_ double) can
+	// ever be applied (at least for any use cases described in the BOLT
+	// spec).
+	for _, u := range unknowns {
+		if bytes.Equal(
+			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
+		) {
+
+			desc.SingleTweak = u.Value
+		}
+
+		if bytes.Equal(
+			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
+		) {
+
+			doubleTweakKey, _ := btcec.PrivKeyFromBytes(u.Value)
+			desc.DoubleTweak = doubleTweakKey
+		}
+	}
 }
 
 // CreateOutputCommitments creates the final set of Taproot asset commitments

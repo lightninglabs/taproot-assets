@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/wire"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -181,9 +182,12 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start RFQ manager: %w", err)
 	}
 
-	// Start the auxiliary leaf creator.
+	// Start the auxiliary leaf creator and signer.
 	if err := s.cfg.AuxLeafCreator.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf creator: %w", err)
+	}
+	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
+		return fmt.Errorf("unable to start aux leaf signer: %w", err)
 	}
 
 	if s.cfg.UniversePublicAccess {
@@ -625,6 +629,9 @@ func (s *Server) Stop() error {
 	if err := s.cfg.AuxLeafCreator.Stop(); err != nil {
 		return err
 	}
+	if err := s.cfg.AuxLeafSigner.Stop(); err != nil {
+		return err
+	}
 
 	if s.macaroonService != nil {
 		err := s.macaroonService.Stop()
@@ -641,9 +648,10 @@ func (s *Server) Stop() error {
 }
 
 // A compile-time check to ensure that Server fully implements the
-// lnwallet.AuxLeafStore and lnd.AuxDataParser interfaces.
+// lnwallet.AuxLeafStore, lnd.AuxDataParser and lnwallet.AuxSigner interfaces.
 var _ lnwallet.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
+var _ lnwallet.AuxSigner = (*Server)(nil)
 
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
@@ -758,4 +766,81 @@ func (s *Server) InlineParseCustomData(msg proto.Message) error {
 	// We don't need to wait for the server to be ready here, as the
 	// following function is fully stateless.
 	return cmsg.ParseCustomChannelData(msg)
+}
+
+// SubmitSecondLevelSigBatch takes a batch of aux sign jobs and processes them
+// asynchronously.
+//
+// NOTE: This method is part of the lnwallet.AuxSigner interface.
+func (s *Server) SubmitSecondLevelSigBatch(chanState *channeldb.OpenChannel,
+	commitTx *wire.MsgTx, sigJob []lnwallet.AuxSigJob) error {
+
+	srvrLog.Debugf("SubmitSecondLevelSigBatch called, numSigs=%d",
+		len(sigJob))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafSigner.SubmitSecondLevelSigBatch(
+		chanState, commitTx, sigJob,
+	)
+}
+
+// PackSigs takes a series of aux signatures and packs them into a single blob
+// that can be sent alongside the CommitSig messages.
+//
+// NOTE: This method is part of the lnwallet.AuxSigner interface.
+func (s *Server) PackSigs(
+	blob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
+
+	srvrLog.Debugf("PackSigs called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[tlv.Blob](), fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafSigner.PackSigs(blob)
+}
+
+// UnpackSigs takes a packed blob of signatures and returns the original
+// signatures for each HTLC, keyed by HTLC index.
+//
+// NOTE: This method is part of the lnwallet.AuxSigner interface.
+func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
+	error) {
+
+	srvrLog.Debugf("UnpackSigs called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return nil, fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafSigner.UnpackSigs(blob)
+}
+
+// VerifySecondLevelSigs attempts to synchronously verify a batch of aux sig
+// jobs.
+//
+// NOTE: This method is part of the lnwallet.AuxSigner interface.
+func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
+	commitTx *wire.MsgTx, verifyJob []lnwallet.AuxVerifyJob) error {
+
+	srvrLog.Debugf("VerifySecondLevelSigs called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafSigner.VerifySecondLevelSigs(
+		chanState, commitTx, verifyJob,
+	)
 }

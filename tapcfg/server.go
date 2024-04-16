@@ -348,6 +348,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ChainParams: &tapChainParams,
 		},
 	)
+	auxLeafSigner := tapchannel.NewAuxLeafSigner(
+		&tapchannel.LeafSignerConfig{
+			ChainParams: &tapChainParams,
+			Signer:      assetWallet,
+		},
+	)
 
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
@@ -423,6 +429,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,
 		AuxLeafCreator:           auxLeafCreator,
+		AuxLeafSigner:            auxLeafSigner,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
