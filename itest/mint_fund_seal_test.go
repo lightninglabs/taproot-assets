@@ -100,7 +100,6 @@ func testMintFundSealAssets(t *harnessTest) {
 	// tweakedScript will have an internal key not managed by a tapd, and
 	// a tapscript root with a hashlock and a single sig script.
 	// TODO(jhb): Use a fully external key
-	// tweakedScriptDesc := deriveRandomKey(aliceLnd)
 	_, tweakedScriptDesc := DeriveKeys(t.t, aliceTapd)
 	tweakedScriptHashLock := test.ScriptHashLock(
 		t.t, bytes.Clone(test.DefaultHashLockWitness),
@@ -154,7 +153,8 @@ func testMintFundSealAssets(t *harnessTest) {
 	// groupExternal will be a group internal key not managed by a tapd,
 	// that will also have a tapscript tweak.
 	// TODO(jhb): Use a fully external key
-	_, groupExternalDesc := DeriveKeys(t.t, aliceTapd)
+	// _, groupExternalDesc := DeriveKeys(t.t, aliceTapd)
+	groupExternalDesc := deriveRandomKey(aliceLnd)
 
 	// groupExternalTweak will be the tapscript tweak we apply to
 	// groupExternal. We'll use random bytes as we don't intend to use the
@@ -376,6 +376,36 @@ func testMintFundSealAssets(t *harnessTest) {
 		displayGroupWitness(&internalTweakedWitness),
 	)
 
+	// For Asset 2, we'll derive a standard signature (key spend path).
+	groupedExternalVirtualTx, err := taprpc.UnmarshalGroupVirtualTx(
+		assetGroupedExternal.GroupVirtualTx,
+	)
+	require.NoError(t.t, err)
+	groupedExternalGroupKeyRequest, err := taprpc.UnmarshalGroupKeyRequest(
+		assetGroupedExternal.GroupKeyRequest,
+	)
+	require.NoError(t.t, err)
+
+	groupedExternalGroupKey, err := asset.DeriveGroupKey(
+		aliceLndSigner, *groupedExternalVirtualTx,
+		*groupedExternalGroupKeyRequest, nil,
+	)
+	require.NoError(t.t, err)
+
+	groupedExternalAsset := ApplyGroupWitness(
+		groupedExternalGroupKeyRequest.NewAsset,
+		groupedExternalGroupKey,
+	)
+
+	err = groupWitnessValidator.Execute(groupedExternalAsset, nil, nil)
+	require.NoError(t.t, err)
+
+	groupedExternalAssetID := groupedExternalGroupKeyRequest.NewAsset.ID()
+	groupedExternalWitness := taprpc.GroupWitness{
+		GenesisId: groupedExternalAssetID[:],
+		Witness:   groupedExternalGroupKey.Witness,
+	}
+
 	// For Asset 3, we'll use a hash preimage as the asset group witness.
 	groupMemberVirtualTx, err := taprpc.UnmarshalGroupVirtualTx(
 		assetGroupMember.GroupVirtualTx,
@@ -437,6 +467,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	sealReq := mintrpc.SealBatchRequest{
 		GroupWitnesses: []*taprpc.GroupWitness{
 			&groupMemberWitness, &internalTweakedWitness,
+			&groupedExternalWitness,
 		},
 	}
 	sealResp, err := aliceTapd.SealBatch(ctxt, &sealReq)
