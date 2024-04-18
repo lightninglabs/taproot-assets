@@ -1729,6 +1729,26 @@ func (a *Asset) EncodeRecords() []tlv.Record {
 	return a.encodeRecords(EncodeNormal)
 }
 
+// Record returns a TLV record that can be used to encode/decode an Asset
+// to/from a TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (a *Asset) Record() tlv.Record {
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		if err := a.Encode(&buf); err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+
+	// We pass 0 here as the type will be overridden when used along with
+	// the tlv.RecordT type.
+	return tlv.MakeDynamicRecord(
+		0, a, sizeFunc, LeafEncoder, LeafDecoder,
+	)
+}
+
 // DecodeRecords provides all records known for an asset witness for proper
 // decoding.
 func (a *Asset) DecodeRecords() []tlv.Record {
@@ -1739,7 +1759,7 @@ func (a *Asset) DecodeRecords() []tlv.Record {
 		NewLeafAmountRecord(&a.Amount),
 		NewLeafLockTimeRecord(&a.LockTime),
 		NewLeafRelativeLockTimeRecord(&a.RelativeLockTime),
-		// We don't need to worry aobut encoding the witness or not
+		// We don't need to worry about encoding the witness or not
 		// when we decode, so we just use EncodeNormal here.
 		NewLeafPrevWitnessRecord(&a.PrevWitnesses, EncodeNormal),
 		NewLeafSplitCommitmentRootRecord(&a.SplitCommitmentRoot),
@@ -1807,6 +1827,9 @@ func (a *Asset) Validate() error {
 	// TODO(ffranr): Add validation check for remaining fields.
 	return ValidateAssetName(a.Genesis.Tag)
 }
+
+// Ensure Asset implements the tlv.RecordProducer interface.
+var _ tlv.RecordProducer = (*Asset)(nil)
 
 // ValidateAssetName validates an asset name (the asset's genesis tag).
 func ValidateAssetName(name string) error {
