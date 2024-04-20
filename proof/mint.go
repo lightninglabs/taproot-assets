@@ -294,19 +294,27 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 // coreProof creates the basic proof template that contains only fields
 // dependent on anchor transaction confirmation.
 func coreProof(params *BaseProofParams) (*Proof, error) {
-	merkleProof, err := NewTxMerkleProof(
-		params.Block.Transactions, params.TxIndex,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create merkle proof: %w", err)
+	cProof := &Proof{
+		BlockHeader: params.Block.Header,
+		BlockHeight: params.BlockHeight,
 	}
 
-	return &Proof{
-		BlockHeader:   params.Block.Header,
-		BlockHeight:   params.BlockHeight,
-		AnchorTx:      *params.Tx,
-		TxMerkleProof: *merkleProof,
-	}, nil
+	if params.Tx != nil {
+		var err error
+		cProof.AnchorTx = *params.Tx
+
+		merkleProof, err := NewTxMerkleProof(
+			params.Block.Transactions, params.TxIndex,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create merkle "+
+				"proof: %w", err)
+		}
+
+		cProof.TxMerkleProof = *merkleProof
+	}
+
+	return cProof, nil
 }
 
 // committedProofs creates a map of proofs, keyed by the script key of each of
