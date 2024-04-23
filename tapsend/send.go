@@ -964,7 +964,7 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// send. We do the same even for interactive sends to not need
 		// to distinguish between the two cases in the proof file
 		// itself.
-		sendTapCommitment, err = trimSplitWitnesses(sendTapCommitment)
+		sendTapCommitment, err = TrimSplitWitnesses(sendTapCommitment)
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
 				err)
@@ -1197,7 +1197,7 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	// Taproot Asset tree of the input anchor output was built with asset
 	// leaves that had empty SplitCommitments. We need to replicate this
 	// here as well.
-	trimmedCommitment, err := trimSplitWitnesses(anchorCommitment)
+	trimmedCommitment, err := TrimSplitWitnesses(anchorCommitment)
 	if err != nil {
 		return nil, emptyHash, emptyHash, fmt.Errorf("unable to trim "+
 			"split witnesses: %w", err)
@@ -1228,9 +1228,9 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	return script, merkleRoot, taprootAssetRoot, nil
 }
 
-// trimSplitWitnesses returns a copy of the commitment in which all assets with
+// TrimSplitWitnesses returns a copy of the commitment in which all assets with
 // a split commitment witness have their SplitCommitment field set to nil.
-func trimSplitWitnesses(
+func TrimSplitWitnesses(
 	c *commitment.TapCommitment) (*commitment.TapCommitment, error) {
 
 	// If the input asset was received non-interactively, then the Taproot
