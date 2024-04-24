@@ -38,7 +38,9 @@ func TestTaprootAssetsDaemon(t *testing.T) {
 	// Now we can set up our test harness (LND instance), with the chain
 	// backend we just created.
 	feeService := lntest.NewFeeService(t)
-	lndHarness := lntest.SetupHarness(t, "./lnd-itest", "bbolt", feeService)
+	lndHarness := lntest.SetupHarness(
+		t, "./lnd-itest", "bbolt", true, feeService,
+	)
 	defer func() {
 		// There is a timing issue in here somewhere. If we shut down
 		// lnd immediately after stopping the tapd server, sometimes

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"fmt"
+	"math/rand"
 	"testing"
 	"time"
 
@@ -147,27 +148,47 @@ func FundGenesisTx(packet *psbt.Packet, feeRate chainfee.SatPerKWeight) {
 	packet.UnsignedTx.TxOut[1].Value -= int64(fee)
 }
 
+// FundPsbt funds a PSBT.
 func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
-	_ uint32, feeRate chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+	_ uint32, _ chainfee.SatPerKWeight,
+	changeIdx int32) (*tapsend.FundedPsbt, error) {
 
-	FundGenesisTx(packet, feeRate)
+	// Take the PSBT packet and add an additional input and output to
+	// simulate the wallet funding the transaction.
+	packet.UnsignedTx.AddTxIn(&wire.TxIn{
+		PreviousOutPoint: wire.OutPoint{
+			Index: rand.Uint32(),
+		},
+	})
+
+	// Use a P2TR input by default.
+	anchorInput := psbt.PInput{
+		WitnessUtxo: &wire.TxOut{
+			Value:    100000,
+			PkScript: bytes.Clone(tapsend.GenesisDummyScript),
+		},
+		SighashType: txscript.SigHashDefault,
+	}
+	packet.Inputs = append(packet.Inputs, anchorInput)
+
+	// Use a non-P2TR change output by default so we avoid generating
+	// exclusion proofs.
+	changeOutput := wire.TxOut{
+		Value:    50000,
+		PkScript: bytes.Clone(tapsend.GenesisDummyScript),
+	}
+	changeOutput.PkScript[0] = txscript.OP_0
+	packet.UnsignedTx.AddTxOut(&changeOutput)
+	packet.Outputs = append(packet.Outputs, psbt.POutput{})
 
 	// We always have the change output be the second output, so this means
 	// the Taproot Asset commitment will live in the first output.
 	pkt := &tapsend.FundedPsbt{
 		Pkt:               packet,
-		ChangeOutputIndex: 1,
+		ChangeOutputIndex: changeIdx,
 	}
 
-	// Return a copy of the packet to the test harness.
-	var packetBuf bytes.Buffer
-	_ = packet.Serialize(&packetBuf)
-	packetCopy, _ := psbt.NewFromRawBytes(&packetBuf, false)
-
-	m.FundPsbtSignal <- &tapsend.FundedPsbt{
-		Pkt:               packetCopy,
-		ChangeOutputIndex: 1,
-	}
+	m.FundPsbtSignal <- pkt
 
 	return pkt, nil
 }

@@ -245,18 +245,18 @@ func AssertTxInBlock(t *testing.T, block *wire.MsgBlock,
 // transfer is close to the expected fee for that TX, at a given fee rate.
 func AssertTransferFeeRate(t *testing.T, minerClient *rpcclient.Client,
 	transferResp *taprpc.SendAssetResponse, inputAmt int64,
-	feeRate chainfee.SatPerKWeight, roundFee bool) {
+	feeRate chainfee.SatPerKWeight) {
 
 	txid, err := chainhash.NewHash(transferResp.Transfer.AnchorTxHash)
 	require.NoError(t, err)
 
-	AssertFeeRate(t, minerClient, inputAmt, txid, feeRate, roundFee)
+	AssertFeeRate(t, minerClient, inputAmt, txid, feeRate)
 }
 
 // AssertFeeRate checks that the fee paid for a given TX is close to the
 // expected fee for the same TX, at a given fee rate.
 func AssertFeeRate(t *testing.T, minerClient *rpcclient.Client, inputAmt int64,
-	txid *chainhash.Hash, feeRate chainfee.SatPerKWeight, roundFee bool) {
+	txid *chainhash.Hash, feeRate chainfee.SatPerKWeight) {
 
 	var (
 		outputValue                 float64
@@ -268,6 +268,8 @@ func AssertFeeRate(t *testing.T, minerClient *rpcclient.Client, inputAmt int64,
 	require.NoError(t, err)
 
 	vsize := verboseTx.Vsize
+	weight := verboseTx.Weight
+
 	for _, vout := range verboseTx.Vout {
 		outputValue += vout.Value
 	}
@@ -279,25 +281,8 @@ func AssertFeeRate(t *testing.T, minerClient *rpcclient.Client, inputAmt int64,
 
 	actualFee := inputAmt - int64(btcOutputValue)
 
-	switch {
-	case roundFee:
-		// Replicate the rounding performed when calling `FundPsbt`.
-		feeSatPerVbyte := uint64(feeRate.FeePerKVByte()) / 1000
-		roundedFeeRate := chainfee.SatPerKVByte(
-			feeSatPerVbyte * 1000,
-		).FeePerKWeight()
-
-		expectedFee = roundedFeeRate.FeePerKVByte().
-			FeeForVSize(int64(vsize))
-		maxOverpayment = roundedFeeRate.FeePerKVByte().
-			FeeForVSize(maxVsizeDifference)
-
-	default:
-		expectedFee = feeRate.FeePerKVByte().
-			FeeForVSize(int64(vsize))
-		maxOverpayment = feeRate.FeePerKVByte().
-			FeeForVSize(maxVsizeDifference)
-	}
+	expectedFee = feeRate.FeeForWeight(int64(weight))
+	maxOverpayment = feeRate.FeePerKVByte().FeeForVSize(maxVsizeDifference)
 
 	// The actual fee may be higher than the expected fee after
 	// confirmation, as the freighter makes a worst-case estimate of the TX

@@ -15,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -735,8 +736,18 @@ func (t *mintingTestHarness) assertBatchGenesisTx(
 
 	// Finally, we'll assert that the dummy output or a valid P2TR output
 	// is found in the packet.
-	var found bool
-	for _, txOut := range pkt.Pkt.UnsignedTx.TxOut {
+	var (
+		found    bool
+		psbtBuf  bytes.Buffer
+		psbtCopy *psbt.Packet
+	)
+
+	err := pkt.Pkt.Serialize(&psbtBuf)
+	require.NoError(t, err)
+	psbtCopy, err = psbt.NewFromRawBytes(&psbtBuf, false)
+	require.NoError(t, err)
+
+	for _, txOut := range psbtCopy.UnsignedTx.TxOut {
 		txOut := txOut
 
 		if txOut.Value == int64(tapgarden.GenesisAmtSats) {
@@ -756,7 +767,7 @@ func (t *mintingTestHarness) assertBatchGenesisTx(
 			spew.Sdump(pkt))
 	}
 
-	genesisTxFee, err := pkt.Pkt.GetTxFee()
+	genesisTxFee, err := psbtCopy.GetTxFee()
 	require.NoError(t, err)
 
 	return genesisTxFee

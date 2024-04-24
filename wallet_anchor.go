@@ -44,19 +44,41 @@ const (
 // FundPsbt attaches enough inputs to the target PSBT packet for it to be
 // valid.
 func (l *LndRpcWalletAnchor) FundPsbt(ctx context.Context, packet *psbt.Packet,
-	minConfs uint32, feeRate chainfee.SatPerKWeight) (*tapsend.FundedPsbt,
-	error) {
+	minConfs uint32, feeRate chainfee.SatPerKWeight,
+	changeIdx int32) (*tapsend.FundedPsbt, error) {
 
 	var psbtBuf bytes.Buffer
 	if err := packet.Serialize(&psbtBuf); err != nil {
 		return nil, fmt.Errorf("unable to encode psbt: %w", err)
 	}
 
+	var fundTemplate *walletrpc.FundPsbtRequest_CoinSelect
+
+	if changeIdx < 0 {
+		fundTemplate = &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: &walletrpc.PsbtCoinSelect{
+				Psbt: psbtBuf.Bytes(),
+				ChangeOutput: &walletrpc.PsbtCoinSelect_Add{
+					Add: true,
+				},
+			},
+		}
+	} else {
+		change := &walletrpc.PsbtCoinSelect_ExistingOutputIndex{
+			ExistingOutputIndex: changeIdx,
+		}
+
+		fundTemplate = &walletrpc.FundPsbtRequest_CoinSelect{
+			CoinSelect: &walletrpc.PsbtCoinSelect{
+				Psbt:         psbtBuf.Bytes(),
+				ChangeOutput: change,
+			},
+		}
+	}
+
 	pkt, changeIndex, leasedUtxos, err := l.lnd.WalletKit.FundPsbt(
 		ctx, &walletrpc.FundPsbtRequest{
-			Template: &walletrpc.FundPsbtRequest_Psbt{
-				Psbt: psbtBuf.Bytes(),
-			},
+			Template: fundTemplate,
 			Fees: &walletrpc.FundPsbtRequest_SatPerVbyte{
 				SatPerVbyte: uint64(feeRate.FeePerKVByte()) / 1000,
 			},
