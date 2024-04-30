@@ -127,6 +127,8 @@ var mintAssetCommand = cli.Command{
 	Action: mintAsset,
 	Subcommands: []cli.Command{
 		listBatchesCommand,
+		fundBatchCommand,
+		sealBatchCommand,
 		finalizeBatchCommand,
 		cancelBatchCommand,
 	},
@@ -174,6 +176,28 @@ func parseMetaType(metaType string,
 
 		return taprpc.AssetMetaType(intType), nil
 	}
+}
+
+func parseFeeRate(ctx *cli.Context) (uint32, error) {
+	if ctx.IsSet(feeRateName) {
+		userFeeRate := ctx.Uint64(feeRateName)
+		if userFeeRate > math.MaxUint32 {
+			return 0, fmt.Errorf("fee rate exceeds 2^32")
+		}
+
+		// Convert from sat/vB to sat/kw. Round up to the fee floor if
+		// the specified feerate is too low.
+		feeRate := chainfee.SatPerKVByte(userFeeRate * 1000).
+			FeePerKWeight()
+
+		if feeRate < chainfee.FeePerKwFloor {
+			feeRate = chainfee.FeePerKwFloor
+		}
+
+		return uint32(feeRate), nil
+	}
+
+	return uint32(0), nil
 }
 
 func mintAsset(ctx *cli.Context) error {
@@ -291,9 +315,93 @@ func mintAsset(ctx *cli.Context) error {
 	return nil
 }
 
+var fundBatchCommand = cli.Command{
+	Name:  "fund",
+	Usage: "fund a batch",
+	Description: `
+	Attempt to fund a pending batch, or create a new funded batch if no
+	batch exists yet. This is only needed if batch funding should happen
+	separately from batch finalization. Otherwise, finalize can be used.
+	`,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: shortResponseName,
+			Usage: "if true, then the current assets within the " +
+				"batch will not be returned in the response " +
+				"in order to avoid printing a large amount " +
+				"of data in case of large batches",
+		},
+		cli.Uint64Flag{
+			Name: feeRateName,
+			Usage: "if set, the fee rate in sat/vB to use for " +
+				"the minting transaction",
+		},
+	},
+	Action: fundBatch,
+}
+
+func fundBatch(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
+
+	feeRate, err := parseFeeRate(ctx)
+	if err != nil {
+		return err
+	}
+
+	resp, err := client.FundBatch(ctxc, &mintrpc.FundBatchRequest{
+		ShortResponse: ctx.Bool(shortResponseName),
+		FeeRate:       feeRate,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to fund batch: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var sealBatchCommand = cli.Command{
+	Name:  "seal",
+	Usage: "seal a batch",
+	Description: `
+	Attempt to seal the pending batch by creating asset group witnesses for
+	all assets in the batch. Custom witnesses can only be submitted via RPC.
+	This command is only needed if batch sealing should happen separately
+	from batch finalization. Otherwise, finalize can be used.
+	`,
+	Flags: []cli.Flag{
+		cli.BoolFlag{
+			Name: shortResponseName,
+			Usage: "if true, then the current assets within the " +
+				"batch will not be returned in the response " +
+				"in order to avoid printing a large amount " +
+				"of data in case of large batches",
+		},
+	},
+	Hidden: true,
+	Action: sealBatch,
+}
+
+func sealBatch(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getMintClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.SealBatch(ctxc, &mintrpc.SealBatchRequest{
+		ShortResponse: ctx.Bool(shortResponseName),
+	})
+	if err != nil {
+		return fmt.Errorf("unable to seal batch: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
 var finalizeBatchCommand = cli.Command{
 	Name:        "finalize",
-	ShortName:   "f",
 	Usage:       "finalize a batch",
 	Description: "Attempt to finalize a pending batch.",
 	Flags: []cli.Flag{
@@ -311,28 +419,6 @@ var finalizeBatchCommand = cli.Command{
 		},
 	},
 	Action: finalizeBatch,
-}
-
-func parseFeeRate(ctx *cli.Context) (uint32, error) {
-	if ctx.IsSet(feeRateName) {
-		userFeeRate := ctx.Uint64(feeRateName)
-		if userFeeRate > math.MaxUint32 {
-			return 0, fmt.Errorf("fee rate exceeds 2^32")
-		}
-
-		// Convert from sat/vB to sat/kw. Round up to the fee floor if
-		// the specified feerate is too low.
-		feeRate := chainfee.SatPerKVByte(userFeeRate * 1000).
-			FeePerKWeight()
-
-		if feeRate < chainfee.FeePerKwFloor {
-			feeRate = chainfee.FeePerKwFloor
-		}
-
-		return uint32(feeRate), nil
-	}
-
-	return uint32(0), nil
 }
 
 func finalizeBatch(ctx *cli.Context) error {
