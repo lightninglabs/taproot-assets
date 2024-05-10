@@ -28,12 +28,13 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.1.21-beta.0.20230705004936-87bb996a4030
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v1.0.1-0.20240301093332-e39221e5a641
+	github.com/lightninglabs/lndclient v1.0.1-0.20240517142031-cd497ef62933
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lnd v0.17.0-beta.rc6.0.20240423171224-7fb233326eec
+	github.com/lightningnetwork/lnd v0.17.0-beta.rc6.0.20240514180557-7953d67dbc28
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/tlv v1.2.3
+	github.com/lightningnetwork/lnd/fn v1.0.5
+	github.com/lightningnetwork/lnd/tlv v1.2.6
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/prometheus/client_golang v1.14.0
@@ -121,7 +122,6 @@ require (
 	github.com/lightninglabs/lightning-node-connect v0.2.5-alpha // indirect
 	github.com/lightninglabs/neutrino v0.16.0 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20230823005744-06182b1d7d2f // indirect
-	github.com/lightningnetwork/lnd/fn v1.0.5 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.4 // indirect
 	github.com/lightningnetwork/lnd/kvdb v1.4.6 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
