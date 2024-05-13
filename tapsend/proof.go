@@ -95,14 +95,15 @@ func (a *AnchorTransaction) Copy() *AnchorTransaction {
 // final state transition that will be added to the proofs of the receiver. The
 // proof returned will have all the Taproot Asset level proof information, but
 // contains dummy data for the on-chain part.
-func CreateProofSuffix(anchorTx *AnchorTransaction, vPacket *tappsbt.VPacket,
-	outputCommitments tappsbt.OutputCommitments, outIndex int,
-	allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof, error) {
+func CreateProofSuffix(finalTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
+	vPacket *tappsbt.VPacket, outputCommitments tappsbt.OutputCommitments,
+	outIndex int, allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof,
+	error) {
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
 	params, err := proofParams(
-		anchorTx, vPacket, outputCommitments, outIndex,
+		finalTx, vPacket, outputCommitments, outIndex,
 		allAnchoredVPackets,
 	)
 	if err != nil {
@@ -134,9 +135,9 @@ func CreateProofSuffix(anchorTx *AnchorTransaction, vPacket *tappsbt.VPacket,
 	}
 
 	// We also need to account for any P2TR change outputs.
-	if len(anchorTx.FundedPsbt.Pkt.UnsignedTx.TxOut) > 1 {
+	if len(finalTx.TxOut) > 1 {
 		err := proof.AddExclusionProofs(
-			&params.BaseProofParams, anchorTx.FundedPsbt.Pkt,
+			&params.BaseProofParams, finalTx, finalTxPacketOutputs,
 			isAnchor,
 		)
 		if err != nil {
@@ -157,7 +158,7 @@ func CreateProofSuffix(anchorTx *AnchorTransaction, vPacket *tappsbt.VPacket,
 
 // newParams is used to create a set of new params for the final state
 // transition.
-func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
+func newParams(finalTx *wire.MsgTx, a *asset.Asset, outputIndex int,
 	internalKey *btcec.PublicKey, taprootAssetRoot *commitment.TapCommitment,
 	siblingPreimage *commitment.TapscriptPreimage) *proof.TransitionParams {
 
@@ -165,10 +166,10 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
 				Transactions: []*wire.MsgTx{
-					anchorTx.FinalTx,
+					finalTx,
 				},
 			},
-			Tx:               anchorTx.FinalTx,
+			Tx:               finalTx,
 			TxIndex:          0,
 			OutputIndex:      outputIndex,
 			InternalKey:      internalKey,
@@ -181,7 +182,7 @@ func newParams(anchorTx *AnchorTransaction, a *asset.Asset, outputIndex int,
 
 // proofParams creates the set of parameters that will be used to create the
 // proofs for the sender and receiver.
-func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
+func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	outputCommitments tappsbt.OutputCommitments, outIndex int,
 	allAnchoredVPackets []*tappsbt.VPacket) (*proof.TransitionParams, error) {
 
@@ -208,7 +209,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 		rootTapTree := outputCommitments[rootIndex]
 
 		rootParams := newParams(
-			anchorTx, rootOut.Asset, int(rootIndex),
+			finalTx, rootOut.Asset, int(rootIndex),
 			rootOut.AnchorOutputInternalKey, rootTapTree,
 			rootOut.AnchorOutputTapscriptSibling,
 		)
@@ -250,7 +251,7 @@ func proofParams(anchorTx *AnchorTransaction, vPkt *tappsbt.VPacket,
 
 	splitRootPreimage := splitRootOut.AnchorOutputTapscriptSibling
 	splitParams := newParams(
-		anchorTx, splitOut.Asset, int(splitIndex),
+		finalTx, splitOut.Asset, int(splitIndex),
 		splitOut.AnchorOutputInternalKey, splitTapTree,
 		splitOut.AnchorOutputTapscriptSibling,
 	)

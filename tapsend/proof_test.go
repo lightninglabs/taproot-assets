@@ -90,8 +90,8 @@ func TestCreateProofSuffix(t *testing.T) {
 	for _, vPkt := range testPackets {
 		for outIdx := range vPkt.Outputs {
 			proofSuffix, err := CreateProofSuffix(
-				anchorTx, vPkt, outputCommitments, outIdx,
-				testPackets,
+				pkt.UnsignedTx, pkt.Outputs, vPkt,
+				outputCommitments, outIdx, testPackets,
 			)
 			require.NoError(t, err)
 

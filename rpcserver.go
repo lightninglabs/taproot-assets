@@ -2264,13 +2264,6 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 		return nil, fmt.Errorf("error funding packet: %w", err)
 	}
 
-	// Validate the actual fee rate of the transaction.
-	txFees, err := fundedPacket.GetTxFee()
-	if err != nil {
-		return nil, fmt.Errorf("error calculating transaction fees: %w",
-			err)
-	}
-
 	lockedOutpoints := fn.Map(
 		lockedUTXO, func(utxo *walletrpc.UtxoLease) wire.OutPoint {
 			var hash chainhash.Hash
@@ -2321,23 +2314,13 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 
 	// We're done creating the output commitments, we can now create the
 	// transition proof suffixes.
-	fundingPacket := &tapsend.AnchorTransaction{
-		FundedPsbt: &tapsend.FundedPsbt{
-			Pkt:               fundedPacket,
-			ChangeOutputIndex: changeIndex,
-			ChainFees:         int64(txFees),
-			LockedUTXOs:       lockedOutpoints,
-		},
-		FinalTx:   fundedPacket.UnsignedTx,
-		ChainFees: int64(txFees),
-	}
 	for idx := range allPackets {
 		vPkt := allPackets[idx]
 
 		for vOutIdx := range vPkt.Outputs {
 			proofSuffix, err := tapsend.CreateProofSuffix(
-				fundingPacket, vPkt, outputCommitments,
-				vOutIdx, allPackets,
+				fundedPacket.UnsignedTx, fundedPacket.Outputs,
+				vPkt, outputCommitments, vOutIdx, allPackets,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+

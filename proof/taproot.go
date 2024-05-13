@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -482,11 +483,11 @@ func (p TaprootProof) DeriveByTapscriptProof() (*btcec.PublicKey, error) {
 // output in the given PSBT that isn't an anchor output itself. To determine
 // which output is the anchor output, the passed isAnchor function should
 // return true for the output index that houses the anchor TX.
-func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
-	isAnchor func(uint32) bool) error {
+func AddExclusionProofs(baseProof *BaseProofParams, finalTx *wire.MsgTx,
+	finalTxPacketOutputs []psbt.POutput, isAnchor func(uint32) bool) error {
 
-	for outIdx := range packet.Outputs {
-		txOut := packet.UnsignedTx.TxOut[outIdx]
+	for outIdx := range finalTxPacketOutputs {
+		txOut := finalTx.TxOut[outIdx]
 
 		// Skip any anchor output since that will get an inclusion proof
 		// instead.
@@ -502,7 +503,7 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 
 		// For a P2TR output the internal key must be declared and must
 		// be a valid 32-byte x-only public key.
-		out := packet.Outputs[outIdx]
+		out := finalTxPacketOutputs[outIdx]
 		if len(out.TaprootInternalKey) != schnorr.PubKeyBytesLen {
 			return fmt.Errorf("cannot add exclusion proof, output "+
 				"%d is a P2TR output but is missing the "+
