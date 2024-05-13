@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -124,6 +125,8 @@ type Config struct {
 	RfqManager *rfq.Manager
 
 	UniverseStats universe.Telemetry
+
+	AuxLeafCreator *tapchannel.AuxLeafCreator
 
 	// UniversePublicAccess is flag which, If true, and the Universe server
 	// is on a public interface, valid proof from remote parties will be

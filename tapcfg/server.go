@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -342,6 +343,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, err
 	}
 
+	auxLeafCreator := tapchannel.NewAuxLeafCreator(
+		&tapchannel.LeafCreatorConfig{
+			ChainParams: &tapChainParams,
+		},
+	)
+
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
 		RuntimeID:    runtimeID,
@@ -415,6 +422,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,
+		AuxLeafCreator:           auxLeafCreator,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

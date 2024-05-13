@@ -18,9 +18,14 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/channeldb"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
 	"gopkg.in/macaroon-bakery.v2/bakery"
@@ -172,6 +177,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// Start the request for quote (RFQ) manager.
 	if err := s.cfg.RfqManager.Start(); err != nil {
 		return fmt.Errorf("unable to start RFQ manager: %w", err)
+	}
+
+	// Start the auxiliary leaf creator.
+	if err := s.cfg.AuxLeafCreator.Start(); err != nil {
+		return fmt.Errorf("unable to start aux leaf creator: %w", err)
 	}
 
 	if s.cfg.UniversePublicAccess {
@@ -610,6 +620,10 @@ func (s *Server) Stop() error {
 		return err
 	}
 
+	if err := s.cfg.AuxLeafCreator.Stop(); err != nil {
+		return err
+	}
+
 	if s.macaroonService != nil {
 		err := s.macaroonService.Stop()
 		if err != nil {
@@ -622,4 +636,109 @@ func (s *Server) Stop() error {
 	s.wg.Wait()
 
 	return nil
+}
+
+// A compile-time check to ensure that Server fully implements the
+// lnwallet.AuxLeafStore interface.
+var _ lnwallet.AuxLeafStore = (*Server)(nil)
+
+// FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
+// the passed aux blob, and pending fully evaluated HTLC view.
+//
+// NOTE: This method is part of the lnwallet.AuxLeafStore interface.
+func (s *Server) FetchLeavesFromView(chanState *channeldb.OpenChannel,
+	prevBlob tlv.Blob, view *lnwallet.HtlcView, isOurCommit bool,
+	ourBalance, theirBalance lnwire.MilliSatoshi,
+	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
+	lnwallet.CommitSortFunc, error) {
+
+	srvrLog.Debugf("FetchLeavesFromView called, isOurCommit=%v, "+
+		"ourBalance=%v, theirBalance=%v, numOurUpdates=%d, "+
+		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
+		len(view.OurUpdates), len(view.TheirUpdates))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[lnwallet.CommitAuxLeaves](), nil,
+			fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafCreator.FetchLeavesFromView(
+		chanState, prevBlob, view, isOurCommit, ourBalance,
+		theirBalance, keys,
+	)
+}
+
+// FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
+// correspond to the passed aux blob, and an existing channel
+// commitment.
+//
+// NOTE: This method is part of the lnwallet.AuxLeafStore interface.
+func (s *Server) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
+	com channeldb.ChannelCommitment,
+	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
+	error) {
+
+	srvrLog.Debugf("FetchLeavesFromCommit called, ourBalance=%v, "+
+		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
+		com.RemoteBalance, len(com.Htlcs))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[lnwallet.CommitAuxLeaves](),
+			fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafCreator.FetchLeavesFromCommit(chanState, com, keys)
+}
+
+// FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
+// from a channel revocation that stores balance + blob information.
+//
+// NOTE: This method is part of the lnwallet.AuxLeafStore interface.
+func (s *Server) FetchLeavesFromRevocation(
+	rev *channeldb.RevocationLog) (lfn.Option[lnwallet.CommitAuxLeaves],
+	error) {
+
+	srvrLog.Debugf("FetchLeavesFromRevocation called, ourBalance=%v, "+
+		"teirBalance=%v, numHtlcs=%d", rev.OurBalance, rev.TheirBalance,
+		len(rev.HTLCEntries))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[lnwallet.CommitAuxLeaves](),
+			fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafCreator.FetchLeavesFromRevocation(rev)
+}
+
+// ApplyHtlcView serves as the state transition function for the custom
+// channel's blob. Given the old blob, and an HTLC view, then a new
+// blob should be returned that reflects the pending updates.
+//
+// NOTE: This method is part of the lnwallet.AuxLeafStore interface.
+func (s *Server) ApplyHtlcView(chanState *channeldb.OpenChannel,
+	prevBlob tlv.Blob, originalView *lnwallet.HtlcView, isOurCommit bool,
+	ourBalance, theirBalance lnwire.MilliSatoshi,
+	keys lnwallet.CommitmentKeyRing) (lfn.Option[tlv.Blob], error) {
+
+	srvrLog.Debugf("ApplyHtlcView called, isOurCommit=%v, "+
+		"ourBalance=%v, theirBalance=%v, numOurUpdates=%d, "+
+		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
+		len(originalView.OurUpdates), len(originalView.TheirUpdates))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[tlv.Blob](), fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxLeafCreator.ApplyHtlcView(
+		chanState, prevBlob, originalView, isOurCommit, ourBalance,
+		theirBalance, keys,
+	)
 }
