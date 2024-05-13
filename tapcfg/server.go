@@ -487,18 +487,16 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	return tap.NewServer(serverCfg), nil
 }
 
-// CreateSubServerFromConfig creates a new Taproot Asset server from the given
-// CLI config.
-func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
+// ConfigureSubServer updates a Taproot Asset server with the given CLI config.
+func ConfigureSubServer(srv *tap.Server, cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices,
-	mainErrChan chan<- error) (*tap.Server, error) {
+	mainErrChan chan<- error) error {
 
 	serverCfg, err := genServerConfig(
 		cfg, cfgLogger, lndServices, mainErrChan,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to generate server config: %w",
-			err)
+		return fmt.Errorf("unable to generate server config: %w", err)
 	}
 
 	serverCfg.RPCConfig = &tap.RPCConfig{
@@ -506,5 +504,7 @@ func CreateSubServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		MacaroonPath: cfg.RpcConf.MacaroonPath,
 	}
 
-	return tap.NewServer(serverCfg), nil
+	srv.UpdateConfig(serverCfg)
+
+	return nil
 }

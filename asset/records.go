@@ -46,13 +46,6 @@ func NewLeafVersionRecord(version *Version) tlv.Record {
 	)
 }
 
-func NewLeafIDRecord(id *ID) tlv.Record {
-	const recordSize = sha256.Size
-	return tlv.MakeStaticRecord(
-		LeafAssetID, id, recordSize, IDEncoder, IDDecoder,
-	)
-}
-
 func NewLeafGenesisRecord(genesis *Genesis) tlv.Record {
 	recordSize := func() uint64 {
 		var (

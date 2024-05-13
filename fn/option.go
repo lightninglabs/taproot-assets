@@ -86,6 +86,17 @@ func (o Option[A]) UnwrapOrFuncErr(f func() (A, error)) (A, error) {
 	return f()
 }
 
+// UnwrapOrErr is used to extract a value from an option, if the option is
+// empty, then the specified error is returned directly.
+func (o Option[A]) UnwrapOrErr(err error) (A, error) {
+	if !o.isSome {
+		var zero A
+		return zero, err
+	}
+
+	return o.some, nil
+}
+
 // WhenSome is used to conditionally perform a side-effecting function that
 // accepts a value of the type that parameterizes the option. If this function
 // performs no side effects, WhenSome is useless.

@@ -811,7 +811,9 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 
 	rpcAssets := make([]*taprpc.Asset, len(assets))
 	for i, a := range assets {
-		rpcAssets[i], err = r.marshalChainAsset(ctx, a, withWitness)
+		rpcAssets[i], err = MarshalChainAsset(
+			ctx, a, withWitness, r.cfg.AddrBook,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal asset: %w",
 				err)
@@ -821,11 +823,12 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 	return rpcAssets, nil
 }
 
-func (r *rpcServer) marshalChainAsset(ctx context.Context, a *asset.ChainAsset,
-	withWitness bool) (*taprpc.Asset, error) {
+// MarshalChainAsset marshals the given chain asset into an RPC asset.
+func MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
+	withWitness bool, keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
 
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, a.Asset, a.IsSpent, withWitness, r.cfg.AddrBook,
+		ctx, a.Asset, a.IsSpent, withWitness, keyRing,
 	)
 	if err != nil {
 		return nil, err
@@ -1496,7 +1499,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	rpcAsset, err := r.marshalChainAsset(ctx, &asset.ChainAsset{
+	rpcAsset, err := MarshalChainAsset(ctx, &asset.ChainAsset{
 		Asset:                  &p.Asset,
 		AnchorTx:               &p.AnchorTx,
 		AnchorBlockHash:        p.BlockHeader.BlockHash(),
@@ -1505,7 +1508,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		AnchorInternalKey:      p.InclusionProof.InternalKey,
 		AnchorMerkleRoot:       merkleRoot[:],
 		AnchorTapscriptSibling: tsSibling,
-	}, withPrevWitnesses)
+	}, withPrevWitnesses, r.cfg.AddrBook)
 	if err != nil {
 		return nil, err
 	}
