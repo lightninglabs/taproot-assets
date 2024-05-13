@@ -39,12 +39,13 @@ type ChannelLister interface {
 type ScidAliasManager interface {
 	// AddLocalAlias adds a database mapping from the passed alias to the
 	// passed base SCID.
-	AddLocalAlias(alias, baseScid lnwire.ShortChannelID, gossip,
-		linkUpdate bool) error
+	AddLocalAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
 
 	// DeleteLocalAlias removes a mapping from the database and the
 	// Manager's maps.
-	DeleteLocalAlias(alias, baseScid lnwire.ShortChannelID) error
+	DeleteLocalAlias(ctx context.Context, alias,
+		baseScid lnwire.ShortChannelID) error
 }
 
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
@@ -68,7 +69,7 @@ type ManagerCfg struct {
 
 	// AliasManager is the SCID alias manager. This component is injected
 	// into the manager once lnd and tapd are hooked together.
-	AliasManager fn.Option[ScidAliasManager]
+	AliasManager ScidAliasManager
 
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
@@ -319,17 +320,8 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		// make sure we can identify the incoming asset payment by the
 		// SCID alias through which it comes in and compare it to the
 		// one in the invoice.
-		if !m.cfg.AliasManager.IsSome() {
-			return fmt.Errorf("alias manager not set")
-		}
-		err := fn.MapOptionZ(
-			m.cfg.AliasManager,
-			func(aliasMgr ScidAliasManager) error {
-				return m.addScidAlias(
-					aliasMgr, uint64(msg.ShortChannelId()),
-					*msg.AssetID, msg.Peer,
-				)
-			},
+		err := m.addScidAlias(
+			uint64(msg.ShortChannelId()), *msg.AssetID, msg.Peer,
 		)
 		if err != nil {
 			return fmt.Errorf("error adding local alias: %w", err)
@@ -391,17 +383,8 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// Since our peer is going to buy assets from us, we need to
 		// make sure we can identify the forwarded asset payment by the
 		// outgoing SCID alias within the onion packet.
-		if !m.cfg.AliasManager.IsSome() {
-			return fmt.Errorf("alias manager not set")
-		}
-		err := fn.MapOptionZ(
-			m.cfg.AliasManager,
-			func(aliasMgr ScidAliasManager) error {
-				return m.addScidAlias(
-					aliasMgr, uint64(msg.ShortChannelId()),
-					*msg.AssetID, msg.Peer,
-				)
-			},
+		err := m.addScidAlias(
+			uint64(msg.ShortChannelId()), *msg.AssetID, msg.Peer,
 		)
 		if err != nil {
 			return fmt.Errorf("error adding local alias: %w", err)
@@ -427,8 +410,8 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 }
 
 // addScidAlias adds a SCID alias to the alias manager.
-func (m *Manager) addScidAlias(aliasMgr ScidAliasManager,
-	scidAlias uint64, assetID asset.ID, peer route.Vertex) error {
+func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
+	peer route.Vertex) error {
 
 	// Retrieve all local channels.
 	ctxb := context.Background()
@@ -485,9 +468,9 @@ func (m *Manager) addScidAlias(aliasMgr ScidAliasManager,
 
 	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
 
-	return aliasMgr.AddLocalAlias(
-		lnwire.NewShortChanIDFromInt(scidAlias),
-		lnwire.NewShortChanIDFromInt(baseSCID), false, true,
+	return m.cfg.AliasManager.AddLocalAlias(
+		ctxb, lnwire.NewShortChanIDFromInt(scidAlias),
+		lnwire.NewShortChanIDFromInt(baseSCID),
 	)
 }
 

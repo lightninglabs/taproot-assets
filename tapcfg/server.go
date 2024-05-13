@@ -12,7 +12,6 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -38,8 +37,8 @@ type databaseBackend interface {
 // NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
 // after generating the server config.
 func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
-	lndServices *lndclient.LndServices, mainErrChan chan<- error,
-	aliasManager fn.Option[rfq.ScidAliasManager]) (*tap.Config, error) {
+	lndServices *lndclient.LndServices,
+	mainErrChan chan<- error) (*tap.Config, error) {
 
 	var err error
 
@@ -335,7 +334,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			HtlcInterceptor: lndRouterClient,
 			PriceOracle:     priceOracle,
 			ChannelLister:   walletAnchor,
-			AliasManager:    aliasManager,
+			AliasManager:    lndRouterClient,
 			ErrChan:         mainErrChan,
 		},
 	)
@@ -432,7 +431,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 // CreateServerFromConfig creates a new Taproot Asset server from the given CLI
 // config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
-	scidAliasManager fn.Option[rfq.ScidAliasManager],
 	shutdownInterceptor signal.Interceptor,
 	mainErrChan chan<- error) (*tap.Server, error) {
 
@@ -460,7 +458,6 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	serverCfg, err := genServerConfig(
 		cfg, cfgLogger, &lndConn.LndServices, mainErrChan,
-		scidAliasManager,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate server config: %w",
@@ -498,7 +495,7 @@ func ConfigureSubServer(srv *tap.Server, cfg *Config, cfgLogger btclog.Logger,
 	mainErrChan chan<- error) error {
 
 	serverCfg, err := genServerConfig(
-		cfg, cfgLogger, lndServices, mainErrChan, srv.ScidAliasManager,
+		cfg, cfgLogger, lndServices, mainErrChan,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to generate server config: %w", err)

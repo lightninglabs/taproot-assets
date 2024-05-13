@@ -148,7 +148,7 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	outgoingAmtMsat := lnwire.NewMSatFromSatoshis(lnwallet.DustLimitForSize(
+	outgoingAmt := lnwire.NewMSatFromSatoshis(lnwallet.DustLimitForSize(
 		input.UnknownWitnessSize,
 	))
 
@@ -166,9 +166,9 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	}
 
 	return &lndclient.InterceptedHtlcResponse{
-		Action:             lndclient.InterceptorActionResumeModified,
-		OutgoingAmountMsat: outgoingAmtMsat,
-		CustomRecords:      customRecords,
+		Action:         lndclient.InterceptorActionResumeModified,
+		OutgoingAmount: outgoingAmt,
+		CustomRecords:  customRecords,
 	}, nil
 }
 
@@ -265,10 +265,10 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	_ lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	incomingValueMsat := lnwire.MilliSatoshi(c.AssetAmount) * c.BidPrice
+	incomingValue := lnwire.MilliSatoshi(c.AssetAmount) * c.BidPrice
 	return &lndclient.InterceptedHtlcResponse{
-		Action:             lndclient.InterceptorActionResumeModified,
-		IncomingAmountMsat: incomingValueMsat,
+		Action:         lndclient.InterceptorActionResumeModified,
+		IncomingAmount: incomingValue,
 	}, nil
 }
 

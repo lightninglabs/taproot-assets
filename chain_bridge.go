@@ -12,6 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 // LndRpcChainBridge is an implementation of the tapgarden.ChainBridge
@@ -260,5 +261,21 @@ func (l *LndRouterClient) InterceptHtlcs(
 	return l.lnd.Router.InterceptHtlcs(ctx, handler)
 }
 
+// AddLocalAlias adds a database mapping from the passed alias to the passed
+// base SCID.
+func (l *LndRouterClient) AddLocalAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	return l.lnd.Router.XAddLocalChanAlias(ctx, alias, baseScid)
+}
+
+// DeleteLocalAlias removes a mapping from the database and the Manager's maps.
+func (l *LndRouterClient) DeleteLocalAlias(ctx context.Context, alias,
+	baseScid lnwire.ShortChannelID) error {
+
+	return l.lnd.Router.XDeleteLocalChanAlias(ctx, alias, baseScid)
+}
+
 // Ensure LndRouterClient implements the rfq.HtlcInterceptor interface.
 var _ rfq.HtlcInterceptor = (*LndRouterClient)(nil)
+var _ rfq.ScidAliasManager = (*LndRouterClient)(nil)
