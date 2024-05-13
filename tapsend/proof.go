@@ -91,14 +91,64 @@ func (a *AnchorTransaction) Copy() *AnchorTransaction {
 	return newAnchorTx
 }
 
-// CreateProofSuffix creates the new proof for the given output. This is the
-// final state transition that will be added to the proofs of the receiver. The
-// proof returned will have all the Taproot Asset level proof information, but
-// contains dummy data for the on-chain part.
-func CreateProofSuffix(finalTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
+// IsAnchor is a function type that can be used to determine if a given BTC
+// transaction output at the given index is an anchor for committing assets.
+type IsAnchor func(anchorOutputIndex uint32) bool
+
+// ExclusionProofGenerator is a function type that can be used to generate
+// exclusion proofs for any BTC transaction outputs that don't carry any assets.
+// The function should add the exclusion proofs to the given target proof
+// parameters.
+type ExclusionProofGenerator func(target *proof.BaseProofParams,
+	isAnchor IsAnchor) error
+
+// CreateProofSuffix creates a new proof for the given virtual transaction
+// output indicated with outIndex within vPacket. This is the final state
+// transition that will be added to the proofs of the receiver. The proof
+// returned will have all the Taproot Asset level proof information, but
+// contains dummy data for the on-chain part and potentially the anchor
+// transaction itself, if chainTx is not yet fully final. Only the outputs of
+// chainTx need to be final and correspond to the PSBT outputs given as
+// finalTxPacketOutputs.
+func CreateProofSuffix(chainTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
 	vPacket *tappsbt.VPacket, outputCommitments tappsbt.OutputCommitments,
 	outIndex int, allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof,
 	error) {
+
+	return CreateProofSuffixCustom(
+		chainTx, vPacket, outputCommitments, outIndex,
+		allAnchoredVPackets, func(target *proof.BaseProofParams,
+			isAnchor IsAnchor) error {
+
+			// Nothing to do if there is only one output, as we
+			// know we commit assets at this point, so the single
+			// output must be an asset commitment output.
+			if len(chainTx.TxOut) <= 1 {
+				return nil
+			}
+
+			return proof.AddExclusionProofs(
+				target, chainTx, finalTxPacketOutputs,
+				isAnchor,
+			)
+		},
+	)
+}
+
+// CreateProofSuffixCustom creates the new proof for the given virtual
+// transaction output indicated with outIndex within vPacket. This is the final
+// state transition that will be added to the proofs of the receiver. The proof
+// returned will have all the Taproot Asset level proof information, but
+// contains dummy data for the on-chain part and potentially the anchor
+// transaction itself, if chainTx is not yet fully final or even nil. If chainTx
+// is nil, it must be set on the proof later manually to make the proof valid.
+// The exclusion proof generator function must add an exclusion proof for each
+// P2TR on-chain output that is NOT an asset commitment (e.g. P2TR change
+// outputs or other pure BTC P2TR outputs).
+func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
+	outputCommitments tappsbt.OutputCommitments, outIndex int,
+	allAnchoredVPackets []*tappsbt.VPacket,
+	genExclusionProofs ExclusionProofGenerator) (*proof.Proof, error) {
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
@@ -134,16 +184,12 @@ func CreateProofSuffix(finalTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
 		return false
 	}
 
-	// We also need to account for any P2TR change outputs.
-	if len(finalTx.TxOut) > 1 {
-		err := proof.AddExclusionProofs(
-			&params.BaseProofParams, finalTx, finalTxPacketOutputs,
-			isAnchor,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("error adding exclusion "+
-				"proof for output %d: %w", outIndex, err)
-		}
+	// We also need to account for any P2TR change outputs or other pure
+	// BTC P2TR outputs (for example a commitment CPFP anchor output).
+	err = genExclusionProofs(&params.BaseProofParams, isAnchor)
+	if err != nil {
+		return nil, fmt.Errorf("error adding exclusion proof for "+
+			"output %d: %w", outIndex, err)
 	}
 
 	proofSuffix, err := proof.CreateTransitionProof(
