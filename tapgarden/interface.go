@@ -2,6 +2,7 @@ package tapgarden
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -32,7 +33,7 @@ type Planter interface {
 
 	// ListBatches lists the set of batches submitted for minting, or the
 	// details of a specific batch.
-	ListBatches(batchKey *btcec.PublicKey) ([]*MintingBatch, error)
+	ListBatches(params ListBatchesParams) ([]*VerboseBatch, error)
 
 	// CancelSeedling attempts to cancel the creation of a new asset
 	// identified by its name. If the seedling has already progressed to a
@@ -378,3 +379,8 @@ type KeyRing interface {
 	// and can be derived by it.
 	IsLocalKey(context.Context, keychain.KeyDescriptor) bool
 }
+
+var (
+	// ErrNoGenesis is returned when fetching an asset genesis fails.
+	ErrNoGenesis = errors.New("unable to fetch genesis asset")
+)

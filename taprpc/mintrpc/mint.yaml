@@ -7,6 +7,14 @@ http:
       post: "/v1/taproot-assets/assets"
       body: "*"
 
+    - selector: mintrpc.Mint.FundBatch
+      post: "/v1/taproot-assets/assets/mint/fund"
+      body: "*"
+
+    - selector: mintrpc.Mint.SealBatch
+      post: "/v1/taproot-assets/assets/mint/seal"
+      body: "*"
+
     - selector: mintrpc.Mint.FinalizeBatch
       post: "/v1/taproot-assets/assets/mint/finalize"
       body: "*"

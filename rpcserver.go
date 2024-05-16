@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
-	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
@@ -56,6 +55,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
+	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
 )
@@ -425,6 +425,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	specificGroupKey := len(req.Asset.GroupKey) != 0
 	specificGroupAnchor := len(req.Asset.GroupAnchor) != 0
+	specificGroupInternalKey := req.Asset.GroupInternalKey != nil
+	groupTapscriptRootSize := len(req.Asset.GroupTapscriptRoot)
+
+	// A group tapscript root must be 32 bytes.
+	if groupTapscriptRootSize != 0 &&
+		groupTapscriptRootSize != sha256.Size {
+
+		return nil, fmt.Errorf("group tapscript root must be %d bytes",
+			sha256.Size)
+	}
 
 	switch {
 	// New grouped asset and grouped asset cannot both be set.
@@ -440,8 +450,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 				"specify a group")
 		}
 
+	// A group tapscript root cannot be specified if emission is disabled.
+	case !req.Asset.NewGroupedAsset && groupTapscriptRootSize != 0:
+		return nil, fmt.Errorf("cannot specify a group tapscript root" +
+			"with emission disabled")
+
+	// A group internal key cannot be specified if emission is disabled.
+	case !req.Asset.NewGroupedAsset && specificGroupInternalKey:
+		return nil, fmt.Errorf("cannot specify a group internal key" +
+			"with emission disabled")
+
 	// If the asset is intended to be part of an existing group, a group key
-	// or anchor must be specified, but not both.
+	// or anchor must be specified, but not both. Neither a group tapscript
+	// root nor group internal key can be specified.
 	case req.Asset.GroupedAsset:
 		if !specificGroupKey && !specificGroupAnchor {
 			return nil, fmt.Errorf("must specify a group key or" +
@@ -451,6 +472,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		if specificGroupKey && specificGroupAnchor {
 			return nil, fmt.Errorf("cannot specify both a group " +
 				"key and a group anchor")
+		}
+
+		if groupTapscriptRootSize != 0 {
+			return nil, fmt.Errorf("cannot specify a group " +
+				"tapscript root with emission disabled")
+		}
+
+		if specificGroupInternalKey {
+			return nil, fmt.Errorf("cannot specify a group " +
+				"internal key with emission disabled")
 		}
 
 	// A group was specified without GroupedAsset being set.
@@ -466,6 +497,33 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, err
 	}
 
+	// Parse the optional script key and group internal key. The group
+	// tapscript root was length-checked above.
+	var (
+		scriptKey          *asset.ScriptKey
+		groupInternalKey   keychain.KeyDescriptor
+		groupTapscriptRoot []byte
+	)
+	if req.Asset.ScriptKey != nil {
+		scriptKey, err = taprpc.UnmarshalScriptKey(req.Asset.ScriptKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if specificGroupInternalKey {
+		groupInternalKey, err = taprpc.UnmarshalKeyDescriptor(
+			req.Asset.GroupInternalKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	if groupTapscriptRootSize != 0 {
+		groupTapscriptRoot = bytes.Clone(req.Asset.GroupTapscriptRoot)
+	}
+
 	seedling := &tapgarden.Seedling{
 		AssetVersion:   assetVersion,
 		AssetType:      asset.Type(req.Asset.AssetType),
@@ -477,6 +535,18 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
 		"issuance=%v", seedling.AssetVersion, seedling.AssetType,
 		seedling.AssetName, seedling.Amount, seedling.EnableEmission)
+
+	if scriptKey != nil {
+		seedling.ScriptKey = *scriptKey
+	}
+
+	if specificGroupInternalKey {
+		seedling.GroupInternalKey = &groupInternalKey
+	}
+
+	if groupTapscriptRootSize != 0 {
+		seedling.GroupTapscriptRoot = groupTapscriptRoot
+	}
 
 	switch {
 	// If a group key is provided, parse the provided group public key
@@ -580,12 +650,9 @@ func checkFeeRateSanity(rpcFeeRate uint32) (*chainfee.SatPerKWeight, error) {
 	}
 }
 
-// FinalizeBatch attempts to finalize the current pending batch.
-func (r *rpcServer) FinalizeBatch(_ context.Context,
-	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
-	error) {
-
-	var batchSibling *asset.TapscriptTreeNodes
+// FundBatch attempts to fund the current pending batch.
+func (r *rpcServer) FundBatch(_ context.Context,
+	req *mintrpc.FundBatchRequest) (*mintrpc.FundBatchResponse, error) {
 
 	feeRate, err := checkFeeRateSanity(req.FeeRate)
 	if err != nil {
@@ -593,29 +660,89 @@ func (r *rpcServer) FinalizeBatch(_ context.Context,
 	}
 	feeRateOpt := fn.MaybeSome(feeRate)
 
-	batchTapscriptTree := req.GetFullTree()
-	batchTapBranch := req.GetBranch()
-
-	switch {
-	case batchTapscriptTree != nil && batchTapBranch != nil:
-		return nil, fmt.Errorf("cannot specify both tapscript tree " +
-			"and tapscript tree branches")
-
-	case batchTapscriptTree != nil:
-		batchSibling, err = marshalTapscriptFullTree(batchTapscriptTree)
-		if err != nil {
-			return nil, fmt.Errorf("invalid tapscript tree: %w",
-				err)
-		}
-
-	case batchTapBranch != nil:
-		batchSibling, err = marshalTapscriptBranch(batchTapBranch)
-		if err != nil {
-			return nil, fmt.Errorf("invalid tapscript branch: %w",
-				err)
-		}
+	tapTreeOpt, err := taprpc.UnmarshalTapscriptSibling(
+		req.GetFullTree(), req.GetBranch(),
+	)
+	if err != nil {
+		return nil, err
 	}
-	tapTreeOpt := fn.MaybeSome(batchSibling)
+
+	batch, err := r.cfg.AssetMinter.FundBatch(
+		tapgarden.FundParams{
+			FeeRate:        feeRateOpt,
+			SiblingTapTree: tapTreeOpt,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fund batch: %w", err)
+	}
+
+	// If there was no batch to fund, return an empty response.
+	if batch == nil {
+		return &mintrpc.FundBatchResponse{}, nil
+	}
+
+	rpcBatch, err := marshalMintingBatch(batch, req.ShortResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mintrpc.FundBatchResponse{
+		Batch: rpcBatch,
+	}, nil
+}
+
+// SealBatch attempts to seal the current pending batch, validating provided
+// asset group witnesses and generating asset group witnesses as needed.
+func (r *rpcServer) SealBatch(ctx context.Context,
+	req *mintrpc.SealBatchRequest) (*mintrpc.SealBatchResponse, error) {
+
+	var groupWitnesses []asset.PendingGroupWitness
+	for i := range req.GroupWitnesses {
+		wit, err := taprpc.UnmarshalGroupWitness(req.GroupWitnesses[i])
+		if err != nil {
+			return nil, err
+		}
+
+		groupWitnesses = append(groupWitnesses, *wit)
+	}
+
+	batch, err := r.cfg.AssetMinter.SealBatch(
+		tapgarden.SealParams{
+			GroupWitnesses: groupWitnesses,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcBatch, err := marshalMintingBatch(batch, req.ShortResponse)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mintrpc.SealBatchResponse{
+		Batch: rpcBatch,
+	}, nil
+}
+
+// FinalizeBatch attempts to finalize the current pending batch.
+func (r *rpcServer) FinalizeBatch(_ context.Context,
+	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
+	error) {
+
+	feeRate, err := checkFeeRateSanity(req.FeeRate)
+	if err != nil {
+		return nil, err
+	}
+	feeRateOpt := fn.MaybeSome(feeRate)
+
+	tapTreeOpt, err := taprpc.UnmarshalTapscriptSibling(
+		req.GetFullTree(), req.GetBranch(),
+	)
+	if err != nil {
+		return nil, err
+	}
 
 	batch, err := r.cfg.AssetMinter.FinalizeBatch(
 		tapgarden.FinalizeParams{
@@ -664,7 +791,7 @@ func (r *rpcServer) CancelBatch(_ context.Context,
 
 // ListBatches lists the set of batches submitted for minting, including pending
 // and cancelled batches.
-func (r *rpcServer) ListBatches(_ context.Context,
+func (r *rpcServer) ListBatches(ctx context.Context,
 	req *mintrpc.ListBatchRequest) (*mintrpc.ListBatchResponse, error) {
 
 	var (
@@ -696,15 +823,21 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		}
 	}
 
-	batches, err := r.cfg.AssetMinter.ListBatches(batchKey)
+	batches, err := r.cfg.AssetMinter.ListBatches(
+		tapgarden.ListBatchesParams{
+			BatchKey: batchKey,
+			Verbose:  req.Verbose,
+		},
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list batches: %w", err)
 	}
 
 	rpcBatches, err := fn.MapErr(
-		batches,
-		func(b *tapgarden.MintingBatch) (*mintrpc.MintingBatch, error) {
-			return marshalMintingBatch(b, false)
+		batches, func(b *tapgarden.VerboseBatch) (*mintrpc.VerboseBatch,
+			error) {
+
+			return marshalVerboseBatch(ctx, b, req.Verbose, false)
 		},
 	)
 	if err != nil {
@@ -1237,7 +1370,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 
 	// Both the script and internal keys were specified.
 	default:
-		scriptKey, err := UnmarshalScriptKey(req.ScriptKey)
+		scriptKey, err := taprpc.UnmarshalScriptKey(req.ScriptKey)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode script key: "+
 				"%w", err)
@@ -1255,7 +1388,9 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 			scriptKey.RawKey.PubKey.SerializeCompressed(),
 			scriptKey.Tweak[:])
 
-		internalKey, err := UnmarshalKeyDescriptor(req.InternalKey)
+		internalKey, err := taprpc.UnmarshalKeyDescriptor(
+			req.InternalKey,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to decode internal "+
 				"key: %w", err)
@@ -2537,7 +2672,7 @@ func (r *rpcServer) NextInternalKey(ctx context.Context,
 	}
 
 	return &wrpc.NextInternalKeyResponse{
-		InternalKey: marshalKeyDescriptor(keyDesc),
+		InternalKey: taprpc.MarshalKeyDescriptor(keyDesc),
 	}, nil
 }
 
@@ -2563,7 +2698,7 @@ func (r *rpcServer) NextScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.NextScriptKeyResponse{
-		ScriptKey: MarshalScriptKey(scriptKey),
+		ScriptKey: taprpc.MarshalScriptKey(scriptKey),
 	}, nil
 }
 
@@ -2611,7 +2746,7 @@ func (r *rpcServer) QueryInternalKey(ctx context.Context,
 	}
 
 	return &wrpc.QueryInternalKeyResponse{
-		InternalKey: marshalKeyDescriptor(keychain.KeyDescriptor{
+		InternalKey: taprpc.MarshalKeyDescriptor(keychain.KeyDescriptor{
 			PubKey:     internalKey,
 			KeyLocator: keyLocator,
 		}),
@@ -2721,7 +2856,7 @@ func (r *rpcServer) QueryScriptKey(ctx context.Context,
 	}
 
 	return &wrpc.QueryScriptKeyResponse{
-		ScriptKey: MarshalScriptKey(asset.ScriptKey{
+		ScriptKey: taprpc.MarshalScriptKey(asset.ScriptKey{
 			PubKey:           scriptKey,
 			TweakedScriptKey: tweakedKey,
 		}),
@@ -3714,6 +3849,42 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 	return result, nil
 }
 
+// marshalVerboseBatch marshals a minting batch into the RPC counterpart.
+func marshalVerboseBatch(ctx context.Context, batch *tapgarden.VerboseBatch,
+	verbose bool, skipSeedlings bool) (*mintrpc.VerboseBatch, error) {
+
+	rpcMintingBatch, err := marshalMintingBatch(
+		batch.MintingBatch, skipSeedlings,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcBatch := &mintrpc.VerboseBatch{
+		Batch: rpcMintingBatch,
+	}
+
+	// If we don't need to include the seedlings, we can return here.
+	if skipSeedlings {
+		return rpcBatch, nil
+	}
+
+	// No sprouts, so we marshal the seedlings.
+	// We only need to convert the seedlings to unsealed seedlings.
+	if len(batch.UnsealedSeedlings) > 0 {
+		rpcBatch.UnsealedAssets, err = marshalUnsealedSeedlings(
+			ctx, verbose, batch.UnsealedSeedlings,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		rpcBatch.Batch.Assets = nil
+	}
+
+	return rpcBatch, nil
+}
+
 // marshalMintingBatch marshals a minting batch into the RPC counterpart.
 func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	skipSeedlings bool) (*mintrpc.MintingBatch, error) {
@@ -3733,17 +3904,20 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	// If we have the genesis packet available (funded+signed), then we'll
 	// display the txid as well.
 	if batch.GenesisPacket != nil {
-		batchTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
-		if err == nil {
-			rpcBatch.BatchTxid = batchTx.TxHash().String()
-		} else {
-			rpcsLog.Errorf("unable to extract batch tx: %v", err)
-		}
-
 		rpcBatch.BatchPsbt, err = serialize(batch.GenesisPacket.Pkt)
 		if err != nil {
 			return nil, fmt.Errorf("error serializing batch PSBT: "+
 				"%w", err)
+		}
+
+		if batch.State() > tapgarden.BatchStateFrozen {
+			batchTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
+			if err == nil {
+				rpcBatch.BatchTxid = batchTx.TxHash().String()
+			} else {
+				rpcsLog.Errorf("unable to extract batch tx: %v",
+					err)
+			}
 		}
 	}
 
@@ -3776,55 +3950,129 @@ func marshalMintingBatch(batch *tapgarden.MintingBatch,
 	return rpcBatch, nil
 }
 
-// marshalSeedlings marshals the seedlings into the RPC counterpart.
-func marshalSeedlings(
-	seedlings map[string]*tapgarden.Seedling) ([]*mintrpc.PendingAsset,
+// marshalSeedling marshals a seedling into the RPC counterpart.
+func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 	error) {
 
-	rpcAssets := make([]*mintrpc.PendingAsset, 0, len(seedlings))
-	for _, seedling := range seedlings {
-		var groupKeyBytes []byte
-		if seedling.HasGroupKey() {
-			groupKey := seedling.GroupInfo.GroupKey
-			groupPubKey := groupKey.GroupPubKey
-			groupKeyBytes = groupPubKey.SerializeCompressed()
-		}
+	var (
+		groupKeyBytes    []byte
+		groupInternalKey *taprpc.KeyDescriptor
+		groupAnchor      string
+		seedlingMeta     *taprpc.AssetMeta
+		newGroupedAsset  bool
+	)
 
-		var groupAnchor string
-		if seedling.GroupAnchor != nil {
-			groupAnchor = *seedling.GroupAnchor
-		}
+	if seedling.HasGroupKey() {
+		groupKey := seedling.GroupInfo.GroupKey
+		groupKeyBytes = groupKey.GroupPubKey.SerializeCompressed()
+	}
 
-		var seedlingMeta *taprpc.AssetMeta
-		if seedling.Meta != nil {
-			seedlingMeta = &taprpc.AssetMeta{
-				MetaHash: fn.ByteSlice(
-					seedling.Meta.MetaHash(),
-				),
-				Data: seedling.Meta.Data,
-				Type: taprpc.AssetMetaType(seedling.Meta.Type),
-			}
-		}
+	if seedling.GroupInternalKey != nil {
+		groupInternalKey = taprpc.MarshalKeyDescriptor(
+			*seedling.GroupInternalKey,
+		)
+	}
 
-		assetVersion, err := taprpc.MarshalAssetVersion(
-			seedling.AssetVersion,
+	if seedling.GroupAnchor != nil {
+		groupAnchor = *seedling.GroupAnchor
+	}
+
+	if seedling.EnableEmission {
+		newGroupedAsset = true
+	}
+
+	if seedling.Meta != nil {
+		seedlingMeta = &taprpc.AssetMeta{
+			MetaHash: fn.ByteSlice(
+				seedling.Meta.MetaHash(),
+			),
+			Data: seedling.Meta.Data,
+			Type: taprpc.AssetMetaType(seedling.Meta.Type),
+		}
+	}
+
+	assetVersion, err := taprpc.MarshalAssetVersion(
+		seedling.AssetVersion,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &mintrpc.PendingAsset{
+		AssetType:          taprpc.AssetType(seedling.AssetType),
+		AssetVersion:       assetVersion,
+		Name:               seedling.AssetName,
+		AssetMeta:          seedlingMeta,
+		Amount:             seedling.Amount,
+		ScriptKey:          taprpc.MarshalScriptKey(seedling.ScriptKey),
+		GroupKey:           groupKeyBytes,
+		GroupAnchor:        groupAnchor,
+		GroupInternalKey:   groupInternalKey,
+		GroupTapscriptRoot: seedling.GroupTapscriptRoot,
+		NewGroupedAsset:    newGroupedAsset,
+	}, nil
+}
+
+// marshalUnsealedSeedling marshals an unsealed seedling into the RPC
+// counterpart.
+func marshalUnsealedSeedling(ctx context.Context, verbose bool,
+	seedling *tapgarden.UnsealedSeedling) (*mintrpc.UnsealedAsset, error) {
+
+	var (
+		groupVirtualTx *taprpc.GroupVirtualTx
+		groupReq       *taprpc.GroupKeyRequest
+		err            error
+	)
+
+	rpcSeedling, err := marshalSeedling(seedling.Seedling)
+	if err != nil {
+		return nil, err
+	}
+
+	if verbose && seedling.PendingAssetGroup != nil {
+		groupVirtualTx, err = taprpc.MarshalGroupVirtualTx(
+			&seedling.PendingAssetGroup.GroupVirtualTx,
 		)
 		if err != nil {
 			return nil, err
 		}
 
-		nextSeedling := &mintrpc.PendingAsset{
-			AssetType:    taprpc.AssetType(seedling.AssetType),
-			AssetVersion: assetVersion,
-			Name:         seedling.AssetName,
-			AssetMeta:    seedlingMeta,
-			Amount:       seedling.Amount,
-			GroupKey:     groupKeyBytes,
-			GroupAnchor:  groupAnchor,
+		groupReq, err = taprpc.MarshalGroupKeyRequest(
+			ctx, &seedling.PendingAssetGroup.GroupKeyRequest,
+		)
+		if err != nil {
+			return nil, err
 		}
+	}
 
-		if seedling.EnableEmission {
-			nextSeedling.NewGroupedAsset = true
+	return &mintrpc.UnsealedAsset{
+		Asset:           rpcSeedling,
+		GroupVirtualTx:  groupVirtualTx,
+		GroupKeyRequest: groupReq,
+	}, nil
+}
+
+// marshalSeedlings marshals the seedlings into the RPC counterpart.
+func marshalSeedlings(
+	seedlings map[string]*tapgarden.Seedling) ([]*mintrpc.PendingAsset,
+	error) {
+
+	return fn.MapErr(maps.Values(seedlings), marshalSeedling)
+}
+
+// marshalUnsealedSeedlings marshals the unsealed seedlings into the RPC
+// counterpart.
+func marshalUnsealedSeedlings(ctx context.Context, verbose bool,
+	seedlings map[string]*tapgarden.UnsealedSeedling) (
+	[]*mintrpc.UnsealedAsset, error) {
+
+	rpcAssets := make([]*mintrpc.UnsealedAsset, 0, len(seedlings))
+	for _, seedling := range seedlings {
+		nextSeedling, err := marshalUnsealedSeedling(
+			ctx, verbose, seedling,
+		)
+		if err != nil {
+			return nil, err
 		}
 
 		rpcAssets = append(rpcAssets, nextSeedling)
@@ -3839,11 +4087,18 @@ func marshalSprouts(sprouts []*asset.Asset,
 
 	rpcAssets := make([]*mintrpc.PendingAsset, 0, len(sprouts))
 	for _, sprout := range sprouts {
-		scriptKey := asset.ToSerialized(sprout.ScriptKey.PubKey)
+		var (
+			groupKeyBytes      []byte
+			groupTapscriptRoot []byte
+			groupInternalKey   *taprpc.KeyDescriptor
+			assetMeta          *taprpc.AssetMeta
+		)
 
-		var assetMeta *taprpc.AssetMeta
 		if metas != nil {
-			if m, ok := metas[scriptKey]; ok && m != nil {
+			serializedScriptKey := asset.ToSerialized(
+				sprout.ScriptKey.PubKey,
+			)
+			if m, ok := metas[serializedScriptKey]; ok && m != nil {
 				assetMeta = &taprpc.AssetMeta{
 					MetaHash: fn.ByteSlice(m.MetaHash()),
 					Data:     m.Data,
@@ -3852,18 +4107,26 @@ func marshalSprouts(sprouts []*asset.Asset,
 			}
 		}
 
-		var groupKeyBytes []byte
 		if sprout.GroupKey != nil {
-			gpk := sprout.GroupKey.GroupPubKey
-			groupKeyBytes = gpk.SerializeCompressed()
+			grp := sprout.GroupKey
+			groupKeyBytes = grp.GroupPubKey.SerializeCompressed()
+			groupTapscriptRoot = grp.TapscriptRoot
+			groupInternalKey = taprpc.MarshalKeyDescriptor(
+				grp.RawKey,
+			)
 		}
 
 		rpcAssets = append(rpcAssets, &mintrpc.PendingAsset{
-			AssetType: taprpc.AssetType(sprout.Type),
-			Name:      sprout.Tag,
-			AssetMeta: assetMeta,
-			Amount:    sprout.Amount,
-			GroupKey:  groupKeyBytes,
+			AssetType:          taprpc.AssetType(sprout.Type),
+			Name:               sprout.Tag,
+			AssetMeta:          assetMeta,
+			Amount:             sprout.Amount,
+			GroupKey:           groupKeyBytes,
+			GroupInternalKey:   groupInternalKey,
+			GroupTapscriptRoot: groupTapscriptRoot,
+			ScriptKey: taprpc.MarshalScriptKey(
+				sprout.ScriptKey,
+			),
 		})
 	}
 
@@ -3902,77 +4165,6 @@ func marshalBatchState(state tapgarden.BatchState) (mintrpc.BatchState, error) {
 	}
 }
 
-func marshalTapscriptFullTree(tree *taprpc.TapscriptFullTree) (
-	*asset.TapscriptTreeNodes, error) {
-
-	rpcLeaves := tree.GetAllLeaves()
-	leaves := fn.Map(rpcLeaves, func(l *taprpc.TapLeaf) txscript.TapLeaf {
-		return txscript.NewBaseTapLeaf(l.Script)
-	})
-
-	return asset.TapTreeNodesFromLeaves(leaves)
-}
-
-func marshalTapscriptBranch(branch *taprpc.TapBranch) (*asset.TapscriptTreeNodes,
-	error) {
-
-	branchData := [][]byte{branch.LeftTaphash, branch.RightTaphash}
-	tapBranch, err := asset.DecodeTapBranchNodes(branchData)
-	if err != nil {
-		return nil, err
-	}
-
-	return fn.Ptr(asset.FromBranch(*tapBranch)), nil
-}
-
-// UnmarshalScriptKey parses the RPC script key into the native counterpart.
-func UnmarshalScriptKey(rpcKey *taprpc.ScriptKey) (*asset.ScriptKey, error) {
-	var (
-		scriptKey asset.ScriptKey
-		err       error
-	)
-
-	// The script public key is a Taproot key, so 32-byte x-only.
-	scriptKey.PubKey, err = schnorr.ParsePubKey(rpcKey.PubKey)
-	if err != nil {
-		return nil, err
-	}
-
-	// The key descriptor is optional for script keys that are completely
-	// independent of the backing wallet.
-	if rpcKey.KeyDesc != nil {
-		keyDesc, err := UnmarshalKeyDescriptor(rpcKey.KeyDesc)
-		if err != nil {
-			return nil, err
-		}
-		scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
-			RawKey: keyDesc,
-
-			// The tweak is optional, if it's empty it means the key
-			// is derived using BIP-0086.
-			Tweak: rpcKey.TapTweak,
-		}
-	}
-
-	return &scriptKey, nil
-}
-
-// MarshalScriptKey marshals the native script key into the RPC counterpart.
-func MarshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
-	rpcScriptKey := &taprpc.ScriptKey{
-		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
-	}
-
-	if scriptKey.TweakedScriptKey != nil {
-		rpcScriptKey.KeyDesc = marshalKeyDescriptor(
-			scriptKey.TweakedScriptKey.RawKey,
-		)
-		rpcScriptKey.TapTweak = scriptKey.TweakedScriptKey.Tweak
-	}
-
-	return rpcScriptKey
-}
-
 // parseUserKey parses a user-provided script or group key, which can be in
 // either the Schnorr or Compressed format.
 func parseUserKey(scriptKey []byte) (*btcec.PublicKey, error) {
@@ -3990,49 +4182,6 @@ func parseUserKey(scriptKey []byte) (*btcec.PublicKey, error) {
 	}
 }
 
-// marshalKeyDescriptor marshals the native key descriptor into the RPC
-// counterpart.
-func marshalKeyDescriptor(desc keychain.KeyDescriptor) *taprpc.KeyDescriptor {
-	return &taprpc.KeyDescriptor{
-		RawKeyBytes: desc.PubKey.SerializeCompressed(),
-		KeyLoc: &taprpc.KeyLocator{
-			KeyFamily: int32(desc.KeyLocator.Family),
-			KeyIndex:  int32(desc.KeyLocator.Index),
-		},
-	}
-}
-
-// UnmarshalKeyDescriptor parses the RPC key descriptor into the native
-// counterpart.
-func UnmarshalKeyDescriptor(
-	rpcDesc *taprpc.KeyDescriptor) (keychain.KeyDescriptor, error) {
-
-	var (
-		desc keychain.KeyDescriptor
-		err  error
-	)
-
-	// The public key of a key descriptor is mandatory. It is enough to
-	// locate the corresponding private key in the backing wallet. But to
-	// speed things up (and for additional context), the locator should
-	// still be provided if available.
-	desc.PubKey, err = btcec.ParsePubKey(rpcDesc.RawKeyBytes)
-	if err != nil {
-		return desc, err
-	}
-
-	if rpcDesc.KeyLoc != nil {
-		desc.KeyLocator = keychain.KeyLocator{
-			Family: keychain.KeyFamily(rpcDesc.KeyLoc.KeyFamily),
-			Index:  uint32(rpcDesc.KeyLoc.KeyIndex),
-		}
-	}
-
-	return desc, nil
-}
-
-// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
-// either by the asset ID for that asset, or a meta hash.
 func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 	req *taprpc.FetchAssetMetaRequest) (*taprpc.AssetMeta, error) {
 

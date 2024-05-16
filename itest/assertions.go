@@ -142,6 +142,79 @@ func AssetScriptKeyIsBurnCheck(isBurn bool) AssetCheck {
 	}
 }
 
+func AssetScriptKeyCheck(scriptKey *taprpc.ScriptKey) AssetCheck {
+	return func(a *taprpc.Asset) error {
+		if scriptKey == nil {
+			return nil
+		}
+
+		if !bytes.Equal(scriptKey.PubKey, a.ScriptKey[1:]) {
+			return fmt.Errorf("unexpected script key, "+
+				"wanted %x, got %x ", scriptKey.PubKey,
+				a.ScriptKey[1:])
+		}
+
+		return nil
+	}
+}
+
+func AssetIsGroupedCheck(newGrouped, grouped bool) AssetCheck {
+	return func(a *taprpc.Asset) error {
+		needsGroup := newGrouped || grouped
+		if !needsGroup {
+			return nil
+		}
+
+		if needsGroup && a.AssetGroup == nil {
+			return fmt.Errorf("unexpected missing asset group")
+		}
+
+		return nil
+	}
+}
+
+func AssetGroupInternalKeyCheck(key *taprpc.KeyDescriptor) AssetCheck {
+	return func(a *taprpc.Asset) error {
+		if key == nil {
+			return nil
+		}
+
+		if a.AssetGroup == nil {
+			return fmt.Errorf("unexpected missing asset group")
+		}
+
+		expectedKey := key.RawKeyBytes
+		groupInternal := a.AssetGroup.RawGroupKey
+		if !bytes.Equal(expectedKey, groupInternal) {
+			return fmt.Errorf("mistmatched group internal "+
+				"key, wanted %x, got %x ", expectedKey,
+				groupInternal)
+		}
+
+		return nil
+	}
+}
+
+func AssetGroupTapscriptRootCheck(root []byte) AssetCheck {
+	return func(a *taprpc.Asset) error {
+		if len(root) == 0 {
+			return nil
+		}
+
+		switch {
+		case a.AssetGroup == nil:
+			return fmt.Errorf("unexpected missing asset group")
+
+		case !bytes.Equal(root, a.AssetGroup.TapscriptRoot):
+			return fmt.Errorf("mistmatched group tapscript roots, "+
+				"wanted %x, got %x",
+				root, a.AssetGroup.TapscriptRoot)
+		}
+
+		return nil
+	}
+}
+
 // AssetVersionCheck returns a check function that tests an asset's version.
 func AssetVersionCheck(version taprpc.AssetVersion) AssetCheck {
 	return func(a *taprpc.Asset) error {
@@ -316,9 +389,9 @@ func WaitForBatchState(t *testing.T, ctx context.Context,
 				len(batchResp.Batches))
 		}
 
-		if batchResp.Batches[0].State != targetState {
+		if batchResp.Batches[0].Batch.State != targetState {
 			return fmt.Errorf("expected batch state %v, got %v",
-				targetState, batchResp.Batches[0].State)
+				targetState, batchResp.Batches[0].Batch.State)
 		}
 
 		return nil
@@ -1648,8 +1721,7 @@ func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
 // AssertAssetsMinted makes sure all assets in the minting request were in fact
 // minted in the given anchor TX and block. The function returns the list of
 // minted assets.
-func AssertAssetsMinted(t *testing.T,
-	tapClient TapdClient,
+func AssertAssetsMinted(t *testing.T, tapClient TapdClient,
 	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
 	blockHash chainhash.Hash) []*taprpc.Asset {
 
@@ -1706,6 +1778,14 @@ func AssertAssetsMinted(t *testing.T,
 
 				return nil
 			},
+			AssetScriptKeyCheck(assetRequest.Asset.ScriptKey),
+			AssetIsGroupedCheck(
+				assetRequest.Asset.NewGroupedAsset,
+				assetRequest.Asset.GroupedAsset,
+			),
+			AssetGroupTapscriptRootCheck(
+				assetRequest.Asset.GroupTapscriptRoot,
+			),
 		)
 
 		assetList = append(assetList, mintedAsset)

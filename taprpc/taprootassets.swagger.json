@@ -1179,6 +1179,11 @@
           "type": "string",
           "format": "byte",
           "description": "A witness that authorizes a specific asset to be part of the asset group\nspecified by the above key."
+        },
+        "tapscript_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The root hash of a tapscript tree, which enables future issuance authorized\nwith a script witness."
         }
       }
     },

@@ -25,6 +25,20 @@ type MintClient interface {
 	// batch. This call will block until the operation succeeds (asset is staged
 	// in the batch) or fails.
 	MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error)
+	// tapcli `assets mint fund`
+	// FundBatch will attempt to fund the current pending batch with a genesis
+	// input, or create a new funded batch if no batch exists yet. This RPC is only
+	// needed if a custom witness is needed to finalize the batch. Otherwise,
+	// FinalizeBatch can be called directly.
+	FundBatch(ctx context.Context, in *FundBatchRequest, opts ...grpc.CallOption) (*FundBatchResponse, error)
+	// tapcli `assets mint seal`
+	// SealBatch will attempt to seal the current pending batch by creating and
+	// validating asset group witness for all assets in the batch. If a witness
+	// is not provided, a signature will be derived to serve as the witness. This
+	// RPC is only needed if any assets in the batch have a custom asset group key
+	// that require an external signer. Otherwise, FinalizeBatch can be called
+	// directly.
+	SealBatch(ctx context.Context, in *SealBatchRequest, opts ...grpc.CallOption) (*SealBatchResponse, error)
 	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(ctx context.Context, in *FinalizeBatchRequest, opts ...grpc.CallOption) (*FinalizeBatchResponse, error)
@@ -52,6 +66,24 @@ func NewMintClient(cc grpc.ClientConnInterface) MintClient {
 func (c *mintClient) MintAsset(ctx context.Context, in *MintAssetRequest, opts ...grpc.CallOption) (*MintAssetResponse, error) {
 	out := new(MintAssetResponse)
 	err := c.cc.Invoke(ctx, "/mintrpc.Mint/MintAsset", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mintClient) FundBatch(ctx context.Context, in *FundBatchRequest, opts ...grpc.CallOption) (*FundBatchResponse, error) {
+	out := new(FundBatchResponse)
+	err := c.cc.Invoke(ctx, "/mintrpc.Mint/FundBatch", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *mintClient) SealBatch(ctx context.Context, in *SealBatchRequest, opts ...grpc.CallOption) (*SealBatchResponse, error) {
+	out := new(SealBatchResponse)
+	err := c.cc.Invoke(ctx, "/mintrpc.Mint/SealBatch", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -128,6 +160,20 @@ type MintServer interface {
 	// batch. This call will block until the operation succeeds (asset is staged
 	// in the batch) or fails.
 	MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error)
+	// tapcli `assets mint fund`
+	// FundBatch will attempt to fund the current pending batch with a genesis
+	// input, or create a new funded batch if no batch exists yet. This RPC is only
+	// needed if a custom witness is needed to finalize the batch. Otherwise,
+	// FinalizeBatch can be called directly.
+	FundBatch(context.Context, *FundBatchRequest) (*FundBatchResponse, error)
+	// tapcli `assets mint seal`
+	// SealBatch will attempt to seal the current pending batch by creating and
+	// validating asset group witness for all assets in the batch. If a witness
+	// is not provided, a signature will be derived to serve as the witness. This
+	// RPC is only needed if any assets in the batch have a custom asset group key
+	// that require an external signer. Otherwise, FinalizeBatch can be called
+	// directly.
+	SealBatch(context.Context, *SealBatchRequest) (*SealBatchResponse, error)
 	// tapcli: `assets mint finalize`
 	// FinalizeBatch will attempt to finalize the current pending batch.
 	FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error)
@@ -151,6 +197,12 @@ type UnimplementedMintServer struct {
 
 func (UnimplementedMintServer) MintAsset(context.Context, *MintAssetRequest) (*MintAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method MintAsset not implemented")
+}
+func (UnimplementedMintServer) FundBatch(context.Context, *FundBatchRequest) (*FundBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method FundBatch not implemented")
+}
+func (UnimplementedMintServer) SealBatch(context.Context, *SealBatchRequest) (*SealBatchResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SealBatch not implemented")
 }
 func (UnimplementedMintServer) FinalizeBatch(context.Context, *FinalizeBatchRequest) (*FinalizeBatchResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FinalizeBatch not implemented")
@@ -191,6 +243,42 @@ func _Mint_MintAsset_Handler(srv interface{}, ctx context.Context, dec func(inte
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(MintServer).MintAsset(ctx, req.(*MintAssetRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Mint_FundBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(FundBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MintServer).FundBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/mintrpc.Mint/FundBatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MintServer).FundBatch(ctx, req.(*FundBatchRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Mint_SealBatch_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SealBatchRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(MintServer).SealBatch(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/mintrpc.Mint/SealBatch",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(MintServer).SealBatch(ctx, req.(*SealBatchRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -280,6 +368,14 @@ var Mint_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "MintAsset",
 			Handler:    _Mint_MintAsset_Handler,
+		},
+		{
+			MethodName: "FundBatch",
+			Handler:    _Mint_FundBatch_Handler,
+		},
+		{
+			MethodName: "SealBatch",
+			Handler:    _Mint_SealBatch_Handler,
 		},
 		{
 			MethodName: "FinalizeBatch",

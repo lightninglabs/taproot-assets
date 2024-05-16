@@ -33,10 +33,12 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 // Default to a large interval so the planter never actually ticks and only
@@ -429,16 +431,21 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 
 	// Before we tick the batch, we record all existing batches, so we can
 	// make sure a new one was created.
-	existingBatches, err := t.planter.ListBatches(nil)
+	existingBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	require.NoError(t, err)
 
 	// We only want to know if a new batch gets to the frozen state. So the
 	// list of existing batches should only contain the already frozen.
-	existingBatches = fn.Filter(
-		existingBatches, func(batch *tapgarden.MintingBatch) bool {
-			return batch.State() == tapgarden.BatchStateFrozen
-		},
-	)
+	var existingFrozenBatches []*tapgarden.MintingBatch
+	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
+		if batch.State() == tapgarden.BatchStateFrozen {
+			existingFrozenBatches = append(
+				existingFrozenBatches, batch.ToMintingBatch(),
+			)
+		}
+	})
 
 	var (
 		wg       sync.WaitGroup
@@ -453,7 +460,7 @@ func (t *mintingTestHarness) finalizeBatchAssertFrozen(
 	}
 
 	// Check that the batch was frozen and then funded.
-	newBatch := t.assertNewBatchFrozen(existingBatches)
+	newBatch := t.assertNewBatchFrozen(existingFrozenBatches)
 	_ = t.assertGenesisTxFunded(nil)
 
 	// Fetch the batch again after funding.
@@ -698,7 +705,7 @@ func (t *mintingTestHarness) assertLastBatchState(numBatches int,
 	batchState tapgarden.BatchState) {
 
 	t.Helper()
-	batches, err := t.planter.ListBatches(nil)
+	batches, err := t.planter.ListBatches(tapgarden.ListBatchesParams{})
 	require.NoError(t, err)
 
 	require.Len(t, batches, numBatches)
@@ -969,18 +976,24 @@ func (t *mintingTestHarness) queueInitialBatch(
 
 	// Before we tick the batch, we record all existing batches, so we can
 	// make sure a new one was created.
-	existingBatches, err := t.planter.ListBatches(nil)
+	existingBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	require.NoError(t, err)
 
 	// We only want to know if a new batch gets to the frozen state. So the
 	// list of existing batches should only contain the already frozen.
-	existingBatches = fn.Filter(
-		existingBatches, func(batch *tapgarden.MintingBatch) bool {
-			return batch.State() == tapgarden.BatchStatePending
-		},
-	)
-	require.Len(t, existingBatches, 1)
-	batchKey := existingBatches[0].BatchKey.PubKey
+	var pendingBatches []*tapgarden.MintingBatch
+	fn.ForEach(existingBatches, func(batch *tapgarden.VerboseBatch) {
+		if batch.State() == tapgarden.BatchStatePending {
+			pendingBatches = append(
+				pendingBatches, batch.ToMintingBatch(),
+			)
+		}
+	})
+
+	require.Len(t, pendingBatches, 1)
+	batchKey := pendingBatches[0].BatchKey.PubKey
 
 	t.assertSeedlingsExist(seedlings, batchKey)
 
@@ -1534,7 +1547,7 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	t.assertMintOutputKey(batchWithSibling, siblingHash)
 }
 
-func testFundBeforeFinalize(t *mintingTestHarness) {
+func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// First, create a new chain planter instance using the supplied test
 	// harness.
 	t.refreshChainPlanter()
@@ -1571,8 +1584,13 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 
 	// We'll use the default test tapscript tree for both the batch
 	// tapscript sibling and a tapscript root for one asset group.
-	defaultTapBranch := test.BuildTapscriptTreeNoReveal(
-		t.T, groupInternalKeyDesc.PubKey,
+	hashLockLeaf := test.ScriptHashLock(
+		t.T, bytes.Clone(test.DefaultHashLockWitness),
+	)
+	sigLeaf := test.ScriptSchnorrSig(t.T, groupInternalKeyDesc.PubKey)
+	tapTree := txscript.AssembleTaprootScriptTree(hashLockLeaf, sigLeaf)
+	defaultTapBranch := txscript.NewTapBranch(
+		tapTree.RootNode.Left(), tapTree.RootNode.Right(),
 	)
 	defaultTapTree := asset.TapTreeNodesFromBranch(defaultTapBranch)
 	defaultPreimage := commitment.NewPreimageFromBranch(defaultTapBranch)
@@ -1593,6 +1611,7 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 	// Set a group tapscript root for the third seedling.
 	seedlings[2].EnableEmission = true
 	seedlings[2].GroupTapscriptRoot = defaultTapHash[:]
+	secondSeedling := seedlings[2].AssetName
 
 	// Set the fourth seedling to be a member of the second seedling's
 	// asset group.
@@ -1603,6 +1622,7 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 
 	// Set the final seedling to be ungrouped.
 	seedlings[4].EnableEmission = false
+	groupCount := 3
 
 	// Fund a batch with a tapscript sibling and a manual feerate. This
 	// should create a new batch.
@@ -1619,16 +1639,18 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 
 	// After funding, the planter should have persisted the batch. The new
 	// batch should be funded but have no seedlings.
-	fundedBatches, err := t.planter.ListBatches(nil)
+	fundedBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{},
+	)
 	require.NoError(t, err)
 	require.Len(t, fundedBatches, 1)
 
-	fundedBatch := fundedBatches[0]
-	require.Len(t, fundedBatch.Seedlings, 0)
-	require.NotNil(t, fundedBatch.GenesisPacket)
-	t.assertBatchGenesisTx(fundedBatch.GenesisPacket)
-	require.Equal(t, defaultTapHash[:], fundedBatch.TapSibling())
-	require.True(t, fundedBatch.State() == tapgarden.BatchStatePending)
+	fundedEmptyBatch := fundedBatches[0]
+	require.Len(t, fundedEmptyBatch.Seedlings, 0)
+	require.NotNil(t, fundedEmptyBatch.GenesisPacket)
+	t.assertBatchGenesisTx(fundedEmptyBatch.GenesisPacket)
+	require.Equal(t, defaultTapHash[:], fundedEmptyBatch.TapSibling())
+	require.True(t, fundedEmptyBatch.State() == tapgarden.BatchStatePending)
 
 	// Trying to fund a batch again should fail, as there is a pending batch
 	// that is already funded.
@@ -1656,6 +1678,88 @@ func testFundBeforeFinalize(t *mintingTestHarness) {
 	t.queueSeedlingsInBatch(true, seedlings...)
 	t.assertPendingBatchExists(numSeedlings)
 	t.assertSeedlingsExist(seedlings, nil)
+
+	verboseBatches, err := t.planter.ListBatches(
+		tapgarden.ListBatchesParams{
+			Verbose: true,
+		},
+	)
+	require.NoError(t, err)
+	require.Len(t, verboseBatches, 1)
+
+	fundedBatch := verboseBatches[0]
+
+	// Assert that ListBatches showed the correct number of asset groups.
+	observedGroupCount := 0
+	for _, seedling := range maps.Values(fundedBatch.UnsealedSeedlings) {
+		if seedling.PendingAssetGroup != nil {
+			observedGroupCount++
+		}
+	}
+
+	require.Equal(t, groupCount, observedGroupCount)
+
+	// Let's use the hash lock to authorize group membership for the second
+	// seedling. First we need the seedling asset ID and group internal key.
+	seedlingWithGroupTapscriptRoot := fundedBatch.
+		UnsealedSeedlings[secondSeedling]
+	seedlingAssetID := seedlingWithGroupTapscriptRoot.NewAsset.ID()
+	derivedInternalKey := seedlingWithGroupTapscriptRoot.GroupInternalKey
+
+	// Now we can build the control block for using the hash lock script.
+	// The control block is built with the singly-tweaked group key, or the
+	// group internal key tweaked with the seedling asset ID.
+	groupSinglyTweakedKey := input.TweakPubKeyWithTweak(
+		derivedInternalKey.PubKey, seedlingAssetID[:],
+	)
+	hashLockTapHash := hashLockLeaf.TapHash()
+	hashLockTapscriptProof := tapTree.
+		LeafMerkleProofs[tapTree.LeafProofIndex[hashLockTapHash]]
+	hashLockTapScript := input.TapscriptPartialReveal(
+		groupSinglyTweakedKey, hashLockLeaf,
+		hashLockTapscriptProof.InclusionProof,
+	)
+	hashLockControlBlock, err := hashLockTapScript.ControlBlock.ToBytes()
+	require.NoError(t, err)
+
+	// With the control block, we can build the full group witness for the
+	// seedling.
+	hashLockWitness := wire.TxWitness{
+		test.DefaultHashLockWitness, hashLockLeaf.Script,
+		hashLockControlBlock,
+	}
+	seedlingWitness := asset.PendingGroupWitness{
+		GenID:   seedlingAssetID,
+		Witness: hashLockWitness,
+	}
+
+	sealedBatch, err := t.planter.SealBatch(tapgarden.SealParams{
+		GroupWitnesses: []asset.PendingGroupWitness{seedlingWitness},
+	})
+	require.NoError(t, err)
+
+	// After batch sealing, we should have 3 asset groups, and the second
+	// seedling should have the hash lock witness set.
+	sealedGroupCount := 0
+	for _, seedling := range sealedBatch.Seedlings {
+		if seedling.GroupInfo != nil {
+			sealedGroupCount++
+		}
+	}
+	require.Equal(t, groupCount, sealedGroupCount)
+
+	sealedSeedling := sealedBatch.Seedlings[secondSeedling]
+	groupWithHashLock := sealedSeedling.GroupInfo
+	require.Equal(
+		t, defaultTapHash[:], groupWithHashLock.GroupKey.TapscriptRoot,
+	)
+	require.Equal(t, hashLockWitness, groupWithHashLock.GroupKey.Witness)
+
+	// Trying to seal the batch again should fail.
+	_, err = t.planter.SealBatch(tapgarden.SealParams{
+		GroupWitnesses: []asset.PendingGroupWitness{seedlingWitness},
+	})
+	require.ErrorContains(t, err, "batch is already sealed")
 
 	// Finally, finalize the batch and check that the resulting assets match
 	// the seedlings.
@@ -1705,8 +1809,8 @@ var testCases = []mintingStoreTestCase{
 		testFunc: testFinalizeWithTapscriptTree,
 	},
 	{
-		name:     "fund_before_finalize",
-		testFunc: testFundBeforeFinalize,
+		name:     "fund_seal_before_finalize",
+		testFunc: testFundSealBeforeFinalize,
 	},
 }
 
