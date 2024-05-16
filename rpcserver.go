@@ -6096,7 +6096,7 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 	if sellOrder.Peer != nil {
 		peer = sellOrder.Peer.String()
 	}
-	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting sell order "+
+	rpcsLog.Debugf("[AddAssetSellOrder]: upserting sell order "+
 		"(dest_peer=%s)", peer)
 
 	// Upsert the order into the RFQ manager.
