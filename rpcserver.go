@@ -6235,8 +6235,8 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 
 	// Query the RFQ manager for quotes that were requested by our node and
 	// have been accepted by our peers.
-	peerAcceptedBuyQuotes, peerAcceptedSellQuotes :=
-		r.cfg.RfqManager.QueryPeerAcceptedQuotes()
+	peerAcceptedBuyQuotes := r.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
 
 	rpcBuyQuotes := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
 	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
