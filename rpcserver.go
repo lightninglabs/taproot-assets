@@ -6029,6 +6029,10 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 	req *rfqrpc.AddAssetBuyOrderRequest) (*rfqrpc.AddAssetBuyOrderResponse,
 	error) {
 
+	if req.TimeoutSeconds == 0 {
+		return nil, fmt.Errorf("timeout must be greater than 0")
+	}
+
 	// Unmarshal the buy order from the RPC form.
 	buyOrder, err := unmarshalAssetBuyOrder(req)
 	if err != nil {
@@ -6133,6 +6137,10 @@ func unmarshalAssetSellOrder(
 func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
 	error) {
+
+	if req.TimeoutSeconds == 0 {
+		return nil, fmt.Errorf("timeout must be greater than 0")
+	}
 
 	// Unmarshal the order from the RPC form.
 	sellOrder, err := unmarshalAssetSellOrder(req)
