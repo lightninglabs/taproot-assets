@@ -2,10 +2,12 @@ package rfqmsg
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -18,6 +20,7 @@ const (
 	TypeSellAcceptBidPrice  tlv.Type = 2
 	TypeSellAcceptExpiry    tlv.Type = 4
 	TypeSellAcceptSignature tlv.Type = 6
+	TypeSellAcceptAssetID   tlv.Type = 8
 )
 
 func TypeRecordSellAcceptID(id *ID) tlv.Record {
@@ -43,6 +46,15 @@ func TypeRecordSellAcceptSig(sig *[64]byte) tlv.Record {
 	return tlv.MakePrimitiveRecord(TypeSellAcceptSignature, sig)
 }
 
+func TypeRecordSellAcceptAssetID(assetID **asset.ID) tlv.Record {
+	const recordSize = sha256.Size
+
+	return tlv.MakeStaticRecord(
+		TypeSellAcceptAssetID, assetID, recordSize,
+		AssetIdEncoder, AssetIdDecoder,
+	)
+}
+
 // sellAcceptMsgData is a struct that represents the data field of an asset sell
 // quote request accept message.
 type sellAcceptMsgData struct {
@@ -59,21 +71,43 @@ type sellAcceptMsgData struct {
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
+
+	// AssetID is the asset ID of the asset that the accept message is for.
+	AssetID *asset.ID
 }
 
-// records provides all TLV records for encoding/decoding.
-func (q *sellAcceptMsgData) records() []tlv.Record {
-	return []tlv.Record{
+// encodeRecords provides all TLV records for encoding.
+func (q *sellAcceptMsgData) encodeRecords() []tlv.Record {
+	records := []tlv.Record{
 		TypeRecordSellAcceptID(&q.ID),
 		TypeRecordSellAcceptBidPrice(&q.BidPrice),
 		TypeRecordSellAcceptExpiry(&q.Expiry),
 		TypeRecordSellAcceptSig(&q.sig),
 	}
+
+	if q.AssetID != nil {
+		records = append(
+			records, TypeRecordSellAcceptAssetID(&q.AssetID),
+		)
+	}
+
+	return records
+}
+
+// decodeRecords provides all TLV records for decoding.
+func (q *sellAcceptMsgData) decodeRecords() []tlv.Record {
+	return []tlv.Record{
+		TypeRecordSellAcceptID(&q.ID),
+		TypeRecordSellAcceptBidPrice(&q.BidPrice),
+		TypeRecordSellAcceptExpiry(&q.Expiry),
+		TypeRecordSellAcceptSig(&q.sig),
+		TypeRecordSellAcceptAssetID(&q.AssetID),
+	}
 }
 
 // Encode encodes the structure into a TLV stream.
 func (q *sellAcceptMsgData) Encode(writer io.Writer) error {
-	stream, err := tlv.NewStream(q.records()...)
+	stream, err := tlv.NewStream(q.encodeRecords()...)
 	if err != nil {
 		return err
 	}
@@ -82,7 +116,7 @@ func (q *sellAcceptMsgData) Encode(writer io.Writer) error {
 
 // Decode decodes the structure from a TLV stream.
 func (q *sellAcceptMsgData) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(q.records()...)
+	stream, err := tlv.NewStream(q.decodeRecords()...)
 	if err != nil {
 		return err
 	}
@@ -125,6 +159,7 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 			ID:       request.ID,
 			BidPrice: bidPrice,
 			Expiry:   expiry,
+			AssetID:  request.AssetID,
 		},
 	}
 }
@@ -186,7 +221,7 @@ func (q *SellAccept) ToWire() (WireMessage, error) {
 // String returns a human-readable string representation of the message.
 func (q *SellAccept) String() string {
 	return fmt.Sprintf("SellAccept(peer=%x, id=%x, bid_price=%d, "+
-		"expiry=%d, scid=%d)", q.Peer[:], q.ID, q.BidPrice, q.Expiry,
+		"expiry=%d, scid=%d)", q.Peer[:], q.ID[:], q.BidPrice, q.Expiry,
 		q.ShortChannelId())
 }
 

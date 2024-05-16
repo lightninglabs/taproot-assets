@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -30,6 +31,7 @@ func TestSellAcceptMsgDataEncodeDecode(t *testing.T) {
 		bidPrice lnwire.MilliSatoshi
 		expiry   uint64
 		sig      [64]byte
+		assetID  *asset.ID
 	}{
 		{
 			testName: "all fields populated with basic values",
@@ -37,6 +39,10 @@ func TestSellAcceptMsgDataEncodeDecode(t *testing.T) {
 			bidPrice: 1000,
 			expiry:   42000,
 			sig:      signature,
+			assetID:  &asset.ID{1, 2, 3},
+		},
+		{
+			testName: "empty fields",
 		},
 	}
 
