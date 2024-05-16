@@ -8,6 +8,7 @@ import (
 
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightningnetwork/lnd/signal"
 )
@@ -66,8 +67,15 @@ func main() {
 	errQueue.Start()
 	defer errQueue.Stop()
 
+	// Use a no-op SCID alias manager temporarily. This will be replaced
+	// with a real SCID alias manager when the server configuration is
+	// generated. Passing in the manager at this point facilitates mocking
+	// in tests.
+	scidAliasManager := fn.None[rfq.ScidAliasManager]()
+
 	server, err := tapcfg.CreateServerFromConfig(
-		cfg, cfgLogger, shutdownInterceptor, errQueue.ChanIn(),
+		cfg, cfgLogger, scidAliasManager, shutdownInterceptor,
+		errQueue.ChanIn(),
 	)
 	if err != nil {
 		err := fmt.Errorf("error creating server: %w", err)

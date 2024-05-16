@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -210,8 +211,16 @@ func (l *LndRpcWalletAnchor) ListTransactions(ctx context.Context, startHeight,
 	)
 }
 
+// ListChannels returns the list of active channels of the backing lnd node.
+func (l *LndRpcWalletAnchor) ListChannels(
+	ctx context.Context) ([]lndclient.ChannelInfo, error) {
+
+	return l.lnd.Client.ListChannels(ctx, true, false)
+}
+
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
 // tapgarden.WalletAnchor interface.
 var _ tapgarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
 
 var _ tapfreighter.WalletAnchor = (*LndRpcWalletAnchor)(nil)
+var _ rfq.ChannelLister = (*LndRpcWalletAnchor)(nil)

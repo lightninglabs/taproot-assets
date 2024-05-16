@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/perms"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
@@ -38,6 +39,14 @@ type Server struct {
 	ready chan bool
 
 	cfg *Config
+
+	// ScidAliasManager is the SCID alias manager. This component is
+	// injected into the RFQ manager once lnd and tapd are integrated.
+	ScidAliasManager fn.Option[rfq.ScidAliasManager]
+
+	// Mutex is an embedded mutex that is used to protect the fields of the
+	// struct, such as ScidAliasManager.
+	sync.Mutex
 
 	*rpcServer
 	macaroonService *lndclient.MacaroonService
@@ -620,6 +629,21 @@ func (s *Server) Stop() error {
 	close(s.quit)
 
 	s.wg.Wait()
+
+	return nil
+}
+
+// RegisterComponents allows the auxiliary component to register the given lnd
+// components it might depend on.
+func (s *Server) RegisterComponents(
+	scidAliasManager rfq.ScidAliasManager) error {
+
+	srvrLog.Tracef("RegisterComponents called")
+
+	s.Lock()
+	defer s.Unlock()
+
+	s.ScidAliasManager = fn.Some(scidAliasManager)
 
 	return nil
 }
