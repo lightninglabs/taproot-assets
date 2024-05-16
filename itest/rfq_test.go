@@ -333,7 +333,8 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		aliceBobHop.CustomRecords = make(map[uint64][]byte)
 	}
 
-	aliceBobHop.CustomRecords[rfq.LnCustomRecordType] =
+	var htlcRfqIDTlvType rfq.HtlcRfqIDTlvType
+	aliceBobHop.CustomRecords[uint64(htlcRfqIDTlvType.TypeVal())] =
 		acceptedQuote.Id[:]
 
 	// Update the route with the modified first hop.
