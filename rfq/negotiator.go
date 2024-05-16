@@ -236,31 +236,6 @@ func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 func (n *Negotiator) HandleIncomingBuyRequest(
 	request rfqmsg.BuyRequest) error {
 
-	// Ensure that we have a suitable sell offer for the asset that is being
-	// requested. Here we can handle the case where this node does not wish
-	// to sell a particular asset.
-	offerAvailable := n.HasAssetSellOffer(
-		request.AssetID, request.AssetGroupKey, request.AssetAmount,
-	)
-	if !offerAvailable {
-		// If we do not have a suitable sell offer, then we will reject
-		// the quote request with an error.
-		reject := rfqmsg.NewReject(
-			request.Peer, request.ID, rfqmsg.ErrNoSuitableSellOffer,
-		)
-		var msg rfqmsg.OutgoingMsg = reject
-
-		sendSuccess := fn.SendOrQuit(
-			n.cfg.OutgoingMessages, msg, n.Quit,
-		)
-		if !sendSuccess {
-			return fmt.Errorf("negotiator failed to send reject " +
-				"message")
-		}
-
-		return nil
-	}
-
 	// Define a thread safe helper function for adding outgoing message to
 	// the outgoing messages channel.
 	sendOutgoingMsg := func(msg rfqmsg.OutgoingMsg) {
@@ -273,6 +248,30 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 				msg)
 			n.cfg.ErrChan <- err
 		}
+	}
+
+	// Ensure that we have a suitable sell offer for the asset that is being
+	// requested. Here we can handle the case where this node does not wish
+	// to sell a particular asset.
+	offerAvailable := n.HasAssetSellOffer(
+		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+	)
+	if !offerAvailable {
+		log.Infof("Would reject buy request: no suitable buy offer, " +
+			"but ignoring for now")
+
+		// TODO(ffranr): Re-enable pre-price oracle rejection (i.e.
+		//  reject on missing offer)
+
+		// If we do not have a suitable sell offer, then we will reject
+		// the quote request with an error.
+		// reject := rfqmsg.NewReject(
+		//	request.Peer, request.ID,
+		//	rfqmsg.ErrNoSuitableSellOffer,
+		// )
+		// go sendOutgoingMsg(reject)
+		//
+		// return nil
 	}
 
 	// Query the price oracle asynchronously using a separate goroutine.
