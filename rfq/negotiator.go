@@ -316,34 +316,6 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 func (n *Negotiator) HandleIncomingSellRequest(
 	request rfqmsg.SellRequest) error {
 
-	// The sell request is attempting to sell some amount of an asset to our
-	// node. Here we ensure that we have a suitable buy offer for the asset.
-	// A buy offer is the criteria that this node uses to determine whether
-	// it is willing to buy a particular asset (before price is considered).
-	// At this point we can handle the case where this node does not wish
-	// to buy some amount of a particular asset regardless of its price.
-	offerAvailable := n.HasAssetBuyOffer(
-		request.AssetID, request.AssetGroupKey, request.AssetAmount,
-	)
-	if !offerAvailable {
-		// If we do not have a suitable buy offer, then we will reject
-		// the asset sell quote request with an error.
-		reject := rfqmsg.NewReject(
-			request.Peer, request.ID, rfqmsg.ErrNoSuitableBuyOffer,
-		)
-		var msg rfqmsg.OutgoingMsg = reject
-
-		sendSuccess := fn.SendOrQuit(
-			n.cfg.OutgoingMessages, msg, n.Quit,
-		)
-		if !sendSuccess {
-			return fmt.Errorf("negotiator failed to send reject " +
-				"message")
-		}
-
-		return nil
-	}
-
 	// Define a thread safe helper function for adding outgoing message to
 	// the outgoing messages channel.
 	sendOutgoingMsg := func(msg rfqmsg.OutgoingMsg) {
@@ -356,6 +328,33 @@ func (n *Negotiator) HandleIncomingSellRequest(
 				msg)
 			n.cfg.ErrChan <- err
 		}
+	}
+
+	// The sell request is attempting to sell some amount of an asset to our
+	// node. Here we ensure that we have a suitable buy offer for the asset.
+	// A buy offer is the criteria that this node uses to determine whether
+	// it is willing to buy a particular asset (before price is considered).
+	// At this point we can handle the case where this node does not wish
+	// to buy some amount of a particular asset regardless of its price.
+	offerAvailable := n.HasAssetBuyOffer(
+		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+	)
+	if !offerAvailable {
+		log.Infof("Would reject sell request: no suitable buy offer, " +
+			"but ignoring for now")
+
+		// TODO(ffranr): Re-enable pre-price oracle rejection (i.e.
+		//  reject on missing offer)
+
+		// If we do not have a suitable buy offer, then we will reject
+		// the asset sell quote request with an error.
+		// reject := rfqmsg.NewReject(
+		//	request.Peer, request.ID,
+		//	rfqmsg.ErrNoSuitableBuyOffer,
+		// )
+		// go sendOutgoingMsg(reject)
+		//
+		// return nil
 	}
 
 	// Query the price oracle asynchronously using a separate goroutine.
