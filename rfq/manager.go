@@ -523,6 +523,9 @@ func (m *Manager) mainEventLoop() {
 
 		// Handle subsystem errors.
 		case err := <-m.subsystemErrChan:
+			log.Errorf("Manager main event loop received "+
+				"subsystem error: %v", err)
+
 			// Report the subsystem error to the main server.
 			m.cfg.ErrChan <- fmt.Errorf("encountered RFQ "+
 				"subsystem error: %w", err)
