@@ -326,7 +326,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
 
 	// TODO(ffranr): Replace the mock price oracle with a real one.
-	priceOracle := rfq.NewMockPriceOracle(3600)
+	priceOracle := rfq.NewMockPriceOracle(3600, 5820600)
 
 	// Construct the RFQ manager.
 	rfqManager, err := rfq.NewManager(
