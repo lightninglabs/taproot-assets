@@ -222,8 +222,8 @@ func (a *Allocation) AuxLeaf() (txscript.TapLeaf, error) {
 // on-chain commitment output match this allocation. The pkScript is calculated
 // from the internal key, tapscript sibling and merkle root of the output
 // commitment. If the output commitment is not set an error is returned.
-func (a *Allocation) MatchesOutput(pkScript []byte, value int64,
-	cltv uint32) (bool, error) {
+func (a *Allocation) MatchesOutput(pkScript []byte, value int64, cltv uint32,
+	htlcIndex input.HtlcIndex) (bool, error) {
 
 	finalPkScript, err := a.finalPkScript()
 	if err != nil {
@@ -231,7 +231,8 @@ func (a *Allocation) MatchesOutput(pkScript []byte, value int64,
 	}
 
 	outputsEqual := bytes.Equal(pkScript, finalPkScript) &&
-		value == int64(a.BtcAmount) && cltv == a.CLTV
+		value == int64(a.BtcAmount) && cltv == a.CLTV &&
+		htlcIndex == a.HtlcIndex
 
 	return outputsEqual, nil
 }

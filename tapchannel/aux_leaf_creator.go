@@ -119,8 +119,12 @@ func (c *AuxLeafCreator) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 			"%w", err)
 	}
 
-	customCommitSort := func(tx *wire.MsgTx, uint32s []uint32) error {
-		return InPlaceCustomCommitSort(tx, uint32s, allocations)
+	customCommitSort := func(tx *wire.MsgTx, cltvs []uint32,
+		htlcIndexes []input.HtlcIndex) error {
+
+		return InPlaceCustomCommitSort(
+			tx, cltvs, htlcIndexes, allocations,
+		)
 	}
 
 	return lfn.Some(newCommitment.Leaves()), customCommitSort, nil

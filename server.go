@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -31,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -193,10 +195,15 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf signer: %w", err)
 	}
-
 	if err := s.cfg.AuxFundingController.Start(); err != nil {
 		return fmt.Errorf("unable to start aux funding controller: %w",
 			err)
+	}
+	if err := s.cfg.AuxTrafficShaper.Start(); err != nil {
+		return fmt.Errorf("unable to start aux traffic shaper %w", err)
+	}
+	if err := s.cfg.AuxInvoiceManager.Start(); err != nil {
+		return fmt.Errorf("unable to start aux invoice mgr: %w", err)
 	}
 
 	if s.cfg.UniversePublicAccess {
@@ -644,6 +651,12 @@ func (s *Server) Stop() error {
 	if err := s.cfg.AuxFundingController.Stop(); err != nil {
 		return err
 	}
+	if err := s.cfg.AuxTrafficShaper.Stop(); err != nil {
+		return err
+	}
+	if err := s.cfg.AuxInvoiceManager.Stop(); err != nil {
+		return err
+	}
 
 	if s.macaroonService != nil {
 		err := s.macaroonService.Stop()
@@ -661,12 +674,14 @@ func (s *Server) Stop() error {
 
 // A compile-time check to ensure that Server fully implements the
 // lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
-// protofsm.MsgEndpoint and funding.AuxFundingController interfaces.
+// protofsm.MsgEndpoint, funding.AuxFundingController and
+// routing.TlvTrafficShaper interfaces.
 var _ lnwallet.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
 var _ lnwallet.AuxSigner = (*Server)(nil)
 var _ protofsm.MsgEndpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
+var _ routing.TlvTrafficShaper = (*Server)(nil)
 
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
@@ -959,4 +974,72 @@ func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 	}
 
 	return s.cfg.AuxFundingController.ChannelFinalized(pid)
+}
+
+// HandleTraffic is called in order to check if the channel identified by the
+// provided channel ID is handled by the traffic shaper implementation. If it
+// is handled by the traffic shaper, then the normal bandwidth calculation can
+// be skipped and the bandwidth returned by PaymentBandwidth should be used
+// instead.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
+	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
+
+	srvrLog.Debugf("HandleTraffic called, cid=%v, fundingBlob=%v", cid,
+		spew.Sdump(fundingBlob))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return false, fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxTrafficShaper.HandleTraffic(cid, fundingBlob)
+}
+
+// PaymentBandwidth returns the available bandwidth for a custom channel decided
+// by the given channel aux blob and HTLC blob. A return value of 0 means there
+// is no bandwidth available. To find out if a channel is a custom channel that
+// should be handled by the traffic shaper, the HandleTraffic method should be
+// called first.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) PaymentBandwidth(htlcBlob,
+	commitmentBlob lfn.Option[tlv.Blob]) (lnwire.MilliSatoshi, error) {
+
+	srvrLog.Debugf("PaymentBandwidth called, htlcBlob=%v, "+
+		"commitmentBlob=%v", spew.Sdump(htlcBlob),
+		spew.Sdump(commitmentBlob))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return 0, fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxTrafficShaper.PaymentBandwidth(htlcBlob, commitmentBlob)
+}
+
+// ProduceHtlcExtraData is a function that, based on the previous custom record
+// blob of an HTLC, may produce a different blob or modify the amount of bitcoin
+// this HTLC should carry.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
+	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi, tlv.Blob,
+	error) {
+
+	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
+		"htlcBlob=%v", totalAmount, spew.Sdump(htlcCustomRecords))
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return 0, nil, fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
+		totalAmount, htlcCustomRecords,
+	)
 }
