@@ -83,9 +83,14 @@ message AddAssetBuyOrderRequest {
     // peer_pub_key is an optional field for specifying the public key of the
     // intended recipient peer for the order.
     bytes peer_pub_key = 5;
+
+    // timeout_seconds is the number of seconds to wait for the peer to respond
+    // with an accepted quote (or a rejection).
+    uint32 timeout_seconds = 6;
 }
 
 message AddAssetBuyOrderResponse {
+    PeerAcceptedBuyQuote accepted_quote = 1;
 }
 
 message AddAssetSellOrderRequest {
@@ -104,9 +109,14 @@ message AddAssetSellOrderRequest {
     // peer_pub_key is an optional field for specifying the public key of the
     // intended recipient peer for the order.
     bytes peer_pub_key = 5;
+
+    // timeout_seconds is the number of seconds to wait for the peer to respond
+    // with an accepted quote (or a rejection).
+    uint32 timeout_seconds = 6;
 }
 
 message AddAssetSellOrderResponse {
+    PeerAcceptedSellQuote accepted_quote = 1;
 }
 
 message AddAssetSellOfferRequest {
