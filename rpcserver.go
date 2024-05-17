@@ -280,6 +280,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 		return err
 	}
 
+	err = rfqrpc.RegisterRfqHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
 	err = unirpc.RegisterUniverseHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
