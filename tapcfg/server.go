@@ -343,6 +343,25 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, err
 	}
 
+	chainPorter := tapfreighter.NewChainPorter(
+		&tapfreighter.ChainPorterConfig{
+			Signer:      virtualTxSigner,
+			TxValidator: &tap.ValidatorV0{},
+			ExportLog:   assetStore,
+			ChainBridge: chainBridge,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			Wallet:                 walletAnchor,
+			KeyRing:                keyRing,
+			AssetWallet:            assetWallet,
+			AssetProofs:            proofFileStore,
+			ProofCourierDispatcher: proofCourierDispatcher,
+			ProofWatcher:           reOrgWatcher,
+			ErrChan:                mainErrChan,
+		},
+	)
+
 	auxLeafCreator := tapchannel.NewAuxLeafCreator(
 		&tapchannel.LeafCreatorConfig{
 			ChainParams: &tapChainParams,
@@ -395,31 +414,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay, ProofWatcher: reOrgWatcher,
 			},
 		),
-		ChainBridge:             chainBridge,
-		AddrBook:                addrBook,
-		AddrBookDisableSyncer:   cfg.AddrBook.DisableSyncer,
-		DefaultProofCourierAddr: proofCourierAddr,
-		ProofArchive:            proofArchive,
-		AssetWallet:             assetWallet,
-		CoinSelect:              coinSelect,
-		ChainPorter: tapfreighter.NewChainPorter(
-			&tapfreighter.ChainPorterConfig{
-				Signer:      virtualTxSigner,
-				TxValidator: &tap.ValidatorV0{},
-				ExportLog:   assetStore,
-				ChainBridge: chainBridge,
-				GroupVerifier: tapgarden.GenGroupVerifier(
-					context.Background(), assetMintingStore,
-				),
-				Wallet:                 walletAnchor,
-				KeyRing:                keyRing,
-				AssetWallet:            assetWallet,
-				AssetProofs:            proofFileStore,
-				ProofCourierDispatcher: proofCourierDispatcher,
-				ProofWatcher:           reOrgWatcher,
-				ErrChan:                mainErrChan,
-			},
-		),
+		ChainBridge:              chainBridge,
+		AddrBook:                 addrBook,
+		AddrBookDisableSyncer:    cfg.AddrBook.DisableSyncer,
+		DefaultProofCourierAddr:  proofCourierAddr,
+		ProofArchive:             proofArchive,
+		AssetWallet:              assetWallet,
+		CoinSelect:               coinSelect,
+		ChainPorter:              chainPorter,
 		UniverseArchive:          baseUni,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
