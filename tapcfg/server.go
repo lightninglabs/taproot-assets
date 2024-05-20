@@ -373,6 +373,26 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			Signer:      assetWallet,
 		},
 	)
+	channelFunder := tap.NewLndPbstChannelFunder(lndServices)
+	auxFundingController := tapchannel.NewFundingController(
+		tapchannel.FundingControllerCfg{
+			HeaderVerifier: headerVerifier,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			ErrReporter:   msgTransportClient,
+			AssetWallet:   assetWallet,
+			CoinSelector:  coinSelect,
+			ChainParams:   tapChainParams,
+			GroupKeyIndex: tapdbAddrBook,
+			PeerMessenger: msgTransportClient,
+			ChannelFunder: channelFunder,
+			TxPublisher:   chainBridge,
+			ChainWallet:   walletAnchor,
+			RfqManager:    rfqManager,
+			TxSender:      chainPorter,
+		},
+	)
 
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
@@ -432,6 +452,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		RfqManager:               rfqManager,
 		AuxLeafCreator:           auxLeafCreator,
 		AuxLeafSigner:            auxLeafSigner,
+		AuxFundingController:     auxFundingController,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

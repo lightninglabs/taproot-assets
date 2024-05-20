@@ -9,6 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
@@ -16,17 +17,20 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/perms"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/tapchannel"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
+	"github.com/lightningnetwork/lnd/protofsm"
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -188,6 +192,11 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	}
 	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf signer: %w", err)
+	}
+
+	if err := s.cfg.AuxFundingController.Start(); err != nil {
+		return fmt.Errorf("unable to start aux funding controller: %w",
+			err)
 	}
 
 	if s.cfg.UniversePublicAccess {
@@ -632,6 +641,9 @@ func (s *Server) Stop() error {
 	if err := s.cfg.AuxLeafSigner.Stop(); err != nil {
 		return err
 	}
+	if err := s.cfg.AuxFundingController.Stop(); err != nil {
+		return err
+	}
 
 	if s.macaroonService != nil {
 		err := s.macaroonService.Stop()
@@ -648,10 +660,13 @@ func (s *Server) Stop() error {
 }
 
 // A compile-time check to ensure that Server fully implements the
-// lnwallet.AuxLeafStore, lnd.AuxDataParser and lnwallet.AuxSigner interfaces.
+// lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
+// protofsm.MsgEndpoint and funding.AuxFundingController interfaces.
 var _ lnwallet.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
 var _ lnwallet.AuxSigner = (*Server)(nil)
+var _ protofsm.MsgEndpoint = (*Server)(nil)
+var _ funding.AuxFundingController = (*Server)(nil)
 
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
@@ -768,6 +783,31 @@ func (s *Server) InlineParseCustomData(msg proto.Message) error {
 	return cmsg.ParseCustomChannelData(msg)
 }
 
+// Name returns the name of this endpoint. This MUST be unique across all
+// registered endpoints.
+//
+// NOTE: This method is part of the protofsm.MsgEndpoint interface.
+func (s *Server) Name() protofsm.EndpointName {
+	return tapchannel.MsgEndpointName
+}
+
+// CanHandle returns true if the target message can be routed to this endpoint.
+//
+// NOTE: This method is part of the protofsm.MsgEndpoint interface.
+func (s *Server) CanHandle(msg protofsm.PeerMsg) bool {
+	<-s.ready
+	return s.cfg.AuxFundingController.CanHandle(msg)
+}
+
+// SendMessage handles the target message, and returns true if the message was
+// able to be processed.
+//
+// NOTE: This method is part of the protofsm.MsgEndpoint interface.
+func (s *Server) SendMessage(msg protofsm.PeerMsg) bool {
+	<-s.ready
+	return s.cfg.AuxFundingController.SendMessage(msg)
+}
+
 // SubmitSecondLevelSigBatch takes a batch of aux sign jobs and processes them
 // asynchronously.
 //
@@ -843,4 +883,80 @@ func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 	return s.cfg.AuxLeafSigner.VerifySecondLevelSigs(
 		chanState, commitTx, verifyJob,
 	)
+}
+
+// DescFromPendingChanID takes a pending channel ID, that may already be
+// known due to prior custom channel messages, and maybe returns an aux
+// funding desc which can be used to modify how a channel is funded.
+//
+// NOTE: This method is part of the funding.AuxFundingController interface.
+func (s *Server) DescFromPendingChanID(pid funding.PendingChanID,
+	chanState *channeldb.OpenChannel, localKeys,
+	remoteKeys lnwallet.CommitmentKeyRing,
+	initiator bool) (lfn.Option[lnwallet.AuxFundingDesc], error) {
+
+	srvrLog.Debugf("DescFromPendingChanID called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[lnwallet.AuxFundingDesc](),
+			fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxFundingController.DescFromPendingChanID(
+		pid, chanState, localKeys, remoteKeys, initiator,
+	)
+}
+
+// DeriveTapscriptRoot takes a pending channel ID and maybe returns a
+// tapscript root that should be used when creating any MuSig2 sessions
+// for a channel.
+//
+// NOTE: This method is part of the funding.AuxFundingController interface.
+func (s *Server) DeriveTapscriptRoot(
+	pid funding.PendingChanID) (lfn.Option[chainhash.Hash], error) {
+
+	srvrLog.Debugf("DeriveTapscriptRoot called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return lfn.None[chainhash.Hash](),
+			fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxFundingController.DeriveTapscriptRoot(pid)
+}
+
+// ChannelReady is called when a channel has been fully opened and is ready to
+// be used. This can be used to perform any final setup or cleanup.
+//
+// NOTE: This method is part of the funding.AuxFundingController interface.
+func (s *Server) ChannelReady(openChan *channeldb.OpenChannel) error {
+	srvrLog.Debugf("ChannelReady called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxFundingController.ChannelReady(openChan)
+}
+
+// ChannelFinalized is called once we receive the commit sig from a remote
+// party and find it to be valid.
+//
+// NOTE: This method is part of the funding.AuxFundingController interface.
+func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
+	srvrLog.Debugf("ChannelFinalized called")
+
+	select {
+	case <-s.ready:
+	case <-s.quit:
+		return fmt.Errorf("tapd is shutting down")
+	}
+
+	return s.cfg.AuxFundingController.ChannelFinalized(pid)
 }
