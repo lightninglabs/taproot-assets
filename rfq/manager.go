@@ -436,7 +436,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
 	)
 
 	for _, localChan := range peerChannels {
-		var assetData JsonAssetChannel
+		var assetData rfqmsg.JsonAssetChannel
 		err = json.Unmarshal(localChan.CustomChannelData, &assetData)
 		if err != nil {
 			log.Warnf("Unable to unmarshal channel asset data: %v",

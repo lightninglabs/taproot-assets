@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/perms"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -28,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/protobuf/proto"
 	"gopkg.in/macaroon-bakery.v2/bakery"
 )
 
@@ -639,8 +641,9 @@ func (s *Server) Stop() error {
 }
 
 // A compile-time check to ensure that Server fully implements the
-// lnwallet.AuxLeafStore interface.
+// lnwallet.AuxLeafStore and lnd.AuxDataParser interfaces.
 var _ lnwallet.AuxLeafStore = (*Server)(nil)
+var _ lnd.AuxDataParser = (*Server)(nil)
 
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
@@ -741,4 +744,18 @@ func (s *Server) ApplyHtlcView(chanState *channeldb.OpenChannel,
 		chanState, prevBlob, originalView, isOurCommit, ourBalance,
 		theirBalance, keys,
 	)
+}
+
+// InlineParseCustomData replaces any custom data binary blob in the given RPC
+// message with its corresponding JSON formatted data. This transforms the
+// binary (likely TLV encoded) data to a human-readable JSON representation
+// (still as byte slice).
+//
+// NOTE: This method is part of the lnd.AuxDataParser interface.
+func (s *Server) InlineParseCustomData(msg proto.Message) error {
+	srvrLog.Tracef("InlineParseCustomData called with %T", msg)
+
+	// We don't need to wait for the server to be ready here, as the
+	// following function is fully stateless.
+	return cmsg.ParseCustomChannelData(msg)
 }
