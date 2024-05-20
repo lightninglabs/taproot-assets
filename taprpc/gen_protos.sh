@@ -6,7 +6,9 @@ set -e
 function generate() {
   echo "Generating root gRPC server protos"
 
-  PROTOS="taprootassets.proto assetwalletrpc/assetwallet.proto mintrpc/mint.proto rfqrpc/rfq.proto universerpc/universe.proto tapdevrpc/tapdev.proto"
+  PROTOS="taprootassets.proto assetwalletrpc/assetwallet.proto
+mintrpc/mint.proto rfqrpc/rfq.proto universerpc/universe.proto
+tapdevrpc/tapdev.proto tapchannelrpc/tapchannel.proto"
 
   # For each of the sub-servers, we then generate their protos, but a restricted
   # set as they don't yet require REST proxies, or swagger docs.
@@ -48,7 +50,7 @@ function generate() {
     --custom_opt="$opts" \
     taprootassets.proto
 
-  PACKAGES="assetwalletrpc universerpc mintrpc rfqrpc"
+  PACKAGES="assetwalletrpc universerpc mintrpc rfqrpc tapchannelrpc"
   for package in $PACKAGES; do
 
     opts="package_name=$package,manual_import=$manual_import,js_stubs=1"

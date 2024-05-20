@@ -1,0 +1,116 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "tapchannelrpc/tapchannel.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "TaprootAssetChannels"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taproot-assets/channels/fund": {
+      "get": {
+        "summary": "FundChannel initiates the channel funding negotiation with a peer for the\ncreation of a channel that contains a specified amount of a given asset.",
+        "operationId": "TaprootAssetChannels_FundChannel",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcFundChannelResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_amount",
+            "description": "The asset amount to fund the channel with. The BTC amount is fixed and\ncannot be customized (for now).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "asset_id",
+            "description": "The asset ID to use for the channel funding.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "peer_pubkey",
+            "description": "The public key of the peer to open the channel with. Must already be\nconnected to this peer.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "fee_rate_sat_per_vbyte",
+            "description": "The channel funding fee rate in sat/vByte.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    },
+    "tapchannelrpcFundChannelResponse": {
+      "type": "object",
+      "properties": {
+        "txid": {
+          "type": "string",
+          "description": "The channel funding transaction ID."
+        }
+      }
+    }
+  }
+}

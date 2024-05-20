@@ -256,6 +256,10 @@ var (
 			Entity: "rfq",
 			Action: "write",
 		}},
+		"/tapchannelrpc.TaprootAssetChannels/FundChannel": {{
+			Entity: "channels",
+			Action: "write",
+		}},
 		"/tapdevrpc.TapDev/ImportProof": {{
 			Entity: "proofs",
 			Action: "write",
@@ -267,7 +271,8 @@ var (
 		"/tapdevrpc.TapDev/SubscribeReceiveAssetEventNtfns": {{
 			Entity: "assets",
 			Action: "write",
-		}}}
+		}},
+	}
 
 	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
 	// don't require macaroons authentication.
