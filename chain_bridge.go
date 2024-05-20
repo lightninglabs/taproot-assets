@@ -1,18 +1,23 @@
 package taprootassets
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // LndRpcChainBridge is an implementation of the tapgarden.ChainBridge
@@ -237,8 +242,50 @@ func (l *LndMsgTransportClient) SendCustomMessage(ctx context.Context,
 	return l.lnd.Client.SendCustomMessage(ctx, msg)
 }
 
-// Ensure LndMsgTransportClient implements the rfq.PeerMessenger interface.
+// SendMessage sends a message to a remote peer.
+func (l *LndMsgTransportClient) SendMessage(ctx context.Context,
+	peer btcec.PublicKey, msg lnwire.Message) error {
+
+	var buf bytes.Buffer
+	if err := msg.Encode(&buf, 0); err != nil {
+		return fmt.Errorf("unable to encode message: %w", err)
+	}
+
+	return l.SendCustomMessage(ctx, lndclient.CustomMessage{
+		Peer:    route.NewVertex(&peer),
+		MsgType: uint32(msg.MsgType()),
+		Data:    buf.Bytes(),
+	})
+}
+
+// ReportError sends a custom message with the error type to a peer.
+//
+// NOTE: In order for this custom message to be sent over the lnd RPC interface,
+// lnd needs to be configured with the `--custom-message=17` flag, which allows
+// sending the non-custom error message type.
+func (l *LndMsgTransportClient) ReportError(ctx context.Context,
+	peer btcec.PublicKey, pid funding.PendingChanID, err error) {
+
+	srvrLog.Errorf("Error in funding flow for pending chan ID %x: %v",
+		pid[:], err)
+
+	msg := &lnwire.Error{
+		ChanID: pid,
+		Data:   []byte(err.Error()),
+	}
+
+	sendErr := l.SendMessage(ctx, peer, msg)
+	if sendErr != nil {
+		srvrLog.Errorf("Error sending error message to peer %x: %v",
+			peer.SerializeCompressed(), sendErr)
+	}
+}
+
+// Ensure LndMsgTransportClient implements the rfq.PeerMessenger,
+// tapchannel.PeerMessenger and tapchannel.ErrorReporter interfaces.
 var _ rfq.PeerMessenger = (*LndMsgTransportClient)(nil)
+var _ tapchannel.PeerMessenger = (*LndMsgTransportClient)(nil)
+var _ tapchannel.ErrorReporter = (*LndMsgTransportClient)(nil)
 
 // LndRouterClient is an LND router RPC client.
 type LndRouterClient struct {
