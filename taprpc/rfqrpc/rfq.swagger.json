@@ -374,7 +374,7 @@
     },
     "/v1/taproot-assets/rfq/quotes/peeraccepted": {
       "get": {
-        "summary": "tapcli: `rfq peeracceptedquotes`\nQueryPeerAcceptedQuotes is used to query for quotes that were requested by\nour node and have been accepted our peers.",
+        "summary": "tapcli: `rfq acceptedquotes`\nQueryPeerAcceptedQuotes is used to query for quotes that were requested by\nour node and have been accepted our peers.",
         "operationId": "Rfq_QueryPeerAcceptedQuotes",
         "responses": {
           "200": {
@@ -803,7 +803,7 @@
         "ask_price": {
           "type": "string",
           "format": "uint64",
-          "description": "ask_price is the price in millisats for the entire asset amount."
+          "description": "ask_price is the price in milli-satoshi per asset unit."
         },
         "expiry": {
           "type": "string",
@@ -851,7 +851,7 @@
         "bid_price": {
           "type": "string",
           "format": "uint64",
-          "description": "bid_price is the price in millisats for the entire asset amount."
+          "description": "bid_price is the price in milli-satoshi per asset unit."
         },
         "expiry": {
           "type": "string",

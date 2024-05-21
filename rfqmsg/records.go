@@ -1,4 +1,4 @@
-package rfq
+package rfqmsg
 
 import (
 	"bytes"
@@ -7,8 +7,7 @@ import (
 	"io"
 
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -29,14 +28,21 @@ var (
 )
 
 type (
-	// HtlcAssetAmountsTlvType is the TLV record type for the asset balance
-	// modifications list found in a HTLC custom record set.
-	HtlcAssetAmountsTlvType = tlv.TlvType65536
+	// HtlcAmountRecordType is a type alias for the TLV type that is used to
+	// encode an asset ID and amount list within the custom records of an
+	// HTLC record on the wire.
+	HtlcAmountRecordType = tlv.TlvType65536
 
-	// HtlcRfqIDTlvType is the TLV record type for the RFQ ID found in an
-	// HTLC custom record set.
-	HtlcRfqIDTlvType = tlv.TlvType65537
+	// HtlcRfqIDType is the type alias for the TLV type that is used to
+	// encode an RFQ id within the custom records of an HTLC record on the
+	// wire.
+	HtlcRfqIDType = tlv.TlvType65538
 )
+
+// SomeRfqIDRecord creates an optional record that represents an RFQ ID.
+func SomeRfqIDRecord(id ID) tlv.OptionalRecordT[HtlcRfqIDType, ID] {
+	return tlv.SomeRecordT(tlv.NewPrimitiveRecord[HtlcRfqIDType, ID](id))
+}
 
 // Htlc is a record that represents the capacity change related to an in-flight
 // HTLC. This entails all the (asset_id, amount) tuples and other information
@@ -44,56 +50,41 @@ type (
 // balance.
 type Htlc struct {
 	// Amounts is a list of asset balances that are changed by the HTLC.
-	Amounts tlv.RecordT[HtlcAssetAmountsTlvType, assetBalanceListRecord]
+	Amounts tlv.RecordT[HtlcAmountRecordType, AssetBalanceListRecord]
 
-	// RfqID is the ID of the RFQ quote agreement that this HTLC is
-	// associated with.
-	RfqID tlv.OptionalRecordT[HtlcRfqIDTlvType, rfqmsg.ID]
-}
-
-// NoneHtlcRfqID returns an empty optional record for the HTLC RFQ ID.
-func NoneHtlcRfqID() tlv.OptionalRecordT[HtlcRfqIDTlvType, rfqmsg.ID] {
-	return tlv.OptionalRecordT[HtlcRfqIDTlvType, rfqmsg.ID]{
-		Option: lfn.None[tlv.RecordT[HtlcRfqIDTlvType, rfqmsg.ID]](),
-	}
-}
-
-// SomeHtlcRfqID returns an option some TLV record for the HTLC RFQ ID.
-func SomeHtlcRfqID(
-	id rfqmsg.ID) tlv.OptionalRecordT[HtlcRfqIDTlvType, rfqmsg.ID] {
-
-	return tlv.SomeRecordT(
-		tlv.NewPrimitiveRecord[HtlcRfqIDTlvType, rfqmsg.ID](id),
-	)
+	// RfqID is the RFQ ID that corresponds to the HTLC.
+	RfqID tlv.OptionalRecordT[HtlcRfqIDType, ID]
 }
 
 // NewHtlc creates a new Htlc record with the given funded assets.
-func NewHtlc(amounts []*AssetBalance,
-	rfqID tlv.OptionalRecordT[HtlcRfqIDTlvType, rfqmsg.ID]) *Htlc {
-
-	return &Htlc{
-		Amounts: tlv.NewRecordT[HtlcAssetAmountsTlvType](
-			assetBalanceListRecord{
-				balances: amounts,
+func NewHtlc(amounts []*AssetBalance, rfqID fn.Option[ID]) *Htlc {
+	htlc := &Htlc{
+		Amounts: tlv.NewRecordT[HtlcAmountRecordType](
+			AssetBalanceListRecord{
+				Balances: amounts,
 			},
 		),
-		RfqID: rfqID,
 	}
+	rfqID.WhenSome(func(id ID) {
+		htlc.RfqID = SomeRfqIDRecord(id)
+	})
+
+	return htlc
 }
 
-// Balances returns the list of asset balances that are updated in the Htlc
+// Balances returns the list of asset Balances that are updated in the Htlc
 // struct.
-func (o *Htlc) Balances() []*AssetBalance {
-	return o.Amounts.Val.balances
+func (h *Htlc) Balances() []*AssetBalance {
+	return h.Amounts.Val.Balances
 }
 
 // Records returns the records that make up the Htlc.
-func (o *Htlc) Records() []tlv.Record {
+func (h *Htlc) Records() []tlv.Record {
 	records := []tlv.Record{
-		o.Amounts.Record(),
+		h.Amounts.Record(),
 	}
 
-	o.RfqID.WhenSome(func(r tlv.RecordT[HtlcRfqIDTlvType, rfqmsg.ID]) {
+	h.RfqID.WhenSome(func(r tlv.RecordT[HtlcRfqIDType, ID]) {
 		records = append(records, r.Record())
 	})
 
@@ -101,8 +92,8 @@ func (o *Htlc) Records() []tlv.Record {
 }
 
 // Encode serializes the Htlc to the given io.Writer.
-func (o *Htlc) Encode(w io.Writer) error {
-	tlvRecords := o.Records()
+func (h *Htlc) Encode(w io.Writer) error {
+	tlvRecords := h.Records()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -114,12 +105,12 @@ func (o *Htlc) Encode(w io.Writer) error {
 }
 
 // Decode deserializes the Htlc from the given io.Reader.
-func (o *Htlc) Decode(r io.Reader) error {
-	rfqID := o.RfqID.Zero()
+func (h *Htlc) Decode(r io.Reader) error {
+	rfqID := h.RfqID.Zero()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(
-		o.Amounts.Record(),
+		h.Amounts.Record(),
 		rfqID.Record(),
 	)
 	if err != nil {
@@ -131,17 +122,17 @@ func (o *Htlc) Decode(r io.Reader) error {
 		return err
 	}
 
-	if val, ok := typeMap[o.RfqID.TlvType()]; ok && val == nil {
-		o.RfqID = tlv.SomeRecordT(rfqID)
+	if val, ok := typeMap[h.RfqID.TlvType()]; ok && val == nil {
+		h.RfqID = tlv.SomeRecordT(rfqID)
 	}
 
 	return nil
 }
 
 // Bytes returns the serialized Htlc record.
-func (o *Htlc) Bytes() []byte {
+func (h *Htlc) Bytes() []byte {
 	var buf bytes.Buffer
-	_ = o.Encode(&buf)
+	_ = h.Encode(&buf)
 	return buf.Bytes()
 }
 
@@ -176,16 +167,16 @@ func NewAssetBalance(assetID asset.ID, amount uint64) *AssetBalance {
 }
 
 // records returns the records that make up the AssetBalance.
-func (o *AssetBalance) records() []tlv.Record {
+func (a *AssetBalance) records() []tlv.Record {
 	return []tlv.Record{
-		o.AssetID.Record(),
-		o.Amount.Record(),
+		a.AssetID.Record(),
+		a.Amount.Record(),
 	}
 }
 
-// encode serializes the AssetBalance to the given io.Writer.
-func (o *AssetBalance) encode(w io.Writer) error {
-	tlvRecords := o.records()
+// Encode serializes the AssetBalance to the given io.Writer.
+func (a *AssetBalance) Encode(w io.Writer) error {
+	tlvRecords := a.records()
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(tlvRecords...)
@@ -196,10 +187,10 @@ func (o *AssetBalance) encode(w io.Writer) error {
 	return tlvStream.Encode(w)
 }
 
-// decode deserializes the AssetBalance from the given io.Reader.
-func (o *AssetBalance) decode(r io.Reader) error {
+// Decode deserializes the AssetBalance from the given io.Reader.
+func (a *AssetBalance) Decode(r io.Reader) error {
 	// Create the tlv stream.
-	tlvStream, err := tlv.NewStream(o.records()...)
+	tlvStream, err := tlv.NewStream(a.records()...)
 	if err != nil {
 		return err
 	}
@@ -207,7 +198,7 @@ func (o *AssetBalance) decode(r io.Reader) error {
 	return tlvStream.Decode(r)
 }
 
-// Sum returns the sum of the amounts of all the asset balances in the list.
+// Sum returns the sum of the amounts of all the asset Balances in the list.
 func Sum(balances []*AssetBalance) uint64 {
 	var sum uint64
 	for _, balance := range balances {
@@ -216,27 +207,45 @@ func Sum(balances []*AssetBalance) uint64 {
 	return sum
 }
 
-// assetBalanceListRecord is a record that represents a list of asset balances.
-type assetBalanceListRecord struct {
-	balances []*AssetBalance
+// Bytes returns the serialized AssetBalance record.
+func (a *AssetBalance) Bytes() []byte {
+	var buf bytes.Buffer
+	_ = a.Encode(&buf)
+	return buf.Bytes()
 }
 
-// Sum returns the sum of the amounts of all the asset balances in the list.
-func (l *assetBalanceListRecord) Sum() uint64 {
-	return Sum(l.balances)
+// DecodeAssetBalance deserializes a AssetBalance from the given blob.
+func DecodeAssetBalance(blob tlv.Blob) (*AssetBalance, error) {
+	var a AssetBalance
+	err := a.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+
+	return &a, nil
 }
 
-// Record creates a Record out of a assetBalanceListRecord using the
+// AssetBalanceListRecord is a record that represents a list of asset Balances.
+type AssetBalanceListRecord struct {
+	Balances []*AssetBalance
+}
+
+// Sum returns the sum of the amounts of all the asset Balances in the list.
+func (l *AssetBalanceListRecord) Sum() uint64 {
+	return Sum(l.Balances)
+}
+
+// Record creates a Record out of a AssetBalanceListRecord using the
 // eAssetBalanceList and dAssetBalanceList functions.
 //
 // NOTE: This is part of the tlv.RecordProducer interface.
-func (l *assetBalanceListRecord) Record() tlv.Record {
+func (l *AssetBalanceListRecord) Record() tlv.Record {
 	size := func() uint64 {
 		var (
 			buf     bytes.Buffer
 			scratch [8]byte
 		)
-		err := eAssetBalanceList(&buf, &l.balances, &scratch)
+		err := eAssetBalanceList(&buf, &l.Balances, &scratch)
 		if err != nil {
 			panic(err)
 		}
@@ -247,12 +256,12 @@ func (l *assetBalanceListRecord) Record() tlv.Record {
 	// Note that we set the type here as zero, as when used with a
 	// tlv.RecordT, the type param will be used as the type.
 	return tlv.MakeDynamicRecord(
-		0, &l.balances, size, eAssetBalanceList, dAssetBalanceList,
+		0, &l.Balances, size, eAssetBalanceList, dAssetBalanceList,
 	)
 }
 
-// Encode serializes the assetBalanceListRecord to the given io.Writer.
-func (l *assetBalanceListRecord) Encode(w io.Writer) error {
+// Encode serializes the AssetBalanceListRecord to the given io.Writer.
+func (l *AssetBalanceListRecord) Encode(w io.Writer) error {
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(l.Record())
 	if err != nil {
@@ -262,8 +271,8 @@ func (l *assetBalanceListRecord) Encode(w io.Writer) error {
 	return tlvStream.Encode(w)
 }
 
-// Decode deserializes the assetBalanceListRecord from the given io.Reader.
-func (l *assetBalanceListRecord) Decode(r io.Reader) error {
+// Decode deserializes the AssetBalanceListRecord from the given io.Reader.
+func (l *AssetBalanceListRecord) Decode(r io.Reader) error {
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(l.Record())
 	if err != nil {
@@ -273,7 +282,7 @@ func (l *assetBalanceListRecord) Decode(r io.Reader) error {
 	return tlvStream.Decode(r)
 }
 
-// eAssetBalanceList is an encoder for assetBalanceListRecord.
+// eAssetBalanceList is an encoder for AssetBalanceListRecord.
 func eAssetBalanceList(w io.Writer, val interface{}, buf *[8]byte) error {
 	if v, ok := val.(*[]*AssetBalance); ok {
 		numBalances := uint64(len(*v))
@@ -282,7 +291,7 @@ func eAssetBalanceList(w io.Writer, val interface{}, buf *[8]byte) error {
 		}
 		var outputBuf bytes.Buffer
 		for _, balance := range *v {
-			if err := balance.encode(&outputBuf); err != nil {
+			if err := balance.Encode(&outputBuf); err != nil {
 				return err
 			}
 			balanceBytes := outputBuf.Bytes()
@@ -299,7 +308,7 @@ func eAssetBalanceList(w io.Writer, val interface{}, buf *[8]byte) error {
 	return tlv.NewTypeForEncodingErr(val, "[]*AssetBalance")
 }
 
-// dAssetBalanceList is a decoder for assetBalanceListRecord.
+// dAssetBalanceList is a decoder for AssetBalanceListRecord.
 func dAssetBalanceList(r io.Reader, val interface{}, buf *[8]byte,
 	_ uint64) error {
 
@@ -329,7 +338,7 @@ func dAssetBalanceList(r io.Reader, val interface{}, buf *[8]byte,
 				return err
 			}
 			outputs[i] = &AssetBalance{}
-			err = outputs[i].decode(bytes.NewReader(outputBytes))
+			err = outputs[i].Decode(bytes.NewReader(outputBytes))
 			if err != nil {
 				return err
 			}

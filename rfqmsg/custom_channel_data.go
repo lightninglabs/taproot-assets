@@ -1,7 +1,4 @@
-package rfq
-
-// TODO(guggero): De-duplicate by putting into same shared package as the other
-//  custom channel data structs.
+package rfqmsg
 
 // JsonAssetBalance is a struct that represents the balance of a single asset ID
 // within a channel.
@@ -43,4 +40,11 @@ type JsonAssetChanInfo struct {
 // assets within a channel.
 type JsonAssetChannel struct {
 	Assets []JsonAssetChanInfo `json:"assets"`
+}
+
+// JsonAssetChannelBalances is a struct that represents the balance information
+// of all assets within open and pending channels.
+type JsonAssetChannelBalances struct {
+	OpenChannels    map[string]*JsonAssetBalance `json:"open_channels"`
+	PendingChannels map[string]*JsonAssetBalance `json:"pending_channels"`
 }

@@ -37,7 +37,7 @@ type RfqClient interface {
 	// A buy offer is used by the node to selectively accept or reject incoming
 	// asset sell quote requests before price is considered.
 	AddAssetBuyOffer(ctx context.Context, in *AddAssetBuyOfferRequest, opts ...grpc.CallOption) (*AddAssetBuyOfferResponse, error)
-	// tapcli: `rfq peeracceptedquotes`
+	// tapcli: `rfq acceptedquotes`
 	// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
 	// our node and have been accepted our peers.
 	QueryPeerAcceptedQuotes(ctx context.Context, in *QueryPeerAcceptedQuotesRequest, opts ...grpc.CallOption) (*QueryPeerAcceptedQuotesResponse, error)
@@ -153,7 +153,7 @@ type RfqServer interface {
 	// A buy offer is used by the node to selectively accept or reject incoming
 	// asset sell quote requests before price is considered.
 	AddAssetBuyOffer(context.Context, *AddAssetBuyOfferRequest) (*AddAssetBuyOfferResponse, error)
-	// tapcli: `rfq peeracceptedquotes`
+	// tapcli: `rfq acceptedquotes`
 	// QueryPeerAcceptedQuotes is used to query for quotes that were requested by
 	// our node and have been accepted our peers.
 	QueryPeerAcceptedQuotes(context.Context, *QueryPeerAcceptedQuotesRequest) (*QueryPeerAcceptedQuotesResponse, error)

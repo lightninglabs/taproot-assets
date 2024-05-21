@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -367,7 +368,7 @@ func (p TapscriptProof) DeriveTaprootKeys(internalKey *btcec.PublicKey) (
 	*btcec.PublicKey, error) {
 
 	var tapscriptRoot []byte
-	// There're 4 possible cases for tapscript exclusion proofs:
+	// There're 5 possible cases for tapscript exclusion proofs:
 	switch {
 	// Two pre-images are specified, and both of the pre-images are leaf
 	// hashes. In this case, the tapscript tree has two elements, with both
@@ -482,11 +483,11 @@ func (p TaprootProof) DeriveByTapscriptProof() (*btcec.PublicKey, error) {
 // output in the given PSBT that isn't an anchor output itself. To determine
 // which output is the anchor output, the passed isAnchor function should
 // return true for the output index that houses the anchor TX.
-func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
-	isAnchor func(uint32) bool) error {
+func AddExclusionProofs(baseProof *BaseProofParams, finalTx *wire.MsgTx,
+	finalTxPacketOutputs []psbt.POutput, isAnchor func(uint32) bool) error {
 
-	for outIdx := range packet.Outputs {
-		txOut := packet.UnsignedTx.TxOut[outIdx]
+	for outIdx := range finalTxPacketOutputs {
+		txOut := finalTx.TxOut[outIdx]
 
 		// Skip any anchor output since that will get an inclusion proof
 		// instead.
@@ -502,7 +503,7 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 
 		// For a P2TR output the internal key must be declared and must
 		// be a valid 32-byte x-only public key.
-		out := packet.Outputs[outIdx]
+		out := finalTxPacketOutputs[outIdx]
 		if len(out.TaprootInternalKey) != schnorr.PubKeyBytesLen {
 			return fmt.Errorf("cannot add exclusion proof, output "+
 				"%d is a P2TR output but is missing the "+
@@ -537,4 +538,115 @@ func AddExclusionProofs(baseProof *BaseProofParams, packet *psbt.Packet,
 	}
 
 	return nil
+}
+
+// CreateTapscriptProof creates a TapscriptProof from a list of tapscript leaves
+// proving that there is no asset commitment contained in the output the proof
+// is for.
+func CreateTapscriptProof(leaves []txscript.TapLeaf) (*TapscriptProof, error) {
+	// There are 5 different possibilities. These correspond in the order
+	// with those in DeriveTaprootKeys.
+	switch len(leaves) {
+	// Exactly two leaves, means both of the preimages are leaves.
+	case 2:
+		left, err := commitment.NewPreimageFromLeaf(leaves[0])
+		if err != nil {
+			return nil, fmt.Errorf("error creating preimage from "+
+				"leaf: %w", err)
+		}
+
+		right, err := commitment.NewPreimageFromLeaf(leaves[1])
+		if err != nil {
+			return nil, fmt.Errorf("error creating preimage from "+
+				"leaf: %w", err)
+		}
+
+		return &TapscriptProof{
+			TapPreimage1: left,
+			TapPreimage2: right,
+		}, nil
+
+	// More than 3 branches, means both of the preimages are branches. We
+	// use the default here because all other cases from 0 to 3 are covered
+	// by explicit cases. We do this to retain the same order as in
+	// DeriveTaprootKeys.
+	//nolint:gocritic
+	default:
+		tree := txscript.AssembleTaprootScriptTree(leaves...)
+		topLeft := tree.RootNode.Left()
+		topRight := tree.RootNode.Right()
+
+		topLeftBranch, ok := topLeft.(txscript.TapBranch)
+		if !ok {
+			return nil, fmt.Errorf("expected left node to be a "+
+				"branch, got %T", topLeft)
+		}
+		leftPreimage := commitment.NewPreimageFromBranch(topLeftBranch)
+
+		topRightBranch, ok := topRight.(txscript.TapBranch)
+		if !ok {
+			return nil, fmt.Errorf("expected right node to be a "+
+				"branch, got %T", topRight)
+		}
+		rightPreimage := commitment.NewPreimageFromBranch(
+			topRightBranch,
+		)
+
+		return &TapscriptProof{
+			TapPreimage1: &leftPreimage,
+			TapPreimage2: &rightPreimage,
+		}, nil
+
+	case 3:
+		// Three leaves is a bit special. The AssembleTaprootScriptTree
+		// method puts the sole, third leaf to the right. But we need to
+		// specify the single leaf as a leaf preimage in the
+		// TapscriptProof. So we'll swap things below.
+		tree := txscript.AssembleTaprootScriptTree(leaves...)
+		topLeft := tree.RootNode.Left()
+		topRight := tree.RootNode.Right()
+
+		topLeftBranch, ok := topLeft.(txscript.TapBranch)
+		if !ok {
+			return nil, fmt.Errorf("expected left node to be a "+
+				"branch, got %T", topLeft)
+		}
+		leftPreimage := commitment.NewPreimageFromBranch(topLeftBranch)
+
+		topRightLeaf, ok := topRight.(txscript.TapLeaf)
+		if !ok {
+			return nil, fmt.Errorf("expected right node to be a "+
+				"leaf, got %T", topRight)
+		}
+		rightPreimage, err := commitment.NewPreimageFromLeaf(
+			topRightLeaf,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating preimage from "+
+				"leaf: %w", err)
+		}
+
+		return &TapscriptProof{
+			TapPreimage1: rightPreimage,
+			TapPreimage2: &leftPreimage,
+		}, nil
+
+	// Just a single leaf, means the first preimage is a leaf.
+	case 1:
+		preimage, err := commitment.NewPreimageFromLeaf(leaves[0])
+		if err != nil {
+			return nil, fmt.Errorf("error creating preimage from "+
+				"leaf: %w", err)
+		}
+
+		return &TapscriptProof{
+			TapPreimage1: preimage,
+		}, nil
+
+	// No leaves, means this is a BIP-0086 output.
+	case 0:
+		return &TapscriptProof{
+			Bip86: true,
+		}, nil
+	}
 }

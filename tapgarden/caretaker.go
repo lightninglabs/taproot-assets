@@ -1003,8 +1003,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			),
 		}
 		err := proof.AddExclusionProofs(
-			&baseProof.BaseProofParams,
-			b.cfg.Batch.GenesisPacket.Pkt, func(idx uint32) bool {
+			&baseProof.BaseProofParams, confInfo.Tx,
+			b.cfg.Batch.GenesisPacket.Pkt.Outputs,
+			func(idx uint32) bool {
 				return idx == b.anchorOutputIndex
 			},
 		)

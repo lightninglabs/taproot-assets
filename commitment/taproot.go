@@ -165,9 +165,10 @@ func NewPreimageFromBranch(branch txscript.TapBranch) TapscriptPreimage {
 	}
 }
 
-// TapTreeToSibling constucts a taproot sibling hash from Tapscript tree nodes,
-// to be used with a TapCommitment tree root to derive a tapscript root. This
-// could be multiple TapLeaf objects, or a representation of a TapBranch.
+// NewPreimageFromTapscriptTreeNodes constructs a taproot sibling hash from
+// Tapscript tree nodes, to be used with a TapCommitment tree root to derive a
+// tapscript root. This could be multiple TapLeaf objects, or a representation
+// of a TapBranch.
 func NewPreimageFromTapscriptTreeNodes(
 	tn asset.TapscriptTreeNodes) (*TapscriptPreimage, error) {
 
