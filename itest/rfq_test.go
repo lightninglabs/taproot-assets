@@ -10,7 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/chainreg"
@@ -336,7 +336,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		aliceBobHop.CustomRecords = make(map[uint64][]byte)
 	}
 
-	var htlcRfqIDTlvType rfq.HtlcRfqIDTlvType
+	var htlcRfqIDTlvType rfqmsg.HtlcRfqIDType
 	aliceBobHop.CustomRecords[uint64(htlcRfqIDTlvType.TypeVal())] =
 		acceptedQuote.Id[:]
 

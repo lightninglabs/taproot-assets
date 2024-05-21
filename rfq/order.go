@@ -22,7 +22,9 @@ import (
 // parseHtlcCustomRecords parses a HTLC custom record to extract any data which
 // is relevant to the RFQ service. If the custom records map is nil or a
 // relevant record was not found, false is returned.
-func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*Htlc, error) {
+func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*rfqmsg.Htlc,
+	error) {
+
 	if len(customRecords) == 0 {
 		return nil, fmt.Errorf("missing custom records")
 	}
@@ -39,7 +41,7 @@ func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*Htlc, error) {
 		return nil, fmt.Errorf("error encoding stream: %w", err)
 	}
 
-	htlc, err := DecodeHtlc(buf.Bytes())
+	htlc, err := rfqmsg.DecodeHtlc(buf.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("error decoding HTLC: %w", err)
 	}
@@ -157,8 +159,10 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	}
 
 	outgoingAssetAmount := uint64(htlc.AmountOutMsat / c.AskPrice)
-	htlcBalance := NewAssetBalance(*c.assetID, outgoingAssetAmount)
-	htlcRecord := NewHtlc([]*AssetBalance{htlcBalance}, SomeHtlcRfqID(c.ID))
+	htlcBalance := rfqmsg.NewAssetBalance(*c.assetID, outgoingAssetAmount)
+	htlcRecord := rfqmsg.NewHtlc(
+		[]*rfqmsg.AssetBalance{htlcBalance}, fn.Some(c.ID),
+	)
 
 	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
 	if err != nil {
