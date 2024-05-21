@@ -27,6 +27,7 @@ func TestSellRequestMsgDataEncodeDecode(t *testing.T) {
 	testCases := []struct {
 		testName string
 
+		version       WireMsgDataVersion
 		id            ID
 		assetId       *asset.ID
 		assetGroupKey *btcec.PublicKey
@@ -35,6 +36,7 @@ func TestSellRequestMsgDataEncodeDecode(t *testing.T) {
 	}{
 		{
 			testName:      "all fields populated with basic values",
+			version:       latestSellRequestVersion,
 			id:            id,
 			assetId:       &assetId,
 			assetGroupKey: nil,
@@ -46,6 +48,7 @@ func TestSellRequestMsgDataEncodeDecode(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(tt *testing.T) {
 			msg := sellRequestMsgData{
+				Version:       tc.version,
 				ID:            tc.id,
 				AssetID:       tc.assetId,
 				AssetGroupKey: tc.assetGroupKey,
