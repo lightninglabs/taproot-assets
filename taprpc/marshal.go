@@ -14,6 +14,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -500,4 +502,34 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	return rpcAsset, nil
+}
+
+// MarshalAcceptedSellQuoteEvent marshals a peer accepted sell quote event to
+// its rpc representation.
+func MarshalAcceptedSellQuoteEvent(
+	event *rfq.PeerAcceptedSellQuoteEvent) *rfqrpc.PeerAcceptedSellQuote {
+
+	return &rfqrpc.PeerAcceptedSellQuote{
+		Peer:        event.Peer.String(),
+		Id:          event.ID[:],
+		Scid:        uint64(event.ShortChannelId()),
+		AssetAmount: event.AssetAmount,
+		BidPrice:    uint64(event.BidPrice),
+		Expiry:      event.Expiry,
+	}
+}
+
+// MarshalAcceptedBuyQuoteEvent marshals a peer accepted buy quote event to
+// its rpc representation.
+func MarshalAcceptedBuyQuoteEvent(
+	event *rfq.PeerAcceptedBuyQuoteEvent) *rfqrpc.PeerAcceptedBuyQuote {
+
+	return &rfqrpc.PeerAcceptedBuyQuote{
+		Peer:        event.Peer.String(),
+		Id:          event.ID[:],
+		Scid:        uint64(event.ShortChannelId()),
+		AssetAmount: event.AssetAmount,
+		AskPrice:    uint64(event.AskPrice),
+		Expiry:      event.Expiry,
+	}
 }

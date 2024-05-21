@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -25,6 +26,27 @@ const (
 	CacheCleanupInterval = 30 * time.Second
 )
 
+// ChannelLister is an interface that provides a list of channels that are
+// available for routing.
+type ChannelLister interface {
+	// ListChannels returns a list of channels that are available for
+	// routing.
+	ListChannels(ctx context.Context) ([]lndclient.ChannelInfo, error)
+}
+
+// ScidAliasManager is an interface that can add short channel ID (SCID) aliases
+// to the local SCID alias store.
+type ScidAliasManager interface {
+	// AddLocalAlias adds a database mapping from the passed alias to the
+	// passed base SCID.
+	AddLocalAlias(alias, baseScid lnwire.ShortChannelID, gossip,
+		linkUpdate bool) error
+
+	// DeleteLocalAlias removes a mapping from the database and the
+	// Manager's maps.
+	DeleteLocalAlias(alias, baseScid lnwire.ShortChannelID) error
+}
+
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
 // manager.
 type ManagerCfg struct {
@@ -39,6 +61,14 @@ type ManagerCfg struct {
 	// PriceOracle is the price oracle that the RFQ manager will use to
 	// determine whether a quote is accepted or rejected.
 	PriceOracle PriceOracle
+
+	// ChannelLister is the channel lister that the RFQ manager will use to
+	// determine the available channels for routing.
+	ChannelLister ChannelLister
+
+	// AliasManager is the SCID alias manager. This component is injected
+	// into the manager once lnd and tapd are hooked together.
+	AliasManager fn.Option[ScidAliasManager]
 
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
@@ -285,6 +315,26 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 		scid := SerialisedScid(msg.ShortChannelId())
 		m.peerAcceptedBuyQuotes.Store(scid, *msg)
 
+		// Since we're going to buy assets from our peer, we need to
+		// make sure we can identify the incoming asset payment by the
+		// SCID alias through which it comes in and compare it to the
+		// one in the invoice.
+		if !m.cfg.AliasManager.IsSome() {
+			return fmt.Errorf("alias manager not set")
+		}
+		err := fn.MapOptionZ(
+			m.cfg.AliasManager,
+			func(aliasMgr ScidAliasManager) error {
+				return m.addScidAlias(
+					aliasMgr, uint64(msg.ShortChannelId()),
+					*msg.AssetID, msg.Peer,
+				)
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error adding local alias: %w", err)
+		}
+
 		// Notify subscribers of the incoming peer accepted asset buy
 		// quote.
 		event := NewPeerAcceptedBuyQuoteEvent(msg)
@@ -338,6 +388,25 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// sale policy.
 		m.orderHandler.RegisterAssetSalePolicy(*msg)
 
+		// Since our peer is going to buy assets from us, we need to
+		// make sure we can identify the forwarded asset payment by the
+		// outgoing SCID alias within the onion packet.
+		if !m.cfg.AliasManager.IsSome() {
+			return fmt.Errorf("alias manager not set")
+		}
+		err := fn.MapOptionZ(
+			m.cfg.AliasManager,
+			func(aliasMgr ScidAliasManager) error {
+				return m.addScidAlias(
+					aliasMgr, uint64(msg.ShortChannelId()),
+					*msg.AssetID, msg.Peer,
+				)
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error adding local alias: %w", err)
+		}
+
 	case *rfqmsg.SellAccept:
 		// A peer sent us an asset sell quote request in an attempt to
 		// sell an asset to us. Having accepted the request, but before
@@ -355,6 +424,71 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 	}
 
 	return nil
+}
+
+// addScidAlias adds a SCID alias to the alias manager.
+func (m *Manager) addScidAlias(aliasMgr ScidAliasManager,
+	scidAlias uint64, assetID asset.ID, peer route.Vertex) error {
+
+	// Retrieve all local channels.
+	ctxb := context.Background()
+	localChans, err := m.cfg.ChannelLister.ListChannels(ctxb)
+	if err != nil {
+		return fmt.Errorf("error listing local channels: %w", err)
+	}
+
+	// Filter for channels with the given peer.
+	peerChannels := make([]lndclient.ChannelInfo, 0)
+	for _, localChan := range localChans {
+		if localChan.PubKeyBytes == peer {
+			peerChannels = append(peerChannels, localChan)
+		}
+	}
+
+	// Identify the correct channel to use as the base SCID for the alias
+	// by inspecting the asset data in the custom channel data.
+	var (
+		assetIDStr = assetID.String()
+		baseSCID   uint64
+	)
+
+	for _, localChan := range peerChannels {
+		var assetData JsonAssetChannel
+		err = json.Unmarshal(localChan.CustomChannelData, &assetData)
+		if err != nil {
+			log.Warnf("Unable to unmarshal channel asset data: %v",
+				err)
+			continue
+		}
+
+		for _, channelAsset := range assetData.Assets {
+			gen := channelAsset.AssetInfo.AssetGenesis
+			if gen.AssetID == assetIDStr {
+				baseSCID = localChan.ChannelID
+				break
+			}
+		}
+	}
+
+	// As a fallback, if the base SCID is not found and there's only one
+	// channel with the target peer, assume that the base SCID corresponds
+	// to that channel.
+	if baseSCID == 0 && len(peerChannels) == 1 {
+		baseSCID = peerChannels[0].ChannelID
+	}
+
+	// At this point, if the base SCID is still not found, we return an
+	// error. We can't map the SCID alias to a base SCID.
+	if baseSCID == 0 {
+		return fmt.Errorf("base SCID not found for asset: %v", assetID)
+	}
+
+	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
+
+	return aliasMgr.AddLocalAlias(
+		lnwire.NewShortChanIDFromInt(scidAlias),
+		lnwire.NewShortChanIDFromInt(baseSCID), false, true,
+	)
 }
 
 // mainEventLoop is the main event loop of the RFQ manager.
@@ -389,6 +523,9 @@ func (m *Manager) mainEventLoop() {
 
 		// Handle subsystem errors.
 		case err := <-m.subsystemErrChan:
+			log.Errorf("Manager main event loop received "+
+				"subsystem error: %v", err)
+
 			// Report the subsystem error to the main server.
 			m.cfg.ErrChan <- fmt.Errorf("encountered RFQ "+
 				"subsystem error: %w", err)
@@ -521,16 +658,13 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
 	return nil
 }
 
-// QueryPeerAcceptedQuotes returns quotes that were requested by our node and
+// PeerAcceptedBuyQuotes returns buy quotes that were requested by our node and
 // have been accepted by our peers. These quotes are exclusively available to
-// our node for the acquisition/sale of assets.
-func (m *Manager) QueryPeerAcceptedQuotes() (map[SerialisedScid]rfqmsg.BuyAccept,
-	map[SerialisedScid]rfqmsg.SellAccept) {
-
+// our node for the acquisition of assets.
+func (m *Manager) PeerAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
-
 	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
 			if time.Now().Unix() > int64(accept.Expiry) {
@@ -543,10 +677,17 @@ func (m *Manager) QueryPeerAcceptedQuotes() (map[SerialisedScid]rfqmsg.BuyAccept
 		},
 	)
 
+	return buyQuotesCopy
+}
+
+// PeerAcceptedSellQuotes returns sell quotes that were requested by our node
+// and have been accepted by our peers. These quotes are exclusively available
+// to our node for the sale of assets.
+// nolint: lll
+func (m *Manager) PeerAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
-
 	m.peerAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
 			if time.Now().Unix() > int64(accept.Expiry) {
@@ -559,7 +700,7 @@ func (m *Manager) QueryPeerAcceptedQuotes() (map[SerialisedScid]rfqmsg.BuyAccept
 		},
 	)
 
-	return buyQuotesCopy, sellQuotesCopy
+	return sellQuotesCopy
 }
 
 // RegisterSubscriber adds a new subscriber to the set of subscribers that will

@@ -15,7 +15,9 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -290,11 +292,21 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 	cfgLogger := hs.ht.logWriter.GenSubLogger("CONF", func() {})
 
 	var (
+		// mockScidAliasManager is a mock implementation of the SCID
+		// alias manager. The SCID alias manager is responsible for
+		// registering SCID aliases with LND and mapping them to their
+		// corresponding real channel SCIDs.
+		mockScidAliasManager = fn.Some[rfq.ScidAliasManager](
+			&MockAliasManager{},
+		)
+
 		err         error
 		mainErrChan = make(chan error, 10)
 	)
+
 	hs.server, err = tapcfg.CreateServerFromConfig(
-		hs.clientCfg, cfgLogger, hs.ht.interceptor, mainErrChan,
+		hs.clientCfg, cfgLogger, mockScidAliasManager,
+		hs.ht.interceptor, mainErrChan,
 	)
 	if err != nil {
 		return fmt.Errorf("could not create tapd server: %w", err)

@@ -1,49 +1,54 @@
 package rfq
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-)
-
-const (
-	// LnCustomRecordType is a taproot-assets specific lightning payment hop
-	// custom record K-V value.
-	LnCustomRecordType = 65536 + uint64(rfqmsg.TapMessageTypeBaseOffset)
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // parseHtlcCustomRecords parses a HTLC custom record to extract any data which
 // is relevant to the RFQ service. If the custom records map is nil or a
 // relevant record was not found, false is returned.
-func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*rfqmsg.ID,
-	bool) {
-
-	// If the given custom records map is nil, we return false.
-	if customRecords == nil {
-		return nil, false
+func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*Htlc, error) {
+	if len(customRecords) == 0 {
+		return nil, fmt.Errorf("missing custom records")
 	}
 
-	// Check for the RFQ custom record key in the custom records map.
-	val, ok := customRecords[LnCustomRecordType]
-	if !ok {
-		return nil, false
+	// Re-encode the custom records map as a TLV stream.
+	records := tlv.MapToRecords(customRecords)
+	stream, err := tlv.NewStream(records...)
+	if err != nil {
+		return nil, fmt.Errorf("error creating stream: %w", err)
 	}
 
-	// TODO(ffranr): val here should be a TLV.
-	var quoteId rfqmsg.ID
-	copy(quoteId[:], val)
-	return &quoteId, true
+	var buf bytes.Buffer
+	if err := stream.Encode(&buf); err != nil {
+		return nil, fmt.Errorf("error encoding stream: %w", err)
+	}
+
+	htlc, err := DecodeHtlc(buf.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("error decoding HTLC: %w", err)
+	}
+
+	return htlc, nil
 }
 
 // SerialisedScid is a serialised short channel id (SCID).
-type SerialisedScid uint64
+type SerialisedScid = rfqmsg.SerialisedScid
 
 // Policy is an interface that abstracts the terms which determine whether an
 // asset sale/purchase channel HTLC is accepted or rejected.
@@ -58,37 +63,42 @@ type Policy interface {
 	// Scid returns the serialised short channel ID (SCID) of the channel to
 	// which the policy applies.
 	Scid() uint64
+
+	// GenerateInterceptorResponse generates an interceptor response for the
+	// HTLC interceptor from the policy.
+	GenerateInterceptorResponse(
+		lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
+		error)
 }
 
 // AssetSalePolicy is a struct that holds the terms which determine whether an
 // asset sale channel HTLC is accepted or rejected.
 type AssetSalePolicy struct {
-	// scid is the serialised short channel ID (SCID) of the channel to
-	// which the policy applies.
-	scid SerialisedScid
+	ID rfqmsg.ID
 
 	// AssetAmount is the amount of the tap asset that is being requested.
 	AssetAmount uint64
 
-	// MinimumChannelPayment is the minimum number of millisatoshis that
-	// must be sent in the HTLC.
-	MinimumChannelPayment lnwire.MilliSatoshi
+	// AskPrice is the asking price of the quote in milli-satoshis per asset
+	// unit.
+	AskPrice lnwire.MilliSatoshi
 
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
 	expiry uint64
+
+	// assetID is the asset ID of the asset that the accept message is for.
+	assetID *asset.ID
 }
 
 // NewAssetSalePolicy creates a new asset sale policy.
 func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
-	// Compute the serialised short channel ID (SCID) for the channel.
-	scid := SerialisedScid(quote.ShortChannelId())
-
 	return &AssetSalePolicy{
-		scid:                  scid,
-		AssetAmount:           quote.AssetAmount,
-		MinimumChannelPayment: quote.AskPrice,
-		expiry:                quote.Expiry,
+		ID:          quote.ID,
+		AssetAmount: quote.AssetAmount,
+		AskPrice:    quote.AskPrice,
+		expiry:      quote.Expiry,
+		assetID:     quote.AssetID,
 	}
 }
 
@@ -99,17 +109,18 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(
 
 	// Check that the channel SCID is as expected.
 	htlcScid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	if htlcScid != c.scid {
+	if htlcScid != c.ID.Scid() {
 		return fmt.Errorf("htlc outgoing channel ID does not match "+
 			"policy's SCID (htlc_scid=%d, policy_scid=%d)",
-			htlcScid, c.scid)
+			htlcScid, c.ID.Scid())
 	}
 
 	// Check that the HTLC amount is at least the minimum acceptable amount.
-	if htlc.AmountOutMsat < c.MinimumChannelPayment {
-		return fmt.Errorf("htlc out amount is less than the policy "+
-			"minimum (htlc_out_msat=%d, policy_min_msat=%d)",
-			htlc.AmountOutMsat, c.MinimumChannelPayment)
+	inboundAmountMSat := lnwire.MilliSatoshi(c.AssetAmount) * c.AskPrice
+	if htlc.AmountInMsat < inboundAmountMSat {
+		return fmt.Errorf("htlc in amount is less than the policy "+
+			"minimum (htlc_in_msat=%d, policy_min_msat=%d)",
+			htlc.AmountInMsat, inboundAmountMSat)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
@@ -129,7 +140,36 @@ func (c *AssetSalePolicy) Expiry() uint64 {
 // Scid returns the serialised short channel ID (SCID) of the channel to which
 // the policy applies.
 func (c *AssetSalePolicy) Scid() uint64 {
-	return uint64(c.scid)
+	return uint64(c.ID.Scid())
+}
+
+// GenerateInterceptorResponse generates an interceptor response for the policy.
+func (c *AssetSalePolicy) GenerateInterceptorResponse(
+	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
+	error) {
+
+	outgoingAmtMsat := lnwire.NewMSatFromSatoshis(lnwallet.DustLimitForSize(
+		input.UnknownWitnessSize,
+	))
+
+	if c.assetID == nil {
+		return nil, fmt.Errorf("policy has no asset ID")
+	}
+
+	outgoingAssetAmount := uint64(htlc.AmountOutMsat / c.AskPrice)
+	htlcBalance := NewAssetBalance(*c.assetID, outgoingAssetAmount)
+	htlcRecord := NewHtlc([]*AssetBalance{htlcBalance}, SomeHtlcRfqID(c.ID))
+
+	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom records: %w", err)
+	}
+
+	return &lndclient.InterceptedHtlcResponse{
+		Action:             lndclient.InterceptorActionResumeModified,
+		OutgoingAmountMsat: outgoingAmtMsat,
+		CustomRecords:      customRecords,
+	}, nil
 }
 
 // Ensure that AssetSalePolicy implements the Policy interface.
@@ -148,9 +188,9 @@ type AssetPurchasePolicy struct {
 	// AssetAmount is the amount of the tap asset that is being requested.
 	AssetAmount uint64
 
-	// MinimumChannelPayment is the minimum number of millisatoshis that
-	// must be sent in the HTLC.
-	MinimumChannelPayment lnwire.MilliSatoshi
+	// BidPrice is the milli-satoshi per asset unit price that was
+	// negotiated.
+	BidPrice lnwire.MilliSatoshi
 
 	// expiry is the policy's expiry unix timestamp in seconds after which
 	// the policy is no longer valid.
@@ -159,15 +199,12 @@ type AssetPurchasePolicy struct {
 
 // NewAssetPurchasePolicy creates a new asset purchase policy.
 func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
-	// Compute the serialised short channel ID (SCID) for the channel.
-	scid := SerialisedScid(quote.ShortChannelId())
-
 	return &AssetPurchasePolicy{
-		scid:                  scid,
-		AcceptedQuoteId:       quote.ID,
-		AssetAmount:           quote.AssetAmount,
-		MinimumChannelPayment: quote.BidPrice,
-		expiry:                quote.Expiry,
+		scid:            quote.ShortChannelId(),
+		AcceptedQuoteId: quote.ID,
+		AssetAmount:     quote.AssetAmount,
+		BidPrice:        quote.BidPrice,
+		expiry:          quote.Expiry,
 	}
 }
 
@@ -177,23 +214,30 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 	htlc lndclient.InterceptedHtlc) error {
 
 	// Check that the HTLC contains the accepted quote ID.
-	quoteId, ok := parseHtlcCustomRecords(htlc.CustomRecords)
-	if !ok {
-		return fmt.Errorf("HTLC does not contain a relevant custom "+
-			"record (htlc=%v)", htlc)
+	htlcRecord, err := parseHtlcCustomRecords(htlc.WireCustomRecords)
+	if err != nil {
+		return fmt.Errorf("parsing HTLC custom records failed: %w", err)
 	}
 
-	if *quoteId != c.AcceptedQuoteId {
+	if htlcRecord.RfqID.ValOpt().IsNone() {
+		return fmt.Errorf("incoming HTLC does not contain an RFQ ID")
+	}
+
+	rfqID := htlcRecord.RfqID.ValOpt().UnsafeFromSome()
+
+	if rfqID != c.AcceptedQuoteId {
 		return fmt.Errorf("HTLC contains a custom record, but it does "+
 			"not contain the accepted quote ID (htlc=%v, "+
 			"accepted_quote_id=%v)", htlc, c.AcceptedQuoteId)
 	}
 
-	// Check that the HTLC amount is at least the minimum acceptable amount.
-	if htlc.AmountOutMsat < c.MinimumChannelPayment {
-		return fmt.Errorf("htlc out amount is less than the policy "+
-			"minimum (htlc_out_msat=%d, policy_min_msat=%d)",
-			htlc.AmountOutMsat, c.MinimumChannelPayment)
+	inboundAmountMSat := lnwire.MilliSatoshi(c.AssetAmount) * c.BidPrice
+	if inboundAmountMSat < htlc.AmountOutMsat {
+		return fmt.Errorf("htlc out amount is more than inbound "+
+			"asset amount in millisatoshis (htlc_out_msat=%d, "+
+			"inbound_asset_amount=%d, "+
+			"inbound_asset_amount_msat=%v)", htlc.AmountOutMsat,
+			c.AssetAmount, inboundAmountMSat)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
@@ -214,6 +258,18 @@ func (c *AssetPurchasePolicy) Expiry() uint64 {
 // the policy applies.
 func (c *AssetPurchasePolicy) Scid() uint64 {
 	return uint64(c.scid)
+}
+
+// GenerateInterceptorResponse generates an interceptor response for the policy.
+func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
+	_ lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
+	error) {
+
+	incomingValueMsat := lnwire.MilliSatoshi(c.AssetAmount) * c.BidPrice
+	return &lndclient.InterceptedHtlcResponse{
+		Action:             lndclient.InterceptorActionResumeModified,
+		IncomingAmountMsat: incomingValueMsat,
+	}, nil
 }
 
 // Ensure that AssetPurchasePolicy implements the Policy interface.
@@ -279,7 +335,11 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	// the HTLC. This is because the HTLC may be relevant to another
 	// interceptor service. We only reject HTLCs that are relevant to the
 	// RFQ service and do not comply with a known policy.
-	policy, ok := h.fetchPolicy(htlc)
+	policy, ok, err := h.fetchPolicy(htlc)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching policy: %w", err)
+	}
+
 	if !ok {
 		log.Debug("Failed to find a policy for the HTLC. Resuming.")
 		return &lndclient.InterceptedHtlcResponse{
@@ -287,10 +347,12 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 		}, nil
 	}
 
+	log.Debugf("Fetched policy with SCID %v", policy.Scid())
+
 	// At this point, we know that a policy exists and has not expired
 	// whilst sitting in the local cache. We can now check that the HTLC
 	// complies with the policy.
-	err := policy.CheckHtlcCompliance(htlc)
+	err = policy.CheckHtlcCompliance(htlc)
 	if err != nil {
 		log.Warnf("HTLC does not comply with policy: %v "+
 			"(htlc=%v, policy=%v)", err, htlc, policy)
@@ -304,9 +366,7 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	acceptHtlcEvent := NewAcceptHtlcEvent(htlc, policy)
 	h.cfg.AcceptHtlcEvents <- acceptHtlcEvent
 
-	return &lndclient.InterceptedHtlcResponse{
-		Action: lndclient.InterceptorActionResume,
-	}, nil
+	return policy.GenerateInterceptorResponse(htlc)
 }
 
 // setupHtlcIntercept sets up HTLC interception.
@@ -386,7 +446,7 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 		"buy accept message: %s", buyAccept.String())
 
 	policy := NewAssetSalePolicy(buyAccept)
-	h.policies.Store(policy.scid, policy)
+	h.policies.Store(policy.ID.Scid(), policy)
 }
 
 // RegisterAssetPurchasePolicy generates and registers an asset buy policy with the
@@ -406,7 +466,7 @@ func (h *OrderHandler) RegisterAssetPurchasePolicy(
 // is not found, false is returned. Expired policies are not returned and are
 // removed from the cache.
 func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
-	bool) {
+	bool, error) {
 
 	var (
 		foundPolicy *Policy
@@ -415,14 +475,29 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 
 	// If the HTLC has a custom record, we check if it is relevant to the
 	// RFQ service.
-	quoteId, ok := parseHtlcCustomRecords(htlc.CustomRecords)
-	if ok {
-		scid := SerialisedScid(quoteId.Scid())
-		policy, ok := h.policies.Load(scid)
-		if ok {
-			foundPolicy = &policy
-			foundScid = &scid
+	if len(htlc.WireCustomRecords) > 0 {
+		log.Debug("HTLC has custom records, parsing them")
+		htlcRecords, err := parseHtlcCustomRecords(
+			htlc.WireCustomRecords,
+		)
+		if err != nil {
+			return nil, false, fmt.Errorf("parsing HTLC custom "+
+				"records failed: %w", err)
 		}
+
+		log.Debugf("Parsed HTLC custom records: %v",
+			spew.Sdump(htlcRecords))
+
+		htlcRecords.RfqID.ValOpt().WhenSome(func(quoteId rfqmsg.ID) {
+			scid := quoteId.Scid()
+			log.Debugf("Looking up policy by SCID: %d", scid)
+
+			policy, ok := h.policies.Load(scid)
+			if ok {
+				foundPolicy = &policy
+				foundScid = &scid
+			}
+		})
 	}
 
 	// If no policy has been found so far, we attempt to look up a policy by
@@ -449,7 +524,7 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 
 	// If no policy has been found, we return false.
 	if foundPolicy == nil {
-		return nil, false
+		return nil, false, nil
 	}
 
 	policy := *foundPolicy
@@ -461,10 +536,10 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 
 	if currentTime.After(expireTime) {
 		h.policies.Delete(scid)
-		return nil, false
+		return nil, false, nil
 	}
 
-	return policy, true
+	return policy, true, nil
 }
 
 // cleanupStalePolicies removes expired policies from the local cache.

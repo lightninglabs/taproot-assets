@@ -227,6 +227,11 @@
                   "type": "string",
                   "format": "byte",
                   "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
                 }
               }
             }
@@ -310,6 +315,11 @@
                   "type": "string",
                   "format": "byte",
                   "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
                 }
               }
             }
@@ -594,6 +604,11 @@
                   "type": "string",
                   "format": "byte",
                   "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
                 }
               }
             }
@@ -677,6 +692,11 @@
                   "type": "string",
                   "format": "byte",
                   "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+                },
+                "timeout_seconds": {
+                  "type": "integer",
+                  "format": "int64",
+                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
                 }
               }
             }
@@ -717,13 +737,23 @@
       "type": "object"
     },
     "rfqrpcAddAssetBuyOrderResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "accepted_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote"
+        }
+      }
     },
     "rfqrpcAddAssetSellOfferResponse": {
       "type": "object"
     },
     "rfqrpcAddAssetSellOrderResponse": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "accepted_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote"
+        }
+      }
     },
     "rfqrpcAssetSpecifier": {
       "type": "object",

@@ -40,11 +40,9 @@ func TypeRecordRejectErrMsg(errMsg *string) tlv.Record {
 }
 
 func rejectErrMsgEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if typ, ok := val.(**string); ok {
-		v := *typ
-
-		msgBytes := []byte(*v)
-		err := tlv.EVarBytes(w, msgBytes, buf)
+	if typ, ok := val.(*string); ok {
+		msgBytes := []byte(*typ)
+		err := tlv.EVarBytes(w, &msgBytes, buf)
 		if err != nil {
 			return err
 		}
@@ -56,15 +54,14 @@ func rejectErrMsgEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func rejectErrMsgDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(**string); ok {
+	if typ, ok := val.(*string); ok {
 		var errMsgBytes []byte
 		err := tlv.DVarBytes(r, &errMsgBytes, buf, l)
 		if err != nil {
 			return err
 		}
 
-		msgStr := string(errMsgBytes)
-		*typ = &msgStr
+		*typ = string(errMsgBytes)
 
 		return nil
 	}

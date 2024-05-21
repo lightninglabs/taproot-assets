@@ -74,9 +74,10 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Carol sends a buy order to Bob for some amount of the newly minted
-	// asset.
-	purchaseAssetAmt := uint64(200)
-	bidAmt := uint64(42000)
+	// asset. These quantities were selected to work with the price oracle
+	// mock.
+	purchaseAssetAmt := uint64(5)
+	bidAmt := uint64(90000)
 	buyOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
 
 	_, err = ts.CarolTapd.AddAssetBuyOrder(
@@ -95,6 +96,8 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 			// node to send a request for quote message to Bob's
 			// node.
 			PeerPubKey: ts.BobLnd.PubKey[:],
+
+			TimeoutSeconds: 5,
 		},
 	)
 	require.NoError(t.t, err, "unable to upsert asset buy order")
@@ -333,7 +336,8 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		aliceBobHop.CustomRecords = make(map[uint64][]byte)
 	}
 
-	aliceBobHop.CustomRecords[rfq.LnCustomRecordType] =
+	var htlcRfqIDTlvType rfq.HtlcRfqIDTlvType
+	aliceBobHop.CustomRecords[uint64(htlcRfqIDTlvType.TypeVal())] =
 		acceptedQuote.Id[:]
 
 	// Update the route with the modified first hop.

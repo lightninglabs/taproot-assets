@@ -280,6 +280,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 		return err
 	}
 
+	err = rfqrpc.RegisterRfqHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
 	err = unirpc.RegisterUniverseHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
@@ -6022,6 +6029,10 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 	req *rfqrpc.AddAssetBuyOrderRequest) (*rfqrpc.AddAssetBuyOrderResponse,
 	error) {
 
+	if req.TimeoutSeconds == 0 {
+		return nil, fmt.Errorf("timeout must be greater than 0")
+	}
+
 	// Unmarshal the buy order from the RPC form.
 	buyOrder, err := unmarshalAssetBuyOrder(req)
 	if err != nil {
@@ -6035,6 +6046,21 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting buy order "+
 		"(dest_peer=%s)", peer)
 
+	// Register an event listener before actually inserting the order, so we
+	// definitely don't miss any responses.
+	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	defer eventSubscriber.Stop()
+
+	err = r.cfg.RfqManager.RegisterSubscriber(eventSubscriber, false, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register event listener: %w",
+			err)
+	}
+
+	defer func() {
+		_ = r.cfg.RfqManager.RemoveSubscriber(eventSubscriber)
+	}()
+
 	// Upsert the buy order into the RFQ manager.
 	err = r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
 	if err != nil {
@@ -6042,7 +6068,34 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 			"manager: %w", err)
 	}
 
-	return &rfqrpc.AddAssetBuyOrderResponse{}, nil
+	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
+
+	for {
+		select {
+		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			switch e := event.(type) {
+			case *rfq.PeerAcceptedBuyQuoteEvent:
+				quote := taprpc.MarshalAcceptedBuyQuoteEvent(e)
+				return &rfqrpc.AddAssetBuyOrderResponse{
+					AcceptedQuote: quote,
+				}, nil
+
+			case *rfq.IncomingRejectQuoteEvent:
+				return nil, fmt.Errorf("peer rejected buy "+
+					"quote: %v", e)
+
+			default:
+				continue
+			}
+
+		case <-r.quit:
+			return nil, fmt.Errorf("server shutting down")
+
+		case <-timeout:
+			return nil, fmt.Errorf("timeout waiting for response "+
+				"from peer %x", buyOrder.Peer[:])
+		}
+	}
 }
 
 // unmarshalAssetSellOrder unmarshals an asset sell order from the RPC form.
@@ -6085,6 +6138,10 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
 	error) {
 
+	if req.TimeoutSeconds == 0 {
+		return nil, fmt.Errorf("timeout must be greater than 0")
+	}
+
 	// Unmarshal the order from the RPC form.
 	sellOrder, err := unmarshalAssetSellOrder(req)
 	if err != nil {
@@ -6096,8 +6153,23 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 	if sellOrder.Peer != nil {
 		peer = sellOrder.Peer.String()
 	}
-	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting sell order "+
+	rpcsLog.Debugf("[AddAssetSellOrder]: upserting sell order "+
 		"(dest_peer=%s)", peer)
+
+	// Register an event listener before actually inserting the order, so we
+	// definitely don't miss any responses.
+	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
+	defer eventSubscriber.Stop()
+
+	err = r.cfg.RfqManager.RegisterSubscriber(eventSubscriber, false, 0)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register event listener: %w",
+			err)
+	}
+
+	defer func() {
+		_ = r.cfg.RfqManager.RemoveSubscriber(eventSubscriber)
+	}()
 
 	// Upsert the order into the RFQ manager.
 	err = r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
@@ -6106,7 +6178,34 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 			"manager: %w", err)
 	}
 
-	return &rfqrpc.AddAssetSellOrderResponse{}, nil
+	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
+
+	for {
+		select {
+		case event := <-eventSubscriber.NewItemCreated.ChanOut():
+			switch e := event.(type) {
+			case *rfq.PeerAcceptedSellQuoteEvent:
+				quote := taprpc.MarshalAcceptedSellQuoteEvent(e)
+				return &rfqrpc.AddAssetSellOrderResponse{
+					AcceptedQuote: quote,
+				}, nil
+
+			case *rfq.IncomingRejectQuoteEvent:
+				return nil, fmt.Errorf("peer rejected sell "+
+					"quote: %v", e)
+
+			default:
+				continue
+			}
+
+		case <-r.quit:
+			return nil, fmt.Errorf("server shutting down")
+
+		case <-timeout:
+			return nil, fmt.Errorf("timeout waiting for response "+
+				"from peer %x", sellOrder.Peer[:])
+		}
+	}
 }
 
 // AddAssetSellOffer upserts a new sell offer for the given asset into the
@@ -6235,8 +6334,8 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 
 	// Query the RFQ manager for quotes that were requested by our node and
 	// have been accepted by our peers.
-	peerAcceptedBuyQuotes, peerAcceptedSellQuotes :=
-		r.cfg.RfqManager.QueryPeerAcceptedQuotes()
+	peerAcceptedBuyQuotes := r.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
 
 	rpcBuyQuotes := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
 	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
@@ -6253,15 +6352,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:        event.Peer.String(),
-			Id:          event.ID[:],
-			Scid:        uint64(event.ShortChannelId()),
-			AssetAmount: event.AssetAmount,
-			AskPrice:    uint64(event.AskPrice),
-			Expiry:      event.Expiry,
-		}
-
+		acceptedQuote := taprpc.MarshalAcceptedBuyQuoteEvent(event)
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedBuyQuote{
 			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
 				Timestamp:            uint64(timestamp),
@@ -6273,15 +6364,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		acceptedQuote := &rfqrpc.PeerAcceptedSellQuote{
-			Peer:        event.Peer.String(),
-			Id:          event.ID[:],
-			Scid:        uint64(event.ShortChannelId()),
-			AssetAmount: event.AssetAmount,
-			BidPrice:    uint64(event.BidPrice),
-			Expiry:      event.Expiry,
-		}
-
+		acceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(event)
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
 			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
 				Timestamp:             uint64(timestamp),

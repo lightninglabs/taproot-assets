@@ -1,6 +1,7 @@
 package rfqmsg
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // SerialisedScid is a serialised short channel id (SCID).
@@ -30,6 +32,18 @@ func (id ID) Scid() SerialisedScid {
 
 	scidInteger := binary.BigEndian.Uint64(scidBytes)
 	return SerialisedScid(scidInteger)
+}
+
+// Record returns a TLV record that can be used to encode/decode an ID to/from a
+// TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (id *ID) Record() tlv.Record {
+	const recordSize = sha256.Size
+
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeStaticRecord(0, id, recordSize, IdEncoder, IdDecoder)
 }
 
 // MaxMessageType is the maximum supported message type value.

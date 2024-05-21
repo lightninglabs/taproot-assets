@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
@@ -128,30 +129,30 @@ type PriceOracle interface {
 // It returns the suggested rate as the exchange rate.
 type MockPriceOracle struct {
 	expiryDelay uint64
+	usdPerBTC   uint64
 }
 
 // NewMockPriceOracle creates a new mock price oracle.
-func NewMockPriceOracle(expiryDelay uint64) *MockPriceOracle {
+func NewMockPriceOracle(expiryDelay, usdPerBTC uint64) *MockPriceOracle {
 	return &MockPriceOracle{
 		expiryDelay: expiryDelay,
+		usdPerBTC:   usdPerBTC,
 	}
 }
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
-	suggestedBidPrice *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
+	_ *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
 
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
-	askPrice := lnwire.MilliSatoshi(42000)
-	if suggestedBidPrice != nil {
-		askPrice = *suggestedBidPrice
-	}
+	mSatPerUsd := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) /
+		lnwire.MilliSatoshi(m.usdPerBTC)
 
 	return &OracleAskResponse{
-		AskPrice: &askPrice,
+		AskPrice: &mSatPerUsd,
 		Expiry:   expiry,
 	}, nil
 }
@@ -163,10 +164,11 @@ func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
-	bidPrice := lnwire.MilliSatoshi(42000)
+	mSatPerUsd := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) /
+		lnwire.MilliSatoshi(m.usdPerBTC)
 
 	return &OracleBidResponse{
-		BidPrice: &bidPrice,
+		BidPrice: &mSatPerUsd,
 		Expiry:   expiry,
 	}, nil
 }

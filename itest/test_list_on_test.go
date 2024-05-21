@@ -255,10 +255,14 @@ var testCases = []*testCase{
 		name: "rfq asset buy htlc intercept",
 		test: testRfqAssetBuyHtlcIntercept,
 	},
-	{
-		name: "rfq asset sell htlc intercept",
-		test: testRfqAssetSellHtlcIntercept,
-	},
+
+	// TODO(ffranr): Re-enable this test once we have a way to set the
+	//  `WireCustomRecords` field in the first hop `UpdateAddHtlc` p2p
+	//  message
+	//{
+	//	name: "rfq asset sell htlc intercept",
+	//	test: testRfqAssetSellHtlcIntercept,
+	//},
 
 	{
 		name: "multi signature on all levels",

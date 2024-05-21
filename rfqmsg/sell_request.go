@@ -262,9 +262,9 @@ func (q *SellRequest) String() string {
 		groupKeyBytes = q.AssetGroupKey.SerializeCompressed()
 	}
 
-	return fmt.Sprintf("SellRequest(peer=%s, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, ask_price=%d)", q.Peer,
-		q.ID, q.AssetID, groupKeyBytes, q.AssetAmount, q.AskPrice)
+	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset_id=%s, "+
+		"asset_group_key=%x, asset_amount=%d, ask_price=%d)", q.Peer[:],
+		q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount, q.AskPrice)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
