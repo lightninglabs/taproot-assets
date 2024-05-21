@@ -15,12 +15,22 @@ import (
 const (
 	// Buy accept message type field TLV types.
 
-	TypeBuyAcceptID        tlv.Type = 0
-	TypeBuyAcceptAskPrice  tlv.Type = 2
-	TypeBuyAcceptExpiry    tlv.Type = 4
-	TypeBuyAcceptSignature tlv.Type = 6
-	TypeBuyAcceptAssetID   tlv.Type = 8
+	TypeBuyAcceptVersion   tlv.Type = 0
+	TypeBuyAcceptID        tlv.Type = 2
+	TypeBuyAcceptAskPrice  tlv.Type = 4
+	TypeBuyAcceptExpiry    tlv.Type = 6
+	TypeBuyAcceptSignature tlv.Type = 8
+	TypeBuyAcceptAssetID   tlv.Type = 10
 )
+
+func TypeRecordBuyAcceptVersion(version *WireMsgDataVersion) tlv.Record {
+	const recordSize = 1
+
+	return tlv.MakeStaticRecord(
+		TypeBuyAcceptVersion, version, recordSize,
+		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
 
 func TypeRecordBuyAcceptID(id *ID) tlv.Record {
 	const recordSize = 32
@@ -80,9 +90,18 @@ func TypeRecordBuyAcceptAssetID(assetID **asset.ID) tlv.Record {
 	)
 }
 
+const (
+	// latestBuyAcceptVersion is the latest supported buy accept wire
+	// message data field version.
+	latestBuyAcceptVersion = V0
+)
+
 // buyAcceptMsgData is a struct that represents the data field of a quote
 // accept message.
 type buyAcceptMsgData struct {
+	// Version is the version of the message data.
+	Version WireMsgDataVersion
+
 	// ID represents the unique identifier of the quote request message that
 	// this response is associated with.
 	ID ID
@@ -104,6 +123,7 @@ type buyAcceptMsgData struct {
 // encodeRecords provides all TLV records for encoding.
 func (q *buyAcceptMsgData) encodeRecords() []tlv.Record {
 	records := []tlv.Record{
+		TypeRecordBuyAcceptVersion(&q.Version),
 		TypeRecordBuyAcceptID(&q.ID),
 		TypeRecordBuyAcceptAskPrice(&q.AskPrice),
 		TypeRecordBuyAcceptExpiry(&q.Expiry),
@@ -122,6 +142,7 @@ func (q *buyAcceptMsgData) encodeRecords() []tlv.Record {
 // decodeRecords provides all TLV records for decoding.
 func (q *buyAcceptMsgData) decodeRecords() []tlv.Record {
 	return []tlv.Record{
+		TypeRecordBuyAcceptVersion(&q.Version),
 		TypeRecordBuyAcceptID(&q.ID),
 		TypeRecordBuyAcceptAskPrice(&q.AskPrice),
 		TypeRecordBuyAcceptExpiry(&q.Expiry),
@@ -181,6 +202,7 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
 		buyAcceptMsgData: buyAcceptMsgData{
+			Version:  latestBuyAcceptVersion,
 			ID:       request.ID,
 			AskPrice: askPrice,
 			Expiry:   expiry,
@@ -203,6 +225,12 @@ func NewBuyAcceptFromWireMsg(wireMsg WireMessage) (*BuyAccept, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode quote accept "+
 			"message data: %w", err)
+	}
+
+	// Ensure that the message version is supported.
+	if msgData.Version > latestBuyAcceptVersion {
+		return nil, fmt.Errorf("unsupported buy accept message "+
+			"version: %d", msgData.Version)
 	}
 
 	return &BuyAccept{
