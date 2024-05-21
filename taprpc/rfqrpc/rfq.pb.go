@@ -660,7 +660,7 @@ type PeerAcceptedBuyQuote struct {
 	Scid uint64 `protobuf:"varint,3,opt,name=scid,proto3" json:"scid,omitempty"`
 	// asset_amount is the amount of the subject asset.
 	AssetAmount uint64 `protobuf:"varint,4,opt,name=asset_amount,json=assetAmount,proto3" json:"asset_amount,omitempty"`
-	// ask_price is the price in millisats for the entire asset amount.
+	// ask_price is the price in milli-satoshi per asset unit.
 	AskPrice uint64 `protobuf:"varint,5,opt,name=ask_price,json=askPrice,proto3" json:"ask_price,omitempty"`
 	// The unix timestamp in seconds after which the quote is no longer valid.
 	Expiry uint64 `protobuf:"varint,6,opt,name=expiry,proto3" json:"expiry,omitempty"`
@@ -754,7 +754,7 @@ type PeerAcceptedSellQuote struct {
 	Scid uint64 `protobuf:"varint,3,opt,name=scid,proto3" json:"scid,omitempty"`
 	// asset_amount is the amount of the subject asset.
 	AssetAmount uint64 `protobuf:"varint,4,opt,name=asset_amount,json=assetAmount,proto3" json:"asset_amount,omitempty"`
-	// bid_price is the price in millisats for the entire asset amount.
+	// bid_price is the price in milli-satoshi per asset unit.
 	BidPrice uint64 `protobuf:"varint,5,opt,name=bid_price,json=bidPrice,proto3" json:"bid_price,omitempty"`
 	// The unix timestamp in seconds after which the quote is no longer valid.
 	Expiry uint64 `protobuf:"varint,6,opt,name=expiry,proto3" json:"expiry,omitempty"`

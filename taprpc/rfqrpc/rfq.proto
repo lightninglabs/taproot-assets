@@ -36,7 +36,7 @@ service Rfq {
     rpc AddAssetBuyOffer (AddAssetBuyOfferRequest)
         returns (AddAssetBuyOfferResponse);
 
-    /* tapcli: `rfq peeracceptedquotes`
+    /* tapcli: `rfq acceptedquotes`
     QueryPeerAcceptedQuotes is used to query for quotes that were requested by
     our node and have been accepted our peers.
     */
@@ -158,7 +158,7 @@ message PeerAcceptedBuyQuote {
     // asset_amount is the amount of the subject asset.
     uint64 asset_amount = 4;
 
-    // ask_price is the price in millisats for the entire asset amount.
+    // ask_price is the price in milli-satoshi per asset unit.
     uint64 ask_price = 5;
 
     // The unix timestamp in seconds after which the quote is no longer valid.
@@ -179,7 +179,7 @@ message PeerAcceptedSellQuote {
     // asset_amount is the amount of the subject asset.
     uint64 asset_amount = 4;
 
-    // bid_price is the price in millisats for the entire asset amount.
+    // bid_price is the price in milli-satoshi per asset unit.
     uint64 bid_price = 5;
 
     // The unix timestamp in seconds after which the quote is no longer valid.
