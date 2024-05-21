@@ -17,12 +17,22 @@ import (
 const (
 	// Buy request message type field TLV types.
 
-	TypeBuyRequestID            tlv.Type = 0
-	TypeBuyRequestAssetID       tlv.Type = 1
-	TypeBuyRequestAssetGroupKey tlv.Type = 3
-	TypeBuyRequestAssetAmount   tlv.Type = 4
-	TypeBuyRequestBidPrice      tlv.Type = 6
+	TypeBuyRequestVersion       tlv.Type = 0
+	TypeBuyRequestID            tlv.Type = 2
+	TypeBuyRequestAssetID       tlv.Type = 3
+	TypeBuyRequestAssetGroupKey tlv.Type = 5
+	TypeBuyRequestAssetAmount   tlv.Type = 6
+	TypeBuyRequestBidPrice      tlv.Type = 8
 )
+
+func TypeRecordBuyRequestVersion(version *WireMsgDataVersion) tlv.Record {
+	const recordSize = 1
+
+	return tlv.MakeStaticRecord(
+		TypeBuyRequestVersion, version, recordSize,
+		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
 
 func TypeRecordBuyRequestID(id *ID) tlv.Record {
 	const recordSize = 32
@@ -121,9 +131,18 @@ func TypeRecordBuyRequestBidPrice(bid *lnwire.MilliSatoshi) tlv.Record {
 	)
 }
 
+const (
+	// latestBuyRequestVersion is the latest supported buy request wire
+	// message data field version.
+	latestBuyRequestVersion = V0
+)
+
 // buyRequestMsgData is a struct that represents the message data from an asset
 // buy quote request message.
 type buyRequestMsgData struct {
+	// Version is the version of the message data.
+	Version WireMsgDataVersion
+
 	// ID is the unique identifier of the quote request.
 	ID ID
 
@@ -154,15 +173,22 @@ func (q *buyRequestMsgData) Validate() error {
 			"non-nil")
 	}
 
+	// Ensure that the message version is supported.
+	if q.Version > latestBuyRequestVersion {
+		return fmt.Errorf("unsupported buy request message version: %d",
+			q.Version)
+	}
+
 	return nil
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an at
 // runtime.
 func (q *buyRequestMsgData) encodeRecords() []tlv.Record {
-	var records []tlv.Record
-
-	records = append(records, TypeRecordBuyRequestID(&q.ID))
+	records := []tlv.Record{
+		TypeRecordBuyRequestVersion(&q.Version),
+		TypeRecordBuyRequestID(&q.ID),
+	}
 
 	if q.AssetID != nil {
 		records = append(
@@ -206,6 +232,7 @@ func (q *buyRequestMsgData) Bytes() ([]byte, error) {
 // DecodeRecords provides all TLV records for decoding.
 func (q *buyRequestMsgData) decodeRecords() []tlv.Record {
 	return []tlv.Record{
+		TypeRecordBuyRequestVersion(&q.Version),
 		TypeRecordBuyRequestID(&q.ID),
 		TypeRecordBuyRequestAssetID(&q.AssetID),
 		TypeRecordBuyRequestAssetGroupKey(&q.AssetGroupKey),
@@ -248,6 +275,7 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	return &BuyRequest{
 		Peer: peer,
 		buyRequestMsgData: buyRequestMsgData{
+			Version:       latestBuyRequestVersion,
 			ID:            id,
 			AssetID:       assetID,
 			AssetGroupKey: assetGroupKey,

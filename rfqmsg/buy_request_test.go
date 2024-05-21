@@ -27,6 +27,7 @@ func TestBuyRequestMsgDataEncodeDecode(t *testing.T) {
 	testCases := []struct {
 		testName string
 
+		version       WireMsgDataVersion
 		id            ID
 		assetId       *asset.ID
 		assetGroupKey *btcec.PublicKey
@@ -34,7 +35,17 @@ func TestBuyRequestMsgDataEncodeDecode(t *testing.T) {
 		bidPrice      lnwire.MilliSatoshi
 	}{
 		{
+			testName:      "asset group key nil, version 0",
+			version:       0,
+			id:            id,
+			assetId:       &assetId,
+			assetGroupKey: nil,
+			assetAmount:   1000,
+			bidPrice:      lnwire.MilliSatoshi(42000),
+		},
+		{
 			testName:      "asset group key nil",
+			version:       5,
 			id:            id,
 			assetId:       &assetId,
 			assetGroupKey: nil,
@@ -46,6 +57,7 @@ func TestBuyRequestMsgDataEncodeDecode(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(tt *testing.T) {
 			req := buyRequestMsgData{
+				Version:       tc.version,
 				ID:            tc.id,
 				AssetID:       tc.assetId,
 				AssetGroupKey: tc.assetGroupKey,
