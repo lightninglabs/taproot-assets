@@ -60,6 +60,7 @@ func TestBuyAcceptMsgDataEncodeDecode(t *testing.T) {
 	testCases := []struct {
 		testName string
 
+		version  WireMsgDataVersion
 		id       ID
 		askPrice lnwire.MilliSatoshi
 		expiry   uint64
@@ -68,6 +69,7 @@ func TestBuyAcceptMsgDataEncodeDecode(t *testing.T) {
 	}{
 		{
 			testName: "all fields populated with basic values",
+			version:  latestBuyAcceptVersion,
 			id:       id,
 			askPrice: 1000,
 			expiry:   42000,
@@ -82,6 +84,7 @@ func TestBuyAcceptMsgDataEncodeDecode(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(tt *testing.T) {
 			msg := buyAcceptMsgData{
+				Version:  tc.version,
 				ID:       tc.id,
 				AskPrice: tc.askPrice,
 				Expiry:   tc.expiry,

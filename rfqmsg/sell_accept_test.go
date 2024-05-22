@@ -27,6 +27,7 @@ func TestSellAcceptMsgDataEncodeDecode(t *testing.T) {
 	testCases := []struct {
 		testName string
 
+		version  WireMsgDataVersion
 		id       ID
 		bidPrice lnwire.MilliSatoshi
 		expiry   uint64
@@ -35,6 +36,7 @@ func TestSellAcceptMsgDataEncodeDecode(t *testing.T) {
 	}{
 		{
 			testName: "all fields populated with basic values",
+			version:  latestSellAcceptVersion,
 			id:       id,
 			bidPrice: 1000,
 			expiry:   42000,
@@ -49,6 +51,7 @@ func TestSellAcceptMsgDataEncodeDecode(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(tt *testing.T) {
 			msg := sellAcceptMsgData{
+				Version:  tc.version,
 				ID:       tc.id,
 				BidPrice: tc.bidPrice,
 				Expiry:   tc.expiry,

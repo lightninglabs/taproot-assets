@@ -16,12 +16,22 @@ import (
 const (
 	// Sell accept message type field TLV types.
 
-	TypeSellAcceptID        tlv.Type = 0
-	TypeSellAcceptBidPrice  tlv.Type = 2
-	TypeSellAcceptExpiry    tlv.Type = 4
-	TypeSellAcceptSignature tlv.Type = 6
-	TypeSellAcceptAssetID   tlv.Type = 8
+	TypeSellAcceptVersion   tlv.Type = 0
+	TypeSellAcceptID        tlv.Type = 2
+	TypeSellAcceptBidPrice  tlv.Type = 4
+	TypeSellAcceptExpiry    tlv.Type = 6
+	TypeSellAcceptSignature tlv.Type = 8
+	TypeSellAcceptAssetID   tlv.Type = 10
 )
+
+func TypeRecordSellAcceptVersion(version *WireMsgDataVersion) tlv.Record {
+	const recordSize = 1
+
+	return tlv.MakeStaticRecord(
+		TypeSellAcceptVersion, version, recordSize,
+		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
 
 func TypeRecordSellAcceptID(id *ID) tlv.Record {
 	const recordSize = 32
@@ -55,9 +65,18 @@ func TypeRecordSellAcceptAssetID(assetID **asset.ID) tlv.Record {
 	)
 }
 
+const (
+	// latestSellAcceptVersion is the latest supported sell accept wire
+	// message data field version.
+	latestSellAcceptVersion = V0
+)
+
 // sellAcceptMsgData is a struct that represents the data field of an asset sell
 // quote request accept message.
 type sellAcceptMsgData struct {
+	// Version is the version of the message data.
+	Version WireMsgDataVersion
+
 	// ID represents the unique identifier of the asset sell quote request
 	// message that this response is associated with.
 	ID ID
@@ -79,6 +98,7 @@ type sellAcceptMsgData struct {
 // encodeRecords provides all TLV records for encoding.
 func (q *sellAcceptMsgData) encodeRecords() []tlv.Record {
 	records := []tlv.Record{
+		TypeRecordSellAcceptVersion(&q.Version),
 		TypeRecordSellAcceptID(&q.ID),
 		TypeRecordSellAcceptBidPrice(&q.BidPrice),
 		TypeRecordSellAcceptExpiry(&q.Expiry),
@@ -97,6 +117,7 @@ func (q *sellAcceptMsgData) encodeRecords() []tlv.Record {
 // decodeRecords provides all TLV records for decoding.
 func (q *sellAcceptMsgData) decodeRecords() []tlv.Record {
 	return []tlv.Record{
+		TypeRecordSellAcceptVersion(&q.Version),
 		TypeRecordSellAcceptID(&q.ID),
 		TypeRecordSellAcceptBidPrice(&q.BidPrice),
 		TypeRecordSellAcceptExpiry(&q.Expiry),
@@ -156,6 +177,7 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
 		sellAcceptMsgData: sellAcceptMsgData{
+			Version:  latestSellAcceptVersion,
 			ID:       request.ID,
 			BidPrice: bidPrice,
 			Expiry:   expiry,
@@ -179,6 +201,12 @@ func NewSellAcceptFromWireMsg(wireMsg WireMessage) (*SellAccept, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode sell accept "+
 			"message data: %w", err)
+	}
+
+	// Ensure that the message version is supported.
+	if msgData.Version > latestSellAcceptVersion {
+		return nil, fmt.Errorf("unsupported sell accept message "+
+			"version: %d", msgData.Version)
 	}
 
 	return &SellAccept{

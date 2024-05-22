@@ -20,13 +20,23 @@ func TestRejectEncodeDecode(t *testing.T) {
 	testCases := []struct {
 		testName string
 
-		peer route.Vertex
-		id   ID
-		err  RejectErr
+		peer    route.Vertex
+		version WireMsgDataVersion
+		id      ID
+		err     RejectErr
 	}{
+		{
+			testName: "all fields populated with basic values, " +
+				"zero version",
+			peer:    route.Vertex{1, 2, 3},
+			version: 0,
+			id:      id,
+			err:     ErrNoSuitableBuyOffer,
+		},
 		{
 			testName: "all fields populated with basic values",
 			peer:     route.Vertex{1, 2, 3},
+			version:  5,
 			id:       id,
 			err:      ErrNoSuitableBuyOffer,
 		},

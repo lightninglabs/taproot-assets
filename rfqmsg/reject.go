@@ -12,10 +12,20 @@ import (
 const (
 	// Reject message type field TLV types.
 
-	TypeRejectID      tlv.Type = 0
-	TypeRejectErrCode tlv.Type = 1
-	TypeRejectErrMsg  tlv.Type = 3
+	TypeRejectVersion tlv.Type = 0
+	TypeRejectID      tlv.Type = 2
+	TypeRejectErrCode tlv.Type = 3
+	TypeRejectErrMsg  tlv.Type = 5
 )
+
+func TypeRecordRejectVersion(version *WireMsgDataVersion) tlv.Record {
+	const recordSize = 1
+
+	return tlv.MakeStaticRecord(
+		TypeRejectVersion, version, recordSize,
+		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
 
 func TypeRecordRejectID(id *ID) tlv.Record {
 	const recordSize = 32
@@ -102,9 +112,18 @@ var (
 	}
 )
 
+const (
+	// latestRejectVersion is the latest supported reject wire message data
+	// field version.
+	latestRejectVersion = V0
+)
+
 // rejectMsgData is a struct that represents the data field of a quote
 // reject message.
 type rejectMsgData struct {
+	// Version is the version of the message data.
+	Version WireMsgDataVersion
+
 	// ID represents the unique identifier of the quote request message that
 	// this response is associated with.
 	ID ID
@@ -118,6 +137,7 @@ type rejectMsgData struct {
 // runtime.
 func (q *rejectMsgData) encodeRecords() []tlv.Record {
 	return []tlv.Record{
+		TypeRecordRejectVersion(&q.Version),
 		TypeRecordRejectID(&q.ID),
 		TypeRecordRejectErrCode(&q.Err.Code),
 		TypeRecordRejectErrMsg(&q.Err.Msg),
@@ -136,6 +156,7 @@ func (q *rejectMsgData) Encode(writer io.Writer) error {
 // DecodeRecords provides all TLV records for decoding.
 func (q *rejectMsgData) decodeRecords() []tlv.Record {
 	return []tlv.Record{
+		TypeRecordRejectVersion(&q.Version),
 		TypeRecordRejectID(&q.ID),
 		TypeRecordRejectErrCode(&q.Err.Code),
 		TypeRecordRejectErrMsg(&q.Err.Msg),
@@ -178,8 +199,9 @@ func NewReject(peer route.Vertex, requestId ID,
 	return &Reject{
 		Peer: peer,
 		rejectMsgData: rejectMsgData{
-			ID:  requestId,
-			Err: rejectErr,
+			Version: latestRejectVersion,
+			ID:      requestId,
+			Err:     rejectErr,
 		},
 	}
 }
@@ -198,6 +220,12 @@ func NewQuoteRejectFromWireMsg(wireMsg WireMessage) (*Reject, error) {
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode quote reject "+
 			"message data: %w", err)
+	}
+
+	// Ensure that the message version is supported.
+	if msgData.Version > latestRejectVersion {
+		return nil, fmt.Errorf("unsupported reject message version: %d",
+			msgData.Version)
 	}
 
 	return &Reject{

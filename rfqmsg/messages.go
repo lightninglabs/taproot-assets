@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"io"
 	"math"
 
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -113,6 +114,45 @@ func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	default:
 		return nil, ErrUnknownMessageType
 	}
+}
+
+// WireMsgDataVersion specifies the version of the contents within a wire
+// message data field.
+type WireMsgDataVersion uint8
+
+const (
+	// V0 represents version 0 of the contents in a wire message data field.
+	V0 WireMsgDataVersion = 0
+)
+
+// WireMsgDataVersionEncoder is a function that can be used to encode a
+// WireMsgDataVersion to a writer.
+func WireMsgDataVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if version, ok := val.(*WireMsgDataVersion); ok {
+		versionUint8 := uint8(*version)
+		return tlv.EUint8(w, &versionUint8, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "WireMsgDataVersion")
+}
+
+// WireMsgDataVersionDecoder is a function that can be used to decode a
+// WireMsgDataVersion from a reader.
+func WireMsgDataVersionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if version, ok := val.(*WireMsgDataVersion); ok {
+		var versionInt uint8
+		err := tlv.DUint8(r, &versionInt, buf, l)
+		if err != nil {
+			return err
+		}
+
+		*version = WireMsgDataVersion(versionInt)
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "WireMsgDataVersion", l, 8)
 }
 
 // IncomingMsg is an interface that represents an inbound wire message

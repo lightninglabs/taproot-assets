@@ -17,12 +17,22 @@ import (
 const (
 	// SellRequest message type field TLV types.
 
-	TypeSellRequestID            tlv.Type = 0
-	TypeSellRequestAssetID       tlv.Type = 1
-	TypeSellRequestAssetGroupKey tlv.Type = 3
-	TypeSellRequestAssetAmount   tlv.Type = 4
-	TypeSellRequestSuggestedAsk  tlv.Type = 6
+	TypeSellRequestVersion       tlv.Type = 0
+	TypeSellRequestID            tlv.Type = 2
+	TypeSellRequestAssetID       tlv.Type = 3
+	TypeSellRequestAssetGroupKey tlv.Type = 5
+	TypeSellRequestAssetAmount   tlv.Type = 6
+	TypeSellRequestSuggestedAsk  tlv.Type = 8
 )
+
+func TypeRecordSellRequestVersion(version *WireMsgDataVersion) tlv.Record {
+	const recordSize = 1
+
+	return tlv.MakeStaticRecord(
+		TypeSellRequestVersion, version, recordSize,
+		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
 
 func TypeRecordSellRequestID(id *ID) tlv.Record {
 	const recordSize = 32
@@ -62,9 +72,18 @@ func TypeRecordSellRequestAskPrice(ask *lnwire.MilliSatoshi) tlv.Record {
 	)
 }
 
+const (
+	// latestSellRequestVersion is the latest supported sell request wire
+	// message data field version.
+	latestSellRequestVersion = V0
+)
+
 // sellRequestMsgData is a struct that represents the message data from an asset
 // sell quote request message.
 type sellRequestMsgData struct {
+	// Version is the version of the message data.
+	Version WireMsgDataVersion
+
 	// ID is the unique identifier of the quote request.
 	ID ID
 
@@ -99,15 +118,22 @@ func (q *sellRequestMsgData) Validate() error {
 			"non-nil")
 	}
 
+	// Ensure that the message version is supported.
+	if q.Version > latestSellRequestVersion {
+		return fmt.Errorf("unsupported sell request message version: "+
+			"%d", q.Version)
+	}
+
 	return nil
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
 // at runtime.
 func (q *sellRequestMsgData) encodeRecords() []tlv.Record {
-	var records []tlv.Record
-
-	records = append(records, TypeRecordSellRequestID(&q.ID))
+	records := []tlv.Record{
+		TypeRecordSellRequestVersion(&q.Version),
+		TypeRecordSellRequestID(&q.ID),
+	}
 
 	if q.AssetID != nil {
 		records = append(
@@ -153,6 +179,7 @@ func (q *sellRequestMsgData) Bytes() ([]byte, error) {
 // DecodeRecords provides all TLV records for decoding.
 func (q *sellRequestMsgData) decodeRecords() []tlv.Record {
 	return []tlv.Record{
+		TypeRecordSellRequestVersion(&q.Version),
 		TypeRecordSellRequestID(&q.ID),
 		TypeRecordSellRequestAssetID(&q.AssetID),
 		TypeRecordSellRequestAssetGroupKey(&q.AssetGroupKey),
@@ -194,6 +221,7 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	return &SellRequest{
 		Peer: peer,
 		sellRequestMsgData: sellRequestMsgData{
+			Version:       latestSellRequestVersion,
 			ID:            id,
 			AssetID:       assetID,
 			AssetGroupKey: assetGroupKey,
