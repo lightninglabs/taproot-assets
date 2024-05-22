@@ -53,7 +53,7 @@ type OracleBidResponse struct {
 	// BidPrice is the suggested bid price for the asset amount.
 	BidPrice *lnwire.MilliSatoshi
 
-	// Expiry is the price expiryDelay lifetime unix timestamp.
+	// Expiry is the price expiry lifetime unix timestamp in seconds.
 	Expiry uint64
 
 	// Err is an optional error returned by the price oracle service.
@@ -63,13 +63,17 @@ type OracleBidResponse struct {
 // PriceOracle is an interface that provides exchange rate information for
 // assets.
 type PriceOracle interface {
-	// QueryAskPrice returns an asking price for the given asset amount.
+	// QueryAskPrice returns the ask price for a given asset amount.
+	// The ask price is the amount the oracle suggests a peer should accept
+	// from another peer to provide the specified asset amount.
 	QueryAskPrice(ctx context.Context, assetId *asset.ID,
 		assetGroupKey *btcec.PublicKey, assetAmount uint64,
 		suggestedBidPrice *lnwire.MilliSatoshi) (*OracleAskResponse,
 		error)
 
-	// QueryBidPrice returns a bid price for the given asset amount.
+	// QueryBidPrice returns the bid price for a given asset amount.
+	// The bid price is the amount the oracle suggests a peer should pay
+	// to another peer to receive the specified asset amount.
 	QueryBidPrice(ctx context.Context, assetId *asset.ID,
 		assetGroupKey *btcec.PublicKey,
 		assetAmount uint64) (*OracleBidResponse, error)
