@@ -1,0 +1,112 @@
+syntax = "proto3";
+
+package priceoraclerpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc";
+
+service PriceOracle {
+    /*
+    QueryRateTick queries the rate tick for a given transaction type, subject
+    asset, and payment asset. The rate tick is the exchange rate between the
+    subject asset and the payment asset.
+    */
+    rpc QueryRateTick (QueryRateTickRequest) returns (QueryRateTickResponse);
+}
+
+// TransactionType is an enum representing the type of transaction.
+enum TransactionType {
+    // PURCHASE indicates a purchase transaction.
+    PURCHASE = 0;
+
+    // SALE indicates a sale transaction.
+    SALE = 1;
+}
+
+// RateTick is the internal unit used for asset conversions. A tick is 1/10000th
+// of a currency unit. It gives us up to 4 decimal places of precision (0.0001
+// or 0.01% or 1 bps). As an example, if the BTC/USD rate was $61,234.95, then
+// we multiply that by 10,000 to arrive at the usd_rate_tick:
+// $61,234.95 * 10000 = 612,349,500. To convert back to our normal rate, we
+// decide by 10,000 to arrive back at $61,234.95.
+//
+// NOTE: That if the payment asset is BTC, the rate tick will be given as
+// milli-satoshi per asset unit.
+message RateTick {
+    // rate is the exchange rate between the subject asset and the payment
+    // asset.
+    uint64 rate = 1;
+
+    // expiry_timestamp is the Unix timestamp in seconds after which the rate
+    // tick is no longer valid.
+    uint64 expiry_timestamp = 2;
+}
+
+// AssetSpecifier is a union type for specifying an asset by either its asset ID
+// or group key.
+message AssetSpecifier {
+    oneof id {
+        // The 32-byte asset ID specified as raw bytes (gRPC only).
+        bytes asset_id = 1;
+
+        // The 32-byte asset ID encoded as a hex string (use this for REST).
+        string asset_id_str = 2;
+
+        // The 32-byte asset group key specified as raw bytes (gRPC only).
+        bytes group_key = 3;
+
+        // The 32-byte asset group key encoded as hex string (use this for
+        // REST).
+        string group_key_str = 4;
+    }
+}
+
+// QueryRateTickResponse is the request to a rate tick query.
+message QueryRateTickRequest {
+    // transaction_type indicates whether the transaction is a purchase or a
+    // sale.
+    TransactionType transaction_type = 1;
+
+    // subject_asset is the asset to be priced for purchase or sale.
+    AssetSpecifier subject_asset = 2;
+
+    // subject_asset_max_amount is the maximum amount of the subject asset that
+    // could be involved in the transaction.
+    uint64 subject_asset_max_amount = 3;
+
+    // payment_asset is the asset used for purchasing or receiving from a sale.
+    //
+    // NOTE: An asset ID of all zeros indicates that the payment asset is BTC.
+    // In this case, the rate tick will be given as milli-satoshi per asset
+    // unit
+    AssetSpecifier payment_asset = 4;
+
+    // rate_tick_hint is an optional suggested rate tick for the transaction,
+    // used to provide guidance on expected pricing.
+    RateTick rate_tick_hint = 5;
+}
+
+// QueryRateTickSuccessResponse is the successful response to a rate tick query.
+message QueryRateTickSuccessResponse {
+    // rate_tick is the rate tick for the transaction.
+    RateTick rate_tick = 1;
+}
+
+// QueryRateTickErrResponse is the error response to a rate tick query.
+message QueryRateTickErrResponse {
+    // error is the error message.
+    string message = 1;
+
+    // code is the error code.
+    uint32 code = 2;
+}
+
+// QueryRateTickResponse is the response to a rate tick query.
+message QueryRateTickResponse {
+    oneof result {
+        // success is the successful response to the rate tick query.
+        QueryRateTickSuccessResponse success = 1;
+
+        // error is the error response to the rate tick query.
+        QueryRateTickErrResponse error = 2;
+    }
+}
