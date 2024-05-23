@@ -71,6 +71,11 @@ type ManagerCfg struct {
 	// into the manager once lnd and tapd are hooked together.
 	AliasManager ScidAliasManager
 
+	// SkipAcceptQuotePriceCheck is a flag that, when set, will cause the
+	// RFQ negotiator to skip price validation on incoming quote accept
+	// messages (this means that the price oracle will not be queried).
+	SkipAcceptQuotePriceCheck bool
+
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -198,11 +203,13 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 
 	// Initialise and start the quote negotiator.
 	m.negotiator, err = NewNegotiator(
+		// nolint: lll
 		NegotiatorCfg{
-			PriceOracle:             m.cfg.PriceOracle,
-			OutgoingMessages:        m.outgoingMessages,
-			AcceptPriceDeviationPpm: DefaultAcceptPriceDeviationPpm,
-			ErrChan:                 m.subsystemErrChan,
+			PriceOracle:               m.cfg.PriceOracle,
+			OutgoingMessages:          m.outgoingMessages,
+			AcceptPriceDeviationPpm:   DefaultAcceptPriceDeviationPpm,
+			SkipAcceptQuotePriceCheck: m.cfg.SkipAcceptQuotePriceCheck,
+			ErrChan:                   m.subsystemErrChan,
 		},
 	)
 	if err != nil {

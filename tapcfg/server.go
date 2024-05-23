@@ -337,7 +337,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			PriceOracle:     priceOracle,
 			ChannelLister:   walletAnchor,
 			AliasManager:    lndRouterClient,
-			ErrChan:         mainErrChan,
+			// nolint: lll
+			SkipAcceptQuotePriceCheck: cfg.Experimental.Rfq.SkipAcceptQuotePriceCheck,
+			ErrChan:                   mainErrChan,
 		},
 	)
 	if err != nil {
