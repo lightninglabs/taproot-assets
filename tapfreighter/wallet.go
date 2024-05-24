@@ -856,14 +856,22 @@ func (f *AssetWallet) fetchInputProof(ctx context.Context,
 // SignVirtualPacketOptions is a set of functional options that allow callers to
 // further modify the virtual packet signing process.
 type SignVirtualPacketOptions struct {
-	// SkipInputProofVerify skips virtual input proof verification when true.
+	// SkipInputProofVerify skips virtual input proof verification when
+	// true.
 	SkipInputProofVerify bool
+
+	// WitnessValidator validates a signature after it's been created.
+	WitnessValidator tapscript.WitnessValidator
 }
 
 // defaultSignVirtualPacketOptions returns the set of default options for the
 // virtual packet signing function.
-func defaultSignVirtualPacketOptions() *SignVirtualPacketOptions {
-	return &SignVirtualPacketOptions{}
+func defaultSignVirtualPacketOptions(
+	defaultValidator tapscript.WitnessValidator) *SignVirtualPacketOptions {
+
+	return &SignVirtualPacketOptions{
+		WitnessValidator: defaultValidator,
+	}
 }
 
 // SignVirtualPacketOption is a functional option that allows a caller to modify
@@ -878,16 +886,26 @@ func SkipInputProofVerify() SignVirtualPacketOption {
 	}
 }
 
+// WithValidator sets an optional argument that allows the caller to specify a
+// custom witness validator to use when signing the virtual packet.
+func WithValidator(
+	validator tapscript.WitnessValidator) SignVirtualPacketOption {
+
+	return func(o *SignVirtualPacketOptions) {
+		o.WitnessValidator = validator
+	}
+}
+
 // SignVirtualPacket signs the virtual transaction of the given packet and
 // returns the input indexes that were signed (referring to the virtual
 // transaction's inputs).
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
-	optFuncs ...SignVirtualPacketOption) ([]uint32, error) {
+	signOpts ...SignVirtualPacketOption) ([]uint32, error) {
 
-	opts := defaultSignVirtualPacketOptions()
-	for _, optFunc := range optFuncs {
+	opts := defaultSignVirtualPacketOptions(f.cfg.WitnessValidator)
+	for _, optFunc := range signOpts {
 		optFunc(opts)
 	}
 
@@ -912,7 +930,7 @@ func (f *AssetWallet) SignVirtualPacket(vPkt *tappsbt.VPacket,
 	// Asset leaves. The witness data for each input will be assigned for
 	// us.
 	err := tapsend.SignVirtualTransaction(
-		vPkt, f.cfg.Signer, f.cfg.WitnessValidator,
+		vPkt, f.cfg.Signer, opts.WitnessValidator,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate Taproot Asset "+

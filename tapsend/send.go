@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 )
 
 const (
@@ -790,6 +791,9 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 		InputIndex: idx,
 	}
 
+	// Add any tweak parameters that may be present in the PSBT.
+	addKeyTweaks(vIn.Unknowns, &spendDesc)
+
 	// There are three possible signing cases: BIP-0086 key spend path, key
 	// spend path with a script root, and script spend path.
 	switch {
@@ -865,6 +869,31 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 	return witness, nil
 }
 
+// addKeyTweaks examines if there are any tweak parameters given in the
+// custom/proprietary PSBT fields and may add them to the given sign descriptor.
+func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
+	// There can be other custom/unknown keys in a PSBT that we just ignore.
+	// Key tweaking is optional and only one tweak (single _or_ double) can
+	// ever be applied (at least for any use cases described in the BOLT
+	// spec).
+	for _, u := range unknowns {
+		if bytes.Equal(
+			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakSingle,
+		) {
+
+			desc.SingleTweak = u.Value
+		}
+
+		if bytes.Equal(
+			u.Key, btcwallet.PsbtKeyTypeInputSignatureTweakDouble,
+		) {
+
+			doubleTweakKey, _ := btcec.PrivKeyFromBytes(u.Value)
+			desc.DoubleTweak = doubleTweakKey
+		}
+	}
+}
+
 // CreateOutputCommitments creates the final set of Taproot asset commitments
 // representing the asset sends of the given packets of active and passive
 // assets.
@@ -935,7 +964,7 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// send. We do the same even for interactive sends to not need
 		// to distinguish between the two cases in the proof file
 		// itself.
-		sendTapCommitment, err = trimSplitWitnesses(sendTapCommitment)
+		sendTapCommitment, err = TrimSplitWitnesses(sendTapCommitment)
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
 				err)
@@ -1168,7 +1197,7 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	// Taproot Asset tree of the input anchor output was built with asset
 	// leaves that had empty SplitCommitments. We need to replicate this
 	// here as well.
-	trimmedCommitment, err := trimSplitWitnesses(anchorCommitment)
+	trimmedCommitment, err := TrimSplitWitnesses(anchorCommitment)
 	if err != nil {
 		return nil, emptyHash, emptyHash, fmt.Errorf("unable to trim "+
 			"split witnesses: %w", err)
@@ -1199,9 +1228,9 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	return script, merkleRoot, taprootAssetRoot, nil
 }
 
-// trimSplitWitnesses returns a copy of the commitment in which all assets with
+// TrimSplitWitnesses returns a copy of the commitment in which all assets with
 // a split commitment witness have their SplitCommitment field set to nil.
-func trimSplitWitnesses(
+func TrimSplitWitnesses(
 	c *commitment.TapCommitment) (*commitment.TapCommitment, error) {
 
 	// If the input asset was received non-interactively, then the Taproot

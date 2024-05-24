@@ -3,18 +3,28 @@ package tappsbt
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/stretchr/testify/require"
 )
 
 var (
 	generatedTestVectorName = "psbt_encoding_generated.json"
+
+	// packetHexFileName is the name of the file that contains a hex encoded
+	// virtual packet. This packet was obtained from a unit test and is a
+	// valid regtest packet.
+	packetHexFileName = filepath.Join(testDataFileName, "packet.hex")
 
 	allTestVectorFiles = []string{
 		generatedTestVectorName,
@@ -219,4 +229,41 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			})
 		})
 	}
+}
+
+// TestFileDecoding ensures that we can decode a vPSBT packet from a hex encoded
+// file. This is useful for quickly inspecting the contents of a packet while
+// debugging.
+func TestFileDecoding(t *testing.T) {
+	packetHex, err := os.ReadFile(packetHexFileName)
+	require.NoError(t, err)
+
+	packetBytes, err := hex.DecodeString(
+		strings.Trim(string(packetHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	packet, err := NewFromRawBytes(bytes.NewReader(packetBytes), false)
+	require.NoError(t, err)
+
+	rootAsset := packet.Outputs[1].Asset
+	splitAsset := packet.Outputs[0].Asset
+	splitWitness := splitAsset.PrevWitnesses[0]
+
+	locator := &commitment.SplitLocator{
+		OutputIndex: splitAsset.OutputIndex,
+		AssetID:     splitAsset.Genesis.ID(),
+		ScriptKey:   asset.ToSerialized(splitAsset.ScriptKey.PubKey),
+		Amount:      splitAsset.Amount,
+	}
+	splitNoWitness := splitAsset.Copy()
+	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
+	splitLeaf, err := splitNoWitness.Leaf()
+	require.NoError(t, err)
+
+	verify := mssmt.VerifyMerkleProof(
+		locator.Hash(), splitLeaf, &splitWitness.SplitCommitment.Proof,
+		rootAsset.SplitCommitmentRoot,
+	)
+	require.True(t, verify)
 }

@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
@@ -15,6 +16,7 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -337,6 +339,86 @@ func TestCommitment(t *testing.T) {
 			require.NoError(t, err)
 
 			require.Equal(t, tc.commitment, deserializedCommitment)
+		})
+	}
+}
+
+// TestCommitSig tests encoding and decoding of the CommitSig struct.
+func TestCommitSig(t *testing.T) {
+	t.Parallel()
+
+	randSig := func() lnwire.Sig {
+		sig, err := lnwire.NewSigFromSchnorrRawSignature(
+			test.RandBytes(64),
+		)
+		require.NoError(t, err)
+
+		return sig
+	}
+
+	testCases := []struct {
+		name string
+		sig  *CommitSig
+	}{
+		{
+			name: "empty CommitSig",
+			sig:  &CommitSig{},
+		},
+		{
+			name: "CommitSig with no HTLCs",
+			sig:  NewCommitSig(nil),
+		},
+		{
+			name: "CommitSig with one entry each",
+			sig: NewCommitSig([][]*AssetSig{
+				{
+					NewAssetSig(
+						[32]byte{2}, randSig(),
+						txscript.SigHashNone,
+					),
+				},
+			}),
+		},
+		{
+			name: "CommitSig with multiple entries",
+			sig: NewCommitSig([][]*AssetSig{
+				{
+					NewAssetSig(
+						[32]byte{2}, randSig(),
+						txscript.SigHashNone,
+					),
+					NewAssetSig(
+						[32]byte{3}, randSig(),
+						txscript.SigHashSingle,
+					),
+				},
+				{
+					NewAssetSig(
+						[32]byte{99}, randSig(),
+						txscript.SigHashNone,
+					),
+					NewAssetSig(
+						[32]byte{88}, randSig(),
+						txscript.SigHashSingle,
+					),
+				},
+			}),
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Serialize the CommitSig and then deserialize it
+			// again.
+			var b bytes.Buffer
+			err := tc.sig.Encode(&b)
+			require.NoError(t, err)
+
+			deserializedSig := &CommitSig{}
+			err = deserializedSig.Decode(&b)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.sig, deserializedSig)
 		})
 	}
 }
