@@ -78,8 +78,9 @@ type Policy interface {
 type AssetSalePolicy struct {
 	ID rfqmsg.ID
 
-	// AssetAmount is the amount of the tap asset that is being requested.
-	AssetAmount uint64
+	// MaxAssetAmount is the maximum amount of the asset that is being
+	// requested.
+	MaxAssetAmount uint64
 
 	// AskPrice is the asking price of the quote in milli-satoshis per asset
 	// unit.
@@ -96,11 +97,11 @@ type AssetSalePolicy struct {
 // NewAssetSalePolicy creates a new asset sale policy.
 func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
-		ID:          quote.ID,
-		AssetAmount: quote.AssetAmount,
-		AskPrice:    quote.AskPrice,
-		expiry:      quote.Expiry,
-		assetID:     quote.AssetID,
+		ID:             quote.ID,
+		MaxAssetAmount: quote.AssetAmount,
+		AskPrice:       quote.AskPrice,
+		expiry:         quote.Expiry,
+		assetID:        quote.AssetID,
 	}
 }
 
@@ -117,12 +118,13 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(
 			htlcScid, c.ID.Scid())
 	}
 
-	// Check that the HTLC amount is at least the minimum acceptable amount.
-	inboundAmountMSat := lnwire.MilliSatoshi(c.AssetAmount) * c.AskPrice
-	if htlc.AmountInMsat < inboundAmountMSat {
-		return fmt.Errorf("htlc in amount is less than the policy "+
-			"minimum (htlc_in_msat=%d, policy_min_msat=%d)",
-			htlc.AmountInMsat, inboundAmountMSat)
+	// Check that the HTLC amount is not greater than the negotiated maximum
+	// amount.
+	maxOutboundAmount := lnwire.MilliSatoshi(c.MaxAssetAmount) * c.AskPrice
+	if htlc.AmountOutMsat > maxOutboundAmount {
+		return fmt.Errorf("htlc out amount is greater than the policy "+
+			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
+			htlc.AmountOutMsat, maxOutboundAmount)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
