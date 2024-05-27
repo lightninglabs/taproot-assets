@@ -326,8 +326,30 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
 
-	// TODO(ffranr): Replace the mock price oracle with a real one.
-	priceOracle := rfq.NewMockPriceOracle(3600, 5820600)
+	// Determine whether we should use the mock price oracle service or a
+	// real price oracle service.
+	var priceOracle rfq.PriceOracle
+
+	switch cfg.Experimental.Rfq.PriceOracleAddress {
+	case rfq.MockPriceOracleServiceAddress:
+		priceOracle = rfq.NewMockPriceOracle(
+			3600, cfg.Experimental.Rfq.MockOracleCentPerSat,
+		)
+
+	case "":
+		// Leave the price oracle as nil, which will cause the RFQ
+		// manager to reject all incoming RFQ requests. It will also
+		// skip setting suggested prices for outgoing quote requests.
+
+	default:
+		priceOracle, err = rfq.NewRpcPriceOracle(
+			cfg.Experimental.Rfq.PriceOracleAddress, false,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create price "+
+				"oracle: %w", err)
+		}
+	}
 
 	// Construct the RFQ manager.
 	rfqManager, err := rfq.NewManager(
