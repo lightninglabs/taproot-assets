@@ -683,6 +683,22 @@ var _ protofsm.MsgEndpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
 var _ routing.TlvTrafficShaper = (*Server)(nil)
 
+// waitForReady blocks until the server is ready to serve requests. If the
+// server is shutting down before we ever become ready, an error is returned.
+func (s *Server) waitForReady() error {
+	// We just need to wait for the server to be ready (but not block
+	// shutdown in case of a startup error). If we shut down after passing
+	// this part of the code, the called component will handle the quit
+	// signal.
+	select {
+	case <-s.ready:
+		return nil
+
+	case <-s.quit:
+		return fmt.Errorf("tapd is shutting down")
+	}
+}
+
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
 //
@@ -698,11 +714,8 @@ func (s *Server) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
 		len(view.OurUpdates), len(view.TheirUpdates))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.CommitAuxLeaves](), nil,
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.CommitAuxLeaves](), nil, err
 	}
 
 	return s.cfg.AuxLeafCreator.FetchLeavesFromView(
@@ -725,11 +738,8 @@ func (s *Server) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
 		com.RemoteBalance, len(com.Htlcs))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.CommitAuxLeaves](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.CommitAuxLeaves](), err
 	}
 
 	return s.cfg.AuxLeafCreator.FetchLeavesFromCommit(chanState, com, keys)
@@ -747,11 +757,8 @@ func (s *Server) FetchLeavesFromRevocation(
 		"teirBalance=%v, numHtlcs=%d", rev.OurBalance, rev.TheirBalance,
 		len(rev.HTLCEntries))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.CommitAuxLeaves](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.CommitAuxLeaves](), err
 	}
 
 	return s.cfg.AuxLeafCreator.FetchLeavesFromRevocation(rev)
@@ -772,10 +779,8 @@ func (s *Server) ApplyHtlcView(chanState *channeldb.OpenChannel,
 		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
 		len(originalView.OurUpdates), len(originalView.TheirUpdates))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[tlv.Blob](), fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[tlv.Blob](), err
 	}
 
 	return s.cfg.AuxLeafCreator.ApplyHtlcView(
@@ -833,10 +838,8 @@ func (s *Server) SubmitSecondLevelSigBatch(chanState *channeldb.OpenChannel,
 	srvrLog.Debugf("SubmitSecondLevelSigBatch called, numSigs=%d",
 		len(sigJob))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxLeafSigner.SubmitSecondLevelSigBatch(
@@ -853,10 +856,8 @@ func (s *Server) PackSigs(
 
 	srvrLog.Debugf("PackSigs called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[tlv.Blob](), fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[tlv.Blob](), err
 	}
 
 	return s.cfg.AuxLeafSigner.PackSigs(blob)
@@ -871,10 +872,8 @@ func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
 
 	srvrLog.Debugf("UnpackSigs called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return nil, fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return nil, err
 	}
 
 	return s.cfg.AuxLeafSigner.UnpackSigs(blob)
@@ -889,10 +888,8 @@ func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 
 	srvrLog.Debugf("VerifySecondLevelSigs called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxLeafSigner.VerifySecondLevelSigs(
@@ -912,11 +909,8 @@ func (s *Server) DescFromPendingChanID(pid funding.PendingChanID,
 
 	srvrLog.Debugf("DescFromPendingChanID called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.AuxFundingDesc](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.AuxFundingDesc](), err
 	}
 
 	return s.cfg.AuxFundingController.DescFromPendingChanID(
@@ -934,11 +928,8 @@ func (s *Server) DeriveTapscriptRoot(
 
 	srvrLog.Debugf("DeriveTapscriptRoot called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[chainhash.Hash](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[chainhash.Hash](), err
 	}
 
 	return s.cfg.AuxFundingController.DeriveTapscriptRoot(pid)
@@ -951,10 +942,8 @@ func (s *Server) DeriveTapscriptRoot(
 func (s *Server) ChannelReady(openChan *channeldb.OpenChannel) error {
 	srvrLog.Debugf("ChannelReady called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxFundingController.ChannelReady(openChan)
@@ -967,10 +956,8 @@ func (s *Server) ChannelReady(openChan *channeldb.OpenChannel) error {
 func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 	srvrLog.Debugf("ChannelFinalized called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxFundingController.ChannelFinalized(pid)
@@ -989,10 +976,8 @@ func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
 	srvrLog.Debugf("HandleTraffic called, cid=%v, fundingBlob=%v", cid,
 		spew.Sdump(fundingBlob))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return false, fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return false, err
 	}
 
 	return s.cfg.AuxTrafficShaper.HandleTraffic(cid, fundingBlob)
@@ -1012,10 +997,8 @@ func (s *Server) PaymentBandwidth(htlcBlob,
 		"commitmentBlob=%v", spew.Sdump(htlcBlob),
 		spew.Sdump(commitmentBlob))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return 0, fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return 0, err
 	}
 
 	return s.cfg.AuxTrafficShaper.PaymentBandwidth(htlcBlob, commitmentBlob)
@@ -1033,10 +1016,8 @@ func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
 		"htlcBlob=%v", totalAmount, spew.Sdump(htlcCustomRecords))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return 0, nil, fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return 0, nil, err
 	}
 
 	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
