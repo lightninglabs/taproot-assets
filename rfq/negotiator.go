@@ -2,7 +2,9 @@ package rfq
 
 import (
 	"fmt"
+	"math"
 	"sync"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -11,6 +13,18 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+)
+
+const (
+	// minRateTickExpiryLifetime is the minimum rate tick expiry lifetime in
+	// seconds.
+	minRateTickExpiryLifetime = 60
+
+	// DefaultAcceptPriceDeviationPpm is the default price deviation in
+	// parts per million that is accepted by the RFQ negotiator.
+	//
+	// NOTE: This value is set to 5% (50,000 ppm).
+	DefaultAcceptPriceDeviationPpm = 50_000
 )
 
 // NegotiatorCfg holds the configuration for the negotiator.
@@ -22,6 +36,18 @@ type NegotiatorCfg struct {
 	// OutgoingMessages is a channel which is populated with outgoing peer
 	// messages. These are messages which are destined to be sent to peers.
 	OutgoingMessages chan<- rfqmsg.OutgoingMsg
+
+	// AcceptPriceDeviationPpm specifies the maximum allowable price
+	// deviation in parts per million (PPM). This parameter defines the
+	// threshold for the price returned by the price oracle service,
+	// indicating how much it can deviate from a peer's quote accept price
+	// for the node to consider using the accepted quote.
+	AcceptPriceDeviationPpm uint64
+
+	// SkipAcceptQuotePriceCheck is a flag that, if set, will skip the
+	// price check when validating an incoming quote accept message. This is
+	// useful for testing purposes.
+	SkipAcceptQuotePriceCheck bool
 
 	// ErrChan is a channel that is populated with errors by this subsystem.
 	ErrChan chan<- error
@@ -442,6 +468,171 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			n.cfg.ErrChan <- err
 			return
 		}
+	}()
+}
+
+// expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
+// within acceptable bounds. This check ensures that the expiry timestamp is far
+// enough in the future for the quote to be useful.
+func expiryWithinBounds(expiryUnixTimestamp uint64,
+	minExpiryLifetime uint64) bool {
+
+	// Convert the expiry timestamp into a time.Time.
+	actualExpiry := time.Unix(int64(expiryUnixTimestamp), 0)
+	diff := actualExpiry.Unix() - time.Now().Unix()
+	return diff >= int64(minExpiryLifetime)
+}
+
+// priceWithinBounds returns true if the difference between the first price and
+// the second price is within the given tolerance (in parts per million (PPM)).
+func pricesWithinBounds(firstPrice lnwire.MilliSatoshi,
+	secondPrice lnwire.MilliSatoshi, tolerancePpm uint64) bool {
+
+	// Handle the case where both prices are zero.
+	if firstPrice == 0 && secondPrice == 0 {
+		return true
+	}
+
+	// Handle cases where either price is zero.
+	if firstPrice == 0 || secondPrice == 0 {
+		return false
+	}
+
+	firstP := float64(firstPrice)
+	secondP := float64(secondPrice)
+
+	// Calculate the absolute difference between both prices.
+	delta := math.Abs(firstP - secondP)
+
+	// Normalize the delta by dividing by the greater of the two prices.
+	normalisedDelta := delta / math.Max(firstP, secondP)
+
+	// Convert the fraction to parts per million (PPM).
+	deltaPpm := 1_000_000 * normalisedDelta
+
+	// Compare the difference to the tolerance.
+	return deltaPpm <= float64(tolerancePpm)
+}
+
+// HandleIncomingBuyAccept handles an incoming buy accept message. This method
+// is called when a peer accepts a quote request from this node. The method
+// checks the price and expiry time of the quote accept message. Once validation
+// is complete, the finalise callback function is called.
+func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
+	finalise func(rfqmsg.BuyAccept, fn.Option[InvalidQuoteRespEvent])) {
+
+	// Ensure that the quote expiry time is within acceptable bounds.
+	//
+	// TODO(ffranr): Sanity check the buy accept quote expiry
+	//  timestamp given the expiry timestamp provided by the price
+	//  oracle.
+	if !expiryWithinBounds(msg.Expiry, minRateTickExpiryLifetime) {
+		// The expiry time is not within the acceptable bounds.
+		log.Debugf("Buy accept quote expiry time is not within "+
+			"acceptable bounds (expiry=%d)", msg.Expiry)
+
+		// Construct an invalid quote response event so that we can
+		// inform the peer that the quote response has not validated
+		// successfully.
+		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+			&msg, InvalidExpiryQuoteRespStatus,
+		)
+		finalise(
+			msg, fn.Some[InvalidQuoteRespEvent](
+				*invalidQuoteRespEvent,
+			),
+		)
+
+		return
+	}
+
+	if n.cfg.SkipAcceptQuotePriceCheck {
+		// Skip the price check.
+		finalise(msg, fn.None[InvalidQuoteRespEvent]())
+		return
+	}
+
+	// Reject the quote response if a price oracle is unavailable.
+	if n.cfg.PriceOracle == nil {
+		invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+			&msg, PriceOracleQueryErrQuoteRespStatus,
+		)
+		finalise(msg, fn.Some[InvalidQuoteRespEvent](
+			*invalidQuoteRespEvent,
+		))
+		return
+	}
+
+	// Query the price oracle asynchronously using a separate goroutine.
+	n.Wg.Add(1)
+	go func() {
+		defer n.Wg.Done()
+
+		// The buy accept message contains an ask price. This price
+		// is the price that the peer is willing to accept in order to
+		// sell the asset that we are buying.
+		//
+		// We will sanity check that price by querying our price oracle
+		// for an ask price. We will then compare the ask price returned
+		// by the price oracle with the ask price provided by the peer.
+		oraclePrice, _, err := n.queryAskFromPriceOracle(
+			&msg.Peer, msg.AssetID, nil,
+			msg.AssetAmount, nil,
+		)
+		if err != nil {
+			// The price oracle returned an error. We will return
+			// without calling the quote accept callback.
+			err = fmt.Errorf("negotiator failed to query price "+
+				"oracle when handling incoming buy accept "+
+				"message: %w", err)
+			log.Errorf("Error calling price oracle: %v", err)
+			n.cfg.ErrChan <- err
+
+			// Construct an invalid quote response event so that we
+			// can inform the peer that the quote response has not
+			// validated successfully.
+			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+				&msg, PriceOracleQueryErrQuoteRespStatus,
+			)
+			finalise(
+				msg, fn.Some[InvalidQuoteRespEvent](
+					*invalidQuoteRespEvent,
+				),
+			)
+
+			return
+		}
+
+		// Ensure that the peer provided price is reasonable given the
+		// price provided by the price oracle service.
+		acceptablePrice := pricesWithinBounds(
+			msg.AskPrice, oraclePrice,
+			n.cfg.AcceptPriceDeviationPpm,
+		)
+		if !acceptablePrice {
+			// The price is not within the acceptable tolerance.
+			// We will return without calling the quote accept
+			// callback.
+			log.Debugf("Buy accept price is not within "+
+				"acceptable bounds (peer_price=%d, "+
+				"oracle_price=%d)", msg.AskPrice, oraclePrice)
+
+			// Construct an invalid quote response event so that we
+			// can inform the peer that the quote response has not
+			// validated successfully.
+			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+				&msg, InvalidRateTickQuoteRespStatus,
+			)
+			finalise(
+				msg, fn.Some[InvalidQuoteRespEvent](
+					*invalidQuoteRespEvent,
+				),
+			)
+
+			return
+		}
+
+		finalise(msg, fn.None[InvalidQuoteRespEvent]())
 	}()
 }
 

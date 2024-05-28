@@ -199,9 +199,10 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	// Initialise and start the quote negotiator.
 	m.negotiator, err = NewNegotiator(
 		NegotiatorCfg{
-			PriceOracle:      m.cfg.PriceOracle,
-			OutgoingMessages: m.outgoingMessages,
-			ErrChan:          m.subsystemErrChan,
+			PriceOracle:             m.cfg.PriceOracle,
+			OutgoingMessages:        m.outgoingMessages,
+			AcceptPriceDeviationPpm: DefaultAcceptPriceDeviationPpm,
+			ErrChan:                 m.subsystemErrChan,
 		},
 	)
 	if err != nil {
@@ -309,28 +310,49 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 	case *rfqmsg.BuyAccept:
 		// TODO(ffranr): The stream handler should ensure that the
 		//  accept message corresponds to a request.
-		//
-		// The quote request has been accepted. Store accepted quote
-		// so that it can be used to send a payment by our lightning
-		// node.
-		scid := SerialisedScid(msg.ShortChannelId())
-		m.peerAcceptedBuyQuotes.Store(scid, *msg)
 
-		// Since we're going to buy assets from our peer, we need to
-		// make sure we can identify the incoming asset payment by the
-		// SCID alias through which it comes in and compare it to the
-		// one in the invoice.
-		err := m.addScidAlias(
-			uint64(msg.ShortChannelId()), *msg.AssetID, msg.Peer,
-		)
-		if err != nil {
-			return fmt.Errorf("error adding local alias: %w", err)
+		finaliseCallback := func(msg rfqmsg.BuyAccept,
+			invalidQuoteEvent fn.Option[InvalidQuoteRespEvent]) {
+
+			// If the quote is invalid, notify subscribers of the
+			// invalid quote event and return.
+			invalidQuoteEvent.WhenSome(
+				func(event InvalidQuoteRespEvent) {
+					m.publishSubscriberEvent(&event)
+				},
+			)
+
+			if invalidQuoteEvent.IsSome() {
+				return
+			}
+
+			// The quote request has been accepted. Store accepted
+			// quote so that it can be used to send a payment by our
+			// lightning node.
+			scid := msg.ShortChannelId()
+			m.peerAcceptedBuyQuotes.Store(scid, msg)
+
+			// Since we're going to buy assets from our peer, we
+			// need to make sure we can identify the incoming asset
+			// payment by the SCID alias through which it comes in
+			// and compare it to the one in the invoice.
+			err := m.addScidAlias(
+				uint64(msg.ShortChannelId()), *msg.AssetID,
+				msg.Peer,
+			)
+			if err != nil {
+				m.cfg.ErrChan <- fmt.Errorf("error adding "+
+					"local alias: %w", err)
+				return
+			}
+
+			// Notify subscribers of the incoming peer accepted
+			// asset buy quote.
+			event := NewPeerAcceptedBuyQuoteEvent(&msg)
+			m.publishSubscriberEvent(event)
 		}
 
-		// Notify subscribers of the incoming peer accepted asset buy
-		// quote.
-		event := NewPeerAcceptedBuyQuoteEvent(msg)
-		m.publishSubscriberEvent(event)
+		m.negotiator.HandleIncomingBuyAccept(*msg, finaliseCallback)
 
 	case *rfqmsg.SellRequest:
 		err := m.negotiator.HandleIncomingSellRequest(*msg)
