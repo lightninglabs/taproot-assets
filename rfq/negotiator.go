@@ -286,6 +286,16 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		}
 	}
 
+	// Reject the quote request if a price oracle is unavailable.
+	if n.cfg.PriceOracle == nil {
+		msg := rfqmsg.NewReject(
+			request.Peer, request.ID,
+			rfqmsg.ErrPriceOracleUnavailable,
+		)
+		go sendOutgoingMsg(msg)
+		return nil
+	}
+
 	// Ensure that we have a suitable sell offer for the asset that is being
 	// requested. Here we can handle the case where this node does not wish
 	// to sell a particular asset.
@@ -364,6 +374,16 @@ func (n *Negotiator) HandleIncomingSellRequest(
 				msg)
 			n.cfg.ErrChan <- err
 		}
+	}
+
+	// Reject the quote request if a price oracle is unavailable.
+	if n.cfg.PriceOracle == nil {
+		msg := rfqmsg.NewReject(
+			request.Peer, request.ID,
+			rfqmsg.ErrPriceOracleUnavailable,
+		)
+		go sendOutgoingMsg(msg)
+		return nil
 	}
 
 	// The sell request is attempting to sell some amount of an asset to our
