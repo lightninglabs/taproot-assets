@@ -364,17 +364,35 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 	case *rfqmsg.SellAccept:
 		// TODO(ffranr): The stream handler should ensure that the
 		//  accept message corresponds to a request.
-		//
-		// The quote request has been accepted. Store accepted quote
-		// so that it can be used to send a payment by our lightning
-		// node.
-		scid := SerialisedScid(msg.ShortChannelId())
-		m.peerAcceptedSellQuotes.Store(scid, *msg)
 
-		// Notify subscribers of the incoming peer accepted asset sell
-		// quote.
-		event := NewPeerAcceptedSellQuoteEvent(msg)
-		m.publishSubscriberEvent(event)
+		finaliseCallback := func(msg rfqmsg.SellAccept,
+			invalidQuoteEvent fn.Option[InvalidQuoteRespEvent]) {
+
+			// If the quote is invalid, notify subscribers of the
+			// invalid quote event and return.
+			invalidQuoteEvent.WhenSome(
+				func(event InvalidQuoteRespEvent) {
+					m.publishSubscriberEvent(&event)
+				},
+			)
+
+			if invalidQuoteEvent.IsSome() {
+				return
+			}
+
+			// The quote request has been accepted. Store accepted
+			// quote so that it can be used to send a payment by our
+			// lightning node.
+			scid := msg.ShortChannelId()
+			m.peerAcceptedSellQuotes.Store(scid, msg)
+
+			// Notify subscribers of the incoming peer accepted
+			// asset sell quote.
+			event := NewPeerAcceptedSellQuoteEvent(&msg)
+			m.publishSubscriberEvent(event)
+		}
+
+		m.negotiator.HandleIncomingSellAccept(*msg, finaliseCallback)
 
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
