@@ -343,6 +343,25 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, err
 	}
 
+	chainPorter := tapfreighter.NewChainPorter(
+		&tapfreighter.ChainPorterConfig{
+			Signer:      virtualTxSigner,
+			TxValidator: &tap.ValidatorV0{},
+			ExportLog:   assetStore,
+			ChainBridge: chainBridge,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			Wallet:                 walletAnchor,
+			KeyRing:                keyRing,
+			AssetWallet:            assetWallet,
+			AssetProofs:            proofFileStore,
+			ProofCourierDispatcher: proofCourierDispatcher,
+			ProofWatcher:           reOrgWatcher,
+			ErrChan:                mainErrChan,
+		},
+	)
+
 	auxLeafCreator := tapchannel.NewAuxLeafCreator(
 		&tapchannel.LeafCreatorConfig{
 			ChainParams: &tapChainParams,
@@ -352,6 +371,26 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		&tapchannel.LeafSignerConfig{
 			ChainParams: &tapChainParams,
 			Signer:      assetWallet,
+		},
+	)
+	channelFunder := tap.NewLndPbstChannelFunder(lndServices)
+	auxFundingController := tapchannel.NewFundingController(
+		tapchannel.FundingControllerCfg{
+			HeaderVerifier: headerVerifier,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			ErrReporter:   msgTransportClient,
+			AssetWallet:   assetWallet,
+			CoinSelector:  coinSelect,
+			ChainParams:   tapChainParams,
+			GroupKeyIndex: tapdbAddrBook,
+			PeerMessenger: msgTransportClient,
+			ChannelFunder: channelFunder,
+			TxPublisher:   chainBridge,
+			ChainWallet:   walletAnchor,
+			RfqManager:    rfqManager,
+			TxSender:      chainPorter,
 		},
 	)
 
@@ -395,31 +434,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				ProofRetrievalDelay:    cfg.CustodianProofRetrievalDelay, ProofWatcher: reOrgWatcher,
 			},
 		),
-		ChainBridge:             chainBridge,
-		AddrBook:                addrBook,
-		AddrBookDisableSyncer:   cfg.AddrBook.DisableSyncer,
-		DefaultProofCourierAddr: proofCourierAddr,
-		ProofArchive:            proofArchive,
-		AssetWallet:             assetWallet,
-		CoinSelect:              coinSelect,
-		ChainPorter: tapfreighter.NewChainPorter(
-			&tapfreighter.ChainPorterConfig{
-				Signer:      virtualTxSigner,
-				TxValidator: &tap.ValidatorV0{},
-				ExportLog:   assetStore,
-				ChainBridge: chainBridge,
-				GroupVerifier: tapgarden.GenGroupVerifier(
-					context.Background(), assetMintingStore,
-				),
-				Wallet:                 walletAnchor,
-				KeyRing:                keyRing,
-				AssetWallet:            assetWallet,
-				AssetProofs:            proofFileStore,
-				ProofCourierDispatcher: proofCourierDispatcher,
-				ProofWatcher:           reOrgWatcher,
-				ErrChan:                mainErrChan,
-			},
-		),
+		ChainBridge:              chainBridge,
+		AddrBook:                 addrBook,
+		AddrBookDisableSyncer:    cfg.AddrBook.DisableSyncer,
+		DefaultProofCourierAddr:  proofCourierAddr,
+		ProofArchive:             proofArchive,
+		AssetWallet:              assetWallet,
+		CoinSelect:               coinSelect,
+		ChainPorter:              chainPorter,
 		UniverseArchive:          baseUni,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
@@ -430,6 +452,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		RfqManager:               rfqManager,
 		AuxLeafCreator:           auxLeafCreator,
 		AuxLeafSigner:            auxLeafSigner,
+		AuxFundingController:     auxFundingController,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

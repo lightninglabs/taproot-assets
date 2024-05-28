@@ -34,6 +34,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
+	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -41,6 +42,7 @@ import (
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -6388,6 +6390,45 @@ func (r *rpcServer) SubscribeRfqEventNtfns(
 		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, filter, r.quit,
 		0,
 	)
+}
+
+// FundChannel initiates the channel funding negotiation with a peer for the
+// creation of a channel that contains a specified amount of a given asset.
+func (r *rpcServer) FundChannel(ctx context.Context,
+	req *tchrpc.FundChannelRequest) (*tchrpc.FundChannelResponse,
+	error) {
+
+	peerPub, err := btcec.ParsePubKey(req.PeerPubkey)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing peer pubkey: %w", err)
+	}
+
+	if len(req.AssetId) != sha256.Size {
+		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	}
+
+	if req.AssetAmount == 0 {
+		return nil, fmt.Errorf("asset amount must be specified")
+	}
+	if req.FeeRateSatPerVbyte == 0 {
+		return nil, fmt.Errorf("fee rate must be specified")
+	}
+
+	fundReq := tapchannel.FundReq{
+		PeerPub:     *peerPub,
+		AssetAmount: req.AssetAmount,
+		FeeRate:     chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
+	}
+	copy(fundReq.AssetID[:], req.AssetId)
+
+	txHash, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
+	if err != nil {
+		return nil, fmt.Errorf("error funding channel: %w", err)
+	}
+
+	return &tchrpc.FundChannelResponse{
+		Txid: txHash.String(),
+	}, nil
 }
 
 // serialize is a helper function that serializes a serializable object into a

@@ -1,0 +1,34 @@
+syntax = "proto3";
+
+package tapchannelrpc;
+
+option go_package = "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc";
+
+service TaprootAssetChannels {
+    /*
+    FundChannel initiates the channel funding negotiation with a peer for the
+    creation of a channel that contains a specified amount of a given asset.
+    */
+    rpc FundChannel (FundChannelRequest) returns (FundChannelResponse);
+}
+
+message FundChannelRequest {
+    // The asset amount to fund the channel with. The BTC amount is fixed and
+    // cannot be customized (for now).
+    uint64 asset_amount = 1;
+
+    // The asset ID to use for the channel funding.
+    bytes asset_id = 2;
+
+    // The public key of the peer to open the channel with. Must already be
+    // connected to this peer.
+    bytes peer_pubkey = 3;
+
+    // The channel funding fee rate in sat/vByte.
+    uint32 fee_rate_sat_per_vbyte = 4;
+}
+
+message FundChannelResponse {
+    // The channel funding transaction ID.
+    string txid = 1;
+}
