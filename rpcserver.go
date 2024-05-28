@@ -176,8 +176,9 @@ type rpcServer struct {
 	wrpc.UnimplementedAssetWalletServer
 	mintrpc.UnimplementedMintServer
 	rfqrpc.UnimplementedRfqServer
-	unirpc.UnimplementedUniverseServer
+	tchrpc.UnimplementedTaprootAssetChannelsServer
 	tapdevrpc.UnimplementedTapDevServer
+	unirpc.UnimplementedUniverseServer
 
 	interceptor signal.Interceptor
 
@@ -249,6 +250,7 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	wrpc.RegisterAssetWalletServer(grpcServer, r)
 	mintrpc.RegisterMintServer(grpcServer, r)
 	rfqrpc.RegisterRfqServer(grpcServer, r)
+	tchrpc.RegisterTaprootAssetChannelsServer(grpcServer, r)
 	unirpc.RegisterUniverseServer(grpcServer, r)
 	tapdevrpc.RegisterGrpcServer(grpcServer, r)
 	return nil
@@ -283,6 +285,13 @@ func (r *rpcServer) RegisterWithRestProxy(restCtx context.Context,
 	}
 
 	err = rfqrpc.RegisterRfqHandlerFromEndpoint(
+		restCtx, restMux, restProxyDest, restDialOpts,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = tchrpc.RegisterTaprootAssetChannelsHandlerFromEndpoint(
 		restCtx, restMux, restProxyDest, restDialOpts,
 	)
 	if err != nil {

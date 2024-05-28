@@ -733,6 +733,14 @@ func TestProofVerification(t *testing.T) {
 
 	t.Logf("Proof asset JSON: %s", assetJSON)
 
+	if len(p.ChallengeWitness) > 0 {
+		_, err = p.Verify(
+			context.Background(), nil, MockHeaderVerifier,
+			MockMerkleVerifier, MockGroupVerifier,
+		)
+		require.NoError(t, err)
+	}
+
 	// Ensure that verification of a proof of unknown version fails.
 	p.Version = TransitionVersion(212)
 

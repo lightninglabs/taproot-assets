@@ -99,6 +99,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	chainBridge := tap.NewLndRpcChainBridge(lndServices)
 	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := tap.NewLndRouterClient(lndServices)
+	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
 
 	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
 
@@ -393,6 +394,19 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			TxSender:      chainPorter,
 		},
 	)
+	auxTrafficShaper := tapchannel.NewAuxTrafficShaper(
+		&tapchannel.TrafficShaperConfig{
+			ChainParams: &tapChainParams,
+			RfqManager:  rfqManager,
+		},
+	)
+	auxInvoiceManager := tapchannel.NewAuxInvoiceManager(
+		&tapchannel.InvoiceManagerConfig{
+			ChainParams:         &tapChainParams,
+			InvoiceHtlcModifier: lndInvoicesClient,
+			RfqManager:          rfqManager,
+		},
+	)
 
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
@@ -453,6 +467,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxLeafCreator:           auxLeafCreator,
 		AuxLeafSigner:            auxLeafSigner,
 		AuxFundingController:     auxFundingController,
+		AuxTrafficShaper:         auxTrafficShaper,
+		AuxInvoiceManager:        auxInvoiceManager,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

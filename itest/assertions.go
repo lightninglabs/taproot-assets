@@ -30,6 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lnrpc/chainrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
@@ -334,7 +335,7 @@ func AssertFeeRate(t *testing.T, minerClient *rpcclient.Client, inputAmt int64,
 	var (
 		outputValue                 float64
 		expectedFee, maxOverpayment btcutil.Amount
-		maxVsizeDifference          = int64(2)
+		maxVsizeDifference          = lntypes.VByte(2)
 	)
 
 	verboseTx, err := minerClient.GetRawTransactionVerbose(txid)
@@ -354,7 +355,7 @@ func AssertFeeRate(t *testing.T, minerClient *rpcclient.Client, inputAmt int64,
 
 	actualFee := inputAmt - int64(btcOutputValue)
 
-	expectedFee = feeRate.FeeForWeight(int64(weight))
+	expectedFee = feeRate.FeeForWeight(lntypes.WeightUnit(weight))
 	maxOverpayment = feeRate.FeePerKVByte().FeeForVSize(maxVsizeDifference)
 
 	// The actual fee may be higher than the expected fee after

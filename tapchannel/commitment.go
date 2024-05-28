@@ -25,7 +25,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 // DecodedDescriptor is a wrapper around a PaymentDescriptor that also includes
@@ -122,14 +121,13 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 					entry.ParentIndex)
 			}
 
-			var err error
-			parentEntry.CustomRecords.WhenSome(func(blob tlv.Blob) {
-				var assetHtlc *rfqmsg.Htlc
-				assetHtlc, err = rfqmsg.DecodeHtlc(blob)
+			if len(parentEntry.CustomRecords) > 0 {
+				assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
+					parentEntry.CustomRecords,
+				)
 				if err != nil {
-					err = fmt.Errorf("unable to decode "+
-						"asset htlc: %w", err)
-					return
+					return 0, 0, nil, fmt.Errorf("unable "+
+						"to decode asset htlc: %w", err)
 				}
 
 				decodedEntry := &DecodedDescriptor{
@@ -141,10 +139,6 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 					decodedEntry, local, remote,
 					isOurCommit, true, nextHeight,
 				)
-			})
-			if err != nil {
-				return 0, 0, nil, fmt.Errorf("error "+
-					"processing our remove entry: %w", err)
 			}
 		}
 	}
@@ -170,14 +164,13 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 					entry.ParentIndex)
 			}
 
-			var err error
-			parentEntry.CustomRecords.WhenSome(func(blob tlv.Blob) {
-				var assetHtlc *rfqmsg.Htlc
-				assetHtlc, err = rfqmsg.DecodeHtlc(blob)
+			if len(parentEntry.CustomRecords) > 0 {
+				assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
+					parentEntry.CustomRecords,
+				)
 				if err != nil {
-					err = fmt.Errorf("unable to decode "+
-						"asset htlc: %w", err)
-					return
+					return 0, 0, nil, fmt.Errorf("unable "+
+						"to decode asset htlc: %w", err)
 				}
 
 				decodedEntry := &DecodedDescriptor{
@@ -188,11 +181,6 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 					decodedEntry, local, remote,
 					isOurCommit, false, nextHeight,
 				)
-			})
-			if err != nil {
-				return 0, 0, nil, fmt.Errorf("error "+
-					"processing their remove entry: %w",
-					err)
 			}
 		}
 	}
@@ -210,37 +198,28 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 		}
 
 		// Again skip any entries that aren't TAP related.
-		if entry.CustomRecords.IsNone() {
+		if len(entry.CustomRecords) == 0 {
 			continue
 		}
 
-		var err error
-		entry.CustomRecords.WhenSome(func(blob tlv.Blob) {
-			var assetHtlc *rfqmsg.Htlc
-			assetHtlc, err = rfqmsg.DecodeHtlc(blob)
-			if err != nil {
-				err = fmt.Errorf("unable to decode asset "+
-					"htlc: %w", err)
-				return
-			}
-
-			decodedEntry := &DecodedDescriptor{
-				PaymentDescriptor: entry,
-				AssetBalances:     assetHtlc.Balances(),
-			}
-			local, remote = processAddEntry(
-				decodedEntry, local, remote, isOurCommit, false,
-				nextHeight,
-			)
-
-			newView.OurUpdates = append(
-				newView.OurUpdates, decodedEntry,
-			)
-		})
+		assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
+			entry.CustomRecords,
+		)
 		if err != nil {
-			return 0, 0, nil, fmt.Errorf("error processing our "+
-				"add entry: %w", err)
+			return 0, 0, nil, fmt.Errorf("unable to decode asset "+
+				"htlc: %w", err)
 		}
+
+		decodedEntry := &DecodedDescriptor{
+			PaymentDescriptor: entry,
+			AssetBalances:     assetHtlc.Balances(),
+		}
+		local, remote = processAddEntry(
+			decodedEntry, local, remote, isOurCommit, false,
+			nextHeight,
+		)
+
+		newView.OurUpdates = append(newView.OurUpdates, decodedEntry)
 	}
 	for _, entry := range original.TheirUpdates {
 		isAdd := entry.EntryType == lnwallet.Add
@@ -252,37 +231,30 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 		}
 
 		// Again skip any entries that aren't TAP related.
-		if entry.CustomRecords.IsNone() {
+		if len(entry.CustomRecords) == 0 {
 			continue
 		}
 
-		var err error
-		entry.CustomRecords.WhenSome(func(blob tlv.Blob) {
-			var assetHtlc *rfqmsg.Htlc
-			assetHtlc, err = rfqmsg.DecodeHtlc(blob)
-			if err != nil {
-				err = fmt.Errorf("unable to decode asset "+
-					"htlc: %w", err)
-				return
-			}
-
-			decodedEntry := &DecodedDescriptor{
-				PaymentDescriptor: entry,
-				AssetBalances:     assetHtlc.Balances(),
-			}
-			local, remote = processAddEntry(
-				decodedEntry, local, remote, isOurCommit, true,
-				nextHeight,
-			)
-
-			newView.TheirUpdates = append(
-				newView.TheirUpdates, decodedEntry,
-			)
-		})
+		assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
+			entry.CustomRecords,
+		)
 		if err != nil {
-			return 0, 0, nil, fmt.Errorf("error processing their "+
-				"add entry: %w", err)
+			return 0, 0, nil, fmt.Errorf("unable to decode asset "+
+				"htlc: %w", err)
 		}
+
+		decodedEntry := &DecodedDescriptor{
+			PaymentDescriptor: entry,
+			AssetBalances:     assetHtlc.Balances(),
+		}
+		local, remote = processAddEntry(
+			decodedEntry, local, remote, isOurCommit, true,
+			nextHeight,
+		)
+
+		newView.TheirUpdates = append(
+			newView.TheirUpdates, decodedEntry,
+		)
 	}
 
 	return local, remote, newView, nil
@@ -1185,7 +1157,7 @@ func FakeCommitTx(fundingOutpoint wire.OutPoint,
 // the allocation's OutputIndex. The transaction inputs are sorted by the
 // default BIP69 sort.
 func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
-	allocations []*Allocation) error {
+	htlcIndexes []input.HtlcIndex, allocations []*Allocation) error {
 
 	if len(tx.TxOut) != len(allocations) {
 		return fmt.Errorf("output and allocation size mismatch")
@@ -1209,6 +1181,7 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 		for _, a := range allocations {
 			match, err := a.MatchesOutput(
 				original.PkScript, original.Value, cltvs[i],
+				htlcIndexes[i],
 			)
 			if err != nil {
 				return fmt.Errorf("error matching output: %w",

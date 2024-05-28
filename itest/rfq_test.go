@@ -76,7 +76,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	// Carol sends a buy order to Bob for some amount of the newly minted
 	// asset. These quantities were selected to work with the price oracle
 	// mock.
-	purchaseAssetAmt := uint64(5)
+	purchaseAssetAmt := uint64(6)
 	bidAmt := uint64(90000)
 	buyOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
 

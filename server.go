@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -31,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/keepalive"
@@ -193,10 +195,15 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf signer: %w", err)
 	}
-
 	if err := s.cfg.AuxFundingController.Start(); err != nil {
 		return fmt.Errorf("unable to start aux funding controller: %w",
 			err)
+	}
+	if err := s.cfg.AuxTrafficShaper.Start(); err != nil {
+		return fmt.Errorf("unable to start aux traffic shaper %w", err)
+	}
+	if err := s.cfg.AuxInvoiceManager.Start(); err != nil {
+		return fmt.Errorf("unable to start aux invoice mgr: %w", err)
 	}
 
 	if s.cfg.UniversePublicAccess {
@@ -644,6 +651,12 @@ func (s *Server) Stop() error {
 	if err := s.cfg.AuxFundingController.Stop(); err != nil {
 		return err
 	}
+	if err := s.cfg.AuxTrafficShaper.Stop(); err != nil {
+		return err
+	}
+	if err := s.cfg.AuxInvoiceManager.Stop(); err != nil {
+		return err
+	}
 
 	if s.macaroonService != nil {
 		err := s.macaroonService.Stop()
@@ -661,12 +674,30 @@ func (s *Server) Stop() error {
 
 // A compile-time check to ensure that Server fully implements the
 // lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
-// protofsm.MsgEndpoint and funding.AuxFundingController interfaces.
+// protofsm.MsgEndpoint, funding.AuxFundingController and
+// routing.TlvTrafficShaper interfaces.
 var _ lnwallet.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
 var _ lnwallet.AuxSigner = (*Server)(nil)
 var _ protofsm.MsgEndpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
+var _ routing.TlvTrafficShaper = (*Server)(nil)
+
+// waitForReady blocks until the server is ready to serve requests. If the
+// server is shutting down before we ever become ready, an error is returned.
+func (s *Server) waitForReady() error {
+	// We just need to wait for the server to be ready (but not block
+	// shutdown in case of a startup error). If we shut down after passing
+	// this part of the code, the called component will handle the quit
+	// signal.
+	select {
+	case <-s.ready:
+		return nil
+
+	case <-s.quit:
+		return fmt.Errorf("tapd is shutting down")
+	}
+}
 
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
@@ -683,11 +714,8 @@ func (s *Server) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
 		len(view.OurUpdates), len(view.TheirUpdates))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.CommitAuxLeaves](), nil,
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.CommitAuxLeaves](), nil, err
 	}
 
 	return s.cfg.AuxLeafCreator.FetchLeavesFromView(
@@ -710,11 +738,8 @@ func (s *Server) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
 		com.RemoteBalance, len(com.Htlcs))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.CommitAuxLeaves](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.CommitAuxLeaves](), err
 	}
 
 	return s.cfg.AuxLeafCreator.FetchLeavesFromCommit(chanState, com, keys)
@@ -732,11 +757,8 @@ func (s *Server) FetchLeavesFromRevocation(
 		"teirBalance=%v, numHtlcs=%d", rev.OurBalance, rev.TheirBalance,
 		len(rev.HTLCEntries))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.CommitAuxLeaves](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.CommitAuxLeaves](), err
 	}
 
 	return s.cfg.AuxLeafCreator.FetchLeavesFromRevocation(rev)
@@ -757,10 +779,8 @@ func (s *Server) ApplyHtlcView(chanState *channeldb.OpenChannel,
 		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
 		len(originalView.OurUpdates), len(originalView.TheirUpdates))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[tlv.Blob](), fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[tlv.Blob](), err
 	}
 
 	return s.cfg.AuxLeafCreator.ApplyHtlcView(
@@ -818,10 +838,8 @@ func (s *Server) SubmitSecondLevelSigBatch(chanState *channeldb.OpenChannel,
 	srvrLog.Debugf("SubmitSecondLevelSigBatch called, numSigs=%d",
 		len(sigJob))
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxLeafSigner.SubmitSecondLevelSigBatch(
@@ -838,10 +856,8 @@ func (s *Server) PackSigs(
 
 	srvrLog.Debugf("PackSigs called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[tlv.Blob](), fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[tlv.Blob](), err
 	}
 
 	return s.cfg.AuxLeafSigner.PackSigs(blob)
@@ -856,10 +872,8 @@ func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
 
 	srvrLog.Debugf("UnpackSigs called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return nil, fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return nil, err
 	}
 
 	return s.cfg.AuxLeafSigner.UnpackSigs(blob)
@@ -874,10 +888,8 @@ func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 
 	srvrLog.Debugf("VerifySecondLevelSigs called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxLeafSigner.VerifySecondLevelSigs(
@@ -897,11 +909,8 @@ func (s *Server) DescFromPendingChanID(pid funding.PendingChanID,
 
 	srvrLog.Debugf("DescFromPendingChanID called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[lnwallet.AuxFundingDesc](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwallet.AuxFundingDesc](), err
 	}
 
 	return s.cfg.AuxFundingController.DescFromPendingChanID(
@@ -919,11 +928,8 @@ func (s *Server) DeriveTapscriptRoot(
 
 	srvrLog.Debugf("DeriveTapscriptRoot called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return lfn.None[chainhash.Hash](),
-			fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[chainhash.Hash](), err
 	}
 
 	return s.cfg.AuxFundingController.DeriveTapscriptRoot(pid)
@@ -936,10 +942,8 @@ func (s *Server) DeriveTapscriptRoot(
 func (s *Server) ChannelReady(openChan *channeldb.OpenChannel) error {
 	srvrLog.Debugf("ChannelReady called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxFundingController.ChannelReady(openChan)
@@ -952,11 +956,71 @@ func (s *Server) ChannelReady(openChan *channeldb.OpenChannel) error {
 func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 	srvrLog.Debugf("ChannelFinalized called")
 
-	select {
-	case <-s.ready:
-	case <-s.quit:
-		return fmt.Errorf("tapd is shutting down")
+	if err := s.waitForReady(); err != nil {
+		return err
 	}
 
 	return s.cfg.AuxFundingController.ChannelFinalized(pid)
+}
+
+// HandleTraffic is called in order to check if the channel identified by the
+// provided channel ID is handled by the traffic shaper implementation. If it
+// is handled by the traffic shaper, then the normal bandwidth calculation can
+// be skipped and the bandwidth returned by PaymentBandwidth should be used
+// instead.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
+	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
+
+	srvrLog.Debugf("HandleTraffic called, cid=%v, fundingBlob=%v", cid,
+		spew.Sdump(fundingBlob))
+
+	if err := s.waitForReady(); err != nil {
+		return false, err
+	}
+
+	return s.cfg.AuxTrafficShaper.HandleTraffic(cid, fundingBlob)
+}
+
+// PaymentBandwidth returns the available bandwidth for a custom channel decided
+// by the given channel aux blob and HTLC blob. A return value of 0 means there
+// is no bandwidth available. To find out if a channel is a custom channel that
+// should be handled by the traffic shaper, the HandleTraffic method should be
+// called first.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) PaymentBandwidth(htlcBlob,
+	commitmentBlob lfn.Option[tlv.Blob]) (lnwire.MilliSatoshi, error) {
+
+	srvrLog.Debugf("PaymentBandwidth called, htlcBlob=%v, "+
+		"commitmentBlob=%v", spew.Sdump(htlcBlob),
+		spew.Sdump(commitmentBlob))
+
+	if err := s.waitForReady(); err != nil {
+		return 0, err
+	}
+
+	return s.cfg.AuxTrafficShaper.PaymentBandwidth(htlcBlob, commitmentBlob)
+}
+
+// ProduceHtlcExtraData is a function that, based on the previous custom record
+// blob of an HTLC, may produce a different blob or modify the amount of bitcoin
+// this HTLC should carry.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
+	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi, tlv.Blob,
+	error) {
+
+	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
+		"htlcBlob=%v", totalAmount, spew.Sdump(htlcCustomRecords))
+
+	if err := s.waitForReady(); err != nil {
+		return 0, nil, err
+	}
+
+	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
+		totalAmount, htlcCustomRecords,
+	)
 }

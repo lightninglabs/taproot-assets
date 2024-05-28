@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wallet/txsizes"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
@@ -79,7 +80,7 @@ func EstimateFee(inputScripts [][]byte, outputs []*wire.TxOut,
 		p2pkh, p2tr, p2wpkh, nested, outputs, 0,
 	)
 	maxRequiredFee := feeRate.FeePerKVByte().FeeForVSize(
-		int64(maxSignedSize),
+		lntypes.VByte(maxSignedSize),
 	)
 
 	return maxSignedSize, maxRequiredFee

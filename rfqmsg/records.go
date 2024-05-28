@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -145,6 +146,18 @@ func DecodeHtlc(blob tlv.Blob) (*Htlc, error) {
 	}
 
 	return &h, nil
+}
+
+// HtlcFromCustomRecords creates a new Htlc record from the given custom
+// records.
+func HtlcFromCustomRecords(records lnwire.CustomRecords) (*Htlc, error) {
+	encoded, err := records.Serialize()
+	if err != nil {
+		return nil, fmt.Errorf("unable to serialize custom records: %w",
+			err)
+	}
+
+	return DecodeHtlc(encoded)
 }
 
 // AssetBalance is a record that represents the amount of an asset that is
