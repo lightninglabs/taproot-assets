@@ -22,6 +22,7 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
@@ -276,7 +277,19 @@ type AddrBookConfig struct {
 	DisableSyncer bool `long:"disable-syncer" description:"If true, tapd will not try to sync issuance proofs for unknown assets when creating an address."`
 }
 
+// ExperimentalConfig houses experimental tapd cli configuration options.
+type ExperimentalConfig struct {
+	Rfq rfq.CliConfig `group:"rfq" namespace:"rfq"`
+}
+
+// Validate returns an error if the configuration is invalid.
+func (c *ExperimentalConfig) Validate() error {
+	return c.Rfq.Validate()
+}
+
 // Config is the main config for the tapd cli command.
+//
+// nolint: lll
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
 
@@ -316,6 +329,8 @@ type Config struct {
 	AddrBook *AddrBookConfig `group:"address" namespace:"address"`
 
 	Prometheus monitoring.PrometheusConfig `group:"prometheus" namespace:"prometheus"`
+
+	Experimental *ExperimentalConfig `group:"experimental" namespace:"experimental"`
 
 	// LogWriter is the root logger that all of the daemon's subloggers are
 	// hooked up to.
@@ -404,6 +419,7 @@ func DefaultConfig() Config {
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
 		},
+		Experimental: &ExperimentalConfig{},
 	}
 }
 
@@ -811,6 +827,13 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 			return nil, mkErr("error enforcing safe "+
 				"authentication on REST ports: %v", err)
 		}
+	}
+
+	// Validate the experimental command line config.
+	err = cfg.Experimental.Validate()
+	if err != nil {
+		return nil, fmt.Errorf("error in experimental command line "+
+			"config: %w", err)
 	}
 
 	// All good, return the sanitized result.

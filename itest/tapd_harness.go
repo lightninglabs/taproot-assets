@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -212,6 +213,14 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// Pass through the address asset syncer disable flag. If the option
 	// was not set, this will be false, which is the default.
 	tapCfg.AddrBook.DisableSyncer = opts.addrAssetSyncerDisable
+
+	// Set the experimental config for the RFQ service.
+	tapCfg.Experimental = &tapcfg.ExperimentalConfig{
+		Rfq: rfq.CliConfig{
+			PriceOracleAddress:   rfq.MockPriceOracleServiceAddress,
+			MockOracleCentPerSat: 5_820_600,
+		},
+	}
 
 	cfgLogger := tapCfg.LogWriter.GenSubLogger("CONF", nil)
 	finalCfg, err := tapcfg.ValidateConfig(tapCfg, cfgLogger)

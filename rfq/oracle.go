@@ -3,6 +3,7 @@ package rfq
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -58,6 +59,41 @@ type OracleBidResponse struct {
 
 	// Err is an optional error returned by the price oracle service.
 	Err *OracleError
+}
+
+// OracleAddr is a type alias for a URL type that represents a price oracle
+// service address.
+type OracleAddr = url.URL
+
+const (
+	// RfqRpcOracleAddrScheme is the URL address scheme used by an RPC price
+	// oracle service.
+	RfqRpcOracleAddrScheme string = "rfqrpc"
+)
+
+// ParsePriceOracleAddress parses a price oracle service address string and
+// returns a URL type instance.
+func ParsePriceOracleAddress(addrStr string) (*OracleAddr, error) {
+	// Basic sanity check to ensure the address is not empty.
+	if addrStr == "" {
+		return nil, fmt.Errorf("price oracle " +
+			"address is an empty string")
+	}
+
+	// Parse the price oracle address.
+	addr, err := url.ParseRequestURI(addrStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid price oracle service URI "+
+			"address: %w", err)
+	}
+
+	// Ensure that the price oracle address scheme is valid.
+	if addr.Scheme != RfqRpcOracleAddrScheme {
+		return nil, fmt.Errorf("unknown price oracle protocol "+
+			"(consider updating tapd): %v", addr.Scheme)
+	}
+
+	return addr, nil
 }
 
 // PriceOracle is an interface that provides exchange rate information for
