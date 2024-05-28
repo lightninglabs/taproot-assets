@@ -163,16 +163,26 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 	go func() {
 		defer n.Wg.Done()
 
-		// Query the price oracle for a bid price.
-		bidPrice, _, err := n.queryBidFromPriceOracle(
-			*buyOrder.Peer, buyOrder.AssetID,
-			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-		)
-		if err != nil {
-			err := fmt.Errorf("negotiator failed to handle price "+
-				"oracle response: %w", err)
-			n.cfg.ErrChan <- err
-			return
+		// We calculate a proposed bid price for our peer's
+		// consideration. If a price oracle is not specified we will
+		// skip this step.
+		var bidPrice lnwire.MilliSatoshi
+
+		if n.cfg.PriceOracle != nil {
+			// Query the price oracle for a bid price.
+			var err error
+			bidPrice, _, err = n.queryBidFromPriceOracle(
+				*buyOrder.Peer, buyOrder.AssetID,
+				buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
+			)
+			if err != nil {
+				// If we fail to query the price oracle for a
+				// bid price, we will log a warning and continue
+				// without a bid price.
+				log.Warnf("failed to query bid price from "+
+					"price oracle for outgoing buy "+
+					"request: %v", err)
+			}
 		}
 
 		request, err := rfqmsg.NewBuyRequest(
@@ -433,16 +443,24 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 	go func() {
 		defer n.Wg.Done()
 
-		// Query the price oracle for an asking price.
-		askPrice, _, err := n.queryAskFromPriceOracle(
-			order.Peer, order.AssetID, order.AssetGroupKey,
-			order.MaxAssetAmount, nil,
-		)
-		if err != nil {
-			err := fmt.Errorf("negotiator failed to handle price "+
-				"oracle response: %w", err)
-			n.cfg.ErrChan <- err
-			return
+		// We calculate a proposed ask price for our peer's
+		// consideration. If a price oracle is not specified we will
+		// skip this step.
+		var askPrice lnwire.MilliSatoshi
+
+		if n.cfg.PriceOracle != nil {
+			// Query the price oracle for an asking price.
+			var err error
+			askPrice, _, err = n.queryAskFromPriceOracle(
+				order.Peer, order.AssetID, order.AssetGroupKey,
+				order.MaxAssetAmount, nil,
+			)
+			if err != nil {
+				err := fmt.Errorf("negotiator failed to "+
+					"handle price oracle response: %w", err)
+				n.cfg.ErrChan <- err
+				return
+			}
 		}
 
 		request, err := rfqmsg.NewSellRequest(
