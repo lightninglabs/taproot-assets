@@ -158,11 +158,8 @@ type AssetGroupQuerier interface {
 // verify input assets in order to send to a specific recipient. It is a subset
 // of the information contained in a Taproot Asset address.
 type FundingDescriptor struct {
-	// ID is the asset ID of the asset being transferred.
-	ID asset.ID
-
-	// GroupKey is the optional group key of the asset to transfer.
-	GroupKey *btcec.PublicKey
+	// AssetSpecifier is the asset specifier.
+	AssetSpecifier asset.Specifier
 
 	// Amount is the amount of the asset to transfer.
 	Amount uint64
@@ -171,7 +168,7 @@ type FundingDescriptor struct {
 // TapCommitmentKey is the key that maps to the root commitment for the asset
 // group specified by a recipient descriptor.
 func (r *FundingDescriptor) TapCommitmentKey() [32]byte {
-	return asset.TapCommitmentKey(r.ID, r.GroupKey)
+	return asset.TapCommitmentKey(r.AssetSpecifier)
 }
 
 // DescribeRecipients extracts the recipient descriptors from a Taproot Asset
@@ -198,9 +195,15 @@ func DescribeRecipients(ctx context.Context, vPkt *tappsbt.VPacket,
 		return nil, fmt.Errorf("unable to query asset group: %w", err)
 	}
 
+	assetSpecifier := asset.NewSpecifierFromId(firstInput.PrevID.ID)
+	if groupPubKey != nil {
+		assetSpecifier = asset.NewSpecifier(
+			firstInput.PrevID.ID, *groupPubKey,
+		)
+	}
+
 	desc := &FundingDescriptor{
-		ID:       firstInput.PrevID.ID,
-		GroupKey: groupPubKey,
+		AssetSpecifier: assetSpecifier,
 	}
 	for idx := range vPkt.Outputs {
 		desc.Amount += vPkt.Outputs[idx].Amount
@@ -217,9 +220,16 @@ func DescribeAddrs(addrs []*address.Tap) (*FundingDescriptor, error) {
 	}
 
 	firstAddr := addrs[0]
+
+	assetSpecifier := asset.NewSpecifierFromId(firstAddr.AssetID)
+	if firstAddr.GroupKey != nil {
+		assetSpecifier = asset.NewSpecifier(
+			firstAddr.AssetID, *firstAddr.GroupKey,
+		)
+	}
+
 	desc := &FundingDescriptor{
-		ID:       firstAddr.AssetID,
-		GroupKey: firstAddr.GroupKey,
+		AssetSpecifier: assetSpecifier,
 	}
 	for idx := range addrs {
 		desc.Amount += addrs[idx].Amount
@@ -245,10 +255,18 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 			ErrMissingInputAsset)
 	}
 
+	// Determine whether issuance is disabled for the asset.
+	issuanceDisabled := !desc.AssetSpecifier.HasGroupPubKey()
+
+	assetId := desc.AssetSpecifier.UnwrapIdToPtr()
+	if assetId == nil {
+		return nil, fmt.Errorf("unable to unwrap asset ID")
+	}
+
 	// The asset tree must have a non-empty Asset at the location
 	// specified by the sender's script key.
 	assetCommitmentKey := asset.AssetCommitmentKey(
-		desc.ID, &inputScriptKey, desc.GroupKey == nil,
+		*assetId, &inputScriptKey, issuanceDisabled,
 	)
 	inputAsset, ok := assetCommitment.Asset(assetCommitmentKey)
 	if !ok {

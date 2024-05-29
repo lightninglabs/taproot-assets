@@ -3138,11 +3138,15 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		"burn_amount=%d)", assetID[:], serializedGroupKey,
 		in.AmountToBurn)
 
+	assetSpecifier := asset.NewSpecifierFromId(assetID)
+	if groupKey != nil {
+		assetSpecifier = asset.NewSpecifier(assetID, *groupKey)
+	}
+
 	fundResp, err := r.cfg.AssetWallet.FundBurn(
 		ctx, &tapsend.FundingDescriptor{
-			ID:       assetID,
-			GroupKey: groupKey,
-			Amount:   in.AmountToBurn,
+			AssetSpecifier: assetSpecifier,
+			Amount:         in.AmountToBurn,
 		},
 	)
 	if err != nil {

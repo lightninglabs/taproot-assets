@@ -1774,10 +1774,16 @@ func TestAddressValidInput(t *testing.T) {
 }
 
 func addrToFundDesc(addr address.Tap) *tapsend.FundingDescriptor {
+	assetSpecifier := asset.NewSpecifierFromId(addr.AssetID)
+	if addr.GroupKey != nil {
+		assetSpecifier = asset.NewSpecifier(
+			addr.AssetID, *addr.GroupKey,
+		)
+	}
+
 	return &tapsend.FundingDescriptor{
-		ID:       addr.AssetID,
-		GroupKey: addr.GroupKey,
-		Amount:   addr.Amount,
+		AssetSpecifier: assetSpecifier,
+		Amount:         addr.Amount,
 	}
 }
 

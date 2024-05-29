@@ -782,14 +782,19 @@ func (a *AssetStore) constraintsToDbFilter(
 				query.MinAnchorHeight,
 			)
 		}
-		if query.AssetID != nil {
-			assetID := query.AssetID[:]
-			assetFilter.AssetIDFilter = assetID
-		}
-		if query.GroupKey != nil {
-			groupKey := query.GroupKey.SerializeCompressed()
-			assetFilter.KeyGroupFilter = groupKey
-		}
+
+		// If our query filter specifies an asset ID, then we'll use
+		// that to filter the set of assets we return.
+		query.AssetSpecifier.WhenId(func(id asset.ID) {
+			assetFilter.AssetIDFilter = id[:]
+		})
+
+		// If our query filter specifies an asset group public key, then
+		// we'll use that to filter the set of assets we return.
+		query.AssetSpecifier.WhenGroupPubKey(func(groupKey btcec.PublicKey) {
+			assetFilter.KeyGroupFilter = groupKey.SerializeCompressed()
+		})
+
 		// TODO(roasbeef): only want to allow asset ID or other and not
 		// both?
 	}
