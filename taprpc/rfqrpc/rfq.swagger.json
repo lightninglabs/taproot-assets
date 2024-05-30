@@ -740,7 +740,8 @@
       "type": "object",
       "properties": {
         "accepted_quote": {
-          "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote"
+          "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote",
+          "description": "accepted_quote holds the quote received from the peer as a response\nto our quote request."
         }
       }
     },

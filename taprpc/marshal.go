@@ -534,6 +534,30 @@ func MarshalAcceptedBuyQuoteEvent(
 	}
 }
 
+// NewAddAssetBuyOrderResponse creates a new AddAssetBuyOrderResponse from
+// the given RFQ event.
+func NewAddAssetBuyOrderResponse(
+	event fn.Event) (*rfqrpc.AddAssetBuyOrderResponse, error) {
+
+	resp := &rfqrpc.AddAssetBuyOrderResponse{}
+
+	switch e := event.(type) {
+	case *rfq.PeerAcceptedBuyQuoteEvent:
+		resp.Response = &rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote{
+			AcceptedQuote: MarshalAcceptedBuyQuoteEvent(e),
+		}
+		return resp, nil
+
+	case *rfq.IncomingRejectQuoteEvent:
+		// TODO(ffranr): Add this reject event to the response.
+		return nil, fmt.Errorf("peer rejected buy quote: %v", e)
+
+	default:
+		return nil, fmt.Errorf("unknown AddAssetBuyOrder event "+
+			"type: %T", e)
+	}
+}
+
 // NewAddAssetSellOrderResponse creates a new AddAssetSellOrderResponse from
 // the given RFQ event.
 func NewAddAssetSellOrderResponse(

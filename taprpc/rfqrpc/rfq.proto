@@ -90,7 +90,11 @@ message AddAssetBuyOrderRequest {
 }
 
 message AddAssetBuyOrderResponse {
-    PeerAcceptedBuyQuote accepted_quote = 1;
+    oneof response {
+        // accepted_quote holds the quote received from the peer as a response
+        // to our quote request.
+        PeerAcceptedBuyQuote accepted_quote = 1;
+    }
 }
 
 message AddAssetSellOrderRequest {
