@@ -751,7 +751,8 @@
       "type": "object",
       "properties": {
         "accepted_quote": {
-          "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote"
+          "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote",
+          "description": "accepted_quote holds the quote received from the peer as a response\nto our quote request."
         }
       }
     },

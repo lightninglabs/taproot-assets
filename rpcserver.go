@@ -6177,20 +6177,13 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			switch e := event.(type) {
-			case *rfq.PeerAcceptedSellQuoteEvent:
-				quote := taprpc.MarshalAcceptedSellQuoteEvent(e)
-				return &rfqrpc.AddAssetSellOrderResponse{
-					AcceptedQuote: quote,
-				}, nil
-
-			case *rfq.IncomingRejectQuoteEvent:
-				return nil, fmt.Errorf("peer rejected sell "+
-					"quote: %v", e)
-
-			default:
-				continue
+			resp, err := taprpc.NewAddAssetSellOrderResponse(event)
+			if err != nil {
+				return nil, fmt.Errorf("error marshalling "+
+					"sell order response: %w", err)
 			}
+
+			return resp, nil
 
 		case <-r.quit:
 			return nil, fmt.Errorf("server shutting down")

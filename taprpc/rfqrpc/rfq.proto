@@ -116,7 +116,11 @@ message AddAssetSellOrderRequest {
 }
 
 message AddAssetSellOrderResponse {
-    PeerAcceptedSellQuote accepted_quote = 1;
+    oneof response {
+        // accepted_quote holds the quote received from the peer as a response
+        // to our quote request.
+        PeerAcceptedSellQuote accepted_quote = 1;
+    }
 }
 
 message AddAssetSellOfferRequest {
