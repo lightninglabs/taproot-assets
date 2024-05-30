@@ -756,6 +756,57 @@ func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 // interface.
 var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
 
+// QuoteRespStatus is an enumeration of possible quote response statuses.
+type QuoteRespStatus uint8
+
+const (
+	// InvalidRateTickQuoteRespStatus indicates that the rate tick in the
+	// quote response is invalid.
+	InvalidRateTickQuoteRespStatus QuoteRespStatus = 0
+
+	// InvalidExpiryQuoteRespStatus indicates that the expiry in the quote
+	// response is invalid.
+	InvalidExpiryQuoteRespStatus QuoteRespStatus = 1
+
+	// PriceOracleQueryErrQuoteRespStatus indicates that an error occurred
+	// when querying the price oracle whilst evaluating the quote response.
+	PriceOracleQueryErrQuoteRespStatus QuoteRespStatus = 2
+)
+
+// InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager
+// receives an unacceptable quote response message from a peer.
+type InvalidQuoteRespEvent struct {
+	// timestamp is the event creation UTC timestamp.
+	timestamp time.Time
+
+	// QuoteResponse is the quote response received from the peer which was
+	// deemed invalid.
+	QuoteResponse rfqmsg.QuoteResponse
+
+	// Status is the status of the quote response.
+	Status QuoteRespStatus
+}
+
+// NewInvalidQuoteRespEvent creates a new InvalidBuyRespEvent.
+func NewInvalidQuoteRespEvent(quoteResponse rfqmsg.QuoteResponse,
+	status QuoteRespStatus) *InvalidQuoteRespEvent {
+
+	return &InvalidQuoteRespEvent{
+		timestamp:     time.Now().UTC(),
+		QuoteResponse: quoteResponse,
+		Status:        status,
+	}
+}
+
+// Timestamp returns the event creation UTC timestamp.
+func (q *InvalidQuoteRespEvent) Timestamp() time.Time {
+	return q.timestamp.UTC()
+}
+
+// Ensure that the InvalidQuoteRespEvent struct implements the Event
+// interface.
+var _ fn.Event = (*InvalidQuoteRespEvent)(nil)
+
 // PeerAcceptedSellQuoteEvent is an event that is broadcast when the RFQ manager
 // receives an asset sell request accept quote message from a peer. This is a
 // quote which was requested by our node and has been accepted by a peer.
