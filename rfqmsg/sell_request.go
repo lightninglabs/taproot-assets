@@ -232,29 +232,62 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 }
 
 // NewSellRequestMsgFromWire instantiates a new instance from a wire message.
-func NewSellRequestMsgFromWire(wireMsg WireMessage) (*SellRequest, error) {
-	// Ensure that the message type is a sell request message.
-	if wireMsg.MsgType != MsgTypeSellRequest {
+func NewSellRequestMsgFromWire(wireMsg WireMessage,
+	msgData requestWireMsgData) (*SellRequest, error) {
+
+	// Ensure that the message type is a quote request message.
+	if wireMsg.MsgType != MsgTypeRequest {
 		return nil, fmt.Errorf("unable to create a sell request "+
 			"message from wire message of type %d", wireMsg.MsgType)
 	}
 
-	// Parse the message data from the wire message.
-	var msgData sellRequestMsgData
-	err := msgData.Decode(bytes.NewBuffer(wireMsg.Data))
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode incoming sell "+
-			"request message data: %w", err)
+	// Extract outbound asset ID/group key.
+	var assetID *asset.ID
+	msgData.OutAssetID.WhenSome(
+		func(inAssetID tlv.RecordT[tlv.TlvType7, asset.ID]) {
+			assetID = &inAssetID.Val
+		},
+	)
+
+	var assetGroupKey *btcec.PublicKey
+	msgData.OutAssetGroupKey.WhenSome(
+		// nolint: lll
+		func(inAssetGroupKey tlv.RecordT[tlv.TlvType8, *btcec.PublicKey]) {
+			assetGroupKey = inAssetGroupKey.Val
+		},
+	)
+
+	// Sanity check that at least one of the inbound asset ID or
+	// group key is set. At least one must be set in a buy request.
+	if assetID == nil && assetGroupKey == nil {
+		return nil, fmt.Errorf("inbound asset ID and group " +
+			"key cannot both be unset for incoming buy " +
+			"request")
 	}
 
+	// Extract the suggested rate tick if provided.
+	var askPrice lnwire.MilliSatoshi
+	msgData.SuggestedRateTick.WhenSome(
+		// nolint: lll
+		func(suggestedRateTick tlv.RecordT[tlv.TlvType4, uint64]) {
+			askPrice = lnwire.MilliSatoshi(suggestedRateTick.Val)
+		},
+	)
+
 	req := SellRequest{
-		Peer:               wireMsg.Peer,
-		sellRequestMsgData: msgData,
+		Peer: wireMsg.Peer,
+		sellRequestMsgData: sellRequestMsgData{
+			Version:       msgData.Version.Val,
+			ID:            msgData.ID.Val,
+			AssetID:       assetID,
+			AssetGroupKey: assetGroupKey,
+			AssetAmount:   msgData.AssetMaxAmount.Val,
+			AskPrice:      askPrice,
+		},
 	}
 
 	// Perform basic sanity checks on the quote request.
-	err = req.Validate()
-	if err != nil {
+	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("unable to validate sell request: %w",
 			err)
 	}
@@ -269,8 +302,14 @@ func (q *SellRequest) Validate() error {
 
 // ToWire returns a wire message with a serialized data field.
 func (q *SellRequest) ToWire() (WireMessage, error) {
-	// Encode message data component as TLV bytes.
-	msgDataBytes, err := q.sellRequestMsgData.Bytes()
+	if q == nil {
+		return WireMessage{}, fmt.Errorf("cannot serialize nil sell " +
+			"request")
+	}
+
+	// Formulate the message data.
+	msgData := newRequestWireMsgDataFromSell(*q)
+	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
 			"data: %w", err)
@@ -278,7 +317,7 @@ func (q *SellRequest) ToWire() (WireMessage, error) {
 
 	return WireMessage{
 		Peer:    q.Peer,
-		MsgType: MsgTypeSellRequest,
+		MsgType: MsgTypeRequest,
 		Data:    msgDataBytes,
 	}, nil
 }

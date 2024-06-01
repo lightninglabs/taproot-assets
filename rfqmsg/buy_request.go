@@ -286,28 +286,59 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 }
 
 // NewBuyRequestMsgFromWire instantiates a new instance from a wire message.
-func NewBuyRequestMsgFromWire(wireMsg WireMessage) (*BuyRequest, error) {
+func NewBuyRequestMsgFromWire(wireMsg WireMessage,
+	msgData requestWireMsgData) (*BuyRequest, error) {
+
 	// Ensure that the message type is a quote request message.
-	if wireMsg.MsgType != MsgTypeBuyRequest {
+	if wireMsg.MsgType != MsgTypeRequest {
 		return nil, fmt.Errorf("unable to create a buy request "+
 			"message from wire message of type %d", wireMsg.MsgType)
 	}
 
-	var msgData buyRequestMsgData
-	err := msgData.Decode(bytes.NewBuffer(wireMsg.Data))
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode incoming buy "+
-			"request message data: %w", err)
+	var assetID *asset.ID
+	msgData.InAssetID.WhenSome(
+		func(inAssetID tlv.RecordT[tlv.TlvType5, asset.ID]) {
+			assetID = &inAssetID.Val
+		},
+	)
+
+	var assetGroupKey *btcec.PublicKey
+	msgData.InAssetGroupKey.WhenSome(
+		func(key tlv.RecordT[tlv.TlvType6, *btcec.PublicKey]) {
+			assetGroupKey = key.Val
+		},
+	)
+
+	// Sanity check that at least one of the inbound asset ID or
+	// group key is set. At least one must be set in a buy request.
+	if assetID == nil && assetGroupKey == nil {
+		return nil, fmt.Errorf("inbound asset ID and group " +
+			"key cannot both be unset for incoming buy " +
+			"request")
 	}
 
+	// Extract the suggested rate tick if provided.
+	var bidPrice lnwire.MilliSatoshi
+	msgData.SuggestedRateTick.WhenSome(
+		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
+			bidPrice = lnwire.MilliSatoshi(rate.Val)
+		},
+	)
+
 	req := BuyRequest{
-		Peer:              wireMsg.Peer,
-		buyRequestMsgData: msgData,
+		Peer: wireMsg.Peer,
+		buyRequestMsgData: buyRequestMsgData{
+			Version:       msgData.Version.Val,
+			ID:            msgData.ID.Val,
+			AssetID:       assetID,
+			AssetGroupKey: assetGroupKey,
+			AssetAmount:   msgData.AssetMaxAmount.Val,
+			BidPrice:      bidPrice,
+		},
 	}
 
 	// Perform basic sanity checks on the quote request.
-	err = req.Validate()
-	if err != nil {
+	if err := req.Validate(); err != nil {
 		return nil, fmt.Errorf("unable to validate buy request: %w",
 			err)
 	}
@@ -322,8 +353,14 @@ func (q *BuyRequest) Validate() error {
 
 // ToWire returns a wire message with a serialized data field.
 func (q *BuyRequest) ToWire() (WireMessage, error) {
-	// Encode message data component as TLV bytes.
-	msgDataBytes, err := q.buyRequestMsgData.Bytes()
+	if q == nil {
+		return WireMessage{}, fmt.Errorf("cannot serialize nil buy " +
+			"request")
+	}
+
+	// Formulate the message data.
+	msgData := newRequestWireMsgDataFromBuy(*q)
+	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
 			"data: %w", err)
@@ -331,7 +368,7 @@ func (q *BuyRequest) ToWire() (WireMessage, error) {
 
 	return WireMessage{
 		Peer:    q.Peer,
-		MsgType: MsgTypeBuyRequest,
+		MsgType: MsgTypeRequest,
 		Data:    msgDataBytes,
 	}, nil
 }

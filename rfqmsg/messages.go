@@ -59,17 +59,13 @@ const MaxMessageType = lnwire.MessageType(math.MaxUint16)
 const TapMessageTypeBaseOffset = 20116 + lnwire.CustomTypeStart
 
 const (
-	// MsgTypeBuyRequest is the message type identifier for an asset buy
-	// quote request message.
-	MsgTypeBuyRequest = TapMessageTypeBaseOffset + 0
+	// MsgTypeRequest is the message type identifier for a quote request
+	// message.
+	MsgTypeRequest = TapMessageTypeBaseOffset + 0
 
 	// MsgTypeBuyAccept is the message type identifier for a quote accept
 	// message.
 	MsgTypeBuyAccept = TapMessageTypeBaseOffset + 1
-
-	// MsgTypeSellRequest is the message type identifier for an asset sell
-	// quote request message.
-	MsgTypeSellRequest = TapMessageTypeBaseOffset + 2
 
 	// MsgTypeSellAccept is the message type identifier for an asset sell
 	// quote accept message.
@@ -101,12 +97,10 @@ type WireMessage struct {
 // NewIncomingMsgFromWire creates a new RFQ message from a wire message.
 func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	switch wireMsg.MsgType {
-	case MsgTypeBuyRequest:
-		return NewBuyRequestMsgFromWire(wireMsg)
+	case MsgTypeRequest:
+		return NewIncomingRequestFromWire(wireMsg)
 	case MsgTypeBuyAccept:
 		return NewBuyAcceptFromWireMsg(wireMsg)
-	case MsgTypeSellRequest:
-		return NewSellRequestMsgFromWire(wireMsg)
 	case MsgTypeSellAccept:
 		return NewSellAcceptFromWireMsg(wireMsg)
 	case MsgTypeReject:
