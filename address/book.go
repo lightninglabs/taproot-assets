@@ -119,8 +119,13 @@ type Storage interface {
 
 	// InsertScriptKey inserts an address related script key into the
 	// database, so it can be recognized as belonging to the wallet when a
-	// transfer comes in later on.
-	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey) error
+	// transfer comes in later on. The script key can be declared as known
+	// if it contains an internal key that isn't derived by the backing
+	// wallet (e.g. NUMS key) but it should still be recognized as a key
+	// being relevant for the local wallet (e.g. show assets received on
+	// this key in the asset list and balances).
+	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
+		declareAsKnown bool) error
 }
 
 // KeyRing is used to create script and internal keys for Taproot Asset
@@ -331,7 +336,8 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	if err != nil {
 		return nil, fmt.Errorf("unable to insert internal key: %w", err)
 	}
-	if err := b.cfg.Store.InsertScriptKey(ctx, scriptKey); err != nil {
+	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, true)
+	if err != nil {
 		return nil, fmt.Errorf("unable to insert script key: %w", err)
 	}
 
@@ -397,7 +403,8 @@ func (b *Book) NextScriptKey(ctx context.Context,
 	}
 
 	scriptKey := asset.NewScriptKeyBip86(keyDesc)
-	if err := b.cfg.Store.InsertScriptKey(ctx, scriptKey); err != nil {
+	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, true)
+	if err != nil {
 		return asset.ScriptKey{}, err
 	}
 

@@ -132,6 +132,7 @@ SELECT
     utxo_internal_keys.key_index AS internal_key_index,
     script_keys.tweaked_script_key AS script_key_bytes,
     script_keys.tweak AS script_key_tweak,
+    script_keys.declared_known AS script_key_declared_known,
     script_key AS script_key_id,
     script_internal_keys.raw_key AS script_key_raw_key_bytes,
     script_internal_keys.key_family AS script_key_family,
@@ -172,6 +173,7 @@ type FetchTransferOutputsRow struct {
 	InternalKeyIndex         int32
 	ScriptKeyBytes           []byte
 	ScriptKeyTweak           []byte
+	ScriptKeyDeclaredKnown   sql.NullBool
 	ScriptKeyID              int64
 	ScriptKeyRawKeyBytes     []byte
 	ScriptKeyFamily          int32
@@ -210,6 +212,7 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 			&i.InternalKeyIndex,
 			&i.ScriptKeyBytes,
 			&i.ScriptKeyTweak,
+			&i.ScriptKeyDeclaredKnown,
 			&i.ScriptKeyID,
 			&i.ScriptKeyRawKeyBytes,
 			&i.ScriptKeyFamily,

@@ -6531,7 +6531,7 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 			err)
 	}
 
-	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey)
+	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, true)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting script key: %w", err)
 	}

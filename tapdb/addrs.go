@@ -468,11 +468,13 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
 
+			declaredKnown := addr.ScriptKeyDeclaredKnown.Valid
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Tap: tapAddr,
 				ScriptKeyTweak: asset.TweakedScriptKey{
-					RawKey: rawScriptKeyDesc,
-					Tweak:  addr.ScriptKeyTweak,
+					RawKey:        rawScriptKeyDesc,
+					Tweak:         addr.ScriptKeyTweak,
+					DeclaredKnown: declaredKnown,
 				},
 				InternalKeyDesc:  internalKeyDesc,
 				TaprootOutputKey: *taprootOutputKey,
@@ -619,8 +621,9 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	return &address.AddrWithKeyInfo{
 		Tap: tapAddr,
 		ScriptKeyTweak: asset.TweakedScriptKey{
-			RawKey: scriptKeyDesc,
-			Tweak:  dbAddr.ScriptKeyTweak,
+			RawKey:        scriptKeyDesc,
+			Tweak:         dbAddr.ScriptKeyTweak,
+			DeclaredKnown: dbAddr.ScriptKeyDeclaredKnown.Valid,
 		},
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,
@@ -672,7 +675,7 @@ func (t *TapAddressBook) InsertInternalKey(ctx context.Context,
 // it can be recognized as belonging to the wallet when a transfer comes in
 // later on.
 func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
-	scriptKey asset.ScriptKey) error {
+	scriptKey asset.ScriptKey, declaredKnown bool) error {
 
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
@@ -687,6 +690,7 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 			InternalKeyID:    internalKeyID,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
 			Tweak:            scriptKey.Tweak,
+			DeclaredKnown:    sqlBool(declaredKnown),
 		})
 		return err
 	})
@@ -1179,6 +1183,7 @@ func (t *TapAddressBook) FetchScriptKey(ctx context.Context,
 					Index: uint32(dbKey.KeyIndex),
 				},
 			},
+			DeclaredKnown: dbKey.DeclaredKnown.Valid,
 		}
 
 		return nil

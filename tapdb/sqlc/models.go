@@ -306,6 +306,7 @@ type ScriptKey struct {
 	InternalKeyID    int64
 	TweakedScriptKey []byte
 	Tweak            []byte
+	DeclaredKnown    sql.NullBool
 }
 
 type TapscriptEdge struct {

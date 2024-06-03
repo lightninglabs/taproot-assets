@@ -639,11 +639,13 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		if err != nil {
 			return nil, err
 		}
+		declaredKnown := sprout.ScriptKeyDeclaredKnown.Valid
 		scriptKey := asset.ScriptKey{
 			PubKey: scriptKeyPub,
 			TweakedScriptKey: &asset.TweakedScriptKey{
-				RawKey: rawScriptKeyDesc,
-				Tweak:  sprout.ScriptKeyTweak,
+				RawKey:        rawScriptKeyDesc,
+				Tweak:         sprout.ScriptKeyTweak,
+				DeclaredKnown: declaredKnown,
 			},
 		}
 
@@ -2386,6 +2388,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				err)
 		}
 
+		declaredKnown := dbOut.ScriptKeyDeclaredKnown.Valid
 		outputs[idx] = tapfreighter.TransferOutput{
 			Anchor: tapfreighter.Anchor{
 				Value: btcutil.Amount(
@@ -2418,7 +2421,8 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 						PubKey:     rawScriptKey,
 						KeyLocator: scriptKeyLocator,
 					},
-					Tweak: dbOut.ScriptKeyTweak,
+					Tweak:         dbOut.ScriptKeyTweak,
+					DeclaredKnown: declaredKnown,
 				},
 			},
 			ScriptKeyLocal: dbOut.ScriptKeyLocal,
@@ -2663,6 +2667,18 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				out.OutputType == int16(tappsbt.TypeSplitRoot)
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
+			isKnown := out.ScriptKeyDeclaredKnown.Valid
+			skipAssetCreation := !isTombstone && !isBurn &&
+				!out.ScriptKeyLocal && !isKnown
+
+			log.Tracef("Skip asset creation for "+
+				"output %d?: %v,  scriptKey=%x, "+
+				"isTombstone=%v, isBurn=%v, "+
+				"scriptKeyLocal=%v, scriptKeyKnown=%v",
+				idx, skipAssetCreation,
+				scriptPubKey.SerializeCompressed(),
+				isTombstone, isBurn, out.ScriptKeyLocal,
+				isKnown)
 
 			// If this is an outbound transfer (meaning that our
 			// node doesn't control the script key, and it isn't a
@@ -2671,7 +2687,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// leaving the node. The same goes for outputs that are
 			// only used to anchor passive assets, which are handled
 			// separately.
-			if !isTombstone && !isBurn && !out.ScriptKeyLocal {
+			if skipAssetCreation {
 				continue
 			}
 

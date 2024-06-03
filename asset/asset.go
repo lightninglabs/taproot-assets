@@ -971,7 +971,7 @@ func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
 }
 
 // TweakedScriptKey is an embedded struct which is primarily used by wallets to
-// be able to keep track of the tweak of a script key along side the raw key
+// be able to keep track of the tweak of a script key alongside the raw key
 // derivation information.
 type TweakedScriptKey struct {
 	// RawKey is the raw script key before the script key tweak is applied.
@@ -983,6 +983,15 @@ type TweakedScriptKey struct {
 	// Tweak is the tweak that is applied on the raw script key to get the
 	// public key. If this is nil, then a BIP-0086 tweak is assumed.
 	Tweak []byte
+
+	// DeclaredKnown indicates that this script key has been explicitly
+	// declared as being important to the local wallet, even if it might not
+	// be fully known to the local wallet. This could perhaps also be named
+	// "imported", though that might imply that the corresponding private
+	// key was also somehow imported and available. The only relevance this
+	// flag has is that assets with a declared key are shown in the asset
+	// list/balance.
+	DeclaredKnown bool
 }
 
 // ScriptKey represents a tweaked Taproot output key encumbering the different
@@ -1633,7 +1642,9 @@ func (a *Asset) Copy() *Asset {
 	}
 
 	if a.ScriptKey.TweakedScriptKey != nil {
-		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{}
+		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{
+			DeclaredKnown: a.ScriptKey.DeclaredKnown,
+		}
 		assetCopy.ScriptKey.RawKey = a.ScriptKey.RawKey
 
 		if len(a.ScriptKey.Tweak) > 0 {
