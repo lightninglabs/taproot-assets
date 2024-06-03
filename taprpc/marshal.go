@@ -419,17 +419,20 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		return nil, err
 	}
 
+	scriptKeyBytes := a.ScriptKey.PubKey.SerializeCompressed()
 	rpcAsset := &Asset{
-		Version:          assetVersion,
-		AssetGenesis:     MarshalGenesisInfo(&a.Genesis, a.Type),
-		Amount:           a.Amount,
-		LockTime:         int32(a.LockTime),
-		RelativeLockTime: int32(a.RelativeLockTime),
-		ScriptVersion:    int32(a.ScriptVersion),
-		ScriptKey:        a.ScriptKey.PubKey.SerializeCompressed(),
-		ScriptKeyIsLocal: scriptKeyIsLocal,
-		IsSpent:          isSpent,
-		IsBurn:           a.IsBurn(),
+		Version:                assetVersion,
+		AssetGenesis:           MarshalGenesisInfo(&a.Genesis, a.Type),
+		Amount:                 a.Amount,
+		LockTime:               int32(a.LockTime),
+		RelativeLockTime:       int32(a.RelativeLockTime),
+		ScriptVersion:          int32(a.ScriptVersion),
+		ScriptKey:              scriptKeyBytes,
+		ScriptKeyIsLocal:       scriptKeyIsLocal,
+		ScriptKeyDeclaredKnown: a.ScriptKey.DeclaredAsKnown(),
+		ScriptKeyHasScriptPath: a.ScriptKey.HasScriptPath(),
+		IsSpent:                isSpent,
+		IsBurn:                 a.IsBurn(),
 	}
 
 	if a.GroupKey != nil {

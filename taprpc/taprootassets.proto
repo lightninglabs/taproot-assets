@@ -406,6 +406,24 @@ message Asset {
     // Indicates whether this transfer was an asset burn. If true, the number of
     // assets in this output are destroyed and can no longer be spent.
     bool is_burn = 17;
+
+    // Indicates whether this script key has either been derived by the local
+    // wallet or was explicitly declared to be known by using the
+    // DeclareScriptKey RPC. Knowing the key conceptually means the key belongs
+    // to the local wallet or is at least known by a software that operates on
+    // the local wallet. The flag is never serialized in proofs, so this is
+    // never explicitly set for keys foreign to the local wallet. Therefore, if
+    // this method returns true for a script key, it means the asset with the
+    // script key will be shown in the wallet balance.
+    bool script_key_declared_known = 18;
+
+    // Indicates whether the script key is known to have a Tapscript spend path,
+    // meaning that the Taproot merkle root tweak is not empty. This will only
+    // ever be true if either script_key_is_local or script_key_internals_known
+    // is true as well, since the presence of a Tapscript spend path cannot be
+    // determined for script keys that aren't known to the wallet of the local
+    // tapd node.
+    bool script_key_has_script_path = 19;
 }
 
 message PrevWitness {
