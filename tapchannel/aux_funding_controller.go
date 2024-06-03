@@ -6,6 +6,7 @@ import (
 	crand "crypto/rand"
 	"fmt"
 	"io"
+	"net/url"
 	"sync"
 	"sync/atomic"
 
@@ -162,6 +163,10 @@ type FundingControllerCfg struct {
 
 	// RfqManager is used to manage RFQs.
 	RfqManager *rfq.Manager
+
+	// DefaultCourierAddr is the default address the funding controller uses
+	// to deliver the funding output proofs to the channel peer.
+	DefaultCourierAddr *url.URL
 }
 
 // bindFundingReq is a request to bind a pending channel ID to a complete aux
@@ -1064,6 +1069,15 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	}
 
 	log.Debugf("Commit sig received, broadcasting funding tx!")
+
+	// Before we log the transaction, we'll ensure that all the vOuts have
+	// a proof courier addr. This ensures the asset funding proof will be
+	// found in the target universe.
+	for _, vPacket := range activePkts {
+		for _, vOut := range vPacket.Outputs {
+			vOut.ProofDeliveryAddress = f.cfg.DefaultCourierAddr
+		}
+	}
 
 	// Rather than publish the final transaction ourselves, we'll instead
 	// send it to chain porter, so it can update our on disk UTXO and asset
