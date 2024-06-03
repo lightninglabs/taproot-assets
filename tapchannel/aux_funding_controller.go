@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -135,7 +136,11 @@ type FundingControllerCfg struct {
 	// specific steps of the funding process.
 	AssetWallet tapfreighter.Wallet
 
+	// CoinSelector is used to select assets for funding.
 	CoinSelector tapfreighter.CoinSelector
+
+	// AddrBook is used to manage script keys and addresses.
+	AddrBook *tapdb.TapAddressBook
 
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams address.ChainParams
@@ -591,7 +596,26 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	// Our funding script key will be the OP_TRUE addr that we'll use as
 	// the funding script on the asset level.
 	fundingScriptTree := NewFundingScriptTree()
-	fundingScriptKey := asset.NewScriptKey(fundingScriptTree.TaprootKey)
+	fundingTaprootKey, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
+	)
+	fundingScriptKey := asset.ScriptKey{
+		PubKey: fundingTaprootKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingScriptTree.InternalKey,
+			},
+			Tweak: fundingScriptTree.TapscriptRoot,
+		},
+	}
+
+	// We'll also need to import the funding script key into the wallet so
+	// the asset will be materialized in the asset table and show up in the
+	// balance correctly.
+	err := f.cfg.AddrBook.InsertScriptKey(ctx, fundingScriptKey, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to insert script key: %w", err)
+	}
 
 	// Next, we'll use the asset wallet to fund a new vPSBT which'll be
 	// used as the asset level funding output for this transaction. In this
