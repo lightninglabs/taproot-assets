@@ -536,7 +536,11 @@ func (f *FileArchiver) HasProof(_ context.Context, id Locator) (bool, error) {
 	// we just need to compute the full file path and see if it exists on
 	// disk.
 	proofPath, err := lookupProofFilePath(f.proofPath, id)
-	if err != nil {
+	switch {
+	case errors.Is(err, ErrProofNotFound):
+		return false, nil
+
+	case err != nil:
 		return false, fmt.Errorf("unable to make proof file path: %w",
 			err)
 	}
