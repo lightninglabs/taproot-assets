@@ -130,7 +130,8 @@ func ValidateWitnesses(newAsset *asset.Asset,
 	case vm.newAsset.Type == asset.Collectible &&
 		len(vm.newAsset.PrevWitnesses) > 1:
 
-		return newErrKind(ErrInvalidTransferWitness)
+		inner := fmt.Errorf("collectible has more than one prev input")
+		return newErrInner(ErrInvalidTransferWitness, inner)
 	}
 
 	// Now that we know we're not dealing with a genesis state
@@ -263,7 +264,8 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 
 	// An input must have a valid witness.
 	if len(witness.TxWitness) == 0 {
-		return newErrKind(ErrInvalidTransferWitness)
+		inner := fmt.Errorf("input has no witness")
+		return newErrInner(ErrInvalidTransferWitness, inner)
 	}
 
 	var (
@@ -281,7 +283,8 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	default:
 		// An input MUST have a prev out and also a valid witness.
 		if witness.PrevID == nil {
-			return newErrKind(ErrInvalidTransferWitness)
+			inner := fmt.Errorf("input has nil prev ID")
+			return newErrInner(ErrInvalidTransferWitness, inner)
 		}
 
 		// The parameters of the new and old asset much match exactly.
@@ -341,7 +344,8 @@ func (vm *Engine) validateStateTransition() error {
 	case vm.newAsset.Type == asset.Collectible &&
 		len(vm.newAsset.PrevWitnesses) > 1:
 
-		return newErrKind(ErrInvalidTransferWitness)
+		inner := fmt.Errorf("collectible has more than one prev input")
+		return newErrInner(ErrInvalidTransferWitness, inner)
 	}
 
 	// Now that we know we're not dealing with a genesis state
