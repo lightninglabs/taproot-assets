@@ -39,6 +39,10 @@ type CommitmentConstraints struct {
 	// MinAmt is the minimum amount that an asset commitment needs to hold
 	// to satisfy the constraints.
 	MinAmt uint64
+
+	// Bip86ScriptKeysOnly is a flag that when set, will exclude any assets
+	// that have a script key with a tapscript tree (a non-empty tweak).
+	Bip86ScriptKeysOnly bool
 }
 
 // String returns the string representation of the commitment constraints.

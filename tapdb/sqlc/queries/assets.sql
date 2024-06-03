@@ -455,7 +455,12 @@ WHERE (
       sqlc.narg('key_group_filter') IS NULL) AND
     assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
-    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id)
+    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
+    COALESCE(length(script_keys.tweak), 0) = (CASE
+        WHEN cast(@bip86_script_keys_only as bool) = TRUE
+        THEN 0 
+        ELSE COALESCE(length(script_keys.tweak), 0)
+    END)
 );
 
 -- name: AllAssets :many

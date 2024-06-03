@@ -2159,23 +2159,29 @@ WHERE (
       $9 IS NULL) AND
     assets.anchor_utxo_id = COALESCE($10, assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE($11, assets.genesis_id) AND
-    assets.script_key_id = COALESCE($12, assets.script_key_id)
+    assets.script_key_id = COALESCE($12, assets.script_key_id) AND
+    COALESCE(length(script_keys.tweak), 0) = (CASE
+        WHEN cast($13 as bool) = TRUE
+        THEN 0 
+        ELSE COALESCE(length(script_keys.tweak), 0)
+    END)
 )
 `
 
 type QueryAssetsParams struct {
-	AssetIDFilter    []byte
-	TweakedScriptKey []byte
-	AnchorPoint      []byte
-	Leased           interface{}
-	Now              sql.NullTime
-	MinAnchorHeight  sql.NullInt32
-	MinAmt           sql.NullInt64
-	Spent            sql.NullBool
-	KeyGroupFilter   []byte
-	AnchorUtxoID     sql.NullInt64
-	GenesisID        sql.NullInt64
-	ScriptKeyID      sql.NullInt64
+	AssetIDFilter       []byte
+	TweakedScriptKey    []byte
+	AnchorPoint         []byte
+	Leased              interface{}
+	Now                 sql.NullTime
+	MinAnchorHeight     sql.NullInt32
+	MinAmt              sql.NullInt64
+	Spent               sql.NullBool
+	KeyGroupFilter      []byte
+	AnchorUtxoID        sql.NullInt64
+	GenesisID           sql.NullInt64
+	ScriptKeyID         sql.NullInt64
+	Bip86ScriptKeysOnly bool
 }
 
 type QueryAssetsRow struct {
@@ -2241,6 +2247,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.AnchorUtxoID,
 		arg.GenesisID,
 		arg.ScriptKeyID,
+		arg.Bip86ScriptKeysOnly,
 	)
 	if err != nil {
 		return nil, err

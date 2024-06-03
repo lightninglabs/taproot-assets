@@ -792,6 +792,10 @@ func (a *AssetStore) constraintsToDbFilter(
 		}
 		// TODO(roasbeef): only want to allow asset ID or other and not
 		// both?
+
+		if query.Bip86ScriptKeysOnly {
+			assetFilter.Bip86ScriptKeysOnly = true
+		}
 	}
 
 	return assetFilter
