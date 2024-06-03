@@ -98,6 +98,10 @@ message AddAssetBuyOrderResponse {
         // invalid_quote is returned if the quote response received from the
         // peer was invalid or insufficient.
         InvalidQuoteResponse invalid_quote = 2;
+
+        // rejected_quote is returned if the quote request was rejected by the
+        // peer.
+        RejectedQuoteResponse rejected_quote = 3;
     }
 }
 
@@ -132,6 +136,10 @@ message AddAssetSellOrderResponse {
         // invalid_quote is returned if the quote response received from the
         // peer was invalid or insufficient.
         InvalidQuoteResponse invalid_quote = 2;
+
+        // rejected_quote is returned if the quote request was rejected by the
+        // peer.
+        RejectedQuoteResponse rejected_quote = 3;
     }
 }
 
@@ -228,6 +236,22 @@ message InvalidQuoteResponse {
 
     // id is the unique identifier of the quote request.
     bytes id = 3;
+}
+
+// RejectedQuoteResponse is a message that is returned when a quote request is
+// rejected by the peer.
+message RejectedQuoteResponse {
+    // peer is the quote counterparty peer.
+    string peer = 1;
+
+    // id is the unique identifier of the quote request.
+    bytes id = 2;
+
+    // error_message is a human-readable error message.
+    string error_message = 3;
+
+    // error_code is a machine-readable error code.
+    uint32 error_code = 4;
 }
 
 message QueryPeerAcceptedQuotesResponse {

@@ -549,6 +549,19 @@ func MarshalInvalidQuoteRespEvent(
 	}
 }
 
+// MarshalIncomingRejectQuoteEvent marshals an incoming reject quote event to
+// its RPC representation.
+func MarshalIncomingRejectQuoteEvent(
+	event *rfq.IncomingRejectQuoteEvent) *rfqrpc.RejectedQuoteResponse {
+
+	return &rfqrpc.RejectedQuoteResponse{
+		Peer:         event.Peer.String(),
+		Id:           event.ID[:],
+		ErrorMessage: event.Err.Msg,
+		ErrorCode:    uint32(event.Err.Code),
+	}
+}
+
 // NewAddAssetBuyOrderResponse creates a new AddAssetBuyOrderResponse from
 // the given RFQ event.
 func NewAddAssetBuyOrderResponse(
@@ -570,8 +583,10 @@ func NewAddAssetBuyOrderResponse(
 		return resp, nil
 
 	case *rfq.IncomingRejectQuoteEvent:
-		// TODO(ffranr): Add this reject event to the response.
-		return nil, fmt.Errorf("peer rejected buy quote: %v", e)
+		resp.Response = &rfqrpc.AddAssetBuyOrderResponse_RejectedQuote{
+			RejectedQuote: MarshalIncomingRejectQuoteEvent(e),
+		}
+		return resp, nil
 
 	default:
 		return nil, fmt.Errorf("unknown AddAssetBuyOrder event "+
@@ -600,8 +615,10 @@ func NewAddAssetSellOrderResponse(
 		return resp, nil
 
 	case *rfq.IncomingRejectQuoteEvent:
-		// TODO(ffranr): Add this reject event to the response.
-		return nil, fmt.Errorf("peer rejected sell quote: %v", e)
+		resp.Response = &rfqrpc.AddAssetSellOrderResponse_RejectedQuote{
+			RejectedQuote: MarshalIncomingRejectQuoteEvent(e),
+		}
+		return resp, nil
 
 	default:
 		return nil, fmt.Errorf("unknown AddAssetSellOrder event "+
