@@ -31,4 +31,7 @@ message FundChannelRequest {
 message FundChannelResponse {
     // The channel funding transaction ID.
     string txid = 1;
+
+    // The index of the channel funding output in the funding transaction.
+    int32 output_index = 2;
 }

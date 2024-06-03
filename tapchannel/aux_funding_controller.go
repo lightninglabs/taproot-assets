@@ -909,7 +909,7 @@ func (f *FundingController) sendAssetFundingCreated(ctx context.Context,
 // ultimately broadcasting the funding transaction.
 func (f *FundingController) completeChannelFunding(ctx context.Context,
 	fundingState *pendingAssetFunding,
-	fundedVpkt *tapfreighter.FundedVPacket) (*chainhash.Hash, error) {
+	fundedVpkt *tapfreighter.FundedVPacket) (*wire.OutPoint, error) {
 
 	log.Debugf("Finalizing funding vPackets and PSBT...")
 
@@ -1090,7 +1090,13 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 
 	log.Infof("Funding transaction broadcast: %v", fundingTxid)
 
-	return &fundingTxid, nil
+	// The funding output is always at index 0, because we're using FundPsbt
+	// with a change output index of -1, which means we add a change output
+	// at the end of the outputs. Meaning the change is always at index 1.
+	return &wire.OutPoint{
+		Hash:  fundingTxid,
+		Index: 0,
+	}, nil
 }
 
 // chanFunder is the main event loop that controls the asset specific portions
@@ -1212,7 +1218,7 @@ func (f *FundingController) chanFunder() {
 					return
 				}
 
-				fundingTxid, err := f.completeChannelFunding(
+				chanPoint, err := f.completeChannelFunding(
 					fundReq.ctx, fundingState, fundingVpkt,
 				)
 				if err != nil {
@@ -1240,7 +1246,7 @@ func (f *FundingController) chanFunder() {
 					return
 				}
 
-				fundReq.respChan <- fundingTxid
+				fundReq.respChan <- chanPoint
 			}()
 
 		// The remote party has sent us some upfront proof for channel
@@ -1559,7 +1565,7 @@ type FundReq struct {
 	FeeRate chainfee.SatPerVByte
 
 	ctx      context.Context
-	respChan chan *chainhash.Hash
+	respChan chan *wire.OutPoint
 	errChan  chan error
 }
 
@@ -1567,10 +1573,10 @@ type FundReq struct {
 // on the passed funding request. If successful, the TXID of the funding
 // transaction is returned.
 func (f *FundingController) FundChannel(ctx context.Context,
-	req FundReq) (*chainhash.Hash, error) {
+	req FundReq) (*wire.OutPoint, error) {
 
 	req.ctx = ctx
-	req.respChan = make(chan *chainhash.Hash, 1)
+	req.respChan = make(chan *wire.OutPoint, 1)
 	req.errChan = make(chan error, 1)
 
 	if !fn.SendOrQuit(f.newFundingReqs, &req, f.Quit) {

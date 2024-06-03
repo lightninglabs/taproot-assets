@@ -109,6 +109,11 @@
         "txid": {
           "type": "string",
           "description": "The channel funding transaction ID."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int32",
+          "description": "The index of the channel funding output in the funding transaction."
         }
       }
     }

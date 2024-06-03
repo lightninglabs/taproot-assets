@@ -6430,13 +6430,14 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 	copy(fundReq.AssetID[:], req.AssetId)
 
-	txHash, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
+	chanPoint, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
 	if err != nil {
 		return nil, fmt.Errorf("error funding channel: %w", err)
 	}
 
 	return &tchrpc.FundChannelResponse{
-		Txid: txHash.String(),
+		Txid:        chanPoint.Hash.String(),
+		OutputIndex: int32(chanPoint.Index),
 	}, nil
 }
 
