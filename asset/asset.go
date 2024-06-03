@@ -1560,6 +1560,31 @@ func (a *Asset) Witnesses() []Witness {
 	return a.PrevWitnesses
 }
 
+// UpdateTxWitness updates the transaction witness at the given index with the
+// provided witness stack. The previous witness index references the input that
+// is spent.
+func (a *Asset) UpdateTxWitness(prevWitnessIndex int,
+	witness wire.TxWitness) error {
+
+	if len(a.PrevWitnesses) == 0 {
+		return fmt.Errorf("missing previous witnesses")
+	}
+
+	if prevWitnessIndex >= len(a.PrevWitnesses) {
+		return fmt.Errorf("invalid previous witness index")
+	}
+
+	targetPrevWitness := &a.PrevWitnesses[prevWitnessIndex]
+	if a.HasSplitCommitmentWitness() {
+		rootAsset := targetPrevWitness.SplitCommitment.RootAsset
+		targetPrevWitness = &rootAsset.PrevWitnesses[prevWitnessIndex]
+	}
+
+	targetPrevWitness.TxWitness = witness
+
+	return nil
+}
+
 // Copy returns a deep copy of an Asset.
 func (a *Asset) Copy() *Asset {
 	assetCopy := *a
