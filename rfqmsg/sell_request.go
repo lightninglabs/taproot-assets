@@ -1,11 +1,8 @@
 package rfqmsg
 
 import (
-	"bytes"
 	"crypto/rand"
-	"crypto/sha256"
 	"fmt"
-	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -15,72 +12,16 @@ import (
 )
 
 const (
-	// SellRequest message type field TLV types.
-
-	TypeSellRequestVersion       tlv.Type = 0
-	TypeSellRequestID            tlv.Type = 2
-	TypeSellRequestAssetID       tlv.Type = 3
-	TypeSellRequestAssetGroupKey tlv.Type = 5
-	TypeSellRequestAssetAmount   tlv.Type = 6
-	TypeSellRequestSuggestedAsk  tlv.Type = 8
-)
-
-func TypeRecordSellRequestVersion(version *WireMsgDataVersion) tlv.Record {
-	const recordSize = 1
-
-	return tlv.MakeStaticRecord(
-		TypeSellRequestVersion, version, recordSize,
-		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
-	)
-}
-
-func TypeRecordSellRequestID(id *ID) tlv.Record {
-	const recordSize = 32
-
-	return tlv.MakeStaticRecord(
-		TypeSellRequestID, id, recordSize,
-		IdEncoder, IdDecoder,
-	)
-}
-
-func TypeRecordSellRequestAssetID(assetID **asset.ID) tlv.Record {
-	const recordSize = sha256.Size
-
-	return tlv.MakeStaticRecord(
-		TypeSellRequestAssetID, assetID, recordSize,
-		AssetIdEncoder, AssetIdDecoder,
-	)
-}
-
-func TypeRecordSellRequestAssetGroupKey(groupKey **btcec.PublicKey) tlv.Record {
-	const recordSize = btcec.PubKeyBytesLenCompressed
-
-	return tlv.MakeStaticRecord(
-		TypeSellRequestAssetGroupKey, groupKey, recordSize,
-		asset.CompressedPubKeyEncoder, asset.CompressedPubKeyDecoder,
-	)
-}
-
-func TypeRecordSellRequestAssetAmount(assetAmount *uint64) tlv.Record {
-	return tlv.MakePrimitiveRecord(TypeSellRequestAssetAmount, assetAmount)
-}
-
-func TypeRecordSellRequestAskPrice(ask *lnwire.MilliSatoshi) tlv.Record {
-	return tlv.MakeStaticRecord(
-		TypeSellRequestSuggestedAsk, ask, 8,
-		milliSatoshiEncoder, milliSatoshiDecoder,
-	)
-}
-
-const (
 	// latestSellRequestVersion is the latest supported sell request wire
 	// message data field version.
 	latestSellRequestVersion = V0
 )
 
-// sellRequestMsgData is a struct that represents the message data from an asset
-// sell quote request message.
-type sellRequestMsgData struct {
+// SellRequest is a struct that represents a asset sell quote request.
+type SellRequest struct {
+	// Peer is the peer that sent the quote request.
+	Peer route.Vertex
+
 	// Version is the version of the message data.
 	Version WireMsgDataVersion
 
@@ -107,106 +48,6 @@ type sellRequestMsgData struct {
 	// TODO(ffranr): Add expiry time for suggested ask price.
 }
 
-// Validate ensures that the quote request is valid.
-func (q *sellRequestMsgData) Validate() error {
-	if q.AssetID == nil && q.AssetGroupKey == nil {
-		return fmt.Errorf("asset id and group key cannot both be nil")
-	}
-
-	if q.AssetID != nil && q.AssetGroupKey != nil {
-		return fmt.Errorf("asset id and group key cannot both be " +
-			"non-nil")
-	}
-
-	// Ensure that the message version is supported.
-	if q.Version > latestSellRequestVersion {
-		return fmt.Errorf("unsupported sell request message version: "+
-			"%d", q.Version)
-	}
-
-	return nil
-}
-
-// EncodeRecords determines the non-nil records to include when encoding an
-// at runtime.
-func (q *sellRequestMsgData) encodeRecords() []tlv.Record {
-	records := []tlv.Record{
-		TypeRecordSellRequestVersion(&q.Version),
-		TypeRecordSellRequestID(&q.ID),
-	}
-
-	if q.AssetID != nil {
-		records = append(
-			records, TypeRecordSellRequestAssetID(&q.AssetID),
-		)
-	}
-
-	if q.AssetGroupKey != nil {
-		record := TypeRecordSellRequestAssetGroupKey(&q.AssetGroupKey)
-		records = append(records, record)
-	}
-
-	records = append(
-		records, TypeRecordSellRequestAssetAmount(&q.AssetAmount),
-	)
-	records = append(
-		records, TypeRecordSellRequestAskPrice(&q.AskPrice),
-	)
-
-	return records
-}
-
-// Encode encodes the structure into a TLV stream.
-func (q *sellRequestMsgData) Encode(writer io.Writer) error {
-	stream, err := tlv.NewStream(q.encodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.Encode(writer)
-}
-
-// Bytes encodes the structure into a TLV stream and returns the bytes.
-func (q *sellRequestMsgData) Bytes() ([]byte, error) {
-	var b bytes.Buffer
-	err := q.Encode(&b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
-}
-
-// DecodeRecords provides all TLV records for decoding.
-func (q *sellRequestMsgData) decodeRecords() []tlv.Record {
-	return []tlv.Record{
-		TypeRecordSellRequestVersion(&q.Version),
-		TypeRecordSellRequestID(&q.ID),
-		TypeRecordSellRequestAssetID(&q.AssetID),
-		TypeRecordSellRequestAssetGroupKey(&q.AssetGroupKey),
-		TypeRecordSellRequestAssetAmount(&q.AssetAmount),
-		TypeRecordSellRequestAskPrice(&q.AskPrice),
-	}
-}
-
-// Decode decodes the structure from a TLV stream.
-func (q *sellRequestMsgData) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(q.decodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.Decode(r)
-}
-
-// SellRequest is a struct that represents a asset sell quote request.
-type SellRequest struct {
-	// Peer is the peer that sent the quote request.
-	Peer route.Vertex
-
-	// sellRequestMsgData is the message data for the quote request
-	// message.
-	sellRequestMsgData
-}
-
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
@@ -219,15 +60,13 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	}
 
 	return &SellRequest{
-		Peer: peer,
-		sellRequestMsgData: sellRequestMsgData{
-			Version:       latestSellRequestVersion,
-			ID:            id,
-			AssetID:       assetID,
-			AssetGroupKey: assetGroupKey,
-			AssetAmount:   assetAmount,
-			AskPrice:      askPrice,
-		},
+		Peer:          peer,
+		Version:       latestSellRequestVersion,
+		ID:            id,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   assetAmount,
+		AskPrice:      askPrice,
 	}, nil
 }
 
@@ -275,15 +114,13 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 	)
 
 	req := SellRequest{
-		Peer: wireMsg.Peer,
-		sellRequestMsgData: sellRequestMsgData{
-			Version:       msgData.Version.Val,
-			ID:            msgData.ID.Val,
-			AssetID:       assetID,
-			AssetGroupKey: assetGroupKey,
-			AssetAmount:   msgData.AssetMaxAmount.Val,
-			AskPrice:      askPrice,
-		},
+		Peer:          wireMsg.Peer,
+		Version:       msgData.Version.Val,
+		ID:            msgData.ID.Val,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   msgData.AssetMaxAmount.Val,
+		AskPrice:      askPrice,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -297,7 +134,22 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 
 // Validate ensures that the quote request is valid.
 func (q *SellRequest) Validate() error {
-	return q.sellRequestMsgData.Validate()
+	if q.AssetID == nil && q.AssetGroupKey == nil {
+		return fmt.Errorf("asset id and group key cannot both be nil")
+	}
+
+	if q.AssetID != nil && q.AssetGroupKey != nil {
+		return fmt.Errorf("asset id and group key cannot both be " +
+			"non-nil")
+	}
+
+	// Ensure that the message version is supported.
+	if q.Version > latestSellRequestVersion {
+		return fmt.Errorf("unsupported sell request message version: "+
+			"%d", q.Version)
+	}
+
+	return nil
 }
 
 // ToWire returns a wire message with a serialized data field.
