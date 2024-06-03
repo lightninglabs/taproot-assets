@@ -1,7 +1,6 @@
 package rfqmsg
 
 import (
-	"bytes"
 	"crypto/rand"
 	"crypto/sha256"
 	"fmt"
@@ -13,35 +12,6 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
-
-const (
-	// Buy request message type field TLV types.
-
-	TypeBuyRequestVersion       tlv.Type = 0
-	TypeBuyRequestID            tlv.Type = 2
-	TypeBuyRequestAssetID       tlv.Type = 3
-	TypeBuyRequestAssetGroupKey tlv.Type = 5
-	TypeBuyRequestAssetAmount   tlv.Type = 6
-	TypeBuyRequestBidPrice      tlv.Type = 8
-)
-
-func TypeRecordBuyRequestVersion(version *WireMsgDataVersion) tlv.Record {
-	const recordSize = 1
-
-	return tlv.MakeStaticRecord(
-		TypeBuyRequestVersion, version, recordSize,
-		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
-	)
-}
-
-func TypeRecordBuyRequestID(id *ID) tlv.Record {
-	const recordSize = 32
-
-	return tlv.MakeStaticRecord(
-		TypeBuyRequestID, id, recordSize,
-		IdEncoder, IdDecoder,
-	)
-}
 
 func IdEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*ID); ok {
@@ -70,15 +40,6 @@ func IdDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "MessageID", l, idBytesLen)
-}
-
-func TypeRecordBuyRequestAssetID(assetID **asset.ID) tlv.Record {
-	const recordSize = sha256.Size
-
-	return tlv.MakeStaticRecord(
-		TypeBuyRequestAssetID, assetID, recordSize,
-		AssetIdEncoder, AssetIdDecoder,
-	)
 }
 
 func AssetIdEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -111,35 +72,17 @@ func AssetIdDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForDecodingErr(val, "assetId", l, sha256.Size)
 }
 
-func TypeRecordBuyRequestAssetGroupKey(groupKey **btcec.PublicKey) tlv.Record {
-	const recordSize = btcec.PubKeyBytesLenCompressed
-
-	return tlv.MakeStaticRecord(
-		TypeBuyRequestAssetGroupKey, groupKey, recordSize,
-		asset.CompressedPubKeyEncoder, asset.CompressedPubKeyDecoder,
-	)
-}
-
-func TypeRecordBuyRequestAssetAmount(assetAmount *uint64) tlv.Record {
-	return tlv.MakePrimitiveRecord(TypeBuyRequestAssetAmount, assetAmount)
-}
-
-func TypeRecordBuyRequestBidPrice(bid *lnwire.MilliSatoshi) tlv.Record {
-	return tlv.MakeStaticRecord(
-		TypeBuyRequestBidPrice, bid, 8,
-		milliSatoshiEncoder, milliSatoshiDecoder,
-	)
-}
-
 const (
 	// latestBuyRequestVersion is the latest supported buy request wire
 	// message data field version.
 	latestBuyRequestVersion = V0
 )
 
-// buyRequestMsgData is a struct that represents the message data from an asset
-// buy quote request message.
-type buyRequestMsgData struct {
+// BuyRequest is a struct that represents an asset buy quote request.
+type BuyRequest struct {
+	// Peer is the peer that sent the quote request.
+	Peer route.Vertex
+
 	// Version is the version of the message data.
 	Version WireMsgDataVersion
 
@@ -162,104 +105,6 @@ type buyRequestMsgData struct {
 	BidPrice lnwire.MilliSatoshi
 }
 
-// Validate ensures that the asset buy quote request is valid.
-func (q *buyRequestMsgData) Validate() error {
-	if q.AssetID == nil && q.AssetGroupKey == nil {
-		return fmt.Errorf("asset id and group key cannot both be nil")
-	}
-
-	if q.AssetID != nil && q.AssetGroupKey != nil {
-		return fmt.Errorf("asset id and group key cannot both be " +
-			"non-nil")
-	}
-
-	// Ensure that the message version is supported.
-	if q.Version > latestBuyRequestVersion {
-		return fmt.Errorf("unsupported buy request message version: %d",
-			q.Version)
-	}
-
-	return nil
-}
-
-// EncodeRecords determines the non-nil records to include when encoding an at
-// runtime.
-func (q *buyRequestMsgData) encodeRecords() []tlv.Record {
-	records := []tlv.Record{
-		TypeRecordBuyRequestVersion(&q.Version),
-		TypeRecordBuyRequestID(&q.ID),
-	}
-
-	if q.AssetID != nil {
-		records = append(
-			records, TypeRecordBuyRequestAssetID(&q.AssetID),
-		)
-	}
-
-	if q.AssetGroupKey != nil {
-		record := TypeRecordBuyRequestAssetGroupKey(&q.AssetGroupKey)
-		records = append(records, record)
-	}
-
-	records = append(
-		records, TypeRecordBuyRequestAssetAmount(&q.AssetAmount),
-	)
-	records = append(records, TypeRecordBuyRequestBidPrice(&q.BidPrice))
-
-	return records
-}
-
-// Encode encodes the structure into a TLV stream.
-func (q *buyRequestMsgData) Encode(writer io.Writer) error {
-	stream, err := tlv.NewStream(q.encodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.Encode(writer)
-}
-
-// Bytes encodes the structure into a TLV stream and returns the bytes.
-func (q *buyRequestMsgData) Bytes() ([]byte, error) {
-	var b bytes.Buffer
-	err := q.Encode(&b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
-}
-
-// DecodeRecords provides all TLV records for decoding.
-func (q *buyRequestMsgData) decodeRecords() []tlv.Record {
-	return []tlv.Record{
-		TypeRecordBuyRequestVersion(&q.Version),
-		TypeRecordBuyRequestID(&q.ID),
-		TypeRecordBuyRequestAssetID(&q.AssetID),
-		TypeRecordBuyRequestAssetGroupKey(&q.AssetGroupKey),
-		TypeRecordBuyRequestAssetAmount(&q.AssetAmount),
-		TypeRecordBuyRequestBidPrice(&q.BidPrice),
-	}
-}
-
-// Decode decodes the structure from a TLV stream.
-func (q *buyRequestMsgData) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(q.decodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.DecodeP2P(r)
-}
-
-// BuyRequest is a struct that represents an asset buy quote request.
-type BuyRequest struct {
-	// Peer is the peer that sent the quote request.
-	Peer route.Vertex
-
-	// buyRequestMsgData is the message data for the asset buy quote request
-	// message.
-	buyRequestMsgData
-}
-
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
@@ -273,15 +118,13 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	}
 
 	return &BuyRequest{
-		Peer: peer,
-		buyRequestMsgData: buyRequestMsgData{
-			Version:       latestBuyRequestVersion,
-			ID:            id,
-			AssetID:       assetID,
-			AssetGroupKey: assetGroupKey,
-			AssetAmount:   assetAmount,
-			BidPrice:      bidPrice,
-		},
+		Peer:          peer,
+		Version:       latestBuyRequestVersion,
+		ID:            id,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   assetAmount,
+		BidPrice:      bidPrice,
 	}, nil
 }
 
@@ -326,15 +169,13 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 	)
 
 	req := BuyRequest{
-		Peer: wireMsg.Peer,
-		buyRequestMsgData: buyRequestMsgData{
-			Version:       msgData.Version.Val,
-			ID:            msgData.ID.Val,
-			AssetID:       assetID,
-			AssetGroupKey: assetGroupKey,
-			AssetAmount:   msgData.AssetMaxAmount.Val,
-			BidPrice:      bidPrice,
-		},
+		Peer:          wireMsg.Peer,
+		Version:       msgData.Version.Val,
+		ID:            msgData.ID.Val,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   msgData.AssetMaxAmount.Val,
+		BidPrice:      bidPrice,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -348,7 +189,22 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 
 // Validate ensures that the buy request is valid.
 func (q *BuyRequest) Validate() error {
-	return q.buyRequestMsgData.Validate()
+	if q.AssetID == nil && q.AssetGroupKey == nil {
+		return fmt.Errorf("asset id and group key cannot both be nil")
+	}
+
+	if q.AssetID != nil && q.AssetGroupKey != nil {
+		return fmt.Errorf("asset id and group key cannot both be " +
+			"non-nil")
+	}
+
+	// Ensure that the message version is supported.
+	if q.Version > latestBuyRequestVersion {
+		return fmt.Errorf("unsupported buy request message version: %d",
+			q.Version)
+	}
+
+	return nil
 }
 
 // ToWire returns a wire message with a serialized data field.
