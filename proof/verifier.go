@@ -109,7 +109,10 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 		return tapCommitment, nil
 	}
 
-	return nil, commitment.ErrInvalidTaprootProof
+	return nil, fmt.Errorf("%w: derived_key=%x, expected_key=%x",
+		commitment.ErrInvalidTaprootProof,
+		derivedKey.SerializeCompressed(),
+		expectedTaprootKey.SerializeCompressed())
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
