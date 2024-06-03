@@ -10,6 +10,16 @@ service TaprootAssetChannels {
     creation of a channel that contains a specified amount of a given asset.
     */
     rpc FundChannel (FundChannelRequest) returns (FundChannelResponse);
+
+    /*
+    EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+    data into the TLV format that is used in the custom records of the lnd
+    payment or other channel related RPCs. This RPC is completely stateless and
+    does not perform any checks on the data provided, other than pure format
+    validation.
+    */
+    rpc EncodeCustomRecords (EncodeCustomRecordsRequest)
+        returns (EncodeCustomRecordsResponse);
 }
 
 message FundChannelRequest {
@@ -34,4 +44,26 @@ message FundChannelResponse {
 
     // The index of the channel funding output in the funding transaction.
     int32 output_index = 2;
+}
+
+message RouterSendPaymentData {
+    // The string encoded asset ID to amount mapping. Instructs the router to
+    // use these assets in the given amounts for the payment. Can be empty for
+    // a payment of an invoice, if the RFQ ID is set instead.
+    map<string, uint64> asset_amounts = 1;
+
+    // The RFQ ID to use for the payment. Can be empty for a direct keysend
+    // payment that doesn't involve any conversion (and thus no RFQ).
+    bytes rfq_id = 2;
+}
+
+message EncodeCustomRecordsRequest {
+    oneof input {
+        RouterSendPaymentData router_send_payment = 1;
+    }
+}
+
+message EncodeCustomRecordsResponse {
+    // The encoded custom records in TLV format.
+    map<uint64, bytes> custom_records = 1;
 }

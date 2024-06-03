@@ -16,6 +16,39 @@
     "application/json"
   ],
   "paths": {
+    "/v1/taproot-assets/channels/encode-custom-data": {
+      "post": {
+        "summary": "EncodeCustomRecords allows RPC users to encode Taproot Asset channel related\ndata into the TLV format that is used in the custom records of the lnd\npayment or other channel related RPCs. This RPC is completely stateless and\ndoes not perform any checks on the data provided, other than pure format\nvalidation.",
+        "operationId": "TaprootAssetChannels_EncodeCustomRecords",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcEncodeCustomRecordsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcEncodeCustomRecordsRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
     "/v1/taproot-assets/channels/fund": {
       "get": {
         "summary": "FundChannel initiates the channel funding negotiation with a peer for the\ncreation of a channel that contains a specified amount of a given asset.",
@@ -103,6 +136,27 @@
         }
       }
     },
+    "tapchannelrpcEncodeCustomRecordsRequest": {
+      "type": "object",
+      "properties": {
+        "router_send_payment": {
+          "$ref": "#/definitions/tapchannelrpcRouterSendPaymentData"
+        }
+      }
+    },
+    "tapchannelrpcEncodeCustomRecordsResponse": {
+      "type": "object",
+      "properties": {
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The encoded custom records in TLV format."
+        }
+      }
+    },
     "tapchannelrpcFundChannelResponse": {
       "type": "object",
       "properties": {
@@ -114,6 +168,24 @@
           "type": "integer",
           "format": "int32",
           "description": "The index of the channel funding output in the funding transaction."
+        }
+      }
+    },
+    "tapchannelrpcRouterSendPaymentData": {
+      "type": "object",
+      "properties": {
+        "asset_amounts": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "uint64"
+          },
+          "description": "The string encoded asset ID to amount mapping. Instructs the router to\nuse these assets in the given amounts for the payment. Can be empty for\na payment of an invoice, if the RFQ ID is set instead."
+        },
+        "rfq_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The RFQ ID to use for the payment. Can be empty for a direct keysend\npayment that doesn't involve any conversion (and thus no RFQ)."
         }
       }
     }

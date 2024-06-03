@@ -21,6 +21,12 @@ type TaprootAssetChannelsClient interface {
 	// FundChannel initiates the channel funding negotiation with a peer for the
 	// creation of a channel that contains a specified amount of a given asset.
 	FundChannel(ctx context.Context, in *FundChannelRequest, opts ...grpc.CallOption) (*FundChannelResponse, error)
+	// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+	// data into the TLV format that is used in the custom records of the lnd
+	// payment or other channel related RPCs. This RPC is completely stateless and
+	// does not perform any checks on the data provided, other than pure format
+	// validation.
+	EncodeCustomRecords(ctx context.Context, in *EncodeCustomRecordsRequest, opts ...grpc.CallOption) (*EncodeCustomRecordsResponse, error)
 }
 
 type taprootAssetChannelsClient struct {
@@ -40,6 +46,15 @@ func (c *taprootAssetChannelsClient) FundChannel(ctx context.Context, in *FundCh
 	return out, nil
 }
 
+func (c *taprootAssetChannelsClient) EncodeCustomRecords(ctx context.Context, in *EncodeCustomRecordsRequest, opts ...grpc.CallOption) (*EncodeCustomRecordsResponse, error) {
+	out := new(EncodeCustomRecordsResponse)
+	err := c.cc.Invoke(ctx, "/tapchannelrpc.TaprootAssetChannels/EncodeCustomRecords", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaprootAssetChannelsServer is the server API for TaprootAssetChannels service.
 // All implementations must embed UnimplementedTaprootAssetChannelsServer
 // for forward compatibility
@@ -47,6 +62,12 @@ type TaprootAssetChannelsServer interface {
 	// FundChannel initiates the channel funding negotiation with a peer for the
 	// creation of a channel that contains a specified amount of a given asset.
 	FundChannel(context.Context, *FundChannelRequest) (*FundChannelResponse, error)
+	// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+	// data into the TLV format that is used in the custom records of the lnd
+	// payment or other channel related RPCs. This RPC is completely stateless and
+	// does not perform any checks on the data provided, other than pure format
+	// validation.
+	EncodeCustomRecords(context.Context, *EncodeCustomRecordsRequest) (*EncodeCustomRecordsResponse, error)
 	mustEmbedUnimplementedTaprootAssetChannelsServer()
 }
 
@@ -56,6 +77,9 @@ type UnimplementedTaprootAssetChannelsServer struct {
 
 func (UnimplementedTaprootAssetChannelsServer) FundChannel(context.Context, *FundChannelRequest) (*FundChannelResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FundChannel not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) EncodeCustomRecords(context.Context, *EncodeCustomRecordsRequest) (*EncodeCustomRecordsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EncodeCustomRecords not implemented")
 }
 func (UnimplementedTaprootAssetChannelsServer) mustEmbedUnimplementedTaprootAssetChannelsServer() {}
 
@@ -88,6 +112,24 @@ func _TaprootAssetChannels_FundChannel_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssetChannels_EncodeCustomRecords_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EncodeCustomRecordsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetChannelsServer).EncodeCustomRecords(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tapchannelrpc.TaprootAssetChannels/EncodeCustomRecords",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetChannelsServer).EncodeCustomRecords(ctx, req.(*EncodeCustomRecordsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaprootAssetChannels_ServiceDesc is the grpc.ServiceDesc for TaprootAssetChannels service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -98,6 +140,10 @@ var TaprootAssetChannels_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FundChannel",
 			Handler:    _TaprootAssetChannels_FundChannel_Handler,
+		},
+		{
+			MethodName: "EncodeCustomRecords",
+			Handler:    _TaprootAssetChannels_EncodeCustomRecords_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

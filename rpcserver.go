@@ -57,6 +57,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
@@ -6439,6 +6440,81 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 		Txid:        chanPoint.Hash.String(),
 		OutputIndex: int32(chanPoint.Index),
 	}, nil
+}
+
+// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+// data into the TLV format that is used in the custom records of the lnd
+// payment or other channel related RPCs. This RPC is completely stateless and
+// does not perform any checks on the data provided, other than pure format
+// validation.
+func (r *rpcServer) EncodeCustomRecords(_ context.Context,
+	in *tchrpc.EncodeCustomRecordsRequest) (
+	*tchrpc.EncodeCustomRecordsResponse, error) {
+
+	switch i := in.Input.(type) {
+	case *tchrpc.EncodeCustomRecordsRequest_RouterSendPayment:
+		req := i.RouterSendPayment
+
+		assetAmounts := make(
+			[]*rfqmsg.AssetBalance, 0, len(req.AssetAmounts),
+		)
+		for idStr, amount := range req.AssetAmounts {
+			idBytes, err := hex.DecodeString(idStr)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding asset "+
+					"ID: %w", err)
+			}
+
+			if len(idBytes) != sha256.Size {
+				return nil, fmt.Errorf("asset ID must be 32 " +
+					"bytes")
+			}
+
+			if amount == 0 {
+				return nil, fmt.Errorf("asset amount must be " +
+					"specified")
+			}
+
+			var assetID asset.ID
+			copy(assetID[:], idBytes)
+
+			assetAmounts = append(
+				assetAmounts, rfqmsg.NewAssetBalance(
+					assetID, amount,
+				),
+			)
+		}
+
+		rfqID := fn.None[rfqmsg.ID]()
+		if len(req.RfqId) > 0 {
+			if len(req.RfqId) != sha256.Size {
+				return nil, fmt.Errorf("RFQ ID must be empty " +
+					"or exactly 32 bytes")
+			}
+
+			var id rfqmsg.ID
+			copy(id[:], req.RfqId)
+
+			rfqID = fn.Some[rfqmsg.ID](id)
+		}
+
+		htlc := rfqmsg.NewHtlc(assetAmounts, rfqID)
+
+		// We'll now map the HTLC struct into a set of TLV records,
+		// which we can then encode into the map format expected.
+		htlcMapRecords, err := tlv.RecordsToMap(htlc.Records())
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode records as "+
+				"map: %w", err)
+		}
+
+		return &tchrpc.EncodeCustomRecordsResponse{
+			CustomRecords: htlcMapRecords,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown input type: %T", i)
+	}
 }
 
 // serialize is a helper function that serializes a serializable object into a
