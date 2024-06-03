@@ -125,6 +125,16 @@ const (
 	V0 WireMsgDataVersion = 0
 )
 
+// Record returns a TLV record that can be used to encode/decode a
+// WireMsgDataVersion to/from a TLV stream.
+func (v *WireMsgDataVersion) Record() tlv.Record {
+	// We set the type to zero here because the type parameter in
+	// tlv.RecordT will be used as the actual type.
+	return tlv.MakeStaticRecord(
+		0, v, 1, WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
+
 // WireMsgDataVersionEncoder is a function that can be used to encode a
 // WireMsgDataVersion to a writer.
 func WireMsgDataVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
