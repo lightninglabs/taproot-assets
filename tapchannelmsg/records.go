@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -56,6 +57,18 @@ type (
 	// encode an RFQ id within the custom records of an HTLC record on the
 	// wire.
 	HtlcRfqIDType = tlv.TlvType65538
+
+	// BtcKeyShutdownType is the type alias for the TLV type that is used to
+	// encode the BTC internal key of the shutdown record on the wire.
+	BtcKeyShutdownType = tlv.TlvType65539
+
+	// AssetKeyShutdownType is the type alias for the TLV type that is used
+	// to encode the asset internal key of the shutdown record on the wire.
+	AssetKeyShutdownType = tlv.TlvType65540
+
+	// ScriptKeysShutdownType is the type alias for the TLV type that is
+	// used to encode the script keys of the shutdown record on the wire.
+	ScriptKeysShutdownType = tlv.TlvType65541
 )
 
 // OpenChannel is a record that represents the capacity information related to
@@ -1675,4 +1688,173 @@ func dTapLeafRecord(r io.Reader, val interface{}, buf *[8]byte,
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "*TapLeafRecord")
+}
+
+// ScriptKeyMap is a map of asset IDs to script keys.
+type ScriptKeyMap map[asset.ID]btcec.PublicKey
+
+// eScriptKeyMap is an encoder for ScriptKeyMap.
+func eScriptKeyMap(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*ScriptKeyMap); ok {
+		numKeys := uint64(len(*v))
+		if err := tlv.WriteVarInt(w, numKeys, buf); err != nil {
+			return err
+		}
+
+		for assetID, key := range *v {
+			if _, err := w.Write(assetID[:]); err != nil {
+				return err
+			}
+
+			_, err := w.Write(key.SerializeCompressed())
+			if err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "ScriptKeyMap")
+}
+
+// dScriptKeyMap is a decoder for ScriptKeyMap.
+func dScriptKeyMap(r io.Reader, val interface{}, buf *[8]byte,
+	_ uint64) error {
+
+	if typ, ok := val.(*ScriptKeyMap); ok {
+		numKeys, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		if numKeys == 0 {
+			return nil
+		}
+
+		keys := make(ScriptKeyMap, numKeys)
+		for i := uint64(0); i < numKeys; i++ {
+			var assetID asset.ID
+			if _, err := io.ReadFull(r, assetID[:]); err != nil {
+				return err
+			}
+
+			var keyBytes [33]byte
+			if _, err := io.ReadFull(r, keyBytes[:]); err != nil {
+				return err
+			}
+
+			key, err := btcec.ParsePubKey(keyBytes[:])
+			if err != nil {
+				return err
+			}
+
+			keys[assetID] = *key
+		}
+
+		*typ = keys
+
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*ScriptKeyMap")
+}
+
+// Record creates a Record out of a ScriptKeyMap.
+func (s *ScriptKeyMap) Record() tlv.Record {
+	size := func() uint64 {
+		var (
+			buf     bytes.Buffer
+			scratch [8]byte
+		)
+		err := eScriptKeyMap(&buf, s, &scratch)
+		if err != nil {
+			panic(err)
+		}
+
+		return uint64(buf.Len())
+	}
+
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeDynamicRecord(
+		0, s, size, eScriptKeyMap, dScriptKeyMap,
+	)
+}
+
+// AuxShutdownMsg contains the additional records to be sent along with the
+// shutdown message for co-op closes for an asset channel.
+type AuxShutdownMsg struct {
+	// BtcInternalKey is the internal key that the sender will use in the
+	// BTC shutdown addr. This is used to construct the final set of
+	// proofs.
+	BtcInternalKey tlv.RecordT[BtcKeyShutdownType, *btcec.PublicKey]
+
+	// AssetInternalKey is the internal key to used to anchor the asset of
+	// the sending party in the co-op close transaction.
+	AssetInternalKey tlv.RecordT[AssetKeyShutdownType, *btcec.PublicKey]
+
+	// ScriptKeys maps asset IDs to script keys to be used to send the
+	// assets to the sending party in the co-op close transaction.
+	ScriptKeys tlv.RecordT[ScriptKeysShutdownType, ScriptKeyMap]
+}
+
+// NewAuxShutdownMsg creates a new AuxShutdownMsg with the given internal key
+// and script key map.
+func NewAuxShutdownMsg(btcInternalKey, assetInternalKey *btcec.PublicKey,
+	scriptKeys ScriptKeyMap) *AuxShutdownMsg {
+
+	return &AuxShutdownMsg{
+		BtcInternalKey: tlv.NewPrimitiveRecord[BtcKeyShutdownType](
+			btcInternalKey,
+		),
+		AssetInternalKey: tlv.NewPrimitiveRecord[AssetKeyShutdownType](
+			assetInternalKey,
+		),
+		ScriptKeys: tlv.NewRecordT[ScriptKeysShutdownType](
+			scriptKeys,
+		),
+	}
+}
+
+// Encode serializes the AuxShutdownMsg to the given io.Writer.
+func (a *AuxShutdownMsg) Encode(w io.Writer) error {
+	tlvStream, err := tlv.NewStream(a.Records()...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode deserializes the AuxShutdownMsg from the given io.Reader.
+func (a *AuxShutdownMsg) Decode(r io.Reader) error {
+	tlvStream, err := tlv.NewStream(a.Records()...)
+	if err != nil {
+		return err
+	}
+
+	if _, err := tlvStream.DecodeWithParsedTypesP2P(r); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Records returns a slice of tlv.Record that represents the AuxShutdownMsg.
+func (a *AuxShutdownMsg) Records() []tlv.Record {
+	return []tlv.Record{
+		a.BtcInternalKey.Record(),
+		a.AssetInternalKey.Record(),
+		a.ScriptKeys.Record(),
+	}
+}
+
+// DecodeAuxShutdownMsg deserializes a AuxShutdownMsg from the given blob.
+func DecodeAuxShutdownMsg(blob tlv.Blob) (*AuxShutdownMsg, error) {
+	var s AuxShutdownMsg
+	err := s.Decode(bytes.NewReader(blob))
+	if err != nil {
+		return nil, err
+	}
+
+	return &s, nil
 }

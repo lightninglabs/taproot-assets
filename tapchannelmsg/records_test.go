@@ -422,3 +422,31 @@ func TestCommitSig(t *testing.T) {
 		})
 	}
 }
+
+// TestAuxShutdownMsg tests encoding and decoding of the AuxShutdownMsg TLV
+// records.
+func TestAuxShutdownMsg(t *testing.T) {
+	t.Parallel()
+
+	testAssetInternalKey := test.RandPubKey(t)
+	testBtcInternalKey := test.RandPubKey(t)
+
+	testScriptKeys := make(ScriptKeyMap)
+
+	const numScriptKeys = 10
+	for i := 0; i < numScriptKeys; i++ {
+		testScriptKeys[[32]byte{byte(i)}] = *test.RandPubKey(t)
+	}
+
+	testShutdownMsg := NewAuxShutdownMsg(
+		testBtcInternalKey, testAssetInternalKey, testScriptKeys,
+	)
+
+	var shutdownBuffer bytes.Buffer
+	require.NoError(t, testShutdownMsg.Encode(&shutdownBuffer))
+
+	var newShutdownMsg AuxShutdownMsg
+	require.NoError(t, newShutdownMsg.Decode(&shutdownBuffer))
+
+	require.Equal(t, *testShutdownMsg, newShutdownMsg)
+}

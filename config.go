@@ -136,6 +136,8 @@ type Config struct {
 
 	AuxInvoiceManager *tapchannel.AuxInvoiceManager
 
+	AuxChanCloser *tapchannel.AuxChanCloser
+
 	// UniversePublicAccess is flag which, If true, and the Universe server
 	// is on a public interface, valid proof from remote parties will be
 	// accepted, and proofs will be queryable by remote parties.

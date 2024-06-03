@@ -408,6 +408,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			RfqManager:          rfqManager,
 		},
 	)
+	auxChanCloser := tapchannel.NewAuxChanCloser(
+		tapchannel.AuxChanCloserCfg{
+			ChainParams:        &tapChainParams,
+			AddrBook:           addrBook,
+			TxSender:           chainPorter,
+			DefaultCourierAddr: proofCourierAddr,
+		},
+	)
 
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
@@ -468,6 +476,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxLeafCreator:           auxLeafCreator,
 		AuxLeafSigner:            auxLeafSigner,
 		AuxFundingController:     auxFundingController,
+		AuxChanCloser:            auxChanCloser,
 		AuxTrafficShaper:         auxTrafficShaper,
 		AuxInvoiceManager:        auxInvoiceManager,
 		LogWriter:                cfg.LogWriter,
