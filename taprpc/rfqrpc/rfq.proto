@@ -94,6 +94,10 @@ message AddAssetBuyOrderResponse {
         // accepted_quote holds the quote received from the peer as a response
         // to our quote request.
         PeerAcceptedBuyQuote accepted_quote = 1;
+
+        // invalid_quote is returned if the quote response received from the
+        // peer was invalid or insufficient.
+        InvalidQuoteResponse invalid_quote = 2;
     }
 }
 
@@ -124,6 +128,10 @@ message AddAssetSellOrderResponse {
         // accepted_quote holds the quote received from the peer as a response
         // to our quote request.
         PeerAcceptedSellQuote accepted_quote = 1;
+
+        // invalid_quote is returned if the quote response received from the
+        // peer was invalid or insufficient.
+        InvalidQuoteResponse invalid_quote = 2;
     }
 }
 
@@ -192,6 +200,34 @@ message PeerAcceptedSellQuote {
 
     // The unix timestamp in seconds after which the quote is no longer valid.
     uint64 expiry = 6;
+}
+
+// QuoteRespStatus is an enum that represents the status of a quote response.
+enum QuoteRespStatus {
+    // INVALID_RATE_TICK indicates that the rate tick in the quote response is
+    // invalid.
+    INVALID_RATE_TICK = 0;
+
+    // INVALID_EXPIRY indicates that the expiry in the quote response is
+    // invalid.
+    INVALID_EXPIRY = 1;
+
+    // PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the
+    // price oracle whilst evaluating the quote response.
+    PRICE_ORACLE_QUERY_ERR = 2;
+}
+
+// InvalidQuoteResponse is a message that is returned when a quote response is
+// invalid or insufficient.
+message InvalidQuoteResponse {
+    // status is the status of the quote response.
+    QuoteRespStatus status = 1;
+
+    // peer is the quote counterparty peer.
+    string peer = 2;
+
+    // id is the unique identifier of the quote request.
+    bytes id = 3;
 }
 
 message QueryPeerAcceptedQuotesResponse {

@@ -534,6 +534,21 @@ func MarshalAcceptedBuyQuoteEvent(
 	}
 }
 
+// MarshalInvalidQuoteRespEvent marshals an invalid quote response event to
+// its rpc representation.
+func MarshalInvalidQuoteRespEvent(
+	event *rfq.InvalidQuoteRespEvent) *rfqrpc.InvalidQuoteResponse {
+
+	peer := event.QuoteResponse.MsgPeer()
+	id := event.QuoteResponse.MsgID()
+
+	return &rfqrpc.InvalidQuoteResponse{
+		Status: rfqrpc.QuoteRespStatus(event.Status),
+		Peer:   peer.String(),
+		Id:     id[:],
+	}
+}
+
 // NewAddAssetBuyOrderResponse creates a new AddAssetBuyOrderResponse from
 // the given RFQ event.
 func NewAddAssetBuyOrderResponse(
@@ -545,6 +560,12 @@ func NewAddAssetBuyOrderResponse(
 	case *rfq.PeerAcceptedBuyQuoteEvent:
 		resp.Response = &rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote{
 			AcceptedQuote: MarshalAcceptedBuyQuoteEvent(e),
+		}
+		return resp, nil
+
+	case *rfq.InvalidQuoteRespEvent:
+		resp.Response = &rfqrpc.AddAssetBuyOrderResponse_InvalidQuote{
+			InvalidQuote: MarshalInvalidQuoteRespEvent(e),
 		}
 		return resp, nil
 
@@ -569,6 +590,12 @@ func NewAddAssetSellOrderResponse(
 	case *rfq.PeerAcceptedSellQuoteEvent:
 		resp.Response = &rfqrpc.AddAssetSellOrderResponse_AcceptedQuote{
 			AcceptedQuote: MarshalAcceptedSellQuoteEvent(e),
+		}
+		return resp, nil
+
+	case *rfq.InvalidQuoteRespEvent:
+		resp.Response = &rfqrpc.AddAssetSellOrderResponse_InvalidQuote{
+			InvalidQuote: MarshalInvalidQuoteRespEvent(e),
 		}
 		return resp, nil
 

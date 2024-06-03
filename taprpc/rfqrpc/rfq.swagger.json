@@ -742,6 +742,10 @@
         "accepted_quote": {
           "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote",
           "description": "accepted_quote holds the quote received from the peer as a response\nto our quote request."
+        },
+        "invalid_quote": {
+          "$ref": "#/definitions/rfqrpcInvalidQuoteResponse",
+          "description": "invalid_quote is returned if the quote response received from the\npeer was invalid or insufficient."
         }
       }
     },
@@ -754,6 +758,10 @@
         "accepted_quote": {
           "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote",
           "description": "accepted_quote holds the quote received from the peer as a response\nto our quote request."
+        },
+        "invalid_quote": {
+          "$ref": "#/definitions/rfqrpcInvalidQuoteResponse",
+          "description": "invalid_quote is returned if the quote response received from the\npeer was invalid or insufficient."
         }
       }
     },
@@ -779,6 +787,25 @@
           "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
         }
       }
+    },
+    "rfqrpcInvalidQuoteResponse": {
+      "type": "object",
+      "properties": {
+        "status": {
+          "$ref": "#/definitions/rfqrpcQuoteRespStatus",
+          "description": "status is the status of the quote response."
+        },
+        "peer": {
+          "type": "string",
+          "description": "peer is the quote counterparty peer."
+        },
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "id is the unique identifier of the quote request."
+        }
+      },
+      "description": "InvalidQuoteResponse is a message that is returned when a quote response is\ninvalid or insufficient."
     },
     "rfqrpcPeerAcceptedBuyQuote": {
       "type": "object",
@@ -896,6 +923,16 @@
           "description": "sell_quotes is a list of asset sell quotes which were requested by our\nnode and have been accepted by our peers."
         }
       }
+    },
+    "rfqrpcQuoteRespStatus": {
+      "type": "string",
+      "enum": [
+        "INVALID_RATE_TICK",
+        "INVALID_EXPIRY",
+        "PRICE_ORACLE_QUERY_ERR"
+      ],
+      "default": "INVALID_RATE_TICK",
+      "description": "QuoteRespStatus is an enum that represents the status of a quote response.\n\n - INVALID_RATE_TICK: INVALID_RATE_TICK indicates that the rate tick in the quote response is\ninvalid.\n - INVALID_EXPIRY: INVALID_EXPIRY indicates that the expiry in the quote response is\ninvalid.\n - PRICE_ORACLE_QUERY_ERR: PRICE_ORACLE_QUERY_ERR indicates that an error occurred when querying the\nprice oracle whilst evaluating the quote response."
     },
     "rfqrpcRfqEvent": {
       "type": "object",
