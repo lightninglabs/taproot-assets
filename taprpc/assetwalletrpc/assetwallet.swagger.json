@@ -148,6 +148,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/wallet/script-key/declare": {
+      "post": {
+        "summary": "DeclareScriptKey declares a new script key to the wallet. This is useful\nwhen the script key contains scripts, which would mean it wouldn't be\nrecognized by the wallet automatically. Declaring a script key will make any\nassets sent to the script key be recognized as being local assets.",
+        "operationId": "AssetWallet_DeclareScriptKey",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcDeclareScriptKeyResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcDeclareScriptKeyRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/script-key/next": {
       "post": {
         "summary": "NextScriptKey derives the next script key (and its corresponding internal\nkey) and stores them both in the database to make sure they are identified\nas local keys later on when importing proofs.",
@@ -508,6 +541,22 @@
             "$ref": "#/definitions/taprpcOutPoint"
           },
           "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
+        }
+      }
+    },
+    "assetwalletrpcDeclareScriptKeyRequest": {
+      "type": "object",
+      "properties": {
+        "script_key": {
+          "$ref": "#/definitions/taprpcScriptKey"
+        }
+      }
+    },
+    "assetwalletrpcDeclareScriptKeyResponse": {
+      "type": "object",
+      "properties": {
+        "script_key": {
+          "$ref": "#/definitions/taprpcScriptKey"
         }
       }
     },

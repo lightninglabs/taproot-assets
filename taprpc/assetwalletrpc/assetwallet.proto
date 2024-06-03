@@ -103,6 +103,15 @@ service AssetWallet {
     */
     rpc RemoveUTXOLease (RemoveUTXOLeaseRequest)
         returns (RemoveUTXOLeaseResponse);
+
+    /*
+    DeclareScriptKey declares a new script key to the wallet. This is useful
+    when the script key contains scripts, which would mean it wouldn't be
+    recognized by the wallet automatically. Declaring a script key will make any
+    assets sent to the script key be recognized as being local assets.
+    */
+    rpc DeclareScriptKey (DeclareScriptKeyRequest)
+        returns (DeclareScriptKeyResponse);
 }
 
 message FundVirtualPsbtRequest {
@@ -409,4 +418,12 @@ message RemoveUTXOLeaseRequest {
 }
 
 message RemoveUTXOLeaseResponse {
+}
+
+message DeclareScriptKeyRequest {
+    taprpc.ScriptKey script_key = 1;
+}
+
+message DeclareScriptKeyResponse {
+    taprpc.ScriptKey script_key = 1;
 }

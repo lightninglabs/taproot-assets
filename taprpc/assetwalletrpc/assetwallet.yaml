@@ -48,3 +48,7 @@ http:
     - selector: assetwalletrpc.AssetWallet.RemoveUTXOLease
       post: "/v1/taproot-assets/wallet/utxo-lease/delete"
       body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.DeclareScriptKey
+      post: "/v1/taproot-assets/wallet/script-key/declare"
+      body: "*"

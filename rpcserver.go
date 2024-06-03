@@ -4040,7 +4040,7 @@ func marshalUnsealedSeedling(ctx context.Context, verbose bool,
 		}
 
 		groupReq, err = taprpc.MarshalGroupKeyRequest(
-			ctx, &seedling.PendingAssetGroup.GroupKeyRequest,
+			&seedling.PendingAssetGroup.GroupKeyRequest,
 		)
 		if err != nil {
 			return nil, err
@@ -6515,6 +6515,30 @@ func (r *rpcServer) EncodeCustomRecords(_ context.Context,
 	default:
 		return nil, fmt.Errorf("unknown input type: %T", i)
 	}
+}
+
+// DeclareScriptKey declares a new script key to the wallet. This is useful
+// when the script key contains scripts, which would mean it wouldn't be
+// recognized by the wallet automatically. Declaring a script key will make any
+// assets sent to the script key be recognized as being local assets.
+func (r *rpcServer) DeclareScriptKey(ctx context.Context,
+	in *wrpc.DeclareScriptKeyRequest) (*wrpc.DeclareScriptKeyResponse,
+	error) {
+
+	scriptKey, err := taprpc.UnmarshalScriptKey(in.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling script key: %w",
+			err)
+	}
+
+	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("error inserting script key: %w", err)
+	}
+
+	return &wrpc.DeclareScriptKeyResponse{
+		ScriptKey: taprpc.MarshalScriptKey(*scriptKey),
+	}, nil
 }
 
 // serialize is a helper function that serializes a serializable object into a

@@ -27,7 +27,7 @@ type KeyLookup interface {
 	IsLocalKey(ctx context.Context, desc keychain.KeyDescriptor) bool
 }
 
-// marshalKeyDescriptor marshals the native key descriptor into the RPC
+// MarshalKeyDescriptor marshals the native key descriptor into the RPC
 // counterpart.
 func MarshalKeyDescriptor(desc keychain.KeyDescriptor) *KeyDescriptor {
 	var rawKeyBytes []byte
@@ -73,8 +73,6 @@ func UnmarshalKeyDescriptor(rpcDesc *KeyDescriptor) (keychain.KeyDescriptor,
 	return desc, nil
 }
 
-// FetchAssetMeta allows a caller to fetch the reveal meta data for an asset
-// either by the asset ID for that asset, or a meta hash.
 // UnmarshalScriptKey parses the RPC script key into the native counterpart.
 func UnmarshalScriptKey(rpcKey *ScriptKey) (*asset.ScriptKey, error) {
 	var (
@@ -125,7 +123,7 @@ func MarshalScriptKey(scriptKey asset.ScriptKey) *ScriptKey {
 
 // UnmarshalAssetVersion parses an asset version from the RPC variant.
 func UnmarshalAssetVersion(version AssetVersion) (asset.Version, error) {
-	// For now we'll only support two asset versions. The ones in the
+	// For now, we'll only support two asset versions. The ones in the
 	// future should be reserved for future use, so we disallow unknown
 	// versions.
 	switch version {
@@ -142,7 +140,7 @@ func UnmarshalAssetVersion(version AssetVersion) (asset.Version, error) {
 
 // MarshalAssetVersion parses an asset version from the RPC variant.
 func MarshalAssetVersion(version asset.Version) (AssetVersion, error) {
-	// For now we'll only support two asset versions. The ones in the
+	// For now, we'll only support two asset versions. The ones in the
 	// future should be reserved for future use, so we disallow unknown
 	// versions.
 	switch version {
@@ -293,8 +291,8 @@ func UnmarshalGroupKeyRequest(req *GroupKeyRequest) (*asset.GroupKeyRequest,
 
 // MarshalGroupKeyRequest marshals the native group key request into the RPC
 // counterpart.
-func MarshalGroupKeyRequest(ctx context.Context,
-	req *asset.GroupKeyRequest) (*GroupKeyRequest, error) {
+func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
+	error) {
 
 	err := req.Validate()
 	if err != nil {
