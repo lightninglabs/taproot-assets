@@ -85,11 +85,6 @@ type Negotiator struct {
 
 // NewNegotiator creates a new quote negotiator.
 func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
-	// If the price oracle is nil, then we will return an error.
-	if cfg.PriceOracle == nil {
-		return nil, fmt.Errorf("price oracle is nil")
-	}
-
 	return &Negotiator{
 		cfg: cfg,
 
