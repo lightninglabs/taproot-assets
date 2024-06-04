@@ -6,6 +6,7 @@ import (
 	crand "crypto/rand"
 	"fmt"
 	"io"
+	"net/url"
 	"sync"
 	"sync/atomic"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
+	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -134,7 +136,11 @@ type FundingControllerCfg struct {
 	// specific steps of the funding process.
 	AssetWallet tapfreighter.Wallet
 
+	// CoinSelector is used to select assets for funding.
 	CoinSelector tapfreighter.CoinSelector
+
+	// AddrBook is used to manage script keys and addresses.
+	AddrBook *tapdb.TapAddressBook
 
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams address.ChainParams
@@ -162,6 +168,10 @@ type FundingControllerCfg struct {
 
 	// RfqManager is used to manage RFQs.
 	RfqManager *rfq.Manager
+
+	// DefaultCourierAddr is the default address the funding controller uses
+	// to deliver the funding output proofs to the channel peer.
+	DefaultCourierAddr *url.URL
 }
 
 // bindFundingReq is a request to bind a pending channel ID to a complete aux
@@ -586,7 +596,26 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	// Our funding script key will be the OP_TRUE addr that we'll use as
 	// the funding script on the asset level.
 	fundingScriptTree := NewFundingScriptTree()
-	fundingScriptKey := asset.NewScriptKey(fundingScriptTree.TaprootKey)
+	fundingTaprootKey, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
+	)
+	fundingScriptKey := asset.ScriptKey{
+		PubKey: fundingTaprootKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingScriptTree.InternalKey,
+			},
+			Tweak: fundingScriptTree.TapscriptRoot,
+		},
+	}
+
+	// We'll also need to import the funding script key into the wallet so
+	// the asset will be materialized in the asset table and show up in the
+	// balance correctly.
+	err := f.cfg.AddrBook.InsertScriptKey(ctx, fundingScriptKey, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to insert script key: %w", err)
+	}
 
 	// Next, we'll use the asset wallet to fund a new vPSBT which'll be
 	// used as the asset level funding output for this transaction. In this
@@ -909,7 +938,7 @@ func (f *FundingController) sendAssetFundingCreated(ctx context.Context,
 // ultimately broadcasting the funding transaction.
 func (f *FundingController) completeChannelFunding(ctx context.Context,
 	fundingState *pendingAssetFunding,
-	fundedVpkt *tapfreighter.FundedVPacket) (*chainhash.Hash, error) {
+	fundedVpkt *tapfreighter.FundedVPacket) (*wire.OutPoint, error) {
 
 	log.Debugf("Finalizing funding vPackets and PSBT...")
 
@@ -1065,6 +1094,15 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 
 	log.Debugf("Commit sig received, broadcasting funding tx!")
 
+	// Before we log the transaction, we'll ensure that all the vOuts have
+	// a proof courier addr. This ensures the asset funding proof will be
+	// found in the target universe.
+	for _, vPacket := range activePkts {
+		for _, vOut := range vPacket.Outputs {
+			vOut.ProofDeliveryAddress = f.cfg.DefaultCourierAddr
+		}
+	}
+
 	// Rather than publish the final transaction ourselves, we'll instead
 	// send it to chain porter, so it can update our on disk UTXO and asset
 	// state.
@@ -1090,7 +1128,13 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 
 	log.Infof("Funding transaction broadcast: %v", fundingTxid)
 
-	return &fundingTxid, nil
+	// The funding output is always at index 0, because we're using FundPsbt
+	// with a change output index of -1, which means we add a change output
+	// at the end of the outputs. Meaning the change is always at index 1.
+	return &wire.OutPoint{
+		Hash:  fundingTxid,
+		Index: 0,
+	}, nil
 }
 
 // chanFunder is the main event loop that controls the asset specific portions
@@ -1212,7 +1256,7 @@ func (f *FundingController) chanFunder() {
 					return
 				}
 
-				fundingTxid, err := f.completeChannelFunding(
+				chanPoint, err := f.completeChannelFunding(
 					fundReq.ctx, fundingState, fundingVpkt,
 				)
 				if err != nil {
@@ -1240,7 +1284,7 @@ func (f *FundingController) chanFunder() {
 					return
 				}
 
-				fundReq.respChan <- fundingTxid
+				fundReq.respChan <- chanPoint
 			}()
 
 		// The remote party has sent us some upfront proof for channel
@@ -1559,7 +1603,7 @@ type FundReq struct {
 	FeeRate chainfee.SatPerVByte
 
 	ctx      context.Context
-	respChan chan *chainhash.Hash
+	respChan chan *wire.OutPoint
 	errChan  chan error
 }
 
@@ -1567,10 +1611,10 @@ type FundReq struct {
 // on the passed funding request. If successful, the TXID of the funding
 // transaction is returned.
 func (f *FundingController) FundChannel(ctx context.Context,
-	req FundReq) (*chainhash.Hash, error) {
+	req FundReq) (*wire.OutPoint, error) {
 
 	req.ctx = ctx
-	req.respChan = make(chan *chainhash.Hash, 1)
+	req.respChan = make(chan *wire.OutPoint, 1)
 	req.errChan = make(chan error, 1)
 
 	if !fn.SendOrQuit(f.newFundingReqs, &req, f.Quit) {

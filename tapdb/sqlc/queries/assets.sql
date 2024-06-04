@@ -137,6 +137,7 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     group_genesis_id, group_anchor_id, group_tapscript_root,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
+    script_keys.declared_known AS script_key_declared_known,
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
@@ -248,7 +249,8 @@ WITH genesis_info AS (
     WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
-    version, script_keys.tweak, script_keys.tweaked_script_key, 
+    version, script_keys.tweak, script_keys.tweaked_script_key,
+    script_keys.declared_known AS script_key_declared_known,
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
@@ -379,8 +381,9 @@ WHERE (
 -- name: QueryAssets :many
 SELECT
     assets.asset_id AS asset_primary_key, assets.genesis_id, version, spent,
-    script_keys.tweak AS script_key_tweak, 
-    script_keys.tweaked_script_key, 
+    script_keys.tweak AS script_key_tweak,
+    script_keys.tweaked_script_key,
+    script_keys.declared_known AS script_key_declared_known,
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
     internal_keys.key_index AS script_key_index,
@@ -455,7 +458,12 @@ WHERE (
       sqlc.narg('key_group_filter') IS NULL) AND
     assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
-    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id)
+    assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
+    COALESCE(length(script_keys.tweak), 0) = (CASE
+        WHEN cast(@bip86_script_keys_only as bool) = TRUE
+        THEN 0 
+        ELSE COALESCE(length(script_keys.tweak), 0)
+    END)
 );
 
 -- name: AllAssets :many
@@ -803,9 +811,9 @@ WHERE txid = $1;
 
 -- name: UpsertScriptKey :one
 INSERT INTO script_keys (
-    internal_key_id, tweaked_script_key, tweak
+    internal_key_id, tweaked_script_key, tweak, declared_known
 ) VALUES (
-    $1, $2, $3
+    $1, $2, $3, $4
 )  ON CONFLICT (tweaked_script_key)
     -- As a NOP, we just set the script key to the one that triggered the
     -- conflict.
@@ -818,7 +826,7 @@ FROM script_keys
 WHERE tweaked_script_key = $1;
 
 -- name: FetchScriptKeyByTweakedKey :one
-SELECT tweak, raw_key, key_family, key_index
+SELECT tweak, raw_key, key_family, key_index, declared_known
 FROM script_keys
 JOIN internal_keys
   ON script_keys.internal_key_id = internal_keys.key_id

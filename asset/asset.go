@@ -971,7 +971,7 @@ func EqualKeyDescriptors(a, o keychain.KeyDescriptor) bool {
 }
 
 // TweakedScriptKey is an embedded struct which is primarily used by wallets to
-// be able to keep track of the tweak of a script key along side the raw key
+// be able to keep track of the tweak of a script key alongside the raw key
 // derivation information.
 type TweakedScriptKey struct {
 	// RawKey is the raw script key before the script key tweak is applied.
@@ -983,26 +983,15 @@ type TweakedScriptKey struct {
 	// Tweak is the tweak that is applied on the raw script key to get the
 	// public key. If this is nil, then a BIP-0086 tweak is assumed.
 	Tweak []byte
-}
 
-// ScriptKey represents a tweaked Taproot output key encumbering the different
-// ways an asset can be spent.
-type ScriptKey struct {
-	// PubKey is the script key that'll be encoded in the final TLV format.
-	// All signatures are checked against this script key.
-	PubKey *btcec.PublicKey
-
-	*TweakedScriptKey
-}
-
-// IsUnSpendable returns true if this script key is equal to the un-spendable
-// NUMS point.
-func (s ScriptKey) IsUnSpendable() (bool, error) {
-	if s.PubKey == nil {
-		return false, fmt.Errorf("script key has nil public key")
-	}
-
-	return NUMSPubKey.IsEqual(s.PubKey), nil
+	// DeclaredKnown indicates that this script key has been explicitly
+	// declared as being important to the local wallet, even if it might not
+	// be fully known to the local wallet. This could perhaps also be named
+	// "imported", though that might imply that the corresponding private
+	// key was also somehow imported and available. The only relevance this
+	// flag has is that assets with a declared key are shown in the asset
+	// list/balance.
+	DeclaredKnown bool
 }
 
 // IsEqual returns true is this tweaked script key is exactly equivalent to the
@@ -1021,6 +1010,26 @@ func (ts *TweakedScriptKey) IsEqual(other *TweakedScriptKey) bool {
 	}
 
 	return EqualKeyDescriptors(ts.RawKey, other.RawKey)
+}
+
+// ScriptKey represents a tweaked Taproot output key encumbering the different
+// ways an asset can be spent.
+type ScriptKey struct {
+	// PubKey is the script key that'll be encoded in the final TLV format.
+	// All signatures are checked against this script key.
+	PubKey *btcec.PublicKey
+
+	*TweakedScriptKey
+}
+
+// IsUnSpendable returns true if this script key is equal to the un-spendable
+// NUMS point.
+func (s *ScriptKey) IsUnSpendable() (bool, error) {
+	if s.PubKey == nil {
+		return false, fmt.Errorf("script key has nil public key")
+	}
+
+	return NUMSPubKey.IsEqual(s.PubKey), nil
 }
 
 // IsEqual returns true is this script key is exactly equivalent to the passed
@@ -1047,6 +1056,25 @@ func (s *ScriptKey) IsEqual(otherScriptKey *ScriptKey) bool {
 	}
 
 	return s.PubKey.IsEqual(otherScriptKey.PubKey)
+}
+
+// DeclaredAsKnown returns true if this script key has either been derived by
+// the local wallet or was explicitly declared to be known by using the
+// DeclareScriptKey RPC. Knowing the key conceptually means the key belongs to
+// the local wallet or is at least known by a software that operates on the
+// local wallet. The DeclaredAsKnown flag is never serialized in proofs, so this
+// is never explicitly set for keys foreign to the local wallet. Therefore, if
+// this method returns true for a script key, it means the asset with the script
+// key will be shown in the wallet balance.
+func (s *ScriptKey) DeclaredAsKnown() bool {
+	return s.TweakedScriptKey != nil && s.TweakedScriptKey.DeclaredKnown
+}
+
+// HasScriptPath returns true if we know the internals of the script key and
+// there is a tweak applied to it. This means that the script key is not a
+// BIP-0086 key.
+func (s *ScriptKey) HasScriptPath() bool {
+	return s.TweakedScriptKey != nil && len(s.TweakedScriptKey.Tweak) > 0
 }
 
 // NewScriptKey constructs a ScriptKey with only the publicly available
@@ -1107,8 +1135,8 @@ func NewGroupKeyRequest(internalKey keychain.KeyDescriptor, anchorGen Genesis,
 	return req, nil
 }
 
-// ValidateGroupKeyRequest ensures that the asset intended to be a member of an
-// asset group is well-formed.
+// Validate ensures that the asset intended to be a member of an asset group is
+// well-formed.
 func (req *GroupKeyRequest) Validate() error {
 	// Perform the final checks on the asset being authorized for group
 	// membership.
@@ -1560,6 +1588,31 @@ func (a *Asset) Witnesses() []Witness {
 	return a.PrevWitnesses
 }
 
+// UpdateTxWitness updates the transaction witness at the given index with the
+// provided witness stack. The previous witness index references the input that
+// is spent.
+func (a *Asset) UpdateTxWitness(prevWitnessIndex int,
+	witness wire.TxWitness) error {
+
+	if len(a.PrevWitnesses) == 0 {
+		return fmt.Errorf("missing previous witnesses")
+	}
+
+	if prevWitnessIndex >= len(a.PrevWitnesses) {
+		return fmt.Errorf("invalid previous witness index")
+	}
+
+	targetPrevWitness := &a.PrevWitnesses[prevWitnessIndex]
+	if a.HasSplitCommitmentWitness() {
+		rootAsset := targetPrevWitness.SplitCommitment.RootAsset
+		targetPrevWitness = &rootAsset.PrevWitnesses[prevWitnessIndex]
+	}
+
+	targetPrevWitness.TxWitness = witness
+
+	return nil
+}
+
 // Copy returns a deep copy of an Asset.
 func (a *Asset) Copy() *Asset {
 	assetCopy := *a
@@ -1608,7 +1661,9 @@ func (a *Asset) Copy() *Asset {
 	}
 
 	if a.ScriptKey.TweakedScriptKey != nil {
-		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{}
+		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{
+			DeclaredKnown: a.ScriptKey.DeclaredKnown,
+		}
 		assetCopy.ScriptKey.RawKey = a.ScriptKey.RawKey
 
 		if len(a.ScriptKey.Tweak) > 0 {

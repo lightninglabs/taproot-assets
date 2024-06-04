@@ -29,6 +29,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/protofsm"
@@ -674,14 +675,15 @@ func (s *Server) Stop() error {
 
 // A compile-time check to ensure that Server fully implements the
 // lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
-// protofsm.MsgEndpoint, funding.AuxFundingController and
-// routing.TlvTrafficShaper interfaces.
+// protofsm.MsgEndpoint, funding.AuxFundingController, routing.TlvTrafficShaper
+// and chancloser.AuxChanCloser interfaces.
 var _ lnwallet.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
 var _ lnwallet.AuxSigner = (*Server)(nil)
 var _ protofsm.MsgEndpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
 var _ routing.TlvTrafficShaper = (*Server)(nil)
+var _ chancloser.AuxChanCloser = (*Server)(nil)
 
 // waitForReady blocks until the server is ready to serve requests. If the
 // server is shutting down before we ever become ready, an error is returned.
@@ -1023,4 +1025,57 @@ func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
 		totalAmount, htlcCustomRecords,
 	)
+}
+
+// AuxCloseOutputs returns the set of close outputs to use for this co-op close
+// attempt. We'll add some extra outputs to the co-op close transaction, and
+// also give the caller a custom sorting routine.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (s *Server) AuxCloseOutputs(
+	desc chancloser.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
+	error) {
+
+	srvrLog.Infof("AuxCloseOutputs called, desc=%v", spew.Sdump(desc))
+
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[chancloser.AuxCloseOutputs](), err
+	}
+
+	return s.cfg.AuxChanCloser.AuxCloseOutputs(desc)
+}
+
+// ShutdownBlob returns the set of custom records that should be included in
+// the shutdown message.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (s *Server) ShutdownBlob(
+	req chancloser.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
+	error) {
+
+	srvrLog.Infof("ShutdownBlob called, req=%v", spew.Sdump(req))
+
+	if err := s.waitForReady(); err != nil {
+		return lfn.None[lnwire.CustomRecords](), err
+	}
+
+	return s.cfg.AuxChanCloser.ShutdownBlob(req)
+}
+
+// FinalizeClose is called once the co-op close transaction has been agreed
+// upon. We'll finalize the exclusion proofs, then send things off to the
+// custodian or porter to finish sending/receiving the proofs.
+//
+// NOTE: This method is part of the chancloser.AuxChanCloser interface.
+func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
+	closeTx *wire.MsgTx) error {
+
+	srvrLog.Infof("FinalizeClose called, desc=%v, closeTx=%v",
+		spew.Sdump(desc), spew.Sdump(closeTx))
+
+	if err := s.waitForReady(); err != nil {
+		return err
+	}
+
+	return s.cfg.AuxChanCloser.FinalizeClose(desc, closeTx)
 }

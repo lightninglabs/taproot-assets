@@ -72,6 +72,11 @@ type AssetWalletClient interface {
 	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
 	// UTXO.
 	RemoveUTXOLease(ctx context.Context, in *RemoveUTXOLeaseRequest, opts ...grpc.CallOption) (*RemoveUTXOLeaseResponse, error)
+	// DeclareScriptKey declares a new script key to the wallet. This is useful
+	// when the script key contains scripts, which would mean it wouldn't be
+	// recognized by the wallet automatically. Declaring a script key will make any
+	// assets sent to the script key be recognized as being local assets.
+	DeclareScriptKey(ctx context.Context, in *DeclareScriptKeyRequest, opts ...grpc.CallOption) (*DeclareScriptKeyResponse, error)
 }
 
 type assetWalletClient struct {
@@ -190,6 +195,15 @@ func (c *assetWalletClient) RemoveUTXOLease(ctx context.Context, in *RemoveUTXOL
 	return out, nil
 }
 
+func (c *assetWalletClient) DeclareScriptKey(ctx context.Context, in *DeclareScriptKeyRequest, opts ...grpc.CallOption) (*DeclareScriptKeyResponse, error) {
+	out := new(DeclareScriptKeyResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/DeclareScriptKey", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AssetWalletServer is the server API for AssetWallet service.
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
@@ -247,6 +261,11 @@ type AssetWalletServer interface {
 	// RemoveUTXOLease removes the lease/lock/reservation of the given managed
 	// UTXO.
 	RemoveUTXOLease(context.Context, *RemoveUTXOLeaseRequest) (*RemoveUTXOLeaseResponse, error)
+	// DeclareScriptKey declares a new script key to the wallet. This is useful
+	// when the script key contains scripts, which would mean it wouldn't be
+	// recognized by the wallet automatically. Declaring a script key will make any
+	// assets sent to the script key be recognized as being local assets.
+	DeclareScriptKey(context.Context, *DeclareScriptKeyRequest) (*DeclareScriptKeyResponse, error)
 	mustEmbedUnimplementedAssetWalletServer()
 }
 
@@ -289,6 +308,9 @@ func (UnimplementedAssetWalletServer) VerifyAssetOwnership(context.Context, *Ver
 }
 func (UnimplementedAssetWalletServer) RemoveUTXOLease(context.Context, *RemoveUTXOLeaseRequest) (*RemoveUTXOLeaseResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RemoveUTXOLease not implemented")
+}
+func (UnimplementedAssetWalletServer) DeclareScriptKey(context.Context, *DeclareScriptKeyRequest) (*DeclareScriptKeyResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DeclareScriptKey not implemented")
 }
 func (UnimplementedAssetWalletServer) mustEmbedUnimplementedAssetWalletServer() {}
 
@@ -519,6 +541,24 @@ func _AssetWallet_RemoveUTXOLease_Handler(srv interface{}, ctx context.Context, 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AssetWallet_DeclareScriptKey_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(DeclareScriptKeyRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).DeclareScriptKey(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/DeclareScriptKey",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).DeclareScriptKey(ctx, req.(*DeclareScriptKeyRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AssetWallet_ServiceDesc is the grpc.ServiceDesc for AssetWallet service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -573,6 +613,10 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "RemoveUTXOLease",
 			Handler:    _AssetWallet_RemoveUTXOLease_Handler,
+		},
+		{
+			MethodName: "DeclareScriptKey",
+			Handler:    _AssetWallet_DeclareScriptKey_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

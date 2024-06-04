@@ -245,6 +245,16 @@ func FilterByType(allocType AllocationType) func(a *Allocation) bool {
 	}
 }
 
+// FilterByTypeExclude returns a filter function that can be used to filter a
+// list of allocations by excluding the given allocation type.
+func FilterByTypeExclude(
+	excludeAllocType AllocationType) func(a *Allocation) bool {
+
+	return func(a *Allocation) bool {
+		return a.Type != excludeAllocType
+	}
+}
+
 // piece is a struct that tracks the currently available and allocated assets
 // for a specific asset ID. It also contains the virtual packet that is being
 // built for each asset ID.

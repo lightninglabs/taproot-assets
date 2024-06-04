@@ -136,6 +136,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/assetwalletrpc.AssetWallet/DeclareScriptKey": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/mintrpc.Mint/MintAsset": {{
 			Entity: "mint",
 			Action: "write",
@@ -260,6 +264,10 @@ var (
 			Entity: "channels",
 			Action: "write",
 		}},
+		"/tapchannelrpc.TaprootAssetChannels/EncodeCustomRecords": {
+			// This RPC is completely stateless and doesn't require
+			// any permissions to use.
+		},
 		"/tapdevrpc.TapDev/ImportProof": {{
 			Entity: "proofs",
 			Action: "write",

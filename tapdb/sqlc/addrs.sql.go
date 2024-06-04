@@ -18,6 +18,7 @@ SELECT
     proof_courier_addr,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
+    script_keys.declared_known AS script_key_declared_known,
     raw_script_keys.raw_key as raw_script_key,
     raw_script_keys.key_family AS script_key_family,
     raw_script_keys.key_index AS script_key_index,
@@ -35,25 +36,26 @@ WHERE taproot_output_key = $1
 `
 
 type FetchAddrByTaprootOutputKeyRow struct {
-	Version          int16
-	AssetVersion     int16
-	GenesisAssetID   int64
-	GroupKey         []byte
-	TapscriptSibling []byte
-	TaprootOutputKey []byte
-	Amount           int64
-	AssetType        int16
-	CreationTime     time.Time
-	ManagedFrom      sql.NullTime
-	ProofCourierAddr []byte
-	TweakedScriptKey []byte
-	ScriptKeyTweak   []byte
-	RawScriptKey     []byte
-	ScriptKeyFamily  int32
-	ScriptKeyIndex   int32
-	RawTaprootKey    []byte
-	TaprootKeyFamily int32
-	TaprootKeyIndex  int32
+	Version                int16
+	AssetVersion           int16
+	GenesisAssetID         int64
+	GroupKey               []byte
+	TapscriptSibling       []byte
+	TaprootOutputKey       []byte
+	Amount                 int64
+	AssetType              int16
+	CreationTime           time.Time
+	ManagedFrom            sql.NullTime
+	ProofCourierAddr       []byte
+	TweakedScriptKey       []byte
+	ScriptKeyTweak         []byte
+	ScriptKeyDeclaredKnown sql.NullBool
+	RawScriptKey           []byte
+	ScriptKeyFamily        int32
+	ScriptKeyIndex         int32
+	RawTaprootKey          []byte
+	TaprootKeyFamily       int32
+	TaprootKeyIndex        int32
 }
 
 func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error) {
@@ -73,6 +75,7 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 		&i.ProofCourierAddr,
 		&i.TweakedScriptKey,
 		&i.ScriptKeyTweak,
+		&i.ScriptKeyDeclaredKnown,
 		&i.RawScriptKey,
 		&i.ScriptKeyFamily,
 		&i.ScriptKeyIndex,
@@ -206,6 +209,7 @@ SELECT
     proof_courier_addr,
     script_keys.tweaked_script_key,
     script_keys.tweak AS script_key_tweak,
+    script_keys.declared_known AS script_key_declared_known,
     raw_script_keys.raw_key AS raw_script_key,
     raw_script_keys.key_family AS script_key_family,
     raw_script_keys.key_index AS script_key_index,
@@ -236,25 +240,26 @@ type FetchAddrsParams struct {
 }
 
 type FetchAddrsRow struct {
-	Version          int16
-	AssetVersion     int16
-	GenesisAssetID   int64
-	GroupKey         []byte
-	TapscriptSibling []byte
-	TaprootOutputKey []byte
-	Amount           int64
-	AssetType        int16
-	CreationTime     time.Time
-	ManagedFrom      sql.NullTime
-	ProofCourierAddr []byte
-	TweakedScriptKey []byte
-	ScriptKeyTweak   []byte
-	RawScriptKey     []byte
-	ScriptKeyFamily  int32
-	ScriptKeyIndex   int32
-	RawTaprootKey    []byte
-	TaprootKeyFamily int32
-	TaprootKeyIndex  int32
+	Version                int16
+	AssetVersion           int16
+	GenesisAssetID         int64
+	GroupKey               []byte
+	TapscriptSibling       []byte
+	TaprootOutputKey       []byte
+	Amount                 int64
+	AssetType              int16
+	CreationTime           time.Time
+	ManagedFrom            sql.NullTime
+	ProofCourierAddr       []byte
+	TweakedScriptKey       []byte
+	ScriptKeyTweak         []byte
+	ScriptKeyDeclaredKnown sql.NullBool
+	RawScriptKey           []byte
+	ScriptKeyFamily        int32
+	ScriptKeyIndex         int32
+	RawTaprootKey          []byte
+	TaprootKeyFamily       int32
+	TaprootKeyIndex        int32
 }
 
 func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error) {
@@ -286,6 +291,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.ProofCourierAddr,
 			&i.TweakedScriptKey,
 			&i.ScriptKeyTweak,
+			&i.ScriptKeyDeclaredKnown,
 			&i.RawScriptKey,
 			&i.ScriptKeyFamily,
 			&i.ScriptKeyIndex,

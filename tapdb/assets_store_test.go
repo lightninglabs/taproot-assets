@@ -656,6 +656,20 @@ func TestFetchAllAssets(t *testing.T) {
 		numGroupKeys = 2
 	)
 
+	internalKey := test.RandPubKey(t)
+	tweak := test.RandBytes(32)
+	scriptPubKey := txscript.ComputeTaprootOutputKey(internalKey, tweak)
+
+	scriptKeyWithScript := &asset.ScriptKey{
+		PubKey: scriptPubKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: internalKey,
+			},
+			Tweak: tweak,
+		},
+	}
+
 	ctx := context.Background()
 	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
 	availableAssets := []assetDesc{{
@@ -699,10 +713,18 @@ func TestFetchAllAssets(t *testing.T) {
 		anchorPoint: assetGen.anchorPoints[4],
 		amt:         34,
 		leasedUntil: time.Now().Add(time.Hour),
+	}, {
+		assetGen:    assetGen.assetGens[9],
+		anchorPoint: assetGen.anchorPoints[4],
+		amt:         777,
+		scriptKey:   scriptKeyWithScript,
 	}}
-	makeFilter := func(amt uint64, anchorHeight int32) *AssetQueryFilters {
+	makeFilter := func(amt uint64, anchorHeight int32,
+		bip86ScriptKeysOnly bool) *AssetQueryFilters {
+
 		constraints := tapfreighter.CommitmentConstraints{
-			MinAmt: amt,
+			MinAmt:              amt,
+			Bip86ScriptKeysOnly: bip86ScriptKeysOnly,
 		}
 		return &AssetQueryFilters{
 			CommitmentConstraints: constraints,
@@ -723,7 +745,7 @@ func TestFetchAllAssets(t *testing.T) {
 	}, {
 		name:          "no constraints, include leased",
 		includeLeased: true,
-		numAssets:     6,
+		numAssets:     7,
 	}, {
 		name:         "no constraints, include spent",
 		includeSpent: true,
@@ -732,41 +754,45 @@ func TestFetchAllAssets(t *testing.T) {
 		name:          "no constraints, include leased, include spent",
 		includeLeased: true,
 		includeSpent:  true,
-		numAssets:     9,
+		numAssets:     10,
 	}, {
 		name:      "min amount",
-		filter:    makeFilter(12, 0),
+		filter:    makeFilter(12, 0, false),
 		numAssets: 2,
 	}, {
 		name:         "min amount, include spent",
-		filter:       makeFilter(12, 0),
+		filter:       makeFilter(12, 0, false),
 		includeSpent: true,
 		numAssets:    4,
 	}, {
 		name:          "min amount, include leased",
-		filter:        makeFilter(12, 0),
+		filter:        makeFilter(12, 0, false),
 		includeLeased: true,
-		numAssets:     4,
+		numAssets:     5,
 	}, {
 		name:          "min amount, include leased, include spent",
-		filter:        makeFilter(12, 0),
+		filter:        makeFilter(12, 0, false),
 		includeLeased: true,
 		includeSpent:  true,
-		numAssets:     7,
+		numAssets:     8,
 	}, {
 		name:         "default min height, include spent",
-		filter:       makeFilter(0, 500),
+		filter:       makeFilter(0, 500, false),
 		includeSpent: true,
 		numAssets:    6,
 	}, {
 		name:      "specific height",
-		filter:    makeFilter(0, 502),
+		filter:    makeFilter(0, 502, false),
 		numAssets: 0,
 	}, {
 		name:         "default min height, include spent",
-		filter:       makeFilter(0, 502),
+		filter:       makeFilter(0, 502, false),
 		includeSpent: true,
 		numAssets:    1,
+	}, {
+		name:      "script key with tapscript",
+		filter:    makeFilter(100, 0, true),
+		numAssets: 0,
 	}}
 
 	// First, we'll create a new assets store and then insert the set of

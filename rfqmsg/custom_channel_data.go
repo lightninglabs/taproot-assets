@@ -48,3 +48,11 @@ type JsonAssetChannelBalances struct {
 	OpenChannels    map[string]*JsonAssetBalance `json:"open_channels"`
 	PendingChannels map[string]*JsonAssetBalance `json:"pending_channels"`
 }
+
+// JsonCloseOutput is a struct that represents the additional co-op close output
+// information of asset channels.
+type JsonCloseOutput struct {
+	BtcInternalKey   string            `json:"btc_internal_key"`
+	AssetInternalKey string            `json:"asset_internal_key"`
+	ScriptKeys       map[string]string `json:"script_keys"`
+}

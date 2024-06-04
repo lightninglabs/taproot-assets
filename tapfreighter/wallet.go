@@ -359,9 +359,10 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// send request. We'll map the address to a set of constraints, so we
 	// can use that to do Taproot asset coin selection.
 	constraints := CommitmentConstraints{
-		GroupKey: fundDesc.GroupKey,
-		AssetID:  &fundDesc.ID,
-		MinAmt:   fundDesc.Amount,
+		GroupKey:            fundDesc.GroupKey,
+		AssetID:             &fundDesc.ID,
+		MinAmt:              fundDesc.Amount,
+		Bip86ScriptKeysOnly: true,
 	}
 	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
 		ctx, constraints, PreferMaxAmount,

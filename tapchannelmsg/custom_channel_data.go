@@ -253,6 +253,45 @@ func ReadBalanceCustomData(balanceData []byte) (*BalanceCustomData, error) {
 	return result, nil
 }
 
+// replaceCloseOutCustomChannelData replaces the custom channel data in the
+// given close output with the JSON representation of the custom data.
+func replaceCloseOutCustomChannelData(localOut *lnrpc.CloseOutput) error {
+	if len(localOut.CustomChannelData) == 0 {
+		return nil
+	}
+
+	closeData, err := DecodeAuxShutdownMsg(localOut.CustomChannelData)
+	if err != nil {
+		return fmt.Errorf("error reading custom close data: %w", err)
+	}
+
+	jsonCloseData := rfqmsg.JsonCloseOutput{
+		BtcInternalKey: hex.EncodeToString(
+			closeData.BtcInternalKey.Val.SerializeCompressed(),
+		),
+		AssetInternalKey: hex.EncodeToString(
+			closeData.AssetInternalKey.Val.SerializeCompressed(),
+		),
+		ScriptKeys: make(
+			map[string]string, len(closeData.ScriptKeys.Val),
+		),
+	}
+
+	for assetID, scriptKey := range closeData.ScriptKeys.Val {
+		jsonCloseData.ScriptKeys[assetID.String()] = hex.EncodeToString(
+			scriptKey.SerializeCompressed(),
+		)
+	}
+
+	localOut.CustomChannelData, err = json.Marshal(jsonCloseData)
+	if err != nil {
+		return fmt.Errorf("error converting custom close data to "+
+			"JSON: %w", err)
+	}
+
+	return nil
+}
+
 // ParseCustomChannelData parses the custom channel data in the given lnd RPC
 // message and converts it to JSON, replacing it inline.
 func ParseCustomChannelData(msg proto.Message) error {
@@ -295,6 +334,30 @@ func ParseCustomChannelData(msg proto.Message) error {
 		if err != nil {
 			return fmt.Errorf("error converting custom balance "+
 				"data to JSON: %w", err)
+		}
+
+	case *lnrpc.CloseStatusUpdate:
+		closeUpd, ok := m.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
+		if !ok {
+			return nil
+		}
+
+		localOut := closeUpd.ChanClose.LocalCloseOutput
+		if localOut != nil {
+			err := replaceCloseOutCustomChannelData(localOut)
+			if err != nil {
+				return fmt.Errorf("error replacing local "+
+					"custom close data: %w", err)
+			}
+		}
+
+		remoteOut := closeUpd.ChanClose.RemoteCloseOutput
+		if remoteOut != nil {
+			err := replaceCloseOutCustomChannelData(remoteOut)
+			if err != nil {
+				return fmt.Errorf("error replacing remote "+
+					"custom close data: %w", err)
+			}
 		}
 	}
 

@@ -57,6 +57,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
+	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
@@ -4039,7 +4040,7 @@ func marshalUnsealedSeedling(ctx context.Context, verbose bool,
 		}
 
 		groupReq, err = taprpc.MarshalGroupKeyRequest(
-			ctx, &seedling.PendingAssetGroup.GroupKeyRequest,
+			&seedling.PendingAssetGroup.GroupKeyRequest,
 		)
 		if err != nil {
 			return nil, err
@@ -6430,13 +6431,113 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 	copy(fundReq.AssetID[:], req.AssetId)
 
-	txHash, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
+	chanPoint, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
 	if err != nil {
 		return nil, fmt.Errorf("error funding channel: %w", err)
 	}
 
 	return &tchrpc.FundChannelResponse{
-		Txid: txHash.String(),
+		Txid:        chanPoint.Hash.String(),
+		OutputIndex: int32(chanPoint.Index),
+	}, nil
+}
+
+// EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
+// data into the TLV format that is used in the custom records of the lnd
+// payment or other channel related RPCs. This RPC is completely stateless and
+// does not perform any checks on the data provided, other than pure format
+// validation.
+func (r *rpcServer) EncodeCustomRecords(_ context.Context,
+	in *tchrpc.EncodeCustomRecordsRequest) (
+	*tchrpc.EncodeCustomRecordsResponse, error) {
+
+	switch i := in.Input.(type) {
+	case *tchrpc.EncodeCustomRecordsRequest_RouterSendPayment:
+		req := i.RouterSendPayment
+
+		assetAmounts := make(
+			[]*rfqmsg.AssetBalance, 0, len(req.AssetAmounts),
+		)
+		for idStr, amount := range req.AssetAmounts {
+			idBytes, err := hex.DecodeString(idStr)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding asset "+
+					"ID: %w", err)
+			}
+
+			if len(idBytes) != sha256.Size {
+				return nil, fmt.Errorf("asset ID must be 32 " +
+					"bytes")
+			}
+
+			if amount == 0 {
+				return nil, fmt.Errorf("asset amount must be " +
+					"specified")
+			}
+
+			var assetID asset.ID
+			copy(assetID[:], idBytes)
+
+			assetAmounts = append(
+				assetAmounts, rfqmsg.NewAssetBalance(
+					assetID, amount,
+				),
+			)
+		}
+
+		rfqID := fn.None[rfqmsg.ID]()
+		if len(req.RfqId) > 0 {
+			if len(req.RfqId) != sha256.Size {
+				return nil, fmt.Errorf("RFQ ID must be empty " +
+					"or exactly 32 bytes")
+			}
+
+			var id rfqmsg.ID
+			copy(id[:], req.RfqId)
+
+			rfqID = fn.Some[rfqmsg.ID](id)
+		}
+
+		htlc := rfqmsg.NewHtlc(assetAmounts, rfqID)
+
+		// We'll now map the HTLC struct into a set of TLV records,
+		// which we can then encode into the map format expected.
+		htlcMapRecords, err := tlv.RecordsToMap(htlc.Records())
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode records as "+
+				"map: %w", err)
+		}
+
+		return &tchrpc.EncodeCustomRecordsResponse{
+			CustomRecords: htlcMapRecords,
+		}, nil
+
+	default:
+		return nil, fmt.Errorf("unknown input type: %T", i)
+	}
+}
+
+// DeclareScriptKey declares a new script key to the wallet. This is useful
+// when the script key contains scripts, which would mean it wouldn't be
+// recognized by the wallet automatically. Declaring a script key will make any
+// assets sent to the script key be recognized as being local assets.
+func (r *rpcServer) DeclareScriptKey(ctx context.Context,
+	in *wrpc.DeclareScriptKeyRequest) (*wrpc.DeclareScriptKeyResponse,
+	error) {
+
+	scriptKey, err := taprpc.UnmarshalScriptKey(in.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling script key: %w",
+			err)
+	}
+
+	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, true)
+	if err != nil {
+		return nil, fmt.Errorf("error inserting script key: %w", err)
+	}
+
+	return &wrpc.DeclareScriptKeyResponse{
+		ScriptKey: taprpc.MarshalScriptKey(*scriptKey),
 	}, nil
 }
 

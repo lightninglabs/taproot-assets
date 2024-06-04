@@ -1145,6 +1145,14 @@
         "is_burn": {
           "type": "boolean",
           "description": "Indicates whether this transfer was an asset burn. If true, the number of\nassets in this output are destroyed and can no longer be spent."
+        },
+        "script_key_declared_known": {
+          "type": "boolean",
+          "description": "Indicates whether this script key has either been derived by the local\nwallet or was explicitly declared to be known by using the\nDeclareScriptKey RPC. Knowing the key conceptually means the key belongs\nto the local wallet or is at least known by a software that operates on\nthe local wallet. The flag is never serialized in proofs, so this is\nnever explicitly set for keys foreign to the local wallet. Therefore, if\nthis method returns true for a script key, it means the asset with the\nscript key will be shown in the wallet balance."
+        },
+        "script_key_has_script_path": {
+          "type": "boolean",
+          "description": "Indicates whether the script key is known to have a Tapscript spend path,\nmeaning that the Taproot merkle root tweak is not empty. This will only\never be true if either script_key_is_local or script_key_internals_known\nis true as well, since the presence of a Tapscript spend path cannot be\ndetermined for script keys that aren't known to the wallet of the local\ntapd node."
         }
       }
     },

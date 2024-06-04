@@ -5,3 +5,6 @@ http:
   rules:
     - selector: tapchannelrpc.TaprootAssetChannels.FundChannel
       get: "/v1/taproot-assets/channels/fund"
+    - selector: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords
+      post: "/v1/taproot-assets/channels/encode-custom-data"
+      body: "*"
