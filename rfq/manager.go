@@ -71,6 +71,11 @@ type ManagerCfg struct {
 	// into the manager once lnd and tapd are hooked together.
 	AliasManager ScidAliasManager
 
+	// SkipAcceptQuotePriceCheck is a flag that, when set, will cause the
+	// RFQ negotiator to skip price validation on incoming quote accept
+	// messages (this means that the price oracle will not be queried).
+	SkipAcceptQuotePriceCheck bool
+
 	// ErrChan is the main error channel which will be used to report back
 	// critical errors to the main server.
 	ErrChan chan<- error
@@ -198,10 +203,13 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 
 	// Initialise and start the quote negotiator.
 	m.negotiator, err = NewNegotiator(
+		// nolint: lll
 		NegotiatorCfg{
-			PriceOracle:      m.cfg.PriceOracle,
-			OutgoingMessages: m.outgoingMessages,
-			ErrChan:          m.subsystemErrChan,
+			PriceOracle:               m.cfg.PriceOracle,
+			OutgoingMessages:          m.outgoingMessages,
+			AcceptPriceDeviationPpm:   DefaultAcceptPriceDeviationPpm,
+			SkipAcceptQuotePriceCheck: m.cfg.SkipAcceptQuotePriceCheck,
+			ErrChan:                   m.subsystemErrChan,
 		},
 	)
 	if err != nil {
@@ -309,28 +317,49 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 	case *rfqmsg.BuyAccept:
 		// TODO(ffranr): The stream handler should ensure that the
 		//  accept message corresponds to a request.
-		//
-		// The quote request has been accepted. Store accepted quote
-		// so that it can be used to send a payment by our lightning
-		// node.
-		scid := SerialisedScid(msg.ShortChannelId())
-		m.peerAcceptedBuyQuotes.Store(scid, *msg)
 
-		// Since we're going to buy assets from our peer, we need to
-		// make sure we can identify the incoming asset payment by the
-		// SCID alias through which it comes in and compare it to the
-		// one in the invoice.
-		err := m.addScidAlias(
-			uint64(msg.ShortChannelId()), *msg.AssetID, msg.Peer,
-		)
-		if err != nil {
-			return fmt.Errorf("error adding local alias: %w", err)
+		finaliseCallback := func(msg rfqmsg.BuyAccept,
+			invalidQuoteEvent fn.Option[InvalidQuoteRespEvent]) {
+
+			// If the quote is invalid, notify subscribers of the
+			// invalid quote event and return.
+			invalidQuoteEvent.WhenSome(
+				func(event InvalidQuoteRespEvent) {
+					m.publishSubscriberEvent(&event)
+				},
+			)
+
+			if invalidQuoteEvent.IsSome() {
+				return
+			}
+
+			// The quote request has been accepted. Store accepted
+			// quote so that it can be used to send a payment by our
+			// lightning node.
+			scid := msg.ShortChannelId()
+			m.peerAcceptedBuyQuotes.Store(scid, msg)
+
+			// Since we're going to buy assets from our peer, we
+			// need to make sure we can identify the incoming asset
+			// payment by the SCID alias through which it comes in
+			// and compare it to the one in the invoice.
+			err := m.addScidAlias(
+				uint64(msg.ShortChannelId()), *msg.AssetID,
+				msg.Peer,
+			)
+			if err != nil {
+				m.cfg.ErrChan <- fmt.Errorf("error adding "+
+					"local alias: %w", err)
+				return
+			}
+
+			// Notify subscribers of the incoming peer accepted
+			// asset buy quote.
+			event := NewPeerAcceptedBuyQuoteEvent(&msg)
+			m.publishSubscriberEvent(event)
 		}
 
-		// Notify subscribers of the incoming peer accepted asset buy
-		// quote.
-		event := NewPeerAcceptedBuyQuoteEvent(msg)
-		m.publishSubscriberEvent(event)
+		m.negotiator.HandleIncomingBuyAccept(*msg, finaliseCallback)
 
 	case *rfqmsg.SellRequest:
 		err := m.negotiator.HandleIncomingSellRequest(*msg)
@@ -342,17 +371,35 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 	case *rfqmsg.SellAccept:
 		// TODO(ffranr): The stream handler should ensure that the
 		//  accept message corresponds to a request.
-		//
-		// The quote request has been accepted. Store accepted quote
-		// so that it can be used to send a payment by our lightning
-		// node.
-		scid := SerialisedScid(msg.ShortChannelId())
-		m.peerAcceptedSellQuotes.Store(scid, *msg)
 
-		// Notify subscribers of the incoming peer accepted asset sell
-		// quote.
-		event := NewPeerAcceptedSellQuoteEvent(msg)
-		m.publishSubscriberEvent(event)
+		finaliseCallback := func(msg rfqmsg.SellAccept,
+			invalidQuoteEvent fn.Option[InvalidQuoteRespEvent]) {
+
+			// If the quote is invalid, notify subscribers of the
+			// invalid quote event and return.
+			invalidQuoteEvent.WhenSome(
+				func(event InvalidQuoteRespEvent) {
+					m.publishSubscriberEvent(&event)
+				},
+			)
+
+			if invalidQuoteEvent.IsSome() {
+				return
+			}
+
+			// The quote request has been accepted. Store accepted
+			// quote so that it can be used to send a payment by our
+			// lightning node.
+			scid := msg.ShortChannelId()
+			m.peerAcceptedSellQuotes.Store(scid, msg)
+
+			// Notify subscribers of the incoming peer accepted
+			// asset sell quote.
+			event := NewPeerAcceptedSellQuoteEvent(&msg)
+			m.publishSubscriberEvent(event)
+		}
+
+		m.negotiator.HandleIncomingSellAccept(*msg, finaliseCallback)
 
 	case *rfqmsg.Reject:
 		// The quote request has been rejected. Notify subscribers of
@@ -755,6 +802,57 @@ func (q *PeerAcceptedBuyQuoteEvent) Timestamp() time.Time {
 // Ensure that the PeerAcceptedBuyQuoteEvent struct implements the Event
 // interface.
 var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
+
+// QuoteRespStatus is an enumeration of possible quote response statuses.
+type QuoteRespStatus uint8
+
+const (
+	// InvalidRateTickQuoteRespStatus indicates that the rate tick in the
+	// quote response is invalid.
+	InvalidRateTickQuoteRespStatus QuoteRespStatus = 0
+
+	// InvalidExpiryQuoteRespStatus indicates that the expiry in the quote
+	// response is invalid.
+	InvalidExpiryQuoteRespStatus QuoteRespStatus = 1
+
+	// PriceOracleQueryErrQuoteRespStatus indicates that an error occurred
+	// when querying the price oracle whilst evaluating the quote response.
+	PriceOracleQueryErrQuoteRespStatus QuoteRespStatus = 2
+)
+
+// InvalidQuoteRespEvent is an event that is broadcast when the RFQ manager
+// receives an unacceptable quote response message from a peer.
+type InvalidQuoteRespEvent struct {
+	// timestamp is the event creation UTC timestamp.
+	timestamp time.Time
+
+	// QuoteResponse is the quote response received from the peer which was
+	// deemed invalid.
+	QuoteResponse rfqmsg.QuoteResponse
+
+	// Status is the status of the quote response.
+	Status QuoteRespStatus
+}
+
+// NewInvalidQuoteRespEvent creates a new InvalidBuyRespEvent.
+func NewInvalidQuoteRespEvent(quoteResponse rfqmsg.QuoteResponse,
+	status QuoteRespStatus) *InvalidQuoteRespEvent {
+
+	return &InvalidQuoteRespEvent{
+		timestamp:     time.Now().UTC(),
+		QuoteResponse: quoteResponse,
+		Status:        status,
+	}
+}
+
+// Timestamp returns the event creation UTC timestamp.
+func (q *InvalidQuoteRespEvent) Timestamp() time.Time {
+	return q.timestamp.UTC()
+}
+
+// Ensure that the InvalidQuoteRespEvent struct implements the Event
+// interface.
+var _ fn.Event = (*InvalidQuoteRespEvent)(nil)
 
 // PeerAcceptedSellQuoteEvent is an event that is broadcast when the RFQ manager
 // receives an asset sell request accept quote message from a peer. This is a

@@ -263,6 +263,16 @@ func (q *BuyAccept) ToWire() (WireMessage, error) {
 	}, nil
 }
 
+// MsgPeer returns the peer that sent the message.
+func (q *BuyAccept) MsgPeer() route.Vertex {
+	return q.Peer
+}
+
+// MsgID returns the quote request session ID.
+func (q *BuyAccept) MsgID() ID {
+	return q.ID
+}
+
 // String returns a human-readable string representation of the message.
 func (q *BuyAccept) String() string {
 	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, "+

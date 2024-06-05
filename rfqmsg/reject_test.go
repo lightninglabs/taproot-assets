@@ -31,7 +31,7 @@ func TestRejectEncodeDecode(t *testing.T) {
 			peer:    route.Vertex{1, 2, 3},
 			version: 0,
 			id:      id,
-			err:     ErrNoSuitableBuyOffer,
+			err:     ErrNoSuitableSellOffer,
 		},
 		{
 			testName: "all fields populated with basic values",

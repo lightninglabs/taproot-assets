@@ -1,0 +1,259 @@
+{
+  "swagger": "2.0",
+  "info": {
+    "title": "priceoraclerpc/price_oracle.proto",
+    "version": "version not set"
+  },
+  "tags": [
+    {
+      "name": "PriceOracle"
+    }
+  ],
+  "consumes": [
+    "application/json"
+  ],
+  "produces": [
+    "application/json"
+  ],
+  "paths": {
+    "/v1/taproot-assets/rfq/priceoracle/ratetick": {
+      "get": {
+        "summary": "QueryRateTick queries the rate tick for a given transaction type, subject\nasset, and payment asset. The rate tick is the exchange rate between the\nsubject asset and the payment asset.",
+        "operationId": "PriceOracle_QueryRateTick",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/priceoraclerpcQueryRateTickResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "transaction_type",
+            "description": "transaction_type indicates whether the transaction is a purchase or a\nsale.\n\n - PURCHASE: PURCHASE indicates a purchase transaction.\n - SALE: SALE indicates a sale transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "PURCHASE",
+              "SALE"
+            ],
+            "default": "PURCHASE"
+          },
+          {
+            "name": "subject_asset.asset_id",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "subject_asset.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "subject_asset.group_key",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "subject_asset.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "subject_asset_max_amount",
+            "description": "subject_asset_max_amount is the maximum amount of the subject asset that\ncould be involved in the transaction.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "payment_asset.asset_id",
+            "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "payment_asset.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "payment_asset.group_key",
+            "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "payment_asset.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "rate_tick_hint.rate",
+            "description": "rate is the exchange rate between the subject asset and the payment\nasset.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "rate_tick_hint.expiry_timestamp",
+            "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\ntick is no longer valid.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          }
+        ],
+        "tags": [
+          "PriceOracle"
+        ]
+      }
+    }
+  },
+  "definitions": {
+    "priceoraclerpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+        },
+        "group_key_str": {
+          "type": "string",
+          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        }
+      },
+      "description": "AssetSpecifier is a union type for specifying an asset by either its asset ID\nor group key."
+    },
+    "priceoraclerpcQueryRateTickErrResponse": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "error is the error message."
+        },
+        "code": {
+          "type": "integer",
+          "format": "int64",
+          "description": "code is the error code."
+        }
+      },
+      "description": "QueryRateTickErrResponse is the error response to a rate tick query."
+    },
+    "priceoraclerpcQueryRateTickResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "$ref": "#/definitions/priceoraclerpcQueryRateTickSuccessResponse",
+          "description": "success is the successful response to the rate tick query."
+        },
+        "error": {
+          "$ref": "#/definitions/priceoraclerpcQueryRateTickErrResponse",
+          "description": "error is the error response to the rate tick query."
+        }
+      },
+      "description": "QueryRateTickResponse is the response to a rate tick query."
+    },
+    "priceoraclerpcQueryRateTickSuccessResponse": {
+      "type": "object",
+      "properties": {
+        "rate_tick": {
+          "$ref": "#/definitions/priceoraclerpcRateTick",
+          "description": "rate_tick is the rate tick for the transaction."
+        }
+      },
+      "description": "QueryRateTickSuccessResponse is the successful response to a rate tick query."
+    },
+    "priceoraclerpcRateTick": {
+      "type": "object",
+      "properties": {
+        "rate": {
+          "type": "string",
+          "format": "uint64",
+          "description": "rate is the exchange rate between the subject asset and the payment\nasset."
+        },
+        "expiry_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\ntick is no longer valid."
+        }
+      },
+      "description": "RateTick is the internal unit used for asset conversions. A tick is 1/10000th\nof a currency unit. It gives us up to 4 decimal places of precision (0.0001\nor 0.01% or 1 bps). As an example, if the BTC/USD rate was $61,234.95, then\nwe multiply that by 10,000 to arrive at the usd_rate_tick:\n$61,234.95 * 10000 = 612,349,500. To convert back to our normal rate, we\ndecide by 10,000 to arrive back at $61,234.95.\n\nNOTE: That if the payment asset is BTC, the rate tick will be given as\nmilli-satoshi per asset unit."
+    },
+    "priceoraclerpcTransactionType": {
+      "type": "string",
+      "enum": [
+        "PURCHASE",
+        "SALE"
+      ],
+      "default": "PURCHASE",
+      "description": "TransactionType is an enum representing the type of transaction.\n\n - PURCHASE: PURCHASE indicates a purchase transaction.\n - SALE: SALE indicates a sale transaction."
+    },
+    "protobufAny": {
+      "type": "object",
+      "properties": {
+        "@type": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": {}
+    },
+    "rpcStatus": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "integer",
+          "format": "int32"
+        },
+        "message": {
+          "type": "string"
+        },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/protobufAny"
+          }
+        }
+      }
+    }
+  }
+}

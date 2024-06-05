@@ -171,3 +171,16 @@ type OutgoingMsg interface {
 	// ToWire returns a wire message with a serialized data field.
 	ToWire() (WireMessage, error)
 }
+
+// QuoteResponse defines an interface for handling incoming peer messages
+// that serve as responses to quote requests.
+type QuoteResponse interface {
+	// MsgPeer returns the peer that sent the message.
+	MsgPeer() route.Vertex
+
+	// MsgID returns the quote request session ID.
+	MsgID() ID
+
+	// String returns a human-readable string representation of the message.
+	String() string
+}
