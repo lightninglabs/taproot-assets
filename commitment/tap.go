@@ -475,3 +475,35 @@ func (c *TapCommitment) Merge(other *TapCommitment) error {
 
 	return nil
 }
+
+// TrimSplitWitnesses returns a copy of the commitment in which all assets with
+// a split commitment witness have their SplitCommitment field set to nil.
+func TrimSplitWitnesses(c *TapCommitment) (*TapCommitment, error) {
+	// If the input asset was received non-interactively, then the Taproot
+	// Asset tree of the input anchor output was built with asset leaves
+	// that had empty SplitCommitments. However, the SplitCommitment field
+	// was populated when the transfer of the input asset was verified.
+	// To recompute the correct output script, we need to build a Taproot
+	// Asset tree from the input asset without any SplitCommitment.
+	originalAssets := c.CommittedAssets()
+	assetCopies := make([]*asset.Asset, len(originalAssets))
+	for idx, originalAsset := range originalAssets {
+		assetCopy := originalAsset.Copy()
+
+		// Assets received via non-interactive split should have one
+		// witness, with an empty PrevID and a SplitCommitment present.
+		if assetCopy.HasSplitCommitmentWitness() &&
+			*assetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
+
+			assetCopy.PrevWitnesses[0].SplitCommitment = nil
+		}
+
+		assetCopies[idx] = assetCopy
+	}
+	tapCommitment, err := FromAssets(assetCopies...)
+	if err != nil {
+		return nil, err
+	}
+
+	return tapCommitment, nil
+}

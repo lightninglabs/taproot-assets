@@ -1487,7 +1487,7 @@ func (f *FundingController) chanFunder() {
 			}
 
 			fundingCommitment := fundingFlow.fundingAssetCommitment
-			trimmedCommitment, err := tapsend.TrimSplitWitnesses(
+			trimmedCommitment, err := commitment.TrimSplitWitnesses(
 				fundingCommitment,
 			)
 			if err != nil {

@@ -977,7 +977,9 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// send. We do the same even for interactive sends to not need
 		// to distinguish between the two cases in the proof file
 		// itself.
-		sendTapCommitment, err = TrimSplitWitnesses(sendTapCommitment)
+		sendTapCommitment, err = commitment.TrimSplitWitnesses(
+			sendTapCommitment,
+		)
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
 				err)
@@ -1253,7 +1255,9 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	// Taproot Asset tree of the input anchor output was built with asset
 	// leaves that had empty SplitCommitments. We need to replicate this
 	// here as well.
-	trimmedCommitment, err := TrimSplitWitnesses(anchorCommitment)
+	trimmedCommitment, err := commitment.TrimSplitWitnesses(
+		anchorCommitment,
+	)
 	if err != nil {
 		return nil, emptyHash, emptyHash, fmt.Errorf("unable to trim "+
 			"split witnesses: %w", err)
@@ -1282,36 +1286,6 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	taprootAssetRoot := trimmedCommitment.TapscriptRoot(nil)
 
 	return script, merkleRoot, taprootAssetRoot, nil
-}
-
-// TrimSplitWitnesses returns a copy of the commitment in which all assets with
-// a split commitment witness have their SplitCommitment field set to nil.
-func TrimSplitWitnesses(
-	c *commitment.TapCommitment) (*commitment.TapCommitment, error) {
-
-	// If the input asset was received non-interactively, then the Taproot
-	// Asset tree of the input anchor output was built with asset leaves
-	// that had empty SplitCommitments. However, the SplitCommitment field
-	// was populated when the transfer of the input asset was verified.
-	// To recompute the correct output script, we need to build a Taproot
-	// Asset tree from the input asset without any SplitCommitment.
-	originalAssets := c.CommittedAssets()
-	assetCopies := make([]*asset.Asset, len(originalAssets))
-	for idx, originalAsset := range originalAssets {
-		assetCopy := originalAsset.Copy()
-
-		// Assets received via non-interactive split should have one
-		// witness, with an empty PrevID and a SplitCommitment present.
-		if assetCopy.HasSplitCommitmentWitness() &&
-			*assetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
-
-			assetCopy.PrevWitnesses[0].SplitCommitment = nil
-		}
-
-		assetCopies[idx] = assetCopy
-	}
-
-	return commitment.FromAssets(assetCopies...)
 }
 
 // interactiveFullValueSend returns true (and the index of the recipient output)
