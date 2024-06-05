@@ -6,18 +6,20 @@ import (
 )
 
 type ValidTestCase struct {
-	Asset    *asset.TestAsset        `json:"asset"`
-	SplitSet commitment.TestSplitSet `json:"split_set"`
-	InputSet commitment.TestInputSet `json:"input_set"`
-	Comment  string                  `json:"comment"`
+	Asset       *asset.TestAsset        `json:"asset"`
+	SplitSet    commitment.TestSplitSet `json:"split_set"`
+	InputSet    commitment.TestInputSet `json:"input_set"`
+	BlockHeight uint32                  `json:"block_height"`
+	Comment     string                  `json:"comment"`
 }
 
 type ErrorTestCase struct {
-	Asset    *asset.TestAsset        `json:"asset"`
-	SplitSet commitment.TestSplitSet `json:"split_set"`
-	InputSet commitment.TestInputSet `json:"input_set"`
-	Error    string                  `json:"error"`
-	Comment  string                  `json:"comment"`
+	Asset       *asset.TestAsset        `json:"asset"`
+	SplitSet    commitment.TestSplitSet `json:"split_set"`
+	InputSet    commitment.TestInputSet `json:"input_set"`
+	BlockHeight uint32                  `json:"block_height"`
+	Error       string                  `json:"error"`
+	Comment     string                  `json:"comment"`
 }
 
 type TestVectors struct {

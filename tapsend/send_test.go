@@ -189,8 +189,8 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 
 	require.NotNil(t, state)
 
-	locktime := uint64(1)
-	relLocktime := uint64(1)
+	locktime := uint64(0)
+	relLocktime := uint64(0)
 
 	// Assets to cover both asset types and all three asset values.
 	asset1, err := asset.New(
@@ -1561,6 +1561,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{spendTx},
 			},
+			BlockHeight:      2,
 			Tx:               spendTx,
 			TxIndex:          0,
 			OutputIndex:      0,
@@ -1583,6 +1584,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{spendTx},
 			},
+			BlockHeight:      3,
 			Tx:               spendTx,
 			TxIndex:          0,
 			OutputIndex:      1,

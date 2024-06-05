@@ -5,9 +5,11 @@ import (
 	"errors"
 	"sort"
 	"testing"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -40,6 +42,14 @@ var (
 				"failed checksig",
 		},
 	)
+
+	// mockInputTxBlockHeight is the block height the mock returns for an
+	// input transaction, when checking CSV time locks.
+	mockInputTxBlockHeight = uint32(234)
+
+	// mockChainLookupMeantime is a Unix timestamp in seconds that
+	// represents the time 2024-06-09T17:46:43Z.
+	mockChainLookupMeanTime int64 = 1_717_955_203
 )
 
 func randAsset(t *testing.T, assetType asset.Type,
@@ -117,13 +127,13 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 }
 
 type stateTransitionFunc = func(t *testing.T) (*asset.Asset,
-	commitment.SplitSet, commitment.InputSet)
+	commitment.SplitSet, commitment.InputSet, uint32)
 
 func genesisStateTransition(assetType asset.Type,
 	valid, grouped bool) stateTransitionFunc {
 
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
-		commitment.InputSet) {
+		commitment.InputSet, uint32) {
 
 		var (
 			inputSet commitment.InputSet
@@ -151,7 +161,7 @@ func genesisStateTransition(assetType asset.Type,
 			}
 		}
 
-		return a, splitSet, inputSet
+		return a, splitSet, inputSet, 0
 	}
 }
 
@@ -159,23 +169,23 @@ func invalidGenesisStateTransitionWitness(assetType asset.Type,
 	grouped bool) stateTransitionFunc {
 
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
-		commitment.InputSet) {
+		commitment.InputSet, uint32) {
 
 		a := asset.RandAsset(t, assetType)
 		if grouped {
 			a.PrevWitnesses[0].TxWitness = nil
 
-			return a, nil, nil
+			return a, nil, nil, 0
 		}
 
 		a.GroupKey = nil
 
-		return a, nil, nil
+		return a, nil, nil, 0
 	}
 }
 
 func collectibleStateTransition(t *testing.T) (*asset.Asset,
-	commitment.SplitSet, commitment.InputSet) {
+	commitment.SplitSet, commitment.InputSet, uint32) {
 
 	privKey := test.RandPrivKey(t)
 	scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
@@ -205,24 +215,53 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
 
-	return newAsset, nil, inputs
+	return newAsset, nil, inputs, 0
 }
 
-func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
-	commitment.InputSet) {
+// genNormalStateTransition returns a state transition function that creates a
+// normal state transition that the vm will evaluate at block height
+// `currentHeight`. If the block height is not relevant, set `currentHeight` to
+// 0. This will make the vm run at the block height of the highest lock time.
+func genNormalStateTransition(currentHeight uint32, sequence,
+	lockTime uint64, addCsvScript, addCltvScript bool) stateTransitionFunc {
+
+	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet, uint32) {
+
+		return normalStateTransition(
+			t, currentHeight, sequence, lockTime, addCsvScript,
+			addCltvScript,
+		)
+	}
+}
+
+func normalStateTransition(t *testing.T, currentHeight uint32, sequence,
+	lockTime uint64, addCsvScript, addCltvScript bool) (*asset.Asset,
+	commitment.SplitSet, commitment.InputSet, uint32) {
 
 	privKey1 := test.RandPrivKey(t)
-	scriptKey1 := txscript.ComputeTaprootKeyNoScript(privKey1.PubKey())
+	scriptKey1 := txscript.ComputeTaprootKeyNoScript(
+		privKey1.PubKey(),
+	)
 
-	const csv = 6
 	privKey2 := test.RandPrivKey(t)
-	leafScript, err := txscript.NewScriptBuilder().
+	builder := txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(privKey2.PubKey())).
-		AddOp(txscript.OP_CHECKSIGVERIFY).
-		AddInt64(csv).
-		AddOp(txscript.OP_CHECKSEQUENCEVERIFY).
-		Script()
+		AddOp(txscript.OP_CHECKSIG)
+	if addCsvScript {
+		builder = builder.AddOp(txscript.OP_DROP).
+			AddInt64(int64(sequence)).
+			AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	}
+	if addCltvScript {
+		builder = builder.AddOp(txscript.OP_DROP).
+			AddInt64(int64(lockTime)).
+			AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	}
+
+	leafScript, err := builder.Script()
 	require.NoError(t, err)
+
 	tapLeaf := txscript.NewBaseTapLeaf(leafScript)
 	tapTree := txscript.AssembleTaprootScriptTree(tapLeaf)
 	tapTreeRoot := tapTree.RootNode.TapHash()
@@ -233,17 +272,20 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	genesisOutPoint := wire.OutPoint{}
 	genesisAsset1 := randAsset(t, asset.Normal, scriptKey1)
 	genesisAsset2 := randAsset(t, asset.Normal, scriptKey2)
-	genesisAsset2.RelativeLockTime = csv
 
 	prevID1 := &asset.PrevID{
-		OutPoint:  genesisOutPoint,
-		ID:        genesisAsset1.Genesis.ID(),
-		ScriptKey: asset.ToSerialized(genesisAsset1.ScriptKey.PubKey),
+		OutPoint: genesisOutPoint,
+		ID:       genesisAsset1.Genesis.ID(),
+		ScriptKey: asset.ToSerialized(
+			genesisAsset1.ScriptKey.PubKey,
+		),
 	}
 	prevID2 := &asset.PrevID{
-		OutPoint:  genesisOutPoint,
-		ID:        genesisAsset2.Genesis.ID(),
-		ScriptKey: asset.ToSerialized(genesisAsset2.ScriptKey.PubKey),
+		OutPoint: genesisOutPoint,
+		ID:       genesisAsset2.Genesis.ID(),
+		ScriptKey: asset.ToSerialized(
+			genesisAsset2.ScriptKey.PubKey,
+		),
 	}
 
 	newAsset := genesisAsset1.Copy()
@@ -258,6 +300,13 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		TxWitness:       nil,
 		SplitCommitment: nil,
 	}}
+
+	if sequence > 0 {
+		newAsset.RelativeLockTime = sequence
+	}
+	if lockTime > 0 {
+		newAsset.LockTime = lockTime
+	}
 
 	inputs := commitment.InputSet{
 		*prevID1: genesisAsset1,
@@ -280,11 +329,11 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		txscript.SigHashDefault, &controlBlock, &tapLeaf, nil,
 	)
 
-	return newAsset, nil, inputs
+	return newAsset, nil, inputs, currentHeight
 }
 
 func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
-	commitment.InputSet) {
+	commitment.InputSet, uint32) {
 
 	privKey := test.RandPrivKey(t)
 	scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
@@ -333,14 +382,14 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
 
 	return splitCommitment.RootAsset, splitCommitment.SplitAssets,
-		splitCommitment.PrevAssets
+		splitCommitment.PrevAssets, 0
 }
 
 func splitFullValueStateTransition(validRootLocator,
 	validRoot bool) stateTransitionFunc {
 
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
-		commitment.InputSet) {
+		commitment.InputSet, uint32) {
 
 		privKey := test.RandPrivKey(t)
 		scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
@@ -394,13 +443,13 @@ func splitFullValueStateTransition(validRootLocator,
 		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
 
 		return splitCommitment.RootAsset, splitCommitment.SplitAssets,
-			splitCommitment.PrevAssets
+			splitCommitment.PrevAssets, 0
 	}
 }
 
 func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
-		commitment.InputSet) {
+		commitment.InputSet, uint32) {
 
 		privKey := test.RandPrivKey(t)
 		scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
@@ -447,7 +496,7 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 		}
 
 		return splitCommitment.RootAsset, splitCommitment.SplitAssets,
-			splitCommitment.PrevAssets
+			splitCommitment.PrevAssets, 0
 	}
 }
 
@@ -455,12 +504,12 @@ func groupAnchorStateTransition(useHashLock, BIP86, keySpend, valid bool,
 	assetType asset.Type) stateTransitionFunc {
 
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
-		commitment.InputSet) {
+		commitment.InputSet, uint32) {
 
 		gen := asset.RandGenesis(t, assetType)
 		return asset.AssetCustomGroupKey(
 			t, useHashLock, BIP86, keySpend, valid, gen,
-		), nil, nil
+		), nil, nil, 0
 	}
 }
 
@@ -498,7 +547,7 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	}}
 
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
-		commitment.InputSet) {
+		commitment.InputSet, uint32) {
 
 		inputs := []commitment.SplitCommitmentInput{{
 			Asset:    genesisAsset,
@@ -554,8 +603,32 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 		}
 
 		return splitCommitment.RootAsset, splitCommitment.SplitAssets,
-			splitCommitment.PrevAssets
+			splitCommitment.PrevAssets, 0
 	}
+}
+
+type mockChainLookup struct {
+}
+
+func (m *mockChainLookup) CurrentHeight(_ context.Context) (uint32, error) {
+	return 0, nil
+}
+
+// TxBlockHeight returns the block height that the given transaction was
+// included in.
+func (m *mockChainLookup) TxBlockHeight(context.Context,
+	chainhash.Hash) (uint32, error) {
+
+	return mockInputTxBlockHeight, nil
+}
+
+// MeanBlockTimestamp returns the timestamp of the block at the given height as
+// a Unix timestamp in seconds, taking into account the mean time elapsed over
+// the previous 10 blocks.
+func (m *mockChainLookup) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Unix(mockChainLookupMeanTime, 0).UTC(), nil
 }
 
 func TestVM(t *testing.T) {
@@ -667,13 +740,17 @@ func TestVM(t *testing.T) {
 		},
 		{
 			name: "invalid normal group anchor",
-			f:    genesisStateTransition(asset.Normal, false, true),
-			err:  newErrKind(ErrInvalidGenesisStateTransition),
+			f: genesisStateTransition(
+				asset.Normal, false, true,
+			),
+			err: newErrKind(ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "invalid normal genesis",
-			f:    genesisStateTransition(asset.Normal, false, false),
-			err:  newErrKind(ErrInvalidGenesisStateTransition),
+			f: genesisStateTransition(
+				asset.Normal, false, false,
+			),
+			err: newErrKind(ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "normal genesis invalid witness",
@@ -696,8 +773,82 @@ func TestVM(t *testing.T) {
 		},
 		{
 			name: "normal state transition",
-			f:    normalStateTransition,
+			f:    genNormalStateTransition(6, 0, 0, false, false),
 			err:  nil,
+		},
+		{
+			name: "normal state transition with csv locked asset",
+			f:    genNormalStateTransition(3, 6, 0, true, false),
+			err:  newErrKind(ErrUnfinalizedAsset),
+		},
+		{
+			name: "normal state transition with timestamp based " +
+				"csv locked asset",
+			f: genNormalStateTransition(
+				3, wire.SequenceLockTimeIsSeconds|123, 0,
+				true, false,
+			),
+			err: newErrKind(ErrUnfinalizedAsset),
+		},
+		{
+			name: "normal state transition with cltv locked asset",
+			f:    genNormalStateTransition(3, 0, 6, false, true),
+			err:  newErrKind(ErrUnfinalizedAsset),
+		},
+		{
+			name: "normal state transition with timestamp based " +
+				"cltv locked asset",
+			f: genNormalStateTransition(
+				3, 0, uint64(mockChainLookupMeanTime+123),
+				false, true,
+			),
+			err: newErrKind(ErrUnfinalizedAsset),
+		},
+		{
+			name: "normal state transition with cltv and csv " +
+				"locked asset",
+			f:   genNormalStateTransition(3, 6, 6, true, true),
+			err: newErrKind(ErrUnfinalizedAsset),
+		},
+		{
+			name: "normal state transition with csv locked " +
+				"asset, sufficient block height",
+			f: genNormalStateTransition(
+				6+mockInputTxBlockHeight, 6, 6, true, false,
+			),
+			err: nil,
+		},
+		{
+			name: "normal state transition with timestamp based " +
+				"csv locked asset, sufficient time passed",
+			f: genNormalStateTransition(
+				6+mockInputTxBlockHeight,
+				wire.SequenceLockTimeIsSeconds, 6, true, false,
+			),
+			err: nil,
+		},
+		{
+			name: "normal state transition with cltv locked " +
+				"asset, sufficient block height",
+			f:   genNormalStateTransition(6, 0, 6, false, true),
+			err: nil,
+		},
+		{
+			name: "normal state transition with timestamp based " +
+				"cltv locked asset, sufficient time passed",
+			f: genNormalStateTransition(
+				6, 0, uint64(mockChainLookupMeanTime), false,
+				true,
+			),
+			err: nil,
+		},
+		{
+			name: "normal state transition with cltv and csv " +
+				"locked asset, sufficient block height",
+			f: genNormalStateTransition(
+				6+mockInputTxBlockHeight, 6, 6, true, true,
+			),
+			err: nil,
 		},
 		{
 			name: "split state transition",
@@ -733,7 +884,9 @@ func TestVM(t *testing.T) {
 		{
 			name: "script tree spend state transition invalid " +
 				"hash lock",
-			f:   scriptTreeSpendStateTransition(t, true, false, 999),
+			f: scriptTreeSpendStateTransition(
+				t, true, false, 999,
+			),
 			err: invalidHashLockErr,
 		},
 		{
@@ -771,7 +924,9 @@ func TestVM(t *testing.T) {
 		{
 			name: "script tree spend state transition invalid " +
 				"sig",
-			f:   scriptTreeSpendStateTransition(t, false, false, 999),
+			f: scriptTreeSpendStateTransition(
+				t, false, false, 999,
+			),
 			err: invalidSigErr,
 		},
 	}
@@ -781,10 +936,11 @@ func TestVM(t *testing.T) {
 		errorVectors = &TestVectors{}
 	)
 	for _, testCase := range testCases {
-		testCase := testCase
 
 		success := t.Run(testCase.name, func(t *testing.T) {
-			newAsset, splitSet, inputSet := testCase.f(t)
+			newAsset, splitSet, inputSet, blockHeight := testCase.f(
+				t,
+			)
 
 			tv := &ValidTestCase{
 				Asset: asset.NewTestFromAsset(t, newAsset),
@@ -794,7 +950,8 @@ func TestVM(t *testing.T) {
 				InputSet: commitment.NewTestFromInputSet(
 					t, inputSet,
 				),
-				Comment: testCase.name,
+				Comment:     testCase.name,
+				BlockHeight: blockHeight,
 			}
 			if testCase.err == nil {
 				validVectors.ValidTestCases = append(
@@ -815,7 +972,7 @@ func TestVM(t *testing.T) {
 
 			verifyTestCase(
 				t, testCase.err, false, newAsset, splitSet,
-				inputSet,
+				inputSet, blockHeight,
 			)
 		})
 		if !success {
@@ -833,7 +990,7 @@ func TestVM(t *testing.T) {
 // and executing it.
 func verifyTestCase(t testing.TB, expectedErr error, compareErrString bool,
 	newAsset *asset.Asset, splitSet commitment.SplitSet,
-	inputSet commitment.InputSet) {
+	inputSet commitment.InputSet, currentHeight uint32) {
 
 	// When feeding in the test vectors, we don't have structured errors
 	// anymore, just strings. So we need to compare the error strings
@@ -853,7 +1010,11 @@ func verifyTestCase(t testing.TB, expectedErr error, compareErrString bool,
 	}
 
 	verify := func(splitAssets []*commitment.SplitAsset) error {
-		vm, err := New(newAsset, splitAssets, inputSet)
+		opts := []NewEngineOpt{
+			WithChainLookup(&mockChainLookup{}),
+			WithBlockHeight(currentHeight),
+		}
+		vm, err := New(newAsset, splitAssets, inputSet, opts...)
 		if err != nil {
 			if expectedErr != nil {
 				checkErr(err)
@@ -909,8 +1070,9 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			a := validCase.Asset.ToAsset(tt)
 			ss := validCase.SplitSet.ToSplitSet(tt)
 			is := validCase.InputSet.ToInputSet(tt)
+			bh := validCase.BlockHeight
 
-			verifyTestCase(tt, nil, false, a, ss, is)
+			verifyTestCase(tt, nil, false, a, ss, is, bh)
 		})
 	}
 
@@ -923,9 +1085,10 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			a := invalidCase.Asset.ToAsset(tt)
 			ss := invalidCase.SplitSet.ToSplitSet(tt)
 			is := invalidCase.InputSet.ToInputSet(tt)
+			bh := invalidCase.BlockHeight
 			err := errors.New(invalidCase.Error)
 
-			verifyTestCase(tt, err, true, a, ss, is)
+			verifyTestCase(tt, err, true, a, ss, is, bh)
 		})
 	}
 }
