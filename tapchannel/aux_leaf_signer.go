@@ -400,6 +400,69 @@ func (s *AuxLeafSigner) verifyHtlcSignature(chanState *channeldb.OpenChannel,
 	return nil
 }
 
+// applySignDescToVIn applies the sign descriptor to the virtual input. This
+// entails updating all the input bip32, taproot, and witness fields with the
+// information from the sign descriptor. This function returns the public key
+// that should be used to verify the generated signature, and also the leaf to
+// be signed.
+func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
+	chainParams *address.ChainParams,
+	tapscriptRoot []byte) (btcec.PublicKey, txscript.TapLeaf) {
+
+	leafToSign := txscript.TapLeaf{
+		Script:      signDesc.WitnessScript,
+		LeafVersion: txscript.BaseLeafVersion,
+	}
+	vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
+		{
+			Script:      leafToSign.Script,
+			LeafVersion: leafToSign.LeafVersion,
+		},
+	}
+
+	deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
+		signDesc.KeyDesc, chainParams.HDCoinType,
+	)
+	vIn.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
+	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trDeriv,
+	}
+	vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
+		fn.ByteSlice(leafToSign.TapHash()),
+	}
+	vIn.SighashType = signDesc.HashType
+	vIn.TaprootMerkleRoot = tapscriptRoot
+
+	// Apply single or double tweaks if present in the sign
+	// descriptor. At the same time, we apply the tweaks to a copy
+	// of the public key, so we can validate the produced signature.
+	signingKey := signDesc.KeyDesc.PubKey
+	if len(signDesc.SingleTweak) > 0 {
+		key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
+		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+			Key:   key,
+			Value: signDesc.SingleTweak,
+		})
+
+		signingKey = input.TweakPubKeyWithTweak(
+			signingKey, signDesc.SingleTweak,
+		)
+	}
+	if signDesc.DoubleTweak != nil {
+		key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
+		vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
+			Key:   key,
+			Value: signDesc.DoubleTweak.Serialize(),
+		})
+
+		signingKey = input.DeriveRevocationPubkey(
+			signingKey, signDesc.DoubleTweak.PubKey(),
+		)
+	}
+
+	return *signingKey, leafToSign
+}
+
 // generateHtlcSignature generates the signature for the HTLC output in the
 // commitment transaction described by the sign job.
 func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
@@ -435,56 +498,9 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 	for _, vPacket := range vPackets {
 		vIn := vPacket.Inputs[0]
 
-		leafToSign := txscript.TapLeaf{
-			Script:      signDesc.WitnessScript,
-			LeafVersion: txscript.BaseLeafVersion,
-		}
-		vIn.TaprootLeafScript = []*psbt.TaprootTapLeafScript{
-			{
-				Script:      leafToSign.Script,
-				LeafVersion: leafToSign.LeafVersion,
-			},
-		}
-
-		deriv, trDeriv := tappsbt.Bip32DerivationFromKeyDesc(
-			signDesc.KeyDesc, s.cfg.ChainParams.HDCoinType,
+		signingKey, leafToSign := applySignDescToVIn(
+			signDesc, vIn, s.cfg.ChainParams, tapscriptRoot,
 		)
-		vIn.Bip32Derivation = []*psbt.Bip32Derivation{deriv}
-		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-			trDeriv,
-		}
-		vIn.TaprootBip32Derivation[0].LeafHashes = [][]byte{
-			fn.ByteSlice(leafToSign.TapHash()),
-		}
-		vIn.SighashType = signDesc.HashType
-		vIn.TaprootMerkleRoot = tapscriptRoot
-
-		// Apply single or double tweaks if present in the sign
-		// descriptor. At the same time, we apply the tweaks to a copy
-		// of the public key, so we can validate the produced signature.
-		signingKey := signDesc.KeyDesc.PubKey
-		if len(signDesc.SingleTweak) > 0 {
-			key := btcwallet.PsbtKeyTypeInputSignatureTweakSingle
-			vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
-				Key:   key,
-				Value: signDesc.SingleTweak,
-			})
-
-			signingKey = input.TweakPubKeyWithTweak(
-				signingKey, signDesc.SingleTweak,
-			)
-		}
-		if signDesc.DoubleTweak != nil {
-			key := btcwallet.PsbtKeyTypeInputSignatureTweakDouble
-			vIn.Unknowns = append(vIn.Unknowns, &psbt.Unknown{
-				Key:   key,
-				Value: signDesc.DoubleTweak.Serialize(),
-			})
-
-			signingKey = input.DeriveRevocationPubkey(
-				signingKey, signDesc.DoubleTweak.PubKey(),
-			)
-		}
 
 		// We can now sign this virtual packet, as we've given the
 		// wallet internal signer everything it needs to locate the key
@@ -496,7 +512,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 		signed, err := s.cfg.Signer.SignVirtualPacket(
 			vPacket, tapfreighter.SkipInputProofVerify(),
 			tapfreighter.WithValidator(&schnorrSigValidator{
-				pubKey:     *signingKey,
+				pubKey:     signingKey,
 				tapLeaf:    lfn.Some(leafToSign),
 				signMethod: input.TaprootScriptSpendSignMethod,
 			}),
