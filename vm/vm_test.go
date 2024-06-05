@@ -60,15 +60,17 @@ func randAsset(t *testing.T, assetType asset.Type,
 }
 
 func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
-	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
+	virtualTx *wire.MsgTx, input, newAsset *asset.Asset,
+	idx uint32) wire.TxWitness {
 
 	t.Helper()
 
 	virtualTxCopy := asset.VirtualTxWithInput(
-		virtualTx, input, idx, nil,
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, idx,
+		nil,
 	)
 	sigHash, err := tapscript.InputKeySpendSigHash(
-		virtualTxCopy, input, idx, txscript.SigHashDefault,
+		virtualTxCopy, input, newAsset, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
 
@@ -80,7 +82,7 @@ func genTaprootKeySpend(t *testing.T, privKey btcec.PrivateKey,
 }
 
 func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
-	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32,
+	virtualTx *wire.MsgTx, input, newAsset *asset.Asset, idx uint32,
 	sigHashType txscript.SigHashType, controlBlock *txscript.ControlBlock,
 	tapLeaf *txscript.TapLeaf, scriptWitness []byte) wire.TxWitness {
 
@@ -91,10 +93,12 @@ func genTaprootScriptSpend(t *testing.T, privKey btcec.PrivateKey,
 
 	if scriptWitness == nil {
 		virtualTxCopy := asset.VirtualTxWithInput(
-			virtualTx, input, idx, nil,
+			virtualTx, newAsset.LockTime, newAsset.RelativeLockTime,
+			idx, nil,
 		)
 		sigHash, err := tapscript.InputScriptSpendSigHash(
-			virtualTxCopy, input, idx, sigHashType, tapLeaf,
+			virtualTxCopy, input, newAsset, idx, sigHashType,
+			tapLeaf,
 		)
 		require.NoError(t, err)
 
@@ -196,7 +200,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
-		t, *privKey, virtualTx, genesisAsset, 0,
+		t, *privKey, virtualTx, genesisAsset, newAsset, 0,
 	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
@@ -262,7 +266,7 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
-		t, *privKey1, virtualTx, genesisAsset1, 0,
+		t, *privKey1, virtualTx, genesisAsset1, newAsset, 0,
 	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
@@ -272,7 +276,7 @@ func normalStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	controlBlock := leafProof.ToControlBlock(privKey2.PubKey())
 
 	newAsset.PrevWitnesses[1].TxWitness = genTaprootScriptSpend(
-		t, *privKey2, virtualTx, genesisAsset2, 1,
+		t, *privKey2, virtualTx, genesisAsset2, newAsset, 1,
 		txscript.SigHashDefault, &controlBlock, &tapLeaf, nil,
 	)
 
@@ -322,7 +326,8 @@ func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
-		t, *privKey, virtualTx, genesisAsset, 0,
+		t, *privKey, virtualTx, genesisAsset, splitCommitment.RootAsset,
+		0,
 	)
 	require.NoError(t, err)
 	splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
@@ -382,7 +387,8 @@ func splitFullValueStateTransition(validRootLocator,
 		)
 		require.NoError(t, err)
 		newWitness := genTaprootKeySpend(
-			t, *privKey, virtualTx, genesisAsset, 0,
+			t, *privKey, virtualTx, genesisAsset,
+			splitCommitment.RootAsset, 0,
 		)
 		require.NoError(t, err)
 		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
@@ -430,7 +436,8 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 		)
 		require.NoError(t, err)
 		newWitness := genTaprootKeySpend(
-			t, *privKey, virtualTx, genesisAsset, 0,
+			t, *privKey, virtualTx, genesisAsset,
+			splitCommitment.RootAsset, 0,
 		)
 		require.NoError(t, err)
 		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness
@@ -508,9 +515,9 @@ func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 		)
 		require.NoError(t, err)
 		newWitness := genTaprootScriptSpend(
-			t, *scriptPrivKey, virtualTx, genesisAsset, 0,
-			sigHashType, testTapScript.ControlBlock, usedLeaf,
-			scriptWitness,
+			t, *scriptPrivKey, virtualTx, genesisAsset,
+			splitCommitment.RootAsset, 0, sigHashType,
+			testTapScript.ControlBlock, usedLeaf, scriptWitness,
 		)
 		require.NoError(t, err)
 		splitCommitment.RootAsset.PrevWitnesses[0].TxWitness = newWitness

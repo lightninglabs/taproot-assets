@@ -688,20 +688,21 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer tapscript.Signer,
 	}
 
 	for idx := range inputs {
-		input := inputs[idx]
+		in := inputs[idx]
 
 		// For each input asset leaf, we need to produce a witness.
 		// Update the input of the virtual TX, generate a witness, and
 		// attach it to the copy of the new Asset.
 		virtualTxCopy := virtualTx.Copy()
 		inputSpecificVirtualTx := asset.VirtualTxWithInput(
-			virtualTxCopy, input.Asset(), uint32(idx), nil,
+			virtualTxCopy, newAsset.LockTime,
+			newAsset.RelativeLockTime, uint32(idx), nil,
 		)
 
 		// Sign the virtual transaction based on the input script
 		// information (key spend or script spend).
 		newWitness, err := CreateTaprootSignature(
-			input, inputSpecificVirtualTx, 0, signer,
+			in, inputSpecificVirtualTx, 0, signer,
 		)
 		if err != nil {
 			return fmt.Errorf("error creating taproot "+

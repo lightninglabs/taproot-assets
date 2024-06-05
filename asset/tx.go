@@ -54,13 +54,14 @@ func VirtualTxInPrevOut(root mssmt.Node) *wire.OutPoint {
 // This is used to further bind a given witness to the "true" input it spends.
 // We'll use the index of the serialized input to bind the prev index, which
 // represents the "leaf index" of the virtual input MS-SMT.
-func VirtualTxWithInput(virtualTx *wire.MsgTx, input *Asset,
-	idx uint32, witness wire.TxWitness) *wire.MsgTx {
+func VirtualTxWithInput(virtualTx *wire.MsgTx, lockTime,
+	relativeLockTime uint64, idx uint32,
+	witness wire.TxWitness) *wire.MsgTx {
 
 	txCopy := virtualTx.Copy()
-	txCopy.LockTime = uint32(input.LockTime)
+	txCopy.LockTime = uint32(lockTime)
 	txCopy.TxIn[zeroIndex].PreviousOutPoint.Index = idx
-	txCopy.TxIn[zeroIndex].Sequence = uint32(input.RelativeLockTime)
+	txCopy.TxIn[zeroIndex].Sequence = uint32(relativeLockTime)
 	txCopy.TxIn[zeroIndex].Witness = witness
 	return txCopy
 }

@@ -310,7 +310,8 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	// Update the virtual transaction input with details for the specific
 	// Taproot Asset input and proceed to validate its witness.
 	virtualTxCopy := asset.VirtualTxWithInput(
-		virtualTx, prevAsset, inputIdx, witness.TxWitness,
+		virtualTx, vm.newAsset.LockTime, vm.newAsset.RelativeLockTime,
+		inputIdx, witness.TxWitness,
 	)
 
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)

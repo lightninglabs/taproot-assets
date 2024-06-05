@@ -1320,12 +1320,14 @@ type Asset struct {
 	Amount uint64
 
 	// LockTime, if non-zero, restricts an asset from being moved prior to
-	// the represented block height in the chain.
+	// the represented block height in the chain. This value needs to be set
+	// on the asset that is spending from a script key with a CLTV script.
 	LockTime uint64
 
 	// RelativeLockTime, if non-zero, restricts an asset from being moved
 	// until a number of blocks after the confirmation height of the latest
-	// transaction for the asset is reached.
+	// transaction for the asset is reached. This value needs to be set
+	// on the asset that is spending from a script key with a CSV script.
 	RelativeLockTime uint64
 
 	// PrevWitnesses contains the witness(es) of an asset's previous

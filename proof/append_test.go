@@ -19,15 +19,17 @@ import (
 )
 
 func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
-	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
+	virtualTx *wire.MsgTx, input, newAsset *asset.Asset,
+	idx uint32) wire.TxWitness {
 
 	t.Helper()
 
 	virtualTxCopy := asset.VirtualTxWithInput(
-		virtualTx, input, idx, nil,
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, idx,
+		nil,
 	)
 	sigHash, err := tapscript.InputKeySpendSigHash(
-		virtualTxCopy, input, idx, txscript.SigHashDefault,
+		virtualTxCopy, input, newAsset, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
 
@@ -521,7 +523,7 @@ func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
-		t, *senderPrivKey, virtualTx, &prevProof.Asset, 0,
+		t, *senderPrivKey, virtualTx, &prevProof.Asset, newAsset, 0,
 	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
