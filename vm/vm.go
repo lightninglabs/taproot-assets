@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 )
@@ -28,17 +31,80 @@ type Engine struct {
 	// prevAssets maps newAsset's inputs by the hash of their PrevID to
 	// their asset.
 	prevAssets commitment.InputSet
+
+	// skipTimeLockValidation is a flag that indicates whether the engine
+	// should skip validating lock times.
+	skipTimeLockValidation bool
+
+	// blockHeight is an optional block height that the time locks should be
+	// validated against. If this is None, the current best known block
+	// height will be used.
+	blockHeight fn.Option[uint32]
+
+	// chainLookup is an interface that can be used to look up certain
+	// information on chain.
+	chainLookup asset.ChainLookup
+}
+
+// newEngineOptions is a struct that is used to customize how a new engine is to
+// be created.
+type newEngineOptions struct {
+	skipTimeLockValidation bool
+	blockHeight            fn.Option[uint32]
+	chainLookup            asset.ChainLookup
+}
+
+// NewEngineOpt is used to modify how a new engine is to be created.
+type NewEngineOpt func(*newEngineOptions)
+
+// defaultNewEngineOptions returns the default set of engine options.
+func defaultNewEngineOptions() *newEngineOptions {
+	return &newEngineOptions{
+		skipTimeLockValidation: false,
+	}
+}
+
+// WithChainLookup can be used to create an engine that is capable of validating
+// time locks.
+func WithChainLookup(chainLookup asset.ChainLookup) NewEngineOpt {
+	return func(o *newEngineOptions) {
+		o.chainLookup = chainLookup
+	}
+}
+
+// WithBlockHeight can be used to create an engine that validates time locks
+// against the given block height instead of the current best known block.
+func WithBlockHeight(blockHeight uint32) NewEngineOpt {
+	return func(o *newEngineOptions) {
+		o.blockHeight = fn.Some(blockHeight)
+	}
+}
+
+// WithSkipTimeLockValidation can be used to create an engine that skips
+// validating time locks.
+func WithSkipTimeLockValidation() NewEngineOpt {
+	return func(o *newEngineOptions) {
+		o.skipTimeLockValidation = true
+	}
 }
 
 // New returns a new virtual machine capable of executing and verifying Taproot
 // Asset state transitions.
 func New(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
-	prevAssets commitment.InputSet) (*Engine, error) {
+	prevAssets commitment.InputSet, opts ...NewEngineOpt) (*Engine, error) {
+
+	options := defaultNewEngineOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	return &Engine{
-		newAsset:    newAsset,
-		splitAssets: splitAssets,
-		prevAssets:  prevAssets,
+		newAsset:               newAsset,
+		splitAssets:            splitAssets,
+		prevAssets:             prevAssets,
+		skipTimeLockValidation: options.skipTimeLockValidation,
+		blockHeight:            options.blockHeight,
+		chainLookup:            options.chainLookup,
 	}, nil
 }
 
@@ -360,7 +426,8 @@ func (vm *Engine) validateStateTransition() error {
 	}
 
 	// Enforce that assets aren't being inflated.
-	treeRoot, err := inputTree.Root(context.Background())
+	ctxb := context.Background()
+	treeRoot, err := inputTree.Root(ctxb)
 	if err != nil {
 		return err
 	}
@@ -372,8 +439,9 @@ func (vm *Engine) validateStateTransition() error {
 			virtualTx.TxOut[0].Value))
 	}
 
-	for i, witness := range vm.newAsset.PrevWitnesses {
-		witness := witness
+	for idx := range vm.newAsset.PrevWitnesses {
+		witness := vm.newAsset.PrevWitnesses[idx]
+
 		prevAsset, ok := vm.prevAssets[*witness.PrevID]
 		if !ok {
 			return fmt.Errorf("%w: no prev asset for "+
@@ -381,10 +449,34 @@ func (vm *Engine) validateStateTransition() error {
 				spew.Sdump(witness.PrevID))
 		}
 
+		if !vm.skipTimeLockValidation {
+			if vm.chainLookup == nil {
+				return fmt.Errorf("chain lookup required for " +
+					"time lock validation")
+			}
+
+			bestBlockHeight, err := vm.chainLookup.CurrentHeight(
+				ctxb,
+			)
+			if err != nil {
+				return fmt.Errorf("error getting current "+
+					"height: %w", err)
+			}
+
+			blockHeight := vm.blockHeight.UnwrapOr(bestBlockHeight)
+			err = checkLockTime(
+				ctxb, vm.newAsset, &witness, blockHeight,
+				vm.chainLookup,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
 		switch prevAsset.ScriptVersion {
 		case asset.ScriptV0:
 			err := vm.validateWitnessV0(
-				virtualTx, uint32(i), &witness, prevAsset,
+				virtualTx, uint32(idx), &witness, prevAsset,
 			)
 			if err != nil {
 				return err
@@ -439,4 +531,144 @@ func (vm *Engine) Execute() error {
 	}
 
 	return vm.validateStateTransition()
+}
+
+// checkLockTime checks the absolute and relative lock time of the previous
+// asset. `blockTimestamp` is ignored for now.
+func checkLockTime(ctx context.Context, newAsset *asset.Asset,
+	witness *asset.Witness, blockHeight uint32,
+	chainLookup asset.ChainLookup) error {
+
+	// Check absolute lock time. This is easy as we can just compare the
+	// input asset's lock time to the current block height that we are aware
+	// of.
+	if newAsset.LockTime != 0 {
+		switch {
+		// If the lock time is a timestamp, we need to parse it as such
+		// and compare it to the current block height.
+		case newAsset.LockTime > txscript.LockTimeThreshold:
+			// To save some lookups, we only query the reference
+			// block's mean time if we really have to, which is now.
+			blockMeanTime, err := chainLookup.MeanBlockTimestamp(
+				ctx, blockHeight,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to obtain current "+
+					"height's timestamp: %w", err)
+			}
+
+			timeLock := time.Unix(int64(newAsset.LockTime), 0)
+			if blockMeanTime.Before(timeLock) {
+				return newErrKind(ErrUnfinalizedAsset)
+			}
+
+		// Otherwise, we can just compare the lock time to the current
+		// block height.
+		case blockHeight < uint32(newAsset.LockTime):
+			return newErrKind(ErrUnfinalizedAsset)
+		}
+	}
+
+	// Now check any relative lock time. For this we need to look up the
+	// height of the block the input's anchor transaction was confirmed in.
+	if newAsset.RelativeLockTime != 0 {
+		// First, since this is a _relative_ time lock, we need to find
+		// out in which block the input we're spending was confirmed.
+		inputConfirmHeight, err := chainLookup.TxBlockHeight(
+			ctx, witness.PrevID.OutPoint.Hash,
+		)
+		if err != nil {
+			return fmt.Errorf("error looking up input confirm "+
+				"height: %w", err)
+		}
+
+		// Given a sequence number, we apply the relative time lock
+		// mask in order to obtain the time lock delta required before
+		// this input can be spent.
+		sequenceNum := newAsset.RelativeLockTime
+		relativeLock := sequenceNum & wire.SequenceLockTimeMask
+
+		switch {
+		// Relative time locks are disabled for this input, so we can
+		// skip any further calculation.
+		case sequenceNum&wire.SequenceLockTimeDisabled ==
+			wire.SequenceLockTimeDisabled:
+
+			// Do nothing, continue below.
+
+		case sequenceNum&wire.SequenceLockTimeIsSeconds ==
+			wire.SequenceLockTimeIsSeconds:
+
+			// This input requires a relative time lock expressed
+			// in seconds before it can be spent. Therefore, we
+			// need to query for the block prior to the one in
+			// which this input was included within, so we can
+			// compute the past median time for the block prior to
+			// the one which included this referenced output.
+			prevInputHeight := inputConfirmHeight - 1
+			if prevInputHeight < 0 {
+				prevInputHeight = 0
+			}
+			inMedianTime, err := chainLookup.MeanBlockTimestamp(
+				ctx, prevInputHeight,
+			)
+			if err != nil {
+				return err
+			}
+
+			// Time based relative time-locks as defined by BIP 68
+			// have a time granularity of RelativeLockSeconds, so
+			// we shift left by this amount to convert to the
+			// proper relative time-lock. We also subtract one from
+			// the relative lock to maintain the original lockTime
+			// semantics.
+			timeLockSeconds := (relativeLock <<
+				wire.SequenceLockTimeGranularity) - 1
+
+			timeLock := inMedianTime.Add(
+				time.Duration(timeLockSeconds) * time.Second,
+			)
+
+			// To save some lookups, we only query the reference
+			// block's mean time if we really have to, which is now.
+			blockMeanTime, err := chainLookup.MeanBlockTimestamp(
+				ctx, blockHeight,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to obtain current "+
+					"height's timestamp: %w", err)
+			}
+
+			// If the time lock is before the current block time,
+			// then the input is not yet finalized.
+			if blockMeanTime.Before(timeLock) {
+				return newErrKind(ErrUnfinalizedAsset)
+			}
+
+		default:
+			// The relative lock-time for this input is expressed in
+			// blocks, so we calculate the relative offset from the
+			// input's height as its converted absolute lock-time.
+			minHeight := overflowSafeAdd(
+				uint64(inputConfirmHeight), relativeLock,
+			)
+
+			if uint64(blockHeight) < minHeight {
+				return newErrKind(ErrUnfinalizedAsset)
+			}
+		}
+	}
+
+	return nil
+}
+
+// overflowSafeAdd adds two uint64 values and returns the result. If an overflow
+// could occur, the maximum uint64 value is returned instead.
+func overflowSafeAdd(x, y uint64) uint64 {
+	if y > math.MaxUint64-x {
+		// Overflow would occur, return maximum uint64 value.
+		return math.MaxUint64
+	}
+
+	return x + y
 }

@@ -62,6 +62,10 @@ const (
 	// ErrInvalidRootAsset represents an error case where the root asset
 	// of an asset split has zero value but a spendable script key.
 	ErrInvalidRootAsset
+
+	// ErrUnfinalizedAsset represents an error case where the asset has not
+	// been finalized. A virtual TX may only contain finalized assets.
+	ErrUnfinalizedAsset
 )
 
 // Wrap select errors related to virtual TX handling to provide more
@@ -106,6 +110,8 @@ func (k ErrorKind) String() string {
 		return "invalid split commitment proof"
 	case ErrInvalidRootAsset:
 		return "invalid zero-value root asset"
+	case ErrUnfinalizedAsset:
+		return "un-finalized asset"
 	default:
 		return "unknown"
 	}
@@ -128,7 +134,7 @@ func newErrInner(kind ErrorKind, inner error) Error {
 	return Error{Kind: kind, Inner: inner}
 }
 
-// Error returns a human readable version of the error. This implements the
+// Error returns a human-readable version of the error. This implements the
 // main error interface.
 func (e Error) Error() string {
 	if e.Inner == nil {
