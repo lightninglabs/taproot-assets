@@ -309,6 +309,10 @@ type ChainBridge interface {
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)
 
+	// GetBlockTimestamp returns the timestamp of the block at the given
+	// height.
+	GetBlockTimestamp(context.Context, uint32) int64
+
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.
 	PublishTransaction(context.Context, *wire.MsgTx) error

@@ -25,7 +25,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -93,12 +92,6 @@ const (
 	// tapdMacaroonLocation is the value we use for the tapd macaroons'
 	// "Location" field when baking them.
 	tapdMacaroonLocation = "tapd"
-
-	// maxNumBlocksInCache is the maximum number of blocks we'll cache
-	// timestamps for. With 100k blocks we should only take up approximately
-	// 800kB of memory (4 bytes for the block height and 4 bytes for the
-	// timestamp, not including any map/cache overhead).
-	maxNumBlocksInCache = 100_000
 
 	// AssetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
@@ -188,8 +181,6 @@ type rpcServer struct {
 
 	cfg *Config
 
-	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
-
 	proofQueryRateLimiter *rate.Limiter
 
 	quit chan struct{}
@@ -204,10 +195,7 @@ func newRPCServer(interceptor signal.Interceptor,
 	return &rpcServer{
 		interceptor:      interceptor,
 		interceptorChain: interceptorChain,
-		blockTimestampCache: lru.NewCache[uint32, cacheableTimestamp](
-			maxNumBlocksInCache,
-		),
-		quit: make(chan struct{}),
+		quit:             make(chan struct{}),
 		proofQueryRateLimiter: rate.NewLimiter(
 			cfg.UniverseQueriesPerSecond, cfg.UniverseQueriesBurst,
 		),
@@ -5714,14 +5702,16 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		GroupSupply: int64(a.GroupSupply),
 	}
 	rpcAsset := &unirpc.AssetStatsAsset{
-		AssetId:          a.AssetID[:],
-		GenesisPoint:     a.GenesisPoint.String(),
-		AssetName:        a.AssetName,
-		AssetType:        taprpc.AssetType(a.AssetType),
-		TotalSupply:      int64(a.TotalSupply),
-		GenesisHeight:    int32(a.GenesisHeight),
-		GenesisTimestamp: r.getBlockTimestamp(ctx, a.GenesisHeight),
-		AnchorPoint:      a.AnchorPoint.String(),
+		AssetId:       a.AssetID[:],
+		GenesisPoint:  a.GenesisPoint.String(),
+		AssetName:     a.AssetName,
+		AssetType:     taprpc.AssetType(a.AssetType),
+		TotalSupply:   int64(a.TotalSupply),
+		GenesisHeight: int32(a.GenesisHeight),
+		GenesisTimestamp: r.cfg.ChainBridge.GetBlockTimestamp(
+			ctx, a.GenesisHeight,
+		),
+		AnchorPoint: a.AnchorPoint.String(),
 	}
 
 	if a.GroupKey != nil {
@@ -5779,37 +5769,6 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 	}
 
 	return resp, nil
-}
-
-// getBlockTimestamp returns the timestamp of the block at the given height.
-func (r *rpcServer) getBlockTimestamp(ctx context.Context,
-	height uint32) int64 {
-
-	// Shortcut any lookup in case we don't have a valid height in the first
-	// place.
-	if height == 0 {
-		return 0
-	}
-
-	cacheTS, err := r.blockTimestampCache.Get(height)
-	if err == nil {
-		return int64(cacheTS)
-	}
-
-	hash, err := r.cfg.Lnd.ChainKit.GetBlockHash(ctx, int64(height))
-	if err != nil {
-		return 0
-	}
-
-	block, err := r.cfg.Lnd.ChainKit.GetBlock(ctx, hash)
-	if err != nil {
-		return 0
-	}
-
-	ts := uint32(block.Header.Timestamp.Unix())
-	_, _ = r.blockTimestampCache.Put(height, cacheableTimestamp(ts))
-
-	return int64(ts)
 }
 
 // QueryEvents returns the number of sync and proof events for a given time
