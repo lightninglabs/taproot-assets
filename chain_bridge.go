@@ -10,8 +10,11 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/neutrino/cache/lru"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/funding"
@@ -37,16 +40,21 @@ type LndRpcChainBridge struct {
 	getBlockHeaderSupported *bool
 
 	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
+
+	assetStore *tapdb.AssetStore
 }
 
 // NewLndRpcChainBridge creates a new chain bridge from an active lnd services
 // client.
-func NewLndRpcChainBridge(lnd *lndclient.LndServices) *LndRpcChainBridge {
+func NewLndRpcChainBridge(lnd *lndclient.LndServices,
+	assetStore *tapdb.AssetStore) *LndRpcChainBridge {
+
 	return &LndRpcChainBridge{
 		lnd: lnd,
 		blockTimestampCache: lru.NewCache[uint32, cacheableTimestamp](
 			maxNumBlocksInCache,
 		),
+		assetStore: assetStore,
 	}
 }
 
@@ -225,12 +233,23 @@ func (l *LndRpcChainBridge) GetBlockTimestamp(ctx context.Context,
 		return 0
 	}
 
-	block, err := l.lnd.ChainKit.GetBlock(ctx, hash)
-	if err != nil {
-		return 0
+	// Let's see if we can get the block header directly.
+	var header *wire.BlockHeader
+	if l.GetBlockHeaderSupported(ctx) {
+		header, err = l.GetBlockHeader(ctx, hash)
+		if err != nil {
+			return 0
+		}
+	} else {
+		block, err := l.lnd.ChainKit.GetBlock(ctx, hash)
+		if err != nil {
+			return 0
+		}
+
+		header = &block.Header
 	}
 
-	ts := uint32(block.Header.Timestamp.Unix())
+	ts := uint32(header.Timestamp.Unix())
 	_, _ = l.blockTimestampCache.Put(height, cacheableTimestamp(ts))
 
 	return int64(ts)
@@ -250,6 +269,27 @@ func (l *LndRpcChainBridge) EstimateFee(ctx context.Context,
 	confTarget uint32) (chainfee.SatPerKWeight, error) {
 
 	return l.lnd.WalletKit.EstimateFeeRate(ctx, int32(confTarget))
+}
+
+// GenFileChainLookup generates a chain lookup interface for the given
+// proof file that can be used to validate proofs.
+func (l *LndRpcChainBridge) GenFileChainLookup(
+	f *proof.File) asset.ChainLookup {
+
+	return NewProofChainLookup(l, l.assetStore, f)
+}
+
+// GenProofChainLookup generates a chain lookup interface for the given
+// single proof that can be used to validate proofs.
+func (l *LndRpcChainBridge) GenProofChainLookup(
+	p *proof.Proof) (asset.ChainLookup, error) {
+
+	f, err := proof.NewFile(proof.V0, *p)
+	if err != nil {
+		return nil, err
+	}
+
+	return NewProofChainLookup(l, l.assetStore, f), nil
 }
 
 // A compile time assertion to ensure LndRpcChainBridge meets the

@@ -466,6 +466,40 @@ func (m *MockChainBridge) EstimateFee(ctx context.Context,
 	return chainfee.FeePerKwFloor, nil
 }
 
+// TxBlockHeight returns the block height that the given transaction was
+// included in.
+func (m *MockChainBridge) TxBlockHeight(context.Context,
+	chainhash.Hash) (uint32, error) {
+
+	return 123, nil
+}
+
+// MeanBlockTimestamp returns the timestamp of the block at the given height as
+// a Unix timestamp in seconds, taking into account the mean time elapsed over
+// the previous 10 blocks.
+func (m *MockChainBridge) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Now(), nil
+}
+
+// GenFileChainLookup generates a chain lookup interface for the given
+// proof file that can be used to validate proofs.
+func (m *MockChainBridge) GenFileChainLookup(*proof.File) asset.ChainLookup {
+	return m
+}
+
+// GenProofChainLookup generates a chain lookup interface for the given
+// single proof that can be used to validate proofs.
+func (m *MockChainBridge) GenProofChainLookup(*proof.Proof) (asset.ChainLookup,
+	error) {
+
+	return m, nil
+}
+
+var _ asset.ChainLookup = (*MockChainBridge)(nil)
+var _ ChainBridge = (*MockChainBridge)(nil)
+
 func GenMockGroupVerifier() func(*btcec.PublicKey) error {
 	return func(groupKey *btcec.PublicKey) error {
 		return nil
