@@ -209,6 +209,8 @@ type Config struct {
 
 	AuxChanCloser *tapchannel.AuxChanCloser
 
+	AuxSweeper *tapchannel.AuxSweeper
+
 	// UniversePublicAccess is a field that indicates the status of public
 	// access (i.e. read/write) to the universe server.
 	//

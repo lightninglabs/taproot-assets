@@ -442,6 +442,22 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			DefaultCourierAddr: proofCourierAddr,
 		},
 	)
+	auxSweeper := tapchannel.NewAuxSweeper(
+		&tapchannel.AuxSweeperCfg{
+			AddrBook:           addrBook,
+			ChainParams:        tapChainParams,
+			Signer:             assetWallet,
+			TxSender:           chainPorter,
+			DefaultCourierAddr: proofCourierAddr,
+			ProofArchive:       proofArchive,
+			ProofFetcher:       proofCourierDispatcher,
+			HeaderVerifier:     headerVerifier,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			ChainBridge: chainBridge,
+		},
+	)
 
 	// Parse the universe public access status.
 	universePublicAccess, err := tap.ParseUniversePublicAccessStatus(
@@ -518,6 +534,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxChanCloser:            auxChanCloser,
 		AuxTrafficShaper:         auxTrafficShaper,
 		AuxInvoiceManager:        auxInvoiceManager,
+		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

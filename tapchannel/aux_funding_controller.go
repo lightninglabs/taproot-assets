@@ -1472,6 +1472,8 @@ func (f *FundingController) chanFunder() {
 						fErr,
 					)
 					log.Error(fErr)
+
+					continue
 				}
 
 				// We'll just place this in the internal
