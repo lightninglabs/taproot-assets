@@ -2,6 +2,7 @@ package rfqmsg
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -360,4 +361,63 @@ func dAssetBalanceList(r io.Reader, val interface{}, buf *[8]byte,
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "[]*AssetBalance")
+}
+
+func IdEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*ID); ok {
+		id := [32]byte(*t)
+		return tlv.EBytes32(w, &id, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "MessageID")
+}
+
+func IdDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	const idBytesLen = 32
+
+	if typ, ok := val.(*ID); ok {
+		var idBytes [idBytesLen]byte
+
+		err := tlv.DBytes32(r, &idBytes, buf, idBytesLen)
+		if err != nil {
+			return err
+		}
+
+		id := ID(idBytes)
+
+		*typ = id
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "MessageID", l, idBytesLen)
+}
+
+func AssetIdEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(**asset.ID); ok {
+		id := [sha256.Size]byte(**t)
+		return tlv.EBytes32(w, &id, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "assetId")
+}
+
+func AssetIdDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	const assetIDBytesLen = sha256.Size
+
+	if typ, ok := val.(**asset.ID); ok {
+		var idBytes [assetIDBytesLen]byte
+
+		err := tlv.DBytes32(r, &idBytes, buf, assetIDBytesLen)
+		if err != nil {
+			return err
+		}
+
+		id := asset.ID(idBytes)
+		assetId := &id
+
+		*typ = assetId
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "assetId", l, sha256.Size)
 }

@@ -59,17 +59,13 @@ const MaxMessageType = lnwire.MessageType(math.MaxUint16)
 const TapMessageTypeBaseOffset = 20116 + lnwire.CustomTypeStart
 
 const (
-	// MsgTypeBuyRequest is the message type identifier for an asset buy
-	// quote request message.
-	MsgTypeBuyRequest = TapMessageTypeBaseOffset + 0
+	// MsgTypeRequest is the message type identifier for a quote request
+	// message.
+	MsgTypeRequest = TapMessageTypeBaseOffset + 0
 
 	// MsgTypeBuyAccept is the message type identifier for a quote accept
 	// message.
 	MsgTypeBuyAccept = TapMessageTypeBaseOffset + 1
-
-	// MsgTypeSellRequest is the message type identifier for an asset sell
-	// quote request message.
-	MsgTypeSellRequest = TapMessageTypeBaseOffset + 2
 
 	// MsgTypeSellAccept is the message type identifier for an asset sell
 	// quote accept message.
@@ -101,12 +97,10 @@ type WireMessage struct {
 // NewIncomingMsgFromWire creates a new RFQ message from a wire message.
 func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	switch wireMsg.MsgType {
-	case MsgTypeBuyRequest:
-		return NewBuyRequestMsgFromWire(wireMsg)
+	case MsgTypeRequest:
+		return NewIncomingRequestFromWire(wireMsg)
 	case MsgTypeBuyAccept:
 		return NewBuyAcceptFromWireMsg(wireMsg)
-	case MsgTypeSellRequest:
-		return NewSellRequestMsgFromWire(wireMsg)
 	case MsgTypeSellAccept:
 		return NewSellAcceptFromWireMsg(wireMsg)
 	case MsgTypeReject:
@@ -124,6 +118,16 @@ const (
 	// V0 represents version 0 of the contents in a wire message data field.
 	V0 WireMsgDataVersion = 0
 )
+
+// Record returns a TLV record that can be used to encode/decode a
+// WireMsgDataVersion to/from a TLV stream.
+func (v *WireMsgDataVersion) Record() tlv.Record {
+	// We set the type to zero here because the type parameter in
+	// tlv.RecordT will be used as the actual type.
+	return tlv.MakeStaticRecord(
+		0, v, 1, WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
+	)
+}
 
 // WireMsgDataVersionEncoder is a function that can be used to encode a
 // WireMsgDataVersion to a writer.
