@@ -207,6 +207,9 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		tap.UniversePublicAccessStatusReadWrite,
 	)
 
+	// Enable federation syncing of all assets by default.
+	tapCfg.Universe.SyncAllAssets = true
+
 	// Set the SQLite database file path if it was specified.
 	if opts.sqliteDatabaseFilePath != nil {
 		tapCfg.Sqlite.DatabaseFileName = *opts.sqliteDatabaseFilePath

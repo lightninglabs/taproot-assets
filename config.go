@@ -181,6 +181,10 @@ type Config struct {
 
 	UniverseFederation *universe.FederationEnvoy
 
+	// UniFedSyncAllAssets is a flag that indicates whether the
+	// universe federation syncer should default to syncing all assets.
+	UniFedSyncAllAssets bool
+
 	RfqManager *rfq.Manager
 
 	UniverseStats universe.Telemetry
