@@ -280,6 +280,8 @@ type MintingStore interface {
 // notifications, the current height, publish transactions, and also estimate
 // fees.
 type ChainBridge interface {
+	proof.ChainLookupGenerator
+
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations.
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,

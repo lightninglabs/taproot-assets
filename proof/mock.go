@@ -157,7 +157,8 @@ func NewMockVerifier(t *testing.T) *MockVerifier {
 }
 
 func (m *MockVerifier) Verify(context.Context, io.Reader,
-	HeaderVerifier, MerkleVerifier, GroupVerifier) (*AssetSnapshot, error) {
+	HeaderVerifier, MerkleVerifier, GroupVerifier,
+	ChainLookupGenerator) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
@@ -224,14 +225,14 @@ func (m *mockChainLookup) TxBlockHeight(context.Context,
 
 // MeanBlockTimestamp returns the timestamp of the block at the given height as
 // a Unix timestamp in seconds, taking into account the mean time elapsed over
-// the previous 10 blocks.
+// the previous 11 blocks.
 func (m *mockChainLookup) MeanBlockTimestamp(context.Context,
 	uint32) (time.Time, error) {
 
 	return time.Now(), nil
 }
 
-// CurrentHeight return the current height of the main chain.
+// CurrentHeight returns the current height of the main chain.
 func (m *mockChainLookup) CurrentHeight(context.Context) (uint32, error) {
 	return 123, nil
 }
@@ -251,6 +252,7 @@ func (m *mockChainLookup) GenProofChainLookup(*Proof) (asset.ChainLookup,
 }
 
 var _ asset.ChainLookup = (*mockChainLookup)(nil)
+var _ ChainLookupGenerator = (*mockChainLookup)(nil)
 
 // MockProofCourierDispatcher is a mock proof courier dispatcher which returns
 // the same courier for all requests.

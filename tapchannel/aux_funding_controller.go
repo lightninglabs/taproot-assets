@@ -148,6 +148,10 @@ type FundingControllerCfg struct {
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams address.ChainParams
 
+	// ChainBridge provides access to the chain for confirmation
+	// notification, and other block related actions.
+	ChainBridge tapfreighter.ChainBridge
+
 	// GroupKeyIndex is used to query the group key for an asset ID.
 	GroupKeyIndex tapsend.AssetGroupQuerier
 
@@ -1323,16 +1327,31 @@ func (f *FundingController) chanFunder() {
 			// This is input proof, so we'll verify the challenge
 			// witness, then store the proof.
 			case *cmsg.TxAssetInputProof:
+				p := assetProof.Proof.Val
 				log.Infof("Validating input proof, prev_out=%v",
-					assetProof.Proof.Val.OutPoint())
+					p.OutPoint())
+
+				l, err := f.cfg.ChainBridge.GenProofChainLookup(
+					&p,
+				)
+				if err != nil {
+					fErr := fmt.Errorf("unable to create "+
+						"proof lookup: %w", err)
+					f.cfg.ErrReporter.ReportError(
+						ctxc, msg.PeerPub, tempPID,
+						fErr,
+					)
+					log.Error(fErr)
+					continue
+				}
 
 				// Next, we'll validate this proof to make sure
 				// that the initiator is actually able to spend
 				// these outputs in the funding transaction.
-				_, err := assetProof.Proof.Val.Verify(
+				_, err = p.Verify(
 					ctxc, nil, f.cfg.HeaderVerifier,
 					proof.DefaultMerkleVerifier,
-					f.cfg.GroupVerifier,
+					f.cfg.GroupVerifier, l,
 				)
 				if err != nil {
 					fErr := fmt.Errorf("unable to verify "+
@@ -1576,9 +1595,26 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 		newAsset = &outAsset.PrevWitnesses[0].SplitCommitment.RootAsset
 	}
 
+	// We create a file out of the input proofs, even if they aren't a chain
+	// of proofs. But the chain lookup will need them to look up transaction
+	// and block information in those proofs, so it's easiest to provide
+	// them as a single file that can be iterated through.
+	proofFile, err := proof.NewFile(
+		proof.V0, fn.Map(inputAssetProofs,
+			func(p *proof.Proof) proof.Proof {
+				return *p
+			},
+		)...,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create proof file: %w", err)
+	}
+
 	// With the inputs specified, we'll now attempt to validate the state
 	// transition for the asset funding output.
-	engine, err := vm.New(newAsset, nil, prevAssets)
+	chainLookup := f.cfg.ChainBridge.GenFileChainLookup(proofFile)
+	verifyOpt := vm.WithChainLookup(chainLookup)
+	engine, err := vm.New(newAsset, nil, prevAssets, verifyOpt)
 	if err != nil {
 		return fmt.Errorf("unable to create VM: %w", err)
 	}

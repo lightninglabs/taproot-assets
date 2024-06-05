@@ -476,7 +476,7 @@ func (m *MockChainBridge) TxBlockHeight(context.Context,
 
 // MeanBlockTimestamp returns the timestamp of the block at the given height as
 // a Unix timestamp in seconds, taking into account the mean time elapsed over
-// the previous 10 blocks.
+// the previous 11 blocks.
 func (m *MockChainBridge) MeanBlockTimestamp(context.Context,
 	uint32) (time.Time, error) {
 
@@ -703,7 +703,7 @@ func (m *MockProofArchive) FetchProofs(ctx context.Context,
 
 func (m *MockProofArchive) ImportProofs(context.Context,
 	proof.HeaderVerifier, proof.MerkleVerifier, proof.GroupVerifier,
-	bool, ...*proof.AnnotatedProof) error {
+	proof.ChainLookupGenerator, bool, ...*proof.AnnotatedProof) error {
 
 	return nil
 }

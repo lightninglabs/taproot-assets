@@ -1388,7 +1388,17 @@ func (c *ChainPlanter) sealBatch(ctx context.Context,
 			return nil, err
 		}
 
-		err = c.cfg.TxValidator.Execute(groupedAsset, nil, nil)
+		// Validate the asset with the Taproot Assets VM. Lock times in
+		// the group key scripts are checked against the current block
+		// height. And CSV (relative lock times) don't make sense in
+		// the context of a group key script (since there's no input to
+		// verify against), so those will fail anyway. So we don't
+		// provide a proof as context to the chain lookup, which will
+		// definitely cause any CSV checks to fail.
+		noProofLookup := c.cfg.ChainBridge.GenFileChainLookup(nil)
+		err = c.cfg.TxValidator.Execute(
+			groupedAsset, nil, nil, noProofLookup,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to verify asset group"+
 				"witness: %s, %w", reqAssetID.String(), err)
@@ -1744,6 +1754,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		err := proof.ReplaceProofInBlob(
 			ctx, p, c.cfg.ProofUpdates, headerVerifier,
 			proof.DefaultMerkleVerifier, groupVerifier,
+			c.cfg.ChainBridge,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to update minted proofs: %w",

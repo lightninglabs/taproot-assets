@@ -44,6 +44,10 @@ type ArchiveConfig struct {
 	// external/internal queries to the base universe instance.
 	UniverseStats Telemetry
 
+	// ChainLookupGenerator is the main interface for generating a chain
+	// lookup interface that is required to validate proofs.
+	ChainLookupGenerator proof.ChainLookupGenerator
+
 	// TODO(roasbeef): query re genesis asset known?
 
 	// TODO(roasbeef): load all at once, or lazy load dynamic?
@@ -334,9 +338,15 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	key LeafKey, newProof *proof.Proof,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
+	lookup, err := a.cfg.ChainLookupGenerator.GenProofChainLookup(newProof)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate chain lookup: %w",
+			err)
+	}
+
 	assetSnapshot, err := newProof.Verify(
 		ctx, prevAssetSnapshot, a.cfg.HeaderVerifier,
-		a.cfg.MerkleVerifier, a.cfg.GroupVerifier,
+		a.cfg.MerkleVerifier, a.cfg.GroupVerifier, lookup,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to verify proof: %w", err)

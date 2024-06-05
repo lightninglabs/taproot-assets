@@ -16,6 +16,18 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// ChainLookupGenerator is an interface that allows the creation of a chain
+// lookup interface for a given proof file or single proof.
+type ChainLookupGenerator interface {
+	// GenFileChainLookup generates a chain lookup interface for the given
+	// proof file that can be used to validate proofs.
+	GenFileChainLookup(f *File) asset.ChainLookup
+
+	// GenProofChainLookup generates a chain lookup interface for the given
+	// single proof that can be used to validate proofs.
+	GenProofChainLookup(p *Proof) (asset.ChainLookup, error)
+}
+
 // Verifier abstracts away from the task of verifying a proof file blob.
 type Verifier interface {
 	// Verify takes the passed serialized proof file, and returns a nil
@@ -23,7 +35,8 @@ type Verifier interface {
 	// AssetSnapshot of the final state transition of the file.
 	Verify(c context.Context, blobReader io.Reader,
 		headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-		groupVerifier GroupVerifier) (*AssetSnapshot, error)
+		groupVerifier GroupVerifier,
+		chainLookupGen ChainLookupGenerator) (*AssetSnapshot, error)
 }
 
 // BaseVerifier implements a simple verifier that loads the entire proof file
@@ -36,7 +49,8 @@ type BaseVerifier struct {
 // AssetSnapshot of the final state transition of the file.
 func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
+	groupVerifier GroupVerifier,
+	chainLookupGen ChainLookupGenerator) (*AssetSnapshot, error) {
 
 	var proofFile File
 	err := proofFile.Decode(blobReader)
@@ -46,6 +60,7 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 
 	return proofFile.Verify(
 		ctx, headerVerifier, merkleVerifier, groupVerifier,
+		chainLookupGen.GenFileChainLookup(&proofFile),
 	)
 }
 
@@ -169,8 +184,8 @@ func (p *Proof) verifyExclusionProofs() error {
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	prev *AssetSnapshot, headerVerifier HeaderVerifier,
-	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier) (bool,
-	error) {
+	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
+	chainLookup asset.ChainLookup) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -216,7 +231,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		errGroup.Go(func() error {
 			result, err := inputProof.Verify(
 				ctx, headerVerifier, merkleVerifier,
-				groupVerifier,
+				groupVerifier, chainLookup,
 			)
 			if err != nil {
 				return err
@@ -245,7 +260,12 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	if splitAsset != nil {
 		splitAssets = append(splitAssets, splitAsset)
 	}
-	engine, err := vm.New(newAsset, splitAssets, prevAssets)
+
+	verifyOpts := []vm.NewEngineOpt{
+		vm.WithChainLookup(chainLookup),
+		vm.WithBlockHeight(p.BlockHeight),
+	}
+	engine, err := vm.New(newAsset, splitAssets, prevAssets, verifyOpts...)
 	if err != nil {
 		return false, err
 	}
@@ -255,7 +275,9 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 // verifyChallengeWitness verifies the challenge witness by constructing a
 // well-defined 1-in-1-out packet and verifying the witness is valid for that
 // virtual transaction.
-func (p *Proof) verifyChallengeWitness() (bool, error) {
+func (p *Proof) verifyChallengeWitness(ctx context.Context,
+	chainLookup asset.ChainLookup) (bool, error) {
+
 	// The challenge witness packet always has one input and one output,
 	// independent of how the asset was created. The chain params are only
 	// needed when encoding/decoding a vPkt, so it doesn't matter what
@@ -271,7 +293,9 @@ func (p *Proof) verifyChallengeWitness() (bool, error) {
 	prevAssets := commitment.InputSet{
 		prevId: ownedAsset,
 	}
-	engine, err := vm.New(proofAsset, nil, prevAssets)
+
+	verifyOpts := vm.WithChainLookup(chainLookup)
+	engine, err := vm.New(proofAsset, nil, prevAssets, verifyOpts)
 	if err != nil {
 		return false, err
 	}
@@ -441,7 +465,8 @@ type GroupAnchorVerifier func(gen *asset.Genesis,
 //     resulting state transition.
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier) (*AssetSnapshot, error) {
+	groupVerifier GroupVerifier,
+	chainLookup asset.ChainLookup) (*AssetSnapshot, error) {
 
 	// 0. Check only for the proof version.
 	if p.IsUnknownVersion() {
@@ -555,12 +580,12 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	var splitAsset bool
 	switch {
 	case prev == nil && p.ChallengeWitness != nil:
-		splitAsset, err = p.verifyChallengeWitness()
+		splitAsset, err = p.verifyChallengeWitness(ctx, chainLookup)
 
 	default:
 		splitAsset, err = p.verifyAssetStateTransition(
 			ctx, prev, headerVerifier, merkleVerifier,
-			groupVerifier,
+			groupVerifier, chainLookup,
 		)
 	}
 	if err != nil {
@@ -629,9 +654,8 @@ func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
 //
 // TODO(roasbeef): pass in the expected genesis point here?
 func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
-	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier) (
-
-	*AssetSnapshot, error) {
+	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
+	chainLookup asset.ChainLookup) (*AssetSnapshot, error) {
 
 	select {
 	case <-ctx.Done():
@@ -660,7 +684,7 @@ func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
 
 		result, err := decodedProof.Verify(
 			ctx, prev, headerVerifier, merkleVerifier,
-			groupVerifier,
+			groupVerifier, chainLookup,
 		)
 		if err != nil {
 			return nil, err

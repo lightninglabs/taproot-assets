@@ -40,7 +40,8 @@ type TransitionParams struct {
 // chain) and the added latest proof.
 func AppendTransition(blob Blob, params *TransitionParams,
 	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier) (Blob, *Proof, error) {
+	groupVerifier GroupVerifier, chainLookup asset.ChainLookup) (Blob,
+	*Proof, error) {
 
 	// Decode the proof blob into a proper file structure first.
 	f := NewEmptyFile(V0)
@@ -78,7 +79,9 @@ func AppendTransition(blob Blob, params *TransitionParams,
 	if err := f.AppendProof(*newProof); err != nil {
 		return nil, nil, fmt.Errorf("error appending proof: %w", err)
 	}
-	_, err = f.Verify(ctx, headerVerifier, merkleVerifier, groupVerifier)
+	_, err = f.Verify(
+		ctx, headerVerifier, merkleVerifier, groupVerifier, chainLookup,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error verifying proof: %w", err)
 	}

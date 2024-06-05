@@ -103,7 +103,7 @@ func TestCreateProofSuffix(t *testing.T) {
 			_, err = proofSuffix.Verify(
 				ctx, prev, proof.MockHeaderVerifier,
 				proof.MockMerkleVerifier,
-				proof.MockGroupVerifier,
+				proof.MockGroupVerifier, proof.MockChainLookup,
 			)
 
 			// Checking the transfer witness is the very last step

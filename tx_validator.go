@@ -35,10 +35,11 @@ type ValidatorV0 struct{}
 
 // Execute creates and runs an instance of the Taproot Asset script V0 VM.
 func (v *ValidatorV0) Execute(newAsset *asset.Asset,
-	splitAssets []*commitment.SplitAsset,
-	prevAssets commitment.InputSet) error {
+	splitAssets []*commitment.SplitAsset, prevAssets commitment.InputSet,
+	chainLookup asset.ChainLookup) error {
 
-	engine, err := vm.New(newAsset, splitAssets, prevAssets)
+	verifyOpts := vm.WithChainLookup(chainLookup)
+	engine, err := vm.New(newAsset, splitAssets, prevAssets, verifyOpts)
 	if err != nil {
 		return err
 	}
@@ -92,7 +93,7 @@ func NewProofChainLookup(chainBridge tapgarden.ChainBridge,
 	}
 }
 
-// CurrentHeight return the current height of the main chain.
+// CurrentHeight returns the current height of the main chain.
 func (l *ProofChainLookup) CurrentHeight(ctx context.Context) (uint32, error) {
 	return l.chainBridge.CurrentHeight(ctx)
 }
@@ -168,7 +169,7 @@ func findTxHeightInProofFile(f *proof.File, txid chainhash.Hash) (uint32,
 
 // MeanBlockTimestamp returns the timestamp of the block at the given height as
 // a Unix timestamp in seconds, taking into account the mean time elapsed over
-// the previous 10 blocks.
+// the previous 11 blocks.
 func (l *ProofChainLookup) MeanBlockTimestamp(ctx context.Context,
 	blockHeight uint32) (time.Time, error) {
 

@@ -1654,6 +1654,7 @@ func TestProofVerify(t *testing.T) {
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
@@ -1661,12 +1662,14 @@ func TestProofVerify(t *testing.T) {
 	_, err = senderFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
@@ -1675,6 +1678,7 @@ func TestProofVerify(t *testing.T) {
 	_, err = receiverFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 }
@@ -1727,6 +1731,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
@@ -1735,12 +1740,14 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	_, err = senderFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
@@ -1748,6 +1755,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	_, err = receiverFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 }

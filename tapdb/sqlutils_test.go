@@ -163,7 +163,8 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
 		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, false, annotatedProof,
+		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		annotatedProof,
 	))
 
 	// Now the HasProof should return true.

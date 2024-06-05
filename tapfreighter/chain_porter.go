@@ -380,7 +380,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		"Archive", len(passiveAssetProofFiles))
 	err := p.cfg.AssetProofs.ImportProofs(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier,
-		p.cfg.GroupVerifier, false, passiveAssetProofFiles...,
+		p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
+		passiveAssetProofFiles...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
@@ -455,7 +456,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 			"Archive", idx)
 		err = p.cfg.AssetProofs.ImportProofs(
 			ctx, headerVerifier, proof.DefaultMerkleVerifier,
-			p.cfg.GroupVerifier, false, outputProof,
+			p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
+			outputProof,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof: %w", err)

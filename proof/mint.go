@@ -231,7 +231,7 @@ func WithSiblingPreimage(
 // assets within the batch.
 func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
-	anchorVerifier GroupAnchorVerifier,
+	anchorVerifier GroupAnchorVerifier, chainLookupGen ChainLookupGenerator,
 	blobOpts ...MintingBlobOption) (AssetProofs, error) {
 
 	opts := defaultMintingBlobOpts()
@@ -257,8 +257,14 @@ func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 	for key := range proofs {
 		proof := proofs[key]
 
-		_, err := proof.Verify(
+		lookup, err := chainLookupGen.GenProofChainLookup(proof)
+		if err != nil {
+			return nil, err
+		}
+
+		_, err = proof.Verify(
 			ctx, nil, headerVerifier, merkleVerifier, groupVerifier,
+			lookup,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof file generated: "+

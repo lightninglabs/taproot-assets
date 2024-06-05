@@ -1016,7 +1016,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		mintingProofs, err := proof.NewMintingBlobs(
 			baseProof, headerVerifier, merkleVerifier,
-			groupVerifier, groupAnchorVerifier,
+			groupVerifier, groupAnchorVerifier, b.cfg.ChainBridge,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 			proof.WithSiblingPreimage(batchSibling),
 		)
@@ -1188,8 +1188,8 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	}
 
 	err = b.cfg.ProofFiles.ImportProofs(
-		ctx, headerVerifier, merkleVerifier, groupVerifier, false,
-		fullProof,
+		ctx, headerVerifier, merkleVerifier, groupVerifier,
+		b.cfg.ChainBridge, false, fullProof,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)

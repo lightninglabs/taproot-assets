@@ -14,7 +14,8 @@ type TxValidator interface {
 	// Execute creates an instance of the Taproot Asset VM and validates
 	// an asset transfer, including the attached witnesses.
 	Execute(newAsset *asset.Asset, splitAssets []*commitment.SplitAsset,
-		prevAssets commitment.InputSet) error
+		prevAssets commitment.InputSet,
+		chainLookup asset.ChainLookup) error
 }
 
 // WitnessValidator is the interface used to validate the witnesses of an asset
