@@ -257,12 +257,14 @@ type LndConfig struct {
 
 // UniverseConfig is the config that houses any Universe related config
 // values.
+//
+// nolint: lll
 type UniverseConfig struct {
 	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
 
 	FederationServers []string `long:"federationserver" description:"The host:port of a Universe server peer with. These servers will be added as the default set of federation servers. Can be specified multiple times."`
 
-	PublicAccess bool `long:"public-access" description:"If true, and the Universe server is on a public interface, valid proof from remote parties will be accepted, and proofs will be queryable by remote parties. This applies to federation syncing as well as RPC insert and query."`
+	PublicAccess string `long:"public-access" description:"The public access mode for the universe server, controlling whether remote parties can read from and/or write to this universe server over RPC if exposed to a public network interface. This can be unset, 'r', 'w', or 'rw'. If unset, public access is not enabled for the universe server. If 'r' is included, public access is allowed for read-only endpoints. If 'w' is included, public access is allowed for write endpoints."`
 
 	StatsCacheDuration time.Duration `long:"stats-cache-duration" description:"The amount of time to cache stats for before refreshing them."`
 

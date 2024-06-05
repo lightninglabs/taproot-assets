@@ -299,7 +299,8 @@ var (
 
 // MacaroonWhitelist returns the set of RPC endpoints that don't require
 // macaroon authentication.
-func MacaroonWhitelist(allowPublicUniProofCourier bool,
+func MacaroonWhitelist(allowUniPublicAccessRead bool,
+	allowUniPublicAccessWrite bool, allowPublicUniProofCourier bool,
 	allowPublicStats bool) map[string]struct{} {
 
 	// Make a copy of the default whitelist.
@@ -308,10 +309,13 @@ func MacaroonWhitelist(allowPublicUniProofCourier bool,
 		whitelist[k] = v
 	}
 
-	// Conditionally add public multiverse proof courier RPC endpoints to
-	// the whitelist.
-	if allowPublicUniProofCourier {
+	// Conditionally whitelist universe server read methods.
+	if allowUniPublicAccessRead || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/QueryProof"] = struct{}{}
+	}
+
+	// Conditionally whitelist universe server write methods.
+	if allowUniPublicAccessWrite || allowPublicUniProofCourier {
 		whitelist["/universerpc.Universe/InsertProof"] = struct{}{}
 	}
 

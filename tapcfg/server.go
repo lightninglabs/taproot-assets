@@ -442,6 +442,15 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
+	// Parse the universe public access status.
+	universePublicAccess, err := tap.ParseUniversePublicAccessStatus(
+		cfg.Universe.PublicAccess,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse universe public "+
+			"access status: %w", err)
+	}
+
 	return &tap.Config{
 		DebugLevel:   cfg.DebugLevel,
 		RuntimeID:    runtimeID,
@@ -494,7 +503,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseSyncer:           universeSyncer,
 		UniverseFederation:       universeFederation,
 		UniverseStats:            universeStats,
-		UniversePublicAccess:     cfg.Universe.PublicAccess,
+		UniversePublicAccess:     universePublicAccess,
 		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,

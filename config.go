@@ -1,6 +1,7 @@
 package taprootassets
 
 import (
+	"fmt"
 	"net"
 	"net/url"
 	"time"
@@ -76,6 +77,64 @@ type DatabaseConfig struct {
 	FederationDB *tapdb.UniverseFederationDB
 }
 
+// UniversePublicAccessStatus is a type that indicates the status of public
+// access to the universe server.
+type UniversePublicAccessStatus string
+
+const (
+	// UniversePublicAccessStatusNone indicates that no public access is
+	// granted.
+	UniversePublicAccessStatusNone UniversePublicAccessStatus = ""
+
+	// UniversePublicAccessStatusRead indicates that read access is granted.
+	UniversePublicAccessStatusRead UniversePublicAccessStatus = "r"
+
+	// UniversePublicAccessStatusWrite indicates that write access is
+	// granted.
+	UniversePublicAccessStatusWrite UniversePublicAccessStatus = "w"
+
+	// UniversePublicAccessStatusReadWrite indicates that read and write
+	// access is granted.
+	UniversePublicAccessStatusReadWrite UniversePublicAccessStatus = "rw"
+)
+
+// IsReadAccessGranted returns true if the status indicates that read access
+// is granted.
+func (s UniversePublicAccessStatus) IsReadAccessGranted() bool {
+	return s == UniversePublicAccessStatusRead ||
+		s == UniversePublicAccessStatusReadWrite
+}
+
+// IsWriteAccessGranted returns true if the status indicates that write access
+// is granted.
+func (s UniversePublicAccessStatus) IsWriteAccessGranted() bool {
+	return s == UniversePublicAccessStatusWrite ||
+		s == UniversePublicAccessStatusReadWrite
+}
+
+// ParseUniversePublicAccessStatus parses a string into a universe public access
+// status.
+func ParseUniversePublicAccessStatus(
+	s string) (UniversePublicAccessStatus, error) {
+
+	switch s {
+	case "rw", "wr":
+		return UniversePublicAccessStatusReadWrite, nil
+
+	case "r":
+		return UniversePublicAccessStatusRead, nil
+
+	case "w":
+		return UniversePublicAccessStatusWrite, nil
+
+	default:
+		// This default case returns an error. It will capture the case
+		// where the CLI argument is present but unset (empty value).
+		return UniversePublicAccessStatusNone, fmt.Errorf("unknown "+
+			"universe public access status: %s", s)
+	}
+}
+
 // Config is the main config of the Taproot Assets server.
 type Config struct {
 	DebugLevel string
@@ -138,11 +197,12 @@ type Config struct {
 
 	AuxChanCloser *tapchannel.AuxChanCloser
 
-	// UniversePublicAccess is flag which, If true, and the Universe server
-	// is on a public interface, valid proof from remote parties will be
-	// accepted, and proofs will be queryable by remote parties.
-	// This applies to federation syncing as well as RPC insert and query.
-	UniversePublicAccess bool
+	// UniversePublicAccess is a field that indicates the status of public
+	// access (i.e. read/write) to the universe server.
+	//
+	// NOTE: This field does not influence universe federation syncing
+	// behaviour.
+	UniversePublicAccess UniversePublicAccessStatus
 
 	// UniverseQueriesPerSecond is the maximum number of queries per
 	// second across the set of active universe queries that is permitted.

@@ -200,10 +200,12 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		TLSPath:      cfg.LndNode.Cfg.TLSCertPath,
 	}
 
-	// Ensure valid proof from tapd nodes will be accepted, and proofs will
-	// be queryable by other tapd nodes. This applies to federation syncing
-	// as well as RPC insert and query.
-	tapCfg.Universe.PublicAccess = true
+	// Configure the universe server to ensure that valid proofs from tapd
+	// nodes will be accepted, and proofs will be queryable by other tapd
+	// nodes.
+	tapCfg.Universe.PublicAccess = string(
+		tap.UniversePublicAccessStatusReadWrite,
+	)
 
 	// Set the SQLite database file path if it was specified.
 	if opts.sqliteDatabaseFilePath != nil {

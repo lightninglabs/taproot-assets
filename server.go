@@ -207,14 +207,6 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start aux invoice mgr: %w", err)
 	}
 
-	if s.cfg.UniversePublicAccess {
-		err := s.cfg.UniverseFederation.SetAllowPublicAccess()
-		if err != nil {
-			return fmt.Errorf("unable to set public access "+
-				"for universe federation: %w", err)
-		}
-	}
-
 	// Now we have created all dependencies necessary to populate and
 	// start the RPC server.
 	if err := s.rpcServer.Start(); err != nil {
@@ -291,6 +283,8 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 
 	// Get RPC endpoints which don't require macaroons.
 	macaroonWhitelist := perms.MacaroonWhitelist(
+		s.cfg.UniversePublicAccess.IsReadAccessGranted(),
+		s.cfg.UniversePublicAccess.IsWriteAccessGranted(),
 		s.cfg.RPCConfig.AllowPublicUniProofCourier,
 		s.cfg.RPCConfig.AllowPublicStats,
 	)
