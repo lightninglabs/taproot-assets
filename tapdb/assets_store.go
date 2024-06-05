@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -344,6 +345,17 @@ type AssetGroupBalance struct {
 	Balance  uint64
 }
 
+// cacheableTimestamp is a wrapper around an int32 that can be used as a
+// value in an LRU cache.
+type cacheableBlockHeight uint32
+
+// Size returns the size of the cacheable block height. Since we scale the cache
+// by the number of items and not the total memory size, we can simply return 1
+// here to count each timestamp as 1 item.
+func (c cacheableBlockHeight) Size() (uint64, error) {
+	return 1, nil
+}
+
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
 // interface, allowing for multiple queries to be executed in a single SQL
 // transaction.
@@ -362,6 +374,8 @@ type AssetStore struct {
 	eventDistributor *fn.EventDistributor[proof.Blob]
 
 	clock clock.Clock
+
+	txHeights *lru.Cache[chainhash.Hash, cacheableBlockHeight]
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
@@ -371,6 +385,9 @@ func NewAssetStore(db BatchedAssetStore, clock clock.Clock) *AssetStore {
 		db:               db,
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
 		clock:            clock,
+		txHeights: lru.NewCache[chainhash.Hash, cacheableBlockHeight](
+			10_000,
+		),
 	}
 }
 
@@ -3055,6 +3072,45 @@ func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
 	}
 
 	return assetMeta, nil
+}
+
+// TxHeight returns the block height of a given transaction. This will only
+// return the height if the transaction is known to the store, which is only
+// the case for assets relevant to this node.
+func (a *AssetStore) TxHeight(ctx context.Context, txid chainhash.Hash) (uint32,
+	error) {
+
+	blockHeight, err := a.txHeights.Get(txid)
+	if err == nil {
+		return uint32(blockHeight), nil
+	}
+
+	var dbBlockHeight int32
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbTx, err := q.FetchChainTx(ctx, txid[:])
+		if err != nil {
+			return err
+		}
+
+		dbBlockHeight = dbTx.BlockHeight.Int32
+
+		return nil
+	})
+	if dbErr != nil {
+		return 0, dbErr
+	}
+
+	if dbBlockHeight == 0 {
+		return 0, fmt.Errorf("tx height not found")
+	}
+
+	_, err = a.txHeights.Put(txid, cacheableBlockHeight(dbBlockHeight))
+	if err != nil {
+		return 0, fmt.Errorf("unable to cache asset height: %w", err)
+	}
+
+	return uint32(dbBlockHeight), nil
 }
 
 // A compile-time constraint to ensure that AssetStore meets the
