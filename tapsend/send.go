@@ -955,6 +955,12 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		}
 	}
 
+	// Set the output commitment version based on the vPkt version.
+	outputCommitmentVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
+	if err != nil {
+		return err
+	}
+
 	for idx := range outputs {
 		vOut := outputs[idx]
 		anchorOutputIdx := vOut.AnchorOutputIndex
@@ -963,7 +969,9 @@ func commitPacket(vPkt *tappsbt.VPacket,
 			return fmt.Errorf("output %d is missing asset", idx)
 		}
 
-		sendTapCommitment, err := commitment.FromAssets(nil, vOut.Asset)
+		sendTapCommitment, err := commitment.FromAssets(
+			outputCommitmentVersion, vOut.Asset,
+		)
 		if err != nil {
 			return fmt.Errorf("error committing assets: %w", err)
 		}
@@ -978,7 +986,7 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// to distinguish between the two cases in the proof file
 		// itself.
 		sendTapCommitment, err = commitment.TrimSplitWitnesses(
-			nil, sendTapCommitment,
+			outputCommitmentVersion, sendTapCommitment,
 		)
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",

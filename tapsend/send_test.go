@@ -374,6 +374,7 @@ func createPacket(addr address.Tap, prevInput asset.PrevID,
 		Inputs:      inputs,
 		Outputs:     outputs,
 		ChainParams: addr.ChainParams,
+		Version:     test.RandFlip(tappsbt.V0, tappsbt.V1),
 	}
 	vPacket.SetInputAsset(0, inputAsset)
 
@@ -607,6 +608,24 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 			t, []*asset.Asset{receiver}, receiverTree,
 			true, true, true,
 		)
+	}
+
+	// Assert that the commitment version matches the VPacket version.
+	commitments := maps.Values(outputCommitments)
+	switch vPkt.Version {
+	case tappsbt.V0:
+		isValid := func(c *commitment.TapCommitment) bool {
+			return c.Version == commitment.TapCommitmentV0 ||
+				c.Version == commitment.TapCommitmentV1
+		}
+		require.True(t, fn.All(commitments, isValid))
+	case tappsbt.V1:
+		isValid := func(c *commitment.TapCommitment) bool {
+			return c.Version == commitment.TapCommitmentV2
+		}
+		require.True(t, fn.All(commitments, isValid))
+	default:
+		require.Fail(t, "unknown vPacket version")
 	}
 }
 
