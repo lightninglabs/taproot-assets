@@ -468,9 +468,15 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		// If we have passive assets, we need to create a new anchor
 		// for them. They all anchor into the same output, so we can
 		// just use the first one.
+		firstPassiveVOutput := passiveAssets[0].Outputs[0]
+		if firstPassiveVOutput.ProofSuffix == nil {
+			return nil, fmt.Errorf("no proof suffix for passive " +
+				"assets")
+		}
+
 		var err error
 		passiveAssetAnchor, err = outputAnchor(
-			anchorTx, passiveAssets[0].Outputs[0], nil,
+			anchorTx, firstPassiveVOutput, nil,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create passive "+
@@ -624,6 +630,13 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 		anchorOut.Unknowns, tappsbt.PsbtKeyTypeOutputAssetRoot,
 	)
 
+	// Fetch the Taproot asset commitment version from the output's proof
+	// suffix.
+	commitmentVersion, err := vOut.TapCommitmentVersion()
+	if err != nil {
+		return nil, err
+	}
+
 	// If there are passive assets, are they anchored in the same anchor
 	// output as this transfer output? If yes, then we show this to the user
 	// by just attaching the number of passive assets.
@@ -643,12 +656,13 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 			Hash:  anchorTXID,
 			Index: vOut.AnchorOutputIndex,
 		},
-		Value:            btcutil.Amount(txOut.Value),
-		InternalKey:      anchorInternalKey,
-		TaprootAssetRoot: taprootAssetRoot[:],
-		MerkleRoot:       merkleRoot[:],
-		TapscriptSibling: preimageBytes,
-		NumPassiveAssets: numPassiveAssets,
+		Value:             btcutil.Amount(txOut.Value),
+		InternalKey:       anchorInternalKey,
+		TaprootAssetRoot:  taprootAssetRoot[:],
+		CommitmentVersion: fn.Ptr(uint8(*commitmentVersion)),
+		MerkleRoot:        merkleRoot[:],
+		TapscriptSibling:  preimageBytes,
+		NumPassiveAssets:  numPassiveAssets,
 	}, nil
 }
 
