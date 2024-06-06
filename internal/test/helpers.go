@@ -397,9 +397,9 @@ func ScriptHashLock(t *testing.T, preimage []byte) txscript.TapLeaf {
 	builder.AddOp(txscript.OP_HASH160)
 	builder.AddData(btcutil.Hash160(preimage))
 	builder.AddOp(txscript.OP_EQUALVERIFY)
-	script1, err := builder.Script()
+	script, err := builder.Script()
 	require.NoError(t, err)
-	return txscript.NewBaseTapLeaf(script1)
+	return txscript.NewBaseTapLeaf(script)
 }
 
 // ScriptSchnorrSig returns a simple bitcoin script that locks the funds to a
@@ -408,9 +408,31 @@ func ScriptSchnorrSig(t *testing.T, pubKey *btcec.PublicKey) txscript.TapLeaf {
 	builder := txscript.NewScriptBuilder()
 	builder.AddData(schnorr.SerializePubKey(pubKey))
 	builder.AddOp(txscript.OP_CHECKSIG)
-	script2, err := builder.Script()
+	script, err := builder.Script()
 	require.NoError(t, err)
-	return txscript.NewBaseTapLeaf(script2)
+	return txscript.NewBaseTapLeaf(script)
+}
+
+// ScriptCsv returns a simple bitcoin script that locks the funds with a CSV
+// lock for the given number of blocks.
+func ScriptCsv(t *testing.T, csv int64) txscript.TapLeaf {
+	builder := txscript.NewScriptBuilder()
+	builder.AddInt64(csv)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	script, err := builder.Script()
+	require.NoError(t, err)
+	return txscript.NewBaseTapLeaf(script)
+}
+
+// ScriptCltv returns a simple bitcoin script that locks the funds with a CLTV
+// lock until the given block height.
+func ScriptCltv(t *testing.T, cltv int64) txscript.TapLeaf {
+	builder := txscript.NewScriptBuilder()
+	builder.AddInt64(cltv)
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	script, err := builder.Script()
+	require.NoError(t, err)
+	return txscript.NewBaseTapLeaf(script)
 }
 
 // ReadTestDataFile reads a file from the testdata directory and returns its
@@ -423,8 +445,8 @@ func ReadTestDataFile(t *testing.T, fileName string) string {
 	return string(fileBytes)
 }
 
-// BuildTapscriptTree builds a Tapscript tree with two leaves, a hash lock
-// script and a signature verification script.
+// BuildTapscriptTreeNoReveal builds a Tapscript tree with two leaves, a hash
+// lock script and a signature verification script.
 func BuildTapscriptTreeNoReveal(t *testing.T,
 	internalKey *btcec.PublicKey) txscript.TapBranch {
 
