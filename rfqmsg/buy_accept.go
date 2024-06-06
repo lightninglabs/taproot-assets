@@ -185,6 +185,10 @@ type BuyAccept struct {
 	// Peer is the peer that sent the quote request.
 	Peer route.Vertex
 
+	// Request is the quote request message that this message responds to.
+	// This field is not included in the wire message.
+	Request BuyRequest
+
 	// AssetAmount is the amount of the asset that the accept message
 	// is for.
 	AssetAmount uint64
@@ -201,6 +205,7 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 	return &BuyAccept{
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
+		Request:     request,
 		buyAcceptMsgData: buyAcceptMsgData{
 			Version:  latestBuyAcceptVersion,
 			ID:       request.ID,

@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 )
 
@@ -46,6 +47,14 @@ type StreamHandler struct {
 	// errRecvRawMessages is a channel that receives errors emanating from
 	// the peer raw messages subscription.
 	errRecvRawMessages <-chan error
+
+	// outgoingRequests is a map of request IDs to outgoing requests.
+	// This map is used to match incoming accept messages to outgoing
+	// requests.
+	//
+	// TODO(ffranr): Periodically remove expired outgoing requests from
+	//  this map.
+	outgoingRequests lnutils.SyncMap[rfqmsg.ID, rfqmsg.OutgoingMsg]
 
 	// ContextGuard provides a wait group and main quit channel that can be
 	// used to create guarded contexts.
@@ -100,6 +109,68 @@ func (h *StreamHandler) handleIncomingWireMessage(
 
 	log.Debugf("Stream handling incoming message: %s", msg)
 
+	// If the incoming message is an accept message, lookup the
+	// corresponding outgoing request message. Assign the outgoing request
+	// to a field on the accept message. This step allows us to easily
+	// access the request that the accept message is responding to. Some of
+	// the request fields are not present in the accept message.
+	//
+	// If the incoming message is a reject message, remove the corresponding
+	// outgoing request from the store.
+	switch typedMsg := msg.(type) {
+	case *rfqmsg.Reject:
+		// Delete the corresponding outgoing request from the store.
+		h.outgoingRequests.Delete(typedMsg.ID)
+
+	case *rfqmsg.BuyAccept:
+		// Load and delete the corresponding outgoing request from the
+		// store.
+		outgoingRequest, found := h.outgoingRequests.LoadAndDelete(
+			typedMsg.ID,
+		)
+
+		// Ensure that we have an outgoing request to match the incoming
+		// accept message.
+		if !found {
+			return fmt.Errorf("no outgoing request found for "+
+				"incoming accept message: %s", typedMsg.ID)
+		}
+
+		// Type cast the outgoing message to a BuyRequest (the request
+		// type that corresponds to a buy accept message).
+		buyReq, ok := outgoingRequest.(*rfqmsg.BuyRequest)
+		if !ok {
+			return fmt.Errorf("expected BuyRequest, got %T",
+				outgoingRequest)
+		}
+
+		typedMsg.Request = *buyReq
+
+	case *rfqmsg.SellAccept:
+		// Load and delete the corresponding outgoing request from the
+		// store.
+		outgoingRequest, found := h.outgoingRequests.LoadAndDelete(
+			typedMsg.ID,
+		)
+
+		// Ensure that we have an outgoing request to match the incoming
+		// accept message.
+		if !found {
+			return fmt.Errorf("no outgoing request found for "+
+				"incoming accept message: %s", typedMsg.ID)
+		}
+
+		// Type cast the outgoing message to a SellRequest (the request
+		// type that corresponds to a sell accept message).
+		req, ok := outgoingRequest.(*rfqmsg.SellRequest)
+		if !ok {
+			return fmt.Errorf("expected SellRequest, got %T",
+				outgoingRequest)
+		}
+
+		typedMsg.Request = *req
+	}
+
 	// Send the incoming message to the RFQ manager.
 	sendSuccess := fn.SendOrQuit(h.cfg.IncomingMessages, msg, h.Quit)
 	if !sendSuccess {
@@ -135,6 +206,15 @@ func (h *StreamHandler) HandleOutgoingMessage(
 	if err != nil {
 		return fmt.Errorf("unable to send message to peer: %w",
 			err)
+	}
+
+	// Store outgoing requests.
+	switch msg := outgoingMsg.(type) {
+	case *rfqmsg.BuyRequest:
+		h.outgoingRequests.Store(msg.ID, msg)
+
+	case *rfqmsg.SellRequest:
+		h.outgoingRequests.Store(msg.ID, msg)
 	}
 
 	return nil

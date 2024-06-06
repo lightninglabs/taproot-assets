@@ -160,6 +160,10 @@ type SellAccept struct {
 	// Peer is the peer that sent the quote request.
 	Peer route.Vertex
 
+	// Request is the quote request message that this message responds to.
+	// This field is not included in the wire message.
+	Request SellRequest
+
 	// AssetAmount is the amount of the asset that the accept message
 	// is for.
 	AssetAmount uint64
@@ -176,6 +180,7 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 	return &SellAccept{
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
+		Request:     request,
 		sellAcceptMsgData: sellAcceptMsgData{
 			Version:  latestSellAcceptVersion,
 			ID:       request.ID,
