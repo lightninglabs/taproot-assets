@@ -2384,6 +2384,11 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 func (r *rpcServer) validateInputAssets(ctx context.Context,
 	btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) error {
 
+	err := tapsend.ValidateVPacketVersions(vPackets)
+	if err != nil {
+		return err
+	}
+
 	// Make sure we decorate all asset inputs with the correct internal key
 	// derivation path (if it's indeed a key this daemon owns).
 	for idx := range btcPkt.Inputs {
@@ -2504,7 +2509,7 @@ func (r *rpcServer) validateInputAssets(ctx context.Context,
 	if err := tapsend.AssertOutputAnchorsEqual(vPackets); err != nil {
 		return fmt.Errorf("output anchors don't match: %w", err)
 	}
-	err := tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
+	err = tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
 	if err != nil {
 		return fmt.Errorf("error validating anchor inputs: %w", err)
 	}
