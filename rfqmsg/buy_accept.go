@@ -2,11 +2,9 @@ package rfqmsg
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 
-	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -20,7 +18,6 @@ const (
 	TypeBuyAcceptAskPrice  tlv.Type = 4
 	TypeBuyAcceptExpiry    tlv.Type = 6
 	TypeBuyAcceptSignature tlv.Type = 8
-	TypeBuyAcceptAssetID   tlv.Type = 10
 )
 
 func TypeRecordBuyAcceptVersion(version *WireMsgDataVersion) tlv.Record {
@@ -81,15 +78,6 @@ func TypeRecordBuyAcceptSig(sig *[64]byte) tlv.Record {
 	return tlv.MakePrimitiveRecord(TypeBuyAcceptSignature, sig)
 }
 
-func TypeRecordBuyAcceptAssetID(assetID **asset.ID) tlv.Record {
-	const recordSize = sha256.Size
-
-	return tlv.MakeStaticRecord(
-		TypeBuyAcceptAssetID, assetID, recordSize,
-		AssetIdEncoder, AssetIdDecoder,
-	)
-}
-
 const (
 	// latestBuyAcceptVersion is the latest supported buy accept wire
 	// message data field version.
@@ -115,28 +103,17 @@ type buyAcceptMsgData struct {
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
-
-	// AssetID is the asset ID of the asset that the accept message is for.
-	AssetID *asset.ID
 }
 
 // encodeRecords provides all TLV records for encoding.
 func (q *buyAcceptMsgData) encodeRecords() []tlv.Record {
-	records := []tlv.Record{
+	return []tlv.Record{
 		TypeRecordBuyAcceptVersion(&q.Version),
 		TypeRecordBuyAcceptID(&q.ID),
 		TypeRecordBuyAcceptAskPrice(&q.AskPrice),
 		TypeRecordBuyAcceptExpiry(&q.Expiry),
 		TypeRecordBuyAcceptSig(&q.sig),
 	}
-
-	if q.AssetID != nil {
-		records = append(
-			records, TypeRecordBuyAcceptAssetID(&q.AssetID),
-		)
-	}
-
-	return records
 }
 
 // decodeRecords provides all TLV records for decoding.
@@ -147,7 +124,6 @@ func (q *buyAcceptMsgData) decodeRecords() []tlv.Record {
 		TypeRecordBuyAcceptAskPrice(&q.AskPrice),
 		TypeRecordBuyAcceptExpiry(&q.Expiry),
 		TypeRecordBuyAcceptSig(&q.sig),
-		TypeRecordBuyAcceptAssetID(&q.AssetID),
 	}
 }
 
@@ -211,7 +187,6 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 			ID:       request.ID,
 			AskPrice: askPrice,
 			Expiry:   expiry,
-			AssetID:  request.AssetID,
 		},
 	}
 }
