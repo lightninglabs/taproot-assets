@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -78,6 +79,9 @@ func proveAssets(t *testing.T, commit *TapCommitment, assets []*asset.Asset,
 		)
 		require.NoError(t, err)
 		require.Equal(t, includesAsset, proofAsset != nil)
+		require.Equal(
+			t, commit.Version, proof.TaprootAssetProof.Version,
+		)
 
 		if includesAssetGroup {
 			require.NotNil(t, proof.AssetProof)
@@ -1487,6 +1491,90 @@ func TestTapCommitmentDeleteMaxVersion(t *testing.T) {
 	require.NoError(t, tapCommitment.Delete(v1Commitment))
 
 	require.Equal(t, TapCommitmentV0, tapCommitment.Version)
+}
+
+// TestTapCommitmentVersionCompatibility tests that we can properly create and
+// merge commitments of different versions.
+func TestTapCommitmentVersionCompatibility(t *testing.T) {
+	t.Parallel()
+
+	// We'll start with two assets; a V0 and a V1 asset.
+	genesis1 := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis1, nil)
+	asset1.Version = asset.V0
+
+	genesis2 := asset.RandGenesis(t, asset.Collectible)
+	asset2 := randAsset(t, genesis2, nil)
+	asset2.Version = asset.V1
+
+	// If the commitment is V2, the version of the input assets should not
+	// affect the final version of the commitment.
+	asset1TapCommitment, err := FromAssets(fn.Ptr(TapCommitmentV2), asset1)
+	require.NoError(t, err)
+	require.Equal(t, TapCommitmentV2, asset1TapCommitment.Version)
+
+	asset2TapCommitment, err := FromAssets(fn.Ptr(TapCommitmentV2), asset2)
+	require.NoError(t, err)
+	require.Equal(t, TapCommitmentV2, asset2TapCommitment.Version)
+
+	// Asset deletion should not affect the tap commitment version.
+	tapCommitment, err := FromAssets(
+		fn.Ptr(TapCommitmentV2), asset1, asset2,
+	)
+	require.NoError(t, err)
+	require.Equal(t, TapCommitmentV2, tapCommitment.Version)
+
+	assetCommitment, err := NewAssetCommitment(asset1)
+	require.NoError(t, err)
+
+	require.NoError(t, assetCommitment.Delete(asset1))
+	require.NoError(t, tapCommitment.Upsert(assetCommitment))
+	require.Equal(t, TapCommitmentV2, tapCommitment.Version)
+
+	// Unknown commitment versions should be rejected.
+	invalidCommitment, err := FromAssets(
+		fn.Ptr(TapCommitmentVersion(22)), asset1, asset2,
+	)
+	require.Nil(t, invalidCommitment)
+	require.ErrorIs(t, err, ErrInvalidTapCommitmentVersion)
+
+	// Tap commitment merging should fail if only one commitment is V2.
+	notV2Commitment, err := FromAssets(nil, asset1, asset2)
+	require.NoError(t, err)
+
+	err = tapCommitment.Merge(notV2Commitment)
+	require.ErrorContains(t, err, "commitment version mismatch: 2, 1")
+
+	err = notV2Commitment.Merge(tapCommitment)
+	require.ErrorContains(t, err, "commitment version mismatch: 1, 2")
+
+	// Merging two V2 commitments should succeed.
+	genesis3 := asset.RandGenesis(t, asset.Collectible)
+	asset3 := randAsset(t, genesis3, nil)
+
+	newCommitment, err := FromAssets(fn.Ptr(TapCommitmentV2), asset3)
+	require.NoError(t, err)
+
+	err = newCommitment.Merge(tapCommitment)
+	require.NoError(t, err)
+
+	// If we make a proof from a V2 commitment, and then mutate the tap
+	// commitment version in the proof, the computed tap leaves should not
+	// match.
+	_, proof, err := newCommitment.Proof(
+		asset2.TapCommitmentKey(), asset2.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+	require.NotNil(t, proof)
+
+	proof.TaprootAssetProof.Version = test.RandFlip(
+		TapCommitmentV0, TapCommitmentV1,
+	)
+	derivedCommitment, err := proof.DeriveByAssetInclusion(asset2)
+	require.NoError(t, err)
+	require.NotEqual(
+		t, newCommitment.TapLeaf(), derivedCommitment.TapLeaf(),
+	)
 }
 
 // TestAssetCommitmentUpsertMaxVersion tests that when we upsert with different
