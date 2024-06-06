@@ -36,6 +36,15 @@ func FromAddresses(receiverAddrs []*address.Tap,
 		ChainParams: firstAddr.ChainParams,
 	}
 
+	switch firstAddr.Version {
+	case address.V0:
+		pkt.Version = V0
+	case address.V1:
+		pkt.Version = V1
+	default:
+		return nil, address.ErrUnknownVersion
+	}
+
 	// If we are sending the full value of the input asset, or sending a
 	// collectible, we will need to create a split with un-spendable change.
 	// Since we don't have any inputs selected yet, we'll use the NUMS
@@ -55,6 +64,9 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	// index, but start at the first one indicated by the caller.
 	for idx := range receiverAddrs {
 		addr := receiverAddrs[idx]
+		if addr.Version != firstAddr.Version {
+			return nil, fmt.Errorf("mixed address versions")
+		}
 
 		pkt.Outputs = append(pkt.Outputs, &VOutput{
 			AssetVersion:      addr.AssetVersion,
