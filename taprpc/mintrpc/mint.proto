@@ -187,6 +187,20 @@ message MintAsset {
     a BIP-86 key will be derived from the underlying wallet.
     */
     taprpc.ScriptKey script_key = 12;
+
+    /*
+    Decimal display dictates the number of decimal places to shift the amount to
+    the left converting from Taproot Asset integer representation to a
+    UX-recognizable fractional quantity.
+
+    For example, if the decimal_display value is 2 and there's 100 of those
+    assets, then a wallet would display the amount as "1.00". This field is
+    intended as information for wallets that display balances and has no impact
+    on the behavior of the daemon or any other part of the protocol. This value
+    is encoded in the MetaData field as a JSON field, therefore it is only
+    compatible with assets that have a JSON MetaData field.
+    */
+    uint32 decimal_display = 13;
 }
 
 message MintAssetRequest {
