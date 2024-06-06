@@ -403,7 +403,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		)
 
 		vPkt := tappsbt.ForInteractiveSend(
-			id, fullAmt, receiverScriptKey, 0,
+			id, fullAmt, receiverScriptKey, 0, 0, 0,
 			receiverAnchorIntKeyDesc, asset.V0,
 			chainParams,
 		)
@@ -617,7 +617,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		)
 
 		vPkt := tappsbt.ForInteractiveSend(
-			id, sendAmt, receiverScriptKey, 0,
+			id, sendAmt, receiverScriptKey, 0, 0, 0,
 			receiverAnchorIntKeyDesc, asset.V0, chainParams,
 		)
 
@@ -735,8 +735,8 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 		changeAmt = rpcAssets[0].Amount - sendAmt
 	)
 	vPkt := tappsbt.ForInteractiveSend(
-		id, sendAmt, receiverScriptKey, 0, receiverAnchorIntKeyDesc,
-		asset.V0, chainParams,
+		id, sendAmt, receiverScriptKey, 0, 0, 0,
+		receiverAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
 	// We now create a Tapscript sibling with a simple hash lock script.
@@ -868,7 +868,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// We create the output at anchor index 0 for the first address.
 	outputAmounts := []uint64{1200, 1300, 1400, 800, 300}
 	vPkt := tappsbt.ForInteractiveSend(
-		id, outputAmounts[0], receiverScriptKey1, 0,
+		id, outputAmounts[0], receiverScriptKey1, 0, 0, 0,
 		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
 	)
 
@@ -1143,7 +1143,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	changeAmt = uint64(500)
 
 	vPkt := tappsbt.ForInteractiveSend(
-		assetId, sendAmt, primaryNodeScriptKey, 0,
+		assetId, sendAmt, primaryNodeScriptKey, 0, 0, 0,
 		primaryNodeAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
@@ -1221,7 +1221,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	sendAmt = uint64(1500)
 
 	vPkt = tappsbt.ForInteractiveSend(
-		assetId, sendAmt, primaryNodeScriptKey, 0,
+		assetId, sendAmt, primaryNodeScriptKey, 0, 0, 0,
 		primaryNodeAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
@@ -1679,7 +1679,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// transfer that will be later be changed by the receiver.
 	aliceDummyScriptKey, aliceAnchorInternalKey := DeriveKeys(t.t, alice)
 	vPkt := tappsbt.ForInteractiveSend(
-		assetID, numUnits, aliceDummyScriptKey, 1,
+		assetID, numUnits, aliceDummyScriptKey, 0, 0, 1,
 		aliceAnchorInternalKey, asset.V0, chainParams,
 	)
 

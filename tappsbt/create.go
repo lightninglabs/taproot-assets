@@ -77,8 +77,8 @@ func FromAddresses(receiverAddrs []*address.Tap,
 // created. If the amount is not the full input amount, a change output will be
 // added by the funding API.
 func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
-	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor,
-	assetVersion asset.Version,
+	lockTime uint64, relativeLockTime uint64, outputIndex uint32,
+	anchorInternalKey keychain.KeyDescriptor, assetVersion asset.Version,
 	chainParams *address.ChainParams) *VPacket {
 
 	vPkt := &VPacket{
@@ -93,6 +93,8 @@ func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 			Interactive:       true,
 			AnchorOutputIndex: outputIndex,
 			ScriptKey:         scriptAddr,
+			LockTime:          lockTime,
+			RelativeLockTime:  relativeLockTime,
 		}},
 		ChainParams: chainParams,
 	}

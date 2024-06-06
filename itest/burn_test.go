@@ -65,7 +65,7 @@ func testBurnAssets(t *harnessTest) {
 	// 		- 300 units to new script key
 	outputAmounts := []uint64{1100, 1200, 1600, 800, 300}
 	vPkt := tappsbt.ForInteractiveSend(
-		simpleAssetID, outputAmounts[0], scriptKey1, 0,
+		simpleAssetID, outputAmounts[0], scriptKey1, 0, 0, 0,
 		anchorInternalKeyDesc1, asset.V0, chainParams,
 	)
 	tappsbt.AddOutput(
