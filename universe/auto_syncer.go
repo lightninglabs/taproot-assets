@@ -764,9 +764,9 @@ func (f *FederationEnvoy) SyncServers(serverAddrs []ServerAddr) error {
 	return nil
 }
 
-// SetAllowPublicAccess sets the global (default) sync config to allow public
-// access for proof insert and export across all universes.
-func (f *FederationEnvoy) SetAllowPublicAccess() error {
+// SetConfigSyncAllAssets sets the global (default) sync config to sync all
+// assets.
+func (f *FederationEnvoy) SetConfigSyncAllAssets() error {
 	ctx, cancel := f.WithCtxQuit()
 	defer cancel()
 

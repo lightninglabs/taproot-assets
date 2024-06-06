@@ -210,7 +210,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// If the server is configured to sync all assets by default, we'll set
 	// the universe federation to allow public access.
 	if s.cfg.UniFedSyncAllAssets {
-		err := s.cfg.UniverseFederation.SetAllowPublicAccess()
+		err := s.cfg.UniverseFederation.SetConfigSyncAllAssets()
 		if err != nil {
 			return fmt.Errorf("unable to set public access "+
 				"for universe federation: %w", err)
