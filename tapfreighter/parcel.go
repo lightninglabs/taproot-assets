@@ -17,6 +17,7 @@ import (
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"golang.org/x/exp/maps"
 )
 
 // SendState is an enum that describes the current state of a pending outbound
@@ -304,7 +305,7 @@ func (p *PreSignedParcel) Validate() error {
 		return fmt.Errorf("no virtual transaction in pre-signed parcel")
 	}
 
-	err := validateVPacketVersions(p.vPackets)
+	err := tapsend.ValidateVPacketVersions(p.vPackets)
 	if err != nil {
 		return err
 	}
@@ -317,6 +318,22 @@ func (p *PreSignedParcel) Validate() error {
 
 	if p.inputCommitments == nil {
 		return fmt.Errorf("no input commitments in pre-signed parcel")
+	}
+
+	inputCommitVersions := maps.Values(p.inputCommitments)
+	if inputCommitVersions[0] == nil {
+		return fmt.Errorf("missing input commitment in pre-signed " +
+			"parcel")
+	}
+
+	firstCommitVersion := inputCommitVersions[0].Version
+	for _, inputCommit := range p.inputCommitments {
+		if !commitment.IsSimilarTapCommitmentVersion(
+			&firstCommitVersion, &inputCommit.Version,
+		) {
+
+			return fmt.Errorf("mixed input commitment versions")
+		}
 	}
 
 	return nil
@@ -385,7 +402,7 @@ func (p *PreAnchoredParcel) Validate() error {
 			"parcel")
 	}
 
-	err := validateVPacketVersions(p.virtualPackets)
+	err := tapsend.ValidateVPacketVersions(p.virtualPackets)
 	if err != nil {
 		return err
 	}
@@ -714,23 +731,6 @@ func (s *sendPackage) validateReadyForPublish(
 	err = tapsend.ValidateAnchorOutputs(btcPkt, allPackets, true)
 	if err != nil {
 		return fmt.Errorf("error validating anchor outputs: %w", err)
-	}
-
-	return nil
-}
-
-// validateVPacketVersions checks that all virtual packets are the same version.
-func validateVPacketVersions(vPackets []*tappsbt.VPacket) error {
-	if len(vPackets) == 0 {
-		return fmt.Errorf("no virtual packets")
-	}
-
-	firstPktVersion := vPackets[0].Version
-	matchingVersion := fn.All(vPackets, func(vPkt *tappsbt.VPacket) bool {
-		return vPkt.Version == firstPktVersion
-	})
-	if !matchingVersion {
-		return fmt.Errorf("mixed virtual packet versions")
 	}
 
 	return nil

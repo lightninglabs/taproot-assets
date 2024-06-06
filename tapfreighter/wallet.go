@@ -271,7 +271,7 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 		},
 	}
 
-	err := validateVPacketVersions(activePackets)
+	err := tapsend.ValidateVPacketVersions(activePackets)
 	if err != nil {
 		return nil, err
 	}

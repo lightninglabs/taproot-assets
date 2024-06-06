@@ -28,6 +28,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -1090,6 +1091,11 @@ func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 func PrepareAnchoringTemplate(
 	vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 
+	err := ValidateVPacketVersions(vPackets)
+	if err != nil {
+		return nil, err
+	}
+
 	btcPacket, err := CreateAnchorTx(vPackets)
 	if err != nil {
 		return nil, err
@@ -1495,6 +1501,23 @@ func LogCommitment(prefix string, idx int,
 	}
 }
 
+// ValidateVPacketVersions checks that all virtual packets are the same version.
+func ValidateVPacketVersions(vPackets []*tappsbt.VPacket) error {
+	if len(vPackets) == 0 {
+		return fmt.Errorf("no virtual packets")
+	}
+
+	firstPktVersion := vPackets[0].Version
+	matchingVersion := fn.All(vPackets, func(vPkt *tappsbt.VPacket) bool {
+		return vPkt.Version == firstPktVersion
+	})
+	if !matchingVersion {
+		return fmt.Errorf("mixed virtual packet versions")
+	}
+
+	return nil
+}
+
 // ValidateAnchorOutputs checks that the anchor outputs of the virtual packets
 // are valid and consistent with the provided BTC level PSBT packet. When
 // calling this function, everything must be ready to be signed on the BTC
@@ -1660,7 +1683,7 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 	}
 
 	// All output commitments must also have similar versions at this point.
-	firstCommitVersion := outputCommitVersions[0]
+	firstCommitVersion := maps.Values(outputCommitVersions)[0]
 	for idx, commitVersion := range outputCommitVersions {
 		if !commitment.IsSimilarTapCommitmentVersion(
 			firstCommitVersion, commitVersion,

@@ -860,7 +860,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
 		vPackets := currentPkg.VirtualPackets
-		err := validateVPacketVersions(vPackets)
+		err := tapsend.ValidateVPacketVersions(vPackets)
 		if err != nil {
 			return nil, err
 		}
