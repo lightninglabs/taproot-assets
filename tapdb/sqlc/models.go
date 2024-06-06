@@ -252,6 +252,7 @@ type ManagedUtxo struct {
 	TxnID            int64
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
+	RootVersion      sql.NullInt16
 }
 
 type MssmtNode struct {
