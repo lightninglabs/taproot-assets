@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -1906,4 +1907,142 @@ func DecodeAuxShutdownMsg(blob tlv.Blob) (*AuxShutdownMsg, error) {
 	}
 
 	return &s, nil
+}
+
+// VpktList is a record that represents a list of vPkts.
+type VpktList struct {
+	// Pkts is the list of vPkts.
+	Pkts []*tappsbt.VPacket
+}
+
+// NewVpktList creates a new VpktList record with the given list of vPkts.
+func NewVpktList(pkts []*tappsbt.VPacket) VpktList {
+	return VpktList{
+		Pkts: pkts,
+	}
+}
+
+// Record returns a tlv.Record that represents the VpktList.
+func (v *VpktList) Record() tlv.Record {
+	size := func() uint64 {
+		var (
+			buf     bytes.Buffer
+			scratch [8]byte
+		)
+		err := eVpktList(&buf, v, &scratch)
+		if err != nil {
+			panic(err)
+		}
+
+		return uint64(buf.Len())
+	}
+
+	return tlv.MakeDynamicRecord(0, v, size, eVpktList, dVpktList)
+}
+
+func eVpktList(w io.Writer, val interface{}, buf *[8]byte) error {
+	if v, ok := val.(*VpktList); ok {
+		numPkts := uint64(len(v.Pkts))
+		if err := tlv.WriteVarInt(w, numPkts, buf); err != nil {
+			return err
+		}
+
+		for _, pkt := range v.Pkts {
+			if err := pkt.Serialize(w); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "*VpktList")
+}
+
+const maxNumVpkts = 1_000
+
+func dVpktList(r io.Reader, val interface{}, buf *[8]byte, _ uint64) error {
+	if typ, ok := val.(*VpktList); ok {
+		numPkts, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		if numPkts == 0 {
+			return nil
+		}
+
+		if numPkts > maxNumVpkts {
+			return fmt.Errorf("too many vPkts: %d (limit=%v)",
+				numPkts, maxNumVpkts)
+		}
+
+		pkts := make([]*tappsbt.VPacket, numPkts)
+		for i := uint64(0); i < numPkts; i++ {
+			pkt, err := tappsbt.NewFromRawBytes(r, false)
+			if err != nil {
+				return err
+			}
+
+			pkts[i] = pkt
+		}
+
+		*typ = VpktList{
+			Pkts: pkts,
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*VpktList")
+}
+
+// ContractResolution houses all the information we need to resolve a contract
+// on chain. This includes a series of pre-populated and pre-signed vPackets.
+// The internal key, and other on-chain anchor information may be missing from
+// these packets.
+type ContractResolution struct {
+	// SweepVpkts is a list of pre-signed vPackets that can be anchored
+	// into an output in a transaction where the refrnced previous inputs
+	// are spent to sweep an asset.
+	SweepVpkts tlv.RecordT[tlv.TlvType0, VpktList]
+}
+
+// NewContractResolution creates a new ContractResolution with the given list
+// of vpkts.
+func NewContractResolution(pkts []*tappsbt.VPacket) ContractResolution {
+	return ContractResolution{
+		SweepVpkts: tlv.NewRecordT[tlv.TlvType0](NewVpktList(pkts)),
+	}
+}
+
+// Records returns the records that make up the ContractResolution.
+func (c *ContractResolution) Records() []tlv.Record {
+	return []tlv.Record{
+		c.SweepVpkts.Record(),
+	}
+}
+
+// Encode serializes the ContractResolution to the given io.Writer.
+func (c *ContractResolution) Encode(w io.Writer) error {
+	tlvStream, err := tlv.NewStream(c.Records()...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode deserializes the ContractResolution from the given io.Reader.
+func (c *ContractResolution) Decode(r io.Reader) error {
+	tlvStream, err := tlv.NewStream(c.Records()...)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Decode(r)
+}
+
+// VPkts returns the list of vPkts in the ContractResolution.
+func (c *ContractResolution) VPkts() []*tappsbt.VPacket {
+	return c.SweepVpkts.Val.Pkts
 }

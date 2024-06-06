@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -477,4 +478,27 @@ func TestAuxShutdownMsg(t *testing.T) {
 			require.Equal(t, tc.shutdown, newShutdownMsg)
 		})
 	}
+}
+
+// TestContractResolution tests encoding and decoding of the ContractResolution
+// TLV blob.
+func TestContractResolution(t *testing.T) {
+	t.Parallel()
+
+	const numPackets = 10
+
+	testPkts := make([]*tappsbt.VPacket, numPackets)
+	for i := 0; i < numPackets; i++ {
+		testPkts[i] = tappsbt.RandPacket(t, true)
+	}
+
+	testRes := NewContractResolution(testPkts)
+
+	var b bytes.Buffer
+	require.NoError(t, testRes.Encode(&b))
+
+	var newRes ContractResolution
+	require.NoError(t, newRes.Decode(&b))
+
+	require.Equal(t, testRes, newRes)
 }
