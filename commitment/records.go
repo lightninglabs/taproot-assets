@@ -75,10 +75,10 @@ func AssetProofRecord(proof *mssmt.Proof) tlv.Record {
 	)
 }
 
-func TaprootAssetProofVersionRecord(version *asset.Version) tlv.Record {
+func TaprootAssetProofVersionRecord(version *TapCommitmentVersion) tlv.Record {
 	return tlv.MakeStaticRecord(
-		TaprootAssetProofVersionType, version, 1, asset.VersionEncoder,
-		asset.VersionDecoder,
+		TaprootAssetProofVersionType, version, 1,
+		TapCommitmentVersionEncoder, TapCommitmentVersionDecoder,
 	)
 }
 

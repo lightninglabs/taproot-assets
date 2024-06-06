@@ -99,7 +99,7 @@ func Mint(genesis asset.Genesis, groupKey *asset.GroupKey,
 	if err != nil {
 		return nil, nil, err
 	}
-	tapCommitment, err := NewTapCommitment(assetCommitment)
+	tapCommitment, err := NewTapCommitment(nil, assetCommitment)
 	if err != nil {
 		return nil, nil, err
 	}

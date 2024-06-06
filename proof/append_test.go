@@ -130,7 +130,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
 	require.NoError(t, err)
-	tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
+	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
 	require.NoError(t, err)
 
 	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
@@ -281,11 +281,17 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split3AssetNoSplitProof,
 	)
 	require.NoError(t, err)
-	tap1Commitment, err := commitment.NewTapCommitment(split1Commitment)
+	tap1Commitment, err := commitment.NewTapCommitment(
+		nil, split1Commitment,
+	)
 	require.NoError(t, err)
-	tap2Commitment, err := commitment.NewTapCommitment(split2Commitment)
+	tap2Commitment, err := commitment.NewTapCommitment(
+		nil, split2Commitment,
+	)
 	require.NoError(t, err)
-	tap3Commitment, err := commitment.NewTapCommitment(split3Commitment)
+	tap3Commitment, err := commitment.NewTapCommitment(
+		nil, split3Commitment,
+	)
 	require.NoError(t, err)
 
 	tapscript1Root := tap1Commitment.TapscriptRoot(nil)

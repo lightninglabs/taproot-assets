@@ -714,15 +714,22 @@ func TestProofVerification(t *testing.T) {
 
 	inclusionTxOut := p.AnchorTx.TxOut[p.InclusionProof.OutputIndex]
 	t.Logf("Proof inclusion tx out: %x", inclusionTxOut.PkScript)
-	proofKey, proofTree, err := p.InclusionProof.DeriveByAssetInclusion(
-		&p.Asset,
-	)
+	proofKeys, err := p.InclusionProof.DeriveByAssetInclusion(&p.Asset, nil)
 	require.NoError(t, err)
-	rootHash := proofTree.TapscriptRoot(nil)
+
 	t.Logf("Proof internal key: %x",
 		p.InclusionProof.InternalKey.SerializeCompressed())
-	t.Logf("Proof root hash: %x", rootHash[:])
-	t.Logf("Proof key: %x", proofKey.SerializeCompressed())
+
+	for proofKey, commit := range proofKeys {
+		rootHash := commit.TapscriptRoot(nil)
+		t.Logf("Proof root hash: %x", rootHash[:])
+		logString := "CommitmentNonV2"
+		if commit.Version == commitment.TapCommitmentV2 {
+			logString = "CommitmentV2"
+		}
+
+		t.Logf("%s proof key: %x", logString, proofKey)
+	}
 
 	var buf bytes.Buffer
 	require.NoError(t, p.Asset.Encode(&buf))

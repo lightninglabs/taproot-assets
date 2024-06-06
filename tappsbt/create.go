@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -165,15 +166,18 @@ func FromProofs(proofs []*proof.Proof,
 
 		txOut := p.AnchorTx.TxOut[p.InclusionProof.OutputIndex]
 
-		//nolint:lll
-		_, tapCommitment, err := p.InclusionProof.DeriveByAssetInclusion(
-			&p.Asset,
+		commitmentKeys, err := p.InclusionProof.DeriveByAssetInclusion(
+			&p.Asset, fn.Ptr(false),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error deriving commitment: %w",
 				err)
 		}
 
+		tapCommitment, err := commitmentKeys.GetCommitment()
+		if err != nil {
+			return nil, err
+		}
 		tapProof := p.InclusionProof.CommitmentProof
 
 		//nolint:lll

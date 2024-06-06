@@ -85,7 +85,7 @@ func (m *mockVerifier) Verify(_ context.Context, r io.Reader,
 
 	ac, err := commitment.NewAssetCommitment(&lastProof.Asset)
 	require.NoError(m.t, err)
-	tc, err := commitment.NewTapCommitment(ac)
+	tc, err := commitment.NewTapCommitment(nil, ac)
 	require.NoError(m.t, err)
 
 	return &proof.AssetSnapshot{
@@ -447,7 +447,7 @@ func randProof(t *testing.T, outputIndex int, tx *wire.MsgTx,
 
 	ac, err := commitment.NewAssetCommitment(&a)
 	require.NoError(t, err)
-	tc, err := commitment.NewTapCommitment(ac)
+	tc, err := commitment.NewTapCommitment(nil, ac)
 	require.NoError(t, err)
 
 	op := wire.OutPoint{

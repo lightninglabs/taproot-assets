@@ -294,7 +294,7 @@ func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 		return nil, err
 	}
 
-	return commitment.FromAssets(newAsset)
+	return commitment.FromAssets(nil, newAsset)
 }
 
 // TaprootOutputKey returns the on-chain Taproot output key.

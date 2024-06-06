@@ -771,6 +771,38 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 			err)
 	}
 
+	// Check if this is the anchorPkScript (and indirectly the
+	// anchorMerkleRoot) we expect. If not this might be a non-V2
+	// commitment.
+	anchorTxOut := inputProof.AnchorTx.TxOut[assetInput.AnchorPoint.Index]
+	if !bytes.Equal(anchorTxOut.PkScript, anchorPkScript) {
+		var err error
+
+		inputCommitment, err := assetInput.Commitment.Downgrade()
+		if err != nil {
+			return fmt.Errorf("cannot downgrade commitment: %w",
+				err)
+		}
+
+		//nolint:lll
+		anchorPkScript, anchorMerkleRoot, _, err = tapsend.AnchorOutputScript(
+			internalKey.PubKey, assetInput.TapscriptSibling,
+			inputCommitment,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot calculate input asset "+
+				"pkScript for commitment V0: %w", err)
+		}
+
+		if !bytes.Equal(anchorTxOut.PkScript, anchorPkScript) {
+			// This matches neither version.
+			return fmt.Errorf("%w: anchor input script "+
+				"mismatch for anchor outpoint %v",
+				tapsend.ErrInvalidAnchorInputInfo,
+				assetInput.AnchorPoint)
+		}
+	}
+
 	// Add some trace logging for easier debugging of what we expect to be
 	// in the commitment we spend (we did the same when creating the output,
 	// so differences should be apparent when debugging).
@@ -779,6 +811,7 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 		anchorPkScript, anchorMerkleRoot[:],
 	)
 
+	//nolint:lll
 	tapscriptSiblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
 		assetInput.TapscriptSibling,
 	)
@@ -986,18 +1019,21 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 	}
 
 	inclusionProof := assetProof.InclusionProof
-	proofKey, _, err := inclusionProof.DeriveByAssetInclusion(
-		vIn.Asset(),
+	proofKeys, err := inclusionProof.DeriveByAssetInclusion(
+		vIn.Asset(), nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to derive inclusion proof: %w", err)
 	}
 
-	if !proofKey.IsEqual(anchorKey) {
-		return fmt.Errorf("proof key doesn't match anchor key")
+	anchorKeyBytes := schnorr.SerializePubKey(anchorKey)
+	for proofKey := range proofKeys {
+		if bytes.Equal(anchorKeyBytes, proofKey.SchnorrSerialized()) {
+			return nil
+		}
 	}
 
-	return nil
+	return fmt.Errorf("proof key doesn't match anchor key")
 }
 
 // determinePassiveAssetAnchorOutput determines the best anchor output to attach

@@ -891,7 +891,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetSprouts[i] = assetSprout
 	}
 
-	tapCommitment, err := commitment.FromAssets(assetSprouts...)
+	tapCommitment, err := commitment.FromAssets(nil, assetSprouts...)
 	if err != nil {
 		return nil, err
 	}

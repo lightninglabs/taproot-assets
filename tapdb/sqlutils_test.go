@@ -59,7 +59,7 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
 	require.NoError(t, err)
 
-	taprootAssetRoot, err := commitment.NewTapCommitment(assetRoot)
+	taprootAssetRoot, err := commitment.NewTapCommitment(nil, assetRoot)
 	require.NoError(t, err)
 
 	// With our asset created, we can now create the AnnotatedProof we use

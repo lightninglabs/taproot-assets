@@ -1963,7 +1963,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		}
 
 		assets := fn.Map(anchoredAssets, fetchAsset)
-		tapCommitment, err := commitment.FromAssets(assets...)
+		tapCommitment, err := commitment.FromAssets(nil, assets...)
 		if err != nil {
 			return nil, err
 		}

@@ -337,7 +337,7 @@ func (p *pendingAssetFunding) assetOutputs() []*cmsg.AssetOutput {
 
 // addToFundingCommitment adds a new asset to the funding commitment.
 func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
-	newCommitment, err := commitment.FromAssets(a)
+	newCommitment, err := commitment.FromAssets(nil, a)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
 	}
@@ -1212,7 +1212,7 @@ func (f *FundingController) chanFunder() {
 			// funding PSBT).
 			fundingOutput := fundingVpkt.VPacket.Outputs[0]
 			fundingCommitment, err := commitment.FromAssets(
-				fundingOutput.Asset.Copy(),
+				nil, fundingOutput.Asset.Copy(),
 			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to create "+
@@ -1488,7 +1488,7 @@ func (f *FundingController) chanFunder() {
 
 			fundingCommitment := fundingFlow.fundingAssetCommitment
 			trimmedCommitment, err := commitment.TrimSplitWitnesses(
-				fundingCommitment,
+				nil, fundingCommitment,
 			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to anchor output "+

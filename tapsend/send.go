@@ -963,7 +963,7 @@ func commitPacket(vPkt *tappsbt.VPacket,
 			return fmt.Errorf("output %d is missing asset", idx)
 		}
 
-		sendTapCommitment, err := commitment.FromAssets(vOut.Asset)
+		sendTapCommitment, err := commitment.FromAssets(nil, vOut.Asset)
 		if err != nil {
 			return fmt.Errorf("error committing assets: %w", err)
 		}
@@ -978,7 +978,7 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// to distinguish between the two cases in the proof file
 		// itself.
 		sendTapCommitment, err = commitment.TrimSplitWitnesses(
-			sendTapCommitment,
+			nil, sendTapCommitment,
 		)
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
@@ -1256,7 +1256,7 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	// leaves that had empty SplitCommitments. We need to replicate this
 	// here as well.
 	trimmedCommitment, err := commitment.TrimSplitWitnesses(
-		anchorCommitment,
+		&anchorCommitment.Version, anchorCommitment,
 	)
 	if err != nil {
 		return nil, emptyHash, emptyHash, fmt.Errorf("unable to trim "+
@@ -1602,7 +1602,7 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 	// We can now go through each anchor output that will carry assets and
 	// check that we arrive at the correct script.
 	for anchorIdx, assets := range outputAssets {
-		anchorCommitment, err := commitment.FromAssets(assets...)
+		anchorCommitment, err := commitment.FromAssets(nil, assets...)
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
@@ -1632,11 +1632,28 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 				"script: %w", err)
 		}
 
+		downgradedCommitment, err := anchorCommitment.Downgrade()
+		if err != nil {
+			return err
+		}
+
+		scriptNonV2, _, _, err := AnchorOutputScript(
+			internalKey, outputSiblings[anchorIdx],
+			downgradedCommitment,
+		)
+
+		if err != nil {
+			return fmt.Errorf("unable to create V0 anchor output "+
+				"script: %w", err)
+		}
+
 		// This is the most important check. This ensures that the
 		// assets in the outputs of the virtual transactions match
 		// exactly the assets that are committed to in the anchor
 		// output script.
-		if !bytes.Equal(anchorTxOut.PkScript, script) {
+		if !bytes.Equal(anchorTxOut.PkScript, script) &&
+			!bytes.Equal(anchorTxOut.PkScript, scriptNonV2) {
+
 			return fmt.Errorf("%w: anchor output script mismatch "+
 				"for anchor output index %d",
 				ErrInvalidAnchorOutputInfo, anchorIdx)
@@ -1784,7 +1801,7 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 	// We can now go through each anchor input that contains assets being
 	// spent and check that we arrive at the correct script.
 	for anchorOutpoint, assets := range inputAssets {
-		anchorCommitment, err := commitment.FromAssets(assets...)
+		anchorCommitment, err := commitment.FromAssets(nil, assets...)
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
@@ -1814,9 +1831,28 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		// output script.
 		anchorScript := inputScripts[anchorOutpoint]
 		if !bytes.Equal(anchorScript, script) {
-			return fmt.Errorf("%w: anchor input script mismatch "+
-				"for anchor outpoint %v",
-				ErrInvalidAnchorInputInfo, anchorOutpoint)
+			// The commitment may not be V2; let's check against
+			// a non-V2 commitment.
+			anchorCommitment, err = anchorCommitment.Downgrade()
+			if err != nil {
+				return err
+			}
+
+			script, merkleRoot, _, err = AnchorOutputScript(
+				internalKey, inputSiblings[anchorOutpoint],
+				anchorCommitment,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create MarkerV0 "+
+					"anchor output script: %w", err)
+			}
+			if !bytes.Equal(anchorScript, script) {
+				// This matches neither version.
+				return fmt.Errorf("%w: anchor input script "+
+					"mismatch for anchor outpoint %v",
+					ErrInvalidAnchorInputInfo,
+					anchorOutpoint)
+			}
 		}
 
 		// The merkle root should also match.

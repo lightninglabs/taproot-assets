@@ -1,6 +1,7 @@
 package proof
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -8,11 +9,14 @@ import (
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/vm"
+	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -82,10 +86,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 
 	// For each proof type, we'll map this to a single key based on the
 	// self-identified pre-image type in the specified proof.
-	var (
-		derivedKey    *btcec.PublicKey
-		tapCommitment *commitment.TapCommitment
-	)
+	var derivedKeys ProofCommitmentKeys
 	switch {
 	// If this is an inclusion proof, then we'll derive the expected
 	// taproot output key based on the revealed asset MS-SMT proof. The
@@ -94,9 +95,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// internal key to derive the expected output key.
 	case inclusion:
 		log.Tracef("Verifying inclusion proof for asset %v", asset.ID())
-		derivedKey, tapCommitment, err = proof.DeriveByAssetInclusion(
-			asset,
-		)
+		derivedKeys, err = proof.DeriveByAssetInclusion(asset, nil)
 
 	// If the commitment proof is present, then this is actually a
 	// non-inclusion proof: we want to verify that either no root
@@ -104,7 +103,7 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// present.
 	case proof.CommitmentProof != nil:
 		log.Tracef("Verifying exclusion proof for asset %v", asset.ID())
-		derivedKey, err = proof.DeriveByAssetExclusion(
+		derivedKeys, err = proof.DeriveByAssetExclusion(
 			asset.AssetCommitmentKey(),
 			asset.TapCommitmentKey(),
 		)
@@ -113,21 +112,29 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 	// output DOES NOT contain any sort of Taproot Asset commitment.
 	case proof.TapscriptProof != nil:
 		log.Tracef("Verifying tapscript proof")
+		var derivedKey *btcec.PublicKey
 		derivedKey, err = proof.DeriveByTapscriptProof()
+
+		// The derived key must match the expected taproot key.
+		if derivedKey.IsEqual(expectedTaprootKey) {
+			return nil, nil
+		}
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	// The derive key should match the extracted key.
-	if derivedKey.IsEqual(expectedTaprootKey) {
-		return tapCommitment, nil
+	// One of the derived keys should match the expected key.
+	expectedKey := schnorr.SerializePubKey(expectedTaprootKey)
+	for derivedKey, derivedCommitment := range derivedKeys {
+		if bytes.Equal(expectedKey, derivedKey.SchnorrSerialized()) {
+			return derivedCommitment, nil
+		}
 	}
 
-	return nil, fmt.Errorf("%w: derived_key=%x, expected_key=%x",
+	return nil, fmt.Errorf("%w: derived_keys=%s, expected_key=%x",
 		commitment.ErrInvalidTaprootProof,
-		derivedKey.SerializeCompressed(),
-		expectedTaprootKey.SerializeCompressed())
+		spew.Sdump(maps.Keys(derivedKeys)), expectedKey)
 }
 
 // verifyInclusionProof verifies the InclusionProof is valid.
@@ -148,7 +155,9 @@ func (p *Proof) verifySplitRootProof() error {
 }
 
 // verifyExclusionProofs verifies all ExclusionProofs are valid.
-func (p *Proof) verifyExclusionProofs() error {
+func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
+	error) {
+
 	// Gather all P2TR outputs in the on-chain transaction.
 	p2trOutputs := make(map[uint32]struct{})
 	for i, txOut := range p.AnchorTx.TxOut {
@@ -161,22 +170,55 @@ func (p *Proof) verifyExclusionProofs() error {
 	}
 
 	// Verify all of the encoded exclusion proofs.
+	commitVersions := make(map[uint32]commitment.TapCommitmentVersion)
 	for _, exclusionProof := range p.ExclusionProofs {
 		exclusionProof := exclusionProof
-		_, err := verifyTaprootProof(
+		derivedCommitment, err := verifyTaprootProof(
 			&p.AnchorTx, &exclusionProof, &p.Asset, false,
 		)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		delete(p2trOutputs, exclusionProof.OutputIndex)
+
+		outputIdx := exclusionProof.OutputIndex
+		delete(p2trOutputs, outputIdx)
+
+		// Store the commitment version. If there was no Taproot Asset
+		// commitment present, then there is nothing to store.
+		if derivedCommitment != nil {
+			commitVersions[outputIdx] = derivedCommitment.Version
+		}
 	}
 
 	// If any outputs are missing a proof, fail.
 	if len(p2trOutputs) > 0 {
-		return ErrMissingExclusionProofs
+		return nil, ErrMissingExclusionProofs
 	}
-	return nil
+
+	// If there were no commitments in any exclusion proofs, then there is
+	// no version to return.
+	if len(commitVersions) == 0 {
+		return nil, nil
+	}
+
+	// All ExclusionProofs must have similar versions.
+	firstCommitVersion := maps.Values(commitVersions)[0]
+	for outputIdx, commitVersion := range commitVersions {
+		outputCommitVersion := commitVersion
+		if !commitment.IsSimilarTapCommitmentVersion(
+			&firstCommitVersion, &outputCommitVersion,
+		) {
+
+			log.Tracef("output %d commit version %d, first output "+
+				"commit version %d", outputIdx, commitVersion,
+				firstCommitVersion)
+
+			return nil, fmt.Errorf("mixed anchor commitment " +
+				"versions for exclusion proofs")
+		}
+	}
+
+	return &firstCommitVersion, nil
 }
 
 // verifyAssetStateTransition verifies an asset's witnesses resulting from a
@@ -639,8 +681,26 @@ func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
 	}
 
 	// A set of valid exclusion proofs for the resulting asset are included.
-	if err := p.verifyExclusionProofs(); err != nil {
+	exclusionCommitVersion, err := p.verifyExclusionProofs()
+	if err != nil {
 		return nil, fmt.Errorf("invalid exclusion proof: %w", err)
+	}
+
+	// If all exclusion proofs were Tapscript proofs, then no version
+	// checking is needed.
+	if exclusionCommitVersion == nil {
+		return tapCommitment, nil
+	}
+
+	// The inclusion proof must have a similar version to all exclusion
+	// proofs.
+	if !commitment.IsSimilarTapCommitmentVersion(
+		&tapCommitment.Version, exclusionCommitVersion,
+	) {
+
+		return nil, fmt.Errorf("mixed commitment versions, inclusion "+
+			"%d, exclusion %d", tapCommitment.Version,
+			*exclusionCommitVersion)
 	}
 
 	return tapCommitment, nil

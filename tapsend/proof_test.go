@@ -232,7 +232,7 @@ func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 			assets[idx].PrevWitnesses[0].SplitCommitment = nil
 		}
 
-		c, err := commitment.FromAssets(assets...)
+		c, err := commitment.FromAssets(nil, assets...)
 		require.NoError(t, err)
 
 		internalKey := keyByOutput[idx]

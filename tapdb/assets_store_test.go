@@ -581,7 +581,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
 		require.NoError(t, err)
 		tapCommitment, err := commitment.NewTapCommitment(
-			assetCommitment,
+			nil, assetCommitment,
 		)
 		require.NoError(t, err)
 

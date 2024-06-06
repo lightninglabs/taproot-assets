@@ -8,6 +8,27 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+func TapCommitmentVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*TapCommitmentVersion); ok {
+		return tlv.EUint8T(w, uint8(*t), buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "Version")
+}
+
+func TapCommitmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*TapCommitmentVersion); ok {
+		var t uint8
+		if err := tlv.DUint8(r, &t, buf, l); err != nil {
+			return err
+		}
+		*typ = TapCommitmentVersion(t)
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "Version", l, 1)
+}
+
 func AssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**AssetProof); ok {
 		records := []tlv.Record{

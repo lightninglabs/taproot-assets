@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -29,6 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -253,7 +255,7 @@ func updateScenarioCommitments(t *testing.T, state *spendData) {
 	// TapCommitments for each asset.
 	asset1AssetTree, err := commitment.NewAssetCommitment(&state.asset1)
 	require.NoError(t, err)
-	asset1TapTree, err := commitment.NewTapCommitment(asset1AssetTree)
+	asset1TapTree, err := commitment.NewTapCommitment(nil, asset1AssetTree)
 	require.NoError(t, err)
 	state.asset1TapTree = *asset1TapTree
 
@@ -262,14 +264,14 @@ func updateScenarioCommitments(t *testing.T, state *spendData) {
 	)
 	require.NoError(t, err)
 	asset1CollectGroupTapTree, err := commitment.NewTapCommitment(
-		asset1CollectGroupAssetTree,
+		nil, asset1CollectGroupAssetTree,
 	)
 	require.NoError(t, err)
 	state.asset1CollectGroupTapTree = *asset1CollectGroupTapTree
 
 	asset2AssetTree, err := commitment.NewAssetCommitment(&state.asset2)
 	require.NoError(t, err)
-	asset2TapTree, err := commitment.NewTapCommitment(asset2AssetTree)
+	asset2TapTree, err := commitment.NewTapCommitment(nil, asset2AssetTree)
 	require.NoError(t, err)
 	state.asset2TapTree = *asset2TapTree
 	require.NoError(t, err)
@@ -683,35 +685,42 @@ func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
 	// The sender proof should prove inclusion of the split commitment root
 	// if there was an asset split, and exclusion of the input asset
 	// otherwise.
-	var senderProofKey *btcec.PublicKey
+	var senderProofKeys proof.ProofCommitmentKeys
 	if isSplit {
-		senderProofKey, _, err = senderProof.DeriveByAssetInclusion(
-			senderAsset,
+		senderProofKeys, err = senderProof.DeriveByAssetInclusion(
+			senderAsset, nil,
 		)
 		require.NoError(t, err)
 	} else {
-		senderProofKey, err = senderProof.DeriveByAssetExclusion(
+		senderProofKeys, err = senderProof.DeriveByAssetExclusion(
 			senderAsset.AssetCommitmentKey(),
 			senderAsset.TapCommitmentKey(),
 		)
 		require.NoError(t, err)
 	}
 
-	receiverProofKey, _, err := receiverProof.DeriveByAssetInclusion(
-		receiverAsset,
+	recvProofKeys, err := receiverProof.DeriveByAssetInclusion(
+		receiverAsset, nil,
 	)
 	require.NoError(t, err)
 
 	unsignedTxOut := spendingPsbt.UnsignedTx.TxOut
 	senderPsbtKey := unsignedTxOut[senderIndex].PkScript[2:]
-	receiverPsbtKey := unsignedTxOut[receiverIndex].PkScript[2:]
+	recvPsbtKey := unsignedTxOut[receiverIndex].PkScript[2:]
 
-	require.Equal(
-		t, schnorr.SerializePubKey(receiverProofKey), receiverPsbtKey,
+	isMatchFoundRecv := fn.Any(
+		maps.Keys(recvProofKeys), func(t asset.SerializedKey) bool {
+			return bytes.Equal(t.SchnorrSerialized(), recvPsbtKey)
+		},
 	)
-	require.Equal(
-		t, schnorr.SerializePubKey(senderProofKey), senderPsbtKey,
+	require.True(t, isMatchFoundRecv)
+
+	isMatchFoundSender := fn.Any(
+		maps.Keys(senderProofKeys), func(t asset.SerializedKey) bool {
+			return bytes.Equal(t.SchnorrSerialized(), senderPsbtKey)
+		},
 	)
+	require.True(t, isMatchFoundSender)
 }
 
 // TestPrepareOutputAssets tests the creating of split commitment data with
@@ -1518,9 +1527,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 	require.NoError(t, err)
 
-	err = tapsend.UpdateTaprootOutputKeys(
-		btcPkt, pkt, outputCommitments,
-	)
+	err = tapsend.UpdateTaprootOutputKeys(btcPkt, pkt, outputCommitments)
 	require.NoError(t, err)
 
 	return btcPkt, pkt, outputCommitments
@@ -1994,7 +2001,7 @@ func TestPayToAddrScript(t *testing.T) {
 		t, inputAsset1, sendAmt, recipientScriptKey,
 	)
 	inputAsset1TapTree, err := commitment.NewTapCommitment(
-		inputAsset1AssetTree,
+		nil, inputAsset1AssetTree,
 	)
 	require.NoError(t, err)
 
@@ -2376,8 +2383,24 @@ func TestValidateAnchorOutputs(t *testing.T) {
 		}
 		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
 	)
-	asset1Commitment, err := commitment.FromAssets(asset1)
+	asset1Commitment, err := commitment.FromAssets(nil, asset1)
 	require.NoError(t, err)
+
+	vOutCommitmentProof := proof.CommitmentProof{
+		Proof: commitment.Proof{
+			TaprootAssetProof: commitment.
+				TaprootAssetProof{
+				Version: asset1Commitment.Version,
+			},
+		},
+	}
+	vOutProofSuffix := proof.Proof{
+		InclusionProof: proof.TaprootProof{
+			CommitmentProof: &vOutCommitmentProof,
+		},
+	}
+	vOutSibling.ProofSuffix = &vOutProofSuffix
+	vOutNoSibling.ProofSuffix = &vOutProofSuffix
 
 	scriptSibling, rootSibling, _, err := tapsend.AnchorOutputScript(
 		key1, sibling, asset1Commitment,
@@ -2634,7 +2657,7 @@ func TestValidateAnchorInputs(t *testing.T) {
 			},
 		}
 	)
-	asset1Commitment, err := commitment.FromAssets(asset1)
+	asset1Commitment, err := commitment.FromAssets(nil, asset1)
 	require.NoError(t, err)
 
 	scriptSibling, rootSibling, _, err := tapsend.AnchorOutputScript(

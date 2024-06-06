@@ -103,7 +103,9 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 			Proof: mssmt.ParseProof(
 				t, tp.TaprootAssetProof.Proof,
 			),
-			Version: asset.Version(tp.TaprootAssetProof.Version),
+			Version: TapCommitmentVersion(
+				tp.TaprootAssetProof.Version,
+			),
 		},
 	}
 	if tp.AssetProof != nil {

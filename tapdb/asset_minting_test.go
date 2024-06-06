@@ -609,7 +609,7 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		assetRoots = append(assetRoots, assetRoot)
 	}
 
-	tapCommitment, err := commitment.NewTapCommitment(assetRoots...)
+	tapCommitment, err := commitment.NewTapCommitment(nil, assetRoots...)
 	require.NoError(t, err)
 
 	return tapCommitment
