@@ -337,7 +337,9 @@ func (p *pendingAssetFunding) assetOutputs() []*cmsg.AssetOutput {
 
 // addToFundingCommitment adds a new asset to the funding commitment.
 func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
-	newCommitment, err := commitment.FromAssets(nil, a)
+	newCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), a,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
 	}
@@ -644,6 +646,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 			ScriptKey:         fundingScriptKey,
 		}},
 		ChainParams: &f.cfg.ChainParams,
+		Version:     tappsbt.V1,
 	}
 	fundDesc, err := tapsend.DescribeRecipients(
 		ctx, pktTemplate, f.cfg.GroupKeyIndex,
@@ -812,6 +815,11 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 
 	allPackets := append([]*tappsbt.VPacket{}, activePkt)
 	allPackets = append(allPackets, passivePkts...)
+
+	err = tapsend.ValidateVPacketVersions(allPackets)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("signed packets: %w", err)
+	}
 
 	return allPackets, []*tappsbt.VPacket{activePkt}, passivePkts, nil
 }
@@ -1211,8 +1219,20 @@ func (f *FundingController) chanFunder() {
 			// we'll only learn from lnd later as we finalize the
 			// funding PSBT).
 			fundingOutput := fundingVpkt.VPacket.Outputs[0]
+			fundingCommitVersion, err := tappsbt.CommitmentVersion(
+				fundingVpkt.VPacket.Version,
+			)
+			if err != nil {
+				fErr := fmt.Errorf("unable to create "+
+					"commitment: %w", err)
+				log.Error(fErr)
+				fundReq.errChan <- fErr
+				continue
+			}
+
 			fundingCommitment, err := commitment.FromAssets(
-				nil, fundingOutput.Asset.Copy(),
+				fundingCommitVersion,
+				fundingOutput.Asset.Copy(),
 			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to create "+
@@ -1487,8 +1507,17 @@ func (f *FundingController) chanFunder() {
 			}
 
 			fundingCommitment := fundingFlow.fundingAssetCommitment
+			if fundingCommitment == nil {
+				fErr := fmt.Errorf("missing funding commitment")
+				f.cfg.ErrReporter.ReportError(
+					ctxc, fundingFlow.peerPub, pid,
+					fErr,
+				)
+				continue
+			}
+
 			trimmedCommitment, err := commitment.TrimSplitWitnesses(
-				nil, fundingCommitment,
+				&fundingCommitment.Version, fundingCommitment,
 			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to anchor output "+

@@ -28,7 +28,9 @@ var (
 )
 
 func makeProof(t *testing.T, a *asset.Asset) *proof.Proof {
-	tapCommitment, err := commitment.FromAssets(nil, a)
+	tapCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), a,
+	)
 	require.NoError(t, err)
 
 	_, commitmentProof, err := tapCommitment.Proof(
