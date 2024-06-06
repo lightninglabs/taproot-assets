@@ -124,8 +124,23 @@ type Manager struct {
 	// requested and that have been accepted by peer nodes. These quotes are
 	// exclusively used by our node for the sale of assets, as they
 	// represent agreed-upon terms for sale transactions with our peers.
-	peerAcceptedSellQuotes lnutils.SyncMap[SerialisedScid,
-		rfqmsg.SellAccept]
+	peerAcceptedSellQuotes lnutils.SyncMap[
+		SerialisedScid, rfqmsg.SellAccept,
+	]
+
+	// localAcceptedBuyQuotes holds buy quotes for assets that our node has
+	// accepted and that have been requested by peer nodes. These quotes are
+	// exclusively used by our node for the acquisition of assets, as they
+	// represent agreed-upon terms for purchase transactions with our peers.
+	localAcceptedBuyQuotes lnutils.SyncMap[SerialisedScid, rfqmsg.BuyAccept]
+
+	// localAcceptedSellQuotes holds sell quotes for assets that our node
+	// has accepted and that have been requested by peer nodes. These quotes
+	// are exclusively used by our node for the sale of assets, as they
+	// represent agreed-upon terms for sale transactions with our peers.
+	localAcceptedSellQuotes lnutils.SyncMap[
+		SerialisedScid, rfqmsg.SellAccept,
+	]
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -427,6 +442,10 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// sale policy.
 		m.orderHandler.RegisterAssetSalePolicy(*msg)
 
+		// We want to store that we accepted the buy quote, in case we
+		// need to look it up for a direct peer payment.
+		m.localAcceptedBuyQuotes.Store(msg.ShortChannelId(), *msg)
+
 		// Since our peer is going to buy assets from us, we need to
 		// make sure we can identify the forwarded asset payment by the
 		// outgoing SCID alias within the onion packet.
@@ -444,6 +463,10 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// handler that we are willing to buy the asset subject to a
 		// purchase policy.
 		m.orderHandler.RegisterAssetPurchasePolicy(*msg)
+
+		// We want to store that we accepted the sell quote, in case we
+		// need to look it up for a direct peer payment.
+		m.localAcceptedSellQuotes.Store(msg.ShortChannelId(), *msg)
 	}
 
 	// Send the outgoing message to the peer.
@@ -713,7 +736,8 @@ func (m *Manager) PeerAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 // PeerAcceptedSellQuotes returns sell quotes that were requested by our node
 // and have been accepted by our peers. These quotes are exclusively available
 // to our node for the sale of assets.
-// nolint: lll
+//
+//nolint:lll
 func (m *Manager) PeerAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
@@ -721,7 +745,53 @@ func (m *Manager) PeerAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept 
 	m.peerAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
 			if time.Now().Unix() > int64(accept.Expiry) {
-				m.peerAcceptedBuyQuotes.Delete(scid)
+				m.peerAcceptedSellQuotes.Delete(scid)
+				return nil
+			}
+
+			sellQuotesCopy[scid] = accept
+			return nil
+		},
+	)
+
+	return sellQuotesCopy
+}
+
+// LocalAcceptedBuyQuotes returns buy quotes that were accepted by our node and
+// have been requested by our peers. These quotes are exclusively available to
+// our node for the acquisition of assets.
+func (m *Manager) LocalAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+	// Returning the map directly is not thread safe. We will therefore
+	// create a copy.
+	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
+	m.localAcceptedBuyQuotes.ForEach(
+		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
+			if time.Now().Unix() > int64(accept.Expiry) {
+				m.localAcceptedBuyQuotes.Delete(scid)
+				return nil
+			}
+
+			buyQuotesCopy[scid] = accept
+			return nil
+		},
+	)
+
+	return buyQuotesCopy
+}
+
+// LocalAcceptedSellQuotes returns sell quotes that were accepted by our node
+// and have been requested by our peers. These quotes are exclusively available
+// to our node for the sale of assets.
+//
+//nolint:lll
+func (m *Manager) LocalAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept {
+	// Returning the map directly is not thread safe. We will therefore
+	// create a copy.
+	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
+	m.localAcceptedSellQuotes.ForEach(
+		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
+			if time.Now().Unix() > int64(accept.Expiry) {
+				m.localAcceptedSellQuotes.Delete(scid)
 				return nil
 			}
 

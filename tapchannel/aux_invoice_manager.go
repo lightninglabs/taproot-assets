@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -143,16 +144,12 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	}
 
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
-	acceptedQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
-	quote, ok := acceptedQuotes[rfqID.Scid()]
-	if !ok {
-		return nil, fmt.Errorf("no accepted quote found for RFQ SCID "+
-			"%d", rfqID.Scid())
+	mSatPerAssetUnit, err := s.priceFromQuote(rfqID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get price from quote with "+
+			"ID %x / SCID %d: %w", rfqID[:], rfqID.Scid(), err)
 	}
 
-	log.Debugf("Found quote for SCID %d: %#v", rfqID.Scid(), quote)
-
-	mSatPerAssetUnit := quote.AskPrice
 	htlcAssetAmount := lnwire.MilliSatoshi(htlc.Amounts.Val.Sum())
 	resp.AmtPaid = htlcAssetAmount * mSatPerAssetUnit
 
@@ -191,6 +188,43 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	}
 
 	return resp, nil
+}
+
+// priceFromQuote retrieves the price from the accepted quote for the given RFQ
+// ID. We allow the quote to either be a buy or a sell quote, since we don't
+// know if this is a direct peer payment or a payment that is routed through the
+// multiple hops. If it's a direct peer payment, then the quote will be a sell
+// quote, since that's what the peer created to find out how many units to send
+// for an invoice denominated in BTC.
+func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
+	lnwire.MilliSatoshi, error) {
+
+	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
+
+	log.Tracef("Currently available quotes: buy %v, sell %v",
+		spew.Sdump(acceptedBuyQuotes), spew.Sdump(acceptedSellQuotes))
+
+	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
+	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
+
+	switch {
+	case isBuy:
+		log.Debugf("Found buy quote for ID %x / SCID %d: %#v",
+			rfqID[:], rfqID.Scid(), buyQuote)
+
+		return buyQuote.AskPrice, nil
+
+	case isSell:
+		log.Debugf("Found sell quote for ID %x / SCID %d: %#v",
+			rfqID[:], rfqID.Scid(), sellQuote)
+
+		return sellQuote.BidPrice, nil
+
+	default:
+		return 0, fmt.Errorf("no accepted quote found for RFQ SCID "+
+			"%d", rfqID.Scid())
+	}
 }
 
 // Stop signals for an aux invoice manager to gracefully exit.
