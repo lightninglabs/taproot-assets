@@ -538,6 +538,11 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 	assetDescs []assetDesc) {
 
 	ctx := context.Background()
+
+	anchorPointsToAssetCommitments := make(
+		map[wire.OutPoint][]*commitment.AssetCommitment,
+	)
+	newAssets := []*asset.Asset{}
 	for _, desc := range assetDescs {
 		desc := desc
 
@@ -576,19 +581,44 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			))
 		}
 		newAsset := randAsset(t, opts...)
+		newAssets = append(newAssets, newAsset)
 
-		// TODO(roasbeef): should actually group them all together?
+		// Group assets by anchor point before building tap commitments.
 		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
 		require.NoError(t, err)
+
+		_, ok := anchorPointsToAssetCommitments[desc.anchorPoint]
+		if !ok {
+			anchorPointsToAssetCommitments[desc.anchorPoint] =
+				[]*commitment.AssetCommitment{}
+		}
+
+		anchorPointsToAssetCommitments[desc.anchorPoint] = append(
+			anchorPointsToAssetCommitments[desc.anchorPoint],
+			assetCommitment,
+		)
+	}
+
+	anchorPointsToTapCommitments := make(
+		map[wire.OutPoint]*commitment.TapCommitment,
+	)
+
+	for anchorPoint, commitments := range anchorPointsToAssetCommitments {
 		tapCommitment, err := commitment.NewTapCommitment(
-			nil, assetCommitment,
+			nil, commitments...,
 		)
 		require.NoError(t, err)
 
+		anchorPointsToTapCommitments[anchorPoint] = tapCommitment
+	}
+
+	for i, newAsset := range newAssets {
+		desc := assetDescs[i]
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
 		height := a.anchorPointsToHeights[desc.anchorPoint]
+		tapCommitment := anchorPointsToTapCommitments[desc.anchorPoint]
 
-		err = assetStore.importAssetFromProof(
+		err := assetStore.importAssetFromProof(
 			ctx, assetStore.db, &proof.AnnotatedProof{
 				AssetSnapshot: &proof.AssetSnapshot{
 					AnchorTx:          anchorPoint,

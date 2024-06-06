@@ -174,6 +174,10 @@ type Anchor struct {
 	// anchor output.
 	TaprootAssetRoot []byte
 
+	// CommitmentVersion is the version of the Taproot Asset commitment
+	// anchored in this output.
+	CommitmentVersion *uint8
+
 	// MerkleRoot is the root of the tap script merkle tree that also
 	// contains the Taproot Asset commitment of the anchor output. If there
 	// is no tapscript sibling, then this is equal to the TaprootAssetRoot.

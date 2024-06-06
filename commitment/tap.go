@@ -156,6 +156,14 @@ func NewTapCommitment(version *TapCommitmentVersion,
 			Version:          TapCommitmentVersion(maxVersion),
 		}, nil
 
+	case *version == TapCommitmentV0 || *version == TapCommitmentV1:
+		return &TapCommitment{
+			TreeRoot:         root,
+			assetCommitments: assetCommitments,
+			tree:             tree,
+			Version:          *version,
+		}, nil
+
 	case *version == TapCommitmentV2:
 		return &TapCommitment{
 			TreeRoot:         root,
@@ -164,7 +172,6 @@ func NewTapCommitment(version *TapCommitmentVersion,
 			Version:          TapCommitmentV2,
 		}, nil
 
-	// Specifying V0 or V1, or an unknown version is disallowed.
 	default:
 		return nil, fmt.Errorf("%w: %v", ErrInvalidTapCommitmentVersion,
 			*version)
