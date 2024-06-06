@@ -2389,16 +2389,27 @@ func TestValidateAnchorOutputs(t *testing.T) {
 		key1        = test.RandPubKey(t)
 		key2        = test.RandPubKey(t)
 		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		emptyProof  = &proof.CommitmentProof{}
 		vOutSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:            0,
 			AnchorOutputInternalKey:      key1,
 			Asset:                        asset1,
 			AnchorOutputTapscriptSibling: sibling,
+			ProofSuffix: &proof.Proof{
+				InclusionProof: proof.TaprootProof{
+					CommitmentProof: emptyProof,
+				},
+			},
 		}
 		vOutNoSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:       0,
 			AnchorOutputInternalKey: key1,
 			Asset:                   asset1,
+			ProofSuffix: &proof.Proof{
+				InclusionProof: proof.TaprootProof{
+					CommitmentProof: emptyProof,
+				},
+			},
 		}
 		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
 	)

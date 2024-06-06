@@ -1514,8 +1514,16 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 		outputSiblings   = make(
 			map[uint32]*commitment.TapscriptPreimage,
 		)
+		outputCommitVersions = make(
+			map[uint32]*commitment.TapCommitmentVersion,
+		)
 	)
 	for _, vPkt := range packets {
+		pktCommitVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
+		if err != nil {
+			return err
+		}
+
 		for idx := range vPkt.Outputs {
 			vOut := vPkt.Outputs[idx]
 
@@ -1604,13 +1612,74 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 				vOut.Asset,
 			)
 			outputSiblings[vOut.AnchorOutputIndex] = siblingPreimage
+
+			// Fetch the tap commitment version from the proof of
+			// inclusion for the vOutput.
+			commitVersion, err := vOut.TapCommitmentVersion()
+			if err != nil {
+				return fmt.Errorf("vOut %d: %w", idx, err)
+			}
+
+			storedCommitVersion, ok :=
+				outputCommitVersions[vOut.AnchorOutputIndex]
+
+			if !ok {
+				// The vOutput commitment version must be
+				// similar to the vPacket version.
+				if !commitment.IsSimilarTapCommitmentVersion(
+					pktCommitVersion, commitVersion,
+				) {
+
+					log.Tracef("vOut %d commit version "+
+						"%v, vPacket version %v", idx,
+						commitVersion, pktCommitVersion)
+
+					return fmt.Errorf("vOut commit " +
+						"version and vPacket version " +
+						"mismatch")
+				}
+
+				outputCommitVersions[vOut.AnchorOutputIndex] =
+					commitVersion
+				continue
+			}
+
+			// Commitment versions must be similar for all vOutputs
+			// in the same anchor output.
+			if !commitment.IsSimilarTapCommitmentVersion(
+				storedCommitVersion, commitVersion,
+			) {
+
+				log.Tracef("vOut %d commit version %v, prior "+
+					"vOut commit version %v", idx,
+					commitVersion, pktCommitVersion)
+
+				return fmt.Errorf("mixed vOut commit versions")
+			}
+		}
+	}
+
+	// All output commitments must also have similar versions at this point.
+	firstCommitVersion := outputCommitVersions[0]
+	for idx, commitVersion := range outputCommitVersions {
+		if !commitment.IsSimilarTapCommitmentVersion(
+			firstCommitVersion, commitVersion,
+		) {
+
+			log.Tracef("output %d commit version %v, first output "+
+				"commit version %v", idx, commitVersion,
+				firstCommitVersion)
+
+			return fmt.Errorf("mixed anchor commitment versions")
 		}
 	}
 
 	// We can now go through each anchor output that will carry assets and
 	// check that we arrive at the correct script.
 	for anchorIdx, assets := range outputAssets {
-		anchorCommitment, err := commitment.FromAssets(nil, assets...)
+		anchorCommitment, err := commitment.FromAssets(
+			outputCommitVersions[anchorIdx], assets...,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
@@ -1809,7 +1878,9 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 	// We can now go through each anchor input that contains assets being
 	// spent and check that we arrive at the correct script.
 	for anchorOutpoint, assets := range inputAssets {
-		anchorCommitment, err := commitment.FromAssets(nil, assets...)
+		anchorCommitment, err := commitment.FromAssets(
+			fn.Ptr(commitment.TapCommitmentV2), assets...,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
