@@ -540,6 +540,8 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		vOut.Asset = firstInput.Asset().Copy()
 		vOut.Asset.Amount = inputsAmountSum
 		vOut.Asset.ScriptKey = vOut.ScriptKey
+		vOut.Asset.LockTime = vOut.LockTime
+		vOut.Asset.RelativeLockTime = vOut.RelativeLockTime
 
 		// We also need to clear the split commitment root to avoid
 		// state from previous splits being carried over.
@@ -609,6 +611,10 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		// it's a zero value (tombstone) split output for the sender.
 		if vOut.Type.IsSplitRoot() {
 			vOut.Asset = splitCommitment.RootAsset.Copy()
+			vOut.Asset.LockTime = vOut.LockTime
+			vOut.Asset.RelativeLockTime = vOut.RelativeLockTime
+			vOut.Asset.ScriptKey = vOut.ScriptKey
+
 			vOut.SplitAsset = &splitAsset.Asset
 			vOut.SplitAsset.ScriptKey = vOut.ScriptKey
 			continue
@@ -616,6 +622,8 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 
 		vOut.Asset = &splitAsset.Asset
 		vOut.Asset.ScriptKey = vOut.ScriptKey
+		vOut.Asset.LockTime = vOut.LockTime
+		vOut.Asset.RelativeLockTime = vOut.RelativeLockTime
 	}
 
 	return nil

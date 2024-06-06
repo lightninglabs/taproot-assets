@@ -301,6 +301,11 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	}
 	splitNoWitness := splitAsset.Copy()
 	splitNoWitness.PrevWitnesses[0].SplitCommitment = nil
+
+	// Lock times should not invalidate the split commitment proof.
+	splitNoWitness.LockTime = vm.newAsset.LockTime
+	splitNoWitness.RelativeLockTime = vm.newAsset.RelativeLockTime
+
 	splitLeaf, err := splitNoWitness.Leaf()
 	if err != nil {
 		return err
