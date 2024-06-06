@@ -166,6 +166,10 @@ var testCases = []*testCase{
 		test: testPsbtNormalInteractiveFullValueSend,
 	},
 	{
+		name: "psbt multi version send",
+		test: testPsbtMultiVersionSend,
+	},
+	{
 		name: "psbt grouped interactive full value send",
 		test: testPsbtGroupedInteractiveFullValueSend,
 	},

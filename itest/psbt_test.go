@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -324,6 +325,214 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset,
 		rpcAssets[1],
 	)
+}
+
+// testPsbtMultiVersionSend tests that funding a V1 vPkt succeeds, but funding
+// a V0 vPkt fails.
+func testPsbtMultiVersionSend(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// First, we'll mint two assets.
+	firstRpcAsset := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+		},
+	)
+
+	secondRpcAsset := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[1],
+		},
+	)
+
+	firstAsset := firstRpcAsset[0]
+	secondAsset := secondRpcAsset[0]
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	sender := t.tapd
+	receiver := secondTapd
+	chainParams := &address.RegressionNetTap
+
+	// Derive script and internal keys for the receiver.
+	receiverScriptKey1, receiverAnchorIntKeyDesc1 := DeriveKeys(
+		t.t, receiver,
+	)
+
+	receiverScriptKey2, receiverAnchorIntKeyDesc2 := DeriveKeys(
+		t.t, receiver,
+	)
+
+	// Construct a vPkt to receive each asset; the second vPkt will be V0.
+	vPkt1 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](firstAsset.AssetGenesis.AssetId),
+		firstAsset.Amount, receiverScriptKey1, 0, 0, 0,
+		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
+	)
+	vPkt1.Version = tappsbt.V1
+
+	vPkt2 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](secondAsset.AssetGenesis.AssetId),
+		secondAsset.Amount, receiverScriptKey2, 0, 0, 0,
+		receiverAnchorIntKeyDesc2, asset.V0, chainParams,
+	)
+	vPkt2.Version = tappsbt.V0
+
+	// Funding for the V1 packet should succeed.
+	fundPkt1Resp := fundPacket(t, sender, vPkt1)
+	_, err := tappsbt.Decode(fundPkt1Resp.FundedPsbt)
+	require.NoError(t.t, err)
+
+	// Funding for the V0 packet should fail, as it was minted into an
+	// incompatible commitment version.
+	_, err = maybeFundPacket(t, sender, vPkt2)
+	require.ErrorContains(
+		t.t, err, tapfreighter.ErrMatchingAssetsNotFound.Error(),
+	)
+
+	// Let's mint two assets anchored in downgraded commitments, to ensure
+	// that we can receive such assets.
+	firstManualAssetName := "honigbuxxx"
+	firstReq := mintrpc.MintAsset{
+		AssetVersion: 0,
+		AssetType:    taprpc.AssetType_NORMAL,
+		Name:         firstManualAssetName,
+		AssetMeta: &taprpc.AssetMeta{
+			Data: []byte("not metadata"),
+		},
+		Amount: 22,
+	}
+	secondManualAssetName := "honigbuxxx-collective"
+	secondReq := mintrpc.MintAsset{
+		AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V1,
+		AssetType:    taprpc.AssetType_COLLECTIBLE,
+		Name:         secondManualAssetName,
+		AssetMeta: &taprpc.AssetMeta{
+			Data: []byte("not metadata"),
+		},
+		Amount: 1,
+	}
+
+	numAssets := 1
+	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	firstAsset, _ = ManualMintSimpleAsset(
+		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV0,
+		&firstReq,
+	)
+
+	numAssets += 1
+	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	secondAsset, _ = ManualMintSimpleAsset(
+		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV1,
+		&secondReq,
+	)
+
+	numAssets += 1
+	AssertNumAssets(t.t, ctxb, sender, numAssets)
+
+	// Build new vPkts to receive the assets; the first packet will be V0,
+	// and cause a split of the first asset.
+	firstAssetSplitAmt := firstAsset.Amount / 2
+	manualPkt1 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](firstAsset.AssetGenesis.AssetId),
+		firstAssetSplitAmt, receiverScriptKey1, 0, 0, 0,
+		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
+	)
+	manualPkt1.Version = tappsbt.V0
+
+	manualPkt2 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](secondAsset.AssetGenesis.AssetId),
+		secondAsset.Amount, receiverScriptKey2, 0, 0, 0,
+		receiverAnchorIntKeyDesc2, asset.V0, chainParams,
+	)
+	manualPkt2.Version = tappsbt.V1
+
+	vPkts := []*tappsbt.VPacket{manualPkt1, manualPkt2}
+	signedPkts := [][]byte{}
+
+	// Funding and signing both packets should succeed.
+	for _, vPkt := range vPkts {
+		fundResp := fundPacket(t, sender, vPkt)
+		signResp, err := sender.SignVirtualPsbt(
+			ctxt, &wrpc.SignVirtualPsbtRequest{
+				FundedPsbt: fundResp.FundedPsbt,
+			},
+		)
+		require.NoError(t.t, err)
+		require.NotEmpty(t.t, signResp.SignedInputs)
+
+		signedPkts = append(signedPkts, signResp.SignedPsbt)
+	}
+
+	// If we try to anchor the packets together, that should fail, as they
+	// have mismatched versions.
+	_, err = sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: signedPkts,
+		},
+	)
+	require.ErrorContains(t.t, err, "mixed virtual packet versions")
+
+	// Anchoring the packets and completing the transfers separately should
+	// succeed.
+	send1Resp, err := sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedPkts[0]},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, sender, send1Resp,
+		firstAsset.AssetGenesis.AssetId,
+		[]uint64{firstAssetSplitAmt, firstAssetSplitAmt},
+		0, 1, 2,
+	)
+
+	send2Resp, err := sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedPkts[1]},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, sender, send2Resp,
+		secondAsset.AssetGenesis.AssetId, []uint64{secondAsset.Amount},
+		1, 2, 1,
+	)
+
+	// This is an interactive transfer, so we do need to manually send the
+	// proofs from the sender to the receiver.
+	_ = sendProof(
+		t, sender, receiver, send1Resp,
+		receiverScriptKey1.PubKey.SerializeCompressed(),
+		firstAsset.AssetGenesis,
+	)
+	_ = sendProof(
+		t, sender, receiver, send2Resp,
+		receiverScriptKey2.PubKey.SerializeCompressed(),
+		secondAsset.AssetGenesis,
+	)
+	AssertNumAssets(t.t, ctxb, receiver, 2)
+
+	receiverAssets, err := receiver.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	t.Logf("Receiver assets: %v", toJSON(t.t, receiverAssets))
 }
 
 // testPsbtGroupedInteractiveFullValueSend tests that we can properly send

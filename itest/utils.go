@@ -1,25 +1,35 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/lndclient"
+	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -471,6 +481,190 @@ func ConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	return AssertAssetsMinted(
 		t, tapClient, assetRequests, mintTXID, blockHash,
 	)
+}
+
+func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
+	tapClient *tapdHarness, commitVersion commitment.TapCommitmentVersion,
+	req *mintrpc.MintAsset) (*taprpc.Asset, *tapdevrpc.ImportProofRequest) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Set up the needed clients.
+	lndClient, err := t.newLndClient(lndNode)
+	require.NoError(t.t, err)
+
+	lndServices := &lndClient.LndServices
+	walletAnchor := taprootassets.NewLndRpcWalletAnchor(lndServices)
+
+	// First, create and fund a genesis TX to anchor the asset.
+	genesisDummyScript := append(
+		[]byte{txscript.OP_1, txscript.OP_DATA_32},
+		bytes.Repeat([]byte{0x00}, 32)...,
+	)
+	txTemplate := wire.NewMsgTx(2)
+	txTemplate.AddTxOut(&wire.TxOut{
+		Value:    int64(btcutil.Amount(1000)),
+		PkScript: bytes.Clone(genesisDummyScript),
+	})
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	require.NoError(t.t, err)
+
+	fundedPkt, err := walletAnchor.FundPsbt(
+		ctxt, genesisPkt, 1, chainfee.SatPerKWeight(3000), -1,
+	)
+	require.NoError(t.t, err)
+
+	genesisOutpoint := fundedPkt.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
+	anchorIdx := uint32(0)
+
+	// Next, derive the keys we need to create the asset and the final
+	// genesis output.
+	assetScriptKey, internalKey := DeriveKeys(t.t, tapClient)
+
+	// Build the asset itself.
+	assetMeta := proof.MetaReveal{
+		Type: proof.MetaOpaque,
+		Data: req.AssetMeta.Data,
+	}
+	metaHash := assetMeta.MetaHash()
+	metaReveals := tapgarden.AssetMetas{
+		asset.ToSerialized(assetScriptKey.PubKey): &assetMeta,
+	}
+
+	assetGen := asset.Genesis{
+		FirstPrevOut: genesisOutpoint,
+		Tag:          req.Name,
+		MetaHash:     metaHash,
+		OutputIndex:  anchorIdx,
+		Type:         asset.Type(req.AssetType),
+	}
+	assetVersion, err := taprpc.UnmarshalAssetVersion(req.AssetVersion)
+	require.NoError(t.t, err)
+
+	newAsset, err := asset.New(
+		assetGen, req.Amount, 0, 0, assetScriptKey, nil,
+		asset.WithAssetVersion(assetVersion),
+	)
+	require.NoError(t.t, err)
+
+	// From the asset, build the tap commitment and genesis script.
+	anchorCommitment, err := commitment.FromAssets(&commitVersion, newAsset)
+	require.NoError(t.t, err)
+
+	anchorCommitRoot := anchorCommitment.TapscriptRoot(nil)
+	mintPubkey := txscript.ComputeTaprootOutputKey(
+		internalKey.PubKey, fn.ByteSlice(anchorCommitRoot),
+	)
+	genesisScript, err := tapscript.PayToTaprootScript(mintPubkey)
+	require.NoError(t.t, err)
+
+	// Add the genesis script to the funded PSBT, and then sign at the
+	// anchor level.
+	fundedPkt.Pkt.UnsignedTx.TxOut[anchorIdx].PkScript = genesisScript
+	signedPkt, err := walletAnchor.SignAndFinalizePsbt(ctxt, fundedPkt.Pkt)
+	require.NoError(t.t, err)
+
+	signedTx, err := psbt.Extract(signedPkt)
+	require.NoError(t.t, err)
+
+	// Publish and confirm the minting TX. With the confirmation info, we
+	// can build the issuance proofs.
+	genesisTxHash := signedTx.TxHash()
+	err = lndServices.WalletKit.PublishTransaction(
+		ctxt, signedTx, "tapd-asset-minting",
+	)
+	require.NoError(t.t, err)
+
+	lndInfo, err := lndServices.Client.GetInfo(ctxt)
+	require.NoError(t.t, err)
+
+	confChan, _, err := lndServices.ChainNotifier.RegisterConfirmationsNtfn(
+		ctxt, &genesisTxHash, signedTx.TxOut[0].PkScript, 1,
+		int32(lndInfo.BlockHeight), lndclient.WithIncludeBlock(),
+	)
+	require.NoError(t.t, err)
+
+	confNtfn := chainntnfs.ConfirmationEvent{
+		Confirmed: confChan,
+		Cancel:    cancel,
+	}
+	ctxGuard := fn.ContextGuard{
+		DefaultTimeout: defaultWaitTimeout,
+		Quit:           make(chan struct{}),
+	}
+
+	confEventChan := make(chan *chainntnfs.TxConfirmation, 1)
+	ctxGuard.Wg.Add(1)
+	go func() {
+		defer confNtfn.Cancel()
+		defer ctxGuard.Wg.Done()
+
+		confRecv := false
+		for !confRecv {
+			confEvent := <-confNtfn.Confirmed
+			confEventChan <- confEvent
+			confRecv = true
+		}
+	}()
+
+	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
+	ctxGuard.Wg.Wait()
+
+	// Finally, build the issuance proofs and import them into our tap node.
+	confEvent := <-confEventChan
+	baseProof := proof.MintParams{
+		BaseProofParams: proof.BaseProofParams{
+			Block:            confEvent.Block,
+			BlockHeight:      confEvent.BlockHeight,
+			Tx:               confEvent.Tx,
+			TxIndex:          int(confEvent.TxIndex),
+			OutputIndex:      int(anchorIdx),
+			InternalKey:      internalKey.PubKey,
+			TaprootAssetRoot: anchorCommitment,
+		},
+		GenesisPoint: genesisOutpoint,
+	}
+
+	err = proof.AddExclusionProofs(
+		&baseProof.BaseProofParams, confEvent.Tx, signedPkt.Outputs,
+		func(idx uint32) bool { return idx == anchorIdx },
+	)
+	require.NoError(t.t, err)
+
+	chainBridge := tapgarden.NewMockChainBridge()
+	mintingProofs, err := proof.NewMintingBlobs(
+		&baseProof, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
+		proof.MockGroupVerifier, proof.MockGroupAnchorVerifier,
+		chainBridge, proof.WithAssetMetaReveals(metaReveals),
+	)
+	require.NoError(t.t, err)
+
+	mintProof := mintingProofs[asset.ToSerialized(assetScriptKey.PubKey)]
+	proofBlob, err := proof.EncodeAsProofFile(mintProof)
+	require.NoError(t.t, err)
+	require.True(t.t, proof.IsProofFile(proofBlob))
+
+	importReq := tapdevrpc.ImportProofRequest{
+		ProofFile:    proofBlob,
+		GenesisPoint: genesisOutpoint.String(),
+	}
+	_, err = tapClient.ImportProof(ctxb, &importReq)
+	require.NoError(t.t, err)
+
+	// After proof import, the minted assets should appear in the output of
+	// ListAssets.
+	mintReq := []*mintrpc.MintAssetRequest{{
+		Asset:         req,
+		ShortResponse: false,
+	}}
+	mintedAsset := AssertAssetsMinted(
+		t.t, tapClient, mintReq, confEvent.Tx.TxHash(),
+		confEvent.Block.BlockHash(),
+	)
+
+	return mintedAsset[0], &importReq
 }
 
 // SyncUniverses syncs the universes of two tapd instances and waits until they

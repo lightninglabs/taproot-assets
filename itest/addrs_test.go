@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -150,6 +151,95 @@ func testAddresses(t *harnessTest) {
 		require.NoError(t.t, err)
 		require.True(t.t, verifyResp.ValidProof)
 	}
+
+	// Since the assets have been spent to version 1 addresses, trying to
+	// receive them to a version 0 address should fail.
+	simpleAsset := rpcAssets[0]
+	legacyAddr, err := t.tapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:        simpleAsset.AssetGenesis.AssetId,
+		Amt:            simpleAsset.Amount / 2,
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V0,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, t.tapd, simpleAsset, legacyAddr)
+
+	_, err = secondTapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		TapAddrs: []string{legacyAddr.Encoded},
+	})
+	require.ErrorContains(
+		t.t, err, tapfreighter.ErrMatchingAssetsNotFound.Error(),
+	)
+
+	// Mint an asset into a downgraded anchor commitment.
+	manualAssetName := "honigbuxxx"
+	req := mintrpc.MintAsset{
+		AssetVersion: 0,
+		AssetType:    taprpc.AssetType_NORMAL,
+		Name:         manualAssetName,
+		AssetMeta: &taprpc.AssetMeta{
+			Data: []byte("not metadata"),
+		},
+		Amount: 22,
+	}
+	manualAsset, mintProof := ManualMintSimpleAsset(
+		t, t.lndHarness.Alice, t.tapd, commitment.TapCommitmentV0, &req,
+	)
+
+	numAssets := 2
+	AssertNumAssets(t.t, ctxb, t.tapd, numAssets+1)
+	respJSON, err := formatProtoJSON(manualAsset)
+	require.NoError(t.t, err)
+
+	t.Logf("manually minted asset: %s", respJSON)
+
+	// Import the issuance proof to the second node so we can try to receive
+	// it.
+	_, err = secondTapd.ImportProof(ctxb, mintProof)
+	require.NoError(t.t, err)
+
+	// Trying to receive the new asset to a version 0 address should
+	// succeed.
+	manualAssetID := manualAsset.AssetGenesis.AssetId
+	oldAddrAmt := manualAsset.Amount / 2
+	oldAddr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:        manualAssetID,
+		Amt:            oldAddrAmt,
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V0,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, secondTapd, manualAsset, oldAddr)
+
+	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		TapAddrs: []string{oldAddr.Encoded},
+	})
+	require.NoError(t.t, err)
+
+	// Confirm the transfer.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+	AssertAddrEvent(t.t, secondTapd, oldAddr, 1, statusConfirmed)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 3)
+
+	// Trying to receive the new asset to a version 1 address should also
+	// succeed.
+	newAddr, err := secondTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:        manualAsset.AssetGenesis.AssetId,
+		Amt:            manualAsset.Amount / 2,
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V1,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, secondTapd, manualAsset, newAddr)
+
+	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		TapAddrs: []string{newAddr.Encoded},
+	})
+	require.NoError(t.t, err)
+
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+	AssertAddrEvent(t.t, secondTapd, newAddr, 1, statusConfirmed)
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 4)
 }
 
 // testMultiAddress tests that we can send assets to multiple addresses at the
@@ -185,6 +275,33 @@ func testMultiAddress(t *harnessTest) {
 	runMultiSendTest(
 		ctxt, t, alice, bob, groupGenInfo, mintedGroupAsset, 1, 2,
 	)
+
+	// If the second node tries to send assets to a set of addresses with
+	// mixed versions, that should fail early.
+	const sendAmt = 25
+	aliceAddr1, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:        genInfo.AssetId,
+		Amt:            sendAmt,
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V0,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr1)
+
+	aliceAddr2, err := alice.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId:        genInfo.AssetId,
+		Amt:            sendAmt,
+		AddressVersion: taprpc.AddrVersion_ADDR_VERSION_V1,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, alice, mintedAsset, aliceAddr2)
+
+	_, err = bob.SendAsset(ctxt, &taprpc.SendAssetRequest{
+		TapAddrs: []string{aliceAddr1.Encoded, aliceAddr2.Encoded},
+	})
+
+	require.ErrorContains(t.t, err, "mixed address versions")
 }
 
 // testAddressAssetSyncer tests that we can create addresses for assets that
@@ -540,6 +657,16 @@ func sendProof(t *harnessTest, src, dst *tapdHarness,
 	sendResp *taprpc.SendAssetResponse, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
 
+	proofResp := exportProof(t, src, sendResp, scriptKey, genInfo)
+	return importProof(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
+}
+
+// exportProof manually exports a proof from the given source node for a
+// specific asset of a transfer.
+func exportProof(t *harnessTest, src *tapdHarness,
+	sendResp *taprpc.SendAssetResponse, scriptKey []byte,
+	genInfo *taprpc.GenesisInfo) *taprpc.ProofFile {
+
 	ctxb := context.Background()
 
 	// We need to find the outpoint of the asset we sent to the address.
@@ -574,7 +701,7 @@ func sendProof(t *harnessTest, src, dst *tapdHarness,
 	}, defaultWaitTimeout)
 	require.NoError(t.t, waitErr)
 
-	return importProof(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
+	return proofResp
 }
 
 // importProof manually imports a proof using the development only ImportProof
@@ -834,9 +961,20 @@ func fundAddressSendPacket(t *harnessTest, tapd *tapdHarness,
 	return resp
 }
 
-// fundPacket asks the wallet to fund the given virtual packet.
+// fundPacket asks the wallet to fund the given virtual packet, and requires
+// that funding succeed.
 func fundPacket(t *harnessTest, tapd *tapdHarness,
 	vPkg *tappsbt.VPacket) *wrpc.FundVirtualPsbtResponse {
+
+	resp, err := maybeFundPacket(t, tapd, vPkg)
+	require.NoError(t.t, err)
+
+	return resp
+}
+
+// maybeFundPacket asks the wallet to fund the given virtual packet.
+func maybeFundPacket(t *harnessTest, tapd *tapdHarness,
+	vPkg *tappsbt.VPacket) (*wrpc.FundVirtualPsbtResponse, error) {
 
 	var buf bytes.Buffer
 	err := vPkg.Serialize(&buf)
@@ -846,12 +984,9 @@ func fundPacket(t *harnessTest, tapd *tapdHarness,
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	resp, err := tapd.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
+	return tapd.FundVirtualPsbt(ctxt, &wrpc.FundVirtualPsbtRequest{
 		Template: &wrpc.FundVirtualPsbtRequest_Psbt{
 			Psbt: buf.Bytes(),
 		},
 	})
-	require.NoError(t.t, err)
-
-	return resp
 }
