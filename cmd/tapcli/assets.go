@@ -43,6 +43,7 @@ var (
 	assetMetaBytesName           = "meta_bytes"
 	assetMetaFilePathName        = "meta_file_path"
 	assetMetaTypeName            = "meta_type"
+	assetDecimalDisplayName      = "decimal_display"
 	assetNewGroupedAssetName     = "new_grouped_asset"
 	assetGroupedAssetName        = "grouped_asset"
 	assetShowWitnessName         = "show_witness"
@@ -76,6 +77,16 @@ var mintAssetCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  assetSupplyName,
 			Usage: "the target supply of the minted asset",
+		},
+		cli.Uint64Flag{
+			Name: assetDecimalDisplayName,
+			Usage: "the number of decimal places, " +
+				"asset amounts, are shift to the left " +
+				"converting asset integer amounts" +
+				"into UI-recognizable fractional " +
+				"quantity (e.g. an asset with amount" +
+				"100 and decimal display of 2 is " +
+				"displayed as 1.00 in the wallet)",
 		},
 		cli.Uint64Flag{
 			Name:  assetVersionName,
@@ -293,9 +304,12 @@ func mintAsset(ctx *cli.Context) error {
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType:       assetType,
-			Name:            ctx.String(assetTagName),
-			AssetMeta:       assetMeta,
+			AssetType: assetType,
+			Name:      ctx.String(assetTagName),
+			AssetMeta: assetMeta,
+			DecimalDisplay: uint32(
+				ctx.Uint64(assetDecimalDisplayName),
+			),
 			Amount:          amount,
 			NewGroupedAsset: ctx.Bool(assetNewGroupedAssetName),
 			GroupedAsset:    ctx.Bool(assetGroupedAssetName),
