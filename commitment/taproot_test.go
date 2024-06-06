@@ -2,6 +2,7 @@ package commitment
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
 	"testing"
@@ -38,14 +39,26 @@ func TestTapscriptPreimage(t *testing.T) {
 
 	// Create a random byte slice with the same structure as a Taproot
 	// Asset commitment root, that can be used in a TapLeaf.
-	randTapCommitmentRoot := func(version asset.Version) []byte {
+
+	randTapCommitmentRoot := func(version asset.Version,
+		legacyCommitment bool) []byte {
+
 		var dummyRootSum [8]byte
 		binary.BigEndian.PutUint64(
 			dummyRootSum[:], test.RandInt[uint64](),
 		)
-		dummyRootHashParts := [][]byte{
-			{byte(version)}, TaprootAssetsMarker[:],
-			fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+		var dummyRootHashParts [][]byte
+		if legacyCommitment {
+			dummyRootHashParts = [][]byte{
+				{byte(version)}, TaprootAssetsMarker[:],
+				fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+			}
+		} else {
+			tag := sha256.Sum256(markerV2)
+			dummyRootHashParts = [][]byte{
+				tag[:], {byte(version)},
+				fn.ByteSlice(test.RandHash()), dummyRootSum[:],
+			}
 		}
 		return bytes.Join(dummyRootHashParts, nil)
 	}
@@ -115,7 +128,33 @@ func TestTapscriptPreimage(t *testing.T) {
 	}, {
 		name: "tap commitment leaf pre-image",
 		makePreimage: func(t *testing.T) *TapscriptPreimage {
-			tapCommitmentRoot := randTapCommitmentRoot(asset.V0)
+			tapCommitmentRoot := randTapCommitmentRoot(
+				asset.V0, false,
+			)
+			var encodedLeaf bytes.Buffer
+
+			_ = encodedLeaf.WriteByte(
+				byte(txscript.BaseLeafVersion),
+			)
+			_ = wire.WriteVarBytes(
+				&encodedLeaf, 0, tapCommitmentRoot,
+			)
+
+			return &TapscriptPreimage{
+				siblingType:     LeafPreimage,
+				siblingPreimage: encodedLeaf.Bytes(),
+			}
+		},
+		expectedType:    LeafPreimage,
+		expectedName:    "LeafPreimage",
+		expectedEmpty:   false,
+		expectedHashErr: ErrPreimageIsTapCommitment.Error(),
+	}, {
+		name: "tap commitment leaf pre-image legacy commitment",
+		makePreimage: func(t *testing.T) *TapscriptPreimage {
+			tapCommitmentRoot := randTapCommitmentRoot(
+				asset.V0, true,
+			)
 			var encodedLeaf bytes.Buffer
 
 			_ = encodedLeaf.WriteByte(

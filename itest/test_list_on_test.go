@@ -218,6 +218,10 @@ var allTestCases = []*testCase{
 		test: testPsbtMultiVersionSend,
 	},
 	{
+		name: "psbt markerv0 mixed versions",
+		test: testPsbtMarkerV0MixedVersions,
+	},
+	{
 		name: "psbt grouped interactive full value send",
 		test: testPsbtGroupedInteractiveFullValueSend,
 	},

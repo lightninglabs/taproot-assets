@@ -501,6 +501,9 @@ type publishAndLogTransferOptions struct {
 
 	// label is the label to use for the transfer.
 	label string
+
+	// expectedErr is the expected error when calling PublishAndLogTransfer.
+	expectedErr string
 }
 
 // defaultPublishAndLogTransferOptions returns the default options for
@@ -522,6 +525,14 @@ func withSkipAnchorTxBroadcast() PublishAndLogTransferOption {
 func withLabel(label string) PublishAndLogTransferOption {
 	return func(opts *publishAndLogTransferOptions) {
 		opts.label = label
+	}
+}
+
+// withExpectedErr is an option for PublishAndLogTransfer that sets the
+// expected error.
+func withExpectedErr(expectedErr string) PublishAndLogTransferOption {
+	return func(opts *publishAndLogTransferOptions) {
+		opts.expectedErr = expectedErr
 	}
 }
 
@@ -572,7 +583,15 @@ func PublishAndLogTransfer(t *testing.T, tapd commands.RpcClientsBundle,
 	}
 
 	resp, err := tapd.PublishAndLogTransfer(ctxt, request)
-	require.NoError(t, err)
+
+	if options.expectedErr != "" {
+		require.Error(t, err)
+		require.Contains(t, err.Error(), options.expectedErr,
+			"unexpected error: %v", err)
+		return nil
+	} else {
+		require.NoError(t, err)
+	}
 
 	return resp
 }
