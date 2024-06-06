@@ -110,6 +110,7 @@ func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 			RelativeLockTime:  relativeLockTime,
 		}},
 		ChainParams: chainParams,
+		Version:     V1,
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
 		anchorInternalKey, chainParams.HDCoinType,
@@ -157,6 +158,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 			ScriptKey:         asset.NUMSScriptKey,
 		}},
 		ChainParams: chainParams,
+		Version:     V1,
 	}
 	vPkt.SetInputAsset(0, ownedAsset)
 
@@ -170,7 +172,7 @@ func FromProofs(proofs []*proof.Proof,
 
 	pkt := &VPacket{
 		ChainParams: params,
-		Version:     0,
+		Version:     V1,
 	}
 
 	for idx := range proofs {

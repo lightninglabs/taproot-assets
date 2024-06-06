@@ -479,6 +479,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			ScriptKey:         burnKey,
 		}},
 		ChainParams: f.cfg.ChainParams,
+		Version:     tappsbt.V1,
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
 		newInternalKey, f.cfg.ChainParams.HDCoinType,
