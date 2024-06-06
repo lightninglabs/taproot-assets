@@ -364,8 +364,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		MinAmt:              fundDesc.Amount,
 		Bip86ScriptKeysOnly: true,
 	}
+
+	anchorVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	if anchorVersion == nil {
+		anchorVersion = fn.Ptr(commitment.TapCommitmentV1)
+	}
+
 	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
-		ctx, constraints, PreferMaxAmount,
+		ctx, constraints, PreferMaxAmount, *anchorVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -388,7 +398,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		MinAmt:   fundDesc.Amount,
 	}
 	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
-		ctx, constraints, PreferMaxAmount,
+		ctx, constraints, PreferMaxAmount, commitment.TapCommitmentV2,
 	)
 	if err != nil {
 		return nil, err

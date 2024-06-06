@@ -140,7 +140,9 @@ type CoinSelector interface {
 	// given constraints and strategy. The coins returned are leased for the
 	// default lease duration.
 	SelectCoins(ctx context.Context, constraints CommitmentConstraints,
-		strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment,
+		strategy MultiCommitmentSelectStrategy,
+		maxVersion commitment.TapCommitmentVersion,
+	) ([]*AnchoredCommitment,
 		error)
 
 	// ReleaseCoins releases/unlocks coins that were previously leased and
@@ -293,13 +295,14 @@ func (o *OutboundParcel) Copy() *OutboundParcel {
 	if o.PassiveAssetsAnchor != nil {
 		oldAnchor := o.PassiveAssetsAnchor
 		newParcel.PassiveAssetsAnchor = &Anchor{
-			OutPoint:         oldAnchor.OutPoint,
-			Value:            oldAnchor.Value,
-			InternalKey:      oldAnchor.InternalKey,
-			TaprootAssetRoot: oldAnchor.TaprootAssetRoot,
-			MerkleRoot:       oldAnchor.MerkleRoot,
-			TapscriptSibling: oldAnchor.TapscriptSibling,
-			NumPassiveAssets: oldAnchor.NumPassiveAssets,
+			OutPoint:          oldAnchor.OutPoint,
+			Value:             oldAnchor.Value,
+			InternalKey:       oldAnchor.InternalKey,
+			TaprootAssetRoot:  oldAnchor.TaprootAssetRoot,
+			CommitmentVersion: oldAnchor.CommitmentVersion,
+			MerkleRoot:        oldAnchor.MerkleRoot,
+			TapscriptSibling:  oldAnchor.TapscriptSibling,
+			NumPassiveAssets:  oldAnchor.NumPassiveAssets,
 		}
 	}
 

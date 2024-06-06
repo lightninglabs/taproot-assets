@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/stretchr/testify/require"
 )
@@ -72,6 +73,7 @@ func TestCoinSelector(t *testing.T) {
 	// on the input.
 	_, err := coinSelect.SelectCoins(
 		ctxb, CommitmentConstraints{MinAmt: 1}, PreferMaxAmount,
+		commitment.TapCommitmentV1,
 	)
 	require.ErrorIs(t, err, ErrMatchingAssetsNotFound)
 
@@ -91,10 +93,26 @@ func TestCoinSelector(t *testing.T) {
 			Asset: &asset.Asset{
 				Amount: 1000,
 			},
+			Commitment: &commitment.TapCommitment{
+				Version: commitment.TapCommitmentV1,
+			},
 		},
 	}
+
+	// Coin selection should fail if there are no compatible commitments.
+	_, err = coinSelect.SelectCoins(
+		ctxb, CommitmentConstraints{MinAmt: 1}, PreferMaxAmount,
+		commitment.TapCommitmentV0,
+	)
+	require.ErrorIs(t, err, ErrMatchingAssetsNotFound)
+	_, err = fn.RecvOrTimeout(coinLister.deleteSignals, timeout)
+	require.NoError(t, err)
+	_, err = fn.RecvOrTimeout(coinLister.listSignals, timeout)
+	require.NoError(t, err)
+
 	selected, err := coinSelect.SelectCoins(
 		ctxb, CommitmentConstraints{MinAmt: 1}, PreferMaxAmount,
+		commitment.TapCommitmentV1,
 	)
 	require.NoError(t, err)
 	require.Len(t, selected, 1)
