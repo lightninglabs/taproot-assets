@@ -26,6 +26,10 @@ var testCases = []*testCase{
 		test: testMintFundSealAssets,
 	},
 	{
+		name: "mint asset decimal display",
+		test: testMintAssetWithDecimalDisplayMetaField,
+	},
+	{
 		name: "addresses",
 		test: testAddresses,
 	},
