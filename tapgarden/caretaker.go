@@ -536,7 +536,9 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	// Now that we have all our assets created, we'll make a new
 	// Taproot asset commitment, which commits to all the assets we
 	// created above in a new root.
-	return commitment.FromAssets(nil, newAssets...)
+	return commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), newAssets...,
+	)
 }
 
 // stateStep attempts to transition the state machine from one state to

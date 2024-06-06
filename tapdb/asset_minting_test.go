@@ -408,7 +408,9 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// internal key and a set of seedlings. One random seedling will
 	// be a reissuance into a specific group.
 	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
-	addRandGroupToBatch(t, assetStore, ctx, mintingBatch.Seedlings)
+	_, randGroup, _ := addRandGroupToBatch(
+		t, assetStore, ctx, mintingBatch.Seedlings,
+	)
 	_, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
 	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err)
@@ -434,7 +436,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	seedlings := tapgarden.RandSeedlings(t, numSeedlings)
 
 	// Pick a random seedling and give it a specific group.
-	addRandGroupToBatch(t, assetStore, ctx, seedlings)
+	_, secondGroup, _ := addRandGroupToBatch(t, assetStore, ctx, seedlings)
 	mintingBatch.Seedlings = mergeMap(mintingBatch.Seedlings, seedlings)
 	require.NoError(t, assetStore.AddSeedlingsToBatch(
 		ctx, batchKey, maps.Values(seedlings)...,
@@ -464,6 +466,31 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
 	assertSeedlingBatchLen(t, mintingBatches, 0, 0)
 
+	// Insert the batch seedlings as assets before fetching the finalized
+	// batch. This test won't check if these were stored correctly, but
+	// batches cannot be finalized without any sprouted assets.
+	genesisPacket := mintingBatch.GenesisPacket
+	randGroup = mergeMap(randGroup, secondGroup)
+	assetRoot := seedlingsToAssetRoot(
+		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
+		mintingBatch.Seedlings, randGroup,
+	)
+	genesisScript, err := tapscript.PayToAddrScript(
+		*batchKey, &randSiblingHash, *assetRoot,
+	)
+	require.NoError(t, err)
+
+	genesisPacket.Pkt.UnsignedTx.TxOut[0].PkScript = genesisScript
+
+	// Adding sprouts updates the batch state to committed, so we'll set it
+	// back to finalized.
+	require.NoError(t, assetStore.AddSproutsToBatch(
+		ctx, batchKey, genesisPacket, assetRoot,
+	))
+	require.NoError(t, assetStore.UpdateBatchState(
+		ctx, batchKey, tapgarden.BatchStateFinalized,
+	))
+
 	// We should still be able to fetch the finalized batch from disk.
 	mintingBatchKeyed, err = assetStore.FetchMintingBatch(ctx, batchKey)
 	require.NoError(t, err)
@@ -480,7 +507,7 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	require.ErrorContains(t, err, "no batch with key")
 
 	// Insert another normal batch into the database. We should get this
-	// batch back if we query for the set of non final batches.
+	// batch back if we query for the set of non-final batches.
 	mintingBatch = tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
 	err = assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err)
@@ -693,6 +720,21 @@ func TestAddSproutsToBatch(t *testing.T) {
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
 	)
+
+	// Update the pkScript of the anchor output in the genesis packet to
+	// make sure the validation doesn't fail when reading the batch from the
+	// DB again.
+	anchorOutputIndex := uint32(0)
+	if mintingBatch.GenesisPacket.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+
+	script, err := tapscript.PayToAddrScript(
+		*mintingBatch.BatchKey.PubKey, nil, *assetRoot,
+	)
+	require.NoError(t, err)
+	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
+
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, batchKey, genesisPacket, assetRoot,
 	))
@@ -760,6 +802,24 @@ func addRandAssets(t *testing.T, ctx context.Context,
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
 	)
+
+	// Update the pkScript of the anchor output in the genesis packet to
+	// make sure the validation doesn't fail when reading the batch from the
+	// DB again.
+	anchorOutputIndex := uint32(0)
+	if mintingBatch.GenesisPacket.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+
+	mintingBatch.RootAssetCommitment = assetRoot
+	mintingOutputKey, _, err := mintingBatch.MintingOutputKey(&randSibling)
+	require.NoError(t, err)
+
+	script, err := tapscript.PayToTaprootScript(mintingOutputKey)
+	require.NoError(t, err)
+
+	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
+
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, batchKey, genesisPacket, assetRoot,
 	))
@@ -799,8 +859,6 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// First, we'll create a new batch, then add some sample seedlings, and
 	// then those seedlings as assets.
-	//
-	// nolint:lll
 	randAssetCtx := addRandAssets(t, ctx, assetStore, numSeedlings)
 
 	// The packet needs to be finalized, so we'll insert a fake
@@ -1297,6 +1355,21 @@ func TestGroupAnchors(t *testing.T) {
 		t, genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint,
 		mintingBatch.Seedlings, seedlingGroups,
 	)
+
+	// Update the pkScript of the anchor output in the genesis packet to
+	// make sure the validation doesn't fail when reading the batch from the
+	// DB again.
+	anchorOutputIndex := uint32(0)
+	if mintingBatch.GenesisPacket.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+
+	script, err := tapscript.PayToAddrScript(
+		*mintingBatch.BatchKey.PubKey, nil, *assetRoot,
+	)
+	require.NoError(t, err)
+	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
+
 	require.NoError(t, assetStore.AddSproutsToBatch(
 		ctx, batchKey, genesisPacket, assetRoot,
 	))
