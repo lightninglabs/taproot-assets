@@ -1409,5 +1409,6 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) {
 				},
 			)
 		}
+
 	}
 }

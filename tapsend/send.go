@@ -1134,12 +1134,55 @@ func HasInput(tx *wire.MsgTx, outpoint wire.OutPoint) bool {
 	return false
 }
 
+// AssertAnchorTimeLocks makes sure the anchor transaction and its inputs have
+// the correct lock time and sequence set, according to the assets being spent.
+func AssertAnchorTimeLocks(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket) {
+	maxLockTime := uint64(0)
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+
+		// Extract the highest used lock time, as that's per
+		// transaction.
+		if vOut.LockTime > maxLockTime {
+			maxLockTime = vOut.Asset.LockTime
+		}
+
+		// For each input, set the relative lock time as the sequence on
+		// the BTC input.
+		for _, prevWitness := range vOut.Asset.PrevWitnesses {
+			outPoint := prevWitness.PrevID.OutPoint
+
+			for btcInIdx := range btcPkt.UnsignedTx.TxIn {
+				txIn := btcPkt.UnsignedTx.TxIn[btcInIdx]
+				if txIn.PreviousOutPoint == outPoint {
+					txIn.Sequence = uint32(
+						vOut.RelativeLockTime,
+					)
+				}
+			}
+		}
+	}
+
+	// Assign the highest lock time to the transaction, if the one present
+	// there isn't already higher. We need to check this because this
+	// function is called for each vPacket individually.
+	if btcPkt.UnsignedTx.LockTime < uint32(maxLockTime) {
+		btcPkt.UnsignedTx.LockTime = uint32(maxLockTime)
+	}
+}
+
 // UpdateTaprootOutputKeys updates a PSBT with outputs embedding TapCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taproot Asset input asset to this PSBT before finalizing
-// the TX. Locators MUST be checked beforehand.
+// the TX. Locators MUST be checked beforehand. Since this is called when the
+// anchor transaction and all assets are final, we also make sure any time locks
+// from the assets are properly bubbled up to the BTC level.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 	outputCommitments tappsbt.OutputCommitments) error {
+
+	// Make sure the anchor transaction has all lock times correctly bubbled
+	// up for this virtual packet.
+	AssertAnchorTimeLocks(btcPacket, vPkt)
 
 	// Add the commitment outputs to the BTC level PSBT now.
 	for idx := range vPkt.Outputs {
