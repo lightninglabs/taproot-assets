@@ -521,8 +521,9 @@ func (a *AuxChanCloser) ShutdownBlob(
 		// in the channel. We need to extend this to support multiple
 		// assets.
 		_, err = a.cfg.AddrBook.NewAddressWithKeys(
-			ctx, channelAsset.AssetID.Val, channelAsset.Amount.Val,
-			newKey, newInternalKey, nil, *a.cfg.DefaultCourierAddr,
+			ctx, address.V1, channelAsset.AssetID.Val,
+			channelAsset.Amount.Val, newKey, newInternalKey, nil,
+			*a.cfg.DefaultCourierAddr,
 		)
 		if err != nil {
 			return none, fmt.Errorf("error adding new address: %w",

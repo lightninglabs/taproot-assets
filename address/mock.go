@@ -51,17 +51,18 @@ func RandAddr(t testing.TB, params *ChainParams,
 
 	var (
 		assetVersion     asset.Version
+		addrVersion      Version
 		groupInfo        *asset.GroupKey
 		groupPubKey      *btcec.PublicKey
 		groupWitness     wire.TxWitness
 		tapscriptSibling *commitment.TapscriptPreimage
 	)
 
-	if test.RandInt[uint32]()%2 == 0 {
+	if test.RandBool() {
 		assetVersion = asset.V1
 	}
 
-	if test.RandInt[uint32]()%2 == 0 {
+	if test.RandBool() {
 		protoAsset := asset.NewAssetNoErr(
 			t, genesis, amount, 0, 0, scriptKey, nil,
 			asset.WithAssetVersion(assetVersion),
@@ -77,10 +78,13 @@ func RandAddr(t testing.TB, params *ChainParams,
 		require.NoError(t, err)
 	}
 
+	addrVersion = test.RandFlip(V0, V1)
+
 	tapAddr, err := New(
-		V0, genesis, groupPubKey, groupWitness, *scriptKey.PubKey,
-		*internalKey.PubKey(), amount, tapscriptSibling, params,
-		proofCourierAddr, WithAssetVersion(assetVersion),
+		addrVersion, genesis, groupPubKey, groupWitness,
+		*scriptKey.PubKey, *internalKey.PubKey(), amount,
+		tapscriptSibling, params, proofCourierAddr,
+		WithAssetVersion(assetVersion),
 	)
 	require.NoError(t, err)
 

@@ -525,7 +525,8 @@ func TestCustodianNewAddr(t *testing.T) {
 	addr, _ := randAddr(h)
 	proofCourierAddr := address.RandProofCourierAddr(t)
 	dbAddr, err := h.addrBook.NewAddress(
-		ctx, addr.AssetID, addr.Amount, nil, proofCourierAddr,
+		ctx, address.V0, addr.AssetID, addr.Amount, nil,
+		proofCourierAddr,
 	)
 	require.NoError(t, err)
 
@@ -568,7 +569,7 @@ func TestBookAssetSyncer(t *testing.T) {
 	// Address creation should fail for unknown assets.
 	newAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
 	_, err := h.addrBook.NewAddress(
-		ctx, newAsset.ID(), 1, nil, proofCourierAddr,
+		ctx, address.V0, newAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.ErrorContains(t, err, "unknown asset")
 
@@ -580,7 +581,7 @@ func TestBookAssetSyncer(t *testing.T) {
 		<-h.keyRing.ReqKeys
 	}()
 	newAddr, err := h.addrBook.NewAddress(
-		ctx, newAsset.ID(), 1, nil, proofCourierAddr,
+		ctx, address.V0, newAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, newAddr)
@@ -597,7 +598,7 @@ func TestBookAssetSyncer(t *testing.T) {
 
 	secondAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
 	_, err = h.addrBook.NewAddress(
-		ctx, secondAsset.ID(), 1, nil, proofCourierAddr,
+		ctx, address.V0, secondAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.ErrorContains(t, err, "failed to fetch asset info")
 
