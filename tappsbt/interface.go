@@ -55,6 +55,8 @@ var (
 	PsbtKeyTypeOutputTapAssetVersion                       = []byte{0x79}
 	PsbtKeyTypeOutputTapProofDeliveryAddress               = []byte{0x7a}
 	PsbtKeyTypeOutputTapAssetProofSuffix                   = []byte{0x7b}
+	PsbtKeyTypeOutputTapAssetLockTime                      = []byte{0x7c}
+	PsbtKeyTypeOutputTapAssetRelativeLockTime              = []byte{0x7d}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -508,6 +510,16 @@ type VOutput struct {
 	// serialized, this will be stored in the TaprootInternalKey and
 	// TaprootDerivationPath fields of the PSBT output.
 	ScriptKey asset.ScriptKey
+
+	// RelativeLockTime is the relative lock time of the output asset. This
+	// needs to be set on the root asset if the transaction witness is for
+	// a spend of a CSV script path.
+	RelativeLockTime uint64
+
+	// LockTime is the relative lock time of the output asset. This needs to
+	// be set on the root asset if the transaction witness is for a spend of
+	// a CLTV script path.
+	LockTime uint64
 
 	// ProofDeliveryAddress is the address to which the proof of the asset
 	// transfer should be delivered.

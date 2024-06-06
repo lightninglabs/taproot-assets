@@ -293,6 +293,14 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
 			decoder: proofDecoder(&o.ProofSuffix),
 		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetLockTime,
+			decoder: tlvDecoder(&o.LockTime, tlv.DUint64),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetRelativeLockTime,
+			decoder: tlvDecoder(&o.RelativeLockTime, tlv.DUint64),
+		},
 	}
 
 	for idx := range mapping {

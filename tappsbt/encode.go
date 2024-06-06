@@ -293,6 +293,14 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
 			encoder: proofEncoder(o.ProofSuffix),
 		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetLockTime,
+			encoder: tlvEncoder(&o.LockTime, tlv.EUint64),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetRelativeLockTime,
+			encoder: tlvEncoder(&o.RelativeLockTime, tlv.EUint64),
+		},
 	}
 
 	for idx := range mapping {
