@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -181,8 +182,14 @@ func (p *AddressParcel) Validate() error {
 			"specified in address parcel")
 	}
 
+	firstAddrVersion := p.destAddrs[0].Version
 	for idx := range p.destAddrs {
 		tapAddr := p.destAddrs[idx]
+
+		// All addresses must have the same version.
+		if tapAddr.Version != firstAddrVersion {
+			return fmt.Errorf("mixed address versions")
+		}
 
 		// Validate proof courier addresses.
 		err := proof.ValidateCourierAddress(&tapAddr.ProofCourierAddr)
@@ -297,6 +304,11 @@ func (p *PreSignedParcel) Validate() error {
 		return fmt.Errorf("no virtual transaction in pre-signed parcel")
 	}
 
+	err := validateVPacketVersions(p.vPackets)
+	if err != nil {
+		return err
+	}
+
 	for _, vPkt := range p.vPackets {
 		if len(vPkt.Outputs) == 0 {
 			return fmt.Errorf("no outputs in virtual transaction")
@@ -371,6 +383,11 @@ func (p *PreAnchoredParcel) Validate() error {
 	if len(p.virtualPackets) == 0 {
 		return fmt.Errorf("no virtual transactions in pre-anchored " +
 			"parcel")
+	}
+
+	err := validateVPacketVersions(p.virtualPackets)
+	if err != nil {
+		return err
 	}
 
 	for _, vPkt := range p.virtualPackets {
@@ -683,6 +700,23 @@ func (s *sendPackage) validateReadyForPublish(
 	err = tapsend.ValidateAnchorOutputs(btcPkt, allPackets, true)
 	if err != nil {
 		return fmt.Errorf("error validating anchor outputs: %w", err)
+	}
+
+	return nil
+}
+
+// validateVPacketVersions checks that all virtual packets are the same version.
+func validateVPacketVersions(vPackets []*tappsbt.VPacket) error {
+	if len(vPackets) == 0 {
+		return fmt.Errorf("no virtual packets")
+	}
+
+	firstPktVersion := vPackets[0].Version
+	matchingVersion := fn.All(vPackets, func(vPkt *tappsbt.VPacket) bool {
+		return vPkt.Version == firstPktVersion
+	})
+	if !matchingVersion {
+		return fmt.Errorf("mixed virtual packet versions")
 	}
 
 	return nil

@@ -271,6 +271,11 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 		},
 	}
 
+	err := validateVPacketVersions(activePackets)
+	if err != nil {
+		return nil, err
+	}
+
 	// Passive assets by definition are in the same anchor input as some of
 	// the active assets. So to avoid needing to reconstruct the anchor here
 	// again, we just copy the anchor of an active packet.
@@ -330,10 +335,12 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	vOutput.SetAnchorInternalKey(anchorOutputInternalKey, params.HDCoinType)
 
 	// Create VPacket.
+	activePktVersion := activePackets[0].Version
 	vPacket := &tappsbt.VPacket{
 		Inputs:      []*tappsbt.VInput{&vInput},
 		Outputs:     []*tappsbt.VOutput{&vOutput},
 		ChainParams: params,
+		Version:     activePktVersion,
 	}
 
 	// Set the input asset. The input asset proof is not provided as it is

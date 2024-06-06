@@ -860,6 +860,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
 		vPackets := currentPkg.VirtualPackets
+		err := validateVPacketVersions(vPackets)
+		if err != nil {
+			return nil, err
+		}
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// Taproot Asset leaves. The witness data for each input will be
