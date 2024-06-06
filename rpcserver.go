@@ -1351,6 +1351,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
+	addrVersion, err := taprpc.UnmarshalAddressVersion(req.AddressVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1358,7 +1363,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, address.V0, assetID, req.Amt, tapscriptSibling,
+			ctx, addrVersion, assetID, req.Amt, tapscriptSibling,
 			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
@@ -1407,7 +1412,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, address.V0, assetID, req.Amt, *scriptKey,
+			ctx, addrVersion, assetID, req.Amt, *scriptKey,
 			internalKey, tapscriptSibling, *courierAddr,
 			address.WithAssetVersion(assetVersion),
 		)
@@ -2896,9 +2901,15 @@ func marshalAddr(addr *address.Tap,
 		return nil, err
 	}
 
+	addrVersion, err := taprpc.MarshalAddressVersion(addr.Version)
+	if err != nil {
+		return nil, err
+	}
+
 	id := addr.AssetID
 	rpcAddr := &taprpc.Addr{
 		AssetVersion:     assetVersion,
+		AddressVersion:   addrVersion,
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		Amount:           addr.Amount,
