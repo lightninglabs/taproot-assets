@@ -68,7 +68,7 @@ func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
 			},
 			{
 				Key:   PsbtKeyTypeGlobalTapPsbtVersion,
-				Value: []byte{p.Version},
+				Value: []byte{uint8(p.Version)},
 			},
 		},
 	}

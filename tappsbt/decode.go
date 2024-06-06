@@ -83,7 +83,8 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 			"params HRP: %w", err)
 	}
 
-	// The version is currently optional, as it's not used anywhere.
+	// The version is currently optional. An unset version implies a V0
+	// VPacket.
 	var version uint8
 	versionField, err := findCustomFieldsByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTapPsbtVersion,
@@ -92,8 +93,15 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 		version = versionField.Value[0]
 	}
 
+	switch version {
+	case uint8(V0), uint8(V1):
+	default:
+		return nil, fmt.Errorf("%w: %d", ErrInvalidVPacketVersion,
+			version)
+	}
+
 	vPkt := &VPacket{
-		Version:     version,
+		Version:     VPacketVersion(version),
 		ChainParams: chainParams,
 		Inputs:      make([]*VInput, len(packet.Inputs)),
 		Outputs:     make([]*VOutput, len(packet.Outputs)),
