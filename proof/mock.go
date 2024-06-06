@@ -42,7 +42,7 @@ func RandProof(t testing.TB, genesis asset.Genesis,
 
 	amount := uint64(1)
 	mintCommitment, assets, err := commitment.Mint(
-		genesis, groupKey, &commitment.AssetDetails{
+		nil, genesis, groupKey, &commitment.AssetDetails{
 			Type:             genesis.Type,
 			ScriptKey:        test.PubToKeyDesc(scriptKey),
 			Amount:           &amount,

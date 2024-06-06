@@ -44,6 +44,15 @@ func RandBool() bool {
 	return rand.Int()%2 == 0
 }
 
+// RandFlip picks one of two values randomly.
+func RandFlip[T any](t, f T) T {
+	if RandBool() {
+		return t
+	} else {
+		return f
+	}
+}
+
 // RandInt31n returns a random 32-bit integer in the range [0, n).
 func RandInt31n(n int32) int32 {
 	randLock.Lock()

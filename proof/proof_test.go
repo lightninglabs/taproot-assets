@@ -272,7 +272,8 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 	}
 
 	tapCommitment, assets, err := commitment.Mint(
-		assetGenesis, assetGroupKey, &commitment.AssetDetails{
+		commitment.RandTapCommitVersion(), assetGenesis, assetGroupKey,
+		&commitment.AssetDetails{
 			Type:             assetType,
 			ScriptKey:        genesisPubKey,
 			Amount:           amt,
