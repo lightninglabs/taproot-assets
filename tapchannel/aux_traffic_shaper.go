@@ -244,16 +244,16 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 
 	// We now know how many units we need. We take the asset ID from the
 	// RFQ so the recipient can match it back to the quote.
-	if quote.AssetID == nil {
+	if quote.Request.AssetID == nil {
 		return 0, nil, fmt.Errorf("quote has no asset ID")
 	}
 
 	log.Debugf("Producing HTLC extra data for RFQ ID %x (SCID %d): "+
 		"asset ID %x, asset amount %d", rfqID[:], rfqID.Scid(),
-		quote.AssetID[:], numAssetUnits)
+		quote.Request.AssetID[:], numAssetUnits)
 
 	htlc.Amounts.Val.Balances = []*rfqmsg.AssetBalance{
-		rfqmsg.NewAssetBalance(*quote.AssetID, numAssetUnits),
+		rfqmsg.NewAssetBalance(*quote.Request.AssetID, numAssetUnits),
 	}
 
 	// Encode the updated HTLC TLV back into a blob and return it with the

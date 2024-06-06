@@ -344,8 +344,8 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			// payment by the SCID alias through which it comes in
 			// and compare it to the one in the invoice.
 			err := m.addScidAlias(
-				uint64(msg.ShortChannelId()), *msg.AssetID,
-				msg.Peer,
+				uint64(msg.ShortChannelId()),
+				*msg.Request.AssetID, msg.Peer,
 			)
 			if err != nil {
 				m.cfg.ErrChan <- fmt.Errorf("error adding "+
@@ -431,7 +431,8 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// make sure we can identify the forwarded asset payment by the
 		// outgoing SCID alias within the onion packet.
 		err := m.addScidAlias(
-			uint64(msg.ShortChannelId()), *msg.AssetID, msg.Peer,
+			uint64(msg.ShortChannelId()), *msg.Request.AssetID,
+			msg.Peer,
 		)
 		if err != nil {
 			return fmt.Errorf("error adding local alias: %w", err)
