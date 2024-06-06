@@ -192,8 +192,22 @@
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The asset version of the address."
+        },
+        "address_version": {
+          "$ref": "#/definitions/taprpcAddrVersion",
+          "description": "The version of the address."
         }
       }
+    },
+    "taprpcAddrVersion": {
+      "type": "string",
+      "enum": [
+        "ADDR_VERSION_UNSPECIFIED",
+        "ADDR_VERSION_V0",
+        "ADDR_VERSION_V1"
+      ],
+      "default": "ADDR_VERSION_UNSPECIFIED",
+      "description": " - ADDR_VERSION_UNSPECIFIED: ADDR_VERSION_UNSPECIFIED is the default value for an address version in\nan RPC message. It is unmarshalled to the latest address version.\n - ADDR_VERSION_V0: ADDR_VERSION_V0 is the initial address version.\n - ADDR_VERSION_V1: ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset\ncommitments."
     },
     "taprpcAssetType": {
       "type": "string",
