@@ -174,12 +174,10 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// Each of the co-op close outputs needs to ref a funding input, so
 	// we'll map a map of asset ID to the funding output now.
-	fundingInputs := make(map[asset.ID]*tapchannelmsg.AssetOutput)
 	inputProofs := make(
 		[]*proof.Proof, 0, len(fundingInfo.FundedAssets.Val.Outputs),
 	)
 	for _, fundingInput := range fundingInfo.FundedAssets.Val.Outputs {
-		fundingInputs[fundingInput.AssetID.Val] = fundingInput
 		inputProofs = append(inputProofs, &fundingInput.Proof.Val)
 	}
 
