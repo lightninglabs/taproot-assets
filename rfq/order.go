@@ -312,6 +312,118 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 // Ensure that AssetPurchasePolicy implements the Policy interface.
 var _ Policy = (*AssetPurchasePolicy)(nil)
 
+// AssetForwardPolicy is a struct that holds the terms which determine whether a
+// channel HTLC for an asset-to-asset forward is accepted or rejected.
+type AssetForwardPolicy struct {
+	incomingPolicy *AssetPurchasePolicy
+	outgoingPolicy *AssetSalePolicy
+}
+
+// NewAssetForwardPolicy creates a new asset forward policy.
+func NewAssetForwardPolicy(incoming, outgoing Policy) (*AssetForwardPolicy,
+	error) {
+
+	incomingPolicy, ok := incoming.(*AssetPurchasePolicy)
+	if !ok {
+		return nil, fmt.Errorf("incoming policy is not an asset "+
+			"purchase policy, but %T", incoming)
+	}
+
+	outgoingPolicy, ok := outgoing.(*AssetSalePolicy)
+	if !ok {
+		return nil, fmt.Errorf("outgoing policy is not an asset "+
+			"sale policy, but %T", outgoing)
+	}
+
+	return &AssetForwardPolicy{
+		incomingPolicy: incomingPolicy,
+		outgoingPolicy: outgoingPolicy,
+	}, nil
+}
+
+// CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
+// does not satisfy the subject policy.
+func (a *AssetForwardPolicy) CheckHtlcCompliance(
+	htlc lndclient.InterceptedHtlc) error {
+
+	if err := a.incomingPolicy.CheckHtlcCompliance(htlc); err != nil {
+		return fmt.Errorf("error checking forward policy, inbound "+
+			"HTLC does not comply with policy: %w", err)
+	}
+
+	if err := a.outgoingPolicy.CheckHtlcCompliance(htlc); err != nil {
+		return fmt.Errorf("error checking forward policy, outbound "+
+			"HTLC does not comply with policy: %w", err)
+	}
+
+	return nil
+}
+
+// Expiry returns the policy's expiry time as a unix timestamp in seconds. The
+// returned expiry time is the earliest expiry time of the incoming and outgoing
+// policies.
+func (a *AssetForwardPolicy) Expiry() uint64 {
+	if a.incomingPolicy.Expiry() < a.outgoingPolicy.Expiry() {
+		return a.incomingPolicy.Expiry()
+	}
+
+	return a.outgoingPolicy.Expiry()
+}
+
+// HasExpired returns true if the policy has expired.
+func (a *AssetForwardPolicy) HasExpired() bool {
+	expireTime := time.Unix(int64(a.Expiry()), 0).UTC()
+
+	return time.Now().UTC().After(expireTime)
+}
+
+// Scid returns the serialised short channel ID (SCID) of the channel to which
+// the policy applies. This is the SCID of the incoming policy.
+func (a *AssetForwardPolicy) Scid() uint64 {
+	return a.incomingPolicy.Scid()
+}
+
+// GenerateInterceptorResponse generates an interceptor response for the policy.
+func (a *AssetForwardPolicy) GenerateInterceptorResponse(
+	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
+	error) {
+
+	incomingResponse, err := a.incomingPolicy.GenerateInterceptorResponse(
+		htlc,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error generating incoming interceptor "+
+			"response: %w", err)
+	}
+
+	outgoingResponse, err := a.outgoingPolicy.GenerateInterceptorResponse(
+		htlc,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error generating outgoing interceptor "+
+			"response: %w", err)
+	}
+
+	return &lndclient.InterceptedHtlcResponse{
+		// Both incoming and outgoing policies will resume with
+		// modifications.
+		Action: lndclient.InterceptorActionResumeModified,
+
+		// The incoming policy will modify the incoming amount in order
+		// to satisfy the fee check in `lnd`.
+		IncomingAmount: incomingResponse.IncomingAmount,
+
+		// The outgoing policy will modify the outgoing amount and add
+		// custom records in order to satisfy the terms of the receiving
+		// node.
+		OutgoingAmount: outgoingResponse.OutgoingAmount,
+		CustomRecords:  outgoingResponse.CustomRecords,
+	}, nil
+}
+
+// Ensure that AssetForwardPolicy implements the Policy interface.
+var _ Policy = (*AssetForwardPolicy)(nil)
+
 // OrderHandlerCfg is a struct that holds the configuration parameters for the
 // order handler service.
 type OrderHandlerCfg struct {
@@ -550,6 +662,39 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 				foundScid = &scid
 			}
 		})
+	}
+
+	// Here we handle a special case where we both have an incoming and
+	// outgoing policy. In this case, we need to create a forward policy.
+	if foundPolicy != nil && haveOutPolicy {
+		incomingPolicy := *foundPolicy
+		outgoingPolicy := outPolicy
+
+		if incomingPolicy.HasExpired() {
+			scid := incomingPolicy.Scid()
+			h.policies.Delete(SerialisedScid(scid))
+		}
+		if outgoingPolicy.HasExpired() {
+			scid := outgoingPolicy.Scid()
+			h.policies.Delete(SerialisedScid(scid))
+		}
+
+		// If either the incoming or outgoing policy has expired, we
+		// return false, as if we didn't find a policy.
+		if incomingPolicy.HasExpired() || outgoingPolicy.HasExpired() {
+			return nil, false, nil
+		}
+
+		forwardPolicy, err := NewAssetForwardPolicy(
+			incomingPolicy, outgoingPolicy,
+		)
+		if err != nil {
+			return nil, false, fmt.Errorf("error creating forward "+
+				"policy: %w", err)
+		}
+
+		return forwardPolicy, true, nil
+
 	}
 
 	// If no policy has been found so far, we attempt to look up a policy by
