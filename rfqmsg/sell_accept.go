@@ -1,10 +1,8 @@
 package rfqmsg
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
-	"io"
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -12,56 +10,27 @@ import (
 )
 
 const (
-	// Sell accept message type field TLV types.
-
-	TypeSellAcceptVersion   tlv.Type = 0
-	TypeSellAcceptID        tlv.Type = 2
-	TypeSellAcceptBidPrice  tlv.Type = 4
-	TypeSellAcceptExpiry    tlv.Type = 6
-	TypeSellAcceptSignature tlv.Type = 8
-)
-
-func TypeRecordSellAcceptVersion(version *WireMsgDataVersion) tlv.Record {
-	const recordSize = 1
-
-	return tlv.MakeStaticRecord(
-		TypeSellAcceptVersion, version, recordSize,
-		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
-	)
-}
-
-func TypeRecordSellAcceptID(id *ID) tlv.Record {
-	const recordSize = 32
-
-	return tlv.MakeStaticRecord(
-		TypeSellAcceptID, id, recordSize, IdEncoder, IdDecoder,
-	)
-}
-
-func TypeRecordSellAcceptBidPrice(bidPrice *lnwire.MilliSatoshi) tlv.Record {
-	return tlv.MakeStaticRecord(
-		TypeSellAcceptBidPrice, bidPrice, 8, milliSatoshiEncoder,
-		milliSatoshiDecoder,
-	)
-}
-
-func TypeRecordSellAcceptExpiry(expirySeconds *uint64) tlv.Record {
-	return tlv.MakePrimitiveRecord(TypeSellAcceptExpiry, expirySeconds)
-}
-
-func TypeRecordSellAcceptSig(sig *[64]byte) tlv.Record {
-	return tlv.MakePrimitiveRecord(TypeSellAcceptSignature, sig)
-}
-
-const (
 	// latestSellAcceptVersion is the latest supported sell accept wire
 	// message data field version.
 	latestSellAcceptVersion = V0
 )
 
-// sellAcceptMsgData is a struct that represents the data field of an asset sell
-// quote request accept message.
-type sellAcceptMsgData struct {
+// SellAccept is a struct that represents a sell quote request accept message.
+type SellAccept struct {
+	// Peer is the peer that sent the quote request.
+	Peer route.Vertex
+
+	// Request is the quote request message that this message responds to.
+	// This field is not included in the wire message.
+	Request SellRequest
+
+	// AssetAmount is the amount of the asset that the accept message
+	// is for.
+	//
+	// TODO(ffranr): Remove this field in favour of the asset amount from
+	//  the request.
+	AssetAmount uint64
+
 	// Version is the version of the message data.
 	Version WireMsgDataVersion
 
@@ -80,77 +49,6 @@ type sellAcceptMsgData struct {
 	sig [64]byte
 }
 
-// encodeRecords provides all TLV records for encoding.
-func (q *sellAcceptMsgData) encodeRecords() []tlv.Record {
-	return []tlv.Record{
-		TypeRecordSellAcceptVersion(&q.Version),
-		TypeRecordSellAcceptID(&q.ID),
-		TypeRecordSellAcceptBidPrice(&q.BidPrice),
-		TypeRecordSellAcceptExpiry(&q.Expiry),
-		TypeRecordSellAcceptSig(&q.sig),
-	}
-}
-
-// decodeRecords provides all TLV records for decoding.
-func (q *sellAcceptMsgData) decodeRecords() []tlv.Record {
-	return []tlv.Record{
-		TypeRecordSellAcceptVersion(&q.Version),
-		TypeRecordSellAcceptID(&q.ID),
-		TypeRecordSellAcceptBidPrice(&q.BidPrice),
-		TypeRecordSellAcceptExpiry(&q.Expiry),
-		TypeRecordSellAcceptSig(&q.sig),
-	}
-}
-
-// Encode encodes the structure into a TLV stream.
-func (q *sellAcceptMsgData) Encode(writer io.Writer) error {
-	stream, err := tlv.NewStream(q.encodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.Encode(writer)
-}
-
-// Decode decodes the structure from a TLV stream.
-func (q *sellAcceptMsgData) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(q.decodeRecords()...)
-	if err != nil {
-		return err
-	}
-	return stream.DecodeP2P(r)
-}
-
-// Bytes encodes the structure into a TLV stream and returns the bytes.
-func (q *sellAcceptMsgData) Bytes() ([]byte, error) {
-	var b bytes.Buffer
-	err := q.Encode(&b)
-	if err != nil {
-		return nil, err
-	}
-
-	return b.Bytes(), nil
-}
-
-// SellAccept is a struct that represents a sell quote request accept message.
-type SellAccept struct {
-	// Peer is the peer that sent the quote request.
-	Peer route.Vertex
-
-	// Request is the quote request message that this message responds to.
-	// This field is not included in the wire message.
-	Request SellRequest
-
-	// AssetAmount is the amount of the asset that the accept message
-	// is for.
-	//
-	// TODO(ffranr): Remove this field in favour of the asset amount from
-	//  the request.
-	AssetAmount uint64
-
-	// sellAcceptMsgData is the message data for the quote accept message.
-	sellAcceptMsgData
-}
-
 // NewSellAcceptFromRequest creates a new instance of an asset sell quote accept
 // message given an asset sell quote request message.
 func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
@@ -160,12 +58,10 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
 		Request:     request,
-		sellAcceptMsgData: sellAcceptMsgData{
-			Version:  latestSellAcceptVersion,
-			ID:       request.ID,
-			BidPrice: bidPrice,
-			Expiry:   expiry,
-		},
+		Version:     latestSellAcceptVersion,
+		ID:          request.ID,
+		BidPrice:    bidPrice,
+		Expiry:      expiry,
 	}
 }
 
@@ -194,14 +90,12 @@ func newSellAcceptFromWireMsg(wireMsg WireMessage,
 	// Note that the `Request` field is populated later in the RFQ stream
 	// service.
 	return &SellAccept{
-		Peer: wireMsg.Peer,
-		sellAcceptMsgData: sellAcceptMsgData{
-			Version:  msgData.Version.Val,
-			ID:       msgData.ID.Val,
-			Expiry:   msgData.Expiry.Val,
-			sig:      msgData.Sig.Val,
-			BidPrice: bidPrice,
-		},
+		Peer:     wireMsg.Peer,
+		Version:  msgData.Version.Val,
+		ID:       msgData.ID.Val,
+		BidPrice: bidPrice,
+		Expiry:   msgData.Expiry.Val,
+		sig:      msgData.Sig.Val,
 	}, nil
 }
 
