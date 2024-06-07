@@ -24,13 +24,6 @@ type SellAccept struct {
 	// This field is not included in the wire message.
 	Request SellRequest
 
-	// AssetAmount is the amount of the asset that the accept message
-	// is for.
-	//
-	// TODO(ffranr): Remove this field in favour of the asset amount from
-	//  the request.
-	AssetAmount uint64
-
 	// Version is the version of the message data.
 	Version WireMsgDataVersion
 
@@ -55,13 +48,12 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 	expiry uint64) *SellAccept {
 
 	return &SellAccept{
-		Peer:        request.Peer,
-		AssetAmount: request.AssetAmount,
-		Request:     request,
-		Version:     latestSellAcceptVersion,
-		ID:          request.ID,
-		BidPrice:    bidPrice,
-		Expiry:      expiry,
+		Peer:     request.Peer,
+		Request:  request,
+		Version:  latestSellAcceptVersion,
+		ID:       request.ID,
+		BidPrice: bidPrice,
+		Expiry:   expiry,
 	}
 }
 

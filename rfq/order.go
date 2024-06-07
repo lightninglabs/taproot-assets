@@ -208,7 +208,7 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 	return &AssetPurchasePolicy{
 		scid:            quote.ShortChannelId(),
 		AcceptedQuoteId: quote.ID,
-		AssetAmount:     quote.AssetAmount,
+		AssetAmount:     quote.Request.AssetAmount,
 		BidPrice:        quote.BidPrice,
 		expiry:          quote.Expiry,
 	}
