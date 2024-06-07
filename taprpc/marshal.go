@@ -529,7 +529,7 @@ func MarshalAcceptedBuyQuoteEvent(
 		Peer:        event.Peer.String(),
 		Id:          event.ID[:],
 		Scid:        uint64(event.ShortChannelId()),
-		AssetAmount: event.AssetAmount,
+		AssetAmount: event.Request.AssetAmount,
 		AskPrice:    uint64(event.AskPrice),
 		Expiry:      event.Expiry,
 	}

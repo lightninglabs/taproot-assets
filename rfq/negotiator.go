@@ -610,7 +610,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// by the price oracle with the ask price provided by the peer.
 		oraclePrice, _, err := n.queryAskFromPriceOracle(
 			&msg.Peer, msg.Request.AssetID, nil,
-			msg.AssetAmount, nil,
+			msg.Request.AssetAmount, nil,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return

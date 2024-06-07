@@ -6274,7 +6274,7 @@ func marshalPeerAcceptedBuyQuotes(
 			Peer:        quote.Peer.String(),
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
-			AssetAmount: quote.AssetAmount,
+			AssetAmount: quote.Request.AssetAmount,
 			AskPrice:    uint64(quote.AskPrice),
 			Expiry:      quote.Expiry,
 		}

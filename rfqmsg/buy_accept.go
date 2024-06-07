@@ -23,13 +23,6 @@ type BuyAccept struct {
 	// This field is not included in the wire message.
 	Request BuyRequest
 
-	// AssetAmount is the amount of the asset that the accept message
-	// is for.
-	//
-	// TODO(ffranr): Remove this field in favour of the asset amount from
-	//  the request.
-	AssetAmount uint64
-
 	// Version is the version of the message data.
 	Version WireMsgDataVersion
 
@@ -54,13 +47,12 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 	expiry uint64) *BuyAccept {
 
 	return &BuyAccept{
-		Peer:        request.Peer,
-		AssetAmount: request.AssetAmount,
-		Request:     request,
-		Version:     latestBuyAcceptVersion,
-		ID:          request.ID,
-		AskPrice:    askPrice,
-		Expiry:      expiry,
+		Peer:     request.Peer,
+		Request:  request,
+		Version:  latestBuyAcceptVersion,
+		ID:       request.ID,
+		AskPrice: askPrice,
+		Expiry:   expiry,
 	}
 }
 
