@@ -98,7 +98,7 @@ type AssetSalePolicy struct {
 func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
 		ID:             quote.ID,
-		MaxAssetAmount: quote.AssetAmount,
+		MaxAssetAmount: quote.Request.AssetAmount,
 		AskPrice:       quote.AskPrice,
 		expiry:         quote.Expiry,
 		assetID:        quote.Request.AssetID,
@@ -208,7 +208,7 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 	return &AssetPurchasePolicy{
 		scid:            quote.ShortChannelId(),
 		AcceptedQuoteId: quote.ID,
-		AssetAmount:     quote.AssetAmount,
+		AssetAmount:     quote.Request.AssetAmount,
 		BidPrice:        quote.BidPrice,
 		expiry:          quote.Expiry,
 	}
