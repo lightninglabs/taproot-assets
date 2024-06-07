@@ -62,6 +62,9 @@ type Policy interface {
 	// Expiry returns the policy's expiry time as a unix timestamp.
 	Expiry() uint64
 
+	// HasExpired returns true if the policy has expired.
+	HasExpired() bool
+
 	// Scid returns the serialised short channel ID (SCID) of the channel to
 	// which the policy applies.
 	Scid() uint64
@@ -139,6 +142,13 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(
 // Expiry returns the policy's expiry time as a unix timestamp.
 func (c *AssetSalePolicy) Expiry() uint64 {
 	return c.expiry
+}
+
+// HasExpired returns true if the policy has expired.
+func (c *AssetSalePolicy) HasExpired() bool {
+	expireTime := time.Unix(int64(c.expiry), 0).UTC()
+
+	return time.Now().UTC().After(expireTime)
 }
 
 // Scid returns the serialised short channel ID (SCID) of the channel to which
@@ -258,6 +268,13 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 // Expiry returns the policy's expiry time as a unix timestamp in seconds.
 func (c *AssetPurchasePolicy) Expiry() uint64 {
 	return c.expiry
+}
+
+// HasExpired returns true if the policy has expired.
+func (c *AssetPurchasePolicy) HasExpired() bool {
+	expireTime := time.Unix(int64(c.expiry), 0).UTC()
+
+	return time.Now().UTC().After(expireTime)
 }
 
 // Scid returns the serialised short channel ID (SCID) of the channel to which
@@ -536,11 +553,7 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 	policy := *foundPolicy
 	scid := *foundScid
 
-	// If the policy has expired, return false and clear it from the cache.
-	expireTime := time.Unix(int64(policy.Expiry()), 0).UTC()
-	currentTime := time.Now().UTC()
-
-	if currentTime.After(expireTime) {
+	if policy.HasExpired() {
 		h.policies.Delete(scid)
 		return nil, false, nil
 	}
@@ -555,10 +568,7 @@ func (h *OrderHandler) cleanupStalePolicies() {
 
 	h.policies.ForEach(
 		func(scid SerialisedScid, policy Policy) error {
-			expireTime := time.Unix(int64(policy.Expiry()), 0).UTC()
-			currentTime := time.Now().UTC()
-
-			if currentTime.After(expireTime) {
+			if policy.HasExpired() {
 				staleCounter++
 				h.policies.Delete(scid)
 			}
