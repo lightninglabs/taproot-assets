@@ -167,6 +167,9 @@ type BuyAccept struct {
 
 	// AssetAmount is the amount of the asset that the accept message
 	// is for.
+	//
+	// TODO(ffranr): Remove this field in favour of the asset amount from
+	//  the request.
 	AssetAmount uint64
 
 	// buyAcceptMsgData is the message data for the quote accept message.
@@ -191,31 +194,36 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 	}
 }
 
-// NewBuyAcceptFromWireMsg instantiates a new instance from a wire message.
-func NewBuyAcceptFromWireMsg(wireMsg WireMessage) (*BuyAccept, error) {
+// newBuyAcceptFromWireMsg instantiates a new instance from a wire message.
+func newBuyAcceptFromWireMsg(wireMsg WireMessage,
+	msgData acceptWireMsgData) (*BuyAccept, error) {
+
 	// Ensure that the message type is an accept message.
-	if wireMsg.MsgType != MsgTypeBuyAccept {
+	if wireMsg.MsgType != MsgTypeAccept {
 		return nil, fmt.Errorf("unable to create an accept message "+
 			"from wire message of type %d", wireMsg.MsgType)
 	}
 
-	// Decode message data component from TLV bytes.
-	var msgData buyAcceptMsgData
-	err := msgData.Decode(bytes.NewReader(wireMsg.Data))
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode quote accept "+
-			"message data: %w", err)
-	}
-
-	// Ensure that the message version is supported.
-	if msgData.Version > latestBuyAcceptVersion {
-		return nil, fmt.Errorf("unsupported buy accept message "+
-			"version: %d", msgData.Version)
-	}
+	// Extract the rate tick from the in-out rate tick field. We use this
+	// field (and not the out-in rate tick field) because this is the rate
+	// tick field populated in response to a peer initiated buy quote
+	// request.
+	var askPrice lnwire.MilliSatoshi
+	msgData.InOutRateTick.WhenSome(
+		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
+			askPrice = lnwire.MilliSatoshi(rate.Val)
+		},
+	)
 
 	return &BuyAccept{
-		Peer:             wireMsg.Peer,
-		buyAcceptMsgData: msgData,
+		Peer: wireMsg.Peer,
+		buyAcceptMsgData: buyAcceptMsgData{
+			Version:  msgData.Version.Val,
+			ID:       msgData.ID.Val,
+			Expiry:   msgData.Expiry.Val,
+			sig:      msgData.Sig.Val,
+			AskPrice: askPrice,
+		},
 	}, nil
 }
 
@@ -229,8 +237,14 @@ func (q *BuyAccept) ShortChannelId() SerialisedScid {
 // TODO(ffranr): This method should accept a signer so that we can generate a
 // signature over the message data.
 func (q *BuyAccept) ToWire() (WireMessage, error) {
+	if q == nil {
+		return WireMessage{}, fmt.Errorf("cannot serialize nil buy " +
+			"accept")
+	}
+
 	// Encode message data component as TLV bytes.
-	msgDataBytes, err := q.buyAcceptMsgData.Bytes()
+	msgData := newAcceptWireMsgDataFromBuy(*q)
+	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
 			"data: %w", err)
@@ -238,7 +252,7 @@ func (q *BuyAccept) ToWire() (WireMessage, error) {
 
 	return WireMessage{
 		Peer:    q.Peer,
-		MsgType: MsgTypeBuyAccept,
+		MsgType: MsgTypeAccept,
 		Data:    msgDataBytes,
 	}, nil
 }
