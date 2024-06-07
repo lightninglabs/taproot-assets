@@ -352,7 +352,11 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	log.Debug("Handling incoming HTLC")
+	log.Debugf("Handling incoming HTLC, incoming channel ID: %v, "+
+		"outgoing channel ID: %v (incoming amount: %v, outgoing "+
+		"amount: %v)", htlc.IncomingCircuitKey.ChanID.ToUint64(),
+		htlc.OutgoingChannelID.ToUint64(), htlc.AmountInMsat,
+		htlc.AmountOutMsat)
 
 	// Look up a policy for the HTLC. If a policy does not exist, we resume
 	// the HTLC. This is because the HTLC may be relevant to another
@@ -370,7 +374,8 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 		}, nil
 	}
 
-	log.Debugf("Fetched policy with SCID %v", policy.Scid())
+	log.Debugf("Fetched policy with SCID %v of type %T", policy.Scid(),
+		policy)
 
 	// At this point, we know that a policy exists and has not expired
 	// whilst sitting in the local cache. We can now check that the HTLC
@@ -386,8 +391,7 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	}
 
 	log.Debug("HTLC complies with policy. Broadcasting accept event.")
-	acceptHtlcEvent := NewAcceptHtlcEvent(htlc, policy)
-	h.cfg.AcceptHtlcEvents <- acceptHtlcEvent
+	h.cfg.AcceptHtlcEvents <- NewAcceptHtlcEvent(htlc, policy)
 
 	return policy.GenerateInterceptorResponse(htlc)
 }
@@ -491,6 +495,17 @@ func (h *OrderHandler) RegisterAssetPurchasePolicy(
 func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 	bool, error) {
 
+	outScid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
+	outPolicy, haveOutPolicy := h.policies.Load(outScid)
+
+	inScid := SerialisedScid(htlc.IncomingCircuitKey.ChanID.ToUint64())
+	inPolicy, haveInPolicy := h.policies.Load(inScid)
+
+	log.Tracef("Have inbound policy: %v: %v", haveInPolicy,
+		spew.Sdump(inPolicy))
+	log.Tracef("Have outbound policy: %v: %v", haveOutPolicy,
+		spew.Sdump(outPolicy))
+
 	var (
 		foundPolicy *Policy
 		foundScid   *SerialisedScid
@@ -525,24 +540,16 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 
 	// If no policy has been found so far, we attempt to look up a policy by
 	// the outgoing channel SCID.
-	if foundPolicy == nil {
-		scid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-		policy, ok := h.policies.Load(scid)
-		if ok {
-			foundPolicy = &policy
-			foundScid = &scid
-		}
+	if foundPolicy == nil && haveOutPolicy {
+		foundPolicy = &outPolicy
+		foundScid = &outScid
 	}
 
 	// If no policy has been found so far, we attempt to look up a policy by
 	// the incoming channel SCID.
-	if foundPolicy == nil {
-		scid := SerialisedScid(htlc.IncomingCircuitKey.ChanID.ToUint64())
-		policy, ok := h.policies.Load(scid)
-		if ok {
-			foundPolicy = &policy
-			foundScid = &scid
-		}
+	if foundPolicy == nil && haveInPolicy {
+		foundPolicy = &inPolicy
+		foundScid = &inScid
 	}
 
 	// If no policy has been found, we return false.
