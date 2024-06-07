@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -202,6 +203,18 @@ func (p *ChainPorter) RequestShipment(req Parcel) (*OutboundParcel, error) {
 	case <-p.Quit:
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
+}
+
+// QueryParcels returns the set of confirmed or unconfirmed parcels. If the
+// anchor tx hash is Some, then a query for an parcel with the matching anchor
+// hash will be made.
+func (p *ChainPorter) QueryParcels(ctx context.Context,
+	anchorTxHash fn.Option[chainhash.Hash],
+	pending bool) ([]*OutboundParcel, error) {
+
+	return p.cfg.ExportLog.QueryParcels(
+		ctx, anchorTxHash.UnwrapToPtr(), pending,
+	)
 }
 
 // assetsPorter is the main goroutine of the ChainPorter. This takes in incoming

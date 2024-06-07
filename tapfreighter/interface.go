@@ -354,6 +354,10 @@ type ExportLog interface {
 	// updates the on-chain reference information on disk to point to this
 	// new spend.
 	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
+
+	// QueryParcels returns the set of confirmed or unconfirmed parcels.
+	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,
+		pending bool) ([]*OutboundParcel, error)
 }
 
 // ChainBridge aliases into the ChainBridge of the tapgarden package.
@@ -381,6 +385,13 @@ type Porter interface {
 	// through the chain porter. If successful, an initial response will be
 	// returned with the pending transfer information.
 	RequestShipment(req Parcel) (*OutboundParcel, error)
+
+	// QueryParcels returns the set of confirmed or unconfirmed parcels. If
+	// the anchor tx hash is Some, then a query for an parcel with the
+	// matching anchor hash will be made.
+	QueryParcels(ctx context.Context,
+		anchorTxHash fn.Option[chainhash.Hash], pending bool,
+	) ([]*OutboundParcel, error)
 
 	// Start signals that the asset minter should being operations.
 	Start() error
