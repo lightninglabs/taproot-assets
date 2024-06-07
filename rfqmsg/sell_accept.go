@@ -2,12 +2,10 @@ package rfqmsg
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"encoding/binary"
 	"fmt"
 	"io"
 
-	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -21,7 +19,6 @@ const (
 	TypeSellAcceptBidPrice  tlv.Type = 4
 	TypeSellAcceptExpiry    tlv.Type = 6
 	TypeSellAcceptSignature tlv.Type = 8
-	TypeSellAcceptAssetID   tlv.Type = 10
 )
 
 func TypeRecordSellAcceptVersion(version *WireMsgDataVersion) tlv.Record {
@@ -56,15 +53,6 @@ func TypeRecordSellAcceptSig(sig *[64]byte) tlv.Record {
 	return tlv.MakePrimitiveRecord(TypeSellAcceptSignature, sig)
 }
 
-func TypeRecordSellAcceptAssetID(assetID **asset.ID) tlv.Record {
-	const recordSize = sha256.Size
-
-	return tlv.MakeStaticRecord(
-		TypeSellAcceptAssetID, assetID, recordSize,
-		AssetIdEncoder, AssetIdDecoder,
-	)
-}
-
 const (
 	// latestSellAcceptVersion is the latest supported sell accept wire
 	// message data field version.
@@ -90,28 +78,17 @@ type sellAcceptMsgData struct {
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
-
-	// AssetID is the asset ID of the asset that the accept message is for.
-	AssetID *asset.ID
 }
 
 // encodeRecords provides all TLV records for encoding.
 func (q *sellAcceptMsgData) encodeRecords() []tlv.Record {
-	records := []tlv.Record{
+	return []tlv.Record{
 		TypeRecordSellAcceptVersion(&q.Version),
 		TypeRecordSellAcceptID(&q.ID),
 		TypeRecordSellAcceptBidPrice(&q.BidPrice),
 		TypeRecordSellAcceptExpiry(&q.Expiry),
 		TypeRecordSellAcceptSig(&q.sig),
 	}
-
-	if q.AssetID != nil {
-		records = append(
-			records, TypeRecordSellAcceptAssetID(&q.AssetID),
-		)
-	}
-
-	return records
 }
 
 // decodeRecords provides all TLV records for decoding.
@@ -122,7 +99,6 @@ func (q *sellAcceptMsgData) decodeRecords() []tlv.Record {
 		TypeRecordSellAcceptBidPrice(&q.BidPrice),
 		TypeRecordSellAcceptExpiry(&q.Expiry),
 		TypeRecordSellAcceptSig(&q.sig),
-		TypeRecordSellAcceptAssetID(&q.AssetID),
 	}
 }
 
@@ -160,6 +136,10 @@ type SellAccept struct {
 	// Peer is the peer that sent the quote request.
 	Peer route.Vertex
 
+	// Request is the quote request message that this message responds to.
+	// This field is not included in the wire message.
+	Request SellRequest
+
 	// AssetAmount is the amount of the asset that the accept message
 	// is for.
 	AssetAmount uint64
@@ -176,12 +156,12 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 	return &SellAccept{
 		Peer:        request.Peer,
 		AssetAmount: request.AssetAmount,
+		Request:     request,
 		sellAcceptMsgData: sellAcceptMsgData{
 			Version:  latestSellAcceptVersion,
 			ID:       request.ID,
 			BidPrice: bidPrice,
 			Expiry:   expiry,
-			AssetID:  request.AssetID,
 		},
 	}
 }
