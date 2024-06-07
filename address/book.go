@@ -372,6 +372,13 @@ func (b *Book) IsLocalKey(ctx context.Context,
 	return b.cfg.KeyRing.IsLocalKey(ctx, key)
 }
 
+// InsertScriptKey inserts an address related script key into the database.
+func (b *Book) InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
+	declareAsKnown bool) error {
+
+	return b.cfg.Store.InsertScriptKey(ctx, scriptKey, declareAsKnown)
+}
+
 // NextInternalKey derives then inserts an internal key into the database to
 // make sure it is identified as a local key later on when importing proofs. The
 // key can be an internal key for an asset script key or the internal key of an
