@@ -13,6 +13,12 @@ import (
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
+const (
+	// CustomChannelRemoteReserve is the custom channel minimum remote
+	// reserve that we'll use for our channels.
+	CustomChannelRemoteReserve = 1062
+)
+
 // LndPbstChannelFunder is an implementation of the tapchannel.ChannelFunder
 // interface that uses lnd to carry out the PSBT funding process.
 type LndPbstChannelFunder struct {
@@ -92,7 +98,8 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 	// taproot channel, that uses the PSBT funding flow.
 	taprootCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT
 	openChanStream, errChan, err := l.lnd.Client.OpenChannelStream(
-		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt, 0, true,
+		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt,
+		CustomChannelRemoteReserve, true,
 		lndclient.WithCommitmentType(&taprootCommitType),
 		lndclient.WithFundingShim(&lnrpc.FundingShim{
 			Shim: &lnrpc.FundingShim_PsbtShim{
@@ -103,6 +110,7 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 				},
 			},
 		}),
+		lndclient.WithRemoteReserve(CustomChannelRemoteReserve),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel with "+
