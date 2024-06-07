@@ -134,6 +134,26 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 	}, nil
 }
 
+// fundingSpendwitness creates a complete witness to spend the OP_TRUE funding
+// script of an asset funding output.
+func fundingSpendWitness() lfn.Result[wire.TxWitness] {
+	fundingScriptTree := NewFundingScriptTree()
+
+	tapscriptTree := fundingScriptTree.TapscriptTree
+	ctrlBlock := tapscriptTree.LeafMerkleProofs[0].ToControlBlock(
+		&input.TaprootNUMSKey,
+	)
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return lfn.Errf[wire.TxWitness]("unable to serialize control "+
+			"block: %w", err)
+	}
+
+	return lfn.Ok(wire.TxWitness{
+		anyoneCanSpendScript(), ctrlBlockBytes,
+	})
+}
+
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close
 // attempt. We'll add some extra outputs to the co-op close transaction, and
 // also give the caller a custom sorting routine.
@@ -339,7 +359,11 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// With the vPackets created we'll now prepare all the split
 	// information encoded in the vPackets.
-	fundingScriptTree := NewFundingScriptTree()
+	fundingWitness, err := fundingSpendWitness().Unpack()
+	if err != nil {
+		return none, fmt.Errorf("unable to make funding "+
+			"witness: %w", err)
+	}
 	ctx := context.Background()
 	for idx := range vPackets {
 		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
@@ -348,29 +372,15 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 				"assets: %w", err)
 		}
 
-		// For our split root, we'll need to create a valid control
-		// block for our OP_TRUE script.
-		tapscriptTree := fundingScriptTree.TapscriptTree
-		ctrlBlock := tapscriptTree.LeafMerkleProofs[0].ToControlBlock(
-			&input.TaprootNUMSKey,
-		)
-		ctrlBlockBytes, err := ctrlBlock.ToBytes()
-		if err != nil {
-			return none, fmt.Errorf("unable to serialize "+
-				"control block: %w", err)
-		}
-
-		txWitness := wire.TxWitness{
-			anyoneCanSpendScript(), ctrlBlockBytes,
-		}
-
 		for outIdx := range vPackets[idx].Outputs {
 			outAsset := vPackets[idx].Outputs[outIdx].Asset
 
 			// There is always only a single input, which is the
 			// funding output.
 			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(inputIndex, txWitness)
+			err := outAsset.UpdateTxWitness(
+				inputIndex, fundingWitness,
+			)
 			if err != nil {
 				return none, fmt.Errorf("error updating "+
 					"witness: %w", err)
