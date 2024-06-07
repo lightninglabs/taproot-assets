@@ -258,7 +258,9 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		// anchor amt, then we'll just drop this allocation, and modify
 		// our asset allocation to match this value.
 		if amtAfterAnchor <= o.DustLimit {
-			localAlloc.BtcAmount = btcAmt
+			if localAlloc != nil {
+				localAlloc.BtcAmount = btcAmt
+			}
 			return
 		}
 
@@ -285,7 +287,10 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		// anchor amt, then we'll just drop this allocation, and modify
 		// our asset allocation to match this value.
 		if amtAfterAnchor <= o.DustLimit {
-			remoteAlloc.BtcAmount = btcAmt
+			if remoteAlloc != nil {
+				remoteAlloc.BtcAmount = btcAmt
+			}
+
 			return
 		}
 

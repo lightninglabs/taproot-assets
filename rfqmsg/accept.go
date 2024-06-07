@@ -42,8 +42,12 @@ type acceptWireMsgData struct {
 	// Sig is a signature over the serialized contents of the message.
 	Sig tlv.RecordT[tlv.TlvType3, [64]byte]
 
+	// InOutRateTick is the tick rate for the accept, defined in
+	// in_asset/out_asset. This is only set in a buy accept message.
 	InOutRateTick acceptInOutRateTick
 
+	// OutInRateTick is the tick rate for the accept, defined in
+	// out_asset/in_asset. This is only set in a sell accept message.
 	OutInRateTick acceptOutInRateTick
 }
 

@@ -127,6 +127,9 @@ func ParseUniversePublicAccessStatus(
 	case "w":
 		return UniversePublicAccessStatusWrite, nil
 
+	case "":
+		return UniversePublicAccessStatusNone, nil
+
 	default:
 		// This default case returns an error. It will capture the case
 		// where the CLI argument is present but unset (empty value).

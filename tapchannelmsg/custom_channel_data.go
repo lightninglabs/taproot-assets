@@ -61,6 +61,10 @@ type ChannelCustomData struct {
 
 // AsJson returns the JSON representation of the channel custom data.
 func (c *ChannelCustomData) AsJson() ([]byte, error) {
+	if len(c.OpenChan.Assets()) == 0 {
+		return []byte{}, nil
+	}
+
 	resp := &rfqmsg.JsonAssetChannel{}
 	for _, output := range c.OpenChan.Assets() {
 		a := output.Proof.Val.Asset
@@ -126,6 +130,10 @@ type BalanceCustomData struct {
 
 // AsJson returns the JSON representation of the channel balance data.
 func (b *BalanceCustomData) AsJson() ([]byte, error) {
+	if len(b.OpenChannels) == 0 && len(b.PendingChannels) == 0 {
+		return []byte{}, nil
+	}
+
 	resp := &rfqmsg.JsonAssetChannelBalances{
 		OpenChannels:    make(map[string]*rfqmsg.JsonAssetBalance),
 		PendingChannels: make(map[string]*rfqmsg.JsonAssetBalance),
@@ -334,6 +342,34 @@ func ParseCustomChannelData(msg proto.Message) error {
 		if err != nil {
 			return fmt.Errorf("error converting custom balance "+
 				"data to JSON: %w", err)
+		}
+
+	case *lnrpc.PendingChannelsResponse:
+		for idx := range m.PendingOpenChannels {
+			pendingOpen := m.PendingOpenChannels[idx]
+			rpcChannel := pendingOpen.Channel
+
+			if rpcChannel == nil {
+				continue
+			}
+
+			if rpcChannel.CustomChannelData == nil {
+				continue
+			}
+
+			channelData, err := ReadChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return fmt.Errorf("error reading custom "+
+					"channel data: %w", err)
+			}
+
+			rpcChannel.CustomChannelData, err = channelData.AsJson()
+			if err != nil {
+				return fmt.Errorf("error converting custom "+
+					"channel data to JSON: %w", err)
+			}
 		}
 
 	case *lnrpc.CloseStatusUpdate:
