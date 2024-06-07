@@ -285,10 +285,24 @@ func (c *AssetPurchasePolicy) Scid() uint64 {
 
 // GenerateInterceptorResponse generates an interceptor response for the policy.
 func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
-	_ lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
+	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	incomingValue := lnwire.MilliSatoshi(c.AssetAmount) * c.BidPrice
+	htlcRecord, err := parseHtlcCustomRecords(htlc.WireCustomRecords)
+	if err != nil {
+		return nil, fmt.Errorf("parsing HTLC custom records failed: %w",
+			err)
+	}
+
+	// The incoming amount is just to signal to the fee logic in lnd that
+	// we have received enough to pay for the routing fees and the asset
+	// amount. Due to rounding errors, we may slightly underreport the
+	// incoming value of the asset. So we increase it by exactly one asset
+	// unit to ensure that the fee logic in lnd does not reject the HTLC.
+	const roundingCorrection = 1
+	htlcAssetAmount := htlcRecord.Amounts.Val.Sum() + roundingCorrection
+	incomingValue := lnwire.MilliSatoshi(htlcAssetAmount) * c.BidPrice
+
 	return &lndclient.InterceptedHtlcResponse{
 		Action:         lndclient.InterceptorActionResumeModified,
 		IncomingAmount: incomingValue,
