@@ -557,6 +557,51 @@ func (a *AuxChanCloser) ShutdownBlob(
 	return lfn.Some[lnwire.CustomRecords](records), nil
 }
 
+// shipChannelTxn takes a chanenl transaction, an output commitment, and the
+// set of vPackets used to make the output commitment and ships a complete
+// pre-singed package off to the porter. This'll insert a transfer for the
+// channel, send the final transaction to the network, and update any
+// transition proofs once a confirmation occurs.
+func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
+	outputCommitments tappsbt.OutputCommitments,
+	vPkts []*tappsbt.VPacket, closeFee int64) error {
+
+	chanTxPsbt, err := tapsend.PrepareAnchoringTemplate(vPkts)
+	if err != nil {
+		return fmt.Errorf("unable to make close psbt: %w", err)
+	}
+	for _, vPkt := range vPkts {
+		err = tapsend.UpdateTaprootOutputKeys(
+			chanTxPsbt, vPkt, outputCommitments,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update taproot "+
+				"keys: %w", err)
+		}
+	}
+
+	// With the proofs updated, we can now send things off to the freighter
+	// to insert the transfer and add the merkle inclusion proof after
+	// confirmation.
+	closeAnchor := &tapsend.AnchorTransaction{
+		FundedPsbt: &tapsend.FundedPsbt{
+			Pkt:       chanTxPsbt,
+			ChainFees: closeFee,
+		},
+		ChainFees: closeFee,
+		FinalTx:   chanTx,
+	}
+	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
+		vPkts, nil, closeAnchor,
+	)
+	_, err = txSender.RequestShipment(preSignedParcel)
+	if err != nil {
+		return fmt.Errorf("error requesting delivery: %w", err)
+	}
+
+	return nil
+}
+
 // FinalizeClose is called once the co-op close transaction has been agreed
 // upon. We'll finalize the exclusion proofs, then send things off to the
 // custodian or porter to finish sending/receiving the proofs.
@@ -605,40 +650,11 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 		}
 	}
 
-	coopClosePsbt, err := tapsend.PrepareAnchoringTemplate(
-		closeInfo.vPackets,
+	// With the proofs finalized above, we'll now ship the transaction off
+	// to the porter so it can insert a record on disk, and deliver the
+	// relevant set of proofs.
+	return shipChannelTxn(
+		a.cfg.TxSender, closeTx, closeInfo.outputCommitments,
+		closeInfo.vPackets, closeInfo.closeFee,
 	)
-	if err != nil {
-		return fmt.Errorf("unable to make close psbt: %w", err)
-	}
-	for _, vPkt := range closeInfo.vPackets {
-		err = tapsend.UpdateTaprootOutputKeys(
-			coopClosePsbt, vPkt, closeInfo.outputCommitments,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update taproot "+
-				"keys: %w", err)
-		}
-	}
-
-	// With the proofs updated, we can now send things off to the freighter
-	// to insert the transfer and add the merkle inclusion proof after
-	// confirmation.
-	closeAnchor := &tapsend.AnchorTransaction{
-		FundedPsbt: &tapsend.FundedPsbt{
-			Pkt:       coopClosePsbt,
-			ChainFees: closeInfo.closeFee,
-		},
-		ChainFees: closeInfo.closeFee,
-		FinalTx:   closeTx,
-	}
-	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		closeInfo.vPackets, nil, closeAnchor,
-	)
-	_, err = a.cfg.TxSender.RequestShipment(preSignedParcel)
-	if err != nil {
-		return fmt.Errorf("error requesting delivery: %w", err)
-	}
-
-	return nil
 }
