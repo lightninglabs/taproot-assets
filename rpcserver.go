@@ -6395,6 +6395,14 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	req *tchrpc.FundChannelRequest) (*tchrpc.FundChannelResponse,
 	error) {
 
+	// If we're not running inside litd, we cannot offer this functionality.
+	if !r.cfg.EnableChannelFeatures {
+		return nil, fmt.Errorf("the Taproot Asset channel " +
+			"functionality is only available when running inside " +
+			"Lightning Terminal daemon (litd), with lnd and tapd " +
+			"both running in 'integrated' mode")
+	}
+
 	peerPub, err := btcec.ParsePubKey(req.PeerPubkey)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing peer pubkey: %w", err)
