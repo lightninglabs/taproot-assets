@@ -102,6 +102,19 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 		return nil, fmt.Errorf("no script key for asset %v", assetID)
 	}
 
+	var proofDeliveryUrl *url.URL
+	err := lfn.MapOptionZ(
+		shutdownMsg.ProofDeliveryAddr.ValOpt(), func(u []byte) error {
+			var err error
+			proofDeliveryUrl, err = url.Parse(string(u))
+			return err
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof delivery "+
+			"address: %w", err)
+	}
+
 	return &Allocation{
 		Type: func() AllocationType {
 			if isLocal {
@@ -110,13 +123,14 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 
 			return CommitAllocationToRemote
 		}(),
-		SplitRoot:           isInitiator,
-		InternalKey:         shutdownMsg.AssetInternalKey.Val,
-		ScriptKey:           asset.NewScriptKey(&scriptKey),
-		Amount:              closeAsset.Amount,
-		AssetVersion:        asset.V0,
-		BtcAmount:           tapsend.DummyAmtSats,
-		SortTaprootKeyBytes: sortKeyBytes,
+		SplitRoot:            isInitiator,
+		InternalKey:          shutdownMsg.AssetInternalKey.Val,
+		ScriptKey:            asset.NewScriptKey(&scriptKey),
+		Amount:               closeAsset.Amount,
+		AssetVersion:         asset.V0,
+		BtcAmount:            tapsend.DummyAmtSats,
+		SortTaprootKeyBytes:  sortKeyBytes,
+		ProofDeliveryAddress: proofDeliveryUrl,
 	}, nil
 }
 
@@ -325,14 +339,6 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		return none, fmt.Errorf("unable to distribute coins: %w", err)
 	}
 
-	// For each vPkt, we'll also go ahead and add the default proof courier
-	// addr to them.
-	for _, vPacket := range vPackets {
-		for _, vOut := range vPacket.Outputs {
-			vOut.ProofDeliveryAddress = a.cfg.DefaultCourierAddr
-		}
-	}
-
 	// With the vPackets created we'll now prepare all the split
 	// information encoded in the vPackets.
 	fundingScriptTree := NewFundingScriptTree()
@@ -517,8 +523,9 @@ func (a *AuxChanCloser) ShutdownBlob(
 	// can send to lnd to have included.
 	shutdownRecord := tapchannelmsg.NewAuxShutdownMsg(
 		&btcInternalKey, newInternalKey.PubKey, scriptKeys,
+		a.cfg.DefaultCourierAddr,
 	)
-	records, err := tlv.RecordsToMap(shutdownRecord.Records())
+	records, err := tlv.RecordsToMap(shutdownRecord.EncodeRecords())
 	if err != nil {
 		return none, err
 	}

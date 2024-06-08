@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/txscript"
@@ -69,6 +70,11 @@ type (
 	// ScriptKeysShutdownType is the type alias for the TLV type that is
 	// used to encode the script keys of the shutdown record on the wire.
 	ScriptKeysShutdownType = tlv.TlvType65541
+
+	// ProofDeliveryAddrShutdownType is the type alias for the TLV type that
+	// is used to encode the proof delivery address of the shutdown record
+	// on the wire.
+	ProofDeliveryAddrShutdownType = tlv.TlvType65542
 )
 
 // OpenChannel is a record that represents the capacity information related to
@@ -1795,12 +1801,31 @@ type AuxShutdownMsg struct {
 	// ScriptKeys maps asset IDs to script keys to be used to send the
 	// assets to the sending party in the co-op close transaction.
 	ScriptKeys tlv.RecordT[ScriptKeysShutdownType, ScriptKeyMap]
+
+	// ProofDeliveryAddr is an optional type that contains the delivery
+	// address for the proofs of the co-op close outputs of the local node.
+	ProofDeliveryAddr tlv.OptionalRecordT[
+		ProofDeliveryAddrShutdownType, []byte,
+	]
 }
 
 // NewAuxShutdownMsg creates a new AuxShutdownMsg with the given internal key
 // and script key map.
 func NewAuxShutdownMsg(btcInternalKey, assetInternalKey *btcec.PublicKey,
-	scriptKeys ScriptKeyMap) *AuxShutdownMsg {
+	scriptKeys ScriptKeyMap, proofDeliveryAddr *url.URL) *AuxShutdownMsg {
+
+	var deliveryAddr tlv.OptionalRecordT[
+		ProofDeliveryAddrShutdownType, []byte,
+	]
+	if proofDeliveryAddr != nil {
+		deliveryAddrBytes := []byte(proofDeliveryAddr.String())
+		rec := tlv.NewPrimitiveRecord[ProofDeliveryAddrShutdownType](
+			deliveryAddrBytes,
+		)
+		deliveryAddr = tlv.SomeRecordT[ProofDeliveryAddrShutdownType](
+			rec,
+		)
+	}
 
 	return &AuxShutdownMsg{
 		BtcInternalKey: tlv.NewPrimitiveRecord[BtcKeyShutdownType](
@@ -1812,12 +1837,31 @@ func NewAuxShutdownMsg(btcInternalKey, assetInternalKey *btcec.PublicKey,
 		ScriptKeys: tlv.NewRecordT[ScriptKeysShutdownType](
 			scriptKeys,
 		),
+		ProofDeliveryAddr: deliveryAddr,
 	}
+}
+
+// EncodeRecords returns the records that make up the AuxShutdownMsg for
+// encoding.
+func (a *AuxShutdownMsg) EncodeRecords() []tlv.Record {
+	records := []tlv.Record{
+		a.BtcInternalKey.Record(),
+		a.AssetInternalKey.Record(),
+		a.ScriptKeys.Record(),
+	}
+
+	a.ProofDeliveryAddr.WhenSome(
+		func(r tlv.RecordT[ProofDeliveryAddrShutdownType, []byte]) {
+			records = append(records, r.Record())
+		},
+	)
+
+	return records
 }
 
 // Encode serializes the AuxShutdownMsg to the given io.Writer.
 func (a *AuxShutdownMsg) Encode(w io.Writer) error {
-	tlvStream, err := tlv.NewStream(a.Records()...)
+	tlvStream, err := tlv.NewStream(a.EncodeRecords()...)
 	if err != nil {
 		return err
 	}
@@ -1827,25 +1871,30 @@ func (a *AuxShutdownMsg) Encode(w io.Writer) error {
 
 // Decode deserializes the AuxShutdownMsg from the given io.Reader.
 func (a *AuxShutdownMsg) Decode(r io.Reader) error {
-	tlvStream, err := tlv.NewStream(a.Records()...)
+	deliveryAddr := a.ProofDeliveryAddr.Zero()
+
+	records := []tlv.Record{
+		a.BtcInternalKey.Record(),
+		a.AssetInternalKey.Record(),
+		a.ScriptKeys.Record(),
+		deliveryAddr.Record(),
+	}
+
+	tlvStream, err := tlv.NewStream(records...)
 	if err != nil {
 		return err
 	}
 
-	if _, err := tlvStream.DecodeWithParsedTypesP2P(r); err != nil {
+	tlvs, err := tlvStream.DecodeWithParsedTypesP2P(r)
+	if err != nil {
 		return err
 	}
 
-	return nil
-}
-
-// Records returns a slice of tlv.Record that represents the AuxShutdownMsg.
-func (a *AuxShutdownMsg) Records() []tlv.Record {
-	return []tlv.Record{
-		a.BtcInternalKey.Record(),
-		a.AssetInternalKey.Record(),
-		a.ScriptKeys.Record(),
+	if _, ok := tlvs[deliveryAddr.TlvType()]; ok {
+		a.ProofDeliveryAddr = tlv.SomeRecordT(deliveryAddr)
 	}
+
+	return nil
 }
 
 // DecodeAuxShutdownMsg deserializes a AuxShutdownMsg from the given blob.
