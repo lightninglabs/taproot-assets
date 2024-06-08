@@ -17,7 +17,7 @@ var log = btclog.Disabled
 // to 4 levels, so it can safely be used for things that contain an MS-SMT tree.
 var limitSpewer = &spew.ConfigState{
 	Indent:   "  ",
-	MaxDepth: 4,
+	MaxDepth: 5,
 }
 
 // DisableLog disables all library log output.  Logging output is disabled
