@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"bytes"
 	"fmt"
+	"net/url"
 	"sort"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -144,6 +145,10 @@ type Allocation struct {
 	// OutputCommitment is the taproot output commitment that is set after
 	// fully distributing the coins and creating the asset and TAP trees.
 	OutputCommitment *commitment.TapCommitment
+
+	// ProofDeliveryAddress is the address the proof courier should use to
+	// upload the proof for this allocation.
+	ProofDeliveryAddress *url.URL
 }
 
 // tapscriptSibling returns the tapscript sibling preimage from the non-asset
@@ -438,6 +443,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				return nil, err
 			}
 
+			deliveryAddr := a.ProofDeliveryAddress
 			vOut := &tappsbt.VOutput{
 				Amount:                       allocating,
 				AssetVersion:                 a.AssetVersion,
@@ -447,6 +453,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				AnchorOutputInternalKey:      a.InternalKey,
 				AnchorOutputTapscriptSibling: sibling,
 				ScriptKey:                    a.ScriptKey,
+				ProofDeliveryAddress:         deliveryAddr,
 			}
 			p.packet.Outputs = append(p.packet.Outputs, vOut)
 
