@@ -515,7 +515,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		// Sum the total amount of the input assets.
 		inputsAmountSum := uint64(0)
 		for idx := range inputs {
-			input := inputs[idx]
+			in := inputs[idx]
 
 			// At the moment, we need to ensure that all inputs have
 			// the same asset ID. We've already checked that above,
@@ -525,7 +525,7 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 					"must have the same asset ID")
 			}
 
-			inputsAmountSum += input.Asset().Amount
+			inputsAmountSum += in.Asset().Amount
 		}
 
 		// At this point we know that each input has the same asset ID
@@ -541,16 +541,20 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		vOut.Asset.Amount = inputsAmountSum
 		vOut.Asset.ScriptKey = vOut.ScriptKey
 
+		// We also need to clear the split commitment root to avoid
+		// state from previous splits being carried over.
+		vOut.Asset.SplitCommitmentRoot = nil
+
 		// Gather previous witnesses from the input assets.
 		prevWitnesses := make([]asset.Witness, len(inputs))
 		for idx := range inputs {
-			input := inputs[idx]
+			in := inputs[idx]
 
 			// Record the PrevID of the input asset in a Witness for
 			// the new asset. This Witness still needs a valid
 			// signature for the new asset to be valid.
 			prevWitnesses[idx] = asset.Witness{
-				PrevID:          &input.PrevID,
+				PrevID:          &in.PrevID,
 				TxWitness:       nil,
 				SplitCommitment: nil,
 			}
