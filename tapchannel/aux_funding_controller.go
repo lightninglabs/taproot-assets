@@ -72,6 +72,9 @@ type OpenChanReq struct {
 	// CPFP with the channel anchor outputs.
 	ChanAmt btcutil.Amount
 
+	// PushAmt is the amount of BTC to push to the remote peer.
+	PushAmt btcutil.Amount
+
 	// PeerPub is the identity public key of the remote peer we wish to
 	// open the channel with.
 	PeerPub btcec.PublicKey
@@ -289,6 +292,8 @@ type pendingAssetFunding struct {
 	initiator bool
 
 	amt uint64
+
+	pushAmt btcutil.Amount
 
 	inputProofs []*proof.Proof
 
@@ -946,6 +951,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// flow with lnd.
 	fundingReq := OpenChanReq{
 		ChanAmt: 100_000,
+		PushAmt: fundingState.pushAmt,
 		PeerPub: fundingState.peerPub,
 		TempPID: fundingState.pid,
 	}
@@ -1173,6 +1179,7 @@ func (f *FundingController) chanFunder() {
 				pid:                    tempPID,
 				initiator:              true,
 				amt:                    fundReq.AssetAmount,
+				pushAmt:                fundReq.PushAmount,
 				feeRate:                fundReq.FeeRate,
 				fundingAckChan:         make(chan bool, 1),
 				fundingFinalizedSignal: make(chan struct{}),
@@ -1601,6 +1608,10 @@ type FundReq struct {
 
 	// FeeRate is the fee rate that we'll use to fund the channel.
 	FeeRate chainfee.SatPerVByte
+
+	// PushAmount is the amount of satoshis that we'll push to the remote
+	// party.
+	PushAmount btcutil.Amount
 
 	ctx      context.Context
 	respChan chan *wire.OutPoint

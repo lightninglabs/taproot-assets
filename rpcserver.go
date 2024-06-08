@@ -17,6 +17,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -6414,6 +6415,7 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 		PeerPub:     *peerPub,
 		AssetAmount: req.AssetAmount,
 		FeeRate:     chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
+		PushAmount:  btcutil.Amount(req.PushSat),
 	}
 	copy(fundReq.AssetID[:], req.AssetId)
 

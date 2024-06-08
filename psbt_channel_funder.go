@@ -92,8 +92,8 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 	// taproot channel, that uses the PSBT funding flow.
 	taprootCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT
 	openChanStream, errChan, err := l.lnd.Client.OpenChannelStream(
-		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt, 0, true,
-		lndclient.WithCommitmentType(&taprootCommitType),
+		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt, req.PushAmt,
+		true, lndclient.WithCommitmentType(&taprootCommitType),
 		lndclient.WithFundingShim(&lnrpc.FundingShim{
 			Shim: &lnrpc.FundingShim_PsbtShim{
 				PsbtShim: &lnrpc.PsbtShim{
