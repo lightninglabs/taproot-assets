@@ -3,6 +3,7 @@ package tapchannelmsg
 import (
 	"bytes"
 	"encoding/hex"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -438,15 +439,42 @@ func TestAuxShutdownMsg(t *testing.T) {
 		testScriptKeys[[32]byte{byte(i)}] = *test.RandPubKey(t)
 	}
 
-	testShutdownMsg := NewAuxShutdownMsg(
-		testBtcInternalKey, testAssetInternalKey, testScriptKeys,
-	)
+	dummyURL, err := url.Parse("https://example.com")
+	require.NoError(t, err)
 
-	var shutdownBuffer bytes.Buffer
-	require.NoError(t, testShutdownMsg.Encode(&shutdownBuffer))
+	testCases := []struct {
+		name     string
+		shutdown *AuxShutdownMsg
+	}{
+		{
+			name: "AuxShutdownMsg with no URL",
+			shutdown: NewAuxShutdownMsg(
+				testBtcInternalKey, testAssetInternalKey,
+				testScriptKeys, nil,
+			),
+		},
+		{
+			name: "AuxShutdownMsg with URL",
+			shutdown: NewAuxShutdownMsg(
+				testBtcInternalKey, testAssetInternalKey,
+				testScriptKeys, dummyURL,
+			),
+		},
+	}
 
-	var newShutdownMsg AuxShutdownMsg
-	require.NoError(t, newShutdownMsg.Decode(&shutdownBuffer))
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Serialize the AuxShutdownMsg and then deserialize it
+			// again.
+			var b bytes.Buffer
+			err := tc.shutdown.Encode(&b)
+			require.NoError(t, err)
 
-	require.Equal(t, *testShutdownMsg, newShutdownMsg)
+			newShutdownMsg := &AuxShutdownMsg{}
+			err = newShutdownMsg.Decode(&b)
+			require.NoError(t, err)
+
+			require.Equal(t, tc.shutdown, newShutdownMsg)
+		})
+	}
 }

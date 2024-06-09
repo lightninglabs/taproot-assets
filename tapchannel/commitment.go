@@ -401,8 +401,16 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 			"anchors", chanType)
 	}
 
-	wantLocalAnchor := ourAssetBalance > 0 || numHTLCs > 0
-	wantRemoteAnchor := theirAssetBalance > 0 || numHTLCs > 0
+	// Due to push amounts on channel open or pure BTC payments, we can have
+	// a BTC balance even if the asset balance is zero.
+	ourBtcNonDust := ourBalance >= dustLimit
+	theirBtcNonDust := theirBalance >= dustLimit
+
+	// So we want an anchor if we either have assets or non-dust BTC or
+	// any in-flight HTLCs.
+	wantLocalAnchor := ourAssetBalance > 0 || ourBtcNonDust || numHTLCs > 0
+	wantRemoteAnchor := theirAssetBalance > 0 || theirBtcNonDust ||
+		numHTLCs > 0
 
 	return wantLocalAnchor, wantRemoteAnchor, nil
 }
@@ -750,7 +758,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 
 	// We've asserted that we have a non-dust BTC balance if we have an
 	// asset balance before, so we can just check the asset balance here.
-	if ourAssetBalance > 0 {
+	if ourAssetBalance > 0 || ourBalance > 0 {
 		toLocalScript, err := lnwallet.CommitScriptToSelf(
 			chanType, initiator, keys.ToLocalKey,
 			keys.RevocationKey, uint32(localChanCfg.CsvDelay),
@@ -769,7 +777,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
-		addAllocation(&Allocation{
+		allocation := &Allocation{
 			Type:           CommitAllocationToLocal,
 			Amount:         ourAssetBalance,
 			AssetVersion:   asset.V1,
@@ -783,10 +791,29 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toLocalTree.TaprootKey,
 			),
-		})
+		}
+
+		// If there are no assets, only BTC (for example due to a push
+		// amount), the allocation looks simpler.
+		if ourAssetBalance == 0 {
+			allocation = &Allocation{
+				Type:           AllocationTypeNoAssets,
+				BtcAmount:      ourBalance,
+				InternalKey:    toLocalTree.InternalKey,
+				NonAssetLeaves: sibling,
+				ScriptKey: asset.NewScriptKey(
+					toLocalTree.TaprootKey,
+				),
+				SortTaprootKeyBytes: schnorr.SerializePubKey(
+					toLocalTree.TaprootKey,
+				),
+			}
+		}
+
+		addAllocation(allocation)
 	}
 
-	if theirAssetBalance > 0 {
+	if theirAssetBalance > 0 || theirBalance > 0 {
 		toRemoteScript, _, err := lnwallet.CommitScriptToRemote(
 			chanType, initiator, keys.ToRemoteKey, leaseExpiry,
 			lfn.None[txscript.TapLeaf](),
@@ -804,7 +831,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
-		addAllocation(&Allocation{
+		allocation := &Allocation{
 			Type:           CommitAllocationToRemote,
 			Amount:         theirAssetBalance,
 			AssetVersion:   asset.V1,
@@ -818,7 +845,26 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toRemoteTree.TaprootKey,
 			),
-		})
+		}
+
+		// If there are no assets, only BTC (for example due to a push
+		// amount), the allocation looks simpler.
+		if theirAssetBalance == 0 {
+			allocation = &Allocation{
+				Type:           AllocationTypeNoAssets,
+				BtcAmount:      theirBalance,
+				InternalKey:    toRemoteTree.InternalKey,
+				NonAssetLeaves: sibling,
+				ScriptKey: asset.NewScriptKey(
+					toRemoteTree.TaprootKey,
+				),
+				SortTaprootKeyBytes: schnorr.SerializePubKey(
+					toRemoteTree.TaprootKey,
+				),
+			}
+		}
+
+		addAllocation(allocation)
 	}
 
 	return nil

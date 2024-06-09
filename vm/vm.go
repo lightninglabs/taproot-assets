@@ -366,7 +366,9 @@ func (vm *Engine) validateStateTransition() error {
 	if treeRoot.NodeSum() !=
 		uint64(virtualTx.TxOut[0].Value) {
 
-		return newErrKind(ErrAmountMismatch)
+		return newErrInner(ErrAmountMismatch, fmt.Errorf("expected "+
+			"output value=%v, got=%v", treeRoot.NodeSum(),
+			virtualTx.TxOut[0].Value))
 	}
 
 	for i, witness := range vm.newAsset.PrevWitnesses {

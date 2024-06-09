@@ -99,6 +99,14 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "push_sat",
+            "description": "The number of satoshis to give the remote side as part of the initial\ncommitment state. This is equivalent to first opening a channel and then\nsending the remote party funds, but all done in one step. Therefore, this\nis equivalent to a donation to the remote party, unless they reimburse\nthe funds in another way (outside the protocol).",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
           }
         ],
         "tags": [

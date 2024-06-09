@@ -36,6 +36,13 @@ message FundChannelRequest {
 
     // The channel funding fee rate in sat/vByte.
     uint32 fee_rate_sat_per_vbyte = 4;
+
+    // The number of satoshis to give the remote side as part of the initial
+    // commitment state. This is equivalent to first opening a channel and then
+    // sending the remote party funds, but all done in one step. Therefore, this
+    // is equivalent to a donation to the remote party, unless they reimburse
+    // the funds in another way (outside the protocol).
+    int64 push_sat = 5;
 }
 
 message FundChannelResponse {

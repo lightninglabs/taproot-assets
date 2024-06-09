@@ -38,7 +38,7 @@ type databaseBackend interface {
 // NOTE: The RPCConfig and SignalInterceptor fields must be set by the caller
 // after generating the server config.
 func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
-	lndServices *lndclient.LndServices,
+	lndServices *lndclient.LndServices, enableChannelFeatures bool,
 	mainErrChan chan<- error) (*tap.Config, error) {
 
 	var err error
@@ -452,10 +452,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	}
 
 	return &tap.Config{
-		DebugLevel:   cfg.DebugLevel,
-		RuntimeID:    runtimeID,
-		Lnd:          lndServices,
-		ChainParams:  address.ParamsForChain(cfg.ActiveNetParams.Name),
+		DebugLevel:            cfg.DebugLevel,
+		RuntimeID:             runtimeID,
+		EnableChannelFeatures: enableChannelFeatures,
+		Lnd:                   lndServices,
+		ChainParams: address.ParamsForChain(
+			cfg.ActiveNetParams.Name,
+		),
 		ReOrgWatcher: reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
 			GardenKit: tapgarden.GardenKit{
@@ -530,7 +533,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 // CreateServerFromConfig creates a new Taproot Asset server from the given CLI
 // config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
-	shutdownInterceptor signal.Interceptor,
+	shutdownInterceptor signal.Interceptor, enableChannelFeatures bool,
 	mainErrChan chan<- error) (*tap.Server, error) {
 
 	// Given the config above, grab the TLS config which includes the set
@@ -556,7 +559,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	cfgLogger.Infof("lnd connection initialized")
 
 	serverCfg, err := genServerConfig(
-		cfg, cfgLogger, &lndConn.LndServices, mainErrChan,
+		cfg, cfgLogger, &lndConn.LndServices, enableChannelFeatures,
+		mainErrChan,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate server config: %w",
@@ -590,11 +594,11 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 
 // ConfigureSubServer updates a Taproot Asset server with the given CLI config.
 func ConfigureSubServer(srv *tap.Server, cfg *Config, cfgLogger btclog.Logger,
-	lndServices *lndclient.LndServices,
+	lndServices *lndclient.LndServices, litdIntegrated bool,
 	mainErrChan chan<- error) error {
 
 	serverCfg, err := genServerConfig(
-		cfg, cfgLogger, lndServices, mainErrChan,
+		cfg, cfgLogger, lndServices, litdIntegrated, mainErrChan,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to generate server config: %w", err)

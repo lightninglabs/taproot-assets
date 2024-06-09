@@ -102,6 +102,19 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 		return nil, fmt.Errorf("no script key for asset %v", assetID)
 	}
 
+	var proofDeliveryUrl *url.URL
+	err := lfn.MapOptionZ(
+		shutdownMsg.ProofDeliveryAddr.ValOpt(), func(u []byte) error {
+			var err error
+			proofDeliveryUrl, err = url.Parse(string(u))
+			return err
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof delivery "+
+			"address: %w", err)
+	}
+
 	return &Allocation{
 		Type: func() AllocationType {
 			if isLocal {
@@ -110,13 +123,14 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 
 			return CommitAllocationToRemote
 		}(),
-		SplitRoot:           isInitiator,
-		InternalKey:         shutdownMsg.AssetInternalKey.Val,
-		ScriptKey:           asset.NewScriptKey(&scriptKey),
-		Amount:              closeAsset.Amount,
-		AssetVersion:        asset.V0,
-		BtcAmount:           tapsend.DummyAmtSats,
-		SortTaprootKeyBytes: sortKeyBytes,
+		SplitRoot:            isInitiator,
+		InternalKey:          shutdownMsg.AssetInternalKey.Val,
+		ScriptKey:            asset.NewScriptKey(&scriptKey),
+		Amount:               closeAsset.Amount,
+		AssetVersion:         asset.V0,
+		BtcAmount:            tapsend.DummyAmtSats,
+		SortTaprootKeyBytes:  sortKeyBytes,
+		ProofDeliveryAddress: proofDeliveryUrl,
 	}, nil
 }
 
@@ -325,14 +339,6 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		return none, fmt.Errorf("unable to distribute coins: %w", err)
 	}
 
-	// For each vPkt, we'll also go ahead and add the default proof courier
-	// addr to them.
-	for _, vPacket := range vPackets {
-		for _, vOut := range vPacket.Outputs {
-			vOut.ProofDeliveryAddress = a.cfg.DefaultCourierAddr
-		}
-	}
-
 	// With the vPackets created we'll now prepare all the split
 	// information encoded in the vPackets.
 	fundingScriptTree := NewFundingScriptTree()
@@ -493,16 +499,16 @@ func (a *AuxChanCloser) ShutdownBlob(
 		return none, err
 	}
 
-	// Next, we'll collect all the asset IDs that we own in this channel.
-	assetIDs := lfn.Map(func(o *tapchannelmsg.AssetOutput) asset.ID {
-		return o.AssetID.Val
-	}, commitState.LocalAssets.Val.Outputs)
+	// Next, we'll collect all the assets that we own in this channel.
+	assets := commitState.LocalAssets.Val.Outputs
 
 	// Now that we have all the asset IDs, we'll query for a new key for
 	// each of them which we'll use as both the internal key and the script
 	// key.
 	scriptKeys := make(tapchannelmsg.ScriptKeyMap)
-	for _, assetID := range assetIDs {
+	for idx := range assets {
+		channelAsset := assets[idx]
+
 		newKey, err := a.cfg.AddrBook.NextScriptKey(
 			ctx, asset.TaprootAssetsKeyFamily,
 		)
@@ -510,15 +516,29 @@ func (a *AuxChanCloser) ShutdownBlob(
 			return none, err
 		}
 
-		scriptKeys[assetID] = *newKey.PubKey
+		// We now add the a
+		// TODO(guggero): This only works if there's only a single asset
+		// in the channel. We need to extend this to support multiple
+		// assets.
+		_, err = a.cfg.AddrBook.NewAddressWithKeys(
+			ctx, channelAsset.AssetID.Val, channelAsset.Amount.Val,
+			newKey, newInternalKey, nil, *a.cfg.DefaultCourierAddr,
+		)
+		if err != nil {
+			return none, fmt.Errorf("error adding new address: %w",
+				err)
+		}
+
+		scriptKeys[channelAsset.AssetID.Val] = *newKey.PubKey
 	}
 
 	// Finally, we'll map the extra shutdown info to a TLV record map we
 	// can send to lnd to have included.
 	shutdownRecord := tapchannelmsg.NewAuxShutdownMsg(
 		&btcInternalKey, newInternalKey.PubKey, scriptKeys,
+		a.cfg.DefaultCourierAddr,
 	)
-	records, err := tlv.RecordsToMap(shutdownRecord.Records())
+	records, err := tlv.RecordsToMap(shutdownRecord.EncodeRecords())
 	if err != nil {
 		return none, err
 	}

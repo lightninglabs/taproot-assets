@@ -147,6 +147,11 @@ type Config struct {
 	// connecting to itself as a federation member.
 	RuntimeID int64
 
+	// EnableChannelFeatures indicates that tapd is running inside the
+	// Lightning Terminal daemon (litd) and can provide Taproot Asset
+	// channel functionality.
+	EnableChannelFeatures bool
+
 	ChainParams address.ChainParams
 
 	Lnd *lndclient.LndServices
