@@ -1829,10 +1829,11 @@
       "enum": [
         "PARCEL_TYPE_ADDRESS",
         "PARCEL_TYPE_PRE_SIGNED",
-        "PARCEL_TYPE_PENDING"
+        "PARCEL_TYPE_PENDING",
+        "PARCEL_TYPE_PRE_ANCHORED"
       ],
       "default": "PARCEL_TYPE_ADDRESS",
-      "description": " - PARCEL_TYPE_ADDRESS: The parcel is an address parcel.\n - PARCEL_TYPE_PRE_SIGNED: The parcel type is a pre-signed parcel where the virtual transactions are\nsigned outside of the send state machine. Parcels of this type will only\nget send states starting from SEND_STATE_ANCHOR_SIGN.\n - PARCEL_TYPE_PENDING: The parcel is pending and was resumed on the latest restart of the\ndaemon. The original parcel type (address or pre-signed) is not known\nanymore, as it's not relevant for the remaining steps. Parcels of this\ntype will only get send states starting from SEND_STATE_BROADCAST."
+      "description": " - PARCEL_TYPE_ADDRESS: The parcel is an address parcel.\n - PARCEL_TYPE_PRE_SIGNED: The parcel type is a pre-signed parcel where the virtual transactions are\nsigned outside of the send state machine. Parcels of this type will only\nget send states starting from SEND_STATE_ANCHOR_SIGN.\n - PARCEL_TYPE_PENDING: The parcel is pending and was resumed on the latest restart of the\ndaemon. The original parcel type (address or pre-signed) is not known\nanymore, as it's not relevant for the remaining steps. Parcels of this\ntype will only get send states starting from SEND_STATE_BROADCAST.\n - PARCEL_TYPE_PRE_ANCHORED: The parcel type is a pre-anchored parcel where the full anchor\ntransaction and all proofs are already available. Parcels of this type\nwill only get send states starting from SEND_STATE_LOG_COMMITMENT."
     },
     "taprpcPrevInputAsset": {
       "type": "object",

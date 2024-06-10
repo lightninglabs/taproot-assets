@@ -1217,6 +1217,11 @@ enum ParcelType {
     // anymore, as it's not relevant for the remaining steps. Parcels of this
     // type will only get send states starting from SEND_STATE_BROADCAST.
     PARCEL_TYPE_PENDING = 2;
+
+    // The parcel type is a pre-anchored parcel where the full anchor
+    // transaction and all proofs are already available. Parcels of this type
+    // will only get send states starting from SEND_STATE_LOG_COMMITMENT.
+    PARCEL_TYPE_PRE_ANCHORED = 3;
 }
 
 message SendEvent {

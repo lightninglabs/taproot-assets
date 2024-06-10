@@ -3793,6 +3793,9 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 	case *tapfreighter.PendingParcel:
 		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PENDING
 
+	case *tapfreighter.PreAnchoredParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PRE_ANCHORED
+
 	default:
 		return nil, fmt.Errorf("unknown parcel type %T", e.Parcel)
 	}
