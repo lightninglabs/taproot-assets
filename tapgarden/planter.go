@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -350,9 +349,6 @@ func (c *ChainPlanter) Start() error {
 				continue
 			}
 
-			log.Infof("Launching ChainCaretaker(%x)",
-				batch.BatchKey.PubKey.SerializeCompressed())
-
 			// For batches before the actual assets have been
 			// committed, we'll need to populate this field
 			// manually.
@@ -361,6 +357,48 @@ func (c *ChainPlanter) Start() error {
 			}
 
 			// TODO(jhb): Log manual fee rates?
+			// If the batch was still pending, or if batch
+			// finalization was interrupted, it may need to be
+			// funded or sealed before being assigned a caretaker.
+			// A batch that was already properly frozen at this
+			// point should not be modified before being assigned a
+			// caretaker.
+			batchKey := batch.BatchKey.PubKey.SerializeCompressed()
+			if batchState == BatchStatePending ||
+				batchState == BatchStateFrozen {
+
+				if !batch.IsFunded() {
+					log.Infof("Funding non-finalized "+
+						"batch from DB (%x)", batchKey)
+					err := c.fundBatch(
+						ctx, FundParams{}, batch,
+					)
+					if err != nil {
+						startErr = err
+						return
+					}
+				}
+
+				log.Infof("Sealing non-finalized batch from "+
+					"DB (%x)", batchKey)
+				_, err := c.sealBatch(ctx, SealParams{}, batch)
+				if err != nil {
+					if !errors.Is(
+						err, ErrBatchAlreadySealed,
+					) {
+
+						startErr = err
+						return
+					}
+				}
+
+				// Any pending batch that was funded and sealed
+				// can now be set as frozen. We are already not
+				// able to add new seedlings to the batch.
+				batch.UpdateState(BatchStateFrozen)
+			}
+
+			log.Infof("Launching ChainCaretaker(%x)", batchKey)
 			caretaker := c.newCaretakerForBatch(batch, nil)
 			if err := caretaker.Start(); err != nil {
 				startErr = err
@@ -1027,7 +1065,9 @@ func (c *ChainPlanter) gardener() {
 				}
 
 				ctx, cancel := c.WithCtxQuit()
-				err = c.fundBatch(ctx, *fundReqParams)
+				err = c.fundBatch(
+					ctx, *fundReqParams, c.pendingBatch,
+				)
 				cancel()
 				if err != nil {
 					req.Error(fmt.Errorf("unable to fund "+
@@ -1054,7 +1094,7 @@ func (c *ChainPlanter) gardener() {
 
 				ctx, cancel := c.WithCtxQuit()
 				sealedBatch, err := c.sealBatch(
-					ctx, *sealReqParams,
+					ctx, *sealReqParams, c.pendingBatch,
 				)
 				cancel()
 				if err != nil {
@@ -1155,7 +1195,9 @@ func (c *ChainPlanter) gardener() {
 // when funding the batch. If no pending batch exists, a batch will be created
 // with the funded genesis PSBT. After funding, the pending batch will be
 // saved to disk and updated in memory.
-func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
+func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
+	workingBatch *MintingBatch) error {
+
 	var (
 		feeRate  *chainfee.SatPerKWeight
 		rootHash *chainhash.Hash
@@ -1195,10 +1237,9 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 		return nil
 	}
 
-	switch {
 	// If we don't have a batch, we'll create an empty batch before funding
 	// and writing to disk.
-	case c.pendingBatch == nil:
+	if workingBatch == nil {
 		newBatch, err := c.newBatch()
 		if err != nil {
 			return fmt.Errorf("unable to create new batch: %w", err)
@@ -1217,33 +1258,32 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 		}
 
 		c.pendingBatch = newBatch
+		return nil
+	}
 
 	// If we already have a batch, we need to attach the optional sibling
 	// root hash and fund the batch.
-	case c.pendingBatch != nil:
-		err = updateBatch(c.pendingBatch)
-		if err != nil {
-			return err
-		}
+	err = updateBatch(workingBatch)
+	if err != nil {
+		return err
+	}
 
-		// Write the associated sibling root hash and TX to disk.
-		if c.pendingBatch.tapSibling != nil {
-			err = c.cfg.Log.CommitBatchTapSibling(
-				ctx, c.pendingBatch.BatchKey.PubKey, rootHash,
-			)
-			if err != nil {
-				return fmt.Errorf("unable to commit tapscript "+
-					"sibling for minting batch %w", err)
-			}
-		}
-
-		err = c.cfg.Log.CommitBatchTx(
-			ctx, c.pendingBatch.BatchKey.PubKey,
-			c.pendingBatch.GenesisPacket,
+	// Write the associated sibling root hash and TX to disk.
+	if workingBatch.tapSibling != nil {
+		err = c.cfg.Log.CommitBatchTapSibling(
+			ctx, workingBatch.BatchKey.PubKey, rootHash,
 		)
 		if err != nil {
-			return err
+			return fmt.Errorf("unable to commit tapscript "+
+				"sibling for minting batch %w", err)
 		}
+	}
+
+	err = c.cfg.Log.CommitBatchTx(
+		ctx, workingBatch.BatchKey.PubKey, workingBatch.GenesisPacket,
+	)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -1254,36 +1294,36 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams) error {
 // possible if they are not provided. After all asset group witnesses have been
 // validated, they are saved to disk to be used by the caretaker during batch
 // finalization.
-func (c *ChainPlanter) sealBatch(ctx context.Context,
-	params SealParams) (*MintingBatch, error) {
+func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
+	workingBatch *MintingBatch) (*MintingBatch, error) {
 
 	// A batch should exist with 1+ seedlings and be funded before being
 	// sealed.
-	if !c.pendingBatch.HasSeedlings() {
+	if !workingBatch.HasSeedlings() {
 		return nil, fmt.Errorf("no seedlings in batch")
 	}
 
-	if !c.pendingBatch.IsFunded() {
+	if !workingBatch.IsFunded() {
 		return nil, fmt.Errorf("batch is not funded")
 	}
 
 	// Filter the batch seedlings to only consider those that will become
 	// grouped assets. If there are no such seedlings, then there is nothing
 	// to seal and no action is needed.
-	groupSeedlings, _ := filterSeedlingsWithGroup(c.pendingBatch.Seedlings)
+	groupSeedlings, _ := filterSeedlingsWithGroup(workingBatch.Seedlings)
 	if len(groupSeedlings) == 0 {
-		return c.pendingBatch, nil
+		return workingBatch, nil
 	}
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
 	anchorOutputIndex := uint32(0)
-	if c.pendingBatch.GenesisPacket.ChangeOutputIndex == 0 {
+	if workingBatch.GenesisPacket.ChangeOutputIndex == 0 {
 		anchorOutputIndex = 1
 	}
 
 	genesisPoint := extractGenesisOutpoint(
-		c.pendingBatch.GenesisPacket.Pkt.UnsignedTx,
+		workingBatch.GenesisPacket.Pkt.UnsignedTx,
 	)
 
 	// Check if the batch is already sealed by picking a random grouped
@@ -1302,7 +1342,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context,
 
 	switch {
 	case len(existingGroups) != 0:
-		return nil, fmt.Errorf("batch is already sealed")
+		return nil, ErrBatchAlreadySealed
 	case err != nil:
 		// The only expected error is for a missing asset genesis.
 		if !errors.Is(err, ErrNoGenesis) {
@@ -1411,7 +1451,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context,
 	}
 
 	// Populate the group info for each seedling, to display to the caller.
-	batchWithGroupInfo := c.pendingBatch.Copy()
+	batchWithGroupInfo := workingBatch.Copy()
 	for _, group := range assetGroups {
 		assetName := group.Genesis.Tag
 		batchWithGroupInfo.Seedlings[assetName].GroupInfo = group
@@ -1466,7 +1506,7 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 		// clear the pending batch. The batch will exist on disk for
 		// the user to recreate it if necessary.
 		// TODO(jhb): Don't clear pending batch here
-		err = c.fundBatch(ctx, FundParams(params))
+		err = c.fundBatch(ctx, FundParams(params), c.pendingBatch)
 		if err != nil {
 			c.pendingBatch = nil
 			return nil, err
@@ -1476,10 +1516,9 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	// If the batch needs to be sealed, we'll use the default behavior for
 	// generating asset group witnesses. Any custom behavior requires
 	// calling SealBatch() explicitly, before batch finalization.
-	_, err = c.sealBatch(ctx, SealParams{})
+	_, err = c.sealBatch(ctx, SealParams{}, c.pendingBatch)
 	if err != nil {
-		errMsg := err.Error()
-		if !strings.Contains(errMsg, "batch is already sealed") {
+		if !errors.Is(err, ErrBatchAlreadySealed) {
 			return nil, err
 		}
 	}
