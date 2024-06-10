@@ -182,6 +182,10 @@ var testCases = []*testCase{
 		test: testPsbtLockTimeSend,
 	},
 	{
+		name: "psbt relative lock time send with proof failure",
+		test: testPsbtRelativeLockTimeSendProofFail,
+	},
+	{
 		name: "psbt normal interactive split send",
 		test: testPsbtNormalInteractiveSplitSend,
 	},
