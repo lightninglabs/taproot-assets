@@ -30,6 +30,7 @@ const (
 	groupKeyName         = "group_key"
 	amtName              = "amt"
 	assetVersionName     = "asset_version"
+	addressVersionName   = "address_version"
 	proofCourierAddrName = "proof_courier_addr"
 )
 
@@ -51,6 +52,10 @@ var newAddrCommand = cli.Command{
 		cli.Uint64Flag{
 			Name:  assetVersionName,
 			Usage: "the asset version of the asset to receive",
+		},
+		cli.StringFlag{
+			Name:  addressVersionName,
+			Usage: "the version of address to generate",
 		},
 		cli.StringFlag{
 			Name: proofCourierAddrName,
@@ -84,11 +89,24 @@ func newAddr(ctx *cli.Context) error {
 		return err
 	}
 
+	addrVersion := taprpc.AddrVersion_ADDR_VERSION_V1
+	switch ctx.String(addressVersionName) {
+	case "":
+	case "v0", "V0":
+		addrVersion = taprpc.AddrVersion_ADDR_VERSION_V0
+	case "v1", "V1":
+		addrVersion = taprpc.AddrVersion_ADDR_VERSION_V1
+	default:
+		return fmt.Errorf("unknown address version: %s",
+			ctx.String(addressVersionName))
+	}
+
 	addr, err := client.NewAddr(ctxc, &taprpc.NewAddrRequest{
 		AssetId:          assetID,
 		Amt:              ctx.Uint64(amtName),
 		AssetVersion:     assetVersion,
 		ProofCourierAddr: ctx.String(proofCourierAddrName),
+		AddressVersion:   addrVersion,
 	})
 	if err != nil {
 		return fmt.Errorf("unable to make addr: %w", err)
