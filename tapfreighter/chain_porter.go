@@ -451,6 +451,18 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		serializedScriptKey := asset.ToSerialized(out.ScriptKey.PubKey)
 		sendPkg.FinalProofs[serializedScriptKey] = outputProof
 
+		// Before we import the proof into the proof archive, we'll
+		// validate it.
+		verifier := &proof.BaseVerifier{}
+		_, err = verifier.Verify(
+			ctx, bytes.NewReader(outputProof.Blob),
+			headerVerifier, proof.DefaultMerkleVerifier,
+			p.cfg.GroupVerifier, p.cfg.ChainBridge,
+		)
+		if err != nil {
+			return fmt.Errorf("error verifying proof: %w", err)
+		}
+
 		// Import proof into proof archive.
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)

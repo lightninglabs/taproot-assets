@@ -26,7 +26,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
-	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -34,7 +33,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1817,6 +1815,16 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	require.NoError(t.t, err)
 	signedBytes := buffer.Bytes()
 
+	ctxc, streamCancel := context.WithCancel(ctxb)
+	stream, err := bob.SubscribeSendEvents(
+		ctxc, &taprpc.SubscribeSendEventsRequest{},
+	)
+	require.NoError(t.t, err)
+	sendEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
@@ -1831,30 +1839,17 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 		[]uint64{(4*numUnits)/5 - 1, (numUnits / 5) + 1}, 0, 1,
 	)
 
-	// Export Bob's faulty proof for this transfer.
-	var proofResp *taprpc.ProofFile
-	waitErr := wait.NoError(func() error {
-		resp, err := bob.ExportProof(ctxb, &taprpc.ExportProofRequest{
-			AssetId:   genInfo.AssetId,
-			ScriptKey: aliceAddr.ScriptKey,
-		})
-		if err != nil {
-			return err
-		}
+	AssertSendEvents(
+		t.t, aliceAddr.ScriptKey, sendEvents,
+		tapfreighter.SendStateAnchorSign,
+		tapfreighter.SendStateWaitTxConf,
+	)
 
-		proofResp = resp
-		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t.t, waitErr)
-
-	// Alice now attempts to import the proof. This will also trigger a
-	// transfer validation. This is where we expect the VM to invalidate
-	// the proof.
-	_, err = alice.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
-		ProofFile:    proofResp.RawProofFile,
-		GenesisPoint: genInfo.GenesisPoint,
-	})
-	require.ErrorContains(t.t, err, "unable to verify proof")
+	msg, err := stream.Recv()
+	require.NoError(t.t, err)
+	require.Contains(
+		t.t, msg.Error, "signature not empty on failed checksig",
+	)
 }
 
 // testPsbtTrustlessSwap tests that the SIGHASH_NONE flag of vPSBTs can be used
