@@ -146,6 +146,61 @@ func testMintAssets(t *harnessTest) {
 	transferAssetProofs(t, t.tapd, secondTapd, allAssets, false)
 }
 
+// testMintBatchResume tests that we're able to create a pending batch, restart
+// the node, and finalize the pending batch on restart.
+func testMintBatchResume(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Build one batch, but leave it as pending.
+	BuildMintingBatch(t.t, t.tapd, simpleAssets)
+	batchResp, err := t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, batchResp.Batches, 1)
+	t.Logf("batches: %v", toJSON(t.t, batchResp))
+
+	batchKey := batchResp.Batches[0].Batch.BatchKey
+
+	// Restart the node. The non-final batch should be detected on restart
+	// and finalized.
+	t.Logf("Restarting minting node")
+	require.NoError(t.t, t.tapd.stop(false))
+	require.NoError(t.t, t.tapd.start(false))
+
+	hashes, err := waitForNTxsInMempool(
+		t.lndHarness.Miner.Client, 1, defaultWaitTimeout,
+	)
+	require.NoError(t.t, err)
+
+	mintTXID := *hashes[0]
+
+	// Mine a block to confirm the assets.
+	block := MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)[0]
+	blockHash := block.BlockHash()
+	WaitForBatchState(
+		t.t, ctxt, t.tapd, defaultWaitTimeout, batchKey,
+		mintrpc.BatchState_BATCH_STATE_FINALIZED,
+	)
+
+	// We should be able to fetch the batch, and also find that the txid of
+	// the batch tx is populated.
+	batchResp, err = t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+		Filter: &mintrpc.ListBatchRequest_BatchKey{
+			BatchKey: batchKey,
+		},
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, batchResp.Batches, 1)
+
+	batch := batchResp.Batches[0]
+	require.NotEmpty(t.t, batch.Batch.BatchTxid)
+
+	AssertAssetsMinted(
+		t.t, t.tapd, simpleAssets, mintTXID, blockHash,
+	)
+}
+
 // transferAssetProofs locates and exports the proof files for all given assets
 // from the source node and imports them into the destination node.
 func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
