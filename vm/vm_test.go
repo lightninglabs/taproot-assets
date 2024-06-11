@@ -42,6 +42,13 @@ var (
 				"failed checksig",
 		},
 	)
+	cleanStackErr = newErrInner(
+		ErrInvalidTransferWitness, txscript.Error{
+			ErrorCode: txscript.ErrCleanStack,
+			Description: "stack must contain exactly " +
+				"one item (contains 2)",
+		},
+	)
 
 	// mockInputTxBlockHeight is the block height the mock returns for an
 	// input transaction, when checking CSV time locks.
@@ -220,8 +227,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 
 // genNormalStateTransition returns a state transition function that creates a
 // normal state transition that the vm will evaluate at block height
-// `currentHeight`. If the block height is not relevant, set `currentHeight` to
-// 0. This will make the vm run at the block height of the highest lock time.
+// `currentHeight`.
 func genNormalStateTransition(currentHeight uint32, sequence,
 	lockTime uint64, addCsvScript, addCltvScript bool) stateTransitionFunc {
 
@@ -328,6 +334,79 @@ func normalStateTransition(t *testing.T, currentHeight uint32, sequence,
 		t, *privKey2, virtualTx, genesisAsset2, newAsset, 1,
 		txscript.SigHashDefault, &controlBlock, &tapLeaf, nil,
 	)
+
+	return newAsset, nil, inputs, currentHeight
+}
+
+// genCustomScriptStateTransition returns a state transition function that
+// creates a normal state transition that the vm will evaluate at block height
+// `currentHeight`.
+func genCustomScriptStateTransition(currentHeight uint32, sequence,
+	lockTime uint64, tapLeaf txscript.TapLeaf) stateTransitionFunc {
+
+	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
+		commitment.InputSet, uint32) {
+
+		return customScriptStateTransition(
+			t, currentHeight, sequence, lockTime, tapLeaf,
+		)
+	}
+}
+
+func customScriptStateTransition(t *testing.T, currentHeight uint32, sequence,
+	lockTime uint64, tapLeaf txscript.TapLeaf) (*asset.Asset,
+	commitment.SplitSet, commitment.InputSet, uint32) {
+
+	privKey := test.RandPrivKey(t)
+	tapTree := txscript.AssembleTaprootScriptTree(tapLeaf)
+	tapTreeRoot := tapTree.RootNode.TapHash()
+	scriptKey := txscript.ComputeTaprootOutputKey(
+		privKey.PubKey(), tapTreeRoot[:],
+	)
+
+	genesisOutPoint := wire.OutPoint{}
+	genesisAsset := randAsset(t, asset.Normal, scriptKey)
+
+	prevID := &asset.PrevID{
+		OutPoint: genesisOutPoint,
+		ID:       genesisAsset.Genesis.ID(),
+		ScriptKey: asset.ToSerialized(
+			genesisAsset.ScriptKey.PubKey,
+		),
+	}
+
+	newAsset := genesisAsset.Copy()
+	newAsset.Amount = genesisAsset.Amount
+	newAsset.ScriptKey = asset.NewScriptKey(test.RandPubKey(t))
+	newAsset.PrevWitnesses = []asset.Witness{{
+		PrevID:          prevID,
+		TxWitness:       nil,
+		SplitCommitment: nil,
+	}}
+
+	if sequence > 0 {
+		newAsset.RelativeLockTime = sequence
+	}
+	if lockTime > 0 {
+		newAsset.LockTime = lockTime
+	}
+
+	inputs := commitment.InputSet{
+		*prevID: genesisAsset,
+	}
+
+	leafIdx := tapTree.LeafProofIndex[tapLeaf.TapHash()]
+	leafProof := tapTree.LeafMerkleProofs[leafIdx]
+	controlBlock := leafProof.ToControlBlock(privKey.PubKey())
+	controlBlockBytes, err := controlBlock.ToBytes()
+	require.NoError(t, err)
+
+	newWitness := [][]byte{
+		tapLeaf.Script, controlBlockBytes,
+	}
+	require.NoError(t, err)
+
+	newAsset.PrevWitnesses[0].TxWitness = newWitness
 
 	return newAsset, nil, inputs, currentHeight
 }
@@ -851,6 +930,69 @@ func TestVM(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "cltv by-height locks, with argument == 0" +
+				" and tx nLockTime == 0",
+			f: genCustomScriptStateTransition(
+				0, 0, 0,
+				test.ScriptCltv0(t),
+			),
+			err: cleanStackErr,
+		},
+		{
+			name: "cltv by-height locks, with argument == " +
+				"499999999 and tx nLockTime == 499999999",
+			f: genCustomScriptStateTransition(
+				499999999, 0, 499999999,
+				test.ScriptCltv(t, 499999999),
+			),
+			err: nil,
+		},
+		{
+			name: "cltv by-height locks, with argument == 0" +
+				" and tx nLockTime == 499999999",
+			f: genCustomScriptStateTransition(
+				499999999, 0, 499999999,
+				test.ScriptCltv0(t),
+			),
+			err: cleanStackErr,
+		},
+		{
+			name: "csv by-height locks, with argument == 0" +
+				" and  txin.nSequence == 0",
+			f: genCustomScriptStateTransition(
+				0+mockInputTxBlockHeight, 0, 0,
+				test.ScriptCsv0(t),
+			),
+			err: cleanStackErr,
+		},
+		{
+			name: "csv by-height locks, with argument == 65535" +
+				" and  txin.nSequence == 65535",
+			f: genCustomScriptStateTransition(
+				65535+mockInputTxBlockHeight, 65535, 0,
+				test.ScriptCsv(t, 65535),
+			),
+			err: nil,
+		},
+		{
+			name: "csv by-height locks, with argument == 65535" +
+				" and  txin.nSequence == 2143289343",
+			f: genCustomScriptStateTransition(
+				2143289343, 2143289343, 0,
+				test.ScriptCsv(t, 65535),
+			),
+			err: nil,
+		},
+		{
+			name: "csv by-height locks, with argument == 0" +
+				" and  txin.nSequence == 2143289343",
+			f: genCustomScriptStateTransition(
+				2143289343, 2143289343, 0,
+				test.ScriptCsv0(t),
+			),
+			err: cleanStackErr,
+		},
+		{
 			name: "split state transition",
 			f:    splitStateTransition,
 			err:  nil,
@@ -958,14 +1100,16 @@ func TestVM(t *testing.T) {
 					validVectors.ValidTestCases, tv,
 				)
 			} else {
+				errorString := testCase.err.Error()
 				errorVectors.ErrorTestCases = append(
 					errorVectors.ErrorTestCases,
 					&ErrorTestCase{
-						Asset:    tv.Asset,
-						SplitSet: tv.SplitSet,
-						InputSet: tv.InputSet,
-						Error:    testCase.err.Error(),
-						Comment:  tv.Comment,
+						Asset:       tv.Asset,
+						SplitSet:    tv.SplitSet,
+						InputSet:    tv.InputSet,
+						Error:       errorString,
+						Comment:     tv.Comment,
+						BlockHeight: blockHeight,
 					},
 				)
 			}

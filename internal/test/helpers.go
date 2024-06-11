@@ -444,6 +444,32 @@ func ScriptCltv(t *testing.T, cltv int64) txscript.TapLeaf {
 	return txscript.NewBaseTapLeaf(script)
 }
 
+// ScriptCltv0 returns a simple bitcoin script that locks the funds with a CLTV
+// lock until block height 0. The script is explicitly invalid as it should
+// return a clean stack error on evaluation.
+func ScriptCltv0(t *testing.T) txscript.TapLeaf {
+	builder := txscript.NewScriptBuilder()
+	builder.AddInt64(0)
+	builder.AddOp(txscript.OP_CHECKLOCKTIMEVERIFY)
+	builder.AddOp(txscript.OP_TRUE)
+	script, err := builder.Script()
+	require.NoError(t, err)
+	return txscript.NewBaseTapLeaf(script)
+}
+
+// ScriptCsv0 returns a simple bitcoin script that locks the funds with a CSV
+// lock for the zero blocks. The script is explicitly invalid as it should
+// return a clean stack error on evaluation.
+func ScriptCsv0(t *testing.T) txscript.TapLeaf {
+	builder := txscript.NewScriptBuilder()
+	builder.AddInt64(0)
+	builder.AddOp(txscript.OP_CHECKSEQUENCEVERIFY)
+	builder.AddOp(txscript.OP_TRUE)
+	script, err := builder.Script()
+	require.NoError(t, err)
+	return txscript.NewBaseTapLeaf(script)
+}
+
 // ReadTestDataFile reads a file from the testdata directory and returns its
 // content as a string.
 func ReadTestDataFile(t *testing.T, fileName string) string {
