@@ -110,6 +110,11 @@ const (
 	// proofTypeReceive is an alias for the proof type used for receiving
 	// assets.
 	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+
+	// maxDecDisplay is the maximum value of decimal display that a user can
+	// define when minting assets. Since the uint64 max value has 19 decimal
+	// places we will allow for a max of 12 decimal places.
+	maxDecDisplay = 12
 )
 
 type (
@@ -515,6 +520,38 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	)
 	if err != nil {
 		return nil, err
+	}
+
+	decDisplay := req.Asset.DecimalDisplay
+	metaType := req.Asset.AssetMeta.Type
+
+	// If decimal display is specified by the user, but the meta type is not
+	// JSON, then we have to error out as the value needs to be encoded in
+	// the meta field. If an opaque meta field is specified, then we simply
+	// don't know how to handle it.
+	if decDisplay != 0 && metaType != taprpc.AssetMetaType_META_TYPE_JSON {
+		return nil, fmt.Errorf("decimal display requires JSON meta " +
+			"type")
+	}
+
+	// Check if decimal display exceeds max allowed value.
+	if decDisplay > maxDecDisplay {
+		return nil, fmt.Errorf("decimal display cannot exceed %v",
+			maxDecDisplay)
+	}
+
+	// If a JSON meta field is specified, then we'll update the decimal
+	// display in the meta field. Even if the decimal display is not
+	// specified in the rpc request, we'll still encode a 0 value.
+	if req.Asset.AssetMeta.Type == taprpc.AssetMetaType_META_TYPE_JSON {
+		updatedMeta, err := taprpc.EncodeDecimalDisplayInJSON(
+			decDisplay, req.Asset.AssetMeta.Data,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		req.Asset.AssetMeta.Data = updatedMeta
 	}
 
 	// Parse the optional script key and group internal key. The group
