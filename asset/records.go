@@ -3,11 +3,15 @@ package asset
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
+	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/exp/maps"
 )
 
 // LeafTlvType represents the different TLV types for Asset Leaf TLV records.
@@ -29,6 +33,71 @@ const (
 	// Types for future asset format.
 	LeafAssetID LeafTlvType = 11
 )
+
+// KnownAssetLeafTypes is a set of all known leaf types.
+var KnownAssetLeafTypes = fn.NewSet(
+	LeafVersion, LeafGenesis, LeafType, LeafAmount, LeafLockTime,
+	LeafRelativeLockTime, LeafPrevWitness, LeafSplitCommitmentRoot,
+	LeafScriptVersion, LeafScriptKey, LeafGroupKey,
+)
+
+// ErrUnknownType is returned when an unknown type is encountered while
+// decoding a TLV stream.
+type ErrUnknownType struct {
+	// UnknownType is the type that was unknown.
+	UnknownType tlv.Type
+
+	// ValueBytes is the raw bytes of the value that was unknown.
+	ValueBytes []byte
+}
+
+// Erorr returns the error message for the ErrUnknownType.
+func (e ErrUnknownType) Error() string {
+	return fmt.Errorf("unknown type %d", e.UnknownType).Error()
+}
+
+// AssertNoUnknownTypes asserts that the given parsed types do not contain any
+// unknown types. We only care if there's an odd type that we don't know of. If
+// we find an unknown type, then an error is returned detailing the type.
+func AssertNoUnkownTypes(parsedTypes tlv.TypeMap,
+	knownTypes fn.Set[tlv.Type]) error {
+
+	// Run through the set of types that we parsed. We want to error out if
+	// we encounter an unknown type that's odd.
+	oddTypes := fn.Filter(maps.Keys(parsedTypes), func(t tlv.Type) bool {
+		return t%2 == 1
+	})
+
+	// Now that we have all the odd types, we want to make sure that we
+	// know of them all.
+	for _, oddType := range oddTypes {
+		if !knownTypes.Contains(oddType) {
+			return ErrUnknownType{
+				UnknownType: oddType,
+				ValueBytes:  parsedTypes[oddType],
+			}
+		}
+	}
+
+	return nil
+}
+
+// TlvStrictDecode attempts to decode the passed bufer into the TLV stream. It
+// takes the set of known types for a given stream, and returns an error if the
+// buffer includes any unknown odd types.
+func TlvStrictDecode(stream *tlv.Stream, r io.Reader,
+	knownTypes fn.Set[tlv.Type]) error {
+
+	parsedTypes, err := stream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+	if err := AssertNoUnkownTypes(parsedTypes, knownTypes); err != nil {
+		return err
+	}
+
+	return nil
+}
 
 // WitnessTlvType represents the different TLV types for Asset Witness TLV
 // records.
