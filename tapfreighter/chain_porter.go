@@ -380,7 +380,8 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		"Archive", len(passiveAssetProofFiles))
 	err := p.cfg.AssetProofs.ImportProofs(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier,
-		p.cfg.GroupVerifier, false, passiveAssetProofFiles...,
+		p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
+		passiveAssetProofFiles...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
@@ -450,12 +451,25 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		serializedScriptKey := asset.ToSerialized(out.ScriptKey.PubKey)
 		sendPkg.FinalProofs[serializedScriptKey] = outputProof
 
+		// Before we import the proof into the proof archive, we'll
+		// validate it.
+		verifier := &proof.BaseVerifier{}
+		_, err = verifier.Verify(
+			ctx, bytes.NewReader(outputProof.Blob),
+			headerVerifier, proof.DefaultMerkleVerifier,
+			p.cfg.GroupVerifier, p.cfg.ChainBridge,
+		)
+		if err != nil {
+			return fmt.Errorf("error verifying proof: %w", err)
+		}
+
 		// Import proof into proof archive.
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)
 		err = p.cfg.AssetProofs.ImportProofs(
 			ctx, headerVerifier, proof.DefaultMerkleVerifier,
-			p.cfg.GroupVerifier, false, outputProof,
+			p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
+			outputProof,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof: %w", err)
@@ -858,6 +872,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
 		vPackets := currentPkg.VirtualPackets
+		err := tapsend.ValidateVPacketVersions(vPackets)
+		if err != nil {
+			return nil, err
+		}
 
 		// Now we'll use the signer to sign all the inputs for the new
 		// Taproot Asset leaves. The witness data for each input will be

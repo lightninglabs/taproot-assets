@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,10 @@ var (
 // assertEqualPackets asserts that two packets are equal and prints a nice diff
 // if they are not.
 func assertEqualPackets(t *testing.T, expected, actual *VPacket) {
+	if expected.Version != actual.Version {
+		require.Fail(t, "Version not equal")
+	}
+
 	if !reflect.DeepEqual(expected.ChainParams, actual.ChainParams) {
 		require.Equal(t, expected.ChainParams, actual.ChainParams)
 		require.Fail(t, "ChainParams not equal")
@@ -68,30 +73,51 @@ func assertEqualPackets(t *testing.T, expected, actual *VPacket) {
 func TestEncodingDecoding(t *testing.T) {
 	t.Parallel()
 
+	type testCase struct {
+		name                 string
+		pkg                  func(t *testing.T) *VPacket
+		encodeErr, decodeErr error
+	}
+
 	testVectors := &TestVectors{}
-	assertEncodingDecoding := func(comment string, pkg *VPacket) {
+	assertEncodingDecoding := func(tCase testCase) {
+		comment := tCase.name
+		pkg := tCase.pkg(t)
 		// Encode the packet as a PSBT packet then as base64.
 		packet, err := pkg.EncodeAsPsbt()
+		if tCase.encodeErr != nil {
+			require.ErrorIs(t, err, tCase.encodeErr)
+			return
+		}
+
 		require.NoError(t, err)
 
 		var buf bytes.Buffer
 		err = packet.Serialize(&buf)
 		require.NoError(t, err)
 
-		testVectors.ValidTestCases = append(
-			testVectors.ValidTestCases, &ValidTestCase{
-				Packet: NewTestFromVPacket(t, pkg),
-				Expected: base64.StdEncoding.EncodeToString(
-					buf.Bytes(),
-				),
-				Comment: comment,
-			},
-		)
+		testVectorBuf := bytes.NewBuffer(buf.Bytes())
+		decoded, err := NewFromRawBytes(&buf, false)
+		switch {
+		// Don't add an invalid test case as a valid test vector.
+		case tCase.decodeErr != nil:
+			require.ErrorIs(t, err, tCase.decodeErr)
+			return
+		default:
+			expected := base64.StdEncoding.EncodeToString(
+				testVectorBuf.Bytes(),
+			)
+			testVectors.ValidTestCases = append(
+				testVectors.ValidTestCases, &ValidTestCase{
+					Packet:   NewTestFromVPacket(t, pkg),
+					Expected: expected,
+					Comment:  comment,
+				},
+			)
+		}
 
 		// Make sure we can read the packet back from the raw bytes.
-		decoded, err := NewFromRawBytes(&buf, false)
 		require.NoError(t, err)
-
 		assertEqualPackets(t, pkg, decoded)
 
 		// Also make sure we can decode the packet from the base PSBT.
@@ -101,10 +127,7 @@ func TestEncodingDecoding(t *testing.T) {
 		assertEqualPackets(t, pkg, decoded)
 	}
 
-	testCases := []struct {
-		name string
-		pkg  func(t *testing.T) *VPacket
-	}{{
+	testCases := []testCase{{
 		name: "minimal packet",
 		pkg: func(t *testing.T) *VPacket {
 			proofCourierAddr := address.RandProofCourierAddr(t)
@@ -123,16 +146,35 @@ func TestEncodingDecoding(t *testing.T) {
 	}, {
 		name: "random packet",
 		pkg: func(t *testing.T) *VPacket {
-			return RandPacket(t)
+			return RandPacket(t, true)
 		},
+	}, {
+		name: "random packet with no explicit version",
+		pkg: func(t *testing.T) *VPacket {
+			return RandPacket(t, false)
+		},
+	}, {
+		name: "invalid packet version",
+		pkg: func(t *testing.T) *VPacket {
+			validVers := fn.NewSet(uint8(V0), uint8(V1))
+			pkt := RandPacket(t, false)
+
+			invalidPktVersion := test.RandInt[uint8]()
+			for validVers.Contains(invalidPktVersion) {
+				invalidPktVersion = test.RandInt[uint8]()
+			}
+
+			pkt.Version = VPacketVersion(invalidPktVersion)
+			return pkt
+		},
+		decodeErr: ErrInvalidVPacketVersion,
 	}}
 
 	for _, testCase := range testCases {
 		testCase := testCase
 
 		success := t.Run(testCase.name, func(t *testing.T) {
-			pkg := testCase.pkg(t)
-			assertEncodingDecoding(testCase.name, pkg)
+			assertEncodingDecoding(testCase)
 		})
 		if !success {
 			return
@@ -193,7 +235,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				)
 			}
 
-			// We also want to make sure that the address is decoded
+			// We also want to make sure that the packet is decoded
 			// correctly from the encoded TLV stream.
 			decoded, err := NewFromRawBytes(
 				strings.NewReader(validCase.Expected), true,

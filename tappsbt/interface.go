@@ -55,6 +55,8 @@ var (
 	PsbtKeyTypeOutputTapAssetVersion                       = []byte{0x79}
 	PsbtKeyTypeOutputTapProofDeliveryAddress               = []byte{0x7a}
 	PsbtKeyTypeOutputTapAssetProofSuffix                   = []byte{0x7b}
+	PsbtKeyTypeOutputTapAssetLockTime                      = []byte{0x7c}
+	PsbtKeyTypeOutputTapAssetRelativeLockTime              = []byte{0x7d}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -72,6 +74,23 @@ var (
 	// PsbtKeyTypeOutputAssetRoot is the key used to store the Taproot Asset
 	// commitment root hash in the BTC level anchor transaction PSBT.
 	PsbtKeyTypeOutputAssetRoot = []byte{0x71}
+
+	// ErrInvalidVPacketVersion is an error returned when a VPacket version
+	// is invalid.
+	ErrInvalidVPacketVersion = fmt.Errorf("tappsbt: invalid version")
+)
+
+// VPacketVersion is the version of the virtual transaction. This can signal
+// a new virtual PSBT format, or other version-specific behavior.
+type VPacketVersion uint8
+
+const (
+	// V0 is the initial VPacket version. All VInputs and VOutputs use
+	// TapCommitments with version V0 or V1.
+	V0 VPacketVersion = 0
+
+	// V1 VPackets require V2 TapCommitments for all VOutputs.
+	V1 VPacketVersion = 1
 )
 
 // VOutPredicate is a function that can be used to filter virtual outputs.
@@ -155,10 +174,8 @@ type VPacket struct {
 	// encode and decode certain contents of the virtual packet.
 	ChainParams *address.ChainParams
 
-	// Version is the version of the virtual transaction. This is currently
-	// unused but can be used to signal a new version of the virtual PSBT
-	// format in the future.
-	Version uint8
+	// Version is the version of the virtual transaction.
+	Version VPacketVersion
 }
 
 // Copy creates a deep copy of the VPacket.
@@ -168,6 +185,23 @@ func (p *VPacket) Copy() *VPacket {
 		Outputs:     fn.CopyAll(p.Outputs),
 		ChainParams: p.ChainParams,
 		Version:     p.Version,
+	}
+}
+
+// CommitmentVersion returns the Taproot Asset commitment version that matches
+// the VPacket version.
+func CommitmentVersion(vers VPacketVersion) (*commitment.TapCommitmentVersion,
+	error) {
+
+	switch vers {
+	// For V0, the correct commitment version could be V0 or V1; we
+	// can't know without accessing all leaves of the commitment itself.
+	case V0:
+		return nil, nil
+	case V1:
+		return fn.Ptr(commitment.TapCommitmentV2), nil
+	default:
+		return nil, ErrInvalidVPacketVersion
 	}
 }
 
@@ -509,6 +543,16 @@ type VOutput struct {
 	// TaprootDerivationPath fields of the PSBT output.
 	ScriptKey asset.ScriptKey
 
+	// RelativeLockTime is the relative lock time of the output asset. This
+	// needs to be set on the root asset if the transaction witness is for
+	// a spend of a CSV script path.
+	RelativeLockTime uint64
+
+	// LockTime is the relative lock time of the output asset. This needs to
+	// be set on the root asset if the transaction witness is for a spend of
+	// a CLTV script path.
+	LockTime uint64
+
 	// ProofDeliveryAddress is the address to which the proof of the asset
 	// transfer should be delivered.
 	ProofDeliveryAddress *url.URL
@@ -604,6 +648,25 @@ func (o *VOutput) PrevWitnesses() ([]asset.Witness, error) {
 	}
 
 	return o.Asset.Witnesses(), nil
+}
+
+// TapCommitmentVersion returns the taproot asset commitment version of a
+// vOutput with a populated proof suffix.
+func (o *VOutput) TapCommitmentVersion() (*commitment.TapCommitmentVersion,
+	error) {
+
+	vOutProof := o.ProofSuffix
+	if vOutProof == nil {
+		return nil, fmt.Errorf("vOut missing proof suffix")
+	}
+
+	tapProof := vOutProof.InclusionProof.CommitmentProof
+	if tapProof == nil {
+		return nil, fmt.Errorf("vOut inclusion proof missing " +
+			"commitment proof")
+	}
+
+	return &tapProof.TaprootAssetProof.Version, nil
 }
 
 // KeyDescFromBip32Derivation attempts to extract the key descriptor from the

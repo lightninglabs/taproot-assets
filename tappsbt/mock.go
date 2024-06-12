@@ -38,7 +38,7 @@ var (
 )
 
 // RandPacket generates a random virtual packet for testing purposes.
-func RandPacket(t testing.TB) *VPacket {
+func RandPacket(t testing.TB, setVersion bool) *VPacket {
 	testPubKey := test.RandPubKey(t)
 	op := test.RandOp(t)
 	keyDesc := keychain.KeyDescriptor{
@@ -143,6 +143,8 @@ func RandPacket(t testing.TB) *VPacket {
 			AnchorOutputTapscriptSibling:       testPreimage1,
 			ProofDeliveryAddress:               courierAddress,
 			ProofSuffix:                        &inputProof,
+			RelativeLockTime:                   345,
+			LockTime:                           456,
 		}, {
 			Amount: 345,
 			AssetVersion: asset.Version(
@@ -161,6 +163,10 @@ func RandPacket(t testing.TB) *VPacket {
 		ChainParams: testParams,
 	}
 	vPacket.SetInputAsset(0, testAsset)
+
+	if setVersion {
+		vPacket.Version = test.RandFlip(V0, V1)
+	}
 
 	return vPacket
 }
@@ -184,7 +190,7 @@ type TestVectors struct {
 
 func NewTestFromVPacket(t testing.TB, p *VPacket) *TestVPacket {
 	tp := &TestVPacket{
-		Version:        p.Version,
+		Version:        uint8(p.Version),
 		ChainParamsHRP: p.ChainParams.TapHRP,
 	}
 
@@ -228,7 +234,7 @@ func (tp *TestVPacket) ToVPacket(t testing.TB) *VPacket {
 	}
 
 	p := &VPacket{
-		Version:     tp.Version,
+		Version:     VPacketVersion(tp.Version),
 		ChainParams: chainParams,
 	}
 
@@ -494,6 +500,8 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		PkScript: hex.EncodeToString(test.ComputeTaprootScript(
 			t, v.ScriptKey.PubKey,
 		)),
+		RelativeLockTime: v.RelativeLockTime,
+		LockTime:         v.LockTime,
 	}
 
 	if v.Asset != nil {
@@ -570,6 +578,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 	return vo
 }
 
+//nolint:lll
 type TestVOutput struct {
 	Amount                        uint64                   `json:"amount"`
 	Type                          uint8                    `json:"type"`
@@ -589,6 +598,8 @@ type TestVOutput struct {
 	TrMerkleRoot                  string                   `json:"tr_merkle_root"`
 	ProofDeliveryAddress          string                   `json:"proof_delivery_address"`
 	ProofSuffix                   *proof.TestProof         `json:"proof_suffix"`
+	RelativeLockTime              uint64                   `json:"relative_lock_time"`
+	LockTime                      uint64                   `json:"lock_time"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -616,6 +627,8 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 		ScriptKey: asset.ScriptKey{
 			PubKey: test.ParseSchnorrPubKey(t, to.PkScript[4:]),
 		},
+		RelativeLockTime: to.RelativeLockTime,
+		LockTime:         to.LockTime,
 	}
 
 	if to.Asset != nil {

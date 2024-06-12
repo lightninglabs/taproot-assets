@@ -68,7 +68,7 @@ func (p *VPacket) EncodeAsPsbt() (*psbt.Packet, error) {
 			},
 			{
 				Key:   PsbtKeyTypeGlobalTapPsbtVersion,
-				Value: []byte{p.Version},
+				Value: []byte{uint8(p.Version)},
 			},
 		},
 	}
@@ -292,6 +292,14 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 		{
 			key:     PsbtKeyTypeOutputTapAssetProofSuffix,
 			encoder: proofEncoder(o.ProofSuffix),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetLockTime,
+			encoder: tlvEncoder(&o.LockTime, tlv.EUint64),
+		},
+		{
+			key:     PsbtKeyTypeOutputTapAssetRelativeLockTime,
+			encoder: tlvEncoder(&o.RelativeLockTime, tlv.EUint64),
 		},
 	}
 

@@ -476,6 +476,11 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	packets := fn.Map(pieces, func(p *piece) *tappsbt.VPacket {
 		return p.packet
 	})
+	err := tapsend.ValidateVPacketVersions(packets)
+	if err != nil {
+		return nil, err
+	}
+
 	return packets, nil
 }
 

@@ -63,7 +63,7 @@ func TestFileArchiverProofCollision(t *testing.T) {
 	)
 	err = fileArchive.ImportProofs(
 		ctx, MockHeaderVerifier, MockMerkleVerifier, MockGroupVerifier,
-		false, &AnnotatedProof{
+		MockChainLookup, false, &AnnotatedProof{
 			Locator: locator1,
 			Blob:    blob1,
 		},
@@ -71,7 +71,7 @@ func TestFileArchiverProofCollision(t *testing.T) {
 	require.NoError(t, err)
 	err = fileArchive.ImportProofs(
 		ctx, MockHeaderVerifier, MockMerkleVerifier, MockGroupVerifier,
-		false, &AnnotatedProof{
+		MockChainLookup, false, &AnnotatedProof{
 			Locator: locator2,
 			Blob:    blob2,
 		},
@@ -191,7 +191,8 @@ func TestFileArchiver(t *testing.T) {
 				err = archive.ImportProofs(
 					ctx, MockHeaderVerifier,
 					MockMerkleVerifier, MockGroupVerifier,
-					false, proof,
+					MockChainLookup, false,
+					proof,
 				)
 
 				if testCase.expectedStoreError != nil {
@@ -325,7 +326,7 @@ func TestMigrateOldFileNames(t *testing.T) {
 	// under the new naming scheme.
 	proof6 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
 	err = fileArchive.ImportProofs(
-		nil, nil, nil, nil, false, &AnnotatedProof{
+		nil, nil, nil, nil, MockChainLookup, false, &AnnotatedProof{
 			Locator: Locator{
 				AssetID:   fn.Ptr(proof6.Asset.ID()),
 				ScriptKey: *proof6.Asset.ScriptKey.PubKey,

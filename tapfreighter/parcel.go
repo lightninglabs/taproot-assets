@@ -10,12 +10,14 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"golang.org/x/exp/maps"
 )
 
 // SendState is an enum that describes the current state of a pending outbound
@@ -181,8 +183,14 @@ func (p *AddressParcel) Validate() error {
 			"specified in address parcel")
 	}
 
+	firstAddrVersion := p.destAddrs[0].Version
 	for idx := range p.destAddrs {
 		tapAddr := p.destAddrs[idx]
+
+		// All addresses must have the same version.
+		if tapAddr.Version != firstAddrVersion {
+			return fmt.Errorf("mixed address versions")
+		}
 
 		// Validate proof courier addresses.
 		err := proof.ValidateCourierAddress(&tapAddr.ProofCourierAddr)
@@ -297,6 +305,11 @@ func (p *PreSignedParcel) Validate() error {
 		return fmt.Errorf("no virtual transaction in pre-signed parcel")
 	}
 
+	err := tapsend.ValidateVPacketVersions(p.vPackets)
+	if err != nil {
+		return err
+	}
+
 	for _, vPkt := range p.vPackets {
 		if len(vPkt.Outputs) == 0 {
 			return fmt.Errorf("no outputs in virtual transaction")
@@ -305,6 +318,22 @@ func (p *PreSignedParcel) Validate() error {
 
 	if p.inputCommitments == nil {
 		return fmt.Errorf("no input commitments in pre-signed parcel")
+	}
+
+	inputCommitVersions := maps.Values(p.inputCommitments)
+	if inputCommitVersions[0] == nil {
+		return fmt.Errorf("missing input commitment in pre-signed " +
+			"parcel")
+	}
+
+	firstCommitVersion := inputCommitVersions[0].Version
+	for _, inputCommit := range p.inputCommitments {
+		if !commitment.IsSimilarTapCommitmentVersion(
+			&firstCommitVersion, &inputCommit.Version,
+		) {
+
+			return fmt.Errorf("mixed input commitment versions")
+		}
 	}
 
 	return nil
@@ -371,6 +400,11 @@ func (p *PreAnchoredParcel) Validate() error {
 	if len(p.virtualPackets) == 0 {
 		return fmt.Errorf("no virtual transactions in pre-anchored " +
 			"parcel")
+	}
+
+	err := tapsend.ValidateVPacketVersions(p.virtualPackets)
+	if err != nil {
+		return err
 	}
 
 	for _, vPkt := range p.virtualPackets {
@@ -451,9 +485,15 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		// If we have passive assets, we need to create a new anchor
 		// for them. They all anchor into the same output, so we can
 		// just use the first one.
+		firstPassiveVOutput := passiveAssets[0].Outputs[0]
+		if firstPassiveVOutput.ProofSuffix == nil {
+			return nil, fmt.Errorf("no proof suffix for passive " +
+				"assets")
+		}
+
 		var err error
 		passiveAssetAnchor, err = outputAnchor(
-			anchorTx, passiveAssets[0].Outputs[0], nil,
+			anchorTx, firstPassiveVOutput, nil,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create passive "+
@@ -607,6 +647,13 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 		anchorOut.Unknowns, tappsbt.PsbtKeyTypeOutputAssetRoot,
 	)
 
+	// Fetch the Taproot asset commitment version from the output's proof
+	// suffix.
+	commitmentVersion, err := vOut.TapCommitmentVersion()
+	if err != nil {
+		return nil, err
+	}
+
 	// If there are passive assets, are they anchored in the same anchor
 	// output as this transfer output? If yes, then we show this to the user
 	// by just attaching the number of passive assets.
@@ -626,12 +673,13 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 			Hash:  anchorTXID,
 			Index: vOut.AnchorOutputIndex,
 		},
-		Value:            btcutil.Amount(txOut.Value),
-		InternalKey:      anchorInternalKey,
-		TaprootAssetRoot: taprootAssetRoot[:],
-		MerkleRoot:       merkleRoot[:],
-		TapscriptSibling: preimageBytes,
-		NumPassiveAssets: numPassiveAssets,
+		Value:             btcutil.Amount(txOut.Value),
+		InternalKey:       anchorInternalKey,
+		TaprootAssetRoot:  taprootAssetRoot[:],
+		CommitmentVersion: fn.Ptr(uint8(*commitmentVersion)),
+		MerkleRoot:        merkleRoot[:],
+		TapscriptSibling:  preimageBytes,
+		NumPassiveAssets:  numPassiveAssets,
 	}, nil
 }
 

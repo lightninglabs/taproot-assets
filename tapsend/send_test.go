@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -29,6 +30,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -189,8 +191,8 @@ func updateScenarioAssets(t *testing.T, state *spendData) {
 
 	require.NotNil(t, state)
 
-	locktime := uint64(1)
-	relLocktime := uint64(1)
+	locktime := uint64(0)
+	relLocktime := uint64(0)
 
 	// Assets to cover both asset types and all three asset values.
 	asset1, err := asset.New(
@@ -253,7 +255,7 @@ func updateScenarioCommitments(t *testing.T, state *spendData) {
 	// TapCommitments for each asset.
 	asset1AssetTree, err := commitment.NewAssetCommitment(&state.asset1)
 	require.NoError(t, err)
-	asset1TapTree, err := commitment.NewTapCommitment(asset1AssetTree)
+	asset1TapTree, err := commitment.NewTapCommitment(nil, asset1AssetTree)
 	require.NoError(t, err)
 	state.asset1TapTree = *asset1TapTree
 
@@ -262,14 +264,14 @@ func updateScenarioCommitments(t *testing.T, state *spendData) {
 	)
 	require.NoError(t, err)
 	asset1CollectGroupTapTree, err := commitment.NewTapCommitment(
-		asset1CollectGroupAssetTree,
+		nil, asset1CollectGroupAssetTree,
 	)
 	require.NoError(t, err)
 	state.asset1CollectGroupTapTree = *asset1CollectGroupTapTree
 
 	asset2AssetTree, err := commitment.NewAssetCommitment(&state.asset2)
 	require.NoError(t, err)
-	asset2TapTree, err := commitment.NewTapCommitment(asset2AssetTree)
+	asset2TapTree, err := commitment.NewTapCommitment(nil, asset2AssetTree)
 	require.NoError(t, err)
 	state.asset2TapTree = *asset2TapTree
 	require.NoError(t, err)
@@ -372,6 +374,7 @@ func createPacket(addr address.Tap, prevInput asset.PrevID,
 		Inputs:      inputs,
 		Outputs:     outputs,
 		ChainParams: addr.ChainParams,
+		Version:     test.RandFlip(tappsbt.V0, tappsbt.V1),
 	}
 	vPacket.SetInputAsset(0, inputAsset)
 
@@ -606,6 +609,24 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 			true, true, true,
 		)
 	}
+
+	// Assert that the commitment version matches the VPacket version.
+	commitments := maps.Values(outputCommitments)
+	switch vPkt.Version {
+	case tappsbt.V0:
+		isValid := func(c *commitment.TapCommitment) bool {
+			return c.Version == commitment.TapCommitmentV0 ||
+				c.Version == commitment.TapCommitmentV1
+		}
+		require.True(t, fn.All(commitments, isValid))
+	case tappsbt.V1:
+		isValid := func(c *commitment.TapCommitment) bool {
+			return c.Version == commitment.TapCommitmentV2
+		}
+		require.True(t, fn.All(commitments, isValid))
+	default:
+		require.Fail(t, "unknown vPacket version")
+	}
 }
 
 func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
@@ -683,35 +704,42 @@ func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
 	// The sender proof should prove inclusion of the split commitment root
 	// if there was an asset split, and exclusion of the input asset
 	// otherwise.
-	var senderProofKey *btcec.PublicKey
+	var senderProofKeys proof.ProofCommitmentKeys
 	if isSplit {
-		senderProofKey, _, err = senderProof.DeriveByAssetInclusion(
-			senderAsset,
+		senderProofKeys, err = senderProof.DeriveByAssetInclusion(
+			senderAsset, nil,
 		)
 		require.NoError(t, err)
 	} else {
-		senderProofKey, err = senderProof.DeriveByAssetExclusion(
+		senderProofKeys, err = senderProof.DeriveByAssetExclusion(
 			senderAsset.AssetCommitmentKey(),
 			senderAsset.TapCommitmentKey(),
 		)
 		require.NoError(t, err)
 	}
 
-	receiverProofKey, _, err := receiverProof.DeriveByAssetInclusion(
-		receiverAsset,
+	recvProofKeys, err := receiverProof.DeriveByAssetInclusion(
+		receiverAsset, nil,
 	)
 	require.NoError(t, err)
 
 	unsignedTxOut := spendingPsbt.UnsignedTx.TxOut
 	senderPsbtKey := unsignedTxOut[senderIndex].PkScript[2:]
-	receiverPsbtKey := unsignedTxOut[receiverIndex].PkScript[2:]
+	recvPsbtKey := unsignedTxOut[receiverIndex].PkScript[2:]
 
-	require.Equal(
-		t, schnorr.SerializePubKey(receiverProofKey), receiverPsbtKey,
+	isMatchFoundRecv := fn.Any(
+		maps.Keys(recvProofKeys), func(t asset.SerializedKey) bool {
+			return bytes.Equal(t.SchnorrSerialized(), recvPsbtKey)
+		},
 	)
-	require.Equal(
-		t, schnorr.SerializePubKey(senderProofKey), senderPsbtKey,
+	require.True(t, isMatchFoundRecv)
+
+	isMatchFoundSender := fn.Any(
+		maps.Keys(senderProofKeys), func(t asset.SerializedKey) bool {
+			return bytes.Equal(t.SchnorrSerialized(), senderPsbtKey)
+		},
 	)
+	require.True(t, isMatchFoundSender)
 }
 
 // TestPrepareOutputAssets tests the creating of split commitment data with
@@ -1518,9 +1546,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	btcPkt, err := tapsend.CreateAnchorTx([]*tappsbt.VPacket{pkt})
 	require.NoError(t, err)
 
-	err = tapsend.UpdateTaprootOutputKeys(
-		btcPkt, pkt, outputCommitments,
-	)
+	err = tapsend.UpdateTaprootOutputKeys(btcPkt, pkt, outputCommitments)
 	require.NoError(t, err)
 
 	return btcPkt, pkt, outputCommitments
@@ -1561,6 +1587,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{spendTx},
 			},
+			BlockHeight:      2,
 			Tx:               spendTx,
 			TxIndex:          0,
 			OutputIndex:      0,
@@ -1583,6 +1610,7 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{spendTx},
 			},
+			BlockHeight:      3,
 			Tx:               spendTx,
 			TxIndex:          0,
 			OutputIndex:      1,
@@ -1654,6 +1682,7 @@ func TestProofVerify(t *testing.T) {
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
@@ -1661,12 +1690,14 @@ func TestProofVerify(t *testing.T) {
 	_, err = senderFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
@@ -1675,6 +1706,7 @@ func TestProofVerify(t *testing.T) {
 	_, err = receiverFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 }
@@ -1727,6 +1759,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
@@ -1735,12 +1768,14 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	_, err = senderFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
@@ -1748,6 +1783,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	_, err = receiverFile.Verify(
 		context.TODO(), proof.MockHeaderVerifier,
 		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 }
@@ -1984,7 +2020,7 @@ func TestPayToAddrScript(t *testing.T) {
 		t, inputAsset1, sendAmt, recipientScriptKey,
 	)
 	inputAsset1TapTree, err := commitment.NewTapCommitment(
-		inputAsset1AssetTree,
+		nil, inputAsset1AssetTree,
 	)
 	require.NoError(t, err)
 
@@ -2353,21 +2389,48 @@ func TestValidateAnchorOutputs(t *testing.T) {
 		key1        = test.RandPubKey(t)
 		key2        = test.RandPubKey(t)
 		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		emptyProof  = &proof.CommitmentProof{}
 		vOutSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:            0,
 			AnchorOutputInternalKey:      key1,
 			Asset:                        asset1,
 			AnchorOutputTapscriptSibling: sibling,
+			ProofSuffix: &proof.Proof{
+				InclusionProof: proof.TaprootProof{
+					CommitmentProof: emptyProof,
+				},
+			},
 		}
 		vOutNoSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:       0,
 			AnchorOutputInternalKey: key1,
 			Asset:                   asset1,
+			ProofSuffix: &proof.Proof{
+				InclusionProof: proof.TaprootProof{
+					CommitmentProof: emptyProof,
+				},
+			},
 		}
 		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
 	)
-	asset1Commitment, err := commitment.FromAssets(asset1)
+	asset1Commitment, err := commitment.FromAssets(nil, asset1)
 	require.NoError(t, err)
+
+	vOutCommitmentProof := proof.CommitmentProof{
+		Proof: commitment.Proof{
+			TaprootAssetProof: commitment.
+				TaprootAssetProof{
+				Version: asset1Commitment.Version,
+			},
+		},
+	}
+	vOutProofSuffix := proof.Proof{
+		InclusionProof: proof.TaprootProof{
+			CommitmentProof: &vOutCommitmentProof,
+		},
+	}
+	vOutSibling.ProofSuffix = &vOutProofSuffix
+	vOutNoSibling.ProofSuffix = &vOutProofSuffix
 
 	scriptSibling, rootSibling, _, err := tapsend.AnchorOutputScript(
 		key1, sibling, asset1Commitment,
@@ -2624,7 +2687,7 @@ func TestValidateAnchorInputs(t *testing.T) {
 			},
 		}
 	)
-	asset1Commitment, err := commitment.FromAssets(asset1)
+	asset1Commitment, err := commitment.FromAssets(nil, asset1)
 	require.NoError(t, err)
 
 	scriptSibling, rootSibling, _, err := tapsend.AnchorOutputScript(

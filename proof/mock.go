@@ -42,7 +42,7 @@ func RandProof(t testing.TB, genesis asset.Genesis,
 
 	amount := uint64(1)
 	mintCommitment, assets, err := commitment.Mint(
-		genesis, groupKey, &commitment.AssetDetails{
+		nil, genesis, groupKey, &commitment.AssetDetails{
 			Type:             genesis.Type,
 			ScriptKey:        test.PubToKeyDesc(scriptKey),
 			Amount:           &amount,
@@ -157,7 +157,8 @@ func NewMockVerifier(t *testing.T) *MockVerifier {
 }
 
 func (m *MockVerifier) Verify(context.Context, io.Reader,
-	HeaderVerifier, MerkleVerifier, GroupVerifier) (*AssetSnapshot, error) {
+	HeaderVerifier, MerkleVerifier, GroupVerifier,
+	ChainLookupGenerator) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
@@ -206,6 +207,52 @@ func MockGroupAnchorVerifier(gen *asset.Genesis,
 
 	return nil
 }
+
+// MockChainLookup is a mock for the ChainLookup interface.
+var MockChainLookup = &mockChainLookup{}
+
+// mockChainLookup is a mock implementation of the ChainLookup interface.
+type mockChainLookup struct {
+}
+
+// TxBlockHeight returns the block height that the given transaction was
+// included in.
+func (m *mockChainLookup) TxBlockHeight(context.Context,
+	chainhash.Hash) (uint32, error) {
+
+	return 123, nil
+}
+
+// MeanBlockTimestamp returns the timestamp of the block at the given height as
+// a Unix timestamp in seconds, taking into account the mean time elapsed over
+// the previous 11 blocks.
+func (m *mockChainLookup) MeanBlockTimestamp(context.Context,
+	uint32) (time.Time, error) {
+
+	return time.Now(), nil
+}
+
+// CurrentHeight returns the current height of the main chain.
+func (m *mockChainLookup) CurrentHeight(context.Context) (uint32, error) {
+	return 123, nil
+}
+
+// GenFileChainLookup generates a chain lookup interface for the given
+// proof file that can be used to validate proofs.
+func (m *mockChainLookup) GenFileChainLookup(*File) asset.ChainLookup {
+	return m
+}
+
+// GenProofChainLookup generates a chain lookup interface for the given
+// single proof that can be used to validate proofs.
+func (m *mockChainLookup) GenProofChainLookup(*Proof) (asset.ChainLookup,
+	error) {
+
+	return m, nil
+}
+
+var _ asset.ChainLookup = (*mockChainLookup)(nil)
+var _ ChainLookupGenerator = (*mockChainLookup)(nil)
 
 // MockProofCourierDispatcher is a mock proof courier dispatcher which returns
 // the same courier for all requests.

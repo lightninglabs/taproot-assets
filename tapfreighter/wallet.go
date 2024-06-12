@@ -271,6 +271,11 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 		},
 	}
 
+	err := tapsend.ValidateVPacketVersions(activePackets)
+	if err != nil {
+		return nil, err
+	}
+
 	// Passive assets by definition are in the same anchor input as some of
 	// the active assets. So to avoid needing to reconstruct the anchor here
 	// again, we just copy the anchor of an active packet.
@@ -330,10 +335,12 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	vOutput.SetAnchorInternalKey(anchorOutputInternalKey, params.HDCoinType)
 
 	// Create VPacket.
+	activePktVersion := activePackets[0].Version
 	vPacket := &tappsbt.VPacket{
 		Inputs:      []*tappsbt.VInput{&vInput},
 		Outputs:     []*tappsbt.VOutput{&vOutput},
 		ChainParams: params,
+		Version:     activePktVersion,
 	}
 
 	// Set the input asset. The input asset proof is not provided as it is
@@ -364,8 +371,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		MinAmt:              fundDesc.Amount,
 		Bip86ScriptKeysOnly: true,
 	}
+
+	anchorVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	if anchorVersion == nil {
+		anchorVersion = fn.Ptr(commitment.TapCommitmentV1)
+	}
+
 	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
-		ctx, constraints, PreferMaxAmount,
+		ctx, constraints, PreferMaxAmount, *anchorVersion,
 	)
 	if err != nil {
 		return nil, err
@@ -388,7 +405,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		MinAmt:   fundDesc.Amount,
 	}
 	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
-		ctx, constraints, PreferMaxAmount,
+		ctx, constraints, PreferMaxAmount, commitment.TapCommitmentV2,
 	)
 	if err != nil {
 		return nil, err
@@ -462,6 +479,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 			ScriptKey:         burnKey,
 		}},
 		ChainParams: f.cfg.ChainParams,
+		Version:     tappsbt.V1,
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
 		newInternalKey, f.cfg.ChainParams.HDCoinType,
@@ -771,6 +789,38 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 			err)
 	}
 
+	// Check if this is the anchorPkScript (and indirectly the
+	// anchorMerkleRoot) we expect. If not this might be a non-V2
+	// commitment.
+	anchorTxOut := inputProof.AnchorTx.TxOut[assetInput.AnchorPoint.Index]
+	if !bytes.Equal(anchorTxOut.PkScript, anchorPkScript) {
+		var err error
+
+		inputCommitment, err := assetInput.Commitment.Downgrade()
+		if err != nil {
+			return fmt.Errorf("cannot downgrade commitment: %w",
+				err)
+		}
+
+		//nolint:lll
+		anchorPkScript, anchorMerkleRoot, _, err = tapsend.AnchorOutputScript(
+			internalKey.PubKey, assetInput.TapscriptSibling,
+			inputCommitment,
+		)
+		if err != nil {
+			return fmt.Errorf("cannot calculate input asset "+
+				"pkScript for commitment V0: %w", err)
+		}
+
+		if !bytes.Equal(anchorTxOut.PkScript, anchorPkScript) {
+			// This matches neither version.
+			return fmt.Errorf("%w: anchor input script "+
+				"mismatch for anchor outpoint %v",
+				tapsend.ErrInvalidAnchorInputInfo,
+				assetInput.AnchorPoint)
+		}
+	}
+
 	// Add some trace logging for easier debugging of what we expect to be
 	// in the commitment we spend (we did the same when creating the output,
 	// so differences should be apparent when debugging).
@@ -779,6 +829,7 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 		anchorPkScript, anchorMerkleRoot[:],
 	)
 
+	//nolint:lll
 	tapscriptSiblingBytes, _, err := commitment.MaybeEncodeTapscriptPreimage(
 		assetInput.TapscriptSibling,
 	)
@@ -986,18 +1037,21 @@ func verifyInclusionProof(vIn *tappsbt.VInput) error {
 	}
 
 	inclusionProof := assetProof.InclusionProof
-	proofKey, _, err := inclusionProof.DeriveByAssetInclusion(
-		vIn.Asset(),
+	proofKeys, err := inclusionProof.DeriveByAssetInclusion(
+		vIn.Asset(), nil,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to derive inclusion proof: %w", err)
 	}
 
-	if !proofKey.IsEqual(anchorKey) {
-		return fmt.Errorf("proof key doesn't match anchor key")
+	anchorKeyBytes := schnorr.SerializePubKey(anchorKey)
+	for proofKey := range proofKeys {
+		if bytes.Equal(anchorKeyBytes, proofKey.SchnorrSerialized()) {
+			return nil
+		}
 	}
 
-	return nil
+	return fmt.Errorf("proof key doesn't match anchor key")
 }
 
 // determinePassiveAssetAnchorOutput determines the best anchor output to attach
@@ -1409,5 +1463,6 @@ func addAnchorPsbtInputs(btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) {
 				},
 			)
 		}
+
 	}
 }

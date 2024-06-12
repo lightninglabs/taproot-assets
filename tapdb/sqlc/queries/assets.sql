@@ -408,6 +408,7 @@ SELECT
     utxos.tapscript_sibling AS anchor_tapscript_sibling,
     utxos.merkle_root AS anchor_merkle_root,
     utxos.taproot_asset_root AS anchor_taproot_asset_root,
+    utxos.root_version AS anchor_commitment_version,
     utxos.lease_owner AS anchor_lease_owner,
     utxos.lease_expiry AS anchor_lease_expiry,
     utxo_internal_keys.raw_key AS anchor_internal_key,
@@ -548,9 +549,9 @@ WITH target_key(key_id) AS (
 )
 INSERT INTO managed_utxos (
     outpoint, amt_sats, internal_key_id, tapscript_sibling, merkle_root, txn_id,
-    taproot_asset_root
+    taproot_asset_root, root_version
 ) VALUES (
-    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7
+    $2, $3, (SELECT key_id FROM target_key), $4, $5, $6, $7, $8
 ) ON CONFLICT (outpoint)
    -- Not a NOP but instead update any nullable fields that aren't null in the
    -- args.

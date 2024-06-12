@@ -253,10 +253,13 @@ func InputPrevOutFetcher(prevAsset asset.Asset) (*txscript.CannedPrevOutputFetch
 // InputKeySpendSigHash returns the signature hash of a virtual transaction for
 // a specific Taproot Asset input that can be spent through the key path. This
 // is the message over which signatures are generated over.
-func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
+func InputKeySpendSigHash(virtualTx *wire.MsgTx, input, newAsset *asset.Asset,
 	idx uint32, sigHashType txscript.SigHashType) ([]byte, error) {
 
-	virtualTxCopy := asset.VirtualTxWithInput(virtualTx, input, idx, nil)
+	virtualTxCopy := asset.VirtualTxWithInput(
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, idx,
+		nil,
+	)
 	prevOutFetcher, err := InputPrevOutFetcher(*input)
 	if err != nil {
 		return nil, err
@@ -271,11 +274,14 @@ func InputKeySpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
 // InputScriptSpendSigHash returns the signature hash of a virtual transaction
 // for a specific Taproot Asset input that can be spent through the script path.
 // This is the message over which signatures are generated over.
-func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input *asset.Asset,
-	idx uint32, sigHashType txscript.SigHashType,
+func InputScriptSpendSigHash(virtualTx *wire.MsgTx, input,
+	newAsset *asset.Asset, idx uint32, sigHashType txscript.SigHashType,
 	tapLeaf *txscript.TapLeaf) ([]byte, error) {
 
-	virtualTxCopy := asset.VirtualTxWithInput(virtualTx, input, idx, nil)
+	virtualTxCopy := asset.VirtualTxWithInput(
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, idx,
+		nil,
+	)
 	prevOutFetcher, err := InputPrevOutFetcher(*input)
 	if err != nil {
 		return nil, err

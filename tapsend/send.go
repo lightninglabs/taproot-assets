@@ -28,6 +28,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -540,6 +541,8 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		vOut.Asset = firstInput.Asset().Copy()
 		vOut.Asset.Amount = inputsAmountSum
 		vOut.Asset.ScriptKey = vOut.ScriptKey
+		vOut.Asset.LockTime = vOut.LockTime
+		vOut.Asset.RelativeLockTime = vOut.RelativeLockTime
 
 		// We also need to clear the split commitment root to avoid
 		// state from previous splits being carried over.
@@ -609,6 +612,10 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		// it's a zero value (tombstone) split output for the sender.
 		if vOut.Type.IsSplitRoot() {
 			vOut.Asset = splitCommitment.RootAsset.Copy()
+			vOut.Asset.LockTime = vOut.LockTime
+			vOut.Asset.RelativeLockTime = vOut.RelativeLockTime
+			vOut.Asset.ScriptKey = vOut.ScriptKey
+
 			vOut.SplitAsset = &splitAsset.Asset
 			vOut.SplitAsset.ScriptKey = vOut.ScriptKey
 			continue
@@ -616,6 +623,8 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 
 		vOut.Asset = &splitAsset.Asset
 		vOut.Asset.ScriptKey = vOut.ScriptKey
+		vOut.Asset.LockTime = vOut.LockTime
+		vOut.Asset.RelativeLockTime = vOut.RelativeLockTime
 	}
 
 	return nil
@@ -688,20 +697,21 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer tapscript.Signer,
 	}
 
 	for idx := range inputs {
-		input := inputs[idx]
+		in := inputs[idx]
 
 		// For each input asset leaf, we need to produce a witness.
 		// Update the input of the virtual TX, generate a witness, and
 		// attach it to the copy of the new Asset.
 		virtualTxCopy := virtualTx.Copy()
 		inputSpecificVirtualTx := asset.VirtualTxWithInput(
-			virtualTxCopy, input.Asset(), uint32(idx), nil,
+			virtualTxCopy, newAsset.LockTime,
+			newAsset.RelativeLockTime, uint32(idx), nil,
 		)
 
 		// Sign the virtual transaction based on the input script
 		// information (key spend or script spend).
 		newWitness, err := CreateTaprootSignature(
-			input, inputSpecificVirtualTx, 0, signer,
+			in, inputSpecificVirtualTx, 0, signer,
 		)
 		if err != nil {
 			return fmt.Errorf("error creating taproot "+
@@ -946,6 +956,12 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		}
 	}
 
+	// Set the output commitment version based on the vPkt version.
+	outputCommitmentVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
+	if err != nil {
+		return err
+	}
+
 	for idx := range outputs {
 		vOut := outputs[idx]
 		anchorOutputIdx := vOut.AnchorOutputIndex
@@ -954,7 +970,9 @@ func commitPacket(vPkt *tappsbt.VPacket,
 			return fmt.Errorf("output %d is missing asset", idx)
 		}
 
-		sendTapCommitment, err := commitment.FromAssets(vOut.Asset)
+		sendTapCommitment, err := commitment.FromAssets(
+			outputCommitmentVersion, vOut.Asset,
+		)
 		if err != nil {
 			return fmt.Errorf("error committing assets: %w", err)
 		}
@@ -968,7 +986,9 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		// send. We do the same even for interactive sends to not need
 		// to distinguish between the two cases in the proof file
 		// itself.
-		sendTapCommitment, err = TrimSplitWitnesses(sendTapCommitment)
+		sendTapCommitment, err = commitment.TrimSplitWitnesses(
+			outputCommitmentVersion, sendTapCommitment,
+		)
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
 				err)
@@ -1071,6 +1091,11 @@ func CreateAnchorTx(vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 func PrepareAnchoringTemplate(
 	vPackets []*tappsbt.VPacket) (*psbt.Packet, error) {
 
+	err := ValidateVPacketVersions(vPackets)
+	if err != nil {
+		return nil, err
+	}
+
 	btcPacket, err := CreateAnchorTx(vPackets)
 	if err != nil {
 		return nil, err
@@ -1125,12 +1150,55 @@ func HasInput(tx *wire.MsgTx, outpoint wire.OutPoint) bool {
 	return false
 }
 
+// AssertAnchorTimeLocks makes sure the anchor transaction and its inputs have
+// the correct lock time and sequence set, according to the assets being spent.
+func AssertAnchorTimeLocks(btcPkt *psbt.Packet, vPkt *tappsbt.VPacket) {
+	maxLockTime := uint64(0)
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+
+		// Extract the highest used lock time, as that's per
+		// transaction.
+		if vOut.LockTime > maxLockTime {
+			maxLockTime = vOut.Asset.LockTime
+		}
+
+		// For each input, set the relative lock time as the sequence on
+		// the BTC input.
+		for _, prevWitness := range vOut.Asset.PrevWitnesses {
+			outPoint := prevWitness.PrevID.OutPoint
+
+			for btcInIdx := range btcPkt.UnsignedTx.TxIn {
+				txIn := btcPkt.UnsignedTx.TxIn[btcInIdx]
+				if txIn.PreviousOutPoint == outPoint {
+					txIn.Sequence = uint32(
+						vOut.RelativeLockTime,
+					)
+				}
+			}
+		}
+	}
+
+	// Assign the highest lock time to the transaction, if the one present
+	// there isn't already higher. We need to check this because this
+	// function is called for each vPacket individually.
+	if btcPkt.UnsignedTx.LockTime < uint32(maxLockTime) {
+		btcPkt.UnsignedTx.LockTime = uint32(maxLockTime)
+	}
+}
+
 // UpdateTaprootOutputKeys updates a PSBT with outputs embedding TapCommitments
 // involved in an asset send. The sender must attach the Bitcoin input holding
 // the corresponding Taproot Asset input asset to this PSBT before finalizing
-// the TX. Locators MUST be checked beforehand.
+// the TX. Locators MUST be checked beforehand. Since this is called when the
+// anchor transaction and all assets are final, we also make sure any time locks
+// from the assets are properly bubbled up to the BTC level.
 func UpdateTaprootOutputKeys(btcPacket *psbt.Packet, vPkt *tappsbt.VPacket,
 	outputCommitments tappsbt.OutputCommitments) error {
+
+	// Make sure the anchor transaction has all lock times correctly bubbled
+	// up for this virtual packet.
+	AssertAnchorTimeLocks(btcPacket, vPkt)
 
 	// Add the commitment outputs to the BTC level PSBT now.
 	for idx := range vPkt.Outputs {
@@ -1201,7 +1269,9 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	// Taproot Asset tree of the input anchor output was built with asset
 	// leaves that had empty SplitCommitments. We need to replicate this
 	// here as well.
-	trimmedCommitment, err := TrimSplitWitnesses(anchorCommitment)
+	trimmedCommitment, err := commitment.TrimSplitWitnesses(
+		&anchorCommitment.Version, anchorCommitment,
+	)
 	if err != nil {
 		return nil, emptyHash, emptyHash, fmt.Errorf("unable to trim "+
 			"split witnesses: %w", err)
@@ -1230,36 +1300,6 @@ func AnchorOutputScript(internalKey *btcec.PublicKey,
 	taprootAssetRoot := trimmedCommitment.TapscriptRoot(nil)
 
 	return script, merkleRoot, taprootAssetRoot, nil
-}
-
-// TrimSplitWitnesses returns a copy of the commitment in which all assets with
-// a split commitment witness have their SplitCommitment field set to nil.
-func TrimSplitWitnesses(
-	c *commitment.TapCommitment) (*commitment.TapCommitment, error) {
-
-	// If the input asset was received non-interactively, then the Taproot
-	// Asset tree of the input anchor output was built with asset leaves
-	// that had empty SplitCommitments. However, the SplitCommitment field
-	// was populated when the transfer of the input asset was verified.
-	// To recompute the correct output script, we need to build a Taproot
-	// Asset tree from the input asset without any SplitCommitment.
-	originalAssets := c.CommittedAssets()
-	assetCopies := make([]*asset.Asset, len(originalAssets))
-	for idx, originalAsset := range originalAssets {
-		assetCopy := originalAsset.Copy()
-
-		// Assets received via non-interactive split should have one
-		// witness, with an empty PrevID and a SplitCommitment present.
-		if assetCopy.HasSplitCommitmentWitness() &&
-			*assetCopy.PrevWitnesses[0].PrevID == asset.ZeroPrevID {
-
-			assetCopy.PrevWitnesses[0].SplitCommitment = nil
-		}
-
-		assetCopies[idx] = assetCopy
-	}
-
-	return commitment.FromAssets(assetCopies...)
 }
 
 // interactiveFullValueSend returns true (and the index of the recipient output)
@@ -1461,6 +1501,23 @@ func LogCommitment(prefix string, idx int,
 	}
 }
 
+// ValidateVPacketVersions checks that all virtual packets are the same version.
+func ValidateVPacketVersions(vPackets []*tappsbt.VPacket) error {
+	if len(vPackets) == 0 {
+		return fmt.Errorf("no virtual packets")
+	}
+
+	firstPktVersion := vPackets[0].Version
+	matchingVersion := fn.All(vPackets, func(vPkt *tappsbt.VPacket) bool {
+		return vPkt.Version == firstPktVersion
+	})
+	if !matchingVersion {
+		return fmt.Errorf("mixed virtual packet versions")
+	}
+
+	return nil
+}
+
 // ValidateAnchorOutputs checks that the anchor outputs of the virtual packets
 // are valid and consistent with the provided BTC level PSBT packet. When
 // calling this function, everything must be ready to be signed on the BTC
@@ -1480,8 +1537,16 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 		outputSiblings   = make(
 			map[uint32]*commitment.TapscriptPreimage,
 		)
+		outputCommitVersions = make(
+			map[uint32]*commitment.TapCommitmentVersion,
+		)
 	)
 	for _, vPkt := range packets {
+		pktCommitVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
+		if err != nil {
+			return err
+		}
+
 		for idx := range vPkt.Outputs {
 			vOut := vPkt.Outputs[idx]
 
@@ -1570,13 +1635,74 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 				vOut.Asset,
 			)
 			outputSiblings[vOut.AnchorOutputIndex] = siblingPreimage
+
+			// Fetch the tap commitment version from the proof of
+			// inclusion for the vOutput.
+			commitVersion, err := vOut.TapCommitmentVersion()
+			if err != nil {
+				return fmt.Errorf("vOut %d: %w", idx, err)
+			}
+
+			storedCommitVersion, ok :=
+				outputCommitVersions[vOut.AnchorOutputIndex]
+
+			if !ok {
+				// The vOutput commitment version must be
+				// similar to the vPacket version.
+				if !commitment.IsSimilarTapCommitmentVersion(
+					pktCommitVersion, commitVersion,
+				) {
+
+					log.Tracef("vOut %d commit version "+
+						"%v, vPacket version %v", idx,
+						commitVersion, pktCommitVersion)
+
+					return fmt.Errorf("vOut commit " +
+						"version and vPacket version " +
+						"mismatch")
+				}
+
+				outputCommitVersions[vOut.AnchorOutputIndex] =
+					commitVersion
+				continue
+			}
+
+			// Commitment versions must be similar for all vOutputs
+			// in the same anchor output.
+			if !commitment.IsSimilarTapCommitmentVersion(
+				storedCommitVersion, commitVersion,
+			) {
+
+				log.Tracef("vOut %d commit version %v, prior "+
+					"vOut commit version %v", idx,
+					commitVersion, pktCommitVersion)
+
+				return fmt.Errorf("mixed vOut commit versions")
+			}
+		}
+	}
+
+	// All output commitments must also have similar versions at this point.
+	firstCommitVersion := maps.Values(outputCommitVersions)[0]
+	for idx, commitVersion := range outputCommitVersions {
+		if !commitment.IsSimilarTapCommitmentVersion(
+			firstCommitVersion, commitVersion,
+		) {
+
+			log.Tracef("output %d commit version %v, first output "+
+				"commit version %v", idx, commitVersion,
+				firstCommitVersion)
+
+			return fmt.Errorf("mixed anchor commitment versions")
 		}
 	}
 
 	// We can now go through each anchor output that will carry assets and
 	// check that we arrive at the correct script.
 	for anchorIdx, assets := range outputAssets {
-		anchorCommitment, err := commitment.FromAssets(assets...)
+		anchorCommitment, err := commitment.FromAssets(
+			outputCommitVersions[anchorIdx], assets...,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
@@ -1606,11 +1732,28 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 				"script: %w", err)
 		}
 
+		downgradedCommitment, err := anchorCommitment.Downgrade()
+		if err != nil {
+			return err
+		}
+
+		scriptNonV2, _, _, err := AnchorOutputScript(
+			internalKey, outputSiblings[anchorIdx],
+			downgradedCommitment,
+		)
+
+		if err != nil {
+			return fmt.Errorf("unable to create V0 anchor output "+
+				"script: %w", err)
+		}
+
 		// This is the most important check. This ensures that the
 		// assets in the outputs of the virtual transactions match
 		// exactly the assets that are committed to in the anchor
 		// output script.
-		if !bytes.Equal(anchorTxOut.PkScript, script) {
+		if !bytes.Equal(anchorTxOut.PkScript, script) &&
+			!bytes.Equal(anchorTxOut.PkScript, scriptNonV2) {
+
 			return fmt.Errorf("%w: anchor output script mismatch "+
 				"for anchor output index %d",
 				ErrInvalidAnchorOutputInfo, anchorIdx)
@@ -1758,7 +1901,9 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 	// We can now go through each anchor input that contains assets being
 	// spent and check that we arrive at the correct script.
 	for anchorOutpoint, assets := range inputAssets {
-		anchorCommitment, err := commitment.FromAssets(assets...)
+		anchorCommitment, err := commitment.FromAssets(
+			fn.Ptr(commitment.TapCommitmentV2), assets...,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
@@ -1788,9 +1933,28 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		// output script.
 		anchorScript := inputScripts[anchorOutpoint]
 		if !bytes.Equal(anchorScript, script) {
-			return fmt.Errorf("%w: anchor input script mismatch "+
-				"for anchor outpoint %v",
-				ErrInvalidAnchorInputInfo, anchorOutpoint)
+			// The commitment may not be V2; let's check against
+			// a non-V2 commitment.
+			anchorCommitment, err = anchorCommitment.Downgrade()
+			if err != nil {
+				return err
+			}
+
+			script, merkleRoot, _, err = AnchorOutputScript(
+				internalKey, inputSiblings[anchorOutpoint],
+				anchorCommitment,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create MarkerV0 "+
+					"anchor output script: %w", err)
+			}
+			if !bytes.Equal(anchorScript, script) {
+				// This matches neither version.
+				return fmt.Errorf("%w: anchor input script "+
+					"mismatch for anchor outpoint %v",
+					ErrInvalidAnchorInputInfo,
+					anchorOutpoint)
+			}
 		}
 
 		// The merkle root should also match.

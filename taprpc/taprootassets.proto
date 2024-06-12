@@ -672,6 +672,19 @@ message DebugLevelResponse {
     string sub_systems = 1;
 }
 
+enum AddrVersion {
+    // ADDR_VERSION_UNSPECIFIED is the default value for an address version in
+    // an RPC message. It is unmarshalled to the latest address version.
+    ADDR_VERSION_UNSPECIFIED = 0;
+
+    // ADDR_VERSION_V0 is the initial address version.
+    ADDR_VERSION_V0 = 1;
+
+    // ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset
+    // commitments.
+    ADDR_VERSION_V1 = 2;
+}
+
 message Addr {
     // The bech32 encoded Taproot Asset address.
     string encoded = 1;
@@ -717,6 +730,9 @@ message Addr {
 
     // The asset version of the address.
     AssetVersion asset_version = 11;
+
+    // The version of the address.
+    AddrVersion address_version = 12;
 }
 
 message QueryAddrRequest {
@@ -786,6 +802,11 @@ message NewAddrRequest {
     The asset version to use when sending/receiving to/from this address.
     */
     AssetVersion asset_version = 7;
+
+    /*
+    The version of this address.
+    */
+    AddrVersion address_version = 8;
 }
 
 message ScriptKey {
@@ -1196,6 +1217,11 @@ enum ParcelType {
     // anymore, as it's not relevant for the remaining steps. Parcels of this
     // type will only get send states starting from SEND_STATE_BROADCAST.
     PARCEL_TYPE_PENDING = 2;
+
+    // The parcel type is a pre-anchored parcel where the full anchor
+    // transaction and all proofs are already available. Parcels of this type
+    // will only get send states starting from SEND_STATE_LOG_COMMITMENT.
+    PARCEL_TYPE_PRE_ANCHORED = 3;
 }
 
 message SendEvent {

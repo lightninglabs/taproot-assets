@@ -170,7 +170,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	copy(assetXTranche3ID[:], assetXTranche3.AssetGenesis.AssetId)
 
 	vPktFirstBatch := tappsbt.ForInteractiveSend(
-		assetXTranche1ID, assetXTranche1.Amount, scriptKey1, 0,
+		assetXTranche1ID, assetXTranche1.Amount, scriptKey1, 0, 0, 0,
 		anchorInternalKeyDesc1, asset.V0, chainParams,
 	)
 	fundRespFirstBatch := fundPacket(t, aliceTapd, vPktFirstBatch)
@@ -198,7 +198,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	}
 
 	vPktSecondBatch := tappsbt.ForInteractiveSend(
-		assetXTranche3ID, assetXTranche3.Amount, scriptKey1, 0,
+		assetXTranche3ID, assetXTranche3.Amount, scriptKey1, 0, 0, 0,
 		anchorInternalKeyDesc1, asset.V0, chainParams,
 	)
 	fundRespSecondBatch := fundPacket(t, aliceTapd, vPktSecondBatch)

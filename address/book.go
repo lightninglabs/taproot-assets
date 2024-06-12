@@ -254,10 +254,11 @@ func (b *Book) queryAssetInfo(ctx context.Context,
 }
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
-func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
+func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
+	assetID asset.ID, amount uint64,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr url.URL, addrOpts ...NewAddrOpt,
-) (*AddrWithKeyInfo, error) {
+	proofCourierAddr url.URL, addrOpts ...NewAddrOpt) (*AddrWithKeyInfo,
+	error) {
 
 	// Before we proceed and make new keys, make sure that we actually know
 	// of this asset ID, or can import it.
@@ -282,19 +283,19 @@ func (b *Book) NewAddress(ctx context.Context, assetID asset.ID, amount uint64,
 	}
 
 	return b.NewAddressWithKeys(
-		ctx, assetID, amount, scriptKey, internalKeyDesc,
+		ctx, addrVersion, assetID, amount, scriptKey, internalKeyDesc,
 		tapscriptSibling, proofCourierAddr, addrOpts...,
 	)
 }
 
 // NewAddressWithKeys creates a new Taproot Asset address based on the input
 // parameters that include pre-derived script and internal keys.
-func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
-	amount uint64, scriptKey asset.ScriptKey,
+func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
+	assetID asset.ID, amount uint64, scriptKey asset.ScriptKey,
 	internalKeyDesc keychain.KeyDescriptor,
 	tapscriptSibling *commitment.TapscriptPreimage,
-	proofCourierAddr url.URL,
-	addrOpts ...NewAddrOpt) (*AddrWithKeyInfo, error) {
+	proofCourierAddr url.URL, addrOpts ...NewAddrOpt) (*AddrWithKeyInfo,
+	error) {
 
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't
@@ -315,7 +316,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, assetID asset.ID,
 	}
 
 	baseAddr, err := New(
-		V0, *assetGroup.Genesis, groupKey, groupWitness,
+		addrVersion, *assetGroup.Genesis, groupKey, groupWitness,
 		*scriptKey.PubKey, *internalKeyDesc.PubKey, amount,
 		tapscriptSibling, &b.cfg.Chain, proofCourierAddr,
 		addrOpts...,

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 )
 
@@ -37,7 +38,9 @@ type CoinSelect struct {
 // duration.
 func (s *CoinSelect) SelectCoins(ctx context.Context,
 	constraints CommitmentConstraints,
-	strategy MultiCommitmentSelectStrategy) ([]*AnchoredCommitment, error) {
+	strategy MultiCommitmentSelectStrategy,
+	maxVersion commitment.TapCommitmentVersion) ([]*AnchoredCommitment,
+	error) {
 
 	s.coinLock.Lock()
 	defer s.coinLock.Unlock()
@@ -60,11 +63,25 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		return nil, fmt.Errorf("unable to list eligible coins: %w", err)
 	}
 
+	if len(eligibleCommitments) == 0 {
+		return nil, ErrMatchingAssetsNotFound
+	}
+
 	log.Infof("Identified %v eligible asset inputs for send of %d to %v",
-		len(eligibleCommitments), constraints)
+		len(eligibleCommitments), constraints.MinAmt, constraints)
+
+	// Only select coins anchored in a compatible commitment.
+	compatibleCommitments := fn.Filter(
+		eligibleCommitments, func(c *AnchoredCommitment) bool {
+			return c.Commitment.Version <= maxVersion
+		},
+	)
+	if len(compatibleCommitments) == 0 {
+		return nil, ErrMatchingAssetsNotFound
+	}
 
 	selectedCoins, err := s.selectForAmount(
-		constraints.MinAmt, eligibleCommitments, strategy,
+		constraints.MinAmt, compatibleCommitments, strategy,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to select coins: %w", err)

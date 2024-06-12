@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -344,6 +345,17 @@ type AssetGroupBalance struct {
 	Balance  uint64
 }
 
+// cacheableTimestamp is a wrapper around an int32 that can be used as a
+// value in an LRU cache.
+type cacheableBlockHeight uint32
+
+// Size returns the size of the cacheable block height. Since we scale the cache
+// by the number of items and not the total memory size, we can simply return 1
+// here to count each timestamp as 1 item.
+func (c cacheableBlockHeight) Size() (uint64, error) {
+	return 1, nil
+}
+
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
 // interface, allowing for multiple queries to be executed in a single SQL
 // transaction.
@@ -362,6 +374,8 @@ type AssetStore struct {
 	eventDistributor *fn.EventDistributor[proof.Blob]
 
 	clock clock.Clock
+
+	txHeights *lru.Cache[chainhash.Hash, cacheableBlockHeight]
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
@@ -371,6 +385,9 @@ func NewAssetStore(db BatchedAssetStore, clock clock.Clock) *AssetStore {
 		db:               db,
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
 		clock:            clock,
+		txHeights: lru.NewCache[chainhash.Hash, cacheableBlockHeight](
+			10_000,
+		),
 	}
 }
 
@@ -1510,6 +1527,7 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		Outpoint:         anchorPoint,
 		AmtSats:          anchorOutput.Value,
 		TaprootAssetRoot: taprootAssetRoot[:],
+		RootVersion:      sqlInt16(uint8(proof.ScriptRoot.Version)),
 		MerkleRoot:       merkleRoot[:],
 		TapscriptSibling: siblingBytes,
 		TxnID:            chainTXID,
@@ -1610,7 +1628,8 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
 func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
-	_ proof.MerkleVerifier, _ proof.GroupVerifier, replace bool,
+	_ proof.MerkleVerifier, _ proof.GroupVerifier,
+	_ proof.ChainLookupGenerator, replace bool,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
@@ -1936,6 +1955,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 	)
 	for anchorPoint := range chainAnchorToAssets {
 		anchorPoint := anchorPoint
+		anchorUTXO := anchorPoints[anchorPoint]
 		anchoredAssets := chainAnchorToAssets[anchorPoint]
 
 		// Fetch the asset leaves from each chain asset, and then
@@ -1944,10 +1964,41 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			return cAsset.Asset
 		}
 
+		// Fetch the tap commitment version used for the anchor.
+		var commitmentVersion *commitment.TapCommitmentVersion
+		if anchorUTXO.RootVersion.Valid {
+			dbVersion := extractSqlInt16[uint8](
+				anchorUTXO.RootVersion,
+			)
+			commitmentVersion = fn.Ptr(
+				commitment.TapCommitmentVersion(dbVersion),
+			)
+		}
+
 		assets := fn.Map(anchoredAssets, fetchAsset)
-		tapCommitment, err := commitment.FromAssets(assets...)
+		tapCommitment, err := commitment.FromAssets(
+			commitmentVersion, assets...,
+		)
 		if err != nil {
 			return nil, err
+		}
+
+		// The reconstructed commitment must be trimmed to match the
+		// on-chain commitment root in the case of a split send.
+		tapCommitment, err = commitment.TrimSplitWitnesses(
+			commitmentVersion, tapCommitment,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// Verify that the constructed Taproot Asset commitment matches
+		// the commitment root stored in the managed UTXO.
+		commitmentRoot := tapCommitment.TapscriptRoot(nil)
+		anchorCommitmentRoot := anchorUTXO.TaprootAssetRoot
+		if !bytes.Equal(anchorCommitmentRoot, commitmentRoot[:]) {
+			return nil, fmt.Errorf("mismatch of managed utxo and " +
+				"constructed tap commitment root")
 		}
 
 		anchorPointToCommitment[anchorPoint] = tapCommitment
@@ -1971,11 +2022,21 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			return nil, err
 		}
 
-		tapscriptSibling, _, err := commitment.MaybeDecodeTapscriptPreimage(
-			anchorUTXO.TapscriptSibling,
-		)
+		tapscriptSibling, siblingHash, err := commitment.
+			MaybeDecodeTapscriptPreimage(
+				anchorUTXO.TapscriptSibling,
+			)
 		if err != nil {
 			return nil, err
+		}
+
+		// Verify that the tapscript sibling and commitment root match
+		// the merkle root in the managed UTXO.
+		tapCommitment := anchorPointToCommitment[anchorPoint]
+		merkleRoot := tapCommitment.TapscriptRoot(siblingHash)
+		if !bytes.Equal(anchorUTXO.MerkleRoot, merkleRoot[:]) {
+			return nil, fmt.Errorf("mismatch of managed utxo and " +
+				"constructed merkle root")
 		}
 
 		selectedAssets[i] = &tapfreighter.AnchoredCommitment{
@@ -2188,6 +2249,11 @@ func insertPassiveAssets(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to upsert internal key: %w", err)
 	}
 
+	rootVersion := sql.NullInt16{}
+	if anchor.CommitmentVersion != nil {
+		rootVersion = sqlInt16(*anchor.CommitmentVersion)
+	}
+
 	// Now that the chain transaction has been inserted, we can now insert
 	// a _new_ managed UTXO which houses the information related to the new
 	// anchor point of the transaction.
@@ -2196,6 +2262,7 @@ func insertPassiveAssets(ctx context.Context, q ActiveAssetsStore,
 		Outpoint:         anchorPointBytes,
 		AmtSats:          int64(anchor.Value),
 		TaprootAssetRoot: anchor.TaprootAssetRoot,
+		RootVersion:      rootVersion,
 		MerkleRoot:       anchor.MerkleRoot,
 		TapscriptSibling: anchor.TapscriptSibling,
 		TxnID:            txnID,
@@ -2241,6 +2308,11 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to upsert internal key: %w", err)
 	}
 
+	rootVersion := sql.NullInt16{}
+	if anchor.CommitmentVersion != nil {
+		rootVersion = sqlInt16(*anchor.CommitmentVersion)
+	}
+
 	// Now that the chain transaction has been inserted, we can now insert
 	// a _new_ managed UTXO which houses the information related to the new
 	// anchor point of the transaction.
@@ -2249,6 +2321,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		Outpoint:         anchorPointBytes,
 		AmtSats:          int64(anchor.Value),
 		TaprootAssetRoot: anchor.TaprootAssetRoot,
+		RootVersion:      rootVersion,
 		MerkleRoot:       anchor.MerkleRoot,
 		TapscriptSibling: anchor.TapscriptSibling,
 		TxnID:            txnID,
@@ -2389,29 +2462,37 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 		}
 
 		declaredKnown := dbOut.ScriptKeyDeclaredKnown.Valid
-		outputs[idx] = tapfreighter.TransferOutput{
-			Anchor: tapfreighter.Anchor{
-				Value: btcutil.Amount(
-					dbOut.AnchorValue,
-				),
-				InternalKey: keychain.KeyDescriptor{
-					PubKey: internalKey,
-					KeyLocator: keychain.KeyLocator{
-						Family: keychain.KeyFamily(
-							dbOut.InternalKeyFamily,
-						),
-						Index: uint32(
-							dbOut.InternalKeyIndex,
-						),
-					},
+		outputAnchor := tapfreighter.Anchor{
+			Value: btcutil.Amount(
+				dbOut.AnchorValue,
+			),
+			InternalKey: keychain.KeyDescriptor{
+				PubKey: internalKey,
+				KeyLocator: keychain.KeyLocator{
+					Family: keychain.KeyFamily(
+						dbOut.InternalKeyFamily,
+					),
+					Index: uint32(
+						dbOut.InternalKeyIndex,
+					),
 				},
-				TaprootAssetRoot: dbOut.AnchorTaprootAssetRoot,
-				MerkleRoot:       dbOut.AnchorMerkleRoot,
-				TapscriptSibling: dbOut.AnchorTapscriptSibling,
-				NumPassiveAssets: uint32(
-					dbOut.NumPassiveAssets,
-				),
 			},
+			TaprootAssetRoot: dbOut.AnchorTaprootAssetRoot,
+			MerkleRoot:       dbOut.AnchorMerkleRoot,
+			TapscriptSibling: dbOut.AnchorTapscriptSibling,
+			NumPassiveAssets: uint32(
+				dbOut.NumPassiveAssets,
+			),
+		}
+		if dbOut.AnchorCommitmentVersion.Valid {
+			dbRootVersion := extractSqlInt16[uint8](
+				dbOut.AnchorCommitmentVersion,
+			)
+			outputAnchor.CommitmentVersion = fn.Ptr(dbRootVersion)
+		}
+
+		outputs[idx] = tapfreighter.TransferOutput{
+			Anchor:       outputAnchor,
 			Amount:       uint64(dbOut.Amount),
 			AssetVersion: asset.Version(dbOut.AssetVersion),
 			ScriptKey: asset.ScriptKey{
@@ -3055,6 +3136,45 @@ func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
 	}
 
 	return assetMeta, nil
+}
+
+// TxHeight returns the block height of a given transaction. This will only
+// return the height if the transaction is known to the store, which is only
+// the case for assets relevant to this node.
+func (a *AssetStore) TxHeight(ctx context.Context, txid chainhash.Hash) (uint32,
+	error) {
+
+	blockHeight, err := a.txHeights.Get(txid)
+	if err == nil {
+		return uint32(blockHeight), nil
+	}
+
+	var dbBlockHeight int32
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		dbTx, err := q.FetchChainTx(ctx, txid[:])
+		if err != nil {
+			return err
+		}
+
+		dbBlockHeight = dbTx.BlockHeight.Int32
+
+		return nil
+	})
+	if dbErr != nil {
+		return 0, dbErr
+	}
+
+	if dbBlockHeight == 0 {
+		return 0, fmt.Errorf("tx height not found")
+	}
+
+	_, err = a.txHeights.Put(txid, cacheableBlockHeight(dbBlockHeight))
+	if err != nil {
+		return 0, fmt.Errorf("unable to cache asset height: %w", err)
+	}
+
+	return uint32(dbBlockHeight), nil
 }
 
 // A compile-time constraint to ensure that AssetStore meets the

@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -755,6 +756,8 @@ func validateGroupWitness(t *testing.T, protoAsset *asset.Asset,
 	assetWithGroup.PrevWitnesses[0].TxWitness = newGroup.Witness
 
 	witnessValidator := taprootassets.ValidatorV0{}
-	err := witnessValidator.Execute(assetWithGroup, nil, nil)
+	err := witnessValidator.Execute(
+		assetWithGroup, nil, nil, proof.MockChainLookup,
+	)
 	require.NoError(t, err)
 }

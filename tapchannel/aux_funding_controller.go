@@ -148,6 +148,10 @@ type FundingControllerCfg struct {
 	// ChainParams is the chain params of the chain we operate on.
 	ChainParams address.ChainParams
 
+	// ChainBridge provides access to the chain for confirmation
+	// notification, and other block related actions.
+	ChainBridge tapfreighter.ChainBridge
+
 	// GroupKeyIndex is used to query the group key for an asset ID.
 	GroupKeyIndex tapsend.AssetGroupQuerier
 
@@ -333,7 +337,9 @@ func (p *pendingAssetFunding) assetOutputs() []*cmsg.AssetOutput {
 
 // addToFundingCommitment adds a new asset to the funding commitment.
 func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
-	newCommitment, err := commitment.FromAssets(a)
+	newCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), a,
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
 	}
@@ -640,6 +646,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 			ScriptKey:         fundingScriptKey,
 		}},
 		ChainParams: &f.cfg.ChainParams,
+		Version:     tappsbt.V1,
 	}
 	fundDesc, err := tapsend.DescribeRecipients(
 		ctx, pktTemplate, f.cfg.GroupKeyIndex,
@@ -808,6 +815,11 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 
 	allPackets := append([]*tappsbt.VPacket{}, activePkt)
 	allPackets = append(allPackets, passivePkts...)
+
+	err = tapsend.ValidateVPacketVersions(allPackets)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("signed packets: %w", err)
+	}
 
 	return allPackets, []*tappsbt.VPacket{activePkt}, passivePkts, nil
 }
@@ -1207,7 +1219,19 @@ func (f *FundingController) chanFunder() {
 			// we'll only learn from lnd later as we finalize the
 			// funding PSBT).
 			fundingOutput := fundingVpkt.VPacket.Outputs[0]
+			fundingCommitVersion, err := tappsbt.CommitmentVersion(
+				fundingVpkt.VPacket.Version,
+			)
+			if err != nil {
+				fErr := fmt.Errorf("unable to create "+
+					"commitment: %w", err)
+				log.Error(fErr)
+				fundReq.errChan <- fErr
+				continue
+			}
+
 			fundingCommitment, err := commitment.FromAssets(
+				fundingCommitVersion,
 				fundingOutput.Asset.Copy(),
 			)
 			if err != nil {
@@ -1323,16 +1347,31 @@ func (f *FundingController) chanFunder() {
 			// This is input proof, so we'll verify the challenge
 			// witness, then store the proof.
 			case *cmsg.TxAssetInputProof:
+				p := assetProof.Proof.Val
 				log.Infof("Validating input proof, prev_out=%v",
-					assetProof.Proof.Val.OutPoint())
+					p.OutPoint())
+
+				l, err := f.cfg.ChainBridge.GenProofChainLookup(
+					&p,
+				)
+				if err != nil {
+					fErr := fmt.Errorf("unable to create "+
+						"proof lookup: %w", err)
+					f.cfg.ErrReporter.ReportError(
+						ctxc, msg.PeerPub, tempPID,
+						fErr,
+					)
+					log.Error(fErr)
+					continue
+				}
 
 				// Next, we'll validate this proof to make sure
 				// that the initiator is actually able to spend
 				// these outputs in the funding transaction.
-				_, err := assetProof.Proof.Val.Verify(
+				_, err = p.Verify(
 					ctxc, nil, f.cfg.HeaderVerifier,
 					proof.DefaultMerkleVerifier,
-					f.cfg.GroupVerifier,
+					f.cfg.GroupVerifier, l,
 				)
 				if err != nil {
 					fErr := fmt.Errorf("unable to verify "+
@@ -1468,8 +1507,17 @@ func (f *FundingController) chanFunder() {
 			}
 
 			fundingCommitment := fundingFlow.fundingAssetCommitment
-			trimmedCommitment, err := tapsend.TrimSplitWitnesses(
-				fundingCommitment,
+			if fundingCommitment == nil {
+				fErr := fmt.Errorf("missing funding commitment")
+				f.cfg.ErrReporter.ReportError(
+					ctxc, fundingFlow.peerPub, pid,
+					fErr,
+				)
+				continue
+			}
+
+			trimmedCommitment, err := commitment.TrimSplitWitnesses(
+				&fundingCommitment.Version, fundingCommitment,
 			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to anchor output "+
@@ -1576,9 +1624,26 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 		newAsset = &outAsset.PrevWitnesses[0].SplitCommitment.RootAsset
 	}
 
+	// We create a file out of the input proofs, even if they aren't a chain
+	// of proofs. But the chain lookup will need them to look up transaction
+	// and block information in those proofs, so it's easiest to provide
+	// them as a single file that can be iterated through.
+	proofFile, err := proof.NewFile(
+		proof.V0, fn.Map(inputAssetProofs,
+			func(p *proof.Proof) proof.Proof {
+				return *p
+			},
+		)...,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create proof file: %w", err)
+	}
+
 	// With the inputs specified, we'll now attempt to validate the state
 	// transition for the asset funding output.
-	engine, err := vm.New(newAsset, nil, prevAssets)
+	chainLookup := f.cfg.ChainBridge.GenFileChainLookup(proofFile)
+	verifyOpt := vm.WithChainLookup(chainLookup)
+	engine, err := vm.New(newAsset, nil, prevAssets, verifyOpt)
 	if err != nil {
 		return fmt.Errorf("unable to create VM: %w", err)
 	}

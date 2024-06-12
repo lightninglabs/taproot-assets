@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/exp/maps"
 )
 
 var (
@@ -165,6 +166,10 @@ type TaprootProof struct {
 	TapscriptProof *TapscriptProof
 }
 
+// ProofCommitmentKeys stores the Taproot Asset commitments and taproot output
+// keys derived from a TaprootProof.
+type ProofCommitmentKeys map[asset.SerializedKey]*commitment.TapCommitment
+
 func (p TaprootProof) EncodeRecords() []tlv.Record {
 	records := make([]tlv.Record, 0, 3)
 	records = append(records, TaprootProofOutputIndexRecord(&p.OutputIndex))
@@ -208,12 +213,11 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 
 // deriveTaprootKey derives the taproot key backing a Taproot Asset commitment.
 func deriveTaprootKeyFromTapCommitment(commitment *commitment.TapCommitment,
-	sibling *chainhash.Hash, internalKey *btcec.PublicKey) (
-	*btcec.PublicKey, error) {
+	sibling *chainhash.Hash,
+	internalKey *btcec.PublicKey) (*btcec.PublicKey, error) {
 
 	// TODO(roasbeef): should just be control block proof verification?
 	//  * should be getting the party bit from that itself
-
 	tapscriptRoot := commitment.TapscriptRoot(sibling)
 	return schnorr.ParsePubKey(schnorr.SerializePubKey(
 		txscript.ComputeTaprootOutputKey(internalKey, tapscriptRoot[:]),
@@ -258,12 +262,11 @@ func deriveTaprootKeysFromTapCommitment(commitment *commitment.TapCommitment,
 // There are at most two _possible_ keys that exist if each leaf preimage
 // matches the length of a branch preimage. However, using the annotated type
 // information we only need to derive a single key.
-func (p TaprootProof) DeriveByAssetInclusion(
-	asset *asset.Asset) (*btcec.PublicKey, *commitment.TapCommitment,
-	error) {
+func (p TaprootProof) DeriveByAssetInclusion(asset *asset.Asset,
+	single *bool) (ProofCommitmentKeys, error) {
 
 	if p.CommitmentProof == nil || p.TapscriptProof != nil {
-		return nil, nil, ErrInvalidCommitmentProof
+		return nil, ErrInvalidCommitmentProof
 	}
 
 	// If this is an asset with a split commitment, then we need to verify
@@ -280,23 +283,19 @@ func (p TaprootProof) DeriveByAssetInclusion(
 	// root and taproot output key.
 	tapCommitment, err := p.CommitmentProof.DeriveByAssetInclusion(asset)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	pubKey, err := deriveTaprootKeysFromTapCommitment(
+
+	// Derive multiple keys by default.
+	downgrade := true
+	if single != nil {
+		downgrade = *single
+	}
+
+	return deriveCommitmentKeys(
 		tapCommitment, p.InternalKey,
-		p.CommitmentProof.TapSiblingPreimage,
+		p.CommitmentProof.TapSiblingPreimage, true, downgrade,
 	)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
-		"internal_key=%x, taproot_key=%x",
-		fn.ByteSlice(tapCommitment.TapscriptRoot(nil)),
-		p.InternalKey.SerializeCompressed(),
-		schnorr.SerializePubKey(pubKey))
-
-	return pubKey, tapCommitment, nil
 }
 
 // DeriveByAssetExclusion derives the possible taproot keys backing a Taproot
@@ -310,7 +309,7 @@ func (p TaprootProof) DeriveByAssetInclusion(
 // length of a branch preimage. However, based on the type of the sibling
 // pre-image we'll derive just a single version of it.
 func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
-	tapCommitmentKey [32]byte) (*btcec.PublicKey, error) {
+	tapCommitmentKey [32]byte) (ProofCommitmentKeys, error) {
 
 	if p.CommitmentProof == nil || p.TapscriptProof != nil {
 		return nil, ErrInvalidCommitmentProof
@@ -323,8 +322,8 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	// We'll do this twice, one for the possible branch sibling and another
 	// for the possible leaf sibling.
 	var (
-		commitment *commitment.TapCommitment
-		err        error
+		tapCommitment *commitment.TapCommitment
+		err           error
 	)
 
 	switch {
@@ -333,7 +332,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	// the root commitment).
 	case p.CommitmentProof.AssetProof == nil:
 		log.Debugf("Deriving commitment by asset commitment exclusion")
-		commitment, err = p.CommitmentProof.
+		tapCommitment, err = p.CommitmentProof.
 			DeriveByAssetCommitmentExclusion(tapCommitmentKey)
 
 	// Otherwise, we have an asset proof, which means the tree contains the
@@ -341,21 +340,86 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 	// about isn't included.
 	default:
 		log.Debugf("Deriving commitment by asset exclusion")
-		commitment, err = p.CommitmentProof.
+		tapCommitment, err = p.CommitmentProof.
 			DeriveByAssetExclusion(assetCommitmentKey)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	log.Tracef("Derived Taproot Asset commitment taproot_asset_root=%x, "+
-		"internal_key=%x",
-		fn.ByteSlice(commitment.TapscriptRoot(nil)),
-		p.InternalKey.SerializeCompressed())
-
-	return deriveTaprootKeysFromTapCommitment(
-		commitment, p.InternalKey, p.CommitmentProof.TapSiblingPreimage,
+	return deriveCommitmentKeys(
+		tapCommitment, p.InternalKey,
+		p.CommitmentProof.TapSiblingPreimage, true, true,
 	)
+}
+
+// deriveCommitmentKeys derives the multiple possible taproot output keys for a
+// TaprootProof.
+func deriveCommitmentKeys(commitment *commitment.TapCommitment,
+	internalKey *btcec.PublicKey,
+	siblingPreimage *commitment.TapscriptPreimage,
+	inclusion, downgrade bool) (ProofCommitmentKeys, error) {
+
+	proofType := "exclusion"
+	if inclusion {
+		proofType = "inclusion"
+	}
+
+	log.Tracef("Derived Taproot Asset commitment by %s "+
+		"taproot_asset_root=%x, internal_key=%x",
+		proofType, fn.ByteSlice(commitment.TapscriptRoot(nil)),
+		internalKey.SerializeCompressed())
+
+	commitmentKeys := make(ProofCommitmentKeys)
+	pubKeyV2, err := deriveTaprootKeysFromTapCommitment(
+		commitment, internalKey, siblingPreimage,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	commitmentCopy, err := commitment.Copy()
+	if err != nil {
+		return nil, err
+	}
+
+	commitmentKeys[asset.ToSerialized(pubKeyV2)] = commitmentCopy
+	downgradedCommitment, err := commitment.Downgrade()
+	if err != nil {
+		return nil, fmt.Errorf("error downgrading commitment: %w", err)
+	}
+
+	pubKeyNonV2, err := deriveTaprootKeysFromTapCommitment(
+		downgradedCommitment, internalKey, siblingPreimage,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if downgrade {
+		downgradePubKey := asset.ToSerialized(pubKeyNonV2)
+		commitmentKeys[downgradePubKey] = downgradedCommitment
+	}
+
+	log.Debugf("Derived Taproot Asset commitment by %s "+
+		"taproot_asset_root=%x, internal_key=%x, Commitment V2 "+
+		"taproot_key=%x, NonV2 taproot_key=%x",
+		proofType, fn.ByteSlice(commitment.TapscriptRoot(nil)),
+		internalKey.SerializeCompressed(),
+		schnorr.SerializePubKey(pubKeyV2),
+		schnorr.SerializePubKey(pubKeyNonV2))
+
+	return commitmentKeys, nil
+}
+
+func (k ProofCommitmentKeys) GetCommitment() (*commitment.TapCommitment,
+	error) {
+
+	if len(k) != 1 {
+		return nil, fmt.Errorf("expected exactly 1 commitment")
+	}
+
+	return maps.Values(k)[0], nil
 }
 
 // DeriveTaprootKeys derives the expected taproot key from a TapscriptProof

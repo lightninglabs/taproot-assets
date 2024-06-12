@@ -103,7 +103,7 @@ func TestCreateProofSuffix(t *testing.T) {
 			_, err = proofSuffix.Verify(
 				ctx, prev, proof.MockHeaderVerifier,
 				proof.MockMerkleVerifier,
-				proof.MockGroupVerifier,
+				proof.MockGroupVerifier, proof.MockChainLookup,
 			)
 
 			// Checking the transfer witness is the very last step
@@ -232,7 +232,7 @@ func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 			assets[idx].PrevWitnesses[0].SplitCommitment = nil
 		}
 
-		c, err := commitment.FromAssets(assets...)
+		c, err := commitment.FromAssets(nil, assets...)
 		require.NoError(t, err)
 
 		internalKey := keyByOutput[idx]

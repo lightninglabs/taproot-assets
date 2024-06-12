@@ -197,7 +197,7 @@ func (m *MockGroupTxBuilder) BuildGenesisTx(newAsset *Asset) (*wire.MsgTx,
 		return nil, nil, fmt.Errorf("cannot tweak group key: %w", err)
 	}
 	populatedVirtualTx := VirtualTxWithInput(
-		virtualTx, newAsset, 0, nil,
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, 0, nil,
 	)
 
 	return populatedVirtualTx, prevOut, nil

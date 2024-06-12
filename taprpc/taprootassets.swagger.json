@@ -917,6 +917,10 @@
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The asset version of the address."
+        },
+        "address_version": {
+          "$ref": "#/definitions/taprpcAddrVersion",
+          "description": "The version of the address."
         }
       }
     },
@@ -997,6 +1001,16 @@
           "description": "The events that match the filter criteria."
         }
       }
+    },
+    "taprpcAddrVersion": {
+      "type": "string",
+      "enum": [
+        "ADDR_VERSION_UNSPECIFIED",
+        "ADDR_VERSION_V0",
+        "ADDR_VERSION_V1"
+      ],
+      "default": "ADDR_VERSION_UNSPECIFIED",
+      "description": " - ADDR_VERSION_UNSPECIFIED: ADDR_VERSION_UNSPECIFIED is the default value for an address version in\nan RPC message. It is unmarshalled to the latest address version.\n - ADDR_VERSION_V0: ADDR_VERSION_V0 is the initial address version.\n - ADDR_VERSION_V1: ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset\ncommitments."
     },
     "taprpcAnchorInfo": {
       "type": "object",
@@ -1779,6 +1793,10 @@
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion",
           "description": "The asset version to use when sending/receiving to/from this address."
+        },
+        "address_version": {
+          "$ref": "#/definitions/taprpcAddrVersion",
+          "description": "The version of this address."
         }
       }
     },
@@ -1811,10 +1829,11 @@
       "enum": [
         "PARCEL_TYPE_ADDRESS",
         "PARCEL_TYPE_PRE_SIGNED",
-        "PARCEL_TYPE_PENDING"
+        "PARCEL_TYPE_PENDING",
+        "PARCEL_TYPE_PRE_ANCHORED"
       ],
       "default": "PARCEL_TYPE_ADDRESS",
-      "description": " - PARCEL_TYPE_ADDRESS: The parcel is an address parcel.\n - PARCEL_TYPE_PRE_SIGNED: The parcel type is a pre-signed parcel where the virtual transactions are\nsigned outside of the send state machine. Parcels of this type will only\nget send states starting from SEND_STATE_ANCHOR_SIGN.\n - PARCEL_TYPE_PENDING: The parcel is pending and was resumed on the latest restart of the\ndaemon. The original parcel type (address or pre-signed) is not known\nanymore, as it's not relevant for the remaining steps. Parcels of this\ntype will only get send states starting from SEND_STATE_BROADCAST."
+      "description": " - PARCEL_TYPE_ADDRESS: The parcel is an address parcel.\n - PARCEL_TYPE_PRE_SIGNED: The parcel type is a pre-signed parcel where the virtual transactions are\nsigned outside of the send state machine. Parcels of this type will only\nget send states starting from SEND_STATE_ANCHOR_SIGN.\n - PARCEL_TYPE_PENDING: The parcel is pending and was resumed on the latest restart of the\ndaemon. The original parcel type (address or pre-signed) is not known\nanymore, as it's not relevant for the remaining steps. Parcels of this\ntype will only get send states starting from SEND_STATE_BROADCAST.\n - PARCEL_TYPE_PRE_ANCHORED: The parcel type is a pre-anchored parcel where the full anchor\ntransaction and all proofs are already available. Parcels of this type\nwill only get send states starting from SEND_STATE_LOG_COMMITMENT."
     },
     "taprpcPrevInputAsset": {
       "type": "object",

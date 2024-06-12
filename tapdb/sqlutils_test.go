@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -59,7 +60,10 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
 	require.NoError(t, err)
 
-	taprootAssetRoot, err := commitment.NewTapCommitment(assetRoot)
+	commitVersion := test.RandFlip(nil, fn.Ptr(commitment.TapCommitmentV2))
+	taprootAssetRoot, err := commitment.NewTapCommitment(
+		commitVersion, assetRoot,
+	)
 	require.NoError(t, err)
 
 	// With our asset created, we can now create the AnnotatedProof we use
@@ -163,7 +167,8 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
 		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, false, annotatedProof,
+		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		annotatedProof,
 	))
 
 	// Now the HasProof should return true.

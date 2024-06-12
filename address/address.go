@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -79,8 +80,11 @@ const (
 	// V0 is the initial Taproot Asset address format version.
 	V0 Version = 0
 
+	// V1 addresses use V2 Taproot Asset commitments.
+	V1 Version = 1
+
 	// LatestVersion is the latest supported Taproot Asset address version.
-	latestVersion = V0
+	latestVersion = V1
 )
 
 // Tap represents a Taproot Asset address. Taproot Asset addresses specify an
@@ -160,9 +164,8 @@ func WithAssetVersion(v asset.Version) NewAddrOpt {
 func New(version Version, genesis asset.Genesis, groupKey *btcec.PublicKey,
 	groupWitness wire.TxWitness, scriptKey btcec.PublicKey,
 	internalKey btcec.PublicKey, amt uint64,
-	tapscriptSibling *commitment.TapscriptPreimage,
-	net *ChainParams, proofCourierAddr url.URL,
-	opts ...NewAddrOpt) (*Tap, error) {
+	tapscriptSibling *commitment.TapscriptPreimage, net *ChainParams,
+	proofCourierAddr url.URL, opts ...NewAddrOpt) (*Tap, error) {
 
 	options := defaultNewAddrOptions()
 	for _, opt := range opts {
@@ -237,6 +240,23 @@ func (a *Tap) Copy() *Tap {
 	return &addressCopy
 }
 
+// CommitmentVersion returns the Taproot Asset commitment version that matches
+// the address version.
+func CommitmentVersion(vers Version) (*commitment.TapCommitmentVersion,
+	error) {
+
+	switch vers {
+	// For V0, the correct commitment version could be V0 or V1; we
+	// can't know without accessing all leaves of the commitment itself.
+	case V0:
+		return nil, nil
+	case V1:
+		return fn.Ptr(commitment.TapCommitmentV2), nil
+	default:
+		return nil, ErrUnknownVersion
+	}
+}
+
 // Net returns the ChainParams struct matching the Taproot Asset address
 // network.
 func (a *Tap) Net() (*ChainParams, error) {
@@ -287,14 +307,18 @@ func (a *Tap) TapCommitment() (*commitment.TapCommitment, error) {
 	}
 	newAsset, err := asset.New(
 		a.assetGen, a.Amount, 0, 0, asset.NewScriptKey(&a.ScriptKey),
-		groupKey,
-		asset.WithAssetVersion(a.AssetVersion),
+		groupKey, asset.WithAssetVersion(a.AssetVersion),
 	)
 	if err != nil {
 		return nil, err
 	}
 
-	return commitment.FromAssets(newAsset)
+	commitmentVersion, err := CommitmentVersion(a.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return commitment.FromAssets(commitmentVersion, newAsset)
 }
 
 // TaprootOutputKey returns the on-chain Taproot output key.
@@ -425,7 +449,7 @@ func (a *Tap) String() string {
 // this implementation of tap.
 func IsUnknownVersion(v Version) bool {
 	switch v {
-	case V0:
+	case V0, V1:
 		return false
 	default:
 		return true

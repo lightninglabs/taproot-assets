@@ -73,7 +73,8 @@ func newMockVerifier(t *testing.T) *mockVerifier {
 
 func (m *mockVerifier) Verify(_ context.Context, r io.Reader,
 	_ proof.HeaderVerifier, _ proof.MerkleVerifier,
-	_ proof.GroupVerifier) (*proof.AssetSnapshot, error) {
+	_ proof.GroupVerifier,
+	_ proof.ChainLookupGenerator) (*proof.AssetSnapshot, error) {
 
 	f := &proof.File{}
 	err := f.Decode(r)
@@ -84,7 +85,7 @@ func (m *mockVerifier) Verify(_ context.Context, r io.Reader,
 
 	ac, err := commitment.NewAssetCommitment(&lastProof.Asset)
 	require.NoError(m.t, err)
-	tc, err := commitment.NewTapCommitment(ac)
+	tc, err := commitment.NewTapCommitment(nil, ac)
 	require.NoError(m.t, err)
 
 	return &proof.AssetSnapshot{
@@ -446,7 +447,7 @@ func randProof(t *testing.T, outputIndex int, tx *wire.MsgTx,
 
 	ac, err := commitment.NewAssetCommitment(&a)
 	require.NoError(t, err)
-	tc, err := commitment.NewTapCommitment(ac)
+	tc, err := commitment.NewTapCommitment(nil, ac)
 	require.NoError(t, err)
 
 	op := wire.OutPoint{
@@ -523,8 +524,10 @@ func TestCustodianNewAddr(t *testing.T) {
 	ctx := context.Background()
 	addr, _ := randAddr(h)
 	proofCourierAddr := address.RandProofCourierAddr(t)
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	dbAddr, err := h.addrBook.NewAddress(
-		ctx, addr.AssetID, addr.Amount, nil, proofCourierAddr,
+		ctx, addrVersion, addr.AssetID, addr.Amount, nil,
+		proofCourierAddr,
 	)
 	require.NoError(t, err)
 
@@ -566,8 +569,9 @@ func TestBookAssetSyncer(t *testing.T) {
 
 	// Address creation should fail for unknown assets.
 	newAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
+	addrVersion := test.RandFlip(address.V0, address.V1)
 	_, err := h.addrBook.NewAddress(
-		ctx, newAsset.ID(), 1, nil, proofCourierAddr,
+		ctx, addrVersion, newAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.ErrorContains(t, err, "unknown asset")
 
@@ -578,8 +582,9 @@ func TestBookAssetSyncer(t *testing.T) {
 		<-h.keyRing.ReqKeys
 		<-h.keyRing.ReqKeys
 	}()
+	addrVersion = test.RandFlip(address.V0, address.V1)
 	newAddr, err := h.addrBook.NewAddress(
-		ctx, newAsset.ID(), 1, nil, proofCourierAddr,
+		ctx, addrVersion, newAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, newAddr)
@@ -595,8 +600,9 @@ func TestBookAssetSyncer(t *testing.T) {
 	h.syncer.FetchErrs = true
 
 	secondAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
+	addrVersion = test.RandFlip(address.V0, address.V1)
 	_, err = h.addrBook.NewAddress(
-		ctx, secondAsset.ID(), 1, nil, proofCourierAddr,
+		ctx, addrVersion, secondAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.ErrorContains(t, err, "failed to fetch asset info")
 

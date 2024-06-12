@@ -170,8 +170,24 @@ var testCases = []*testCase{
 		test: testPsbtNormalInteractiveFullValueSend,
 	},
 	{
+		name: "psbt multi version send",
+		test: testPsbtMultiVersionSend,
+	},
+	{
 		name: "psbt grouped interactive full value send",
 		test: testPsbtGroupedInteractiveFullValueSend,
+	},
+	{
+		name: "psbt relative lock time send",
+		test: testPsbtRelativeLockTimeSend,
+	},
+	{
+		name: "psbt lock time send",
+		test: testPsbtLockTimeSend,
+	},
+	{
+		name: "psbt relative lock time send with proof failure",
+		test: testPsbtRelativeLockTimeSendProofFail,
 	},
 	{
 		name: "psbt normal interactive split send",

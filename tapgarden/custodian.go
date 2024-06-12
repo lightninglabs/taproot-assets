@@ -614,7 +614,7 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	err = c.cfg.ProofArchive.ImportProofs(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier,
-		c.cfg.GroupVerifier, false, addrProof,
+		c.cfg.GroupVerifier, c.cfg.ChainBridge, false, addrProof,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to import proofs script_key=%x, "+
@@ -977,7 +977,7 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 		headerVerifier := GenHeaderVerifier(ctxt, c.cfg.ChainBridge)
 		err = c.cfg.ProofArchive.ImportProofs(
 			ctxt, headerVerifier, proof.DefaultMerkleVerifier,
-			c.cfg.GroupVerifier, false, p,
+			c.cfg.GroupVerifier, c.cfg.ChainBridge, false, p,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof file into "+

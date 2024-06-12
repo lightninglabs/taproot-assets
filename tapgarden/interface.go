@@ -280,6 +280,8 @@ type MintingStore interface {
 // notifications, the current height, publish transactions, and also estimate
 // fees.
 type ChainBridge interface {
+	proof.ChainLookupGenerator
+
 	// RegisterConfirmationsNtfn registers an intent to be notified once
 	// txid reaches numConfs confirmations.
 	RegisterConfirmationsNtfn(ctx context.Context, txid *chainhash.Hash,
@@ -308,6 +310,10 @@ type ChainBridge interface {
 
 	// CurrentHeight return the current height of the main chain.
 	CurrentHeight(context.Context) (uint32, error)
+
+	// GetBlockTimestamp returns the timestamp of the block at the given
+	// height.
+	GetBlockTimestamp(context.Context, uint32) int64
 
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.

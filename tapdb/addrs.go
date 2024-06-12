@@ -764,12 +764,14 @@ func (t *TapAddressBook) GetOrCreateEvent(ctx context.Context,
 		}
 		merkleRoot := tapCommitment.TapscriptRoot(siblingHash)
 		taprootAssetRoot := tapCommitment.TapscriptRoot(nil)
+		commitmentVersion := uint8(tapCommitment.Version)
 
 		utxoUpsert := RawManagedUTXO{
 			RawKey:           addr.InternalKey.SerializeCompressed(),
 			Outpoint:         outpointBytes,
 			AmtSats:          outputDetails.Amount,
 			TaprootAssetRoot: taprootAssetRoot[:],
+			RootVersion:      sqlInt16(commitmentVersion),
 			MerkleRoot:       merkleRoot[:],
 			TapscriptSibling: siblingBytes,
 			TxnID:            chainTxID,

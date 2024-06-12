@@ -347,7 +347,7 @@ func (s *AuxLeafSigner) verifyHtlcSignature(chanState *channeldb.OpenChannel,
 		}
 
 		return validator.validateSchnorrSig(
-			virtualTx, vIn.Asset(), uint32(idx),
+			virtualTx, vIn.Asset(), newAsset, uint32(idx),
 			txscript.SigHashType(sig.SigHashType.Val), sig.Sig.Val,
 		)
 	}
@@ -599,8 +599,8 @@ func (v *schnorrSigValidator) ValidateWitnesses(newAsset *asset.Asset,
 		}
 
 		return v.validateSchnorrSig(
-			virtualTx, prevAsset, uint32(idx), sigHashType,
-			schnorrSig,
+			virtualTx, prevAsset, newAsset, uint32(idx),
+			sigHashType, schnorrSig,
 		)
 	}
 
@@ -610,8 +610,8 @@ func (v *schnorrSigValidator) ValidateWitnesses(newAsset *asset.Asset,
 // validateSchnorrSig validates the given Schnorr signature against the public
 // key of the validator and the sigHash of the asset transition.
 func (v *schnorrSigValidator) validateSchnorrSig(virtualTx *wire.MsgTx,
-	prevAsset *asset.Asset, idx uint32, sigHashType txscript.SigHashType,
-	sig lnwire.Sig) error {
+	prevAsset, newAsset *asset.Asset, idx uint32,
+	sigHashType txscript.SigHashType, sig lnwire.Sig) error {
 
 	prevOutFetcher, err := tapscript.InputPrevOutFetcher(*prevAsset)
 	if err != nil {
@@ -621,7 +621,8 @@ func (v *schnorrSigValidator) validateSchnorrSig(virtualTx *wire.MsgTx,
 	// Update the virtual transaction input with details for the specific
 	// Taproot Asset input and proceed to validate its witness.
 	virtualTxCopy := asset.VirtualTxWithInput(
-		virtualTx, prevAsset, idx, nil,
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, idx,
+		nil,
 	)
 
 	sigHashes := txscript.NewTxSigHashes(virtualTxCopy, prevOutFetcher)

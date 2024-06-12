@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -35,6 +36,15 @@ func FromAddresses(receiverAddrs []*address.Tap,
 		ChainParams: firstAddr.ChainParams,
 	}
 
+	switch firstAddr.Version {
+	case address.V0:
+		pkt.Version = V0
+	case address.V1:
+		pkt.Version = V1
+	default:
+		return nil, address.ErrUnknownVersion
+	}
+
 	// If we are sending the full value of the input asset, or sending a
 	// collectible, we will need to create a split with un-spendable change.
 	// Since we don't have any inputs selected yet, we'll use the NUMS
@@ -54,6 +64,9 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	// index, but start at the first one indicated by the caller.
 	for idx := range receiverAddrs {
 		addr := receiverAddrs[idx]
+		if addr.Version != firstAddr.Version {
+			return nil, fmt.Errorf("mixed address versions")
+		}
 
 		pkt.Outputs = append(pkt.Outputs, &VOutput{
 			AssetVersion:      addr.AssetVersion,
@@ -77,8 +90,8 @@ func FromAddresses(receiverAddrs []*address.Tap,
 // created. If the amount is not the full input amount, a change output will be
 // added by the funding API.
 func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
-	outputIndex uint32, anchorInternalKey keychain.KeyDescriptor,
-	assetVersion asset.Version,
+	lockTime uint64, relativeLockTime uint64, outputIndex uint32,
+	anchorInternalKey keychain.KeyDescriptor, assetVersion asset.Version,
 	chainParams *address.ChainParams) *VPacket {
 
 	vPkt := &VPacket{
@@ -93,8 +106,11 @@ func ForInteractiveSend(id asset.ID, amount uint64, scriptAddr asset.ScriptKey,
 			Interactive:       true,
 			AnchorOutputIndex: outputIndex,
 			ScriptKey:         scriptAddr,
+			LockTime:          lockTime,
+			RelativeLockTime:  relativeLockTime,
 		}},
 		ChainParams: chainParams,
+		Version:     V1,
 	}
 	vPkt.Outputs[0].SetAnchorInternalKey(
 		anchorInternalKey, chainParams.HDCoinType,
@@ -142,6 +158,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 			ScriptKey:         asset.NUMSScriptKey,
 		}},
 		ChainParams: chainParams,
+		Version:     V1,
 	}
 	vPkt.SetInputAsset(0, ownedAsset)
 
@@ -155,7 +172,7 @@ func FromProofs(proofs []*proof.Proof,
 
 	pkt := &VPacket{
 		ChainParams: params,
-		Version:     0,
+		Version:     V1,
 	}
 
 	for idx := range proofs {
@@ -163,15 +180,18 @@ func FromProofs(proofs []*proof.Proof,
 
 		txOut := p.AnchorTx.TxOut[p.InclusionProof.OutputIndex]
 
-		//nolint:lll
-		_, tapCommitment, err := p.InclusionProof.DeriveByAssetInclusion(
-			&p.Asset,
+		commitmentKeys, err := p.InclusionProof.DeriveByAssetInclusion(
+			&p.Asset, fn.Ptr(false),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error deriving commitment: %w",
 				err)
 		}
 
+		tapCommitment, err := commitmentKeys.GetCommitment()
+		if err != nil {
+			return nil, err
+		}
 		tapProof := p.InclusionProof.CommitmentProof
 
 		//nolint:lll

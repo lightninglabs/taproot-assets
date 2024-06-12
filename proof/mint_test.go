@@ -36,8 +36,9 @@ func TestNewMintingBlobs(t *testing.T) {
 	assetGenesis := asset.RandGenesis(t, asset.Collectible)
 	assetGenesis.MetaHash = metaReveal.MetaHash()
 	assetGenesis.OutputIndex = 0
+	commitVersion := commitment.RandTapCommitVersion()
 	tapCommitment, _, err := commitment.Mint(
-		assetGenesis, nil, &commitment.AssetDetails{
+		commitVersion, assetGenesis, nil, &commitment.AssetDetails{
 			Type:             asset.Collectible,
 			ScriptKey:        genesisScriptKey,
 			Amount:           nil,
@@ -128,7 +129,8 @@ func TestNewMintingBlobs(t *testing.T) {
 		},
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
 	}, MockHeaderVerifier, MockMerkleVerifier, MockGroupVerifier,
-		MockGroupAnchorVerifier, WithAssetMetaReveals(metaReveals),
+		MockGroupAnchorVerifier, MockChainLookup,
+		WithAssetMetaReveals(metaReveals),
 	)
 	require.NoError(t, err)
 }

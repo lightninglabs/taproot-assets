@@ -3,6 +3,7 @@ package asset
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -27,6 +28,23 @@ type GenesisTxBuilder interface {
 	// represent the genesis state transition for a grouped asset. This
 	// output is used to create a group witness for the grouped asset.
 	BuildGenesisTx(newAsset *Asset) (*wire.MsgTx, *wire.TxOut, error)
+}
+
+// ChainLookup is an interface that allows an asset validator to look up certain
+// information about asset related transactions on the backing chain.
+type ChainLookup interface {
+	// TxBlockHeight returns the block height that the given transaction was
+	// included in.
+	TxBlockHeight(ctx context.Context, txid chainhash.Hash) (uint32, error)
+
+	// MeanBlockTimestamp returns the timestamp of the block at the given
+	// height as a Unix timestamp in seconds, taking into account the mean
+	// time elapsed over the previous 10 blocks.
+	MeanBlockTimestamp(ctx context.Context, blockHeight uint32) (time.Time,
+		error)
+
+	// CurrentHeight returns the current height of the main chain.
+	CurrentHeight(context.Context) (uint32, error)
 }
 
 // TapscriptTreeManager is used to persist a Tapscript tree, represented as

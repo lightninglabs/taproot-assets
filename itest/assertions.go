@@ -666,7 +666,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 	snapshot, err := f.Verify(
 		ctxt, headerVerifier, proof.DefaultMerkleVerifier,
-		groupVerifier,
+		groupVerifier, proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 
@@ -1386,11 +1386,7 @@ type MatchRpcAsset func(asset *taprpc.Asset) bool
 func AssertListAssets(t *testing.T, ctx context.Context,
 	client taprpc.TaprootAssetsClient, matchAssets []MatchRpcAsset) {
 
-	resp, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{})
-	require.NoError(t, err)
-
-	// Ensure that the number of assets returned is correct.
-	require.Equal(t, len(resp.Assets), len(matchAssets))
+	resp := AssertNumAssets(t, ctx, client, len(matchAssets))
 
 	// Match each asset returned by the daemon against the expected assets.
 	for _, a := range resp.Assets {
@@ -1403,6 +1399,20 @@ func AssertListAssets(t *testing.T, ctx context.Context,
 		}
 		require.True(t, assetMatched, "asset not matched: %v", a)
 	}
+}
+
+// AssertNumAssets check the number of assets returned by ListAssets.
+func AssertNumAssets(t *testing.T, ctx context.Context,
+	client taprpc.TaprootAssetsClient,
+	numAssets int) *taprpc.ListAssetResponse {
+
+	resp, err := client.ListAssets(ctx, &taprpc.ListAssetRequest{})
+	require.NoError(t, err)
+
+	// Ensure that the number of assets returned is correct.
+	require.Equal(t, numAssets, len(resp.Assets))
+
+	return resp
 }
 
 // AssertUniverseRootEquality checks that the universe roots returned by two
@@ -1998,4 +2008,30 @@ func assetRoots(ctx context.Context, uni unirpc.UniverseClient,
 	return &unirpc.AssetRootResponse{
 		UniverseRoots: roots,
 	}, nil
+}
+
+// assertNumAssetOutputs makes sure the given node has exactly the given number
+// of asset outputs for the specified asset ID.
+func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
+	assetID []byte, numPieces int) {
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
+	defer cancel()
+
+	resp, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		IncludeLeased: true,
+	})
+	require.NoError(t, err)
+
+	var outputs []*taprpc.Asset
+	for _, a := range resp.Assets {
+		if !bytes.Equal(a.AssetGenesis.AssetId, assetID) {
+			continue
+		}
+
+		outputs = append(outputs, a)
+	}
+
+	require.Len(t, outputs, numPieces)
 }

@@ -536,7 +536,9 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	// Now that we have all our assets created, we'll make a new
 	// Taproot asset commitment, which commits to all the assets we
 	// created above in a new root.
-	return commitment.FromAssets(newAssets...)
+	return commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), newAssets...,
+	)
 }
 
 // stateStep attempts to transition the state machine from one state to
@@ -1016,7 +1018,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		mintingProofs, err := proof.NewMintingBlobs(
 			baseProof, headerVerifier, merkleVerifier,
-			groupVerifier, groupAnchorVerifier,
+			groupVerifier, groupAnchorVerifier, b.cfg.ChainBridge,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 			proof.WithSiblingPreimage(batchSibling),
 		)
@@ -1188,8 +1190,8 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	}
 
 	err = b.cfg.ProofFiles.ImportProofs(
-		ctx, headerVerifier, merkleVerifier, groupVerifier, false,
-		fullProof,
+		ctx, headerVerifier, merkleVerifier, groupVerifier,
+		b.cfg.ChainBridge, false, fullProof,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)

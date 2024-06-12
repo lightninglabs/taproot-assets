@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
@@ -754,11 +755,17 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 // generation, the GroupKeyFamily and GroupKeyIndex fields of the
 // FetchAssetsForBatchRow need to be manually modified to be sql.NullInt32.
 func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
-	rawBatchKey []byte) (*commitment.TapCommitment, error) {
+	rawBatchKey, batchSibling, genScript []byte) (*commitment.TapCommitment,
+	error) {
 
 	dbSprout, err := q.FetchAssetsForBatch(ctx, rawBatchKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch batch assets: %w", err)
+	}
+
+	if len(dbSprout) == 0 {
+		return nil, fmt.Errorf("no sprouts found for batch %x",
+			rawBatchKey)
 	}
 
 	// We collect all the sprouts into fully grown assets, from which we'll
@@ -891,9 +898,58 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 		assetSprouts[i] = assetSprout
 	}
 
-	tapCommitment, err := commitment.FromAssets(assetSprouts...)
+	// Construct a TapCommitment from the batch sprouts, and verify that the
+	// version is correct by recomputing the genesis output script.
+	tapCommitment, err := commitment.FromAssets(
+		fn.Ptr(commitment.TapCommitmentV2), assetSprouts...,
+	)
 	if err != nil {
 		return nil, err
+	}
+
+	// If there are sprouts, let's find out whether they were created with
+	// a V2 commitment or not.
+	batchKey, err := btcec.ParsePubKey(rawBatchKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var tapscriptSibling *chainhash.Hash
+	if len(batchSibling) != 0 {
+		tapscriptSibling, err = chainhash.NewHash(batchSibling)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	computedScript, err := tapscript.PayToAddrScript(
+		*batchKey, tapscriptSibling, *tapCommitment,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(genScript, computedScript) {
+		// The batch may have used a non-V2 commitment; check against a
+		// non-V2 commitment.
+		tapCommitment, err = commitment.FromAssets(
+			nil, assetSprouts...,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		computedScriptV0, err := tapscript.PayToAddrScript(
+			*batchKey, tapscriptSibling, *tapCommitment,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !bytes.Equal(genScript, computedScriptV0) {
+			return nil, fmt.Errorf("invalid commitment to asset "+
+				"sprouts: batch %x", rawBatchKey)
+		}
 	}
 
 	return tapCommitment, nil
@@ -1108,8 +1164,25 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		)
 
 	default:
+		if batch.GenesisPacket == nil {
+			return nil, fmt.Errorf("sprouted batch missing " +
+				"genesis packet")
+		}
+
+		anchorOutputIndex := uint32(0)
+		if batch.GenesisPacket.ChangeOutputIndex == 0 {
+			anchorOutputIndex = 1
+		}
+		genesisTx := batch.GenesisPacket.Pkt.UnsignedTx
+		genesisScript := genesisTx.TxOut[anchorOutputIndex].PkScript
+
+		var tapscriptSibling []byte
+		if len(batch.TapSibling()) != 0 {
+			tapscriptSibling = batch.TapSibling()
+		}
+
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
-			ctx, q, dbBatch.RawKey,
+			ctx, q, dbBatch.RawKey, tapscriptSibling, genesisScript,
 		)
 		if err != nil {
 			return nil, err
@@ -1451,6 +1524,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 		// Now that the genesis tx has been updated within the main
 		// batch, we'll create a new managed UTXO for this batch as
 		// this is where all the assets will be anchored within.
+		rootVersion := uint8(commitment.TapCommitmentV2)
 		utxoID, err := q.UpsertManagedUTXO(ctx, RawManagedUTXO{
 			RawKey:           rawBatchKey,
 			Outpoint:         anchorOutpoint,
@@ -1459,6 +1533,7 @@ func (a *AssetMintingStore) CommitSignedGenesisTx(ctx context.Context,
 			TapscriptSibling: tapSibling,
 			MerkleRoot:       merkleRoot,
 			TxnID:            chainTXID,
+			RootVersion:      sqlInt16(rootVersion),
 		})
 		if err != nil {
 			return fmt.Errorf("unable to insert managed utxo: %w",

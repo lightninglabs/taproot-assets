@@ -96,6 +96,13 @@ func extractSqlInt32[T constraints.Integer](num sql.NullInt32) T {
 	return T(num.Int32)
 }
 
+// extractSqlInt16 turns a NullInt16 into a numerical type. This can be useful
+// when reading directly from the database, as this function handles extracting
+// the inner value from the "option"-like struct.
+func extractSqlInt16[T constraints.Integer](num sql.NullInt16) T {
+	return T(num.Int16)
+}
+
 // readOutPoint reads the next sequence of bytes from r as an OutPoint.
 //
 // NOTE: This function is intended to be used along with the wire.WriteOutPoint

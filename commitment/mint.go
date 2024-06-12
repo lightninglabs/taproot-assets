@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -88,8 +90,9 @@ func mintAssets(genesis asset.Genesis, groupKey *asset.GroupKey,
 // Mint mints a series of assets within a new Taproot Asset commitment. The
 // distribution and other parameters of these assets can be specified through
 // `AssetDetails`.
-func Mint(genesis asset.Genesis, groupKey *asset.GroupKey,
-	details ...*AssetDetails) (*TapCommitment, []*asset.Asset, error) {
+func Mint(version *TapCommitmentVersion, genesis asset.Genesis,
+	groupKey *asset.GroupKey, details ...*AssetDetails) (*TapCommitment,
+	[]*asset.Asset, error) {
 
 	assets, err := mintAssets(genesis, groupKey, details...)
 	if err != nil {
@@ -99,10 +102,14 @@ func Mint(genesis asset.Genesis, groupKey *asset.GroupKey,
 	if err != nil {
 		return nil, nil, err
 	}
-	tapCommitment, err := NewTapCommitment(assetCommitment)
+	tapCommitment, err := NewTapCommitment(version, assetCommitment)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return tapCommitment, assets, nil
+}
+
+func RandTapCommitVersion() *TapCommitmentVersion {
+	return test.RandFlip(nil, fn.Ptr(TapCommitmentV2))
 }

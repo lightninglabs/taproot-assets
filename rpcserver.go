@@ -25,7 +25,6 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -93,12 +92,6 @@ const (
 	// tapdMacaroonLocation is the value we use for the tapd macaroons'
 	// "Location" field when baking them.
 	tapdMacaroonLocation = "tapd"
-
-	// maxNumBlocksInCache is the maximum number of blocks we'll cache
-	// timestamps for. With 100k blocks we should only take up approximately
-	// 800kB of memory (4 bytes for the block height and 4 bytes for the
-	// timestamp, not including any map/cache overhead).
-	maxNumBlocksInCache = 100_000
 
 	// AssetBurnConfirmationText is the text that needs to be set on the
 	// RPC to confirm an asset burn.
@@ -193,8 +186,6 @@ type rpcServer struct {
 
 	cfg *Config
 
-	blockTimestampCache *lru.Cache[uint32, cacheableTimestamp]
-
 	proofQueryRateLimiter *rate.Limiter
 
 	quit chan struct{}
@@ -209,10 +200,7 @@ func newRPCServer(interceptor signal.Interceptor,
 	return &rpcServer{
 		interceptor:      interceptor,
 		interceptorChain: interceptorChain,
-		blockTimestampCache: lru.NewCache[uint32, cacheableTimestamp](
-			maxNumBlocksInCache,
-		),
-		quit: make(chan struct{}),
+		quit:             make(chan struct{}),
 		proofQueryRateLimiter: rate.NewLimiter(
 			cfg.UniverseQueriesPerSecond, cfg.UniverseQueriesBurst,
 		),
@@ -1400,6 +1388,11 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
+	addrVersion, err := taprpc.UnmarshalAddressVersion(req.AddressVersion)
+	if err != nil {
+		return nil, err
+	}
+
 	var addr *address.AddrWithKeyInfo
 	switch {
 	// No key was specified, we'll let the address book derive them.
@@ -1407,8 +1400,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddress(
-			ctx, assetID, req.Amt, tapscriptSibling, *courierAddr,
-			address.WithAssetVersion(assetVersion),
+			ctx, addrVersion, assetID, req.Amt, tapscriptSibling,
+			*courierAddr, address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to make new addr: %w",
@@ -1456,8 +1449,8 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		// Now that we have all the params, we'll try to add a new
 		// address to the addr book.
 		addr, err = r.cfg.AddrBook.NewAddressWithKeys(
-			ctx, assetID, req.Amt, *scriptKey, internalKey,
-			tapscriptSibling, *courierAddr,
+			ctx, addrVersion, assetID, req.Amt, *scriptKey,
+			internalKey, tapscriptSibling, *courierAddr,
 			address.WithAssetVersion(assetVersion),
 		)
 		if err != nil {
@@ -1521,6 +1514,7 @@ func (r *rpcServer) VerifyProof(ctx context.Context,
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 	_, err = proofFile.Verify(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
+		r.cfg.ChainBridge.GenFileChainLookup(proofFile),
 	)
 	if err != nil {
 		// We don't want to fail the RPC request because of a proof
@@ -1857,7 +1851,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 	// to import it into the main archive.
 	err = r.cfg.ProofArchive.ImportProofs(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
-		false, &proof.AnnotatedProof{
+		r.cfg.ChainBridge, false, &proof.AnnotatedProof{
 			Locator: proof.Locator{
 				AssetID:   fn.Ptr(lastProof.Asset.ID()),
 				ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
@@ -2427,6 +2421,11 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 func (r *rpcServer) validateInputAssets(ctx context.Context,
 	btcPkt *psbt.Packet, vPackets []*tappsbt.VPacket) error {
 
+	err := tapsend.ValidateVPacketVersions(vPackets)
+	if err != nil {
+		return err
+	}
+
 	// Make sure we decorate all asset inputs with the correct internal key
 	// derivation path (if it's indeed a key this daemon owns).
 	for idx := range btcPkt.Inputs {
@@ -2547,7 +2546,7 @@ func (r *rpcServer) validateInputAssets(ctx context.Context,
 	if err := tapsend.AssertOutputAnchorsEqual(vPackets); err != nil {
 		return fmt.Errorf("output anchors don't match: %w", err)
 	}
-	err := tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
+	err = tapsend.ValidateAnchorInputs(btcPkt, vPackets, purgedAssets)
 	if err != nil {
 		return fmt.Errorf("error validating anchor inputs: %w", err)
 	}
@@ -2944,9 +2943,15 @@ func marshalAddr(addr *address.Tap,
 		return nil, err
 	}
 
+	addrVersion, err := taprpc.MarshalAddressVersion(addr.Version)
+	if err != nil {
+		return nil, err
+	}
+
 	id := addr.AssetID
 	rpcAddr := &taprpc.Addr{
 		AssetVersion:     assetVersion,
+		AddressVersion:   addrVersion,
 		Encoded:          addrStr,
 		AssetId:          id[:],
 		Amount:           addr.Amount,
@@ -3824,6 +3829,9 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 
 	case *tapfreighter.PendingParcel:
 		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PENDING
+
+	case *tapfreighter.PreAnchoredParcel:
+		result.ParcelType = taprpc.ParcelType_PARCEL_TYPE_PRE_ANCHORED
 
 	default:
 		return nil, fmt.Errorf("unknown parcel type %T", e.Parcel)
@@ -5654,6 +5662,7 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 	lastSnapshot, err := proofFile.Verify(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
+		r.cfg.ChainBridge.GenFileChainLookup(proofFile),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot verify proof: %w", err)
@@ -5707,11 +5716,17 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("cannot decode proof file: %w", err)
 	}
 
+	lookup, err := r.cfg.ChainBridge.GenProofChainLookup(p)
+	if err != nil {
+		return nil, fmt.Errorf("error generating proof chain lookup: "+
+			"%w", err)
+	}
+
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
 	_, err = p.Verify(
 		ctx, nil, headerVerifier, proof.DefaultMerkleVerifier,
-		groupVerifier,
+		groupVerifier, lookup,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
@@ -5751,14 +5766,16 @@ func (r *rpcServer) marshalAssetSyncSnapshot(ctx context.Context,
 		GroupSupply: int64(a.GroupSupply),
 	}
 	rpcAsset := &unirpc.AssetStatsAsset{
-		AssetId:          a.AssetID[:],
-		GenesisPoint:     a.GenesisPoint.String(),
-		AssetName:        a.AssetName,
-		AssetType:        taprpc.AssetType(a.AssetType),
-		TotalSupply:      int64(a.TotalSupply),
-		GenesisHeight:    int32(a.GenesisHeight),
-		GenesisTimestamp: r.getBlockTimestamp(ctx, a.GenesisHeight),
-		AnchorPoint:      a.AnchorPoint.String(),
+		AssetId:       a.AssetID[:],
+		GenesisPoint:  a.GenesisPoint.String(),
+		AssetName:     a.AssetName,
+		AssetType:     taprpc.AssetType(a.AssetType),
+		TotalSupply:   int64(a.TotalSupply),
+		GenesisHeight: int32(a.GenesisHeight),
+		GenesisTimestamp: r.cfg.ChainBridge.GetBlockTimestamp(
+			ctx, a.GenesisHeight,
+		),
+		AnchorPoint: a.AnchorPoint.String(),
 	}
 
 	if a.GroupKey != nil {
@@ -5816,37 +5833,6 @@ func (r *rpcServer) QueryAssetStats(ctx context.Context,
 	}
 
 	return resp, nil
-}
-
-// getBlockTimestamp returns the timestamp of the block at the given height.
-func (r *rpcServer) getBlockTimestamp(ctx context.Context,
-	height uint32) int64 {
-
-	// Shortcut any lookup in case we don't have a valid height in the first
-	// place.
-	if height == 0 {
-		return 0
-	}
-
-	cacheTS, err := r.blockTimestampCache.Get(height)
-	if err == nil {
-		return int64(cacheTS)
-	}
-
-	hash, err := r.cfg.Lnd.ChainKit.GetBlockHash(ctx, int64(height))
-	if err != nil {
-		return 0
-	}
-
-	block, err := r.cfg.Lnd.ChainKit.GetBlock(ctx, hash)
-	if err != nil {
-		return 0
-	}
-
-	ts := uint32(block.Header.Timestamp.Unix())
-	_, _ = r.blockTimestampCache.Put(height, cacheableTimestamp(ts))
-
-	return int64(ts)
 }
 
 // QueryEvents returns the number of sync and proof events for a given time

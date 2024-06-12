@@ -48,7 +48,8 @@ func (m *mockProofArchive) FetchProofs(ctx context.Context,
 }
 
 func (m *mockProofArchive) ImportProofs(context.Context, HeaderVerifier,
-	MerkleVerifier, GroupVerifier, bool, ...*AnnotatedProof) error {
+	MerkleVerifier, GroupVerifier, ChainLookupGenerator, bool,
+	...*AnnotatedProof) error {
 
 	return fmt.Errorf("not implemented")
 }

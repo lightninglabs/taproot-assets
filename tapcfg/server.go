@@ -93,15 +93,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	tapdbAddrBook := tapdb.NewTapAddressBook(
 		addrBookDB, &tapChainParams, defaultClock,
 	)
+	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
 
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
-	chainBridge := tap.NewLndRpcChainBridge(lndServices)
+	chainBridge := tap.NewLndRpcChainBridge(lndServices, assetStore)
 	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := tap.NewLndRouterClient(lndServices)
 	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
-
-	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
@@ -145,11 +144,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				uniDB, id,
 			)
 		},
-		HeaderVerifier: headerVerifier,
-		MerkleVerifier: proof.DefaultMerkleVerifier,
-		GroupVerifier:  groupVerifier,
-		Multiverse:     multiverse,
-		UniverseStats:  universeStats,
+		HeaderVerifier:       headerVerifier,
+		MerkleVerifier:       proof.DefaultMerkleVerifier,
+		GroupVerifier:        groupVerifier,
+		ChainLookupGenerator: chainBridge,
+		Multiverse:           multiverse,
+		UniverseStats:        universeStats,
 	}
 
 	federationStore := tapdb.NewTransactionExecutor(db,
@@ -410,6 +410,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			CoinSelector:       coinSelect,
 			AddrBook:           tapdbAddrBook,
 			ChainParams:        tapChainParams,
+			ChainBridge:        chainBridge,
 			GroupKeyIndex:      tapdbAddrBook,
 			PeerMessenger:      msgTransportClient,
 			ChannelFunder:      channelFunder,

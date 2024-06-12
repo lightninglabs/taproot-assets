@@ -20,8 +20,43 @@ func TestMigrationSteps(t *testing.T) {
 
 	// If we create an assets store now, there should be no tables for the
 	// managed UTXOs yet.
-	_, assetStore := newAssetStoreFromDB(db.BaseDB)
-	_, err := assetStore.FetchManagedUTXOs(ctx)
+	newAssetStoreFromDB(db.BaseDB)
+
+	// Use a narrow query that should always be valid, independent of
+	// changes to the managed_utxos table or the related queries.
+	fetchManagedUtxoIds := func() ([]int64, error) {
+		utxoIdQuery := `
+	                SELECT utxo_id
+                        FROM managed_utxos utxos
+                        JOIN internal_keys keys
+                            ON utxos.internal_key_id = keys.key_id
+			`
+
+		rows, err := db.QueryContext(ctx, utxoIdQuery)
+		if err != nil {
+			return nil, err
+		}
+
+		defer rows.Close()
+		var utxoIds []int64
+		for rows.Next() {
+			var utxoId int64
+			if err = rows.Scan(&utxoId); err != nil {
+				return nil, err
+			}
+			utxoIds = append(utxoIds, utxoId)
+		}
+		if err = rows.Close(); err != nil {
+			return nil, err
+		}
+		if err = rows.Err(); err != nil {
+			return nil, err
+		}
+
+		return utxoIds, nil
+	}
+
+	_, err := fetchManagedUtxoIds()
 	require.True(t, IsSchemaError(MapSQLError(err)))
 
 	// We now migrate to a later but not yet latest version.
@@ -29,7 +64,7 @@ func TestMigrationSteps(t *testing.T) {
 	require.NoError(t, err)
 
 	// Now there should be a managed UTXOs table.
-	_, err = assetStore.FetchManagedUTXOs(ctx)
+	_, err = fetchManagedUtxoIds()
 	require.NoError(t, err)
 
 	// Assuming the next version does some changes to the data within the
@@ -37,10 +72,10 @@ func TestMigrationSteps(t *testing.T) {
 	// so we could then test that migration.
 	InsertTestdata(t, db.BaseDB, "migrations_test_00011_dummy_data.sql")
 
-	// Make sure we now have actual assets in the database.
-	utxos, err := assetStore.FetchManagedUTXOs(ctx)
+	// Make sure we now have actual UTXOs in the database.
+	utxoIds, err := fetchManagedUtxoIds()
 	require.NoError(t, err)
-	require.Len(t, utxos, 2)
+	require.Len(t, utxoIds, 2)
 
 	// And now that we have test data inserted, we can migrate to the latest
 	// version.

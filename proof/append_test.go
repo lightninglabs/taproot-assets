@@ -19,15 +19,17 @@ import (
 )
 
 func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
-	virtualTx *wire.MsgTx, input *asset.Asset, idx uint32) wire.TxWitness {
+	virtualTx *wire.MsgTx, input, newAsset *asset.Asset,
+	idx uint32) wire.TxWitness {
 
 	t.Helper()
 
 	virtualTxCopy := asset.VirtualTxWithInput(
-		virtualTx, input, idx, nil,
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, idx,
+		nil,
 	)
 	sigHash, err := tapscript.InputKeySpendSigHash(
-		virtualTxCopy, input, idx, txscript.SigHashDefault,
+		virtualTxCopy, input, newAsset, idx, txscript.SigHashDefault,
 	)
 	require.NoError(t, err)
 
@@ -128,7 +130,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	assetCommitment, err := commitment.NewAssetCommitment(&newAsset)
 	require.NoError(t, err)
-	tapCommitment, err := commitment.NewTapCommitment(assetCommitment)
+	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
 	require.NoError(t, err)
 
 	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
@@ -206,7 +208,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// Append the new transition to the genesis blob.
 	transitionBlob, transitionProof, err := AppendTransition(
 		genesisBlob, transitionParams, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
@@ -279,11 +281,17 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split3AssetNoSplitProof,
 	)
 	require.NoError(t, err)
-	tap1Commitment, err := commitment.NewTapCommitment(split1Commitment)
+	tap1Commitment, err := commitment.NewTapCommitment(
+		nil, split1Commitment,
+	)
 	require.NoError(t, err)
-	tap2Commitment, err := commitment.NewTapCommitment(split2Commitment)
+	tap2Commitment, err := commitment.NewTapCommitment(
+		nil, split2Commitment,
+	)
 	require.NoError(t, err)
-	tap3Commitment, err := commitment.NewTapCommitment(split3Commitment)
+	tap3Commitment, err := commitment.NewTapCommitment(
+		nil, split3Commitment,
+	)
 	require.NoError(t, err)
 
 	tapscript1Root := tap1Commitment.TapscriptRoot(nil)
@@ -399,7 +407,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split1Blob, split1Proof, err := AppendTransition(
 		transitionBlob, split1Params, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
@@ -441,7 +449,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split2Blob, split2Proof, err := AppendTransition(
 		transitionBlob, split2Params, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
@@ -484,7 +492,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split3Blob, split3Proof, err := AppendTransition(
 		transitionBlob, split3Params, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier,
+		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))
@@ -521,7 +529,7 @@ func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 	virtualTx, _, err := tapscript.VirtualTx(newAsset, inputs)
 	require.NoError(t, err)
 	newWitness := genTaprootKeySpend(
-		t, *senderPrivKey, virtualTx, &prevProof.Asset, 0,
+		t, *senderPrivKey, virtualTx, &prevProof.Asset, newAsset, 0,
 	)
 	require.NoError(t, err)
 	newAsset.PrevWitnesses[0].TxWitness = newWitness
@@ -545,7 +553,7 @@ func verifyBlob(t testing.TB, blob Blob) *AssetSnapshot {
 
 	finalSnapshot, err := f.Verify(
 		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
-		MockGroupVerifier,
+		MockGroupVerifier, MockChainLookup,
 	)
 	require.NoError(t, err)
 

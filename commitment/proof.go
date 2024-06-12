@@ -36,9 +36,8 @@ type AssetProof struct {
 type TaprootAssetProof struct {
 	mssmt.Proof
 
-	// Version is the max version committed of the AssetCommitment's
-	// included in the TapCommitment.
-	Version asset.Version
+	// Version is the version of the TapCommitment used to create the proof.
+	Version TapCommitmentVersion
 }
 
 // Proof represents a full commitment proof for a particular `Asset`. It proves

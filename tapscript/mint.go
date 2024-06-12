@@ -36,7 +36,7 @@ func BuildGenesisTx(newAsset *asset.Asset) (*wire.MsgTx,
 		return nil, nil, err
 	}
 	populatedVirtualTx := asset.VirtualTxWithInput(
-		virtualTx, newAsset, 0, nil,
+		virtualTx, newAsset.LockTime, newAsset.RelativeLockTime, 0, nil,
 	)
 
 	return populatedVirtualTx, prevOut, nil

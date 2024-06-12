@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -25,7 +26,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
-	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -33,7 +33,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
-	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
 
@@ -326,6 +325,214 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 	)
 }
 
+// testPsbtMultiVersionSend tests that funding a V1 vPkt succeeds, but funding
+// a V0 vPkt fails.
+func testPsbtMultiVersionSend(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// First, we'll mint two assets.
+	firstRpcAsset := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+		},
+	)
+
+	secondRpcAsset := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[1],
+		},
+	)
+
+	firstAsset := firstRpcAsset[0]
+	secondAsset := secondRpcAsset[0]
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	sender := t.tapd
+	receiver := secondTapd
+	chainParams := &address.RegressionNetTap
+
+	// Derive script and internal keys for the receiver.
+	receiverScriptKey1, receiverAnchorIntKeyDesc1 := DeriveKeys(
+		t.t, receiver,
+	)
+
+	receiverScriptKey2, receiverAnchorIntKeyDesc2 := DeriveKeys(
+		t.t, receiver,
+	)
+
+	// Construct a vPkt to receive each asset; the second vPkt will be V0.
+	vPkt1 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](firstAsset.AssetGenesis.AssetId),
+		firstAsset.Amount, receiverScriptKey1, 0, 0, 0,
+		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
+	)
+	vPkt1.Version = tappsbt.V1
+
+	vPkt2 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](secondAsset.AssetGenesis.AssetId),
+		secondAsset.Amount, receiverScriptKey2, 0, 0, 0,
+		receiverAnchorIntKeyDesc2, asset.V0, chainParams,
+	)
+	vPkt2.Version = tappsbt.V0
+
+	// Funding for the V1 packet should succeed.
+	fundPkt1Resp := fundPacket(t, sender, vPkt1)
+	_, err := tappsbt.Decode(fundPkt1Resp.FundedPsbt)
+	require.NoError(t.t, err)
+
+	// Funding for the V0 packet should fail, as it was minted into an
+	// incompatible commitment version.
+	_, err = maybeFundPacket(t, sender, vPkt2)
+	require.ErrorContains(
+		t.t, err, tapfreighter.ErrMatchingAssetsNotFound.Error(),
+	)
+
+	// Let's mint two assets anchored in downgraded commitments, to ensure
+	// that we can receive such assets.
+	firstManualAssetName := "honigbuxxx"
+	firstReq := mintrpc.MintAsset{
+		AssetVersion: 0,
+		AssetType:    taprpc.AssetType_NORMAL,
+		Name:         firstManualAssetName,
+		AssetMeta: &taprpc.AssetMeta{
+			Data: []byte("not metadata"),
+		},
+		Amount: 22,
+	}
+	secondManualAssetName := "honigbuxxx-collective"
+	secondReq := mintrpc.MintAsset{
+		AssetVersion: taprpc.AssetVersion_ASSET_VERSION_V1,
+		AssetType:    taprpc.AssetType_COLLECTIBLE,
+		Name:         secondManualAssetName,
+		AssetMeta: &taprpc.AssetMeta{
+			Data: []byte("not metadata"),
+		},
+		Amount: 1,
+	}
+
+	numAssets := 1
+	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	firstAsset, _ = ManualMintSimpleAsset(
+		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV0,
+		&firstReq,
+	)
+
+	numAssets += 1
+	AssertNumAssets(t.t, ctxb, sender, numAssets)
+	secondAsset, _ = ManualMintSimpleAsset(
+		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV1,
+		&secondReq,
+	)
+
+	numAssets += 1
+	AssertNumAssets(t.t, ctxb, sender, numAssets)
+
+	// Build new vPkts to receive the assets; the first packet will be V0,
+	// and cause a split of the first asset.
+	firstAssetSplitAmt := firstAsset.Amount / 2
+	manualPkt1 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](firstAsset.AssetGenesis.AssetId),
+		firstAssetSplitAmt, receiverScriptKey1, 0, 0, 0,
+		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
+	)
+	manualPkt1.Version = tappsbt.V0
+
+	manualPkt2 := tappsbt.ForInteractiveSend(
+		fn.ToArray[[32]byte](secondAsset.AssetGenesis.AssetId),
+		secondAsset.Amount, receiverScriptKey2, 0, 0, 0,
+		receiverAnchorIntKeyDesc2, asset.V0, chainParams,
+	)
+	manualPkt2.Version = tappsbt.V1
+
+	vPkts := []*tappsbt.VPacket{manualPkt1, manualPkt2}
+	signedPkts := [][]byte{}
+
+	// Funding and signing both packets should succeed.
+	for _, vPkt := range vPkts {
+		fundResp := fundPacket(t, sender, vPkt)
+		signResp, err := sender.SignVirtualPsbt(
+			ctxt, &wrpc.SignVirtualPsbtRequest{
+				FundedPsbt: fundResp.FundedPsbt,
+			},
+		)
+		require.NoError(t.t, err)
+		require.NotEmpty(t.t, signResp.SignedInputs)
+
+		signedPkts = append(signedPkts, signResp.SignedPsbt)
+	}
+
+	// If we try to anchor the packets together, that should fail, as they
+	// have mismatched versions.
+	_, err = sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: signedPkts,
+		},
+	)
+	require.ErrorContains(t.t, err, "mixed virtual packet versions")
+
+	// Anchoring the packets and completing the transfers separately should
+	// succeed.
+	send1Resp, err := sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedPkts[0]},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, sender, send1Resp,
+		firstAsset.AssetGenesis.AssetId,
+		[]uint64{firstAssetSplitAmt, firstAssetSplitAmt},
+		0, 1, 2,
+	)
+
+	send2Resp, err := sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedPkts[1]},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, sender, send2Resp,
+		secondAsset.AssetGenesis.AssetId, []uint64{secondAsset.Amount},
+		1, 2, 1,
+	)
+
+	// This is an interactive transfer, so we do need to manually send the
+	// proofs from the sender to the receiver.
+	_ = sendProof(
+		t, sender, receiver, send1Resp,
+		receiverScriptKey1.PubKey.SerializeCompressed(),
+		firstAsset.AssetGenesis,
+	)
+	_ = sendProof(
+		t, sender, receiver, send2Resp,
+		receiverScriptKey2.PubKey.SerializeCompressed(),
+		secondAsset.AssetGenesis,
+	)
+	AssertNumAssets(t.t, ctxb, receiver, 2)
+
+	receiverAssets, err := receiver.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	t.Logf("Receiver assets: %v", toJSON(t.t, receiverAssets))
+}
+
 // testPsbtGroupedInteractiveFullValueSend tests that we can properly send
 // grouped assets back and forth, using the full amount, between nodes with the
 // use of PSBTs.
@@ -403,7 +610,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		)
 
 		vPkt := tappsbt.ForInteractiveSend(
-			id, fullAmt, receiverScriptKey, 0,
+			id, fullAmt, receiverScriptKey, 0, 0, 0,
 			receiverAnchorIntKeyDesc, asset.V0,
 			chainParams,
 		)
@@ -617,7 +824,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		)
 
 		vPkt := tappsbt.ForInteractiveSend(
-			id, sendAmt, receiverScriptKey, 0,
+			id, sendAmt, receiverScriptKey, 0, 0, 0,
 			receiverAnchorIntKeyDesc, asset.V0, chainParams,
 		)
 
@@ -735,8 +942,8 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 		changeAmt = rpcAssets[0].Amount - sendAmt
 	)
 	vPkt := tappsbt.ForInteractiveSend(
-		id, sendAmt, receiverScriptKey, 0, receiverAnchorIntKeyDesc,
-		asset.V0, chainParams,
+		id, sendAmt, receiverScriptKey, 0, 0, 0,
+		receiverAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
 	// We now create a Tapscript sibling with a simple hash lock script.
@@ -868,7 +1075,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// We create the output at anchor index 0 for the first address.
 	outputAmounts := []uint64{1200, 1300, 1400, 800, 300}
 	vPkt := tappsbt.ForInteractiveSend(
-		id, outputAmounts[0], receiverScriptKey1, 0,
+		id, outputAmounts[0], receiverScriptKey1, 0, 0, 0,
 		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
 	)
 
@@ -1143,7 +1350,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	changeAmt = uint64(500)
 
 	vPkt := tappsbt.ForInteractiveSend(
-		assetId, sendAmt, primaryNodeScriptKey, 0,
+		assetId, sendAmt, primaryNodeScriptKey, 0, 0, 0,
 		primaryNodeAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
@@ -1221,7 +1428,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	sendAmt = uint64(1500)
 
 	vPkt = tappsbt.ForInteractiveSend(
-		assetId, sendAmt, primaryNodeScriptKey, 0,
+		assetId, sendAmt, primaryNodeScriptKey, 0, 0, 0,
 		primaryNodeAnchorIntKeyDesc, asset.V0, chainParams,
 	)
 
@@ -1608,6 +1815,16 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 	require.NoError(t.t, err)
 	signedBytes := buffer.Bytes()
 
+	ctxc, streamCancel := context.WithCancel(ctxb)
+	stream, err := bob.SubscribeSendEvents(
+		ctxc, &taprpc.SubscribeSendEventsRequest{},
+	)
+	require.NoError(t.t, err)
+	sendEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
 	// Now we'll attempt to complete the transfer.
 	sendResp, err := bob.AnchorVirtualPsbts(
 		ctxb, &wrpc.AnchorVirtualPsbtsRequest{
@@ -1622,30 +1839,17 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 		[]uint64{(4*numUnits)/5 - 1, (numUnits / 5) + 1}, 0, 1,
 	)
 
-	// Export Bob's faulty proof for this transfer.
-	var proofResp *taprpc.ProofFile
-	waitErr := wait.NoError(func() error {
-		resp, err := bob.ExportProof(ctxb, &taprpc.ExportProofRequest{
-			AssetId:   genInfo.AssetId,
-			ScriptKey: aliceAddr.ScriptKey,
-		})
-		if err != nil {
-			return err
-		}
+	AssertSendEvents(
+		t.t, aliceAddr.ScriptKey, sendEvents,
+		tapfreighter.SendStateAnchorSign,
+		tapfreighter.SendStateWaitTxConf,
+	)
 
-		proofResp = resp
-		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t.t, waitErr)
-
-	// Alice now attempts to import the proof. This will also trigger a
-	// transfer validation. This is where we expect the VM to invalidate
-	// the proof.
-	_, err = alice.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
-		ProofFile:    proofResp.RawProofFile,
-		GenesisPoint: genInfo.GenesisPoint,
-	})
-	require.ErrorContains(t.t, err, "unable to verify proof")
+	msg, err := stream.Recv()
+	require.NoError(t.t, err)
+	require.Contains(
+		t.t, msg.Error, "signature not empty on failed checksig",
+	)
 }
 
 // testPsbtTrustlessSwap tests that the SIGHASH_NONE flag of vPSBTs can be used
@@ -1679,7 +1883,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// transfer that will be later be changed by the receiver.
 	aliceDummyScriptKey, aliceAnchorInternalKey := DeriveKeys(t.t, alice)
 	vPkt := tappsbt.ForInteractiveSend(
-		assetID, numUnits, aliceDummyScriptKey, 1,
+		assetID, numUnits, aliceDummyScriptKey, 0, 0, 1,
 		aliceAnchorInternalKey, asset.V0, chainParams,
 	)
 
@@ -2137,6 +2341,611 @@ func testPsbtExternalCommit(t *harnessTest) {
 	AssertBalanceByID(
 		t.t, bobTapd, targetAssetGenesis.AssetId, assetsToSend,
 	)
+}
+
+// testPsbtLockTimeSend tests that we can send minted assets into a ScriptKey
+// encumbered with an absolute (CLTV) lock time.
+func testPsbtLockTimeSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send. We're also minting a passive asset that should remain
+	// where it is.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	var (
+		alice       = t.tapd
+		bobLnd      = t.lndHarness.Bob
+		id          [32]byte
+		fullAmt     = mintedAsset.Amount
+		chainParams = &address.RegressionNetTap
+	)
+	copy(id[:], genInfo.AssetId)
+
+	_, bestBlock := t.lndHarness.Miner.GetBestBlock()
+	lockTimeBlocks := uint64(bestBlock + 6)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
+
+	// Bob creates a pkScript that will be used to lock the assets.
+	tapLeaf := test.ScriptCltv(t.t, int64(lockTimeBlocks))
+	tapscript := input.TapscriptFullTree(bobScriptKey.PubKey, tapLeaf)
+	rootHash := tapscript.ControlBlock.RootHash(tapLeaf.Script)
+	tweakedTaprootKeyBob, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	keyDescriptorBob := keychain.KeyDescriptor{
+		PubKey: tweakedTaprootKeyBob,
+	}
+
+	bobAssetScriptKey := asset.ScriptKey{
+		PubKey: tweakedTaprootKeyBob,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keyDescriptorBob,
+			Tweak:  rootHash,
+		},
+	}
+
+	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
+		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
+		asset.V0, chainParams,
+	))
+
+	// We now sign the vPSBT.
+	signRespLock, err := alice.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundRespLock.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signRespLock.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	var (
+		amounts            = []uint64{fullAmt}
+		currentTransferIdx = 0
+		numTransfers       = 1
+		numOutputs         = len(amounts)
+	)
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, alice,
+		sendResp, genInfo.AssetId, amounts, currentTransferIdx,
+		numTransfers, numOutputs,
+	)
+
+	// This is an interactive transfer, so we do need to manually
+	// send the proof from the sender to the receiver.
+	_ = sendProof(
+		t, alice, bob, sendResp,
+		bobAssetScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 0)
+	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 1)
+
+	// We mine just 4 blocks, two short of being enough for the relative
+	// time lock.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 4, 0)
+
+	// Now if we spend Bob's asset, we should see a lock time in the anchor
+	// transaction. For that, we need to derive two keys for Alice, one for
+	// the new script key and one for the internal key.
+	aliceScriptKey, aliceInternalKey := DeriveKeys(t.t, alice)
+	fundRespSpend := fundPacket(t, bob, tappsbt.ForInteractiveSend(
+		id, fullAmt, aliceScriptKey, lockTimeBlocks, 0, 0,
+		aliceInternalKey, asset.V0, chainParams,
+	))
+
+	// We don't need to sign anything as our csv script is anyone can spend.
+	fundedPsbtSpend, err := tappsbt.Decode(fundRespSpend.FundedPsbt)
+	require.NoError(t.t, err)
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+	senderOut := fundedPsbtSpend.Outputs[0].Asset
+	senderOut.PrevWitnesses[0].TxWitness = [][]byte{
+		tapLeaf.Script, controlBlockBytes,
+	}
+
+	// We now create our spending transaction manually, but expect it to
+	// fail, because it is not yet final.
+	vPackets := []*tappsbt.VPacket{fundedPsbtSpend}
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(vPackets)
+	require.NoError(t.t, err)
+
+	btcPacket, _, _, _ = CommitVirtualPsbts(
+		t.t, bob, btcPacket, vPackets, nil, -1,
+	)
+	btcPacket = signPacket(t.t, bobLnd, btcPacket)
+	btcPacket = FinalizePacket(t.t, bobLnd.RPC, btcPacket)
+	spendTx, err := psbt.Extract(btcPacket)
+	require.NoError(t.t, err)
+
+	var spendTxBuf bytes.Buffer
+	require.NoError(t.t, spendTx.Serialize(&spendTxBuf))
+	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+		ctxt, &walletrpc.Transaction{
+			TxHex: spendTxBuf.Bytes(),
+		},
+	)
+	require.ErrorContains(t.t, err, "non final")
+	t.lndHarness.Miner.AssertNumTxsInMempool(0)
+
+	// After mining a single block, the error should go away.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 0)
+
+	// Now we'll attempt to complete the transfer normally, which should
+	// succeed.
+	signedPsbtBytes, err := tappsbt.Encode(fundedPsbtSpend)
+	require.NoError(t.t, err)
+	sendRespSpend, err := bob.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedPsbtBytes},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, bob,
+		sendRespSpend, genInfo.AssetId, amounts, currentTransferIdx,
+		numTransfers, numOutputs,
+	)
+
+	// This is an interactive transfer, so we do need to manually
+	// send the proof from the sender to the receiver.
+	_ = sendProof(
+		t, bob, alice, sendRespSpend,
+		aliceScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 1)
+	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 0)
+}
+
+// testPsbtRelativeLockTimeSend tests that we can send minted assets into a
+// ScriptKey encumbered with a relative (CSV) lock time.
+func testPsbtRelativeLockTimeSend(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send. We're also minting a passive asset that should remain
+	// where it is.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	const lockTimeBlocks = 6
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	var (
+		alice       = t.tapd
+		bobLnd      = t.lndHarness.Bob
+		id          [32]byte
+		fullAmt     = mintedAsset.Amount
+		chainParams = &address.RegressionNetTap
+	)
+	copy(id[:], genInfo.AssetId)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
+
+	// Bob creates a pkScript that will be used to lock the assets.
+	tapLeaf := test.ScriptCsv(t.t, lockTimeBlocks)
+	tapscript := input.TapscriptFullTree(bobScriptKey.PubKey, tapLeaf)
+	rootHash := tapscript.ControlBlock.RootHash(tapLeaf.Script)
+	tweakedTaprootKeyBob, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	keyDescriptorBob := keychain.KeyDescriptor{
+		PubKey: tweakedTaprootKeyBob,
+	}
+
+	bobAssetScriptKey := asset.ScriptKey{
+		PubKey: tweakedTaprootKeyBob,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keyDescriptorBob,
+			Tweak:  rootHash,
+		},
+	}
+
+	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
+		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
+		asset.V0, chainParams,
+	))
+
+	// We now sign the vPSBT.
+	signRespLock, err := alice.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundRespLock.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signRespLock.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	var (
+		amounts            = []uint64{fullAmt}
+		currentTransferIdx = 0
+		numTransfers       = 1
+		numOutputs         = len(amounts)
+	)
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, alice,
+		sendResp, genInfo.AssetId, amounts, currentTransferIdx,
+		numTransfers, numOutputs,
+	)
+
+	// This is an interactive transfer, so we do need to manually
+	// send the proof from the sender to the receiver.
+	_ = sendProof(
+		t, alice, bob, sendResp,
+		bobAssetScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 0)
+	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 1)
+
+	// We mine just 4 blocks, two short of being enough for the relative
+	// time lock.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 4, 0)
+
+	// Now if we spend Bob's asset, we should see a lock time in the anchor
+	// transaction. For that, we need to derive two keys for Alice, one for
+	// the new script key and one for the internal key.
+	aliceScriptKey, aliceInternalKey := DeriveKeys(t.t, alice)
+	fundRespSpend := fundPacket(t, bob, tappsbt.ForInteractiveSend(
+		id, fullAmt, aliceScriptKey, 0, lockTimeBlocks, 0,
+		aliceInternalKey, asset.V0, chainParams,
+	))
+
+	// We don't need to sign anything as our csv script is anyone can spend.
+	fundedPsbtSpend, err := tappsbt.Decode(fundRespSpend.FundedPsbt)
+	require.NoError(t.t, err)
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+	senderOut := fundedPsbtSpend.Outputs[0].Asset
+	senderOut.PrevWitnesses[0].TxWitness = [][]byte{
+		tapLeaf.Script, controlBlockBytes,
+	}
+
+	// We now create our spending transaction manually, but expect it to
+	// fail, because it is not yet final.
+	vPackets := []*tappsbt.VPacket{fundedPsbtSpend}
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(vPackets)
+	require.NoError(t.t, err)
+
+	btcPacket, _, _, _ = CommitVirtualPsbts(
+		t.t, bob, btcPacket, vPackets, nil, -1,
+	)
+	btcPacket = signPacket(t.t, bobLnd, btcPacket)
+	btcPacket = FinalizePacket(t.t, bobLnd.RPC, btcPacket)
+	spendTx, err := psbt.Extract(btcPacket)
+	require.NoError(t.t, err)
+
+	var spendTxBuf bytes.Buffer
+	require.NoError(t.t, spendTx.Serialize(&spendTxBuf))
+	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+		ctxt, &walletrpc.Transaction{
+			TxHex: spendTxBuf.Bytes(),
+		},
+	)
+	require.ErrorContains(t.t, err, "non BIP68 final")
+	t.lndHarness.Miner.AssertNumTxsInMempool(0)
+
+	// After mining a single block, the error should go away.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 0)
+
+	// Now we'll attempt to complete the transfer normally, which should
+	// succeed.
+	signedPsbtBytes, err := tappsbt.Encode(fundedPsbtSpend)
+	require.NoError(t.t, err)
+	sendRespSpend, err := bob.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedPsbtBytes},
+		},
+	)
+	require.NoError(t.t, err)
+
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, bob,
+		sendRespSpend, genInfo.AssetId, amounts, currentTransferIdx,
+		numTransfers, numOutputs,
+	)
+
+	// This is an interactive transfer, so we do need to manually
+	// send the proof from the sender to the receiver.
+	_ = sendProof(
+		t, bob, alice, sendRespSpend,
+		aliceScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 1)
+	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 0)
+}
+
+// testPsbtRelativeLockTimeSendProofFail tests that we can send minted assets
+// into a ScriptKey encumbered with a relative (CSV) lock time, and get an error
+// in the proof validation (resulting in a bricked asset) if we manually
+// overwrite the lock time in the anchor transaction.
+func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send. We're also minting a passive asset that should remain
+	// where it is.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	const lockTimeBlocks = 6
+
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	var (
+		alice       = t.tapd
+		bobLnd      = t.lndHarness.Bob
+		id          [32]byte
+		fullAmt     = mintedAsset.Amount
+		chainParams = &address.RegressionNetTap
+	)
+	copy(id[:], genInfo.AssetId)
+
+	// We need to derive two keys, one for the new script key and one for
+	// the internal key.
+	bobScriptKey, bobInternalKey := DeriveKeys(t.t, bob)
+
+	// Bob creates a pkScript that will be used to lock the assets.
+	tapLeaf := test.ScriptCsv(t.t, lockTimeBlocks)
+	tapscript := input.TapscriptFullTree(bobScriptKey.PubKey, tapLeaf)
+	rootHash := tapscript.ControlBlock.RootHash(tapLeaf.Script)
+	tweakedTaprootKeyBob, err := tapscript.TaprootKey()
+	require.NoError(t.t, err)
+
+	keyDescriptorBob := keychain.KeyDescriptor{
+		PubKey: tweakedTaprootKeyBob,
+	}
+
+	bobAssetScriptKey := asset.ScriptKey{
+		PubKey: tweakedTaprootKeyBob,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keyDescriptorBob,
+			Tweak:  rootHash,
+		},
+	}
+
+	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
+		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
+		asset.V0, chainParams,
+	))
+
+	// We now sign the vPSBT.
+	signRespLock, err := alice.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundRespLock.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signRespLock.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	var (
+		amounts            = []uint64{fullAmt}
+		currentTransferIdx = 0
+		numTransfers       = 1
+		numOutputs         = len(amounts)
+	)
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner.Client, alice,
+		sendResp, genInfo.AssetId, amounts, currentTransferIdx,
+		numTransfers, numOutputs,
+	)
+
+	// This is an interactive transfer, so we do need to manually
+	// send the proof from the sender to the receiver.
+	_ = sendProof(
+		t, alice, bob, sendResp,
+		bobAssetScriptKey.PubKey.SerializeCompressed(), genInfo,
+	)
+
+	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 0)
+	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 1)
+
+	// We mine just 4 blocks, two short of being enough for the relative
+	// time lock.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 4, 0)
+
+	// Now if we spend Bob's asset, we should see a lock time in the anchor
+	// transaction. For that, we need to derive two keys for Alice, one for
+	// the new script key and one for the internal key.
+	aliceScriptKey, aliceInternalKey := DeriveKeys(t.t, alice)
+	fundRespSpend := fundPacket(t, bob, tappsbt.ForInteractiveSend(
+		id, fullAmt, aliceScriptKey, 0, lockTimeBlocks, 0,
+		aliceInternalKey, asset.V0, chainParams,
+	))
+
+	// We don't need to sign anything as our csv script is anyone can spend.
+	fundedPsbtSpend, err := tappsbt.Decode(fundRespSpend.FundedPsbt)
+	require.NoError(t.t, err)
+	controlBlockBytes, err := tapscript.ControlBlock.ToBytes()
+	require.NoError(t.t, err)
+	senderOut := fundedPsbtSpend.Outputs[0].Asset
+	senderOut.PrevWitnesses[0].TxWitness = [][]byte{
+		tapLeaf.Script, controlBlockBytes,
+	}
+
+	// We now create our spending transaction manually, but expect it to
+	// fail, because it is not yet final.
+	vPackets := []*tappsbt.VPacket{fundedPsbtSpend}
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(vPackets)
+	require.NoError(t.t, err)
+
+	btcPacket, vPackets, _, commitResp := CommitVirtualPsbts(
+		t.t, bob, btcPacket, vPackets, nil, -1,
+	)
+	btcPacketTimeLocked := signPacket(t.t, bobLnd, btcPacket)
+	btcPacketTimeLocked = FinalizePacket(
+		t.t, bobLnd.RPC, btcPacketTimeLocked,
+	)
+	spendTxTimeLocked, err := psbt.Extract(btcPacketTimeLocked)
+	require.NoError(t.t, err)
+
+	var spendTxBuf bytes.Buffer
+	require.NoError(t.t, spendTxTimeLocked.Serialize(&spendTxBuf))
+	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+		ctxt, &walletrpc.Transaction{
+			TxHex: spendTxBuf.Bytes(),
+		},
+	)
+	require.ErrorContains(t.t, err, "non BIP68 final")
+	t.lndHarness.Miner.AssertNumTxsInMempool(0)
+
+	// We now do something very stupid and dangerous (don't try this at
+	// home) and manually overwrite the lock time in the anchor transaction.
+	// This should result in us being able to broadcast the transaction, but
+	// will effectively brick the asset in the process, because the
+	// asset-level VM verification of the lock time will fail.
+	for idx := range btcPacket.UnsignedTx.TxIn {
+		btcPacket.UnsignedTx.TxIn[idx].Sequence = 0
+	}
+
+	btcPacket = signPacket(t.t, bobLnd, btcPacket)
+	btcPacket = FinalizePacket(t.t, bobLnd.RPC, btcPacket)
+	spendTxTimeLocked, err = psbt.Extract(btcPacket)
+	require.NoError(t.t, err)
+
+	spendTxBuf.Reset()
+	require.NoError(t.t, spendTxTimeLocked.Serialize(&spendTxBuf))
+	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+		ctxt, &walletrpc.Transaction{
+			TxHex: spendTxBuf.Bytes(),
+		},
+	)
+	require.NoError(t.t, err)
+	t.lndHarness.Miner.AssertNumTxsInMempool(1)
+
+	ctxc, streamCancel := context.WithCancel(ctxb)
+	aliceScriptKeyBytes := aliceScriptKey.PubKey.SerializeCompressed()
+	stream, err := bob.SubscribeSendEvents(
+		ctxc, &taprpc.SubscribeSendEventsRequest{
+			FilterScriptKey: aliceScriptKeyBytes,
+		},
+	)
+	require.NoError(t.t, err)
+	sendEvents := &EventSubscription[*taprpc.SendEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
+	LogAndPublish(t.t, bob, btcPacket, vPackets, nil, commitResp)
+
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	AssertSendEvents(
+		t.t, aliceScriptKeyBytes, sendEvents,
+		tapfreighter.SendStateLogCommit,
+		tapfreighter.SendStateWaitTxConf,
+	)
+
+	msg, err := stream.Recv()
+	require.NoError(t.t, err)
+	require.Contains(t.t, msg.Error, "un-finalized asset")
 }
 
 func signVirtualPacket(t *testing.T, tapd *tapdHarness,
