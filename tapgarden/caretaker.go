@@ -573,6 +573,20 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 
+		// For the caretaker to manage a frozen batch, it must have some
+		// seedlings and a genesis packet. Check these preconditions
+		// before modifying the batch.
+		if len(b.cfg.Batch.Seedlings) == 0 {
+			return 0, fmt.Errorf("frozen batch has no seedlings")
+		}
+
+		if b.cfg.Batch.GenesisPacket == nil ||
+			b.cfg.Batch.GenesisPacket.Pkt == nil {
+
+			return 0, fmt.Errorf("frozen batch has no genesis " +
+				"packet")
+		}
+
 		// Make a copy of the batch PSBT, which we'll modify and then
 		// update the batch with.
 		var psbtBuf bytes.Buffer

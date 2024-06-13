@@ -472,13 +472,12 @@ func insertOptionalSeedlingParams(ctx context.Context, q PendingAssetStore,
 	if seedling.GroupInternalKey != nil {
 		rawKeyBytes := seedling.GroupInternalKey.PubKey.
 			SerializeCompressed()
-		groupInternalKey := InternalKey{
+		internalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 			RawKey:    rawKeyBytes,
 			KeyFamily: int32(seedling.GroupInternalKey.Family),
 			KeyIndex:  int32(seedling.GroupInternalKey.Index),
-		}
+		})
 
-		internalKeyID, err := q.UpsertInternalKey(ctx, groupInternalKey)
 		if err != nil {
 			return fieldIDs, err
 		}

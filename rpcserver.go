@@ -836,7 +836,7 @@ func (r *rpcServer) CancelBatch(_ context.Context,
 
 // ListBatches lists the set of batches submitted for minting, including pending
 // and cancelled batches.
-func (r *rpcServer) ListBatches(ctx context.Context,
+func (r *rpcServer) ListBatches(_ context.Context,
 	req *mintrpc.ListBatchRequest) (*mintrpc.ListBatchResponse, error) {
 
 	var (
@@ -882,7 +882,7 @@ func (r *rpcServer) ListBatches(ctx context.Context,
 		batches, func(b *tapgarden.VerboseBatch) (*mintrpc.VerboseBatch,
 			error) {
 
-			return marshalVerboseBatch(ctx, b, req.Verbose, false)
+			return marshalVerboseBatch(b, req.Verbose, false)
 		},
 	)
 	if err != nil {
@@ -3898,8 +3898,8 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 }
 
 // marshalVerboseBatch marshals a minting batch into the RPC counterpart.
-func marshalVerboseBatch(ctx context.Context, batch *tapgarden.VerboseBatch,
-	verbose bool, skipSeedlings bool) (*mintrpc.VerboseBatch, error) {
+func marshalVerboseBatch(batch *tapgarden.VerboseBatch, verbose bool,
+	skipSeedlings bool) (*mintrpc.VerboseBatch, error) {
 
 	rpcMintingBatch, err := marshalMintingBatch(
 		batch.MintingBatch, skipSeedlings,
@@ -3921,7 +3921,7 @@ func marshalVerboseBatch(ctx context.Context, batch *tapgarden.VerboseBatch,
 	// We only need to convert the seedlings to unsealed seedlings.
 	if len(batch.UnsealedSeedlings) > 0 {
 		rpcBatch.UnsealedAssets, err = marshalUnsealedSeedlings(
-			ctx, verbose, batch.UnsealedSeedlings,
+			verbose, batch.UnsealedSeedlings,
 		)
 		if err != nil {
 			return nil, err
@@ -4003,12 +4003,17 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 	error) {
 
 	var (
+		scriptKey        *taprpc.ScriptKey
 		groupKeyBytes    []byte
 		groupInternalKey *taprpc.KeyDescriptor
 		groupAnchor      string
 		seedlingMeta     *taprpc.AssetMeta
 		newGroupedAsset  bool
 	)
+
+	if seedling.ScriptKey.PubKey != nil {
+		scriptKey = taprpc.MarshalScriptKey(seedling.ScriptKey)
+	}
 
 	if seedling.HasGroupKey() {
 		groupKey := seedling.GroupInfo.GroupKey
@@ -4052,7 +4057,7 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 		Name:               seedling.AssetName,
 		AssetMeta:          seedlingMeta,
 		Amount:             seedling.Amount,
-		ScriptKey:          taprpc.MarshalScriptKey(seedling.ScriptKey),
+		ScriptKey:          scriptKey,
 		GroupKey:           groupKeyBytes,
 		GroupAnchor:        groupAnchor,
 		GroupInternalKey:   groupInternalKey,
@@ -4063,7 +4068,7 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 
 // marshalUnsealedSeedling marshals an unsealed seedling into the RPC
 // counterpart.
-func marshalUnsealedSeedling(ctx context.Context, verbose bool,
+func marshalUnsealedSeedling(verbose bool,
 	seedling *tapgarden.UnsealedSeedling) (*mintrpc.UnsealedAsset, error) {
 
 	var (
@@ -4110,15 +4115,13 @@ func marshalSeedlings(
 
 // marshalUnsealedSeedlings marshals the unsealed seedlings into the RPC
 // counterpart.
-func marshalUnsealedSeedlings(ctx context.Context, verbose bool,
+func marshalUnsealedSeedlings(verbose bool,
 	seedlings map[string]*tapgarden.UnsealedSeedling) (
 	[]*mintrpc.UnsealedAsset, error) {
 
 	rpcAssets := make([]*mintrpc.UnsealedAsset, 0, len(seedlings))
 	for _, seedling := range seedlings {
-		nextSeedling, err := marshalUnsealedSeedling(
-			ctx, verbose, seedling,
-		)
+		nextSeedling, err := marshalUnsealedSeedling(verbose, seedling)
 		if err != nil {
 			return nil, err
 		}

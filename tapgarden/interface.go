@@ -389,4 +389,8 @@ type KeyRing interface {
 var (
 	// ErrNoGenesis is returned when fetching an asset genesis fails.
 	ErrNoGenesis = errors.New("unable to fetch genesis asset")
+
+	// ErrBatchAlreadySealed is returned when a minting batch is already
+	// sealed.
+	ErrBatchAlreadySealed = errors.New("batch is already sealed")
 )

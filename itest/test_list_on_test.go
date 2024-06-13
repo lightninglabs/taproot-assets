@@ -10,6 +10,10 @@ var testCases = []*testCase{
 		test: testMintAssets,
 	},
 	{
+		name: "mint batch resume",
+		test: testMintBatchResume,
+	},
+	{
 		name: "asset meta validation",
 		test: testAssetMeta,
 	},
