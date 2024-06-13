@@ -26,6 +26,29 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+// ProofImporter is used to import proofs into the local proof archive after we
+// complete a trransfer.
+type ProofImporter interface {
+	// ImportProofs attempts to store fully populated proofs on disk. The
+	// previous outpoint of the first state transition will be used as the
+	// Genesis point. The final resting place of the asset will be used as
+	// the script key itself. If replace is specified, we expect a proof to
+	// already be present, and we just update (replace) it with the new
+	// proof.
+	ImportProofs(ctx context.Context, headerVerifier proof.HeaderVerifier,
+		merkleVerifier proof.MerkleVerifier,
+		groupVerifier proof.GroupVerifier,
+		chainVerifier proof.ChainLookupGenerator, replace bool,
+		proofs ...*proof.AnnotatedProof) error
+}
+
+// ProofExporter is used to fetch input proofs to
+type ProofExporter interface {
+	// FetchProof attempts to fetcb a serialized proof file from the local
+	// archive based on the passed locator.
+	FetchProof(ctx context.Context, id proof.Locator) (proof.Blob, error)
+}
+
 // ChainPorterConfig is the main config for the chain porter.
 type ChainPorterConfig struct {
 	// Signer implements the Taproot Asset level signing we need to sign a
@@ -57,11 +80,9 @@ type ChainPorterConfig struct {
 	// virtual transactions.
 	AssetWallet Wallet
 
-	// AssetProofs is used to write the proof files on disk for the
-	// receiver during a transfer.
-	//
-	// TODO(roasbeef): replace with proof.Courier in the future/
-	AssetProofs proof.Archiver
+	ProofWriter ProofImporter
+
+	ProofReader ProofExporter
 
 	// ProofCourierDispatcher is the dispatcher that is used to create new
 	// proof courier handles for sending proofs based on the protocol of
@@ -391,7 +412,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 
 	log.Infof("Importing %d passive asset proofs into local Proof "+
 		"Archive", len(passiveAssetProofFiles))
-	err := p.cfg.AssetProofs.ImportProofs(
+	err := p.cfg.ProofWriter.ImportProofs(
 		ctx, headerVerifier, proof.DefaultMerkleVerifier,
 		p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
 		passiveAssetProofFiles...,
@@ -479,7 +500,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		// Import proof into proof archive.
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)
-		err = p.cfg.AssetProofs.ImportProofs(
+		err = p.cfg.ProofWriter.ImportProofs(
 			ctx, headerVerifier, proof.DefaultMerkleVerifier,
 			p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
 			outputProof,
@@ -527,7 +548,7 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 		ScriptKey: *scriptKey,
 		OutPoint:  &input.OutPoint,
 	}
-	inputProofBytes, err := p.cfg.AssetProofs.FetchProof(
+	inputProofBytes, err := p.cfg.ProofReader.FetchProof(
 		ctx, inputProofLocator,
 	)
 	if err != nil {
@@ -577,8 +598,8 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context,
 			ctx, inputs[idx],
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error fetching input proof "+
-				"%d: %w", idx, err)
+			return nil, fmt.Errorf("error fetching additional "+
+				"input proof %d: %w", idx, err)
 		}
 
 		proofSuffix.AdditionalInputs = append(
@@ -752,7 +773,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			ScriptKey: *passiveOut.ScriptKey.PubKey,
 			OutPoint:  fn.Ptr(passiveOut.ProofSuffix.OutPoint()),
 		}
-		proofFileBlob, err := p.cfg.AssetProofs.FetchProof(
+		proofFileBlob, err := p.cfg.ProofReader.FetchProof(
 			ctx, proofLocator,
 		)
 		if err != nil {
