@@ -964,25 +964,65 @@ func fetchAssetMetas(ctx context.Context, db PendingAssetStore,
 	for _, assetT := range assets {
 		assetID := assetT.ID()
 
-		assetMeta, err := db.FetchAssetMetaForAsset(ctx, assetID[:])
-		switch {
-		// If the asset doesn't have a meta data reveal, then we can
-		// skip it.
-		case errors.Is(err, sql.ErrNoRows):
-			continue
-
-		case err != nil:
+		assetMeta, err := fetchMetaByAssetID(ctx, db, assetID)
+		if err != nil {
 			return nil, err
 		}
 
-		scriptKey := asset.ToSerialized(assetT.ScriptKey.PubKey)
-		assetMetas[scriptKey] = &proof.MetaReveal{
-			Data: assetMeta.MetaDataBlob,
-			Type: proof.MetaType(assetMeta.MetaDataType.Int16),
+		// If the asset doesn't have a meta data reveal, then we can
+		// skip it.
+		if assetMeta == nil {
+			continue
 		}
+
+		scriptKey := asset.ToSerialized(assetT.ScriptKey.PubKey)
+		assetMetas[scriptKey] = assetMeta
 	}
 
 	return assetMetas, nil
+}
+
+// fetchMetaByAssetID fetches a single asset meta reveal.
+func fetchMetaByAssetID(ctx context.Context, db PendingAssetStore,
+	ID asset.ID) (*proof.MetaReveal, error) {
+
+	assetMeta, err := db.FetchAssetMetaForAsset(ctx, ID[:])
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return nil, nil
+
+	case err != nil:
+		return nil, err
+	}
+
+	return &proof.MetaReveal{
+		Data: assetMeta.MetaDataBlob,
+		Type: proof.MetaType(assetMeta.MetaDataType.Int16),
+	}, nil
+}
+
+// FetchAssetMeta fetches the meta reveal for an asset genesis.
+func (a *AssetMintingStore) FetchAssetMeta(ctx context.Context,
+	ID asset.ID) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		var err error
+		assetMeta, err = fetchMetaByAssetID(ctx, q, ID)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
 }
 
 // FetchNonFinalBatches fetches all the batches that aren't fully finalized on

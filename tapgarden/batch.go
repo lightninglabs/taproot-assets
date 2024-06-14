@@ -132,13 +132,25 @@ func (m *MintingBatch) Copy() *MintingBatch {
 func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
 	anchor, ok := m.Seedlings[*s.GroupAnchor]
 
-	if !ok {
+	if anchor == nil || !ok {
 		return fmt.Errorf("group anchor %v not present in batch",
 			s.GroupAnchor)
 	}
 	if !anchor.EnableEmission {
 		return fmt.Errorf("group anchor %v has emission disabled",
 			*s.GroupAnchor)
+	}
+
+	// The decimal display of the seedling must match that of the group
+	// anchor. We already validated the seedling metadata, so we don't care
+	// if the value is explicit or if the metadata is JSON, but we must
+	// compute the same value for both assets.
+	_, seedlingDecDisplay, _ := s.Meta.GetDecDisplay()
+	_, anchorDecDisplay, _ := anchor.Meta.GetDecDisplay()
+	if seedlingDecDisplay != anchorDecDisplay {
+		return fmt.Errorf("seedling decimal display does not match "+
+			"group anchor: %d, %d", seedlingDecDisplay,
+			anchorDecDisplay)
 	}
 
 	return nil
