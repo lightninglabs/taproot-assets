@@ -368,6 +368,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, err
 	}
 
+	// For the porter, we'll make a multi-notifier comprised of all the
+	// possible proof file sources to ensure it can always fetch input
+	// proofs.
+	porterProofReader := proof.NewMultiArchiveNotifier(
+		assetStore, multiverse, proofFileStore,
+	)
 	chainPorter := tapfreighter.NewChainPorter(
 		&tapfreighter.ChainPorterConfig{
 			Signer:      virtualTxSigner,
@@ -380,7 +386,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			Wallet:                 walletAnchor,
 			KeyRing:                keyRing,
 			AssetWallet:            assetWallet,
-			ProofReader:            multiNotifier,
+			ProofReader:            porterProofReader,
 			ProofWriter:            proofFileStore,
 			ProofCourierDispatcher: proofCourierDispatcher,
 			ProofWatcher:           reOrgWatcher,
