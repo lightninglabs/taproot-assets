@@ -266,7 +266,7 @@ func AssertAssetState(t *testing.T, assets map[string][]*taprpc.Asset,
 		}
 	}
 
-	require.NotNil(t, a, fmt.Errorf("asset with matching metadata not"+
+	require.NotNil(t, a, fmt.Errorf("asset with matching metadata not "+
 		"found in asset list"))
 
 	return a
@@ -1755,24 +1755,23 @@ func AssertAssetsMinted(t *testing.T, tapClient TapdClient,
 	confirmedAssets := GroupAssetsByName(listRespConfirmed.Assets)
 
 	for _, assetRequest := range assetRequests {
-		var updatedMeta []byte
-		metaReveal := &proof.MetaReveal{}
+		metaReveal := &proof.MetaReveal{
+			Data: assetRequest.Asset.AssetMeta.Data,
+		}
 
-		switch assetRequest.Asset.AssetMeta.Type {
-		case taprpc.AssetMetaType_META_TYPE_JSON:
-			metaReveal.Type = proof.MetaJson
+		validMetaType, err := proof.IsValidMetaType(
+			assetRequest.Asset.AssetMeta.Type,
+		)
+		require.NoError(t, err)
 
-			updatedMeta, err = taprpc.EncodeDecimalDisplayInJSON(
+		metaReveal.Type = validMetaType
+		if metaReveal.Type == proof.MetaJson {
+			updatedMeta, err := metaReveal.SetDecDisplay(
 				assetRequest.Asset.DecimalDisplay,
-				assetRequest.Asset.AssetMeta.Data,
 			)
 			require.NoError(t, err)
 
-			metaReveal.Data = updatedMeta
-
-		case taprpc.AssetMetaType_META_TYPE_OPAQUE:
-			metaReveal.Type = proof.MetaOpaque
-			metaReveal.Data = assetRequest.Asset.AssetMeta.Data
+			metaReveal = updatedMeta
 		}
 
 		metaHash := metaReveal.MetaHash()
