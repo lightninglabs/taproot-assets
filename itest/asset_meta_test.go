@@ -108,6 +108,10 @@ func testAssetMeta(t *harnessTest) {
 // asset with a specific decimal display value, and that the value is correctly
 // encoded in the metadata field of the mint.
 func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
 	mintName := "test-asset-decimal-places"
 	jsonData := []byte(`{"field1": "value1", "field2": "value2"}`)
 	firstAsset := &mintrpc.MintAsset{
@@ -153,4 +157,30 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	// The meta hash from the minted asset must match the expected hash.
 	genMetaHash := firstAssetMinted.AssetGenesis.MetaHash
 	require.Equal(t.t, genMetaHash, metaHash[:])
+
+	// Mint another asset into the same asset group as the first asset.
+	groupKey := firstAssetMinted.AssetGroup.TweakedGroupKey
+	secondAssetReq := CopyRequest(firstAssetReq)
+	secondAssetReq.Asset.Name += "-2"
+	secondAssetReq.Asset.NewGroupedAsset = false
+	secondAssetReq.Asset.GroupedAsset = true
+	secondAssetReq.Asset.GroupKey = groupKey
+	secondAssetReq.Asset.DecimalDisplay = 0
+
+	// Reissuance should fail if the decimal display does not match the
+	// group anchor.
+	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
+	require.ErrorContains(t.t, err, "decimal display does not match")
+
+	// If we update the decimal display to match the group anchor, minting
+	// should succeed.
+	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
+	MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{secondAssetReq},
+	)
+
+	AssertGroupSizes(
+		t.t, t.tapd, []string{hex.EncodeToString(groupKey)}, []int{2},
+	)
 }
