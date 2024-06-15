@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -2707,7 +2708,9 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to set asset spent: "+
-					"%w", err)
+					"%w, script_key=%v, asset_id=%v", err,
+					spew.Sdump(inputs[idx].ScriptKey),
+					spew.Sdump(inputs[idx].AssetID))
 			}
 		}
 
