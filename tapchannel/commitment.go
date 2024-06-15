@@ -22,6 +22,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -682,9 +683,17 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.NewScriptKey(
-				htlcTree.TaprootKey,
-			),
+			ScriptKey: asset.ScriptKey{
+				PubKey: asset.NewScriptKey(
+					htlcTree.TaprootKey,
+				).PubKey,
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					RawKey: keychain.KeyDescriptor{
+						PubKey: htlcTree.InternalKey,
+					},
+					Tweak: htlcTree.TapscriptRoot,
+				},
+			},
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				htlcTree.TaprootKey,
 			),
@@ -864,9 +873,17 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			BtcAmount:      ourBalance,
 			InternalKey:    toLocalTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.NewScriptKey(
-				toLocalTree.TaprootKey,
-			),
+			ScriptKey: asset.ScriptKey{
+				PubKey: asset.NewScriptKey(
+					toLocalTree.TaprootKey,
+				).PubKey,
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					RawKey: keychain.KeyDescriptor{
+						PubKey: toLocalTree.InternalKey,
+					},
+					Tweak: toLocalTree.TapscriptRoot,
+				},
+			},
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toLocalTree.TaprootKey,
 			),
@@ -918,9 +935,17 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			BtcAmount:      theirBalance,
 			InternalKey:    toRemoteTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.NewScriptKey(
-				toRemoteTree.TaprootKey,
-			),
+			ScriptKey: asset.ScriptKey{
+				PubKey: asset.NewScriptKey(
+					toRemoteTree.TaprootKey,
+				).PubKey,
+				TweakedScriptKey: &asset.TweakedScriptKey{
+					RawKey: keychain.KeyDescriptor{
+						PubKey: toRemoteTree.InternalKey,
+					},
+					Tweak: toRemoteTree.TapscriptRoot,
+				},
+			},
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toRemoteTree.TaprootKey,
 			),
