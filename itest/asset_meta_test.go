@@ -2,6 +2,7 @@ package itest
 
 import (
 	"context"
+	"encoding/hex"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -66,7 +67,7 @@ func testAssetMeta(t *harnessTest) {
 					Amount: 5000,
 				},
 			},
-			errString: "unable to unmarshal json asset meta",
+			errString: proof.ErrInvalidJSON.Error(),
 		},
 
 		// Custom meta data type, with valid data should succeed.
@@ -107,46 +108,79 @@ func testAssetMeta(t *harnessTest) {
 // asset with a specific decimal display value, and that the value is correctly
 // encoded in the metadata field of the mint.
 func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
 	mintName := "test-asset-decimal-places"
 	jsonData := []byte(`{"field1": "value1", "field2": "value2"}`)
-
-	assetMint := mintrpc.MintAssetRequest{
-		Asset: &mintrpc.MintAsset{
-			AssetType: taprpc.AssetType_NORMAL,
-			Name:      mintName,
-			AssetMeta: &taprpc.AssetMeta{
-				Data: jsonData,
-				Type: taprpc.AssetMetaType_META_TYPE_JSON,
-			},
-			Amount:         500,
-			DecimalDisplay: 2,
+	firstAsset := &mintrpc.MintAsset{
+		AssetType: taprpc.AssetType_NORMAL,
+		Name:      mintName,
+		AssetMeta: &taprpc.AssetMeta{
+			Data: jsonData,
+			Type: taprpc.AssetMetaType_META_TYPE_JSON,
 		},
+		Amount:          500,
+		DecimalDisplay:  2,
+		NewGroupedAsset: true,
 	}
+	firstAssetReq := &mintrpc.MintAssetRequest{Asset: firstAsset}
+
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd,
-		[]*mintrpc.MintAssetRequest{&assetMint},
+		[]*mintrpc.MintAssetRequest{firstAssetReq},
 	)
+	require.Len(t.t, rpcSimpleAssets, 1)
 
 	// Ensure minted asset with requested name was successfully minted.
-	mintedAssetName := rpcSimpleAssets[0].AssetGenesis.Name
+	firstAssetMinted := rpcSimpleAssets[0]
+	mintedAssetName := firstAssetMinted.AssetGenesis.Name
 	require.Equal(t.t, mintName, mintedAssetName)
+	require.NotNil(t.t, firstAssetMinted.AssetGroup)
 
-	// Retrieve the meta hash of the updated metadata.
-	updatedMeta, err := taprpc.EncodeDecimalDisplayInJSON(
-		assetMint.Asset.DecimalDisplay,
-		assetMint.Asset.AssetMeta.Data,
+	require.Equal(
+		t.t, taprpc.AssetMetaType_META_TYPE_JSON,
+		firstAsset.AssetMeta.Type,
 	)
+	mintedMeta := &proof.MetaReveal{
+		Type: proof.MetaJson,
+		Data: jsonData,
+	}
+
+	// Manually update the requested metadata and compute the expected hash.
+	updatedMeta, err := mintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
 	require.NoError(t.t, err)
 
-	metaReveal := &proof.MetaReveal{
-		Type: proof.MetaJson,
-		Data: updatedMeta,
-	}
-	metaHash := metaReveal.MetaHash()
+	metaHash := updatedMeta.MetaHash()
 
-	// Get the metahash from the genesis.
-	genMetaHash := rpcSimpleAssets[0].AssetGenesis.MetaHash
+	// The meta hash from the minted asset must match the expected hash.
+	genMetaHash := firstAssetMinted.AssetGenesis.MetaHash
+	require.Equal(t.t, genMetaHash, metaHash[:])
 
-	// They must match.
-	require.Equal(t.t, metaHash[:], genMetaHash)
+	// Mint another asset into the same asset group as the first asset.
+	groupKey := firstAssetMinted.AssetGroup.TweakedGroupKey
+	secondAssetReq := CopyRequest(firstAssetReq)
+	secondAssetReq.Asset.Name += "-2"
+	secondAssetReq.Asset.NewGroupedAsset = false
+	secondAssetReq.Asset.GroupedAsset = true
+	secondAssetReq.Asset.GroupKey = groupKey
+	secondAssetReq.Asset.DecimalDisplay = 0
+
+	// Reissuance should fail if the decimal display does not match the
+	// group anchor.
+	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
+	require.ErrorContains(t.t, err, "decimal display does not match")
+
+	// If we update the decimal display to match the group anchor, minting
+	// should succeed.
+	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
+	MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{secondAssetReq},
+	)
+
+	AssertGroupSizes(
+		t.t, t.tapd, []string{hex.EncodeToString(groupKey)}, []int{2},
+	)
 }

@@ -262,6 +262,10 @@ type MintingStore interface {
 	FetchGroupByGroupKey(ctx context.Context,
 		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
 
+	// FetchAssetMeta fetches the meta reveal for an asset genesis.
+	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
+		error)
+
 	// CommitBatchTapSibling adds a tapscript sibling to the batch,
 	// specified by the sibling root hash.
 	//

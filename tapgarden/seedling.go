@@ -140,6 +140,12 @@ func (c Seedling) validateFields() error {
 		return ErrInvalidAssetAmt
 	}
 
+	// Validate the asset metadata.
+	err = c.Meta.Validate()
+	if err != nil {
+		return err
+	}
+
 	// The group tapscript root must be 32 bytes.
 	tapscriptRootSize := len(c.GroupTapscriptRoot)
 	if tapscriptRootSize != 0 && tapscriptRootSize != sha256.Size {
@@ -152,7 +158,9 @@ func (c Seedling) validateFields() error {
 
 // validateGroupKey attempts to validate that the non-zero group key provided
 // with a seedling is owned by the daemon and can be used with this seedling.
-func (c Seedling) validateGroupKey(group asset.AssetGroup) error {
+func (c Seedling) validateGroupKey(group asset.AssetGroup,
+	anchorMeta *proof.MetaReveal) error {
+
 	// We must be able to sign with the group key.
 	if !group.GroupKey.IsLocal() {
 		groupKeyBytes := c.GroupInfo.GroupPubKey.SerializeCompressed()
@@ -163,6 +171,29 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup) error {
 	if c.AssetType != group.Genesis.Type {
 		return fmt.Errorf("seedling type does not match "+
 			"group asset type %v", group.Genesis.Type)
+	}
+
+	// The decimal display of the seedling must match that of the group
+	// anchor. We already validated the seedling metadata, so we don't care
+	// if the value is explicit or if the metadata is JSON, but we must
+	// compute the same value for both assets.
+	var (
+		seedlingDecDisplay uint32
+		anchorDecDisplay   uint32
+	)
+
+	if c.Meta != nil {
+		_, seedlingDecDisplay, _ = c.Meta.GetDecDisplay()
+	}
+
+	if anchorMeta != nil {
+		_, anchorDecDisplay, _ = anchorMeta.GetDecDisplay()
+	}
+
+	if seedlingDecDisplay != anchorDecDisplay {
+		return fmt.Errorf("seedling decimal display does not match "+
+			"group anchor: %d, %d", seedlingDecDisplay,
+			anchorDecDisplay)
 	}
 
 	return nil

@@ -1653,18 +1653,28 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// If emission is enabled and a group key is specified, we need to
 	// make sure the asset types match and that we can sign with that key.
 	if req.HasGroupKey() {
+		groupKeyBytes := req.GroupInfo.GroupPubKey.
+			SerializeCompressed()
 		groupInfo, err := c.cfg.Log.FetchGroupByGroupKey(
 			ctx, &req.GroupInfo.GroupPubKey,
 		)
 		if err != nil {
-			groupKeyBytes := req.GroupInfo.GroupPubKey.
-				SerializeCompressed()
 			return fmt.Errorf("group key %x not found: %w",
 				groupKeyBytes, err,
 			)
 		}
 
-		if err := req.validateGroupKey(*groupInfo); err != nil {
+		anchorMeta, err := c.cfg.Log.FetchAssetMeta(
+			ctx, groupInfo.Genesis.ID(),
+		)
+		if err != nil {
+			return fmt.Errorf("group anchor genesis %x not found: "+
+				"%w", groupKeyBytes, err,
+			)
+		}
+
+		err = req.validateGroupKey(*groupInfo, anchorMeta)
+		if err != nil {
 			return err
 		}
 

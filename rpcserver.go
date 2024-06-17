@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -103,11 +102,6 @@ const (
 	// proofTypeReceive is an alias for the proof type used for receiving
 	// assets.
 	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
-
-	// maxDecDisplay is the maximum value of decimal display that a user can
-	// define when minting assets. Since the uint64 max value has 19 decimal
-	// places we will allow for a max of 12 decimal places.
-	maxDecDisplay = 12
 )
 
 type (
@@ -510,36 +504,50 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, err
 	}
 
-	decDisplay := req.Asset.DecimalDisplay
-	metaType := req.Asset.AssetMeta.Type
-
-	// If decimal display is specified by the user, but the meta type is not
-	// JSON, then we have to error out as the value needs to be encoded in
-	// the meta field. If an opaque meta field is specified, then we simply
-	// don't know how to handle it.
-	if decDisplay != 0 && metaType != taprpc.AssetMetaType_META_TYPE_JSON {
-		return nil, fmt.Errorf("decimal display requires JSON meta " +
-			"type")
-	}
-
-	// Check if decimal display exceeds max allowed value.
-	if decDisplay > maxDecDisplay {
-		return nil, fmt.Errorf("decimal display cannot exceed %v",
-			maxDecDisplay)
-	}
-
-	// If a JSON meta field is specified, then we'll update the decimal
-	// display in the meta field. Even if the decimal display is not
-	// specified in the rpc request, we'll still encode a 0 value.
-	if req.Asset.AssetMeta.Type == taprpc.AssetMetaType_META_TYPE_JSON {
-		updatedMeta, err := taprpc.EncodeDecimalDisplayInJSON(
-			decDisplay, req.Asset.AssetMeta.Data,
-		)
+	var seedlingMeta *proof.MetaReveal
+	if req.Asset.AssetMeta != nil {
+		// Ensure that the meta type is valid.
+		metaType, err := proof.IsValidMetaType(req.Asset.AssetMeta.Type)
 		if err != nil {
 			return nil, err
 		}
 
-		req.Asset.AssetMeta.Data = updatedMeta
+		// If the meta type is not JSON, then a custom decimal display
+		// cannot be set.
+		if metaType != proof.MetaJson && req.Asset.DecimalDisplay != 0 {
+			return nil, fmt.Errorf("cannot set decimal display " +
+				"if meta type is not JSON")
+		}
+
+		// If the asset meta field was specified, then the data inside
+		// must be valid. Let's check that now.
+		seedlingMeta = &proof.MetaReveal{
+			Data: req.Asset.AssetMeta.Data,
+			Type: metaType,
+		}
+
+		err = seedlingMeta.Validate()
+		if err != nil {
+			return nil, err
+		}
+
+		// If a custom decimal display was requested, add that to the
+		// metadata and re-validate it.
+		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
+			updatedMeta, err := seedlingMeta.SetDecDisplay(
+				req.Asset.DecimalDisplay,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			seedlingMeta = updatedMeta
+
+			err = seedlingMeta.Validate()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 
 	// Parse the optional script key and group internal key. The group
@@ -575,6 +583,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		AssetName:      req.Asset.Name,
 		Amount:         req.Asset.Amount,
 		EnableEmission: req.Asset.NewGroupedAsset,
+		Meta:           seedlingMeta,
 	}
 
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
@@ -619,30 +628,6 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	// We cannot do any name validation from outside the minter.
 	case specificGroupAnchor:
 		seedling.GroupAnchor = &req.Asset.GroupAnchor
-	}
-
-	if req.Asset.AssetMeta != nil {
-		// Ensure that the meta field is within bounds.
-		switch {
-		case req.Asset.AssetMeta.Type < 0:
-			return nil, fmt.Errorf("meta type cannot be negative")
-
-		case req.Asset.AssetMeta.Type > math.MaxUint8:
-			return nil, fmt.Errorf("meta type is too large: %v, "+
-				"max is: %v", req.Asset.AssetMeta.Type,
-				math.MaxUint8)
-		}
-
-		seedling.Meta = &proof.MetaReveal{
-			Type: proof.MetaType(req.Asset.AssetMeta.Type),
-			Data: req.Asset.AssetMeta.Data,
-		}
-
-		// If the asset meta field was specified, then the data inside
-		// must be valid. Let's check that now.
-		if err := seedling.Meta.Validate(); err != nil {
-			return nil, fmt.Errorf("invalid asset meta: %w", err)
-		}
 	}
 
 	updates, err := r.cfg.AssetMinter.QueueNewSeedling(seedling)
