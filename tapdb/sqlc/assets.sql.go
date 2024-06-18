@@ -516,6 +516,48 @@ func (q *Queries) DeleteUTXOLease(ctx context.Context, outpoint []byte) error {
 	return err
 }
 
+const fetchAssetID = `-- name: FetchAssetID :many
+SELECT asset_id
+    FROM assets
+    JOIN script_keys 
+        ON assets.script_key_id = script_keys.script_key_id
+    JOIN managed_utxos utxos
+        ON assets.anchor_utxo_id = utxos.utxo_id
+    WHERE
+        (script_keys.tweaked_script_key = $1
+            OR $1 IS NULL)
+        AND (utxos.outpoint = $2
+            OR $2 IS NULL)
+`
+
+type FetchAssetIDParams struct {
+	TweakedScriptKey []byte
+	Outpoint         []byte
+}
+
+func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]int64, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetID, arg.TweakedScriptKey, arg.Outpoint)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []int64
+	for rows.Next() {
+		var asset_id int64
+		if err := rows.Scan(&asset_id); err != nil {
+			return nil, err
+		}
+		items = append(items, asset_id)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchAssetMeta = `-- name: FetchAssetMeta :one
 SELECT meta_data_hash, meta_data_blob, meta_data_type
 FROM assets_meta
@@ -2507,40 +2549,6 @@ func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams
 	var meta_id int64
 	err := row.Scan(&meta_id)
 	return meta_id, err
-}
-
-const upsertAssetProof = `-- name: UpsertAssetProof :exec
-WITH target_asset(asset_id) AS (
-    SELECT asset_id
-    FROM assets
-    JOIN script_keys 
-        ON assets.script_key_id = script_keys.script_key_id
-    JOIN managed_utxos utxos
-        ON assets.anchor_utxo_id = utxos.utxo_id
-    WHERE
-        (script_keys.tweaked_script_key = $2
-            OR $2 IS NULL)
-        AND (utxos.outpoint = $3
-            OR $3 IS NULL)
-)
-INSERT INTO asset_proofs (
-    asset_id, proof_file
-) VALUES (
-    (SELECT asset_id FROM target_asset), $1
-) ON CONFLICT (asset_id)
-    -- This is not a NOP, we always overwrite the proof with the new one.
-    DO UPDATE SET proof_file = EXCLUDED.proof_file
-`
-
-type UpsertAssetProofParams struct {
-	ProofFile        []byte
-	TweakedScriptKey []byte
-	Outpoint         []byte
-}
-
-func (q *Queries) UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetProof, arg.ProofFile, arg.TweakedScriptKey, arg.Outpoint)
-	return err
 }
 
 const upsertAssetProofByID = `-- name: UpsertAssetProofByID :exec

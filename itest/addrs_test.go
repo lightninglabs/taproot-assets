@@ -603,7 +603,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	AssertAddrEvent(t.t, alice, aliceAddr2, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
-	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)[0]
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
 
 	// Eventually the events should be marked as confirmed.
 	AssertAddrEventByStatus(t.t, bob, statusConfirmed, 2)
