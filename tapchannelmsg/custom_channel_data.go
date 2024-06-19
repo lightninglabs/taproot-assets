@@ -14,10 +14,14 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// ChannelDataMaxRecordSize is the maximum size of the custom channel data that
+// can be read from a reader.
+const ChannelDataMaxRecordSize = tlv.MaxRecordSize * 2
+
 // ReadOpenChannel reads the content of an OpenChannel struct from a reader.
 func ReadOpenChannel(r io.Reader) (*OpenChannel, error) {
 	openChanData, err := wire.ReadVarBytes(
-		r, 0, tlv.MaxRecordSize, "chan data",
+		r, 0, ChannelDataMaxRecordSize, "chan data",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read open chan data: %w", err)
@@ -36,7 +40,7 @@ func ReadOpenChannel(r io.Reader) (*OpenChannel, error) {
 // ReadCommitment reads the content of a Commitment struct from a reader.
 func ReadCommitment(r io.Reader) (*Commitment, error) {
 	localCommitData, err := wire.ReadVarBytes(
-		r, 0, tlv.MaxRecordSize, "commit data",
+		r, 0, ChannelDataMaxRecordSize, "commit data",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read open chan data: %w", err)
