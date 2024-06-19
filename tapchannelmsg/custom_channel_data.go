@@ -10,15 +10,12 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/protobuf/proto"
 )
 
 // ReadOpenChannel reads the content of an OpenChannel struct from a reader.
-func ReadOpenChannel(r io.Reader) (*OpenChannel, error) {
-	openChanData, err := wire.ReadVarBytes(
-		r, 0, tlv.MaxRecordSize, "chan data",
-	)
+func ReadOpenChannel(r io.Reader, maxReadSize uint32) (*OpenChannel, error) {
+	openChanData, err := wire.ReadVarBytes(r, 0, maxReadSize, "chan data")
 	if err != nil {
 		return nil, fmt.Errorf("unable to read open chan data: %w", err)
 	}
@@ -34,9 +31,9 @@ func ReadOpenChannel(r io.Reader) (*OpenChannel, error) {
 }
 
 // ReadCommitment reads the content of a Commitment struct from a reader.
-func ReadCommitment(r io.Reader) (*Commitment, error) {
+func ReadCommitment(r io.Reader, maxReadSize uint32) (*Commitment, error) {
 	localCommitData, err := wire.ReadVarBytes(
-		r, 0, tlv.MaxRecordSize, "commit data",
+		r, 0, maxReadSize, "commit data",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read open chan data: %w", err)
@@ -104,12 +101,16 @@ func ReadChannelCustomData(chanData []byte) (*ChannelCustomData, error) {
 	// The custom channel data is encoded as two var byte blobs. One for
 	// the static funding data, one for the state of our current local
 	// commitment.
-	openChannel, err := ReadOpenChannel(chanDataReader)
+	openChannel, err := ReadOpenChannel(
+		chanDataReader, uint32(len(chanData)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read open channel: %w", err)
 	}
 
-	localCommit, err := ReadCommitment(chanDataReader)
+	localCommit, err := ReadCommitment(
+		chanDataReader, uint32(len(chanData)),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read local commitment: %w",
 			err)
@@ -233,7 +234,9 @@ func ReadBalanceCustomData(balanceData []byte) (*BalanceCustomData, error) {
 		OpenChannels: make([]*Commitment, numOpenChannels),
 	}
 	for i := uint64(0); i < numOpenChannels; i++ {
-		result.OpenChannels[i], err = ReadCommitment(balanceDataReader)
+		result.OpenChannels[i], err = ReadCommitment(
+			balanceDataReader, uint32(len(balanceData)),
+		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read open channel: "+
 				"%w", err)
@@ -250,7 +253,7 @@ func ReadBalanceCustomData(balanceData []byte) (*BalanceCustomData, error) {
 	result.PendingChannels = make([]*Commitment, numPendingChannels)
 	for i := uint64(0); i < numPendingChannels; i++ {
 		result.PendingChannels[i], err = ReadCommitment(
-			balanceDataReader,
+			balanceDataReader, uint32(len(balanceData)),
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to read pending "+
