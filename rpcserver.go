@@ -974,7 +974,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 
 	rpcAssets := make([]*taprpc.Asset, len(assets))
 	for i, a := range assets {
-		rpcAssets[i], err = MarshalChainAsset(
+		rpcAssets[i], err = r.MarshalChainAsset(
 			ctx, a, withWitness, r.cfg.AddrBook,
 		)
 		if err != nil {
@@ -987,11 +987,17 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 }
 
 // MarshalChainAsset marshals the given chain asset into an RPC asset.
-func MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
+func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 	withWitness bool, keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
+
+	decDisplay, err := r.DecDisplayForAssetID(ctx, a.ID())
+	if err != nil {
+		return nil, err
+	}
 
 	rpcAsset, err := taprpc.MarshalAsset(
 		ctx, a.Asset, a.IsSpent, withWitness, keyRing,
+		fn.Some(decDisplay),
 	)
 	if err != nil {
 		return nil, err
@@ -1670,7 +1676,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	rpcAsset, err := MarshalChainAsset(ctx, &asset.ChainAsset{
+	rpcAsset, err := r.MarshalChainAsset(ctx, &asset.ChainAsset{
 		Asset:                  &p.Asset,
 		AnchorTx:               &p.AnchorTx,
 		AnchorBlockHash:        p.BlockHeader.BlockHash(),
@@ -4863,10 +4869,11 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 }
 
 func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
-	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
+	assetLeaf *universe.Leaf,
+	decDisplay fn.Option[uint32]) (*unirpc.AssetLeaf, error) {
 
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, assetLeaf.Asset, false, true, keys,
+		ctx, assetLeaf.Asset, false, true, keys, decDisplay,
 	)
 	if err != nil {
 		return nil, err
@@ -4880,9 +4887,10 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 
 // marshalAssetLeaf marshals an asset leaf into the RPC form.
 func (r *rpcServer) marshalAssetLeaf(ctx context.Context,
-	assetLeaf *universe.Leaf) (*unirpc.AssetLeaf, error) {
+	assetLeaf *universe.Leaf,
+	decDisplay fn.Option[uint32]) (*unirpc.AssetLeaf, error) {
 
-	return marshalAssetLeaf(ctx, r.cfg.AddrBook, assetLeaf)
+	return marshalAssetLeaf(ctx, r.cfg.AddrBook, assetLeaf, decDisplay)
 }
 
 // AssetLeaves queries for the set of asset leaves (the values in the Universe
@@ -4915,7 +4923,14 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 	for i, assetLeaf := range assetLeaves {
 		assetLeaf := assetLeaf
 
-		resp.Leaves[i], err = r.marshalAssetLeaf(ctx, &assetLeaf)
+		decDisplay, err := r.DecDisplayForAssetID(ctx, assetLeaf.ID())
+		if err != nil {
+			return nil, err
+		}
+
+		resp.Leaves[i], err = r.marshalAssetLeaf(
+			ctx, &assetLeaf, fn.Some(decDisplay),
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -5012,7 +5027,14 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaf, err := r.marshalAssetLeaf(ctx, proof.Leaf)
+	decDisplay, err := r.DecDisplayForAssetID(ctx, proof.Leaf.ID())
+	if err != nil {
+		return nil, err
+	}
+
+	assetLeaf, err := r.marshalAssetLeaf(
+		ctx, proof.Leaf, fn.Some(decDisplay),
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -5324,7 +5346,16 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 
 		leaves := make([]*unirpc.AssetLeaf, len(diff.NewLeafProofs))
 		for i, leaf := range diff.NewLeafProofs {
-			leaves[i], err = r.marshalAssetLeaf(ctx, leaf)
+			decDisplay, err := r.DecDisplayForAssetID(
+				ctx, leaf.ID(),
+			)
+			if err != nil {
+				return err
+			}
+
+			leaves[i], err = r.marshalAssetLeaf(
+				ctx, leaf, fn.Some(decDisplay),
+			)
 			if err != nil {
 				return err
 			}
@@ -6590,4 +6621,26 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 	}
 
 	return rawPackets, nil
+}
+
+// DecDisplayForAssetID attempts to fetch the meta reveal for a specific asset
+// ID and extract the decimal display value from it.
+func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
+	id asset.ID) (uint32, error) {
+
+	meta, err := r.cfg.AssetStore.FetchAssetMetaForAsset(
+		ctx, id,
+	)
+	if err != nil {
+		return 0, fmt.Errorf("unable to fetch asset meta "+
+			"for asset_id=%v :%v", id, err)
+	}
+
+	_, decDisplay, err := meta.GetDecDisplay()
+	if err != nil && !errors.Is(err, proof.ErrNotJSON) {
+		return 0, fmt.Errorf("unable to extract decimal "+
+			"display for asset_id=%v :%v", id, err)
+	}
+
+	return decDisplay, nil
 }

@@ -1053,8 +1053,10 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		proofAsset := transitionProof.Asset
 
 		// Construct asset leaf.
+		// Note: We pass in a none-value for the decimal display option,
+		// as this doesn't matter for the courrier.
 		rpcAsset, err := taprpc.MarshalAsset(
-			ctx, &proofAsset, true, true, nil,
+			ctx, &proofAsset, true, true, nil, fn.None[uint32](),
 		)
 		if err != nil {
 			return err

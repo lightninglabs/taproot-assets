@@ -444,7 +444,8 @@ func UnmarshalGroupWitness(wit *GroupWitness) (*asset.PendingGroupWitness,
 
 // MarshalAsset converts an asset to its rpc representation.
 func MarshalAsset(ctx context.Context, a *asset.Asset,
-	isSpent, withWitness bool, keyRing KeyLookup) (*Asset, error) {
+	isSpent, withWitness bool, keyRing KeyLookup,
+	decDisplay fn.Option[uint32]) (*Asset, error) {
 
 	scriptKeyIsLocal := false
 	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
@@ -473,6 +474,12 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		IsSpent:                isSpent,
 		IsBurn:                 a.IsBurn(),
 	}
+
+	decDisplay.WhenSome(func(u uint32) {
+		rpcAsset.DecimalDisplay = &DecimalDisplay{
+			DecimalDisplay: u,
+		}
+	})
 
 	if a.GroupKey != nil {
 		var (
@@ -520,7 +527,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 			if witness.SplitCommitment != nil {
 				rootAsset, err := MarshalAsset(
 					ctx, &witness.SplitCommitment.RootAsset,
-					false, true, nil,
+					false, true, nil, decDisplay,
 				)
 				if err != nil {
 					return nil, err
