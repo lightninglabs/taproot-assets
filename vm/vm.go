@@ -564,13 +564,17 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 
 			timeLock := time.Unix(int64(newAsset.LockTime), 0)
 			if blockMeanTime.Before(timeLock) {
-				return newErrKind(ErrUnfinalizedAsset)
+				inner := fmt.Errorf("block_time=%v, "+
+					"min_time=%v", blockMeanTime, timeLock)
+				return newErrInner(ErrUnfinalizedAsset, inner)
 			}
 
 		// Otherwise, we can just compare the lock time to the current
 		// block height.
 		case blockHeight < uint32(newAsset.LockTime):
-			return newErrKind(ErrUnfinalizedAsset)
+			inner := fmt.Errorf("block_height=%v, "+
+				"lock_time=%v", blockHeight, newAsset.LockTime)
+			return newErrInner(ErrUnfinalizedAsset, inner)
 		}
 	}
 
@@ -647,7 +651,9 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 			// If the time lock is before the current block time,
 			// then the input is not yet finalized.
 			if blockMeanTime.Before(timeLock) {
-				return newErrKind(ErrUnfinalizedAsset)
+				inner := fmt.Errorf("block_time=%v, "+
+					"min_time=%v", blockMeanTime, timeLock)
+				return newErrInner(ErrUnfinalizedAsset, inner)
 			}
 
 		default:
@@ -659,7 +665,9 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 			)
 
 			if uint64(blockHeight) < minHeight {
-				return newErrKind(ErrUnfinalizedAsset)
+				inner := fmt.Errorf("block_height=%v, "+
+					"min_height=%v", blockHeight, minHeight)
+				return newErrInner(ErrUnfinalizedAsset, inner)
 			}
 		}
 	}
