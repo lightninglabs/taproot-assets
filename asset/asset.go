@@ -96,7 +96,7 @@ const (
 	// Encode normal is the normal encoding type for an asset.
 	EncodeNormal EncodeType = iota
 
-	// EncodeSegwit denotes that the witness vector field is not be be
+	// EncodeSegwit denotes that the witness vector field is not be
 	// encoded.
 	EncodeSegwit
 )
