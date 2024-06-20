@@ -159,7 +159,7 @@ func (a *AuxSweeper) Start() error {
 
 // Stop stops the AuxSweeper.
 func (a *AuxSweeper) Stop() error {
-	if !a.started.CompareAndSwap(true, false) {
+	if !a.stopped.CompareAndSwap(true, false) {
 		return nil
 	}
 
@@ -174,9 +174,16 @@ func (a *AuxSweeper) Stop() error {
 // createSweepVpackets creates vPackets that sweep the funds from the specified
 // set of asset inputs into the backing wallet.
 func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
+	tapscriptDesc lfn.Result[tapscriptSweepDesc],
 ) lfn.Result[[]*tappsbt.VPacket] {
 
 	log.Infof("Creating sweep packets for %v inputs", len(sweepInputs))
+
+	sweepDesc, err := tapscriptDesc.Unpack()
+	if err != nil {
+		return lfn.Errf[[]*tappsbt.VPacket]("unable to unpack "+
+			"sweep desc: %w", err)
+	}
 
 	// For each out we want to sweep, we'll construct an allocation that
 	// we'll use to deliver the funds back to the wallet.
@@ -239,6 +246,14 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	// also set the courier address.
 	courierAddr := a.cfg.DefaultCourierAddr
 	for idx := range vPackets {
+		// If we have a relative delay, then we'll set it for all the
+		// vOuts in this packet.
+		sweepDesc.relativeDelay.WhenSome(func(delay uint64) {
+			for _, vOut := range vPackets[idx].Outputs {
+				vOut.RelativeLockTime = delay
+			}
+		})
+
 		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
 		if err != nil {
 			return lfn.Errf[[]*tappsbt.VPacket]("unable to "+
@@ -256,8 +271,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 // signSweepVpackets attempts to sign the vPackets specified using the passed
 // sign desc and script tree.
 func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
-	signDesc input.SignDescriptor, scriptTree input.TapscriptDescriptor,
-	ctrlBlkBytes []byte) error {
+	signDesc input.SignDescriptor, tapscriptDesc tapscriptSweepDesc) error {
 
 	// Before we sign below, we also need to generate the tapscript With
 	// the vPackets prepared, we can now sign the output asset we'll create
@@ -278,12 +292,13 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// signature.
 		signingKey, leafToSign := applySignDescToVIn(
 			signDesc, vIn, &a.cfg.ChainParams,
-			scriptTree.TapTweak(),
+			tapscriptDesc.scriptTree.TapTweak(),
 		)
 
 		// In this case, the witness isn't special, so we'll set the
 		// control block now for it.
-		vIn.TaprootLeafScript[0].ControlBlock = ctrlBlkBytes
+		ctrlBlock := tapscriptDesc.ctrlBlockBytes
+		vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
 
 		log.Debugf("signing vPacket for input=%v",
 			spew.Sdump(vIn.PrevID))
@@ -327,9 +342,7 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	signPkts := func(vPkts []*tappsbt.VPacket,
 		desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
 
-		err := a.signSweepVpackets(
-			vPkts, signDesc, desc.scriptTree, desc.ctrlBlockBytes,
-		)
+		err := a.signSweepVpackets(vPkts, signDesc, desc)
 		if err != nil {
 			return lfn.Err[[]*tappsbt.VPacket](err)
 		}
@@ -338,7 +351,8 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	}
 
 	return lfn.AndThen2(
-		a.createSweepVpackets(sweepInputs), sweepDesc, signPkts,
+		a.createSweepVpackets(sweepInputs, sweepDesc), sweepDesc,
+		signPkts,
 	)
 }
 
@@ -350,6 +364,10 @@ type tapscriptSweepDesc struct {
 	scriptTree input.TapscriptDescriptor
 
 	ctrlBlockBytes []byte
+
+	relativeDelay fn.Option[uint64]
+
+	absoluteDelay fn.Option[uint64] //nolint:unused
 }
 
 // commitNoDelaySweepDesc creates a sweep desc for a commitment output that
@@ -357,7 +375,7 @@ type tapscriptSweepDesc struct {
 // non-delay output, so we don't need to worry about the CSV delay when
 // sweeping it.
 func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
-) lfn.Result[tapscriptSweepDesc] {
+	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
 
 	// We'll make the script tree for the to remote script (we're remote as
 	// this is their commitment transaction). We don't have an auxLeaf here
@@ -387,6 +405,7 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 
 	return lfn.Ok(tapscriptSweepDesc{
 		scriptTree:     toRemoteScriptTree,
+		relativeDelay:  fn.Some(uint64(csvDelay)),
 		ctrlBlockBytes: ctrlBlockBytes,
 	})
 }
@@ -459,6 +478,7 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 
 	return lfn.Ok(tapscriptSweepDesc{
 		scriptTree:     toLocalScriptTree,
+		relativeDelay:  fn.Some(uint64(csvDelay)),
 		ctrlBlockBytes: ctrlBlockBytes,
 	})
 }
@@ -972,7 +992,6 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 				return fmt.Errorf("error updating "+
 					"witness: %w", err)
 			}
-
 		}
 	}
 	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
@@ -1090,7 +1109,7 @@ func (a *AuxSweeper) resolveContract(req lnwallet.ResolutionReq,
 		// First, we'll make a sweep desc for the commitment txn. This
 		// contains the tapscript tree, and also the control block
 		// needed for a valid spend.
-		sweepDesc = commitNoDelaySweepDesc(req.KeyRing)
+		sweepDesc = commitNoDelaySweepDesc(req.KeyRing, req.CsvDelay)
 
 	// A normal delay output. This means we force closed, so we'll need to
 	// mind the CSV when we sweep the output.
@@ -1198,8 +1217,8 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	if fn.NotAny(inputs, func(i input.Input) bool {
 		return !i.ResolutionBlob().IsNone()
 	}) {
-		return lfn.Err[sweep.SweepOutput](nil)
 
+		return lfn.Err[sweep.SweepOutput](nil)
 	}
 
 	// TODO(roasbeef): can pipline entire thing instead?
@@ -1210,6 +1229,9 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	if err != nil {
 		return lfn.Err[sweep.SweepOutput](err)
 	}
+
+	log.Infof("Generating anchor output for vpkts=%v",
+		limitSpewer.Sdump(vPkts))
 
 	// At this point, now that we're about to generate a new output, we'll
 	// need an internal key, so we can update all the vPkts.
