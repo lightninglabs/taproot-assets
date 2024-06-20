@@ -179,10 +179,11 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 
 	log.Infof("Creating sweep packets for %v inputs", len(sweepInputs))
 
+	// Unpack the tapscript desc, as we need it to be able to continue
+	// forward.
 	sweepDesc, err := tapscriptDesc.Unpack()
 	if err != nil {
-		return lfn.Errf[[]*tappsbt.VPacket]("unable to unpack "+
-			"sweep desc: %w", err)
+		return lfn.Err[[]*tappsbt.VPacket](err)
 	}
 
 	// For each out we want to sweep, we'll construct an allocation that
@@ -242,6 +243,12 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	log.Infof("Created %v sweep packets: %v", len(vPackets),
 		limitSpewer.Sdump(vPackets))
 
+	fundingWitness, err := fundingSpendWitness().Unpack()
+	if err != nil {
+		return lfn.Errf[[]*tappsbt.VPacket]("unable to make "+
+			"funding witness: %v", err)
+	}
+
 	// Next, we'll prepare all the vPackets for the sweep transaction, and
 	// also set the courier address.
 	courierAddr := a.cfg.DefaultCourierAddr
@@ -260,8 +267,17 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 				"prepare output assets: %w", err)
 		}
 
+		// Next before we sign, we'll make sure to update the witness
+		// of the prev asset's root asset. Otherwise we'll be signing
+		// the wrong input leaf.
+		vIn := vPackets[idx].Inputs[0]
+		if vIn.Asset().HasSplitCommitmentWitness() {
+			rootAsset := vIn.Asset().PrevWitnesses[0].SplitCommitment.RootAsset //nolint:lll
+			rootAsset.PrevWitnesses[0].TxWitness = fundingWitness
+		}
+
 		for outIdx := range vPackets[idx].Outputs {
-			vPackets[idx].Outputs[outIdx].ProofDeliveryAddress = courierAddr
+			vPackets[idx].Outputs[outIdx].ProofDeliveryAddress = courierAddr //nolint:lll
 		}
 	}
 
@@ -442,6 +458,7 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 
 	return lfn.Ok(tapscriptSweepDesc{
 		scriptTree:     toLocalScriptTree,
+		relativeDelay:  fn.Some(uint64(csvDelay)),
 		ctrlBlockBytes: ctrlBlockBytes,
 	})
 }
@@ -478,7 +495,6 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 
 	return lfn.Ok(tapscriptSweepDesc{
 		scriptTree:     toLocalScriptTree,
-		relativeDelay:  fn.Some(uint64(csvDelay)),
 		ctrlBlockBytes: ctrlBlockBytes,
 	})
 }
