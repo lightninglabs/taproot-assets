@@ -665,8 +665,10 @@ func localCommitScriptKey(localKey, revokeKey *btcec.PublicKey,
 		return lfn.Err[asset.ScriptKey](err)
 	}
 
+	outputKey := asset.NewScriptKey(localScriptTree.TaprootKey).PubKey
+
 	return lfn.Ok(asset.ScriptKey{
-		PubKey: localScriptTree.TaprootKey,
+		PubKey: outputKey,
 		TweakedScriptKey: &asset.TweakedScriptKey{
 			RawKey: keychain.KeyDescriptor{
 				PubKey: localScriptTree.InternalKey,
