@@ -53,12 +53,12 @@ var (
 	// SetupLoggers function should always be called as soon as possible to
 	// finish setting them up properly with a root logger.
 	tapdLog = addTapPkgLogger("TAPD")
-	srvrLog = addTapPkgLogger("SRVR")
+	srvrLog = addTapPkgLogger("TSVR")
 	rpcsLog = addTapPkgLogger("RPCS")
 )
 
 // genSubLogger creates a logger for a subsystem. We provide an instance of a
-// signal.Interceptor to be able to shutdown in the case of a critical error.
+// signal.Interceptor to be able to shut down in the case of a critical error.
 func genSubLogger(root *build.RotatingLogWriter,
 	interceptor signal.Interceptor) func(string) btclog.Logger {
 
