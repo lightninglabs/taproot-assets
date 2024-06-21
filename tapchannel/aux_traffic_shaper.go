@@ -134,6 +134,12 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	commitmentBytes := commitmentBlob.UnsafeFromSome()
 	htlcBytes := htlcBlob.UnsafeFromSome()
 
+	// Sometimes the blob is set but actually empty, in which case we also
+	// don't have any information about the channel.
+	if len(commitmentBytes) == 0 || len(htlcBytes) == 0 {
+		return linkBandwidth, nil
+	}
+
 	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
 	if err != nil {
 		return 0, fmt.Errorf("error decoding commitment blob: %w", err)
