@@ -95,7 +95,7 @@ func (r *RpcUniverseRegistrar) UpsertProofLeaf(ctx context.Context,
 		LeafKey: marshalLeafKey(key),
 	}
 
-	assetLeaf, err := marshalAssetLeaf(ctx, nil, leaf)
+	assetLeaf, err := marshalAssetLeaf(ctx, nil, leaf, fn.None[uint32]())
 	if err != nil {
 		return nil, err
 	}
