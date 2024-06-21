@@ -996,8 +996,8 @@ func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
 // called first.
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
-func (s *Server) PaymentBandwidth(htlcBlob,
-	commitmentBlob lfn.Option[tlv.Blob]) (lnwire.MilliSatoshi, error) {
+func (s *Server) PaymentBandwidth(htlcBlob, commitmentBlob lfn.Option[tlv.Blob],
+	linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, htlcBlob=%v, "+
 		"commitmentBlob=%v", spew.Sdump(htlcBlob),
@@ -1007,7 +1007,9 @@ func (s *Server) PaymentBandwidth(htlcBlob,
 		return 0, err
 	}
 
-	return s.cfg.AuxTrafficShaper.PaymentBandwidth(htlcBlob, commitmentBlob)
+	return s.cfg.AuxTrafficShaper.PaymentBandwidth(
+		htlcBlob, commitmentBlob, linkBandwidth,
+	)
 }
 
 // ProduceHtlcExtraData is a function that, based on the previous custom record

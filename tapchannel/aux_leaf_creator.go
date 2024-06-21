@@ -164,6 +164,13 @@ func (c *AuxLeafCreator) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 		if htlc.Incoming {
 			htlcOutputs := incomingHtlcs[htlcIdx].Outputs
 			auxLeaf := incomingHtlcLeaves[htlcIdx].AuxLeaf
+
+			// If this HTLC doesn't have any auxiliary leaves, it's
+			// not an asset HTLC, so we can skip it.
+			if len(htlcOutputs) == 0 {
+				continue
+			}
+
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, c.cfg.ChainParams, htlcOutputs,
@@ -188,6 +195,13 @@ func (c *AuxLeafCreator) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 		} else {
 			htlcOutputs := outgoingHtlcs[htlcIdx].Outputs
 			auxLeaf := outgoingHtlcLeaves[htlcIdx].AuxLeaf
+
+			// If this HTLC doesn't have any auxiliary leaves, it's
+			// not an asset HTLC, so we can skip it.
+			if len(htlcOutputs) == 0 {
+				continue
+			}
+
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, c.cfg.ChainParams, htlcOutputs,

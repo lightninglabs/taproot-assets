@@ -204,9 +204,30 @@ func (s *AuxLeafSigner) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 			return fmt.Errorf("error decoding commitment: %w", err)
 		}
 
+		var (
+			htlcs       = com.OutgoingHtlcAssets.Val.HtlcOutputs
+			htlcOutputs []*cmsg.AssetOutput
+		)
+		if verifyJob.Incoming {
+			htlcs = com.IncomingHtlcAssets.Val.HtlcOutputs
+		}
+		for outIndex := range htlcs {
+			if outIndex == verifyJob.HTLC.HtlcIndex {
+				htlcOutputs = htlcs[outIndex].Outputs
+
+				break
+			}
+		}
+
+		// If the HTLC doesn't have any asset outputs, it's not an
+		// asset HTLC, so we can skip it.
+		if len(htlcOutputs) == 0 {
+			continue
+		}
+
 		err = s.verifyHtlcSignature(
 			chanState, commitTx, verifyJobs[idx].KeyRing,
-			assetSigs.Sigs, com, verifyJobs[idx].BaseAuxJob,
+			assetSigs.Sigs, htlcOutputs, verifyJobs[idx].BaseAuxJob,
 		)
 		if err != nil {
 			return fmt.Errorf("error verifying second level sig: "+
@@ -266,8 +287,32 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 			return
 		}
 
+		var (
+			htlcs       = com.OutgoingHtlcAssets.Val.HtlcOutputs
+			htlcOutputs []*cmsg.AssetOutput
+		)
+		if sigJob.Incoming {
+			htlcs = com.IncomingHtlcAssets.Val.HtlcOutputs
+		}
+		for outIndex := range htlcs {
+			if outIndex == sigJob.HTLC.HtlcIndex {
+				htlcOutputs = htlcs[outIndex].Outputs
+
+				break
+			}
+		}
+
+		// If the HTLC doesn't have any asset outputs, it's not an
+		// asset HTLC, so we can skip it.
+		if len(htlcOutputs) == 0 {
+			sigJob.Resp <- lnwallet.AuxSigJobResp{
+				HtlcIndex: sigJob.HTLC.HtlcIndex,
+			}
+			continue
+		}
+
 		resp, err := s.generateHtlcSignature(
-			chanState, commitTx, com, sigJob.SignDesc,
+			chanState, commitTx, htlcOutputs, sigJob.SignDesc,
 			sigJob.BaseAuxJob,
 		)
 		if err != nil {
@@ -287,11 +332,11 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 // described by the sign job.
 func (s *AuxLeafSigner) verifyHtlcSignature(chanState *channeldb.OpenChannel,
 	commitTx *wire.MsgTx, keyRing lnwallet.CommitmentKeyRing,
-	sigs []*cmsg.AssetSig, com *cmsg.Commitment,
+	sigs []*cmsg.AssetSig, htlcOutputs []*cmsg.AssetOutput,
 	baseJob lnwallet.BaseAuxJob) error {
 
 	vPackets, err := s.htlcSecondLevelPacketsFromCommit(
-		chanState, commitTx, baseJob.KeyRing, com, baseJob,
+		chanState, commitTx, baseJob.KeyRing, htlcOutputs, baseJob,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating second level packets: %w",
@@ -358,12 +403,12 @@ func (s *AuxLeafSigner) verifyHtlcSignature(chanState *channeldb.OpenChannel,
 // generateHtlcSignature generates the signature for the HTLC output in the
 // commitment transaction described by the sign job.
 func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx, commitment *cmsg.Commitment,
+	commitTx *wire.MsgTx, htlcOutputs []*cmsg.AssetOutput,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
 
 	vPackets, err := s.htlcSecondLevelPacketsFromCommit(
-		chanState, commitTx, baseJob.KeyRing, commitment, baseJob,
+		chanState, commitTx, baseJob.KeyRing, htlcOutputs, baseJob,
 	)
 	if err != nil {
 		return lnwallet.AuxSigJobResp{}, fmt.Errorf("error generating "+
@@ -497,31 +542,8 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 // incoming or outgoing.
 func (s *AuxLeafSigner) htlcSecondLevelPacketsFromCommit(
 	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
-	keyRing lnwallet.CommitmentKeyRing, commitment *cmsg.Commitment,
+	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
 	baseJob lnwallet.BaseAuxJob) ([]*tappsbt.VPacket, error) {
-
-	var htlcOutputs []*cmsg.AssetOutput
-
-	// Find the HTLC in the commitment transaction, so we can extract the
-	// HTLC asset outputs.
-	htlcs := commitment.OutgoingHtlcAssets.Val.HtlcOutputs
-	if baseJob.Incoming {
-		htlcs = commitment.IncomingHtlcAssets.Val.HtlcOutputs
-	}
-	for outIndex := range htlcs {
-		if outIndex == baseJob.HTLC.HtlcIndex {
-			htlcOutputs = htlcs[outIndex].Outputs
-
-			break
-		}
-	}
-
-	// If we didn't find the HTLC outputs, we can't generate the HTLC
-	// signature.
-	if len(htlcOutputs) == 0 {
-		return nil, fmt.Errorf("HTLC with index %d not found in "+
-			"commitment TX", baseJob.HTLC.HtlcIndex)
-	}
 
 	packets, _, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, baseJob.HTLC.Amount.ToSatoshis(),

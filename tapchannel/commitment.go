@@ -57,7 +57,8 @@ type DecodedView struct {
 // returned reflects the current state of HTLCs within the remote or local
 // commitment chain, and the current commitment fee rate.
 func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
-	original *lnwallet.HtlcView) (uint64, uint64, *DecodedView, error) {
+	original *lnwallet.HtlcView) (uint64, uint64, *DecodedView,
+	*lnwallet.HtlcView, error) {
 
 	log.Tracef("Computing view, ourCommit=%v, ourAssetBalance=%d, "+
 		"theirAssetBalance=%d, ourUpdates=%d, theirUpdates=%d",
@@ -65,6 +66,9 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 		len(original.TheirUpdates))
 
 	newView := &DecodedView{
+		FeePerKw: original.FeePerKw,
+	}
+	nonAssetView := &lnwallet.HtlcView{
 		FeePerKw: original.FeePerKw,
 	}
 
@@ -116,8 +120,8 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 
 			parentEntry, ok := remoteHtlcIndex[entry.ParentIndex]
 			if !ok {
-				return 0, 0, nil, fmt.Errorf("unable to find "+
-					"remote htlc with index %d",
+				return 0, 0, nil, nil, fmt.Errorf("unable to "+
+					"find remote htlc with index %d",
 					entry.ParentIndex)
 			}
 
@@ -126,8 +130,9 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 					parentEntry.CustomRecords,
 				)
 				if err != nil {
-					return 0, 0, nil, fmt.Errorf("unable "+
-						"to decode asset htlc: %w", err)
+					return 0, 0, nil, nil,
+						fmt.Errorf("unable to decode "+
+							"asset htlc: %w", err)
 				}
 
 				decodedEntry := &DecodedDescriptor{
@@ -159,8 +164,8 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 
 			parentEntry, ok := localHtlcIndex[entry.ParentIndex]
 			if !ok {
-				return 0, 0, nil, fmt.Errorf("unable to find "+
-					"local htlc with index %d",
+				return 0, 0, nil, nil, fmt.Errorf("unable to "+
+					"find local htlc with index %d",
 					entry.ParentIndex)
 			}
 
@@ -169,8 +174,9 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 					parentEntry.CustomRecords,
 				)
 				if err != nil {
-					return 0, 0, nil, fmt.Errorf("unable "+
-						"to decode asset htlc: %w", err)
+					return 0, 0, nil, nil,
+						fmt.Errorf("unable to decode "+
+							"asset htlc: %w", err)
 				}
 
 				decodedEntry := &DecodedDescriptor{
@@ -197,8 +203,15 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 			continue
 		}
 
-		// Again skip any entries that aren't TAP related.
+		// Again skip any entries that aren't TAP related, at least
+		// when it comes to balance calculations. We still need to keep
+		// track of them, so we can create non-asset allocations
+		// correctly.
 		if len(entry.CustomRecords) == 0 {
+			nonAssetView.OurUpdates = append(
+				nonAssetView.OurUpdates, entry,
+			)
+
 			continue
 		}
 
@@ -206,8 +219,8 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 			entry.CustomRecords,
 		)
 		if err != nil {
-			return 0, 0, nil, fmt.Errorf("unable to decode asset "+
-				"htlc: %w", err)
+			return 0, 0, nil, nil, fmt.Errorf("unable to decode "+
+				"asset htlc: %w", err)
 		}
 
 		decodedEntry := &DecodedDescriptor{
@@ -230,8 +243,15 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 			continue
 		}
 
-		// Again skip any entries that aren't TAP related.
+		// Again skip any entries that aren't TAP related, at least
+		// when it comes to balance calculations. We still need to keep
+		// track of them, so we can create non-asset allocations
+		// correctly.
 		if len(entry.CustomRecords) == 0 {
+			nonAssetView.TheirUpdates = append(
+				nonAssetView.TheirUpdates, entry,
+			)
+
 			continue
 		}
 
@@ -239,8 +259,8 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 			entry.CustomRecords,
 		)
 		if err != nil {
-			return 0, 0, nil, fmt.Errorf("unable to decode asset "+
-				"htlc: %w", err)
+			return 0, 0, nil, nil, fmt.Errorf("unable to decode "+
+				"asset htlc: %w", err)
 		}
 
 		decodedEntry := &DecodedDescriptor{
@@ -257,7 +277,7 @@ func ComputeView(ourBalance, theirBalance uint64, isOurCommit bool,
 		)
 	}
 
-	return local, remote, newView, nil
+	return local, remote, newView, nonAssetView, nil
 }
 
 // processRemoveEntry processes the removal of an HTLC from the commitment
@@ -440,7 +460,8 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	}
 
 	// Process all HTLCs in the view to compute the new asset balance.
-	ourAssetBalance, theirAssetBalance, filteredView, err := ComputeView(
+	//nolint:lll
+	ourAssetBalance, theirAssetBalance, filteredView, nonAssetView, err := ComputeView(
 		localAssetStartBalance, remoteAssetStartBalance,
 		isOurCommit, originalView,
 	)
@@ -475,7 +496,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	allocations, err := CreateAllocations(
 		chanState, ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
 		ourAssetBalance, theirAssetBalance, wantLocalAnchor,
-		wantRemoteAnchor, filteredView, isOurCommit, keys,
+		wantRemoteAnchor, filteredView, isOurCommit, keys, nonAssetView,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create allocations: %w",
@@ -574,15 +595,18 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 	theirBalance btcutil.Amount, ourAssetBalance, theirAssetBalance uint64,
 	wantLocalCommitAnchor, wantRemoteCommitAnchor bool,
 	filteredView *DecodedView, isOurCommit bool,
-	keys lnwallet.CommitmentKeyRing) ([]*Allocation, error) {
+	keys lnwallet.CommitmentKeyRing,
+	nonAssetView *lnwallet.HtlcView) ([]*Allocation, error) {
 
 	log.Tracef("Creating allocations, ourCommit=%v, ourBalance=%d, "+
 		"theirBalance=%d, ourAssetBalance=%d, theirAssetBalance=%d, "+
 		"wantLocalCommitAnchor=%v, wantRemoteCommitAnchor=%v, "+
-		"ourUpdates=%d, theirUpdates=%d", isOurCommit, ourBalance,
+		"ourUpdates=%d, theirUpdates=%d, nonAssetOurUpdates=%d, "+
+		"nonAssetTheirUpdates=%d", isOurCommit, ourBalance,
 		theirBalance, ourAssetBalance, theirAssetBalance,
 		wantLocalCommitAnchor, wantRemoteCommitAnchor,
-		len(filteredView.OurUpdates), len(filteredView.TheirUpdates))
+		len(filteredView.OurUpdates), len(filteredView.TheirUpdates),
+		len(nonAssetView.OurUpdates), len(nonAssetView.TheirUpdates))
 
 	// We'll have at most 2 outputs for the local and remote commitment
 	// anchor outputs, 2 outputs for the local/remote balance and one output
@@ -590,7 +614,9 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 	// slightly better than re-allocating in this case.
 	var (
 		numAllocations = len(filteredView.OurUpdates) +
-			len(filteredView.TheirUpdates) + 4
+			len(filteredView.TheirUpdates) +
+			len(nonAssetView.OurUpdates) +
+			len(nonAssetView.TheirUpdates) + 4
 		allocations = make([]*Allocation, 0, numAllocations)
 		addAlloc    = func(a *Allocation) {
 			allocations = append(allocations, a)
@@ -625,7 +651,7 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 			"allocations: %w", err)
 	}
 
-	// Finally, we add the HTLC outputs, using this helper function to
+	// Next, we add the HTLC outputs, using this helper function to
 	// distinguish between incoming and outgoing HTLCs.
 	addHtlc := func(htlc *DecodedDescriptor, isIncoming bool) error {
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
@@ -678,6 +704,59 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 
 	for _, htlc := range filteredView.TheirUpdates {
 		err := addHtlc(htlc, true)
+		if err != nil {
+			return nil, fmt.Errorf("error creating their HTLC "+
+				"allocation: %w", err)
+		}
+	}
+
+	// Finally, we add the non-asset HTLC outputs. These are HTLCs that
+	// don't carry any asset balance, but are still part of the commitment
+	// transaction.
+	addNonAssetHtlc := func(htlc *lnwallet.PaymentDescriptor,
+		isIncoming bool) error {
+
+		htlcScript, err := lnwallet.GenTaprootHtlcScript(
+			isIncoming, isOurCommit, htlc.Timeout, htlc.RHash,
+			&keys, lfn.None[txscript.TapLeaf](),
+		)
+		if err != nil {
+			return fmt.Errorf("error creating HTLC script: %w", err)
+		}
+
+		sibling, htlcTree, err := LeavesFromTapscriptScriptTree(
+			htlcScript,
+		)
+		if err != nil {
+			return fmt.Errorf("error creating HTLC script "+
+				"sibling: %w", err)
+		}
+
+		allocations = append(allocations, &Allocation{
+			Type:           AllocationTypeNoAssets,
+			BtcAmount:      htlc.Amount.ToSatoshis(),
+			InternalKey:    htlcTree.InternalKey,
+			NonAssetLeaves: sibling,
+			SortTaprootKeyBytes: schnorr.SerializePubKey(
+				htlcTree.TaprootKey,
+			),
+			CLTV:      htlc.Timeout,
+			HtlcIndex: htlc.HtlcIndex,
+		})
+
+		return nil
+	}
+
+	for _, htlc := range nonAssetView.OurUpdates {
+		err := addNonAssetHtlc(htlc, false)
+		if err != nil {
+			return nil, fmt.Errorf("error creating our HTLC "+
+				"allocation: %w", err)
+		}
+	}
+
+	for _, htlc := range nonAssetView.TheirUpdates {
+		err := addNonAssetHtlc(htlc, true)
 		if err != nil {
 			return nil, fmt.Errorf("error creating their HTLC "+
 				"allocation: %w", err)
