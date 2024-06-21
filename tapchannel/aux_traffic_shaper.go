@@ -120,13 +120,15 @@ func (s *AuxTrafficShaper) HandleTraffic(_ lnwire.ShortChannelID,
 // should be handled by the traffic shaper, the HandleTraffic method should be
 // called first.
 func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
-	commitmentBlob lfn.Option[tlv.Blob]) (lnwire.MilliSatoshi, error) {
+	commitmentBlob lfn.Option[tlv.Blob],
+	linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
-	// This method shouldn't be called if we don't have a commitment blob
-	// available (i.e., the channel is not a custom channel).
+	// If the commitment or HTLC blob is not set, we don't have any
+	// information about the channel and cannot determine the available
+	// bandwidth from a taproot asset perspective. We return the link
+	// bandwidth as a fallback.
 	if commitmentBlob.IsNone() || htlcBlob.IsNone() {
-		return 0, fmt.Errorf("no commitment or TLV blob available " +
-			"for custom channel bandwidth estimation")
+		return linkBandwidth, nil
 	}
 
 	commitmentBytes := commitmentBlob.UnsafeFromSome()
