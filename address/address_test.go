@@ -1,4 +1,4 @@
-package address
+package address_test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -18,8 +19,11 @@ import (
 )
 
 var (
-	invalidHrp     = "bc"
-	invalidNet     = ChainParams{&chaincfg.MainNetParams, invalidHrp}
+	invalidHrp = "bc"
+	invalidNet = address.ChainParams{
+		Params: &chaincfg.MainNetParams,
+		TapHRP: invalidHrp,
+	}
 	pubKeyBytes, _ = hex.DecodeString(
 		"a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e" +
 			"078f",
@@ -34,9 +38,9 @@ var (
 	}
 )
 
-func randAddress(t *testing.T, net *ChainParams, v *Version, groupPubKey,
-	sibling bool, amt *uint64, assetType asset.Type,
-	addrOpts ...NewAddrOpt) (*Tap, error) {
+func randAddress(t *testing.T, net *address.ChainParams, v *address.Version,
+	groupPubKey, sibling bool, amt *uint64, assetType asset.Type,
+	addrOpts ...address.NewAddrOpt) (*address.Tap, error) {
 
 	t.Helper()
 
@@ -80,23 +84,23 @@ func randAddress(t *testing.T, net *ChainParams, v *Version, groupPubKey,
 		groupWitness = groupInfo.Witness
 	}
 
-	proofCourierAddr := RandProofCourierAddr(t)
+	proofCourierAddr := address.RandProofCourierAddr(t)
 
-	vers := test.RandFlip(V0, V1)
+	vers := test.RandFlip(address.V0, address.V1)
 	if v != nil {
 		vers = *v
 	}
 
-	return New(
+	return address.New(
 		vers, genesis, groupKey, groupWitness, scriptKey, internalKey,
 		amount, tapscriptSibling, net, proofCourierAddr,
 		addrOpts...,
 	)
 }
 
-func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
+func randEncodedAddress(t *testing.T, net *address.ChainParams, groupPubKey,
 	sibling bool, assetType asset.Type,
-	addrOpts ...NewAddrOpt) (*Tap, string, error) {
+	addrOpts ...address.NewAddrOpt) (*address.Tap, string, error) {
 
 	t.Helper()
 
@@ -112,7 +116,7 @@ func randEncodedAddress(t *testing.T, net *ChainParams, groupPubKey,
 	return newAddr, encodedAddr, err
 }
 
-func assertAddressEqual(t *testing.T, a, b *Tap) {
+func assertAddressEqual(t *testing.T, a, b *address.Tap) {
 	t.Helper()
 
 	// TODO(jhb): assert the full chainparams, not just the HRP
@@ -132,25 +136,26 @@ func assertAddressEqual(t *testing.T, a, b *Tap) {
 func TestNewAddress(t *testing.T) {
 	testCases := []struct {
 		name string
-		f    func() (*Tap, error)
+		f    func() (*address.Tap, error)
 		err  error
 	}{
 		{
 			name: "normal address",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
-					t, &TestNet3Tap, nil, false, false, nil,
-					asset.Normal,
+					t, &address.TestNet3Tap, nil, false,
+					false, nil, asset.Normal,
 				)
 			},
 			err: nil,
 		},
 		{
 			name: "normal address, v1 asset version",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
-					t, &TestNet3Tap, nil, false, false, nil,
-					asset.Normal, WithAssetVersion(asset.V1),
+					t, &address.TestNet3Tap, nil, false,
+					false, nil, asset.Normal,
+					address.WithAssetVersion(asset.V1),
 				)
 			},
 			err: nil,
@@ -158,76 +163,77 @@ func TestNewAddress(t *testing.T) {
 		{
 			name: "collectible address with group key, v1 asset " +
 				"version",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
-					t, &MainNetTap, nil, true, false, nil,
-					asset.Collectible,
-					WithAssetVersion(asset.V1),
+					t, &address.MainNetTap, nil, true,
+					false, nil, asset.Collectible,
+					address.WithAssetVersion(asset.V1),
 				)
 			},
 			err: nil,
 		},
 		{
 			name: "collectible address with group key",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
-					t, &MainNetTap, nil, true, false, nil,
-					asset.Collectible,
+					t, &address.MainNetTap, nil, true,
+					false, nil, asset.Collectible,
 				)
 			},
 			err: nil,
 		},
 		{
 			name: "collectible address with group key and sibling",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
-					t, &MainNetTap, nil, true, true, nil,
-					asset.Collectible,
+					t, &address.MainNetTap, nil, true, true,
+					nil, asset.Collectible,
 				)
 			},
 			err: nil,
 		},
 		{
 			name: "invalid normal asset value",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				zeroAmt := uint64(0)
 				return randAddress(
-					t, &TestNet3Tap, nil, false, false,
-					&zeroAmt, asset.Normal,
+					t, &address.TestNet3Tap, nil, false,
+					false, &zeroAmt, asset.Normal,
 				)
 			},
-			err: ErrInvalidAmountNormal,
+			err: address.ErrInvalidAmountNormal,
 		},
 		{
 			name: "invalid collectible asset value",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				badAmt := uint64(2)
 				return randAddress(
-					t, &TestNet3Tap, nil, false, false,
-					&badAmt, asset.Collectible,
+					t, &address.TestNet3Tap, nil, false,
+					false, &badAmt, asset.Collectible,
 				)
 			},
-			err: ErrInvalidAmountCollectible,
+			err: address.ErrInvalidAmountCollectible,
 		},
 		{
 			name: "invalid hrp",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
 					t, &invalidNet, nil, false, false, nil,
 					asset.Normal,
 				)
 			},
-			err: ErrUnsupportedHRP,
+			err: address.ErrUnsupportedHRP,
 		},
 		{
 			name: "invalid version",
-			f: func() (*Tap, error) {
+			f: func() (*address.Tap, error) {
 				return randAddress(
-					t, &TestNet3Tap, fn.Ptr(Version(123)),
-					false, false, nil, asset.Normal,
+					t, &address.TestNet3Tap,
+					fn.Ptr(address.Version(123)), false,
+					false, nil, asset.Normal,
 				)
 			},
-			err: ErrUnknownVersion,
+			err: address.ErrUnknownVersion,
 		},
 	}
 
@@ -253,8 +259,8 @@ func TestNewAddress(t *testing.T) {
 func TestAddressEncoding(t *testing.T) {
 	t.Parallel()
 
-	testVectors := &TestVectors{}
-	assertAddressEncoding := func(comment string, a *Tap) {
+	testVectors := &address.TestVectors{}
+	assertAddressEncoding := func(comment string, a *address.Tap) {
 		t.Helper()
 
 		assertAddressEqual(t, a, a.Copy())
@@ -262,13 +268,13 @@ func TestAddressEncoding(t *testing.T) {
 		require.NoError(t, err)
 		net, err := a.Net()
 		require.NoError(t, err)
-		b, err := DecodeAddress(addr, net)
+		b, err := address.DecodeAddress(addr, net)
 		require.NoError(t, err)
 		assertAddressEqual(t, a, b)
 
 		testVectors.ValidTestCases = append(
-			testVectors.ValidTestCases, &ValidTestCase{
-				Address:  NewTestFromAddress(t, a),
+			testVectors.ValidTestCases, &address.ValidTestCase{
+				Address:  address.NewTestFromAddress(t, a),
 				Expected: addr,
 				Comment:  comment,
 			},
@@ -277,24 +283,24 @@ func TestAddressEncoding(t *testing.T) {
 
 	testCases := []struct {
 		name string
-		f    func() (*Tap, string, error)
+		f    func() (*address.Tap, string, error)
 		err  error
 	}{
 		{
 			name: "valid regtest address",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &RegressionNetTap, false, false,
-					asset.Normal,
+					t, &address.RegressionNetTap, false,
+					false, asset.Normal,
 				)
 			},
 			err: nil,
 		},
 		{
 			name: "valid simnet address",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTap, false, false,
+					t, &address.SimNetTap, false, false,
 					asset.Normal,
 				)
 			},
@@ -302,9 +308,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "valid testnet address",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &TestNet3Tap, false, false,
+					t, &address.TestNet3Tap, false, false,
 					asset.Normal,
 				)
 			},
@@ -312,9 +318,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "valid mainnet address",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &MainNetTap, false, false,
+					t, &address.MainNetTap, false, false,
 					asset.Normal,
 				)
 			},
@@ -322,20 +328,20 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "valid addr, v1 asset version",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &MainNetTap, false, false,
+					t, &address.MainNetTap, false, false,
 					asset.Normal,
-					WithAssetVersion(asset.V1),
+					address.WithAssetVersion(asset.V1),
 				)
 			},
 			err: nil,
 		},
 		{
 			name: "signet group collectible",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &SigNetTap, true, false,
+					t, &address.SigNetTap, true, false,
 					asset.Collectible,
 				)
 			},
@@ -343,9 +349,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "simnet collectible",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTap, false, false,
+					t, &address.SimNetTap, false, false,
 					asset.Collectible,
 				)
 			},
@@ -353,9 +359,9 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "simnet collectible with sibling",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
-					t, &SimNetTap, false, true,
+					t, &address.SimNetTap, false, true,
 					asset.Collectible,
 				)
 			},
@@ -363,60 +369,61 @@ func TestAddressEncoding(t *testing.T) {
 		},
 		{
 			name: "unsupported hrp",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				return randEncodedAddress(
 					t, &invalidNet, true, false,
 					asset.Collectible,
 				)
 			},
-			err: ErrUnsupportedHRP,
+			err: address.ErrUnsupportedHRP,
 		},
 		{
 			name: "mismatched hrp",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Tap, true, false,
+					t, &address.TestNet3Tap, true, false,
 					asset.Collectible,
 				)
-				_, err := DecodeAddress(
-					encodedAddr, &MainNetTap,
+				_, err := address.DecodeAddress(
+					encodedAddr, &address.MainNetTap,
 				)
 				return newAddr, "", err
 			},
-			err: ErrMismatchedHRP,
+			err: address.ErrMismatchedHRP,
 		},
 		{
 			name: "missing hrp",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				newAddr, encodedAddr, _ := randEncodedAddress(
-					t, &TestNet3Tap, true, false,
+					t, &address.TestNet3Tap, true, false,
 					asset.Collectible,
 				)
 				encodedAddr = encodedAddr[4:]
-				_, err := DecodeAddress(
-					encodedAddr[4:], &TestNet3Tap,
+				_, err := address.DecodeAddress(
+					encodedAddr[4:], &address.TestNet3Tap,
 				)
 				return newAddr, "", err
 			},
-			err: ErrInvalidBech32m,
+			err: address.ErrInvalidBech32m,
 		},
 		{
 			name: "unknown version number in constructor",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				_, err := randAddress(
-					t, &TestNet3Tap, fn.Ptr(Version(255)),
-					false, true, nil, asset.Collectible,
+					t, &address.TestNet3Tap,
+					fn.Ptr(address.Version(255)), false,
+					true, nil, asset.Collectible,
 				)
 				return nil, "", err
 			},
-			err: ErrUnknownVersion,
+			err: address.ErrUnknownVersion,
 		},
 		{
 			name: "unknown version number",
-			f: func() (*Tap, string, error) {
+			f: func() (*address.Tap, string, error) {
 				newAddr, err := randAddress(
-					t, &TestNet3Tap, nil, false, true, nil,
-					asset.Collectible,
+					t, &address.TestNet3Tap, nil, false,
+					true, nil, asset.Collectible,
 				)
 				require.NoError(t, err)
 
@@ -430,12 +437,12 @@ func TestAddressEncoding(t *testing.T) {
 
 				// We expect an error to occur here when
 				// decoding.
-				_, err = DecodeAddress(
-					encodedAddr, &TestNet3Tap,
+				_, err = address.DecodeAddress(
+					encodedAddr, &address.TestNet3Tap,
 				)
 				return newAddr, "", err
 			},
-			err: ErrUnknownVersion,
+			err: address.ErrUnknownVersion,
 		},
 	}
 
@@ -466,7 +473,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &TestVectors{}
+			testVectors = &address.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -478,7 +485,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *address.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 
@@ -497,7 +504,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				chainParams, err := a.Net()
 				require.NoError(tt, err)
 
-				expectedAddress, err := DecodeAddress(
+				expectedAddress, err := address.DecodeAddress(
 					validCase.Expected, chainParams,
 				)
 				require.NoError(tt, err)
@@ -516,7 +523,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			chainParams, err := a.Net()
 			require.NoError(tt, err)
 
-			decoded, err := DecodeAddress(
+			decoded, err := address.DecodeAddress(
 				validCase.Expected, chainParams,
 			)
 			require.NoError(tt, err)
@@ -540,7 +547,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 
 func FuzzAddressDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
-		a := &Tap{}
+		a := &address.Tap{}
 		_ = a.Decode(bytes.NewReader(data))
 	})
 }
