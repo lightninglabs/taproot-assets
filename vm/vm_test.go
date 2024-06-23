@@ -1,4 +1,4 @@
-package vm
+package vm_test
 
 import (
 	"context"
@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -29,21 +30,21 @@ var (
 		errorTestVectorName,
 	}
 
-	invalidHashLockErr = newErrInner(
-		ErrInvalidTransferWitness, txscript.Error{
+	invalidHashLockErr = vm.NewErrInner(
+		vm.ErrInvalidTransferWitness, txscript.Error{
 			ErrorCode:   txscript.ErrEqualVerify,
 			Description: "OP_EQUALVERIFY failed",
 		},
 	)
-	invalidSigErr = newErrInner(
-		ErrInvalidTransferWitness, txscript.Error{
+	invalidSigErr = vm.NewErrInner(
+		vm.ErrInvalidTransferWitness, txscript.Error{
 			ErrorCode: txscript.ErrNullFail,
 			Description: "signature not empty on " +
 				"failed checksig",
 		},
 	)
-	cleanStackErr = newErrInner(
-		ErrInvalidTransferWitness, txscript.Error{
+	cleanStackErr = vm.NewErrInner(
+		vm.ErrInvalidTransferWitness, txscript.Error{
 			ErrorCode: txscript.ErrCleanStack,
 			Description: "stack must contain exactly " +
 				"one item (contains 2)",
@@ -737,28 +738,28 @@ func TestVM(t *testing.T) {
 			f: genesisStateTransition(
 				asset.Collectible, false, true,
 			),
-			err: newErrKind(ErrInvalidGenesisStateTransition),
+			err: vm.NewErrKind(vm.ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "invalid collectible genesis",
 			f: genesisStateTransition(
 				asset.Collectible, false, false,
 			),
-			err: newErrKind(ErrInvalidGenesisStateTransition),
+			err: vm.NewErrKind(vm.ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "collectible genesis invalid witness",
 			f: invalidGenesisStateTransitionWitness(
 				asset.Collectible, false,
 			),
-			err: ErrNoInputs,
+			err: vm.ErrNoInputs,
 		},
 		{
 			name: "collectible group anchor invalid witness",
 			f: invalidGenesisStateTransitionWitness(
 				asset.Collectible, true,
 			),
-			err: newErrKind(ErrInvalidGenesisStateTransition),
+			err: vm.NewErrKind(vm.ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "collectible group anchor BIP86 key",
@@ -805,7 +806,7 @@ func TestVM(t *testing.T) {
 		{
 			name: "invalid split collectible input",
 			f:    splitCollectibleStateTransition(false),
-			err:  newErrKind(ErrInvalidSplitAssetType),
+			err:  vm.NewErrKind(vm.ErrInvalidSplitAssetType),
 		},
 		{
 			name: "normal group anchor",
@@ -822,28 +823,28 @@ func TestVM(t *testing.T) {
 			f: genesisStateTransition(
 				asset.Normal, false, true,
 			),
-			err: newErrKind(ErrInvalidGenesisStateTransition),
+			err: vm.NewErrKind(vm.ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "invalid normal genesis",
 			f: genesisStateTransition(
 				asset.Normal, false, false,
 			),
-			err: newErrKind(ErrInvalidGenesisStateTransition),
+			err: vm.NewErrKind(vm.ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "normal genesis invalid witness",
 			f: invalidGenesisStateTransitionWitness(
 				asset.Normal, false,
 			),
-			err: ErrNoInputs,
+			err: vm.ErrNoInputs,
 		},
 		{
 			name: "normal group anchor invalid witness",
 			f: invalidGenesisStateTransitionWitness(
 				asset.Normal, true,
 			),
-			err: newErrKind(ErrInvalidGenesisStateTransition),
+			err: vm.NewErrKind(vm.ErrInvalidGenesisStateTransition),
 		},
 		{
 			name: "collectible state transition",
@@ -858,7 +859,7 @@ func TestVM(t *testing.T) {
 		{
 			name: "normal state transition with csv locked asset",
 			f:    genNormalStateTransition(3, 6, 0, true, false),
-			err:  newErrKind(ErrUnfinalizedAsset),
+			err:  vm.NewErrKind(vm.ErrUnfinalizedAsset),
 		},
 		{
 			name: "normal state transition with timestamp based " +
@@ -867,12 +868,12 @@ func TestVM(t *testing.T) {
 				3, wire.SequenceLockTimeIsSeconds|123, 0,
 				true, false,
 			),
-			err: newErrKind(ErrUnfinalizedAsset),
+			err: vm.NewErrKind(vm.ErrUnfinalizedAsset),
 		},
 		{
 			name: "normal state transition with cltv locked asset",
 			f:    genNormalStateTransition(3, 0, 6, false, true),
-			err:  newErrKind(ErrUnfinalizedAsset),
+			err:  vm.NewErrKind(vm.ErrUnfinalizedAsset),
 		},
 		{
 			name: "normal state transition with timestamp based " +
@@ -881,13 +882,13 @@ func TestVM(t *testing.T) {
 				3, 0, uint64(mockChainLookupMeanTime+123),
 				false, true,
 			),
-			err: newErrKind(ErrUnfinalizedAsset),
+			err: vm.NewErrKind(vm.ErrUnfinalizedAsset),
 		},
 		{
 			name: "normal state transition with cltv and csv " +
 				"locked asset",
 			f:   genNormalStateTransition(3, 6, 6, true, true),
-			err: newErrKind(ErrUnfinalizedAsset),
+			err: vm.NewErrKind(vm.ErrUnfinalizedAsset),
 		},
 		{
 			name: "normal state transition with csv locked " +
@@ -1005,12 +1006,12 @@ func TestVM(t *testing.T) {
 		{
 			name: "invalid un-spendable root asset",
 			f:    splitFullValueStateTransition(true, false),
-			err:  newErrKind(ErrInvalidRootAsset),
+			err:  vm.NewErrKind(vm.ErrInvalidRootAsset),
 		},
 		{
 			name: "invalid un-spendable root locator",
 			f:    splitFullValueStateTransition(false, true),
-			err:  newErrKind(ErrInvalidRootAsset),
+			err:  vm.NewErrKind(vm.ErrInvalidRootAsset),
 		},
 		{
 			name: "split collectible state transition",
@@ -1074,8 +1075,8 @@ func TestVM(t *testing.T) {
 	}
 
 	var (
-		validVectors = &TestVectors{}
-		errorVectors = &TestVectors{}
+		validVectors = &vm.TestVectors{}
+		errorVectors = &vm.TestVectors{}
 	)
 	for _, testCase := range testCases {
 
@@ -1084,7 +1085,7 @@ func TestVM(t *testing.T) {
 				t,
 			)
 
-			tv := &ValidTestCase{
+			tv := &vm.ValidTestCase{
 				Asset: asset.NewTestFromAsset(t, newAsset),
 				SplitSet: commitment.NewTestFromSplitSet(
 					t, splitSet,
@@ -1103,7 +1104,7 @@ func TestVM(t *testing.T) {
 				errorString := testCase.err.Error()
 				errorVectors.ErrorTestCases = append(
 					errorVectors.ErrorTestCases,
-					&ErrorTestCase{
+					&vm.ErrorTestCase{
 						Asset:       tv.Asset,
 						SplitSet:    tv.SplitSet,
 						InputSet:    tv.InputSet,
@@ -1154,11 +1155,11 @@ func verifyTestCase(t testing.TB, expectedErr error, compareErrString bool,
 	}
 
 	verify := func(splitAssets []*commitment.SplitAsset) error {
-		opts := []NewEngineOpt{
-			WithChainLookup(&mockChainLookup{}),
-			WithBlockHeight(currentHeight),
+		opts := []vm.NewEngineOpt{
+			vm.WithChainLookup(&mockChainLookup{}),
+			vm.WithBlockHeight(currentHeight),
 		}
-		vm, err := New(newAsset, splitAssets, inputSet, opts...)
+		vm, err := vm.New(newAsset, splitAssets, inputSet, opts...)
 		if err != nil {
 			if expectedErr != nil {
 				checkErr(err)
@@ -1192,7 +1193,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &TestVectors{}
+			testVectors = &vm.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -1204,7 +1205,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *vm.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 
