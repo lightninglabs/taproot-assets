@@ -150,7 +150,7 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 
 	scriptKey := asset.ToSerialized(prevAsset.ScriptKey.PubKey)
 	if prevAssetWitness.PrevID.ScriptKey != scriptKey {
-		return newErrKind(ErrScriptKeyMismatch)
+		return NewErrKind(ErrScriptKeyMismatch)
 	}
 
 	if !matchesPrevGenesis(
@@ -158,11 +158,11 @@ func matchesAssetParams(newAsset, prevAsset *asset.Asset,
 		newAsset.Genesis.Tag, prevAsset,
 	) {
 
-		return newErrKind(ErrIDMismatch)
+		return NewErrKind(ErrIDMismatch)
 	}
 
 	if newAsset.Type != prevAsset.Type {
-		return newErrKind(ErrTypeMismatch)
+		return NewErrKind(ErrTypeMismatch)
 	}
 
 	return nil
@@ -197,7 +197,7 @@ func ValidateWitnesses(newAsset *asset.Asset,
 		len(vm.newAsset.PrevWitnesses) > 1:
 
 		inner := fmt.Errorf("collectible has more than one prev input")
-		return newErrInner(ErrInvalidTransferWitness, inner)
+		return NewErrInner(ErrInvalidTransferWitness, inner)
 	}
 
 	// Now that we know we're not dealing with a genesis state
@@ -241,16 +241,16 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	// asset should have a split commitment root.
 	switch {
 	case vm.newAsset.Type != splitAsset.Type:
-		return newErrKind(ErrInvalidSplitAssetType)
+		return NewErrKind(ErrInvalidSplitAssetType)
 
 	case vm.newAsset.SplitCommitmentRoot == nil:
-		return newErrKind(ErrNoSplitCommitment)
+		return NewErrKind(ErrNoSplitCommitment)
 	}
 
 	// Split assets should always have a single witness with a non-nil
 	// PrevID and empty TxWitness.
 	if !splitAsset.Asset.HasSplitCommitmentWitness() {
-		return newErrKind(ErrInvalidSplitCommitmentWitness)
+		return NewErrKind(ErrInvalidSplitCommitmentWitness)
 	}
 
 	// We'll use the input of the new asset here, as the splits have a
@@ -282,13 +282,13 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 	// be un-spendable. Non-inflation of the split is enforced elsewhere, at
 	// the end of vm.Execute().
 	if vm.newAsset.Amount == 0 && !vm.newAsset.IsUnSpendable() {
-		return newErrKind(ErrInvalidRootAsset)
+		return NewErrKind(ErrInvalidRootAsset)
 	}
 
 	// If we are validating the root asset of the split, the root split must
 	// also be un-spendable.
 	if splitAsset.Amount == 0 && !splitAsset.IsUnSpendable() {
-		return newErrKind(ErrInvalidRootAsset)
+		return NewErrKind(ErrInvalidRootAsset)
 	}
 
 	// Finally, verify that the split commitment proof for the split asset
@@ -316,7 +316,7 @@ func (vm *Engine) validateSplit(splitAsset *commitment.SplitAsset) error {
 		vm.newAsset.SplitCommitmentRoot,
 	) {
 
-		return newErrKind(ErrInvalidSplitCommitmentProof)
+		return NewErrKind(ErrInvalidSplitCommitmentProof)
 	}
 
 	return nil
@@ -336,7 +336,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 	// An input must have a valid witness.
 	if len(witness.TxWitness) == 0 {
 		inner := fmt.Errorf("input has no witness")
-		return newErrInner(ErrInvalidTransferWitness, inner)
+		return NewErrInner(ErrInvalidTransferWitness, inner)
 	}
 
 	var (
@@ -355,7 +355,7 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 		// An input MUST have a prev out and also a valid witness.
 		if witness.PrevID == nil {
 			inner := fmt.Errorf("input has nil prev ID")
-			return newErrInner(ErrInvalidTransferWitness, inner)
+			return NewErrInner(ErrInvalidTransferWitness, inner)
 		}
 
 		// The parameters of the new and old asset much match exactly.
@@ -395,10 +395,10 @@ func (vm *Engine) validateWitnessV0(virtualTx *wire.MsgTx, inputIdx uint32,
 		nil, sigHashes, prevOut.Value, prevOutFetcher,
 	)
 	if err != nil {
-		return newErrInner(ErrInvalidTransferWitness, err)
+		return NewErrInner(ErrInvalidTransferWitness, err)
 	}
 	if err := engine.Execute(); err != nil {
-		return newErrInner(ErrInvalidTransferWitness, err)
+		return NewErrInner(ErrInvalidTransferWitness, err)
 	}
 
 	return nil
@@ -417,7 +417,7 @@ func (vm *Engine) validateStateTransition() error {
 		len(vm.newAsset.PrevWitnesses) > 1:
 
 		inner := fmt.Errorf("collectible has more than one prev input")
-		return newErrInner(ErrInvalidTransferWitness, inner)
+		return NewErrInner(ErrInvalidTransferWitness, inner)
 	}
 
 	// Now that we know we're not dealing with a genesis state
@@ -439,7 +439,7 @@ func (vm *Engine) validateStateTransition() error {
 	if treeRoot.NodeSum() !=
 		uint64(virtualTx.TxOut[0].Value) {
 
-		return newErrInner(ErrAmountMismatch, fmt.Errorf("expected "+
+		return NewErrInner(ErrAmountMismatch, fmt.Errorf("expected "+
 			"output value=%v, got=%v", treeRoot.NodeSum(),
 			virtualTx.TxOut[0].Value))
 	}
@@ -501,13 +501,13 @@ func (vm *Engine) Execute() error {
 	// zeros and empty witness and split commitment proof.
 	if vm.newAsset.HasGenesisWitness() {
 		if len(vm.splitAssets) > 0 || len(vm.prevAssets) > 0 {
-			return newErrKind(ErrInvalidGenesisStateTransition)
+			return NewErrKind(ErrInvalidGenesisStateTransition)
 		}
 
 		// A genesis asset with a group key must have a witness before
 		// being validated.
 		if vm.newAsset.GroupKey != nil {
-			return newErrKind(ErrInvalidGenesisStateTransition)
+			return NewErrKind(ErrInvalidGenesisStateTransition)
 		}
 		return nil
 	}
@@ -516,7 +516,7 @@ func (vm *Engine) Execute() error {
 	// verified to prove group membership.
 	if vm.newAsset.HasGenesisWitnessForGroup() {
 		if len(vm.splitAssets) > 0 || len(vm.prevAssets) > 0 {
-			return newErrKind(ErrInvalidGenesisStateTransition)
+			return NewErrKind(ErrInvalidGenesisStateTransition)
 		}
 
 		// For genesis assets in an asset group, set the previous asset
@@ -564,13 +564,13 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 
 			timeLock := time.Unix(int64(newAsset.LockTime), 0)
 			if blockMeanTime.Before(timeLock) {
-				return newErrKind(ErrUnfinalizedAsset)
+				return NewErrKind(ErrUnfinalizedAsset)
 			}
 
 		// Otherwise, we can just compare the lock time to the current
 		// block height.
 		case blockHeight < uint32(newAsset.LockTime):
-			return newErrKind(ErrUnfinalizedAsset)
+			return NewErrKind(ErrUnfinalizedAsset)
 		}
 	}
 
@@ -647,7 +647,7 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 			// If the time lock is before the current block time,
 			// then the input is not yet finalized.
 			if blockMeanTime.Before(timeLock) {
-				return newErrKind(ErrUnfinalizedAsset)
+				return NewErrKind(ErrUnfinalizedAsset)
 			}
 
 		default:
@@ -659,7 +659,7 @@ func checkLockTime(ctx context.Context, newAsset *asset.Asset,
 			)
 
 			if uint64(blockHeight) < minHeight {
-				return newErrKind(ErrUnfinalizedAsset)
+				return NewErrKind(ErrUnfinalizedAsset)
 			}
 		}
 	}

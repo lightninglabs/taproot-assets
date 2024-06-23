@@ -123,14 +123,14 @@ type Error struct {
 	Inner error
 }
 
-// newErrKind returns a new error of a particular kind.
-func newErrKind(kind ErrorKind) Error {
+// NewErrKind returns a new error of a particular kind.
+func NewErrKind(kind ErrorKind) Error {
 	return Error{Kind: kind}
 }
 
-// newErrInner returns a new error with a particular kind, that wraps an
+// NewErrInner returns a new error with a particular kind, that wraps an
 // existing error. The inner error can be obtained via the Unwrap method.
-func newErrInner(kind ErrorKind, inner error) Error {
+func NewErrInner(kind ErrorKind, inner error) Error {
 	return Error{Kind: kind, Inner: inner}
 }
 
