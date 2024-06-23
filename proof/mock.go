@@ -273,15 +273,15 @@ var _ ChainLookupGenerator = (*mockChainLookup)(nil)
 
 // MockProofArchive is a map that implements the Archiver interface.
 type MockProofArchive struct {
-	proofs   lnutils.SyncMap[[32]byte, Blob]
-	locators lnutils.SyncMap[[132]byte, [32]byte]
+	Proofs   lnutils.SyncMap[[32]byte, Blob]
+	Locators lnutils.SyncMap[[132]byte, [32]byte]
 }
 
 // NewMockProofArchive creates a new mock proof archive.
 func NewMockProofArchive() *MockProofArchive {
 	return &MockProofArchive{
-		proofs:   lnutils.SyncMap[[32]byte, Blob]{},
-		locators: lnutils.SyncMap[[132]byte, [32]byte]{},
+		Proofs:   lnutils.SyncMap[[32]byte, Blob]{},
+		Locators: lnutils.SyncMap[[132]byte, [32]byte]{},
 	}
 }
 
@@ -320,7 +320,7 @@ func (m *MockProofArchive) storeLocator(id Locator) error {
 		return err
 	}
 
-	m.locators.Store(locArray, locHash)
+	m.Locators.Store(locArray, locHash)
 
 	return nil
 }
@@ -335,7 +335,7 @@ func (m *MockProofArchive) FetchProof(_ context.Context,
 		return nil, err
 	}
 
-	proof, ok := m.proofs.Load(idHash)
+	proof, ok := m.Proofs.Load(idHash)
 	if !ok {
 		return nil, ErrProofNotFound
 	}
@@ -369,14 +369,14 @@ func (m *MockProofArchive) FetchIssuanceProof(_ context.Context,
 		return nil
 	}
 
-	m.locators.ForEach(locMatcher)
+	m.Locators.ForEach(locMatcher)
 	if len(matchingHashes) == 0 {
 		return nil, ErrProofNotFound
 	}
 
 	matchingProofs := make([]Blob, 0)
 	for _, locHash := range matchingHashes {
-		proof, ok := m.proofs.Load(locHash)
+		proof, ok := m.Proofs.Load(locHash)
 		if !ok {
 			return nil, ErrProofNotFound
 		}
@@ -412,7 +412,7 @@ func (m *MockProofArchive) HasProof(_ context.Context,
 		return false, err
 	}
 
-	_, ok := m.proofs.Load(idHash)
+	_, ok := m.Proofs.Load(idHash)
 
 	return ok, nil
 }
@@ -440,7 +440,7 @@ func (m *MockProofArchive) ImportProofs(_ context.Context, _ VerifierCtx,
 			return err
 		}
 
-		m.proofs.Store(locHash, proof.Blob)
+		m.Proofs.Store(locHash, proof.Blob)
 	}
 
 	return nil
@@ -1031,21 +1031,21 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 	}
 }
 
-type mockIgnoreChecker struct {
+type MockIgnoreChecker struct {
 	ignoredAssetPoints lfn.Set[AssetPoint]
 	ignoreAll          bool
 }
 
-func newMockIgnoreChecker(ignoreAll bool,
-	ignorePoints ...AssetPoint) *mockIgnoreChecker {
+func NewMockIgnoreChecker(ignoreAll bool,
+	ignorePoints ...AssetPoint) *MockIgnoreChecker {
 
-	return &mockIgnoreChecker{
+	return &MockIgnoreChecker{
 		ignoredAssetPoints: lfn.NewSet(ignorePoints...),
 		ignoreAll:          ignoreAll,
 	}
 }
 
-func (m *mockIgnoreChecker) IsIgnored(assetPoint AssetPoint) bool {
+func (m *MockIgnoreChecker) IsIgnored(assetPoint AssetPoint) bool {
 	return m.ignoreAll || m.ignoredAssetPoints.Contains(assetPoint)
 }
 

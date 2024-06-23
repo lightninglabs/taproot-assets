@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -9,6 +9,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -71,7 +72,7 @@ func TestCreateTapscriptProof(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tsProof, err := CreateTapscriptProof(tc.leaves)
+			tsProof, err := proof.CreateTapscriptProof(tc.leaves)
 			require.NoError(t, err)
 
 			internalKey := test.RandPubKey(t)
@@ -114,24 +115,26 @@ func TestTaprootProofUnknownOddType(t *testing.T) {
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	randProof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	randProof := proof.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 	knownProof := randProof.InclusionProof
 
 	var knownProofBytes []byte
 	test.RunUnknownOddTypeTest(
 		t, &knownProof, &asset.ErrUnknownType{},
-		func(buf *bytes.Buffer, proof *TaprootProof) error {
+		func(buf *bytes.Buffer, proof *proof.TaprootProof) error {
 			err := proof.Encode(buf)
 
 			knownProofBytes = fn.CopySlice(buf.Bytes())
 
 			return err
 		},
-		func(buf *bytes.Buffer) (*TaprootProof, error) {
-			var parsedProof TaprootProof
+		func(buf *bytes.Buffer) (*proof.TaprootProof, error) {
+			var parsedProof proof.TaprootProof
 			return &parsedProof, parsedProof.Decode(buf)
 		},
-		func(parsedProof *TaprootProof, unknownTypes tlv.TypeMap) {
+		func(parsedProof *proof.TaprootProof,
+			unknownTypes tlv.TypeMap) {
+
 			require.Equal(
 				t, unknownTypes, parsedProof.UnknownOddTypes,
 			)
@@ -162,7 +165,7 @@ func TestCommitmentProofUnknownOddType(t *testing.T) {
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	randProof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	randProof := proof.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
 	require.NotNil(t, randProof.InclusionProof.CommitmentProof)
 	knownProof := randProof.InclusionProof.CommitmentProof
@@ -170,18 +173,20 @@ func TestCommitmentProofUnknownOddType(t *testing.T) {
 	var knownProofBytes []byte
 	test.RunUnknownOddTypeTest(
 		t, knownProof, &asset.ErrUnknownType{},
-		func(buf *bytes.Buffer, proof *CommitmentProof) error {
+		func(buf *bytes.Buffer, proof *proof.CommitmentProof) error {
 			err := proof.Encode(buf)
 
 			knownProofBytes = fn.CopySlice(buf.Bytes())
 
 			return err
 		},
-		func(buf *bytes.Buffer) (*CommitmentProof, error) {
-			var parsedProof CommitmentProof
+		func(buf *bytes.Buffer) (*proof.CommitmentProof, error) {
+			var parsedProof proof.CommitmentProof
 			return &parsedProof, parsedProof.Decode(buf)
 		},
-		func(parsedProof *CommitmentProof, unknownTypes tlv.TypeMap) {
+		func(parsedProof *proof.CommitmentProof,
+			unknownTypes tlv.TypeMap) {
+
 			require.Equal(
 				t, unknownTypes, parsedProof.UnknownOddTypes,
 			)
@@ -212,7 +217,7 @@ func TestTapscriptProofUnknownOddType(t *testing.T) {
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	randProof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	randProof := proof.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
 	require.NotNil(t, randProof.ExclusionProofs[1].TapscriptProof)
 	knownProof := randProof.ExclusionProofs[1].TapscriptProof
@@ -220,18 +225,20 @@ func TestTapscriptProofUnknownOddType(t *testing.T) {
 	var knownProofBytes []byte
 	test.RunUnknownOddTypeTest(
 		t, knownProof, &asset.ErrUnknownType{},
-		func(buf *bytes.Buffer, proof *TapscriptProof) error {
+		func(buf *bytes.Buffer, proof *proof.TapscriptProof) error {
 			err := proof.Encode(buf)
 
 			knownProofBytes = fn.CopySlice(buf.Bytes())
 
 			return err
 		},
-		func(buf *bytes.Buffer) (*TapscriptProof, error) {
-			var parsedProof TapscriptProof
+		func(buf *bytes.Buffer) (*proof.TapscriptProof, error) {
+			var parsedProof proof.TapscriptProof
 			return &parsedProof, parsedProof.Decode(buf)
 		},
-		func(parsedProof *TapscriptProof, unknownTypes tlv.TypeMap) {
+		func(parsedProof *proof.TapscriptProof,
+			unknownTypes tlv.TypeMap) {
+
 			require.Equal(
 				t, unknownTypes, parsedProof.UnknownOddTypes,
 			)

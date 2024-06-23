@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
@@ -24,6 +25,10 @@ var (
 	proofInvalidJsonHexFileName = filepath.Join(
 		testDataFileName, "proof-invalid-json-meta-reveal.hex",
 	)
+
+	// emptyKey is an empty public key that we use to check if a script key
+	// is valid.
+	emptyKey btcec.PublicKey
 )
 
 // TestValidateMetaReveal tests the validation of a MetaReveal.
@@ -49,7 +54,7 @@ func TestValidateMetaReveal(t *testing.T) {
 
 	testCases := []struct {
 		name        string
-		reveal      *MetaReveal
+		reveal      *proof.MetaReveal
 		expectedErr error
 	}{
 		{
@@ -59,57 +64,59 @@ func TestValidateMetaReveal(t *testing.T) {
 		},
 		{
 			name: "valid reveal",
-			reveal: &MetaReveal{
-				Type: MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaOpaque,
 				Data: []byte("data"),
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "missing data",
-			reveal: &MetaReveal{
-				Type: MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaOpaque,
 				Data: nil,
 			},
-			expectedErr: ErrMetaDataMissing,
+			expectedErr: proof.ErrMetaDataMissing,
 		},
 		{
 			name: "too much data",
-			reveal: &MetaReveal{
-				Type: MetaOpaque,
-				Data: make([]byte, MetaDataMaxSizeBytes+1),
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaOpaque,
+				Data: make(
+					[]byte, proof.MetaDataMaxSizeBytes+1,
+				),
 			},
-			expectedErr: ErrMetaDataTooLarge,
+			expectedErr: proof.ErrMetaDataTooLarge,
 		},
 		{
 			name: "invalid JSON",
-			reveal: &MetaReveal{
-				Type: MetaJson,
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaJson,
 				Data: []byte("invalid"),
 			},
-			expectedErr: ErrInvalidJSON,
+			expectedErr: proof.ErrInvalidJSON,
 		},
 		{
 			name: "valid JSON",
-			reveal: &MetaReveal{
-				Type: MetaJson,
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaJson,
 				Data: []byte(`{"key": "value"}`),
 			},
 			expectedErr: nil,
 		},
 		{
 			name: "invalid decimal display",
-			reveal: &MetaReveal{
-				Type:           MetaJson,
+			reveal: &proof.MetaReveal{
+				Type:           proof.MetaJson,
 				Data:           []byte(`{"key": "value"}`),
 				DecimalDisplay: fn.Some[uint32](999),
 			},
-			expectedErr: ErrDecDisplayTooLarge,
+			expectedErr: proof.ErrDecDisplayTooLarge,
 		},
 		{
 			name: "correct decimal display",
-			reveal: &MetaReveal{
-				Type:           MetaJson,
+			reveal: &proof.MetaReveal{
+				Type:           proof.MetaJson,
 				Data:           []byte(`{"key": "value"}`),
 				DecimalDisplay: fn.Some[uint32](8),
 			},
@@ -118,8 +125,8 @@ func TestValidateMetaReveal(t *testing.T) {
 		{
 			name: "new asset meta reveal with explicit zero " +
 				"decimal display and uni fields",
-			reveal: &MetaReveal{
-				Type:                MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:                proof.MetaOpaque,
 				Data:                []byte(`not JSON`),
 				DecimalDisplay:      fn.Some[uint32](0),
 				UniverseCommitments: true,
@@ -130,8 +137,8 @@ func TestValidateMetaReveal(t *testing.T) {
 		},
 		{
 			name: "new asset meta reveal with two URLs",
-			reveal: &MetaReveal{
-				Type:               MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:               proof.MetaOpaque,
 				Data:               []byte(`not JSON`),
 				CanonicalUniverses: twoURL,
 			},
@@ -139,30 +146,30 @@ func TestValidateMetaReveal(t *testing.T) {
 		},
 		{
 			name: "universe URL too long",
-			reveal: &MetaReveal{
-				Type:               MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:               proof.MetaOpaque,
 				Data:               []byte(`not JSON`),
 				CanonicalUniverses: twoURLTooLong,
 			},
-			expectedErr: ErrCanonicalUniverseURLTooLong,
+			expectedErr: proof.ErrCanonicalUniverseURLTooLong,
 		},
 		{
 			name: "empty universe URL slice",
-			reveal: &MetaReveal{
-				Type:               MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:               proof.MetaOpaque,
 				Data:               []byte(`not JSON`),
 				CanonicalUniverses: fn.Some[[]url.URL](nil),
 			},
-			expectedErr: ErrCanonicalUniverseInvalid,
+			expectedErr: proof.ErrCanonicalUniverseInvalid,
 		},
 		{
 			name: "empty delegation key",
-			reveal: &MetaReveal{
-				Type:          MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:          proof.MetaOpaque,
 				Data:          []byte(`not JSON`),
 				DelegationKey: fn.Some(emptyKey),
 			},
-			expectedErr: ErrDelegationKeyEmpty,
+			expectedErr: proof.ErrDelegationKeyEmpty,
 		},
 	}
 
@@ -196,21 +203,21 @@ func TestProofInvalidJsonMetaReveal(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	p := &Proof{}
+	p := &proof.Proof{}
 	err = p.Decode(bytes.NewReader(proofBytes))
 	require.NoError(t, err)
 
 	require.NotNil(t, p.MetaReveal)
 
 	_, decDisplay, err := p.MetaReveal.GetDecDisplay()
-	require.ErrorIs(t, err, ErrInvalidJSON)
+	require.ErrorIs(t, err, proof.ErrInvalidJSON)
 	require.Zero(t, decDisplay)
 }
 
 // TestMetaRevealUnknownOddType tests that an unknown odd type is allowed in a
 // meta reveal and that we can still arrive at the correct meta hash with it.
 func TestMetaRevealUnknownOddType(t *testing.T) {
-	knownMeta := &MetaReveal{
+	knownMeta := &proof.MetaReveal{
 		Type: 123,
 		Data: []byte("probably some JPEG or something"),
 	}
@@ -218,14 +225,14 @@ func TestMetaRevealUnknownOddType(t *testing.T) {
 
 	test.RunUnknownOddTypeTest(
 		t, knownMeta, &asset.ErrUnknownType{},
-		func(buf *bytes.Buffer, meta *MetaReveal) error {
+		func(buf *bytes.Buffer, meta *proof.MetaReveal) error {
 			return meta.Encode(buf)
 		},
-		func(buf *bytes.Buffer) (*MetaReveal, error) {
-			var parsedMeta MetaReveal
+		func(buf *bytes.Buffer) (*proof.MetaReveal, error) {
+			var parsedMeta proof.MetaReveal
 			return &parsedMeta, parsedMeta.Decode(buf)
 		},
-		func(parsedMeta *MetaReveal, unknownTypes tlv.TypeMap) {
+		func(parsedMeta *proof.MetaReveal, unknownTypes tlv.TypeMap) {
 			require.Equal(
 				t, unknownTypes, parsedMeta.UnknownOddTypes,
 			)
@@ -259,13 +266,13 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 
 	testCases := []struct {
 		name     string
-		reveal   *MetaReveal
+		reveal   *proof.MetaReveal
 		expected []byte
 	}{
 		{
 			name: "valid reveal",
-			reveal: &MetaReveal{
-				Type: MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaOpaque,
 				Data: []byte("data"),
 			},
 			expected: []byte{
@@ -275,8 +282,8 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 		},
 		{
 			name: "valid JSON reveal",
-			reveal: &MetaReveal{
-				Type: MetaJson,
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaJson,
 				Data: []byte(`{"key": "value"}`),
 			},
 			expected: append([]byte{
@@ -286,8 +293,8 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 		},
 		{
 			name: "valid custom reveal",
-			reveal: &MetaReveal{
-				Type: MetaType(99),
+			reveal: &proof.MetaReveal{
+				Type: proof.MetaType(99),
 				Data: []byte("custom stuff"),
 			},
 			expected: []byte{
@@ -298,8 +305,8 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 		},
 		{
 			name: "correct decimal display",
-			reveal: &MetaReveal{
-				Type:           MetaJson,
+			reveal: &proof.MetaReveal{
+				Type:           proof.MetaJson,
 				Data:           []byte(`{"key": "value"}`),
 				DecimalDisplay: fn.Some[uint32](8),
 			},
@@ -313,8 +320,8 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 		},
 		{
 			name: "correct non-JSON, all fields",
-			reveal: &MetaReveal{
-				Type:                MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:                proof.MetaOpaque,
 				Data:                []byte(`not JSON`),
 				DecimalDisplay:      fn.Some[uint32](8),
 				UniverseCommitments: true,
@@ -347,8 +354,8 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 		},
 		{
 			name: "correct non-JSON, just URLs",
-			reveal: &MetaReveal{
-				Type:               MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:               proof.MetaOpaque,
 				Data:               []byte(`not JSON`),
 				CanonicalUniverses: twoURL,
 			},
@@ -372,8 +379,8 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 		{
 			name: "new asset meta reveal with explicit zero " +
 				"decimal display",
-			reveal: &MetaReveal{
-				Type:           MetaOpaque,
+			reveal: &proof.MetaReveal{
+				Type:           proof.MetaOpaque,
 				Data:           []byte(`not JSON`),
 				DecimalDisplay: fn.Some[uint32](0),
 			},
@@ -401,7 +408,7 @@ func TestMetaDataRevealEncoding(t *testing.T) {
 			rawBytes := buf.Bytes()
 			require.Equal(tt, tc.expected, rawBytes)
 
-			decoded := &MetaReveal{}
+			decoded := &proof.MetaReveal{}
 			err = decoded.Decode(&buf)
 			require.NoError(tt, err)
 
@@ -422,11 +429,11 @@ func TestDecodeOldMetaReveal(t *testing.T) {
 		0x64, 0x61, 0x74, 0x61, // Value ("data")
 	}
 
-	var decoded MetaReveal
+	var decoded proof.MetaReveal
 	err := decoded.Decode(bytes.NewReader(metaWithoutDecimalDisplay))
 	require.NoError(t, err)
 
-	require.Equal(t, MetaOpaque, decoded.Type)
+	require.Equal(t, proof.MetaOpaque, decoded.Type)
 	require.Equal(t, []byte("data"), decoded.Data)
 	require.Equal(t, fn.None[uint32](), decoded.DecimalDisplay)
 	require.Equal(t, false, decoded.UniverseCommitments)
@@ -446,11 +453,11 @@ func TestDecodeNewMetaReveal(t *testing.T) {
 		0x05, 0x04, 0x00, 0x00, 0x00, 0x8, // DecDisplay
 	}
 
-	var decoded MetaReveal
+	var decoded proof.MetaReveal
 
 	oldDecodeRecords := []tlv.Record{
-		MetaRevealTypeRecord(&decoded.Type),
-		MetaRevealDataRecord(&decoded.Data),
+		proof.MetaRevealTypeRecord(&decoded.Type),
+		proof.MetaRevealDataRecord(&decoded.Data),
 	}
 
 	stream, err := tlv.NewStream(oldDecodeRecords...)
@@ -459,7 +466,7 @@ func TestDecodeNewMetaReveal(t *testing.T) {
 	err = stream.Decode(bytes.NewReader(metaWithDecimalDisplay))
 	require.NoError(t, err)
 
-	require.Equal(t, MetaJson, decoded.Type)
+	require.Equal(t, proof.MetaJson, decoded.Type)
 	require.Equal(t, []byte(`{"key": "value"}`), decoded.Data)
 	require.Equal(t, fn.None[uint32](), decoded.DecimalDisplay)
 	require.Equal(t, false, decoded.UniverseCommitments)

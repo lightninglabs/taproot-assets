@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/stretchr/testify/require"
@@ -20,42 +21,45 @@ import (
 // TestUniverseRpcCourierLocalArchiveShortCut tests that the local archive is
 // used as a shortcut to fetch a proof if it's available.
 func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
-	localArchive := NewMockProofArchive()
+	localArchive := proof.NewMockProofArchive()
 
 	testBlocks := readTestData(t)
 	oddTxBlock := testBlocks[0]
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	proof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	p := proof.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
-	file, err := NewFile(V0, proof, proof)
+	file, err := proof.NewFile(proof.V0, p, p)
 	require.NoError(t, err)
-	proof.AdditionalInputs = []File{*file, *file}
+	p.AdditionalInputs = []proof.File{*file, *file}
 
 	var fileBuf bytes.Buffer
 	require.NoError(t, file.Encode(&fileBuf))
-	proofBlob := Blob(fileBuf.Bytes())
+	proofBlob := proof.Blob(fileBuf.Bytes())
 
-	locator := Locator{
+	locator := proof.Locator{
 		AssetID:   fn.Ptr(genesis.ID()),
-		ScriptKey: *proof.Asset.ScriptKey.PubKey,
-		OutPoint:  fn.Ptr(proof.OutPoint()),
+		ScriptKey: *p.Asset.ScriptKey.PubKey,
+		OutPoint:  fn.Ptr(p.OutPoint()),
 	}
 	locHash, err := locator.Hash()
 	require.NoError(t, err)
 
-	localArchive.proofs.Store(locHash, proofBlob)
+	localArchive.Proofs.Store(locHash, proofBlob)
 
-	recipient := Recipient{}
-	courier := &UniverseRpcCourier{
-		client:        nil,
-		cfg:           &UniverseRpcCourierCfg{},
-		localArchive:  localArchive,
-		rawConn:       nil,
-		backoffHandle: nil,
-		subscribers:   nil,
-	}
+	recipient := proof.Recipient{}
+	ctxb := context.Background()
+	dispatch := proof.NewCourierDispatch(&proof.CourierCfg{
+		HashMailCfg:    nil,
+		UniverseRpcCfg: &proof.UniverseRpcCourierCfg{},
+		TransferLog:    nil,
+		LocalArchive:   localArchive,
+	})
+
+	mockUrl, _ := url.Parse("universerpc://localhost")
+	courier, err := dispatch.NewCourier(ctxb, mockUrl, false)
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
@@ -72,9 +76,9 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 	// should end up in the code path that attempts to fetch the proof from
 	// the universe. Since we don't want to set up a full universe server
 	// in the test, we just make sure we get an error from that code path.
-	_, err = courier.ReceiveProof(ctxt, recipient, Locator{
+	_, err = courier.ReceiveProof(ctxt, recipient, proof.Locator{
 		AssetID:   fn.Ptr(genesis.ID()),
-		ScriptKey: *proof.Asset.ScriptKey.PubKey,
+		ScriptKey: *p.Asset.ScriptKey.PubKey,
 	})
 	require.ErrorContains(t, err, "is missing outpoint")
 }
@@ -88,7 +92,7 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 	}
 	grpcServer := grpc.NewServer(serverOpts...)
 
-	server := MockUniverseServer{}
+	server := proof.MockUniverseServer{}
 	universerpc.RegisterUniverseServer(grpcServer, &server)
 
 	// We also grab a port that is free to listen on for our negative test.
@@ -110,14 +114,14 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 	}{
 		{
 			name: "valid universe rpc courier",
-			courierAddr: MockCourierURL(
-				t, UniverseRpcCourierType, mockServerAddr,
+			courierAddr: proof.MockCourierURL(
+				t, proof.UniverseRpcCourierType, mockServerAddr,
 			),
 		},
 		{
 			name: "valid universe rpc courier, but can't connect",
-			courierAddr: MockCourierURL(
-				t, UniverseRpcCourierType, noConnectAddr,
+			courierAddr: proof.MockCourierURL(
+				t, proof.UniverseRpcCourierType, noConnectAddr,
 			),
 			expectErr: "unable to connect to courier service",
 		},
@@ -133,7 +137,7 @@ func TestCheckUniverseRpcCourierConnection(t *testing.T) {
 			)
 			defer cancel()
 
-			err := CheckUniverseRpcCourierConnection(
+			err := proof.CheckUniverseRpcCourierConnection(
 				ctxt, test.StartupWaitTime, tt.courierAddr,
 			)
 			if tt.expectErr != "" {

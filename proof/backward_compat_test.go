@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
@@ -19,7 +20,7 @@ func TestBIPTestVectorsBackwardCompatible(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &TestVectors{}
+			testVectors = &proof.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -33,7 +34,7 @@ func TestBIPTestVectorsBackwardCompatible(t *testing.T) {
 // runBIPTestVectorBackwardCompatible runs the tests in a single BIP test vector
 // file.
 func runBIPTestVectorBackwardCompatible(t *testing.T,
-	testVectors *TestVectors) {
+	testVectors *proof.TestVectors) {
 
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
@@ -44,7 +45,7 @@ func runBIPTestVectorBackwardCompatible(t *testing.T,
 			// We want to make sure that the proof can be decoded
 			// from the hex string and that the decoded proof's meta
 			// hash matches.
-			decoded := &Proof{}
+			decoded := &proof.Proof{}
 			err := decoded.Decode(hex.NewDecoder(
 				strings.NewReader(validCase.Expected),
 			))
@@ -68,15 +69,16 @@ func runBIPTestVectorBackwardCompatible(t *testing.T,
 			// full proof chain, as it's the first proof in the
 			// chain.
 			if decoded.GenesisReveal != nil {
-				vCtx := VerifierCtx{
-					HeaderVerifier: MockHeaderVerifier,
-					MerkleVerifier: DefaultMerkleVerifier,
-					GroupVerifier:  MockGroupVerifier,
-					ChainLookupGen: MockChainLookup,
+				// nolint:lll
+				vCtx := proof.VerifierCtx{
+					HeaderVerifier: proof.MockHeaderVerifier,
+					MerkleVerifier: proof.DefaultMerkleVerifier,
+					GroupVerifier:  proof.MockGroupVerifier,
+					ChainLookupGen: proof.MockChainLookup,
 				}
 				_, err = decoded.Verify(
 					context.Background(), nil,
-					MockChainLookup, vCtx,
+					proof.MockChainLookup, vCtx,
 				)
 				require.NoError(tt, err)
 			}

@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
@@ -47,15 +48,15 @@ func TestProofStitching(t *testing.T) {
 	))
 	require.NoError(t, err)
 
-	f := &File{}
+	f := &proof.File{}
 	err = f.Decode(bytes.NewReader(tplBytes))
 	require.NoError(t, err)
 
-	vCtx := VerifierCtx{
+	vCtx := proof.VerifierCtx{
 		HeaderVerifier: verifier.VerifyHeader,
-		MerkleVerifier: MockMerkleVerifier,
-		GroupVerifier:  MockGroupVerifier,
-		ChainLookupGen: MockChainLookup,
+		MerkleVerifier: proof.MockMerkleVerifier,
+		GroupVerifier:  proof.MockGroupVerifier,
+		ChainLookupGen: proof.MockChainLookup,
 	}
 
 	// We want the template to valid, otherwise all other steps are
@@ -91,7 +92,7 @@ func TestProofStitching(t *testing.T) {
 	require.NotEqual(t, -1, txIndex)
 
 	// And with that, we can create the merkle proof for the transaction.
-	merkleProof, err := NewTxMerkleProof(block.Transactions, txIndex)
+	merkleProof, err := proof.NewTxMerkleProof(block.Transactions, txIndex)
 	require.NoError(t, err)
 
 	for i := startIndex; i <= endIndex; i++ {
@@ -105,7 +106,7 @@ func TestProofStitching(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		brokenProof := &Proof{}
+		brokenProof := &proof.Proof{}
 		err = brokenProof.Decode(bytes.NewReader(brokenProofBytes))
 		require.NoError(t, err)
 
@@ -114,7 +115,7 @@ func TestProofStitching(t *testing.T) {
 		brokenProof.TxMerkleProof = *merkleProof
 		brokenProof.BlockHeight = mindedBlock
 		brokenProof.BlockHeader = block.Header
-		vCtx.MerkleVerifier = DefaultMerkleVerifier
+		vCtx.MerkleVerifier = proof.DefaultMerkleVerifier
 
 		// We now should have a fully valid proof that we can write out
 		// to a file, by replacing the last one in the template.
