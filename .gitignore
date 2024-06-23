@@ -44,3 +44,6 @@ vendor/
 
 # Release builds
 /taproot-assets-*
+
+# Tinygo WASM demo
+/tinygo/taprootassets.wasm

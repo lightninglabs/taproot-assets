@@ -259,6 +259,9 @@ rpc-check: rpc
 	cd ./taprpc; ../scripts/check-rest-annotations.sh
 	if test -n "$$(git status --porcelain)"; then echo "Protos not properly formatted or not compiled with correct version"; git status; git diff; exit 1; fi
 
+tinygo:
+	cd tinygo; tinygo build -o taprootassets.wasm -target wasi main.go
+
 vendor:
 	@$(call print, "Re-creating vendor directory.")
 	rm -r vendor/; go mod vendor
@@ -343,4 +346,5 @@ clean:
 	rpc-format \
 	rpc-check \
 	vendor \
+	tinygo \
 	clean

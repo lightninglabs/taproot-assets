@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<body>
+<script type="module">
+    // Code from https://github.com/bjorn3/browser_wasi_shim.
+    import { WASI, File, OpenFile, ConsoleStdout } from "./polyfill/index.js";
+    let args = [];
+    let env = [""];
+    let fds = [
+        new OpenFile(new File([])), // stdin,
+        ConsoleStdout.lineBuffered(msg => {
+            console.log(`[WASI stdout] ${msg}`)
+            document.getElementById("output").textContent += `${msg}\n`;
+        }),
+        ConsoleStdout.lineBuffered(msg => console.warn(`[WASI stderr] ${msg}`)),
+    ];
+
+    let wasm = await WebAssembly.compileStreaming(fetch("taprootassets.wasm"));
+    let wasi = new WASI(args, env, fds, {debug: true});
+    let inst = await WebAssembly.instantiate(wasm, {
+        "wasi_snapshot_preview1": wasi.wasiImport,
+    });
+
+    wasi.start(inst);
+    console.dir(inst);
+    console.dir(inst.exports);
+
+    function writeText(text, module) {
+        // Get the address of the writable memory.
+        let addr = module.exports.getBuffer()
+        let buf = module.exports.memory.buffer
+
+        const enc = new TextEncoder();
+        let bytes = enc.encode(text);
+
+        let mem = new Int8Array(buf)
+        let view = mem.subarray(addr, addr + bytes.length)
+
+        view.set(bytes);
+
+        // Return the number of bytes written.
+        return bytes.length
+    }
+
+    function readText(textLength, module) {
+        let addr = module.exports.getBuffer()
+        let memory = module.exports.memory
+        let bytes = memory.buffer.slice(addr, addr + textLength)
+        const dec = new TextDecoder('utf-8', {fatal: false});
+        return dec.decode(bytes);
+    }
+
+    document.send = async function() {
+        let start = new Date().getTime();
+        console.log("Start at " + start);
+        let input = document.getElementById("input").value;
+
+        let bytesReturned = inst.exports.hello(writeText(input, inst));
+
+        console.log("WASI returned: " + readText(bytesReturned, inst));
+
+        let end = new Date().getTime();
+        console.log("End at " + end + " (diff: " + (end - start) + "ms)");
+    }
+</script>
+<input type="text" id="input" size="50" value='testrpc.Test.SayHello {"name":"Oli"}'/>
+<input type="button" value="Send" onclick="send()"/><br/>
+<pre id="output"></pre>
+</body>
+</html>
