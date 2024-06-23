@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
@@ -92,17 +93,17 @@ func TestTxMerkleProofEncoding(t *testing.T) {
 	blocks = append(blocks, testBlocks...)
 	for _, block := range blocks {
 		for i, tx := range block.Transactions {
-			proof, err := NewTxMerkleProof(block.Transactions, i)
+			p, err := proof.NewTxMerkleProof(block.Transactions, i)
 			require.NoError(t, err)
 			require.True(
-				t, proof.Verify(tx, block.Header.MerkleRoot),
+				t, p.Verify(tx, block.Header.MerkleRoot),
 			)
 
 			var buf bytes.Buffer
-			require.NoError(t, proof.Encode(&buf))
-			var decoded TxMerkleProof
+			require.NoError(t, p.Encode(&buf))
+			var decoded proof.TxMerkleProof
 			require.NoError(t, decoded.Decode(&buf))
-			require.Equal(t, *proof, decoded)
+			require.Equal(t, *p, decoded)
 			require.True(
 				t, decoded.Verify(tx, block.Header.MerkleRoot),
 			)

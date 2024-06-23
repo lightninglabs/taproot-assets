@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
@@ -38,7 +39,7 @@ func TestFileArchiverProofCollision(t *testing.T) {
 	// system.
 	tempDir := t.TempDir()
 
-	fileArchive, err := NewFileArchiver(tempDir)
+	fileArchive, err := proof.NewFileArchiver(tempDir)
 	require.NoError(t, err)
 
 	// We store two different proofs with the same script key but different
@@ -48,12 +49,12 @@ func TestFileArchiverProofCollision(t *testing.T) {
 		assetID   = randAssetID()
 		testOp1   = test.RandOp(t)
 		testOp2   = test.RandOp(t)
-		locator1  = Locator{
+		locator1  = proof.Locator{
 			AssetID:   assetID,
 			ScriptKey: scriptKey,
 			OutPoint:  &testOp1,
 		}
-		locator2 = Locator{
+		locator2 = proof.Locator{
 			AssetID:   assetID,
 			ScriptKey: scriptKey,
 			OutPoint:  &testOp2,
@@ -62,16 +63,18 @@ func TestFileArchiverProofCollision(t *testing.T) {
 		blob2 = []byte("this is the second blob")
 	)
 	err = fileArchive.ImportProofs(
-		ctx, MockHeaderVerifier, MockMerkleVerifier, MockGroupVerifier,
-		MockChainLookup, false, &AnnotatedProof{
+		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
+		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		&proof.AnnotatedProof{
 			Locator: locator1,
 			Blob:    blob1,
 		},
 	)
 	require.NoError(t, err)
 	err = fileArchive.ImportProofs(
-		ctx, MockHeaderVerifier, MockMerkleVerifier, MockGroupVerifier,
-		MockChainLookup, false, &AnnotatedProof{
+		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
+		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		&proof.AnnotatedProof{
 			Locator: locator2,
 			Blob:    blob2,
 		},
@@ -97,12 +100,12 @@ func TestFileArchiver(t *testing.T) {
 	// system.
 	tempDir := t.TempDir()
 
-	fileArchive, err := NewFileArchiver(tempDir)
+	fileArchive, err := proof.NewFileArchiver(tempDir)
 	require.NoError(t, err)
 
 	// We'll use a fake verifier that just returns that the proof is valid.
-	archive := NewMultiArchiver(
-		NewMockVerifier(t), testTimeout, fileArchive,
+	archive := proof.NewMultiArchiver(
+		proof.NewMockVerifier(t), testTimeout, fileArchive,
 	)
 
 	ctx := context.Background()
@@ -110,11 +113,11 @@ func TestFileArchiver(t *testing.T) {
 	var testCases = []struct {
 		name string
 
-		locator Locator
+		locator proof.Locator
 
-		proofBlob func() Blob
+		proofBlob func() proof.Blob
 
-		fetchFunc func(*FileArchiver) error
+		fetchFunc func(*proof.FileArchiver) error
 
 		expectedFetchError error
 		expectedStoreError error
@@ -123,76 +126,76 @@ func TestFileArchiver(t *testing.T) {
 		// return an error.
 		{
 			name: "proof not found",
-			locator: Locator{
+			locator: proof.Locator{
 				AssetID:   randAssetID(),
 				ScriptKey: *test.RandPubKey(t),
 			},
-			expectedFetchError: ErrProofNotFound,
+			expectedFetchError: proof.ErrProofNotFound,
 		},
 
 		// Attempting to fetch a file on disk that doesn't have an asset
 		// ID specified should return an error.
 		{
 			name: "invalid asset ID",
-			locator: Locator{
+			locator: proof.Locator{
 				ScriptKey: *test.RandPubKey(t),
 			},
-			expectedFetchError: ErrInvalidLocatorID,
+			expectedFetchError: proof.ErrInvalidLocatorID,
 		},
 
 		// Fetching w/ the assetID, but not script key should return an
 		// error as well.
 		{
 			name: "invalid script key",
-			locator: Locator{
+			locator: proof.Locator{
 				AssetID: randAssetID(),
 			},
-			expectedFetchError: ErrInvalidLocatorKey,
+			expectedFetchError: proof.ErrInvalidLocatorKey,
 		},
 
 		// Storing a proof with assetID and script key, but no outpoint
 		// should return an error as well.
 		{
 			name: "invalid outpoint",
-			locator: Locator{
+			locator: proof.Locator{
 				AssetID:   randAssetID(),
 				ScriptKey: *test.RandPubKey(t),
 			},
-			proofBlob: func() Blob {
+			proofBlob: func() proof.Blob {
 				return bytes.Repeat([]byte{0x01}, 100)
 			},
-			expectedStoreError: ErrOutPointMissing,
+			expectedStoreError: proof.ErrOutPointMissing,
 		},
 
 		// We should be able to insert a proof, then get it right back
 		// the same way we found it.
 		{
 			name: "proof happy path",
-			locator: Locator{
+			locator: proof.Locator{
 				AssetID:   randAssetID(),
 				ScriptKey: *test.RandPubKey(t),
 				OutPoint:  &wire.OutPoint{},
 			},
-			proofBlob: func() Blob {
+			proofBlob: func() proof.Blob {
 				return bytes.Repeat([]byte{0x01}, 100)
 			},
 		},
 	}
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			var proofBlob Blob
+			var proofBlob proof.Blob
 			if testCase.proofBlob != nil {
 				proofBlob = testCase.proofBlob()
-				proof := &AnnotatedProof{
+				p := &proof.AnnotatedProof{
 					Blob:    proofBlob,
 					Locator: testCase.locator,
 				}
 
 				err = archive.ImportProofs(
-					ctx, MockHeaderVerifier,
-					MockMerkleVerifier, MockGroupVerifier,
-					MockChainLookup, false,
-					proof,
+					ctx, proof.MockHeaderVerifier,
+					proof.MockMerkleVerifier,
+					proof.MockGroupVerifier,
+					proof.MockChainLookup, false, p,
 				)
 
 				if testCase.expectedStoreError != nil {
@@ -225,10 +228,10 @@ func TestMigrateOldFileNames(t *testing.T) {
 	// First, we'll make a temp directory we'll use as the root of our file
 	// system.
 	tempDir := t.TempDir()
-	proofDir := filepath.Join(tempDir, ProofDirName)
+	proofDir := filepath.Join(tempDir, proof.ProofDirName)
 
-	toFileBlob := func(proof Proof) []byte {
-		file, err := NewFile(V0, proof, proof)
+	toFileBlob := func(p proof.Proof) []byte {
+		file, err := proof.NewFile(proof.V0, p, p)
 		require.NoError(t, err)
 
 		var buf bytes.Buffer
@@ -240,45 +243,49 @@ func TestMigrateOldFileNames(t *testing.T) {
 
 	// storeProofOldName is a helper that stores a proof file under the old
 	// naming scheme.
-	storeProofOldName := func(proof Proof) {
-		assetID := hex.EncodeToString(fn.ByteSlice(proof.Asset.ID()))
-		scriptKey := proof.Asset.ScriptKey.PubKey
+	storeProofOldName := func(p proof.Proof) {
+		assetID := hex.EncodeToString(fn.ByteSlice(p.Asset.ID()))
+		scriptKey := p.Asset.ScriptKey.PubKey
 		fileName := filepath.Join(
 			proofDir, assetID, hex.EncodeToString(
 				scriptKey.SerializeCompressed(),
-			)+TaprootAssetsFileSuffix,
+			)+proof.TaprootAssetsFileSuffix,
 		)
 
 		err := os.MkdirAll(filepath.Dir(fileName), 0755)
 		require.NoError(t, err)
-		err = os.WriteFile(fileName, toFileBlob(proof), 0644)
+		err = os.WriteFile(fileName, toFileBlob(p), 0644)
 		require.NoError(t, err)
 	}
 
 	// storeProofNewName is a helper that stores a proof file under the new
 	// naming scheme.
-	storeProofNewName := func(proof Proof) {
-		fileName, err := genProofFileStoragePath(proofDir, Locator{
-			AssetID:   fn.Ptr(proof.Asset.ID()),
-			ScriptKey: *proof.Asset.ScriptKey.PubKey,
-			OutPoint:  fn.Ptr(proof.OutPoint()),
-		})
+	storeProofNewName := func(p proof.Proof) {
+		fileName, err := proof.GenProofFileStoragePath(
+			proofDir, proof.Locator{
+				AssetID:   fn.Ptr(p.Asset.ID()),
+				ScriptKey: *p.Asset.ScriptKey.PubKey,
+				OutPoint:  fn.Ptr(p.OutPoint()),
+			},
+		)
 		require.NoError(t, err)
 
 		err = os.MkdirAll(filepath.Dir(fileName), 0755)
 		require.NoError(t, err)
-		err = os.WriteFile(fileName, toFileBlob(proof), 0644)
+		err = os.WriteFile(fileName, toFileBlob(p), 0644)
 		require.NoError(t, err)
 	}
 
 	// assertProofAtNewName is a helper that asserts that a proof file is
 	// stored under the new naming scheme.
-	assertProofAtNewName := func(proof Proof) {
-		fileName, err := genProofFileStoragePath(proofDir, Locator{
-			AssetID:   fn.Ptr(proof.Asset.ID()),
-			ScriptKey: *proof.Asset.ScriptKey.PubKey,
-			OutPoint:  fn.Ptr(proof.OutPoint()),
-		})
+	assertProofAtNewName := func(p proof.Proof) {
+		fileName, err := proof.GenProofFileStoragePath(
+			proofDir, proof.Locator{
+				AssetID:   fn.Ptr(p.Asset.ID()),
+				ScriptKey: *p.Asset.ScriptKey.PubKey,
+				OutPoint:  fn.Ptr(p.OutPoint()),
+			},
+		)
 		require.NoError(t, err)
 
 		_, err = os.Stat(fileName)
@@ -294,21 +301,21 @@ func TestMigrateOldFileNames(t *testing.T) {
 	scriptKey2 := test.RandPubKey(t)
 
 	// We create 4 different proofs with the old naming scheme.
-	proof1 := RandProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
+	proof1 := proof.RandProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
 	storeProofOldName(proof1)
-	proof2 := RandProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
+	proof2 := proof.RandProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
 	storeProofOldName(proof2)
-	proof3 := RandProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
+	proof3 := proof.RandProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
 	storeProofOldName(proof3)
-	proof4 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
+	proof4 := proof.RandProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
 	storeProofOldName(proof4)
 
 	// We also create a proof with the new naming scheme.
-	proof5 := RandProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
+	proof5 := proof.RandProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
 	storeProofNewName(proof5)
 
 	// We now create the file archive and expect the 4 proofs to be renamed.
-	fileArchive, err := NewFileArchiver(tempDir)
+	fileArchive, err := proof.NewFileArchiver(tempDir)
 	require.NoError(t, err)
 
 	// After creating the archiver, we should now have all 4 proofs with the
@@ -324,10 +331,11 @@ func TestMigrateOldFileNames(t *testing.T) {
 
 	// We should be able to import a new proof, and it should be stored
 	// under the new naming scheme.
-	proof6 := RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
+	proof6 := proof.RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
 	err = fileArchive.ImportProofs(
-		nil, nil, nil, nil, MockChainLookup, false, &AnnotatedProof{
-			Locator: Locator{
+		nil, nil, nil, nil, proof.MockChainLookup, false,
+		&proof.AnnotatedProof{
+			Locator: proof.Locator{
 				AssetID:   fn.Ptr(proof6.Asset.ID()),
 				ScriptKey: *proof6.Asset.ScriptKey.PubKey,
 				OutPoint:  fn.Ptr(proof6.OutPoint()),

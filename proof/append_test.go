@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/stretchr/testify/require"
 )
@@ -114,7 +115,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	genesisProof, senderPrivKey := genRandomGenesisWithProof(
 		t, assetType, &amt, nil, true, nil, nil, nil, nil, assetVersion,
 	)
-	genesisBlob, err := EncodeAsProofFile(&genesisProof)
+	genesisBlob, err := proof.EncodeAsProofFile(&genesisProof)
 	require.NoError(t, err)
 
 	// Transfer the asset to a new owner.
@@ -175,11 +176,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	genesisHash := genesisProof.BlockHeader.BlockHash()
 	blockHeader := wire.NewBlockHeader(0, &genesisHash, merkleRoot, 0, 0)
 
-	txMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{chainTx}, 0)
+	txMerkleProof, err := proof.NewTxMerkleProof([]*wire.MsgTx{chainTx}, 0)
 	require.NoError(t, err)
 
-	transitionParams := &TransitionParams{
-		BaseProofParams: BaseProofParams{
+	transitionParams := &proof.TransitionParams{
+		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{chainTx},
@@ -196,19 +197,20 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// If we added a change output before, we now also need to add the
 	// exclusion proof for it.
 	if withBip86Change {
-		transitionParams.ExclusionProofs = []TaprootProof{{
+		transitionParams.ExclusionProofs = []proof.TaprootProof{{
 			OutputIndex: 1,
 			InternalKey: changeInternalKey,
-			TapscriptProof: &TapscriptProof{
+			TapscriptProof: &proof.TapscriptProof{
 				Bip86: true,
 			},
 		}}
 	}
 
 	// Append the new transition to the genesis blob.
-	transitionBlob, transitionProof, err := AppendTransition(
-		genesisBlob, transitionParams, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+	transitionBlob, transitionProof, err := proof.AppendTransition(
+		genesisBlob, transitionParams, proof.MockHeaderVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
@@ -339,7 +341,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		0, &transitionHash, splitMerkleRoot, 0, 0,
 	)
 
-	splitTxMerkleProof, err := NewTxMerkleProof([]*wire.MsgTx{splitTx}, 0)
+	splitTxMerkleProof, err := proof.NewTxMerkleProof(
+		[]*wire.MsgTx{splitTx}, 0,
+	)
 	require.NoError(t, err)
 
 	_, split1In2ExclusionProof, err := tap2Commitment.Proof(
@@ -377,8 +381,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Create and verify the proof for the first split output (the sender or
 	// change output).
-	split1Params := &TransitionParams{
-		BaseProofParams: BaseProofParams{
+	split1Params := &proof.TransitionParams{
+		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
 				Header:       *splitBlockHeader,
 				Transactions: []*wire.MsgTx{splitTx},
@@ -388,16 +392,16 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 			OutputIndex:      0,
 			InternalKey:      internalKey1,
 			TaprootAssetRoot: tap1Commitment,
-			ExclusionProofs: []TaprootProof{{
+			ExclusionProofs: []proof.TaprootProof{{
 				OutputIndex: 1,
 				InternalKey: internalKey2,
-				CommitmentProof: &CommitmentProof{
+				CommitmentProof: &proof.CommitmentProof{
 					Proof: *split1In2ExclusionProof,
 				},
 			}, {
 				OutputIndex: 2,
 				InternalKey: internalKey3,
-				CommitmentProof: &CommitmentProof{
+				CommitmentProof: &proof.CommitmentProof{
 					Proof: *split1In3ExclusionProof,
 				},
 			}},
@@ -405,9 +409,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		NewAsset: split1Asset,
 	}
 
-	split1Blob, split1Proof, err := AppendTransition(
-		transitionBlob, split1Params, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+	split1Blob, split1Proof, err := proof.AppendTransition(
+		transitionBlob, split1Params, proof.MockHeaderVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
@@ -416,8 +421,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.False(t, split1Snapshot.SplitAsset)
 
 	// And now for the second split (the recipient output).
-	split2Params := &TransitionParams{
-		BaseProofParams: BaseProofParams{
+	split2Params := &proof.TransitionParams{
+		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
 				Header:       *splitBlockHeader,
 				Transactions: []*wire.MsgTx{splitTx},
@@ -427,16 +432,16 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 			OutputIndex:      1,
 			InternalKey:      internalKey2,
 			TaprootAssetRoot: tap2Commitment,
-			ExclusionProofs: []TaprootProof{{
+			ExclusionProofs: []proof.TaprootProof{{
 				OutputIndex: 0,
 				InternalKey: internalKey1,
-				CommitmentProof: &CommitmentProof{
+				CommitmentProof: &proof.CommitmentProof{
 					Proof: *split2In1ExclusionProof,
 				},
 			}, {
 				OutputIndex: 2,
 				InternalKey: internalKey3,
-				CommitmentProof: &CommitmentProof{
+				CommitmentProof: &proof.CommitmentProof{
 					Proof: *split2In3ExclusionProof,
 				},
 			}},
@@ -447,9 +452,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		RootTaprootAssetTree: tap1Commitment,
 	}
 
-	split2Blob, split2Proof, err := AppendTransition(
-		transitionBlob, split2Params, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+	split2Blob, split2Proof, err := proof.AppendTransition(
+		transitionBlob, split2Params, proof.MockHeaderVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
@@ -459,8 +465,8 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.True(t, split2Snapshot.SplitAsset)
 
 	// And finally for the third split (the second recipient output).
-	split3Params := &TransitionParams{
-		BaseProofParams: BaseProofParams{
+	split3Params := &proof.TransitionParams{
+		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
 				Header:       *splitBlockHeader,
 				Transactions: []*wire.MsgTx{splitTx},
@@ -470,16 +476,16 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 			OutputIndex:      2,
 			InternalKey:      internalKey3,
 			TaprootAssetRoot: tap3Commitment,
-			ExclusionProofs: []TaprootProof{{
+			ExclusionProofs: []proof.TaprootProof{{
 				OutputIndex: 0,
 				InternalKey: internalKey1,
-				CommitmentProof: &CommitmentProof{
+				CommitmentProof: &proof.CommitmentProof{
 					Proof: *split3In1ExclusionProof,
 				},
 			}, {
 				OutputIndex: 1,
 				InternalKey: internalKey2,
-				CommitmentProof: &CommitmentProof{
+				CommitmentProof: &proof.CommitmentProof{
 					Proof: *split3In2ExclusionProof,
 				},
 			}},
@@ -490,9 +496,10 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		RootTaprootAssetTree: tap1Commitment,
 	}
 
-	split3Blob, split3Proof, err := AppendTransition(
-		transitionBlob, split3Params, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+	split3Blob, split3Proof, err := proof.AppendTransition(
+		transitionBlob, split3Params, proof.MockHeaderVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))
@@ -505,8 +512,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 // signAssetTransfer creates a virtual transaction for an asset transfer and
 // signs it with the given sender private key. Then we add the generated witness
 // to the root asset and all split asset's root asset references.
-func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
-	senderPrivKey *btcec.PrivateKey, splitAssets []*asset.Asset) {
+func signAssetTransfer(t testing.TB, prevProof *proof.Proof,
+	newAsset *asset.Asset, senderPrivKey *btcec.PrivateKey,
+	splitAssets []*asset.Asset) {
 
 	prevOutpoint := wire.OutPoint{
 		Hash:  prevProof.AnchorTx.TxHash(),
@@ -546,14 +554,15 @@ func signAssetTransfer(t testing.TB, prevProof *Proof, newAsset *asset.Asset,
 	}
 }
 
-func verifyBlob(t testing.TB, blob Blob) *AssetSnapshot {
+func verifyBlob(t testing.TB, blob proof.Blob) *proof.AssetSnapshot {
 	// Decode the proof blob into a proper file structure first.
-	f := NewEmptyFile(V0)
+	f := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	finalSnapshot, err := f.Verify(
-		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
+		context.Background(), proof.MockHeaderVerifier,
+		proof.MockMerkleVerifier, proof.MockGroupVerifier,
+		proof.MockChainLookup,
 	)
 	require.NoError(t, err)
 

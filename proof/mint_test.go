@@ -1,4 +1,4 @@
-package proof
+package proof_test
 
 import (
 	"math/rand"
@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,7 +31,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	var metaBlob [100]byte
 	_, err := rand.Read(metaBlob[:])
 	require.NoError(t, err)
-	metaReveal := &MetaReveal{
+	metaReveal := &proof.MetaReveal{
 		Data: metaBlob[:],
 	}
 	assetGenesis := asset.RandGenesis(t, asset.Collectible)
@@ -101,15 +102,15 @@ func TestNewMintingBlobs(t *testing.T) {
 	)
 
 	assetScriptKey := asset.NewScriptKeyBip86(genesisScriptKey)
-	metaReveals := map[asset.SerializedKey]*MetaReveal{
+	metaReveals := map[asset.SerializedKey]*proof.MetaReveal{
 		asset.ToSerialized(assetScriptKey.PubKey):         metaReveal,
 		asset.ToSerialized(groupedAsset.ScriptKey.PubKey): metaReveal,
 	}
 
 	// The NewMintingBlobs will return an error if the generated proof is
 	// invalid. We'll also add the optional meta reveal data as well
-	_, err = NewMintingBlobs(&MintParams{
-		BaseProofParams: BaseProofParams{
+	_, err = proof.NewMintingBlobs(&proof.MintParams{
+		BaseProofParams: proof.BaseProofParams{
 			Block: &wire.MsgBlock{
 				Header:       *blockHeader,
 				Transactions: []*wire.MsgTx{genesisTx},
@@ -119,18 +120,18 @@ func TestNewMintingBlobs(t *testing.T) {
 			OutputIndex:      0,
 			InternalKey:      internalKey,
 			TaprootAssetRoot: tapCommitment,
-			ExclusionProofs: []TaprootProof{{
+			ExclusionProofs: []proof.TaprootProof{{
 				OutputIndex: 1,
 				InternalKey: changeInternalKey,
-				TapscriptProof: &TapscriptProof{
+				TapscriptProof: &proof.TapscriptProof{
 					Bip86: true,
 				},
 			}},
 		},
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
-	}, MockHeaderVerifier, MockMerkleVerifier, MockGroupVerifier,
-		MockGroupAnchorVerifier, MockChainLookup,
-		WithAssetMetaReveals(metaReveals),
+	}, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
+		proof.MockGroupVerifier, proof.MockGroupAnchorVerifier,
+		proof.MockChainLookup, proof.WithAssetMetaReveals(metaReveals),
 	)
 	require.NoError(t, err)
 }

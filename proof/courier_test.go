@@ -1,40 +1,42 @@
-package proof
+package proof_test
 
 import (
 	"bytes"
 	"context"
 	"fmt"
+	"net/url"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
 type mockProofArchive struct {
-	proofs map[Locator]Blob
+	proofs map[proof.Locator]proof.Blob
 }
 
 func newMockProofArchive() *mockProofArchive {
 	return &mockProofArchive{
-		proofs: make(map[Locator]Blob),
+		proofs: make(map[proof.Locator]proof.Blob),
 	}
 }
 
 func (m *mockProofArchive) FetchProof(ctx context.Context,
-	id Locator) (Blob, error) {
+	id proof.Locator) (proof.Blob, error) {
 
-	proof, ok := m.proofs[id]
+	p, ok := m.proofs[id]
 	if !ok {
-		return nil, ErrProofNotFound
+		return nil, proof.ErrProofNotFound
 	}
 
-	return proof, nil
+	return p, nil
 }
 
 func (m *mockProofArchive) HasProof(ctx context.Context,
-	id Locator) (bool, error) {
+	id proof.Locator) (bool, error) {
 
 	_, ok := m.proofs[id]
 
@@ -42,14 +44,14 @@ func (m *mockProofArchive) HasProof(ctx context.Context,
 }
 
 func (m *mockProofArchive) FetchProofs(ctx context.Context,
-	id asset.ID) ([]*AnnotatedProof, error) {
+	id asset.ID) ([]*proof.AnnotatedProof, error) {
 
 	return nil, fmt.Errorf("not implemented")
 }
 
-func (m *mockProofArchive) ImportProofs(context.Context, HeaderVerifier,
-	MerkleVerifier, GroupVerifier, ChainLookupGenerator, bool,
-	...*AnnotatedProof) error {
+func (m *mockProofArchive) ImportProofs(context.Context, proof.HeaderVerifier,
+	proof.MerkleVerifier, proof.GroupVerifier, proof.ChainLookupGenerator,
+	bool, ...*proof.AnnotatedProof) error {
 
 	return fmt.Errorf("not implemented")
 }
@@ -64,33 +66,32 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 
 	genesis := asset.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	proof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	p := proof.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
-	file, err := NewFile(V0, proof, proof)
+	file, err := proof.NewFile(proof.V0, p, p)
 	require.NoError(t, err)
-	proof.AdditionalInputs = []File{*file, *file}
+	p.AdditionalInputs = []proof.File{*file, *file}
 
 	var fileBuf bytes.Buffer
 	require.NoError(t, file.Encode(&fileBuf))
-	proofBlob := Blob(fileBuf.Bytes())
+	proofBlob := proof.Blob(fileBuf.Bytes())
 
-	locator := Locator{
+	locator := proof.Locator{
 		AssetID:   fn.Ptr(genesis.ID()),
-		ScriptKey: *proof.Asset.ScriptKey.PubKey,
-		OutPoint:  fn.Ptr(proof.OutPoint()),
+		ScriptKey: *p.Asset.ScriptKey.PubKey,
+		OutPoint:  fn.Ptr(p.OutPoint()),
 	}
 	localArchive.proofs[locator] = proofBlob
 
-	courier := &UniverseRpcCourier{
-		recipient: Recipient{},
-		client:    nil,
-		cfg: &CourierCfg{
-			LocalArchive: localArchive,
-		},
-		rawConn:       nil,
-		backoffHandle: nil,
-		subscribers:   nil,
+	cfg := &proof.CourierCfg{
+		LocalArchive:   localArchive,
+		UniverseRpcCfg: &proof.UniverseRpcCourierCfg{},
 	}
+	dispatch := proof.NewCourierDispatch(cfg)
+
+	mockUrl, _ := url.Parse("universerpc://localhost")
+	courier, err := dispatch.NewCourier(mockUrl, proof.Recipient{})
+	require.NoError(t, err)
 
 	ctx := context.Background()
 	ctxt, cancel := context.WithTimeout(ctx, testTimeout)
@@ -107,9 +108,9 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 	// should end up in the code path that attempts to fetch the proof from
 	// the universe. Since we don't want to set up a full universe server
 	// in the test, we just make sure we get an error from that code path.
-	_, err = courier.ReceiveProof(ctxt, Locator{
+	_, err = courier.ReceiveProof(ctxt, proof.Locator{
 		AssetID:   fn.Ptr(genesis.ID()),
-		ScriptKey: *proof.Asset.ScriptKey.PubKey,
+		ScriptKey: *p.Asset.ScriptKey.PubKey,
 	})
 	require.ErrorContains(t, err, "is missing outpoint")
 }

@@ -315,7 +315,7 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 	}, nil
 }
 
-// genProofFileStoragePath generates the full proof file path for storing a
+// GenProofFileStoragePath generates the full proof file path for storing a
 // proof based on a rootPath and a valid locator.
 // The final path is:
 //
@@ -326,7 +326,7 @@ func NewFileArchiver(dirName string) (*FileArchiver, error) {
 // first 16 bytes (32 hex characters) of the hash. That should be enough to
 // avoid collisions but saves us a full 32 characters (we already use 130 for
 // the hex encoded asset ID and script key).
-func genProofFileStoragePath(rootPath string, loc Locator) (string, error) {
+func GenProofFileStoragePath(rootPath string, loc Locator) (string, error) {
 	switch {
 	case loc.AssetID == nil:
 		return "", ErrInvalidLocatorID
@@ -357,7 +357,7 @@ func lookupProofFilePath(rootPath string, loc Locator) (string, error) {
 	// If an outpoint is specified, we want to look up a very specific file
 	// on disk.
 	if loc.OutPoint != nil {
-		fullName, err := genProofFileStoragePath(rootPath, loc)
+		fullName, err := GenProofFileStoragePath(rootPath, loc)
 		if err != nil {
 			return "", err
 		}
@@ -470,7 +470,7 @@ func migrateOldFileNames(rootPath string) error {
 				"proof file: %w", err)
 		}
 
-		newFileName, err := genProofFileStoragePath(rootPath, Locator{
+		newFileName, err := GenProofFileStoragePath(rootPath, Locator{
 			AssetID:   fn.Ptr(lastProof.Asset.ID()),
 			ScriptKey: *lastProof.Asset.ScriptKey.PubKey,
 			OutPoint:  fn.Ptr(lastProof.OutPoint()),
@@ -634,7 +634,7 @@ func (f *FileArchiver) ImportProofs(_ context.Context,
 	_ ChainLookupGenerator, replace bool, proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
-		proofPath, err := genProofFileStoragePath(
+		proofPath, err := GenProofFileStoragePath(
 			f.proofPath, proof.Locator,
 		)
 		if err != nil {
