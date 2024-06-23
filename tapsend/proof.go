@@ -303,6 +303,7 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	)
 	splitParams.RootOutputIndex = splitRootIndex
 	splitParams.RootInternalKey = splitRootOut.AnchorOutputInternalKey
+	splitParams.RootTapscriptSibling = splitRootPreimage
 	splitParams.RootTaprootAssetTree = splitRootTree
 	splitParams.ExclusionProofs = []proof.TaprootProof{{
 		OutputIndex: splitRootIndex,

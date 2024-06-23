@@ -31,6 +31,10 @@ type TransitionParams struct {
 	// RootTaprootAssetTree is the commitment root that commitments to the
 	// inclusion of the root split asset at the RootOutputIndex.
 	RootTaprootAssetTree *commitment.TapCommitment
+
+	// RootTapscriptSibling is the tapscript sibling of the output at
+	// commits to the asset split root.
+	RootTapscriptSibling *commitment.TapscriptPreimage
 }
 
 // AppendTransition appends a new proof for a state transition to the given
@@ -184,7 +188,8 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 			OutputIndex: params.RootOutputIndex,
 			InternalKey: params.RootInternalKey,
 			CommitmentProof: &CommitmentProof{
-				Proof: *rootMerkleProof,
+				Proof:              *rootMerkleProof,
+				TapSiblingPreimage: params.RootTapscriptSibling,
 			},
 		}
 	}

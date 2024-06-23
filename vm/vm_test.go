@@ -1115,7 +1115,7 @@ func TestVM(t *testing.T) {
 			}
 
 			verifyTestCase(
-				t, testCase.err, false, newAsset, splitSet,
+				t, testCase.err, true, newAsset, splitSet,
 				inputSet, blockHeight,
 			)
 		})

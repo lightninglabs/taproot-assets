@@ -368,6 +368,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		return nil, err
 	}
 
+	// For the porter, we'll make a multi-notifier comprised of all the
+	// possible proof file sources to ensure it can always fetch input
+	// proofs.
+	porterProofReader := proof.NewMultiArchiveNotifier(
+		assetStore, multiverse, proofFileStore,
+	)
 	chainPorter := tapfreighter.NewChainPorter(
 		&tapfreighter.ChainPorterConfig{
 			Signer:      virtualTxSigner,
@@ -380,7 +386,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			Wallet:                 walletAnchor,
 			KeyRing:                keyRing,
 			AssetWallet:            assetWallet,
-			AssetProofs:            proofFileStore,
+			ProofReader:            porterProofReader,
+			ProofWriter:            proofFileStore,
 			ProofCourierDispatcher: proofCourierDispatcher,
 			ProofWatcher:           reOrgWatcher,
 			ErrChan:                mainErrChan,
@@ -440,6 +447,22 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			AddrBook:           addrBook,
 			TxSender:           chainPorter,
 			DefaultCourierAddr: proofCourierAddr,
+		},
+	)
+	auxSweeper := tapchannel.NewAuxSweeper(
+		&tapchannel.AuxSweeperCfg{
+			AddrBook:           addrBook,
+			ChainParams:        tapChainParams,
+			Signer:             assetWallet,
+			TxSender:           chainPorter,
+			DefaultCourierAddr: proofCourierAddr,
+			ProofArchive:       proofArchive,
+			ProofFetcher:       proofCourierDispatcher,
+			HeaderVerifier:     headerVerifier,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			ChainBridge: chainBridge,
 		},
 	)
 
@@ -518,6 +541,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxChanCloser:            auxChanCloser,
 		AuxTrafficShaper:         auxTrafficShaper,
 		AuxInvoiceManager:        auxInvoiceManager,
+		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

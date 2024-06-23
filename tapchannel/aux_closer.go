@@ -134,6 +134,26 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 	}, nil
 }
 
+// fundingSpendwitness creates a complete witness to spend the OP_TRUE funding
+// script of an asset funding output.
+func fundingSpendWitness() lfn.Result[wire.TxWitness] {
+	fundingScriptTree := NewFundingScriptTree()
+
+	tapscriptTree := fundingScriptTree.TapscriptTree
+	ctrlBlock := tapscriptTree.LeafMerkleProofs[0].ToControlBlock(
+		&input.TaprootNUMSKey,
+	)
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return lfn.Errf[wire.TxWitness]("unable to serialize control "+
+			"block: %w", err)
+	}
+
+	return lfn.Ok(wire.TxWitness{
+		anyoneCanSpendScript(), ctrlBlockBytes,
+	})
+}
+
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close
 // attempt. We'll add some extra outputs to the co-op close transaction, and
 // also give the caller a custom sorting routine.
@@ -174,12 +194,10 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// Each of the co-op close outputs needs to ref a funding input, so
 	// we'll map a map of asset ID to the funding output now.
-	fundingInputs := make(map[asset.ID]*tapchannelmsg.AssetOutput)
 	inputProofs := make(
 		[]*proof.Proof, 0, len(fundingInfo.FundedAssets.Val.Outputs),
 	)
 	for _, fundingInput := range fundingInfo.FundedAssets.Val.Outputs {
-		fundingInputs[fundingInput.AssetID.Val] = fundingInput
 		inputProofs = append(inputProofs, &fundingInput.Proof.Val)
 	}
 
@@ -341,7 +359,11 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 
 	// With the vPackets created we'll now prepare all the split
 	// information encoded in the vPackets.
-	fundingScriptTree := NewFundingScriptTree()
+	fundingWitness, err := fundingSpendWitness().Unpack()
+	if err != nil {
+		return none, fmt.Errorf("unable to make funding "+
+			"witness: %w", err)
+	}
 	ctx := context.Background()
 	for idx := range vPackets {
 		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
@@ -350,29 +372,15 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 				"assets: %w", err)
 		}
 
-		// For our split root, we'll need to create a valid control
-		// block for our OP_TRUE script.
-		tapscriptTree := fundingScriptTree.TapscriptTree
-		ctrlBlock := tapscriptTree.LeafMerkleProofs[0].ToControlBlock(
-			&input.TaprootNUMSKey,
-		)
-		ctrlBlockBytes, err := ctrlBlock.ToBytes()
-		if err != nil {
-			return none, fmt.Errorf("unable to serialize "+
-				"control block: %w", err)
-		}
-
-		txWitness := wire.TxWitness{
-			anyoneCanSpendScript(), ctrlBlockBytes,
-		}
-
 		for outIdx := range vPackets[idx].Outputs {
 			outAsset := vPackets[idx].Outputs[outIdx].Asset
 
 			// There is always only a single input, which is the
 			// funding output.
 			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(inputIndex, txWitness)
+			err := outAsset.UpdateTxWitness(
+				inputIndex, fundingWitness,
+			)
 			if err != nil {
 				return none, fmt.Errorf("error updating "+
 					"witness: %w", err)
@@ -549,6 +557,51 @@ func (a *AuxChanCloser) ShutdownBlob(
 	return lfn.Some[lnwire.CustomRecords](records), nil
 }
 
+// shipChannelTxn takes a chanenl transaction, an output commitment, and the
+// set of vPackets used to make the output commitment and ships a complete
+// pre-singed package off to the porter. This'll insert a transfer for the
+// channel, send the final transaction to the network, and update any
+// transition proofs once a confirmation occurs.
+func shipChannelTxn(txSender tapfreighter.Porter, chanTx *wire.MsgTx,
+	outputCommitments tappsbt.OutputCommitments,
+	vPkts []*tappsbt.VPacket, closeFee int64) error {
+
+	chanTxPsbt, err := tapsend.PrepareAnchoringTemplate(vPkts)
+	if err != nil {
+		return fmt.Errorf("unable to make close psbt: %w", err)
+	}
+	for _, vPkt := range vPkts {
+		err = tapsend.UpdateTaprootOutputKeys(
+			chanTxPsbt, vPkt, outputCommitments,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to update taproot "+
+				"keys: %w", err)
+		}
+	}
+
+	// With the proofs updated, we can now send things off to the freighter
+	// to insert the transfer and add the merkle inclusion proof after
+	// confirmation.
+	closeAnchor := &tapsend.AnchorTransaction{
+		FundedPsbt: &tapsend.FundedPsbt{
+			Pkt:       chanTxPsbt,
+			ChainFees: closeFee,
+		},
+		ChainFees: closeFee,
+		FinalTx:   chanTx,
+	}
+	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
+		vPkts, nil, closeAnchor,
+	)
+	_, err = txSender.RequestShipment(preSignedParcel)
+	if err != nil {
+		return fmt.Errorf("error requesting delivery: %w", err)
+	}
+
+	return nil
+}
+
 // FinalizeClose is called once the co-op close transaction has been agreed
 // upon. We'll finalize the exclusion proofs, then send things off to the
 // custodian or porter to finish sending/receiving the proofs.
@@ -597,40 +650,11 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 		}
 	}
 
-	coopClosePsbt, err := tapsend.PrepareAnchoringTemplate(
-		closeInfo.vPackets,
+	// With the proofs finalized above, we'll now ship the transaction off
+	// to the porter so it can insert a record on disk, and deliver the
+	// relevant set of proofs.
+	return shipChannelTxn(
+		a.cfg.TxSender, closeTx, closeInfo.outputCommitments,
+		closeInfo.vPackets, closeInfo.closeFee,
 	)
-	if err != nil {
-		return fmt.Errorf("unable to make close psbt: %w", err)
-	}
-	for _, vPkt := range closeInfo.vPackets {
-		err = tapsend.UpdateTaprootOutputKeys(
-			coopClosePsbt, vPkt, closeInfo.outputCommitments,
-		)
-		if err != nil {
-			return fmt.Errorf("unable to update taproot "+
-				"keys: %w", err)
-		}
-	}
-
-	// With the proofs updated, we can now send things off to the freighter
-	// to insert the transfer and add the merkle inclusion proof after
-	// confirmation.
-	closeAnchor := &tapsend.AnchorTransaction{
-		FundedPsbt: &tapsend.FundedPsbt{
-			Pkt:       coopClosePsbt,
-			ChainFees: closeInfo.closeFee,
-		},
-		ChainFees: closeInfo.closeFee,
-		FinalTx:   closeTx,
-	}
-	preSignedParcel := tapfreighter.NewPreAnchoredParcel(
-		closeInfo.vPackets, nil, closeAnchor,
-	)
-	_, err = a.cfg.TxSender.RequestShipment(preSignedParcel)
-	if err != nil {
-		return fmt.Errorf("error requesting delivery: %w", err)
-	}
-
-	return nil
 }

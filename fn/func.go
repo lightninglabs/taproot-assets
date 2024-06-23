@@ -60,6 +60,18 @@ func FilterMap[T any, K comparable](s map[K]T, f func(T) bool) []T {
 	return output
 }
 
+// FlatMap applies the given mapping function to each element of the given
+// slice and concatenates the results into a new slice.
+func FlatMap[I, O any, S []I](s S, f func(I) []O) []O {
+	var output []O
+
+	for _, x := range s {
+		output = append(output, f(x)...)
+	}
+
+	return output
+}
+
 // MapErr applies the given fallible mapping function to each element of the
 // given slice and generates a new slice. This is identical to Map, but
 // returns early if any single mapping fails.
@@ -72,6 +84,24 @@ func MapErr[I, O any, S []I](s S, f func(I) (O, error)) ([]O, error) {
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	return output, nil
+}
+
+// FlatMapErr applies the given mapping function to each element of the given
+// slice, concatenates the results into a new slice, and returns an error if
+// the mapping function fails.
+func FlatMapErr[I, O any, S []I](s S, f func(I) ([]O, error)) ([]O, error) {
+	var output []O
+
+	for _, x := range s {
+		mapped, err := f(x)
+		if err != nil {
+			return nil, err
+		}
+
+		output = append(output, mapped...)
 	}
 
 	return output, nil

@@ -30,10 +30,10 @@ require (
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
 	github.com/lightninglabs/lndclient v1.0.1-0.20240607082608-4ce52a1a3f27
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lnd v0.18.0-beta.rc3.0.20240621142354-5fc4d4b1ec2b
+	github.com/lightningnetwork/lnd v0.18.0-beta.rc3.0.20240621201817-374abfc804b7
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn v1.0.8
+	github.com/lightningnetwork/lnd/fn v1.1.0
 	github.com/lightningnetwork/lnd/tlv v1.2.6
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ory/dockertest/v3 v3.10.0

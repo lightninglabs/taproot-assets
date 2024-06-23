@@ -1730,9 +1730,16 @@ func (a *Asset) deepEqual(allowSegWitIgnoreTxWitness bool, o *Asset) bool {
 		return false
 	}
 
-	if !reflect.DeepEqual(a.ScriptKey, o.ScriptKey) {
+	// If both assets have a tweaked key
+	//
+	// TODO(roasbeef): fin
+	if !a.ScriptKey.PubKey.IsEqual(o.ScriptKey.PubKey) {
 		return false
 	}
+
+	/*if !reflect.DeepEqual(a.ScriptKey, o.ScriptKey) {
+		return false
+	}*/
 
 	if !a.GroupKey.IsEqual(o.GroupKey) {
 		return false
