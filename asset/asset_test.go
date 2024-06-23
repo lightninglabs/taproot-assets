@@ -1,4 +1,4 @@
-package asset
+package asset_test
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -49,63 +50,63 @@ var (
 		"asset_tlv_encoding_error_cases.json",
 	}
 
-	splitGen = Genesis{
+	splitGen = asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 1,
 		},
 		Tag:         "asset",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 1,
 		Type:        1,
 	}
-	testSplitAsset = &Asset{
+	testSplitAsset = &asset.Asset{
 		Version:          1,
 		Genesis:          splitGen,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
-		PrevWitnesses: []Witness{{
-			PrevID: &PrevID{
+		PrevWitnesses: []asset.Witness{{
+			PrevID: &asset.PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  hashBytes1,
 					Index: 1,
 				},
 				ID:        hashBytes1,
-				ScriptKey: ToSerialized(pubKey),
+				ScriptKey: asset.ToSerialized(pubKey),
 			},
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       1,
-		ScriptKey:           NewScriptKey(pubKey),
-		GroupKey: &GroupKey{
+		ScriptKey:           asset.NewScriptKey(pubKey),
+		GroupKey: &asset.GroupKey{
 			GroupPubKey: *pubKey,
 		},
 	}
-	testRootAsset = &Asset{
+	testRootAsset = &asset.Asset{
 		Version:          1,
 		Genesis:          testSplitAsset.Copy().Genesis,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
-		PrevWitnesses: []Witness{{
-			PrevID: &PrevID{
+		PrevWitnesses: []asset.Witness{{
+			PrevID: &asset.PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  hashBytes2,
 					Index: 2,
 				},
 				ID:        hashBytes2,
-				ScriptKey: ToSerialized(pubKey),
+				ScriptKey: asset.ToSerialized(pubKey),
 			},
 			TxWitness:       wire.TxWitness{{2}, {2}},
 			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
-		ScriptKey:           NewScriptKey(pubKey),
-		GroupKey: &GroupKey{
+		ScriptKey:           asset.NewScriptKey(pubKey),
+		GroupKey: &asset.GroupKey{
 			GroupPubKey: *pubKey,
 		},
 	}
@@ -118,38 +119,38 @@ var (
 func TestGenesisAssetClassification(t *testing.T) {
 	t.Parallel()
 
-	baseGen := RandGenesis(t, Normal)
-	baseScriptKey := RandScriptKey(t)
-	baseAsset := RandAssetWithValues(t, baseGen, nil, baseScriptKey)
-	assetValidGroup := RandAsset(t, Collectible)
+	baseGen := asset.RandGenesis(t, asset.Normal)
+	baseScriptKey := asset.RandScriptKey(t)
+	baseAsset := asset.RandAssetWithValues(t, baseGen, nil, baseScriptKey)
+	assetValidGroup := asset.RandAsset(t, asset.Collectible)
 	assetNeedsWitness := baseAsset.Copy()
-	assetNeedsWitness.GroupKey = &GroupKey{
+	assetNeedsWitness.GroupKey = &asset.GroupKey{
 		GroupPubKey: *test.RandPubKey(t),
 	}
 	nonGenAsset := baseAsset.Copy()
-	nonGenAsset.PrevWitnesses = []Witness{{
-		PrevID: &PrevID{
+	nonGenAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.PrevID{
 			OutPoint: wire.OutPoint{
 				Hash:  hashBytes1,
 				Index: 1,
 			},
 			ID:        hashBytes1,
-			ScriptKey: ToSerialized(pubKey),
+			ScriptKey: asset.ToSerialized(pubKey),
 		},
 		TxWitness:       sigWitness,
 		SplitCommitment: nil,
 	}}
 	groupMemberNonGen := nonGenAsset.Copy()
-	groupMemberNonGen.GroupKey = &GroupKey{
+	groupMemberNonGen.GroupKey = &asset.GroupKey{
 		GroupPubKey: *test.RandPubKey(t),
 	}
 	splitAsset := nonGenAsset.Copy()
 	splitAsset.PrevWitnesses[0].TxWitness = nil
-	splitAsset.PrevWitnesses[0].SplitCommitment = &SplitCommitment{}
+	splitAsset.PrevWitnesses[0].SplitCommitment = &asset.SplitCommitment{}
 
 	tests := []struct {
 		name                                string
-		genAsset                            *Asset
+		genAsset                            *asset.Asset
 		isGenesis, needsWitness, hasWitness bool
 	}{
 		{
@@ -280,7 +281,7 @@ func TestValidateAssetName(t *testing.T) {
 	for _, testCase := range tests {
 		testCase := testCase
 
-		err := ValidateAssetName(testCase.name)
+		err := asset.ValidateAssetName(testCase.name)
 		if testCase.valid {
 			require.NoError(t, err)
 		} else {
@@ -294,8 +295,8 @@ func TestValidateAssetName(t *testing.T) {
 func TestAssetEncoding(t *testing.T) {
 	t.Parallel()
 
-	testVectors := &TestVectors{}
-	assertAssetEncoding := func(comment string, a *Asset) {
+	testVectors := &asset.TestVectors{}
+	assertAssetEncoding := func(comment string, a *asset.Asset) {
 		t.Helper()
 
 		require.True(t, a.DeepEqual(a.Copy()))
@@ -304,79 +305,79 @@ func TestAssetEncoding(t *testing.T) {
 		require.NoError(t, a.Encode(&buf))
 
 		testVectors.ValidTestCases = append(
-			testVectors.ValidTestCases, &ValidTestCase{
-				Asset:    NewTestFromAsset(t, a),
+			testVectors.ValidTestCases, &asset.ValidTestCase{
+				Asset:    asset.NewTestFromAsset(t, a),
 				Expected: hex.EncodeToString(buf.Bytes()),
 				Comment:  comment,
 			},
 		)
 
-		var b Asset
+		var b asset.Asset
 		require.NoError(t, b.Decode(&buf))
 
 		require.True(t, a.DeepEqual(&b))
 	}
 	root := testRootAsset.Copy()
 	split := testSplitAsset.Copy()
-	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
+	split.PrevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
 		Proof:     *mssmt.RandProof(t),
 		RootAsset: *root,
 	}
 	assertAssetEncoding("random split asset with root asset", split)
 
-	newGen := Genesis{
+	newGen := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes2,
 			Index: 2,
 		},
 		Tag:         "asset",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 2,
 		Type:        2,
 	}
 
 	comment := "random asset with multiple previous witnesses"
-	assertAssetEncoding(comment, &Asset{
+	assertAssetEncoding(comment, &asset.Asset{
 		Version:          2,
 		Genesis:          newGen,
 		Amount:           2,
 		LockTime:         1337,
 		RelativeLockTime: 6,
-		PrevWitnesses: []Witness{{
+		PrevWitnesses: []asset.Witness{{
 			PrevID:          nil,
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}, {
-			PrevID:          &PrevID{},
+			PrevID:          &asset.PrevID{},
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}, {
-			PrevID: &PrevID{
+			PrevID: &asset.PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  hashBytes2,
 					Index: 2,
 				},
 				ID:        hashBytes2,
-				ScriptKey: ToSerialized(pubKey),
+				ScriptKey: asset.ToSerialized(pubKey),
 			},
 			TxWitness:       wire.TxWitness{{2}, {2}},
 			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: nil,
 		ScriptVersion:       2,
-		ScriptKey:           NewScriptKey(pubKey),
+		ScriptKey:           asset.NewScriptKey(pubKey),
 		GroupKey:            nil,
 	})
 
-	assertAssetEncoding("minimal asset", &Asset{
-		ScriptKey: NewScriptKey(pubKey),
+	assertAssetEncoding("minimal asset", &asset.Asset{
+		ScriptKey: asset.NewScriptKey(pubKey),
 	})
 
-	assertAssetEncoding("minimal asset with unknown odd type", &Asset{
-		Genesis: Genesis{
-			MetaHash: [MetaHashLen]byte{},
+	assertAssetEncoding("minimal asset with unknown odd type", &asset.Asset{
+		Genesis: asset.Genesis{
+			MetaHash: [asset.MetaHashLen]byte{},
 		},
-		ScriptKey: NewScriptKey(pubKey),
+		ScriptKey: asset.NewScriptKey(pubKey),
 		UnknownOddTypes: tlv.TypeMap{
 			test.TestVectorAllowedUnknownType: []byte(
 				"the great unknown",
@@ -398,21 +399,21 @@ func TestAltLeafEncoding(t *testing.T) {
 // testAltLeafEncoding tests the AltLeaf validation logic, and that a valid
 // AltLeaf can be encoded and decoded correctly.
 func testAltLeafEncoding(t *rapid.T) {
-	protoLeaf := AltLeafGen(t).Draw(t, "alt_leaf")
+	protoLeaf := asset.AltLeafGen(t).Draw(t, "alt_leaf")
 	validAltLeafErr := protoLeaf.ValidateAltLeaf()
 
 	// If validation passes, the asset must follow all alt leaf constraints.
-	asserts := []AssetAssert{
-		AssetVersionAssert(V0),
-		AssetGenesisAssert(EmptyGenesis),
-		AssetAmountAssert(0),
-		AssetLockTimeAssert(0),
-		AssetRelativeLockTimeAssert(0),
-		AssetHasSplitRootAssert(false),
-		AssetGroupKeyAssert(nil),
-		AssetHasScriptKeyAssert(true),
+	asserts := []asset.AssetAssert{
+		asset.AssetVersionAssert(asset.V0),
+		asset.AssetGenesisAssert(asset.EmptyGenesis),
+		asset.AssetAmountAssert(0),
+		asset.AssetLockTimeAssert(0),
+		asset.AssetRelativeLockTimeAssert(0),
+		asset.AssetHasSplitRootAssert(false),
+		asset.AssetGroupKeyAssert(nil),
+		asset.AssetHasScriptKeyAssert(true),
 	}
-	assertErr := CheckAssetAsserts(&protoLeaf, asserts...)
+	assertErr := asset.CheckAssetAsserts(&protoLeaf, asserts...)
 
 	// If the validation method and these assertions behave differently,
 	// either the test or the validation method is incorrect.
@@ -439,7 +440,7 @@ func testAltLeafEncoding(t *rapid.T) {
 		t.Error(err)
 	}
 
-	var decodedLeaf Asset
+	var decodedLeaf asset.Asset
 	altLeafBytes := bytes.NewReader(buf.Bytes())
 	if err := decodedLeaf.DecodeAltLeaf(altLeafBytes); err != nil {
 		t.Error(err)
@@ -502,7 +503,7 @@ func TestTapLeafEncoding(t *testing.T) {
 		tc := testCase
 
 		t.Run(tc.name, func(t *testing.T) {
-			leafBytes, err := EncodeTapLeaf(tc.leaf)
+			leafBytes, err := asset.EncodeTapLeaf(tc.leaf)
 			if tc.valid {
 				require.NoError(t, err)
 			} else {
@@ -510,7 +511,7 @@ func TestTapLeafEncoding(t *testing.T) {
 				return
 			}
 
-			leaf, err := DecodeTapLeaf(leafBytes)
+			leaf, err := asset.DecodeTapLeaf(leafBytes)
 			require.NoError(t, err)
 
 			require.Equal(t, tc.leaf.LeafVersion, leaf.LeafVersion)
@@ -554,7 +555,7 @@ func TestTapBranchEncoding(t *testing.T) {
 		tc := testCase
 
 		t.Run(tc.name, func(t *testing.T) {
-			branch, err := DecodeTapBranchNodes(tc.branchData)
+			branch, err := asset.DecodeTapBranchNodes(tc.branchData)
 
 			if tc.valid {
 				require.NoError(t, err)
@@ -563,7 +564,7 @@ func TestTapBranchEncoding(t *testing.T) {
 				return
 			}
 
-			branchBytes := EncodeTapBranchNodes(*branch)
+			branchBytes := asset.EncodeTapBranchNodes(*branch)
 			require.Equal(t, tc.branchData, branchBytes)
 		})
 	}
@@ -616,7 +617,7 @@ func TestTapLeafSanity(t *testing.T) {
 		tc := testCase
 
 		t.Run(tc.name, func(t *testing.T) {
-			err := CheckTapLeafSanity(tc.leaf)
+			err := asset.CheckTapLeafSanity(tc.leaf)
 			if tc.sane {
 				require.NoError(t, err)
 			} else {
@@ -630,7 +631,7 @@ func TestTapLeafSanity(t *testing.T) {
 func TestAssetIsBurn(t *testing.T) {
 	root := testRootAsset.Copy()
 	split := testSplitAsset.Copy()
-	split.PrevWitnesses[0].SplitCommitment = &SplitCommitment{
+	split.PrevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
 		Proof:     *mssmt.RandProof(t),
 		RootAsset: *root,
 	}
@@ -640,8 +641,8 @@ func TestAssetIsBurn(t *testing.T) {
 
 	// Update the script key to a burn script key for both of the assets.
 	rootPrevID := root.PrevWitnesses[0].PrevID
-	root.ScriptKey = NewScriptKey(DeriveBurnKey(*rootPrevID))
-	split.ScriptKey = NewScriptKey(DeriveBurnKey(*rootPrevID))
+	root.ScriptKey = asset.NewScriptKey(asset.DeriveBurnKey(*rootPrevID))
+	split.ScriptKey = asset.NewScriptKey(asset.DeriveBurnKey(*rootPrevID))
 
 	require.True(t, root.IsBurn())
 	require.True(t, split.IsBurn())
@@ -652,37 +653,37 @@ func TestAssetIsBurn(t *testing.T) {
 func TestAssetType(t *testing.T) {
 	t.Parallel()
 
-	normalGen := Genesis{
+	normalGen := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 1,
 		},
 		Tag:         "normal asset",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 1,
-		Type:        Normal,
+		Type:        asset.Normal,
 	}
-	collectibleGen := Genesis{
+	collectibleGen := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 1,
 		},
 		Tag:         "collectible asset",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 2,
-		Type:        Collectible,
+		Type:        asset.Collectible,
 	}
-	scriptKey := NewScriptKey(pubKey)
+	scriptKey := asset.NewScriptKey(pubKey)
 
-	normal, err := New(normalGen, 741, 0, 0, scriptKey, nil)
+	normal, err := asset.New(normalGen, 741, 0, 0, scriptKey, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 741, normal.Amount)
 
-	_, err = New(collectibleGen, 741, 0, 0, scriptKey, nil)
+	_, err = asset.New(collectibleGen, 741, 0, 0, scriptKey, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "amount must be 1 for asset")
 
-	collectible, err := New(collectibleGen, 1, 0, 0, scriptKey, nil)
+	collectible, err := asset.New(collectibleGen, 1, 0, 0, scriptKey, nil)
 	require.NoError(t, err)
 	require.EqualValues(t, 1, collectible.Amount)
 }
@@ -691,15 +692,15 @@ func TestAssetType(t *testing.T) {
 func TestAssetID(t *testing.T) {
 	t.Parallel()
 
-	g := Genesis{
+	g := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 99,
 		},
 		Tag:         "collectible asset 1",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 21,
-		Type:        Collectible,
+		Type:        asset.Collectible,
 	}
 	tagHash := sha256.Sum256([]byte(g.Tag))
 
@@ -715,15 +716,15 @@ func TestAssetID(t *testing.T) {
 
 	// Make sure we get a different asset ID even if everything is the same
 	// except for the type.
-	normalWithDifferentType := Genesis{
+	normalWithDifferentType := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 99,
 		},
 		Tag:         "collectible asset 1",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 21,
-		Type:        Normal,
+		Type:        asset.Normal,
 	}
 	differentID := normalWithDifferentType.ID()
 	require.NotEqual(t, id[:], differentID[:])
@@ -740,23 +741,23 @@ func TestAssetWitnesses(t *testing.T) {
 	}
 
 	// A witness must be unmodified after serialization and parsing.
-	nonSigWitnessBytes, err := SerializeGroupWitness(nonSigWitness)
+	nonSigWitnessBytes, err := asset.SerializeGroupWitness(nonSigWitness)
 	require.NoError(t, err)
 
-	nonSigWitnessParsed, err := ParseGroupWitness(nonSigWitnessBytes)
+	nonSigWitnessParsed, err := asset.ParseGroupWitness(nonSigWitnessBytes)
 	require.NoError(t, err)
 	require.Equal(t, nonSigWitness, nonSigWitnessParsed)
 
 	// A witness that is a single Schnorr signature must be detected
 	// correctly both before and after serialization.
-	sigWitnessParsed, isSig := IsGroupSig(sigWitness)
+	sigWitnessParsed, isSig := asset.IsGroupSig(sigWitness)
 	require.True(t, isSig)
 	require.NotNil(t, sigWitnessParsed)
 
-	sigWitnessBytes, err := SerializeGroupWitness(sigWitness)
+	sigWitnessBytes, err := asset.SerializeGroupWitness(sigWitness)
 	require.NoError(t, err)
 
-	sigWitnessParsed, err = ParseGroupSig(sigWitnessBytes)
+	sigWitnessParsed, err = asset.ParseGroupSig(sigWitnessBytes)
 	require.NoError(t, err)
 	require.Equal(t, sig.Serialize(), sigWitnessParsed.Serialize())
 
@@ -764,17 +765,17 @@ func TestAssetWitnesses(t *testing.T) {
 	// parsing.
 	dummyAnnex := []byte{0x50, 0xde, 0xad, 0xbe, 0xef}
 	sigWithAnnex := wire.TxWitness{sigWitness[0], dummyAnnex}
-	sigWitnessParsed, isSig = IsGroupSig(sigWithAnnex)
+	sigWitnessParsed, isSig = asset.IsGroupSig(sigWithAnnex)
 	require.True(t, isSig)
 	require.NotNil(t, sigWitnessParsed)
 
 	// Witness that are not a single Schnorr signature must also be
 	// detected correctly.
-	possibleSig, isSig := IsGroupSig(nonSigWitness)
+	possibleSig, isSig := asset.IsGroupSig(nonSigWitness)
 	require.False(t, isSig)
 	require.Nil(t, possibleSig)
 
-	possibleSig, err = ParseGroupSig(nonSigWitnessBytes)
+	possibleSig, err = asset.ParseGroupSig(nonSigWitnessBytes)
 	require.Error(t, err)
 	require.Nil(t, possibleSig)
 }
@@ -784,39 +785,39 @@ func TestAssetWitnesses(t *testing.T) {
 func TestUnknownVersion(t *testing.T) {
 	t.Parallel()
 
-	rootGen := Genesis{
+	rootGen := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 1,
 		},
 		Tag:         "asset",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 1,
 		Type:        1,
 	}
 
-	root := &Asset{
+	root := &asset.Asset{
 		Version:          212,
 		Genesis:          rootGen,
 		Amount:           1,
 		LockTime:         1337,
 		RelativeLockTime: 6,
-		PrevWitnesses: []Witness{{
-			PrevID: &PrevID{
+		PrevWitnesses: []asset.Witness{{
+			PrevID: &asset.PrevID{
 				OutPoint: wire.OutPoint{
 					Hash:  hashBytes2,
 					Index: 2,
 				},
 				ID:        hashBytes2,
-				ScriptKey: ToSerialized(pubKey),
+				ScriptKey: asset.ToSerialized(pubKey),
 			},
 			TxWitness:       wire.TxWitness{{2}, {2}},
 			SplitCommitment: nil,
 		}},
 		SplitCommitmentRoot: mssmt.NewComputedNode(hashBytes1, 1337),
 		ScriptVersion:       1,
-		ScriptKey:           NewScriptKey(pubKey),
-		GroupKey: &GroupKey{
+		ScriptKey:           asset.NewScriptKey(pubKey),
+		GroupKey: &asset.GroupKey{
 			GroupPubKey: *pubKey,
 			Witness:     sigWitness,
 		},
@@ -824,9 +825,9 @@ func TestUnknownVersion(t *testing.T) {
 
 	rootLeaf, err := root.Leaf()
 	require.Nil(t, rootLeaf)
-	require.ErrorIs(t, err, ErrUnknownVersion)
+	require.ErrorIs(t, err, asset.ErrUnknownVersion)
 
-	root.Version = V0
+	root.Version = asset.V0
 	rootLeaf, err = root.Leaf()
 	require.NotNil(t, rootLeaf)
 	require.Nil(t, err)
@@ -835,7 +836,7 @@ func TestUnknownVersion(t *testing.T) {
 func FuzzAssetDecode(f *testing.F) {
 	f.Fuzz(func(t *testing.T, data []byte) {
 		r := bytes.NewReader(data)
-		a := &Asset{}
+		a := &asset.Asset{}
 		if err := a.Decode(r); err != nil {
 			return
 		}
@@ -849,7 +850,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &TestVectors{}
+			testVectors = &asset.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -861,7 +862,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *asset.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 
@@ -882,7 +883,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			// a record type we haven't marked as known/supported
 			// yet. If the following check fails, you need to update
 			// the KnownAssetLeafTypes set.
-			for _, record := range a.encodeRecords(EncodeNormal) {
+			for _, record := range a.EncodeRecords() {
 				// Test vectors may contain this one type to
 				// demonstrate that it is not rejected.
 				if record.Type() ==
@@ -892,7 +893,8 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				}
 
 				require.Contains(
-					tt, KnownAssetLeafTypes, record.Type(),
+					tt, asset.KnownAssetLeafTypes,
+					record.Type(),
 				)
 			}
 
@@ -903,7 +905,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				)
 				require.NoError(tt, err)
 
-				expectedAsset := &Asset{}
+				expectedAsset := &asset.Asset{}
 				err = expectedAsset.Decode(bytes.NewReader(
 					expectedBytes,
 				))
@@ -920,7 +922,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 
 			// We also want to make sure that the asset is decoded
 			// correctly from the encoded TLV stream.
-			decoded := &Asset{}
+			decoded := &asset.Asset{}
 			err = decoded.Decode(&buf)
 			require.NoError(tt, err)
 
@@ -983,9 +985,9 @@ func TestNewAssetWithCustomVersion(t *testing.T) {
 
 	const newVersion = 10
 
-	assetCustomVersion, err := New(
-		rootAsset.Genesis, rootAsset.Amount, 0, 0, rootAsset.ScriptKey, nil,
-		WithAssetVersion(newVersion),
+	assetCustomVersion, err := asset.New(
+		rootAsset.Genesis, rootAsset.Amount, 0, 0, rootAsset.ScriptKey,
+		nil, asset.WithAssetVersion(newVersion),
 	)
 	require.NoError(t, err)
 
@@ -994,7 +996,7 @@ func TestNewAssetWithCustomVersion(t *testing.T) {
 
 // TestCopySpendTemplate tests that the spend template is copied correctly.
 func TestCopySpendTemplate(t *testing.T) {
-	newAsset := RandAsset(t, Normal)
+	newAsset := asset.RandAsset(t, asset.Normal)
 	newAsset.SplitCommitmentRoot = mssmt.NewComputedNode(hashBytes1, 1337)
 	newAsset.RelativeLockTime = 1
 	newAsset.LockTime = 2
@@ -1039,14 +1041,14 @@ func TestExternalKeyPubKey(t *testing.T) {
 
 	testCases := []struct {
 		name           string
-		externalKey    ExternalKey
+		externalKey    asset.ExternalKey
 		expectedPubKey string
 		expectError    bool
 		expectedError  string
 	}{
 		{
 			name: "valid BIP-86 external key",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1064,7 +1066,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "invalid derivation path length",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1079,7 +1081,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "invalid BIP-86 derivation path",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1094,7 +1096,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "valid BIP-86 external key, custom coin_type",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1112,7 +1114,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "valid BIP-86 external key, custom account",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1130,7 +1132,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "valid BIP-86 external key, change output",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1148,7 +1150,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "valid BIP-86 external key, change=2",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1166,7 +1168,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "valid BIP-86 external key, index=2",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPub(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1184,7 +1186,7 @@ func TestExternalKeyPubKey(t *testing.T) {
 		},
 		{
 			name: "valid BIP-86 external key, testnet",
-			externalKey: ExternalKey{
+			externalKey: asset.ExternalKey{
 				XPub:              dummyXPubTestnet(),
 				MasterFingerprint: 0x12345678,
 				DerivationPath: []uint32{
@@ -1237,11 +1239,11 @@ func TestDecodeAsset(t *testing.T) {
 	assetBytes, err := hex.DecodeString(string(fileContent))
 	require.NoError(t, err)
 
-	var a Asset
+	var a asset.Asset
 	err = a.Decode(bytes.NewReader(assetBytes))
 	require.NoError(t, err)
 
-	ta := NewTestFromAsset(t, &a)
+	ta := asset.NewTestFromAsset(t, &a)
 	assetJSON, err := json.MarshalIndent(ta, "", "\t")
 	require.NoError(t, err)
 

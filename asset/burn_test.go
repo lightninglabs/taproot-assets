@@ -1,4 +1,4 @@
-package asset
+package asset_test
 
 import (
 	"encoding/hex"
@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
 )
@@ -24,26 +25,26 @@ func TestDeriveBurnKey(t *testing.T) {
 
 	testCases := []struct {
 		name        string
-		prevID      PrevID
+		prevID      asset.PrevID
 		expectedKey string
 	}{{
 		name:   "empty prev ID",
-		prevID: PrevID{},
+		prevID: asset.PrevID{},
 		expectedKey: "b87da731321c9e90a2f3d525cf81a2f503e04ea" +
 			"49543692951e6b88752a0d72d",
 	}, {
 		name: "dummy value ID",
-		prevID: PrevID{
+		prevID: asset.PrevID{
 			OutPoint: wire.OutPoint{
 				Hash: chainhash.Hash{
 					0x77, 0x88, 0x99, 0xaa,
 				},
 				Index: 123,
 			},
-			ID: ID{
+			ID: asset.ID{
 				0x01, 0x02, 0x03, 0x04,
 			},
-			ScriptKey: SerializedKey{
+			ScriptKey: asset.SerializedKey{
 				0x02, 0x03, 0x04, 0x05,
 			},
 		},
@@ -51,7 +52,7 @@ func TestDeriveBurnKey(t *testing.T) {
 			"87ddb60226ad4edde",
 	}, {
 		name: "random value ID",
-		prevID: PrevID{
+		prevID: asset.PrevID{
 			OutPoint: test.ParseOutPoint(
 				t, "c8ca462e6247b1c7d67f9e2b5e371fc9303c3c3e6"+
 					"d690e8fb4a6bb5ca5b78104:354062834",
@@ -69,12 +70,12 @@ func TestDeriveBurnKey(t *testing.T) {
 			"36072361b52ad426c",
 	}}
 
-	testVectors := &BurnTestVectors{}
+	testVectors := &asset.BurnTestVectors{}
 	for _, tc := range testCases {
 		tc := tc
 
 		t.Run(tc.name, func(tt *testing.T) {
-			burnKey := DeriveBurnKey(tc.prevID)
+			burnKey := asset.DeriveBurnKey(tc.prevID)
 			burnKeyHex := hex.EncodeToString(
 				schnorr.SerializePubKey(burnKey),
 			)
@@ -82,8 +83,9 @@ func TestDeriveBurnKey(t *testing.T) {
 			require.Equal(tt, tc.expectedKey, burnKeyHex)
 
 			testVectors.ValidTestCases = append(
-				testVectors.ValidTestCases, &ValidBurnTestCase{
-					PrevID: NewTestFromPrevID(
+				testVectors.ValidTestCases,
+				&asset.ValidBurnTestCase{
+					PrevID: asset.NewTestFromPrevID(
 						&tc.prevID,
 					),
 					Expected: burnKeyHex,
@@ -105,7 +107,7 @@ func TestBurnBIPTestVectors(t *testing.T) {
 	for idx := range allBurnTestVectorFiles {
 		var (
 			fileName    = allBurnTestVectorFiles[idx]
-			testVectors = &BurnTestVectors{}
+			testVectors = &asset.BurnTestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -117,7 +119,9 @@ func TestBurnBIPTestVectors(t *testing.T) {
 }
 
 // runBurnBIPTestVector runs the tests in a single BIP test vector file.
-func runBurnBIPTestVector(t *testing.T, testVectors *BurnTestVectors) {
+func runBurnBIPTestVector(t *testing.T,
+	testVectors *asset.BurnTestVectors) {
+
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 
@@ -125,7 +129,7 @@ func runBurnBIPTestVector(t *testing.T, testVectors *BurnTestVectors) {
 			tt.Parallel()
 
 			p := validCase.PrevID.ToPrevID(t)
-			burnKey := DeriveBurnKey(*p)
+			burnKey := asset.DeriveBurnKey(*p)
 
 			require.Equal(
 				tt, validCase.Expected, hex.EncodeToString(

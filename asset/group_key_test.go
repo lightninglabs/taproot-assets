@@ -1,8 +1,7 @@
-package asset
+package asset_test
 
 import (
 	"bytes"
-	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -10,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/input"
@@ -23,16 +23,18 @@ import (
 type testCaseGkrEncodeDecode struct {
 	testName string
 
-	version NonSpendLeafVersion
+	version asset.NonSpendLeafVersion
 
 	internalKey       btcec.PublicKey
-	genesisAssetID    ID
+	genesisAssetID    asset.ID
 	customSubtreeRoot fn.Option[chainhash.Hash]
 }
 
 // GroupKeyReveal generates a GroupKeyReveal instance from the test case.
-func (tc testCaseGkrEncodeDecode) GroupKeyReveal() (GroupKeyReveal, error) {
-	gkr, err := NewGroupKeyRevealV1(
+func (tc testCaseGkrEncodeDecode) GroupKeyReveal() (asset.GroupKeyReveal,
+	error) {
+
+	gkr, err := asset.NewGroupKeyRevealV1(
 		tc.version, tc.internalKey, tc.genesisAssetID,
 		tc.customSubtreeRoot,
 	)
@@ -49,7 +51,7 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 
 	// Create a random genesis asset ID.
 	randomAssetIdBytes := test.RandBytes(32)
-	genesisAssetID := ID(randomAssetIdBytes)
+	genesisAssetID := asset.ID(randomAssetIdBytes)
 
 	// Construct a custom user script leaf. This is used to validate any
 	// control block.
@@ -62,7 +64,7 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 		{
 			testName: "no custom root",
 
-			version:           OpReturnVersion,
+			version:           asset.OpReturnVersion,
 			internalKey:       internalKey,
 			genesisAssetID:    genesisAssetID,
 			customSubtreeRoot: fn.None[chainhash.Hash](),
@@ -70,7 +72,7 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 		{
 			testName: "with custom root",
 
-			version:           PedersenVersion,
+			version:           asset.PedersenVersion,
 			internalKey:       internalKey,
 			genesisAssetID:    genesisAssetID,
 			customSubtreeRoot: customSubtreeRoot,
@@ -88,15 +90,15 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 			// Encode the GroupKeyReveal into buffer.
 			var buffer bytes.Buffer
 			var scratchBuffEncode [8]byte
-			err = GroupKeyRevealEncoder(
+			err = asset.GroupKeyRevealEncoder(
 				&buffer, &gkr, &scratchBuffEncode,
 			)
 			require.NoError(tt, err)
 
 			// Decode the GroupKeyReveal from buffer.
-			var gkrDecoded GroupKeyReveal
+			var gkrDecoded asset.GroupKeyReveal
 			var scratchBuffDecode [8]byte
-			err = GroupKeyRevealDecoder(
+			err = asset.GroupKeyRevealDecoder(
 				&buffer, &gkrDecoded, &scratchBuffDecode,
 				uint64(buffer.Len()),
 			)
@@ -105,7 +107,7 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 			// Prepare the original GroupKeyReveal for comparison.
 			// Remove fields which are not included in
 			// encoding/decoding.
-			gkrV1, ok := gkr.(*GroupKeyRevealV1)
+			gkrV1, ok := gkr.(*asset.GroupKeyRevealV1)
 			require.True(tt, ok)
 
 			// Compare decoded group key reveal with the original.
@@ -128,7 +130,7 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 			// block is correct.
 			if tc.customSubtreeRoot.IsSome() {
 				gkrDecodedV1, ok :=
-					gkrDecoded.(*GroupKeyRevealV1)
+					gkrDecoded.(*asset.GroupKeyRevealV1)
 				require.True(tt, ok)
 
 				ctrlBlock, err :=
@@ -148,7 +150,7 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 				// Ensure the computed root matches the custom
 				// subtree root.
 				require.Equal(
-					tt, gkrDecodedV1.tapscript.root,
+					tt, gkrDecodedV1.TapscriptRoot(),
 					computedRoot,
 				)
 			}
@@ -178,18 +180,18 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 		internalKey := *publicKey
 
 		// Generate a random genesis asset ID.
-		genesisAssetID := ID(rapid.SliceOfN(rapid.Byte(), 32, 32).
+		genesisAssetID := asset.ID(rapid.SliceOfN(rapid.Byte(), 32, 32).
 			Draw(t, "genesis_id"))
 
 		// Randomly decide whether to include a custom script.
 		hasCustomScript := rapid.Bool().Draw(t, "has_custom_script")
 
 		// Version should be either 1 or 2.
-		var version NonSpendLeafVersion
+		var version asset.NonSpendLeafVersion
 		if rapid.Bool().Draw(t, "version") {
-			version = OpReturnVersion
+			version = asset.OpReturnVersion
 		} else {
-			version = PedersenVersion
+			version = asset.PedersenVersion
 		}
 
 		// If a custom script is included, generate a random script leaf
@@ -214,7 +216,7 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 
 		// Create a new GroupKeyReveal instance from the random test
 		// inputs.
-		gkrV1, err := NewGroupKeyRevealV1(
+		gkrV1, err := asset.NewGroupKeyRevealV1(
 			version,
 			internalKey,
 			genesisAssetID,
@@ -225,14 +227,16 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 		// Encode the GroupKeyReveal instance into a buffer.
 		var buffer bytes.Buffer
 		var scratchBuffEncode [8]byte
-		gkr := GroupKeyReveal(&gkrV1)
-		err = GroupKeyRevealEncoder(&buffer, &gkr, &scratchBuffEncode)
+		gkr := asset.GroupKeyReveal(&gkrV1)
+		err = asset.GroupKeyRevealEncoder(
+			&buffer, &gkr, &scratchBuffEncode,
+		)
 		require.NoError(t, err)
 
 		// Decode the GroupKeyReveal instance from the buffer.
-		var gkrDecoded GroupKeyReveal
+		var gkrDecoded asset.GroupKeyReveal
 		var scratchBuffDecode [8]byte
-		err = GroupKeyRevealDecoder(
+		err = asset.GroupKeyRevealDecoder(
 			&buffer, &gkrDecoded, &scratchBuffDecode,
 			uint64(buffer.Len()),
 		)
@@ -258,7 +262,7 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 		// If a custom subtree root is set on the decoded
 		// GroupKeyReveal, ensure the derived control block is correct.
 		if customSubtreeRoot.IsSome() && customScriptLeaf != nil {
-			gkrDecodedV1, ok := gkrDecoded.(*GroupKeyRevealV1)
+			gkrDecodedV1, ok := gkrDecoded.(*asset.GroupKeyRevealV1)
 			require.True(t, ok)
 
 			ctrlBlock, err := gkrDecodedV1.ScriptSpendControlBlock(
@@ -273,10 +277,10 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 			// Ensure the computed root matches the tapscript root
 			// for both the original and decoded GroupKeyReveal.
 			require.Equal(
-				t, gkrV1.tapscript.root, computedRoot,
+				t, gkrV1.TapscriptRoot(), computedRoot,
 			)
 			require.Equal(
-				t, gkrDecodedV1.tapscript.root, computedRoot,
+				t, gkrDecodedV1.TapscriptRoot(), computedRoot,
 			)
 		}
 	})
@@ -285,10 +289,7 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 // TestNonSpendableLeafScript tests that the non-spendable leaf script is
 // actually non-spendable.
 func TestNonSpendableLeafScript(t *testing.T) {
-	var assetID ID
-	_, err := rand.Read(assetID[:])
-	require.NoError(t, err)
-
+	assetID := asset.RandID(t)
 	internalKey := test.RandPubKey(t)
 
 	const amt = 1000
@@ -296,18 +297,18 @@ func TestNonSpendableLeafScript(t *testing.T) {
 	testCases := []struct {
 		name string
 
-		version   NonSpendLeafVersion
+		version   asset.NonSpendLeafVersion
 		errString string
 	}{
 
 		{
 			name:      "op_return",
-			version:   OpReturnVersion,
+			version:   asset.OpReturnVersion,
 			errString: "script returned early",
 		},
 		{
 			name:      "pedersen",
-			version:   PedersenVersion,
+			version:   asset.PedersenVersion,
 			errString: "signature not empty on failed checksig",
 		},
 	}
@@ -316,7 +317,7 @@ func TestNonSpendableLeafScript(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			// For this test, we'll just have the test leaf be the
 			// only element in the script tree.
-			testLeaf, err := NewNonSpendableScriptLeaf(
+			testLeaf, err := asset.NewNonSpendableScriptLeaf(
 				testCase.version, assetID[:],
 			)
 			require.NoError(t, err)
@@ -349,7 +350,7 @@ func TestNonSpendableLeafScript(t *testing.T) {
 			// If this is the Pedersen variant, then we'll actually
 			// need to generate a signature.
 			var sig []byte
-			if testCase.version == PedersenVersion {
+			if testCase.version == asset.PedersenVersion {
 				privKey, _ := btcec.PrivKeyFromBytes(assetID[:])
 
 				sig, err = txscript.RawTxInTapscriptSignature(
@@ -401,7 +402,7 @@ func TestNonSpendableLeafScript(t *testing.T) {
 func TestGroupKeyIsEqual(t *testing.T) {
 	t.Parallel()
 
-	testKey := &GroupKey{
+	testKey := &asset.GroupKey{
 		RawKey: keychain.KeyDescriptor{
 			// Fill in some non-defaults.
 			KeyLocator: keychain.KeyLocator{
@@ -417,7 +418,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 	pubKeyCopy := *pubKey
 
 	tests := []struct {
-		a, b  *GroupKey
+		a, b  *asset.GroupKey
 		equal bool
 	}{
 		{
@@ -426,25 +427,25 @@ func TestGroupKeyIsEqual(t *testing.T) {
 			equal: true,
 		},
 		{
-			a:     &GroupKey{},
-			b:     &GroupKey{},
+			a:     &asset.GroupKey{},
+			b:     &asset.GroupKey{},
 			equal: true,
 		},
 		{
 			a:     nil,
-			b:     &GroupKey{},
+			b:     &asset.GroupKey{},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				GroupPubKey: *pubKey,
 			},
 			equal: false,
 		},
 		{
 			a: testKey,
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
 				Witness:     testKey.Witness,
 			},
@@ -452,7 +453,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 		},
 		{
 			a: testKey,
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 					PubKey:     nil,
@@ -465,7 +466,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 		},
 		{
 			a: testKey,
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					PubKey: &pubKeyCopy,
 				},
@@ -477,7 +478,7 @@ func TestGroupKeyIsEqual(t *testing.T) {
 		},
 		{
 			a: testKey,
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 					PubKey:     &pubKeyCopy,
@@ -489,25 +490,25 @@ func TestGroupKeyIsEqual(t *testing.T) {
 			equal: true,
 		},
 		{
-			a: &GroupKey{
+			a: &asset.GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
 				Witness:     testKey.Witness,
 			},
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				GroupPubKey: testKey.GroupPubKey,
 				Witness:     testKey.Witness,
 			},
 			equal: true,
 		},
 		{
-			a: &GroupKey{
+			a: &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
 				GroupPubKey: testKey.GroupPubKey,
 				Witness:     testKey.Witness,
 			},
-			b: &GroupKey{
+			b: &asset.GroupKey{
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: testKey.RawKey.KeyLocator,
 				},
@@ -533,20 +534,20 @@ func TestDeriveGroupKeyV0(t *testing.T) {
 	groupPub := privKey.PubKey()
 	require.NoError(t, err)
 	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
-	genSigner := NewMockGenesisSigner(privKeyCopy)
-	genBuilder := MockGroupTxBuilder{}
+	genSigner := asset.NewMockGenesisSigner(privKeyCopy)
+	genBuilder := asset.MockGroupTxBuilder{}
 	fakeKeyDesc := test.PubToKeyDesc(groupPub)
-	fakeScriptKey := NewScriptKeyBip86(fakeKeyDesc)
+	fakeScriptKey := asset.NewScriptKeyBip86(fakeKeyDesc)
 
-	g := Genesis{
+	g := asset.Genesis{
 		FirstPrevOut: wire.OutPoint{
 			Hash:  hashBytes1,
 			Index: 99,
 		},
 		Tag:         "normal asset 1",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
+		MetaHash:    [asset.MetaHashLen]byte{1, 2, 3},
 		OutputIndex: 21,
-		Type:        Collectible,
+		Type:        asset.Collectible,
 	}
 	groupTweak := g.ID()
 
@@ -555,15 +556,15 @@ func TestDeriveGroupKeyV0(t *testing.T) {
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	protoAsset := NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
-	groupReq := NewGroupKeyRequestNoErr(
-		t, fakeKeyDesc, fn.None[ExternalKey](), g, protoAsset, nil,
-		fn.None[chainhash.Hash](),
+	protoAsset := asset.NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
+	groupReq := asset.NewGroupKeyRequestNoErr(
+		t, fakeKeyDesc, fn.None[asset.ExternalKey](), g, protoAsset,
+		nil, fn.None[chainhash.Hash](),
 	)
 	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.NoError(t, err)
 
-	keyGroup, err := DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
+	keyGroup, err := asset.DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
 	require.NoError(t, err)
 
 	require.Equal(
@@ -576,14 +577,15 @@ func TestDeriveGroupKeyV0(t *testing.T) {
 	tapTweak := test.RandBytes(32)
 	tweakedKey = txscript.TweakTaprootPrivKey(*internalKey, tapTweak)
 
-	groupReq = NewGroupKeyRequestNoErr(
-		t, test.PubToKeyDesc(privKey.PubKey()), fn.None[ExternalKey](),
-		g, protoAsset, tapTweak, fn.None[chainhash.Hash](),
+	groupReq = asset.NewGroupKeyRequestNoErr(
+		t, test.PubToKeyDesc(privKey.PubKey()),
+		fn.None[asset.ExternalKey](), g, protoAsset, tapTweak,
+		fn.None[chainhash.Hash](),
 	)
 	genTx, err = groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.NoError(t, err)
 
-	keyGroup, err = DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
+	keyGroup, err = asset.DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
 	require.NoError(t, err)
 
 	require.Equal(
@@ -593,10 +595,10 @@ func TestDeriveGroupKeyV0(t *testing.T) {
 
 	// Group key tweaking should fail when given invalid tweaks.
 	badTweak := test.RandBytes(33)
-	_, err = GroupPubKeyV0(groupPub, badTweak, badTweak)
+	_, err = asset.GroupPubKeyV0(groupPub, badTweak, badTweak)
 	require.Error(t, err)
 
-	_, err = GroupPubKeyV0(groupPub, groupTweak[:], badTweak)
+	_, err = asset.GroupPubKeyV0(groupPub, groupTweak[:], badTweak)
 	require.Error(t, err)
 }
 
@@ -608,31 +610,31 @@ func TestGroupKeyDerivationInvalidAsset(t *testing.T) {
 	groupPriv := test.RandPrivKey()
 	groupPub := groupPriv.PubKey()
 	groupKeyDesc := test.PubToKeyDesc(groupPub)
-	genSigner := NewMockGenesisSigner(groupPriv)
-	genBuilder := MockGroupTxBuilder{}
+	genSigner := asset.NewMockGenesisSigner(groupPriv)
+	genBuilder := asset.MockGroupTxBuilder{}
 
-	baseGen := RandGenesis(t, Normal)
-	collectGen := RandGenesis(t, Collectible)
-	baseScriptKey := RandScriptKey(t)
-	protoAsset := RandAssetWithValues(t, baseGen, nil, baseScriptKey)
+	baseGen := asset.RandGenesis(t, asset.Normal)
+	collectGen := asset.RandGenesis(t, asset.Collectible)
+	baseScriptKey := asset.RandScriptKey(t)
+	protoAsset := asset.RandAssetWithValues(t, baseGen, nil, baseScriptKey)
 	nonGenProtoAsset := protoAsset.Copy()
-	nonGenProtoAsset.PrevWitnesses = []Witness{{
-		PrevID: &PrevID{
+	nonGenProtoAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &asset.PrevID{
 			OutPoint: wire.OutPoint{
 				Hash:  hashBytes1,
 				Index: 1,
 			},
 			ID:        hashBytes1,
-			ScriptKey: ToSerialized(pubKey),
+			ScriptKey: asset.ToSerialized(pubKey),
 		},
 		TxWitness:       sigWitness,
 		SplitCommitment: nil,
 	}}
 	groupedProtoAsset := protoAsset.Copy()
-	groupedProtoAsset.GroupKey = &GroupKey{
+	groupedProtoAsset.GroupKey = &asset.GroupKey{
 		GroupPubKey: *groupPub,
 	}
-	groupReq := GroupKeyRequest{
+	groupReq := asset.GroupKeyRequest{
 		RawKey:    groupKeyDesc,
 		AnchorGen: baseGen,
 	}
@@ -675,7 +677,7 @@ func TestGroupKeyDerivationInvalidAsset(t *testing.T) {
 	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.NoError(t, err)
 
-	groupKey, err := DeriveGroupKey(genSigner, *genTx, groupReq, nil)
+	groupKey, err := asset.DeriveGroupKey(genSigner, *genTx, groupReq, nil)
 	require.NoError(t, err)
 	require.NotNil(t, groupKey)
 }
