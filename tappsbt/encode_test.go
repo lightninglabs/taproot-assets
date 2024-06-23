@@ -1,9 +1,10 @@
-package tappsbt
+package tappsbt_test
 
 import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/stretchr/testify/require"
 )
 
@@ -11,7 +12,7 @@ import (
 func TestEncodeAsPsbt(t *testing.T) {
 	t.Parallel()
 
-	pkg := RandPacket(t, test.RandBool())
+	pkg := tappsbt.RandPacket(t, test.RandBool())
 	packet, err := pkg.EncodeAsPsbt()
 	require.NoError(t, err)
 
