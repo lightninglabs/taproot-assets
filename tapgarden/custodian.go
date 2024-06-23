@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 )
 
@@ -402,7 +403,7 @@ func (c *Custodian) watchInboundAssets() {
 		if err != nil {
 			// We'll report the error to the main daemon, but only
 			// if this isn't a context cancel.
-			if fn.IsCanceled(err) {
+			if taprpc.IsCanceled(err) {
 				return
 			}
 

@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 )
 
@@ -278,10 +279,10 @@ func (w *ReOrgWatcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 				// in a new block in the re-organized chain.
 
 			case err := <-errChan:
-				if !fn.IsRpcErr(
+				if !taprpc.IsRpcErr(
 					err,
 					chainntnfs.ErrChainNotifierShuttingDown,
-				) && !fn.IsCanceled(err) {
+				) && !taprpc.IsCanceled(err) {
 
 					w.reportErr(fmt.Errorf("error while "+
 						"waiting for conf: %w", err))
@@ -290,7 +291,7 @@ func (w *ReOrgWatcher) waitForConf(ctx context.Context, txHash chainhash.Hash,
 				return
 
 			case <-ctx.Done():
-				if !fn.IsCanceled(ctx.Err()) {
+				if !taprpc.IsCanceled(ctx.Err()) {
 					log.Warnf("Stopping to watch TX %v "+
 						"due to context error: %v",
 						txHash, ctx.Err())
@@ -469,9 +470,9 @@ func (w *ReOrgWatcher) watchTransactions() {
 			}
 
 		case err := <-blockErr:
-			if !fn.IsRpcErr(
+			if !taprpc.IsRpcErr(
 				err, chainntnfs.ErrChainNotifierShuttingDown,
-			) && !fn.IsCanceled(err) {
+			) && !taprpc.IsCanceled(err) {
 
 				w.reportErr(fmt.Errorf("unable to receive "+
 					"new block notifications: %w", err))

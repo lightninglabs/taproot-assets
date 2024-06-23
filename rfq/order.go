@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
@@ -529,7 +530,7 @@ func (h *OrderHandler) setupHtlcIntercept(ctx context.Context) error {
 	// in a separate goroutine.
 	err := h.cfg.HtlcInterceptor.InterceptHtlcs(ctx, h.handleIncomingHtlc)
 	if err != nil {
-		if fn.IsCanceled(err) {
+		if taprpc.IsCanceled(err) {
 			return nil
 		}
 
