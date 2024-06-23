@@ -6080,7 +6080,7 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetBuyOrderResponse(event)
+			resp, err := rfq.NewAddAssetBuyOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
 					"buy order response: %w", err)
@@ -6183,7 +6183,7 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetSellOrderResponse(event)
+			resp, err := rfq.NewAddAssetSellOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
 					"sell order response: %w", err)
@@ -6345,7 +6345,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote := taprpc.MarshalAcceptedBuyQuoteEvent(event)
+		acceptedQuote := rfq.MarshalAcceptedBuyQuoteEvent(event)
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedBuyQuote{
 			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
 				Timestamp:            uint64(timestamp),
@@ -6357,7 +6357,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		acceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(event)
+		acceptedQuote := rfq.MarshalAcceptedSellQuoteEvent(event)
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
 			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
 				Timestamp:             uint64(timestamp),
