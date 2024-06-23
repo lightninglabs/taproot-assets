@@ -13,6 +13,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
@@ -64,7 +65,7 @@ func newUniStatsHarness(t *testing.T, numAssets int, db *BaseDB,
 			assetType = asset.Collectible
 		}
 
-		randGen := asset.RandGenesis(t, assetType)
+		randGen := assetmock.RandGenesis(t, assetType)
 
 		id := randUniverseID(t, false)
 		id.AssetID = randGen.ID()

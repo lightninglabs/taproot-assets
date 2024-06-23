@@ -21,6 +21,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	addressmock "github.com/lightninglabs/taproot-assets/internal/mock/address"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
+	tapscriptmock "github.com/lightninglabs/taproot-assets/internal/mock/tapscript"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -82,7 +86,7 @@ type spendData struct {
 	asset2GenesisProof            proof.Proof
 	validator                     tapscript.TxValidator
 	witnessValidator              tapscript.WitnessValidator
-	signer                        *tapscript.MockSigner
+	signer                        *tapscriptmock.MockSigner
 }
 
 type testCase struct {
@@ -100,8 +104,8 @@ func initSpendScenario(t *testing.T) spendData {
 		collectAmt:      1,
 		normalAmt1:      2,
 		normalAmt2:      5,
-		genesis1:        asset.RandGenesis(t, asset.Normal),
-		genesis1collect: asset.RandGenesis(t, asset.Collectible),
+		genesis1:        assetmock.RandGenesis(t, asset.Normal),
+		genesis1collect: assetmock.RandGenesis(t, asset.Collectible),
 	}
 
 	// We don't have a meta reveal for these assets.
@@ -127,17 +131,17 @@ func initSpendScenario(t *testing.T) spendData {
 	state.receiverPrivKey = *receiverPrivKey
 	state.receiverPubKey = *receiverPubKey
 
-	genesis1collectProtoAsset := asset.NewAssetNoErr(
+	genesis1collectProtoAsset := assetmock.NewAssetNoErr(
 		t, state.genesis1collect, 1, 0, 0, spenderScriptKey, nil,
 	)
-	groupKey := asset.RandGroupKey(
+	groupKey := assetmock.RandGroupKey(
 		t, state.genesis1collect, genesis1collectProtoAsset,
 	)
 	state.groupKey = *groupKey
 
 	// Addresses to cover both asset types and all three asset values.
 	// Store the receiver StateKeys as well.
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 
 	address1, err := address.New(
 		address.V0, state.genesis1, nil, nil, state.receiverPubKey,
@@ -181,7 +185,7 @@ func initSpendScenario(t *testing.T) spendData {
 	state.witnessValidator = &tap.WitnessValidatorV0{}
 
 	// Signer needed to generate a witness for the spend.
-	state.signer = tapscript.NewMockSigner(&state.spenderPrivKey)
+	state.signer = tapscriptmock.NewMockSigner(&state.spenderPrivKey)
 
 	return state
 }
@@ -1680,33 +1684,33 @@ func TestProofVerify(t *testing.T) {
 
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
-		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		genesisProofBlob, &proofParams[0], proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
 	_, err = senderFile.Verify(
-		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		context.TODO(), proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
-		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		genesisProofBlob, &proofParams[1], proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
 	require.NoError(t, err)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
 	_, err = receiverFile.Verify(
-		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		context.TODO(), proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 }
@@ -1757,33 +1761,33 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
-		genesisProofBlob, &proofParams[0], proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		genesisProofBlob, &proofParams[0], proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
 	require.NoError(t, err)
 	require.NoError(t, senderFile.Decode(bytes.NewReader(senderBlob)))
 	_, err = senderFile.Verify(
-		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		context.TODO(), proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 
 	receiverBlob, _, err := proof.AppendTransition(
-		genesisProofBlob, &proofParams[1], proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		genesisProofBlob, &proofParams[1], proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
 	require.NoError(t, receiverFile.Decode(bytes.NewReader(receiverBlob)))
 	_, err = receiverFile.Verify(
-		context.TODO(), proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		context.TODO(), proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 }
@@ -1964,7 +1968,7 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 			address.V0, state.genesis1, nil, nil,
 			state.receiverPubKey, state.receiverPubKey,
 			state.normalAmt1, nil, &address.TestNet3Tap,
-			address.RandProofCourierAddr(t),
+			addressmock.RandProofCourierAddr(t),
 		)
 		require.NoError(t, err)
 
@@ -2001,7 +2005,7 @@ func TestPayToAddrScript(t *testing.T) {
 		normalAmt1 = 5
 		sendAmt    = 2
 	)
-	gen := asset.RandGenesis(t, asset.Normal)
+	gen := assetmock.RandGenesis(t, asset.Normal)
 	ownerDescriptor := test.PubToKeyDesc(test.RandPrivKey(t).PubKey())
 
 	internalKey := test.RandPrivKey(t).PubKey()
@@ -2036,7 +2040,7 @@ func TestPayToAddrScript(t *testing.T) {
 	addr1, err := address.New(
 		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
 		*internalKey, sendAmt, nil, &address.RegressionNetTap,
-		address.RandProofCourierAddr(t),
+		addressmock.RandProofCourierAddr(t),
 	)
 	require.NoError(t, err)
 
@@ -2054,7 +2058,7 @@ func TestPayToAddrScript(t *testing.T) {
 	addr2, err := address.New(
 		address.V0, gen, nil, nil, *recipientScriptKey.PubKey,
 		*internalKey, sendAmt, sibling, &address.RegressionNetTap,
-		address.RandProofCourierAddr(t),
+		addressmock.RandProofCourierAddr(t),
 	)
 	require.NoError(t, err)
 
@@ -2388,7 +2392,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 	var (
 		key1        = test.RandPubKey(t)
 		key2        = test.RandPubKey(t)
-		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		asset1      = assetmock.RandAsset(t, assetmock.RandAssetType(t))
 		emptyProof  = &proof.CommitmentProof{}
 		vOutSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:            0,
@@ -2668,7 +2672,7 @@ func TestValidateAnchorInputs(t *testing.T) {
 		key1       = test.RandPubKey(t)
 		key2       = test.RandPubKey(t)
 		key1Bytes  = schnorr.SerializePubKey(key1)
-		asset1     = asset.RandAsset(t, asset.RandAssetType(t))
+		asset1     = assetmock.RandAsset(t, assetmock.RandAssetType(t))
 		vInSibling = tappsbt.VInput{
 			PrevID: asset.PrevID{
 				OutPoint: op1,

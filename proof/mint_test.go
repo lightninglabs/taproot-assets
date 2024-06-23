@@ -11,6 +11,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
@@ -34,7 +36,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	metaReveal := &proof.MetaReveal{
 		Data: metaBlob[:],
 	}
-	assetGenesis := asset.RandGenesis(t, asset.Collectible)
+	assetGenesis := assetmock.RandGenesis(t, asset.Collectible)
 	assetGenesis.MetaHash = metaReveal.MetaHash()
 	assetGenesis.OutputIndex = 0
 	commitVersion := commitment.RandTapCommitVersion()
@@ -52,11 +54,11 @@ func TestNewMintingBlobs(t *testing.T) {
 	// Add a group anchor with a custom tapscript root to the set of minted
 	// assets. We cannot make this type of asset with commitment.Mint, so
 	// we create it manually and then insert it into the tap commitment.
-	groupedGenesis := asset.RandGenesis(t, asset.Normal)
+	groupedGenesis := assetmock.RandGenesis(t, asset.Normal)
 	groupedGenesis.FirstPrevOut = assetGenesis.FirstPrevOut
 	groupedGenesis.MetaHash = metaReveal.MetaHash()
 	groupedGenesis.OutputIndex = 0
-	groupedAsset := asset.AssetCustomGroupKey(
+	groupedAsset := assetmock.AssetCustomGroupKey(
 		t, test.RandBool(), false, false, true, groupedGenesis,
 	)
 
@@ -129,9 +131,10 @@ func TestNewMintingBlobs(t *testing.T) {
 			}},
 		},
 		GenesisPoint: genesisTx.TxIn[0].PreviousOutPoint,
-	}, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockGroupAnchorVerifier,
-		proof.MockChainLookup, proof.WithAssetMetaReveals(metaReveals),
+	}, proofmock.MockHeaderVerifier, proofmock.MockMerkleVerifier,
+		proofmock.MockGroupVerifier, proofmock.MockGroupAnchorVerifier,
+		proofmock.MockChainLookup,
+		proof.WithAssetMetaReveals(metaReveals),
 	)
 	require.NoError(t, err)
 }

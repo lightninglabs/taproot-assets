@@ -12,6 +12,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -28,10 +30,10 @@ var (
 // transaction.
 func TestCreateProofSuffix(t *testing.T) {
 	testAssets := []*asset.Asset{
-		asset.RandAsset(t, asset.RandAssetType(t)),
-		asset.RandAsset(t, asset.RandAssetType(t)),
-		asset.RandAsset(t, asset.RandAssetType(t)),
-		asset.RandAsset(t, asset.RandAssetType(t)),
+		assetmock.RandAsset(t, assetmock.RandAssetType(t)),
+		assetmock.RandAsset(t, assetmock.RandAssetType(t)),
+		assetmock.RandAsset(t, assetmock.RandAssetType(t)),
+		assetmock.RandAsset(t, assetmock.RandAssetType(t)),
 	}
 
 	// We want to make sure the assets don't look like genesis assets.
@@ -101,9 +103,10 @@ func TestCreateProofSuffix(t *testing.T) {
 			}
 
 			_, err = proofSuffix.Verify(
-				ctx, prev, proof.MockHeaderVerifier,
-				proof.MockMerkleVerifier,
-				proof.MockGroupVerifier, proof.MockChainLookup,
+				ctx, prev, proofmock.MockHeaderVerifier,
+				proofmock.MockMerkleVerifier,
+				proofmock.MockGroupVerifier,
+				proofmock.MockChainLookup,
 			)
 
 			// Checking the transfer witness is the very last step
@@ -129,7 +132,7 @@ func createPacket(t *testing.T, a *asset.Asset, split bool,
 	if split {
 		amount := a.Amount / 2
 		change := a.Amount - amount
-		changeKey := asset.RandScriptKey(t)
+		changeKey := assetmock.RandScriptKey(t)
 
 		if a.Type == asset.Collectible {
 			change = 0

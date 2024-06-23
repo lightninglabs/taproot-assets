@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	addressmock "github.com/lightninglabs/taproot-assets/internal/mock/address"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
@@ -153,10 +154,10 @@ func TestAddressInsertion(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
+		addr, assetGen, assetGroup := addressmock.RandAddr(
 			t, chainParams, proofCourierAddr,
 		)
 
@@ -259,10 +260,10 @@ func TestAddressQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
+		addr, assetGen, assetGroup := addressmock.RandAddr(
 			t, chainParams, proofCourierAddr,
 		)
 
@@ -377,8 +378,8 @@ func TestAddrEventStatusDBEnum(t *testing.T) {
 	// Make sure an event with an invalid status cannot be created. This
 	// should be protected by a CHECK constraint on the column. If this
 	// fails, you need to update that constraint in the DB!
-	proofCourierAddr := address.RandProofCourierAddr(t)
-	addr, assetGen, assetGroup := address.RandAddr(
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
+	addr, assetGen, assetGroup := addressmock.RandAddr(
 		t, chainParams, proofCourierAddr,
 	)
 
@@ -414,11 +415,11 @@ func TestAddrEventCreation(t *testing.T) {
 
 	// Create 5 addresses and then events with unconfirmed transactions.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 	txns := make([]*lndclient.Transaction, numAddrs)
 	events := make([]*address.Event, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
+		addr, assetGen, assetGroup := addressmock.RandAddr(
 			t, chainParams, proofCourierAddr,
 		)
 
@@ -509,10 +510,10 @@ func TestAddressEventQuery(t *testing.T) {
 
 	// Make a series of new addrs, then insert them into the DB.
 	const numAddrs = 5
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 	addrs := make([]address.AddrWithKeyInfo, numAddrs)
 	for i := 0; i < numAddrs; i++ {
-		addr, assetGen, assetGroup := address.RandAddr(
+		addr, assetGen, assetGroup := addressmock.RandAddr(
 			t, chainParams, proofCourierAddr,
 		)
 

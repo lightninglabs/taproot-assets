@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/big"
 
+	mssmtmock "github.com/lightninglabs/taproot-assets/internal/mock/mssmt"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 )
@@ -13,7 +14,7 @@ const hashSize = 32
 func randLeaf() *mssmt.LeafNode {
 	valueLen := test.RandInt31n(math.MaxUint8) + 1
 	value := test.RandBytes(int(valueLen))
-	sum := mssmt.RandLeafAmount()
+	sum := mssmtmock.RandLeafAmount()
 	return mssmt.NewLeafNode(value, sum)
 }
 

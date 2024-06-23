@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -666,7 +667,7 @@ func VerifyProofBlob(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 
 	snapshot, err := f.Verify(
 		ctxt, headerVerifier, proof.DefaultMerkleVerifier,
-		groupVerifier, proof.MockChainLookup,
+		groupVerifier, proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 

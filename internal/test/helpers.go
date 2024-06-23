@@ -331,19 +331,6 @@ func HexSignature(sig *schnorr.Signature) string {
 	return hex.EncodeToString(sig.Serialize())
 }
 
-func HexTx(t testing.TB, tx *wire.MsgTx) string {
-	t.Helper()
-
-	if tx == nil {
-		return ""
-	}
-
-	var buf bytes.Buffer
-	require.NoError(t, tx.Serialize(&buf))
-
-	return hex.EncodeToString(buf.Bytes())
-}
-
 func ComputeTaprootScriptErr(witnessProgram []byte) ([]byte, error) {
 	return txscript.NewScriptBuilder().
 		AddOp(txscript.OP_1).

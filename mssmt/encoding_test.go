@@ -8,7 +8,9 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/fn"
+	mssmtmock "github.com/lightninglabs/taproot-assets/internal/mock/mssmt"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/json"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/stretchr/testify/require"
 )
@@ -57,11 +59,11 @@ func TestBitPacking(t *testing.T) {
 func TestProofEncoding(t *testing.T) {
 	t.Parallel()
 
-	testCase := &mssmt.ValidTestCase{
+	testCase := &mssmtmock.ValidTestCase{
 		Comment: "compressed proofs",
 	}
-	testVectors := &mssmt.TestVectors{
-		ValidTestCases: []*mssmt.ValidTestCase{testCase},
+	testVectors := &mssmtmock.TestVectors{
+		ValidTestCases: []*mssmtmock.ValidTestCase{testCase},
 	}
 
 	leaves := randTree(10_000)
@@ -72,9 +74,8 @@ func TestProofEncoding(t *testing.T) {
 		require.NoError(t, err)
 
 		testVectors.AllTreeLeaves = append(
-			testVectors.AllTreeLeaves, mssmt.NewTestFromLeaf(
-				t, item.key, item.leaf,
-			),
+			testVectors.AllTreeLeaves,
+			json.NewLeaf(item.key, item.leaf),
 		)
 		testCase.InsertedLeaves = append(
 			testCase.InsertedLeaves,
@@ -105,7 +106,8 @@ func TestProofEncoding(t *testing.T) {
 		if idx%10 == 0 {
 			proofKeyHex := hex.EncodeToString(item.key[:])
 			testCase.InclusionProofs = append(
-				testCase.InclusionProofs, &mssmt.TestProofCase{
+				testCase.InclusionProofs,
+				&mssmtmock.TestProofCase{
 					ProofKey: proofKeyHex,
 					CompressedProof: hex.EncodeToString(
 						buf.Bytes(),
@@ -128,7 +130,7 @@ func TestProofEncoding(t *testing.T) {
 		require.NoError(t, err)
 
 		testCase.ExclusionProofs = append(
-			testCase.ExclusionProofs, &mssmt.TestProofCase{
+			testCase.ExclusionProofs, &mssmtmock.TestProofCase{
 				ProofKey: hex.EncodeToString(randomKey[:]),
 				CompressedProof: hex.EncodeToString(
 					buf.Bytes(),

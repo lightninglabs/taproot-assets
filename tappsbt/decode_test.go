@@ -14,7 +14,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	addressmock "github.com/lightninglabs/taproot-assets/internal/mock/address"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	tappsbtmock "github.com/lightninglabs/taproot-assets/internal/mock/tappsbt"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/json"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/stretchr/testify/require"
@@ -82,7 +86,7 @@ func TestEncodingDecoding(t *testing.T) {
 		encodeErr, decodeErr error
 	}
 
-	testVectors := &tappsbt.TestVectors{}
+	testVectors := &tappsbtmock.TestVectors{}
 	assertEncodingDecoding := func(tCase testCase) {
 		comment := tCase.name
 		pkg := tCase.pkg(t)
@@ -110,12 +114,14 @@ func TestEncodingDecoding(t *testing.T) {
 			expected := base64.StdEncoding.EncodeToString(
 				testVectorBuf.Bytes(),
 			)
+
+			jsonPacket, err := json.NewVPacket(pkg)
+			require.NoError(t, err)
+
 			testVectors.ValidTestCases = append(
 				testVectors.ValidTestCases,
-				&tappsbt.ValidTestCase{
-					Packet: tappsbt.NewTestFromVPacket(
-						t, pkg,
-					),
+				&tappsbtmock.ValidTestCase{
+					Packet:   jsonPacket,
 					Expected: expected,
 					Comment:  comment,
 				},
@@ -136,8 +142,8 @@ func TestEncodingDecoding(t *testing.T) {
 	testCases := []testCase{{
 		name: "minimal packet",
 		pkg: func(t *testing.T) *tappsbt.VPacket {
-			proofCourierAddr := address.RandProofCourierAddr(t)
-			addr, _, _ := address.RandAddr(
+			proofCourierAddr := addressmock.RandProofCourierAddr(t)
+			addr, _, _ := addressmock.RandAddr(
 				t, testParams, proofCourierAddr,
 			)
 
@@ -146,7 +152,7 @@ func TestEncodingDecoding(t *testing.T) {
 			)
 			require.NoError(t, err)
 			pkg.Outputs = append(pkg.Outputs, &tappsbt.VOutput{
-				ScriptKey: asset.RandScriptKey(t),
+				ScriptKey: assetmock.RandScriptKey(t),
 			})
 
 			return pkg
@@ -154,12 +160,12 @@ func TestEncodingDecoding(t *testing.T) {
 	}, {
 		name: "random packet",
 		pkg: func(t *testing.T) *tappsbt.VPacket {
-			return tappsbt.RandPacket(t, true)
+			return tappsbtmock.RandPacket(t, true)
 		},
 	}, {
 		name: "random packet with no explicit version",
 		pkg: func(t *testing.T) *tappsbt.VPacket {
-			return tappsbt.RandPacket(t, false)
+			return tappsbtmock.RandPacket(t, false)
 		},
 	}, {
 		name: "invalid packet version",
@@ -167,7 +173,7 @@ func TestEncodingDecoding(t *testing.T) {
 			validVers := fn.NewSet(
 				uint8(tappsbt.V0), uint8(tappsbt.V1),
 			)
-			pkt := tappsbt.RandPacket(t, false)
+			pkt := tappsbtmock.RandPacket(t, false)
 
 			invalidPktVersion := test.RandInt[uint8]()
 			for validVers.Contains(invalidPktVersion) {
@@ -203,7 +209,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &tappsbt.TestVectors{}
+			testVectors = &tappsbtmock.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -215,7 +221,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *tappsbt.TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *tappsbtmock.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 

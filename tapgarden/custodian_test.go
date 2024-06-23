@@ -19,6 +19,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	addressmock "github.com/lightninglabs/taproot-assets/internal/mock/address"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
@@ -114,7 +117,7 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 	assetStore := tapdb.NewAssetStore(assetDB, testClock)
 
 	proofArchive := proof.NewMultiArchiver(
-		proof.NewMockVerifier(t), tapdb.DefaultStoreTimeout,
+		proofmock.NewMockVerifier(t), tapdb.DefaultStoreTimeout,
 		assetStore,
 	)
 
@@ -141,7 +144,7 @@ type custodianHarness struct {
 	syncer       *tapgarden.MockAssetSyncer
 	assetDB      *tapdb.AssetStore
 	multiverse   *tapdb.MultiverseStore
-	courier      *proof.MockProofCourier
+	courier      *proofmock.MockProofCourier
 }
 
 // assertStartup makes sure the custodian was started correctly.
@@ -295,8 +298,8 @@ func newHarness(t *testing.T,
 	_, assetDB, multiverse := newProofArchiveForDB(t, db.BaseDB)
 	notifier := proof.NewMultiArchiveNotifier(assetDB, multiverse)
 
-	courier := proof.NewMockProofCourier()
-	courierDispatch := &proof.MockProofCourierDispatcher{
+	courier := proofmock.NewMockProofCourier()
+	courierDispatch := &proofmock.MockProofCourierDispatcher{
 		Courier: courier,
 	}
 	proofWatcher := &tapgarden.MockProofWatcher{}
@@ -341,7 +344,7 @@ func newHarness(t *testing.T,
 }
 
 func randAddr(h *custodianHarness) (*address.AddrWithKeyInfo, *asset.Genesis) {
-	addr, genesis, group := address.RandAddr(
+	addr, genesis, group := addressmock.RandAddr(
 		h.t, &address.RegressionNetTap, url.URL{
 			Scheme: "mock",
 		},
@@ -523,7 +526,7 @@ func TestCustodianNewAddr(t *testing.T) {
 	}()
 	ctx := context.Background()
 	addr, _ := randAddr(h)
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 	addrVersion := test.RandFlip(address.V0, address.V1)
 	dbAddr, err := h.addrBook.NewAddress(
 		ctx, addrVersion, addr.AssetID, addr.Amount, nil,
@@ -557,7 +560,7 @@ func TestBookAssetSyncer(t *testing.T) {
 	h.assertStartup()
 
 	ctx := context.Background()
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 
 	// Start a background goroutine to add assets that have been
 	// fetched from the asset syncer to the address book, to mimic a
@@ -568,7 +571,7 @@ func TestBookAssetSyncer(t *testing.T) {
 	)
 
 	// Address creation should fail for unknown assets.
-	newAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
+	newAsset := assetmock.RandAsset(t, asset.Type(test.RandInt31n(2)))
 	addrVersion := test.RandFlip(address.V0, address.V1)
 	_, err := h.addrBook.NewAddress(
 		ctx, addrVersion, newAsset.ID(), 1, nil, proofCourierAddr,
@@ -599,7 +602,7 @@ func TestBookAssetSyncer(t *testing.T) {
 	// the address creator.
 	h.syncer.FetchErrs = true
 
-	secondAsset := asset.RandAsset(t, asset.Type(test.RandInt31n(2)))
+	secondAsset := assetmock.RandAsset(t, asset.Type(test.RandInt31n(2)))
 	addrVersion = test.RandFlip(address.V0, address.V1)
 	_, err = h.addrBook.NewAddress(
 		ctx, addrVersion, secondAsset.ID(), 1, nil, proofCourierAddr,
@@ -751,7 +754,7 @@ func mustMakeAddr(t *testing.T,
 	groupWitness wire.TxWitness, scriptKey btcec.PublicKey) *address.Tap {
 
 	var p btcec.PublicKey
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 	addr, err := address.New(
 		address.V0, gen, groupKey, groupWitness, scriptKey,
 		p, 1, nil, &address.TestNet3Tap, proofCourierAddr,
@@ -811,16 +814,16 @@ func TestAddrMatchesAsset(t *testing.T) {
 
 	randKey1, randKey2 := test.RandPubKey(t), test.RandPubKey(t)
 	randScriptKey1, randScriptKey2 := test.RandPubKey(t), test.RandPubKey(t)
-	randGen1 := asset.RandGenesis(t, asset.Normal)
-	randGen2 := asset.RandGenesis(t, asset.Normal)
-	protoAsset1 := asset.RandAssetWithValues(
+	randGen1 := assetmock.RandGenesis(t, asset.Normal)
+	randGen2 := assetmock.RandGenesis(t, asset.Normal)
+	protoAsset1 := assetmock.RandAssetWithValues(
 		t, randGen1, nil, asset.NewScriptKey(randScriptKey1),
 	)
-	protoAsset2 := asset.RandAssetWithValues(
+	protoAsset2 := assetmock.RandAssetWithValues(
 		t, randGen2, nil, asset.NewScriptKey(randScriptKey2),
 	)
-	randGroup1 := asset.RandGroupKey(t, randGen1, protoAsset1)
-	randGroup2 := asset.RandGroupKey(t, randGen2, protoAsset2)
+	randGroup1 := assetmock.RandGroupKey(t, randGen1, protoAsset1)
+	randGroup2 := assetmock.RandGroupKey(t, randGen2, protoAsset2)
 
 	var blankKey btcec.PublicKey
 

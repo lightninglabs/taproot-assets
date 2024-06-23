@@ -14,7 +14,9 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/fn"
+	mssmtmock "github.com/lightninglabs/taproot-assets/internal/mock/mssmt"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/json"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	_ "github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/stretchr/testify/require"
@@ -173,17 +175,17 @@ func TestInsertion(t *testing.T) {
 func TestInsertionOverflow(t *testing.T) {
 	t.Parallel()
 
-	testCaseOk := &mssmt.ValidTestCase{
+	testCaseOk := &mssmtmock.ValidTestCase{
 		Comment: "non overflowing leaf",
 	}
-	testCaseOverflow := &mssmt.ErrorTestCase{
+	testCaseOverflow := &mssmtmock.ErrorTestCase{
 		Comment: "overflowing leaf",
 	}
-	testVectors := &mssmt.TestVectors{
-		ValidTestCases: []*mssmt.ValidTestCase{
+	testVectors := &mssmtmock.TestVectors{
+		ValidTestCases: []*mssmtmock.ValidTestCase{
 			testCaseOk,
 		},
-		ErrorTestCases: []*mssmt.ErrorTestCase{
+		ErrorTestCases: []*mssmtmock.ErrorTestCase{
 			testCaseOverflow,
 		},
 	}
@@ -205,9 +207,9 @@ func TestInsertionOverflow(t *testing.T) {
 
 	// We'll generate two test vectors, one successful with just the minimal
 	// leaf and one overflowing.
-	testVectors.AllTreeLeaves = []*mssmt.TestLeaf{
-		mssmt.NewTestFromLeaf(t, minLeaf.key, minLeaf.leaf),
-		mssmt.NewTestFromLeaf(t, overflowLeaf.key, overflowLeaf.leaf),
+	testVectors.AllTreeLeaves = []*json.Leaf{
+		json.NewLeaf(minLeaf.key, minLeaf.leaf),
+		json.NewLeaf(overflowLeaf.key, overflowLeaf.leaf),
 	}
 	testCaseOk.InsertedLeaves = []string{hex.EncodeToString(minLeaf.key[:])}
 	testCaseOverflow.InsertedLeaves = []string{
@@ -275,11 +277,11 @@ func TestInsertionOverflow(t *testing.T) {
 func TestReplaceWithEmptyBranch(t *testing.T) {
 	t.Parallel()
 
-	testCase := &mssmt.ValidTestCase{
+	testCase := &mssmtmock.ValidTestCase{
 		Comment: "sub tree deletion",
 	}
-	testVectors := &mssmt.TestVectors{
-		ValidTestCases: []*mssmt.ValidTestCase{
+	testVectors := &mssmtmock.TestVectors{
+		ValidTestCases: []*mssmtmock.ValidTestCase{
 			testCase,
 		},
 	}
@@ -304,9 +306,7 @@ func TestReplaceWithEmptyBranch(t *testing.T) {
 		require.NoError(t, err)
 
 		testVectors.AllTreeLeaves = append(
-			testVectors.AllTreeLeaves, mssmt.NewTestFromLeaf(
-				t, key, leaf,
-			),
+			testVectors.AllTreeLeaves, json.NewLeaf(key, leaf),
 		)
 		testCase.InsertedLeaves = append(
 			testCase.InsertedLeaves,
@@ -352,11 +352,11 @@ func TestReplaceWithEmptyBranch(t *testing.T) {
 func TestReplace(t *testing.T) {
 	t.Parallel()
 
-	testCase := &mssmt.ValidTestCase{
+	testCase := &mssmtmock.ValidTestCase{
 		Comment: "leaf replacement",
 	}
-	testVectors := &mssmt.TestVectors{
-		ValidTestCases: []*mssmt.ValidTestCase{
+	testVectors := &mssmtmock.TestVectors{
+		ValidTestCases: []*mssmtmock.ValidTestCase{
 			testCase,
 		},
 	}
@@ -370,7 +370,7 @@ func TestReplace(t *testing.T) {
 		item := leaves1[idx]
 		testVectors.AllTreeLeaves = append(
 			testVectors.AllTreeLeaves,
-			mssmt.NewTestFromLeaf(t, item.key, item.leaf),
+			json.NewLeaf(item.key, item.leaf),
 		)
 		testCase.InsertedLeaves = append(
 			testCase.InsertedLeaves,
@@ -381,7 +381,7 @@ func TestReplace(t *testing.T) {
 		item := leaves2[idx]
 		testCase.ReplacedLeaves = append(
 			testCase.ReplacedLeaves,
-			mssmt.NewTestFromLeaf(t, item.key, item.leaf),
+			json.NewLeaf(item.key, item.leaf),
 		)
 	}
 
@@ -811,7 +811,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &mssmt.TestVectors{}
+			testVectors = &mssmtmock.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -823,7 +823,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *mssmt.TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *mssmtmock.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 

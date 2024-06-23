@@ -13,7 +13,10 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	mssmtmock "github.com/lightninglabs/taproot-assets/internal/mock/mssmt"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/json"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -240,10 +243,10 @@ func TestGroupKeyIsEqual(t *testing.T) {
 func TestGenesisAssetClassification(t *testing.T) {
 	t.Parallel()
 
-	baseGen := asset.RandGenesis(t, asset.Normal)
-	baseScriptKey := asset.RandScriptKey(t)
-	baseAsset := asset.RandAssetWithValues(t, baseGen, nil, baseScriptKey)
-	assetValidGroup := asset.RandAsset(t, asset.Collectible)
+	baseGen := assetmock.RandGenesis(t, asset.Normal)
+	baseScriptKey := assetmock.RandScriptKey(t)
+	baseAsset := assetmock.RandAssetWithValues(t, baseGen, nil, baseScriptKey)
+	assetValidGroup := assetmock.RandAsset(t, asset.Collectible)
 	assetNeedsWitness := baseAsset.Copy()
 	assetNeedsWitness.GroupKey = &asset.GroupKey{
 		GroupPubKey: *test.RandPubKey(t),
@@ -416,7 +419,7 @@ func TestValidateAssetName(t *testing.T) {
 func TestAssetEncoding(t *testing.T) {
 	t.Parallel()
 
-	testVectors := &asset.TestVectors{}
+	testVectors := &assetmock.TestVectors{}
 	assertAssetEncoding := func(comment string, a *asset.Asset) {
 		t.Helper()
 
@@ -425,9 +428,12 @@ func TestAssetEncoding(t *testing.T) {
 		var buf bytes.Buffer
 		require.NoError(t, a.Encode(&buf))
 
+		jsonAsset, err := json.NewAsset(a)
+		require.NoError(t, err)
+
 		testVectors.ValidTestCases = append(
-			testVectors.ValidTestCases, &asset.ValidTestCase{
-				Asset:    asset.NewTestFromAsset(t, a),
+			testVectors.ValidTestCases, &assetmock.ValidTestCase{
+				Asset:    jsonAsset,
 				Expected: hex.EncodeToString(buf.Bytes()),
 				Comment:  comment,
 			},
@@ -441,7 +447,7 @@ func TestAssetEncoding(t *testing.T) {
 	root := testRootAsset.Copy()
 	split := testSplitAsset.Copy()
 	split.PrevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
-		Proof:     *mssmt.RandProof(t),
+		Proof:     *mssmtmock.RandProof(t),
 		RootAsset: *root,
 	}
 	assertAssetEncoding("random split asset with root asset", split)
@@ -671,7 +677,7 @@ func TestAssetIsBurn(t *testing.T) {
 	root := testRootAsset.Copy()
 	split := testSplitAsset.Copy()
 	split.PrevWitnesses[0].SplitCommitment = &asset.SplitCommitment{
-		Proof:     *mssmt.RandProof(t),
+		Proof:     *mssmtmock.RandProof(t),
 		RootAsset: *root,
 	}
 
@@ -774,11 +780,13 @@ func TestAssetGroupKey(t *testing.T) {
 	t.Parallel()
 
 	privKey, err := btcec.NewPrivateKey()
+	require.NoError(t, err)
+
 	groupPub := privKey.PubKey()
 	require.NoError(t, err)
 	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
-	genSigner := asset.NewMockGenesisSigner(privKeyCopy)
-	genBuilder := asset.MockGroupTxBuilder{}
+	genSigner := assetmock.NewMockGenesisSigner(privKeyCopy)
+	genBuilder := assetmock.MockGroupTxBuilder{}
 	fakeKeyDesc := test.PubToKeyDesc(groupPub)
 	fakeScriptKey := asset.NewScriptKeyBip86(fakeKeyDesc)
 
@@ -799,8 +807,8 @@ func TestAssetGroupKey(t *testing.T) {
 
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
-	protoAsset := asset.NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
-	groupReq := asset.NewGroupKeyRequestNoErr(
+	protoAsset := assetmock.NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
+	groupReq := assetmock.NewGroupKeyRequestNoErr(
 		t, fakeKeyDesc, g, protoAsset, nil,
 	)
 	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
@@ -819,7 +827,7 @@ func TestAssetGroupKey(t *testing.T) {
 	tapTweak := test.RandBytes(32)
 	tweakedKey = txscript.TweakTaprootPrivKey(*internalKey, tapTweak)
 
-	groupReq = asset.NewGroupKeyRequestNoErr(
+	groupReq = assetmock.NewGroupKeyRequestNoErr(
 		t, test.PubToKeyDesc(privKey.PubKey()), g, protoAsset, tapTweak,
 	)
 	genTx, err = groupReq.BuildGroupVirtualTx(&genBuilder)
@@ -850,13 +858,13 @@ func TestDeriveGroupKey(t *testing.T) {
 	groupPriv := test.RandPrivKey(t)
 	groupPub := groupPriv.PubKey()
 	groupKeyDesc := test.PubToKeyDesc(groupPub)
-	genSigner := asset.NewMockGenesisSigner(groupPriv)
-	genBuilder := asset.MockGroupTxBuilder{}
+	genSigner := assetmock.NewMockGenesisSigner(groupPriv)
+	genBuilder := assetmock.MockGroupTxBuilder{}
 
-	baseGen := asset.RandGenesis(t, asset.Normal)
-	collectGen := asset.RandGenesis(t, asset.Collectible)
-	baseScriptKey := asset.RandScriptKey(t)
-	protoAsset := asset.RandAssetWithValues(t, baseGen, nil, baseScriptKey)
+	baseGen := assetmock.RandGenesis(t, asset.Normal)
+	collectGen := assetmock.RandGenesis(t, asset.Collectible)
+	baseScriptKey := assetmock.RandScriptKey(t)
+	protoAsset := assetmock.RandAssetWithValues(t, baseGen, nil, baseScriptKey)
 	nonGenProtoAsset := protoAsset.Copy()
 	nonGenProtoAsset.PrevWitnesses = []asset.Witness{{
 		PrevID: &asset.PrevID{
@@ -1042,7 +1050,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &asset.TestVectors{}
+			testVectors = &assetmock.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -1054,7 +1062,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *asset.TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *assetmock.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 

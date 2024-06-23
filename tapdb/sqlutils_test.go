@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
@@ -166,8 +167,8 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
-		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		ctx, proofmock.MockHeaderVerifier, proofmock.MockMerkleVerifier,
+		proofmock.MockGroupVerifier, proofmock.MockChainLookup, false,
 		annotatedProof,
 	))
 

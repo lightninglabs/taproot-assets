@@ -17,6 +17,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	commitmentmock "github.com/lightninglabs/taproot-assets/internal/mock/commitment"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -50,7 +53,7 @@ type assetGenOptions struct {
 }
 
 func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
-	gen := asset.RandGenesis(t, asset.Normal)
+	gen := assetmock.RandGenesis(t, asset.Normal)
 
 	return &assetGenOptions{
 		version:      asset.Version(rand.Int31n(2)),
@@ -136,7 +139,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 
 	groupPriv := *opts.groupKeyPriv
 
-	genSigner := asset.NewMockGenesisSigner(&groupPriv)
+	genSigner := assetmock.NewMockGenesisSigner(&groupPriv)
 	genTxBuilder := tapscript.GroupTxBuilder{}
 
 	var (
@@ -151,7 +154,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		relativeLockTime = uint64(test.RandInt[int32]())
 	)
 
-	protoAsset = asset.NewAssetNoErr(
+	protoAsset = assetmock.NewAssetNoErr(
 		t, genesis, opts.amt, lockTime, relativeLockTime,
 		opts.scriptKey, nil, asset.WithAssetVersion(opts.version),
 	)
@@ -163,7 +166,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 		initialGen.FirstPrevOut = *opts.groupAnchorGenPoint
 	}
 
-	groupReq := asset.NewGroupKeyRequestNoErr(
+	groupReq := assetmock.NewGroupKeyRequestNoErr(
 		t, groupKeyDesc, initialGen, protoAsset, nil,
 	)
 	genTx, err := groupReq.BuildGroupVirtualTx(&genTxBuilder)
@@ -198,7 +201,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	case opts.customGroup || test.RandInt[int]()%2 == 0:
 		// If we're using a group key, we want to leave the asset with
 		// the group witness and not a random witness.
-		assetWithGroup := asset.NewAssetNoErr(
+		assetWithGroup := assetmock.NewAssetNoErr(
 			t, genesis, newAsset.Amount, newAsset.LockTime,
 			newAsset.RelativeLockTime, newAsset.ScriptKey,
 			assetGroupKey, asset.WithAssetVersion(opts.version),
@@ -231,7 +234,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 			witnesses[i] = asset.Witness{
 				PrevID: &asset.PrevID{
 					OutPoint: test.RandOp(t),
-					ID:       asset.RandID(t),
+					ID:       assetmock.RandID(t),
 					ScriptKey: asset.ToSerialized(
 						scriptKey.PubKey,
 					),
@@ -240,7 +243,7 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 				// For simplicity, we just use the base asset
 				// itself as the "anchor" asset in the split
 				// commitment.
-				SplitCommitment: commitment.RandSplitCommit(
+				SplitCommitment: commitmentmock.RandSplitCommit(
 					t, *newAsset,
 				),
 			}
@@ -335,8 +338,9 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.AnchorTxIndex = 5678
 	testProof.Blob = updatedBlob
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, true, testProof,
+		ctxb, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup, true, testProof,
 	))
 
 	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
@@ -390,9 +394,9 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.Blob = []byte("new proof")
 
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, false,
-		testProof,
+		ctxb, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup, false, testProof,
 	))
 
 	// We should still be able to fetch the old proof.
@@ -516,7 +520,7 @@ func newAssetGenerator(t *testing.T,
 
 	assetGens := make([]asset.Genesis, numAssetIDs)
 	for i := 0; i < numAssetIDs; i++ {
-		assetGens[i] = asset.RandGenesis(t, asset.Normal)
+		assetGens[i] = assetmock.RandGenesis(t, asset.Normal)
 	}
 
 	groupKeys := make([]*btcec.PrivateKey, numGroupKeys)
@@ -1633,7 +1637,7 @@ func TestAssetGroupWitnessUpsert(t *testing.T) {
 	require.NoError(t, err)
 
 	genAssetID, err := upsertGenesis(
-		ctx, db, genesisPointID, asset.RandGenesis(t, asset.Normal),
+		ctx, db, genesisPointID, assetmock.RandGenesis(t, asset.Normal),
 	)
 	require.NoError(t, err)
 
@@ -1676,7 +1680,7 @@ func TestAssetGroupComplexWitness(t *testing.T) {
 	ctx := context.Background()
 
 	internalKey := test.RandPubKey(t)
-	groupAnchorGen := asset.RandGenesis(t, asset.RandAssetType(t))
+	groupAnchorGen := assetmock.RandGenesis(t, assetmock.RandAssetType(t))
 	groupAnchorGen.MetaHash = [32]byte{}
 	tapscriptRoot := test.RandBytes(32)
 	groupSig := test.RandBytes(64)
@@ -1766,7 +1770,7 @@ func TestAssetGroupKeyUpsert(t *testing.T) {
 
 	// Insert a genesis and group sig to fill out the group key view.
 	genAssetID, err := upsertGenesis(
-		ctx, db, genesisPointID, asset.RandGenesis(t, asset.Normal),
+		ctx, db, genesisPointID, assetmock.RandGenesis(t, asset.Normal),
 	)
 	require.NoError(t, err)
 

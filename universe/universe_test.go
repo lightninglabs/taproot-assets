@@ -4,13 +4,14 @@ import (
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
 // randGenesisAsset returns a random asset that is a genesis asset.
 func randGenesisAsset(t testing.TB) asset.Asset {
-	a := *asset.RandAsset(t, asset.Normal)
+	a := *assetmock.RandAsset(t, asset.Normal)
 	require.True(t, a.IsGenesisAsset())
 	return a
 }
@@ -18,21 +19,21 @@ func randGenesisAsset(t testing.TB) asset.Asset {
 // randTransferredAsset returns a random asset that is a transferred
 // (non-genesis) asset.
 func randTransferredAsset(t testing.TB) asset.Asset {
-	a := *asset.RandAsset(t, asset.Normal)
+	a := *assetmock.RandAsset(t, asset.Normal)
 
 	// Populate the previous witnesses with multiple entries to ensure that
 	// the asset is not a genesis asset.
 	a.PrevWitnesses = []asset.Witness{
 		{
 			PrevID: &asset.PrevID{
-				ScriptKey: asset.RandSerializedKey(t),
+				ScriptKey: assetmock.RandSerializedKey(t),
 			},
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		},
 		{
 			PrevID: &asset.PrevID{
-				ScriptKey: asset.RandSerializedKey(t),
+				ScriptKey: assetmock.RandSerializedKey(t),
 			},
 			TxWitness:       nil,
 			SplitCommitment: nil,

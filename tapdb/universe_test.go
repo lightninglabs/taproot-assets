@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -163,7 +164,7 @@ func randLeafKey(t *testing.T) universe.LeafKey {
 }
 
 func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
-	proofAsset := *asset.RandAsset(t, asset.Normal)
+	proofAsset := *assetmock.RandAsset(t, asset.Normal)
 	if argAsset != nil {
 		proofAsset = *argAsset
 	}
@@ -264,7 +265,7 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 
 	// All the leaves will be under the same base universe tree, so we want
 	// them to have the same asset ID.
-	assetGen := asset.RandGenesis(t, asset.Normal)
+	assetGen := assetmock.RandGenesis(t, asset.Normal)
 
 	// We'll start by making a series of random minting key (outpoint,
 	// scriptKey) leaf pairs.
@@ -446,7 +447,7 @@ func TestUniverseMetaBlob(t *testing.T) {
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	// We'll start by generating a random asset genesis.
-	assetGen := asset.RandGenesis(t, asset.Normal)
+	assetGen := assetmock.RandGenesis(t, asset.Normal)
 
 	// Next, we'll modify the genesis to include a meta hash that matches a
 	// real meta blob.
@@ -482,7 +483,7 @@ func insertRandLeaf(t *testing.T, ctx context.Context, tree *BaseUniverseTree,
 	if assetGen != nil {
 		targetGen = *assetGen
 	} else {
-		targetGen = asset.RandGenesis(t, asset.Normal)
+		targetGen = assetmock.RandGenesis(t, asset.Normal)
 	}
 
 	targetKey := randLeafKey(t)
@@ -623,7 +624,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 	ctx := context.Background()
 
 	id := randUniverseID(t, false)
-	assetGen := asset.RandGenesis(t, asset.Normal)
+	assetGen := assetmock.RandGenesis(t, asset.Normal)
 
 	baseUniverse, _ := newTestUniverse(t, id)
 
@@ -718,7 +719,7 @@ func TestUniverseLeafOverflow(t *testing.T) {
 	baseUniverse, _ := newTestUniverse(t, id)
 
 	// We'll start by generating a random asset genesis.
-	assetGen := asset.RandGenesis(t, asset.Normal)
+	assetGen := assetmock.RandGenesis(t, asset.Normal)
 
 	// With the base gen above, we'll now create a random minting leaf and
 	// key to insert.
@@ -807,7 +808,7 @@ func TestUniverseRootSum(t *testing.T) {
 			ctx := context.Background()
 			baseUniverse, _ := newTestUniverse(t, id)
 
-			assetGen := asset.RandGenesis(t, asset.Normal)
+			assetGen := assetmock.RandGenesis(t, asset.Normal)
 
 			leaves := make([]universe.Leaf, len(testCase.leaves))
 			keys := make([]universe.LeafKey, len(testCase.leaves))
@@ -975,7 +976,9 @@ func TestMultiverseRootSum(t *testing.T) {
 				id := ids[i]
 				id.ProofType = proofType
 
-				assetGen := asset.RandGenesis(t, asset.Normal)
+				assetGen := assetmock.RandGenesis(
+					t, asset.Normal,
+				)
 				leaf := randMintingLeaf(
 					t, assetGen, id.GroupKey,
 				)

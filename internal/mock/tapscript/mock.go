@@ -5,7 +5,8 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taproot-assets/asset"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 )
 
 type MockSigner struct {
@@ -21,7 +22,7 @@ func NewMockSigner(privKey *btcec.PrivateKey) *MockSigner {
 func (m *MockSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
-	return asset.SignVirtualTx(m.PrivKey, signDesc, tx, prevOut)
+	return assetmock.SignVirtualTx(m.PrivKey, signDesc, tx, prevOut)
 }
 
-var _ Signer = (*MockSigner)(nil)
+var _ tapscript.Signer = (*MockSigner)(nil)

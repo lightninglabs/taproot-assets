@@ -209,7 +209,7 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	// The asset leaf encoding doesn't store the full script key info, only
 	// the top level Taproot key. In order to be able to sign for it, we
 	// need all the info populated properly.
-	if err := i.deserializeScriptKey(); err != nil {
+	if err := i.DeserializeScriptKey(); err != nil {
 		return err
 	}
 	i.Unknowns = nil

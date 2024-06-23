@@ -14,7 +14,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	addressmock "github.com/lightninglabs/taproot-assets/internal/mock/address"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/json"
 	"github.com/stretchr/testify/require"
 )
 
@@ -67,7 +70,7 @@ func randAddress(t *testing.T, net *address.ChainParams, v *address.Version,
 	scriptKey := *pubKey
 	internalKey := *pubKey
 
-	genesis := asset.RandGenesis(t, assetType)
+	genesis := assetmock.RandGenesis(t, assetType)
 
 	var (
 		groupKey     *btcec.PublicKey
@@ -75,16 +78,16 @@ func randAddress(t *testing.T, net *address.ChainParams, v *address.Version,
 	)
 
 	if groupPubKey {
-		protoAsset := asset.NewAssetNoErr(
+		protoAsset := assetmock.NewAssetNoErr(
 			t, genesis, amount, 0, 0,
 			asset.NewScriptKey(&scriptKey), nil,
 		)
-		groupInfo := asset.RandGroupKey(t, genesis, protoAsset)
+		groupInfo := assetmock.RandGroupKey(t, genesis, protoAsset)
 		groupKey = &groupInfo.GroupPubKey
 		groupWitness = groupInfo.Witness
 	}
 
-	proofCourierAddr := address.RandProofCourierAddr(t)
+	proofCourierAddr := addressmock.RandProofCourierAddr(t)
 
 	vers := test.RandFlip(address.V0, address.V1)
 	if v != nil {
@@ -259,7 +262,7 @@ func TestNewAddress(t *testing.T) {
 func TestAddressEncoding(t *testing.T) {
 	t.Parallel()
 
-	testVectors := &address.TestVectors{}
+	testVectors := &addressmock.TestVectors{}
 	assertAddressEncoding := func(comment string, a *address.Tap) {
 		t.Helper()
 
@@ -272,9 +275,12 @@ func TestAddressEncoding(t *testing.T) {
 		require.NoError(t, err)
 		assertAddressEqual(t, a, b)
 
+		jsonAddress, err := json.NewAddress(a)
+		require.NoError(t, err)
+
 		testVectors.ValidTestCases = append(
-			testVectors.ValidTestCases, &address.ValidTestCase{
-				Address:  address.NewTestFromAddress(t, a),
+			testVectors.ValidTestCases, &addressmock.ValidTestCase{
+				Address:  jsonAddress,
 				Expected: addr,
 				Comment:  comment,
 			},
@@ -473,7 +479,7 @@ func TestBIPTestVectors(t *testing.T) {
 	for idx := range allTestVectorFiles {
 		var (
 			fileName    = allTestVectorFiles[idx]
-			testVectors = &address.TestVectors{}
+			testVectors = &addressmock.TestVectors{}
 		)
 		test.ParseTestVectors(t, fileName, &testVectors)
 		t.Run(fileName, func(tt *testing.T) {
@@ -485,7 +491,7 @@ func TestBIPTestVectors(t *testing.T) {
 }
 
 // runBIPTestVector runs the tests in a single BIP test vector file.
-func runBIPTestVector(t *testing.T, testVectors *address.TestVectors) {
+func runBIPTestVector(t *testing.T, testVectors *addressmock.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
 		validCase := validCase
 

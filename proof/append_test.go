@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -208,9 +209,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Append the new transition to the genesis blob.
 	transitionBlob, transitionProof, err := proof.AppendTransition(
-		genesisBlob, transitionParams, proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		genesisBlob, transitionParams, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
@@ -410,9 +411,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	split1Blob, split1Proof, err := proof.AppendTransition(
-		transitionBlob, split1Params, proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		transitionBlob, split1Params, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
@@ -453,9 +454,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	split2Blob, split2Proof, err := proof.AppendTransition(
-		transitionBlob, split2Params, proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		transitionBlob, split2Params, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
@@ -497,9 +498,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	split3Blob, split3Proof, err := proof.AppendTransition(
-		transitionBlob, split3Params, proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		transitionBlob, split3Params, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))
@@ -560,9 +561,9 @@ func verifyBlob(t testing.TB, blob proof.Blob) *proof.AssetSnapshot {
 	require.NoError(t, f.Decode(bytes.NewReader(blob)))
 
 	finalSnapshot, err := f.Verify(
-		context.Background(), proof.MockHeaderVerifier,
-		proof.MockMerkleVerifier, proof.MockGroupVerifier,
-		proof.MockChainLookup,
+		context.Background(), proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockChainLookup,
 	)
 	require.NoError(t, err)
 

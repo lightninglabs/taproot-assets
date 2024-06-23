@@ -12,6 +12,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
@@ -171,9 +173,9 @@ func randProof(t *testing.T) proof.Proof {
 	err = oddTxBlock.Deserialize(bytes.NewReader(oddTxBlockBytes))
 	require.NoError(t, err)
 
-	randGen := asset.RandGenesis(t, asset.Normal)
+	randGen := assetmock.RandGenesis(t, asset.Normal)
 	scriptKey1 := test.RandPubKey(t)
-	originalRandProof := proof.RandProof(
+	originalRandProof := proofmock.RandProof(
 		t, randGen, scriptKey1, oddTxBlock, 0, 0,
 	)
 

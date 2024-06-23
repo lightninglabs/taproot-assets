@@ -412,9 +412,9 @@ func (i *VInput) serializeScriptKey(key asset.ScriptKey, coinType uint32) {
 	i.TaprootMerkleRoot = key.Tweak
 }
 
-// deserializeScriptKey deserializes the PSBT derivation information on the
+// DeserializeScriptKey deserializes the PSBT derivation information on the
 // input into the input asset's script key.
-func (i *VInput) deserializeScriptKey() error {
+func (i *VInput) DeserializeScriptKey() error {
 	if i.asset == nil || len(i.TaprootInternalKey) == 0 ||
 		len(i.Bip32Derivation) == 0 {
 

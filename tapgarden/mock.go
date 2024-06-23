@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -672,7 +673,7 @@ func (m *MockGenSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	error) {
 
 	priv := m.KeyRing.Keys[signDesc.KeyDesc.KeyLocator]
-	signer := asset.NewMockGenesisSigner(priv)
+	signer := assetmock.NewMockGenesisSigner(priv)
 	return signer.SignVirtualTx(signDesc, virtualTx, prevOut)
 }
 

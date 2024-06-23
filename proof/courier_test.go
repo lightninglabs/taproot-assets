@@ -9,6 +9,8 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
@@ -64,9 +66,9 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 	testBlocks := readTestData(t)
 	oddTxBlock := testBlocks[0]
 
-	genesis := asset.RandGenesis(t, asset.Collectible)
+	genesis := assetmock.RandGenesis(t, asset.Collectible)
 	scriptKey := test.RandPubKey(t)
-	p := proof.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+	p := proofmock.RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
 	file, err := proof.NewFile(proof.V0, p, p)
 	require.NoError(t, err)

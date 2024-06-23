@@ -12,6 +12,8 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
@@ -63,8 +65,8 @@ func TestFileArchiverProofCollision(t *testing.T) {
 		blob2 = []byte("this is the second blob")
 	)
 	err = fileArchive.ImportProofs(
-		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		ctx, proofmock.MockHeaderVerifier, proofmock.MockMerkleVerifier,
+		proofmock.MockGroupVerifier, proofmock.MockChainLookup, false,
 		&proof.AnnotatedProof{
 			Locator: locator1,
 			Blob:    blob1,
@@ -72,8 +74,8 @@ func TestFileArchiverProofCollision(t *testing.T) {
 	)
 	require.NoError(t, err)
 	err = fileArchive.ImportProofs(
-		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, false,
+		ctx, proofmock.MockHeaderVerifier, proofmock.MockMerkleVerifier,
+		proofmock.MockGroupVerifier, proofmock.MockChainLookup, false,
 		&proof.AnnotatedProof{
 			Locator: locator2,
 			Blob:    blob2,
@@ -105,7 +107,7 @@ func TestFileArchiver(t *testing.T) {
 
 	// We'll use a fake verifier that just returns that the proof is valid.
 	archive := proof.NewMultiArchiver(
-		proof.NewMockVerifier(t), testTimeout, fileArchive,
+		proofmock.NewMockVerifier(t), testTimeout, fileArchive,
 	)
 
 	ctx := context.Background()
@@ -192,10 +194,10 @@ func TestFileArchiver(t *testing.T) {
 				}
 
 				err = archive.ImportProofs(
-					ctx, proof.MockHeaderVerifier,
-					proof.MockMerkleVerifier,
-					proof.MockGroupVerifier,
-					proof.MockChainLookup, false, p,
+					ctx, proofmock.MockHeaderVerifier,
+					proofmock.MockMerkleVerifier,
+					proofmock.MockGroupVerifier,
+					proofmock.MockChainLookup, false, p,
 				)
 
 				if testCase.expectedStoreError != nil {
@@ -295,23 +297,23 @@ func TestMigrateOldFileNames(t *testing.T) {
 	testBlocks := readTestData(t)
 	oddTxBlock := testBlocks[0]
 
-	genesis1 := asset.RandGenesis(t, asset.Collectible)
-	genesis2 := asset.RandGenesis(t, asset.Collectible)
+	genesis1 := assetmock.RandGenesis(t, asset.Collectible)
+	genesis2 := assetmock.RandGenesis(t, asset.Collectible)
 	scriptKey1 := test.RandPubKey(t)
 	scriptKey2 := test.RandPubKey(t)
 
 	// We create 4 different proofs with the old naming scheme.
-	proof1 := proof.RandProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
+	proof1 := proofmock.RandProof(t, genesis1, scriptKey1, oddTxBlock, 0, 1)
 	storeProofOldName(proof1)
-	proof2 := proof.RandProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
+	proof2 := proofmock.RandProof(t, genesis1, scriptKey2, oddTxBlock, 0, 1)
 	storeProofOldName(proof2)
-	proof3 := proof.RandProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
+	proof3 := proofmock.RandProof(t, genesis2, scriptKey1, oddTxBlock, 1, 1)
 	storeProofOldName(proof3)
-	proof4 := proof.RandProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
+	proof4 := proofmock.RandProof(t, genesis2, scriptKey2, oddTxBlock, 1, 1)
 	storeProofOldName(proof4)
 
 	// We also create a proof with the new naming scheme.
-	proof5 := proof.RandProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
+	proof5 := proofmock.RandProof(t, genesis1, scriptKey1, oddTxBlock, 1, 1)
 	storeProofNewName(proof5)
 
 	// We now create the file archive and expect the 4 proofs to be renamed.
@@ -331,9 +333,9 @@ func TestMigrateOldFileNames(t *testing.T) {
 
 	// We should be able to import a new proof, and it should be stored
 	// under the new naming scheme.
-	proof6 := proof.RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
+	proof6 := proofmock.RandProof(t, genesis2, scriptKey2, oddTxBlock, 2, 1)
 	err = fileArchive.ImportProofs(
-		nil, nil, nil, nil, proof.MockChainLookup, false,
+		nil, nil, nil, nil, proofmock.MockChainLookup, false,
 		&proof.AnnotatedProof{
 			Locator: proof.Locator{
 				AssetID:   fn.Ptr(proof6.Asset.ID()),

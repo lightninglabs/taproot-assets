@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	proofmock "github.com/lightninglabs/taproot-assets/internal/mock/proof"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -652,9 +653,10 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 
 	chainBridge := tapgarden.NewMockChainBridge()
 	mintingProofs, err := proof.NewMintingBlobs(
-		&baseProof, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockGroupAnchorVerifier,
-		chainBridge, proof.WithAssetMetaReveals(metaReveals),
+		&baseProof, proofmock.MockHeaderVerifier,
+		proofmock.MockMerkleVerifier, proofmock.MockGroupVerifier,
+		proofmock.MockGroupAnchorVerifier, chainBridge,
+		proof.WithAssetMetaReveals(metaReveals),
 	)
 	require.NoError(t.t, err)
 

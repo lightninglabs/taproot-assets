@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	assetmock "github.com/lightninglabs/taproot-assets/internal/mock/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -53,7 +54,7 @@ func makeProof(t *testing.T, a *asset.Asset) *proof.Proof {
 
 func grindAssetID(t *testing.T, prefix byte) asset.Genesis {
 	for {
-		assetID := asset.RandGenesis(t, asset.Normal)
+		assetID := assetmock.RandGenesis(t, asset.Normal)
 		if assetID.ID()[0] == prefix {
 			return assetID
 		}
@@ -67,14 +68,14 @@ func TestDistributeCoinsErrors(t *testing.T) {
 	_, err = DistributeCoins([]*proof.Proof{{}}, nil, testParams)
 	require.ErrorIs(t, err, ErrMissingAllocations)
 
-	assetCollectible := asset.RandAsset(t, asset.Collectible)
+	assetCollectible := assetmock.RandAsset(t, asset.Collectible)
 	proofCollectible := makeProof(t, assetCollectible)
 	_, err = DistributeCoins(
 		[]*proof.Proof{proofCollectible}, []*Allocation{{}}, testParams,
 	)
 	require.ErrorIs(t, err, ErrNormalAssetsOnly)
 
-	assetNormal := asset.RandAsset(t, asset.Normal)
+	assetNormal := assetmock.RandAsset(t, asset.Normal)
 	proofNormal := makeProof(t, assetNormal)
 	_, err = DistributeCoins(
 		[]*proof.Proof{proofNormal}, []*Allocation{
@@ -104,34 +105,34 @@ func TestDistributeCoins(t *testing.T) {
 		GroupPubKey: *test.RandPubKey(t),
 	}
 
-	assetID1Tranche1 := asset.NewAssetNoErr(
-		t, assetID1, 100, 0, 0, asset.RandScriptKey(t), groupKey1,
+	assetID1Tranche1 := assetmock.NewAssetNoErr(
+		t, assetID1, 100, 0, 0, assetmock.RandScriptKey(t), groupKey1,
 	)
-	assetID1Tranche2 := asset.NewAssetNoErr(
-		t, assetID1, 200, 0, 0, asset.RandScriptKey(t), groupKey1,
+	assetID1Tranche2 := assetmock.NewAssetNoErr(
+		t, assetID1, 200, 0, 0, assetmock.RandScriptKey(t), groupKey1,
 	)
-	assetID1Tranche3 := asset.NewAssetNoErr(
-		t, assetID1, 300, 0, 0, asset.RandScriptKey(t), groupKey1,
-	)
-
-	assetID2Tranche1 := asset.NewAssetNoErr(
-		t, assetID2, 1000, 0, 0, asset.RandScriptKey(t), groupKey2,
-	)
-	assetID2Tranche2 := asset.NewAssetNoErr(
-		t, assetID2, 2000, 0, 0, asset.RandScriptKey(t), groupKey2,
-	)
-	assetID2Tranche3 := asset.NewAssetNoErr(
-		t, assetID2, 3000, 0, 0, asset.RandScriptKey(t), groupKey2,
+	assetID1Tranche3 := assetmock.NewAssetNoErr(
+		t, assetID1, 300, 0, 0, assetmock.RandScriptKey(t), groupKey1,
 	)
 
-	assetID3Tranche1 := asset.NewAssetNoErr(
-		t, assetID3, 10000, 0, 0, asset.RandScriptKey(t), groupKey3,
+	assetID2Tranche1 := assetmock.NewAssetNoErr(
+		t, assetID2, 1000, 0, 0, assetmock.RandScriptKey(t), groupKey2,
 	)
-	assetID3Tranche2 := asset.NewAssetNoErr(
-		t, assetID3, 20000, 0, 0, asset.RandScriptKey(t), groupKey3,
+	assetID2Tranche2 := assetmock.NewAssetNoErr(
+		t, assetID2, 2000, 0, 0, assetmock.RandScriptKey(t), groupKey2,
 	)
-	assetID3Tranche3 := asset.NewAssetNoErr(
-		t, assetID3, 30000, 0, 0, asset.RandScriptKey(t), groupKey3,
+	assetID2Tranche3 := assetmock.NewAssetNoErr(
+		t, assetID2, 3000, 0, 0, assetmock.RandScriptKey(t), groupKey2,
+	)
+
+	assetID3Tranche1 := assetmock.NewAssetNoErr(
+		t, assetID3, 10000, 0, 0, assetmock.RandScriptKey(t), groupKey3,
+	)
+	assetID3Tranche2 := assetmock.NewAssetNoErr(
+		t, assetID3, 20000, 0, 0, assetmock.RandScriptKey(t), groupKey3,
+	)
+	assetID3Tranche3 := assetmock.NewAssetNoErr(
+		t, assetID3, 30000, 0, 0, assetmock.RandScriptKey(t), groupKey3,
 	)
 
 	var (
