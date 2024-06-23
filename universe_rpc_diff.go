@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -113,7 +113,7 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	switch {
 	// We're calling using the RPC endpoint, so the error cannot be mapped
 	// directly using errors.Is.
-	case fn.IsRpcErr(err, universe.ErrNoUniverseRoot):
+	case rpcutils.IsRpcErr(err, universe.ErrNoUniverseRoot):
 		return universe.Root{}, universe.ErrNoUniverseRoot
 
 	case err != nil:

@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"golang.org/x/sync/errgroup"
 )
@@ -206,7 +207,7 @@ func fetchRootsForIDs(ctx context.Context, idsToSync []Identifier,
 			// case because the asset ID was configured manually
 			// and isn't present in all universes, or because it's
 			// actually an incorrect asset ID.
-			case fn.IsRpcErr(err, ErrNoUniverseRoot):
+			case rpcutils.IsRpcErr(err, ErrNoUniverseRoot):
 				log.Debugf("UniverseRoot(%v) not found in "+
 					"remote universe", id.String())
 				return nil

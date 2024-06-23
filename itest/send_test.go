@@ -10,7 +10,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rpcutils"
@@ -1571,7 +1570,7 @@ func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
 		if err != nil {
 			close(success)
 
-			if !fn.IsRpcErr(err, context.Canceled) {
+			if !rpcutils.IsRpcErr(err, context.Canceled) {
 				require.NoError(t.t, err)
 			}
 

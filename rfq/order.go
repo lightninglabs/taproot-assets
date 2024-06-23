@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -770,7 +771,7 @@ func (h *OrderHandler) setupHtlcIntercept(ctx context.Context) error {
 	// in a separate goroutine.
 	err := h.cfg.HtlcInterceptor.InterceptHtlcs(ctx, h.handleIncomingHtlc)
 	if err != nil {
-		if fn.IsCanceled(err) {
+		if rpcutils.IsCanceled(err) {
 			return nil
 		}
 
