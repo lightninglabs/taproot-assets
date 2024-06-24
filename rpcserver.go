@@ -957,8 +957,18 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		return nil, err
 	}
 
+	// We will also report the number of unconfirmed transfers. This is
+	// useful for clients as unconfirmed asset coins are not included in the
+	// asset list.
+	outboundParcels, err := r.cfg.AssetStore.QueryParcels(ctx, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query for unconfirmed "+
+			"outgoing parcels: %w", err)
+	}
+
 	return &taprpc.ListAssetResponse{
-		Assets: rpcAssets,
+		Assets:               rpcAssets,
+		UnconfirmedTransfers: uint64(len(outboundParcels)),
 	}, nil
 }
 
