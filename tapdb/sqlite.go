@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-migrate/migrate/v4"
 	sqlite_migrate "github.com/golang-migrate/migrate/v4/database/sqlite"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/stretchr/testify/require"
@@ -48,10 +49,16 @@ var (
 
 // SqliteConfig holds all the config arguments needed to interact with our
 // sqlite DB.
+//
+// nolint: lll
 type SqliteConfig struct {
 	// SkipMigrations if true, then all the tables will be created on start
 	// up if they don't already exist.
 	SkipMigrations bool `long:"skipmigrations" description:"Skip applying migrations on startup."`
+
+	// SkipMigrationDbBackup if true, then a backup of the database will not
+	// be created before applying migrations.
+	SkipMigrationDbBackup bool `long:"skipmigrationdbbackup" description:"Skip creating a backup of the database before applying migrations."`
 
 	// DatabaseFileName is the full file path where the database file can be
 	// found.
@@ -140,13 +147,86 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// Now that the database is open, populate the database with our set of
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(TargetLatest); err != nil {
+		if err := s.ExecuteMigrations(s.backupAndMigrate); err != nil {
 			return nil, fmt.Errorf("error executing migrations: "+
 				"%w", err)
 		}
 	}
 
 	return s, nil
+}
+
+// backupSqliteDatabase creates a backup of the given SQLite database.
+func backupSqliteDatabase(srcDB *sql.DB, dbFullFilePath string) error {
+	if srcDB == nil {
+		return fmt.Errorf("backup source database is nil")
+	}
+
+	// Create a database backup file full path from the given source
+	// database full file path.
+	//
+	// Get the current time and format it as a Unix timestamp in
+	// nanoseconds.
+	timestamp := time.Now().UnixNano()
+
+	// Add the timestamp to the backup name.
+	backupFullFilePath := fmt.Sprintf(
+		"%s.%d.backup", dbFullFilePath, timestamp,
+	)
+
+	log.Infof("Creating backup of database file: %v -> %v",
+		dbFullFilePath, backupFullFilePath)
+
+	// Create the database backup.
+	vacuumIntoQuery := "VACUUM INTO ?;"
+	stmt, err := srcDB.Prepare(vacuumIntoQuery)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	_, err = stmt.Exec(backupFullFilePath)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// backupAndMigrate is a helper function that creates a database backup before
+// initiating the migration, and then migrates the database to the latest
+// version.
+func (s *SqliteStore) backupAndMigrate(mig *migrate.Migrate,
+	currentDbVersion int, maxMigrationVersion uint) error {
+
+	// Determine if a database migration is necessary given the current
+	// database version and the maximum migration version.
+	versionUpgradePending := currentDbVersion < int(maxMigrationVersion)
+	if !versionUpgradePending {
+		log.Infof("Current database version is up-to-date, skipping "+
+			"migration attempt and backup creation "+
+			"(current_db_version=%v, max_migration_version=%v)",
+			currentDbVersion, maxMigrationVersion)
+		return nil
+	}
+
+	// At this point, we know that a database migration is necessary.
+	// Create a backup of the database before starting the migration.
+	if !s.cfg.SkipMigrationDbBackup {
+		log.Infof("Creating database backup (before applying " +
+			"migration(s))")
+
+		err := backupSqliteDatabase(s.DB, s.cfg.DatabaseFileName)
+		if err != nil {
+			return err
+		}
+	} else {
+		log.Infof("Skipping database backup creation before applying " +
+			"migration(s)")
+	}
+
+	log.Infof("Applying migrations to database")
+	return mig.Up()
 }
 
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
