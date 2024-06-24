@@ -113,12 +113,13 @@ type (
 	// MintingBatchInit is used to create a new minting batch.
 	MintingBatchInit = sqlc.NewMintingBatchParams
 
-	// ProofUpdate is used to update a proof file on disk.
-	ProofUpdate = sqlc.UpsertAssetProofParams
-
 	// ProofUpdateByID is used to update a proof file on disk by asset
 	// database ID.
 	ProofUpdateByID = sqlc.UpsertAssetProofByIDParams
+
+	// FetchAssetID is used to fetch the primary key ID of an asset, by
+	// outpoint and tweaked script key.
+	FetchAssetID = sqlc.FetchAssetIDParams
 
 	// NewScriptKey wraps the params needed to insert a new script key on
 	// disk.
@@ -222,12 +223,14 @@ type PendingAssetStore interface {
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]AssetSprout,
 		error)
 
-	// UpsertAssetProof inserts a new or updates an existing asset proof on
-	// disk.
-	//
-	// TODO(roasbeef): move somewhere else??
-	UpsertAssetProof(ctx context.Context,
-		arg sqlc.UpsertAssetProofParams) error
+	// FetchAssetID fetches the `asset_id` (primary key) from the assets
+	// table for a given asset identified by `Outpoint` and
+	// `TweakedScriptKey`.
+	FetchAssetID(ctx context.Context, arg FetchAssetID) ([]int64, error)
+
+	// UpsertAssetProofByID inserts a new or updates an existing asset
+	// proof on disk.
+	UpsertAssetProofByID(ctx context.Context, arg ProofUpdateByID) error
 
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
@@ -1644,9 +1647,28 @@ func (a *AssetMintingStore) MarkBatchConfirmed(ctx context.Context,
 		// As a final act, we'll now insert the proof files for each of
 		// the assets that were fully confirmed with this block.
 		for scriptKey, proofBlob := range mintingProofs {
-			err := q.UpsertAssetProof(ctx, ProofUpdate{
-				TweakedScriptKey: scriptKey.CopyBytes(),
-				ProofFile:        proofBlob,
+			// We need to fetch the table primary key `asset_id`
+			// first, as we need it to update the proof.
+			dbAssetIds, err := q.FetchAssetID(ctx, FetchAssetID{
+				TweakedScriptKey: scriptKey[:],
+			})
+			if err != nil {
+				return err
+			}
+
+			// We should not have more than one `asset_id`.
+			if len(dbAssetIds) > 1 {
+				return fmt.Errorf("expected 1 asset id, found "+
+					"%d with asset ids %v",
+					len(dbAssetIds), dbAssetIds)
+			}
+
+			// Upload proof by the dbAssetId, which is the _primary
+			// key_ of the asset in table assets, not the BIPS
+			// concept of `asset_id`.
+			err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
+				AssetID:   dbAssetIds[0],
+				ProofFile: proofBlob,
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert proof "+

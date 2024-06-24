@@ -215,9 +215,10 @@ type ActiveAssetsStore interface {
 	UpsertManagedUTXO(ctx context.Context, arg RawManagedUTXO) (int64,
 		error)
 
-	// UpsertAssetProof inserts a new or updates an existing asset proof on
-	// disk.
-	UpsertAssetProof(ctx context.Context, arg ProofUpdate) error
+	// FetchAssetID fetches the `asset_id` (primary key) from the assets
+	// table for a given asset identified by `Outpoint` and
+	// `TweakedScriptKey`.
+	FetchAssetID(ctx context.Context, arg FetchAssetID) ([]int64, error)
 
 	// UpsertAssetProofByID inserts a new or updates an existing asset
 	// proof on disk.
@@ -1567,13 +1568,11 @@ func (a *AssetStore) importAssetFromProof(ctx context.Context,
 		return fmt.Errorf("unable to insert asset witness: %w", err)
 	}
 
-	// As a final step, we'll insert the proof file we used to generate all
-	// the above information.
-	scriptKeyBytes := newAsset.ScriptKey.PubKey.SerializeCompressed()
-	return db.UpsertAssetProof(ctx, ProofUpdate{
-		TweakedScriptKey: scriptKeyBytes,
-		Outpoint:         anchorPoint,
-		ProofFile:        proof.Blob,
+	// Upload proof by the dbAssetId, which is the _primary key_ of the
+	// asset in table assets, not the BIPS concept of `asset_id`.
+	return db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   assetIDs[0],
+		ProofFile: proof.Blob,
 	})
 }
 
@@ -1616,10 +1615,30 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 	// As a final step, we'll insert the proof file we used to generate all
 	// the above information.
 	scriptKeyBytes := proof.Asset.ScriptKey.PubKey.SerializeCompressed()
-	return db.UpsertAssetProof(ctx, ProofUpdate{
+
+	// We need to fetch the table primary key `asset_id` first, as we need
+	// it to update the proof. We could do this in one query, this gave
+	// issues with a postgresql backend. See:
+	// https://github.com/lightninglabs/taproot-assets/issues/951
+	dbAssetIds, err := db.FetchAssetID(ctx, FetchAssetID{
 		TweakedScriptKey: scriptKeyBytes,
 		Outpoint:         outpointBytes,
-		ProofFile:        proof.Blob,
+	})
+	if err != nil {
+		return err
+	}
+
+	// We should not have more than one `asset_id`.
+	if len(dbAssetIds) > 1 {
+		return fmt.Errorf("expected 1 asset id, found %d with asset "+
+			"ids %v", len(dbAssetIds), dbAssetIds)
+	}
+
+	// Upload proof by the dbAssetId, which is the _primary key_ of the
+	// asset in table assets, not the BIPS concept of `asset_id`.
+	return db.UpsertAssetProofByID(ctx, ProofUpdateByID{
+		AssetID:   dbAssetIds[0],
+		ProofFile: proof.Blob,
 	})
 }
 
@@ -1634,6 +1653,7 @@ func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
 	proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
+
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		for _, p := range proofs {
 			if replace {
@@ -2675,6 +2695,7 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		writeTxOpts    AssetStoreTxOptions
 		localProofKeys []asset.SerializedKey
 	)
+
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
 		// First, we'll fetch the asset transfer based on its outpoint
 		// bytes, so we can apply the delta it describes.
@@ -2826,13 +2847,14 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			}
 			localProofKeys = append(localProofKeys, scriptKey)
 
-			// Now we can update the asset proof for the sender for
-			// this given delta.
-			err = q.UpsertAssetProof(ctx, ProofUpdate{
-				TweakedScriptKey: out.ScriptKeyBytes,
-				Outpoint:         out.AnchorOutpoint,
-				ProofFile:        receiverProof.Blob,
+			// Upload proof by the dbAssetId, which is the _primary
+			// key_ of the asset in table assets, not the BIPS
+			// concept of `asset_id`.
+			err = q.UpsertAssetProofByID(ctx, ProofUpdateByID{
+				AssetID:   newAssetID,
+				ProofFile: receiverProof.Blob,
 			})
+
 			if err != nil {
 				return err
 			}

@@ -44,6 +44,7 @@ type Querier interface {
 	FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error)
 	FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error)
 	FetchAllNodes(ctx context.Context) ([]MssmtNode, error)
+	FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]int64, error)
 	FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error)
 	FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error)
 	FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error)
@@ -157,7 +158,6 @@ type Querier interface {
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)
-	UpsertAssetProof(ctx context.Context, arg UpsertAssetProofParams) error
 	UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error
 	UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error
 	UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error)

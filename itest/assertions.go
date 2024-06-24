@@ -818,7 +818,11 @@ func AssertAddrEventByStatus(t *testing.T, client taprpc.TaprootAssetsClient,
 			},
 		)
 		require.NoError(t, err)
-		require.Len(t, resp.Events, numEvents)
+
+		if len(resp.Events) != numEvents {
+			return fmt.Errorf("got %d events, wanted %d",
+				len(resp.Events), numEvents)
+		}
 
 		for _, event := range resp.Events {
 			if event.Status != filterStatus {
@@ -1410,7 +1414,7 @@ func AssertNumAssets(t *testing.T, ctx context.Context,
 	require.NoError(t, err)
 
 	// Ensure that the number of assets returned is correct.
-	require.Equal(t, numAssets, len(resp.Assets))
+	require.Len(t, resp.Assets, numAssets)
 
 	return resp
 }

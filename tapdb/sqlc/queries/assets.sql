@@ -669,9 +669,8 @@ UPDATE chain_txns
 SET block_height = $2, block_hash = $3, tx_index = $4
 WHERE txn_id in (SELECT txn_id FROM target_txn);
 
--- name: UpsertAssetProof :exec
-WITH target_asset(asset_id) AS (
-    SELECT asset_id
+-- name: FetchAssetID :many
+SELECT asset_id
     FROM assets
     JOIN script_keys 
         ON assets.script_key_id = script_keys.script_key_id
@@ -681,15 +680,7 @@ WITH target_asset(asset_id) AS (
         (script_keys.tweaked_script_key = sqlc.narg('tweaked_script_key')
             OR sqlc.narg('tweaked_script_key') IS NULL)
         AND (utxos.outpoint = sqlc.narg('outpoint')
-            OR sqlc.narg('outpoint') IS NULL)
-)
-INSERT INTO asset_proofs (
-    asset_id, proof_file
-) VALUES (
-    (SELECT asset_id FROM target_asset), @proof_file
-) ON CONFLICT (asset_id)
-    -- This is not a NOP, we always overwrite the proof with the new one.
-    DO UPDATE SET proof_file = EXCLUDED.proof_file;
+            OR sqlc.narg('outpoint') IS NULL);
 
 -- name: UpsertAssetProofByID :exec
 INSERT INTO asset_proofs (

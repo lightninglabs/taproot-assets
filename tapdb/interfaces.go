@@ -208,9 +208,9 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 	waitBeforeRetry := func(attemptNumber int) {
 		retryDelay := t.opts.randRetryDelay(attemptNumber)
 
-		log.Tracef("Retrying transaction due to tx serialization "+
-			"error, attempt_number=%v, delay=%v", attemptNumber,
-			retryDelay)
+		log.Tracef("Retrying transaction due to tx serialization or "+
+			"deadlock error, attempt_number=%v, delay=%v",
+			attemptNumber, retryDelay)
 
 		// Before we try again, we'll wait with a random backoff based
 		// on the retry delay.
@@ -222,7 +222,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		tx, err := t.BatchedQuerier.BeginTx(ctx, txOptions)
 		if err != nil {
 			dbErr := MapSQLError(err)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				// Nothing to roll back here, since we didn't
 				// even get a transaction yet.
 				waitBeforeRetry(i)
@@ -240,7 +240,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 
 		if err := txBody(t.createQuery(tx)); err != nil {
 			dbErr := MapSQLError(err)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				// Roll back the transaction, then pop back up
 				// to try once again.
 				_ = tx.Rollback()
@@ -255,7 +255,7 @@ func (t *TransactionExecutor[Q]) ExecTx(ctx context.Context,
 		// Commit transaction.
 		if err = tx.Commit(); err != nil {
 			dbErr := MapSQLError(err)
-			if IsSerializationError(dbErr) {
+			if IsSerializationOrDeadlockError(dbErr) {
 				// Roll back the transaction, then pop back up
 				// to try once again.
 				_ = tx.Rollback()
