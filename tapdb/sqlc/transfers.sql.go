@@ -13,10 +13,9 @@ import (
 
 const applyPendingOutput = `-- name: ApplyPendingOutput :one
 WITH spent_asset AS (
-    SELECT genesis_id, asset_group_witness_id, script_version, lock_time,
-           relative_lock_time
+    SELECT genesis_id, asset_group_witness_id, script_version
     FROM assets
-    WHERE assets.asset_id = $8
+    WHERE assets.asset_id = $10
 )
 INSERT INTO assets (
     genesis_id, version, asset_group_witness_id, script_version, lock_time,
@@ -27,10 +26,8 @@ INSERT INTO assets (
     $1,
     (SELECT asset_group_witness_id FROM spent_asset),
     (SELECT script_version FROM spent_asset),
-    (SELECT lock_time FROM spent_asset),
-    (SELECT relative_lock_time FROM spent_asset),
-    $2, $3, $4, $5,
-    $6, $7
+    $2, $3, $4, $5, $6,
+    $7, $8, $9
 )
 ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
     -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
@@ -41,6 +38,8 @@ RETURNING asset_id
 
 type ApplyPendingOutputParams struct {
 	AssetVersion             int32
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
 	ScriptKeyID              int64
 	AnchorUtxoID             sql.NullInt64
 	Amount                   int64
@@ -53,6 +52,8 @@ type ApplyPendingOutputParams struct {
 func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, applyPendingOutput,
 		arg.AssetVersion,
+		arg.LockTime,
+		arg.RelativeLockTime,
 		arg.ScriptKeyID,
 		arg.AnchorUtxoID,
 		arg.Amount,
@@ -124,7 +125,8 @@ const fetchTransferOutputs = `-- name: FetchTransferOutputs :many
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    output_type, proof_courier_addr, asset_version,
+    output_type, proof_courier_addr, asset_version, lock_time,
+    relative_lock_time,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
@@ -167,6 +169,8 @@ type FetchTransferOutputsRow struct {
 	OutputType               int16
 	ProofCourierAddr         []byte
 	AssetVersion             int32
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
 	AnchorUtxoID             int64
 	AnchorOutpoint           []byte
 	AnchorValue              int64
@@ -207,6 +211,8 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 			&i.OutputType,
 			&i.ProofCourierAddr,
 			&i.AssetVersion,
+			&i.LockTime,
+			&i.RelativeLockTime,
 			&i.AnchorUtxoID,
 			&i.AnchorOutpoint,
 			&i.AnchorValue,
@@ -296,9 +302,10 @@ INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
-    output_type, proof_courier_addr, asset_version
+    output_type, proof_courier_addr, asset_version, lock_time,
+    relative_lock_time
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 )
 `
 
@@ -316,6 +323,8 @@ type InsertAssetTransferOutputParams struct {
 	OutputType               int16
 	ProofCourierAddr         []byte
 	AssetVersion             int32
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
 }
 
 func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error {
@@ -333,6 +342,8 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 		arg.OutputType,
 		arg.ProofCourierAddr,
 		arg.AssetVersion,
+		arg.LockTime,
+		arg.RelativeLockTime,
 	)
 	return err
 }

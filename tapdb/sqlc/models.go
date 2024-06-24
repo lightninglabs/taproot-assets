@@ -133,6 +133,8 @@ type AssetTransferOutput struct {
 	NumPassiveAssets         int32
 	OutputType               int16
 	ProofCourierAddr         []byte
+	LockTime                 sql.NullInt32
+	RelativeLockTime         sql.NullInt32
 }
 
 type AssetWitness struct {

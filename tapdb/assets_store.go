@@ -2395,6 +2395,8 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		ScriptKey:           scriptKeyID,
 		ScriptKeyLocal:      output.ScriptKeyLocal,
 		Amount:              int64(output.Amount),
+		LockTime:            sqlInt32(output.LockTime),
+		RelativeLockTime:    sqlInt32(output.RelativeLockTime),
 		AssetVersion:        int32(output.AssetVersion),
 		SerializedWitnesses: witnessBuf.Bytes(),
 		ProofSuffix:         output.ProofSuffix,
@@ -2513,9 +2515,11 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 		}
 
 		outputs[idx] = tapfreighter.TransferOutput{
-			Anchor:       outputAnchor,
-			Amount:       uint64(dbOut.Amount),
-			AssetVersion: asset.Version(dbOut.AssetVersion),
+			Anchor:           outputAnchor,
+			Amount:           uint64(dbOut.Amount),
+			LockTime:         uint64(dbOut.LockTime.Int32),
+			RelativeLockTime: uint64(dbOut.RelativeLockTime.Int32),
+			AssetVersion:     asset.Version(dbOut.AssetVersion),
 			ScriptKey: asset.ScriptKey{
 				PubKey: scriptKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
@@ -2801,17 +2805,16 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 			// inputs as a template for the new asset, since the
 			// genesis and group key will be the same. We'll
 			// overwrite all other fields.
-			//
-			// TODO(guggero): This will need an update once we want
-			// to support full lock_time and relative_lock_time
-			// support.
 			templateID := spentAssetIDs[0]
 			params := ApplyPendingOutput{
 				ScriptKeyID: out.ScriptKeyID,
 				AnchorUtxoID: sqlInt64(
 					out.AnchorUtxoID,
 				),
-				Amount:                   out.Amount,
+				Amount:           out.Amount,
+				LockTime:         out.LockTime,
+				RelativeLockTime: out.RelativeLockTime,
+				//nolint:lll
 				SplitCommitmentRootHash:  out.SplitCommitmentRootHash,
 				SplitCommitmentRootValue: out.SplitCommitmentRootValue,
 				SpentAssetID:             templateID,
