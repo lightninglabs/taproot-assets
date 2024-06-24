@@ -247,6 +247,16 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 
+	// We'll attempt to list assets immediately after initiating the
+	// transfer. The unconfirmed assets should not be listed yet, but the
+	// unconfirmed transfer count should be 1.
+	aliceAssets, err := aliceTapd.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Nil(t.t, aliceAssets.Assets)
+	require.EqualValues(t.t, aliceAssets.UnconfirmedTransfers, 1)
+
 	t.Logf("Send response: %v", toJSON(t.t, sendResp))
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
@@ -272,7 +282,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 		assetXTranche3.AssetGenesis,
 	)
 
-	aliceAssets, err := aliceTapd.ListAssets(
+	aliceAssets, err = aliceTapd.ListAssets(
 		ctxt, &taprpc.ListAssetRequest{},
 	)
 	require.NoError(t.t, err)
