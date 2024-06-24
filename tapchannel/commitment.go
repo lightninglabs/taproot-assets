@@ -941,6 +941,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				).PubKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
 					RawKey: keychain.KeyDescriptor{
+						//nolint:lll
 						PubKey: toRemoteTree.InternalKey,
 					},
 					Tweak: toRemoteTree.TapscriptRoot,
