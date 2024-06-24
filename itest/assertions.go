@@ -2016,7 +2016,7 @@ func assetRoots(ctx context.Context, uni unirpc.UniverseClient,
 // assertNumAssetOutputs makes sure the given node has exactly the given number
 // of asset outputs for the specified asset ID.
 func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
-	assetID []byte, numPieces int) {
+	assetID []byte, numPieces int) []*taprpc.Asset {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultTimeout)
@@ -2037,4 +2037,6 @@ func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
 	}
 
 	require.Len(t, outputs, numPieces)
+
+	return outputs
 }

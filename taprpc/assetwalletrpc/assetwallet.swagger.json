@@ -1018,6 +1018,14 @@
         },
         "asset_version": {
           "$ref": "#/definitions/taprpcAssetVersion"
+        },
+        "lock_time": {
+          "type": "string",
+          "format": "uint64"
+        },
+        "relative_lock_time": {
+          "type": "string",
+          "format": "uint64"
         }
       }
     },

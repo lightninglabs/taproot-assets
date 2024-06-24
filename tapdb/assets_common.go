@@ -71,9 +71,10 @@ type UpsertAssetStore interface {
 	QueryAssets(context.Context, QueryAssetFilters) ([]ConfirmedAsset,
 		error)
 
-	// InsertNewAsset inserts a new asset on disk.
-	InsertNewAsset(ctx context.Context,
-		arg sqlc.InsertNewAssetParams) (int64, error)
+	// UpsertAsset inserts a new asset on disk, or returns the ID of the
+	// existing asset if it already exists.
+	UpsertAsset(ctx context.Context,
+		arg sqlc.UpsertAssetParams) (int64, error)
 
 	// UpsertAssetMeta inserts a new asset meta into the DB.
 	UpsertAssetMeta(ctx context.Context, arg NewAssetMeta) (int64, error)
@@ -263,19 +264,17 @@ func upsertAssetsWithGenesis(ctx context.Context, q UpsertAssetStore,
 
 		// With all the dependent data inserted, we can now insert the
 		// base asset information itself.
-		assetIDs[idx], err = q.InsertNewAsset(
-			ctx, sqlc.InsertNewAssetParams{
-				GenesisID:           genAssetID,
-				Version:             int32(a.Version),
-				ScriptKeyID:         scriptKeyID,
-				AssetGroupWitnessID: groupWitnessID,
-				ScriptVersion:       int32(a.ScriptVersion),
-				Amount:              int64(a.Amount),
-				LockTime:            sqlInt32(a.LockTime),
-				RelativeLockTime:    sqlInt32(a.RelativeLockTime),
-				AnchorUtxoID:        anchorUtxoID,
-			},
-		)
+		assetIDs[idx], err = q.UpsertAsset(ctx, sqlc.UpsertAssetParams{
+			GenesisID:           genAssetID,
+			Version:             int32(a.Version),
+			ScriptKeyID:         scriptKeyID,
+			AssetGroupWitnessID: groupWitnessID,
+			ScriptVersion:       int32(a.ScriptVersion),
+			Amount:              int64(a.Amount),
+			LockTime:            sqlInt32(a.LockTime),
+			RelativeLockTime:    sqlInt32(a.RelativeLockTime),
+			AnchorUtxoID:        anchorUtxoID,
+		})
 		if err != nil {
 			return 0, nil, fmt.Errorf("unable to insert asset: %w",
 				err)

@@ -2526,6 +2526,17 @@ func testPsbtLockTimeSend(t *harnessTest) {
 		numTransfers, numOutputs,
 	)
 
+	// Make sure the transfer shows the lock time.
+	resp, err := bob.ListTransfers(ctxb, &taprpc.ListTransfersRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Transfers, numTransfers)
+	require.EqualValues(
+		t.t, lockTimeBlocks, resp.Transfers[0].Outputs[0].LockTime,
+	)
+	require.EqualValues(
+		t.t, 0, resp.Transfers[0].Outputs[0].RelativeLockTime,
+	)
+
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
 	_ = sendProof(
@@ -2533,8 +2544,12 @@ func testPsbtLockTimeSend(t *harnessTest) {
 		aliceScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
 
-	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 1)
+	spendOuts := assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 1)
 	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 0)
+
+	// Does the asset also show the correct lock times?
+	require.EqualValues(t.t, lockTimeBlocks, spendOuts[0].LockTime)
+	require.EqualValues(t.t, 0, spendOuts[0].RelativeLockTime)
 }
 
 // testPsbtRelativeLockTimeSend tests that we can send minted assets into a
@@ -2719,6 +2734,16 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 		numTransfers, numOutputs,
 	)
 
+	// Make sure the transfer shows the lock time.
+	resp, err := bob.ListTransfers(ctxb, &taprpc.ListTransfersRequest{})
+	require.NoError(t.t, err)
+	require.Len(t.t, resp.Transfers, numTransfers)
+	require.EqualValues(
+		t.t, lockTimeBlocks,
+		resp.Transfers[0].Outputs[0].RelativeLockTime,
+	)
+	require.EqualValues(t.t, 0, resp.Transfers[0].Outputs[0].LockTime)
+
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
 	_ = sendProof(
@@ -2726,8 +2751,12 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 		aliceScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
 
-	assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 1)
+	spendOuts := assertNumAssetOutputs(t.t, alice, genInfo.AssetId, 1)
 	assertNumAssetOutputs(t.t, bob, genInfo.AssetId, 0)
+
+	// Does the asset also show the correct lock times?
+	require.EqualValues(t.t, 0, spendOuts[0].LockTime)
+	require.EqualValues(t.t, lockTimeBlocks, spendOuts[0].RelativeLockTime)
 }
 
 // testPsbtRelativeLockTimeSendProofFail tests that we can send minted assets

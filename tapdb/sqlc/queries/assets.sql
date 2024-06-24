@@ -201,13 +201,18 @@ INSERT INTO genesis_assets (
     DO UPDATE SET asset_id = EXCLUDED.asset_id
 RETURNING gen_asset_id;
 
--- name: InsertNewAsset :one
+-- name: UpsertAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id, spent
 ) VALUES (
     $1, $2, $3, $4, $5, $6, $7, $8, $9, $10
-) RETURNING asset_id;
+)
+ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
+    -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
+    -- conflict.
+    DO UPDATE SET anchor_utxo_id = EXCLUDED.anchor_utxo_id
+RETURNING asset_id;
 
 -- name: FetchAssetsForBatch :many
 WITH genesis_info AS (

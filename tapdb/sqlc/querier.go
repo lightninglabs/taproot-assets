@@ -100,7 +100,6 @@ type Querier interface {
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
-	InsertNewAsset(ctx context.Context, arg InsertNewAssetParams) (int64, error)
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
 	InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error
 	InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error
@@ -155,6 +154,7 @@ type Querier interface {
 	UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error
 	UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error
 	UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error)
+	UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error)
 	UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error)
 	UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error)
 	UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error)

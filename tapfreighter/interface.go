@@ -217,6 +217,17 @@ type TransferOutput struct {
 	// Amount is the new amount for the asset.
 	Amount uint64
 
+	// LockTime, if non-zero, restricts an asset from being moved prior to
+	// the represented block height in the chain. This value needs to be set
+	// on the asset that is spending from a script key with a CLTV script.
+	LockTime uint64
+
+	// RelativeLockTime, if non-zero, restricts an asset from being moved
+	// until a number of blocks after the confirmation height of the latest
+	// transaction for the asset is reached. This value needs to be set
+	// on the asset that is spending from a script key with a CSV script.
+	RelativeLockTime uint64
+
 	// AssetVersion is the new asset version for this output.
 	AssetVersion asset.Version
 

@@ -22,9 +22,10 @@ INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
-    output_type, proof_courier_addr, asset_version
+    output_type, proof_courier_addr, asset_version, lock_time,
+    relative_lock_time
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
 );
 
 -- name: QueryAssetTransfers :many
@@ -54,7 +55,8 @@ ORDER BY input_id;
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    output_type, proof_courier_addr, asset_version,
+    output_type, proof_courier_addr, asset_version, lock_time,
+    relative_lock_time,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
@@ -86,8 +88,7 @@ ORDER BY output_id;
 
 -- name: ApplyPendingOutput :one
 WITH spent_asset AS (
-    SELECT genesis_id, asset_group_witness_id, script_version, lock_time,
-           relative_lock_time
+    SELECT genesis_id, asset_group_witness_id, script_version
     FROM assets
     WHERE assets.asset_id = @spent_asset_id
 )
@@ -100,11 +101,13 @@ INSERT INTO assets (
     @asset_version,
     (SELECT asset_group_witness_id FROM spent_asset),
     (SELECT script_version FROM spent_asset),
-    (SELECT lock_time FROM spent_asset),
-    (SELECT relative_lock_time FROM spent_asset),
-    @script_key_id, @anchor_utxo_id, @amount, @split_commitment_root_hash,
-    @split_commitment_root_value, @spent
+    @lock_time, @relative_lock_time, @script_key_id, @anchor_utxo_id, @amount,
+    @split_commitment_root_hash, @split_commitment_root_value, @spent
 )
+ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
+    -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
+    -- conflict.
+    DO UPDATE SET anchor_utxo_id = EXCLUDED.anchor_utxo_id
 RETURNING asset_id;
 
 -- name: ReAnchorPassiveAssets :exec

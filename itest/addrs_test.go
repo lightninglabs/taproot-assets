@@ -649,6 +649,16 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 		return nil
 	}, defaultTimeout/2)
 	require.NoError(t.t, err)
+
+	// We start out with two assets at Alice, one normal and one grouped. We
+	// then send it to Bob and to ourselves, with change being created. So
+	// in each round we turn one of the assets into 3 pieces (two
+	// self-transfers via addresses and one change output).
+	if runIdx == 0 {
+		AssertNumAssets(t.t, ctxt, alice, 3+1)
+	} else {
+		AssertNumAssets(t.t, ctxt, alice, 3+(runIdx*3))
+	}
 }
 
 // sendProof manually exports a proof from the given source node and imports it

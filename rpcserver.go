@@ -3291,6 +3291,8 @@ func marshalOutboundParcel(
 			ScriptKey:           scriptPubKey.SerializeCompressed(),
 			ScriptKeyIsLocal:    out.ScriptKeyLocal,
 			Amount:              out.Amount,
+			LockTime:            out.LockTime,
+			RelativeLockTime:    out.RelativeLockTime,
 			NewProofBlob:        out.ProofSuffix,
 			SplitCommitRootHash: splitCommitRoot,
 			OutputType:          rpcOutType,
