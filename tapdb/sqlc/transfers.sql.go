@@ -32,6 +32,10 @@ INSERT INTO assets (
     $2, $3, $4, $5,
     $6, $7
 )
+ON CONFLICT (genesis_id, script_key_id, anchor_utxo_id)
+    -- This is a NOP, anchor_utxo_id is one of the unique fields that caused the
+    -- conflict.
+    DO UPDATE SET anchor_utxo_id = EXCLUDED.anchor_utxo_id
 RETURNING asset_id
 `
 
