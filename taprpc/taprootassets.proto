@@ -675,6 +675,10 @@ message TransferOutput {
     OutputType output_type = 7;
 
     AssetVersion asset_version = 8;
+
+    uint64 lock_time = 9;
+
+    uint64 relative_lock_time = 10;
 }
 
 message StopRequest {
