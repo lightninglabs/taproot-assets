@@ -686,9 +686,14 @@ func localCommitScriptKey(localKey, revokeKey *btcec.PublicKey,
 func deriveCommitKeys(req lnwallet.ResolutionReq) (*asset.ScriptKey,
 	*asset.ScriptKey, error) {
 
+	// This might be a breach case we need to handle. In this case, our
+	// output is the remote output and their output is local here.
+	// Therefore, we'll try to use the BreachCsvDelay if present,
+	// otherwise, we'll stick with the main one specified.
+	toLocalCsvDelay := req.BreachCsvDelay.UnwrapOr(req.CsvDelay)
 	localScriptTree, err := localCommitScriptKey(
 		req.KeyRing.ToLocalKey, req.KeyRing.RevocationKey,
-		req.CsvDelay,
+		toLocalCsvDelay,
 	).Unpack()
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to create local "+
