@@ -1250,7 +1250,8 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 	}
 }
 
-// ListTransfers lists all asset transfers managed by this daemon.
+// ListTransfers returns a list of all asset transfers managed by this daemon.
+// This includes both confirmed and unconfirmed transfers.
 func (r *rpcServer) ListTransfers(ctx context.Context,
 	req *taprpc.ListTransfersRequest) (*taprpc.ListTransfersResponse,
 	error) {
