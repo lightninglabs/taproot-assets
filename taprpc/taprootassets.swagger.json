@@ -1682,6 +1682,11 @@
             "type": "object",
             "$ref": "#/definitions/taprpcAsset"
           }
+        },
+        "unconfirmed_transfers": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is a count of unconfirmed outgoing transfers. Unconfirmed transfers\ndo not appear as assets in this endpoint response."
         }
       }
     },

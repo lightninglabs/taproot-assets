@@ -461,6 +461,10 @@ message SplitCommitment {
 
 message ListAssetResponse {
     repeated Asset assets = 1;
+
+    // This is a count of unconfirmed outgoing transfers. Unconfirmed transfers
+    // do not appear as assets in this endpoint response.
+    uint64 unconfirmed_transfers = 2;
 }
 
 message ListUtxosRequest {
