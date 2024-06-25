@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -552,7 +553,8 @@ func (p *ChainPorter) fetchInputProof(ctx context.Context,
 		ctx, inputProofLocator,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("error fetching input proof: %w", err)
+		return nil, fmt.Errorf("error fetching input proof -- "+
+			"locator=%v: %w", spew.Sdump(inputProofLocator), err)
 	}
 	inputProofFile := proof.NewEmptyFile(proof.V0)
 	err = inputProofFile.Decode(bytes.NewReader(inputProofBytes))
