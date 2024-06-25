@@ -1110,13 +1110,13 @@ func (s *Server) ResolveContract(req lnwallet.ResolutionReq,
 }
 
 // DeriveSweepAddr takes a set of inputs, and the change address we'd use to
-// sweep them, and maybe results an extra sweep output that we should add to
+// sweep them, and maybe results in an extra sweep output that we should add to
 // the sweeping transaction.
 func (s *Server) DeriveSweepAddr(inputs []input.Input,
 	change lnwallet.AddrWithKey) lfn.Result[sweep.SweepOutput] {
 
 	srvrLog.Infof("DeriveSweepAddr called, inputs=%v, change=%v",
-		spew.Sdump(inputs), change)
+		spew.Sdump(inputs), spew.Sdump(change))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.Err[sweep.SweepOutput](err)
