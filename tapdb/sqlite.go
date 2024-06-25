@@ -151,7 +151,14 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 
 // ExecuteMigrations runs migrations for the sqlite database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
+func (s *SqliteStore) ExecuteMigrations(target MigrationTarget,
+	optFuncs ...MigrateOpt) error {
+
+	opts := defaultMigrateOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
+
 	driver, err := sqlite_migrate.WithInstance(
 		s.DB, &sqlite_migrate.Config{},
 	)
@@ -161,7 +168,7 @@ func (s *SqliteStore) ExecuteMigrations(target MigrationTarget) error {
 
 	sqliteFS := newReplacerFS(sqlSchemas, sqliteSchemaReplacements)
 	return applyMigrations(
-		sqliteFS, driver, "sqlc/migrations", "sqlite", target,
+		sqliteFS, driver, "sqlc/migrations", "sqlite", target, opts,
 	)
 }
 

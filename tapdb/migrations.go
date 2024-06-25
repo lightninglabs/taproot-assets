@@ -3,6 +3,7 @@ package tapdb
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -12,6 +13,16 @@ import (
 	"github.com/golang-migrate/migrate/v4"
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
+	"github.com/lightninglabs/taproot-assets/fn"
+)
+
+const (
+	// LatestMigrationVersion is the latest migration version of the
+	// database.  This is used to implement downgrade protection for the
+	// daemon.
+	//
+	// NOTE: This MUST be updated when a new migration is added.
+	LatestMigrationVersion = 21
 )
 
 // MigrationTarget is a functional option that can be passed to applyMigrations
@@ -33,6 +44,36 @@ var (
 		}
 	}
 )
+
+var (
+	// ErrMigrationDowngrade is returned when a database downgrade is
+	// detected.
+	ErrMigrationDowngrade = errors.New("database downgrade detected")
+)
+
+// migrationOption is a functional option that can be passed to migrate related
+// methods to modify their behavior.
+type migrateOptions struct {
+	latestVersion fn.Option[uint]
+}
+
+// defaultMigrateOptions returns a new migrateOptions instance with default
+// settings.
+func defaultMigrateOptions() *migrateOptions {
+	return &migrateOptions{}
+}
+
+// MigrateOpt is a functional option that can be passed to migrate related
+// methods to modify behavior.
+type MigrateOpt func(*migrateOptions)
+
+// WithLatestVersion allows callers to override the default latest version
+// setting.
+func WithLatestVersion(version uint) MigrateOpt {
+	return func(o *migrateOptions) {
+		o.latestVersion = fn.Some(version)
+	}
+}
 
 // migrationLogger is a logger that wraps the passed btclog.Logger so it can be
 // used to log migrations.
@@ -72,7 +113,7 @@ func (m *migrationLogger) Verbose() bool {
 // system under the given path, using the passed database driver and database
 // name, up to or down to the given target version.
 func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
-	targetVersion MigrationTarget) error {
+	targetVersion MigrationTarget, opts *migrateOptions) error {
 
 	// With the migrate instance open, we'll create a new migration source
 	// using the embedded file system stored in sqlSchemas. The library
@@ -94,6 +135,16 @@ func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
 	}
 
 	migrationVersion, _, _ := sqlMigrate.Version()
+
+	// As the down migrations may end up *dropping* data, we want to
+	// prevent that without explicit accounting.
+	latestVersion := opts.latestVersion.UnwrapOr(LatestMigrationVersion)
+	if migrationVersion > latestVersion {
+		return fmt.Errorf("%w: database version is newer than the "+
+			"latest migration version, preventing downgrade: "+
+			"db_version=%v, latest_migration_version=%v",
+			ErrMigrationDowngrade, migrationVersion, latestVersion)
+	}
 
 	log.Infof("Applying migrations from version=%v", migrationVersion)
 
