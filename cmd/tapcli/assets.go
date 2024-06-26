@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"math"
 	"os"
@@ -159,9 +158,7 @@ func parseAssetType(ctx *cli.Context) (taprpc.AssetType, error) {
 	}
 }
 
-func parseMetaType(metaType string,
-	metaBytes []byte) (taprpc.AssetMetaType, error) {
-
+func parseMetaType(metaType string) (taprpc.AssetMetaType, error) {
 	switch metaType {
 	case "opaque":
 		fallthrough
@@ -169,12 +166,6 @@ func parseMetaType(metaType string,
 		return taprpc.AssetMetaType_META_TYPE_OPAQUE, nil
 
 	case "json":
-		// If JSON is selected, the bytes must be valid.
-		if !json.Valid(metaBytes) {
-			return 0, fmt.Errorf("invalid JSON for meta: %s",
-				metaBytes)
-		}
-
 		return taprpc.AssetMetaType_META_TYPE_JSON, nil
 
 	// Otherwise, this is a custom meta type, we may not understand it, but
@@ -232,24 +223,56 @@ func mintAsset(ctx *cli.Context) error {
 		}
 	}
 
-	metaTypeStr := ctx.String(assetMetaTypeName)
+	var (
+		metaTypeStr  = ctx.String(assetMetaTypeName)
+		metaBytes    = ctx.String(assetMetaBytesName)
+		metaFilePath = ctx.String(assetMetaFilePathName)
+		decDisplay   = ctx.Uint64(assetDecimalDisplayName)
+	)
 
-	// Both the meta bytes and the meta path can be set.
+	if decDisplay > math.MaxUint32 {
+		return fmt.Errorf("decimal display must be a valid uint32")
+	}
+
+	metaType, err := parseMetaType(metaTypeStr)
+	if err != nil {
+		return fmt.Errorf("unable to parse meta type: %w", err)
+	}
+
+	// Before setting a non-empty meta, reject invalid combinations of
+	// metadata-related flags.
 	var assetMeta *taprpc.AssetMeta
 	switch {
-	case ctx.String(assetMetaBytesName) != "" &&
-		ctx.String(assetMetaFilePathName) != "":
-		return fmt.Errorf("meta bytes or meta file path cannot " +
-			"be both set")
+	case metaBytes != "" && metaFilePath != "":
+		return fmt.Errorf("meta bytes and meta file path cannot both " +
+			"be set")
 
+	case metaBytes == "" && metaFilePath == "":
+		switch metaType {
+		// Opaque is the default if the meta_type flag is not set, so
+		// having empty metadata is allowed.
+		case taprpc.AssetMetaType_META_TYPE_OPAQUE:
+		case taprpc.AssetMetaType_META_TYPE_JSON:
+			// Set only the metadata type; if present, the decimal
+			// display will be added as the actual metadata later.
+			// The minter will ultimately reject empty metadata.
+			assetMeta = &taprpc.AssetMeta{
+				Type: metaType,
+			}
+
+		// A custom meta type requires metadata to be present.
+		default:
+			return fmt.Errorf("metadata must be present for " +
+				"custom meta types")
+		}
+	}
+
+	// One of meta bytes or the meta path can be set.
+	switch {
 	case ctx.String(assetMetaBytesName) != "":
 		assetMeta = &taprpc.AssetMeta{
 			Data: []byte(ctx.String(assetMetaBytesName)),
-		}
-
-		assetMeta.Type, err = parseMetaType(metaTypeStr, assetMeta.Data)
-		if err != nil {
-			return fmt.Errorf("unable to parse meta type: %w", err)
+			Type: metaType,
 		}
 
 	case ctx.String(assetMetaFilePathName) != "":
@@ -263,11 +286,7 @@ func mintAsset(ctx *cli.Context) error {
 
 		assetMeta = &taprpc.AssetMeta{
 			Data: metaFileBytes,
-		}
-
-		assetMeta.Type, err = parseMetaType(metaTypeStr, assetMeta.Data)
-		if err != nil {
-			return fmt.Errorf("unable to parse meta type: %w", err)
+			Type: metaType,
 		}
 	}
 
@@ -304,12 +323,10 @@ func mintAsset(ctx *cli.Context) error {
 
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
-			AssetType: assetType,
-			Name:      ctx.String(assetTagName),
-			AssetMeta: assetMeta,
-			DecimalDisplay: uint32(
-				ctx.Uint64(assetDecimalDisplayName),
-			),
+			AssetType:       assetType,
+			Name:            ctx.String(assetTagName),
+			AssetMeta:       assetMeta,
+			DecimalDisplay:  uint32(decDisplay),
 			Amount:          amount,
 			NewGroupedAsset: ctx.Bool(assetNewGroupedAssetName),
 			GroupedAsset:    ctx.Bool(assetGroupedAssetName),
