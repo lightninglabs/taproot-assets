@@ -526,6 +526,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			Type: metaType,
 		}
 
+		// If a custom decimal display was requested correctly, but no
+		// metadata was provided, we'll set the metadata to an empty
+		// JSON object. The decimal display will be added as the only
+		// object.
+		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
+			if len(req.Asset.AssetMeta.Data) == 0 {
+				seedlingMeta.Data = []byte("{}")
+			}
+		}
+
 		err = seedlingMeta.Validate()
 		if err != nil {
 			return nil, err
