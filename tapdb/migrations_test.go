@@ -118,3 +118,15 @@ func TestMigration15(t *testing.T) {
 		t, wire.TxWitness{{0xbb}}, assets[0].PrevWitnesses[1].TxWitness,
 	)
 }
+
+// TestMigrationDowngrade tests that downgrading the database is prevented.
+func TestMigrationDowngrade(t *testing.T) {
+	// For this test, with the current hard coded latest version.
+	db := NewTestDBWithVersion(t, LatestMigrationVersion)
+
+	// We'll now attempt to execute migrations, targeting the latest
+	// version. But we'll have the DB think the latest version is actually
+	// less than the current version. This simulates downgrading.
+	err := db.ExecuteMigrations(TargetLatest, WithLatestVersion(1))
+	require.ErrorIs(t, err, ErrMigrationDowngrade)
+}

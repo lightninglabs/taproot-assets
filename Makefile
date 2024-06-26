@@ -323,6 +323,10 @@ test-vector-check: gen-deterministic-test-vectors
 	@$(call print, "Checking deterministic test vectors.")
 	if test -n "$$(git status | grep -e ".json")"; then echo "Test vectors not updated"; git status; git diff; exit 1; fi
 
+migration-version-check:
+	@$(call print, "Checking migration version.")
+	./scripts/check-migration-latest-version.sh
+
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) coverage.txt

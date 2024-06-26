@@ -141,7 +141,14 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 
 // ExecuteMigrations runs migrations for the Postgres database, depending on the
 // target given, either all migrations or up to a given version.
-func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
+func (s *PostgresStore) ExecuteMigrations(target MigrationTarget,
+	optFuncs ...MigrateOpt) error {
+
+	opts := defaultMigrateOptions()
+	for _, optFunc := range optFuncs {
+		optFunc(opts)
+	}
+
 	driver, err := postgres_migrate.WithInstance(
 		s.DB, &postgres_migrate.Config{},
 	)
@@ -152,6 +159,7 @@ func (s *PostgresStore) ExecuteMigrations(target MigrationTarget) error {
 	postgresFS := newReplacerFS(sqlSchemas, postgresSchemaReplacements)
 	return applyMigrations(
 		postgresFS, driver, "sqlc/migrations", s.cfg.DBName, target,
+		opts,
 	)
 }
 
