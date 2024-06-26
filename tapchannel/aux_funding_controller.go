@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -45,6 +46,10 @@ const (
 	// MsgEndpointName is the name of the endpoint that we'll use to
 	// register the funding controller with the peer message handler.
 	MsgEndpointName = "taproot assets channel funding"
+
+	// ackTimeout is the amount of time we'll wait to receive the protocol
+	// level ACK from the remote party before timing out.
+	ackTimeout = time.Second * 30
 )
 
 // ErrorReporter is used to report an error back to the caller and/or peer that
@@ -1107,6 +1112,11 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	log.Debugf("Waiting for channel finalized signal...")
 	select {
 	case <-fundingState.fundingFinalizedSignal:
+
+	case <-time.After(ackTimeout):
+		return nil, fmt.Errorf("didn't receive funding ack after %v",
+			ackTimeout)
+
 	case <-f.Quit:
 	}
 
@@ -1282,6 +1292,14 @@ func (f *FundingController) chanFunder() {
 					if !accept {
 						return
 					}
+
+				case <-time.After(ackTimeout):
+					err := fmt.Errorf("didn't receive "+
+						"funding ack after %v",
+						ackTimeout)
+					log.Error(err)
+					fundReq.errChan <- err
+					return
 
 				case <-f.Quit:
 					return
