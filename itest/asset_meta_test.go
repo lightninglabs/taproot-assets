@@ -173,7 +173,9 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	require.ErrorContains(t.t, err, "decimal display does not match")
 
 	// If we update the decimal display to match the group anchor, minting
-	// should succeed.
+	// should succeed. We also unset the metadata to ensure that the decimal
+	// display is set as the sole JSON object if needed.
+	secondAssetReq.Asset.AssetMeta.Data = []byte{}
 	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
 	MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd,
