@@ -298,6 +298,10 @@ mod-check: mod-tidy
 	@$(call print, "Checking modules.")
 	if test -n "$$(git status | grep -e "go.mod\|go.sum")"; then echo "Running go mod tidy changes go.mod/go.sum"; git status; git diff; exit 1; fi
 
+sample-conf-check:
+	@$(call print, "Checking that default values in the sample-tapd.conf file are set correctly")
+	scripts/check-sample-tapd-conf.sh "$(RELEASE_TAGS)"
+
 gen-deterministic-test-vectors:
 	@$(call print, "Generating deterministic test vectors.")
 	make unit gen-test-vectors=true pkg=address case=^TestAddressEncoding$

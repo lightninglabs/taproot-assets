@@ -98,6 +98,22 @@ jobs:
         run: go install -v ./...
 
   ########################
+  # sample configuration check
+  ########################
+  sample-conf-check:
+    name: sample configuration check
+    runs-on: ubuntu-latest
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: setup go environment
+        uses: ./.github/actions/setup-go
+
+      - name: check default values in sample-tapd.conf file
+        run: make sample-conf-check
+
+  ########################
   # Docker build check.
   ########################
   docker-build-check:
