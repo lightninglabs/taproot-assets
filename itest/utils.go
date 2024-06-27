@@ -411,6 +411,9 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 			AssetGroupTapscriptRootCheck(
 				assetRequest.Asset.GroupTapscriptRoot,
 			),
+			AssetDecimalDisplayCheck(
+				assetRequest.Asset.DecimalDisplay,
+			),
 		)
 	}
 

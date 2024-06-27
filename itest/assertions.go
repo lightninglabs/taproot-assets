@@ -228,6 +228,25 @@ func AssetVersionCheck(version taprpc.AssetVersion) AssetCheck {
 	}
 }
 
+// AssetDecimalDisplayCheck returns a check function that tests an asset's
+// decimal display value. The check function requires that the rpc Asset has a
+// non-nil decimal display value.
+func AssetDecimalDisplayCheck(decDisplay uint32) AssetCheck {
+	return func(a *taprpc.Asset) error {
+		if a.DecimalDisplay == nil {
+			return fmt.Errorf("asset decimal display is nil")
+		}
+
+		if a.DecimalDisplay.DecimalDisplay != decDisplay {
+			return fmt.Errorf("unexpected asset decimal display, "+
+				"got %v wanted %v", a.DecimalDisplay,
+				decDisplay)
+		}
+
+		return nil
+	}
+}
+
 // GroupAssetsByName converts an unordered list of assets to a map of lists of
 // assets, where all assets in a list have the same name.
 func GroupAssetsByName(assets []*taprpc.Asset) map[string][]*taprpc.Asset {
@@ -1816,6 +1835,9 @@ func AssertAssetsMinted(t *testing.T, tapClient TapdClient,
 			),
 			AssetGroupTapscriptRootCheck(
 				assetRequest.Asset.GroupTapscriptRoot,
+			),
+			AssetDecimalDisplayCheck(
+				assetRequest.Asset.DecimalDisplay,
 			),
 		)
 
