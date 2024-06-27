@@ -96,7 +96,7 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 
 	// We'll map our high level params into a request for a: private,
 	// taproot channel, that uses the PSBT funding flow.
-	taprootCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT
+	taprootCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
 	openChanStream, errChan, err := l.lnd.Client.OpenChannelStream(
 		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt, req.PushAmt,
 		true, lndclient.WithCommitmentType(&taprootCommitType),
