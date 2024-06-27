@@ -293,6 +293,7 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 
 	// TODO(roasbeef): if we pass :memory: for the file name, then we get
 	// an in mem version to speed up tests
+	// dbFileName := filepath.Join("/tmp", "test.tmp.db")
 	dbFileName := filepath.Join(t.TempDir(), "tmp.db")
 	sqlDB, err := NewSqliteStore(&SqliteConfig{
 		DatabaseFileName: dbFileName,
