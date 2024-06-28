@@ -98,6 +98,13 @@ build-itest:
 	@$(call print, "Building itest lnd.")
 	CGO_ENABLED=0 $(GOBUILD) -mod=mod -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
 
+build-itest-race:
+	@$(call print, "Building itest btcd.")
+	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest $(BTCD_PKG)
+
+	@$(call print, "Building itest lnd.")
+	CGO_ENABLED=1 $(GOBUILD) -race -mod=mod -tags="$(ITEST_TAGS)" -o itest/lnd-itest $(DEV_LDFLAGS) $(LND_PKG)/cmd/lnd
+
 build-loadtest:
 	CGO_ENABLED=0 $(GOTEST) -c -tags="$(LOADTEST_TAGS)" -o loadtest $(PKG)/itest/loadtest
 
@@ -184,12 +191,19 @@ unit-race:
 
 itest: build-itest itest-only
 
+itest-race: build-itest-race itest-race-only
+
 itest-trace: build-itest itest-only-trace
 
 itest-only: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/regtest; date
 	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
+
+itest-race-only: aperture-dir
+	@$(call print, "Running integration tests with ${backend} backend.")
+	rm -rf itest/regtest; date
+	$(GOTEST) -race ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
 
 itest-only-trace: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")
