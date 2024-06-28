@@ -2337,11 +2337,12 @@ WITH target_asset(asset_id) AS (
       ON assets.script_key_id = script_keys.script_key_id
     JOIN genesis_assets
       ON assets.genesis_id = genesis_assets.gen_asset_id
-    WHERE script_keys.tweaked_script_key = $1
-     AND genesis_assets.asset_id = $2
-    -- TODO(guggero): Fix this by disallowing multiple assets with the same
-    -- script key!
-    LIMIT 1
+    JOIN managed_utxos utxos
+         ON assets.anchor_utxo_id = utxos.utxo_id AND
+            (utxos.outpoint = $1 OR
+             $1 IS NULL)
+    WHERE script_keys.tweaked_script_key = $2
+     AND genesis_assets.asset_id = $3
 )
 UPDATE assets
 SET spent = TRUE
@@ -2350,12 +2351,13 @@ RETURNING assets.asset_id
 `
 
 type SetAssetSpentParams struct {
-	ScriptKey  []byte
-	GenAssetID []byte
+	AnchorPoint []byte
+	ScriptKey   []byte
+	GenAssetID  []byte
 }
 
 func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, setAssetSpent, arg.ScriptKey, arg.GenAssetID)
+	row := q.db.QueryRowContext(ctx, setAssetSpent, arg.AnchorPoint, arg.ScriptKey, arg.GenAssetID)
 	var asset_id int64
 	err := row.Scan(&asset_id)
 	return asset_id, err

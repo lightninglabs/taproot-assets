@@ -2727,8 +2727,9 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 		for idx := range inputs {
 			spentAssetIDs[idx], err = q.SetAssetSpent(
 				ctx, SetAssetSpentParams{
-					ScriptKey:  inputs[idx].ScriptKey,
-					GenAssetID: inputs[idx].AssetID,
+					ScriptKey:   inputs[idx].ScriptKey,
+					GenAssetID:  inputs[idx].AssetID,
+					AnchorPoint: inputs[idx].AnchorPoint,
 				},
 			)
 			if err != nil {
