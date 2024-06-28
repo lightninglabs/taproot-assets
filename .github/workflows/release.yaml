@@ -42,6 +42,9 @@ jobs:
         with:
           go-version: '${{ env.GO_VERSION }}'
 
+      - name: checkout release tag
+        run: git checkout ${{ env.RELEASE_VERSION }}
+
       - name: build release for all architectures
         run: make release tag=${{ env.RELEASE_VERSION }}
 
