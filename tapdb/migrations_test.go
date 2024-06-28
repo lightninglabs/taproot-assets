@@ -2,6 +2,9 @@ package tapdb
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
@@ -129,4 +132,91 @@ func TestMigrationDowngrade(t *testing.T) {
 	// less than the current version. This simulates downgrading.
 	err := db.ExecuteMigrations(TargetLatest, WithLatestVersion(1))
 	require.ErrorIs(t, err, ErrMigrationDowngrade)
+}
+
+// findDbBackupFilePath walks the directory of the given database file path and
+// returns the path to the backup file.
+func findDbBackupFilePath(t *testing.T, dbFilePath string) string {
+	var dbBackupFilePath string
+	dir := filepath.Dir(dbFilePath)
+
+	err := filepath.Walk(
+		dir, func(path string, info os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+
+			hasSuffix := strings.HasSuffix(info.Name(), ".backup")
+			if !info.IsDir() && hasSuffix {
+				dbBackupFilePath = path
+			}
+			return nil
+		},
+	)
+	require.NoError(t, err)
+
+	return dbBackupFilePath
+}
+
+// TestSqliteMigrationBackup tests that the sqlite database backup and migration
+// functionality works.
+//
+// In this test we will load from file a database that is at version 14. The
+// on file database is already populated with asset data. We will create a
+// database backup, migrate the source db, and then check the following:
+//
+// 1. The asset data is present in the migrated database.
+// 2. The asset data is present in the backup database.
+func TestSqliteMigrationBackup(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestSqliteDBWithVersion(t, 14)
+
+	// We need to insert some test data that will be affected by the
+	// migration number 15.
+	InsertTestdata(t, db.BaseDB, "migrations_test_00015_dummy_data.sql")
+
+	// And now that we have test data inserted, we can create a backup and
+	// migrate to the latest version.
+	err := db.ExecuteMigrations(db.backupAndMigrate)
+	require.NoError(t, err)
+
+	// Inspect the migrated database. Make sure the single asset that was
+	// inserted actually has two witnesses with the correct order.
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+	assets, err := assetStore.FetchAllAssets(ctx, false, false, nil)
+	require.NoError(t, err)
+
+	require.Len(t, assets, 1)
+	require.Len(t, assets[0].PrevWitnesses, 2)
+	require.Equal(
+		t, wire.TxWitness{{0xaa}}, assets[0].PrevWitnesses[0].TxWitness,
+	)
+	require.Equal(
+		t, wire.TxWitness{{0xbb}}, assets[0].PrevWitnesses[1].TxWitness,
+	)
+
+	// Now we will inspect the backup database (which should not have been
+	// modified by the migration).
+	//
+	// Find the backup database file.
+	dbBackupFilePath := findDbBackupFilePath(t, db.cfg.DatabaseFileName)
+
+	// Construct a new database handle for the backup database.
+	backupDb := NewTestSqliteDbHandleFromPath(t, dbBackupFilePath)
+	require.NoError(t, err)
+
+	// Inspect the backup database.
+	_, assetStore = newAssetStoreFromDB(backupDb.BaseDB)
+	assets, err = assetStore.FetchAllAssets(ctx, false, false, nil)
+	require.NoError(t, err)
+
+	require.Len(t, assets, 1)
+	require.Len(t, assets[0].PrevWitnesses, 2)
+	require.Equal(
+		t, wire.TxWitness{{0xaa}}, assets[0].PrevWitnesses[0].TxWitness,
+	)
+	require.Equal(
+		t, wire.TxWitness{{0xbb}}, assets[0].PrevWitnesses[1].TxWitness,
+	)
 }

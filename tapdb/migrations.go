@@ -26,20 +26,24 @@ const (
 )
 
 // MigrationTarget is a functional option that can be passed to applyMigrations
-// to specify a target version to migrate to.
-type MigrationTarget func(mig *migrate.Migrate) error
+// to specify a target version to migrate to. `currentDbVersion` is the current
+// (migration) version of the database, or None if unknown.
+// `maxMigrationVersion` is the maximum migration version known to the driver,
+// or None if unknown.
+type MigrationTarget func(mig *migrate.Migrate,
+	currentDbVersion int, maxMigrationVersion uint) error
 
 var (
 	// TargetLatest is a MigrationTarget that migrates to the latest
 	// version available.
-	TargetLatest = func(mig *migrate.Migrate) error {
+	TargetLatest = func(mig *migrate.Migrate, _ int, _ uint) error {
 		return mig.Up()
 	}
 
 	// TargetVersion is a MigrationTarget that migrates to the given
 	// version.
 	TargetVersion = func(version uint) MigrationTarget {
-		return func(mig *migrate.Migrate) error {
+		return func(mig *migrate.Migrate, _ int, _ uint) error {
 			return mig.Migrate(version)
 		}
 	}
@@ -146,16 +150,30 @@ func applyMigrations(fs fs.FS, driver database.Driver, path, dbName string,
 			ErrMigrationDowngrade, migrationVersion, latestVersion)
 	}
 
-	log.Infof("Applying migrations from version=%v", migrationVersion)
+	// Report the current version of the database before the migration.
+	currentDbVersion, _, err := driver.Version()
+	if err != nil {
+		return fmt.Errorf("unable to get current db version: %w", err)
+	}
+	log.Infof("Attempting to apply migration(s) "+
+		"(current_db_version=%v, latest_migration_version=%v)",
+		currentDbVersion, latestVersion)
 
 	// Apply our local logger to the migration instance.
 	sqlMigrate.Log = &migrationLogger{log}
 
 	// Execute the migration based on the target given.
-	err = targetVersion(sqlMigrate)
+	err = targetVersion(sqlMigrate, currentDbVersion, latestVersion)
 	if err != nil && !errors.Is(err, migrate.ErrNoChange) {
 		return err
 	}
+
+	// Report the current version of the database after the migration.
+	currentDbVersion, _, err = driver.Version()
+	if err != nil {
+		return fmt.Errorf("unable to get current db version: %w", err)
+	}
+	log.Infof("Database version after migration: %v", currentDbVersion)
 
 	return nil
 }
