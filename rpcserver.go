@@ -505,6 +505,14 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	var seedlingMeta *proof.MetaReveal
+
+	// If a custom decimal display is set, the meta type must also be set to
+	// JSON.
+	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
+		return nil, fmt.Errorf("decimal display requires JSON asset " +
+			"metadata")
+	}
+
 	if req.Asset.AssetMeta != nil {
 		// Ensure that the meta type is valid.
 		metaType, err := proof.IsValidMetaType(req.Asset.AssetMeta.Type)
