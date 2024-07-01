@@ -633,15 +633,19 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		require.NoError(t, err)
 
 		if desc.spent {
+			opBytes, err := encodeOutpoint(desc.anchorPoint)
+			require.NoError(t, err)
+
 			var (
 				scriptKey = newAsset.ScriptKey.PubKey
 				id        = newAsset.ID()
 			)
 			params := SetAssetSpentParams{
-				ScriptKey:  scriptKey.SerializeCompressed(),
-				GenAssetID: id[:],
+				ScriptKey:   scriptKey.SerializeCompressed(),
+				GenAssetID:  id[:],
+				AnchorPoint: opBytes,
 			}
-			_, err := assetStore.db.SetAssetSpent(ctx, params)
+			_, err = assetStore.db.SetAssetSpent(ctx, params)
 			require.NoError(t, err)
 		}
 

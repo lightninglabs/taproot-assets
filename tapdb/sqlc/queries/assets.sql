@@ -292,11 +292,12 @@ WITH target_asset(asset_id) AS (
       ON assets.script_key_id = script_keys.script_key_id
     JOIN genesis_assets
       ON assets.genesis_id = genesis_assets.gen_asset_id
+    JOIN managed_utxos utxos
+         ON assets.anchor_utxo_id = utxos.utxo_id AND
+            (utxos.outpoint = sqlc.narg('anchor_point') OR
+             sqlc.narg('anchor_point') IS NULL)
     WHERE script_keys.tweaked_script_key = @script_key
      AND genesis_assets.asset_id = @gen_asset_id
-    -- TODO(guggero): Fix this by disallowing multiple assets with the same
-    -- script key!
-    LIMIT 1
 )
 UPDATE assets
 SET spent = TRUE
