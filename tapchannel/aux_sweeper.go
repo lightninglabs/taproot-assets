@@ -793,10 +793,15 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			return fmt.Errorf("unable to convert script key to "+
 				"pubkey: %w", err)
 		}
+
 		inputProofLocator := proof.Locator{
 			AssetID:   &proofPrevID.ID,
 			ScriptKey: *scriptKey,
 			OutPoint:  &proofPrevID.OutPoint,
+		}
+		if proofToImport.Asset.GroupKey != nil {
+			groupKey := proofToImport.Asset.GroupKey.GroupPubKey
+			inputProofLocator.GroupKey = &groupKey
 		}
 
 		log.Infof("Fetching funding input proof, locator=%v",
