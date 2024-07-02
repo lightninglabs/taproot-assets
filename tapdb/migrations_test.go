@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/wire"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/stretchr/testify/require"
 )
 
@@ -219,4 +221,75 @@ func TestSqliteMigrationBackup(t *testing.T) {
 	require.Equal(
 		t, wire.TxWitness{{0xbb}}, assets[0].PrevWitnesses[1].TxWitness,
 	)
+}
+
+// TestMigration20 tests that the migration to version 20 works as expected.
+// We start at version 19, then insert some test data that simulate duplicated
+// assets that might have been created for certain users due to TAP address self
+// transfers. The migration with version 20 is then applied, which contains
+// SQL queries to de-duplicate the assets, with the goal of then applying a new
+// unique constraint on the asset table.
+func TestMigration20(t *testing.T) {
+	ctx := context.Background()
+
+	db := NewTestDBWithVersion(t, 19)
+
+	// We need to insert some test data that will be affected by the
+	// migration number 20.
+	InsertTestdata(t, db.BaseDB, "migrations_test_00020_dummy_data.sql")
+
+	// And now that we have test data inserted, we can migrate to the latest
+	// version.
+	err := db.ExecuteMigrations(TargetLatest)
+	require.NoError(t, err)
+
+	// The migration should have de-duplicated the assets, so we should now
+	// only have two valid/distinct assets with two witnesses and one proof
+	// each. So we're just asserting the expected state _after_ the
+	// migration has run.
+	_, assetStore := newAssetStoreFromDB(db.BaseDB)
+	assets, err := assetStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+
+	require.Len(t, assets, 2)
+	require.Len(t, assets[0].PrevWitnesses, 2)
+	require.False(t, assets[0].IsSpent)
+	require.Equal(
+		t, wire.TxWitness{{0xaa}}, assets[0].PrevWitnesses[0].TxWitness,
+	)
+	require.Equal(
+		t, wire.TxWitness{{0xbb}}, assets[0].PrevWitnesses[1].TxWitness,
+	)
+
+	require.Len(t, assets[1].PrevWitnesses, 2)
+	require.True(t, assets[1].IsSpent)
+	require.Equal(
+		t, wire.TxWitness{{0xcc}}, assets[1].PrevWitnesses[0].TxWitness,
+	)
+	require.Equal(
+		t, wire.TxWitness{{0xdd}}, assets[1].PrevWitnesses[1].TxWitness,
+	)
+
+	asset1Locator := proof.Locator{
+		ScriptKey: *assets[0].ScriptKey.PubKey,
+	}
+	asset1Key := asset.ToSerialized(&asset1Locator.ScriptKey)
+	asset2Locator := proof.Locator{
+		ScriptKey: *assets[1].ScriptKey.PubKey,
+	}
+	asset2Key := asset.ToSerialized(&asset2Locator.ScriptKey)
+
+	p1, err := assetStore.FetchAssetProofs(ctx, asset1Locator)
+	require.NoError(t, err)
+
+	require.Contains(t, p1, asset1Key)
+	blob1 := p1[asset1Key]
+	require.Equal(t, []byte{0xaa, 0xaa}, []byte(blob1))
+
+	p2, err := assetStore.FetchAssetProofs(ctx, asset2Locator)
+	require.NoError(t, err)
+
+	require.Contains(t, p2, asset2Key)
+	blob2 := p2[asset2Key]
+	require.Equal(t, []byte{0xee, 0xee}, []byte(blob2))
 }
