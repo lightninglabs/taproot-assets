@@ -757,15 +757,18 @@ func (a *AuxSweeper) importCommitScriptKeys(req lnwallet.ResolutionReq) error {
 
 // importOutputProofs imports the output proofs into the pending asset funding
 // into our local database. This preps us to be able to detect force closes.
-func (a *AuxSweeper) importOutputProofs(scid lnwire.ShortChannelID,
-	outputProofs []*proof.Proof) error {
+func importOutputProofs(scid lnwire.ShortChannelID,
+	outputProofs []*proof.Proof, courierAddr *url.URL,
+	proofDispatch proof.CourierDispatch, chainBridge tapgarden.ChainBridge,
+	headerVerifier proof.HeaderVerifier, groupVerifier proof.GroupVerifier,
+	proofArchive proof.Archiver) error {
 
 	// TODO(roasbeef): should be part of post confirmation funding validate
 	// (chanvalidate)
 
 	// First, we'll make a courier to use in fetching the proofs we need.
-	proofFetcher, err := a.cfg.ProofFetcher.NewCourier(
-		a.cfg.DefaultCourierAddr, proof.Recipient{},
+	proofFetcher, err := proofDispatch.NewCourier(
+		courierAddr, proof.Recipient{},
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create proof courier: %w", err)
@@ -814,13 +817,13 @@ func (a *AuxSweeper) importOutputProofs(scid lnwire.ShortChannelID,
 		// Before we combine the proofs below, we'll be sure to update
 		// the transition proof to include the proper block+merkle
 		// proof information.
-		blockHash, err := a.cfg.ChainBridge.GetBlockHash(
+		blockHash, err := chainBridge.GetBlockHash(
 			ctxb, int64(scid.BlockHeight),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to get block hash: %w", err)
 		}
-		block, err := a.cfg.ChainBridge.GetBlock(ctxb, blockHash)
+		block, err := chainBridge.GetBlock(ctxb, blockHash)
 		if err != nil {
 			return fmt.Errorf("unable to get block: %w", err)
 		}
@@ -858,9 +861,9 @@ func (a *AuxSweeper) importOutputProofs(scid lnwire.ShortChannelID,
 		}
 
 		fundingUTXO := proofToImport.Asset
-		err = a.cfg.ProofArchive.ImportProofs(
-			ctxb, a.cfg.HeaderVerifier, proof.DefaultMerkleVerifier,
-			a.cfg.GroupVerifier, a.cfg.ChainBridge, false,
+		err = proofArchive.ImportProofs(
+			ctxb, headerVerifier, proof.DefaultMerkleVerifier,
+			groupVerifier, chainBridge, false,
 			&proof.AnnotatedProof{
 				//nolint:lll
 				Locator: proof.Locator{
@@ -932,8 +935,11 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// for the funding transaction here so we can properly recognize the
 	// spent input below.
 	if !req.Initiator {
-		err := a.importOutputProofs(
+		err := importOutputProofs(
 			req.ShortChanID, maps.Values(fundingInputProofs),
+			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
+			a.cfg.ChainBridge, a.cfg.HeaderVerifier,
+			a.cfg.GroupVerifier, a.cfg.ProofArchive,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to import output "+
