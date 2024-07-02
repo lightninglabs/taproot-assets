@@ -73,7 +73,7 @@ WHERE witness_id NOT IN (SELECT min(witness_id)
 -- Step 7: Re-enable the unique index on the asset_witnesses table.
 CREATE UNIQUE INDEX asset_witnesses_asset_id_witness_index_unique
     ON asset_witnesses (
-                        asset_id, witness_index
+                asset_id, witness_index
         );
 
 -- Step 8: Delete any duplicate proofs.
@@ -82,8 +82,7 @@ FROM asset_proofs
 WHERE asset_id NOT IN (SELECT min_asset_id FROM tmp_min_assets);
 
 -- Step 9: Delete the duplicates from the assets table. This will then also
--- delete dangling asset_witnesses, since we have a ON DELETE CASCADE clause on
--- the foreign key there.
+-- delete dangling asset_witnesses.
 DELETE
 FROM assets
 WHERE asset_id NOT IN (SELECT min_asset_id FROM tmp_min_assets);
