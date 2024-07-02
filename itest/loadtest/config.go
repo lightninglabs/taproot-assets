@@ -58,6 +58,15 @@ type BitcoinConfig struct {
 	TLSPath  string `long:"tlspath" description:"Path to btcd's TLS certificate, if TLS is enabled"`
 }
 
+// PrometheusGatewayConfig defines exported config options for connecting to the
+// Prometheus PushGateway.
+type PrometheusGatewayConfig struct {
+	Enabled bool   `long:"enabled" description:"Enable pushing metrics to Prometheus PushGateway"`
+	Host    string `long:"host" description:"Prometheus PushGateway host address"`
+	Port    int    `long:"port" description:"Prometheus PushGateway port"`
+	PushURL string
+}
+
 // Config holds the main configuration for the performance testing binary.
 type Config struct {
 	// TestCases is a comma separated list of test cases that will be
@@ -97,6 +106,9 @@ type Config struct {
 
 	// TestTimeout is the timeout for each test.
 	TestTimeout time.Duration `long:"test-timeout" description:"the timeout for each test"`
+
+	// PrometheusGateway is the configuration for the Prometheus PushGateway.
+	PrometheusGateway *PrometheusGatewayConfig `group:"prometheus-gateway" namespace:"prometheus-gateway" description:"Prometheus PushGateway configuration"`
 }
 
 // DefaultConfig returns the default configuration for the performance testing
@@ -120,6 +132,11 @@ func DefaultConfig() Config {
 		SendType:         taprpc.AssetType_COLLECTIBLE,
 		TestSuiteTimeout: defaultSuiteTimeout,
 		TestTimeout:      defaultTestTimeout,
+		PrometheusGateway: &PrometheusGatewayConfig{
+			Enabled: false,
+			Host:    "localhost",
+			Port:    9091,
+		},
 	}
 }
 
@@ -156,6 +173,26 @@ func LoadConfig() (*Config, error) {
 // of it with sane defaults.
 func ValidateConfig(cfg Config) (*Config, error) {
 	// TODO (positiveblue): add validation logic.
+
+	// Validate Prometheus PushGateway configuration.
+	if cfg.PrometheusGateway.Enabled {
+		gatewayHost := cfg.PrometheusGateway.Host
+		gatewayPort := cfg.PrometheusGateway.Port
+
+		if gatewayHost == "" {
+			return nil, fmt.Errorf("gateway hostname may not be empty")
+		}
+
+		if gatewayPort == 0 {
+			return nil, fmt.Errorf("gateway port is not set")
+		}
+
+		// Construct the endpoint for Prometheus PushGateway.
+		cfg.PrometheusGateway.PushURL = fmt.Sprintf(
+			"%s:%d", gatewayHost, gatewayPort,
+		)
+	}
+
 	return &cfg, nil
 }
 
