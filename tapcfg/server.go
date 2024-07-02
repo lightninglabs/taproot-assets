@@ -447,6 +447,13 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			AddrBook:           addrBook,
 			TxSender:           chainPorter,
 			DefaultCourierAddr: proofCourierAddr,
+			ProofArchive:       proofArchive,
+			ProofFetcher:       proofCourierDispatcher,
+			HeaderVerifier:     headerVerifier,
+			GroupVerifier: tapgarden.GenGroupVerifier(
+				context.Background(), assetMintingStore,
+			),
+			ChainBridge: chainBridge,
 		},
 	)
 	auxSweeper := tapchannel.NewAuxSweeper(

@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
+	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn"
@@ -45,6 +46,22 @@ type AuxChanCloserCfg struct {
 	// DefaultCourierAddr is the default address we'll use to send/receive
 	// proofs for the co-op close process
 	DefaultCourierAddr *url.URL
+
+	// ProofFetcher is used to fetch proofs needed to properly import the
+	// funding output into the database as our own.
+	ProofFetcher proof.CourierDispatch
+
+	// ProofArchive is used to store import funding output proofs.
+	ProofArchive proof.Archiver
+
+	// HeaderVerifier is used to verify headers in a proof.
+	HeaderVerifier proof.HeaderVerifier
+
+	// GroupVerifier is used to verify group keys in a proof.
+	GroupVerifier proof.GroupVerifier
+
+	// ChainBridge is used to fetch blocks from the main chain.
+	ChainBridge tapgarden.ChainBridge
 }
 
 // assetCloseInfo houses the information we need to finalize the close of an
@@ -622,6 +639,37 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 	if !ok {
 		return fmt.Errorf("no vPackets found for ChannelPoint(%v)",
 			desc.ChanPoint)
+	}
+
+	// Before we finalize the close process, we'll make sure to also import
+	// a transfer for the funding outputs. This way we'll ensure that we're
+	// able to insert the transfer that spends these outputs. We only need
+	// to do this for the responder though, as the creator of the channel
+	// already has these proofs inserted.
+	if !desc.Initiator {
+		fundingInfo, err := tapchannelmsg.DecodeOpenChannel(
+			desc.FundingBlob.UnwrapOr(nil),
+		)
+		if err != nil {
+			return err
+		}
+
+		fundingInputProofs := fn.Map(
+			fundingInfo.FundedAssets.Val.Outputs,
+			func(a *tapchannelmsg.AssetOutput) *proof.Proof {
+				return &a.Proof.Val
+			},
+		)
+		err = importOutputProofs(
+			desc.ShortChanID, fundingInputProofs,
+			a.cfg.DefaultCourierAddr, a.cfg.ProofFetcher,
+			a.cfg.ChainBridge, a.cfg.HeaderVerifier,
+			a.cfg.GroupVerifier, a.cfg.ProofArchive,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to import output "+
+				"proofs: %w", err)
+		}
 	}
 
 	log.Infof("Finalizing close for ChannelPoint(%v): ", desc.ChanPoint)
