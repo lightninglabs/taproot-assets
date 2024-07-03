@@ -1,6 +1,7 @@
 package tapgarden
 
 import (
+	"bytes"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -191,6 +192,66 @@ func (m *MintingBatch) MintingOutputKey(sibling *commitment.TapscriptPreimage) (
 	)
 
 	return m.mintingPubKey, m.taprootAssetScriptRoot, nil
+}
+
+// VerifyOutputScript recomputes a batch genesis output script from a batch key,
+// tapscript sibling, and set of assets. It checks multiple tap commitment
+// versions to account for legacy batches.
+func VerifyOutputScript(batchKey *btcec.PublicKey, tapSibling *chainhash.Hash,
+	genesisScript []byte, assets []*asset.Asset) (*commitment.TapCommitment,
+	error) {
+
+	// Construct a TapCommitment from the batch sprouts, and verify that the
+	// version is correct by recomputing the genesis output script.
+	buildTrimmedCommitment := func(vers *commitment.TapCommitmentVersion,
+		assets ...*asset.Asset) (*commitment.TapCommitment, error) {
+
+		tapCommitment, err := commitment.FromAssets(vers, assets...)
+		if err != nil {
+			return nil, err
+		}
+
+		return commitment.TrimSplitWitnesses(vers, tapCommitment)
+	}
+
+	tapCommitment, err := buildTrimmedCommitment(
+		fn.Ptr(commitment.TapCommitmentV2), assets...,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	computedScript, err := tapscript.PayToAddrScript(
+		*batchKey, tapSibling, *tapCommitment,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if !bytes.Equal(genesisScript, computedScript) {
+		// The batch may have used a non-V2 commitment; check against a
+		// non-V2 commitment.
+		tapCommitment, err = buildTrimmedCommitment(nil, assets...)
+		if err != nil {
+			return nil, err
+		}
+
+		computedScriptV0, err := tapscript.PayToAddrScript(
+			*batchKey, tapSibling, *tapCommitment,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if !bytes.Equal(genesisScript, computedScriptV0) {
+			return nil, fmt.Errorf("invalid commitment to asset "+
+				"sprouts: batch %x",
+				batchKey.SerializeCompressed(),
+			)
+		}
+	}
+
+	return tapCommitment, nil
 }
 
 // genesisScript returns the script that should be placed in the minting output

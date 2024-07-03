@@ -587,13 +587,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 	for _, seedlingName := range orderedSeedlings {
 		seedling := groupSeedlings[seedlingName]
-
-		assetGen := asset.Genesis{
-			FirstPrevOut: genesisPoint,
-			Tag:          seedling.AssetName,
-			OutputIndex:  assetOutputIndex,
-			Type:         seedling.AssetType,
-		}
+		assetGen := seedling.Genesis(genesisPoint, assetOutputIndex)
 
 		// If the seedling has a meta data reveal set, then we'll bind
 		// that by including the hash of the meta data in the asset

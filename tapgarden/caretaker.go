@@ -412,7 +412,21 @@ func (b *BatchCaretaker) assetCultivator() {
 	}
 }
 
-// extractGenesisOutpoint extracts the genesis point (the first output from the
+// extractAnchorOutputIndex extracts the anchor output index from a funded
+// genesis packet.
+func extractAnchorOutputIndex(genesisPkt *tapsend.FundedPsbt) uint32 {
+	anchorOutputIndex := uint32(0)
+
+	// TODO(jhb): Does funding guarantee that minting TXs always have
+	// exactly two outputs? If not this func should be fallible.
+	if genesisPkt.ChangeOutputIndex == 0 {
+		anchorOutputIndex = 1
+	}
+
+	return anchorOutputIndex
+}
+
+// extractGenesisOutpoint extracts the genesis point (the first input from the
 // genesis transaction).
 func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
 	return tx.TxIn[0].PreviousOutPoint
@@ -436,7 +450,6 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 		b.cfg.Batch.Seedlings,
 	)
 	groupedSeedlingCount := len(groupedSeedlings)
-
 	// load seedling asset groups and check for correct group count
 	seedlingGroups, err := b.cfg.Log.FetchSeedlingGroups(
 		ctx, genesisPoint, assetOutputIndex,
@@ -453,10 +466,9 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 			seedlingGroupCount)
 	}
 
-	for i := range seedlingGroups {
+	for _, seedlingGroup := range seedlingGroups {
 		// check that asset group has a witness, and that the group
 		// has a matching seedling
-		seedlingGroup := seedlingGroups[i]
 		if len(seedlingGroup.GroupKey.Witness) == 0 {
 			return nil, fmt.Errorf("not all seedling groups have " +
 				"witnesses")
@@ -496,12 +508,7 @@ func (b *BatchCaretaker) seedlingsToAssetSprouts(ctx context.Context,
 	// build assets for ungrouped seedlings
 	for seedlingName := range ungroupedSeedlings {
 		seedling := ungroupedSeedlings[seedlingName]
-		assetGen := asset.Genesis{
-			FirstPrevOut: genesisPoint,
-			Tag:          seedling.AssetName,
-			OutputIndex:  assetOutputIndex,
-			Type:         seedling.AssetType,
-		}
+		assetGen := seedling.Genesis(genesisPoint, assetOutputIndex)
 
 		// If the seedling has a meta data reveal set, then we'll bind
 		// that by including the hash of the meta data in the asset
@@ -607,11 +614,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// and vice versa.
 		// TODO(jhb): return the anchor index instead of change? or both
 		// so this works for N outputs
-		b.anchorOutputIndex = 0
-		if changeOutputIndex == 0 {
-			b.anchorOutputIndex = 1
-		}
-
+		b.anchorOutputIndex = extractAnchorOutputIndex(
+			b.cfg.Batch.GenesisPacket,
+		)
 		genesisPoint := extractGenesisOutpoint(genesisTxPkt.UnsignedTx)
 
 		// First, we'll turn all the seedlings into actual taproot assets.

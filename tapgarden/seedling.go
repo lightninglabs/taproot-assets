@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -197,6 +198,24 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 	}
 
 	return nil
+}
+
+// Genesis reconstructs the asset genesis for a seedling.
+func (c Seedling) Genesis(genOutpoint wire.OutPoint,
+	genIndex uint32) asset.Genesis {
+
+	gen := asset.Genesis{
+		FirstPrevOut: genOutpoint,
+		Tag:          c.AssetName,
+		OutputIndex:  genIndex,
+		Type:         c.AssetType,
+	}
+
+	if c.Meta != nil {
+		gen.MetaHash = c.Meta.MetaHash()
+	}
+
+	return gen
 }
 
 // HasGroupKey checks if a seedling specifies a particular group key.
