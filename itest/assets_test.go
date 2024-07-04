@@ -5,6 +5,8 @@ import (
 	"context"
 	"crypto/tls"
 	"net/http"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -24,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 	"golang.org/x/net/http2"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -438,7 +441,6 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 	rpcIssuableAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd, issuableAssets,
 	)
-
 	AssertAssetBalances(t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets)
 
 	// Filter the managed UTXOs to select the genesis UTXO with the
@@ -527,4 +529,91 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 	t.lndHarness.AssertNumUTXOsUnconfirmed(t.lndHarness.Bob, 1)
 	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
 	t.lndHarness.AssertNumUTXOsWithConf(t.lndHarness.Bob, 1, 1, 1)
+}
+
+// testMintBatchAndTransfer tests that we can mint a batch of assets, observe
+// the finalized batch state, and observe the same batch state after a transfer
+// of an asset from the batch.
+func testMintBatchAndTransfer(t *harnessTest) {
+	ctxb := context.Background()
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
+	)
+
+	// List the batch right after minting.
+	originalBatches, err := t.tapd.ListBatches(
+		ctxb, &mintrpc.ListBatchRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// We'll make a second node now that'll be the receiver of all the
+	// assets made above.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// In order to force a split, we don't try to send the full first asset.
+	a := rpcSimpleAssets[0]
+	addr, events := NewAddrWithEventStream(
+		t.t, secondTapd, &taprpc.NewAddrRequest{
+			AssetId:      a.AssetGenesis.AssetId,
+			Amt:          a.Amount - 1,
+			AssetVersion: a.Version,
+		},
+	)
+
+	AssertAddrCreated(t.t, secondTapd, a, addr)
+
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
+	sendRespJSON, err := formatProtoJSON(sendResp)
+	require.NoError(t.t, err)
+
+	t.Logf("Got response from sending assets: %v", sendRespJSON)
+
+	// Make sure that eventually we see a single event for the
+	// address.
+	AssertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
+
+	// Mine a block to make sure the events are marked as confirmed.
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	// Eventually the event should be marked as confirmed.
+	AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
+
+	// Make sure we have imported and finalized all proofs.
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	AssertSendEventsComplete(t.t, addr.ScriptKey, sendEvents)
+
+	// Make sure the receiver has received all events in order for
+	// the address.
+	AssertReceiveEvents(t.t, addr, events)
+
+	afterBatches, err := t.tapd.ListBatches(
+		ctxb, &mintrpc.ListBatchRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// The batch listed after the transfer should be identical to the batch
+	// listed before the transfer.
+	require.Equal(
+		t.t, len(originalBatches.Batches), len(afterBatches.Batches),
+	)
+
+	originalBatch := originalBatches.Batches[0].Batch
+	afterBatch := afterBatches.Batches[0].Batch
+
+	// Sort the assets from the listed batch before comparison.
+	slices.SortFunc(originalBatch.Assets,
+		func(a, b *mintrpc.PendingAsset) int {
+			return strings.Compare(a.Name, b.Name)
+		})
+	slices.SortFunc(afterBatch.Assets,
+		func(a, b *mintrpc.PendingAsset) int {
+			return strings.Compare(a.Name, b.Name)
+		})
+
+	require.True(t.t, proto.Equal(originalBatch, afterBatch))
 }
