@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/hex"
+	"fmt"
 	"io"
 	"net/url"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -253,6 +255,77 @@ func (m *mockChainLookup) GenProofChainLookup(*Proof) (asset.ChainLookup,
 
 var _ asset.ChainLookup = (*mockChainLookup)(nil)
 var _ ChainLookupGenerator = (*mockChainLookup)(nil)
+
+// MockProofArchive is a map that implements the Archiver interface.
+type MockProofArchive struct {
+	proofs lnutils.SyncMap[[32]byte, Blob]
+}
+
+// NewMockProofArchive creates a new mock proof archive.
+func NewMockProofArchive() *MockProofArchive {
+	return &MockProofArchive{
+		proofs: lnutils.SyncMap[[32]byte, Blob]{},
+	}
+}
+
+// FetchProof fetches a proof for an asset uniquely identified by the passed
+// Locator. If a proof cannot be found, then ErrProofNotFound is returned.
+func (m *MockProofArchive) FetchProof(_ context.Context,
+	id Locator) (Blob, error) {
+
+	idHash, err := id.Hash()
+	if err != nil {
+		return nil, err
+	}
+
+	proof, ok := m.proofs.Load(idHash)
+	if !ok {
+		return nil, ErrProofNotFound
+	}
+
+	return proof, nil
+}
+
+// HasProof returns true if the proof for the given locator exists.
+func (m *MockProofArchive) HasProof(_ context.Context,
+	id Locator) (bool, error) {
+
+	idHash, err := id.Hash()
+	if err != nil {
+		return false, err
+	}
+
+	_, ok := m.proofs.Load(idHash)
+
+	return ok, nil
+}
+
+// FetchProofs would fetch all proofs for a specific asset ID, but will always
+// err for the mock proof archive.
+func (m *MockProofArchive) FetchProofs(_ context.Context,
+	id asset.ID) ([]*AnnotatedProof, error) {
+
+	return nil, fmt.Errorf("not implemented")
+}
+
+// ImportProofs will store the given proofs, without performing any validation.
+func (m *MockProofArchive) ImportProofs(_ context.Context, _ HeaderVerifier,
+	_ MerkleVerifier, _ GroupVerifier, _ ChainLookupGenerator, _ bool,
+	proofs ...*AnnotatedProof) error {
+
+	for _, proof := range proofs {
+		locHash, err := proof.Locator.Hash()
+		if err != nil {
+			return err
+		}
+
+		m.proofs.Store(locHash, proof.Blob)
+	}
+
+	return nil
+}
+
+var _ Archiver = (*MockProofArchive)(nil)
 
 // MockProofCourierDispatcher is a mock proof courier dispatcher which returns
 // the same courier for all requests.

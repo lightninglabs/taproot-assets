@@ -99,7 +99,7 @@ type mintingTestHarness struct {
 
 	planter *tapgarden.ChainPlanter
 
-	proofFiles *tapgarden.MockProofArchive
+	proofFiles *proof.MockProofArchive
 
 	proofWatcher *tapgarden.MockProofWatcher
 
@@ -116,6 +116,7 @@ func newMintingTestHarness(t *testing.T,
 	keyRing := tapgarden.NewMockKeyRing()
 	genSigner := tapgarden.NewMockGenSigner(keyRing)
 	treeMgr := tapgarden.NewFallibleTapscriptTreeMgr(store)
+	archiver := proof.NewMockProofArchive()
 
 	return &mintingTestHarness{
 		T:            t,
@@ -123,7 +124,7 @@ func newMintingTestHarness(t *testing.T,
 		treeStore:    &treeMgr,
 		wallet:       tapgarden.NewMockWalletAnchor(),
 		chain:        tapgarden.NewMockChainBridge(),
-		proofFiles:   &tapgarden.MockProofArchive{},
+		proofFiles:   archiver,
 		proofWatcher: &tapgarden.MockProofWatcher{},
 		keyRing:      keyRing,
 		genSigner:    genSigner,
