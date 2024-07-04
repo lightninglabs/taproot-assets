@@ -18,7 +18,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"golang.org/x/exp/maps"
@@ -772,7 +771,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 
 	// We collect all the sprouts into fully grown assets, from which we'll
 	// then create asset and tap level commitments.
-	assetSprouts := make([]*asset.Asset, len(dbSprout))
+	sprouts := make([]*asset.Asset, len(dbSprout))
 	for i, sprout := range dbSprout {
 		// First, we'll decode the script key which very asset must
 		// specify, and populate the key locator information
@@ -897,64 +896,27 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 
 		// TODO(roasbeef): need to update the above to set the
 		// witnesses of a valid asset
-		assetSprouts[i] = assetSprout
+		sprouts[i] = assetSprout
 	}
 
-	// Construct a TapCommitment from the batch sprouts, and verify that the
-	// version is correct by recomputing the genesis output script.
-	tapCommitment, err := commitment.FromAssets(
-		fn.Ptr(commitment.TapCommitmentV2), assetSprouts...,
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	// If there are sprouts, let's find out whether they were created with
-	// a V2 commitment or not.
+	// Verify that we can reconstruct the genesis output script used in the
+	// anchor TX.
 	batchKey, err := btcec.ParsePubKey(rawBatchKey)
 	if err != nil {
 		return nil, err
 	}
 
-	var tapscriptSibling *chainhash.Hash
+	var tapSibling *chainhash.Hash
 	if len(batchSibling) != 0 {
-		tapscriptSibling, err = chainhash.NewHash(batchSibling)
+		tapSibling, err = chainhash.NewHash(batchSibling)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	computedScript, err := tapscript.PayToAddrScript(
-		*batchKey, tapscriptSibling, *tapCommitment,
+	return tapgarden.VerifyOutputScript(
+		batchKey, tapSibling, genScript, sprouts,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	if !bytes.Equal(genScript, computedScript) {
-		// The batch may have used a non-V2 commitment; check against a
-		// non-V2 commitment.
-		tapCommitment, err = commitment.FromAssets(
-			nil, assetSprouts...,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		computedScriptV0, err := tapscript.PayToAddrScript(
-			*batchKey, tapscriptSibling, *tapCommitment,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		if !bytes.Equal(genScript, computedScriptV0) {
-			return nil, fmt.Errorf("invalid commitment to asset "+
-				"sprouts: batch %x", rawBatchKey)
-		}
-	}
-
-	return tapCommitment, nil
 }
 
 // fetchAssetMetas attempts to fetch the asset meta reveal for each of the
@@ -1190,20 +1152,36 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		}
 	}
 
-	// Depending on what state this batch is in, we'll
-	// either fetch the set of seedlings (asset
-	// descriptions w/ no real assets), or the set of
-	// sprouts (full defined assets, but not yet mined).
+	// Depending on what state this batch is in, we'll either return the set
+	// of seedlings (asset descriptions w/ no real assets), or the set of
+	// sprouts (full defined assets, but not yet mined). In all cases, we
+	// start by fetching the batch seedlings.
+	batchSeedlings, err := fetchAssetSeedlings(
+		ctx, q, dbBatch.RawKey,
+	)
+	if err != nil {
+		return nil, err
+	}
+
 	switch batchState {
+	// A batch in these states will only have seedlings.
 	case tapgarden.BatchStatePending,
 		tapgarden.BatchStateFrozen,
 		tapgarden.BatchStateSeedlingCancelled:
 
-		// In this case we can just fetch the set of
-		// descriptions of future assets to be.
-		batch.Seedlings, err = fetchAssetSeedlings(
-			ctx, q, dbBatch.RawKey,
-		)
+		batch.Seedlings = batchSeedlings
+
+	// For finalized batches, we need to fetch the assets from the proof
+	// archiver and not the DB. Set the batch seedlings here so they can be
+	// used later to fetch those proofs.
+	case tapgarden.BatchStateFinalized:
+		// A finalized batch must have a populated genesis packet.
+		if batch.GenesisPacket == nil {
+			return nil, fmt.Errorf("sprouted batch missing " +
+				"genesis packet")
+		}
+
+		batch.Seedlings = batchSeedlings
 
 	default:
 		if batch.GenesisPacket == nil {
@@ -1217,18 +1195,10 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		}
 		genesisTx := batch.GenesisPacket.Pkt.UnsignedTx
 		genesisScript := genesisTx.TxOut[anchorOutputIndex].PkScript
-
-		var tapscriptSibling []byte
-		if len(batch.TapSibling()) != 0 {
-			tapscriptSibling = batch.TapSibling()
-		}
-
+		tapscriptSibling := batch.TapSibling()
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
 			ctx, q, dbBatch.RawKey, tapscriptSibling, genesisScript,
 		)
-		if err != nil {
-			return nil, err
-		}
 
 		// Finally, for each asset contained in the root
 		// commitment above, we'll fetch the meta reveal for
@@ -1238,9 +1208,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		batch.AssetMetas, err = fetchAssetMetas(
 			ctx, q, assetsInBatch,
 		)
-	}
-	if err != nil {
-		return nil, err
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return batch, nil
@@ -1363,57 +1333,57 @@ func (a *AssetMintingStore) AddSeedlingGroups(ctx context.Context,
 // FetchSeedlingGroups is used to fetch the asset groups for seedlings
 // associated with a funded batch.
 func (a *AssetMintingStore) FetchSeedlingGroups(ctx context.Context,
-	genesisPoint wire.OutPoint, anchorOutputIndex uint32,
+	genPoint wire.OutPoint, anchorOutputIndex uint32,
 	seedlings []*tapgarden.Seedling) ([]*asset.AssetGroup, error) {
 
-	seedlingGroups := make([]*asset.AssetGroup, 0, len(seedlings))
-	seedlingGens := make([]*asset.Genesis, 0, len(seedlings))
+	var (
+		seedlingGroups []*asset.AssetGroup
+		err            error
+	)
 
-	// Compute meta hashes and geneses before reading from the DB.
-	fn.ForEach(seedlings, func(seedling *tapgarden.Seedling) {
-		gen := &asset.Genesis{
-			FirstPrevOut: genesisPoint,
-			Tag:          seedling.AssetName,
-			OutputIndex:  anchorOutputIndex,
-			Type:         seedling.AssetType,
-		}
-
-		if seedling.Meta != nil {
-			gen.MetaHash = seedling.Meta.MetaHash()
-		}
-
-		seedlingGens = append(seedlingGens, gen)
-	})
+	seedlingGens := fn.Map(seedlings,
+		func(s *tapgarden.Seedling) *asset.Genesis {
+			return fn.Ptr(s.Genesis(genPoint, anchorOutputIndex))
+		},
+	)
 
 	// Read geneses and asset groups.
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
-		for i := range seedlingGens {
-			genID, err := fetchGenesisID(ctx, q, *seedlingGens[i])
-			if err != nil {
-				// Re-map the error about a missing asset
-				// genesis so it can be better handled in the
-				// planter.
-				if errors.Is(err, ErrFetchGenesisID) {
-					return tapgarden.ErrNoGenesis
-				}
-
-				return err
-			}
-
-			groupKey, err := fetchGroupByGenesis(ctx, q, genID)
-			if err != nil {
-				return err
-			}
-
-			seedlingGroups = append(seedlingGroups, groupKey)
-		}
-
-		return nil
+		seedlingGroups, err = fetchSeedlingGroups(ctx, q, seedlingGens)
+		return err
 	})
-
 	if dbErr != nil {
 		return nil, dbErr
+	}
+
+	return seedlingGroups, nil
+}
+
+// fetchSeedlingGroups fetches the asset groups for multiple geneses.
+func fetchSeedlingGroups(ctx context.Context, q PendingAssetStore,
+	gens []*asset.Genesis) ([]*asset.AssetGroup, error) {
+
+	seedlingGroups := make([]*asset.AssetGroup, 0, len(gens))
+	for _, gen := range gens {
+		genID, err := fetchGenesisID(ctx, q, *gen)
+		if err != nil {
+			// Re-map the error about a missing asset
+			// genesis so it can be better handled in the
+			// planter.
+			if errors.Is(err, ErrFetchGenesisID) {
+				return nil, tapgarden.ErrNoGenesis
+			}
+
+			return nil, err
+		}
+
+		groupKey, err := fetchGroupByGenesis(ctx, q, genID)
+		if err != nil {
+			return nil, err
+		}
+
+		seedlingGroups = append(seedlingGroups, groupKey)
 	}
 
 	return seedlingGroups, nil
