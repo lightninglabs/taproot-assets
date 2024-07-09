@@ -133,7 +133,8 @@ WITH target_batch(batch_id) AS (
 )
 SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
-    assets_meta.meta_data_blob, emission_enabled, batch_id, 
+    assets_meta.meta_data_blob, assets_meta.meta_decimal_display,
+    emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id, group_tapscript_root,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
@@ -225,8 +226,10 @@ WITH genesis_info AS (
     SELECT
         gen_asset_id, asset_id, asset_tag, output_index, asset_type,
         genesis_points.prev_out prev_out, 
-        assets_meta.meta_data_hash meta_hash, assets_meta.meta_data_type meta_type,
-        assets_meta.meta_data_blob meta_blob
+        assets_meta.meta_data_hash meta_hash,
+        assets_meta.meta_data_type meta_type,
+        assets_meta.meta_data_blob meta_blob,
+        assets_meta.meta_decimal_display meta_decimal_display
     FROM genesis_assets
     LEFT JOIN assets_meta
         ON genesis_assets.meta_data_id = assets_meta.meta_id
@@ -921,30 +924,31 @@ WHERE asset_id = $1;
 
 -- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
-    meta_data_hash, meta_data_blob, meta_data_type
+    meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 ) VALUES (
-    $1, $2, $3 
+    $1, $2, $3, $4
 ) ON CONFLICT (meta_data_hash)
     -- In this case, we may be inserting the data+type for an existing blob. So
-    -- we'll set both of those values. At this layer we assume the meta hash
+    -- we'll set all of those values. At this layer we assume the meta hash
     -- has been validated elsewhere.
-    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob), 
-                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type)
+    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob),
+                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type),
+                  meta_decimal_display = COALESCE(EXCLUDED.meta_decimal_display, assets_meta.meta_decimal_display)
         
 RETURNING meta_id;
 
 -- name: FetchAssetMeta :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 FROM assets_meta
 WHERE meta_id = $1;
 
 -- name: FetchAssetMetaByHash :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 FROM assets_meta
 WHERE meta_data_hash = $1;
 
 -- name: FetchAssetMetaForAsset :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 FROM genesis_assets assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id

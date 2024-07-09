@@ -3134,7 +3134,10 @@ func (a *AssetStore) FetchAssetMetaForAsset(ctx context.Context,
 
 		assetMeta = &proof.MetaReveal{
 			Data: dbMeta.MetaDataBlob,
-			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+			Type: proof.MetaType(
+				dbMeta.MetaDataType.Int16,
+			),
+			DecimalDisplay: uint32(dbMeta.MetaDecimalDisplay),
 		}
 
 		return nil
@@ -3164,7 +3167,10 @@ func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
 
 		assetMeta = &proof.MetaReveal{
 			Data: dbMeta.MetaDataBlob,
-			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+			Type: proof.MetaType(
+				dbMeta.MetaDataType.Int16,
+			),
+			DecimalDisplay: uint32(dbMeta.MetaDecimalDisplay),
 		}
 
 		return nil

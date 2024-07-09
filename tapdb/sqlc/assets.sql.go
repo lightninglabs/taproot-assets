@@ -559,45 +559,57 @@ func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]i
 }
 
 const fetchAssetMeta = `-- name: FetchAssetMeta :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 FROM assets_meta
 WHERE meta_id = $1
 `
 
 type FetchAssetMetaRow struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	MetaDataHash       []byte
+	MetaDataBlob       []byte
+	MetaDataType       sql.NullInt16
+	MetaDecimalDisplay int32
 }
 
 func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAssetMeta, metaID)
 	var i FetchAssetMetaRow
-	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	err := row.Scan(
+		&i.MetaDataHash,
+		&i.MetaDataBlob,
+		&i.MetaDataType,
+		&i.MetaDecimalDisplay,
+	)
 	return i, err
 }
 
 const fetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 FROM assets_meta
 WHERE meta_data_hash = $1
 `
 
 type FetchAssetMetaByHashRow struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	MetaDataHash       []byte
+	MetaDataBlob       []byte
+	MetaDataType       sql.NullInt16
+	MetaDecimalDisplay int32
 }
 
 func (q *Queries) FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAssetMetaByHash, metaDataHash)
 	var i FetchAssetMetaByHashRow
-	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	err := row.Scan(
+		&i.MetaDataHash,
+		&i.MetaDataBlob,
+		&i.MetaDataType,
+		&i.MetaDecimalDisplay,
+	)
 	return i, err
 }
 
 const fetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 FROM genesis_assets assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
@@ -605,15 +617,21 @@ WHERE assets.asset_id = $1
 `
 
 type FetchAssetMetaForAssetRow struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	MetaDataHash       []byte
+	MetaDataBlob       []byte
+	MetaDataType       sql.NullInt16
+	MetaDecimalDisplay int32
 }
 
 func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchAssetMetaForAsset, assetID)
 	var i FetchAssetMetaForAssetRow
-	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	err := row.Scan(
+		&i.MetaDataHash,
+		&i.MetaDataBlob,
+		&i.MetaDataType,
+		&i.MetaDecimalDisplay,
+	)
 	return i, err
 }
 
@@ -869,8 +887,10 @@ WITH genesis_info AS (
     SELECT
         gen_asset_id, asset_id, asset_tag, output_index, asset_type,
         genesis_points.prev_out prev_out, 
-        assets_meta.meta_data_hash meta_hash, assets_meta.meta_data_type meta_type,
-        assets_meta.meta_data_blob meta_blob
+        assets_meta.meta_data_hash meta_hash,
+        assets_meta.meta_data_type meta_type,
+        assets_meta.meta_data_blob meta_blob,
+        assets_meta.meta_decimal_display meta_decimal_display
     FROM genesis_assets
     LEFT JOIN assets_meta
         ON genesis_assets.meta_data_id = assets_meta.meta_id
@@ -1648,7 +1668,8 @@ WITH target_batch(batch_id) AS (
 )
 SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
     assets_meta.meta_data_hash, assets_meta.meta_data_type, 
-    assets_meta.meta_data_blob, emission_enabled, batch_id, 
+    assets_meta.meta_data_blob, assets_meta.meta_decimal_display,
+    emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id, group_tapscript_root,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
@@ -1680,6 +1701,7 @@ type FetchSeedlingsForBatchRow struct {
 	MetaDataHash           []byte
 	MetaDataType           sql.NullInt16
 	MetaDataBlob           []byte
+	MetaDecimalDisplay     sql.NullInt32
 	EmissionEnabled        bool
 	BatchID                int64
 	GroupGenesisID         sql.NullInt64
@@ -1714,6 +1736,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.MetaDataHash,
 			&i.MetaDataType,
 			&i.MetaDataBlob,
+			&i.MetaDecimalDisplay,
 			&i.EmissionEnabled,
 			&i.BatchID,
 			&i.GroupGenesisID,
@@ -2532,27 +2555,34 @@ func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGr
 
 const upsertAssetMeta = `-- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
-    meta_data_hash, meta_data_blob, meta_data_type
+    meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display
 ) VALUES (
-    $1, $2, $3 
+    $1, $2, $3, $4
 ) ON CONFLICT (meta_data_hash)
     -- In this case, we may be inserting the data+type for an existing blob. So
-    -- we'll set both of those values. At this layer we assume the meta hash
+    -- we'll set all of those values. At this layer we assume the meta hash
     -- has been validated elsewhere.
-    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob), 
-                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type)
+    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob),
+                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type),
+                  meta_decimal_display = COALESCE(EXCLUDED.meta_decimal_display, assets_meta.meta_decimal_display)
         
 RETURNING meta_id
 `
 
 type UpsertAssetMetaParams struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	MetaDataHash       []byte
+	MetaDataBlob       []byte
+	MetaDataType       sql.NullInt16
+	MetaDecimalDisplay int32
 }
 
 func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertAssetMeta, arg.MetaDataHash, arg.MetaDataBlob, arg.MetaDataType)
+	row := q.db.QueryRowContext(ctx, upsertAssetMeta,
+		arg.MetaDataHash,
+		arg.MetaDataBlob,
+		arg.MetaDataType,
+		arg.MetaDecimalDisplay,
+	)
 	var meta_id int64
 	err := row.Scan(&meta_id)
 	return meta_id, err

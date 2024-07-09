@@ -1,0 +1,1 @@
+ALTER TABLE assets_meta DROP COLUMN meta_decimal_display;

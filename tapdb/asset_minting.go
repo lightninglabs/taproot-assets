@@ -742,6 +742,9 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				Type: proof.MetaType(
 					dbSeedling.MetaDataType.Int16,
 				),
+				DecimalDisplay: uint32(
+					dbSeedling.MetaDecimalDisplay.Int32,
+				),
 			}
 		}
 
@@ -965,8 +968,9 @@ func fetchMetaByAssetID(ctx context.Context, db PendingAssetStore,
 	}
 
 	return &proof.MetaReveal{
-		Data: assetMeta.MetaDataBlob,
-		Type: proof.MetaType(assetMeta.MetaDataType.Int16),
+		Data:           assetMeta.MetaDataBlob,
+		Type:           proof.MetaType(assetMeta.MetaDataType.Int16),
+		DecimalDisplay: uint32(assetMeta.MetaDecimalDisplay),
 	}, nil
 }
 

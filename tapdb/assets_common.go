@@ -632,9 +632,10 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	assetGen *asset.Genesis, metaReveal *proof.MetaReveal) (int64, error) {
 
 	var (
-		metaHash [32]byte
-		metaBlob []byte
-		metaType sql.NullInt16
+		metaHash           [32]byte
+		metaBlob           []byte
+		metaType           sql.NullInt16
+		metaDecimalDisplay int32
 
 		err error
 	)
@@ -649,6 +650,7 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 			Int16: int16(metaReveal.Type),
 			Valid: true,
 		}
+		metaDecimalDisplay = int32(metaReveal.DecimalDisplay)
 
 	// Otherwise, we'll just be inserting only the meta hash. At a later
 	// time, the reveal/blob can also be inserted.
@@ -661,9 +663,10 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	}
 
 	assetMetaID, err := db.UpsertAssetMeta(ctx, NewAssetMeta{
-		MetaDataHash: metaHash[:],
-		MetaDataBlob: metaBlob,
-		MetaDataType: metaType,
+		MetaDataHash:       metaHash[:],
+		MetaDataBlob:       metaBlob,
+		MetaDataType:       metaType,
+		MetaDecimalDisplay: metaDecimalDisplay,
 	})
 	if err != nil {
 		return assetMetaID, err

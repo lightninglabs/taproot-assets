@@ -1,0 +1,1 @@
+ALTER TABLE assets_meta ADD COLUMN meta_decimal_display INTEGER NOT NULL DEFAULT 0;
