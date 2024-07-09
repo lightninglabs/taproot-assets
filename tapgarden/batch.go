@@ -146,8 +146,8 @@ func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
 	// anchor. We already validated the seedling metadata, so we don't care
 	// if the value is explicit or if the metadata is JSON, but we must
 	// compute the same value for both assets.
-	_, seedlingDecDisplay, _ := s.Meta.GetDecDisplay()
-	_, anchorDecDisplay, _ := anchor.Meta.GetDecDisplay()
+	seedlingDecDisplay := s.Meta.DecimalDisplay
+	anchorDecDisplay := anchor.Meta.DecimalDisplay
 	if seedlingDecDisplay != anchorDecDisplay {
 		return fmt.Errorf("seedling decimal display does not match "+
 			"group anchor: %d, %d", seedlingDecDisplay,

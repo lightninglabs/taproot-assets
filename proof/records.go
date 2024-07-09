@@ -41,8 +41,9 @@ const (
 	TapscriptProofTapPreimage2 tlv.Type = 3
 	TapscriptProofBip86        tlv.Type = 4
 
-	MetaRevealEncodingType tlv.Type = 0
-	MetaRevealDataType     tlv.Type = 2
+	MetaRevealEncodingType   tlv.Type = 0
+	MetaRevealDataType       tlv.Type = 2
+	MetaRevealDecimalDisplay tlv.Type = 3
 )
 
 func VersionRecord(version *TransitionVersion) tlv.Record {
@@ -319,6 +320,10 @@ func MetaRevealDataRecord(data *[]byte) tlv.Record {
 		MetaRevealDataType, data, sizeFunc, tlv.EVarBytes,
 		asset.DVarBytesWithLimit(MetaDataMaxSizeBytes),
 	)
+}
+
+func MetaRevealDecimalDisplayRecord(decimalDisplay *uint32) tlv.Record {
+	return tlv.MakePrimitiveRecord(MetaRevealDecimalDisplay, decimalDisplay)
 }
 
 func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {

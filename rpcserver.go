@@ -506,11 +506,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	var seedlingMeta *proof.MetaReveal
 
-	// If a custom decimal display is set, the meta type must also be set to
-	// JSON.
+	// If a custom decimal display is set, we require the AssetMeta to be
+	// set. That means the user has to at least specify the meta type.
 	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
-		return nil, fmt.Errorf("decimal display requires JSON asset " +
+		return nil, fmt.Errorf("decimal display requires asset " +
 			"metadata")
+	}
+
+	// Decimal display doesn't really make sense for collectibles.
+	if req.Asset.DecimalDisplay != 0 &&
+		req.Asset.AssetType == taprpc.AssetType_COLLECTIBLE {
+
+		return nil, fmt.Errorf("decimal display is not supported for " +
+			"collectibles")
 	}
 
 	if req.Asset.AssetMeta != nil {
@@ -520,28 +528,11 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 
-		// If the meta type is not JSON, then a custom decimal display
-		// cannot be set.
-		if metaType != proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			return nil, fmt.Errorf("cannot set decimal display " +
-				"if meta type is not JSON")
-		}
-
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
 		seedlingMeta = &proof.MetaReveal{
 			Data: req.Asset.AssetMeta.Data,
 			Type: metaType,
-		}
-
-		// If a custom decimal display was requested correctly, but no
-		// metadata was provided, we'll set the metadata to an empty
-		// JSON object. The decimal display will be added as the only
-		// object.
-		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			if len(req.Asset.AssetMeta.Data) == 0 {
-				seedlingMeta.Data = []byte("{}")
-			}
 		}
 
 		err = seedlingMeta.Validate()
@@ -551,15 +542,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 		// If a custom decimal display was requested, add that to the
 		// metadata and re-validate it.
-		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			updatedMeta, err := seedlingMeta.SetDecDisplay(
+		if req.Asset.DecimalDisplay != 0 {
+			err = seedlingMeta.SetDecDisplay(
 				req.Asset.DecimalDisplay,
 			)
 			if err != nil {
 				return nil, err
 			}
-
-			seedlingMeta = updatedMeta
 
 			err = seedlingMeta.Validate()
 			if err != nil {
@@ -6667,20 +6656,5 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 			"for asset_id=%v :%v", id, err)
 	}
 
-	_, decDisplay, err := meta.GetDecDisplay()
-	switch {
-	// If it isn't JSON, or doesn't have a dec display, we'll just return 0
-	// below.
-	case errors.Is(err, proof.ErrNotJSON):
-		fallthrough
-	case errors.Is(err, proof.ErrDecDisplayMissing):
-		fallthrough
-	case errors.Is(err, proof.ErrDecDisplayInvalidType):
-		break
-	case err != nil:
-		return 0, fmt.Errorf("unable to extract decimal "+
-			"display for asset_id=%v :%v", id, err)
-	}
-
-	return decDisplay, nil
+	return meta.DecimalDisplay, nil
 }

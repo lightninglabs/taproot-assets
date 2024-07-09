@@ -149,10 +149,10 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	}
 
 	// Manually update the requested metadata and compute the expected hash.
-	updatedMeta, err := mintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
+	err := mintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
 	require.NoError(t.t, err)
 
-	metaHash := updatedMeta.MetaHash()
+	metaHash := mintedMeta.MetaHash()
 
 	// The meta hash from the minted asset must match the expected hash.
 	genMetaHash := firstAssetMinted.AssetGenesis.MetaHash
@@ -172,19 +172,22 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
 	require.ErrorContains(t.t, err, "decimal display does not match")
 
-	// Requesting a decimal display without specifying the metadata type as
-	// JSON should fail.
+	// Requesting a decimal display without specifying the metadata field
+	// with at least the type should fail.
 	secondAssetReq.Asset.DecimalDisplay = firstAsset.DecimalDisplay
 	secondAssetReq.Asset.AssetMeta = nil
 
 	_, err = t.tapd.MintAsset(ctxt, secondAssetReq)
-	require.ErrorContains(t.t, err, "decimal display requires JSON")
+	require.ErrorContains(
+		t.t, err, "decimal display requires asset metadata",
+	)
 
 	// If we update the decimal display to match the group anchor, minting
 	// should succeed. We also unset the metadata to ensure that the decimal
 	// display is set as the sole JSON object if needed.
 	secondAssetReq.Asset.AssetMeta = &taprpc.AssetMeta{
 		Type: taprpc.AssetMetaType_META_TYPE_JSON,
+		Data: []byte("{}"),
 	}
 	MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd,
@@ -193,5 +196,23 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 
 	AssertGroupSizes(
 		t.t, t.tapd, []string{hex.EncodeToString(groupKey)}, []int{2},
+	)
+
+	// Now we also test minting an asset that uses the opaque meta data type
+	// and check that the decimal display is correctly encoded as well.
+	thirdAsset := &mintrpc.MintAsset{
+		AssetType: taprpc.AssetType_NORMAL,
+		Name:      "test-asset-opaque-decimal-display",
+		AssetMeta: &taprpc.AssetMeta{
+			Type: taprpc.AssetMetaType_META_TYPE_OPAQUE,
+			Data: []byte("some opaque data"),
+		},
+		Amount:         123,
+		DecimalDisplay: 7,
+	}
+	thirdAssetReq := &mintrpc.MintAssetRequest{Asset: thirdAsset}
+	MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{thirdAssetReq},
 	)
 }

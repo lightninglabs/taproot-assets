@@ -184,11 +184,11 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 	)
 
 	if c.Meta != nil {
-		_, seedlingDecDisplay, _ = c.Meta.GetDecDisplay()
+		seedlingDecDisplay = c.Meta.DecimalDisplay
 	}
 
 	if anchorMeta != nil {
-		_, anchorDecDisplay, _ = anchorMeta.GetDecDisplay()
+		anchorDecDisplay = anchorMeta.DecimalDisplay
 	}
 
 	if seedlingDecDisplay != anchorDecDisplay {

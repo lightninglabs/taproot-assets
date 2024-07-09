@@ -1788,14 +1788,10 @@ func AssertAssetsMinted(t *testing.T, tapClient TapdClient,
 		require.NoError(t, err)
 
 		metaReveal.Type = validMetaType
-		if metaReveal.Type == proof.MetaJson {
-			updatedMeta, err := metaReveal.SetDecDisplay(
-				assetRequest.Asset.DecimalDisplay,
-			)
-			require.NoError(t, err)
-
-			metaReveal = updatedMeta
-		}
+		err = metaReveal.SetDecDisplay(
+			assetRequest.Asset.DecimalDisplay,
+		)
+		require.NoError(t, err)
 
 		metaHash := metaReveal.MetaHash()
 
