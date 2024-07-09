@@ -556,6 +556,27 @@ func TestGenesisProofVerification(t *testing.T) {
 			},
 			expectedErr: ErrGroupKeyRevealMismatch,
 		},
+		{
+			name: "normal asset with a meta reveal and " +
+				"decimal display",
+			assetType: asset.Normal,
+			amount:    &amount,
+			metaReveal: &MetaReveal{
+				Data: []byte("meant in croking " +
+					"nevermore"),
+				DecimalDisplay: 8,
+			},
+		},
+		{
+			name: "collectible with a meta reveal and " +
+				"decimal display",
+			assetType: asset.Collectible,
+			metaReveal: &MetaReveal{
+				Data: []byte("shall be lifted " +
+					"nevermore"),
+				DecimalDisplay: 3,
+			},
+		},
 	}
 
 	testVectors := &TestVectors{}

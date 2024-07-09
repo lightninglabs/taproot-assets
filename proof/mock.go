@@ -886,14 +886,16 @@ func NewTestFromMetaReveal(t testing.TB, m *MetaReveal) *TestMetaReveal {
 	t.Helper()
 
 	return &TestMetaReveal{
-		Type: uint8(m.Type),
-		Data: hex.EncodeToString(m.Data),
+		Type:           uint8(m.Type),
+		Data:           hex.EncodeToString(m.Data),
+		DecimalDisplay: m.DecimalDisplay,
 	}
 }
 
 type TestMetaReveal struct {
-	Type uint8  `json:"type"`
-	Data string `json:"data"`
+	Type           uint8  `json:"type"`
+	Data           string `json:"data"`
+	DecimalDisplay uint32 `json:"decimal_display"`
 }
 
 func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
@@ -903,7 +905,8 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 	require.NoError(t, err)
 
 	return &MetaReveal{
-		Type: MetaType(tmr.Type),
-		Data: data,
+		Type:           MetaType(tmr.Type),
+		Data:           data,
+		DecimalDisplay: tmr.DecimalDisplay,
 	}
 }
