@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
@@ -258,14 +259,56 @@ var _ ChainLookupGenerator = (*mockChainLookup)(nil)
 
 // MockProofArchive is a map that implements the Archiver interface.
 type MockProofArchive struct {
-	proofs lnutils.SyncMap[[32]byte, Blob]
+	proofs   lnutils.SyncMap[[32]byte, Blob]
+	locators lnutils.SyncMap[[132]byte, [32]byte]
 }
 
 // NewMockProofArchive creates a new mock proof archive.
 func NewMockProofArchive() *MockProofArchive {
 	return &MockProofArchive{
-		proofs: lnutils.SyncMap[[32]byte, Blob]{},
+		proofs:   lnutils.SyncMap[[32]byte, Blob]{},
+		locators: lnutils.SyncMap[[132]byte, [32]byte]{},
 	}
+}
+
+// storeLocator stores the locator as a byte array to allow for pattern matching
+// over the locators for the stored proofs, similar to the FileArchiver
+// implementation of FetchIssuanceProof.
+func (m *MockProofArchive) storeLocator(id Locator) error {
+	var locBuf bytes.Buffer
+
+	if id.AssetID == nil {
+		return fmt.Errorf("missing asset ID")
+	}
+
+	locBuf.Write(id.AssetID[:])
+	if id.GroupKey != nil {
+		locBuf.Write(id.GroupKey.SerializeCompressed())
+	} else {
+		locBuf.Write(bytes.Repeat([]byte{0x00}, 33))
+	}
+
+	locBuf.Write(id.ScriptKey.SerializeCompressed())
+	if id.OutPoint != nil {
+		err := lnwire.WriteOutPoint(&locBuf, *id.OutPoint)
+		if err != nil {
+			return err
+		}
+	} else {
+		locBuf.Write(bytes.Repeat([]byte{0x00}, 34))
+	}
+
+	var locArray [132]byte
+	copy(locArray[:], locBuf.Bytes())
+
+	locHash, err := id.Hash()
+	if err != nil {
+		return err
+	}
+
+	m.locators.Store(locArray, locHash)
+
+	return nil
 }
 
 // FetchProof fetches a proof for an asset uniquely identified by the passed
@@ -284,6 +327,66 @@ func (m *MockProofArchive) FetchProof(_ context.Context,
 	}
 
 	return proof, nil
+}
+
+// FetchIssuanceProof fetches the issuance proof for an asset, given the
+// anchor point of the issuance (NOT the genesis point for the asset).
+//
+// If a proof cannot be found, then ErrProofNotFound should be returned.
+func (m *MockProofArchive) FetchIssuanceProof(_ context.Context,
+	id asset.ID, anchorOutpoint wire.OutPoint) (Blob, error) {
+
+	var outpointBuf bytes.Buffer
+	err := lnwire.WriteOutPoint(&outpointBuf, anchorOutpoint)
+	if err != nil {
+		return nil, err
+	}
+
+	// Mimic the pattern matching done with proof file paths in
+	// FileArchiver.FetchIssuanceProof().
+	matchingHashes := make([][32]byte, 0)
+	locMatcher := func(locBytes [132]byte, locHash [32]byte) error {
+		if bytes.Equal(locBytes[:32], id[:]) &&
+			bytes.Equal(locBytes[98:], outpointBuf.Bytes()) {
+
+			matchingHashes = append(matchingHashes, locHash)
+		}
+
+		return nil
+	}
+
+	m.locators.ForEach(locMatcher)
+	if len(matchingHashes) == 0 {
+		return nil, ErrProofNotFound
+	}
+
+	matchingProofs := make([]Blob, 0)
+	for _, locHash := range matchingHashes {
+		proof, ok := m.proofs.Load(locHash)
+		if !ok {
+			return nil, ErrProofNotFound
+		}
+
+		matchingProofs = append(matchingProofs, proof)
+	}
+
+	switch {
+	case len(matchingProofs) == 1:
+		return matchingProofs[0], nil
+
+	// Multiple proofs, return the smallest one.
+	default:
+		minProofIdx := 0
+		minProofSize := len(matchingProofs[minProofIdx])
+		for idx, proof := range matchingProofs {
+			if len(proof) < minProofSize {
+				minProofSize = len(proof)
+				minProofIdx = idx
+			}
+		}
+
+		return matchingProofs[minProofIdx], nil
+	}
 }
 
 // HasProof returns true if the proof for the given locator exists.
@@ -314,6 +417,11 @@ func (m *MockProofArchive) ImportProofs(_ context.Context, _ HeaderVerifier,
 	proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
+		err := m.storeLocator(proof.Locator)
+		if err != nil {
+			return fmt.Errorf("mock archive failed: %w", err)
+		}
+
 		locHash, err := proof.Locator.Hash()
 		if err != nil {
 			return err
