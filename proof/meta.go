@@ -260,11 +260,22 @@ func (m *MetaReveal) MetaHash() [asset.MetaHashLen]byte {
 
 // EncodeRecords returns the TLV encode records for the meta reveal.
 func (m *MetaReveal) EncodeRecords() []tlv.Record {
-	return []tlv.Record{
+	records := []tlv.Record{
 		MetaRevealTypeRecord(&m.Type),
 		MetaRevealDataRecord(&m.Data),
-		MetaRevealDecimalDisplayRecord(&m.DecimalDisplay),
 	}
+
+	// If the decimal display is zero, we don't actually encode it, to make
+	// sure we don't invalidate any existing/old records by appending more
+	// bytes.
+	if m.DecimalDisplay != 0 {
+		records = append(
+			records,
+			MetaRevealDecimalDisplayRecord(&m.DecimalDisplay),
+		)
+	}
+
+	return records
 }
 
 // DecodeRecords returns the TLV decode records for the meta reveal.
