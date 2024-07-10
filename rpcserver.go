@@ -6668,7 +6668,16 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 	}
 
 	_, decDisplay, err := meta.GetDecDisplay()
-	if err != nil && !errors.Is(err, proof.ErrNotJSON) {
+	switch {
+	// If it isn't JSON, or doesn't have a dec display, we'll just return 0
+	// below.
+	case errors.Is(err, proof.ErrNotJSON):
+		fallthrough
+	case errors.Is(err, proof.ErrDecDisplayMissing):
+		fallthrough
+	case errors.Is(err, proof.ErrDecDisplayInvalidType):
+		break
+	case err != nil:
 		return 0, fmt.Errorf("unable to extract decimal "+
 			"display for asset_id=%v :%v", id, err)
 	}
