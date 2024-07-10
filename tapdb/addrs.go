@@ -92,6 +92,10 @@ type AddrBook interface {
 	// asset groups related to them.
 	GroupStore
 
+	// FetchScriptKeyStore houses the methods related to fetching all
+	// information about a script key.
+	FetchScriptKeyStore
+
 	// FetchAddrs returns all the addresses based on the constraints of the
 	// passed AddrQuery.
 	FetchAddrs(ctx context.Context, arg AddrQuery) ([]Addresses, error)
@@ -152,11 +156,6 @@ type AddrBook interface {
 	// for a given asset ID.
 	FetchGenesisByAssetID(ctx context.Context,
 		assetID []byte) (sqlc.GenesisInfoView, error)
-
-	// FetchScriptKeyByTweakedKey attempts to fetch the script key and
-	// corresponding internal key from the database.
-	FetchScriptKeyByTweakedKey(ctx context.Context,
-		tweakedScriptKey []byte) (ScriptKey, error)
 
 	// FetchInternalKeyLocator fetches the key locator for an internal key.
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (KeyLocator,
@@ -1158,43 +1157,21 @@ func (t *TapAddressBook) FetchScriptKey(ctx context.Context,
 	tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
 
 	var (
-		readOpts  = NewAddrBookReadTx()
 		scriptKey *asset.TweakedScriptKey
+		err       error
 	)
-	err := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
-		dbKey, err := db.FetchScriptKeyByTweakedKey(
-			ctx, tweakedScriptKey.SerializeCompressed(),
-		)
-		if err != nil {
-			return err
-		}
 
-		rawKey, err := btcec.ParsePubKey(dbKey.RawKey)
-		if err != nil {
-			return fmt.Errorf("unable to parse raw key: %w", err)
-		}
-
-		scriptKey = &asset.TweakedScriptKey{
-			Tweak: dbKey.Tweak,
-			RawKey: keychain.KeyDescriptor{
-				PubKey: rawKey,
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(
-						dbKey.KeyFamily,
-					),
-					Index: uint32(dbKey.KeyIndex),
-				},
-			},
-			DeclaredKnown: dbKey.DeclaredKnown.Valid,
-		}
-
-		return nil
+	readOpts := NewAddrBookReadTx()
+	dbErr := t.db.ExecTx(ctx, &readOpts, func(db AddrBook) error {
+		scriptKey, err = fetchScriptKey(ctx, db, tweakedScriptKey)
+		return err
 	})
+
 	switch {
-	case errors.Is(err, sql.ErrNoRows):
+	case errors.Is(dbErr, sql.ErrNoRows):
 		return nil, address.ErrScriptKeyNotFound
 
-	case err != nil:
+	case dbErr != nil:
 		return nil, err
 	}
 

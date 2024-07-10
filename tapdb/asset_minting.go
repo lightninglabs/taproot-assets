@@ -140,6 +140,10 @@ type PendingAssetStore interface {
 	// GroupStore houses the methods related to querying asset groups.
 	GroupStore
 
+	// FetchScriptKeyStore houses the methods related to fetching all
+	// information about a script key.
+	FetchScriptKeyStore
+
 	// TapscriptTreeStore houses the methods related to storing, fetching,
 	// and deleting tapscript trees.
 	TapscriptTreeStore
@@ -1693,6 +1697,33 @@ func (a *AssetMintingStore) FetchGroupByGroupKey(ctx context.Context,
 	}
 
 	return dbGroup, nil
+}
+
+// FetchScriptKeyByTweakedKey fetches the populated script key given the tweaked
+// script key.
+func (a *AssetMintingStore) FetchScriptKeyByTweakedKey(ctx context.Context,
+	tweakedKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
+
+	var (
+		scriptKey *asset.TweakedScriptKey
+		err       error
+	)
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q PendingAssetStore) error {
+		scriptKey, err = fetchScriptKey(ctx, q, tweakedKey)
+		return err
+	})
+
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, fmt.Errorf("script key not found")
+
+	case dbErr != nil:
+		return nil, err
+	}
+
+	return scriptKey, nil
 }
 
 // StoreTapscriptTree persists a Tapscript tree given a validated set of
