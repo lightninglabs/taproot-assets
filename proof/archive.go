@@ -145,6 +145,13 @@ type Archiver interface {
 	// specific fields need to be set in the Locator (e.g. the OutPoint).
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
 
+	// FetchIssuanceProof fetches the issuance proof for an asset, given the
+	// anchor point of the issuance (NOT the genesis point for the asset).
+	//
+	// If a proof cannot be found, then ErrProofNotFound should be returned.
+	FetchIssuanceProof(ctx context.Context, id asset.ID,
+		anchorOutpoint wire.OutPoint) (Blob, error)
+
 	// HasProof returns true if the proof for the given locator exists. This
 	// is intended to be a performance optimized lookup compared to fetching
 	// a proof and checking for ErrProofNotFound.
@@ -385,6 +392,7 @@ func lookupProofFilePath(rootPath string, loc Locator) (string, error) {
 	assetID := hex.EncodeToString(loc.AssetID[:])
 	scriptKey := hex.EncodeToString(loc.ScriptKey.SerializeCompressed())
 
+	// TODO(jhb): Check for correct file suffix and truncated outpoint?
 	searchPattern := filepath.Join(rootPath, assetID, scriptKey+"*")
 	matches, err := filepath.Glob(searchPattern)
 	if err != nil {
@@ -527,6 +535,78 @@ func (f *FileArchiver) FetchProof(_ context.Context, id Locator) (Blob, error) {
 	}
 
 	return proofFile, nil
+}
+
+// FetchIssuanceProof fetches the issuance proof for an asset, given the
+// anchor point of the issuance (NOT the genesis point for the asset).
+//
+// If a proof cannot be found, then ErrProofNotFound should be returned.
+//
+// NOTE: This implements the Archiver interface.
+func (f *FileArchiver) FetchIssuanceProof(ctx context.Context, id asset.ID,
+	anchorOutpoint wire.OutPoint) (Blob, error) {
+
+	// Construct a pattern to search for the issuance proof file. We'll
+	// leave the script key unspecified, as we don't know what the script
+	// key was at genesis.
+	assetID := hex.EncodeToString(id[:])
+	scriptKeyGlob := strings.Repeat("?", 2*btcec.PubKeyBytesLenCompressed)
+	truncatedHash := anchorOutpoint.Hash.String()[:outpointTruncateLength]
+
+	fileName := fmt.Sprintf("%s-%s-%d.%s",
+		scriptKeyGlob, truncatedHash, anchorOutpoint.Index,
+		TaprootAssetsFileEnding)
+
+	searchPattern := filepath.Join(f.proofPath, assetID, fileName)
+	matches, err := filepath.Glob(searchPattern)
+	if err != nil {
+		return nil, fmt.Errorf("error listing proof files: %w", err)
+	}
+	if len(matches) == 0 {
+		return nil, ErrProofNotFound
+	}
+
+	// We expect exactly one matching proof for a specific asset ID and
+	// outpoint. However, the proof file path uses the truncated outpoint,
+	// so an asset transfer with a collision in the first half of the TXID
+	// could also match. We can filter out such proof files by size.
+	proofFiles := make([]Blob, 0, len(matches))
+	for _, path := range matches {
+		proofFile, err := os.ReadFile(path)
+
+		switch {
+		case os.IsNotExist(err):
+			return nil, ErrProofNotFound
+
+		case err != nil:
+			return nil, fmt.Errorf("unable to find proof: %w", err)
+		}
+
+		proofFiles = append(proofFiles, proofFile)
+	}
+
+	switch {
+	// No proofs were read.
+	case len(proofFiles) == 0:
+		return nil, ErrProofNotFound
+
+	// Exactly one proof, we'll return it.
+	case len(proofFiles) == 1:
+		return proofFiles[0], nil
+
+	// Multiple proofs, return the smallest one.
+	default:
+		minProofIdx := 0
+		minProofSize := len(proofFiles[minProofIdx])
+		for idx, proof := range proofFiles {
+			if len(proof) < minProofSize {
+				minProofSize = len(proof)
+				minProofIdx = idx
+			}
+		}
+
+		return proofFiles[minProofIdx], nil
+	}
 }
 
 // HasProof returns true if the proof for the given locator exists. This is
@@ -704,9 +784,12 @@ func (f *FileArchiver) RemoveSubscriber(
 	return f.eventDistributor.RemoveSubscriber(subscriber)
 }
 
-// A compile-time interface to ensure FileArchiver meets the NotifyArchiver
+// A compile-time assertion to ensure FileArchiver meets the NotifyArchiver
 // interface.
 var _ NotifyArchiver = (*FileArchiver)(nil)
+
+// A compile-time assertion to ensure FileArchiver meets the Archiver interface.
+var _ Archiver = (*FileArchiver)(nil)
 
 // MultiArchiver is an archive of archives. It contains several archives and
 // attempts to use them either as a look-aside cache, or a write through cache
@@ -753,6 +836,33 @@ func (m *MultiArchiver) FetchProof(ctx context.Context,
 		switch {
 		case errors.Is(err, ErrProofNotFound):
 			continue
+		case err != nil:
+			return nil, err
+		}
+
+		return proof, nil
+	}
+
+	return nil, ErrProofNotFound
+}
+
+// FetchIssuanceProof fetches the issuance proof for an asset, given the
+// anchor point of the issuance (NOT the genesis point for the asset).
+func (m *MultiArchiver) FetchIssuanceProof(ctx context.Context,
+	id asset.ID, anchorOutpoint wire.OutPoint) (Blob, error) {
+
+	// Iterate through all our active backends and try to see if at least
+	// one of them contains the proof. Either one of them will have the
+	// proof, or we'll return an error back to the user.
+	for _, archive := range m.backends {
+		proof, err := archive.FetchIssuanceProof(
+			ctx, id, anchorOutpoint,
+		)
+
+		switch {
+		case errors.Is(err, ErrProofNotFound):
+			continue
+
 		case err != nil:
 			return nil, err
 		}

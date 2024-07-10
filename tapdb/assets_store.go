@@ -1299,6 +1299,18 @@ func locatorToProofQuery(locator proof.Locator) (FetchAssetProof, error) {
 	return args, nil
 }
 
+// FetchIssuanceProof fetches the issuance proof for an asset, given the
+// anchor point of the issuance (NOT the genesis point for the asset). For the
+// AssetStore, we leave this unimplemented as we will only use this feature from
+// the FileArchiver.
+//
+// NOTE: This implements the proof.Archiver interface.
+func (a *AssetStore) FetchIssuanceProof(ctx context.Context, id asset.ID,
+	anchorOutpoint wire.OutPoint) (proof.Blob, error) {
+
+	return nil, proof.ErrProofNotFound
+}
+
 // HasProof returns true if the proof for the given locator exists. This is
 // intended to be a performance optimized lookup compared to fetching a proof
 // and checking for ErrProofNotFound.

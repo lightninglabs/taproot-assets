@@ -262,6 +262,11 @@ type MintingStore interface {
 	FetchGroupByGroupKey(ctx context.Context,
 		groupKey *btcec.PublicKey) (*asset.AssetGroup, error)
 
+	// FetchScriptKeyByTweakedKey fetches the populated script key given the
+	// tweaked script key.
+	FetchScriptKeyByTweakedKey(ctx context.Context,
+		tweakedKey *btcec.PublicKey) (*asset.TweakedScriptKey, error)
+
 	// FetchAssetMeta fetches the meta reveal for an asset genesis.
 	FetchAssetMeta(ctx context.Context, ID asset.ID) (*proof.MetaReveal,
 		error)

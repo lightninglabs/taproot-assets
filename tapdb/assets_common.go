@@ -422,6 +422,49 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 	return scriptKeyID, nil
 }
 
+// FetchScriptKeyStore houses the methods related to fetching all information
+// about a script key.
+type FetchScriptKeyStore interface {
+	// FetchScriptKeyByTweakedKey attempts to fetch the script key and
+	// corresponding internal key from the database.
+	FetchScriptKeyByTweakedKey(ctx context.Context,
+		tweakedScriptKey []byte) (ScriptKey, error)
+}
+
+// fetchScriptKey attempts to fetch the full tweaked script key struct
+// (including the key descriptor) for the given tweaked script key.
+func fetchScriptKey(ctx context.Context, q FetchScriptKeyStore,
+	tweakedScriptKey *btcec.PublicKey) (*asset.TweakedScriptKey, error) {
+
+	dbKey, err := q.FetchScriptKeyByTweakedKey(
+		ctx, tweakedScriptKey.SerializeCompressed(),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rawKey, err := btcec.ParsePubKey(dbKey.RawKey)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse raw key: %w", err)
+	}
+
+	scriptKey := &asset.TweakedScriptKey{
+		Tweak: dbKey.Tweak,
+		RawKey: keychain.KeyDescriptor{
+			PubKey: rawKey,
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamily(
+					dbKey.KeyFamily,
+				),
+				Index: uint32(dbKey.KeyIndex),
+			},
+		},
+		DeclaredKnown: dbKey.DeclaredKnown.Valid,
+	}
+
+	return scriptKey, nil
+}
+
 // FetchGenesisStore houses the methods related to fetching genesis assets.
 type FetchGenesisStore interface {
 	// FetchGenesisByID returns a single genesis asset by its primary key

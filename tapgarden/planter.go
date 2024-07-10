@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 	"time"
 
@@ -587,13 +588,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 	for _, seedlingName := range orderedSeedlings {
 		seedling := groupSeedlings[seedlingName]
-
-		assetGen := asset.Genesis{
-			FirstPrevOut: genesisPoint,
-			Tag:          seedling.AssetName,
-			OutputIndex:  assetOutputIndex,
-			Type:         seedling.AssetType,
-		}
+		assetGen := seedling.Genesis(genesisPoint, assetOutputIndex)
 
 		// If the seedling has a meta data reveal set, then we'll bind
 		// that by including the hash of the meta data in the asset
@@ -730,10 +725,150 @@ func freezeMintingBatch(ctx context.Context, batchStore MintingStore,
 	)
 }
 
+// filterFinalizedBatches separates a set of batches into two sets based on
+// their batch state.
+func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
+	[]*MintingBatch) {
+
+	finalized := []*MintingBatch{}
+	nonFinalized := []*MintingBatch{}
+
+	fn.ForEach(batches, func(batch *MintingBatch) {
+		switch batch.State() {
+		case BatchStateFinalized:
+			finalized = append(finalized, batch)
+		default:
+			nonFinalized = append(nonFinalized, batch)
+		}
+	})
+
+	return finalized, nonFinalized
+}
+
+// fetchFinalizedBatch fetches the assets of a batch in their genesis state,
+// given a batch populated with seedlings.
+func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
+	archiver proof.Archiver, batch *MintingBatch) (*MintingBatch, error) {
+
+	// Collect genesis TX information from the batch to build the proof
+	// locators.
+	anchorOutputIndex := extractAnchorOutputIndex(batch.GenesisPacket)
+	signedTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
+	if err != nil {
+		return nil, err
+	}
+
+	genOutpoint := extractGenesisOutpoint(signedTx)
+	genScript := signedTx.TxOut[anchorOutputIndex].PkScript
+	anchorOutpoint := wire.OutPoint{
+		Hash:  signedTx.TxHash(),
+		Index: anchorOutputIndex,
+	}
+
+	batchAssets := make([]*asset.Asset, 0, len(batch.Seedlings))
+	assetMetas := make(AssetMetas)
+	for _, seedling := range batch.Seedlings {
+		gen := seedling.Genesis(genOutpoint, anchorOutputIndex)
+		issuanceProof, err := archiver.FetchIssuanceProof(
+			ctx, gen.ID(), anchorOutpoint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		proofFile, err := issuanceProof.AsFile()
+		if err != nil {
+			return nil, err
+		}
+
+		if proofFile.NumProofs() != 1 {
+			return nil, fmt.Errorf("expected single proof for " +
+				"issuance proof")
+		}
+
+		rawProof, err := proofFile.RawLastProof()
+		if err != nil {
+			return nil, err
+		}
+
+		// Decode the sprouted asset from the issuance proof.
+		var sproutedAsset asset.Asset
+		assetRecord := proof.AssetLeafRecord(&sproutedAsset)
+		err = proof.SparseDecode(bytes.NewReader(rawProof), assetRecord)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode issuance "+
+				"proof: %w", err)
+		}
+
+		if !sproutedAsset.IsGenesisAsset() {
+			return nil, fmt.Errorf("decoded asset is not a " +
+				"genesis asset")
+		}
+
+		// Populate the key info for the script key and group key.
+		if sproutedAsset.ScriptKey.PubKey == nil {
+			return nil, fmt.Errorf("decoded asset is missing " +
+				"script key")
+		}
+
+		tweakedScriptKey, err := batchStore.FetchScriptKeyByTweakedKey(
+			ctx, sproutedAsset.ScriptKey.PubKey,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		sproutedAsset.ScriptKey.TweakedScriptKey = tweakedScriptKey
+		if sproutedAsset.GroupKey != nil {
+			assetGroup, err := batchStore.FetchGroupByGroupKey(
+				ctx, &sproutedAsset.GroupKey.GroupPubKey,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			sproutedAsset.GroupKey = assetGroup.GroupKey
+		}
+
+		batchAssets = append(batchAssets, &sproutedAsset)
+		scriptKey := asset.ToSerialized(sproutedAsset.ScriptKey.PubKey)
+		assetMetas[scriptKey] = seedling.Meta
+	}
+
+	// Verify that we can reconstruct the genesis output script used in the
+	// anchor TX.
+	batchSibling := batch.TapSibling()
+	var tapSibling *chainhash.Hash
+	if len(batchSibling) != 0 {
+		var err error
+		tapSibling, err = chainhash.NewHash(batchSibling)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	tapCommitment, err := VerifyOutputScript(
+		batch.BatchKey.PubKey, tapSibling, genScript, batchAssets,
+	)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// With the batch assets validated, construct the populated finalized
+	// batch.
+	batch.Seedlings = nil
+	finalizedBatch := batch.Copy()
+	finalizedBatch.RootAssetCommitment = tapCommitment
+	finalizedBatch.AssetMetas = assetMetas
+
+	return finalizedBatch, nil
+}
+
 // ListBatches returns the single batch specified by the batch key, or the set
 // of batches not yet finalized on disk.
 func listBatches(ctx context.Context, batchStore MintingStore,
-	genBuilder asset.GenesisTxBuilder,
+	archiver proof.Archiver, genBuilder asset.GenesisTxBuilder,
 	params ListBatchesParams) ([]*VerboseBatch, error) {
 
 	var (
@@ -753,12 +888,54 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		return nil, err
 	}
 
-	verboseBatches := fn.Map(batches, func(b *MintingBatch) *VerboseBatch {
-		return &VerboseBatch{
-			MintingBatch:      b,
-			UnsealedSeedlings: nil,
+	var (
+		finalBatches, nonFinalBatches = filterFinalizedBatches(batches)
+		verboseBatches                []*VerboseBatch
+	)
+
+	switch {
+	case len(finalBatches) == 0:
+		verboseBatches = fn.Map(batches,
+			func(b *MintingBatch) *VerboseBatch {
+				return &VerboseBatch{
+					MintingBatch:      b,
+					UnsealedSeedlings: nil,
+				}
+			},
+		)
+
+	// For finalized batches, we need to fetch the assets from the proof
+	// archiver, not the DB.
+	default:
+		finalizedBatches := make([]*MintingBatch, 0, len(finalBatches))
+		for _, batch := range finalBatches {
+			finalizedBatch, err := fetchFinalizedBatch(
+				ctx, batchStore, archiver, batch,
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			finalizedBatches = append(
+				finalizedBatches, finalizedBatch,
+			)
 		}
-	})
+
+		// Re-sort the batches by creation time for consistent display.
+		allBatches := append(nonFinalBatches, finalizedBatches...)
+		slices.SortFunc(allBatches, func(a, b *MintingBatch) int {
+			return a.CreationTime.Compare(b.CreationTime)
+		})
+
+		verboseBatches = fn.Map(allBatches,
+			func(b *MintingBatch) *VerboseBatch {
+				return &VerboseBatch{
+					MintingBatch:      b,
+					UnsealedSeedlings: nil,
+				}
+			},
+		)
+	}
 
 	// Return the batches without any extra asset group info.
 	if !params.Verbose {
@@ -793,11 +970,9 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		// Before we can build the group key requests for each seedling,
 		// we must fetch the genesis point and anchor index for the
 		// batch.
-		anchorOutputIndex := uint32(0)
-		if currentBatch.GenesisPacket.ChangeOutputIndex == 0 {
-			anchorOutputIndex = 1
-		}
-
+		anchorOutputIndex := extractAnchorOutputIndex(
+			currentBatch.GenesisPacket,
+		)
 		genesisPoint := extractGenesisOutpoint(
 			currentBatch.GenesisPacket.Pkt.UnsignedTx,
 		)
@@ -1036,8 +1211,8 @@ func (c *ChainPlanter) gardener() {
 
 				ctx, cancel := c.WithCtxQuit()
 				batches, err := listBatches(
-					ctx, c.cfg.Log, c.cfg.GenTxBuilder,
-					*listBatchesParams,
+					ctx, c.cfg.Log, c.cfg.ProofFiles,
+					c.cfg.GenTxBuilder, *listBatchesParams,
 				)
 				cancel()
 				if err != nil {
@@ -1317,11 +1492,9 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex := uint32(0)
-	if workingBatch.GenesisPacket.ChangeOutputIndex == 0 {
-		anchorOutputIndex = 1
-	}
-
+	anchorOutputIndex := extractAnchorOutputIndex(
+		workingBatch.GenesisPacket,
+	)
 	genesisPoint := extractGenesisOutpoint(
 		workingBatch.GenesisPacket.Pkt.UnsignedTx,
 	)

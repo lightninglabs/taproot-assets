@@ -3,7 +3,6 @@ package proof
 import (
 	"bytes"
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -12,52 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type mockProofArchive struct {
-	proofs map[Locator]Blob
-}
-
-func newMockProofArchive() *mockProofArchive {
-	return &mockProofArchive{
-		proofs: make(map[Locator]Blob),
-	}
-}
-
-func (m *mockProofArchive) FetchProof(ctx context.Context,
-	id Locator) (Blob, error) {
-
-	proof, ok := m.proofs[id]
-	if !ok {
-		return nil, ErrProofNotFound
-	}
-
-	return proof, nil
-}
-
-func (m *mockProofArchive) HasProof(ctx context.Context,
-	id Locator) (bool, error) {
-
-	_, ok := m.proofs[id]
-
-	return ok, nil
-}
-
-func (m *mockProofArchive) FetchProofs(ctx context.Context,
-	id asset.ID) ([]*AnnotatedProof, error) {
-
-	return nil, fmt.Errorf("not implemented")
-}
-
-func (m *mockProofArchive) ImportProofs(context.Context, HeaderVerifier,
-	MerkleVerifier, GroupVerifier, ChainLookupGenerator, bool,
-	...*AnnotatedProof) error {
-
-	return fmt.Errorf("not implemented")
-}
-
 // TestUniverseRpcCourierLocalArchiveShortCut tests that the local archive is
 // used as a shortcut to fetch a proof if it's available.
 func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
-	localArchive := newMockProofArchive()
+	localArchive := NewMockProofArchive()
 
 	testBlocks := readTestData(t)
 	oddTxBlock := testBlocks[0]
@@ -79,7 +36,10 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 		ScriptKey: *proof.Asset.ScriptKey.PubKey,
 		OutPoint:  fn.Ptr(proof.OutPoint()),
 	}
-	localArchive.proofs[locator] = proofBlob
+	locHash, err := locator.Hash()
+	require.NoError(t, err)
+
+	localArchive.proofs.Store(locHash, proofBlob)
 
 	courier := &UniverseRpcCourier{
 		recipient: Recipient{},
