@@ -19,6 +19,8 @@ cmd/tapd/tapd
 /itest/.minerlogs/*
 /itest/tapd-itest
 
+/docs/examples/basic-price-oracle/basic-price-oracle
+
 # Load test binaries and config
 /loadtest
 /loadtest.conf
