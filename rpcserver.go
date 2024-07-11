@@ -5340,6 +5340,76 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	return r.marshalUniverseProofLeaf(ctx, req.Key, newUniverseState)
 }
 
+// PushProof attempts to query the local universe for a proof specified by a
+// UniverseKey. If found, a connection is made to a remote Universe server to
+// attempt to upload the asset leaf.
+func (r *rpcServer) PushProof(ctx context.Context,
+	req *unirpc.PushProofRequest) (*unirpc.PushProofResponse, error) {
+
+	switch {
+	case req.Server == nil:
+		return nil, fmt.Errorf("remote Universe must be specified")
+
+	case req.Key == nil:
+		return nil, fmt.Errorf("universe key must be specified")
+
+	case req.Server.Host == "" && req.Server.Id == 0:
+		return nil, fmt.Errorf("remote Universe must be specified")
+
+	case req.Server.Host != "" && req.Server.Id != 0:
+		return nil, fmt.Errorf("cannot specify both universe host " +
+			"and id")
+	}
+
+	remoteUniAddr := unmarshalUniverseServer(req.Server)
+	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
+	if err != nil {
+		return nil, err
+	}
+
+	// Try to fetch the requested proof from the local universe.
+	localProof, err := r.queryProof(ctx, universeID, leafKey)
+	if err != nil {
+		return nil, err
+	}
+	if localProof.Leaf == nil {
+		return nil, fmt.Errorf("proof not found in local universe")
+	}
+
+	// Make sure that we aren't trying to push the proof to ourself, and
+	// then attempt to push the proof.
+	err = CheckFederationServer(
+		r.cfg.RuntimeID, universe.DefaultTimeout, remoteUniAddr,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	remoteUni, err := NewRpcUniverseRegistrar(remoteUniAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("[PushProof]: pushing proof to universe "+
+		"(universeID=%v, server=%v", universeID.StringForLog(),
+		remoteUniAddr)
+
+	_, err = remoteUni.UpsertProofLeaf(
+		ctx, universeID, leafKey, localProof.Leaf,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcsLog.Debugf("[PushProof]: proof pushed to universe "+
+		"(universeID=%v, server=%v", universeID.StringForLog(),
+		remoteUniAddr)
+
+	return &unirpc.PushProofResponse{
+		Key: req.Key,
+	}, nil
+}
+
 // Info returns a set of information about the current state of the Universe.
 func (r *rpcServer) Info(ctx context.Context,
 	_ *unirpc.InfoRequest) (*unirpc.InfoResponse, error) {

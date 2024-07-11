@@ -970,6 +970,236 @@
         ]
       }
     },
+    "/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+      "post": {
+        "summary": "tapcli: `universe proofs push`\nPushProof attempts to query the local universe for a proof specified by a\nUniverseKey. If found, a connection is made to a remote Universe server to\nattempt to upload the asset leaf.",
+        "operationId": "Universe_PushProof",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcPushProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "key.id.asset_id_str",
+            "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "key.leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "object",
+                      "properties": {
+                        "asset_id": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                        },
+                        "group_key": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                        },
+                        "group_key_str": {
+                          "type": "string",
+                          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+                        },
+                        "proof_type": {
+                          "$ref": "#/definitions/universerpcProofType"
+                        }
+                      },
+                      "description": "The ID of the asset to query for.",
+                      "title": "The ID of the asset to query for."
+                    },
+                    "leaf_key": {
+                      "type": "object",
+                      "properties": {
+                        "op_str": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "object"
+                        },
+                        "script_key_bytes": {
+                          "type": "string",
+                          "format": "byte"
+                        }
+                      },
+                      "description": "The asset key to query for.",
+                      "title": "The asset key to query for."
+                    }
+                  },
+                  "description": "The ID of the asset to push the proof for.",
+                  "title": "The ID of the asset to push the proof for."
+                },
+                "server": {
+                  "$ref": "#/definitions/universerpcUniverseFederationServer",
+                  "description": "The universe server to push the proof to."
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
+    "/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}": {
+      "post": {
+        "summary": "tapcli: `universe proofs push`\nPushProof attempts to query the local universe for a proof specified by a\nUniverseKey. If found, a connection is made to a remote Universe server to\nattempt to upload the asset leaf.",
+        "operationId": "Universe_PushProof2",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/universerpcPushProofResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "key.id.group_key_str",
+            "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.hash_str",
+            "description": "The output as a hex encoded (and reversed!) string.",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "key.leaf_key.op.index",
+            "description": "The index of the output.",
+            "in": "path",
+            "required": true,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "key.leaf_key.script_key_str",
+            "in": "path",
+            "required": true,
+            "type": "string"
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "object",
+                      "properties": {
+                        "asset_id": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                        },
+                        "asset_id_str": {
+                          "type": "string",
+                          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+                        },
+                        "group_key": {
+                          "type": "string",
+                          "format": "byte",
+                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                        },
+                        "proof_type": {
+                          "$ref": "#/definitions/universerpcProofType"
+                        }
+                      },
+                      "description": "The ID of the asset to query for.",
+                      "title": "The ID of the asset to query for."
+                    },
+                    "leaf_key": {
+                      "type": "object",
+                      "properties": {
+                        "op_str": {
+                          "type": "string"
+                        },
+                        "op": {
+                          "type": "object"
+                        },
+                        "script_key_bytes": {
+                          "type": "string",
+                          "format": "byte"
+                        }
+                      },
+                      "description": "The asset key to query for.",
+                      "title": "The asset key to query for."
+                    }
+                  },
+                  "description": "The ID of the asset to push the proof for.",
+                  "title": "The ID of the asset to push the proof for."
+                },
+                "server": {
+                  "$ref": "#/definitions/universerpcUniverseFederationServer",
+                  "description": "The universe server to push the proof to."
+                }
+              }
+            }
+          }
+        ],
+        "tags": [
+          "Universe"
+        ]
+      }
+    },
     "/v1/taproot-assets/universe/roots": {
       "get": {
         "summary": "tapcli: `universe roots`\nAssetRoots queries for the known Universe roots associated with each known\nasset. These roots represent the supply/audit state for each known asset.",
@@ -1787,7 +2017,7 @@
       "properties": {
         "req": {
           "$ref": "#/definitions/universerpcUniverseKey",
-          "description": "The request original request for the issuance proof."
+          "description": "The original request for the issuance proof."
         },
         "universe_root": {
           "$ref": "#/definitions/universerpcUniverseRoot",
@@ -2066,6 +2296,15 @@
         "PROOF_TYPE_TRANSFER"
       ],
       "default": "PROOF_TYPE_UNSPECIFIED"
+    },
+    "universerpcPushProofResponse": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "$ref": "#/definitions/universerpcUniverseKey",
+          "description": "The ID of the asset a push was requested for."
+        }
+      }
     },
     "universerpcQueryEventsResponse": {
       "type": "object",

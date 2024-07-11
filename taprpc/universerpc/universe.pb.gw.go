@@ -1093,6 +1093,262 @@ func local_request_Universe_InsertProof_1(ctx context.Context, marshaler runtime
 
 }
 
+func request_Universe_PushProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq PushProofRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["key.id.asset_id_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.asset_id_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.asset_id_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.asset_id_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.hash_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.index"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.script_key_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
+	}
+
+	msg, err := client.PushProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Universe_PushProof_0(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq PushProofRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["key.id.asset_id_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.asset_id_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.asset_id_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.asset_id_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.hash_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.index"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.script_key_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
+	}
+
+	msg, err := server.PushProof(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
+func request_Universe_PushProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq PushProofRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["key.id.group_key_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.group_key_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.group_key_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.group_key_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.hash_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.index"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.script_key_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
+	}
+
+	msg, err := client.PushProof(ctx, &protoReq, grpc.Header(&metadata.HeaderMD), grpc.Trailer(&metadata.TrailerMD))
+	return msg, metadata, err
+
+}
+
+func local_request_Universe_PushProof_1(ctx context.Context, marshaler runtime.Marshaler, server UniverseServer, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
+	var protoReq PushProofRequest
+	var metadata runtime.ServerMetadata
+
+	newReader, berr := utilities.IOReaderFactory(req.Body)
+	if berr != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
+	}
+	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
+	}
+
+	var (
+		val string
+		ok  bool
+		err error
+		_   = err
+	)
+
+	val, ok = pathParams["key.id.group_key_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.id.group_key_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.id.group_key_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.id.group_key_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.hash_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.hash_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.hash_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.hash_str", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.op.index"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.op.index")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.op.index", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.op.index", err)
+	}
+
+	val, ok = pathParams["key.leaf_key.script_key_str"]
+	if !ok {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "missing parameter %s", "key.leaf_key.script_key_str")
+	}
+
+	err = runtime.PopulateFieldFromPath(&protoReq, "key.leaf_key.script_key_str", val)
+	if err != nil {
+		return nil, metadata, status.Errorf(codes.InvalidArgument, "type mismatch, parameter: %s, error: %v", "key.leaf_key.script_key_str", err)
+	}
+
+	msg, err := server.PushProof(ctx, &protoReq)
+	return msg, metadata, err
+
+}
+
 func request_Universe_Info_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
 	var protoReq InfoRequest
 	var metadata runtime.ServerMetadata
@@ -1724,6 +1980,56 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 
 	})
 
+	mux.Handle("POST", pattern_Universe_PushProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Universe_PushProof_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Universe_PushProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_Universe_PushProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		var stream runtime.ServerTransportStream
+		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := local_request_Universe_PushProof_1(annotatedContext, inboundMarshaler, server, req, pathParams)
+		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Universe_PushProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("GET", pattern_Universe_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2301,6 +2607,50 @@ func RegisterUniverseHandlerClient(ctx context.Context, mux *runtime.ServeMux, c
 
 	})
 
+	mux.Handle("POST", pattern_Universe_PushProof_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/asset-id/{key.id.asset_id_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Universe_PushProof_0(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Universe_PushProof_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
+	mux.Handle("POST", pattern_Universe_PushProof_1, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
+		ctx, cancel := context.WithCancel(req.Context())
+		defer cancel()
+		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
+		var err error
+		var annotatedContext context.Context
+		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/universerpc.Universe/PushProof", runtime.WithHTTPPathPattern("/v1/taproot-assets/universe/proofs/push/group-key/{key.id.group_key_str}/{key.leaf_key.op.hash_str}/{key.leaf_key.op.index}/{key.leaf_key.script_key_str}"))
+		if err != nil {
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
+			return
+		}
+		resp, md, err := request_Universe_PushProof_1(annotatedContext, inboundMarshaler, client, req, pathParams)
+		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		if err != nil {
+			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			return
+		}
+
+		forward_Universe_PushProof_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+
+	})
+
 	mux.Handle("GET", pattern_Universe_Info_0, func(w http.ResponseWriter, req *http.Request, pathParams map[string]string) {
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
@@ -2551,6 +2901,10 @@ var (
 
 	pattern_Universe_InsertProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 1, 0, 4, 1, 5, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8}, []string{"v1", "taproot-assets", "universe", "proofs", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
 
+	pattern_Universe_PushProof_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 2, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8, 1, 0, 4, 1, 5, 9}, []string{"v1", "taproot-assets", "universe", "proofs", "push", "asset-id", "key.id.asset_id_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+
+	pattern_Universe_PushProof_1 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3, 2, 4, 2, 5, 1, 0, 4, 1, 5, 6, 1, 0, 4, 1, 5, 7, 1, 0, 4, 1, 5, 8, 1, 0, 4, 1, 5, 9}, []string{"v1", "taproot-assets", "universe", "proofs", "push", "group-key", "key.id.group_key_str", "key.leaf_key.op.hash_str", "key.leaf_key.op.index", "key.leaf_key.script_key_str"}, ""))
+
 	pattern_Universe_Info_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "info"}, ""))
 
 	pattern_Universe_SyncUniverse_0 = runtime.MustPattern(runtime.NewPattern(1, []int{2, 0, 2, 1, 2, 2, 2, 3}, []string{"v1", "taproot-assets", "universe", "sync"}, ""))
@@ -2598,6 +2952,10 @@ var (
 	forward_Universe_InsertProof_0 = runtime.ForwardResponseMessage
 
 	forward_Universe_InsertProof_1 = runtime.ForwardResponseMessage
+
+	forward_Universe_PushProof_0 = runtime.ForwardResponseMessage
+
+	forward_Universe_PushProof_1 = runtime.ForwardResponseMessage
 
 	forward_Universe_Info_0 = runtime.ForwardResponseMessage
 

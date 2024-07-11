@@ -64,6 +64,11 @@ type UniverseClient interface {
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
 	InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error)
+	// tapcli: `universe proofs push`
+	// PushProof attempts to query the local universe for a proof specified by a
+	// UniverseKey. If found, a connection is made to a remote Universe server to
+	// attempt to upload the asset leaf.
+	PushProof(ctx context.Context, in *PushProofRequest, opts ...grpc.CallOption) (*PushProofResponse, error)
 	// tapcli: `universe info`
 	// Info returns a set of information about the current state of the Universe.
 	Info(ctx context.Context, in *InfoRequest, opts ...grpc.CallOption) (*InfoResponse, error)
@@ -186,6 +191,15 @@ func (c *universeClient) QueryProof(ctx context.Context, in *UniverseKey, opts .
 func (c *universeClient) InsertProof(ctx context.Context, in *AssetProof, opts ...grpc.CallOption) (*AssetProofResponse, error) {
 	out := new(AssetProofResponse)
 	err := c.cc.Invoke(ctx, "/universerpc.Universe/InsertProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *universeClient) PushProof(ctx context.Context, in *PushProofRequest, opts ...grpc.CallOption) (*PushProofResponse, error) {
+	out := new(PushProofResponse)
+	err := c.cc.Invoke(ctx, "/universerpc.Universe/PushProof", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +346,11 @@ type UniverseServer interface {
 	// inserted into the database, with a new Universe root returned for the
 	// updated asset_id/group_key.
 	InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error)
+	// tapcli: `universe proofs push`
+	// PushProof attempts to query the local universe for a proof specified by a
+	// UniverseKey. If found, a connection is made to a remote Universe server to
+	// attempt to upload the asset leaf.
+	PushProof(context.Context, *PushProofRequest) (*PushProofResponse, error)
 	// tapcli: `universe info`
 	// Info returns a set of information about the current state of the Universe.
 	Info(context.Context, *InfoRequest) (*InfoResponse, error)
@@ -408,6 +427,9 @@ func (UnimplementedUniverseServer) QueryProof(context.Context, *UniverseKey) (*A
 }
 func (UnimplementedUniverseServer) InsertProof(context.Context, *AssetProof) (*AssetProofResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method InsertProof not implemented")
+}
+func (UnimplementedUniverseServer) PushProof(context.Context, *PushProofRequest) (*PushProofResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method PushProof not implemented")
 }
 func (UnimplementedUniverseServer) Info(context.Context, *InfoRequest) (*InfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Info not implemented")
@@ -592,6 +614,24 @@ func _Universe_InsertProof_Handler(srv interface{}, ctx context.Context, dec fun
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(UniverseServer).InsertProof(ctx, req.(*AssetProof))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _Universe_PushProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(PushProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(UniverseServer).PushProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/universerpc.Universe/PushProof",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(UniverseServer).PushProof(ctx, req.(*PushProofRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -814,6 +854,10 @@ var Universe_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "InsertProof",
 			Handler:    _Universe_InsertProof_Handler,
+		},
+		{
+			MethodName: "PushProof",
+			Handler:    _Universe_PushProof_Handler,
 		},
 		{
 			MethodName: "Info",

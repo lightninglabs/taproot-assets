@@ -1442,7 +1442,7 @@ type AssetProofResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	// The request original request for the issuance proof.
+	// The original request for the issuance proof.
 	Req *UniverseKey `protobuf:"bytes,1,opt,name=req,proto3" json:"req,omitempty"`
 	// The Universe root that includes this asset leaf.
 	UniverseRoot *UniverseRoot `protobuf:"bytes,2,opt,name=universe_root,json=universeRoot,proto3" json:"universe_root,omitempty"`
@@ -1590,6 +1590,111 @@ func (x *AssetProof) GetAssetLeaf() *AssetLeaf {
 	return nil
 }
 
+type PushProofRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The ID of the asset to push the proof for.
+	Key *UniverseKey `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+	// The universe server to push the proof to.
+	Server *UniverseFederationServer `protobuf:"bytes,2,opt,name=server,proto3" json:"server,omitempty"`
+}
+
+func (x *PushProofRequest) Reset() {
+	*x = PushProofRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_universerpc_universe_proto_msgTypes[20]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *PushProofRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushProofRequest) ProtoMessage() {}
+
+func (x *PushProofRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_universerpc_universe_proto_msgTypes[20]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushProofRequest.ProtoReflect.Descriptor instead.
+func (*PushProofRequest) Descriptor() ([]byte, []int) {
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{20}
+}
+
+func (x *PushProofRequest) GetKey() *UniverseKey {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
+func (x *PushProofRequest) GetServer() *UniverseFederationServer {
+	if x != nil {
+		return x.Server
+	}
+	return nil
+}
+
+type PushProofResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The ID of the asset a push was requested for.
+	Key *UniverseKey `protobuf:"bytes,1,opt,name=key,proto3" json:"key,omitempty"`
+}
+
+func (x *PushProofResponse) Reset() {
+	*x = PushProofResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_universerpc_universe_proto_msgTypes[21]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *PushProofResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PushProofResponse) ProtoMessage() {}
+
+func (x *PushProofResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_universerpc_universe_proto_msgTypes[21]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PushProofResponse.ProtoReflect.Descriptor instead.
+func (*PushProofResponse) Descriptor() ([]byte, []int) {
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *PushProofResponse) GetKey() *UniverseKey {
+	if x != nil {
+		return x.Key
+	}
+	return nil
+}
+
 type InfoRequest struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -1599,7 +1704,7 @@ type InfoRequest struct {
 func (x *InfoRequest) Reset() {
 	*x = InfoRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[20]
+		mi := &file_universerpc_universe_proto_msgTypes[22]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1612,7 +1717,7 @@ func (x *InfoRequest) String() string {
 func (*InfoRequest) ProtoMessage() {}
 
 func (x *InfoRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[20]
+	mi := &file_universerpc_universe_proto_msgTypes[22]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1625,7 +1730,7 @@ func (x *InfoRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfoRequest.ProtoReflect.Descriptor instead.
 func (*InfoRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{20}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{22}
 }
 
 type InfoResponse struct {
@@ -1642,7 +1747,7 @@ type InfoResponse struct {
 func (x *InfoResponse) Reset() {
 	*x = InfoResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[21]
+		mi := &file_universerpc_universe_proto_msgTypes[23]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1655,7 +1760,7 @@ func (x *InfoResponse) String() string {
 func (*InfoResponse) ProtoMessage() {}
 
 func (x *InfoResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[21]
+	mi := &file_universerpc_universe_proto_msgTypes[23]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1668,7 +1773,7 @@ func (x *InfoResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use InfoResponse.ProtoReflect.Descriptor instead.
 func (*InfoResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{21}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *InfoResponse) GetRuntimeId() int64 {
@@ -1689,7 +1794,7 @@ type SyncTarget struct {
 func (x *SyncTarget) Reset() {
 	*x = SyncTarget{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[22]
+		mi := &file_universerpc_universe_proto_msgTypes[24]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1702,7 +1807,7 @@ func (x *SyncTarget) String() string {
 func (*SyncTarget) ProtoMessage() {}
 
 func (x *SyncTarget) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[22]
+	mi := &file_universerpc_universe_proto_msgTypes[24]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1715,7 +1820,7 @@ func (x *SyncTarget) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncTarget.ProtoReflect.Descriptor instead.
 func (*SyncTarget) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{22}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *SyncTarget) GetId() *ID {
@@ -1743,7 +1848,7 @@ type SyncRequest struct {
 func (x *SyncRequest) Reset() {
 	*x = SyncRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[23]
+		mi := &file_universerpc_universe_proto_msgTypes[25]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1756,7 +1861,7 @@ func (x *SyncRequest) String() string {
 func (*SyncRequest) ProtoMessage() {}
 
 func (x *SyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[23]
+	mi := &file_universerpc_universe_proto_msgTypes[25]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1769,7 +1874,7 @@ func (x *SyncRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncRequest.ProtoReflect.Descriptor instead.
 func (*SyncRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{23}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *SyncRequest) GetUniverseHost() string {
@@ -1809,7 +1914,7 @@ type SyncedUniverse struct {
 func (x *SyncedUniverse) Reset() {
 	*x = SyncedUniverse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[24]
+		mi := &file_universerpc_universe_proto_msgTypes[26]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1822,7 +1927,7 @@ func (x *SyncedUniverse) String() string {
 func (*SyncedUniverse) ProtoMessage() {}
 
 func (x *SyncedUniverse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[24]
+	mi := &file_universerpc_universe_proto_msgTypes[26]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1835,7 +1940,7 @@ func (x *SyncedUniverse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncedUniverse.ProtoReflect.Descriptor instead.
 func (*SyncedUniverse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{24}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *SyncedUniverse) GetOldAssetRoot() *UniverseRoot {
@@ -1868,7 +1973,7 @@ type StatsRequest struct {
 func (x *StatsRequest) Reset() {
 	*x = StatsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[25]
+		mi := &file_universerpc_universe_proto_msgTypes[27]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1881,7 +1986,7 @@ func (x *StatsRequest) String() string {
 func (*StatsRequest) ProtoMessage() {}
 
 func (x *StatsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[25]
+	mi := &file_universerpc_universe_proto_msgTypes[27]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1894,7 +1999,7 @@ func (x *StatsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsRequest.ProtoReflect.Descriptor instead.
 func (*StatsRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{25}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{27}
 }
 
 type SyncResponse struct {
@@ -1909,7 +2014,7 @@ type SyncResponse struct {
 func (x *SyncResponse) Reset() {
 	*x = SyncResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[26]
+		mi := &file_universerpc_universe_proto_msgTypes[28]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1922,7 +2027,7 @@ func (x *SyncResponse) String() string {
 func (*SyncResponse) ProtoMessage() {}
 
 func (x *SyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[26]
+	mi := &file_universerpc_universe_proto_msgTypes[28]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1935,7 +2040,7 @@ func (x *SyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SyncResponse.ProtoReflect.Descriptor instead.
 func (*SyncResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{26}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *SyncResponse) GetSyncedUniverses() []*SyncedUniverse {
@@ -1957,7 +2062,7 @@ type UniverseFederationServer struct {
 func (x *UniverseFederationServer) Reset() {
 	*x = UniverseFederationServer{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[27]
+		mi := &file_universerpc_universe_proto_msgTypes[29]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -1970,7 +2075,7 @@ func (x *UniverseFederationServer) String() string {
 func (*UniverseFederationServer) ProtoMessage() {}
 
 func (x *UniverseFederationServer) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[27]
+	mi := &file_universerpc_universe_proto_msgTypes[29]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1983,7 +2088,7 @@ func (x *UniverseFederationServer) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UniverseFederationServer.ProtoReflect.Descriptor instead.
 func (*UniverseFederationServer) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{27}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *UniverseFederationServer) GetHost() string {
@@ -2009,7 +2114,7 @@ type ListFederationServersRequest struct {
 func (x *ListFederationServersRequest) Reset() {
 	*x = ListFederationServersRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[28]
+		mi := &file_universerpc_universe_proto_msgTypes[30]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2022,7 +2127,7 @@ func (x *ListFederationServersRequest) String() string {
 func (*ListFederationServersRequest) ProtoMessage() {}
 
 func (x *ListFederationServersRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[28]
+	mi := &file_universerpc_universe_proto_msgTypes[30]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2035,7 +2140,7 @@ func (x *ListFederationServersRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFederationServersRequest.ProtoReflect.Descriptor instead.
 func (*ListFederationServersRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{28}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{30}
 }
 
 type ListFederationServersResponse struct {
@@ -2049,7 +2154,7 @@ type ListFederationServersResponse struct {
 func (x *ListFederationServersResponse) Reset() {
 	*x = ListFederationServersResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[29]
+		mi := &file_universerpc_universe_proto_msgTypes[31]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2062,7 +2167,7 @@ func (x *ListFederationServersResponse) String() string {
 func (*ListFederationServersResponse) ProtoMessage() {}
 
 func (x *ListFederationServersResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[29]
+	mi := &file_universerpc_universe_proto_msgTypes[31]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2075,7 +2180,7 @@ func (x *ListFederationServersResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListFederationServersResponse.ProtoReflect.Descriptor instead.
 func (*ListFederationServersResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{29}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *ListFederationServersResponse) GetServers() []*UniverseFederationServer {
@@ -2096,7 +2201,7 @@ type AddFederationServerRequest struct {
 func (x *AddFederationServerRequest) Reset() {
 	*x = AddFederationServerRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[30]
+		mi := &file_universerpc_universe_proto_msgTypes[32]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2109,7 +2214,7 @@ func (x *AddFederationServerRequest) String() string {
 func (*AddFederationServerRequest) ProtoMessage() {}
 
 func (x *AddFederationServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[30]
+	mi := &file_universerpc_universe_proto_msgTypes[32]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2122,7 +2227,7 @@ func (x *AddFederationServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddFederationServerRequest.ProtoReflect.Descriptor instead.
 func (*AddFederationServerRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{30}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *AddFederationServerRequest) GetServers() []*UniverseFederationServer {
@@ -2141,7 +2246,7 @@ type AddFederationServerResponse struct {
 func (x *AddFederationServerResponse) Reset() {
 	*x = AddFederationServerResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[31]
+		mi := &file_universerpc_universe_proto_msgTypes[33]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2154,7 +2259,7 @@ func (x *AddFederationServerResponse) String() string {
 func (*AddFederationServerResponse) ProtoMessage() {}
 
 func (x *AddFederationServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[31]
+	mi := &file_universerpc_universe_proto_msgTypes[33]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2167,7 +2272,7 @@ func (x *AddFederationServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddFederationServerResponse.ProtoReflect.Descriptor instead.
 func (*AddFederationServerResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{31}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{33}
 }
 
 type DeleteFederationServerRequest struct {
@@ -2181,7 +2286,7 @@ type DeleteFederationServerRequest struct {
 func (x *DeleteFederationServerRequest) Reset() {
 	*x = DeleteFederationServerRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[32]
+		mi := &file_universerpc_universe_proto_msgTypes[34]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2194,7 +2299,7 @@ func (x *DeleteFederationServerRequest) String() string {
 func (*DeleteFederationServerRequest) ProtoMessage() {}
 
 func (x *DeleteFederationServerRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[32]
+	mi := &file_universerpc_universe_proto_msgTypes[34]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2207,7 +2312,7 @@ func (x *DeleteFederationServerRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFederationServerRequest.ProtoReflect.Descriptor instead.
 func (*DeleteFederationServerRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{32}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *DeleteFederationServerRequest) GetServers() []*UniverseFederationServer {
@@ -2226,7 +2331,7 @@ type DeleteFederationServerResponse struct {
 func (x *DeleteFederationServerResponse) Reset() {
 	*x = DeleteFederationServerResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[33]
+		mi := &file_universerpc_universe_proto_msgTypes[35]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2239,7 +2344,7 @@ func (x *DeleteFederationServerResponse) String() string {
 func (*DeleteFederationServerResponse) ProtoMessage() {}
 
 func (x *DeleteFederationServerResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[33]
+	mi := &file_universerpc_universe_proto_msgTypes[35]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2252,7 +2357,7 @@ func (x *DeleteFederationServerResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DeleteFederationServerResponse.ProtoReflect.Descriptor instead.
 func (*DeleteFederationServerResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{33}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{35}
 }
 
 type StatsResponse struct {
@@ -2269,7 +2374,7 @@ type StatsResponse struct {
 func (x *StatsResponse) Reset() {
 	*x = StatsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[34]
+		mi := &file_universerpc_universe_proto_msgTypes[36]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2282,7 +2387,7 @@ func (x *StatsResponse) String() string {
 func (*StatsResponse) ProtoMessage() {}
 
 func (x *StatsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[34]
+	mi := &file_universerpc_universe_proto_msgTypes[36]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2295,7 +2400,7 @@ func (x *StatsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use StatsResponse.ProtoReflect.Descriptor instead.
 func (*StatsResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{34}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *StatsResponse) GetNumTotalAssets() int64 {
@@ -2343,7 +2448,7 @@ type AssetStatsQuery struct {
 func (x *AssetStatsQuery) Reset() {
 	*x = AssetStatsQuery{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[35]
+		mi := &file_universerpc_universe_proto_msgTypes[37]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2356,7 +2461,7 @@ func (x *AssetStatsQuery) String() string {
 func (*AssetStatsQuery) ProtoMessage() {}
 
 func (x *AssetStatsQuery) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[35]
+	mi := &file_universerpc_universe_proto_msgTypes[37]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2369,7 +2474,7 @@ func (x *AssetStatsQuery) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStatsQuery.ProtoReflect.Descriptor instead.
 func (*AssetStatsQuery) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{35}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *AssetStatsQuery) GetAssetNameFilter() string {
@@ -2449,7 +2554,7 @@ type AssetStatsSnapshot struct {
 func (x *AssetStatsSnapshot) Reset() {
 	*x = AssetStatsSnapshot{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[36]
+		mi := &file_universerpc_universe_proto_msgTypes[38]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2462,7 +2567,7 @@ func (x *AssetStatsSnapshot) String() string {
 func (*AssetStatsSnapshot) ProtoMessage() {}
 
 func (x *AssetStatsSnapshot) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[36]
+	mi := &file_universerpc_universe_proto_msgTypes[38]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2475,7 +2580,7 @@ func (x *AssetStatsSnapshot) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStatsSnapshot.ProtoReflect.Descriptor instead.
 func (*AssetStatsSnapshot) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{36}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *AssetStatsSnapshot) GetGroupKey() []byte {
@@ -2538,7 +2643,7 @@ type AssetStatsAsset struct {
 func (x *AssetStatsAsset) Reset() {
 	*x = AssetStatsAsset{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[37]
+		mi := &file_universerpc_universe_proto_msgTypes[39]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2551,7 +2656,7 @@ func (x *AssetStatsAsset) String() string {
 func (*AssetStatsAsset) ProtoMessage() {}
 
 func (x *AssetStatsAsset) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[37]
+	mi := &file_universerpc_universe_proto_msgTypes[39]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2564,7 +2669,7 @@ func (x *AssetStatsAsset) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetStatsAsset.ProtoReflect.Descriptor instead.
 func (*AssetStatsAsset) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{37}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *AssetStatsAsset) GetAssetId() []byte {
@@ -2634,7 +2739,7 @@ type UniverseAssetStats struct {
 func (x *UniverseAssetStats) Reset() {
 	*x = UniverseAssetStats{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[38]
+		mi := &file_universerpc_universe_proto_msgTypes[40]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2647,7 +2752,7 @@ func (x *UniverseAssetStats) String() string {
 func (*UniverseAssetStats) ProtoMessage() {}
 
 func (x *UniverseAssetStats) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[38]
+	mi := &file_universerpc_universe_proto_msgTypes[40]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2660,7 +2765,7 @@ func (x *UniverseAssetStats) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UniverseAssetStats.ProtoReflect.Descriptor instead.
 func (*UniverseAssetStats) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{38}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *UniverseAssetStats) GetAssetStats() []*AssetStatsSnapshot {
@@ -2682,7 +2787,7 @@ type QueryEventsRequest struct {
 func (x *QueryEventsRequest) Reset() {
 	*x = QueryEventsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[39]
+		mi := &file_universerpc_universe_proto_msgTypes[41]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2695,7 +2800,7 @@ func (x *QueryEventsRequest) String() string {
 func (*QueryEventsRequest) ProtoMessage() {}
 
 func (x *QueryEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[39]
+	mi := &file_universerpc_universe_proto_msgTypes[41]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2708,7 +2813,7 @@ func (x *QueryEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEventsRequest.ProtoReflect.Descriptor instead.
 func (*QueryEventsRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{39}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{41}
 }
 
 func (x *QueryEventsRequest) GetStartTimestamp() int64 {
@@ -2736,7 +2841,7 @@ type QueryEventsResponse struct {
 func (x *QueryEventsResponse) Reset() {
 	*x = QueryEventsResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[40]
+		mi := &file_universerpc_universe_proto_msgTypes[42]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2749,7 +2854,7 @@ func (x *QueryEventsResponse) String() string {
 func (*QueryEventsResponse) ProtoMessage() {}
 
 func (x *QueryEventsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[40]
+	mi := &file_universerpc_universe_proto_msgTypes[42]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2762,7 +2867,7 @@ func (x *QueryEventsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryEventsResponse.ProtoReflect.Descriptor instead.
 func (*QueryEventsResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{40}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{42}
 }
 
 func (x *QueryEventsResponse) GetEvents() []*GroupedUniverseEvents {
@@ -2786,7 +2891,7 @@ type GroupedUniverseEvents struct {
 func (x *GroupedUniverseEvents) Reset() {
 	*x = GroupedUniverseEvents{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[41]
+		mi := &file_universerpc_universe_proto_msgTypes[43]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2799,7 +2904,7 @@ func (x *GroupedUniverseEvents) String() string {
 func (*GroupedUniverseEvents) ProtoMessage() {}
 
 func (x *GroupedUniverseEvents) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[41]
+	mi := &file_universerpc_universe_proto_msgTypes[43]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2812,7 +2917,7 @@ func (x *GroupedUniverseEvents) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GroupedUniverseEvents.ProtoReflect.Descriptor instead.
 func (*GroupedUniverseEvents) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{41}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *GroupedUniverseEvents) GetDate() string {
@@ -2848,7 +2953,7 @@ type SetFederationSyncConfigRequest struct {
 func (x *SetFederationSyncConfigRequest) Reset() {
 	*x = SetFederationSyncConfigRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[42]
+		mi := &file_universerpc_universe_proto_msgTypes[44]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2861,7 +2966,7 @@ func (x *SetFederationSyncConfigRequest) String() string {
 func (*SetFederationSyncConfigRequest) ProtoMessage() {}
 
 func (x *SetFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[42]
+	mi := &file_universerpc_universe_proto_msgTypes[44]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2874,7 +2979,7 @@ func (x *SetFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetFederationSyncConfigRequest.ProtoReflect.Descriptor instead.
 func (*SetFederationSyncConfigRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{42}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *SetFederationSyncConfigRequest) GetGlobalSyncConfigs() []*GlobalFederationSyncConfig {
@@ -2900,7 +3005,7 @@ type SetFederationSyncConfigResponse struct {
 func (x *SetFederationSyncConfigResponse) Reset() {
 	*x = SetFederationSyncConfigResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[43]
+		mi := &file_universerpc_universe_proto_msgTypes[45]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2913,7 +3018,7 @@ func (x *SetFederationSyncConfigResponse) String() string {
 func (*SetFederationSyncConfigResponse) ProtoMessage() {}
 
 func (x *SetFederationSyncConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[43]
+	mi := &file_universerpc_universe_proto_msgTypes[45]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2926,7 +3031,7 @@ func (x *SetFederationSyncConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SetFederationSyncConfigResponse.ProtoReflect.Descriptor instead.
 func (*SetFederationSyncConfigResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{43}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{45}
 }
 
 // GlobalFederationSyncConfig is a global proof type specific configuration
@@ -2951,7 +3056,7 @@ type GlobalFederationSyncConfig struct {
 func (x *GlobalFederationSyncConfig) Reset() {
 	*x = GlobalFederationSyncConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[44]
+		mi := &file_universerpc_universe_proto_msgTypes[46]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -2964,7 +3069,7 @@ func (x *GlobalFederationSyncConfig) String() string {
 func (*GlobalFederationSyncConfig) ProtoMessage() {}
 
 func (x *GlobalFederationSyncConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[44]
+	mi := &file_universerpc_universe_proto_msgTypes[46]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2977,7 +3082,7 @@ func (x *GlobalFederationSyncConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GlobalFederationSyncConfig.ProtoReflect.Descriptor instead.
 func (*GlobalFederationSyncConfig) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{44}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{46}
 }
 
 func (x *GlobalFederationSyncConfig) GetProofType() ProofType {
@@ -3023,7 +3128,7 @@ type AssetFederationSyncConfig struct {
 func (x *AssetFederationSyncConfig) Reset() {
 	*x = AssetFederationSyncConfig{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[45]
+		mi := &file_universerpc_universe_proto_msgTypes[47]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3036,7 +3141,7 @@ func (x *AssetFederationSyncConfig) String() string {
 func (*AssetFederationSyncConfig) ProtoMessage() {}
 
 func (x *AssetFederationSyncConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[45]
+	mi := &file_universerpc_universe_proto_msgTypes[47]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3049,7 +3154,7 @@ func (x *AssetFederationSyncConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AssetFederationSyncConfig.ProtoReflect.Descriptor instead.
 func (*AssetFederationSyncConfig) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{45}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{47}
 }
 
 func (x *AssetFederationSyncConfig) GetId() *ID {
@@ -3085,7 +3190,7 @@ type QueryFederationSyncConfigRequest struct {
 func (x *QueryFederationSyncConfigRequest) Reset() {
 	*x = QueryFederationSyncConfigRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[46]
+		mi := &file_universerpc_universe_proto_msgTypes[48]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3098,7 +3203,7 @@ func (x *QueryFederationSyncConfigRequest) String() string {
 func (*QueryFederationSyncConfigRequest) ProtoMessage() {}
 
 func (x *QueryFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[46]
+	mi := &file_universerpc_universe_proto_msgTypes[48]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3111,7 +3216,7 @@ func (x *QueryFederationSyncConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use QueryFederationSyncConfigRequest.ProtoReflect.Descriptor instead.
 func (*QueryFederationSyncConfigRequest) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{46}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{48}
 }
 
 func (x *QueryFederationSyncConfigRequest) GetId() []*ID {
@@ -3133,7 +3238,7 @@ type QueryFederationSyncConfigResponse struct {
 func (x *QueryFederationSyncConfigResponse) Reset() {
 	*x = QueryFederationSyncConfigResponse{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_universerpc_universe_proto_msgTypes[47]
+		mi := &file_universerpc_universe_proto_msgTypes[49]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -3146,7 +3251,7 @@ func (x *QueryFederationSyncConfigResponse) String() string {
 func (*QueryFederationSyncConfigResponse) ProtoMessage() {}
 
 func (x *QueryFederationSyncConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_universerpc_universe_proto_msgTypes[47]
+	mi := &file_universerpc_universe_proto_msgTypes[49]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3159,7 +3264,7 @@ func (x *QueryFederationSyncConfigResponse) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use QueryFederationSyncConfigResponse.ProtoReflect.Descriptor instead.
 func (*QueryFederationSyncConfigResponse) Descriptor() ([]byte, []int) {
-	return file_universerpc_universe_proto_rawDescGZIP(), []int{47}
+	return file_universerpc_universe_proto_rawDescGZIP(), []int{49}
 }
 
 func (x *QueryFederationSyncConfigResponse) GetGlobalSyncConfigs() []*GlobalFederationSyncConfig {
@@ -3350,7 +3455,19 @@ var file_universerpc_universe_proto_rawDesc = []byte{
 	0x73, 0x65, 0x74, 0x5f, 0x6c, 0x65, 0x61, 0x66, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x16,
 	0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x73, 0x73,
 	0x65, 0x74, 0x4c, 0x65, 0x61, 0x66, 0x52, 0x09, 0x61, 0x73, 0x73, 0x65, 0x74, 0x4c, 0x65, 0x61,
-	0x66, 0x22, 0x0d, 0x0a, 0x0b, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x66, 0x22, 0x7d, 0x0a, 0x10, 0x50, 0x75, 0x73, 0x68, 0x50, 0x72, 0x6f, 0x6f, 0x66, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x2a, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x18, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63,
+	0x2e, 0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x4b, 0x65, 0x79, 0x52, 0x03, 0x6b, 0x65,
+	0x79, 0x12, 0x3d, 0x0a, 0x06, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72, 0x18, 0x02, 0x20, 0x01, 0x28,
+	0x0b, 0x32, 0x25, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e,
+	0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69,
+	0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x52, 0x06, 0x73, 0x65, 0x72, 0x76, 0x65, 0x72,
+	0x22, 0x3f, 0x0a, 0x11, 0x50, 0x75, 0x73, 0x68, 0x50, 0x72, 0x6f, 0x6f, 0x66, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x2a, 0x0a, 0x03, 0x6b, 0x65, 0x79, 0x18, 0x01, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x18, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63,
+	0x2e, 0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x4b, 0x65, 0x79, 0x52, 0x03, 0x6b, 0x65,
+	0x79, 0x22, 0x0d, 0x0a, 0x0b, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
 	0x22, 0x2d, 0x0a, 0x0c, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
 	0x12, 0x1d, 0x0a, 0x0a, 0x72, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x5f, 0x69, 0x64, 0x18, 0x01,
 	0x20, 0x01, 0x28, 0x03, 0x52, 0x09, 0x72, 0x75, 0x6e, 0x74, 0x69, 0x6d, 0x65, 0x49, 0x64, 0x22,
@@ -3595,7 +3712,7 @@ var file_universerpc_universe_proto_rawDesc = []byte{
 	0x4e, 0x4f, 0x4e, 0x45, 0x10, 0x00, 0x12, 0x17, 0x0a, 0x13, 0x46, 0x49, 0x4c, 0x54, 0x45, 0x52,
 	0x5f, 0x41, 0x53, 0x53, 0x45, 0x54, 0x5f, 0x4e, 0x4f, 0x52, 0x4d, 0x41, 0x4c, 0x10, 0x01, 0x12,
 	0x1c, 0x0a, 0x18, 0x46, 0x49, 0x4c, 0x54, 0x45, 0x52, 0x5f, 0x41, 0x53, 0x53, 0x45, 0x54, 0x5f,
-	0x43, 0x4f, 0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49, 0x42, 0x4c, 0x45, 0x10, 0x02, 0x32, 0xaa, 0x0c,
+	0x43, 0x4f, 0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49, 0x42, 0x4c, 0x45, 0x10, 0x02, 0x32, 0xf6, 0x0c,
 	0x0a, 0x08, 0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x12, 0x59, 0x0a, 0x0e, 0x4d, 0x75,
 	0x6c, 0x74, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x52, 0x6f, 0x6f, 0x74, 0x12, 0x22, 0x2e, 0x75,
 	0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x4d, 0x75, 0x6c, 0x74, 0x69,
@@ -3635,70 +3752,75 @@ var file_universerpc_universe_proto_rawDesc = []byte{
 	0x6f, 0x6f, 0x66, 0x12, 0x17, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70,
 	0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x50, 0x72, 0x6f, 0x6f, 0x66, 0x1a, 0x1f, 0x2e, 0x75,
 	0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74,
-	0x50, 0x72, 0x6f, 0x6f, 0x66, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3b, 0x0a,
-	0x04, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x18, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65,
-	0x72, 0x70, 0x63, 0x2e, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
-	0x19, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6e,
-	0x66, 0x6f, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x43, 0x0a, 0x0c, 0x53, 0x79,
-	0x6e, 0x63, 0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x12, 0x18, 0x2e, 0x75, 0x6e, 0x69,
-	0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x52, 0x65, 0x71,
-	0x75, 0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72,
-	0x70, 0x63, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
-	0x6e, 0x0a, 0x15, 0x4c, 0x69, 0x73, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f,
-	0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x12, 0x29, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65,
-	0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72,
-	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x52, 0x65, 0x71, 0x75,
-	0x65, 0x73, 0x74, 0x1a, 0x2a, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70,
-	0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12,
-	0x68, 0x0a, 0x13, 0x41, 0x64, 0x64, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e,
-	0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x12, 0x27, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73,
-	0x65, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x64, 0x64, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
-	0x28, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x64,
-	0x64, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65,
-	0x72, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x71, 0x0a, 0x16, 0x44, 0x65, 0x6c,
-	0x65, 0x74, 0x65, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72,
-	0x76, 0x65, 0x72, 0x12, 0x2a, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70,
-	0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69,
-	0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
-	0x2b, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65,
+	0x50, 0x72, 0x6f, 0x6f, 0x66, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x4a, 0x0a,
+	0x09, 0x50, 0x75, 0x73, 0x68, 0x50, 0x72, 0x6f, 0x6f, 0x66, 0x12, 0x1d, 0x2e, 0x75, 0x6e, 0x69,
+	0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x75, 0x73, 0x68, 0x50, 0x72, 0x6f,
+	0x6f, 0x66, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1e, 0x2e, 0x75, 0x6e, 0x69, 0x76,
+	0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x50, 0x75, 0x73, 0x68, 0x50, 0x72, 0x6f, 0x6f,
+	0x66, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3b, 0x0a, 0x04, 0x49, 0x6e, 0x66,
+	0x6f, 0x12, 0x18, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e,
+	0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x75, 0x6e,
+	0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x43, 0x0a, 0x0c, 0x53, 0x79, 0x6e, 0x63, 0x55, 0x6e,
+	0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x12, 0x18, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73,
+	0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x79, 0x6e, 0x63, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
+	0x1a, 0x19, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53,
+	0x79, 0x6e, 0x63, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x6e, 0x0a, 0x15, 0x4c,
+	0x69, 0x73, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72,
+	0x76, 0x65, 0x72, 0x73, 0x12, 0x29, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72,
+	0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f,
+	0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
+	0x2a, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69,
+	0x73, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76,
+	0x65, 0x72, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x68, 0x0a, 0x13, 0x41,
+	0x64, 0x64, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76,
+	0x65, 0x72, 0x12, 0x27, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63,
+	0x2e, 0x41, 0x64, 0x64, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65,
+	0x72, 0x76, 0x65, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x28, 0x2e, 0x75, 0x6e,
+	0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x64, 0x64, 0x46, 0x65, 0x64,
+	0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x52, 0x65, 0x73,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x71, 0x0a, 0x16, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65, 0x46,
+	0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72, 0x12,
+	0x2a, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65,
 	0x6c, 0x65, 0x74, 0x65, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65,
-	0x72, 0x76, 0x65, 0x72, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x46, 0x0a, 0x0d,
-	0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x53, 0x74, 0x61, 0x74, 0x73, 0x12, 0x19, 0x2e,
-	0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x74, 0x61, 0x74,
-	0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65,
-	0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70,
-	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x50, 0x0a, 0x0f, 0x51, 0x75, 0x65, 0x72, 0x79, 0x41, 0x73, 0x73,
-	0x65, 0x74, 0x53, 0x74, 0x61, 0x74, 0x73, 0x12, 0x1c, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72,
-	0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x53, 0x74, 0x61, 0x74, 0x73,
-	0x51, 0x75, 0x65, 0x72, 0x79, 0x1a, 0x1f, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65,
-	0x72, 0x70, 0x63, 0x2e, 0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x41, 0x73, 0x73, 0x65,
-	0x74, 0x53, 0x74, 0x61, 0x74, 0x73, 0x12, 0x50, 0x0a, 0x0b, 0x51, 0x75, 0x65, 0x72, 0x79, 0x45,
-	0x76, 0x65, 0x6e, 0x74, 0x73, 0x12, 0x1f, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65,
-	0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52,
-	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x20, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73,
-	0x65, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73,
-	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x74, 0x0a, 0x17, 0x53, 0x65, 0x74, 0x46,
-	0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e,
-	0x66, 0x69, 0x67, 0x12, 0x2b, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70,
-	0x63, 0x2e, 0x53, 0x65, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53,
-	0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74,
-	0x1a, 0x2c, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53,
-	0x65, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63,
-	0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x7a,
-	0x0a, 0x19, 0x51, 0x75, 0x65, 0x72, 0x79, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f,
-	0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x2d, 0x2e, 0x75, 0x6e,
-	0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x46,
-	0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e,
-	0x66, 0x69, 0x67, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x2e, 0x2e, 0x75, 0x6e, 0x69,
-	0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x46, 0x65,
+	0x72, 0x76, 0x65, 0x72, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x2b, 0x2e, 0x75, 0x6e,
+	0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x6c, 0x65, 0x74, 0x65,
+	0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x65, 0x72, 0x76, 0x65, 0x72,
+	0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x46, 0x0a, 0x0d, 0x55, 0x6e, 0x69, 0x76,
+	0x65, 0x72, 0x73, 0x65, 0x53, 0x74, 0x61, 0x74, 0x73, 0x12, 0x19, 0x2e, 0x75, 0x6e, 0x69, 0x76,
+	0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x73, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x1a, 0x1a, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72,
+	0x70, 0x63, 0x2e, 0x53, 0x74, 0x61, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x50, 0x0a, 0x0f, 0x51, 0x75, 0x65, 0x72, 0x79, 0x41, 0x73, 0x73, 0x65, 0x74, 0x53, 0x74,
+	0x61, 0x74, 0x73, 0x12, 0x1c, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70,
+	0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x53, 0x74, 0x61, 0x74, 0x73, 0x51, 0x75, 0x65, 0x72,
+	0x79, 0x1a, 0x1f, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e,
+	0x55, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x41, 0x73, 0x73, 0x65, 0x74, 0x53, 0x74, 0x61,
+	0x74, 0x73, 0x12, 0x50, 0x0a, 0x0b, 0x51, 0x75, 0x65, 0x72, 0x79, 0x45, 0x76, 0x65, 0x6e, 0x74,
+	0x73, 0x12, 0x1f, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e,
+	0x51, 0x75, 0x65, 0x72, 0x79, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
+	0x73, 0x74, 0x1a, 0x20, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63,
+	0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x73, 0x70,
+	0x6f, 0x6e, 0x73, 0x65, 0x12, 0x74, 0x0a, 0x17, 0x53, 0x65, 0x74, 0x46, 0x65, 0x64, 0x65, 0x72,
+	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12,
+	0x2b, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x65,
+	0x74, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43,
+	0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x2c, 0x2e, 0x75,
+	0x6e, 0x69, 0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x65, 0x74, 0x46, 0x65,
 	0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e, 0x66,
-	0x69, 0x67, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x3c, 0x5a, 0x3a, 0x67, 0x69,
-	0x74, 0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69,
-	0x6e, 0x67, 0x6c, 0x61, 0x62, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x6f, 0x6f, 0x74, 0x2d, 0x61,
-	0x73, 0x73, 0x65, 0x74, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2f, 0x75, 0x6e, 0x69,
-	0x76, 0x65, 0x72, 0x73, 0x65, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
+	0x69, 0x67, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x7a, 0x0a, 0x19, 0x51, 0x75,
+	0x65, 0x72, 0x79, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e,
+	0x63, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x12, 0x2d, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72,
+	0x73, 0x65, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x46, 0x65, 0x64, 0x65, 0x72,
+	0x61, 0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52,
+	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x2e, 0x2e, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73,
+	0x65, 0x72, 0x70, 0x63, 0x2e, 0x51, 0x75, 0x65, 0x72, 0x79, 0x46, 0x65, 0x64, 0x65, 0x72, 0x61,
+	0x74, 0x69, 0x6f, 0x6e, 0x53, 0x79, 0x6e, 0x63, 0x43, 0x6f, 0x6e, 0x66, 0x69, 0x67, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x42, 0x3c, 0x5a, 0x3a, 0x67, 0x69, 0x74, 0x68, 0x75, 0x62,
+	0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e, 0x67, 0x6c, 0x61,
+	0x62, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x6f, 0x6f, 0x74, 0x2d, 0x61, 0x73, 0x73, 0x65, 0x74,
+	0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2f, 0x75, 0x6e, 0x69, 0x76, 0x65, 0x72, 0x73,
+	0x65, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x33,
 }
 
 var (
@@ -3714,7 +3836,7 @@ func file_universerpc_universe_proto_rawDescGZIP() []byte {
 }
 
 var file_universerpc_universe_proto_enumTypes = make([]protoimpl.EnumInfo, 5)
-var file_universerpc_universe_proto_msgTypes = make([]protoimpl.MessageInfo, 50)
+var file_universerpc_universe_proto_msgTypes = make([]protoimpl.MessageInfo, 52)
 var file_universerpc_universe_proto_goTypes = []interface{}{
 	(ProofType)(0),                            // 0: universerpc.ProofType
 	(UniverseSyncMode)(0),                     // 1: universerpc.UniverseSyncMode
@@ -3741,38 +3863,40 @@ var file_universerpc_universe_proto_goTypes = []interface{}{
 	(*UniverseKey)(nil),                       // 22: universerpc.UniverseKey
 	(*AssetProofResponse)(nil),                // 23: universerpc.AssetProofResponse
 	(*AssetProof)(nil),                        // 24: universerpc.AssetProof
-	(*InfoRequest)(nil),                       // 25: universerpc.InfoRequest
-	(*InfoResponse)(nil),                      // 26: universerpc.InfoResponse
-	(*SyncTarget)(nil),                        // 27: universerpc.SyncTarget
-	(*SyncRequest)(nil),                       // 28: universerpc.SyncRequest
-	(*SyncedUniverse)(nil),                    // 29: universerpc.SyncedUniverse
-	(*StatsRequest)(nil),                      // 30: universerpc.StatsRequest
-	(*SyncResponse)(nil),                      // 31: universerpc.SyncResponse
-	(*UniverseFederationServer)(nil),          // 32: universerpc.UniverseFederationServer
-	(*ListFederationServersRequest)(nil),      // 33: universerpc.ListFederationServersRequest
-	(*ListFederationServersResponse)(nil),     // 34: universerpc.ListFederationServersResponse
-	(*AddFederationServerRequest)(nil),        // 35: universerpc.AddFederationServerRequest
-	(*AddFederationServerResponse)(nil),       // 36: universerpc.AddFederationServerResponse
-	(*DeleteFederationServerRequest)(nil),     // 37: universerpc.DeleteFederationServerRequest
-	(*DeleteFederationServerResponse)(nil),    // 38: universerpc.DeleteFederationServerResponse
-	(*StatsResponse)(nil),                     // 39: universerpc.StatsResponse
-	(*AssetStatsQuery)(nil),                   // 40: universerpc.AssetStatsQuery
-	(*AssetStatsSnapshot)(nil),                // 41: universerpc.AssetStatsSnapshot
-	(*AssetStatsAsset)(nil),                   // 42: universerpc.AssetStatsAsset
-	(*UniverseAssetStats)(nil),                // 43: universerpc.UniverseAssetStats
-	(*QueryEventsRequest)(nil),                // 44: universerpc.QueryEventsRequest
-	(*QueryEventsResponse)(nil),               // 45: universerpc.QueryEventsResponse
-	(*GroupedUniverseEvents)(nil),             // 46: universerpc.GroupedUniverseEvents
-	(*SetFederationSyncConfigRequest)(nil),    // 47: universerpc.SetFederationSyncConfigRequest
-	(*SetFederationSyncConfigResponse)(nil),   // 48: universerpc.SetFederationSyncConfigResponse
-	(*GlobalFederationSyncConfig)(nil),        // 49: universerpc.GlobalFederationSyncConfig
-	(*AssetFederationSyncConfig)(nil),         // 50: universerpc.AssetFederationSyncConfig
-	(*QueryFederationSyncConfigRequest)(nil),  // 51: universerpc.QueryFederationSyncConfigRequest
-	(*QueryFederationSyncConfigResponse)(nil), // 52: universerpc.QueryFederationSyncConfigResponse
-	nil,                   // 53: universerpc.UniverseRoot.AmountsByAssetIdEntry
-	nil,                   // 54: universerpc.AssetRootResponse.UniverseRootsEntry
-	(*taprpc.Asset)(nil),  // 55: taprpc.Asset
-	(taprpc.AssetType)(0), // 56: taprpc.AssetType
+	(*PushProofRequest)(nil),                  // 25: universerpc.PushProofRequest
+	(*PushProofResponse)(nil),                 // 26: universerpc.PushProofResponse
+	(*InfoRequest)(nil),                       // 27: universerpc.InfoRequest
+	(*InfoResponse)(nil),                      // 28: universerpc.InfoResponse
+	(*SyncTarget)(nil),                        // 29: universerpc.SyncTarget
+	(*SyncRequest)(nil),                       // 30: universerpc.SyncRequest
+	(*SyncedUniverse)(nil),                    // 31: universerpc.SyncedUniverse
+	(*StatsRequest)(nil),                      // 32: universerpc.StatsRequest
+	(*SyncResponse)(nil),                      // 33: universerpc.SyncResponse
+	(*UniverseFederationServer)(nil),          // 34: universerpc.UniverseFederationServer
+	(*ListFederationServersRequest)(nil),      // 35: universerpc.ListFederationServersRequest
+	(*ListFederationServersResponse)(nil),     // 36: universerpc.ListFederationServersResponse
+	(*AddFederationServerRequest)(nil),        // 37: universerpc.AddFederationServerRequest
+	(*AddFederationServerResponse)(nil),       // 38: universerpc.AddFederationServerResponse
+	(*DeleteFederationServerRequest)(nil),     // 39: universerpc.DeleteFederationServerRequest
+	(*DeleteFederationServerResponse)(nil),    // 40: universerpc.DeleteFederationServerResponse
+	(*StatsResponse)(nil),                     // 41: universerpc.StatsResponse
+	(*AssetStatsQuery)(nil),                   // 42: universerpc.AssetStatsQuery
+	(*AssetStatsSnapshot)(nil),                // 43: universerpc.AssetStatsSnapshot
+	(*AssetStatsAsset)(nil),                   // 44: universerpc.AssetStatsAsset
+	(*UniverseAssetStats)(nil),                // 45: universerpc.UniverseAssetStats
+	(*QueryEventsRequest)(nil),                // 46: universerpc.QueryEventsRequest
+	(*QueryEventsResponse)(nil),               // 47: universerpc.QueryEventsResponse
+	(*GroupedUniverseEvents)(nil),             // 48: universerpc.GroupedUniverseEvents
+	(*SetFederationSyncConfigRequest)(nil),    // 49: universerpc.SetFederationSyncConfigRequest
+	(*SetFederationSyncConfigResponse)(nil),   // 50: universerpc.SetFederationSyncConfigResponse
+	(*GlobalFederationSyncConfig)(nil),        // 51: universerpc.GlobalFederationSyncConfig
+	(*AssetFederationSyncConfig)(nil),         // 52: universerpc.AssetFederationSyncConfig
+	(*QueryFederationSyncConfigRequest)(nil),  // 53: universerpc.QueryFederationSyncConfigRequest
+	(*QueryFederationSyncConfigResponse)(nil), // 54: universerpc.QueryFederationSyncConfigResponse
+	nil,                   // 55: universerpc.UniverseRoot.AmountsByAssetIdEntry
+	nil,                   // 56: universerpc.AssetRootResponse.UniverseRootsEntry
+	(*taprpc.Asset)(nil),  // 57: taprpc.Asset
+	(taprpc.AssetType)(0), // 58: taprpc.AssetType
 }
 var file_universerpc_universe_proto_depIdxs = []int32{
 	0,  // 0: universerpc.MultiverseRootRequest.proof_type:type_name -> universerpc.ProofType
@@ -3782,8 +3906,8 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	0,  // 4: universerpc.ID.proof_type:type_name -> universerpc.ProofType
 	9,  // 5: universerpc.UniverseRoot.id:type_name -> universerpc.ID
 	8,  // 6: universerpc.UniverseRoot.mssmt_root:type_name -> universerpc.MerkleSumNode
-	53, // 7: universerpc.UniverseRoot.amounts_by_asset_id:type_name -> universerpc.UniverseRoot.AmountsByAssetIdEntry
-	54, // 8: universerpc.AssetRootResponse.universe_roots:type_name -> universerpc.AssetRootResponse.UniverseRootsEntry
+	55, // 7: universerpc.UniverseRoot.amounts_by_asset_id:type_name -> universerpc.UniverseRoot.AmountsByAssetIdEntry
+	56, // 8: universerpc.AssetRootResponse.universe_roots:type_name -> universerpc.AssetRootResponse.UniverseRootsEntry
 	9,  // 9: universerpc.AssetRootQuery.id:type_name -> universerpc.ID
 	10, // 10: universerpc.QueryRootResponse.issuance_root:type_name -> universerpc.UniverseRoot
 	10, // 11: universerpc.QueryRootResponse.transfer_root:type_name -> universerpc.UniverseRoot
@@ -3792,7 +3916,7 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	9,  // 14: universerpc.AssetLeafKeysRequest.id:type_name -> universerpc.ID
 	3,  // 15: universerpc.AssetLeafKeysRequest.direction:type_name -> universerpc.SortDirection
 	17, // 16: universerpc.AssetLeafKeyResponse.asset_keys:type_name -> universerpc.AssetKey
-	55, // 17: universerpc.AssetLeaf.asset:type_name -> taprpc.Asset
+	57, // 17: universerpc.AssetLeaf.asset:type_name -> taprpc.Asset
 	20, // 18: universerpc.AssetLeafResponse.leaves:type_name -> universerpc.AssetLeaf
 	9,  // 19: universerpc.UniverseKey.id:type_name -> universerpc.ID
 	17, // 20: universerpc.UniverseKey.leaf_key:type_name -> universerpc.AssetKey
@@ -3802,73 +3926,78 @@ var file_universerpc_universe_proto_depIdxs = []int32{
 	8,  // 24: universerpc.AssetProofResponse.multiverse_root:type_name -> universerpc.MerkleSumNode
 	22, // 25: universerpc.AssetProof.key:type_name -> universerpc.UniverseKey
 	20, // 26: universerpc.AssetProof.asset_leaf:type_name -> universerpc.AssetLeaf
-	9,  // 27: universerpc.SyncTarget.id:type_name -> universerpc.ID
-	1,  // 28: universerpc.SyncRequest.sync_mode:type_name -> universerpc.UniverseSyncMode
-	27, // 29: universerpc.SyncRequest.sync_targets:type_name -> universerpc.SyncTarget
-	10, // 30: universerpc.SyncedUniverse.old_asset_root:type_name -> universerpc.UniverseRoot
-	10, // 31: universerpc.SyncedUniverse.new_asset_root:type_name -> universerpc.UniverseRoot
-	20, // 32: universerpc.SyncedUniverse.new_asset_leaves:type_name -> universerpc.AssetLeaf
-	29, // 33: universerpc.SyncResponse.synced_universes:type_name -> universerpc.SyncedUniverse
-	32, // 34: universerpc.ListFederationServersResponse.servers:type_name -> universerpc.UniverseFederationServer
-	32, // 35: universerpc.AddFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
-	32, // 36: universerpc.DeleteFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
-	4,  // 37: universerpc.AssetStatsQuery.asset_type_filter:type_name -> universerpc.AssetTypeFilter
-	2,  // 38: universerpc.AssetStatsQuery.sort_by:type_name -> universerpc.AssetQuerySort
-	3,  // 39: universerpc.AssetStatsQuery.direction:type_name -> universerpc.SortDirection
-	42, // 40: universerpc.AssetStatsSnapshot.group_anchor:type_name -> universerpc.AssetStatsAsset
-	42, // 41: universerpc.AssetStatsSnapshot.asset:type_name -> universerpc.AssetStatsAsset
-	56, // 42: universerpc.AssetStatsAsset.asset_type:type_name -> taprpc.AssetType
-	41, // 43: universerpc.UniverseAssetStats.asset_stats:type_name -> universerpc.AssetStatsSnapshot
-	46, // 44: universerpc.QueryEventsResponse.events:type_name -> universerpc.GroupedUniverseEvents
-	49, // 45: universerpc.SetFederationSyncConfigRequest.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
-	50, // 46: universerpc.SetFederationSyncConfigRequest.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
-	0,  // 47: universerpc.GlobalFederationSyncConfig.proof_type:type_name -> universerpc.ProofType
-	9,  // 48: universerpc.AssetFederationSyncConfig.id:type_name -> universerpc.ID
-	9,  // 49: universerpc.QueryFederationSyncConfigRequest.id:type_name -> universerpc.ID
-	49, // 50: universerpc.QueryFederationSyncConfigResponse.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
-	50, // 51: universerpc.QueryFederationSyncConfigResponse.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
-	10, // 52: universerpc.AssetRootResponse.UniverseRootsEntry.value:type_name -> universerpc.UniverseRoot
-	5,  // 53: universerpc.Universe.MultiverseRoot:input_type -> universerpc.MultiverseRootRequest
-	7,  // 54: universerpc.Universe.AssetRoots:input_type -> universerpc.AssetRootRequest
-	12, // 55: universerpc.Universe.QueryAssetRoots:input_type -> universerpc.AssetRootQuery
-	14, // 56: universerpc.Universe.DeleteAssetRoot:input_type -> universerpc.DeleteRootQuery
-	18, // 57: universerpc.Universe.AssetLeafKeys:input_type -> universerpc.AssetLeafKeysRequest
-	9,  // 58: universerpc.Universe.AssetLeaves:input_type -> universerpc.ID
-	22, // 59: universerpc.Universe.QueryProof:input_type -> universerpc.UniverseKey
-	24, // 60: universerpc.Universe.InsertProof:input_type -> universerpc.AssetProof
-	25, // 61: universerpc.Universe.Info:input_type -> universerpc.InfoRequest
-	28, // 62: universerpc.Universe.SyncUniverse:input_type -> universerpc.SyncRequest
-	33, // 63: universerpc.Universe.ListFederationServers:input_type -> universerpc.ListFederationServersRequest
-	35, // 64: universerpc.Universe.AddFederationServer:input_type -> universerpc.AddFederationServerRequest
-	37, // 65: universerpc.Universe.DeleteFederationServer:input_type -> universerpc.DeleteFederationServerRequest
-	30, // 66: universerpc.Universe.UniverseStats:input_type -> universerpc.StatsRequest
-	40, // 67: universerpc.Universe.QueryAssetStats:input_type -> universerpc.AssetStatsQuery
-	44, // 68: universerpc.Universe.QueryEvents:input_type -> universerpc.QueryEventsRequest
-	47, // 69: universerpc.Universe.SetFederationSyncConfig:input_type -> universerpc.SetFederationSyncConfigRequest
-	51, // 70: universerpc.Universe.QueryFederationSyncConfig:input_type -> universerpc.QueryFederationSyncConfigRequest
-	6,  // 71: universerpc.Universe.MultiverseRoot:output_type -> universerpc.MultiverseRootResponse
-	11, // 72: universerpc.Universe.AssetRoots:output_type -> universerpc.AssetRootResponse
-	13, // 73: universerpc.Universe.QueryAssetRoots:output_type -> universerpc.QueryRootResponse
-	15, // 74: universerpc.Universe.DeleteAssetRoot:output_type -> universerpc.DeleteRootResponse
-	19, // 75: universerpc.Universe.AssetLeafKeys:output_type -> universerpc.AssetLeafKeyResponse
-	21, // 76: universerpc.Universe.AssetLeaves:output_type -> universerpc.AssetLeafResponse
-	23, // 77: universerpc.Universe.QueryProof:output_type -> universerpc.AssetProofResponse
-	23, // 78: universerpc.Universe.InsertProof:output_type -> universerpc.AssetProofResponse
-	26, // 79: universerpc.Universe.Info:output_type -> universerpc.InfoResponse
-	31, // 80: universerpc.Universe.SyncUniverse:output_type -> universerpc.SyncResponse
-	34, // 81: universerpc.Universe.ListFederationServers:output_type -> universerpc.ListFederationServersResponse
-	36, // 82: universerpc.Universe.AddFederationServer:output_type -> universerpc.AddFederationServerResponse
-	38, // 83: universerpc.Universe.DeleteFederationServer:output_type -> universerpc.DeleteFederationServerResponse
-	39, // 84: universerpc.Universe.UniverseStats:output_type -> universerpc.StatsResponse
-	43, // 85: universerpc.Universe.QueryAssetStats:output_type -> universerpc.UniverseAssetStats
-	45, // 86: universerpc.Universe.QueryEvents:output_type -> universerpc.QueryEventsResponse
-	48, // 87: universerpc.Universe.SetFederationSyncConfig:output_type -> universerpc.SetFederationSyncConfigResponse
-	52, // 88: universerpc.Universe.QueryFederationSyncConfig:output_type -> universerpc.QueryFederationSyncConfigResponse
-	71, // [71:89] is the sub-list for method output_type
-	53, // [53:71] is the sub-list for method input_type
-	53, // [53:53] is the sub-list for extension type_name
-	53, // [53:53] is the sub-list for extension extendee
-	0,  // [0:53] is the sub-list for field type_name
+	22, // 27: universerpc.PushProofRequest.key:type_name -> universerpc.UniverseKey
+	34, // 28: universerpc.PushProofRequest.server:type_name -> universerpc.UniverseFederationServer
+	22, // 29: universerpc.PushProofResponse.key:type_name -> universerpc.UniverseKey
+	9,  // 30: universerpc.SyncTarget.id:type_name -> universerpc.ID
+	1,  // 31: universerpc.SyncRequest.sync_mode:type_name -> universerpc.UniverseSyncMode
+	29, // 32: universerpc.SyncRequest.sync_targets:type_name -> universerpc.SyncTarget
+	10, // 33: universerpc.SyncedUniverse.old_asset_root:type_name -> universerpc.UniverseRoot
+	10, // 34: universerpc.SyncedUniverse.new_asset_root:type_name -> universerpc.UniverseRoot
+	20, // 35: universerpc.SyncedUniverse.new_asset_leaves:type_name -> universerpc.AssetLeaf
+	31, // 36: universerpc.SyncResponse.synced_universes:type_name -> universerpc.SyncedUniverse
+	34, // 37: universerpc.ListFederationServersResponse.servers:type_name -> universerpc.UniverseFederationServer
+	34, // 38: universerpc.AddFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
+	34, // 39: universerpc.DeleteFederationServerRequest.servers:type_name -> universerpc.UniverseFederationServer
+	4,  // 40: universerpc.AssetStatsQuery.asset_type_filter:type_name -> universerpc.AssetTypeFilter
+	2,  // 41: universerpc.AssetStatsQuery.sort_by:type_name -> universerpc.AssetQuerySort
+	3,  // 42: universerpc.AssetStatsQuery.direction:type_name -> universerpc.SortDirection
+	44, // 43: universerpc.AssetStatsSnapshot.group_anchor:type_name -> universerpc.AssetStatsAsset
+	44, // 44: universerpc.AssetStatsSnapshot.asset:type_name -> universerpc.AssetStatsAsset
+	58, // 45: universerpc.AssetStatsAsset.asset_type:type_name -> taprpc.AssetType
+	43, // 46: universerpc.UniverseAssetStats.asset_stats:type_name -> universerpc.AssetStatsSnapshot
+	48, // 47: universerpc.QueryEventsResponse.events:type_name -> universerpc.GroupedUniverseEvents
+	51, // 48: universerpc.SetFederationSyncConfigRequest.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
+	52, // 49: universerpc.SetFederationSyncConfigRequest.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
+	0,  // 50: universerpc.GlobalFederationSyncConfig.proof_type:type_name -> universerpc.ProofType
+	9,  // 51: universerpc.AssetFederationSyncConfig.id:type_name -> universerpc.ID
+	9,  // 52: universerpc.QueryFederationSyncConfigRequest.id:type_name -> universerpc.ID
+	51, // 53: universerpc.QueryFederationSyncConfigResponse.global_sync_configs:type_name -> universerpc.GlobalFederationSyncConfig
+	52, // 54: universerpc.QueryFederationSyncConfigResponse.asset_sync_configs:type_name -> universerpc.AssetFederationSyncConfig
+	10, // 55: universerpc.AssetRootResponse.UniverseRootsEntry.value:type_name -> universerpc.UniverseRoot
+	5,  // 56: universerpc.Universe.MultiverseRoot:input_type -> universerpc.MultiverseRootRequest
+	7,  // 57: universerpc.Universe.AssetRoots:input_type -> universerpc.AssetRootRequest
+	12, // 58: universerpc.Universe.QueryAssetRoots:input_type -> universerpc.AssetRootQuery
+	14, // 59: universerpc.Universe.DeleteAssetRoot:input_type -> universerpc.DeleteRootQuery
+	18, // 60: universerpc.Universe.AssetLeafKeys:input_type -> universerpc.AssetLeafKeysRequest
+	9,  // 61: universerpc.Universe.AssetLeaves:input_type -> universerpc.ID
+	22, // 62: universerpc.Universe.QueryProof:input_type -> universerpc.UniverseKey
+	24, // 63: universerpc.Universe.InsertProof:input_type -> universerpc.AssetProof
+	25, // 64: universerpc.Universe.PushProof:input_type -> universerpc.PushProofRequest
+	27, // 65: universerpc.Universe.Info:input_type -> universerpc.InfoRequest
+	30, // 66: universerpc.Universe.SyncUniverse:input_type -> universerpc.SyncRequest
+	35, // 67: universerpc.Universe.ListFederationServers:input_type -> universerpc.ListFederationServersRequest
+	37, // 68: universerpc.Universe.AddFederationServer:input_type -> universerpc.AddFederationServerRequest
+	39, // 69: universerpc.Universe.DeleteFederationServer:input_type -> universerpc.DeleteFederationServerRequest
+	32, // 70: universerpc.Universe.UniverseStats:input_type -> universerpc.StatsRequest
+	42, // 71: universerpc.Universe.QueryAssetStats:input_type -> universerpc.AssetStatsQuery
+	46, // 72: universerpc.Universe.QueryEvents:input_type -> universerpc.QueryEventsRequest
+	49, // 73: universerpc.Universe.SetFederationSyncConfig:input_type -> universerpc.SetFederationSyncConfigRequest
+	53, // 74: universerpc.Universe.QueryFederationSyncConfig:input_type -> universerpc.QueryFederationSyncConfigRequest
+	6,  // 75: universerpc.Universe.MultiverseRoot:output_type -> universerpc.MultiverseRootResponse
+	11, // 76: universerpc.Universe.AssetRoots:output_type -> universerpc.AssetRootResponse
+	13, // 77: universerpc.Universe.QueryAssetRoots:output_type -> universerpc.QueryRootResponse
+	15, // 78: universerpc.Universe.DeleteAssetRoot:output_type -> universerpc.DeleteRootResponse
+	19, // 79: universerpc.Universe.AssetLeafKeys:output_type -> universerpc.AssetLeafKeyResponse
+	21, // 80: universerpc.Universe.AssetLeaves:output_type -> universerpc.AssetLeafResponse
+	23, // 81: universerpc.Universe.QueryProof:output_type -> universerpc.AssetProofResponse
+	23, // 82: universerpc.Universe.InsertProof:output_type -> universerpc.AssetProofResponse
+	26, // 83: universerpc.Universe.PushProof:output_type -> universerpc.PushProofResponse
+	28, // 84: universerpc.Universe.Info:output_type -> universerpc.InfoResponse
+	33, // 85: universerpc.Universe.SyncUniverse:output_type -> universerpc.SyncResponse
+	36, // 86: universerpc.Universe.ListFederationServers:output_type -> universerpc.ListFederationServersResponse
+	38, // 87: universerpc.Universe.AddFederationServer:output_type -> universerpc.AddFederationServerResponse
+	40, // 88: universerpc.Universe.DeleteFederationServer:output_type -> universerpc.DeleteFederationServerResponse
+	41, // 89: universerpc.Universe.UniverseStats:output_type -> universerpc.StatsResponse
+	45, // 90: universerpc.Universe.QueryAssetStats:output_type -> universerpc.UniverseAssetStats
+	47, // 91: universerpc.Universe.QueryEvents:output_type -> universerpc.QueryEventsResponse
+	50, // 92: universerpc.Universe.SetFederationSyncConfig:output_type -> universerpc.SetFederationSyncConfigResponse
+	54, // 93: universerpc.Universe.QueryFederationSyncConfig:output_type -> universerpc.QueryFederationSyncConfigResponse
+	75, // [75:94] is the sub-list for method output_type
+	56, // [56:75] is the sub-list for method input_type
+	56, // [56:56] is the sub-list for extension type_name
+	56, // [56:56] is the sub-list for extension extendee
+	0,  // [0:56] is the sub-list for field type_name
 }
 
 func init() { file_universerpc_universe_proto_init() }
@@ -4118,7 +4247,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[20].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*InfoRequest); i {
+			switch v := v.(*PushProofRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4130,7 +4259,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[21].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*InfoResponse); i {
+			switch v := v.(*PushProofResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4142,7 +4271,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[22].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncTarget); i {
+			switch v := v.(*InfoRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4154,7 +4283,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[23].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncRequest); i {
+			switch v := v.(*InfoResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4166,7 +4295,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[24].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncedUniverse); i {
+			switch v := v.(*SyncTarget); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4178,7 +4307,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[25].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StatsRequest); i {
+			switch v := v.(*SyncRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4190,7 +4319,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[26].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SyncResponse); i {
+			switch v := v.(*SyncedUniverse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4202,7 +4331,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[27].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UniverseFederationServer); i {
+			switch v := v.(*StatsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4214,7 +4343,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[28].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListFederationServersRequest); i {
+			switch v := v.(*SyncResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4226,7 +4355,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[29].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ListFederationServersResponse); i {
+			switch v := v.(*UniverseFederationServer); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4238,7 +4367,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[30].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddFederationServerRequest); i {
+			switch v := v.(*ListFederationServersRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4250,7 +4379,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[31].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AddFederationServerResponse); i {
+			switch v := v.(*ListFederationServersResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4262,7 +4391,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[32].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteFederationServerRequest); i {
+			switch v := v.(*AddFederationServerRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4274,7 +4403,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[33].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*DeleteFederationServerResponse); i {
+			switch v := v.(*AddFederationServerResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4286,7 +4415,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[34].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*StatsResponse); i {
+			switch v := v.(*DeleteFederationServerRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4298,7 +4427,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[35].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AssetStatsQuery); i {
+			switch v := v.(*DeleteFederationServerResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4310,7 +4439,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[36].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AssetStatsSnapshot); i {
+			switch v := v.(*StatsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4322,7 +4451,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[37].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AssetStatsAsset); i {
+			switch v := v.(*AssetStatsQuery); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4334,7 +4463,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[38].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*UniverseAssetStats); i {
+			switch v := v.(*AssetStatsSnapshot); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4346,7 +4475,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[39].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QueryEventsRequest); i {
+			switch v := v.(*AssetStatsAsset); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4358,7 +4487,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[40].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QueryEventsResponse); i {
+			switch v := v.(*UniverseAssetStats); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4370,7 +4499,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[41].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GroupedUniverseEvents); i {
+			switch v := v.(*QueryEventsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4382,7 +4511,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[42].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetFederationSyncConfigRequest); i {
+			switch v := v.(*QueryEventsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4394,7 +4523,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[43].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SetFederationSyncConfigResponse); i {
+			switch v := v.(*GroupedUniverseEvents); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4406,7 +4535,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[44].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*GlobalFederationSyncConfig); i {
+			switch v := v.(*SetFederationSyncConfigRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4418,7 +4547,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[45].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*AssetFederationSyncConfig); i {
+			switch v := v.(*SetFederationSyncConfigResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4430,7 +4559,7 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[46].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*QueryFederationSyncConfigRequest); i {
+			switch v := v.(*GlobalFederationSyncConfig); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -4442,6 +4571,30 @@ func file_universerpc_universe_proto_init() {
 			}
 		}
 		file_universerpc_universe_proto_msgTypes[47].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*AssetFederationSyncConfig); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_universerpc_universe_proto_msgTypes[48].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*QueryFederationSyncConfigRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_universerpc_universe_proto_msgTypes[49].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*QueryFederationSyncConfigResponse); i {
 			case 0:
 				return &v.state
@@ -4472,7 +4625,7 @@ func file_universerpc_universe_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_universerpc_universe_proto_rawDesc,
 			NumEnums:      5,
-			NumMessages:   50,
+			NumMessages:   52,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
