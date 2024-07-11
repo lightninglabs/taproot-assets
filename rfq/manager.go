@@ -239,6 +239,18 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	return err
 }
 
+// handleError logs an error and sends it to the main server error channel if
+// it is a critical error.
+func (m *Manager) handleError(err error) {
+	log.Errorf("Error in RFQ manager: %v", err)
+
+	// If the error is a critical error, send it to the main server error
+	// channel, which will cause the daemon to shut down.
+	if fn.ErrorAs[*fn.CriticalError](err) {
+		m.cfg.ErrChan <- err
+	}
+}
+
 // Start attempts to start a new RFQ manager.
 func (m *Manager) Start() error {
 	var startErr error
@@ -363,8 +375,10 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 				*msg.Request.AssetID, msg.Peer,
 			)
 			if err != nil {
-				m.cfg.ErrChan <- fmt.Errorf("error adding "+
-					"local alias: %w", err)
+				m.handleError(
+					fmt.Errorf("error adding local alias: "+
+						"%w", err),
+				)
 				return
 			}
 
@@ -488,7 +502,12 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
 	ctxb := context.Background()
 	localChans, err := m.cfg.ChannelLister.ListChannels(ctxb)
 	if err != nil {
-		return fmt.Errorf("error listing local channels: %w", err)
+		// Not being able to call lnd to add the alias is a critical
+		// error, which warrants shutting down, as something is wrong.
+		return fn.NewCriticalError(
+			fmt.Errorf("add alias: error listing local channels: "+
+				"%w", err),
+		)
 	}
 
 	// Filter for channels with the given peer.
@@ -534,15 +553,26 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
 	if baseSCID == 0 {
-		return fmt.Errorf("base SCID not found for asset: %v", assetID)
+		return fmt.Errorf("add alias: base SCID not found for asset: "+
+			"%v", assetID)
 	}
 
 	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
 
-	return m.cfg.AliasManager.AddLocalAlias(
+	err = m.cfg.AliasManager.AddLocalAlias(
 		ctxb, lnwire.NewShortChanIDFromInt(scidAlias),
 		lnwire.NewShortChanIDFromInt(baseSCID),
 	)
+	if err != nil {
+		// Not being able to call lnd to add the alias is a critical
+		// error, which warrants shutting down, as something is wrong.
+		return fn.NewCriticalError(
+			fmt.Errorf("add alias: error adding SCID alias to "+
+				"lnd alias manager: %w", err),
+		)
+	}
+
+	return nil
 }
 
 // mainEventLoop is the main event loop of the RFQ manager.
@@ -556,8 +586,10 @@ func (m *Manager) mainEventLoop() {
 
 			err := m.handleIncomingMessage(incomingMsg)
 			if err != nil {
-				m.cfg.ErrChan <- fmt.Errorf("failed to "+
-					"handle incoming message: %w", err)
+				m.handleError(
+					fmt.Errorf("failed to handle "+
+						"incoming message: %w", err),
+				)
 			}
 
 		// Handle outgoing message.
@@ -567,8 +599,10 @@ func (m *Manager) mainEventLoop() {
 
 			err := m.handleOutgoingMessage(outgoingMsg)
 			if err != nil {
-				m.cfg.ErrChan <- fmt.Errorf("failed to "+
-					"handle outgoing message: %w", err)
+				m.handleError(
+					fmt.Errorf("failed to handle outgoing "+
+						"message: %w", err),
+				)
 			}
 
 		case acceptHtlcEvent := <-m.acceptHtlcEvents:
@@ -577,12 +611,12 @@ func (m *Manager) mainEventLoop() {
 
 		// Handle subsystem errors.
 		case err := <-m.subsystemErrChan:
-			log.Errorf("Manager main event loop received "+
-				"subsystem error: %v", err)
-
-			// Report the subsystem error to the main server.
-			m.cfg.ErrChan <- fmt.Errorf("encountered RFQ "+
-				"subsystem error: %w", err)
+			// Report the subsystem error to the main server, in
+			// case the root cause is a critical error.
+			m.handleError(
+				fmt.Errorf("encountered RFQ subsystem error "+
+					"in main event loop: %w", err),
+			)
 
 		case <-m.Quit:
 			log.Debug("Manager main event loop has received the " +

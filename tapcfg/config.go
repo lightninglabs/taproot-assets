@@ -111,6 +111,11 @@ const (
 	// wait for before considering a transaction safely buried in the chain.
 	defaultReOrgSafeDepth = 6
 
+	// testnetDefaultReOrgSafeDepth is the default number of confirmations
+	// we'll wait before considering a transaction safely buried in the
+	// testnet chain.
+	testnetDefaultReOrgSafeDepth = 120
+
 	// defaultUniverseMaxQps is the default maximum number of queries per
 	// second for the universe server. This permis 100 queries per second
 	// by default.
@@ -275,7 +280,7 @@ type UniverseConfig struct {
 	UniverseQueriesBurst int `long:"req-burst-budget" description:"The burst budget for the universe query rate limiting."`
 }
 
-// AddressConfig is the config that houses any address Book related config
+// AddrBookConfig is the config that houses any address Book related config
 // values.
 type AddrBookConfig struct {
 	DisableSyncer bool `long:"disable-syncer" description:"If true, tapd will not try to sync issuance proofs for unknown assets when creating an address."`
@@ -838,6 +843,14 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	if err != nil {
 		return nil, fmt.Errorf("error in experimental command line "+
 			"config: %w", err)
+	}
+
+	// Use a way higher re-org safe depth value for testnet (if the user
+	// didn't specify a custom value).
+	if cfg.ActiveNetParams.Net == chaincfg.TestNet3Params.Net &&
+		cfg.ReOrgSafeDepth == defaultReOrgSafeDepth {
+
+		cfg.ReOrgSafeDepth = testnetDefaultReOrgSafeDepth
 	}
 
 	// All good, return the sanitized result.

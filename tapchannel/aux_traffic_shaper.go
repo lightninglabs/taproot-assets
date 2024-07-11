@@ -256,6 +256,17 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 		return 0, nil, fmt.Errorf("quote has no asset ID")
 	}
 
+	// If the number of asset units to send is zero due to integer division
+	// and insufficient asset unit precision vs. satoshis, we cannot send
+	// this payment. This should only happen if the amount to pay is very
+	// small (small satoshi or sub satoshi total value) or the price oracle
+	// has given a very high price for the asset.
+	if numAssetUnits == 0 {
+		return 0, nil, fmt.Errorf("asset unit price (%d mSat per "+
+			"asset unit) too high to represent HTLC value of %v",
+			mSatPerAssetUnit, totalAmount)
+	}
+
 	log.Debugf("Producing HTLC extra data for RFQ ID %x (SCID %d): "+
 		"asset ID %x, asset amount %d", rfqID[:], rfqID.Scid(),
 		quote.Request.AssetID[:], numAssetUnits)

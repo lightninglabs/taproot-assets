@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
@@ -330,11 +331,22 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// real price oracle service.
 	var priceOracle rfq.PriceOracle
 
-	switch cfg.Experimental.Rfq.PriceOracleAddress {
+	rfqCfg := cfg.Experimental.Rfq
+	switch rfqCfg.PriceOracleAddress {
 	case rfq.MockPriceOracleServiceAddress:
-		priceOracle = rfq.NewMockPriceOracle(
-			3600, cfg.Experimental.Rfq.MockOracleCentPerSat,
-		)
+		switch {
+		case rfqCfg.MockOracleAssetsPerBTC > 0:
+			priceOracle = rfq.NewMockPriceOracle(
+				3600, rfqCfg.MockOracleAssetsPerBTC,
+			)
+
+		case rfqCfg.MockOracleSatsPerAsset > 0:
+			priceOracle = rfq.NewMockPriceOracleSatPerAsset(
+				3600, btcutil.Amount(
+					rfqCfg.MockOracleSatsPerAsset,
+				),
+			)
+		}
 
 	case "":
 		// Leave the price oracle as nil, which will cause the RFQ
@@ -343,7 +355,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	default:
 		priceOracle, err = rfq.NewRpcPriceOracle(
-			cfg.Experimental.Rfq.PriceOracleAddress, false,
+			rfqCfg.PriceOracleAddress, false,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to create price "+
@@ -360,7 +372,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ChannelLister:   walletAnchor,
 			AliasManager:    lndRouterClient,
 			// nolint: lll
-			SkipAcceptQuotePriceCheck: cfg.Experimental.Rfq.SkipAcceptQuotePriceCheck,
+			SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
 			ErrChan:                   mainErrChan,
 		},
 	)
@@ -394,11 +406,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
-	auxLeafCreator := tapchannel.NewAuxLeafCreator(
-		&tapchannel.LeafCreatorConfig{
-			ChainParams: &tapChainParams,
-		},
-	)
 	auxLeafSigner := tapchannel.NewAuxLeafSigner(
 		&tapchannel.LeafSignerConfig{
 			ChainParams: &tapChainParams,
@@ -542,7 +549,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,
-		AuxLeafCreator:           auxLeafCreator,
 		AuxLeafSigner:            auxLeafSigner,
 		AuxFundingController:     auxFundingController,
 		AuxChanCloser:            auxChanCloser,
@@ -621,7 +627,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		LetsEncryptDomain:          cfg.RpcConf.LetsEncryptDomain,
 	}
 
-	return tap.NewServer(serverCfg), nil
+	return tap.NewServer(&serverCfg.ChainParams, serverCfg), nil
 }
 
 // ConfigureSubServer updates a Taproot Asset server with the given CLI config.

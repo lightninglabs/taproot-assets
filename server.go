@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/perms"
@@ -55,6 +56,8 @@ type Server struct {
 	// work.
 	ready chan bool
 
+	chainParams *address.ChainParams
+
 	cfg *Config
 
 	*rpcServer
@@ -65,11 +68,12 @@ type Server struct {
 }
 
 // NewServer creates a new server given the passed config.
-func NewServer(cfg *Config) *Server {
+func NewServer(chainParams *address.ChainParams, cfg *Config) *Server {
 	return &Server{
-		cfg:   cfg,
-		ready: make(chan bool),
-		quit:  make(chan struct{}, 1),
+		chainParams: chainParams,
+		cfg:         cfg,
+		ready:       make(chan bool),
+		quit:        make(chan struct{}, 1),
 	}
 }
 
@@ -192,10 +196,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 		return fmt.Errorf("unable to start RFQ manager: %w", err)
 	}
 
-	// Start the auxiliary leaf creator and signer.
-	if err := s.cfg.AuxLeafCreator.Start(); err != nil {
-		return fmt.Errorf("unable to start aux leaf creator: %w", err)
-	}
+	// Start the auxiliary components.
 	if err := s.cfg.AuxLeafSigner.Start(); err != nil {
 		return fmt.Errorf("unable to start aux leaf signer: %w", err)
 	}
@@ -653,9 +654,6 @@ func (s *Server) Stop() error {
 		return err
 	}
 
-	if err := s.cfg.AuxLeafCreator.Stop(); err != nil {
-		return err
-	}
 	if err := s.cfg.AuxLeafSigner.Stop(); err != nil {
 		return err
 	}
@@ -729,13 +727,11 @@ func (s *Server) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
 		len(view.OurUpdates), len(view.TheirUpdates))
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.None[lnwallet.CommitAuxLeaves](), nil, err
-	}
-
-	return s.cfg.AuxLeafCreator.FetchLeavesFromView(
-		chanState, prevBlob, view, isOurCommit, ourBalance,
-		theirBalance, keys,
+	// The aux leaf creator is fully stateless, and we don't need to wait
+	// for the server to be started before being able to use it.
+	return tapchannel.FetchLeavesFromView(
+		s.chainParams, chanState, prevBlob, view, isOurCommit,
+		ourBalance, theirBalance, keys,
 	)
 }
 
@@ -753,11 +749,11 @@ func (s *Server) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
 		com.RemoteBalance, len(com.Htlcs))
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.None[lnwallet.CommitAuxLeaves](), err
-	}
-
-	return s.cfg.AuxLeafCreator.FetchLeavesFromCommit(chanState, com, keys)
+	// The aux leaf creator is fully stateless, and we don't need to wait
+	// for the server to be started before being able to use it.
+	return tapchannel.FetchLeavesFromCommit(
+		s.chainParams, chanState, com, keys,
+	)
 }
 
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
@@ -772,11 +768,9 @@ func (s *Server) FetchLeavesFromRevocation(
 		"teirBalance=%v, numHtlcs=%d", rev.OurBalance, rev.TheirBalance,
 		len(rev.HTLCEntries))
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.None[lnwallet.CommitAuxLeaves](), err
-	}
-
-	return s.cfg.AuxLeafCreator.FetchLeavesFromRevocation(rev)
+	// The aux leaf creator is fully stateless, and we don't need to wait
+	// for the server to be started before being able to use it.
+	return tapchannel.FetchLeavesFromRevocation(rev)
 }
 
 // ApplyHtlcView serves as the state transition function for the custom
@@ -794,13 +788,11 @@ func (s *Server) ApplyHtlcView(chanState *channeldb.OpenChannel,
 		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
 		len(originalView.OurUpdates), len(originalView.TheirUpdates))
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.None[tlv.Blob](), err
-	}
-
-	return s.cfg.AuxLeafCreator.ApplyHtlcView(
-		chanState, prevBlob, originalView, isOurCommit, ourBalance,
-		theirBalance, keys,
+	// The aux leaf creator is fully stateless, and we don't need to wait
+	// for the server to be started before being able to use it.
+	return tapchannel.ApplyHtlcView(
+		s.chainParams, chanState, prevBlob, originalView, isOurCommit,
+		ourBalance, theirBalance, keys,
 	)
 }
 
@@ -871,11 +863,9 @@ func (s *Server) PackSigs(
 
 	srvrLog.Debugf("PackSigs called")
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.None[tlv.Blob](), err
-	}
-
-	return s.cfg.AuxLeafSigner.PackSigs(blob)
+	// We don't need to wait for the server to be ready here, as the
+	// PackSigs method is fully stateless.
+	return tapchannel.PackSigs(blob)
 }
 
 // UnpackSigs takes a packed blob of signatures and returns the original
@@ -887,11 +877,9 @@ func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
 
 	srvrLog.Debugf("UnpackSigs called")
 
-	if err := s.waitForReady(); err != nil {
-		return nil, err
-	}
-
-	return s.cfg.AuxLeafSigner.UnpackSigs(blob)
+	// We don't need to wait for the server to be ready here, as the
+	// UnpackSigs method is fully stateless.
+	return tapchannel.UnpackSigs(blob)
 }
 
 // VerifySecondLevelSigs attempts to synchronously verify a batch of aux sig
@@ -903,12 +891,10 @@ func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 
 	srvrLog.Debugf("VerifySecondLevelSigs called")
 
-	if err := s.waitForReady(); err != nil {
-		return err
-	}
-
-	return s.cfg.AuxLeafSigner.VerifySecondLevelSigs(
-		chanState, commitTx, verifyJob,
+	// We don't need to wait for the server to be ready here, as the
+	// VerifySecondLevelSigs method is fully stateless.
+	return tapchannel.VerifySecondLevelSigs(
+		s.chainParams, chanState, commitTx, verifyJob,
 	)
 }
 
@@ -1097,8 +1083,8 @@ func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 
 // ResolveContract attempts to obtain a resolution blob for the specified
 // contract.
-func (s *Server) ResolveContract(req lnwallet.ResolutionReq,
-) lfn.Result[tlv.Blob] {
+func (s *Server) ResolveContract(
+	req lnwallet.ResolutionReq) lfn.Result[tlv.Blob] {
 
 	srvrLog.Infof("ResolveContract called, req=%v", spew.Sdump(req))
 
