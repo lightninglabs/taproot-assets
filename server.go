@@ -15,6 +15,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/perms"
@@ -55,6 +56,8 @@ type Server struct {
 	// work.
 	ready chan bool
 
+	chainParams *address.ChainParams
+
 	cfg *Config
 
 	*rpcServer
@@ -65,11 +68,12 @@ type Server struct {
 }
 
 // NewServer creates a new server given the passed config.
-func NewServer(cfg *Config) *Server {
+func NewServer(chainParams *address.ChainParams, cfg *Config) *Server {
 	return &Server{
-		cfg:   cfg,
-		ready: make(chan bool),
-		quit:  make(chan struct{}, 1),
+		chainParams: chainParams,
+		cfg:         cfg,
+		ready:       make(chan bool),
+		quit:        make(chan struct{}, 1),
 	}
 }
 
