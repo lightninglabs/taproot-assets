@@ -5110,17 +5110,27 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 func (r *rpcServer) QueryProof(ctx context.Context,
 	req *unirpc.UniverseKey) (*unirpc.AssetProofResponse, error) {
 
-	universeID, err := UnmarshalUniID(req.Id)
-	if err != nil {
-		return nil, err
-	}
-	leafKey, err := unmarshalLeafKey(req.LeafKey)
+	universeID, leafKey, err := unmarshalUniverseKey(req)
 	if err != nil {
 		return nil, err
 	}
 
-	rpcsLog.Tracef("[QueryProof]: fetching proof at (universeID=%v, "+
-		"leafKey=%x)", universeID.StringForLog(), leafKey.UniverseKey())
+	firstProof, err := r.queryProof(ctx, universeID, leafKey)
+	if err != nil {
+		return nil, err
+	}
+
+	return r.marshalUniverseProofLeaf(ctx, req, firstProof)
+}
+
+// queryProof attempts to query for an issuance or transfer proof for a given
+// asset based on its UniverseKey. A UniverseKey is composed of the Universe ID
+// (asset_id/group_key) and also a leaf key (outpoint || script_key).
+func (r *rpcServer) queryProof(ctx context.Context, uniID universe.Identifier,
+	leafKey universe.LeafKey) (*universe.Proof, error) {
+
+	rpcsLog.Tracef("[QueryProof]: fetching proof at (uniID=%v, "+
+		"leafKey=%x)", uniID.StringForLog(), leafKey.UniverseKey())
 
 	// Retrieve proof export config for the given universe.
 	syncConfigs, err := r.cfg.UniverseFederation.QuerySyncConfigs(ctx)
@@ -5130,29 +5140,29 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 
 	var candidateIDs []universe.Identifier
 
-	if universeID.ProofType == universe.ProofTypeUnspecified {
+	if uniID.ProofType == universe.ProofTypeUnspecified {
 		// If the proof type is unspecified, then we'll attempt to
 		// retrieve both the issuance and transfer proofs. We gather the
 		// corresponding universe IDs into a candidate set.
-		universeID.ProofType = universe.ProofTypeIssuance
-		if syncConfigs.IsSyncExportEnabled(universeID) {
-			candidateIDs = append(candidateIDs, universeID)
+		uniID.ProofType = universe.ProofTypeIssuance
+		if syncConfigs.IsSyncExportEnabled(uniID) {
+			candidateIDs = append(candidateIDs, uniID)
 		}
 
-		universeID.ProofType = universe.ProofTypeTransfer
-		if syncConfigs.IsSyncExportEnabled(universeID) {
-			candidateIDs = append(candidateIDs, universeID)
+		uniID.ProofType = universe.ProofTypeTransfer
+		if syncConfigs.IsSyncExportEnabled(uniID) {
+			candidateIDs = append(candidateIDs, uniID)
 		}
 	} else {
 		// Otherwise, we'll only attempt to retrieve the proof for the
 		// specified proof type. But first we'll check that proof export
 		// is enabled for the given universe.
-		if !syncConfigs.IsSyncExportEnabled(universeID) {
+		if !syncConfigs.IsSyncExportEnabled(uniID) {
 			return nil, fmt.Errorf("proof export is disabled for " +
 				"the given universe")
 		}
 
-		candidateIDs = append(candidateIDs, universeID)
+		candidateIDs = append(candidateIDs, uniID)
 	}
 
 	// If no candidate IDs were applicable then our config must have
@@ -5183,9 +5193,8 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 			}
 
 			rpcsLog.Debugf("[QueryProof]: error querying for "+
-				"proof at (universeID=%v, leafKey=%x)",
-				universeID.StringForLog(),
-				leafKey.UniverseKey())
+				"proof at (uniID=%v, leafKey=%x)",
+				uniID.StringForLog(), leafKey.UniverseKey())
 			return nil, err
 		}
 
@@ -5203,11 +5212,37 @@ func (r *rpcServer) QueryProof(ctx context.Context,
 	// not be fully specified
 	firstProof := proofs[0]
 
-	rpcsLog.Tracef("[QueryProof]: found proof at (universeID=%v, "+
-		"leafKey=%x)", universeID.StringForLog(),
-		leafKey.UniverseKey())
+	rpcsLog.Tracef("[QueryProof]: found proof at (uniID=%v, "+
+		"leafKey=%x)", uniID.StringForLog(), leafKey.UniverseKey())
 
-	return r.marshalUniverseProofLeaf(ctx, req, firstProof)
+	return firstProof, nil
+}
+
+// unmarshalUniverseKey unmarshals a universe key from the RPC form.
+func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
+	universe.LeafKey, error) {
+
+	var (
+		uniID  = universe.Identifier{}
+		uniKey = universe.LeafKey{}
+		err    error
+	)
+
+	if key == nil {
+		return uniID, uniKey, fmt.Errorf("universe key cannot be nil")
+	}
+
+	uniID, err = UnmarshalUniID(key.Id)
+	if err != nil {
+		return uniID, uniKey, err
+	}
+
+	uniKey, err = unmarshalLeafKey(key.LeafKey)
+	if err != nil {
+		return uniID, uniKey, err
+	}
+
+	return uniID, uniKey, nil
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
@@ -5242,15 +5277,7 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
 
-	if req.Key == nil {
-		return nil, fmt.Errorf("key cannot be nil")
-	}
-
-	universeID, err := UnmarshalUniID(req.Key.Id)
-	if err != nil {
-		return nil, err
-	}
-	leafKey, err := unmarshalLeafKey(req.Key.LeafKey)
+	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
 	if err != nil {
 		return nil, err
 	}
@@ -5296,7 +5323,7 @@ func (r *rpcServer) InsertProof(ctx context.Context,
 	}
 
 	rpcsLog.Debugf("[InsertProof]: inserting proof at "+
-		"(universeID=%v, leafKey=%x)", universeID,
+		"(universeID=%v, leafKey=%x)", universeID.StringForLog(),
 		leafKey.UniverseKey())
 
 	newUniverseState, err := r.cfg.UniverseArchive.UpsertProofLeaf(
