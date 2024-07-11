@@ -406,11 +406,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
-	auxLeafCreator := tapchannel.NewAuxLeafCreator(
-		&tapchannel.LeafCreatorConfig{
-			ChainParams: &tapChainParams,
-		},
-	)
 	auxLeafSigner := tapchannel.NewAuxLeafSigner(
 		&tapchannel.LeafSignerConfig{
 			ChainParams: &tapChainParams,
@@ -554,7 +549,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,
-		AuxLeafCreator:           auxLeafCreator,
 		AuxLeafSigner:            auxLeafSigner,
 		AuxFundingController:     auxFundingController,
 		AuxChanCloser:            auxChanCloser,

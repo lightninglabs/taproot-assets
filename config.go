@@ -197,8 +197,6 @@ type Config struct {
 
 	UniverseStats universe.Telemetry
 
-	AuxLeafCreator *tapchannel.AuxLeafCreator
-
 	AuxLeafSigner *tapchannel.AuxLeafSigner
 
 	AuxFundingController *tapchannel.FundingController

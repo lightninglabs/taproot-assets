@@ -3,13 +3,11 @@ package tapchannel
 import (
 	"bytes"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
-	"github.com/lightninglabs/taproot-assets/fn"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
@@ -25,67 +23,12 @@ const (
 	DefaultTimeout = 30 * time.Second
 )
 
-// LeafCreatorConfig defines the configuration for the auxiliary leaf creator.
-type LeafCreatorConfig struct {
-	ChainParams *address.ChainParams
-}
-
-// AuxLeafCreator is a Taproot Asset auxiliary leaf creator that can be used to
-// create auxiliary leaves for Taproot Asset channels.
-type AuxLeafCreator struct {
-	startOnce sync.Once
-	stopOnce  sync.Once
-
-	cfg *LeafCreatorConfig
-
-	// ContextGuard provides a wait group and main quit channel that can be
-	// used to create guarded contexts.
-	*fn.ContextGuard
-}
-
-// NewAuxLeafCreator creates a new Taproot Asset auxiliary leaf creator based on
-// the passed config.
-func NewAuxLeafCreator(cfg *LeafCreatorConfig) *AuxLeafCreator {
-	return &AuxLeafCreator{
-		cfg: cfg,
-		ContextGuard: &fn.ContextGuard{
-			DefaultTimeout: DefaultTimeout,
-			Quit:           make(chan struct{}),
-		},
-	}
-}
-
-// Start attempts to start a new aux leaf creator.
-func (c *AuxLeafCreator) Start() error {
-	var startErr error
-	c.startOnce.Do(func() {
-		log.Info("Starting aux leaf creator")
-	})
-	return startErr
-}
-
-// Stop signals for a custodian to gracefully exit.
-func (c *AuxLeafCreator) Stop() error {
-	var stopErr error
-	c.stopOnce.Do(func() {
-		log.Info("Stopping aux leaf creator")
-
-		close(c.Quit)
-		c.Wg.Wait()
-	})
-
-	return stopErr
-}
-
-// A compile-time check to ensure that AuxLeafCreator fully implements the
-// lnwallet.AuxLeafStore interface.
-var _ lnwallet.AuxLeafStore = (*AuxLeafCreator)(nil)
-
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
-func (c *AuxLeafCreator) FetchLeavesFromView(chanState *channeldb.OpenChannel,
-	prevBlob tlv.Blob, originalView *lnwallet.HtlcView, isOurCommit bool,
-	ourBalance, theirBalance lnwire.MilliSatoshi,
+func FetchLeavesFromView(chainParams *address.ChainParams,
+	chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
+	originalView *lnwallet.HtlcView, isOurCommit bool, ourBalance,
+	theirBalance lnwire.MilliSatoshi,
 	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
 	lnwallet.CommitSortFunc, error) {
 
@@ -112,7 +55,7 @@ func (c *AuxLeafCreator) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, chanState, chanAssetState, isOurCommit, ourBalance,
-		theirBalance, originalView, c.cfg.ChainParams, keys,
+		theirBalance, originalView, chainParams, keys,
 	)
 	if err != nil {
 		return none, nil, fmt.Errorf("unable to generate allocations: "+
@@ -132,8 +75,8 @@ func (c *AuxLeafCreator) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 
 // FetchLeavesFromCommit attempts to fetch the auxiliary leaves that correspond
 // to the passed aux blob, and an existing channel commitment.
-func (c *AuxLeafCreator) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
-	com channeldb.ChannelCommitment,
+func FetchLeavesFromCommit(chainParams *address.ChainParams,
+	chanState *channeldb.OpenChannel, com channeldb.ChannelCommitment,
 	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
 	error) {
 
@@ -173,7 +116,7 @@ func (c *AuxLeafCreator) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
-				keys, c.cfg.ChainParams, htlcOutputs,
+				keys, chainParams, htlcOutputs,
 			)
 			if err != nil {
 				return none, fmt.Errorf("unable to create "+
@@ -204,7 +147,7 @@ func (c *AuxLeafCreator) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
-				keys, c.cfg.ChainParams, htlcOutputs,
+				keys, chainParams, htlcOutputs,
 			)
 			if err != nil {
 				return none, fmt.Errorf("unable to create "+
@@ -231,7 +174,7 @@ func (c *AuxLeafCreator) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
-func (c *AuxLeafCreator) FetchLeavesFromRevocation(
+func FetchLeavesFromRevocation(
 	rev *channeldb.RevocationLog) (lfn.Option[lnwallet.CommitAuxLeaves],
 	error) {
 
@@ -255,8 +198,9 @@ func (c *AuxLeafCreator) FetchLeavesFromRevocation(
 // ApplyHtlcView serves as the state transition function for the custom
 // channel's blob. Given the old blob, and an HTLC view, then a new
 // blob should be returned that reflects the pending updates.
-func (c *AuxLeafCreator) ApplyHtlcView(chanState *channeldb.OpenChannel,
-	prevBlob tlv.Blob, originalView *lnwallet.HtlcView, isOurCommit bool,
+func ApplyHtlcView(chainParams *address.ChainParams,
+	chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
+	originalView *lnwallet.HtlcView, isOurCommit bool,
 	ourBalance, theirBalance lnwire.MilliSatoshi,
 	keys lnwallet.CommitmentKeyRing) (lfn.Option[tlv.Blob], error) {
 
@@ -283,7 +227,7 @@ func (c *AuxLeafCreator) ApplyHtlcView(chanState *channeldb.OpenChannel,
 
 	_, newCommitment, err := GenerateCommitmentAllocations(
 		prevState, chanState, chanAssetState, isOurCommit, ourBalance,
-		theirBalance, originalView, c.cfg.ChainParams, keys,
+		theirBalance, originalView, chainParams, keys,
 	)
 	if err != nil {
 		return none, fmt.Errorf("unable to generate allocations: %w",
