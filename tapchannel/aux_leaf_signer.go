@@ -94,10 +94,6 @@ func (s *AuxLeafSigner) Stop() error {
 	return stopErr
 }
 
-// A compile-time check to ensure that AuxLeafSigner fully implements the
-// lnwallet.AuxSigner interface.
-var _ lnwallet.AuxSigner = (*AuxLeafSigner)(nil)
-
 // SubmitSecondLevelSigBatch takes a batch of aux sign jobs and processes them
 // asynchronously.
 func (s *AuxLeafSigner) SubmitSecondLevelSigBatch(
@@ -112,9 +108,7 @@ func (s *AuxLeafSigner) SubmitSecondLevelSigBatch(
 
 // PackSigs takes a series of aux signatures and packs them into a single blob
 // that can be sent alongside the CommitSig messages.
-func (s *AuxLeafSigner) PackSigs(
-	sigBlob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
-
+func PackSigs(sigBlob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
 	htlcSigs := make([][]*cmsg.AssetSig, len(sigBlob))
 	for idx := range sigBlob {
 		err := lfn.MapOptionZ(
@@ -150,9 +144,7 @@ func (s *AuxLeafSigner) PackSigs(
 
 // UnpackSigs takes a packed blob of signatures and returns the original
 // signatures for each HTLC, keyed by HTLC index.
-func (s *AuxLeafSigner) UnpackSigs(
-	blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob], error) {
-
+func UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob], error) {
 	if blob.IsNone() {
 		return nil, nil
 	}
@@ -173,8 +165,9 @@ func (s *AuxLeafSigner) UnpackSigs(
 
 // VerifySecondLevelSigs attempts to synchronously verify a batch of aux sig
 // jobs.
-func (s *AuxLeafSigner) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx, verifyJobs []lnwallet.AuxVerifyJob) error {
+func VerifySecondLevelSigs(chainParams *address.ChainParams,
+	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
+	verifyJobs []lnwallet.AuxVerifyJob) error {
 
 	for idx := range verifyJobs {
 		verifyJob := verifyJobs[idx]
@@ -225,9 +218,10 @@ func (s *AuxLeafSigner) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 			continue
 		}
 
-		err = s.verifyHtlcSignature(
-			chanState, commitTx, verifyJobs[idx].KeyRing,
-			assetSigs.Sigs, htlcOutputs, verifyJobs[idx].BaseAuxJob,
+		err = verifyHtlcSignature(
+			chainParams, chanState, commitTx,
+			verifyJobs[idx].KeyRing, assetSigs.Sigs, htlcOutputs,
+			verifyJobs[idx].BaseAuxJob,
 		)
 		if err != nil {
 			return fmt.Errorf("error verifying second level sig: "+
@@ -330,13 +324,14 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 
 // verifyHtlcSignature verifies the HTLC signature in the commitment transaction
 // described by the sign job.
-func (s *AuxLeafSigner) verifyHtlcSignature(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx, keyRing lnwallet.CommitmentKeyRing,
-	sigs []*cmsg.AssetSig, htlcOutputs []*cmsg.AssetOutput,
-	baseJob lnwallet.BaseAuxJob) error {
+func verifyHtlcSignature(chainParams *address.ChainParams,
+	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
+	keyRing lnwallet.CommitmentKeyRing, sigs []*cmsg.AssetSig,
+	htlcOutputs []*cmsg.AssetOutput, baseJob lnwallet.BaseAuxJob) error {
 
-	vPackets, err := s.htlcSecondLevelPacketsFromCommit(
-		chanState, commitTx, baseJob.KeyRing, htlcOutputs, baseJob,
+	vPackets, err := htlcSecondLevelPacketsFromCommit(
+		chainParams, chanState, commitTx, baseJob.KeyRing, htlcOutputs,
+		baseJob,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating second level packets: %w",
@@ -470,8 +465,9 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
 
-	vPackets, err := s.htlcSecondLevelPacketsFromCommit(
-		chanState, commitTx, baseJob.KeyRing, htlcOutputs, baseJob,
+	vPackets, err := htlcSecondLevelPacketsFromCommit(
+		s.cfg.ChainParams, chanState, commitTx, baseJob.KeyRing,
+		htlcOutputs, baseJob,
 	)
 	if err != nil {
 		return lnwallet.AuxSigJobResp{}, fmt.Errorf("error generating "+
@@ -556,14 +552,14 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 // htlcSecondLevelPacketsFromCommit generates the HTLC second level packets from
 // the commitment transaction. A bool is returned indicating if the HTLC was
 // incoming or outgoing.
-func (s *AuxLeafSigner) htlcSecondLevelPacketsFromCommit(
+func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
 	baseJob lnwallet.BaseAuxJob) ([]*tappsbt.VPacket, error) {
 
 	packets, _, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, baseJob.HTLC.Amount.ToSatoshis(),
-		keyRing, s.cfg.ChainParams, htlcOutputs,
+		keyRing, chainParams, htlcOutputs,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating second level HTLC "+

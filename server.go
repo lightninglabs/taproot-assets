@@ -863,11 +863,9 @@ func (s *Server) PackSigs(
 
 	srvrLog.Debugf("PackSigs called")
 
-	if err := s.waitForReady(); err != nil {
-		return lfn.None[tlv.Blob](), err
-	}
-
-	return s.cfg.AuxLeafSigner.PackSigs(blob)
+	// We don't need to wait for the server to be ready here, as the
+	// PackSigs method is fully stateless.
+	return tapchannel.PackSigs(blob)
 }
 
 // UnpackSigs takes a packed blob of signatures and returns the original
@@ -879,11 +877,9 @@ func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
 
 	srvrLog.Debugf("UnpackSigs called")
 
-	if err := s.waitForReady(); err != nil {
-		return nil, err
-	}
-
-	return s.cfg.AuxLeafSigner.UnpackSigs(blob)
+	// We don't need to wait for the server to be ready here, as the
+	// UnpackSigs method is fully stateless.
+	return tapchannel.UnpackSigs(blob)
 }
 
 // VerifySecondLevelSigs attempts to synchronously verify a batch of aux sig
@@ -895,12 +891,10 @@ func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 
 	srvrLog.Debugf("VerifySecondLevelSigs called")
 
-	if err := s.waitForReady(); err != nil {
-		return err
-	}
-
-	return s.cfg.AuxLeafSigner.VerifySecondLevelSigs(
-		chanState, commitTx, verifyJob,
+	// We don't need to wait for the server to be ready here, as the
+	// VerifySecondLevelSigs method is fully stateless.
+	return tapchannel.VerifySecondLevelSigs(
+		s.chainParams, chanState, commitTx, verifyJob,
 	)
 }
 
@@ -1089,8 +1083,8 @@ func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 
 // ResolveContract attempts to obtain a resolution blob for the specified
 // contract.
-func (s *Server) ResolveContract(req lnwallet.ResolutionReq,
-) lfn.Result[tlv.Blob] {
+func (s *Server) ResolveContract(
+	req lnwallet.ResolutionReq) lfn.Result[tlv.Blob] {
 
 	srvrLog.Infof("ResolveContract called, req=%v", spew.Sdump(req))
 
