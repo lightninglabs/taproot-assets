@@ -368,15 +368,18 @@ var _ PriceOracle = (*RpcPriceOracle)(nil)
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
 // It returns the suggested rate as the exchange rate.
 type MockPriceOracle struct {
-	expiryDelay uint64
-	usdPerBTC   uint64
+	expiryDelay  uint64
+	mSatPerAsset lnwire.MilliSatoshi
 }
 
 // NewMockPriceOracle creates a new mock price oracle.
-func NewMockPriceOracle(expiryDelay, usdPerBTC uint64) *MockPriceOracle {
+func NewMockPriceOracle(expiryDelay, assetsPerBTC uint64) *MockPriceOracle {
+	mSatPerAsset := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) /
+		lnwire.MilliSatoshi(assetsPerBTC)
+
 	return &MockPriceOracle{
-		expiryDelay: expiryDelay,
-		usdPerBTC:   usdPerBTC,
+		expiryDelay:  expiryDelay,
+		mSatPerAsset: mSatPerAsset,
 	}
 }
 
@@ -388,11 +391,8 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
-	mSatPerUsd := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) /
-		lnwire.MilliSatoshi(m.usdPerBTC)
-
 	return &OracleAskResponse{
-		AskPrice: &mSatPerUsd,
+		AskPrice: &m.mSatPerAsset,
 		Expiry:   expiry,
 	}, nil
 }
@@ -404,11 +404,8 @@ func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
-	mSatPerUsd := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) /
-		lnwire.MilliSatoshi(m.usdPerBTC)
-
 	return &OracleBidResponse{
-		BidPrice: &mSatPerUsd,
+		BidPrice: &m.mSatPerAsset,
 		Expiry:   expiry,
 	}, nil
 }
