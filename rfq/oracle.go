@@ -383,6 +383,17 @@ func NewMockPriceOracle(expiryDelay, assetsPerBTC uint64) *MockPriceOracle {
 	}
 }
 
+// NewMockPriceOracleSatPerAsset creates a new mock price oracle with a
+// specified satoshis per asset rate.
+func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
+	satPerAsset btcutil.Amount) *MockPriceOracle {
+
+	return &MockPriceOracle{
+		expiryDelay:  expiryDelay,
+		mSatPerAsset: lnwire.NewMSatFromSatoshis(satPerAsset),
+	}
+}
+
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
