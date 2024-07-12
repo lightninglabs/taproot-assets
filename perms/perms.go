@@ -200,6 +200,10 @@ var (
 			Entity: "universe",
 			Action: "write",
 		}},
+		"/universerpc.Universe/PushProof": {{
+			Entity: "universe",
+			Action: "read",
+		}},
 		"/universerpc.Universe/SyncUniverse": {{
 			Entity: "universe",
 			Action: "write",

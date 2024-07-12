@@ -436,7 +436,8 @@ var universeProofCommand = cli.Command{
 	`,
 	Subcommands: []cli.Command{
 		universeProofQueryCommand,
-		universeProofInsertInsert,
+		universeProofInsertCommand,
+		universeProofPushCommand,
 	},
 }
 
@@ -474,24 +475,34 @@ func parseAssetKey(ctx *cli.Context) (*unirpc.AssetKey, error) {
 	}, nil
 }
 
-func universeProofQuery(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getUniverseClient(ctx)
-	defer cleanUp()
-
+func parseUniverseProofArgs(ctx *cli.Context) (*unirpc.UniverseKey, error) {
 	assetKey, err := parseAssetKey(ctx)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	universeID, err := parseUniverseID(ctx, true)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	uProof, err := client.QueryProof(ctxc, &unirpc.UniverseKey{
+
+	return &unirpc.UniverseKey{
 		Id:      universeID,
 		LeafKey: assetKey,
-	})
+	}, nil
+}
+
+func universeProofQuery(ctx *cli.Context) error {
+	uKey, err := parseUniverseProofArgs(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	uProof, err := client.QueryProof(ctxc, uKey)
 	if err != nil {
 		return err
 	}
@@ -500,7 +511,7 @@ func universeProofQuery(ctx *cli.Context) error {
 	return nil
 }
 
-var universeProofInsertInsert = cli.Command{
+var universeProofInsertCommand = cli.Command{
 	Name:  "insert",
 	Usage: "insert a new universe proof",
 	Description: `
@@ -519,24 +530,16 @@ func universeProofInsert(ctx *cli.Context) error {
 		return cli.ShowSubcommandHelp(ctx)
 	}
 
-	assetKey, err := parseAssetKey(ctx)
+	uKey, err := parseUniverseProofArgs(ctx)
 	if err != nil {
 		return err
 	}
 
-	universeID, err := parseUniverseID(ctx, true)
-	if err != nil {
-		return err
-	}
 	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
 	rawFile, err := readFile(filePath)
 	if err != nil {
 		return fmt.Errorf("unable to read proof file: %w", err)
 	}
-
-	ctxc := getContext()
-	client, cleanUp := getUniverseClient(ctx)
-	defer cleanUp()
 
 	// The server always expects the raw state transition proof, so
 	// depending on the input we get, we either need to extract the last
@@ -563,16 +566,70 @@ func universeProofInsert(ctx *cli.Context) error {
 		return fmt.Errorf("invalid proof file format")
 	}
 
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
 	req := &unirpc.AssetProof{
-		Key: &unirpc.UniverseKey{
-			Id:      universeID,
-			LeafKey: assetKey,
-		},
+		Key: uKey,
 		AssetLeaf: &unirpc.AssetLeaf{
 			Proof: rawProof,
 		},
 	}
 	resp, err := client.InsertProof(ctxc, req)
+	if err != nil {
+		return err
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var universeProofPushCommand = cli.Command{
+	Name:      "push",
+	ShortName: "p",
+	Usage:     "push a proof to a remote Universe",
+	Description: `
+	Push a proof present in the local Universe to a remote Universe.
+	`,
+	Flags:  append(universeProofArgs, universeServerArgs...),
+	Action: universeProofPush,
+}
+
+func universeProofPush(ctx *cli.Context) error {
+	uniServerName := ctx.String(universeHostName)
+	uniServerID := ctx.Int(universeServerID)
+	uniAddr := unirpc.UniverseFederationServer{}
+
+	switch {
+	case uniServerName == "" && uniServerID == 0:
+		return cli.ShowSubcommandHelp(ctx)
+
+	case uniServerName != "" && uniServerID != 0:
+		return fmt.Errorf("cannot specify both universe host name " +
+			"and ID")
+
+	case uniServerName != "":
+		uniAddr.Host = uniServerName
+
+	case uniServerID != 0:
+		uniAddr.Id = int32(uniServerID)
+	}
+
+	uKey, err := parseUniverseProofArgs(ctx)
+	if err != nil {
+		return err
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getUniverseClient(ctx)
+	defer cleanUp()
+
+	req := unirpc.PushProofRequest{
+		Key:    uKey,
+		Server: &uniAddr,
+	}
+	resp, err := client.PushProof(ctxc, &req)
 	if err != nil {
 		return err
 	}
@@ -745,6 +802,18 @@ func universeFederationAdd(ctx *cli.Context) error {
 
 const universeServerID = "server_id"
 
+var universeServerArgs = []cli.Flag{
+	cli.StringFlag{
+		Name: universeHostName,
+		Usage: "the host:port or just host of the remote " +
+			"universe",
+	},
+	cli.IntFlag{
+		Name:  universeServerID,
+		Usage: "the ID of the universe server in our federation",
+	},
+}
+
 var universeFederationDelCommand = cli.Command{
 	Name:      "del",
 	ShortName: "d",
@@ -752,17 +821,7 @@ var universeFederationDelCommand = cli.Command{
 	Remove a server from the Federation. Servers can be identified either
 	via their ID, or the server host.
 	`,
-	Flags: []cli.Flag{
-		cli.StringFlag{
-			Name: universeHostName,
-			Usage: "the host:port or just host of the remote " +
-				"universe",
-		},
-		cli.IntFlag{
-			Name:  universeServerID,
-			Usage: "the ID of the universe server to delete",
-		},
-	},
+	Flags:  universeServerArgs,
 	Action: universeFederationDel,
 }
 

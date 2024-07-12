@@ -72,6 +72,13 @@ service Universe {
     */
     rpc InsertProof (AssetProof) returns (AssetProofResponse);
 
+    /* tapcli: `universe proofs push`
+    PushProof attempts to query the local universe for a proof specified by a
+    UniverseKey. If found, a connection is made to a remote Universe server to
+    attempt to upload the asset leaf.
+    */
+    rpc PushProof (PushProofRequest) returns (PushProofResponse);
+
     // TODO(roasbeef): rename resp to UniverseStateUpdate? ^
 
     /* tapcli: `universe info`
@@ -340,7 +347,7 @@ message UniverseKey {
 }
 
 message AssetProofResponse {
-    // The request original request for the issuance proof.
+    // The original request for the issuance proof.
     UniverseKey req = 1;
 
     // The Universe root that includes this asset leaf.
@@ -368,6 +375,19 @@ message AssetProof {
 
     // The asset leaf to insert into the Universe tree.
     AssetLeaf asset_leaf = 4;
+}
+
+message PushProofRequest {
+    // The ID of the asset to push the proof for.
+    UniverseKey key = 1;
+
+    // The universe server to push the proof to.
+    UniverseFederationServer server = 2;
+}
+
+message PushProofResponse {
+    // The ID of the asset a push was requested for.
+    UniverseKey key = 1;
 }
 
 message InfoRequest {
