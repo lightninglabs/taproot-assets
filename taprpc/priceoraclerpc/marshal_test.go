@@ -1,0 +1,112 @@
+package priceoraclerpc
+
+import (
+	"encoding/hex"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// isAssetBtcTC is a test case for the IsAssetBtc function.
+type isAssetBtcTC struct {
+	testName string
+
+	assetSpecifier *AssetSpecifier
+	expected       bool
+}
+
+// TestIsAssetBtc tests the IsAssetBtc function. The IsAssetBtc function
+// returns true if the given asset specifier represents BTC, and false
+// otherwise.
+func TestIsAssetBtc(t *testing.T) {
+	t.Parallel()
+
+	var zeroAssetId [32]byte
+	zeroAssetHexStr := hex.EncodeToString(zeroAssetId[:])
+
+	testCases := []isAssetBtcTC{
+		{
+			testName:       "nil asset specifier",
+			assetSpecifier: nil,
+			expected:       false,
+		},
+		{
+			testName:       "empty asset specifier",
+			assetSpecifier: &AssetSpecifier{},
+			expected:       false,
+		},
+		{
+			testName: "asset specifier with zero asset ID bytes",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_AssetId{
+					AssetId: zeroAssetId[:],
+				},
+			},
+			expected: true,
+		},
+		{
+			testName: "asset specifier with incorrect length " +
+				"zero asset ID bytes",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_AssetId{
+					AssetId: []byte{0, 0, 0},
+				},
+			},
+			expected: false,
+		},
+		{
+			testName: "asset specifier with empty asset ID bytes",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_AssetId{
+					AssetId: []byte{},
+				},
+			},
+			expected: false,
+		},
+		{
+			testName: "asset specifier with zero asset ID string",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_AssetIdStr{
+					AssetIdStr: zeroAssetHexStr,
+				},
+			},
+			expected: true,
+		},
+		{
+			testName: "asset specifier with empty asset ID string",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_AssetIdStr{
+					AssetIdStr: "",
+				},
+			},
+			expected: false,
+		},
+		{
+			testName: "asset specifier with set group key bytes",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_GroupKey{
+					GroupKey: []byte{0, 0, 0},
+				},
+			},
+			expected: false,
+		},
+		{
+			testName: "asset specifier with set group key string",
+			assetSpecifier: &AssetSpecifier{
+				Id: &AssetSpecifier_GroupKeyStr{
+					GroupKeyStr: "test-group-key",
+				},
+			},
+			expected: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.testName, func(tt *testing.T) {
+			// Run the test case. Ensure that the expected value is
+			// returned.
+			actual := IsAssetBtc(tc.assetSpecifier)
+			require.Equal(tt, tc.expected, actual)
+		})
+	}
+}
