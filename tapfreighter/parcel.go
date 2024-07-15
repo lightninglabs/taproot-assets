@@ -55,9 +55,9 @@ const (
 	// and receiver proofs to the proof archive.
 	SendStateStoreProofs
 
-	// SendStateReceiverProofTransfer is the state in which we will commence
-	// the receiver proof transfer process.
-	SendStateReceiverProofTransfer
+	// SendStateTransferProofs is the state where we attempt to transfer
+	// on-chain transaction proof(s) to the receiving party or parties.
+	SendStateTransferProofs
 
 	// SendStateComplete is the state which is reached once entire asset
 	// transfer process is complete.
@@ -88,8 +88,8 @@ func (s SendState) String() string {
 	case SendStateStoreProofs:
 		return "SendStateStoreProofs"
 
-	case SendStateReceiverProofTransfer:
-		return "SendStateReceiverProofTransfer"
+	case SendStateTransferProofs:
+		return "SendStateTransferProofs"
 
 	case SendStateComplete:
 		return "SendStateComplete"
