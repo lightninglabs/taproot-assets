@@ -1031,16 +1031,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"package: %w", err)
 		}
 
-		currentPkg.SendState = SendStateLogCommit
+		currentPkg.SendState = SendStateStorePreBroadcast
 
 		return &currentPkg, nil
 
-	// At this state, we have a final PSBT transaction which is fully
-	// signed. We'll write this to disk (the point of no return), then
-	// broadcast this to the network.
-	case SendStateLogCommit:
-		// Before we can broadcast, we want to find out the current
-		// height to pass as a height hint.
+	// In this state, the parcel state is stored before the fully signed
+	// transaction is broadcast to the mempool.
+	case SendStateStorePreBroadcast:
+		// We won't broadcast in this state, but in preparation for
+		// broadcasting, we will find out the current height to use as
+		// a height hint.
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
 		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
