@@ -599,13 +599,14 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 	keys lnwallet.CommitmentKeyRing,
 	nonAssetView *lnwallet.HtlcView) ([]*Allocation, error) {
 
-	log.Tracef("Creating allocations, ourCommit=%v, ourBalance=%d, "+
-		"theirBalance=%d, ourAssetBalance=%d, theirAssetBalance=%d, "+
-		"wantLocalCommitAnchor=%v, wantRemoteCommitAnchor=%v, "+
-		"ourUpdates=%d, theirUpdates=%d, nonAssetOurUpdates=%d, "+
-		"nonAssetTheirUpdates=%d", isOurCommit, ourBalance,
-		theirBalance, ourAssetBalance, theirAssetBalance,
-		wantLocalCommitAnchor, wantRemoteCommitAnchor,
+	log.Tracef("Creating allocations, ourCommit=%v, initiator=%v, "+
+		"ourBalance=%d, theirBalance=%d, ourAssetBalance=%d, "+
+		"theirAssetBalance=%d, wantLocalCommitAnchor=%v, "+
+		"wantRemoteCommitAnchor=%v, ourUpdates=%d, theirUpdates=%d, "+
+		"nonAssetOurUpdates=%d, nonAssetTheirUpdates=%d", isOurCommit,
+		chanState.IsInitiator, ourBalance, theirBalance,
+		ourAssetBalance, theirAssetBalance, wantLocalCommitAnchor,
+		wantRemoteCommitAnchor,
 		len(filteredView.OurUpdates), len(filteredView.TheirUpdates),
 		len(nonAssetView.OurUpdates), len(nonAssetView.TheirUpdates))
 
@@ -627,6 +628,15 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 	var leaseExpiry uint32
 	if chanState.ChanType.HasLeaseExpiration() {
 		leaseExpiry = chanState.ThawHeight
+	}
+
+	// The "local" and "remote" notations are always from the perspective of
+	// the local node. So if we want to find out the asset balance of the
+	// _initiator_ of the channel, we just need to take into account the
+	// chanstate.IsInitiator flags.
+	initiatorAssetBalance := ourAssetBalance
+	if !chanState.IsInitiator {
+		initiatorAssetBalance = theirAssetBalance
 	}
 
 	var err error
@@ -652,8 +662,15 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 			"allocations: %w", err)
 	}
 
+	log.Tracef("Channel initiator's asset balance is %d",
+		initiatorAssetBalance)
+
 	// Next, we add the HTLC outputs, using this helper function to
-	// distinguish between incoming and outgoing HTLCs.
+	// distinguish between incoming and outgoing HTLCs. The haveHtlcSplit
+	// boolean is used to determine if one of the HTLCs needs to become the
+	// split root. See below where it's used for a more in-depth
+	// explanation.
+	var haveHtlcSplitRoot bool
 	addHtlc := func(htlc *DecodedDescriptor, isIncoming bool) error {
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
 			isIncoming, isOurCommit, htlc.Timeout, htlc.RHash,
@@ -671,6 +688,41 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 				"sibling: %w", err)
 		}
 
+		// The "incoming" vs. "outgoing" naming is always viewed from
+		// the perspective of the local node and independent of
+		// isOurCommit. So to find out if an HTLC is for the initiator
+		// it only depends on the direction and whether we are the
+		// initiator. The human-readable version of the below switch
+		// statement is: Either we're the initiator and the HTLC is
+		// incoming, or we're not the initiator and the HTLC is
+		// outgoing.
+		var htlcIsForInitiator bool
+		switch {
+		// If the HTLC is incoming and the local node is the channel
+		// initiator, then the HTLC is for the channel initiator.
+		case chanState.IsInitiator && isIncoming:
+			htlcIsForInitiator = true
+
+		// If the HTLC is outgoing and the local node is not the
+		// channel initiator, then the HTLC is for the channel
+		// initiator.
+		case !chanState.IsInitiator && !isIncoming:
+			htlcIsForInitiator = true
+		}
+
+		// We should always just have a single split root on the side
+		// of the initiator. So if the initiator doesn't have any normal
+		// asset output to house the split root, then we'll take the
+		// _first_ HTLC that pays to the initiator.
+		shouldHouseSplitRoot := initiatorAssetBalance == 0 &&
+			htlcIsForInitiator && !haveHtlcSplitRoot
+
+		// Make sure we only select the very first HTLC that pays to the
+		// initiator.
+		if shouldHouseSplitRoot {
+			haveHtlcSplitRoot = true
+		}
+
 		allocType := CommitAllocationHtlcOutgoing
 		if isIncoming {
 			allocType = CommitAllocationHtlcIncoming
@@ -680,6 +732,7 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
 			AssetVersion:   asset.V1,
+			SplitRoot:      shouldHouseSplitRoot,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
