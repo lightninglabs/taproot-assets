@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -312,7 +313,7 @@ type MockChainBridge struct {
 	ReqCount int
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 
-	failFeeEstimates bool
+	failFeeEstimates atomic.Bool
 	emptyConf        bool
 	errConf          bool
 	confErr          chan error
@@ -329,8 +330,8 @@ func NewMockChainBridge() *MockChainBridge {
 	}
 }
 
-func (m *MockChainBridge) FailFeeEstimates(enable bool) {
-	m.failFeeEstimates = enable
+func (m *MockChainBridge) FailFeeEstimatesOnce() {
+	m.failFeeEstimates.Store(true)
 }
 
 func (m *MockChainBridge) FailConf(enable bool) {
@@ -459,7 +460,8 @@ func (m *MockChainBridge) EstimateFee(ctx context.Context,
 		return 0, fmt.Errorf("shutting down")
 	}
 
-	if m.failFeeEstimates {
+	if m.failFeeEstimates.Load() {
+		m.failFeeEstimates.Store(false)
 		return 0, fmt.Errorf("failed to estimate fee")
 	}
 
@@ -658,7 +660,8 @@ func (m *MockKeyRing) IsLocalKey(context.Context, keychain.KeyDescriptor) bool {
 }
 
 type MockGenSigner struct {
-	KeyRing *MockKeyRing
+	KeyRing     *MockKeyRing
+	FailSigning bool
 }
 
 func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
@@ -670,6 +673,10 @@ func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
 func (m *MockGenSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
 	error) {
+
+	if m.FailSigning {
+		return nil, fmt.Errorf("failed to sign virtual tx")
+	}
 
 	priv := m.KeyRing.Keys[signDesc.KeyDesc.KeyLocator]
 	signer := asset.NewMockGenesisSigner(priv)
