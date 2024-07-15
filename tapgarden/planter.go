@@ -1304,8 +1304,9 @@ func (c *ChainPlanter) gardener() {
 				)
 				if err != nil {
 					freezeErr := fmt.Errorf("unable to "+
-						"freeze minting batch: %w", err)
-					c.cfg.ErrChan <- freezeErr
+						"finalize minting batch: %w",
+						err)
+					log.Warnf(freezeErr.Error())
 					req.Error(freezeErr)
 					break
 				}
