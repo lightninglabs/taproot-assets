@@ -1180,6 +1180,147 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	}, nil
 }
 
+// processFundingMsg processes a funding message received from the remote peer.
+// This is used to advance the state machine of an incoming funding flow.
+func (f *FundingController) processFundingMsg(ctx context.Context,
+	fundingFlows fundingFlowIndex,
+	msg protofsm.PeerMsg) (funding.PendingChanID, error) {
+
+	var tempPID funding.PendingChanID
+
+	// A new proof message has just come in, so we'll extract the real
+	// proof wire message from the opaque message.
+	proofMsg, assetFunding, err := fundingFlows.fromMsg(
+		&f.cfg.ChainParams, msg,
+	)
+	if err != nil {
+		return tempPID, fmt.Errorf("unable to convert msg to "+
+			"proof: %w", err)
+	}
+
+	log.Infof("Recv'd new message: %T", proofMsg)
+
+	tempPID = assetFunding.pid
+
+	switch assetProof := proofMsg.(type) {
+	// This is input proof, so we'll verify the challenge witness, then
+	// store the proof.
+	case *cmsg.TxAssetInputProof:
+		// Before we proceed, we'll make sure that we already know of
+		// the genesis proof for the incoming asset.
+		_, err := f.cfg.AssetSyncer.QueryAssetInfo(
+			ctx, assetProof.AssetID.Val,
+		)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to verify genesis "+
+				"proof for asset_id=%v: %w",
+				assetProof.AssetID.Val, err)
+		}
+
+		p := assetProof.Proof.Val
+		log.Infof("Validating input proof, prev_out=%v", p.OutPoint())
+
+		l, err := f.cfg.ChainBridge.GenProofChainLookup(&p)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to create proof "+
+				"lookup: %w", err)
+		}
+
+		// Next, we'll validate this proof to make sure that the
+		// initiator is actually able to spend these outputs in the
+		// funding transaction.
+		_, err = p.Verify(
+			ctx, nil, f.cfg.HeaderVerifier,
+			proof.DefaultMerkleVerifier,
+			f.cfg.GroupVerifier, l,
+		)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to verify "+
+				"ownership proof: %w", err)
+		}
+
+		// Now that we know the proof is valid, we'll add it to the
+		// funding state.
+		assetFunding.addInputProof(
+			&assetProof.Proof.Val,
+		)
+
+	// This is an output proof, so now we should be able to verify the
+	// asset funding output with witness intact.
+	case *cmsg.TxAssetOutputProof:
+		err := f.validateWitness(
+			assetProof.AssetOutput.Val, assetFunding.inputProofs,
+		)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to verify output "+
+				"proof: %w", err)
+		}
+
+		// If we reached this point, then the asset output and all
+		// inputs are valid, so we'll store the funding asset
+		// commitment.
+		err = assetFunding.addToFundingCommitment(
+			&assetProof.AssetOutput.Val,
+		)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to create "+
+				"commitment: %v", err)
+		}
+
+		// Do we expect more proofs to be incoming?
+		if !assetProof.Last.Val {
+			return tempPID, nil
+		}
+
+		// Now that we've validated the funding input and output
+		// proofs, we'll send an accept to the remote party.
+		assetAck := cmsg.NewAssetFundingAck(tempPID, true)
+		err = f.cfg.PeerMessenger.SendMessage(
+			ctx, assetFunding.peerPub, assetAck,
+		)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to send accept "+
+				"message: %w", err)
+		}
+
+	// As the responder, we'll get this message after we send
+	// AcceptChannel. This includes the suffix proofs for the funding
+	// output/transaction created by the funding output.
+	case *cmsg.AssetFundingCreated:
+		log.Infof("Storing funding output proofs")
+
+		fundingProofs := fn.Map(
+			assetProof.FundingOutputs.Val.Outputs,
+			func(o *cmsg.AssetOutput) *proof.Proof {
+				return &o.Proof.Val
+			},
+		)
+
+		err := f.validateProofs(fundingProofs)
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to verify funding "+
+				"proofs: %w", err)
+		}
+
+		// We'll just place this in the internal
+		// funding state, so we can derive the funding
+		// desc when we need to.
+		assetFunding.fundingOutputProofs = append(
+			assetFunding.fundingOutputProofs,
+			fundingProofs...,
+		)
+
+	// The remote party is accepting or rejecting our
+	// funding attempt. We'll send the response back to the
+	// main goroutine waiting to proceed with funding.
+	case *cmsg.AssetFundingAck:
+		accept := assetProof.Accept.Val
+		assetFunding.fundingAckChan <- accept
+	}
+
+	return tempPID, nil
+}
+
 // chanFunder is the main event loop that controls the asset specific portions
 // of the funding request.
 func (f *FundingController) chanFunder() {
@@ -1355,194 +1496,15 @@ func (f *FundingController) chanFunder() {
 		// asset inputs. We'll log this pending chan ID, then validate
 		// the proofs included.
 		case msg := <-f.msgs:
-			// A new proof message has just come in, so we'll
-			// extract the real proof wire message from the opaque
-			// message.
-			proofMsg, assetFunding, err := fundingFlows.fromMsg(
-				&f.cfg.ChainParams, msg,
+			tempFundingID, err := f.processFundingMsg(
+				ctxc, fundingFlows, msg,
 			)
 			if err != nil {
-				fErr := fmt.Errorf("unable to convert msg to "+
-					"proof: %w", err)
 				f.cfg.ErrReporter.ReportError(
-					ctxc, msg.PeerPub,
-					funding.PendingChanID{}, fErr,
+					ctxc, msg.PeerPub, tempFundingID,
+					err,
 				)
-				log.Error(fErr)
-				continue
-			}
-
-			log.Infof("Recv'd new message: %T", proofMsg)
-
-			tempPID := assetFunding.pid
-
-			switch assetProof := proofMsg.(type) {
-			// This is input proof, so we'll verify the challenge
-			// witness, then store the proof.
-			case *cmsg.TxAssetInputProof:
-				// Before we proceed, we'll make sure that we
-				// already know of the genesis proof for the
-				// incoming asset.
-				_, err := f.cfg.AssetSyncer.QueryAssetInfo(
-					ctxc, assetProof.AssetID.Val,
-				)
-				if err != nil {
-					fErr := fmt.Errorf("unable to verify "+
-						"genesis proof for "+
-						"asset_id=%v: %w",
-						ctxc, assetProof.AssetID.Val,
-						err)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					log.Error(fErr)
-					continue
-				}
-
-				p := assetProof.Proof.Val
-				log.Infof("Validating input proof, prev_out=%v",
-					p.OutPoint())
-
-				l, err := f.cfg.ChainBridge.GenProofChainLookup(
-					&p,
-				)
-				if err != nil {
-					fErr := fmt.Errorf("unable to create "+
-						"proof lookup: %w", err)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					log.Error(fErr)
-					continue
-				}
-
-				// Next, we'll validate this proof to make sure
-				// that the initiator is actually able to spend
-				// these outputs in the funding transaction.
-				_, err = p.Verify(
-					ctxc, nil, f.cfg.HeaderVerifier,
-					proof.DefaultMerkleVerifier,
-					f.cfg.GroupVerifier, l,
-				)
-				if err != nil {
-					fErr := fmt.Errorf("unable to verify "+
-						"ownership proof: %w", err)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					log.Error(fErr)
-					continue
-				}
-
-				// Now that we know the proof is valid, we'll
-				// add it to the funding state.
-				assetFunding.addInputProof(
-					&assetProof.Proof.Val,
-				)
-
-			// This is an output proof, so now we should be able to
-			// verify the asset funding output with witness intact.
-			case *cmsg.TxAssetOutputProof:
-				err := f.validateWitness(
-					assetProof.AssetOutput.Val,
-					assetFunding.inputProofs,
-				)
-				if err != nil {
-					fErr := fmt.Errorf("unable to verify "+
-						"output proof: %w", err)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					log.Error(fErr)
-					continue
-				}
-
-				// If we reached this point, then the asset
-				// output and all inputs are valid, so we'll
-				// store the funding asset commitment.
-				err = assetFunding.addToFundingCommitment(
-					&assetProof.AssetOutput.Val,
-				)
-				if err != nil {
-					fErr := fmt.Errorf("unable to create "+
-						"commitment: %v", err)
-					log.Error(fErr)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					continue
-				}
-
-				// Do we expect more proofs to be incoming?
-				if !assetProof.Last.Val {
-					continue
-				}
-
-				// Now that we've validated the funding input
-				// and output proofs, we'll send an accept to
-				// the remote party.
-				assetAck := cmsg.NewAssetFundingAck(
-					tempPID, true,
-				)
-				err = f.cfg.PeerMessenger.SendMessage(
-					ctxc, assetFunding.peerPub, assetAck,
-				)
-				if err != nil {
-					fErr := fmt.Errorf("unable to send "+
-						"accept message: %w", err)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					log.Error(fErr)
-				}
-
-			// As the responder, we'll get this message after we
-			// send AcceptChannel. This includes the suffix proofs
-			// for the funding output/transaction created by the
-			// funding output.
-			case *cmsg.AssetFundingCreated:
-				log.Infof("Storing funding output proofs")
-
-				fundingProofs := fn.Map(
-					assetProof.FundingOutputs.Val.Outputs,
-					func(o *cmsg.AssetOutput) *proof.Proof {
-						return &o.Proof.Val
-					},
-				)
-
-				err := f.validateProofs(fundingProofs)
-				if err != nil {
-					fErr := fmt.Errorf("unable to verify "+
-						"funding proofs: %w", err)
-					f.cfg.ErrReporter.ReportError(
-						ctxc, msg.PeerPub, tempPID,
-						fErr,
-					)
-					log.Error(fErr)
-
-					continue
-				}
-
-				// We'll just place this in the internal
-				// funding state, so we can derive the funding
-				// desc when we need to.
-				assetFunding.fundingOutputProofs = append(
-					assetFunding.fundingOutputProofs,
-					fundingProofs...,
-				)
-
-			// The remote party is accepting or rejecting our
-			// funding attempt. We'll send the response back to the
-			// main goroutine waiting to proceed with funding.
-			case *cmsg.AssetFundingAck:
-				accept := assetProof.Accept.Val
-				assetFunding.fundingAckChan <- accept
+				log.Error(err)
 			}
 
 		// A new request for a tapscript root has come across. If we
