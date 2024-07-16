@@ -128,6 +128,17 @@ type TxPublisher interface {
 	PublishTransaction(context.Context, *wire.MsgTx) error
 }
 
+// AssetSyncer is used to ensure that we know of the set of assets that'll be
+// used as funding input to an accepted channel.
+type AssetSyncer interface {
+	// QueryAssetInfo attempts to locate asset genesis information by
+	// querying geneses already known to this node. If asset issuance was
+	// not previously verified, we then query universes in our federation
+	// for issuance proofs.
+	QueryAssetInfo(ctx context.Context,
+		id asset.ID) (*asset.AssetGroup, error)
+}
+
 // FundingControllerCfg is a configuration struct that houses the necessary
 // abstractions needed to drive funding.
 type FundingControllerCfg struct {
@@ -184,6 +195,10 @@ type FundingControllerCfg struct {
 	// DefaultCourierAddr is the default address the funding controller uses
 	// to deliver the funding output proofs to the channel peer.
 	DefaultCourierAddr *url.URL
+
+	// AssetSyncer is used to ensure that we've already verified the asset
+	// genesis for any assets used within channels.
+	AssetSyncer AssetSyncer
 }
 
 // bindFundingReq is a request to bind a pending channel ID to a complete aux
@@ -1365,6 +1380,26 @@ func (f *FundingController) chanFunder() {
 			// This is input proof, so we'll verify the challenge
 			// witness, then store the proof.
 			case *cmsg.TxAssetInputProof:
+				// Before we proceed, we'll make sure that we
+				// already know of the genesis proof for the
+				// incoming asset.
+				_, err := f.cfg.AssetSyncer.QueryAssetInfo(
+					ctxc, assetProof.AssetID.Val,
+				)
+				if err != nil {
+					fErr := fmt.Errorf("unable to verify "+
+						"genesis proof for "+
+						"asset_id=%v: %w",
+						ctxc, assetProof.AssetID.Val,
+						err)
+					f.cfg.ErrReporter.ReportError(
+						ctxc, msg.PeerPub, tempPID,
+						fErr,
+					)
+					log.Error(fErr)
+					continue
+				}
+
 				p := assetProof.Proof.Val
 				log.Infof("Validating input proof, prev_out=%v",
 					p.OutPoint())

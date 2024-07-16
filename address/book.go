@@ -195,10 +195,10 @@ func NewBook(cfg BookConfig) *Book {
 	}
 }
 
-// queryAssetInfo attempts to locate asset genesis information by querying
+// QueryAssetInfo attempts to locate asset genesis information by querying
 // geneses already known to this node. If asset issuance was not previously
 // verified, we then query universes in our federation for issuance proofs.
-func (b *Book) queryAssetInfo(ctx context.Context,
+func (b *Book) QueryAssetInfo(ctx context.Context,
 	id asset.ID) (*asset.AssetGroup, error) {
 
 	// Check if we know of this asset ID already.
@@ -262,7 +262,7 @@ func (b *Book) NewAddress(ctx context.Context, addrVersion Version,
 
 	// Before we proceed and make new keys, make sure that we actually know
 	// of this asset ID, or can import it.
-	if _, err := b.queryAssetInfo(ctx, assetID); err != nil {
+	if _, err := b.QueryAssetInfo(ctx, assetID); err != nil {
 		return nil, fmt.Errorf("unable to make address for unknown "+
 			"asset %x: %w", assetID[:], err)
 	}
@@ -300,7 +300,7 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 	// Before we proceed, we'll make sure that the asset group is known to
 	// the local store. Otherwise, we can't make an address as we haven't
 	// bootstrapped it.
-	assetGroup, err := b.queryAssetInfo(ctx, assetID)
+	assetGroup, err := b.QueryAssetInfo(ctx, assetID)
 	if err != nil {
 		return nil, err
 	}
