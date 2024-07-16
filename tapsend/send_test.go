@@ -2421,8 +2421,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 
 	vOutCommitmentProof := proof.CommitmentProof{
 		Proof: commitment.Proof{
-			TaprootAssetProof: commitment.
-			TaprootAssetProof{
+			TaprootAssetProof: commitment.TaprootAssetProof{
 				Version: asset1Commitment.Version,
 			},
 		},
