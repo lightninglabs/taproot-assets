@@ -1302,23 +1302,156 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 				"proofs: %w", err)
 		}
 
-		// We'll just place this in the internal
-		// funding state, so we can derive the funding
-		// desc when we need to.
+		// We'll just place this in the internal funding state, so we
+		// can derive the funding desc when we need to.
 		assetFunding.fundingOutputProofs = append(
 			assetFunding.fundingOutputProofs,
 			fundingProofs...,
 		)
 
-	// The remote party is accepting or rejecting our
-	// funding attempt. We'll send the response back to the
-	// main goroutine waiting to proceed with funding.
+	// The remote party is accepting or rejecting our funding attempt.
+	// We'll send the response back to the main goroutine waiting to
+	// proceed with funding.
 	case *cmsg.AssetFundingAck:
 		accept := assetProof.Accept.Val
 		assetFunding.fundingAckChan <- accept
 	}
 
 	return tempPID, nil
+}
+
+// processFundingReq processes a new funding request from the main goroutine.
+func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
+	fundReq *FundReq) error {
+
+	// To start, we'll make a new pending asset funding desc. This'll be
+	// our scratch pad during the asset funding process.
+	tempPID, err := newPendingChanID()
+	if err != nil {
+		return fmt.Errorf("unable to create new pending chan "+
+			"ID: %w", err)
+	}
+	fundingState := &pendingAssetFunding{
+		chainParams:            &f.cfg.ChainParams,
+		peerPub:                fundReq.PeerPub,
+		pid:                    tempPID,
+		initiator:              true,
+		amt:                    fundReq.AssetAmount,
+		pushAmt:                fundReq.PushAmount,
+		feeRate:                fundReq.FeeRate,
+		fundingAckChan:         make(chan bool, 1),
+		fundingFinalizedSignal: make(chan struct{}),
+	}
+
+	fundingFlows[tempPID] = fundingState
+
+	// With our initial state created, we'll now attempt to fund the
+	// channel on the TAP level with a vPacket.
+	fundingVpkt, err := f.fundVirtualPacket(
+		fundReq.ctx, fundReq.AssetID,
+		fundReq.AssetAmount,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to fund vPacket: %w", err)
+	}
+
+	// Now that we know the final funding asset root along with the splits,
+	// we can derive the tapscript root that'll be used alongside the
+	// internal key (which we'll only learn from lnd later as we finalize
+	// the funding PSBT).
+	fundingOutput := fundingVpkt.VPacket.Outputs[0]
+	fundingCommitVersion, err := tappsbt.CommitmentVersion(
+		fundingVpkt.VPacket.Version,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create commitment: %w", err)
+	}
+
+	fundingCommitment, err := commitment.FromAssets(
+		fundingCommitVersion,
+		fundingOutput.Asset.Copy(),
+	)
+	if err != nil {
+		return fmt.Errorf("unable to create commitment: %w", err)
+	}
+
+	fundingState.fundingAssetCommitment = fundingCommitment
+
+	tapsend.LogCommitment(
+		"funding output", 0, fundingCommitment, &btcec.PublicKey{},
+		nil, nil,
+	)
+
+	// Before we can send our OpenChannel message, we'll
+	// need to derive then send a series of ownership
+	// proofs to the remote party.
+	err = f.sendInputOwnershipProofs(
+		fundReq.PeerPub, fundingVpkt.VPacket, fundingState,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to send input ownership "+
+			"proofs: %w", err)
+	}
+
+	// With the ownership proof sent, we'll now spawn a goroutine to take
+	// care of the final funding steps.
+	f.Wg.Add(1)
+	go func() {
+		defer f.Wg.Done()
+
+		log.Infof("Waiting for funding ack...")
+
+		// Before we proceed with the channel funding, we'll wait to
+		// receive a funding ack from the remote party.
+		select {
+		case accept := <-fundingState.fundingAckChan:
+			log.Infof("funding ack received: accept=%v", accept)
+			if !accept {
+				return
+			}
+
+		case <-time.After(ackTimeout):
+			err := fmt.Errorf("didn't receive funding ack after %v",
+				ackTimeout)
+			log.Error(err)
+			fundReq.errChan <- err
+			return
+
+		case <-f.Quit:
+			return
+		}
+
+		chanPoint, err := f.completeChannelFunding(
+			fundReq.ctx, fundingState, fundingVpkt,
+		)
+		if err != nil {
+			// If we've failed, then we'll unlock any of the locked
+			// UTXOs, so they're free again.
+			uErr := fundingState.unlockInputs(
+				fundReq.ctx, f.cfg.ChainWallet,
+			)
+			if uErr != nil {
+				log.Errorf("unable to unlock "+
+					"inputs: %v", uErr)
+			}
+
+			uErr = fundingState.unlockAssetInputs(
+				fundReq.ctx, f.cfg.CoinSelector,
+			)
+			if uErr != nil {
+				log.Errorf("Unable to unlock "+
+					"asset inputs: %v",
+					uErr)
+			}
+
+			fundReq.errChan <- err
+			return
+		}
+
+		fundReq.respChan <- chanPoint
+	}()
+
+	return nil
 }
 
 // chanFunder is the main event loop that controls the asset specific portions
@@ -1340,157 +1473,12 @@ func (f *FundingController) chanFunder() {
 		// state, send our input proofs, then kick off the channel
 		// funding asynchronously.
 		case fundReq := <-f.newFundingReqs:
-			// To start, we'll make a new pending asset funding
-			// desc. This'll be our scratch pad during the asset
-			// funding process.
-			tempPID, err := newPendingChanID()
+			err := f.processFundingReq(fundingFlows, fundReq)
 			if err != nil {
-				log.Errorf("unable to create new pending "+
-					"chan ID: %v", err)
-
+				log.Error(err)
 				fundReq.errChan <- err
 				continue
 			}
-			fundingState := &pendingAssetFunding{
-				chainParams:            &f.cfg.ChainParams,
-				peerPub:                fundReq.PeerPub,
-				pid:                    tempPID,
-				initiator:              true,
-				amt:                    fundReq.AssetAmount,
-				pushAmt:                fundReq.PushAmount,
-				feeRate:                fundReq.FeeRate,
-				fundingAckChan:         make(chan bool, 1),
-				fundingFinalizedSignal: make(chan struct{}),
-			}
-
-			fundingFlows[tempPID] = fundingState
-
-			// With our initial state created, we'll now attempt to
-			// fund the channel on the TAP level with a vPacket.
-			fundingVpkt, err := f.fundVirtualPacket(
-				fundReq.ctx, fundReq.AssetID,
-				fundReq.AssetAmount,
-			)
-			if err != nil {
-				fErr := fmt.Errorf("unable to fund "+
-					"vPacket: %v", err)
-				log.Error(fErr)
-				fundReq.errChan <- fErr
-				continue
-			}
-
-			// Now that we know the final funding asset root along
-			// with the splits, we can derive the tapscript root
-			// that'll be used alongside the internal key (which
-			// we'll only learn from lnd later as we finalize the
-			// funding PSBT).
-			fundingOutput := fundingVpkt.VPacket.Outputs[0]
-			fundingCommitVersion, err := tappsbt.CommitmentVersion(
-				fundingVpkt.VPacket.Version,
-			)
-			if err != nil {
-				fErr := fmt.Errorf("unable to create "+
-					"commitment: %w", err)
-				log.Error(fErr)
-				fundReq.errChan <- fErr
-				continue
-			}
-
-			fundingCommitment, err := commitment.FromAssets(
-				fundingCommitVersion,
-				fundingOutput.Asset.Copy(),
-			)
-			if err != nil {
-				fErr := fmt.Errorf("unable to create "+
-					"commitment: %w", err)
-				log.Error(fErr)
-				fundReq.errChan <- fErr
-				continue
-			}
-
-			fundingState.fundingAssetCommitment = fundingCommitment
-
-			tapsend.LogCommitment(
-				"funding output", 0, fundingCommitment,
-				&btcec.PublicKey{}, nil, nil,
-			)
-
-			// Before we can send our OpenChannel message, we'll
-			// need to derive then send a series of ownership
-			// proofs to the remote party.
-			err = f.sendInputOwnershipProofs(
-				fundReq.PeerPub, fundingVpkt.VPacket,
-				fundingState,
-			)
-			if err != nil {
-				fErr := fmt.Errorf("unable to send input "+
-					"ownership proofs: %v", err)
-				log.Error(fErr)
-				fundReq.errChan <- fErr
-				continue
-			}
-
-			// With the ownership proof sent, we'll now spawn a
-			// goroutine to take care of the final funding steps.
-			f.Wg.Add(1)
-			go func() {
-				defer f.Wg.Done()
-
-				log.Infof("Waiting for funding ack...")
-
-				// Before we proceed with the channel funding,
-				// we'll wait to receive a funding ack from the
-				// remote party.
-				select {
-				case accept := <-fundingState.fundingAckChan:
-					log.Infof("funding ack received: "+
-						"accept=%v", accept)
-					if !accept {
-						return
-					}
-
-				case <-time.After(ackTimeout):
-					err := fmt.Errorf("didn't receive "+
-						"funding ack after %v",
-						ackTimeout)
-					log.Error(err)
-					fundReq.errChan <- err
-					return
-
-				case <-f.Quit:
-					return
-				}
-
-				chanPoint, err := f.completeChannelFunding(
-					fundReq.ctx, fundingState, fundingVpkt,
-				)
-				if err != nil {
-					// If we've failed, then we'll unlock
-					// any of the locked UTXOs, so they're
-					// free again.
-					uErr := fundingState.unlockInputs(
-						fundReq.ctx, f.cfg.ChainWallet,
-					)
-					if uErr != nil {
-						log.Errorf("Unable to unlock "+
-							"inputs: %v", uErr)
-					}
-
-					uErr = fundingState.unlockAssetInputs(
-						fundReq.ctx, f.cfg.CoinSelector,
-					)
-					if uErr != nil {
-						log.Errorf("Unable to unlock "+
-							"asset inputs: %v",
-							uErr)
-					}
-
-					fundReq.errChan <- err
-					return
-				}
-
-				fundReq.respChan <- chanPoint
-			}()
 
 		// The remote party has sent us some upfront proof for channel
 		// asset inputs. We'll log this pending chan ID, then validate
