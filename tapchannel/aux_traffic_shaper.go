@@ -268,8 +268,9 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	log.Debugf("Producing HTLC extra data for RFQ ID %x (SCID %d): "+
-		"asset ID %x, asset amount %d", rfqID[:], rfqID.Scid(),
-		quote.Request.AssetID[:], numAssetUnits)
+		"asset ID %x, btc_amt=%v, asset amount %d", rfqID[:],
+		rfqID.Scid(), quote.Request.AssetID[:], totalAmount,
+		numAssetUnits)
 
 	htlc.Amounts.Val.Balances = []*rfqmsg.AssetBalance{
 		rfqmsg.NewAssetBalance(*quote.Request.AssetID, numAssetUnits),
