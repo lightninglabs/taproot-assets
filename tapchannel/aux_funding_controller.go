@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	crand "crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -1441,6 +1442,19 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 				log.Errorf("Unable to unlock asset inputs: %v",
 					uErr)
 			}
+
+			// If anything went wrong during the funding process,
+			// the remote side might have an in-memory state and
+			// wouldn't allow us to try again within the next 10
+			// minutes (due to only one pending channel per peer
+			// default value). To avoid running into this issue, we
+			// make sure to inform the remote about us aborting the
+			// channel. We don't send them the actual error though,
+			// that would give away too much information.
+			f.cfg.ErrReporter.ReportError(
+				fundReq.ctx, fundReq.PeerPub, tempPID,
+				errors.New("internal error"),
+			)
 
 			fundReq.errChan <- err
 			return
