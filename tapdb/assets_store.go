@@ -1823,6 +1823,11 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 	assetFilter.Spent = sqlBool(false)
 	assetFilter.Leased = sqlBool(false)
 
+	// We also only want to select confirmed commitments (freshly minted
+	// unconfirmed assets would otherwise be included). Unconfirmed assets
+	// have a block height of 0, so we set the minimum block height to 1.
+	assetFilter.MinAnchorHeight = sqlInt32(1)
+
 	return a.queryCommitments(ctx, assetFilter)
 }
 

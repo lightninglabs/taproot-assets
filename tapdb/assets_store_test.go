@@ -301,6 +301,7 @@ func TestImportAssetProof(t *testing.T) {
 		t, testProof.AssetSnapshot.OutPoint, dbAsset.AnchorOutpoint,
 	)
 	require.Equal(t, testProof.AnchorTx.TxHash(), dbAsset.AnchorTx.TxHash())
+	require.NotZero(t, dbAsset.AnchorBlockHeight)
 
 	// We should also be able to fetch the proof we just inserted using the
 	// script key of the new asset.
