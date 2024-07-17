@@ -388,7 +388,35 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, err
 	}
 
-	return f.fundPacketWithInputs(ctx, fundDesc, vPkt, selectedCommitments)
+	// If we return with an error, we want to release the coins we've
+	// selected.
+	success := false
+	defer func() {
+		if !success {
+			outpoints := fn.Map(
+				selectedCommitments,
+				func(c *AnchoredCommitment) wire.OutPoint {
+					return c.AnchorPoint
+				},
+			)
+			err := f.cfg.CoinSelector.ReleaseCoins(
+				ctx, outpoints...,
+			)
+			if err != nil {
+				log.Errorf("Unable to release coins: %v", err)
+			}
+		}
+	}()
+
+	pkt, err := f.fundPacketWithInputs(
+		ctx, fundDesc, vPkt, selectedCommitments,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	success = true
+	return pkt, nil
 }
 
 // FundBurn funds a virtual transaction for burning the given amount of units of
