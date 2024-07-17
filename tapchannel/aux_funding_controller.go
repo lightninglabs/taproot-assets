@@ -1264,7 +1264,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 		)
 		if err != nil {
 			return tempPID, fmt.Errorf("unable to create "+
-				"commitment: %v", err)
+				"commitment: %w", err)
 		}
 
 		// Do we expect more proofs to be incoming?
@@ -1431,16 +1431,14 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 				fundReq.ctx, f.cfg.ChainWallet,
 			)
 			if uErr != nil {
-				log.Errorf("unable to unlock "+
-					"inputs: %v", uErr)
+				log.Errorf("unable to unlock inputs: %v", uErr)
 			}
 
 			uErr = fundingState.unlockAssetInputs(
 				fundReq.ctx, f.cfg.CoinSelector,
 			)
 			if uErr != nil {
-				log.Errorf("Unable to unlock "+
-					"asset inputs: %v",
+				log.Errorf("Unable to unlock asset inputs: %v",
 					uErr)
 			}
 
