@@ -755,11 +755,14 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		}
 
 		chainAssets[i] = &asset.ChainAsset{
-			Asset:                  assetSprout,
-			IsSpent:                sprout.Spent,
-			AnchorTx:               anchorTx,
-			AnchorBlockHash:        anchorBlockHash,
-			AnchorOutpoint:         anchorOutpoint,
+			Asset:           assetSprout,
+			IsSpent:         sprout.Spent,
+			AnchorTx:        anchorTx,
+			AnchorBlockHash: anchorBlockHash,
+			AnchorOutpoint:  anchorOutpoint,
+			AnchorBlockHeight: uint32(
+				sprout.AnchorBlockHeight.Int32,
+			),
 			AnchorInternalKey:      anchorInternalKey,
 			AnchorMerkleRoot:       sprout.AnchorMerkleRoot,
 			AnchorTapscriptSibling: sprout.AnchorTapscriptSibling,

@@ -1826,6 +1826,11 @@ func AssertAssetsMinted(t *testing.T, tapClient TapdClient,
 						firstOutpoint)
 				}
 
+				if anchor.BlockHeight == 0 {
+					return fmt.Errorf("missing block " +
+						"height")
+				}
+
 				return nil
 			},
 			AssetScriptKeyCheck(assetRequest.Asset.ScriptKey),
