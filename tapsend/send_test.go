@@ -778,6 +778,21 @@ var prepareOutputAssetsTestCases = []testCase{{
 	},
 	err: nil,
 }, {
+	name: "asset split with missing root locator",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+
+		pkt := createPacket(
+			state.address1, state.asset2PrevID,
+			state, state.asset2InputAssets, false,
+		)
+
+		pkt.Outputs[0].Type = tappsbt.TypeSimple
+
+		return tapsend.PrepareOutputAssets(context.Background(), pkt)
+	},
+	err: tapsend.ErrNoRootLocator,
+}, {
 	name: "full value non-interactive send with un-spendable change",
 	f: func(t *testing.T) error {
 		state := initSpendScenario(t)

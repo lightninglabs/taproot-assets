@@ -124,6 +124,12 @@ var (
 	// in a virtual transaction that was already committed to an anchor
 	// output.
 	ErrAssetNotSigned = errors.New("asset not signed")
+
+	// ErrNoRootLocator is an error that is returned when a split commitment
+	// is created without a split root output.
+	ErrNoRootLocator = errors.New(
+		"cannot create split commitment without split root output",
+	)
 )
 
 var (
@@ -588,6 +594,13 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		}
 
 		splitLocators = append(splitLocators, &locator)
+	}
+
+	// If we're creating a split commitment, there must be a split root.
+	// If none of the outputs was designated as the split root, then
+	// something was done incorrectly.
+	if rootLocator == nil {
+		return ErrNoRootLocator
 	}
 
 	splitCommitment, err := commitment.NewSplitCommitment(
