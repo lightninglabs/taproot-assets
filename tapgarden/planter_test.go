@@ -188,6 +188,31 @@ func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tapgarden.See
 	return seedlings
 }
 
+// assertBatchResumedBackground unblocks the fee estimation and PSBT funding
+// that occur when a batch is resumed by the planter.
+func (t *mintingTestHarness) assertBatchResumedBackground(wg *sync.WaitGroup,
+	fee, fund bool) {
+
+	t.Helper()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		if fee {
+			_, _ = fn.RecvOrTimeout(
+				t.chain.FeeEstimateSignal, defaultTimeout,
+			)
+		}
+
+		if fund {
+			_, _ = fn.RecvOrTimeout(
+				t.wallet.FundPsbtSignal, defaultTimeout,
+			)
+		}
+	}()
+}
+
 func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 	t.Helper()
 
@@ -195,6 +220,82 @@ func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
 	require.NoError(t, err)
 
 	return *key
+}
+
+// assertKeyDerivedBackground unblocks key derivation with the test harness key
+// ring. This is only needed when using the key ring from a unit test and not
+// the planter or caretaker.
+func (t *mintingTestHarness) assertKeyDerivedBackground(
+	wg *sync.WaitGroup) **keychain.KeyDescriptor {
+
+	t.Helper()
+
+	var (
+		key **keychain.KeyDescriptor
+		err error
+	)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		key, err = fn.RecvOrTimeout(t.keyRing.ReqKeys, defaultTimeout)
+		require.NoError(t, err)
+	}()
+
+	// This return value will be unsafe to use until we confirm that the
+	// above goroutine has returned.
+	return key
+}
+
+// createExternalBatch creates a new pending batch outside of the planter, which
+// can then be stored on disk.
+func (t *mintingTestHarness) createExternalBatch(wg *sync.WaitGroup,
+	numSeedlings int) *tapgarden.MintingBatch {
+
+	t.Helper()
+
+	seedlings := t.newRandSeedlings(numSeedlings)
+	seedlingsWithKeys := make(map[string]*tapgarden.Seedling)
+	for _, seedling := range seedlings {
+		scriptKeyInternalDesc, _ := test.RandKeyDesc(t)
+		scriptKey := asset.NewScriptKeyBip86(scriptKeyInternalDesc)
+		seedling.ScriptKey = scriptKey
+
+		// The group internal key should be from the key ring since we
+		// expect the caretaker to sign with it later.
+		if seedling.EnableEmission {
+			t.assertKeyDerivedBackground(wg)
+			groupKey, err := t.keyRing.DeriveNextKey(
+				context.Background(),
+				asset.TaprootAssetsKeyFamily,
+			)
+			require.NoError(t, err)
+			wg.Wait()
+
+			seedling.GroupInternalKey = &groupKey
+		}
+
+		seedlingsWithKeys[seedling.AssetName] = seedling
+	}
+
+	t.assertKeyDerivedBackground(wg)
+	batchInternalKey, err := t.keyRing.DeriveNextKey(
+		context.Background(), asset.TaprootAssetsKeyFamily,
+	)
+	require.NoError(t, err)
+	wg.Wait()
+
+	newBatch := &tapgarden.MintingBatch{
+		CreationTime: time.Now(),
+		HeightHint:   0,
+		BatchKey:     batchInternalKey,
+		Seedlings:    seedlingsWithKeys,
+		AssetMetas:   make(tapgarden.AssetMetas),
+	}
+	newBatch.UpdateState(tapgarden.BatchStatePending)
+
+	return newBatch
 }
 
 // queueSeedlingsInBatch adds the series of seedlings to the batch, an error is
@@ -711,6 +812,20 @@ func (t *mintingTestHarness) assertLastBatchState(numBatches int,
 
 	require.Len(t, batches, numBatches)
 	require.Equal(t, batchState, batches[len(batches)-1].State())
+}
+
+func (t *mintingTestHarness) assertNumBatchesWithState(numBatches int,
+	state tapgarden.BatchState) {
+
+	t.Helper()
+
+	batches, err := t.store.FetchAllBatches(context.Background())
+	require.NoError(t, err)
+
+	batchCount := fn.Count(batches, func(b *tapgarden.MintingBatch) bool {
+		return b.State() == state
+	})
+	require.Equal(t, numBatches, batchCount)
 }
 
 func (t *mintingTestHarness) fetchSingleBatch(
@@ -1314,7 +1429,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// Force fee estimation to fail so we crash the caretaker before the
 	// batch can be frozen.
-	t.chain.FailFeeEstimates(true)
+	t.chain.FailFeeEstimatesOnce()
 
 	var (
 		wg             sync.WaitGroup
@@ -1339,15 +1454,9 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	t.assertLastBatchState(batchCount, tapgarden.BatchStateFrozen)
 	t.assertFinalizeBatch(&wg, respChan, "unable to estimate fee")
 
-	// This funding error is also sent on the main error channel, so drain
-	// that before continuing.
-	caretakerErr := <-t.errChan
-	require.ErrorContains(t, caretakerErr, "unable to fund minting PSBT")
-
 	// Queue another batch, reset fee estimation behavior, and set TX
 	// confirmation registration to fail.
 	t.queueInitialBatch(numSeedlings)
-	t.chain.FailFeeEstimates(false)
 	t.chain.FailConf(true)
 
 	// Finalize the pending batch to start a caretaker, and progress the
@@ -1361,7 +1470,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	caretakerCount++
 
 	t.assertFinalizeBatch(&wg, respChan, "")
-	caretakerErr = <-t.errChan
+	caretakerErr := <-t.errChan
 	require.ErrorContains(t, caretakerErr, "error getting confirmation")
 
 	// The stopped caretaker will still exist but there should be no pending
@@ -1463,12 +1572,6 @@ func testFinalizeWithTapscriptTree(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, respChan, &finalizeReq)
 	finalizeErr := <-respChan
 	require.ErrorContains(t, finalizeErr.Err, "unable to store")
-
-	// Empty the main error channel before reattempting a mint.
-	select {
-	case <-t.errChan:
-	default:
-	}
 
 	// Allow tapscript tree storage to succeed, but force tapscript tree
 	// loading to fail.
@@ -1669,11 +1772,6 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	t.finalizeBatch(&wg, finalizeRespChan, &finalizeReq)
 	t.assertFinalizeBatch(&wg, finalizeRespChan, "batch already funded")
 
-	// This finalize error is also sent on the main error channel, so drain
-	// that before continuing.
-	caretakerErr := <-t.errChan
-	require.ErrorContains(t, caretakerErr, "batch already funded")
-
 	// Add the seedlings modified earlier to the batch, and check that they
 	// were added correctly.
 	t.queueSeedlingsInBatch(true, seedlings...)
@@ -1780,6 +1878,133 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	t.assertMintOutputKey(mintedBatch, &defaultTapHash)
 }
 
+func testFundSealOnRestart(t *mintingTestHarness) {
+	// First, create a new chain planter instance using the supplied test
+	// harness.
+	t.refreshChainPlanter()
+
+	var (
+		wg               sync.WaitGroup
+		batchCount       = 0
+		failedBatchCount = 0
+	)
+
+	// Create an initial batch of 5 seedlings. We'll re-use these seedlings
+	// over multiple batches.
+	const numSeedlings = 5
+	seedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(false, seedlings...)
+	batchCount++
+
+	// Force fee estimation to fail so that batch funding fails.
+	t.chain.FailFeeEstimatesOnce()
+	failedBatchCount++
+
+	// Restart the planter. The planter should try to fund the batch, and
+	// fail. The batch should show as cancelled, and the pending batch
+	// should be empty. The planter should still be running.
+	t.assertBatchResumedBackground(&wg, true, false)
+	t.refreshChainPlanter()
+	wg.Wait()
+
+	t.assertNoPendingBatch()
+	t.assertNumCaretakersActive(0)
+	t.assertNumBatchesWithState(
+		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
+	)
+
+	// Allow batch funding to succeed, but set group key signing to fail so
+	// that batch sealing fails.
+	t.genSigner.FailSigning = true
+	failedBatchCount++
+
+	// Create a seedling with emission enabled, to ensure that batch sealing
+	// will try to create an asset group witness.
+	groupedSeedling := t.newRandSeedlings(1)[0]
+	groupedSeedling.EnableEmission = true
+	seedlings = append(seedlings, groupedSeedling)
+
+	t.queueSeedlingsInBatch(false, seedlings...)
+	batchCount++
+
+	// Restart the planter. The planter should try to seal the batch, and
+	// fail. The batch should show as cancelled, and the pending batch
+	// should be empty. The planter should still be running.
+	t.assertBatchResumedBackground(&wg, true, true)
+	t.refreshChainPlanter()
+	wg.Wait()
+
+	t.assertNoPendingBatch()
+	t.assertNumCaretakersActive(0)
+	t.assertNumBatchesWithState(
+		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
+	)
+
+	// Allow batch sealing to succeed. The planter should now be able to
+	// start a caretaker for the batch on restart.
+	t.genSigner.FailSigning = false
+	t.queueSeedlingsInBatch(false, seedlings...)
+	batchCount++
+
+	t.assertBatchResumedBackground(&wg, true, true)
+	t.refreshChainPlanter()
+	wg.Wait()
+
+	// With a caretaker started, the caretaker should broadcast the batch
+	// as normal.
+	t.assertNumCaretakersActive(1)
+	t.assertNoPendingBatch()
+
+	sendConfNtfn := t.progressCaretaker(true, nil, nil)
+	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
+
+	sendConfNtfn()
+	t.assertNoError()
+	t.assertNumCaretakersActive(0)
+	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+
+	// Submit another batch, which we'll leave as pending.
+	secondSeedlings := t.newRandSeedlings(numSeedlings)
+	t.queueSeedlingsInBatch(false, secondSeedlings...)
+	batchCount++
+
+	t.assertLastBatchState(batchCount, tapgarden.BatchStatePending)
+	require.NoError(t, t.planter.Stop())
+	t.planter = nil
+
+	// We should also be able to resume one batch even when resuming another
+	// batch fails. Since we can only queue one batch at a time, we'll
+	// insert another pending batch on disk while the planter is shut down.
+	dbBatch := t.createExternalBatch(&wg, numSeedlings)
+	batchCount++
+	err := t.store.CommitMintingBatch(context.Background(), dbBatch)
+	require.NoError(t, err)
+
+	// With two pending batches on disk, we want resume for the first batch
+	// to fail. Resume for the second batch should succeed.
+	t.chain.FailFeeEstimatesOnce()
+	failedBatchCount++
+
+	t.assertBatchResumedBackground(&wg, true, false)
+	t.assertBatchResumedBackground(&wg, true, true)
+	t.refreshChainPlanter()
+	wg.Wait()
+
+	t.assertNumCaretakersActive(1)
+	t.assertNoPendingBatch()
+
+	sendConfNtfn = t.progressCaretaker(true, nil, nil)
+	t.assertLastBatchState(batchCount, tapgarden.BatchStateBroadcast)
+
+	sendConfNtfn()
+	t.assertNoError()
+	t.assertNumCaretakersActive(0)
+	t.assertNumBatchesWithState(
+		failedBatchCount, tapgarden.BatchStateSeedlingCancelled,
+	)
+	t.assertLastBatchState(batchCount, tapgarden.BatchStateFinalized)
+}
+
 // mintingStoreTestCase is used to programmatically run a series of test cases
 // that are parametrized based on a fresh minting store.
 type mintingStoreTestCase struct {
@@ -1812,6 +2037,10 @@ var testCases = []mintingStoreTestCase{
 	{
 		name:     "fund_seal_before_finalize",
 		testFunc: testFundSealBeforeFinalize,
+	},
+	{
+		name:     "fund_seal_on_restart",
+		testFunc: testFundSealOnRestart,
 	},
 }
 

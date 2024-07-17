@@ -343,6 +343,7 @@ func (c *ChainPlanter) Start() error {
 		// completion. We'll skip batches that were cancelled.
 		for _, batch := range nonFinalBatches {
 			batchState := batch.State()
+			batchKey := batch.BatchKey.PubKey.SerializeCompressed()
 
 			if batchState == BatchStateSeedlingCancelled ||
 				batchState == BatchStateSproutCancelled {
@@ -357,6 +358,27 @@ func (c *ChainPlanter) Start() error {
 				batch.AssetMetas = make(AssetMetas)
 			}
 
+			// If batch funding or sealing fail during startup, the
+			// batch will be marked as cancelled. The batch can
+			// still be displayed by the planter, and can be
+			// resubmitted manually.
+			cancelBatch := func() {
+				log.Warnf("Marking batch as cancelled (%x)",
+					batchKey)
+				err := c.cfg.Log.UpdateBatchState(
+					ctx, batch.BatchKey.PubKey,
+					BatchStateSeedlingCancelled,
+				)
+
+				// If updating the batch state fails, the batch
+				// will still be skipped on this startup; we can
+				// continue without passing the error further.
+				if err != nil {
+					log.Warnf("Unable to cancel batch (%x)",
+						batchKey)
+				}
+			}
+
 			// TODO(jhb): Log manual fee rates?
 			// If the batch was still pending, or if batch
 			// finalization was interrupted, it may need to be
@@ -364,32 +386,46 @@ func (c *ChainPlanter) Start() error {
 			// A batch that was already properly frozen at this
 			// point should not be modified before being assigned a
 			// caretaker.
-			batchKey := batch.BatchKey.PubKey.SerializeCompressed()
 			if batchState == BatchStatePending ||
 				batchState == BatchStateFrozen {
+
+				var (
+					fundErr error
+					sealErr error
+				)
 
 				if !batch.IsFunded() {
 					log.Infof("Funding non-finalized "+
 						"batch from DB (%x)", batchKey)
-					err := c.fundBatch(
+					fundErr = c.fundBatch(
 						ctx, FundParams{}, batch,
 					)
-					if err != nil {
-						startErr = err
-						return
-					}
+				}
+
+				if fundErr != nil {
+					log.Warnf("Failed to fund batch from "+
+						"DB (%x): %s",
+						batchKey, fundErr.Error())
+					cancelBatch()
+					continue
 				}
 
 				log.Infof("Sealing non-finalized batch from "+
 					"DB (%x)", batchKey)
-				_, err := c.sealBatch(ctx, SealParams{}, batch)
-				if err != nil {
+				_, sealErr = c.sealBatch(
+					ctx, SealParams{}, batch,
+				)
+				if sealErr != nil {
 					if !errors.Is(
-						err, ErrBatchAlreadySealed,
+						sealErr, ErrBatchAlreadySealed,
 					) {
 
-						startErr = err
-						return
+						log.Warnf("Failed to seal "+
+							"batch from DB (%x): "+
+							"%s", batchKey,
+							sealErr.Error())
+						cancelBatch()
+						continue
 					}
 				}
 
@@ -1304,8 +1340,9 @@ func (c *ChainPlanter) gardener() {
 				)
 				if err != nil {
 					freezeErr := fmt.Errorf("unable to "+
-						"freeze minting batch: %w", err)
-					c.cfg.ErrChan <- freezeErr
+						"finalize minting batch: %w",
+						err)
+					log.Warnf(freezeErr.Error())
 					req.Error(freezeErr)
 					break
 				}
