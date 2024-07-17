@@ -975,6 +975,37 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		return nil, err
 	}
 
+	var (
+		filteredAssets   []*taprpc.Asset
+		unconfirmedMints uint64
+	)
+
+	// We now count and filter the assets according to the
+	// IncludeUnconfirmedMints flag.
+	//
+	// TODO(guggero): Do this on the SQL level once we add pagination to the
+	// asset list query, as this will no longer work with pagination.
+	for idx := range rpcAssets {
+		switch {
+		// If the asset isn't confirmed yet, we count it but only
+		// include it in the output list if the client requested it.
+		case rpcAssets[idx].ChainAnchor.BlockHeight == 0:
+			unconfirmedMints++
+
+			if req.IncludeUnconfirmedMints {
+				filteredAssets = append(
+					filteredAssets, rpcAssets[idx],
+				)
+			}
+
+		// Don't filter out confirmed assets.
+		default:
+			filteredAssets = append(
+				filteredAssets, rpcAssets[idx],
+			)
+		}
+	}
+
 	// We will also report the number of unconfirmed transfers. This is
 	// useful for clients as unconfirmed asset coins are not included in the
 	// asset list.
@@ -985,8 +1016,9 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 
 	return &taprpc.ListAssetResponse{
-		Assets:               rpcAssets,
+		Assets:               filteredAssets,
 		UnconfirmedTransfers: uint64(len(outboundParcels)),
+		UnconfirmedMints:     unconfirmedMints,
 	}, nil
 }
 

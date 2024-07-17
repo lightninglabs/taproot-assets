@@ -206,6 +206,13 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "include_unconfirmed_mints",
+            "description": "List assets that aren't confirmed yet. Only freshly minted assets will\nshow in the asset list with a block height of 0. All other forms of\nunconfirmed assets will not appear in the list until the transaction is\nconfirmed (check either transfers or receives for unconfirmed outbound or\ninbound assets).",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -1687,6 +1694,11 @@
           "type": "string",
           "format": "uint64",
           "description": "This is a count of unconfirmed outgoing transfers. Unconfirmed transfers\ndo not appear as assets in this endpoint response."
+        },
+        "unconfirmed_mints": {
+          "type": "string",
+          "format": "uint64",
+          "description": "This is a count of freshly minted assets that haven't been confirmed on\nchain yet. These assets will appear in the asset list with a block height\nof 0 if include_unconfirmed_mints is set to true in the request."
         }
       }
     },
