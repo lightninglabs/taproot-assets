@@ -23,10 +23,23 @@ INSERT INTO asset_transfer_outputs (
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
     output_type, proof_courier_addr, asset_version, lock_time,
-    relative_lock_time
+    relative_lock_time, proof_delivery_complete, position
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 );
+
+-- name: SetTransferOutputProofDeliveryStatus :exec
+WITH target(output_id) AS (
+    SELECT output_id
+    FROM asset_transfer_outputs output
+    JOIN managed_utxos
+      ON output.anchor_utxo = managed_utxos.utxo_id
+    WHERE managed_utxos.outpoint = @serialized_anchor_outpoint
+      AND output.position = @position
+)
+UPDATE asset_transfer_outputs
+SET proof_delivery_complete = @delivery_complete
+WHERE output_id = (SELECT output_id FROM target);
 
 -- name: QueryAssetTransfers :many
 SELECT
@@ -55,8 +68,8 @@ ORDER BY input_id;
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    output_type, proof_courier_addr, asset_version, lock_time,
-    relative_lock_time,
+    output_type, proof_courier_addr, proof_delivery_complete, position,
+    asset_version, lock_time, relative_lock_time,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
