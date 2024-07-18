@@ -74,7 +74,8 @@ func (p *CommitmentProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	return asset.TlvStrictDecodeP2P(stream, r, KnownCommitmentProofTypes)
 }
 
 // TapscriptProof represents a proof of a Taproot output not including a
@@ -139,7 +140,8 @@ func (p *TapscriptProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	return asset.TlvStrictDecodeP2P(stream, r, KnownTapscriptProofTypes)
 }
 
 // TaprootProof represents a proof that reveals the partial contents to a
@@ -208,7 +210,8 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.DecodeP2P(r)
+
+	return asset.TlvStrictDecodeP2P(stream, r, KnownTaprootProofTypes)
 }
 
 // deriveTaprootKey derives the taproot key backing a Taproot Asset commitment.
