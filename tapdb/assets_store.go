@@ -755,11 +755,14 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		}
 
 		chainAssets[i] = &asset.ChainAsset{
-			Asset:                  assetSprout,
-			IsSpent:                sprout.Spent,
-			AnchorTx:               anchorTx,
-			AnchorBlockHash:        anchorBlockHash,
-			AnchorOutpoint:         anchorOutpoint,
+			Asset:           assetSprout,
+			IsSpent:         sprout.Spent,
+			AnchorTx:        anchorTx,
+			AnchorBlockHash: anchorBlockHash,
+			AnchorOutpoint:  anchorOutpoint,
+			AnchorBlockHeight: uint32(
+				sprout.AnchorBlockHeight.Int32,
+			),
 			AnchorInternalKey:      anchorInternalKey,
 			AnchorMerkleRoot:       sprout.AnchorMerkleRoot,
 			AnchorTapscriptSibling: sprout.AnchorTapscriptSibling,
@@ -1819,6 +1822,11 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 	// We only want to select unspent and non-leased commitments.
 	assetFilter.Spent = sqlBool(false)
 	assetFilter.Leased = sqlBool(false)
+
+	// We also only want to select confirmed commitments (freshly minted
+	// unconfirmed assets would otherwise be included). Unconfirmed assets
+	// have a block height of 0, so we set the minimum block height to 1.
+	assetFilter.MinAnchorHeight = sqlInt32(1)
 
 	return a.queryCommitments(ctx, assetFilter)
 }

@@ -667,9 +667,8 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 
 	// Next, we add the HTLC outputs, using this helper function to
 	// distinguish between incoming and outgoing HTLCs. The haveHtlcSplit
-	// boolean is used to determine if one of the HTLCs needs to become the
-	// split root. See below where it's used for a more in-depth
-	// explanation.
+	// boolean is used to store if one of the HTLCs has already been chosen
+	// to be the split root (only the very first HTLC might be chosen).
 	var haveHtlcSplitRoot bool
 	addHtlc := func(htlc *DecodedDescriptor, isIncoming bool) error {
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
@@ -688,34 +687,14 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 				"sibling: %w", err)
 		}
 
-		// The "incoming" vs. "outgoing" naming is always viewed from
-		// the perspective of the local node and independent of
-		// isOurCommit. So to find out if an HTLC is for the initiator
-		// it only depends on the direction and whether we are the
-		// initiator. The human-readable version of the below switch
-		// statement is: Either we're the initiator and the HTLC is
-		// incoming, or we're not the initiator and the HTLC is
-		// outgoing.
-		var htlcIsForInitiator bool
-		switch {
-		// If the HTLC is incoming and the local node is the channel
-		// initiator, then the HTLC is for the channel initiator.
-		case chanState.IsInitiator && isIncoming:
-			htlcIsForInitiator = true
-
-		// If the HTLC is outgoing and the local node is not the
-		// channel initiator, then the HTLC is for the channel
-		// initiator.
-		case !chanState.IsInitiator && !isIncoming:
-			htlcIsForInitiator = true
-		}
-
-		// We should always just have a single split root on the side
-		// of the initiator. So if the initiator doesn't have any normal
-		// asset output to house the split root, then we'll take the
-		// _first_ HTLC that pays to the initiator.
+		// We should always just have a single split root, which
+		// normally is the initiator's balance. However, if the
+		// initiator has no balance, then we choose the very first HTLC
+		// in the list to be the split root. If there are no HTLCs, then
+		// all the balance is on the receiver side and we don't need a
+		// split root.
 		shouldHouseSplitRoot := initiatorAssetBalance == 0 &&
-			htlcIsForInitiator && !haveHtlcSplitRoot
+			!haveHtlcSplitRoot
 
 		// Make sure we only select the very first HTLC that pays to the
 		// initiator.

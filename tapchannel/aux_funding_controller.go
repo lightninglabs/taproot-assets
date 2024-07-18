@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	crand "crypto/rand"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -1264,7 +1265,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 		)
 		if err != nil {
 			return tempPID, fmt.Errorf("unable to create "+
-				"commitment: %v", err)
+				"commitment: %w", err)
 		}
 
 		// Do we expect more proofs to be incoming?
@@ -1431,18 +1432,29 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 				fundReq.ctx, f.cfg.ChainWallet,
 			)
 			if uErr != nil {
-				log.Errorf("unable to unlock "+
-					"inputs: %v", uErr)
+				log.Errorf("unable to unlock inputs: %v", uErr)
 			}
 
 			uErr = fundingState.unlockAssetInputs(
 				fundReq.ctx, f.cfg.CoinSelector,
 			)
 			if uErr != nil {
-				log.Errorf("Unable to unlock "+
-					"asset inputs: %v",
+				log.Errorf("Unable to unlock asset inputs: %v",
 					uErr)
 			}
+
+			// If anything went wrong during the funding process,
+			// the remote side might have an in-memory state and
+			// wouldn't allow us to try again within the next 10
+			// minutes (due to only one pending channel per peer
+			// default value). To avoid running into this issue, we
+			// make sure to inform the remote about us aborting the
+			// channel. We don't send them the actual error though,
+			// that would give away too much information.
+			f.cfg.ErrReporter.ReportError(
+				fundReq.ctx, fundReq.PeerPub, tempPID,
+				errors.New("internal error"),
+			)
 
 			fundReq.errChan <- err
 			return

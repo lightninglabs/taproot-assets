@@ -358,7 +358,9 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 	// Make sure the assets were all minted within the same anchor but don't
 	// yet have a block hash associated with them.
 	listRespUnconfirmed, err := tapClient.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			IncludeUnconfirmedMints: true,
+		},
 	)
 	require.NoError(t, err)
 

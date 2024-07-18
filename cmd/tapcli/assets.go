@@ -47,6 +47,7 @@ var (
 	assetGroupedAssetName        = "grouped_asset"
 	assetShowWitnessName         = "show_witness"
 	assetShowSpentName           = "show_spent"
+	assetShowUnconfMintsName     = "show_unconfirmed_mints"
 	assetGroupKeyName            = "group_key"
 	assetGroupAnchorName         = "group_anchor"
 	batchKeyName                 = "batch_key"
@@ -554,6 +555,11 @@ var listAssetsCommand = cli.Command{
 			Name:  assetShowSpentName,
 			Usage: "include fully spent assets in the list",
 		},
+		cli.BoolFlag{
+			Name: assetShowUnconfMintsName,
+			Usage: "include freshly minted and not yet confirmed " +
+				"assets in the list",
+		},
 	},
 	Action: listAssets,
 }
@@ -566,8 +572,9 @@ func listAssets(ctx *cli.Context) error {
 	// TODO(roasbeef): need to reverse txid
 
 	resp, err := client.ListAssets(ctxc, &taprpc.ListAssetRequest{
-		WithWitness:  ctx.Bool(assetShowWitnessName),
-		IncludeSpent: ctx.Bool(assetShowSpentName),
+		WithWitness:             ctx.Bool(assetShowWitnessName),
+		IncludeSpent:            ctx.Bool(assetShowSpentName),
+		IncludeUnconfirmedMints: ctx.Bool(assetShowUnconfMintsName),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list assets: %w", err)
