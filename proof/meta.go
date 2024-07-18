@@ -42,7 +42,7 @@ const (
 	// minted asset to express the decimal display of the minted asset.
 	MetadataDecDisplayKey = "decimal_display"
 
-	// maxDecDisplay is the maximum value of decimal display that a user can
+	// MaxDecDisplay is the maximum value of decimal display that a user can
 	// define when minting assets. Since the uint64 max value has 19 decimal
 	// places we will allow for a max of 12 decimal places.
 	MaxDecDisplay = uint32(12)
@@ -101,7 +101,8 @@ type MetaReveal struct {
 	Data []byte
 }
 
-// A subset of Integer that excludes int8, since we never use it in practice.
+// SizableInteger is a subset of Integer that excludes int8, since we never use
+// it in practice.
 type SizableInteger interface {
 	constraints.Unsigned | ~int | ~int16 | ~int32 | ~int64
 }
@@ -365,5 +366,9 @@ func (m *MetaReveal) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	// Note, we can't use the DecodeP2P method here, because the meta data
+	// itself can be larger than 65k bytes. But we impose limits in the
+	// individual decoding functions.
+	return asset.TlvStrictDecode(stream, r, KnownMetaRevealTypes)
 }

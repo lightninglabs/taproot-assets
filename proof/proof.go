@@ -427,7 +427,7 @@ func (p *Proof) Decode(r io.Reader) error {
 	// Note, we can't use the DecodeP2P method here, because the additional
 	// inputs records might be larger than 64k each. Instead, we add
 	// individual limits to each record.
-	return stream.Decode(r)
+	return asset.TlvStrictDecode(stream, r, KnownProofTypes)
 }
 
 // Record returns a TLV record that can be used to encode/decode a Proof to/from

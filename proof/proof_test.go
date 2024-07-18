@@ -939,6 +939,31 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				buf.Bytes(),
 			)
 
+			// Make sure the proof in the test vectors doesn't use
+			// a record type we haven't marked as known/supported
+			// yet. If the following check fails, you need to update
+			// the KnownProofTypes set.
+			for _, record := range p.EncodeRecords() {
+				require.Contains(
+					tt, KnownProofTypes, record.Type(),
+				)
+			}
+
+			checkTaprootProofTypes(tt, p.InclusionProof)
+			for i := range p.ExclusionProofs {
+				checkTaprootProofTypes(tt, p.ExclusionProofs[i])
+			}
+
+			if p.MetaReveal != nil {
+				metaRecords := p.MetaReveal.EncodeRecords()
+				for _, records := range metaRecords {
+					require.Contains(
+						tt, KnownMetaRevealTypes,
+						records.Type(),
+					)
+				}
+			}
+
 			// Create nice diff if things don't match.
 			if !areEqual {
 				expectedProof := &Proof{}
@@ -983,6 +1008,48 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				invalidCase.Proof.ToProof(tt)
 			})
 		})
+	}
+}
+
+// checkTaprootProofTypes ensures that the taproot proof contains only known
+// TLV types.
+func checkTaprootProofTypes(t *testing.T, p TaprootProof) {
+	for _, record := range p.EncodeRecords() {
+		require.Contains(t, KnownTaprootProofTypes, record.Type())
+	}
+
+	if p.CommitmentProof != nil {
+		for _, record := range p.CommitmentProof.EncodeRecords() {
+			require.Contains(
+				t, KnownCommitmentProofTypes, record.Type(),
+			)
+
+			tap := p.CommitmentProof.TaprootAssetProof
+			types := commitment.KnownTaprootAssetProofTypes
+			for _, record := range tap.Records() {
+				require.Contains(
+					t, types, record.Type(),
+				)
+			}
+
+			if p.CommitmentProof.AssetProof != nil {
+				ap := p.CommitmentProof.AssetProof
+				types := commitment.KnownAssetProofTypes
+				for _, record := range ap.Records() {
+					require.Contains(
+						t, types, record.Type(),
+					)
+				}
+			}
+		}
+	}
+
+	if p.TapscriptProof != nil {
+		for _, record := range p.TapscriptProof.EncodeRecords() {
+			require.Contains(
+				t, KnownTapscriptProofTypes, record.Type(),
+			)
+		}
 	}
 }
 
