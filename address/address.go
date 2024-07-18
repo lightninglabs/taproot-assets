@@ -414,7 +414,8 @@ func (a *Tap) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.DecodeP2P(r)
+
+	return asset.TlvStrictDecodeP2P(stream, r, KnownAddressTypes)
 }
 
 // EncodeAddress returns a bech32m string encoding of a Taproot Asset address.

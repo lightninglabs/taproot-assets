@@ -492,6 +492,16 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 
 			areEqual := validCase.Expected == addrString
 
+			// Make sure the address in the test vectors doesn't use
+			// a record type we haven't marked as known/supported
+			// yet. If the following check fails, you need to update
+			// the KnownAddressTypes set.
+			for _, record := range a.EncodeRecords() {
+				require.Contains(
+					tt, KnownAddressTypes, record.Type(),
+				)
+			}
+
 			// Create nice diff if things don't match.
 			if !areEqual {
 				chainParams, err := a.Net()
