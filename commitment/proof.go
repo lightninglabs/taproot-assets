@@ -31,6 +31,15 @@ type AssetProof struct {
 	TapKey [32]byte
 }
 
+// Records returns the encoding/decoding records for the AssetProof.
+func (a *AssetProof) Records() []tlv.Record {
+	return []tlv.Record{
+		AssetProofVersionRecord(&a.Version),
+		AssetProofAssetIDRecord(&a.TapKey),
+		AssetProofRecord(&a.Proof),
+	}
+}
+
 // TaprootAssetProof is the proof used along with an asset commitment leaf to
 // arrive at the root of the TapCommitment MS-SMT.
 type TaprootAssetProof struct {
@@ -38,6 +47,14 @@ type TaprootAssetProof struct {
 
 	// Version is the version of the TapCommitment used to create the proof.
 	Version TapCommitmentVersion
+}
+
+// Records returns the encoding/decoding records for the TaprootAssetProof.
+func (t *TaprootAssetProof) Records() []tlv.Record {
+	return []tlv.Record{
+		TaprootAssetProofVersionRecord(&t.Version),
+		TaprootAssetProofRecord(&t.Proof),
+	}
 }
 
 // Proof represents a full commitment proof for a particular `Asset`. It proves
@@ -63,7 +80,9 @@ func (p Proof) EncodeRecords() []tlv.Record {
 	if p.AssetProof != nil {
 		records = append(records, ProofAssetProofRecord(&p.AssetProof))
 	}
-	records = append(records, ProofTaprootAssetProofRecord(&p.TaprootAssetProof))
+	records = append(
+		records, ProofTaprootAssetProofRecord(&p.TaprootAssetProof),
+	)
 	return records
 }
 
@@ -90,7 +109,8 @@ func (p *Proof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.DecodeP2P(r)
+
+	return asset.TlvStrictDecodeP2P(stream, r, KnownProofTypes)
 }
 
 // DeriveByAssetInclusion derives the Taproot Asset commitment containing the
