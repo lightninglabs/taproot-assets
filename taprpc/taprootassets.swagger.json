@@ -1790,6 +1790,16 @@
             "$ref": "#/definitions/taprpcAsset"
           },
           "description": "The assets held at this UTXO."
+        },
+        "lease_owner": {
+          "type": "string",
+          "format": "byte",
+          "description": "The lease owner for this UTXO. If blank the UTXO isn't leased."
+        },
+        "lease_expiry_unix": {
+          "type": "string",
+          "format": "int64",
+          "description": "The expiry time as a unix time stamp for this lease. If blank the utxo\nisn't leased."
         }
       }
     },
