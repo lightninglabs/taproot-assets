@@ -1873,16 +1873,27 @@ func (a *Asset) deepEqual(allowSegWitIgnoreTxWitness bool, o *Asset) bool {
 		return false
 	}
 
-	// If both assets have a tweaked key
-	//
-	// TODO(roasbeef): fin
-	if !a.ScriptKey.PubKey.IsEqual(o.ScriptKey.PubKey) {
-		return false
-	}
+	// If both assets have a script public key, comparing that is enough.
+	// We just want to know that we have the same key, not that the internal
+	// representation (e.g. the TweakedKey sub struct being set) is the same
+	// as well.
+	switch {
+	// If only one of the keys is nil, they are not equal.
+	case (a.ScriptKey.PubKey == nil && o.ScriptKey.PubKey != nil) ||
+		(a.ScriptKey.PubKey != nil && o.ScriptKey.PubKey == nil):
 
-	/*if !reflect.DeepEqual(a.ScriptKey, o.ScriptKey) {
 		return false
-	}*/
+
+	// If both are non-nil, we compare the public keys.
+	case a.ScriptKey.PubKey != nil && o.ScriptKey.PubKey != nil &&
+		!a.ScriptKey.PubKey.IsEqual(o.ScriptKey.PubKey):
+
+		return false
+
+	// If both are nil or both are non-nil and equal, we continue below.
+	default:
+		// Continue below
+	}
 
 	if !a.GroupKey.IsEqual(o.GroupKey) {
 		return false
