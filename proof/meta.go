@@ -370,5 +370,8 @@ func (m *MetaReveal) Decode(r io.Reader) error {
 	// Note, we can't use the DecodeP2P method here, because the meta data
 	// itself can be larger than 65k bytes. But we impose limits in the
 	// individual decoding functions.
-	return asset.TlvStrictDecode(stream, r, KnownMetaRevealTypes)
+	//
+	// TODO(guggero): Store unknown types (next commits).
+	_, err = asset.TlvStrictDecode(stream, r, KnownMetaRevealTypes)
+	return err
 }

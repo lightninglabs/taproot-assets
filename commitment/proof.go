@@ -110,7 +110,9 @@ func (p *Proof) Decode(r io.Reader) error {
 		return err
 	}
 
-	return asset.TlvStrictDecodeP2P(stream, r, KnownProofTypes)
+	// TODO(guggero): Store unknown types (next commits).
+	_, err = asset.TlvStrictDecodeP2P(stream, r, KnownProofTypes)
+	return err
 }
 
 // DeriveByAssetInclusion derives the Taproot Asset commitment containing the

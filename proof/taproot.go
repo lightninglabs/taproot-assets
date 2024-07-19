@@ -75,7 +75,9 @@ func (p *CommitmentProof) Decode(r io.Reader) error {
 		return err
 	}
 
-	return asset.TlvStrictDecodeP2P(stream, r, KnownCommitmentProofTypes)
+	// TODO(guggero): Store unknown types (next commits).
+	_, err = asset.TlvStrictDecodeP2P(stream, r, KnownCommitmentProofTypes)
+	return err
 }
 
 // TapscriptProof represents a proof of a Taproot output not including a
@@ -141,7 +143,9 @@ func (p *TapscriptProof) Decode(r io.Reader) error {
 		return err
 	}
 
-	return asset.TlvStrictDecodeP2P(stream, r, KnownTapscriptProofTypes)
+	// TODO(guggero): Store unknown types (next commits).
+	_, err = asset.TlvStrictDecodeP2P(stream, r, KnownTapscriptProofTypes)
+	return err
 }
 
 // TaprootProof represents a proof that reveals the partial contents to a
@@ -211,7 +215,9 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 		return err
 	}
 
-	return asset.TlvStrictDecodeP2P(stream, r, KnownTaprootProofTypes)
+	// TODO(guggero): Store unknown types (next commits).
+	_, err = asset.TlvStrictDecodeP2P(stream, r, KnownTaprootProofTypes)
+	return err
 }
 
 // deriveTaprootKey derives the taproot key backing a Taproot Asset commitment.

@@ -84,32 +84,75 @@ func AssertNoUnknownEvenTypes(parsedTypes tlv.TypeMap,
 	return nil
 }
 
+// FilterUnknownTypes filters out all types that are unknown from the given
+// parsed types. The known types are specified as a set.
+func FilterUnknownTypes(parsedTypes tlv.TypeMap,
+	knownTypes fn.Set[tlv.Type]) tlv.TypeMap {
+
+	result := make(tlv.TypeMap, len(parsedTypes))
+	for t, v := range parsedTypes {
+		if !knownTypes.Contains(t) {
+			result[t] = v
+		}
+	}
+
+	// Avoid failures due to comparisons with nil vs. empty map.
+	if len(result) == 0 {
+		return nil
+	}
+
+	return result
+}
+
 // TlvStrictDecode attempts to decode the passed buffer into the TLV stream. It
 // takes the set of known types for a given stream, and returns an error if the
 // buffer includes any unknown even types.
 func TlvStrictDecode(stream *tlv.Stream, r io.Reader,
-	knownTypes fn.Set[tlv.Type]) error {
+	knownTypes fn.Set[tlv.Type]) (tlv.TypeMap, error) {
 
 	parsedTypes, err := stream.DecodeWithParsedTypes(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return AssertNoUnknownEvenTypes(parsedTypes, knownTypes)
+	err = AssertNoUnknownEvenTypes(parsedTypes, knownTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return FilterUnknownTypes(parsedTypes, knownTypes), nil
 }
 
 // TlvStrictDecodeP2P is identical to TlvStrictDecode except that the record
 // size is capped at 65535. This should only be called from a p2p setting where
 // untrusted input is being deserialized.
 func TlvStrictDecodeP2P(stream *tlv.Stream, r io.Reader,
-	knownTypes fn.Set[tlv.Type]) error {
+	knownTypes fn.Set[tlv.Type]) (tlv.TypeMap, error) {
 
 	parsedTypes, err := stream.DecodeWithParsedTypesP2P(r)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	return AssertNoUnknownEvenTypes(parsedTypes, knownTypes)
+	err = AssertNoUnknownEvenTypes(parsedTypes, knownTypes)
+	if err != nil {
+		return nil, err
+	}
+
+	return FilterUnknownTypes(parsedTypes, knownTypes), nil
+}
+
+// CombineRecords returns a new slice of records that combines the given records
+// with the unparsed types converted to static records.
+func CombineRecords(records []tlv.Record, unparsed tlv.TypeMap) []tlv.Record {
+	stubRecords := make([]tlv.Record, 0, len(unparsed))
+	for k, v := range unparsed {
+		stubRecords = append(stubRecords, tlv.MakeStaticRecord(
+			k, nil, uint64(len(v)), tlv.StubEncoder(v), nil,
+		))
+	}
+
+	return append(records, stubRecords...)
 }
 
 // WitnessTlvType represents the different TLV types for Asset Witness TLV

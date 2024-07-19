@@ -45,7 +45,8 @@
           "script_key": "0250fb435f8fc76fc75736ac89956406e882a468e929da69ca596a716ebcfa8516",
           "group_key": {
             "group_key": "02a9d7d88008817398f9d8b47f6b954139f23f3cb235eaa701395fb0efa6e11ccd"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -131,7 +132,8 @@
           "script_key": "02e32f37674363fa839138f01b1c927aa41ddb89a7f8ecab958e98dd5761eb1c21",
           "group_key": {
             "group_key": "02e948544ffc218642d218d427315670dc792f166310fbf8ecbd79eb23415c64d6"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -217,7 +219,8 @@
           "script_key": "02a949978365263a166a737ed35347b41112a91680df47a702bfdaf08bab17a0bb",
           "group_key": {
             "group_key": "033726c2dea09255208270be3c1593276fa894078141ee7d223539e90621ab0615"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -303,7 +306,8 @@
           "script_key": "024ac3196cbe3a15ad894b2ea7a5e3f79b1f0dbc195b9c6a3ff144b48428a241d6",
           "group_key": {
             "group_key": "03d800536beffc3d4327a95f3fee3315c760cd7d4b0509b3487e9dcd3c3582c41f"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -389,7 +393,8 @@
           "script_key": "0208e8e9320ca67b3323d821f5dc075e400cf776aa51fbf749333177f0e8e535d8",
           "group_key": {
             "group_key": "02a176beb1c80df22d0e52945ce1eedd0d9a3d1dfd2e2bf5e223970ef28c9898a9"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -475,7 +480,8 @@
           "script_key": "0252806fc4eb74ec1ab8617ddb457375856639678b62da0db14454871df1cf3fdd",
           "group_key": {
             "group_key": "03e561d40a9ef63980ba1db6ef19cd602b88c282cc2dcab43f2cdddbd9781dfd71"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -561,7 +567,8 @@
           "script_key": "02dc2498c4a39ce2641d62a080f389ee23f85cedd148d2511424bee6981739e77a",
           "group_key": {
             "group_key": "029beb652212f8d24482c447a1ee63fe67e4aa4f9857fceefd2df9b38515eb26b9"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -647,7 +654,8 @@
           "script_key": "02685acdc9cc542ffb86d3f01ccef519a33c8cfd9bc1a09331752b27554dbf00c4",
           "group_key": {
             "group_key": "02b0bce47b2df5abe9b402c21bf0000619cd26efd3fba67584f0762146e72064f7"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -733,7 +741,8 @@
           "script_key": "02008a0fde1764c0c532d5d8918c9a03d5812c84bc85b7c17372233a06a9f46a95",
           "group_key": {
             "group_key": "021f1336135a7422003206516b8e04d663f1b610b85d68f9ca5f4758cac5b210c4"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,
@@ -822,7 +831,8 @@
           "script_key": "026f02044f01832e01e3302ced99effc110c7a19e03f525449ee9c83e02141d657",
           "group_key": {
             "group_key": "02516aabe379a6da71929b2b9c724c01ca20667df051313c4e2d3980e4eeb8bee3"
-          }
+          },
+          "unknown_odd_types": null
         },
         "inclusion_proof": {
           "output_index": 0,

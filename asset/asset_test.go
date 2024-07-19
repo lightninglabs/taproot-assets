@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -494,6 +495,18 @@ func TestAssetEncoding(t *testing.T) {
 			MetaHash: [MetaHashLen]byte{},
 		},
 		ScriptKey: NewScriptKey(pubKey),
+	})
+
+	assertAssetEncoding("minimal asset with unknown odd type", &Asset{
+		Genesis: Genesis{
+			MetaHash: [MetaHashLen]byte{},
+		},
+		ScriptKey: NewScriptKey(pubKey),
+		UnknownOddTypes: tlv.TypeMap{
+			test.TestVectorAllowedUnknownType: []byte(
+				"the great unknown",
+			),
+		},
 	})
 
 	// Write test vectors to file. This is a no-op if the "gen_test_vectors"
@@ -1073,6 +1086,14 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			// yet. If the following check fails, you need to update
 			// the KnownAssetLeafTypes set.
 			for _, record := range a.encodeRecords(EncodeNormal) {
+				// Test vectors may contain this one type to
+				// demonstrate that it is not rejected.
+				if record.Type() ==
+					test.TestVectorAllowedUnknownType {
+
+					continue
+				}
+
 				require.Contains(
 					tt, KnownAssetLeafTypes, record.Type(),
 				)
