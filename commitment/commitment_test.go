@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"math/rand"
@@ -16,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1633,4 +1635,203 @@ func TestAssetCommitmentDeleteMaxVersion(t *testing.T) {
 	require.NoError(t, assetCommitment.Delete(asset2))
 
 	require.Equal(t, asset.V0, assetCommitment.Version)
+}
+
+// TestProofUnknownOddType tests that an unknown odd type is allowed in a
+// commitment proof and that we can still arrive at the correct root hash with
+// it.
+func TestProofUnknownOddType(t *testing.T) {
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	singleCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, knownProof, err := singleCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	var buf bytes.Buffer
+	err = knownProof.Encode(&buf)
+	require.NoError(t, err)
+
+	knownProofBytes := fn.CopySlice(buf.Bytes())
+
+	// With the known proof now encoded, we can add an unknown even type to
+	// the encoded bytes. That should provoke an error when parsed again.
+	unknownTypeValue := []byte("I could be anything, really")
+	unknownEvenType := append([]byte{
+		byte(40),                    // Type 40 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Write(unknownEvenType)
+
+	// Try to parse it again.
+	var parsedProof Proof
+	err = parsedProof.Decode(&buf)
+	require.ErrorAs(t, err, &asset.ErrUnknownType{})
+
+	// Now clear the buffer, encode the proof again, but this time add an
+	// unknown _odd_ type, which should be allowed.
+	unknownOddType := append([]byte{
+		byte(39),                    // Type 39 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Reset()
+	err = knownProof.Encode(&buf)
+	require.NoError(t, err)
+	buf.Write(unknownOddType)
+
+	err = parsedProof.Decode(&buf)
+	require.NoError(t, err)
+
+	expectedUnknownTypes := tlv.TypeMap{
+		39: unknownTypeValue,
+	}
+	require.Equal(t, expectedUnknownTypes, parsedProof.unknownOddTypes)
+
+	// The leaf should've changed, to make sure the unknown value was taken
+	// into account when creating the serialized leaf.
+	var newBuf bytes.Buffer
+	err = parsedProof.Encode(&newBuf)
+	require.NoError(t, err)
+
+	require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+}
+
+// TestAssetProofUnknownOddType tests that an unknown odd type is allowed in an
+// asset proof and that we can still arrive at the correct root hash with it.
+func TestAssetProofUnknownOddType(t *testing.T) {
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	singleCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := singleCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	require.NotNil(t, commitmentProof.AssetProof)
+	knownAssetProof := commitmentProof.AssetProof
+
+	var buf bytes.Buffer
+	err = AssetProofEncoder(&buf, &knownAssetProof, nil)
+	require.NoError(t, err)
+
+	knownProofBytes := fn.CopySlice(buf.Bytes())
+
+	// With the known asset proof now encoded, we can add an unknown even
+	// type to the encoded bytes. That should provoke an error when parsed
+	// again.
+	unknownTypeValue := []byte("I could be anything, really")
+	unknownEvenType := append([]byte{
+		byte(40),                    // Type 40 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Write(unknownEvenType)
+
+	// Try to parse it again.
+	parsedProof := &AssetProof{}
+	err = AssetProofDecoder(&buf, &parsedProof, nil, uint64(buf.Len()))
+	require.ErrorAs(t, err, &asset.ErrUnknownType{})
+
+	// Now clear the buffer, encode the asset proof again, but this time add
+	// an unknown _odd_ type, which should be allowed.
+	unknownOddType := append([]byte{
+		byte(39),                    // Type 39 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Reset()
+	err = AssetProofEncoder(&buf, &knownAssetProof, nil)
+	require.NoError(t, err)
+	buf.Write(unknownOddType)
+
+	err = AssetProofDecoder(&buf, &parsedProof, nil, uint64(buf.Len()))
+	require.NoError(t, err)
+
+	expectedUnknownTypes := tlv.TypeMap{
+		39: unknownTypeValue,
+	}
+	require.Equal(t, expectedUnknownTypes, parsedProof.unknownOddTypes)
+
+	// The leaf should've changed, to make sure the unknown value was taken
+	// into account when creating the serialized leaf.
+	var newBuf bytes.Buffer
+	err = AssetProofEncoder(&newBuf, &parsedProof, nil)
+	require.NoError(t, err)
+
+	require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+}
+
+// TestTaprootAssetProofUnknownOddType tests that an unknown odd type is allowed
+// in a Taproot asset proof and that we can still arrive at the correct root
+// hash with it.
+func TestTaprootAssetProofUnknownOddType(t *testing.T) {
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	singleCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := singleCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	knownTaprootAssetProof := commitmentProof.TaprootAssetProof
+
+	var buf bytes.Buffer
+	err = TaprootAssetProofEncoder(&buf, &knownTaprootAssetProof, nil)
+	require.NoError(t, err)
+
+	knownProofBytes := fn.CopySlice(buf.Bytes())
+
+	// With the known Taproot asset proof now encoded, we can add an unknown
+	// even type to the encoded bytes. That should provoke an error when
+	// parsed again.
+	unknownTypeValue := []byte("I could be anything, really")
+	unknownEvenType := append([]byte{
+		byte(40),                    // Type 40 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Write(unknownEvenType)
+
+	// Try to parse it again.
+	parsedProof := TaprootAssetProof{}
+	err = TaprootAssetProofDecoder(
+		&buf, &parsedProof, nil, uint64(buf.Len()),
+	)
+	require.ErrorAs(t, err, &asset.ErrUnknownType{})
+
+	// Now clear the buffer, encode the asset proof again, but this time add
+	// an unknown _odd_ type, which should be allowed.
+	unknownOddType := append([]byte{
+		byte(39),                    // Type 39 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Reset()
+	err = TaprootAssetProofEncoder(&buf, &knownTaprootAssetProof, nil)
+	require.NoError(t, err)
+	buf.Write(unknownOddType)
+
+	err = TaprootAssetProofDecoder(
+		&buf, &parsedProof, nil, uint64(buf.Len()),
+	)
+	require.NoError(t, err)
+
+	expectedUnknownTypes := tlv.TypeMap{
+		39: unknownTypeValue,
+	}
+	require.Equal(t, expectedUnknownTypes, parsedProof.unknownOddTypes)
+
+	// The leaf should've changed, to make sure the unknown value was taken
+	// into account when creating the serialized leaf.
+	var newBuf bytes.Buffer
+	err = TaprootAssetProofEncoder(&newBuf, &parsedProof, nil)
+	require.NoError(t, err)
+
+	require.NotEqual(t, knownProofBytes, newBuf.Bytes())
 }
