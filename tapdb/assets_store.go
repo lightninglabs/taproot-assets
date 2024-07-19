@@ -806,14 +806,14 @@ func (a *AssetStore) constraintsToDbFilter(
 				query.MinAnchorHeight,
 			)
 		}
-		if query.AssetID != nil {
-			assetID := query.AssetID[:]
-			assetFilter.AssetIDFilter = assetID
-		}
-		if query.GroupKey != nil {
-			groupKey := query.GroupKey.SerializeCompressed()
-			assetFilter.KeyGroupFilter = groupKey
-		}
+
+		// Add asset ID bytes and group key bytes to the filter. These
+		// byte arrays are empty if the asset ID or group key is not
+		// specified in the query.
+		assetIDBytes, groupKeyBytes := query.AssetSpecifier.AsBytes()
+		assetFilter.AssetIDFilter = assetIDBytes
+		assetFilter.KeyGroupFilter = groupKeyBytes
+
 		// TODO(roasbeef): only want to allow asset ID or other and not
 		// both?
 

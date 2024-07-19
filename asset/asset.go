@@ -93,10 +93,10 @@ const (
 type EncodeType uint8
 
 const (
-	// Encode normal is the normal encoding type for an asset.
+	// EncodeNormal normal is the normal encoding type for an asset.
 	EncodeNormal EncodeType = iota
 
-	// EncodeSegwit denotes that the witness vector field is not be be
+	// EncodeSegwit denotes that the witness vector field is not to be
 	// encoded.
 	EncodeSegwit
 )
@@ -245,6 +245,124 @@ func DecodeGenesis(r io.Reader) (Genesis, error) {
 	)
 	err := GenesisDecoder(r, &gen, &buf, 0)
 	return gen, err
+}
+
+var (
+	// ErrUnwrapAssetID is an error type which is returned when an asset ID
+	// cannot be unwrapped from a specifier.
+	ErrUnwrapAssetID = errors.New("unable to unwrap asset ID")
+)
+
+// Specifier is a type that can be used to specify an asset by its ID, its asset
+// group public key, or both.
+type Specifier struct {
+	// id is the asset ID.
+	id fn.Option[ID]
+
+	// groupKey is the asset group public key.
+	groupKey fn.Option[btcec.PublicKey]
+}
+
+// NewSpecifierOptionalGroupPubKey creates a new specifier that specifies an
+// asset by its ID and an optional group public key.
+func NewSpecifierOptionalGroupPubKey(id ID,
+	groupPubKey *btcec.PublicKey) Specifier {
+
+	s := Specifier{
+		id: fn.Some(id),
+	}
+
+	if groupPubKey != nil {
+		s.groupKey = fn.Some(*groupPubKey)
+	}
+
+	return s
+}
+
+// NewSpecifierOptionalGroupKey creates a new specifier that specifies an
+// asset by its ID and an optional group key.
+func NewSpecifierOptionalGroupKey(id ID, groupKey *GroupKey) Specifier {
+	s := Specifier{
+		id: fn.Some(id),
+	}
+
+	if groupKey != nil {
+		s.groupKey = fn.Some(groupKey.GroupPubKey)
+	}
+
+	return s
+}
+
+// NewSpecifierFromId creates a new specifier that specifies an asset by its ID.
+func NewSpecifierFromId(id ID) Specifier {
+	return Specifier{
+		id: fn.Some(id),
+	}
+}
+
+// NewSpecifierFromGroupKey creates a new specifier that specifies an asset by
+// its group public key.
+func NewSpecifierFromGroupKey(groupPubKey btcec.PublicKey) Specifier {
+	return Specifier{
+		groupKey: fn.Some(groupPubKey),
+	}
+}
+
+// AsBytes returns the asset ID and group public key as byte slices.
+func (s *Specifier) AsBytes() ([]byte, []byte) {
+	var assetIDBytes, groupKeyBytes []byte
+
+	s.WhenGroupPubKey(func(groupKey btcec.PublicKey) {
+		groupKeyBytes = groupKey.SerializeCompressed()
+	})
+
+	s.WhenId(func(id ID) {
+		assetIDBytes = id[:]
+	})
+
+	return assetIDBytes, groupKeyBytes
+}
+
+// HasId returns true if the asset ID field is specified.
+func (s *Specifier) HasId() bool {
+	return s.id.IsSome()
+}
+
+// HasGroupPubKey returns true if the asset group public key field is specified.
+func (s *Specifier) HasGroupPubKey() bool {
+	return s.groupKey.IsSome()
+}
+
+// WhenId executes the given function if the ID field is specified.
+func (s *Specifier) WhenId(f func(ID)) {
+	s.id.WhenSome(f)
+}
+
+// WhenGroupPubKey executes the given function if asset group public key field
+// is specified.
+func (s *Specifier) WhenGroupPubKey(f func(btcec.PublicKey)) {
+	s.groupKey.WhenSome(f)
+}
+
+// UnwrapIdOrErr unwraps the ID field or returns an error if it is not
+// specified.
+func (s *Specifier) UnwrapIdOrErr() (ID, error) {
+	id := s.id.UnwrapToPtr()
+	if id == nil {
+		return ID{}, ErrUnwrapAssetID
+	}
+
+	return *id, nil
+}
+
+// UnwrapIdToPtr unwraps the ID field to a pointer.
+func (s *Specifier) UnwrapIdToPtr() *ID {
+	return s.id.UnwrapToPtr()
+}
+
+// UnwrapGroupKeyToPtr unwraps the asset group public key field to a pointer.
+func (s *Specifier) UnwrapGroupKeyToPtr() *btcec.PublicKey {
+	return s.groupKey.UnwrapToPtr()
 }
 
 // Type denotes the asset types supported by the Taproot Asset protocol.
@@ -1434,23 +1552,38 @@ func New(genesis Genesis, amount, locktime, relativeLocktime uint64,
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for a specific
-// asset group within a TapCommitment.
+// asset within a TapCommitment.
 //
 // NOTE: This function is also used outside the asset package.
-func TapCommitmentKey(assetID ID, groupKey *btcec.PublicKey) [32]byte {
-	if groupKey == nil {
-		return assetID
+func TapCommitmentKey(assetSpecifier Specifier) [32]byte {
+	var commitmentKey [32]byte
+
+	switch {
+	case assetSpecifier.HasGroupPubKey():
+		assetSpecifier.WhenGroupPubKey(func(pubKey btcec.PublicKey) {
+			serializedPubKey := schnorr.SerializePubKey(&pubKey)
+			commitmentKey = sha256.Sum256(serializedPubKey)
+		})
+
+	case assetSpecifier.HasId():
+		assetSpecifier.WhenId(func(id ID) {
+			commitmentKey = id
+		})
+
+	default:
+		// We should never reach this point as the asset specifier
+		// should always have either a group public key, an asset ID, or
+		// both.
+		panic("invalid asset specifier")
 	}
-	return sha256.Sum256(schnorr.SerializePubKey(groupKey))
+
+	return commitmentKey
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for a specific
 // asset group within a TapCommitment.
 func (a *Asset) TapCommitmentKey() [32]byte {
-	if a.GroupKey == nil {
-		return TapCommitmentKey(a.Genesis.ID(), nil)
-	}
-	return TapCommitmentKey(a.Genesis.ID(), &a.GroupKey.GroupPubKey)
+	return TapCommitmentKey(a.Specifier())
 }
 
 // AssetCommitmentKey returns a key which can be used to locate an
@@ -1891,6 +2024,12 @@ func (a *Asset) Leaf() (*mssmt.LeafNode, error) {
 	}
 
 	return mssmt.NewLeafNode(buf.Bytes(), a.Amount), nil
+}
+
+// Specifier returns the asset's specifier.
+func (a *Asset) Specifier() Specifier {
+	id := a.Genesis.ID()
+	return NewSpecifierOptionalGroupKey(id, a.GroupKey)
 }
 
 // Validate ensures that an asset is valid.

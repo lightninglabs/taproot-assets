@@ -366,8 +366,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	// send request. We'll map the address to a set of constraints, so we
 	// can use that to do Taproot asset coin selection.
 	constraints := CommitmentConstraints{
-		GroupKey:            fundDesc.GroupKey,
-		AssetID:             &fundDesc.ID,
+		AssetSpecifier:      fundDesc.AssetSpecifier,
 		MinAmt:              fundDesc.Amount,
 		Bip86ScriptKeysOnly: true,
 	}
@@ -424,13 +423,18 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 func (f *AssetWallet) FundBurn(ctx context.Context,
 	fundDesc *tapsend.FundingDescriptor) (*FundedVPacket, error) {
 
+	// Extract the asset ID and group key from the funding descriptor.
+	assetId, err := fundDesc.AssetSpecifier.UnwrapIdOrErr()
+	if err != nil {
+		return nil, err
+	}
+
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
 	// can use that to do Taproot asset coin selection.
 	constraints := CommitmentConstraints{
-		GroupKey: fundDesc.GroupKey,
-		AssetID:  &fundDesc.ID,
-		MinAmt:   fundDesc.Amount,
+		AssetSpecifier: fundDesc.AssetSpecifier,
+		MinAmt:         fundDesc.Amount,
 	}
 	selectedCommitments, err := f.cfg.CoinSelector.SelectCoins(
 		ctx, constraints, PreferMaxAmount, commitment.TapCommitmentV2,
@@ -461,7 +465,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 
 	activeAssets := fn.Filter(
 		selectedCommitments, func(c *AnchoredCommitment) bool {
-			return c.Asset.ID() == fundDesc.ID
+			return c.Asset.ID() == assetId
 		},
 	)
 
@@ -495,7 +499,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 	vPkt := &tappsbt.VPacket{
 		Inputs: []*tappsbt.VInput{{
 			PrevID: asset.PrevID{
-				ID: fundDesc.ID,
+				ID: assetId,
 			},
 		}},
 		Outputs: []*tappsbt.VOutput{{
@@ -582,8 +586,13 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 	fundDesc *tapsend.FundingDescriptor, vPkt *tappsbt.VPacket,
 	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
 
+	assetId, err := fundDesc.AssetSpecifier.UnwrapIdOrErr()
+	if err != nil {
+		return nil, err
+	}
+
 	log.Infof("Selected %v asset inputs for send of %d to %x",
-		len(selectedCommitments), fundDesc.Amount, fundDesc.ID[:])
+		len(selectedCommitments), fundDesc.Amount, assetId[:])
 
 	assetType := selectedCommitments[0].Asset.Type
 

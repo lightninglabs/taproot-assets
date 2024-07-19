@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -28,13 +27,8 @@ import (
 //
 // NOTE: Only the GroupKey or the AssetID should be set.
 type CommitmentConstraints struct {
-	// GroupKey is the required group key. This is an optional field, if
-	// set then the asset returned may have a distinct asset ID to the one
-	// specified below.
-	GroupKey *btcec.PublicKey
-
-	// AssetID is the asset ID that needs to be satisfied.
-	AssetID *asset.ID
+	// AssetSpecifier specifies the asset.
+	AssetSpecifier asset.Specifier
 
 	// MinAmt is the minimum amount that an asset commitment needs to hold
 	// to satisfy the constraints.
@@ -47,13 +41,8 @@ type CommitmentConstraints struct {
 
 // String returns the string representation of the commitment constraints.
 func (c *CommitmentConstraints) String() string {
-	var groupKeyBytes, assetIDBytes []byte
-	if c.GroupKey != nil {
-		groupKeyBytes = c.GroupKey.SerializeCompressed()
-	}
-	if c.AssetID != nil {
-		assetIDBytes = c.AssetID[:]
-	}
+	assetIDBytes, groupKeyBytes := c.AssetSpecifier.AsBytes()
+
 	return fmt.Sprintf("group_key=%x, asset_id=%x, min_amt=%d",
 		groupKeyBytes, assetIDBytes, c.MinAmt)
 }
