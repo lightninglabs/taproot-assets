@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -135,6 +136,7 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 		InternalKey:      test.HexPubKey(&a.InternalKey),
 		Amount:           a.Amount,
 		ProofCourierAddr: a.ProofCourierAddr.String(),
+		UnknownOddTypes:  a.UnknownOddTypes,
 	}
 
 	if a.GroupKey != nil {
@@ -151,16 +153,17 @@ func NewTestFromAddress(t testing.TB, a *Tap) *TestAddress {
 }
 
 type TestAddress struct {
-	Version          uint8  `json:"version"`
-	ChainParamsHRP   string `json:"chain_params_hrp"`
-	AssetVersion     uint8  `json:"asset_version"`
-	AssetID          string `json:"asset_id"`
-	GroupKey         string `json:"group_key"`
-	ScriptKey        string `json:"script_key"`
-	InternalKey      string `json:"internal_key"`
-	TapscriptSibling string `json:"tapscript_sibling"`
-	Amount           uint64 `json:"amount"`
-	ProofCourierAddr string `json:"proof_courier_addr"`
+	Version          uint8       `json:"version"`
+	ChainParamsHRP   string      `json:"chain_params_hrp"`
+	AssetVersion     uint8       `json:"asset_version"`
+	AssetID          string      `json:"asset_id"`
+	GroupKey         string      `json:"group_key"`
+	ScriptKey        string      `json:"script_key"`
+	InternalKey      string      `json:"internal_key"`
+	TapscriptSibling string      `json:"tapscript_sibling"`
+	Amount           uint64      `json:"amount"`
+	ProofCourierAddr string      `json:"proof_courier_addr"`
+	UnknownOddTypes  tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
@@ -218,6 +221,7 @@ func (ta *TestAddress) ToAddress(t testing.TB) *Tap {
 		InternalKey:      *test.ParsePubKey(t, ta.InternalKey),
 		Amount:           ta.Amount,
 		ProofCourierAddr: *proofCourierAddr,
+		UnknownOddTypes:  ta.UnknownOddTypes,
 	}
 
 	if ta.GroupKey != "" {

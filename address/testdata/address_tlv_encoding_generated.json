@@ -11,7 +11,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 5577006791947779410,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "taprt1qqqsqqspqqzzq73cz93shve4q0r9xmp6yg7netktj0l9ta9ngw2j3m0j0vgd8r5nqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7nt9sgss0l8a2gxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn5zn5dz",
       "comment": "valid regtest address"
@@ -27,7 +28,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 2933568871211445515,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "tapsb1qqqsqqspqqzzp4e0kxcehcfvha3z8k22htlltwylltzvlkd780vls92kchwd0suhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl729ky9v8evadpvxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn76z4sn",
       "comment": "valid simnet address"
@@ -43,7 +45,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1905388747193831650,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "taptb1qqqsqqspqqzzqny6jwx754yjgnnxwcaff3s9ey6fdztq7c6wrz3fagw0e4h9c9uhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7xn3fnuxhq7sugxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnfaa7x2",
       "comment": "valid testnet address"
@@ -59,7 +62,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1598098976185383115,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "tapbc1qqqszqspqqzzpwyapvrhaedr5cpufmfk0hzyxvyzy3a3wphzv8gu5g4z6hhqvcdpqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl793dj6xn7u0cevxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnyqawrf",
       "comment": "valid mainnet address"
@@ -75,7 +79,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 898860202204764712,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "tapbc1qqqszqspqyzzp54v3a42v0nd8c2lwwqdhk7zd4sgqgg4a5lwmtf94aqcekqlmcyhqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgyl7rrevjtk7f569qxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnk2wtnl",
       "comment": "valid addr, v1 asset version"
@@ -91,7 +96,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "taptb1qqqsqqspqqzzq7wzuajcy98j9tu0z46qqp36vv0vf78gtpv62s4jp5p39z7acx2zq5ssynpnh0gc9tp97pwz4ecljxc9u9xc8jeg4wuyt7c9gsg6kt5wuzjyqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xses8qwtmu",
       "comment": "signet group collectible"
@@ -107,7 +113,8 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "",
         "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "tapsb1qqqsqqspqqzzpv59k6j6mjj4e27a5rcjq3p8uzmz8rq2xyvktj4g0nk2epym5akzqcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pgqszrp2dpshx6rdv95kcw309aexzmny9e5xzumgd4skjmpwwpex7mmx9e3k7atjd9jhyw35xsesxc04ee",
       "comment": "simnet collectible"
@@ -123,10 +130,30 @@
         "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
         "tapscript_sibling": "00c0126e6f7420612076616c696420736372697074",
         "amount": 1,
-        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443"
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": null
       },
       "expected": "tapsb1qqqsqqspqqzzqq2wt629x8jps985w5jaz69h9x22pqqstk4nctlgna8vuun7qej6qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpn0dwlms",
       "comment": "simnet collectible with sibling"
+    },
+    {
+      "address": {
+        "version": 1,
+        "chain_params_hrp": "tapsb",
+        "asset_version": 0,
+        "asset_id": "0e3551778a29c399050bd495e38fc1c13ff200777972e69db6c84e670b406985",
+        "group_key": "",
+        "script_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "internal_key": "02a0afeb165f0ec36880b68e0baabd9ad9c62fd1a69aa998bc30e9a346202e078f",
+        "tapscript_sibling": "00c0126e6f7420612076616c696420736372697074",
+        "amount": 1,
+        "proof_courier_addr": "hashmail://rand.hashmail.proof.courier:443",
+        "unknown_odd_types": {
+          "31337": "Zm9v"
+        }
+      },
+      "expected": "tapsb1qqqszqspqqzzqr3429mc52wrnyzsh4y4uw8ursfl7gq8w7tju6wmdjzwvu95q6v9qcss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0pqss9g90avt97rkrdzqtdrst427e4kwx9lg6dx4fnz7rp6drgcszupu0py2spsqjdehhggrpypmxzmrfvss8xcmjd9c8gzspqyxz56rpwd5x6ctfdsaz7tmjv9hxgtngv9eksmtpd9kzuurjdahkvtnrda6hy6t9wgargdpnl4axjqmxdahsazt7x4",
+      "comment": "simnet collectible with sibling and unknown TLV type"
     }
   ],
   "error_test_cases": null
