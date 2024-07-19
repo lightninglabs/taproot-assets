@@ -415,6 +415,10 @@ type ExportLog interface {
 	// transactions for re-broadcast.
 	PendingParcels(context.Context) ([]*OutboundParcel, error)
 
+	// ConfirmProofDelivery marks a transfer output proof as successfully
+	// transferred.
+	ConfirmProofDelivery(context.Context, wire.OutPoint, uint64) error
+
 	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
 	// updates the on-chain reference information on disk to point to this
 	// new spend.

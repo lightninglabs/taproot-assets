@@ -126,6 +126,12 @@ type (
 	// output.
 	NewTransferOutput = sqlc.InsertAssetTransferOutputParams
 
+	// OutputProofDeliveryStatus wraps the params needed to set the delivery
+	// status of a given output proof.
+	//
+	// nolint: lll
+	OutputProofDeliveryStatus = sqlc.SetTransferOutputProofDeliveryStatusParams
+
 	// NewPassiveAsset wraps the params needed to insert a new passive
 	// asset.
 	NewPassiveAsset = sqlc.InsertPassiveAssetParams
@@ -277,6 +283,11 @@ type ActiveAssetsStore interface {
 	// the DB.
 	InsertAssetTransferOutput(ctx context.Context,
 		arg NewTransferOutput) error
+
+	// SetTransferOutputProofDeliveryStatus sets the delivery status of a
+	// given transfer output proof.
+	SetTransferOutputProofDeliveryStatus(ctx context.Context,
+		arg OutputProofDeliveryStatus) error
 
 	// FetchTransferInputs fetches the inputs to a given asset transfer.
 	FetchTransferInputs(ctx context.Context,
@@ -2748,6 +2759,43 @@ func (a *AssetStore) QueryProofTransferLog(ctx context.Context,
 		return nil
 	})
 	return timestamps, err
+}
+
+// ConfirmProofDelivery marks a transfer output proof as successfully
+// delivered to counterparty.
+func (a *AssetStore) ConfirmProofDelivery(ctx context.Context,
+	anchorOutpoint wire.OutPoint, outputPosition uint64) error {
+
+	// Serialize the anchor outpoint to bytes.
+	anchorOutpointBytes, err := encodeOutpoint(anchorOutpoint)
+	if err != nil {
+		return fmt.Errorf("unable to encode anchor outpoint: %w", err)
+	}
+
+	// Ensure that the position value can be stored in a 32-bit integer.
+	// Type cast if possible, otherwise return an error.
+	if outputPosition > math.MaxInt32 {
+		return fmt.Errorf("position value is too large for db: %d",
+			outputPosition)
+	}
+	outPosition := int32(outputPosition)
+
+	var writeTxOpts AssetStoreTxOptions
+
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		params := OutputProofDeliveryStatus{
+			DeliveryComplete:         sqlBool(true),
+			SerializedAnchorOutpoint: anchorOutpointBytes,
+			Position:                 outPosition,
+		}
+		return q.SetTransferOutputProofDeliveryStatus(ctx, params)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to confirm transfer output proof "+
+			"delivery status in db: %w", err)
+	}
+
+	return nil
 }
 
 // ConfirmParcelDelivery marks a spend event on disk as confirmed. This updates

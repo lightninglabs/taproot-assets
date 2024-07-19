@@ -640,6 +640,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
+
 	deliver := func(ctx context.Context, out TransferOutput) error {
 		key := out.ScriptKey.PubKey
 
@@ -720,6 +722,16 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"courier service: %w", err)
 		}
 
+		// The proof has been successfully delivered to the receiver.
+		// Now, we will update our transfer log to reflect this.
+		err = p.cfg.ExportLog.ConfirmProofDelivery(
+			ctx, out.Anchor.OutPoint, out.Position,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to log proof delivery "+
+				"confirmation: %w", err)
+		}
+
 		return nil
 	}
 
@@ -764,7 +776,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorTXID:             pkg.OutboundPkg.AnchorTx.TxHash(),
+		AnchorTXID:             anchorTXID,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
