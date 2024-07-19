@@ -246,6 +246,18 @@ type TransferOutput struct {
 	// ProofCourierAddr is the bytes encoded proof courier service address
 	// associated with this output.
 	ProofCourierAddr []byte
+
+	// ProofDeliveryComplete is a flag that indicates whether the proof
+	// delivery for this output is complete.
+	//
+	// This field can take one of the following values:
+	// - None: A proof will not be delivered to a counterparty.
+	// - False: The proof has not yet been delivered successfully.
+	// - True: The proof has been delivered to the recipient.
+	ProofDeliveryComplete fn.Option[bool]
+
+	// Position is the position of the output in the transfer output list.
+	Position uint64
 }
 
 // ShouldDeliverProof returns true if a proof corresponding to the subject

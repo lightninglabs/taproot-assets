@@ -2401,20 +2401,50 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to insert script key: %w", err)
 	}
 
+	// Now we will mark the output proof as undelivered if it is intended
+	// for a counterpart.
+	//
+	// If the transfer output proof is not intended for a counterpart the
+	// `proofDeliveryComplete` field will be left as NULL. Otherwise, we set
+	// it to false to indicate that the proof has not been delivered yet.
+	shouldDeliverProof, err := output.ShouldDeliverProof()
+	if err != nil {
+		return fmt.Errorf("unable to determine if proof should be "+
+			"delivery for given transfer output: %w", err)
+	}
+
+	var proofDeliveryComplete sql.NullBool
+	if shouldDeliverProof {
+		proofDeliveryComplete = sql.NullBool{
+			Bool:  false,
+			Valid: true,
+		}
+	}
+
+	// Check if position value can be stored in a 32-bit integer. Type cast
+	// if possible, otherwise return an error.
+	if output.Position > math.MaxInt32 {
+		return fmt.Errorf("position value %d is too large for db "+
+			"storage", output.Position)
+	}
+	position := int32(output.Position)
+
 	dbOutput := NewTransferOutput{
-		TransferID:          transferID,
-		AnchorUtxo:          newUtxoID,
-		ScriptKey:           scriptKeyID,
-		ScriptKeyLocal:      output.ScriptKeyLocal,
-		Amount:              int64(output.Amount),
-		LockTime:            sqlInt32(output.LockTime),
-		RelativeLockTime:    sqlInt32(output.RelativeLockTime),
-		AssetVersion:        int32(output.AssetVersion),
-		SerializedWitnesses: witnessBuf.Bytes(),
-		ProofSuffix:         output.ProofSuffix,
-		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
-		OutputType:          int16(output.Type),
-		ProofCourierAddr:    output.ProofCourierAddr,
+		TransferID:            transferID,
+		AnchorUtxo:            newUtxoID,
+		ScriptKey:             scriptKeyID,
+		ScriptKeyLocal:        output.ScriptKeyLocal,
+		Amount:                int64(output.Amount),
+		LockTime:              sqlInt32(output.LockTime),
+		RelativeLockTime:      sqlInt32(output.RelativeLockTime),
+		AssetVersion:          int32(output.AssetVersion),
+		SerializedWitnesses:   witnessBuf.Bytes(),
+		ProofSuffix:           output.ProofSuffix,
+		NumPassiveAssets:      int32(output.Anchor.NumPassiveAssets),
+		OutputType:            int16(output.Type),
+		ProofCourierAddr:      output.ProofCourierAddr,
+		ProofDeliveryComplete: proofDeliveryComplete,
+		Position:              position,
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -2526,6 +2556,22 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 			outputAnchor.CommitmentVersion = fn.Ptr(dbRootVersion)
 		}
 
+		// Parse the proof deliver complete flag from the database.
+		var proofDeliveryComplete fn.Option[bool]
+		if dbOut.ProofDeliveryComplete.Valid {
+			proofDeliveryComplete = fn.Some(
+				dbOut.ProofDeliveryComplete.Bool,
+			)
+		}
+
+		vOutputType := tappsbt.VOutputType(dbOut.OutputType)
+
+		// Ensure the position value is valid.
+		if dbOut.Position < 0 {
+			return nil, fmt.Errorf("invalid position value in "+
+				"db: %d", dbOut.Position)
+		}
+
 		outputs[idx] = tapfreighter.TransferOutput{
 			Anchor:           outputAnchor,
 			Amount:           uint64(dbOut.Amount),
@@ -2549,9 +2595,11 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				splitRootHash,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
 			),
-			ProofSuffix:      dbOut.ProofSuffix,
-			Type:             tappsbt.VOutputType(dbOut.OutputType),
-			ProofCourierAddr: dbOut.ProofCourierAddr,
+			ProofSuffix:           dbOut.ProofSuffix,
+			Type:                  vOutputType,
+			ProofCourierAddr:      dbOut.ProofCourierAddr,
+			ProofDeliveryComplete: proofDeliveryComplete,
+			Position:              uint64(dbOut.Position),
 		}
 
 		err = readOutPoint(
@@ -2794,10 +2842,10 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				!out.ScriptKeyLocal && !isKnown
 
 			log.Tracef("Skip asset creation for "+
-				"output %d?: %v,  scriptKey=%x, "+
+				"output %d?: %v,  position=%v, scriptKey=%x, "+
 				"isTombstone=%v, isBurn=%v, "+
 				"scriptKeyLocal=%v, scriptKeyKnown=%v",
-				idx, skipAssetCreation,
+				idx, skipAssetCreation, out.Position,
 				scriptPubKey.SerializeCompressed(),
 				isTombstone, isBurn, out.ScriptKeyLocal,
 				isKnown)

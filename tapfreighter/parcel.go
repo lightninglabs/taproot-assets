@@ -531,17 +531,24 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		}
 	}
 
+	// The outputPosition represents the index of the output within the list
+	// of output transfers. It is continuously incremented across all
+	// outputs and virtual packets.
+	outputPosition := uint64(0)
+
 	for pIdx := range activeTransfers {
 		vPkt := activeTransfers[pIdx]
 
-		for idx := range vPkt.Outputs {
+		for vPktOutputIdx := range vPkt.Outputs {
 			tOut, err := transferOutput(
-				vPkt, idx, anchorTx, passiveAssets, isLocalKey,
+				vPkt, vPktOutputIdx, outputPosition, anchorTx,
+				passiveAssets, isLocalKey,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to convert "+
-					"output %d: %w", idx, err)
+					"output %d: %w", vPktOutputIdx, err)
 			}
+			outputPosition += 1
 
 			parcel.Outputs = append(parcel.Outputs, *tOut)
 		}
@@ -566,7 +573,7 @@ func transferInput(vIn *tappsbt.VInput) (*TransferInput, error) {
 
 // transferOutput creates a TransferOutput from a virtual output and the anchor
 // packet.
-func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int,
+func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 	anchorTx *tapsend.AnchorTransaction, passiveAssets []*tappsbt.VPacket,
 	isLocalKey func(asset.ScriptKey) bool) (*TransferOutput, error) {
 
@@ -612,6 +619,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int,
 		ProofSuffix:         proofSuffixBuf.Bytes(),
 		ProofCourierAddr:    proofCourierAddrBytes,
 		ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
+		Position:            position,
 	}, nil
 }
 
