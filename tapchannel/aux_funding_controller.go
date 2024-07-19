@@ -505,6 +505,9 @@ func (p *pendingAssetFunding) unlockInputs(ctx context.Context,
 func (p *pendingAssetFunding) unlockAssetInputs(ctx context.Context,
 	coinSelect tapfreighter.CoinSelector) error {
 
+	log.Debugf("unlocking asset inputs: %v",
+		spew.Sdump(p.lockedAssetInputs))
+
 	err := coinSelect.ReleaseCoins(ctx, p.lockedAssetInputs...)
 	if err != nil {
 		return fmt.Errorf("unable to unlock asset outpoints %v: %w",
@@ -1028,13 +1031,6 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 		return nil, err
 	}
 
-	fundingState.lockedAssetInputs = fn.Map(
-		fundedVpkt.VPacket.Inputs,
-		func(in *tappsbt.VInput) wire.OutPoint {
-			return in.PrevID.OutPoint
-		},
-	)
-
 	// Now that we have the initial skeleton for our funding PSBT, we'll
 	// modify the output value to match the channel amt asked for, which
 	// lnd will expect.
@@ -1356,6 +1352,40 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		return fmt.Errorf("unable to fund vPacket: %w", err)
 	}
 
+	// Now that we've funded the vPk, keep track of the set of inputs we
+	// locked to ensure we unlock them later.
+	fundingState.lockedAssetInputs = fn.Map(
+		fundingVpkt.VPacket.Inputs,
+		func(in *tappsbt.VInput) wire.OutPoint {
+			return in.PrevID.OutPoint
+		},
+	)
+
+	// We'll use this closure to ensure that we'll always unlock the inputs
+	// if we encounter an error below.
+	unlockLeases := func() {
+		err := fundingState.unlockInputs(fundReq.ctx, f.cfg.ChainWallet)
+		if err != nil {
+			log.Errorf("unable to unlock inputs: %v", err)
+		}
+
+		err = fundingState.unlockAssetInputs(
+			fundReq.ctx, f.cfg.CoinSelector,
+		)
+		if err != nil {
+			log.Errorf("Unable to unlock asset inputs: %v", err)
+		}
+	}
+
+	// Register a defer to execute if none of the set up below succeeds.
+	// This ensure we always unlock the UTXO.
+	var setupSuccess bool
+	defer func() {
+		if !setupSuccess {
+			unlockLeases()
+		}
+	}()
+
 	// Now that we know the final funding asset root along with the splits,
 	// we can derive the tapscript root that'll be used alongside the
 	// internal key (which we'll only learn from lnd later as we finalize
@@ -1394,11 +1424,22 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 			"proofs: %w", err)
 	}
 
+	setupSuccess = true
+
 	// With the ownership proof sent, we'll now spawn a goroutine to take
 	// care of the final funding steps.
 	f.Wg.Add(1)
 	go func() {
 		defer f.Wg.Done()
+
+		// If we've failed, then we'll unlock any of the locked
+		// UTXOs, so they're free again.
+		var completeSuccess bool
+		defer func() {
+			if !completeSuccess {
+				unlockLeases()
+			}
+		}()
 
 		log.Infof("Waiting for funding ack...")
 
@@ -1426,23 +1467,6 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 			fundReq.ctx, fundingState, fundingVpkt,
 		)
 		if err != nil {
-			// If we've failed, then we'll unlock any of the locked
-			// UTXOs, so they're free again.
-			uErr := fundingState.unlockInputs(
-				fundReq.ctx, f.cfg.ChainWallet,
-			)
-			if uErr != nil {
-				log.Errorf("unable to unlock inputs: %v", uErr)
-			}
-
-			uErr = fundingState.unlockAssetInputs(
-				fundReq.ctx, f.cfg.CoinSelector,
-			)
-			if uErr != nil {
-				log.Errorf("Unable to unlock asset inputs: %v",
-					uErr)
-			}
-
 			// If anything went wrong during the funding process,
 			// the remote side might have an in-memory state and
 			// wouldn't allow us to try again within the next 10
@@ -1459,6 +1483,8 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 			fundReq.errChan <- err
 			return
 		}
+
+		completeSuccess = true
 
 		fundReq.respChan <- chanPoint
 	}()
