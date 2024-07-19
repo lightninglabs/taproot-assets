@@ -32,7 +32,10 @@ func TapCommitmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
 
 func AssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**AssetProof); ok {
-		stream, err := tlv.NewStream((*t).Records()...)
+		records := asset.CombineRecords(
+			(*t).Records(), (*t).UnknownOddTypes,
+		)
+		stream, err := tlv.NewStream(records...)
 		if err != nil {
 			return err
 		}
@@ -59,14 +62,15 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			return err
 		}
 
-		// TODO(guggero): Store unknown types (next commits).
-		_, err = asset.TlvStrictDecodeP2P(
+		unknownOddTypes, err := asset.TlvStrictDecodeP2P(
 			stream, bytes.NewReader(streamBytes),
 			KnownAssetProofTypes,
 		)
 		if err != nil {
 			return err
 		}
+
+		proof.UnknownOddTypes = unknownOddTypes
 
 		*typ = &proof
 		return nil
@@ -76,7 +80,10 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 
 func TaprootAssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*TaprootAssetProof); ok {
-		stream, err := tlv.NewStream((*t).Records()...)
+		records := asset.CombineRecords(
+			(*t).Records(), (*t).UnknownOddTypes,
+		)
+		stream, err := tlv.NewStream(records...)
 		if err != nil {
 			return err
 		}
@@ -105,14 +112,15 @@ func TaprootAssetProofDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 
-		// TODO(guggero): Store unknown types (next commits).
-		_, err = asset.TlvStrictDecodeP2P(
+		unknownOddTypes, err := asset.TlvStrictDecodeP2P(
 			stream, bytes.NewReader(streamBytes),
 			KnownTaprootAssetProofTypes,
 		)
 		if err != nil {
 			return err
 		}
+
+		proof.UnknownOddTypes = unknownOddTypes
 
 		*typ = proof
 		return nil

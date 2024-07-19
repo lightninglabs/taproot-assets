@@ -270,12 +270,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a"
+                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101"
                 },
@@ -290,12 +293,15 @@
                       "asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                         "version": 0,
-                        "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a"
+                        "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a",
+                        "unknown_odd_types": null
                       },
                       "taproot_asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                        "version": 0
-                      }
+                        "version": 0,
+                        "unknown_odd_types": null
+                      },
+                      "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101"
                   },
@@ -330,12 +336,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a"
+                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": ""
                 },
@@ -556,12 +565,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a"
+                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101"
                 },
@@ -576,12 +588,15 @@
                       "asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                         "version": 0,
-                        "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a"
+                        "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a",
+                        "unknown_odd_types": null
                       },
                       "taproot_asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                        "version": 0
-                      }
+                        "version": 0,
+                        "unknown_odd_types": null
+                      },
+                      "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101"
                   },
@@ -616,12 +631,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a"
+                      "tap_key": "bfafa94eb8e114b75095d0ace686339d3eb50be00f814a9e26125d4d3eb8f01a",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": ""
                 },
@@ -904,12 +922,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b"
+                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101"
                 },
@@ -924,12 +945,15 @@
                       "asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                         "version": 0,
-                        "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b"
+                        "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b",
+                        "unknown_odd_types": null
                       },
                       "taproot_asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                        "version": 0
-                      }
+                        "version": 0,
+                        "unknown_odd_types": null
+                      },
+                      "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101"
                   },
@@ -964,12 +988,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b"
+                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": ""
                 },
@@ -1190,12 +1217,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b"
+                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101"
                 },
@@ -1210,12 +1240,15 @@
                       "asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                         "version": 0,
-                        "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b"
+                        "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b",
+                        "unknown_odd_types": null
                       },
                       "taproot_asset_proof": {
                         "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                        "version": 0
-                      }
+                        "version": 0,
+                        "unknown_odd_types": null
+                      },
+                      "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101"
                   },
@@ -1250,12 +1283,15 @@
                     "asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
                       "version": 0,
-                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b"
+                      "tap_key": "5dbb279034d8a6552bb17236f0eb023f14e22b41e3574bc889e7516ad54c864b",
+                      "unknown_odd_types": null
                     },
                     "taproot_asset_proof": {
                       "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
-                      "version": 0
-                    }
+                      "version": 0,
+                      "unknown_odd_types": null
+                    },
+                    "unknown_odd_types": null
                   },
                   "tapscript_sibling": ""
                 },
