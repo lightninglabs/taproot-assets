@@ -59,7 +59,8 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			return err
 		}
 
-		err = asset.TlvStrictDecodeP2P(
+		// TODO(guggero): Store unknown types (next commits).
+		_, err = asset.TlvStrictDecodeP2P(
 			stream, bytes.NewReader(streamBytes),
 			KnownAssetProofTypes,
 		)
@@ -104,7 +105,8 @@ func TaprootAssetProofDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 
-		err = asset.TlvStrictDecodeP2P(
+		// TODO(guggero): Store unknown types (next commits).
+		_, err = asset.TlvStrictDecodeP2P(
 			stream, bytes.NewReader(streamBytes),
 			KnownTaprootAssetProofTypes,
 		)

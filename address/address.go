@@ -415,7 +415,9 @@ func (a *Tap) Decode(r io.Reader) error {
 		return err
 	}
 
-	return asset.TlvStrictDecodeP2P(stream, r, KnownAddressTypes)
+	// TODO(guggero): Store unknown types (next commits).
+	_, err = asset.TlvStrictDecodeP2P(stream, r, KnownAddressTypes)
+	return err
 }
 
 // EncodeAddress returns a bech32m string encoding of a Taproot Asset address.
