@@ -280,9 +280,11 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": "00c00101"
+                  "tapscript_sibling": "00c00101",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "exclusion_proofs": [
                 {
@@ -303,9 +305,11 @@
                       },
                       "unknown_odd_types": null
                     },
-                    "tapscript_sibling": "00c00101"
+                    "tapscript_sibling": "00c00101",
+                    "unknown_odd_types": null
                   },
-                  "tapscript_proof": null
+                  "tapscript_proof": null,
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 3,
@@ -314,8 +318,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "011aac25408a4d28233cd325faefade9ef0fae76fcb1e35d08140045bbaa381b30eef46e46303556602ef13cef5d2fff3dc6a2ece6657fc91e4b0a5bba2ded4eff",
                     "tap_preimage_2": "00c00102",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 4,
@@ -324,8 +330,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "",
                     "tap_preimage_2": "",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 }
               ],
               "split_root_proof": {
@@ -346,13 +354,16 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": ""
+                  "tapscript_sibling": "",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "meta_reveal": {
                 "type": 0,
-                "data": "71756f74682074686520726176656e206e657665726d6f7265"
+                "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "unknown_odd_types": null
               },
               "additional_inputs": null,
               "challenge_witness": [
@@ -369,7 +380,8 @@
               "group_key_reveal": {
                 "raw_key": "036513025e8a6e9714c1f7fd4b886e3d09895840b53f1dfff7f275d3aaedfd32e8",
                 "tapscript_root": "703934bf50a28da102975deda77e758579ea3dfe4136abf752b3b8271d03e944"
-              }
+              },
+              "unknown_odd_types": null
             }
           },
           {
@@ -575,9 +587,11 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": "00c00101"
+                  "tapscript_sibling": "00c00101",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "exclusion_proofs": [
                 {
@@ -598,9 +612,11 @@
                       },
                       "unknown_odd_types": null
                     },
-                    "tapscript_sibling": "00c00101"
+                    "tapscript_sibling": "00c00101",
+                    "unknown_odd_types": null
                   },
-                  "tapscript_proof": null
+                  "tapscript_proof": null,
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 3,
@@ -609,8 +625,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "011aac25408a4d28233cd325faefade9ef0fae76fcb1e35d08140045bbaa381b30eef46e46303556602ef13cef5d2fff3dc6a2ece6657fc91e4b0a5bba2ded4eff",
                     "tap_preimage_2": "00c00102",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 4,
@@ -619,8 +637,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "",
                     "tap_preimage_2": "",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 }
               ],
               "split_root_proof": {
@@ -641,13 +661,16 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": ""
+                  "tapscript_sibling": "",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "meta_reveal": {
                 "type": 0,
-                "data": "71756f74682074686520726176656e206e657665726d6f7265"
+                "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "unknown_odd_types": null
               },
               "additional_inputs": null,
               "challenge_witness": [
@@ -664,7 +687,8 @@
               "group_key_reveal": {
                 "raw_key": "036513025e8a6e9714c1f7fd4b886e3d09895840b53f1dfff7f275d3aaedfd32e8",
                 "tapscript_root": "703934bf50a28da102975deda77e758579ea3dfe4136abf752b3b8271d03e944"
-              }
+              },
+              "unknown_odd_types": null
             },
             "relative_lock_time": 345,
             "lock_time": 456
@@ -932,9 +956,11 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": "00c00101"
+                  "tapscript_sibling": "00c00101",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "exclusion_proofs": [
                 {
@@ -955,9 +981,11 @@
                       },
                       "unknown_odd_types": null
                     },
-                    "tapscript_sibling": "00c00101"
+                    "tapscript_sibling": "00c00101",
+                    "unknown_odd_types": null
                   },
-                  "tapscript_proof": null
+                  "tapscript_proof": null,
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 3,
@@ -966,8 +994,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "011aac25408a4d28233cd325faefade9ef0fae76fcb1e35d08140045bbaa381b30eef46e46303556602ef13cef5d2fff3dc6a2ece6657fc91e4b0a5bba2ded4eff",
                     "tap_preimage_2": "00c00102",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 4,
@@ -976,8 +1006,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "",
                     "tap_preimage_2": "",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 }
               ],
               "split_root_proof": {
@@ -998,13 +1030,16 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": ""
+                  "tapscript_sibling": "",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "meta_reveal": {
                 "type": 0,
-                "data": "71756f74682074686520726176656e206e657665726d6f7265"
+                "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "unknown_odd_types": null
               },
               "additional_inputs": null,
               "challenge_witness": [
@@ -1021,7 +1056,8 @@
               "group_key_reveal": {
                 "raw_key": "03404203c494d2983cfc52c71eba0dc9908194bc22a6ecc6780580c46c6ad6701a",
                 "tapscript_root": "af206a329cfffd4a75e498320982c85aad70384859c05a4b13a1d5b2f5bfef5a"
-              }
+              },
+              "unknown_odd_types": null
             }
           },
           {
@@ -1227,9 +1263,11 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": "00c00101"
+                  "tapscript_sibling": "00c00101",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "exclusion_proofs": [
                 {
@@ -1250,9 +1288,11 @@
                       },
                       "unknown_odd_types": null
                     },
-                    "tapscript_sibling": "00c00101"
+                    "tapscript_sibling": "00c00101",
+                    "unknown_odd_types": null
                   },
-                  "tapscript_proof": null
+                  "tapscript_proof": null,
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 3,
@@ -1261,8 +1301,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "011aac25408a4d28233cd325faefade9ef0fae76fcb1e35d08140045bbaa381b30eef46e46303556602ef13cef5d2fff3dc6a2ece6657fc91e4b0a5bba2ded4eff",
                     "tap_preimage_2": "00c00102",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 },
                 {
                   "output_index": 4,
@@ -1271,8 +1313,10 @@
                   "tapscript_proof": {
                     "tap_preimage_1": "",
                     "tap_preimage_2": "",
-                    "bip86": true
-                  }
+                    "bip86": true,
+                    "unknown_odd_types": null
+                  },
+                  "unknown_odd_types": null
                 }
               ],
               "split_root_proof": {
@@ -1293,13 +1337,16 @@
                     },
                     "unknown_odd_types": null
                   },
-                  "tapscript_sibling": ""
+                  "tapscript_sibling": "",
+                  "unknown_odd_types": null
                 },
-                "tapscript_proof": null
+                "tapscript_proof": null,
+                "unknown_odd_types": null
               },
               "meta_reveal": {
                 "type": 0,
-                "data": "71756f74682074686520726176656e206e657665726d6f7265"
+                "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "unknown_odd_types": null
               },
               "additional_inputs": null,
               "challenge_witness": [
@@ -1316,7 +1363,8 @@
               "group_key_reveal": {
                 "raw_key": "03404203c494d2983cfc52c71eba0dc9908194bc22a6ecc6780580c46c6ad6701a",
                 "tapscript_root": "af206a329cfffd4a75e498320982c85aad70384859c05a4b13a1d5b2f5bfef5a"
-              }
+              },
+              "unknown_odd_types": null
             },
             "relative_lock_time": 345,
             "lock_time": 456
