@@ -443,7 +443,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		log.Debugf("Not updating proofs as there are no active " +
 			"transfers")
 
-		sendPkg.SendState = SendStateReceiverProofTransfer
+		sendPkg.SendState = SendStateTransferProofs
 		return nil
 	}
 
@@ -532,7 +532,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		}
 	}
 
-	sendPkg.SendState = SendStateReceiverProofTransfer
+	sendPkg.SendState = SendStateTransferProofs
 	return nil
 }
 
@@ -1031,16 +1031,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"package: %w", err)
 		}
 
-		currentPkg.SendState = SendStateLogCommit
+		currentPkg.SendState = SendStateStorePreBroadcast
 
 		return &currentPkg, nil
 
-	// At this state, we have a final PSBT transaction which is fully
-	// signed. We'll write this to disk (the point of no return), then
-	// broadcast this to the network.
-	case SendStateLogCommit:
-		// Before we can broadcast, we want to find out the current
-		// height to pass as a height hint.
+	// In this state, the parcel state is stored before the fully signed
+	// transaction is broadcast to the mempool.
+	case SendStateStorePreBroadcast:
+		// We won't broadcast in this state, but in preparation for
+		// broadcasting, we will find out the current height to use as
+		// a height hint.
 		ctx, cancel := p.WithCtxQuit()
 		defer cancel()
 		currentHeight, err := p.cfg.ChainBridge.CurrentHeight(ctx)
@@ -1164,8 +1164,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 	// At this point, the transfer transaction is confirmed on-chain, and
 	// we've stored the sender and receiver proofs in the proof archive.
-	// We'll now attempt to transfer the receiver proof to the receiver.
-	case SendStateReceiverProofTransfer:
+	// We'll now attempt to transfer one or more proofs to the receiver(s).
+	case SendStateTransferProofs:
 		// We'll set the package state to complete early here so the
 		// main loop breaks out. We'll continue to attempt proof
 		// deliver in the background.
@@ -1181,7 +1181,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 					"proof: %v", err)
 
 				p.publishSubscriberEvent(newAssetSendErrorEvent(
-					err, SendStateReceiverProofTransfer,
+					err, SendStateTransferProofs,
 					currentPkg,
 				))
 			}

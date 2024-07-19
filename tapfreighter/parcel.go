@@ -38,11 +38,9 @@ const (
 	// then finalize to place the necessary signatures in the transaction.
 	SendStateAnchorSign
 
-	// SendStateLogCommit is the final in memory state. In this state,
-	// we'll extract the signed transaction from the PSBT and log the
-	// transfer information to disk. At this point, after a restart, the
-	// transfer can be resumed.
-	SendStateLogCommit
+	// SendStateStorePreBroadcast is the state in which the finalized fully
+	// signed transaction is written to persistent storage before broadcast.
+	SendStateStorePreBroadcast
 
 	// SendStateBroadcast broadcasts the transfer transaction to the
 	// network, and imports the taproot output back into the wallet to
@@ -57,9 +55,9 @@ const (
 	// and receiver proofs to the proof archive.
 	SendStateStoreProofs
 
-	// SendStateReceiverProofTransfer is the state in which we will commence
-	// the receiver proof transfer process.
-	SendStateReceiverProofTransfer
+	// SendStateTransferProofs is the state where we attempt to transfer
+	// on-chain transaction proof(s) to the receiving party or parties.
+	SendStateTransferProofs
 
 	// SendStateComplete is the state which is reached once entire asset
 	// transfer process is complete.
@@ -78,8 +76,8 @@ func (s SendState) String() string {
 	case SendStateAnchorSign:
 		return "SendStateAnchorSign"
 
-	case SendStateLogCommit:
-		return "SendStateLogCommit"
+	case SendStateStorePreBroadcast:
+		return "SendStateStorePreBroadcast"
 
 	case SendStateBroadcast:
 		return "SendStateBroadcast"
@@ -90,8 +88,8 @@ func (s SendState) String() string {
 	case SendStateStoreProofs:
 		return "SendStateStoreProofs"
 
-	case SendStateReceiverProofTransfer:
-		return "SendStateReceiverProofTransfer"
+	case SendStateTransferProofs:
+		return "SendStateTransferProofs"
 
 	case SendStateComplete:
 		return "SendStateComplete"
@@ -381,7 +379,7 @@ func (p *PreAnchoredParcel) pkg() *sendPackage {
 	// commitment.
 	return &sendPackage{
 		Parcel:         p,
-		SendState:      SendStateLogCommit,
+		SendState:      SendStateStorePreBroadcast,
 		VirtualPackets: p.virtualPackets,
 		PassiveAssets:  p.passiveAssets,
 		AnchorTx:       p.anchorTx,
