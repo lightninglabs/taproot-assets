@@ -99,6 +99,14 @@ type MetaReveal struct {
 
 	// Data is the committed data being revealed.
 	Data []byte
+
+	// unknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	unknownOddTypes tlv.TypeMap
 }
 
 // SizableInteger is a subset of Integer that excludes int8, since we never use
@@ -337,10 +345,13 @@ func (m *MetaReveal) MetaHash() [asset.MetaHashLen]byte {
 
 // EncodeRecords returns the TLV encode records for the meta reveal.
 func (m *MetaReveal) EncodeRecords() []tlv.Record {
-	return []tlv.Record{
+	records := []tlv.Record{
 		MetaRevealTypeRecord(&m.Type),
 		MetaRevealDataRecord(&m.Data),
 	}
+
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, m.unknownOddTypes)
 }
 
 // DecodeRecords returns the TLV decode records for the meta reveal.
@@ -370,8 +381,14 @@ func (m *MetaReveal) Decode(r io.Reader) error {
 	// Note, we can't use the DecodeP2P method here, because the meta data
 	// itself can be larger than 65k bytes. But we impose limits in the
 	// individual decoding functions.
-	//
-	// TODO(guggero): Store unknown types (next commits).
-	_, err = asset.TlvStrictDecode(stream, r, KnownMetaRevealTypes)
-	return err
+	unknownOddTypes, err := asset.TlvStrictDecode(
+		stream, r, KnownMetaRevealTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	m.unknownOddTypes = unknownOddTypes
+
+	return nil
 }
