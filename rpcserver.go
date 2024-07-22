@@ -1179,6 +1179,8 @@ func (r *rpcServer) ListUtxos(ctx context.Context,
 			InternalKey:      u.InternalKey.PubKey.SerializeCompressed(),
 			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
+			LeaseOwner:       u.LeaseOwner[:],
+			LeaseExpiryUnix:  u.LeaseExpiry.Unix(),
 		}
 	}
 

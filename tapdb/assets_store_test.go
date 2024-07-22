@@ -1466,8 +1466,11 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, utxos, 3)
 
-	// First UTXO should remain unchanged.
+	// First UTXO should remain unchanged. It should now have a lease
+	// expiry and owner set.
 	require.Equal(t, assetGen.anchorPoints[0], utxos[0].OutPoint)
+	require.Equal(t, leaseOwner[:], utxos[0].LeaseOwner[:])
+	require.NotZero(t, utxos[0].LeaseExpiry)
 
 	// Second UTXO will be our new one.
 	newUtxo := utxos[1]

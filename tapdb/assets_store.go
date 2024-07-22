@@ -417,6 +417,14 @@ type ManagedUTXO struct {
 	// TapscriptSibling is the serialized tapscript sibling preimage of
 	// this asset. This will usually be blank.
 	TapscriptSibling []byte
+
+	// LeaseOwner is the identifier of the lease owner of this UTXO. If
+	// blank, this UTXO isn't leased.
+	LeaseOwner []byte
+
+	// LeaseExpiry is the expiry time of the lease on this UTXO. If the
+	// zero, then this UTXO isn't leased.
+	LeaseExpiry time.Time
 }
 
 // AssetHumanReadable is a subset of the base asset struct that only includes
@@ -1125,7 +1133,7 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 			return nil, err
 		}
 
-		managedUtxos[i] = &ManagedUTXO{
+		utxo := &ManagedUTXO{
 			OutPoint:    anchorPoint,
 			OutputValue: btcutil.Amount(u.AmtSats),
 			InternalKey: keychain.KeyDescriptor{
@@ -1140,7 +1148,13 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 			TaprootAssetRoot: u.TaprootAssetRoot,
 			MerkleRoot:       u.MerkleRoot,
 			TapscriptSibling: u.TapscriptSibling,
+			LeaseOwner:       u.LeaseOwner,
 		}
+		if u.LeaseExpiry.Valid {
+			utxo.LeaseExpiry = u.LeaseExpiry.Time
+		}
+
+		managedUtxos[i] = utxo
 	}
 
 	return managedUtxos, nil

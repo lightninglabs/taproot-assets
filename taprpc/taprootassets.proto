@@ -505,6 +505,13 @@ message ManagedUtxo {
 
     // The assets held at this UTXO.
     repeated Asset assets = 6;
+
+    // The lease owner for this UTXO. If blank the UTXO isn't leased.
+    bytes lease_owner = 7;
+
+    // The expiry time as a unix time stamp for this lease. If blank the utxo
+    // isn't leased.
+    int64 lease_expiry_unix = 8;
 }
 
 message ListUtxosResponse {
