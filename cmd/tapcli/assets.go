@@ -47,6 +47,7 @@ var (
 	assetGroupedAssetName        = "grouped_asset"
 	assetShowWitnessName         = "show_witness"
 	assetShowSpentName           = "show_spent"
+	assetShowLeasedName          = "show_leased"
 	assetShowUnconfMintsName     = "show_unconfirmed_mints"
 	assetGroupKeyName            = "group_key"
 	assetGroupAnchorName         = "group_anchor"
@@ -556,6 +557,10 @@ var listAssetsCommand = cli.Command{
 			Usage: "include fully spent assets in the list",
 		},
 		cli.BoolFlag{
+			Name:  assetShowLeasedName,
+			Usage: "include leased assets in the list",
+		},
+		cli.BoolFlag{
 			Name: assetShowUnconfMintsName,
 			Usage: "include freshly minted and not yet confirmed " +
 				"assets in the list",
@@ -574,6 +579,7 @@ func listAssets(ctx *cli.Context) error {
 	resp, err := client.ListAssets(ctxc, &taprpc.ListAssetRequest{
 		WithWitness:             ctx.Bool(assetShowWitnessName),
 		IncludeSpent:            ctx.Bool(assetShowSpentName),
+		IncludeLeased:           ctx.Bool(assetShowLeasedName),
 		IncludeUnconfirmedMints: ctx.Bool(assetShowUnconfMintsName),
 	})
 	if err != nil {

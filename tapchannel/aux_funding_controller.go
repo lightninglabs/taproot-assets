@@ -1126,8 +1126,9 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	case <-fundingState.fundingFinalizedSignal:
 
 	case <-time.After(ackTimeout):
-		return nil, fmt.Errorf("didn't receive funding ack after %v",
-			ackTimeout)
+		return nil, fmt.Errorf("didn't receive funding ack after %v: "+
+			"remote node didn't respond in time or doesn't "+
+			"support Taproot Asset Channels", ackTimeout)
 
 	case <-f.Quit:
 	}
