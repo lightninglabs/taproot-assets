@@ -226,7 +226,7 @@ flake-unit-trace:
 
 flake-unit-race:
 	@$(call print, "Flake hunting races in unit tests.")
-	while [ $$? -eq 0 ]; do env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOLIST) | $(XARGS) env $(GOTEST) -race -test.timeout=20m -count=1; done
+	while [ $$? -eq 0 ]; do $(GOLIST) | $(XARGS) env CGO_ENABLED=1 GORACE="history_size=7 halt_on_errors=1" $(GOTEST) -race -test.timeout=20m -count=1; done
 
 # =============
 # FUZZING
