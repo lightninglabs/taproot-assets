@@ -930,7 +930,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 		)
 		require.NoError(t, err)
 
-		// Filter out any cancelled batches.
+		// Filter out any cancelled or frozen batches.
 		isCommittedBatch := func(batch *tapgarden.MintingBatch) bool {
 			return batchCommittedStates.Contains(batch.State())
 		}
@@ -947,7 +947,7 @@ func (t *mintingTestHarness) assertSeedlingsMatchSprouts(
 	)
 
 	// The amount of assets committed to in the Taproot Asset commitment
-	// should match up
+	// should match up.
 	dbAssets := pendingBatch.RootAssetCommitment.CommittedAssets()
 	require.Len(t, dbAssets, len(seedlings))
 
@@ -1147,7 +1147,7 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	t.assertNumCaretakersActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
-	// state machine, we expect the PSBT packet to still be funded.
+	// state machine. We expect the PSBT packet to still be funded.
 	t.refreshChainPlanter()
 	batch = t.fetchSingleBatch(nil)
 	t.assertBatchGenesisTx(batch.GenesisPacket)
@@ -1457,7 +1457,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// Queue another batch, reset fee estimation behavior, and set TX
 	// confirmation registration to fail.
 	t.queueInitialBatch(numSeedlings)
-	t.chain.FailConf(true)
+	t.chain.FailConfOnce()
 
 	// Finalize the pending batch to start a caretaker, and progress the
 	// caretaker to TX confirmation. The finalize call should report no
@@ -1483,8 +1483,7 @@ func testFinalizeBatch(t *mintingTestHarness) {
 	// Queue another batch, set TX confirmation to succeed, and set the
 	// confirmation event to be empty.
 	t.queueInitialBatch(numSeedlings)
-	t.chain.FailConf(false)
-	t.chain.EmptyConf(true)
+	t.chain.EmptyConfOnce()
 
 	// Start a new caretaker that should reach TX broadcast.
 	t.finalizeBatch(&wg, respChan, nil)
@@ -1515,7 +1514,6 @@ func testFinalizeBatch(t *mintingTestHarness) {
 
 	// Queue another batch and drive the caretaker to a successful minting.
 	t.queueInitialBatch(numSeedlings)
-	t.chain.EmptyConf(false)
 
 	// Use a custom feerate and verify that the TX uses that feerate.
 	manualFeeRate := chainfee.FeePerKwFloor * 2
@@ -1915,7 +1913,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 
 	// Allow batch funding to succeed, but set group key signing to fail so
 	// that batch sealing fails.
-	t.genSigner.FailSigning = true
+	t.genSigner.FailSigningOnce()
 	failedBatchCount++
 
 	// Create a seedling with emission enabled, to ensure that batch sealing
@@ -1942,7 +1940,6 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 
 	// Allow batch sealing to succeed. The planter should now be able to
 	// start a caretaker for the batch on restart.
-	t.genSigner.FailSigning = false
 	t.queueSeedlingsInBatch(false, seedlings...)
 	batchCount++
 

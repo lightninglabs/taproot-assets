@@ -310,12 +310,12 @@ type MockChainBridge struct {
 
 	NewBlocks chan int32
 
-	ReqCount int
+	ReqCount atomic.Int32
 	ConfReqs map[int]*chainntnfs.ConfirmationEvent
 
 	failFeeEstimates atomic.Bool
-	emptyConf        bool
-	errConf          bool
+	errConf          atomic.Int32
+	emptyConf        atomic.Int32
 	confErr          chan error
 }
 
@@ -334,19 +334,30 @@ func (m *MockChainBridge) FailFeeEstimatesOnce() {
 	m.failFeeEstimates.Store(true)
 }
 
-func (m *MockChainBridge) FailConf(enable bool) {
-	m.errConf = enable
+// FailConfOnce updates the ChainBridge such that the next call to
+// RegisterConfirmationNtfn will fail by returning an error on the error channel
+// returned from RegisterConfirmationNtfn.
+func (m *MockChainBridge) FailConfOnce() {
+	// Store the incremented request count so we never store 0 as a value.
+	m.errConf.Store(m.ReqCount.Load() + 1)
 }
-func (m *MockChainBridge) EmptyConf(enable bool) {
-	m.emptyConf = enable
+
+// EmptyConfOnce updates the ChainBridge such that the next confirmation event
+// sent via SendConfNtfn will have an empty confirmation.
+func (m *MockChainBridge) EmptyConfOnce() {
+	// Store the incremented request count so we never store 0 as a value.
+	m.emptyConf.Store(m.ReqCount.Load() + 1)
 }
 
 func (m *MockChainBridge) SendConfNtfn(reqNo int, blockHash *chainhash.Hash,
 	blockHeight, blockIndex int, block *wire.MsgBlock,
 	tx *wire.MsgTx) {
 
+	// Compare to the incremented request count since we incremented it
+	// when storing the request number.
 	req := m.ConfReqs[reqNo]
-	if m.emptyConf {
+	if m.emptyConf.Load() == int32(reqNo)+1 {
+		m.emptyConf.Store(0)
 		req.Confirmed <- nil
 		return
 	}
@@ -371,7 +382,7 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 
 	defer func() {
-		m.ReqCount++
+		m.ReqCount.Add(1)
 	}()
 
 	req := &chainntnfs.ConfirmationEvent{
@@ -380,15 +391,18 @@ func (m *MockChainBridge) RegisterConfirmationsNtfn(ctx context.Context,
 	}
 	m.confErr = make(chan error, 1)
 
-	m.ConfReqs[m.ReqCount] = req
+	currentReqCount := m.ReqCount.Load()
+	m.ConfReqs[int(currentReqCount)] = req
 
 	select {
-	case m.ConfReqSignal <- m.ReqCount:
+	case m.ConfReqSignal <- int(currentReqCount):
 	case <-ctx.Done():
 	}
 
-	if m.errConf {
-		m.confErr <- fmt.Errorf("confirmation error")
+	// Compare to the incremented request count since we incremented it
+	// when storing the request number.
+	if m.errConf.CompareAndSwap(currentReqCount+1, 0) {
+		m.confErr <- fmt.Errorf("confirmation registration error")
 	}
 
 	return req, m.confErr, nil
@@ -661,7 +675,7 @@ func (m *MockKeyRing) IsLocalKey(context.Context, keychain.KeyDescriptor) bool {
 
 type MockGenSigner struct {
 	KeyRing     *MockKeyRing
-	FailSigning bool
+	failSigning atomic.Bool
 }
 
 func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
@@ -670,11 +684,17 @@ func NewMockGenSigner(keyRing *MockKeyRing) *MockGenSigner {
 	}
 }
 
+// FailSigningOnce updates the GenSigner such that the next call to
+// SignVirtualTx will fail by returning an error.
+func (m *MockGenSigner) FailSigningOnce() {
+	m.failSigning.Store(true)
+}
+
 func (m *MockGenSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	virtualTx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature,
 	error) {
 
-	if m.FailSigning {
+	if m.failSigning.CompareAndSwap(true, false) {
 		return nil, fmt.Errorf("failed to sign virtual tx")
 	}
 
