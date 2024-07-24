@@ -16,7 +16,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
@@ -30,10 +29,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/rfq"
-	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
-	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -53,10 +49,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
-	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
@@ -6202,244 +6195,38 @@ func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
 	return assetID, groupKey, nil
 }
 
-// unmarshalAssetBuyOrder unmarshals an asset buy order from the RPC form.
-func unmarshalAssetBuyOrder(
-	req *rfqrpc.AddAssetBuyOrderRequest) (*rfq.BuyOrder, error) {
-
-	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
-			"%w", err)
-	}
-
-	// Unmarshal the peer if specified.
-	var peer *route.Vertex
-	if len(req.PeerPubKey) > 0 {
-		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
-		if err != nil {
-			return nil, fmt.Errorf("error unmarshalling peer "+
-				"route vertex: %w", err)
-		}
-
-		peer = &pv
-	}
-
-	return &rfq.BuyOrder{
-		AssetID:        assetId,
-		AssetGroupKey:  assetGroupKey,
-		MinAssetAmount: req.MinAssetAmount,
-		MaxBid:         lnwire.MilliSatoshi(req.MaxBid),
-		Expiry:         req.Expiry,
-		Peer:           peer,
-	}, nil
-}
-
 // AddAssetBuyOrder upserts a new buy order for the given asset into the RFQ
 // manager. If the order already exists for the given asset, it will be updated.
 func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
-	req *rfqrpc.AddAssetBuyOrderRequest) (*rfqrpc.AddAssetBuyOrderResponse,
+	_ *rfqrpc.AddAssetBuyOrderRequest) (*rfqrpc.AddAssetBuyOrderResponse,
 	error) {
 
-	if req.TimeoutSeconds == 0 {
-		return nil, fmt.Errorf("timeout must be greater than 0")
-	}
-
-	// Unmarshal the buy order from the RPC form.
-	buyOrder, err := unmarshalAssetBuyOrder(req)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling buy order: %w", err)
-	}
-
-	var peer string
-	if buyOrder.Peer != nil {
-		peer = buyOrder.Peer.String()
-	}
-	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting buy order "+
-		"(dest_peer=%s)", peer)
-
-	// Register an event listener before actually inserting the order, so we
-	// definitely don't miss any responses.
-	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
-	defer eventSubscriber.Stop()
-
-	err = r.cfg.RfqManager.RegisterSubscriber(eventSubscriber, false, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register event listener: %w",
-			err)
-	}
-
-	defer func() {
-		_ = r.cfg.RfqManager.RemoveSubscriber(eventSubscriber)
-	}()
-
-	// Upsert the buy order into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetBuyOrder(*buyOrder)
-	if err != nil {
-		return nil, fmt.Errorf("error upserting buy order into RFQ "+
-			"manager: %w", err)
-	}
-
-	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
-
-	for {
-		select {
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetBuyOrderResponse(event)
-			if err != nil {
-				return nil, fmt.Errorf("error marshalling "+
-					"buy order response: %w", err)
-			}
-
-			return resp, nil
-
-		case <-r.quit:
-			return nil, fmt.Errorf("server shutting down")
-
-		case <-timeout:
-			return nil, fmt.Errorf("timeout waiting for response "+
-				"from peer %x", buyOrder.Peer[:])
-		}
-	}
-}
-
-// unmarshalAssetSellOrder unmarshals an asset sell order from the RPC form.
-func unmarshalAssetSellOrder(
-	req *rfqrpc.AddAssetSellOrderRequest) (*rfq.SellOrder, error) {
-
-	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
-			"%w", err)
-	}
-
-	// Unmarshal the peer if specified.
-	var peer *route.Vertex
-	if len(req.PeerPubKey) > 0 {
-		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
-		if err != nil {
-			return nil, fmt.Errorf("error unmarshalling peer "+
-				"route vertex: %w", err)
-		}
-
-		peer = &pv
-	}
-
-	return &rfq.SellOrder{
-		AssetID:        assetId,
-		AssetGroupKey:  assetGroupKey,
-		MaxAssetAmount: req.MaxAssetAmount,
-		MinAsk:         lnwire.MilliSatoshi(req.MinAsk),
-		Expiry:         req.Expiry,
-		Peer:           peer,
-	}, nil
+	return nil, fmt.Errorf("any RFQ functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // AddAssetSellOrder upserts a new sell order for the given asset into the RFQ
 // manager. If the order already exists for the given asset, it will be updated.
 func (r *rpcServer) AddAssetSellOrder(_ context.Context,
-	req *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
+	_ *rfqrpc.AddAssetSellOrderRequest) (*rfqrpc.AddAssetSellOrderResponse,
 	error) {
 
-	if req.TimeoutSeconds == 0 {
-		return nil, fmt.Errorf("timeout must be greater than 0")
-	}
-
-	// Unmarshal the order from the RPC form.
-	sellOrder, err := unmarshalAssetSellOrder(req)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling sell order: %w",
-			err)
-	}
-
-	var peer string
-	if sellOrder.Peer != nil {
-		peer = sellOrder.Peer.String()
-	}
-	rpcsLog.Debugf("[AddAssetSellOrder]: upserting sell order "+
-		"(dest_peer=%s)", peer)
-
-	// Register an event listener before actually inserting the order, so we
-	// definitely don't miss any responses.
-	eventSubscriber := fn.NewEventReceiver[fn.Event](fn.DefaultQueueSize)
-	defer eventSubscriber.Stop()
-
-	err = r.cfg.RfqManager.RegisterSubscriber(eventSubscriber, false, 0)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register event listener: %w",
-			err)
-	}
-
-	defer func() {
-		_ = r.cfg.RfqManager.RemoveSubscriber(eventSubscriber)
-	}()
-
-	// Upsert the order into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetSellOrder(*sellOrder)
-	if err != nil {
-		return nil, fmt.Errorf("error upserting sell order into RFQ "+
-			"manager: %w", err)
-	}
-
-	timeout := time.After(time.Second * time.Duration(req.TimeoutSeconds))
-
-	for {
-		select {
-		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetSellOrderResponse(event)
-			if err != nil {
-				return nil, fmt.Errorf("error marshalling "+
-					"sell order response: %w", err)
-			}
-
-			return resp, nil
-
-		case <-r.quit:
-			return nil, fmt.Errorf("server shutting down")
-
-		case <-timeout:
-			return nil, fmt.Errorf("timeout waiting for response "+
-				"from peer %x", sellOrder.Peer[:])
-		}
-	}
+	return nil, fmt.Errorf("any RFQ functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // AddAssetSellOffer upserts a new sell offer for the given asset into the
 // RFQ manager. If the offer already exists for the given asset, it will be
 // updated.
 func (r *rpcServer) AddAssetSellOffer(_ context.Context,
-	req *rfqrpc.AddAssetSellOfferRequest) (*rfqrpc.AddAssetSellOfferResponse,
+	_ *rfqrpc.AddAssetSellOfferRequest) (*rfqrpc.AddAssetSellOfferResponse,
 	error) {
 
-	// Unmarshal the sell offer from the RPC form.
-	assetID, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
-			"%w", err)
-	}
-
-	sellOffer := &rfq.SellOffer{
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		MaxUnits:      req.MaxUnits,
-	}
-
-	rpcsLog.Debugf("[AddAssetSellOffer]: upserting sell offer "+
-		"(sell_offer=%v)", sellOffer)
-
-	// Upsert the sell offer into the RFQ manager.
-	err = r.cfg.RfqManager.UpsertAssetSellOffer(*sellOffer)
-	if err != nil {
-		return nil, fmt.Errorf("error upserting sell offer into RFQ "+
-			"manager: %w", err)
-	}
-
-	return &rfqrpc.AddAssetSellOfferResponse{}, nil
+	return nil, fmt.Errorf("any RFQ functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // AddAssetBuyOffer upserts a new buy offer for the given asset into the RFQ
@@ -6448,81 +6235,12 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 // A buy offer is used by the node to selectively accept or reject incoming
 // asset sell quote requests before price is considered.
 func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
-	req *rfqrpc.AddAssetBuyOfferRequest) (*rfqrpc.AddAssetBuyOfferResponse,
+	_ *rfqrpc.AddAssetBuyOfferRequest) (*rfqrpc.AddAssetBuyOfferResponse,
 	error) {
 
-	// Unmarshal the asset specifier from the RPC form.
-	assetID, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
-			"%w", err)
-	}
-
-	// Upsert the offer into the RFQ manager.
-	buyOffer := rfq.BuyOffer{
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		MaxUnits:      req.MaxUnits,
-	}
-	rpcsLog.Debugf("[AddAssetBuyOffer]: upserting buy offer (buy_offer=%v)",
-		buyOffer)
-	err = r.cfg.RfqManager.UpsertAssetBuyOffer(buyOffer)
-	if err != nil {
-		return nil, fmt.Errorf("error upserting buy offer into RFQ "+
-			"manager: %w", err)
-	}
-
-	return &rfqrpc.AddAssetBuyOfferResponse{}, nil
-}
-
-// marshalPeerAcceptedBuyQuotes marshals a map of peer accepted asset buy quotes
-// into the RPC form. These are quotes that were requested by our node and have
-// been accepted by our peers.
-func marshalPeerAcceptedBuyQuotes(
-	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
-
-	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make(
-		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
-	)
-	for scid, quote := range quotes {
-		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:        quote.Peer.String(),
-			Id:          quote.ID[:],
-			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			AskPrice:    uint64(quote.AskPrice),
-			Expiry:      quote.Expiry,
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
-	}
-
-	return rpcQuotes
-}
-
-// marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
-// quotes into the RPC form. These are quotes that were requested by our node
-// and have been accepted by our peers.
-func marshalPeerAcceptedSellQuotes(
-	quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) []*rfqrpc.PeerAcceptedSellQuote {
-
-	// Marshal the accepted quotes into the RPC form.
-	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
-	for scid, quote := range quotes {
-		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
-			Peer:        quote.Peer.String(),
-			Id:          quote.ID[:],
-			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			BidPrice:    uint64(quote.BidPrice),
-			Expiry:      quote.Expiry,
-		}
-		rpcQuotes = append(rpcQuotes, rpcQuote)
-	}
-
-	return rpcQuotes
+	return nil, fmt.Errorf("any RFQ functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // QueryPeerAcceptedQuotes is used to query for quotes that were requested by
@@ -6531,128 +6249,30 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 	_ *rfqrpc.QueryPeerAcceptedQuotesRequest) (
 	*rfqrpc.QueryPeerAcceptedQuotesResponse, error) {
 
-	// Query the RFQ manager for quotes that were requested by our node and
-	// have been accepted by our peers.
-	peerAcceptedBuyQuotes := r.cfg.RfqManager.PeerAcceptedBuyQuotes()
-	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
-
-	rpcBuyQuotes := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
-	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
-
-	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
-		BuyQuotes:  rpcBuyQuotes,
-		SellQuotes: rpcSellQuotes,
-	}, nil
-}
-
-// marshallRfqEvent marshals an RFQ event into the RPC form.
-func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
-	timestamp := eventInterface.Timestamp().UTC().UnixMicro()
-
-	switch event := eventInterface.(type) {
-	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote := taprpc.MarshalAcceptedBuyQuoteEvent(event)
-		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedBuyQuote{
-			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
-				Timestamp:            uint64(timestamp),
-				PeerAcceptedBuyQuote: acceptedQuote,
-			},
-		}
-		return &rfqrpc.RfqEvent{
-			Event: eventRpc,
-		}, nil
-
-	case *rfq.PeerAcceptedSellQuoteEvent:
-		acceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(event)
-		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
-			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
-				Timestamp:             uint64(timestamp),
-				PeerAcceptedSellQuote: acceptedQuote,
-			},
-		}
-		return &rfqrpc.RfqEvent{
-			Event: eventRpc,
-		}, nil
-
-	case *rfq.AcceptHtlcEvent:
-		eventRpc := &rfqrpc.RfqEvent_AcceptHtlc{
-			AcceptHtlc: &rfqrpc.AcceptHtlcEvent{
-				Timestamp: uint64(timestamp),
-				Scid:      event.Policy.Scid(),
-			},
-		}
-		return &rfqrpc.RfqEvent{
-			Event: eventRpc,
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unknown RFQ event type: %T",
-			eventInterface)
-	}
+	return nil, fmt.Errorf("any RFQ functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // SubscribeRfqEventNtfns subscribes to RFQ event notifications.
 func (r *rpcServer) SubscribeRfqEventNtfns(
 	_ *rfqrpc.SubscribeRfqEventNtfnsRequest,
-	ntfnStream rfqrpc.Rfq_SubscribeRfqEventNtfnsServer) error {
+	_ rfqrpc.Rfq_SubscribeRfqEventNtfnsServer) error {
 
-	filter := func(event fn.Event) (bool, error) {
-		return true, nil
-	}
-
-	return handleEvents[uint64, *rfqrpc.RfqEvent](
-		r.cfg.RfqManager, ntfnStream, marshallRfqEvent, filter, r.quit,
-		0,
-	)
+	return fmt.Errorf("any RFQ functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // FundChannel initiates the channel funding negotiation with a peer for the
 // creation of a channel that contains a specified amount of a given asset.
-func (r *rpcServer) FundChannel(ctx context.Context,
-	req *tchrpc.FundChannelRequest) (*tchrpc.FundChannelResponse,
+func (r *rpcServer) FundChannel(_ context.Context,
+	_ *tchrpc.FundChannelRequest) (*tchrpc.FundChannelResponse,
 	error) {
 
-	// If we're not running inside litd, we cannot offer this functionality.
-	if !r.cfg.EnableChannelFeatures {
-		return nil, fmt.Errorf("the Taproot Asset channel " +
-			"functionality is only available when running inside " +
-			"Lightning Terminal daemon (litd), with lnd and tapd " +
-			"both running in 'integrated' mode")
-	}
-
-	peerPub, err := btcec.ParsePubKey(req.PeerPubkey)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing peer pubkey: %w", err)
-	}
-
-	if len(req.AssetId) != sha256.Size {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
-	}
-
-	if req.AssetAmount == 0 {
-		return nil, fmt.Errorf("asset amount must be specified")
-	}
-	if req.FeeRateSatPerVbyte == 0 {
-		return nil, fmt.Errorf("fee rate must be specified")
-	}
-
-	fundReq := tapchannel.FundReq{
-		PeerPub:     *peerPub,
-		AssetAmount: req.AssetAmount,
-		FeeRate:     chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
-		PushAmount:  btcutil.Amount(req.PushSat),
-	}
-	copy(fundReq.AssetID[:], req.AssetId)
-
-	chanPoint, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
-	if err != nil {
-		return nil, fmt.Errorf("error funding channel: %w", err)
-	}
-
-	return &tchrpc.FundChannelResponse{
-		Txid:        chanPoint.Hash.String(),
-		OutputIndex: int32(chanPoint.Index),
-	}, nil
+	return nil, fmt.Errorf("any Taproot Asset channel functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // EncodeCustomRecords allows RPC users to encode Taproot Asset channel related
@@ -6661,73 +6281,12 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 // does not perform any checks on the data provided, other than pure format
 // validation.
 func (r *rpcServer) EncodeCustomRecords(_ context.Context,
-	in *tchrpc.EncodeCustomRecordsRequest) (
+	_ *tchrpc.EncodeCustomRecordsRequest) (
 	*tchrpc.EncodeCustomRecordsResponse, error) {
 
-	switch i := in.Input.(type) {
-	case *tchrpc.EncodeCustomRecordsRequest_RouterSendPayment:
-		req := i.RouterSendPayment
-
-		assetAmounts := make(
-			[]*rfqmsg.AssetBalance, 0, len(req.AssetAmounts),
-		)
-		for idStr, amount := range req.AssetAmounts {
-			idBytes, err := hex.DecodeString(idStr)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding asset "+
-					"ID: %w", err)
-			}
-
-			if len(idBytes) != sha256.Size {
-				return nil, fmt.Errorf("asset ID must be 32 " +
-					"bytes")
-			}
-
-			if amount == 0 {
-				return nil, fmt.Errorf("asset amount must be " +
-					"specified")
-			}
-
-			var assetID asset.ID
-			copy(assetID[:], idBytes)
-
-			assetAmounts = append(
-				assetAmounts, rfqmsg.NewAssetBalance(
-					assetID, amount,
-				),
-			)
-		}
-
-		rfqID := fn.None[rfqmsg.ID]()
-		if len(req.RfqId) > 0 {
-			if len(req.RfqId) != sha256.Size {
-				return nil, fmt.Errorf("RFQ ID must be empty " +
-					"or exactly 32 bytes")
-			}
-
-			var id rfqmsg.ID
-			copy(id[:], req.RfqId)
-
-			rfqID = fn.Some[rfqmsg.ID](id)
-		}
-
-		htlc := rfqmsg.NewHtlc(assetAmounts, rfqID)
-
-		// We'll now map the HTLC struct into a set of TLV records,
-		// which we can then encode into the map format expected.
-		htlcMapRecords, err := tlv.RecordsToMap(htlc.Records())
-		if err != nil {
-			return nil, fmt.Errorf("unable to encode records as "+
-				"map: %w", err)
-		}
-
-		return &tchrpc.EncodeCustomRecordsResponse{
-			CustomRecords: htlcMapRecords,
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unknown input type: %T", i)
-	}
+	return nil, fmt.Errorf("any Taproot Asset channel functionality is " +
+		"only available in the experimental version of lightning " +
+		"terminal")
 }
 
 // DeclareScriptKey declares a new script key to the wallet. This is useful

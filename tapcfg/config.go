@@ -22,7 +22,6 @@ import (
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/cert"
@@ -288,12 +287,11 @@ type AddrBookConfig struct {
 
 // ExperimentalConfig houses experimental tapd cli configuration options.
 type ExperimentalConfig struct {
-	Rfq rfq.CliConfig `group:"rfq" namespace:"rfq"`
 }
 
 // Validate returns an error if the configuration is invalid.
 func (c *ExperimentalConfig) Validate() error {
-	return c.Rfq.Validate()
+	return nil
 }
 
 // Config is the main config for the tapd cli command.

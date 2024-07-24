@@ -107,9 +107,6 @@ jobs:
       - name: compile code
         run: go install -v ./...
 
-      - name: Compile docs examples
-        run: make build-docs-examples
-
   ########################
   # sample configuration check
   ########################

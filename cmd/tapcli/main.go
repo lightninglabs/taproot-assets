@@ -20,7 +20,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
-	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
@@ -84,16 +83,6 @@ func getWalletClient(ctx *cli.Context) (wrpc.AssetWalletClient, func()) {
 	}
 
 	return wrpc.NewAssetWalletClient(conn), cleanUp
-}
-
-func getRfqClient(ctx *cli.Context) (rfqrpc.RfqClient, func()) {
-	conn := getClientConn(ctx, false)
-
-	cleanUp := func() {
-		conn.Close()
-	}
-
-	return rfqrpc.NewRfqClient(conn), cleanUp
 }
 
 func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
@@ -345,7 +334,6 @@ func main() {
 	app.Commands = append(app.Commands, addrCommands...)
 	app.Commands = append(app.Commands, eventCommands...)
 	app.Commands = append(app.Commands, proofCommands...)
-	app.Commands = append(app.Commands, rfqCommands...)
 	app.Commands = append(app.Commands, universeCommands...)
 	app.Commands = append(app.Commands, devCommands...)
 
