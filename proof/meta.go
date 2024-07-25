@@ -182,13 +182,13 @@ func DecodeMetaJSON(jBytes []byte) (map[string]interface{}, error) {
 	// These bytes must match our metadata size constraints.
 	err := IsValidMetaSize(jBytes, MetaDataMaxSizeBytes)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", ErrInvalidJSON, err.Error())
 	}
 
 	// Unmarshal checks internally if the JSON is valid.
 	err = json.Unmarshal(jBytes, &jMeta)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %s", ErrInvalidJSON, err.Error())
 	}
 
 	return jMeta, nil
