@@ -233,6 +233,15 @@ func AssetVersionCheck(version taprpc.AssetVersion) AssetCheck {
 // non-nil decimal display value.
 func AssetDecimalDisplayCheck(decDisplay uint32) AssetCheck {
 	return func(a *taprpc.Asset) error {
+		// If we didn't set a decimal display in the mint request, we
+		// don't expect one to be set.
+		if decDisplay == 0 &&
+			(a.DecimalDisplay == nil ||
+				a.DecimalDisplay.DecimalDisplay == 0) {
+
+			return nil
+		}
+
 		if a.DecimalDisplay == nil {
 			return fmt.Errorf("asset decimal display is nil")
 		}
