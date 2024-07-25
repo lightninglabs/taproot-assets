@@ -1052,7 +1052,7 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 	keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
 
 	var (
-		decDisplay uint32
+		decDisplay fn.Option[uint32]
 		err        error
 	)
 
@@ -1064,14 +1064,12 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 	default:
 		decDisplay, err = r.DecDisplayForAssetID(ctx, a.ID())
 	}
-
 	if err != nil {
 		return nil, err
 	}
 
 	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, a.Asset, a.IsSpent, withWitness, keyRing,
-		fn.Some(decDisplay),
+		ctx, a.Asset, a.IsSpent, withWitness, keyRing, decDisplay,
 	)
 	if err != nil {
 		return nil, err
@@ -5011,7 +5009,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 		}
 
 		resp.Leaves[i], err = r.marshalAssetLeaf(
-			ctx, &assetLeaf, fn.Some(decDisplay),
+			ctx, &assetLeaf, decDisplay,
 		)
 		if err != nil {
 			return nil, err
@@ -5114,9 +5112,7 @@ func (r *rpcServer) marshalUniverseProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	assetLeaf, err := r.marshalAssetLeaf(
-		ctx, proof.Leaf, fn.Some(decDisplay),
-	)
+	assetLeaf, err := r.marshalAssetLeaf(ctx, proof.Leaf, decDisplay)
 	if err != nil {
 		return nil, err
 	}
@@ -5533,7 +5529,7 @@ func (r *rpcServer) marshalUniverseDiff(ctx context.Context,
 			}
 
 			leaves[i], err = r.marshalAssetLeaf(
-				ctx, leaf, fn.Some(decDisplay),
+				ctx, leaf, decDisplay,
 			)
 			if err != nil {
 				return err
@@ -5617,8 +5613,8 @@ func marshalUniverseServer(
 // of the local Universe server. These servers are used to push out new proofs,
 // and also periodically call sync new proofs from the remote server.
 func (r *rpcServer) ListFederationServers(ctx context.Context,
-	_ *unirpc.ListFederationServersRequest,
-) (*unirpc.ListFederationServersResponse, error) {
+	_ *unirpc.ListFederationServersRequest) (
+	*unirpc.ListFederationServersResponse, error) {
 
 	uniServers, err := r.cfg.FederationDB.UniverseServers(ctx)
 	if err != nil {
@@ -6805,14 +6801,14 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 // DecDisplayForAssetID attempts to fetch the meta reveal for a specific asset
 // ID and extract the decimal display value from it.
 func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
-	id asset.ID) (uint32, error) {
+	id asset.ID) (fn.Option[uint32], error) {
 
 	meta, err := r.cfg.AssetStore.FetchAssetMetaForAsset(
 		ctx, id,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("unable to fetch asset meta "+
-			"for asset_id=%v :%v", id, err)
+		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
+			"meta for asset_id=%v :%v", id, err)
 	}
 
 	return getDecimalDisplayNonStrict(meta)
@@ -6821,21 +6817,27 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 // getDecimalDisplayNonStrict attempts to decode a decimal display value from
 // metadata. If no custom decimal display value is decoded, the default value of
 // 0 is returned without error.
-func getDecimalDisplayNonStrict(meta *proof.MetaReveal) (uint32, error) {
+func getDecimalDisplayNonStrict(
+	meta *proof.MetaReveal) (fn.Option[uint32], error) {
+
 	_, decDisplay, err := meta.GetDecDisplay()
 	switch {
 	// If it isn't JSON, or doesn't have a dec display, we'll just return 0
 	// below.
 	case errors.Is(err, proof.ErrNotJSON):
 		fallthrough
+	case errors.Is(err, proof.ErrInvalidJSON):
+		fallthrough
 	case errors.Is(err, proof.ErrDecDisplayMissing):
 		fallthrough
 	case errors.Is(err, proof.ErrDecDisplayInvalidType):
-		break
+		// We can't determine if there is a decimal display value set.
+		return fn.None[uint32](), nil
+
 	case err != nil:
-		return 0, fmt.Errorf("unable to extract decimal display: %v",
-			err)
+		return fn.None[uint32](), fmt.Errorf("unable to extract "+
+			"decimal display: %v", err)
 	}
 
-	return decDisplay, nil
+	return fn.Some(decDisplay), nil
 }
