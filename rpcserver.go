@@ -1035,7 +1035,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 	rpcAssets := make([]*taprpc.Asset, len(assets))
 	for i, a := range assets {
 		rpcAssets[i], err = r.MarshalChainAsset(
-			ctx, a, withWitness, r.cfg.AddrBook,
+			ctx, a, nil, withWitness, r.cfg.AddrBook,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal asset: %w",
@@ -1048,9 +1048,23 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 
 // MarshalChainAsset marshals the given chain asset into an RPC asset.
 func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
-	withWitness bool, keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
+	meta *proof.MetaReveal, withWitness bool,
+	keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
 
-	decDisplay, err := r.DecDisplayForAssetID(ctx, a.ID())
+	var (
+		decDisplay uint32
+		err        error
+	)
+
+	// If the asset metadata is provided, we don't need to look it up from
+	// the database when decoding a decimal display value.
+	switch {
+	case meta != nil:
+		decDisplay, err = getDecimalDisplayNonStrict(meta)
+	default:
+		decDisplay, err = r.DecDisplayForAssetID(ctx, a.ID())
+	}
+
 	if err != nil {
 		return nil, err
 	}
@@ -1748,7 +1762,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		AnchorInternalKey:      p.InclusionProof.InternalKey,
 		AnchorMerkleRoot:       merkleRoot[:],
 		AnchorTapscriptSibling: tsSibling,
-	}, withPrevWitnesses, r.cfg.AddrBook)
+	}, p.MetaReveal, withPrevWitnesses, r.cfg.AddrBook)
 	if err != nil {
 		return nil, err
 	}
@@ -6801,6 +6815,13 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 			"for asset_id=%v :%v", id, err)
 	}
 
+	return getDecimalDisplayNonStrict(meta)
+}
+
+// getDecimalDisplayNonStrict attempts to decode a decimal display value from
+// metadata. If no custom decimal display value is decoded, the default value of
+// 0 is returned without error.
+func getDecimalDisplayNonStrict(meta *proof.MetaReveal) (uint32, error) {
 	_, decDisplay, err := meta.GetDecDisplay()
 	switch {
 	// If it isn't JSON, or doesn't have a dec display, we'll just return 0
@@ -6812,8 +6833,8 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 	case errors.Is(err, proof.ErrDecDisplayInvalidType):
 		break
 	case err != nil:
-		return 0, fmt.Errorf("unable to extract decimal "+
-			"display for asset_id=%v :%v", id, err)
+		return 0, fmt.Errorf("unable to extract decimal display: %v",
+			err)
 	}
 
 	return decDisplay, nil
