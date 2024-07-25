@@ -101,10 +101,6 @@ build-itest:
 build-loadtest:
 	CGO_ENABLED=0 $(GOTEST) -c -tags="$(LOADTEST_TAGS)" -o loadtest $(PKG)/itest/loadtest
 
-build-docs-examples:
-	@$(call print, "Building docs examples.")
-	$(MAKE) -C ./docs/examples build
-
 install:
 	@$(call print, "Installing tapd and tapcli.")
 	$(GOINSTALL) -tags="${tags}" -ldflags="$(RELEASE_LDFLAGS)" $(PKG)/cmd/tapd

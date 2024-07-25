@@ -7,15 +7,12 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/rfq"
-	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -99,9 +96,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
 	chainBridge := tap.NewLndRpcChainBridge(lndServices, assetStore)
-	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
-	lndRouterClient := tap.NewLndRouterClient(lndServices)
-	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
@@ -327,59 +321,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 	multiNotifier := proof.NewMultiArchiveNotifier(assetStore, multiverse)
 
-	// Determine whether we should use the mock price oracle service or a
-	// real price oracle service.
-	var priceOracle rfq.PriceOracle
-
-	rfqCfg := cfg.Experimental.Rfq
-	switch rfqCfg.PriceOracleAddress {
-	case rfq.MockPriceOracleServiceAddress:
-		switch {
-		case rfqCfg.MockOracleAssetsPerBTC > 0:
-			priceOracle = rfq.NewMockPriceOracle(
-				3600, rfqCfg.MockOracleAssetsPerBTC,
-			)
-
-		case rfqCfg.MockOracleSatsPerAsset > 0:
-			priceOracle = rfq.NewMockPriceOracleSatPerAsset(
-				3600, btcutil.Amount(
-					rfqCfg.MockOracleSatsPerAsset,
-				),
-			)
-		}
-
-	case "":
-		// Leave the price oracle as nil, which will cause the RFQ
-		// manager to reject all incoming RFQ requests. It will also
-		// skip setting suggested prices for outgoing quote requests.
-
-	default:
-		priceOracle, err = rfq.NewRpcPriceOracle(
-			rfqCfg.PriceOracleAddress, false,
-		)
-		if err != nil {
-			return nil, fmt.Errorf("unable to create price "+
-				"oracle: %w", err)
-		}
-	}
-
-	// Construct the RFQ manager.
-	rfqManager, err := rfq.NewManager(
-		rfq.ManagerCfg{
-			PeerMessenger:   msgTransportClient,
-			HtlcInterceptor: lndRouterClient,
-			PriceOracle:     priceOracle,
-			ChannelLister:   walletAnchor,
-			AliasManager:    lndRouterClient,
-			// nolint: lll
-			SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
-			ErrChan:                   mainErrChan,
-		},
-	)
-	if err != nil {
-		return nil, err
-	}
-
 	// For the porter, we'll make a multi-notifier comprised of all the
 	// possible proof file sources to ensure it can always fetch input
 	// proofs.
@@ -403,81 +344,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ProofCourierDispatcher: proofCourierDispatcher,
 			ProofWatcher:           reOrgWatcher,
 			ErrChan:                mainErrChan,
-		},
-	)
-
-	auxLeafSigner := tapchannel.NewAuxLeafSigner(
-		&tapchannel.LeafSignerConfig{
-			ChainParams: &tapChainParams,
-			Signer:      assetWallet,
-		},
-	)
-	channelFunder := tap.NewLndPbstChannelFunder(lndServices)
-	auxFundingController := tapchannel.NewFundingController(
-		tapchannel.FundingControllerCfg{
-			HeaderVerifier: headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ErrReporter:        msgTransportClient,
-			AssetWallet:        assetWallet,
-			CoinSelector:       coinSelect,
-			AddrBook:           tapdbAddrBook,
-			ChainParams:        tapChainParams,
-			ChainBridge:        chainBridge,
-			GroupKeyIndex:      tapdbAddrBook,
-			PeerMessenger:      msgTransportClient,
-			ChannelFunder:      channelFunder,
-			TxPublisher:        chainBridge,
-			ChainWallet:        walletAnchor,
-			RfqManager:         rfqManager,
-			TxSender:           chainPorter,
-			DefaultCourierAddr: proofCourierAddr,
-			AssetSyncer:        addrBook,
-		},
-	)
-	auxTrafficShaper := tapchannel.NewAuxTrafficShaper(
-		&tapchannel.TrafficShaperConfig{
-			ChainParams: &tapChainParams,
-			RfqManager:  rfqManager,
-		},
-	)
-	auxInvoiceManager := tapchannel.NewAuxInvoiceManager(
-		&tapchannel.InvoiceManagerConfig{
-			ChainParams:         &tapChainParams,
-			InvoiceHtlcModifier: lndInvoicesClient,
-			RfqManager:          rfqManager,
-		},
-	)
-	auxChanCloser := tapchannel.NewAuxChanCloser(
-		tapchannel.AuxChanCloserCfg{
-			ChainParams:        &tapChainParams,
-			AddrBook:           addrBook,
-			TxSender:           chainPorter,
-			DefaultCourierAddr: proofCourierAddr,
-			ProofArchive:       proofArchive,
-			ProofFetcher:       proofCourierDispatcher,
-			HeaderVerifier:     headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ChainBridge: chainBridge,
-		},
-	)
-	auxSweeper := tapchannel.NewAuxSweeper(
-		&tapchannel.AuxSweeperCfg{
-			AddrBook:           addrBook,
-			ChainParams:        tapChainParams,
-			Signer:             assetWallet,
-			TxSender:           chainPorter,
-			DefaultCourierAddr: proofCourierAddr,
-			ProofArchive:       proofArchive,
-			ProofFetcher:       proofCourierDispatcher,
-			HeaderVerifier:     headerVerifier,
-			GroupVerifier: tapgarden.GenGroupVerifier(
-				context.Background(), assetMintingStore,
-			),
-			ChainBridge: chainBridge,
 		},
 	)
 
@@ -549,13 +415,6 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniversePublicAccess:     universePublicAccess,
 		UniverseQueriesPerSecond: cfg.Universe.UniverseQueriesPerSecond,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
-		RfqManager:               rfqManager,
-		AuxLeafSigner:            auxLeafSigner,
-		AuxFundingController:     auxFundingController,
-		AuxChanCloser:            auxChanCloser,
-		AuxTrafficShaper:         auxTrafficShaper,
-		AuxInvoiceManager:        auxInvoiceManager,
-		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),

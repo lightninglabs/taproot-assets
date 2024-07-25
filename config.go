@@ -10,8 +10,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
-	"github.com/lightninglabs/taproot-assets/rfq"
-	"github.com/lightninglabs/taproot-assets/tapchannel"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -193,21 +191,7 @@ type Config struct {
 	// universe federation syncer should default to syncing all assets.
 	UniFedSyncAllAssets bool
 
-	RfqManager *rfq.Manager
-
 	UniverseStats universe.Telemetry
-
-	AuxLeafSigner *tapchannel.AuxLeafSigner
-
-	AuxFundingController *tapchannel.FundingController
-
-	AuxTrafficShaper *tapchannel.AuxTrafficShaper
-
-	AuxInvoiceManager *tapchannel.AuxInvoiceManager
-
-	AuxChanCloser *tapchannel.AuxChanCloser
-
-	AuxSweeper *tapchannel.AuxSweeper
 
 	// UniversePublicAccess is a field that indicates the status of public
 	// access (i.e. read/write) to the universe server.
