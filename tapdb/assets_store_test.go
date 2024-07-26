@@ -1386,6 +1386,7 @@ func TestAssetExportLog(t *testing.T) {
 			// The receiver wants a V0 asset version.
 			AssetVersion: asset.V0,
 			ProofSuffix:  receiverBlob,
+			Position:     0,
 		}, {
 			Anchor: tapfreighter.Anchor{
 				Value: 1000,
@@ -1420,6 +1421,7 @@ func TestAssetExportLog(t *testing.T) {
 			// asset version.
 			AssetVersion: asset.V1,
 			ProofSuffix:  senderBlob,
+			Position:     1,
 		}},
 	}
 	require.NoError(t, assetsStore.LogPendingParcel(
