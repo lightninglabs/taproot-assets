@@ -248,6 +248,48 @@ type TransferOutput struct {
 	ProofCourierAddr []byte
 }
 
+// ShouldDeliverProof returns true if a proof corresponding to the subject
+// transfer output should be delivered to a peer.
+func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
+	// If the proof courier address is unspecified, we don't need to deliver
+	// a proof.
+	if len(out.ProofCourierAddr) == 0 {
+		return false, nil
+	}
+
+	// The proof courier address may have been specified in error, in which
+	// case we will conduct further checks to determine if a proof should be
+	// delivered.
+	//
+	// If the script key is un-spendable, we don't need to deliver a proof.
+	unSpendable, err := out.ScriptKey.IsUnSpendable()
+	if err != nil {
+		return false, fmt.Errorf("error checking if script key is "+
+			"unspendable: %w", err)
+	}
+
+	if unSpendable {
+		return false, nil
+	}
+
+	// If this is an output that is going to our own node/wallet, we don't
+	// need to deliver a proof.
+	if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
+		return false, nil
+	}
+
+	// If the script key is a burn key, we don't need to deliver a proof.
+	if len(out.WitnessData) > 0 && asset.IsBurnKey(
+		out.ScriptKey.PubKey, out.WitnessData[0],
+	) {
+
+		return false, nil
+	}
+
+	// At this point, we should deliver a proof.
+	return true, nil
+}
+
 // OutboundParcel represents the database level delta of an outbound Taproot
 // Asset parcel (outbound spend). A spend will destroy a series of assets listed
 // as inputs, and re-create them as new outputs. Along the way some assets may
