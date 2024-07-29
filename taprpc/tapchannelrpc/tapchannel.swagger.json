@@ -114,6 +114,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/channels/invoice": {
+      "post": {
+        "summary": "AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset\nspecific parameters. It allows RPC users to create invoices that correspond\nto the specified asset amount.",
+        "operationId": "TaprootAssetChannels_AddInvoice",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcAddInvoiceResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcAddInvoiceRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
     "/v1/taproot-assets/channels/send-payment": {
       "post": {
         "summary": "SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method\nwith asset specific parameters. It allows RPC users to send asset keysend\npayments (direct payments) or payments to an invoice with a specified asset\namount.",
@@ -203,6 +236,71 @@
       ],
       "default": "IN_FLIGHT"
     },
+    "InvoiceInvoiceState": {
+      "type": "string",
+      "enum": [
+        "OPEN",
+        "SETTLED",
+        "CANCELED",
+        "ACCEPTED"
+      ],
+      "default": "OPEN"
+    },
+    "lnrpcAMP": {
+      "type": "object",
+      "properties": {
+        "root_share": {
+          "type": "string",
+          "format": "byte",
+          "description": "An n-of-n secret share of the root seed from which child payment hashes\nand preimages are derived."
+        },
+        "set_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "An identifier for the HTLC set that this HTLC belongs to."
+        },
+        "child_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "A nonce used to randomize the child preimage and child hash from a given\nroot_share."
+        },
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment hash of the AMP HTLC."
+        },
+        "preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The preimage used to settle this AMP htlc. This field will only be\npopulated if the invoice is in InvoiceState_ACCEPTED or\nInvoiceState_SETTLED."
+        }
+      },
+      "description": "Details specific to AMP HTLCs."
+    },
+    "lnrpcAMPInvoiceState": {
+      "type": "object",
+      "properties": {
+        "state": {
+          "$ref": "#/definitions/lnrpcInvoiceHTLCState",
+          "description": "The state the HTLCs associated with this setID are in."
+        },
+        "settle_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The settle index of this HTLC set, if the invoice state is settled."
+        },
+        "settle_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "The time this HTLC set was settled expressed in unix epoch."
+        },
+        "amt_paid_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The total amount paid for the sub-invoice expressed in milli satoshis."
+        }
+      }
+    },
     "lnrpcAMPRecord": {
       "type": "object",
       "properties": {
@@ -217,6 +315,29 @@
         "child_index": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "lnrpcAddInvoiceResponse": {
+      "type": "object",
+      "properties": {
+        "r_hash": {
+          "type": "string",
+          "format": "byte"
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "A bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient."
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of the generated invoice. This is also called\npayment secret in specifications (e.g. BOLT 11). This value should be used\nin all payments for this invoice as we require it for end to end security."
         }
       }
     },
@@ -325,6 +446,20 @@
           "type": "integer",
           "format": "int64",
           "description": "A failure type-dependent block height."
+        }
+      }
+    },
+    "lnrpcFeature": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "is_required": {
+          "type": "boolean"
+        },
+        "is_known": {
+          "type": "boolean"
         }
       }
     },
@@ -505,6 +640,230 @@
         }
       }
     },
+    "lnrpcInvoice": {
+      "type": "object",
+      "properties": {
+        "memo": {
+          "type": "string",
+          "description": "An optional memo to attach along with the invoice. Used for record keeping\npurposes for the invoice's creator, and will also be set in the description\nfield of the encoded payment request if the description_hash field is not\nbeing used."
+        },
+        "r_preimage": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hex-encoded preimage (32 byte) which will allow settling an incoming\nHTLC payable to this preimage. When using REST, this field must be encoded\nas base64."
+        },
+        "r_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the preimage. When using REST, this field must be encoded as\nbase64.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "value": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "The value of this invoice in satoshis"
+        },
+        "value_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The fields value and value_msat are mutually exclusive.",
+          "title": "The value of this invoice in millisatoshis"
+        },
+        "settled": {
+          "type": "boolean",
+          "description": "Whether this invoice has been fulfilled.\n\nThe field is deprecated. Use the state field instead (compare to SETTLED)."
+        },
+        "creation_date": {
+          "type": "string",
+          "format": "int64",
+          "description": "When this invoice was created.\nMeasured in seconds since the unix epoch.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "settle_date": {
+          "type": "string",
+          "format": "int64",
+          "description": "When this invoice was settled.\nMeasured in seconds since the unix epoch.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "payment_request": {
+          "type": "string",
+          "description": "A bare-bones invoice for a payment within the Lightning Network. With the\ndetails of the invoice, the sender has all the data necessary to send a\npayment to the recipient.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "description_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "Hash (SHA-256) of a description of the payment. Used if the description of\npayment (memo) is too long to naturally fit within the description field\nof an encoded payment request. When using REST, this field must be encoded\nas base64."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64",
+          "description": "Payment request expiry time in seconds. Default is 86400 (24 hours)."
+        },
+        "fallback_addr": {
+          "type": "string",
+          "description": "Fallback on-chain address."
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Delta to use for the time-lock of the CLTV extended to the final hop."
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcRouteHint"
+          },
+          "description": "Route hints that can each be individually used to assist in reaching the\ninvoice's destination."
+        },
+        "private": {
+          "type": "boolean",
+          "description": "Whether this invoice should include routing hints for private channels.\nNote: When enabled, if value and value_msat are zero, a large number of\nhints with these channels can be included, which might not be desirable."
+        },
+        "add_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The \"add\" index of this invoice. Each newly created invoice will increment\nthis index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all added\ninvoices with an add_index greater than this one.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "settle_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The \"settle\" index of this invoice. Each newly settled invoice will\nincrement this index making it monotonically increasing. Callers to the\nSubscribeInvoices call can use this to instantly get notified of all\nsettled invoices with an settle_index greater than this one.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "amt_paid": {
+          "type": "string",
+          "format": "int64",
+          "description": "Deprecated, use amt_paid_sat or amt_paid_msat."
+        },
+        "amt_paid_sat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount that was accepted for this invoice, in satoshis. This will ONLY\nbe set if this invoice has been settled or accepted. We provide this field\nas if the invoice was created with a zero value, then we need to record what\namount was ultimately accepted. Additionally, it's possible that the sender\npaid MORE that was specified in the original invoice. So we'll record that\nhere as well.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "amt_paid_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount that was accepted for this invoice, in millisatoshis. This will\nONLY be set if this invoice has been settled or accepted. We provide this\nfield as if the invoice was created with a zero value, then we need to\nrecord what amount was ultimately accepted. Additionally, it's possible that\nthe sender paid MORE that was specified in the original invoice. So we'll\nrecord that here as well.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "state": {
+          "$ref": "#/definitions/InvoiceInvoiceState",
+          "description": "The state the invoice is in.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "htlcs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcInvoiceHTLC"
+          },
+          "description": "List of HTLCs paying to this invoice [EXPERIMENTAL].\nNote: Output only, don't specify for creating an invoice."
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          },
+          "description": "List of features advertised on the invoice.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "is_keysend": {
+          "type": "boolean",
+          "description": "Indicates if this invoice was a spontaneous payment that arrived via keysend\n[EXPERIMENTAL].\nNote: Output only, don't specify for creating an invoice."
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte",
+          "description": "The payment address of this invoice. This is also called payment secret in\nspecifications (e.g. BOLT 11). This value will be used in MPP payments, and\nalso for newer invoices that always require the MPP payload for added\nend-to-end security.\nNote: Output only, don't specify for creating an invoice."
+        },
+        "is_amp": {
+          "type": "boolean",
+          "description": "Signals whether or not this is an AMP invoice."
+        },
+        "amp_invoice_state": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcAMPInvoiceState"
+          },
+          "description": "Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the\ngiven set ID. This field is always populated for AMP invoices, and can be\nused along side LookupInvoice to obtain the HTLC information related to a\ngiven sub-invoice.\nNote: Output only, don't specify for creating an invoice.",
+          "title": "[EXPERIMENTAL]:"
+        }
+      }
+    },
+    "lnrpcInvoiceHTLC": {
+      "type": "object",
+      "properties": {
+        "chan_id": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Short channel id over which the htlc was received."
+        },
+        "htlc_index": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Index identifying the htlc on the channel."
+        },
+        "amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of the htlc in msat."
+        },
+        "accept_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Block height at which this htlc was accepted."
+        },
+        "accept_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "Time at which this htlc was accepted."
+        },
+        "resolve_time": {
+          "type": "string",
+          "format": "int64",
+          "description": "Time at which this htlc was settled or canceled."
+        },
+        "expiry_height": {
+          "type": "integer",
+          "format": "int32",
+          "description": "Block height at which this htlc expires."
+        },
+        "state": {
+          "$ref": "#/definitions/lnrpcInvoiceHTLCState",
+          "description": "Current state the htlc is in."
+        },
+        "custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom tlv records."
+        },
+        "mpp_total_amt_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The total amount of the mpp payment in msat."
+        },
+        "amp": {
+          "$ref": "#/definitions/lnrpcAMP",
+          "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
+        },
+        "wire_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "Custom tlv records that were only sent on the p2p wire message, not in\nthe onion."
+        }
+      },
+      "title": "Details of an HTLC that paid to an invoice"
+    },
+    "lnrpcInvoiceHTLCState": {
+      "type": "string",
+      "enum": [
+        "ACCEPTED",
+        "SETTLED",
+        "CANCELED"
+      ],
+      "default": "ACCEPTED"
+    },
     "lnrpcMPPRecord": {
       "type": "object",
       "properties": {
@@ -682,6 +1041,40 @@
         }
       },
       "additionalProperties": {}
+    },
+    "rfqrpcPeerAcceptedBuyQuote": {
+      "type": "object",
+      "properties": {
+        "peer": {
+          "type": "string",
+          "description": "Quote counterparty peer."
+        },
+        "id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unique identifier of the quote request."
+        },
+        "scid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "scid is the short channel ID of the channel over which the payment for\nthe quote should be made."
+        },
+        "asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "asset_amount is the amount of the subject asset."
+        },
+        "ask_price": {
+          "type": "string",
+          "format": "uint64",
+          "description": "ask_price is the price in milli-satoshi per asset unit."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unix timestamp in seconds after which the quote is no longer valid."
+        }
+      }
     },
     "rfqrpcPeerAcceptedSellQuote": {
       "type": "object",
@@ -868,6 +1261,43 @@
             "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
+        }
+      }
+    },
+    "tapchannelrpcAddInvoiceRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID to use for the invoice."
+        },
+        "asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The asset amount to receive."
+        },
+        "peer_pubkey": {
+          "type": "string",
+          "format": "byte",
+          "description": "The node identity public key of the peer to ask for a quote for receiving\nassets and converting them from satoshis. This must be specified if\nthere are multiple channels with the given asset ID."
+        },
+        "invoice_request": {
+          "$ref": "#/definitions/lnrpcInvoice",
+          "description": "The full lnd invoice request to send. All fields (except for the value\nand the route hints) behave the same way as they do for lnd's\nlnrpc.AddInvoice RPC method (see the API docs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/add-invoice\nfor more details). The value/value_msat fields will be overwritten by the\nsatoshi (or milli-satoshi) equivalent of the asset amount, after\nnegotiating a quote with a peer that supports the given asset ID."
+        }
+      }
+    },
+    "tapchannelrpcAddInvoiceResponse": {
+      "type": "object",
+      "properties": {
+        "accepted_buy_quote": {
+          "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote",
+          "description": "The quote for the purchase of assets that was accepted by the peer."
+        },
+        "invoice_result": {
+          "$ref": "#/definitions/lnrpcAddInvoiceResponse",
+          "description": "The result of the invoice creation."
         }
       }
     },

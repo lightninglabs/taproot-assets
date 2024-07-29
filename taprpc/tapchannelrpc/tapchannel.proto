@@ -32,6 +32,13 @@ service TaprootAssetChannels {
     amount.
     */
     rpc SendPayment (SendPaymentRequest) returns (stream SendPaymentResponse);
+
+    /*
+    AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
+    specific parameters. It allows RPC users to create invoices that correspond
+    to the specified asset amount.
+    */
+    rpc AddInvoice (AddInvoiceRequest) returns (AddInvoiceResponse);
 }
 
 message FundChannelRequest {
@@ -129,4 +136,34 @@ message SendPaymentResponse {
         // the payment times out.
         lnrpc.Payment payment_result = 2;
     }
+}
+
+message AddInvoiceRequest {
+    // The asset ID to use for the invoice.
+    bytes asset_id = 1;
+
+    // The asset amount to receive.
+    uint64 asset_amount = 2;
+
+    // The node identity public key of the peer to ask for a quote for receiving
+    // assets and converting them from satoshis. This must be specified if
+    // there are multiple channels with the given asset ID.
+    bytes peer_pubkey = 3;
+
+    // The full lnd invoice request to send. All fields (except for the value
+    // and the route hints) behave the same way as they do for lnd's
+    // lnrpc.AddInvoice RPC method (see the API docs at
+    // https://lightning.engineering/api-docs/api/lnd/lightning/add-invoice
+    // for more details). The value/value_msat fields will be overwritten by the
+    // satoshi (or milli-satoshi) equivalent of the asset amount, after
+    // negotiating a quote with a peer that supports the given asset ID.
+    lnrpc.Invoice invoice_request = 4;
+}
+
+message AddInvoiceResponse {
+    // The quote for the purchase of assets that was accepted by the peer.
+    rfqrpc.PeerAcceptedBuyQuote accepted_buy_quote = 1;
+
+    // The result of the invoice creation.
+    lnrpc.AddInvoiceResponse invoice_result = 2;
 }
