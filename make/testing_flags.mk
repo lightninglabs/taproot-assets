@@ -4,10 +4,11 @@ RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc w
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = -logoutput
-COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v lnrpc)
-RACE_PKG = go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)'
 COVER_HTML = go tool cover -html=coverage.txt -o coverage.html
 POSTGRES_START_DELAY = 5
+
+GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
+GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
 # If rpc option is set also add all extra RPC tags to DEV_TAGS
 ifneq ($(with-rpc),)
@@ -19,8 +20,7 @@ endif
 ifneq ($(pkg),)
 UNITPKG := $(PKG)/$(pkg)
 UNIT_TARGETED = yes
-COVER_PKG = $(PKG)/$(pkg)
-RACE_PKG = $(PKG)/$(pkg)
+GOLIST = echo '$(PKG)/$(pkg)'
 endif
 
 # If a specific unit test case is being target, construct test.run filter.
@@ -82,9 +82,6 @@ TEST_FLAGS += -test.timeout=240m
 else
 TEST_FLAGS += -test.timeout=20m
 endif
-
-GOLIST := go list -tags="$(DEV_TAGS)" -deps $(PKG)/... | grep '$(PKG)'| grep -v '/vendor/'
-GOLISTCOVER := $(shell go list -tags="$(DEV_TAGS)" -deps -f '{{.ImportPath}}' ./... | grep '$(PKG)' | sed -e 's/^$(ESCPKG)/./')
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is
 # not being targeted.
