@@ -135,6 +135,8 @@ type AssetTransferOutput struct {
 	ProofCourierAddr         []byte
 	LockTime                 sql.NullInt32
 	RelativeLockTime         sql.NullInt32
+	ProofDeliveryComplete    sql.NullBool
+	Position                 int32
 }
 
 type AssetWitness struct {

@@ -126,6 +126,12 @@ type (
 	// output.
 	NewTransferOutput = sqlc.InsertAssetTransferOutputParams
 
+	// OutputProofDeliveryStatus wraps the params needed to set the delivery
+	// status of a given output proof.
+	//
+	// nolint: lll
+	OutputProofDeliveryStatus = sqlc.SetTransferOutputProofDeliveryStatusParams
+
 	// NewPassiveAsset wraps the params needed to insert a new passive
 	// asset.
 	NewPassiveAsset = sqlc.InsertPassiveAssetParams
@@ -277,6 +283,11 @@ type ActiveAssetsStore interface {
 	// the DB.
 	InsertAssetTransferOutput(ctx context.Context,
 		arg NewTransferOutput) error
+
+	// SetTransferOutputProofDeliveryStatus sets the delivery status of a
+	// given transfer output proof.
+	SetTransferOutputProofDeliveryStatus(ctx context.Context,
+		arg OutputProofDeliveryStatus) error
 
 	// FetchTransferInputs fetches the inputs to a given asset transfer.
 	FetchTransferInputs(ctx context.Context,
@@ -2423,20 +2434,50 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to insert script key: %w", err)
 	}
 
+	// Now we will mark the output proof as undelivered if it is intended
+	// for a counterpart.
+	//
+	// If the transfer output proof is not intended for a counterpart the
+	// `proofDeliveryComplete` field will be left as NULL. Otherwise, we set
+	// it to false to indicate that the proof has not been delivered yet.
+	shouldDeliverProof, err := output.ShouldDeliverProof()
+	if err != nil {
+		return fmt.Errorf("unable to determine if proof should be "+
+			"delivery for given transfer output: %w", err)
+	}
+
+	var proofDeliveryComplete sql.NullBool
+	if shouldDeliverProof {
+		proofDeliveryComplete = sql.NullBool{
+			Bool:  false,
+			Valid: true,
+		}
+	}
+
+	// Check if position value can be stored in a 32-bit integer. Type cast
+	// if possible, otherwise return an error.
+	if output.Position > math.MaxInt32 {
+		return fmt.Errorf("position value %d is too large for db "+
+			"storage", output.Position)
+	}
+	position := int32(output.Position)
+
 	dbOutput := NewTransferOutput{
-		TransferID:          transferID,
-		AnchorUtxo:          newUtxoID,
-		ScriptKey:           scriptKeyID,
-		ScriptKeyLocal:      output.ScriptKeyLocal,
-		Amount:              int64(output.Amount),
-		LockTime:            sqlInt32(output.LockTime),
-		RelativeLockTime:    sqlInt32(output.RelativeLockTime),
-		AssetVersion:        int32(output.AssetVersion),
-		SerializedWitnesses: witnessBuf.Bytes(),
-		ProofSuffix:         output.ProofSuffix,
-		NumPassiveAssets:    int32(output.Anchor.NumPassiveAssets),
-		OutputType:          int16(output.Type),
-		ProofCourierAddr:    output.ProofCourierAddr,
+		TransferID:            transferID,
+		AnchorUtxo:            newUtxoID,
+		ScriptKey:             scriptKeyID,
+		ScriptKeyLocal:        output.ScriptKeyLocal,
+		Amount:                int64(output.Amount),
+		LockTime:              sqlInt32(output.LockTime),
+		RelativeLockTime:      sqlInt32(output.RelativeLockTime),
+		AssetVersion:          int32(output.AssetVersion),
+		SerializedWitnesses:   witnessBuf.Bytes(),
+		ProofSuffix:           output.ProofSuffix,
+		NumPassiveAssets:      int32(output.Anchor.NumPassiveAssets),
+		OutputType:            int16(output.Type),
+		ProofCourierAddr:      output.ProofCourierAddr,
+		ProofDeliveryComplete: proofDeliveryComplete,
+		Position:              position,
 	}
 
 	// There might not have been a split, so we can't rely on the split root
@@ -2548,6 +2589,22 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 			outputAnchor.CommitmentVersion = fn.Ptr(dbRootVersion)
 		}
 
+		// Parse the proof deliver complete flag from the database.
+		var proofDeliveryComplete fn.Option[bool]
+		if dbOut.ProofDeliveryComplete.Valid {
+			proofDeliveryComplete = fn.Some(
+				dbOut.ProofDeliveryComplete.Bool,
+			)
+		}
+
+		vOutputType := tappsbt.VOutputType(dbOut.OutputType)
+
+		// Ensure the position value is valid.
+		if dbOut.Position < 0 {
+			return nil, fmt.Errorf("invalid position value in "+
+				"db: %d", dbOut.Position)
+		}
+
 		outputs[idx] = tapfreighter.TransferOutput{
 			Anchor:           outputAnchor,
 			Amount:           uint64(dbOut.Amount),
@@ -2571,9 +2628,11 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				splitRootHash,
 				uint64(dbOut.SplitCommitmentRootValue.Int64),
 			),
-			ProofSuffix:      dbOut.ProofSuffix,
-			Type:             tappsbt.VOutputType(dbOut.OutputType),
-			ProofCourierAddr: dbOut.ProofCourierAddr,
+			ProofSuffix:           dbOut.ProofSuffix,
+			Type:                  vOutputType,
+			ProofCourierAddr:      dbOut.ProofCourierAddr,
+			ProofDeliveryComplete: proofDeliveryComplete,
+			Position:              uint64(dbOut.Position),
 		}
 
 		err = readOutPoint(
@@ -2724,6 +2783,43 @@ func (a *AssetStore) QueryProofTransferLog(ctx context.Context,
 	return timestamps, err
 }
 
+// ConfirmProofDelivery marks a transfer output proof as successfully
+// delivered to counterparty.
+func (a *AssetStore) ConfirmProofDelivery(ctx context.Context,
+	anchorOutpoint wire.OutPoint, outputPosition uint64) error {
+
+	// Serialize the anchor outpoint to bytes.
+	anchorOutpointBytes, err := encodeOutpoint(anchorOutpoint)
+	if err != nil {
+		return fmt.Errorf("unable to encode anchor outpoint: %w", err)
+	}
+
+	// Ensure that the position value can be stored in a 32-bit integer.
+	// Type cast if possible, otherwise return an error.
+	if outputPosition > math.MaxInt32 {
+		return fmt.Errorf("position value is too large for db: %d",
+			outputPosition)
+	}
+	outPosition := int32(outputPosition)
+
+	var writeTxOpts AssetStoreTxOptions
+
+	err = a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		params := OutputProofDeliveryStatus{
+			DeliveryComplete:         sqlBool(true),
+			SerializedAnchorOutpoint: anchorOutpointBytes,
+			Position:                 outPosition,
+		}
+		return q.SetTransferOutputProofDeliveryStatus(ctx, params)
+	})
+	if err != nil {
+		return fmt.Errorf("failed to confirm transfer output proof "+
+			"delivery status in db: %w", err)
+	}
+
+	return nil
+}
+
 // ConfirmParcelDelivery marks a spend event on disk as confirmed. This updates
 // the on-chain reference information on disk to point to this new spend.
 func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
@@ -2816,10 +2912,10 @@ func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
 				!out.ScriptKeyLocal && !isKnown
 
 			log.Tracef("Skip asset creation for "+
-				"output %d?: %v,  scriptKey=%x, "+
+				"output %d?: %v,  position=%v, scriptKey=%x, "+
 				"isTombstone=%v, isBurn=%v, "+
 				"scriptKeyLocal=%v, scriptKeyKnown=%v",
-				idx, skipAssetCreation,
+				idx, skipAssetCreation, out.Position,
 				scriptPubKey.SerializeCompressed(),
 				isTombstone, isBurn, out.ScriptKeyLocal,
 				isKnown)

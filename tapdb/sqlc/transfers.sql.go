@@ -125,8 +125,8 @@ const fetchTransferOutputs = `-- name: FetchTransferOutputs :many
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
-    output_type, proof_courier_addr, asset_version, lock_time,
-    relative_lock_time,
+    output_type, proof_courier_addr, proof_delivery_complete, position,
+    asset_version, lock_time, relative_lock_time,
     utxos.utxo_id AS anchor_utxo_id,
     utxos.outpoint AS anchor_outpoint,
     utxos.amt_sats AS anchor_value,
@@ -168,6 +168,8 @@ type FetchTransferOutputsRow struct {
 	NumPassiveAssets         int32
 	OutputType               int16
 	ProofCourierAddr         []byte
+	ProofDeliveryComplete    sql.NullBool
+	Position                 int32
 	AssetVersion             int32
 	LockTime                 sql.NullInt32
 	RelativeLockTime         sql.NullInt32
@@ -210,6 +212,8 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 			&i.NumPassiveAssets,
 			&i.OutputType,
 			&i.ProofCourierAddr,
+			&i.ProofDeliveryComplete,
+			&i.Position,
 			&i.AssetVersion,
 			&i.LockTime,
 			&i.RelativeLockTime,
@@ -303,9 +307,9 @@ INSERT INTO asset_transfer_outputs (
     amount, serialized_witnesses, split_commitment_root_hash,
     split_commitment_root_value, proof_suffix, num_passive_assets,
     output_type, proof_courier_addr, asset_version, lock_time,
-    relative_lock_time
+    relative_lock_time, proof_delivery_complete, position
 ) VALUES (
-    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17
 )
 `
 
@@ -325,6 +329,8 @@ type InsertAssetTransferOutputParams struct {
 	AssetVersion             int32
 	LockTime                 sql.NullInt32
 	RelativeLockTime         sql.NullInt32
+	ProofDeliveryComplete    sql.NullBool
+	Position                 int32
 }
 
 func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error {
@@ -344,6 +350,8 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 		arg.AssetVersion,
 		arg.LockTime,
 		arg.RelativeLockTime,
+		arg.ProofDeliveryComplete,
+		arg.Position,
 	)
 	return err
 }
@@ -582,5 +590,30 @@ type ReAnchorPassiveAssetsParams struct {
 
 func (q *Queries) ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error {
 	_, err := q.db.ExecContext(ctx, reAnchorPassiveAssets, arg.NewAnchorUtxoID, arg.AssetID)
+	return err
+}
+
+const setTransferOutputProofDeliveryStatus = `-- name: SetTransferOutputProofDeliveryStatus :exec
+WITH target(output_id) AS (
+    SELECT output_id
+    FROM asset_transfer_outputs output
+    JOIN managed_utxos
+      ON output.anchor_utxo = managed_utxos.utxo_id
+    WHERE managed_utxos.outpoint = $2
+      AND output.position = $3
+)
+UPDATE asset_transfer_outputs
+SET proof_delivery_complete = $1
+WHERE output_id = (SELECT output_id FROM target)
+`
+
+type SetTransferOutputProofDeliveryStatusParams struct {
+	DeliveryComplete         sql.NullBool
+	SerializedAnchorOutpoint []byte
+	Position                 int32
+}
+
+func (q *Queries) SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error {
+	_, err := q.db.ExecContext(ctx, setTransferOutputProofDeliveryStatus, arg.DeliveryComplete, arg.SerializedAnchorOutpoint, arg.Position)
 	return err
 }

@@ -640,50 +640,21 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
+
 	deliver := func(ctx context.Context, out TransferOutput) error {
 		key := out.ScriptKey.PubKey
 
-		// If this is an output that is going to our own node/wallet,
-		// we don't need to transfer the proof.
-		if out.ScriptKey.TweakedScriptKey != nil && out.ScriptKeyLocal {
-			log.Debugf("Not transferring proof for local output "+
-				"script key %x", key.SerializeCompressed())
-			return nil
-		}
-
-		// Un-spendable means this is a tombstone output resulting from
-		// a split.
-		unSpendable, err := out.ScriptKey.IsUnSpendable()
+		// We'll first check to see if the proof should be delivered.
+		shouldDeliverProof, err := out.ShouldDeliverProof()
 		if err != nil {
-			return fmt.Errorf("error checking if script key is "+
-				"unspendable: %w", err)
-		}
-		if unSpendable {
-			log.Debugf("Not transferring proof for un-spendable "+
-				"output script key %x",
-				key.SerializeCompressed())
-			return nil
+			return fmt.Errorf("error determining if proof should "+
+				"be delivered: %w", err)
 		}
 
-		// Burns are also always kept local and not sent to any
-		// receiver.
-		if len(out.WitnessData) > 0 && asset.IsBurnKey(
-			out.ScriptKey.PubKey, out.WitnessData[0],
-		) {
-
-			log.Debugf("Not transferring proof for burn script "+
-				"key %x", key.SerializeCompressed())
-			return nil
-		}
-
-		// We can only deliver proofs for outputs that have a proof
-		// courier address. If an output doesn't have one, we assume it
-		// is an interactive send where the recipient is already aware
-		// of the proof or learns of it through another channel.
-		if len(out.ProofCourierAddr) == 0 {
-			log.Debugf("Not transferring proof for output with "+
-				"script key %x as it has no proof courier "+
-				"address", key.SerializeCompressed())
+		if !shouldDeliverProof {
+			log.Debugf("Not delivering proof for output with "+
+				"script key %x", key.SerializeCompressed())
 			return nil
 		}
 
@@ -751,6 +722,16 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"courier service: %w", err)
 		}
 
+		// The proof has been successfully delivered to the receiver.
+		// Now, we will update our transfer log to reflect this.
+		err = p.cfg.ExportLog.ConfirmProofDelivery(
+			ctx, out.Anchor.OutPoint, out.Position,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to log proof delivery "+
+				"confirmation: %w", err)
+		}
+
 		return nil
 	}
 
@@ -795,7 +776,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorTXID:             pkg.OutboundPkg.AnchorTx.TxHash(),
+		AnchorTXID:             anchorTXID,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
