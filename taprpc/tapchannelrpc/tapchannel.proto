@@ -4,6 +4,10 @@ package tapchannelrpc;
 
 option go_package = "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc";
 
+import "rfqrpc/rfq.proto";
+import "lightning.proto";
+import "routerrpc/router.proto";
+
 service TaprootAssetChannels {
     /*
     FundChannel initiates the channel funding negotiation with a peer for the
@@ -20,6 +24,14 @@ service TaprootAssetChannels {
     */
     rpc EncodeCustomRecords (EncodeCustomRecordsRequest)
         returns (EncodeCustomRecordsResponse);
+
+    /*
+    SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
+    with asset specific parameters. It allows RPC users to send asset keysend
+    payments (direct payments) or payments to an invoice with a specified asset
+    amount.
+    */
+    rpc SendPayment (SendPaymentRequest) returns (stream SendPaymentResponse);
 }
 
 message FundChannelRequest {
@@ -73,4 +85,48 @@ message EncodeCustomRecordsRequest {
 message EncodeCustomRecordsResponse {
     // The encoded custom records in TLV format.
     map<uint64, bytes> custom_records = 1;
+}
+
+message SendPaymentRequest {
+    // The asset ID to use for the payment. This must be set for both invoice
+    // and keysend payments, unless RFQ negotiation was already done beforehand
+    // and payment_request.first_hop_custom_records already contains valid RFQ
+    // data.
+    bytes asset_id = 1;
+
+    // The asset amount to send in a keysend payment. This amount is ignored for
+    // invoice payments as the asset amount is negotiated through RFQ with the
+    // peer, depending on the invoice amount. This can also be left unset if RFQ
+    // negotiation was already done beforehand and
+    // payment_request.first_hop_custom_records already contains valid RFQ data.
+    uint64 asset_amount = 2;
+
+    // The node identity public key of the peer to ask for a quote for sending
+    // out the assets and converting them to satoshis. This must be specified if
+    // there are multiple channels with the given asset ID.
+    bytes peer_pubkey = 3;
+
+    // The full lnd payment request to send. All fields behave the same way as
+    // they do for lnd's routerrpc.SendPaymentV2 RPC method (see the API docs
+    // at https://lightning.engineering/api-docs/api/lnd/router/send-payment-v2
+    // for more details).
+    // To send a keysend payment, the payment_request.dest_custom_records must
+    // contain a valid keysend record (key 5482373484 and a 32-byte preimage
+    // that corresponds to the payment hash).
+    routerrpc.SendPaymentRequest payment_request = 4;
+}
+
+message SendPaymentResponse {
+    oneof result {
+        // In case channel assets need to be swapped to another asset, an asset
+        // sell order is negotiated with the channel peer. The result will be
+        // the first message in the response stream. If no swap is needed, the
+        // payment results will be streamed directly.
+        rfqrpc.PeerAcceptedSellQuote accepted_sell_order = 1;
+
+        // The payment result of a single payment attempt. Multiple attempts may
+        // be returned per payment request until either the payment succeeds or
+        // the payment times out.
+        lnrpc.Payment payment_result = 2;
+    }
 }
