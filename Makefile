@@ -118,7 +118,7 @@ release-install:
 release:
 	@$(call print, "Releasing tapd and tapcli binaries.")
 	$(VERSION_CHECK)
-	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)"
+	./scripts/release.sh build-release "$(VERSION_TAG)" "$(BUILD_SYSTEM)" "$(RELEASE_TAGS)" "$(RELEASE_LDFLAGS)" "$(GO_VERSION)"
 
 release-tag:
 	@$(call print, "Adding release tag.")
