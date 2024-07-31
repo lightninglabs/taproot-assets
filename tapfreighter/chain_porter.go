@@ -148,7 +148,7 @@ func (p *ChainPorter) Start() error {
 
 		// Start the main chain porter goroutine.
 		p.Wg.Add(1)
-		go p.assetsPorter()
+		go p.mainEventLoop()
 
 		// Identify any pending parcels that need to be resumed and add
 		// them to the exportReqs channel so they can be processed by
@@ -239,10 +239,10 @@ func (p *ChainPorter) QueryParcels(ctx context.Context,
 	)
 }
 
-// assetsPorter is the main goroutine of the ChainPorter. This takes in incoming
+// mainEventLoop is the main goroutine of the ChainPorter. This takes a parcel
 // requests, and attempt to complete a transfer. A response is sent back to the
 // caller if a transfer can be completed. Otherwise, an error is returned.
-func (p *ChainPorter) assetsPorter() {
+func (p *ChainPorter) mainEventLoop() {
 	defer p.Wg.Done()
 
 	for {
