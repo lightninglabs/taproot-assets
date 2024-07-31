@@ -1061,6 +1061,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Infof("Committing pending parcel to disk")
 
+		// Write the parcel to disk as a pending parcel. This step also
+		// records the transfer details (e.g., reference to the anchor
+		// transaction ID, transfer outputs and inputs) to the database.
 		err = p.cfg.ExportLog.LogPendingParcel(
 			ctx, parcel, defaultWalletLeaseIdentifier,
 			time.Now().Add(defaultBroadcastCoinLeaseDuration),
