@@ -604,7 +604,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		return nil, fmt.Errorf("unable to create anchor: %w", err)
 	}
 
-	return &TransferOutput{
+	out := TransferOutput{
 		Anchor:              *anchor,
 		Type:                vOut.Type,
 		ScriptKey:           vOut.ScriptKey,
@@ -618,7 +618,28 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		ProofCourierAddr:    proofCourierAddrBytes,
 		ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
 		Position:            position,
-	}, nil
+	}
+
+	// Determine whether an associated proof needs to be delivered to a peer
+	// based on the currently set fields.
+	shouldDeliverProof, err := out.ShouldDeliverProof()
+	if err != nil {
+		return nil, fmt.Errorf("unable to determine if transfer "+
+			"output proof should be delivery to a peer: %w", err)
+	}
+
+	if shouldDeliverProof {
+		// Set the `ProofDeliveryComplete` field to `Some(false)` to
+		// indicate that proof delivery is pending. Once the proof has
+		// been successfully  delivered, this field will be updated to
+		// `Some(true)`.
+		//
+		// If it was determined that the proof should not be delivered,
+		// the `ProofDeliveryComplete` field would remain `None`.
+		out.ProofDeliveryComplete = fn.Some(false)
+	}
+
+	return &out, nil
 }
 
 // outputAnchor creates an Anchor from an anchor transaction and a virtual

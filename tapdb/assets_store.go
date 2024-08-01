@@ -2434,25 +2434,14 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to insert script key: %w", err)
 	}
 
-	// Now we will mark the output proof as undelivered if it is intended
-	// for a counterpart.
-	//
-	// If the transfer output proof is not intended for a counterpart the
-	// `proofDeliveryComplete` field will be left as NULL. Otherwise, we set
-	// it to false to indicate that the proof has not been delivered yet.
-	shouldDeliverProof, err := output.ShouldDeliverProof()
-	if err != nil {
-		return fmt.Errorf("unable to determine if proof should be "+
-			"delivery for given transfer output: %w", err)
-	}
-
+	// Marshal the proof delivery complete field to a nullable boolean.
 	var proofDeliveryComplete sql.NullBool
-	if shouldDeliverProof {
+	output.ProofDeliveryComplete.WhenSome(func(deliveryComplete bool) {
 		proofDeliveryComplete = sql.NullBool{
-			Bool:  false,
+			Bool:  deliveryComplete,
 			Valid: true,
 		}
-	}
+	})
 
 	// Check if position value can be stored in a 32-bit integer. Type cast
 	// if possible, otherwise return an error.

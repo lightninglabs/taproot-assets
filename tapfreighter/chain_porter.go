@@ -656,8 +656,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		}
 
 		if !shouldDeliverProof {
-			log.Debugf("Not delivering proof for output with "+
-				"script key %x", key.SerializeCompressed())
+			log.Debugf("Not delivering transfer ouput proof "+
+				"(proof_delivery_status=%v, script_key=%x)",
+				out.ProofDeliveryComplete,
+				key.SerializeCompressed())
 			return nil
 		}
 
