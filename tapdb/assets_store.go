@@ -43,6 +43,10 @@ type (
 	// script key.
 	AssetProof = sqlc.FetchAssetProofsRow
 
+	// AssetProofSize is the asset proof size for a given asset, identified
+	// by its script key.
+	AssetProofSize = sqlc.FetchAssetProofsSizesRow
+
 	// AssetProofI is identical to AssetProof but is used for the case
 	// where the proofs for a specific asset are fetched.
 	AssetProofI = sqlc.FetchAssetProofRow
@@ -195,6 +199,10 @@ type ActiveAssetsStore interface {
 	// disk.
 	FetchAssetProofs(ctx context.Context) ([]AssetProof, error)
 
+	// FetchAssetsProofsSizes fetches all the asset proofs lengths that are
+	// stored on disk.
+	FetchAssetProofsSizes(ctx context.Context) ([]AssetProofSize, error)
+
 	// FetchAssetProof fetches the asset proof for a given asset identified
 	// by its script key.
 	FetchAssetProof(ctx context.Context,
@@ -339,6 +347,18 @@ type ActiveAssetsStore interface {
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
 }
 
+// MetaStore is a sub-set of the main sqlc.Querier interface that contains
+// methods related to metadata of the daemon.
+type MetaStore interface {
+	// AssetsDBSize returns the total size of the taproot assets sqlite
+	// database.
+	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
+
+	// AssetsDBSize returns the total size of the taproot assets postgres
+	// database.
+	AssetsDBSizePostgres(ctx context.Context) (int64, error)
+}
+
 // AssetBalance holds a balance query result for a particular asset or all
 // assets tracked by this daemon.
 type AssetBalance struct {
@@ -378,9 +398,20 @@ type BatchedAssetStore interface {
 	BatchedTx[ActiveAssetsStore]
 }
 
+// BatchedMetaStore combines the MetaStore interface with the BatchedTx
+// interface, allowing for multiple queries to be executed in a single SQL
+// transaction.
+type BatchedMetaStore interface {
+	MetaStore
+
+	BatchedTx[MetaStore]
+}
+
 // AssetStore is used to query for the set of pending and confirmed assets.
 type AssetStore struct {
 	db BatchedAssetStore
+
+	metaDb BatchedMetaStore
 
 	// eventDistributor is an event distributor that will be used to notify
 	// subscribers about new proofs that are added to the archiver.
@@ -389,18 +420,24 @@ type AssetStore struct {
 	clock clock.Clock
 
 	txHeights *lru.Cache[chainhash.Hash, cacheableBlockHeight]
+
+	dbType sqlc.BackendType
 }
 
 // NewAssetStore creates a new AssetStore from the specified BatchedAssetStore
 // interface.
-func NewAssetStore(db BatchedAssetStore, clock clock.Clock) *AssetStore {
+func NewAssetStore(db BatchedAssetStore, metaDB BatchedMetaStore,
+	clock clock.Clock, dbType sqlc.BackendType) *AssetStore {
+
 	return &AssetStore{
 		db:               db,
+		metaDb:           metaDB,
 		eventDistributor: fn.NewEventDistributor[proof.Blob](),
 		clock:            clock,
 		txHeights: lru.NewCache[chainhash.Hash, cacheableBlockHeight](
 			10_000,
 		),
+		dbType: dbType,
 	}
 }
 
@@ -1169,6 +1206,38 @@ func (a *AssetStore) FetchManagedUTXOs(ctx context.Context) (
 	}
 
 	return managedUtxos, nil
+}
+
+// FetchAssetProofsSizes fetches the sizes of the proofs in the db.
+func (a *AssetStore) FetchAssetProofsSizes(
+	ctx context.Context) ([]AssetProofSize, error) {
+
+	var pSizes []AssetProofSize
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		proofSizes, err := q.FetchAssetProofsSizes(ctx)
+		if err != nil {
+			return err
+		}
+
+		for _, v := range proofSizes {
+			pSizes = append(
+				pSizes, AssetProofSize{
+					ScriptKey:       v.ScriptKey,
+					ProofFileLength: v.ProofFileLength,
+				},
+			)
+		}
+
+		return nil
+	})
+
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return pSizes, nil
 }
 
 // FetchAssetProofs returns the latest proof file for either the set of target
@@ -3265,6 +3334,45 @@ func (a *AssetStore) FetchAssetMetaForAsset(ctx context.Context,
 	}
 
 	return assetMeta, nil
+}
+
+// AssetsDBSize returns the total size of the taproot assets database.
+func (a *AssetStore) AssetsDBSize(ctx context.Context) (int64, error) {
+	var totalSize int64
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.metaDb.ExecTx(ctx, &readOpts, func(q MetaStore) error {
+		var (
+			size int64
+			err  error
+		)
+		switch a.dbType {
+		case sqlc.BackendTypePostgres:
+			size, err = q.AssetsDBSizePostgres(ctx)
+
+		case sqlc.BackendTypeSqlite:
+			var res int32
+			res, err = q.AssetsDBSizeSqlite(ctx)
+			size = int64(res)
+
+		default:
+			return fmt.Errorf("unsupported db backend type")
+		}
+
+		if err != nil {
+			return err
+		}
+
+		totalSize = size
+
+		return nil
+	})
+
+	if dbErr != nil {
+		return 0, dbErr
+	}
+
+	return totalSize, nil
 }
 
 // FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
