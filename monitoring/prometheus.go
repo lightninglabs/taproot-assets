@@ -74,6 +74,12 @@ func (p *PrometheusExporter) Start() error {
 	}
 	p.registry.MustRegister(gardenCollector)
 
+	dbCollector, err := newDbCollector(p.config, p.registry)
+	if err != nil {
+		return err
+	}
+	p.registry.MustRegister(dbCollector)
+
 	// Make ensure that all metrics exist when collecting and querying.
 	serverMetrics.InitializeMetrics(p.config.RPCServer)
 
