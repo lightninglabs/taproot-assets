@@ -70,6 +70,18 @@ type PeerMessenger interface {
 		msg lnwire.Message) error
 }
 
+// ErrNoPeer is returned when a peer can't be found.
+var ErrNoPeer = errors.New("peer not found")
+
+// FeatureBitVerifer is an interface that allows us to verify that a peer has a
+// given feature bit set.
+type FeatureBitVerifer interface {
+	// HasFeature returns true if the peer has the given feature bit set.
+	// If the peer can't be found, then ErrNoPeer is returned.
+	HasFeature(ctx context.Context, peerPub btcec.PublicKey,
+		bit lnwire.FeatureBit) (bool, error)
+}
+
 // OpenChanReq is a request to open a new asset channel with a remote peer.
 type OpenChanReq struct {
 	// ChanAmt is the amount of BTC to put into the channel. Some BTC is
@@ -200,6 +212,10 @@ type FundingControllerCfg struct {
 	// AssetSyncer is used to ensure that we've already verified the asset
 	// genesis for any assets used within channels.
 	AssetSyncer AssetSyncer
+
+	// FeatureBits is used to verify that the peer has the required feature
+	// to fund asset channels.
+	FeatureBits FeatureBitVerifer
 }
 
 // bindFundingReq is a request to bind a pending channel ID to a complete aux
@@ -1321,6 +1337,21 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 // processFundingReq processes a new funding request from the main goroutine.
 func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	fundReq *FundReq) error {
+
+	// Before we even attempt funding, let's make sure that the remote peer
+	// actually supports the feature bit.
+	supportsAssetChans, err := f.cfg.FeatureBits.HasFeature(
+		fundReq.ctx, fundReq.PeerPub,
+		lnwire.SimpleTaprootOverlayChansOptional,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to query peer feature bits: %w", err)
+	}
+
+	if !supportsAssetChans {
+		return fmt.Errorf("peer %x does not support asset channels",
+			fundReq.PeerPub.SerializeCompressed())
+	}
 
 	// To start, we'll make a new pending asset funding desc. This'll be
 	// our scratch pad during the asset funding process.

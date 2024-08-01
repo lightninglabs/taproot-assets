@@ -102,6 +102,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	msgTransportClient := tap.NewLndMsgTransportClient(lndServices)
 	lndRouterClient := tap.NewLndRouterClient(lndServices)
 	lndInvoicesClient := tap.NewLndInvoicesClient(lndServices)
+	lndFeatureBitsVerifier := tap.NewLndFeatureBitVerifier(lndServices)
 
 	uniDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.BaseUniverseStore {
@@ -434,6 +435,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			TxSender:           chainPorter,
 			DefaultCourierAddr: proofCourierAddr,
 			AssetSyncer:        addrBook,
+			FeatureBits:        lndFeatureBitsVerifier,
 		},
 	)
 	auxTrafficShaper := tapchannel.NewAuxTrafficShaper(
