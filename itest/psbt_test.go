@@ -1042,8 +1042,8 @@ func testPsbtMultiSend(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	// Now that we have the asset created, we'll make a new node that'll
-	// serve as the node which'll receive the assets.
+	// With the asset created, we'll set up a new node that will act as the
+	// receiver of the transfer.
 	secondTapd := setupTapdHarness(
 		t.t, t, t.lndHarness.Bob, t.universeServer,
 	)

@@ -573,7 +573,8 @@ func testBasicSendPassiveAsset(t *harnessTest) {
 
 // testReattemptFailedSendHashmailCourier tests that a failed attempt at
 // sending an asset proof will be reattempted by the tapd node. This test
-// targets the hashmail courier.
+// targets the hashmail courier. The proof courier is specified in the test
+// list entry.
 func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 	var (
 		ctxb = context.Background()
@@ -654,11 +655,6 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 
 	// Simulate a failed attempt at sending the asset proof by stopping
 	// the receiver node.
-	//
-	// The receiving tapd node does not return a proof received confirmation
-	// message via the universe RPC courier. We can simulate a proof
-	// transfer failure by stopping the courier service directly and not the
-	// receiving tapd node.
 	require.NoError(t.t, t.tapd.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
@@ -751,11 +747,6 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 
 	// Simulate a failed attempt at sending the asset proof by stopping
 	// the proof courier service.
-	//
-	// In following the hashmail proof courier protocol, the receiver node
-	// returns a proof received confirmation message via the courier.
-	// We can simulate a proof transfer failure by stopping the receiving
-	// tapd node. The courier service should still be operational.
 	require.NoError(t.t, t.proofCourier.Stop())
 
 	// Send asset and then mine to confirm the associated on-chain tx.
@@ -765,9 +756,9 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	wg.Wait()
 }
 
-// testReattemptFailedReceiveUniCourier tests that a failed attempt at
-// receiving an asset proof will be reattempted by the receiving tapd node. This
-// test targets the universe proof courier.
+// testReattemptFailedReceiveUniCourier ensures that a failed attempt to receive
+// an asset proof is retried by the receiving Tapd node.  This test focuses on
+// the universe proof courier.
 func testReattemptFailedReceiveUniCourier(t *harnessTest) {
 	ctxb := context.Background()
 
