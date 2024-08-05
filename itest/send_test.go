@@ -683,14 +683,40 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		},
 	)
 
-	// Subscribe to receive asset send events from the sending tapd node.
+	// Use the primary tapd node as the receiver node.
+	recvTapd := t.tapd
+
+	// Use the sending node to mint an asset for sending.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// After minting an asset with the sending node, we need to synchronize
+	// the Universe state to ensure the receiving node is updated and aware
+	// of the asset.
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
+
+	// Create a new address for the receiver node.
+	recvAddr, err := recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     10,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	// No we will ensure that the expected number of backoff wait event
+	// notifications are emitted from the sending node.
+	//
+	// We identify backoff wait events in a goroutine to ensure that we can
+	// capture event notifications from the send node while the main
+	// test continues.
+	//
+	// Subscribe to proof transfer send events from the sending tapd node.
 	events := SubscribeSendEvents(t.t, sendTapd)
 
-	// Test to ensure that we receive the expected number of backoff wait
-	// event notifications.
-	// This test is executed in a goroutine to ensure that we can receive
-	// the event notification(s) from the tapd node as the rest of the test
-	// proceeds.
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -708,7 +734,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 		// Expected number of events is one less than the number of
 		// tries because the first attempt does not count as a backoff
 		// event.
-		nodeBackoffCfg := t.tapd.clientCfg.HashMailCourier.BackoffCfg
+		nodeBackoffCfg := sendTapd.clientCfg.HashMailCourier.BackoffCfg
 		expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 		// Context timeout scales with expected number of events.
@@ -724,26 +750,6 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 			expectedEventCount,
 		)
 	}()
-
-	// Mint an asset for sending.
-	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, sendTapd,
-		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
-	)
-
-	genInfo := rpcAssets[0].AssetGenesis
-
-	// Synchronize the Universe state of the second node, with the main
-	// node.
-	t.syncUniverseState(sendTapd, t.tapd, len(rpcAssets))
-
-	// Create a new address for the receiver node.
-	recvAddr, err := t.tapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
-		AssetId: genInfo.AssetId,
-		Amt:     10,
-	})
-	require.NoError(t.t, err)
-	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], recvAddr)
 
 	// Simulate a failed attempt at sending the asset proof by stopping
 	// the proof courier service.
