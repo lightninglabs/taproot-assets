@@ -171,20 +171,80 @@ func (p *ChainPorter) resumePendingParcels() error {
 		return err
 	}
 
+	// Return early if there are no pending parcels to resume.
+	if len(outboundParcels) == 0 {
+		log.Info("No pending parcels to resume")
+		return nil
+	}
+
+	log.Infof("Attempting to resume asset transfer for %d parcels",
+		len(outboundParcels))
+
 	// We resume delivery using the normal parcel delivery mechanism by
 	// converting the outbound parcels into pending parcels.
 	for idx := range outboundParcels {
 		outboundParcel := outboundParcels[idx]
-		log.Infof("Attempting to resume delivery for anchor_txid=%v",
-			outboundParcel.AnchorTx.TxHash().String())
+
+		pendingParcel := NewPendingParcel(outboundParcel)
+		reportPendingParcel(*pendingParcel)
 
 		// At this point the asset porter should be running. It should
 		// therefore pick up the pending parcels from the channel and
 		// attempt to deliver them.
-		p.outboundParcels <- NewPendingParcel(outboundParcel)
+		p.outboundParcels <- pendingParcel
 	}
 
 	return nil
+}
+
+// reportPendingParcel logs information about a pending parcel.
+func reportPendingParcel(pendingParcel PendingParcel) {
+	outboundParcel := pendingParcel.pkg().OutboundPkg
+
+	// Formulate a log entry for each proof delivery pending transfer output
+	// for the pending parcel.
+	var outputLogStrings []string
+
+	for idx := range outboundParcel.Outputs {
+		transferOut := outboundParcel.Outputs[idx]
+
+		// Process only the proof outputs that are pending delivery.
+		// Skip outputs with proofs that don't need to be delivered to a
+		// peer (none) or those with proofs already delivered
+		// (some true).
+		if transferOut.ProofDeliveryComplete.UnwrapOr(true) {
+			continue
+		}
+
+		// Construct a log string for the transfer output.
+		skBytes := transferOut.ScriptKey.PubKey.SerializeCompressed()
+		proofCourierAddr := string(
+			transferOut.ProofCourierAddr,
+		)
+
+		outputLog := fmt.Sprintf(
+			"transfer_output_idx=%d, script_key=%x, "+
+				"proof_courier_addr=%s",
+			idx, skBytes, proofCourierAddr,
+		)
+		outputLogStrings = append(
+			outputLogStrings, outputLog,
+		)
+	}
+
+	log.Infof("Encountered pending parcel "+
+		"(anchor_txid=%v, count_undelivered_proofs=%d)",
+		outboundParcel.AnchorTx.TxHash().String(),
+		len(outputLogStrings))
+
+	// If there are any outputs with pending delivery proofs, we'll log
+	// them here.
+	if len(outputLogStrings) > 0 {
+		perOutputLog := strings.Join(outputLogStrings, "\n")
+
+		log.Debugf("Transfer output(s) with delivery pending "+
+			"proofs:\n%v", perOutputLog)
+	}
 }
 
 // Stop signals that the chain porter should gracefully stop.
@@ -662,8 +722,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		}
 
 		if !shouldDeliverProof {
-			log.Debugf("Not delivering transfer ouput proof "+
-				"(proof_delivery_status=%v, script_key=%x)",
+			log.Debugf("Transfer ouput proof does not require "+
+				"delivery (transfer_output_position=%d, "+
+				"proof_delivery_status=%v, "+
+				"script_key=%x)", out.Position,
 				out.ProofDeliveryComplete,
 				key.SerializeCompressed())
 			return nil
@@ -684,8 +746,9 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"script key %x", key.SerializeCompressed())
 		}
 
-		log.Debugf("Attempting to deliver proof for script key %x",
-			key.SerializeCompressed())
+		log.Debugf("Attempting to deliver proof (script_key=%x, "+
+			"proof_courier_addr=%s)", key.SerializeCompressed(),
+			out.ProofCourierAddr)
 
 		proofCourierAddr, err := proof.ParseCourierAddress(
 			string(out.ProofCourierAddr),
