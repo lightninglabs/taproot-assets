@@ -152,33 +152,39 @@ func (p *ChainPorter) Start() error {
 		p.Wg.Add(1)
 		go p.mainEventLoop()
 
-		// Identify any pending parcels that need to be resumed and add
-		// them to the outboundParcels channel so they can be processed
-		// by the main porter goroutine.
-		ctx, cancel := p.WithCtxQuit()
-		defer cancel()
-		outboundParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
-		if err != nil {
-			startErr = err
-			return
-		}
-
-		// We resume delivery using the normal parcel delivery mechanism
-		// by converting the outbound parcels into pending parcels.
-		for idx := range outboundParcels {
-			outboundParcel := outboundParcels[idx]
-			log.Infof("Attempting to resume delivery for "+
-				"anchor_txid=%v",
-				outboundParcel.AnchorTx.TxHash().String())
-
-			// At this point the asset porter should be running.
-			// It should therefore pick up the pending parcels from
-			// the channel and attempt to deliver them.
-			p.outboundParcels <- NewPendingParcel(outboundParcel)
-		}
+		startErr = p.resumePendingParcels()
 	})
 
 	return startErr
+}
+
+// resumePendingParcels attempts to resume delivery for any pending parcels that
+// were previously interrupted. This is done by querying the export log for any
+// pending parcels and adding them to the outboundParcels channel so they can be
+// processed by the main porter goroutine.
+func (p *ChainPorter) resumePendingParcels() error {
+	ctx, cancel := p.WithCtxQuit()
+	defer cancel()
+
+	outboundParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
+	if err != nil {
+		return err
+	}
+
+	// We resume delivery using the normal parcel delivery mechanism by
+	// converting the outbound parcels into pending parcels.
+	for idx := range outboundParcels {
+		outboundParcel := outboundParcels[idx]
+		log.Infof("Attempting to resume delivery for anchor_txid=%v",
+			outboundParcel.AnchorTx.TxHash().String())
+
+		// At this point the asset porter should be running. It should
+		// therefore pick up the pending parcels from the channel and
+		// attempt to deliver them.
+		p.outboundParcels <- NewPendingParcel(outboundParcel)
+	}
+
+	return nil
 }
 
 // Stop signals that the chain porter should gracefully stop.
