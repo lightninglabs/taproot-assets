@@ -232,6 +232,7 @@ jobs:
         if: matrix.unit_type == 'unit-cover'
         with:
           path-to-profile: coverage.txt
+          flag-name: 'unit'
           parallel: true
 
   ########################
