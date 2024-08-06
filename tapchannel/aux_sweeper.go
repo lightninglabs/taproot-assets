@@ -766,14 +766,6 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 	// TODO(roasbeef): should be part of post confirmation funding validate
 	// (chanvalidate)
 
-	// First, we'll make a courier to use in fetching the proofs we need.
-	proofFetcher, err := proofDispatch.NewCourier(
-		courierAddr, proof.Recipient{},
-	)
-	if err != nil {
-		return fmt.Errorf("unable to create proof courier: %w", err)
-	}
-
 	log.Infof("Importing %v proofs for ChannelPoint(%v)",
 		len(outputProofs), outputProofs[0].OutPoint())
 
@@ -807,10 +799,30 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		log.Infof("Fetching funding input proof, locator=%v",
 			spew.Sdump(inputProofLocator))
 
+		// First, we'll make a courier to use in fetching the proofs we
+		// need.
+		proofFetcher, err := proofDispatch.NewCourier(
+			courierAddr, proof.Recipient{
+				ScriptKey: scriptKey,
+				AssetID:   proofPrevID.ID,
+				Amount:    proofToImport.Asset.Amount,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("unable to create proof courier: %w",
+				err)
+		}
+
 		ctxb := context.Background()
 		prefixProof, err := proofFetcher.ReceiveProof(
 			ctxb, inputProofLocator,
 		)
+
+		// Always attempt to close the courier, even if we encounter an
+		// error.
+		_ = proofFetcher.Close()
+
+		// Handle any error that occurred during the proof fetch.
 		if err != nil {
 			return fmt.Errorf("unable to fetch prefix "+
 				"proof: %w", err)
