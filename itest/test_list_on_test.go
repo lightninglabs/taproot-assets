@@ -93,6 +93,10 @@ var testCases = []*testCase{
 		test: testReattemptFailedSendUniCourier,
 	},
 	{
+		name: "reattempt proof transfer on tapd restart",
+		test: testReattemptProofTransferOnTapdRestart,
+	},
+	{
 		name: "reattempt failed receive uni courier",
 		test: testReattemptFailedReceiveUniCourier,
 	},
