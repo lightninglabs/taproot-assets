@@ -1396,14 +1396,13 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// We'll use this closure to ensure that we'll always unlock the inputs
 	// if we encounter an error below.
 	unlockLeases := func() {
-		err := fundingState.unlockInputs(fundReq.ctx, f.cfg.ChainWallet)
+		ctxb := context.Background()
+		err := fundingState.unlockInputs(ctxb, f.cfg.ChainWallet)
 		if err != nil {
 			log.Errorf("unable to unlock inputs: %v", err)
 		}
 
-		err = fundingState.unlockAssetInputs(
-			fundReq.ctx, f.cfg.CoinSelector,
-		)
+		err = fundingState.unlockAssetInputs(ctxb, f.cfg.CoinSelector)
 		if err != nil {
 			log.Errorf("Unable to unlock asset inputs: %v", err)
 		}
