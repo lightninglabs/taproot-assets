@@ -6,7 +6,7 @@ COPY . /app
 
 ENV CGO_ENABLED=0
 
-RUN make install
+RUN make release-install TAGS=monitoring
 
 # FINAL IMAGE
 FROM alpine as final
