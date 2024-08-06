@@ -249,7 +249,15 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: run itest
-        run: make itest
+        run: make itest cover=1
+
+      - name: Send coverage
+        if: ${{ contains(matrix.args, 'cover=1') }}
+        uses: shogo82148/actions-goveralls@v1
+        with:
+          path-to-profile: coverage.txt
+          flag-name: 'itest-${{ matrix.name }}'
+          parallel: true
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -290,3 +298,13 @@ jobs:
           name: logs-itest-postgres
           path: logs-itest-postgres.zip
           retention-days: 5
+
+    # Notify about the completion of all coverage collecting jobs.
+  finish:
+    if: ${{ always() }}
+    needs: [unit-test, integration-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shogo82148/actions-goveralls@v1
+        with:
+          parallel-finished: true

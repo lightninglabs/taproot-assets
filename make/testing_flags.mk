@@ -4,6 +4,8 @@ RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc w
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = -logoutput
+ITEST_COVERAGE =
+COLLECT_ITEST_COVERAGE =
 COVER_HTML = go tool cover -html=coverage.txt -o coverage.html
 POSTGRES_START_DELAY = 5
 
@@ -55,6 +57,12 @@ endif
 
 ifneq ($(tags),)
 DEV_TAGS += ${tags}
+endif
+
+# Enable integration test coverage (requires Go >= 1.20.0).
+ifneq ($(cover),)
+ITEST_COVERAGE = -cover
+COLLECT_ITEST_COVERAGE = go tool covdata textfmt -i=itest/cover -o coverage.txt
 endif
 
 # Define the log tags that will be applied only when running unit tests. If none
