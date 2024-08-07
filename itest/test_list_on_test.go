@@ -300,6 +300,10 @@ var testCases = []*testCase{
 		name: "anchor multiple virtual transactions",
 		test: testAnchorMultipleVirtualTransactions,
 	},
+	{
+		name: "channel RPCs",
+		test: testChannelRPCs,
+	},
 }
 
 var optionalTestCases = []*testCase{

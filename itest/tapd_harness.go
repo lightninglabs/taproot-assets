@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -96,6 +97,7 @@ type tapdHarness struct {
 	assetwalletrpc.AssetWalletClient
 	mintrpc.MintClient
 	rfqrpc.RfqClient
+	tchrpc.TaprootAssetChannelsClient
 	universerpc.UniverseClient
 	tapdevrpc.TapDevClient
 }
@@ -348,6 +350,9 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 	hs.AssetWalletClient = assetwalletrpc.NewAssetWalletClient(rpcConn)
 	hs.MintClient = mintrpc.NewMintClient(rpcConn)
 	hs.RfqClient = rfqrpc.NewRfqClient(rpcConn)
+	hs.TaprootAssetChannelsClient = tchrpc.NewTaprootAssetChannelsClient(
+		rpcConn,
+	)
 	hs.UniverseClient = universerpc.NewUniverseClient(rpcConn)
 	hs.TapDevClient = tapdevrpc.NewTapDevClient(rpcConn)
 
