@@ -2434,25 +2434,14 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		return fmt.Errorf("unable to insert script key: %w", err)
 	}
 
-	// Now we will mark the output proof as undelivered if it is intended
-	// for a counterpart.
-	//
-	// If the transfer output proof is not intended for a counterpart the
-	// `proofDeliveryComplete` field will be left as NULL. Otherwise, we set
-	// it to false to indicate that the proof has not been delivered yet.
-	shouldDeliverProof, err := output.ShouldDeliverProof()
-	if err != nil {
-		return fmt.Errorf("unable to determine if proof should be "+
-			"delivery for given transfer output: %w", err)
-	}
-
+	// Marshal the proof delivery complete field to a nullable boolean.
 	var proofDeliveryComplete sql.NullBool
-	if shouldDeliverProof {
+	output.ProofDeliveryComplete.WhenSome(func(deliveryComplete bool) {
 		proofDeliveryComplete = sql.NullBool{
-			Bool:  false,
+			Bool:  deliveryComplete,
 			Valid: true,
 		}
-	}
+	})
 
 	// Check if position value can be stored in a 32-bit integer. Type cast
 	// if possible, otherwise return an error.
@@ -3151,24 +3140,30 @@ func (a *AssetStore) PendingParcels(
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
 	anchorTxHash *chainhash.Hash,
-	pending bool) ([]*tapfreighter.OutboundParcel, error) {
+	unconfirmedTxOnly bool) ([]*tapfreighter.OutboundParcel, error) {
 
-	var transfers []*tapfreighter.OutboundParcel
+	var (
+		outboundParcels []*tapfreighter.OutboundParcel
+		readOpts        = NewAssetStoreReadTx()
+	)
 
-	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
 		// Construct transfer query.
-		transferQuery := TransferQuery{
-			UnconfOnly: pending,
-		}
-
-		// Include anchor tx hash if specified.
+		//
+		// Serialise anchor tx hash as bytes if specified.
+		var anchorTxHashBytes []byte
 		if anchorTxHash != nil {
-			transferQuery.AnchorTxHash = anchorTxHash[:]
+			anchorTxHashBytes = anchorTxHash[:]
 		}
 
-		// If we want every unconfirmed transfer, then we only pass in
-		// the UnconfOnly field.
+		transferQuery := TransferQuery{
+			// If we want unconfirmed transfers only, we set the
+			// UnconfOnly field to true.
+			UnconfOnly:   unconfirmedTxOnly,
+			AnchorTxHash: anchorTxHashBytes,
+		}
+
+		// Query for asset transfers.
 		dbTransfers, err := q.QueryAssetTransfers(ctx, transferQuery)
 		if err != nil {
 			return err
@@ -3177,6 +3172,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 		for idx := range dbTransfers {
 			dbT := dbTransfers[idx]
 
+			// Fetch the inputs and outputs for the transfer.
 			inputs, err := fetchAssetTransferInputs(ctx, q, dbT.ID)
 			if err != nil {
 				return fmt.Errorf("unable to fetch transfer "+
@@ -3192,7 +3188,8 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 			}
 
 			// We know that the anchor transaction is the same for
-			// each output, we can just fetch the first.
+			// each output. Therefore, we use the first output to
+			// fetch the transfer's anchor transaction.
 			if len(outputs) == 0 {
 				return fmt.Errorf("no outputs for transfer")
 			}
@@ -3213,7 +3210,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 					"anchor tx: %w", err)
 			}
 
-			transfer := &tapfreighter.OutboundParcel{
+			parcel := &tapfreighter.OutboundParcel{
 				AnchorTx:           anchorTx,
 				AnchorTxHeightHint: uint32(dbT.HeightHint),
 				TransferTime:       dbT.TransferTimeUnix.UTC(),
@@ -3221,7 +3218,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				Inputs:             inputs,
 				Outputs:            outputs,
 			}
-			transfers = append(transfers, transfer)
+			outboundParcels = append(outboundParcels, parcel)
 		}
 
 		return nil
@@ -3230,7 +3227,7 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 		return nil, dbErr
 	}
 
-	return transfers, nil
+	return outboundParcels, nil
 }
 
 // ErrAssetMetaNotFound is returned when an asset meta is not found in the

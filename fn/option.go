@@ -59,7 +59,7 @@ func (o Option[A]) UnwrapOr(a A) A {
 	return a
 }
 
-// UnwrapPtr is used to extract a reference to a value from an option, and we
+// UnwrapToPtr is used to extract a reference to a value from an option, and we
 // supply an empty pointer in the case when the Option is empty.
 func (o Option[A]) UnwrapToPtr() *A {
 	var v *A

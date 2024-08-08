@@ -252,6 +252,14 @@ type TransferOutput struct {
 // ShouldDeliverProof returns true if a proof corresponding to the subject
 // transfer output should be delivered to a peer.
 func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
+	// If any proof delivery is already complete (some true), no further
+	// delivery is needed. However, if the proof delivery status is
+	// unset (none), we won't use that status in determining whether proof
+	// delivery is necessary. The field may not be set yet.
+	if out.ProofDeliveryComplete.UnwrapOr(false) {
+		return false, nil
+	}
+
 	// If the proof courier address is unspecified, we don't need to deliver
 	// a proof.
 	if len(out.ProofCourierAddr) == 0 {

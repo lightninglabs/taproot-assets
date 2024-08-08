@@ -605,7 +605,7 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 			err)
 	}
 
-	log.Debugf("Received proof for: script_key=%x, asset_id=%x",
+	log.Debugf("Proof received (script_key=%x, asset_id=%x)",
 		scriptKeyBytes, assetID[:])
 
 	ctx, cancel = c.CtxBlocking()

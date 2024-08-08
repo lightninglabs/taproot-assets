@@ -110,7 +110,9 @@ type ChainPorter struct {
 
 	cfg *ChainPorterConfig
 
-	exportReqs chan Parcel
+	// outboundParcels is a channel that carries outbound parcels that need
+	// to be processed by the main porter goroutine.
+	outboundParcels chan Parcel
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -129,9 +131,9 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 		map[uint64]*fn.EventReceiver[fn.Event],
 	)
 	return &ChainPorter{
-		cfg:         cfg,
-		exportReqs:  make(chan Parcel),
-		subscribers: subscribers,
+		cfg:             cfg,
+		outboundParcels: make(chan Parcel),
+		subscribers:     subscribers,
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: tapgarden.DefaultTimeout,
 			Quit:           make(chan struct{}),
@@ -148,35 +150,101 @@ func (p *ChainPorter) Start() error {
 
 		// Start the main chain porter goroutine.
 		p.Wg.Add(1)
-		go p.assetsPorter()
+		go p.mainEventLoop()
 
-		// Identify any pending parcels that need to be resumed and add
-		// them to the exportReqs channel so they can be processed by
-		// the main porter goroutine.
-		ctx, cancel := p.WithCtxQuit()
-		defer cancel()
-		outboundParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
-		if err != nil {
-			startErr = err
-			return
-		}
-
-		// We resume delivery using the normal parcel delivery mechanism
-		// by converting the outbound parcels into pending parcels.
-		for idx := range outboundParcels {
-			outboundParcel := outboundParcels[idx]
-			log.Infof("Attempting to resume delivery for "+
-				"anchor_txid=%v",
-				outboundParcel.AnchorTx.TxHash().String())
-
-			// At this point the asset porter should be running.
-			// It should therefore pick up the pending parcels from
-			// the channel and attempt to deliver them.
-			p.exportReqs <- NewPendingParcel(outboundParcel)
-		}
+		startErr = p.resumePendingParcels()
 	})
 
 	return startErr
+}
+
+// resumePendingParcels attempts to resume delivery for any pending parcels that
+// were previously interrupted. This is done by querying the export log for any
+// pending parcels and adding them to the outboundParcels channel so they can be
+// processed by the main porter goroutine.
+func (p *ChainPorter) resumePendingParcels() error {
+	ctx, cancel := p.WithCtxQuit()
+	defer cancel()
+
+	outboundParcels, err := p.cfg.ExportLog.PendingParcels(ctx)
+	if err != nil {
+		return err
+	}
+
+	// Return early if there are no pending parcels to resume.
+	if len(outboundParcels) == 0 {
+		log.Info("No pending parcels to resume")
+		return nil
+	}
+
+	log.Infof("Attempting to resume asset transfer for %d parcels",
+		len(outboundParcels))
+
+	// We resume delivery using the normal parcel delivery mechanism by
+	// converting the outbound parcels into pending parcels.
+	for idx := range outboundParcels {
+		outboundParcel := outboundParcels[idx]
+
+		pendingParcel := NewPendingParcel(outboundParcel)
+		reportPendingParcel(*pendingParcel)
+
+		// At this point the asset porter should be running. It should
+		// therefore pick up the pending parcels from the channel and
+		// attempt to deliver them.
+		p.outboundParcels <- pendingParcel
+	}
+
+	return nil
+}
+
+// reportPendingParcel logs information about a pending parcel.
+func reportPendingParcel(pendingParcel PendingParcel) {
+	outboundParcel := pendingParcel.pkg().OutboundPkg
+
+	// Formulate a log entry for each proof delivery pending transfer output
+	// for the pending parcel.
+	var outputLogStrings []string
+
+	for idx := range outboundParcel.Outputs {
+		transferOut := outboundParcel.Outputs[idx]
+
+		// Process only the proof outputs that are pending delivery.
+		// Skip outputs with proofs that don't need to be delivered to a
+		// peer (none) or those with proofs already delivered
+		// (some true).
+		if transferOut.ProofDeliveryComplete.UnwrapOr(true) {
+			continue
+		}
+
+		// Construct a log string for the transfer output.
+		skBytes := transferOut.ScriptKey.PubKey.SerializeCompressed()
+		proofCourierAddr := string(
+			transferOut.ProofCourierAddr,
+		)
+
+		outputLog := fmt.Sprintf(
+			"transfer_output_idx=%d, script_key=%x, "+
+				"proof_courier_addr=%s",
+			idx, skBytes, proofCourierAddr,
+		)
+		outputLogStrings = append(
+			outputLogStrings, outputLog,
+		)
+	}
+
+	log.Infof("Encountered pending parcel "+
+		"(anchor_txid=%v, count_undelivered_proofs=%d)",
+		outboundParcel.AnchorTx.TxHash().String(),
+		len(outputLogStrings))
+
+	// If there are any outputs with pending delivery proofs, we'll log
+	// them here.
+	if len(outputLogStrings) > 0 {
+		perOutputLog := strings.Join(outputLogStrings, "\n")
+
+		log.Debugf("Transfer output(s) with delivery pending "+
+			"proofs:\n%v", perOutputLog)
+	}
 }
 
 // Stop signals that the chain porter should gracefully stop.
@@ -211,7 +279,7 @@ func (p *ChainPorter) RequestShipment(req Parcel) (*OutboundParcel, error) {
 		return nil, fmt.Errorf("failed to validate parcel: %w", err)
 	}
 
-	if !fn.SendOrQuit(p.exportReqs, req, p.Quit) {
+	if !fn.SendOrQuit(p.outboundParcels, req, p.Quit) {
 		return nil, fmt.Errorf("ChainPorter shutting down")
 	}
 
@@ -239,24 +307,25 @@ func (p *ChainPorter) QueryParcels(ctx context.Context,
 	)
 }
 
-// assetsPorter is the main goroutine of the ChainPorter. This takes in incoming
+// mainEventLoop is the main goroutine of the ChainPorter. This takes a parcel
 // requests, and attempt to complete a transfer. A response is sent back to the
 // caller if a transfer can be completed. Otherwise, an error is returned.
-func (p *ChainPorter) assetsPorter() {
+func (p *ChainPorter) mainEventLoop() {
 	defer p.Wg.Done()
 
 	for {
 		select {
-		case req := <-p.exportReqs:
-			// The request either has a destination address we want
-			// to send to, or a send package is already initialized.
-			sendPkg := req.pkg()
+		case outboundParcel := <-p.outboundParcels:
+			// The outbound parcel either has a destination address
+			// we want to send to, or a send package is already
+			// initialized.
+			sendPkg := outboundParcel.pkg()
 
 			// Advance the state machine for this package as far as
 			// possible in its own goroutine. The status will be
 			// reported through the different channels of the send
 			// package.
-			go p.advanceState(sendPkg, req.kit())
+			go p.advanceState(sendPkg, outboundParcel.kit())
 
 		case <-p.Quit:
 			return
@@ -653,8 +722,12 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		}
 
 		if !shouldDeliverProof {
-			log.Debugf("Not delivering proof for output with "+
-				"script key %x", key.SerializeCompressed())
+			log.Debugf("Transfer ouput proof does not require "+
+				"delivery (transfer_output_position=%d, "+
+				"proof_delivery_status=%v, "+
+				"script_key=%x)", out.Position,
+				out.ProofDeliveryComplete,
+				key.SerializeCompressed())
 			return nil
 		}
 
@@ -673,8 +746,9 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 				"script key %x", key.SerializeCompressed())
 		}
 
-		log.Debugf("Attempting to deliver proof for script key %x",
-			key.SerializeCompressed())
+		log.Debugf("Attempting to deliver proof (script_key=%x, "+
+			"proof_courier_addr=%s)", key.SerializeCompressed(),
+			out.ProofCourierAddr)
 
 		proofCourierAddr, err := proof.ParseCourierAddress(
 			string(out.ProofCourierAddr),
@@ -1061,6 +1135,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Infof("Committing pending parcel to disk")
 
+		// Write the parcel to disk as a pending parcel. This step also
+		// records the transfer details (e.g., reference to the anchor
+		// transaction ID, transfer outputs and inputs) to the database.
 		err = p.cfg.ExportLog.LogPendingParcel(
 			ctx, parcel, defaultWalletLeaseIdentifier,
 			time.Now().Add(defaultBroadcastCoinLeaseDuration),
