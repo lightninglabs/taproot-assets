@@ -155,7 +155,15 @@ func (p *ChainPorter) Start() error {
 			p.mainEventLoop()
 		}()
 
-		startErr = p.resumePendingParcels()
+		// Resume any pending parcels in a new goroutine so that we
+		// don't delay returning from the Start method. Without this
+		// goroutine the resumePendingParcels method would block on the
+		// buffering constraint of the outboundParcels channel.
+		p.Wg.Add(1)
+		go func() {
+			defer p.Wg.Done()
+			startErr = p.resumePendingParcels()
+		}()
 	})
 
 	return startErr
