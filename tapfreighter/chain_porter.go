@@ -150,7 +150,10 @@ func (p *ChainPorter) Start() error {
 
 		// Start the main chain porter goroutine.
 		p.Wg.Add(1)
-		go p.mainEventLoop()
+		go func() {
+			defer p.Wg.Done()
+			p.mainEventLoop()
+		}()
 
 		startErr = p.resumePendingParcels()
 	})
@@ -311,8 +314,6 @@ func (p *ChainPorter) QueryParcels(ctx context.Context,
 // requests, and attempt to complete a transfer. A response is sent back to the
 // caller if a transfer can be completed. Otherwise, an error is returned.
 func (p *ChainPorter) mainEventLoop() {
-	defer p.Wg.Done()
-
 	for {
 		select {
 		case outboundParcel := <-p.outboundParcels:
