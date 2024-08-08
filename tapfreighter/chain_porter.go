@@ -132,7 +132,7 @@ func NewChainPorter(cfg *ChainPorterConfig) *ChainPorter {
 	)
 	return &ChainPorter{
 		cfg:             cfg,
-		outboundParcels: make(chan Parcel),
+		outboundParcels: make(chan Parcel, 10),
 		subscribers:     subscribers,
 		ContextGuard: &fn.ContextGuard{
 			DefaultTimeout: tapgarden.DefaultTimeout,
