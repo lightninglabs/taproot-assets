@@ -408,6 +408,15 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	case confEvent = <-confNtfn.Confirmed:
 		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
 		pkg.TransferTxConfEvent = confEvent
+
+		// If the anchoring tx block hash is given, we'll also store it
+		// in the outbound package.
+		var anchorTxBlockHash fn.Option[chainhash.Hash]
+		if confEvent.BlockHash != nil {
+			anchorTxBlockHash = fn.Some(*confEvent.BlockHash)
+		}
+		pkg.OutboundPkg.AnchorTxBlockHash = anchorTxBlockHash
+
 		pkg.SendState = SendStateStoreProofs
 
 	case err := <-errChan:
