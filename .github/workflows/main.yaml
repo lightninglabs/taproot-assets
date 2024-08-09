@@ -232,6 +232,7 @@ jobs:
         if: matrix.unit_type == 'unit-cover'
         with:
           path-to-profile: coverage.txt
+          flag-name: 'unit'
           parallel: true
 
   ########################
@@ -289,3 +290,13 @@ jobs:
           name: logs-itest-postgres
           path: logs-itest-postgres.zip
           retention-days: 5
+
+    # Notify about the completion of all coverage collecting jobs.
+  finish:
+    if: ${{ always() }}
+    needs: [unit-test]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: shogo82148/actions-goveralls@v1
+        with:
+          parallel-finished: true
