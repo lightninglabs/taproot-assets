@@ -1494,7 +1494,7 @@ func TestAssetExportLog(t *testing.T) {
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		UnconfOnly: true,
+		PendingTransfersOnly: sqlBool(true),
 	})
 	require.NoError(t, err)
 	require.Len(t, assetTransfers, 1)
@@ -1508,7 +1508,9 @@ func TestAssetExportLog(t *testing.T) {
 
 	// We should also be able to query for the parcel when filtering on its
 	// anchor transaction hash.
-	parcels, err = assetsStore.QueryParcels(ctx, &anchorTxHash, true)
+	parcels, err = assetsStore.QueryParcels(
+		ctx, &anchorTxHash, true,
+	)
 	require.NoError(t, err)
 	require.Len(t, parcels, 1)
 	require.Equal(t, spendDelta, parcels[0])

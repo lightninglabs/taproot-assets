@@ -314,6 +314,11 @@ type OutboundParcel struct {
 	// confirmations.
 	AnchorTxHeightHint uint32
 
+	// AnchorTxBlockHash is the block hash of the block that contains the
+	// anchor transaction. This is set once the anchor transaction is
+	// confirmed.
+	AnchorTxBlockHash fn.Option[chainhash.Hash]
+
 	// TransferTime holds the timestamp of the outbound spend.
 	TransferTime time.Time
 
