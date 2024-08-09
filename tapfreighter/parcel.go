@@ -51,9 +51,12 @@ const (
 	// transaction to confirm on-chain.
 	SendStateWaitTxConf
 
-	// SendStateStoreProofs is the state in which we will write the sender
-	// and receiver proofs to the proof archive.
-	SendStateStoreProofs
+	// SendStateStorePostAnchorTxConf is the state in which we will update
+	// the send package in store to reflect the confirmation of the anchor
+	// transaction. This includes:
+	// * writing the sender and receiver proofs to the proof archive
+	// * marking the transfer change outputs as spendable.
+	SendStateStorePostAnchorTxConf
 
 	// SendStateTransferProofs is the state where we attempt to transfer
 	// on-chain transaction proof(s) to the receiving party or parties.
@@ -85,8 +88,8 @@ func (s SendState) String() string {
 	case SendStateWaitTxConf:
 		return "SendStateWaitTxConf"
 
-	case SendStateStoreProofs:
-		return "SendStateStoreProofs"
+	case SendStateStorePostAnchorTxConf:
+		return "SendStateStorePostAnchorTxConf"
 
 	case SendStateTransferProofs:
 		return "SendStateTransferProofs"
