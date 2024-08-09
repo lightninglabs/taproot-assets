@@ -2809,9 +2809,10 @@ func (a *AssetStore) ConfirmProofDelivery(ctx context.Context,
 	return nil
 }
 
-// ConfirmParcelDelivery marks a spend event on disk as confirmed. This updates
-// the on-chain reference information on disk to point to this new spend.
-func (a *AssetStore) ConfirmParcelDelivery(ctx context.Context,
+// LogAnchorTxConfirm updates the send package state on disk to reflect the
+// confirmation of the anchor transaction, ensuring the on-chain reference
+// information is up to date.
+func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 	conf *tapfreighter.AssetConfirmEvent) error {
 
 	var (

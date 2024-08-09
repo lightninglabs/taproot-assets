@@ -421,10 +421,10 @@ type ExportLog interface {
 	// transferred.
 	ConfirmProofDelivery(context.Context, wire.OutPoint, uint64) error
 
-	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
-	// updates the on-chain reference information on disk to point to this
-	// new spend.
-	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
+	// LogAnchorTxConfirm updates the send package state on disk to reflect
+	// the confirmation of the anchor transaction, ensuring the on-chain
+	// reference information is up to date.
+	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent) error
 
 	// QueryParcels returns the set of confirmed or unconfirmed parcels.
 	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,
