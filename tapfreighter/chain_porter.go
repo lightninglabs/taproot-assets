@@ -417,7 +417,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 		}
 		pkg.OutboundPkg.AnchorTxBlockHash = anchorTxBlockHash
 
-		pkg.SendState = SendStateStoreProofs
+		pkg.SendState = SendStateStorePostAnchorTxConf
 
 	case err := <-errChan:
 		return fmt.Errorf("error whilst waiting for package tx "+
@@ -1235,9 +1235,10 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		err := p.waitForTransferTxConf(&currentPkg)
 		return &currentPkg, err
 
-	// At this point, the transfer transaction is confirmed on-chain. We go
-	// on to store the sender and receiver proofs in the proof archive.
-	case SendStateStoreProofs:
+	// The transfer transaction is now confirmed on-chain. We'll update the
+	// package state on disk to reflect this. This step frees up the change
+	// outputs so that they can be used in future transactions.
+	case SendStateStorePostAnchorTxConf:
 		err := p.storeProofs(&currentPkg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store proofs: %w",
