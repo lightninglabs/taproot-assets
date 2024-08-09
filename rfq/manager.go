@@ -21,6 +21,10 @@ const (
 	// DefaultTimeout is the default timeout used for context operations.
 	DefaultTimeout = 30 * time.Second
 
+	// DefaultInvoiceExpiry is the default expiry time for asset invoices.
+	// The current value corresponds to 5 minutes.
+	DefaultInvoiceExpiry = time.Second * 300
+
 	// CacheCleanupInterval is the interval at which local runtime caches
 	// are cleaned up.
 	CacheCleanupInterval = 30 * time.Second

@@ -8,3 +8,9 @@ http:
     - selector: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords
       post: "/v1/taproot-assets/channels/encode-custom-data"
       body: "*"
+    - selector: tapchannelrpc.TaprootAssetChannels.SendPayment
+      post: "/v1/taproot-assets/channels/send-payment"
+      body: "*"
+    - selector: tapchannelrpc.TaprootAssetChannels.AddInvoice
+      post: "/v1/taproot-assets/channels/invoice"
+      body: "*"

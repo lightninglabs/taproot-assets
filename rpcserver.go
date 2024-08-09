@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -54,9 +55,11 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/record"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/lightningnetwork/lnd/tlv"
+	"github.com/lightningnetwork/lnd/zpay32"
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
@@ -6730,6 +6733,353 @@ func (r *rpcServer) EncodeCustomRecords(_ context.Context,
 	}
 }
 
+// SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
+// with asset specific parameters. It allows RPC users to send asset keysend
+// payments (direct payments) or payments to an invoice with a specified asset
+// amount.
+func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
+	stream tchrpc.TaprootAssetChannels_SendPaymentServer) error {
+
+	if req.PaymentRequest == nil {
+		return fmt.Errorf("payment request must be specified")
+	}
+	pReq := req.PaymentRequest
+	ctx := stream.Context()
+
+	// Do some preliminary checks on the asset ID and make sure we have any
+	// balance for that asset.
+	if len(req.AssetId) != sha256.Size {
+		return fmt.Errorf("asset ID must be 32 bytes")
+	}
+	var assetID asset.ID
+	copy(assetID[:], req.AssetId)
+
+	// Now that we know we have at least _some_ asset balance, we'll figure
+	// out what kind of payment this is, so we can determine _how many_
+	// asset units we need.
+	destRecords := pReq.DestCustomRecords
+	_, isKeysend := destRecords[record.KeySendType]
+	firstHopRecords := pReq.FirstHopCustomRecords
+
+	switch {
+	// Both payment request and keysend is set, which isn't a supported
+	// combination.
+	case pReq.PaymentRequest != "" && isKeysend:
+		return fmt.Errorf("payment request and keysend custom " +
+			"records cannot be set at the same time")
+
+	// There are custom records for the first hop set, which means RFQ
+	// negotiation has already happened (or this is a keysend payment and
+	// the correct asset amount is already encoded). So we don't need to do
+	// anything special and can just forward the payment to lnd.
+	case len(firstHopRecords) > 0:
+		// Continue below.
+
+	// The request wants to pay a specific invoice.
+	case pReq.PaymentRequest != "":
+		invoice, err := zpay32.Decode(
+			pReq.PaymentRequest, r.cfg.Lnd.ChainParams,
+		)
+		if err != nil {
+			return fmt.Errorf("error decoding payment request: %w",
+				err)
+		}
+
+		// The peer public key is optional if there is only a single
+		// asset channel.
+		var peerPubKey *route.Vertex
+		if len(req.PeerPubkey) > 0 {
+			parsedKey, err := route.NewVertexFromBytes(
+				req.PeerPubkey,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing peer pubkey: "+
+					"%w", err)
+			}
+
+			peerPubKey = &parsedKey
+		}
+
+		// We can now query the asset channels we have.
+		assetChan, err := r.rfqChannel(ctx, assetID, peerPubKey)
+		if err != nil {
+			return fmt.Errorf("error finding asset channel to "+
+				"use: %w", err)
+		}
+
+		// Even if the user didn't specify the peer public key before,
+		// we definitely know it now. So let's make sure it's always
+		// set.
+		peerPubKey = &assetChan.channelInfo.PubKeyBytes
+
+		// TODO(guggero): This should actually be the max BTC amount
+		// (invoice amount plus fee limit) in milli-satoshi, not the
+		// asset amount. Need to change the whole RFQ API to do that
+		// though.
+		maxAssetAmount := assetChan.assetInfo.LocalBalance
+
+		expiryTimestamp := invoice.Timestamp.Add(invoice.Expiry())
+		resp, err := r.AddAssetSellOrder(
+			ctx, &rfqrpc.AddAssetSellOrderRequest{
+				AssetSpecifier: &rfqrpc.AssetSpecifier{
+					Id: &rfqrpc.AssetSpecifier_AssetId{
+						AssetId: assetID[:],
+					},
+				},
+				MaxAssetAmount: maxAssetAmount,
+				MinAsk:         uint64(*invoice.MilliSat),
+				Expiry:         uint64(expiryTimestamp.Unix()),
+				PeerPubKey:     peerPubKey[:],
+				TimeoutSeconds: uint32(
+					rfq.DefaultTimeout.Seconds(),
+				),
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("error adding sell order: %w", err)
+		}
+
+		var acceptedQuote *rfqrpc.PeerAcceptedSellQuote
+		switch r := resp.Response.(type) {
+		case *rfqrpc.AddAssetSellOrderResponse_AcceptedQuote:
+			acceptedQuote = r.AcceptedQuote
+
+		case *rfqrpc.AddAssetSellOrderResponse_InvalidQuote:
+			return fmt.Errorf("peer %v sent back an invalid "+
+				"quote, status: %v", r.InvalidQuote.Peer,
+				r.InvalidQuote.Status.String())
+
+		case *rfqrpc.AddAssetSellOrderResponse_RejectedQuote:
+			return fmt.Errorf("peer %v rejected the quote, code: "+
+				"%v, error message: %v", r.RejectedQuote.Peer,
+				r.RejectedQuote.ErrorCode,
+				r.RejectedQuote.ErrorMessage)
+
+		default:
+			return fmt.Errorf("unexpected response type: %T", r)
+		}
+
+		// Send out the information about the quote on the stream.
+		err = stream.Send(&tchrpc.SendPaymentResponse{
+			Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
+				AcceptedSellOrder: acceptedQuote,
+			},
+		})
+		if err != nil {
+			return err
+		}
+
+		msatPerUnit := acceptedQuote.BidPrice
+		numUnits := uint64(*invoice.MilliSat) / msatPerUnit
+		rpcsLog.Infof("Got quote for %v asset units at %v msat/unit "+
+			"from peer %x with SCID %d", numUnits, msatPerUnit,
+			peerPubKey, acceptedQuote.Scid)
+
+		var rfqID rfqmsg.ID
+		copy(rfqID[:], acceptedQuote.Id)
+
+		htlc := rfqmsg.NewHtlc(nil, fn.Some(rfqID))
+
+		// We'll now map the HTLC struct into a set of TLV records,
+		// which we can then encode into the expected map format.
+		htlcMapRecords, err := tlv.RecordsToMap(htlc.Records())
+		if err != nil {
+			return fmt.Errorf("unable to encode records as map: %w",
+				err)
+		}
+
+		pReq.FirstHopCustomRecords = htlcMapRecords
+
+	// The payment request is a keysend payment.
+	case isKeysend:
+		if req.AssetAmount == 0 {
+			return fmt.Errorf("asset amount must be specified " +
+				"for keysend payment")
+		}
+
+		balances := []*rfqmsg.AssetBalance{
+			rfqmsg.NewAssetBalance(assetID, req.AssetAmount),
+		}
+		htlc := rfqmsg.NewHtlc(balances, fn.None[rfqmsg.ID]())
+
+		// We'll now map the HTLC struct into a set of TLV records,
+		// which we can then encode into the map format expected.
+		htlcMapRecords, err := tlv.RecordsToMap(htlc.Records())
+		if err != nil {
+			return fmt.Errorf("unable to encode records as map: %w",
+				err)
+		}
+
+		pReq.FirstHopCustomRecords = htlcMapRecords
+	}
+
+	rpcCtx, _, routerClient := r.cfg.Lnd.Router.RawClientWithMacAuth(ctx)
+	updateStream, err := routerClient.SendPaymentV2(rpcCtx, pReq)
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+
+		case <-r.quit:
+			return fmt.Errorf("server shutting down")
+
+		default:
+		}
+
+		update, err := updateStream.Recv()
+		if err != nil {
+			return err
+		}
+
+		err = stream.Send(&tchrpc.SendPaymentResponse{
+			Result: &tchrpc.SendPaymentResponse_PaymentResult{
+				PaymentResult: update,
+			},
+		})
+		if err != nil {
+			return err
+		}
+	}
+}
+
+// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
+// specific parameters. It allows RPC users to create invoices that correspond
+// to the specified asset amount.
+func (r *rpcServer) AddInvoice(ctx context.Context,
+	req *tchrpc.AddInvoiceRequest) (*tchrpc.AddInvoiceResponse, error) {
+
+	if req.InvoiceRequest == nil {
+		return nil, fmt.Errorf("invoice request must be specified")
+	}
+	iReq := req.InvoiceRequest
+
+	// Do some preliminary checks on the asset ID and make sure we have any
+	// balance for that asset.
+	if len(req.AssetId) != sha256.Size {
+		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	}
+	var assetID asset.ID
+	copy(assetID[:], req.AssetId)
+
+	// The peer public key is optional if there is only a single asset
+	// channel.
+	var peerPubKey *route.Vertex
+	if len(req.PeerPubkey) > 0 {
+		parsedKey, err := route.NewVertexFromBytes(req.PeerPubkey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing peer pubkey: %w",
+				err)
+		}
+
+		peerPubKey = &parsedKey
+	}
+
+	// We can now query the asset channels we have.
+	assetChan, err := r.rfqChannel(ctx, assetID, peerPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("error finding asset channel to use: %w",
+			err)
+	}
+
+	// Even if the user didn't specify the peer public key before, we
+	// definitely know it now. So let's make sure it's always set.
+	peerPubKey = &assetChan.channelInfo.PubKeyBytes
+
+	expirySeconds := iReq.Expiry
+	if expirySeconds == 0 {
+		expirySeconds = int64(rfq.DefaultInvoiceExpiry.Seconds())
+	}
+	expiryTimestamp := time.Now().Add(
+		time.Duration(expirySeconds) * time.Second,
+	)
+
+	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: assetID[:],
+			},
+		},
+		MinAssetAmount: req.AssetAmount,
+		Expiry:         uint64(expiryTimestamp.Unix()),
+		PeerPubKey:     peerPubKey[:],
+		TimeoutSeconds: uint32(
+			rfq.DefaultTimeout.Seconds(),
+		),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error adding buy order: %w", err)
+	}
+
+	var acceptedQuote *rfqrpc.PeerAcceptedBuyQuote
+	switch r := resp.Response.(type) {
+	case *rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote:
+		acceptedQuote = r.AcceptedQuote
+
+	case *rfqrpc.AddAssetBuyOrderResponse_InvalidQuote:
+		return nil, fmt.Errorf("peer %v sent back an invalid quote, "+
+			"status: %v", r.InvalidQuote.Peer,
+			r.InvalidQuote.Status.String())
+
+	case *rfqrpc.AddAssetBuyOrderResponse_RejectedQuote:
+		return nil, fmt.Errorf("peer %v rejected the quote, code: %v, "+
+			"error message: %v", r.RejectedQuote.Peer,
+			r.RejectedQuote.ErrorCode, r.RejectedQuote.ErrorMessage)
+
+	default:
+		return nil, fmt.Errorf("unexpected response type: %T", r)
+	}
+
+	// Now that we have the accepted quote, we know the amount in Satoshi
+	// that we need to pay. We can now update the invoice with this amount.
+	mSatPerUnit := acceptedQuote.AskPrice
+	iReq.ValueMsat = int64(req.AssetAmount * mSatPerUnit)
+
+	// The last step is to create a hop hint that includes the fake SCID of
+	// the quote, alongside the channel's routing policy. We need to choose
+	// the policy that points towards us, as the payment will be flowing in.
+	// So we get the policy that's being set by the remote peer.
+	channelID := assetChan.channelInfo.ChannelID
+	inboundPolicy, err := r.getInboundPolicy(
+		ctx, channelID, peerPubKey.String(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to get inbound channel policy "+
+			"for channel with ID %d: %w", channelID, err)
+	}
+
+	hopHint := &lnrpc.HopHint{
+		NodeId:      peerPubKey.String(),
+		ChanId:      acceptedQuote.Scid,
+		FeeBaseMsat: uint32(inboundPolicy.FeeBaseMsat),
+		FeeProportionalMillionths: uint32(
+			inboundPolicy.FeeRateMilliMsat,
+		),
+		CltvExpiryDelta: inboundPolicy.TimeLockDelta,
+	}
+	iReq.RouteHints = []*lnrpc.RouteHint{
+		{
+			HopHints: []*lnrpc.HopHint{
+				hopHint,
+			},
+		},
+	}
+
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	invoiceResp, err := rawClient.AddInvoice(rpcCtx, iReq)
+	if err != nil {
+		return nil, fmt.Errorf("error creating invoice: %w", err)
+	}
+
+	return &tchrpc.AddInvoiceResponse{
+		AcceptedBuyQuote: acceptedQuote,
+		InvoiceResult:    invoiceResp,
+	}, nil
+}
+
 // DeclareScriptKey declares a new script key to the wallet. This is useful
 // when the script key contains scripts, which would mean it wouldn't be
 // recognized by the wallet automatically. Declaring a script key will make any
@@ -6840,4 +7190,134 @@ func getDecimalDisplayNonStrict(
 	}
 
 	return fn.Some(decDisplay), nil
+}
+
+// rfqChannel returns the channel to use for RFQ operations. If a peer public
+// key is specified, the channels are filtered by that peer. If there are
+// multiple channels for the same asset, the user must specify the peer public
+// key.
+func (r *rpcServer) rfqChannel(ctx context.Context, id asset.ID,
+	peerPubKey *route.Vertex) (*channelWithAsset, error) {
+
+	balances, err := r.computeChannelAssetBalance(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("error computing available asset "+
+			"channel balance: %w", err)
+	}
+
+	assetBalances, haveBalance := balances[id]
+	if !haveBalance || len(assetBalances) == 0 {
+		return nil, fmt.Errorf("no asset channel balance found for "+
+			"asset %s", id.String())
+	}
+
+	// If a peer public key was specified, we always want to use that to
+	// filter the asset channels.
+	if peerPubKey != nil {
+		assetBalances = fn.Filter(
+			assetBalances, func(c channelWithAsset) bool {
+				return c.channelInfo.PubKeyBytes == *peerPubKey
+			},
+		)
+	}
+
+	switch {
+	// If there are multiple asset channels for the same asset, we need to
+	// ask the user to specify the peer public key. Otherwise, we don't know
+	// who to ask for a quote.
+	case len(assetBalances) > 1 && peerPubKey == nil:
+		return nil, fmt.Errorf("multiple asset channels found for "+
+			"asset %s, please specify the peer pubkey", id.String())
+
+	// If the user specified a peer public key, and we still have multiple
+	// channels, it means we have multiple channels with the same asset and
+	// the same peer. So we just return the first channel.
+	case len(assetBalances) >= 1:
+		return &assetBalances[0], nil
+
+	// The default case is: We don't have any channels with that asset ID
+	// and peer.
+	default:
+		return nil, fmt.Errorf("no asset channel found for asset %s "+
+			"and peer %s", id.String(), peerPubKey.String())
+	}
+}
+
+// channelWithAsset is a helper struct that combines the information of a single
+// asset within a channel with the channels' general information.
+type channelWithAsset struct {
+	// assetInfo is the information about one of the assets in a channel.
+	assetInfo rfqmsg.JsonAssetChanInfo
+
+	// channelInfo is the information about the channel the asset is
+	// committed to.
+	channelInfo lndclient.ChannelInfo
+}
+
+// computeChannelAssetBalance computes the total local and remote balance for
+// each asset channel.
+func (r *rpcServer) computeChannelAssetBalance(
+	ctx context.Context) (map[asset.ID][]channelWithAsset, error) {
+
+	activeChannels, err := r.cfg.Lnd.Client.ListChannels(ctx, true, false)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channels: %w", err)
+	}
+
+	channelsByID := make(map[asset.ID][]channelWithAsset)
+	for chanIdx := range activeChannels {
+		openChan := activeChannels[chanIdx]
+		if len(openChan.CustomChannelData) == 0 {
+			continue
+		}
+
+		var assetData rfqmsg.JsonAssetChannel
+		err = json.Unmarshal(openChan.CustomChannelData, &assetData)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal asset "+
+				"data: %w", err)
+		}
+
+		for assetIdx := range assetData.Assets {
+			assetOutput := assetData.Assets[assetIdx]
+			assetIDStr := assetOutput.AssetInfo.AssetGenesis.AssetID
+			assetIDBytes, err := hex.DecodeString(assetIDStr)
+			if err != nil {
+				return nil, fmt.Errorf("error decoding asset "+
+					"ID: %w", err)
+			}
+			var assetID asset.ID
+			copy(assetID[:], assetIDBytes)
+
+			channelsByID[assetID] = append(
+				channelsByID[assetID], channelWithAsset{
+					assetInfo:   assetOutput,
+					channelInfo: openChan,
+				},
+			)
+		}
+	}
+
+	return channelsByID, nil
+}
+
+// getInboundPolicy returns the policy of the given channel that points towards
+// our node, so it's the policy set by the remote peer.
+func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
+	remotePubStr string) (*lnrpc.RoutingPolicy, error) {
+
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	edge, err := rawClient.GetChanInfo(rpcCtx, &lnrpc.ChanInfoRequest{
+		ChanId: chanID,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel: %w", err)
+	}
+
+	policy := edge.Node2Policy
+	if edge.Node2Pub == remotePubStr {
+		policy = edge.Node1Policy
+	}
+
+	return policy, nil
 }

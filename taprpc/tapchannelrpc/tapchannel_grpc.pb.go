@@ -27,6 +27,15 @@ type TaprootAssetChannelsClient interface {
 	// does not perform any checks on the data provided, other than pure format
 	// validation.
 	EncodeCustomRecords(ctx context.Context, in *EncodeCustomRecordsRequest, opts ...grpc.CallOption) (*EncodeCustomRecordsResponse, error)
+	// SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
+	// with asset specific parameters. It allows RPC users to send asset keysend
+	// payments (direct payments) or payments to an invoice with a specified asset
+	// amount.
+	SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SendPaymentClient, error)
+	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
+	// specific parameters. It allows RPC users to create invoices that correspond
+	// to the specified asset amount.
+	AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
 }
 
 type taprootAssetChannelsClient struct {
@@ -55,6 +64,47 @@ func (c *taprootAssetChannelsClient) EncodeCustomRecords(ctx context.Context, in
 	return out, nil
 }
 
+func (c *taprootAssetChannelsClient) SendPayment(ctx context.Context, in *SendPaymentRequest, opts ...grpc.CallOption) (TaprootAssetChannels_SendPaymentClient, error) {
+	stream, err := c.cc.NewStream(ctx, &TaprootAssetChannels_ServiceDesc.Streams[0], "/tapchannelrpc.TaprootAssetChannels/SendPayment", opts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &taprootAssetChannelsSendPaymentClient{stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+type TaprootAssetChannels_SendPaymentClient interface {
+	Recv() (*SendPaymentResponse, error)
+	grpc.ClientStream
+}
+
+type taprootAssetChannelsSendPaymentClient struct {
+	grpc.ClientStream
+}
+
+func (x *taprootAssetChannelsSendPaymentClient) Recv() (*SendPaymentResponse, error) {
+	m := new(SendPaymentResponse)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *taprootAssetChannelsClient) AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error) {
+	out := new(AddInvoiceResponse)
+	err := c.cc.Invoke(ctx, "/tapchannelrpc.TaprootAssetChannels/AddInvoice", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaprootAssetChannelsServer is the server API for TaprootAssetChannels service.
 // All implementations must embed UnimplementedTaprootAssetChannelsServer
 // for forward compatibility
@@ -68,6 +118,15 @@ type TaprootAssetChannelsServer interface {
 	// does not perform any checks on the data provided, other than pure format
 	// validation.
 	EncodeCustomRecords(context.Context, *EncodeCustomRecordsRequest) (*EncodeCustomRecordsResponse, error)
+	// SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method
+	// with asset specific parameters. It allows RPC users to send asset keysend
+	// payments (direct payments) or payments to an invoice with a specified asset
+	// amount.
+	SendPayment(*SendPaymentRequest, TaprootAssetChannels_SendPaymentServer) error
+	// AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
+	// specific parameters. It allows RPC users to create invoices that correspond
+	// to the specified asset amount.
+	AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error)
 	mustEmbedUnimplementedTaprootAssetChannelsServer()
 }
 
@@ -80,6 +139,12 @@ func (UnimplementedTaprootAssetChannelsServer) FundChannel(context.Context, *Fun
 }
 func (UnimplementedTaprootAssetChannelsServer) EncodeCustomRecords(context.Context, *EncodeCustomRecordsRequest) (*EncodeCustomRecordsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method EncodeCustomRecords not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) SendPayment(*SendPaymentRequest, TaprootAssetChannels_SendPaymentServer) error {
+	return status.Errorf(codes.Unimplemented, "method SendPayment not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddInvoice not implemented")
 }
 func (UnimplementedTaprootAssetChannelsServer) mustEmbedUnimplementedTaprootAssetChannelsServer() {}
 
@@ -130,6 +195,45 @@ func _TaprootAssetChannels_EncodeCustomRecords_Handler(srv interface{}, ctx cont
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssetChannels_SendPayment_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(SendPaymentRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(TaprootAssetChannelsServer).SendPayment(m, &taprootAssetChannelsSendPaymentServer{stream})
+}
+
+type TaprootAssetChannels_SendPaymentServer interface {
+	Send(*SendPaymentResponse) error
+	grpc.ServerStream
+}
+
+type taprootAssetChannelsSendPaymentServer struct {
+	grpc.ServerStream
+}
+
+func (x *taprootAssetChannelsSendPaymentServer) Send(m *SendPaymentResponse) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func _TaprootAssetChannels_AddInvoice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddInvoiceRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetChannelsServer).AddInvoice(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tapchannelrpc.TaprootAssetChannels/AddInvoice",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetChannelsServer).AddInvoice(ctx, req.(*AddInvoiceRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaprootAssetChannels_ServiceDesc is the grpc.ServiceDesc for TaprootAssetChannels service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -145,7 +249,17 @@ var TaprootAssetChannels_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "EncodeCustomRecords",
 			Handler:    _TaprootAssetChannels_EncodeCustomRecords_Handler,
 		},
+		{
+			MethodName: "AddInvoice",
+			Handler:    _TaprootAssetChannels_AddInvoice_Handler,
+		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "SendPayment",
+			Handler:       _TaprootAssetChannels_SendPayment_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "tapchannelrpc/tapchannel.proto",
 }

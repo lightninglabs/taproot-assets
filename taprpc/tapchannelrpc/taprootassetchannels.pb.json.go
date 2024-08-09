@@ -70,4 +70,71 @@ func RegisterTaprootAssetChannelsJSONCallbacks(registry map[string]func(ctx cont
 		}
 		callback(string(respBytes), nil)
 	}
+
+	registry["tapchannelrpc.TaprootAssetChannels.SendPayment"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &SendPaymentRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaprootAssetChannelsClient(conn)
+		stream, err := client.SendPayment(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		go func() {
+			for {
+				select {
+				case <-stream.Context().Done():
+					callback("", stream.Context().Err())
+					return
+				default:
+				}
+
+				resp, err := stream.Recv()
+				if err != nil {
+					callback("", err)
+					return
+				}
+
+				respBytes, err := marshaler.Marshal(resp)
+				if err != nil {
+					callback("", err)
+					return
+				}
+				callback(string(respBytes), nil)
+			}
+		}()
+	}
+
+	registry["tapchannelrpc.TaprootAssetChannels.AddInvoice"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &AddInvoiceRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaprootAssetChannelsClient(conn)
+		resp, err := client.AddInvoice(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
 }
