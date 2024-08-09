@@ -1524,7 +1524,7 @@ func TestAssetExportLog(t *testing.T) {
 	fakeBlockHash := chainhash.Hash(sha256.Sum256([]byte("fake")))
 	blockHeight := int32(100)
 	txIndex := int32(10)
-	err = assetsStore.ConfirmParcelDelivery(
+	err = assetsStore.LogAnchorTxConfirm(
 		ctx, &tapfreighter.AssetConfirmEvent{
 			AnchorTXID:  firstOutputAnchor.OutPoint.Hash,
 			TxIndex:     txIndex,

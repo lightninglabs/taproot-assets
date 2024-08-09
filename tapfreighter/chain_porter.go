@@ -650,7 +650,7 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 	// parcel delivery as completed in the database.
 	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
 	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
-	err := p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
+	err := p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
 		AnchorTXID:             anchorTXID,
 		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
 		BlockHeight:            anchorTxBlockHeight,
