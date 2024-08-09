@@ -1451,9 +1451,15 @@ func TestAssetExportLog(t *testing.T) {
 
 	// At this point, we should be able to query for the log parcel, by
 	// looking for all unconfirmed transfers.
-	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{})
+	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{
+		PendingTransfersOnly: sqlBool(true),
+	})
 	require.NoError(t, err)
 	require.Len(t, assetTransfers, 1)
+
+	// This transfer's anchor transaction is unconfirmed. Therefore, the
+	// anchor transaction block hash field of the transfer should be unset.
+	require.Empty(t, assetTransfers[0].AnchorTxBlockHash)
 
 	// We should also be able to find it based on its outpoint.
 	firstOutput := spendDelta.Outputs[0]
@@ -1494,7 +1500,7 @@ func TestAssetExportLog(t *testing.T) {
 	// Finally, if we look for the set of confirmed transfers, nothing
 	// should be returned.
 	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
-		UnconfOnly: true,
+		PendingTransfersOnly: sqlBool(true),
 	})
 	require.NoError(t, err)
 	require.Len(t, assetTransfers, 1)
@@ -2088,7 +2094,33 @@ func TestTransferOutputProofDeliveryStatus(t *testing.T) {
 
 	// At this point, we should be able to query for the log parcel, by
 	// looking for all unconfirmed transfers.
-	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{})
+	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{
+		PendingTransfersOnly: sqlBool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, assetTransfers, 1)
+
+	// This transfer's anchor transaction is unconfirmed. Therefore, the
+	// anchor transaction block hash field of the transfer should be unset.
+	require.Empty(t, assetTransfers[0].AnchorTxBlockHash)
+
+	// At this point we will confirm the anchor tx on-chain.
+	assetTransfer := assetTransfers[0]
+	randBlockHash := test.RandHash()
+
+	err = db.ConfirmChainAnchorTx(ctx, AnchorTxConf{
+		Txid:        assetTransfer.Txid,
+		BlockHash:   randBlockHash[:],
+		BlockHeight: sqlInt32(441),
+		TxIndex:     sqlInt32(1),
+	})
+	require.NoError(t, err)
+
+	// Ensure that parcel is still pending. It should be pending due to the
+	// incomplete proof delivery status of some transfer outputs.
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		PendingTransfersOnly: sqlBool(true),
+	})
 	require.NoError(t, err)
 	require.Len(t, assetTransfers, 1)
 
@@ -2139,5 +2171,36 @@ func TestTransferOutputProofDeliveryStatus(t *testing.T) {
 	// The proof delivery status of the second output should be unset.
 	require.Equal(
 		t, sql.NullBool{}, transferOutputs[1].ProofDeliveryComplete,
+	)
+
+	// At this point the anchoring transaction has been confirmed on-chain
+	// and the proof delivery status shows complete for all applicable
+	// transfer outputs. Therefore, we should not be able to find any
+	// pending transfers.
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		PendingTransfersOnly: sqlBool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, assetTransfers, 0)
+
+	// Given that the asset transfer is completely finalised, we should be
+	// able to find it among the confirmed transfers. We will test this by
+	// retrieving the transfer by not specifying the pending transfers only
+	// flag and, in another attempt, by setting the flag to false.
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{})
+	require.NoError(t, err)
+	require.Len(t, assetTransfers, 1)
+
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{
+		PendingTransfersOnly: sqlBool(false),
+	})
+	require.NoError(t, err)
+	require.Len(t, assetTransfers, 1)
+
+	// Ensure that the anchor transaction is confirmed on-chain by verifying
+	// that the anchor transaction block hash field on the transfer is
+	// correctly set.
+	require.Equal(
+		t, randBlockHash[:], assetTransfers[0].AnchorTxBlockHash,
 	)
 }

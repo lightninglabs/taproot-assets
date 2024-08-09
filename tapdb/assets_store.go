@@ -3128,9 +3128,13 @@ func (a *AssetStore) reAnchorPassiveAssets(ctx context.Context,
 	return nil
 }
 
-// PendingParcels returns the set of parcels that haven't yet been finalized.
-// This can be used to query the set of unconfirmed
-// transactions for re-broadcast.
+// PendingParcels returns the set of parcels that have not yet been finalized.
+// A parcel is considered finalized once the on-chain anchor transaction is
+// included in a block, and all pending transfer output proofs have been
+// delivered to their target peers.
+//
+// NOTE: This can be used to query the set of unconfirmed transactions for
+// re-broadcast and for the set of undelivered proofs.
 func (a *AssetStore) PendingParcels(
 	ctx context.Context) ([]*tapfreighter.OutboundParcel, error) {
 
@@ -3140,7 +3144,7 @@ func (a *AssetStore) PendingParcels(
 // QueryParcels returns the set of confirmed or unconfirmed parcels.
 func (a *AssetStore) QueryParcels(ctx context.Context,
 	anchorTxHash *chainhash.Hash,
-	unconfirmedTxOnly bool) ([]*tapfreighter.OutboundParcel, error) {
+	pendingTransfersOnly bool) ([]*tapfreighter.OutboundParcel, error) {
 
 	var (
 		outboundParcels []*tapfreighter.OutboundParcel
@@ -3157,10 +3161,8 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 		}
 
 		transferQuery := TransferQuery{
-			// If we want unconfirmed transfers only, we set the
-			// UnconfOnly field to true.
-			UnconfOnly:   unconfirmedTxOnly,
-			AnchorTxHash: anchorTxHashBytes,
+			AnchorTxHash:         anchorTxHashBytes,
+			PendingTransfersOnly: sqlBool(pendingTransfersOnly),
 		}
 
 		// Query for asset transfers.
@@ -3210,9 +3212,22 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 					"anchor tx: %w", err)
 			}
 
+			// Marshal anchor tx block hash from the database to a
+			// Hash type.
+			var anchorTxBlockHash fn.Option[chainhash.Hash]
+			if len(dbT.AnchorTxBlockHash) > 0 {
+				var blockHash chainhash.Hash
+				copy(blockHash[:], dbT.AnchorTxBlockHash)
+
+				anchorTxBlockHash = fn.Some[chainhash.Hash](
+					blockHash,
+				)
+			}
+
 			parcel := &tapfreighter.OutboundParcel{
 				AnchorTx:           anchorTx,
 				AnchorTxHeightHint: uint32(dbT.HeightHint),
+				AnchorTxBlockHash:  anchorTxBlockHash,
 				TransferTime:       dbT.TransferTimeUnix.UTC(),
 				ChainFees:          dbAnchorTx.ChainFees,
 				Inputs:             inputs,

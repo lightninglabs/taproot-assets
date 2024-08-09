@@ -43,19 +43,30 @@ WHERE output_id = (SELECT output_id FROM target);
 
 -- name: QueryAssetTransfers :many
 SELECT
-    id, height_hint, txns.txid, transfer_time_unix
+    id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,
+    transfer_time_unix
 FROM asset_transfers transfers
 JOIN chain_txns txns
-    ON transfers.anchor_txn_id = txns.txn_id
--- We'll use this clause to filter out for only transfers that are
--- unconfirmed. But only if the unconf_only field is set.
-WHERE (@unconf_only = false OR @unconf_only IS NULL OR
-    (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = @unconf_only)
+    ON txns.txn_id = transfers.anchor_txn_id
+WHERE
+    -- Optionally filter on a given anchor_tx_hash.
+    (txns.txid = sqlc.narg('anchor_tx_hash')
+        OR sqlc.narg('anchor_tx_hash') IS NULL)
 
--- Here we have another optional query clause to select a given transfer
--- based on the anchor_tx_hash, but only if it's specified.
-AND (txns.txid = sqlc.narg('anchor_tx_hash') OR
-    sqlc.narg('anchor_tx_hash') IS NULL)
+    -- Filter for pending transfers only if requested.
+    AND (
+        @pending_transfers_only = true AND
+        (
+            txns.block_hash IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM asset_transfer_outputs outputs
+                    WHERE outputs.transfer_id = transfers.id
+                      AND outputs.proof_delivery_complete = false
+                )
+        )
+        OR @pending_transfers_only = false OR @pending_transfers_only IS NULL
+    )
 ORDER BY transfer_time_unix;
 
 -- name: FetchTransferInputs :many
