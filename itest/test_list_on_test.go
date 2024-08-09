@@ -97,6 +97,10 @@ var testCases = []*testCase{
 		test: testReattemptProofTransferOnTapdRestart,
 	},
 	{
+		name: "spend change output when proof transfer fail",
+		test: testSpendChangeOutputWhenProofTransferFail,
+	},
+	{
 		name: "reattempt failed receive uni courier",
 		test: testReattemptFailedReceiveUniCourier,
 	},
