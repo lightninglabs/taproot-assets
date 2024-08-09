@@ -951,6 +951,161 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	wg.Wait()
 }
 
+// testSpendChangeOutputWhenProofTransferFail tests that a tapd node is able
+// to spend a change output even if the proof transfer for the previous
+// transaction fails.
+func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
+	var (
+		ctxb = context.Background()
+		wg   sync.WaitGroup
+	)
+
+	// For this test we will use the universe server as the proof courier.
+	proofCourier := t.universeServer
+
+	// Make a new tapd node which will send an asset to a receiving tapd
+	// node.
+	sendTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+		func(params *tapdHarnessParams) {
+			params.expectErrExit = true
+			params.proofCourier = proofCourier
+		},
+	)
+	defer func() {
+		// Any node that has been started within an itest should be
+		// explicitly stopped within the same itest.
+		require.NoError(t.t, sendTapd.stop(!*noDelete))
+	}()
+
+	// Use the primary tapd node as the receiver node.
+	recvTapd := t.tapd
+
+	// Use the sending node to mint an asset for sending.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, sendTapd,
+		[]*mintrpc.MintAssetRequest{simpleAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// After minting an asset with the sending node, we need to synchronize
+	// the Universe state to ensure the receiving node is updated and aware
+	// of the asset.
+	t.syncUniverseState(sendTapd, recvTapd, len(rpcAssets))
+
+	// Create a new address for the receiver node. We will use the universe
+	// server as the proof courier.
+	proofCourierAddr := fmt.Sprintf(
+		"%s://%s", proof.UniverseRpcCourierType,
+		proofCourier.service.rpcHost(),
+	)
+	t.Logf("Proof courier address: %s", proofCourierAddr)
+
+	recvAddr, err := recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId:          genInfo.AssetId,
+		Amt:              10,
+		ProofCourierAddr: proofCourierAddr,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	// Soon we will be attempting to send an asset to the receiver node. We
+	// want any associated proof delivery attempt to fail. Therefore, we
+	// will take the proof courier service offline.
+	t.Log("Stopping proof courier service")
+	require.NoError(t.t, proofCourier.Stop())
+
+	// Now that the proof courier service is offline, the sending node's
+	// attempt to transfer the asset proof should fail.
+	//
+	// We will soon start the asset transfer process. However, before we
+	// start, we subscribe to the send events from the sending tapd node so
+	// that we can be sure that a proof delivery has been attempted
+	// unsuccessfully.
+	events := SubscribeSendEvents(t.t, sendTapd)
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+
+		// Define a target event selector to match the backoff wait
+		// event. This function selects for a specific event type.
+		targetEventSelector := func(
+			event *tapdevrpc.SendAssetEvent) bool {
+
+			return AssertSendEventProofTransferBackoffWaitTypeSend(
+				t, event,
+			)
+		}
+
+		// Expected number of events is one less than the number of
+		// tries because the first attempt does not count as a backoff
+		// event.
+		nodeBackoffCfg :=
+			sendTapd.clientCfg.UniverseRpcCourier.BackoffCfg
+		expectedEventCount := nodeBackoffCfg.NumTries - 1
+
+		// Context timeout scales with expected number of events.
+		timeout := time.Duration(expectedEventCount) *
+			defaultProofTransferReceiverAckTimeout
+
+		// Allow for some margin for the operations that aren't pure
+		// waiting on the receiver ACK.
+		timeout += timeoutMargin
+
+		assertAssetNtfsEvent(
+			t, events, timeout, targetEventSelector,
+			expectedEventCount,
+		)
+	}()
+
+	// Start asset transfer and then mine to confirm the associated on-chain
+	// tx. The on-chain tx should be mined successfully, but we expect the
+	// asset proof transfer to be unsuccessful.
+	sendAssetsToAddr(t, sendTapd, recvAddr)
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	// Ensure that the transaction took place as expected.
+	listTransfersResp, err := sendTapd.ListTransfers(
+		ctxb, &taprpc.ListTransfersRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, listTransfersResp.Transfers, 1)
+
+	// Wait to ensure that the asset transfer proof deliver attempt has been
+	// made.
+	wg.Wait()
+
+	// Attempt to send the change output to the receiver node. This
+	// operation should select the change output from the previous
+	// transaction and transmit it to the receiver node, despite the fact
+	// that proof delivery for the previous transaction remains incomplete
+	// (due to the proof courier being shut down). We will generate a new
+	// address for this new transaction.
+	recvAddr, err = recvTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId:          genInfo.AssetId,
+		Amt:              42,
+		ProofCourierAddr: proofCourierAddr,
+	})
+	require.NoError(t.t, err)
+	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
+
+	sendAssetsToAddr(t, sendTapd, recvAddr)
+	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	// Ensure that the transaction took place as expected.
+	listTransfersResp, err = sendTapd.ListTransfers(
+		ctxb, &taprpc.ListTransfersRequest{},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, listTransfersResp.Transfers, 2)
+
+	// Restart the proof courier service.
+	t.Log("Starting proof courier service")
+	require.NoError(t.t, proofCourier.Start(nil))
+}
+
 // testReattemptFailedReceiveUniCourier ensures that a failed attempt to receive
 // an asset proof is retried by the receiving Tapd node.  This test focuses on
 // the universe proof courier.

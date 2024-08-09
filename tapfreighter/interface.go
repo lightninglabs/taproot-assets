@@ -314,6 +314,11 @@ type OutboundParcel struct {
 	// confirmations.
 	AnchorTxHeightHint uint32
 
+	// AnchorTxBlockHash is the block hash of the block that contains the
+	// anchor transaction. This is set once the anchor transaction is
+	// confirmed.
+	AnchorTxBlockHash fn.Option[chainhash.Hash]
+
 	// TransferTime holds the timestamp of the outbound spend.
 	TransferTime time.Time
 
@@ -416,10 +421,10 @@ type ExportLog interface {
 	// transferred.
 	ConfirmProofDelivery(context.Context, wire.OutPoint, uint64) error
 
-	// ConfirmParcelDelivery marks a spend event on disk as confirmed. This
-	// updates the on-chain reference information on disk to point to this
-	// new spend.
-	ConfirmParcelDelivery(context.Context, *AssetConfirmEvent) error
+	// LogAnchorTxConfirm updates the send package state on disk to reflect
+	// the confirmation of the anchor transaction, ensuring the on-chain
+	// reference information is up to date.
+	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent) error
 
 	// QueryParcels returns the set of confirmed or unconfirmed parcels.
 	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,
