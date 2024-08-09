@@ -1068,6 +1068,16 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				buf.Bytes(),
 			)
 
+			// Make sure the asset in the test vectors doesn't use
+			// a record type we haven't marked as known/supported
+			// yet. If the following check fails, you need to update
+			// the KnownAssetLeafTypes set.
+			for _, record := range a.encodeRecords(EncodeNormal) {
+				require.Contains(
+					tt, KnownAssetLeafTypes, record.Type(),
+				)
+			}
+
 			// Create nice diff if things don't match.
 			if !areEqual {
 				expectedBytes, err := hex.DecodeString(

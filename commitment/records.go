@@ -4,6 +4,7 @@ import (
 	"bytes"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -18,6 +19,25 @@ const (
 
 	ProofAssetProofType        tlv.Type = 1
 	ProofTaprootAssetProofType tlv.Type = 2
+)
+
+// KnownAssetProofTypes is a set of all known asset proof TLV types. This set
+// is asserted to be complete by a check in the BIP test vector unit tests.
+var KnownAssetProofTypes = fn.NewSet(
+	AssetProofVersionType, AssetProofAssetIDType, AssetProofType,
+)
+
+// KnownTaprootAssetProofTypes is a set of all known taproot asset proof TLV
+// types. This set is asserted to be complete by a check in the BIP test vector
+// unit tests.
+var KnownTaprootAssetProofTypes = fn.NewSet(
+	TaprootAssetProofVersionType, TaprootAssetProofType,
+)
+
+// KnownProofTypes is a set of all known proof TLV types. This set is asserted
+// to be complete by a check in the BIP test vector unit tests.
+var KnownProofTypes = fn.NewSet(
+	ProofAssetProofType, ProofTaprootAssetProofType,
 )
 
 func ProofAssetProofRecord(proof **AssetProof) tlv.Record {
@@ -45,8 +65,8 @@ func ProofTaprootAssetProofRecord(proof *TaprootAssetProof) tlv.Record {
 		return uint64(len(buf.Bytes()))
 	}
 	return tlv.MakeDynamicRecord(
-		ProofTaprootAssetProofType, proof, sizeFunc, TaprootAssetProofEncoder,
-		TaprootAssetProofDecoder,
+		ProofTaprootAssetProofType, proof, sizeFunc,
+		TaprootAssetProofEncoder, TaprootAssetProofDecoder,
 	)
 }
 

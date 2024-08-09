@@ -23,8 +23,10 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -939,6 +941,31 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				buf.Bytes(),
 			)
 
+			// Make sure the proof in the test vectors doesn't use
+			// a record type we haven't marked as known/supported
+			// yet. If the following check fails, you need to update
+			// the KnownProofTypes set.
+			for _, record := range p.EncodeRecords() {
+				require.Contains(
+					tt, KnownProofTypes, record.Type(),
+				)
+			}
+
+			checkTaprootProofTypes(tt, p.InclusionProof)
+			for i := range p.ExclusionProofs {
+				checkTaprootProofTypes(tt, p.ExclusionProofs[i])
+			}
+
+			if p.MetaReveal != nil {
+				metaRecords := p.MetaReveal.EncodeRecords()
+				for _, records := range metaRecords {
+					require.Contains(
+						tt, KnownMetaRevealTypes,
+						records.Type(),
+					)
+				}
+			}
+
 			// Create nice diff if things don't match.
 			if !areEqual {
 				expectedProof := &Proof{}
@@ -984,6 +1011,108 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			})
 		})
 	}
+}
+
+// checkTaprootProofTypes ensures that the taproot proof contains only known
+// TLV types.
+func checkTaprootProofTypes(t *testing.T, p TaprootProof) {
+	for _, record := range p.EncodeRecords() {
+		require.Contains(t, KnownTaprootProofTypes, record.Type())
+	}
+
+	if p.CommitmentProof != nil {
+		for _, record := range p.CommitmentProof.EncodeRecords() {
+			require.Contains(
+				t, KnownCommitmentProofTypes, record.Type(),
+			)
+
+			tap := p.CommitmentProof.TaprootAssetProof
+			types := commitment.KnownTaprootAssetProofTypes
+			for _, record := range tap.Records() {
+				require.Contains(
+					t, types, record.Type(),
+				)
+			}
+
+			if p.CommitmentProof.AssetProof != nil {
+				ap := p.CommitmentProof.AssetProof
+				types := commitment.KnownAssetProofTypes
+				for _, record := range ap.Records() {
+					require.Contains(
+						t, types, record.Type(),
+					)
+				}
+			}
+		}
+	}
+
+	if p.TapscriptProof != nil {
+		for _, record := range p.TapscriptProof.EncodeRecords() {
+			require.Contains(
+				t, KnownTapscriptProofTypes, record.Type(),
+			)
+		}
+	}
+}
+
+// TestProofUnknownOddType tests that an unknown odd type is allowed in a proof
+// and that we can still arrive at the correct serialized version with it.
+func TestProofUnknownOddType(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	oddTxBlock := testBlocks[0]
+
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+	knownProof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+
+	var buf bytes.Buffer
+	err := knownProof.Encode(&buf)
+	require.NoError(t, err)
+
+	knownProofBytes := fn.CopySlice(buf.Bytes())
+
+	// With the known proof now encoded, we can add an unknown even type to
+	// the encoded bytes. That should provoke an error when parsed again.
+	unknownTypeValue := []byte("I could be anything, really")
+	unknownEvenType := append([]byte{
+		byte(40),                    // Type 40 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Write(unknownEvenType)
+
+	// Try to parse it again.
+	var parsedProof Proof
+	err = parsedProof.Decode(&buf)
+	require.ErrorAs(t, err, &asset.ErrUnknownType{})
+
+	// Now clear the buffer, encode the proof again, but this time add an
+	// unknown _odd_ type, which should be allowed.
+	unknownOddType := append([]byte{
+		byte(39),                    // Type 39 is unknown.
+		byte(len(unknownTypeValue)), // Length of the value.
+	}, unknownTypeValue...)
+	buf.Reset()
+	err = parsedProof.Encode(&buf)
+	require.NoError(t, err)
+	buf.Write(unknownOddType)
+
+	err = parsedProof.Decode(&buf)
+	require.NoError(t, err)
+
+	expectedUnknownTypes := tlv.TypeMap{
+		39: unknownTypeValue,
+	}
+	require.Equal(t, expectedUnknownTypes, parsedProof.unknownOddTypes)
+
+	// The leaf should've changed, to make sure the unknown value was taken
+	// into account when creating the serialized leaf.
+	var newBuf bytes.Buffer
+	err = parsedProof.Encode(&newBuf)
+	require.NoError(t, err)
+
+	require.NotEqual(t, knownProofBytes, newBuf.Bytes())
 }
 
 func init() {
