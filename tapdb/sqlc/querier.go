@@ -18,6 +18,8 @@ type Querier interface {
 	AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error
 	ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error)
 	AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error)
+	AssetsDBSizePostgres(ctx context.Context) (int64, error)
+	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
 	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
@@ -51,6 +53,7 @@ type Querier interface {
 	FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error)
 	FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error)
 	FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error)
+	FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt64) ([]Asset, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll

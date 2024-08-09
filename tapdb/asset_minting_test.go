@@ -54,12 +54,18 @@ func newAssetStoreFromDB(db *BaseDB) (*AssetMintingStore, *AssetStore) {
 		return db.WithTx(tx)
 	}
 
+	metaTxCreator := func(tx *sql.Tx) MetaStore {
+		return db.WithTx(tx)
+	}
+
 	assetMintingDB := NewTransactionExecutor(db, txCreator)
 	assetsDB := NewTransactionExecutor(db, activeTxCreator)
+	metaDB := NewTransactionExecutor(db, metaTxCreator)
+
 	testClock := clock.NewTestClock(time.Now())
 
 	return NewAssetMintingStore(assetMintingDB),
-		NewAssetStore(assetsDB, testClock)
+		NewAssetStore(assetsDB, metaDB, testClock, db.Backend())
 }
 
 func assertBatchState(t *testing.T, batch *tapgarden.MintingBatch,

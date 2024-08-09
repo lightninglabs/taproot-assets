@@ -763,6 +763,44 @@ func (q *Queries) FetchAssetProofsByAssetID(ctx context.Context, assetID []byte)
 	return items, nil
 }
 
+const fetchAssetProofsSizes = `-- name: FetchAssetProofsSizes :many
+SELECT script_keys.tweaked_script_key AS script_key, 
+       LENGTH(asset_proofs.proof_file) AS proof_file_length
+FROM asset_proofs
+JOIN assets
+    ON asset_proofs.asset_id = assets.asset_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+`
+
+type FetchAssetProofsSizesRow struct {
+	ScriptKey       []byte
+	ProofFileLength float64
+}
+
+func (q *Queries) FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error) {
+	rows, err := q.db.QueryContext(ctx, fetchAssetProofsSizes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []FetchAssetProofsSizesRow
+	for rows.Next() {
+		var i FetchAssetProofsSizesRow
+		if err := rows.Scan(&i.ScriptKey, &i.ProofFileLength); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const fetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
 SELECT 
     assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 

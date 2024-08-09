@@ -274,7 +274,17 @@ func newDbHandleFromDb(db *BaseDB) *DbHandler {
 			return db.WithTx(tx)
 		},
 	)
-	activeAssetsStore := NewAssetStore(assetsDB, testClock)
+
+	// Gain a handle to the meta store.
+	metaDB := NewTransactionExecutor(
+		db, func(tx *sql.Tx) MetaStore {
+			return db.WithTx(tx)
+		},
+	)
+
+	activeAssetsStore := NewAssetStore(
+		assetsDB, metaDB, testClock, db.Backend(),
+	)
 
 	return &DbHandler{
 		UniverseFederationStore: fedStore,

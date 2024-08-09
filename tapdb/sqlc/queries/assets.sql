@@ -709,6 +709,15 @@ FROM asset_proofs
 JOIN asset_info
     ON asset_info.asset_id = asset_proofs.asset_id;
 
+-- name: FetchAssetProofsSizes :many
+SELECT script_keys.tweaked_script_key AS script_key, 
+       LENGTH(asset_proofs.proof_file) AS proof_file_length
+FROM asset_proofs
+JOIN assets
+    ON asset_proofs.asset_id = assets.asset_id
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id;
+
 -- name: FetchAssetProofsByAssetID :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key
