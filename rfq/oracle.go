@@ -221,11 +221,14 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 		return nil, fmt.Errorf("asset ID is nil")
 	}
 
-	// Construct query request.
-	var subjectAssetId []byte
-	copy(subjectAssetId, assetId[:])
+	var (
+		subjectAssetId = make([]byte, 32)
+		paymentAssetId = make([]byte, 32)
+	)
 
-	paymentAssetId := make([]byte, 32)
+	// The payment asset ID is BTC, so we leave it at all zeroes. We only
+	// set the subject asset ID.
+	copy(subjectAssetId, assetId[:])
 
 	// Construct the RPC rate tick hint.
 	var rateTickHint *oraclerpc.RateTick
@@ -303,11 +306,14 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 		return nil, fmt.Errorf("asset ID is nil")
 	}
 
-	// Construct query request.
-	var subjectAssetId []byte
-	copy(subjectAssetId, assetId[:])
+	var (
+		subjectAssetId = make([]byte, 32)
+		paymentAssetId = make([]byte, 32)
+	)
 
-	paymentAssetId := make([]byte, 32)
+	// The payment asset ID is BTC, so we leave it at all zeroes. We only
+	// set the subject asset ID.
+	copy(subjectAssetId, assetId[:])
 
 	req := &oraclerpc.QueryRateTickRequest{
 		TransactionType: oraclerpc.TransactionType_PURCHASE,
