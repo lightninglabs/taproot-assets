@@ -3364,6 +3364,9 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
+		// Marshall the proof delivery status.
+		proofDeliveryStatus := marshalOutputProofDeliveryStatus(out)
+
 		rpcOutputs[idx] = &taprpc.TransferOutput{
 			Anchor:              rpcAnchor,
 			ScriptKey:           scriptPubKey.SerializeCompressed(),
@@ -3375,6 +3378,7 @@ func marshalOutboundParcel(
 			SplitCommitRootHash: splitCommitRoot,
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
+			ProofDeliveryStatus: proofDeliveryStatus,
 		}
 	}
 
@@ -3395,6 +3399,23 @@ func marshalOutboundParcel(
 		Inputs:             rpcInputs,
 		Outputs:            rpcOutputs,
 	}, nil
+}
+
+// marshalOutputProofDeliveryStatus turns the output proof delivery status into
+// the RPC counterpart.
+func marshalOutputProofDeliveryStatus(
+	out tapfreighter.TransferOutput) taprpc.ProofDeliveryStatus {
+
+	proofDeliveryStatus := taprpc.ProofDeliveryStatusNotApplicable
+	out.ProofDeliveryComplete.WhenSome(func(complete bool) {
+		if complete {
+			proofDeliveryStatus = taprpc.ProofDeliveryStatusComplete
+		} else {
+			proofDeliveryStatus = taprpc.ProofDeliveryStatusPending
+		}
+	})
+
+	return proofDeliveryStatus
 }
 
 // marshalOutputType turns the transfer output type into the RPC counterpart.
