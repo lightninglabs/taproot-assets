@@ -398,6 +398,11 @@ message ProveAssetOwnershipRequest {
     bytes script_key = 2;
 
     taprpc.OutPoint outpoint = 3;
+
+    // An optional 32-byte challenge that may be used to bind the generated
+    // proof. This challenge needs to be also presented on the
+    // VerifyAssetOwnership RPC in order to check the proof against it.
+    bytes challenge = 4;
 }
 
 message ProveAssetOwnershipResponse {
@@ -406,6 +411,11 @@ message ProveAssetOwnershipResponse {
 
 message VerifyAssetOwnershipRequest {
     bytes proof_with_witness = 1;
+
+    // An optional 32-byte challenge that may be used to check the ownership
+    // proof against. This challenge must match the one that the prover used
+    // on the ProveAssetOwnership RPC.
+    bytes challenge = 2;
 }
 
 message VerifyAssetOwnershipResponse {
