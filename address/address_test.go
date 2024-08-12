@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -474,6 +475,64 @@ func TestBIPTestVectors(t *testing.T) {
 
 			runBIPTestVector(tt, testVectors)
 		})
+	}
+}
+
+// TestGenChallengeNUMS tests the generation of NUMS challenges.
+func TestGenChallengeNUMS(t *testing.T) {
+	t.Parallel()
+
+	gx, gy := secp256k1.Params().Gx, secp256k1.Params().Gy
+
+	// addG is a helper function that adds G to the given public key.
+	addG := func(p *btcec.PublicKey) *btcec.PublicKey {
+		x, y := secp256k1.S256().Add(p.X(), p.Y(), gx, gy)
+		var xFieldVal, yFieldVal secp256k1.FieldVal
+		xFieldVal.SetByteSlice(x.Bytes())
+		yFieldVal.SetByteSlice(y.Bytes())
+		return btcec.NewPublicKey(&xFieldVal, &yFieldVal)
+	}
+
+	testCases := []struct {
+		name        string
+		challenge   fn.Option[[32]byte]
+		expectedKey asset.ScriptKey
+	}{
+		{
+			name:        "no challenge",
+			challenge:   fn.None[[32]byte](),
+			expectedKey: asset.NUMSScriptKey,
+		},
+		{
+			name: "challenge is scalar 1",
+			challenge: fn.Some([32]byte{
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+			}),
+			expectedKey: asset.NewScriptKey(addG(asset.NUMSPubKey)),
+		},
+		{
+			name: "challenge is scalar 2",
+			challenge: fn.Some([32]byte{
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+				0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+			}),
+			expectedKey: asset.NewScriptKey(
+				addG(addG(asset.NUMSPubKey)),
+			),
+		},
+	}
+
+	for _, tc := range testCases {
+		result := GenChallengeNUMS(tc.challenge)
+		require.Equal(
+			t, tc.expectedKey.PubKey.SerializeCompressed(),
+			result.PubKey.SerializeCompressed(),
+		)
 	}
 }
 

@@ -13,8 +13,10 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/vm"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
@@ -347,9 +349,10 @@ func (p *Proof) verifyChallengeWitness(ctx context.Context,
 
 // CreateOwnershipProofAsset creates a virtual asset that can be used to prove
 // ownership of an asset. The virtual asset is created by spending the full
-// asset into a NUMS key.
-func CreateOwnershipProofAsset(
-	ownedAsset *asset.Asset) (asset.PrevID, *asset.Asset) {
+// asset into a NUMS key. If a challenge is defined, the NUMS key will be
+// modified based on that value.
+func CreateOwnershipProofAsset(ownedAsset *asset.Asset,
+	challengeBytes fn.Option[[32]byte]) (asset.PrevID, *asset.Asset) {
 
 	// We create the ownership proof by creating a virtual input and output
 	// that spends the full asset into a NUMS key. But in order to prevent
@@ -370,7 +373,7 @@ func CreateOwnershipProofAsset(
 	}
 
 	outputAsset := ownedAsset.Copy()
-	outputAsset.ScriptKey = asset.NUMSScriptKey
+	outputAsset.ScriptKey = address.GenChallengeNUMS(challengeBytes)
 	outputAsset.PrevWitnesses = []asset.Witness{{
 		PrevID: &prevId,
 	}}

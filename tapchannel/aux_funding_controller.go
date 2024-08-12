@@ -719,7 +719,7 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 		// First, we'll grab the proof for the asset input, then
 		// generate the challenge witness to place in the proof so it
 		challengeWitness, err := f.cfg.AssetWallet.SignOwnershipProof(
-			assetInput.Asset(),
+			assetInput.Asset(), fn.None[[32]byte](),
 		)
 		if err != nil {
 			return fmt.Errorf("error signing ownership proof: %w",
