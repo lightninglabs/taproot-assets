@@ -312,6 +312,10 @@ var testCases = []*testCase{
 		name: "channel RPCs",
 		test: testChannelRPCs,
 	},
+	{
+		name: "ownership verification",
+		test: testOwnershipVerification,
+	},
 }
 
 var optionalTestCases = []*testCase{
