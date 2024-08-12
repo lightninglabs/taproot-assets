@@ -805,6 +805,28 @@
       "properties": {
         "valid_proof": {
           "type": "boolean"
+        },
+        "outpoint": {
+          "$ref": "#/definitions/taprpcOutPoint",
+          "description": "The outpoint the proof commits to."
+        },
+        "outpoint_str": {
+          "type": "string",
+          "description": "The outpoint in the human-readable form \"hash:index\"."
+        },
+        "block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block hash the output is part of."
+        },
+        "block_hash_str": {
+          "type": "string",
+          "description": "The block hash as hexadecimal string of the byte-reversed hash."
+        },
+        "block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The block height of the block the output is part of."
         }
       }
     },

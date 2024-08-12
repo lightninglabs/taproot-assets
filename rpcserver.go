@@ -5921,7 +5921,7 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
-	_, err = p.Verify(
+	snapShot, err := p.Verify(
 		ctx, nil, headerVerifier, proof.DefaultMerkleVerifier,
 		groupVerifier, lookup,
 	)
@@ -5931,6 +5931,14 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 
 	return &wrpc.VerifyAssetOwnershipResponse{
 		ValidProof: true,
+		Outpoint: &taprpc.OutPoint{
+			Txid:        snapShot.OutPoint.Hash[:],
+			OutputIndex: snapShot.OutPoint.Index,
+		},
+		OutpointStr:  snapShot.OutPoint.String(),
+		BlockHash:    snapShot.AnchorBlockHash[:],
+		BlockHashStr: snapShot.AnchorBlockHash.String(),
+		BlockHeight:  snapShot.AnchorBlockHeight,
 	}, nil
 }
 
