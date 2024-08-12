@@ -410,6 +410,21 @@ message VerifyAssetOwnershipRequest {
 
 message VerifyAssetOwnershipResponse {
     bool valid_proof = 1;
+
+    // The outpoint the proof commits to.
+    taprpc.OutPoint outpoint = 2;
+
+    // The outpoint in the human-readable form "hash:index".
+    string outpoint_str = 3;
+
+    // The block hash the output is part of.
+    bytes block_hash = 4;
+
+    // The block hash as hexadecimal string of the byte-reversed hash.
+    string block_hash_str = 5;
+
+    // The block height of the block the output is part of.
+    uint32 block_height = 6;
 }
 
 message RemoveUTXOLeaseRequest {
