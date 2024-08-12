@@ -627,6 +627,10 @@ message AssetTransfer {
 
     // Describes the set of newly created asset outputs.
     repeated TransferOutput outputs = 6;
+
+    // The block hash the contains the anchor transaction above. If unset, the
+    // anchor transaction is unconfirmed.
+    bytes anchor_tx_block_hash = 7;
 }
 
 message TransferInput {

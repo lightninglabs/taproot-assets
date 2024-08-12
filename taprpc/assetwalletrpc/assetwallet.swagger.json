@@ -871,6 +871,11 @@
             "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
+        },
+        "anchor_tx_block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block hash the contains the anchor transaction above. If unset, the\nanchor transaction is unconfirmed."
         }
       }
     },

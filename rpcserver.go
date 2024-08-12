@@ -3379,11 +3379,19 @@ func marshalOutboundParcel(
 	}
 
 	anchorTxHash := parcel.AnchorTx.TxHash()
+
+	// Marshal the anchor tx block hash.
+	var anchorTxBlockHashBytes []byte
+	parcel.AnchorTxBlockHash.WhenSome(func(hash chainhash.Hash) {
+		anchorTxBlockHashBytes = hash[:]
+	})
+
 	return &taprpc.AssetTransfer{
 		TransferTimestamp:  parcel.TransferTime.Unix(),
 		AnchorTxHash:       anchorTxHash[:],
 		AnchorTxHeightHint: parcel.AnchorTxHeightHint,
 		AnchorTxChainFees:  parcel.ChainFees,
+		AnchorTxBlockHash:  anchorTxBlockHashBytes,
 		Inputs:             rpcInputs,
 		Outputs:            rpcOutputs,
 	}, nil
