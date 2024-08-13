@@ -558,7 +558,7 @@ func TestTapLeafEncoding(t *testing.T) {
 	}
 }
 
-// TestTapBranchEncodings asserts that we can properly encode and decode
+// TestTapBranchEncoding asserts that we can properly encode and decode
 // tapBranches, and that invalid slices of byte slices are rejected.
 func TestTapBranchEncoding(t *testing.T) {
 	tests := []struct {
