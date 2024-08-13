@@ -275,11 +275,11 @@ fmt: $(GOIMPORTS_BIN)
 
 check-go-version-yaml:
 	@$(call print, "Checking for target Go version (v$(GO_VERSION)) in  YAML files (*.yaml, *.yml)")
-	./tools/check-go-version-yaml.sh $(GO_VERSION)
+	./scripts/check-go-version-yaml.sh $(GO_VERSION)
 
 check-go-version-dockerfile:
 	@$(call print, "Checking for target Go version (v$(GO_VERSION)) in Dockerfile files (*Dockerfile)")
-	./tools/check-go-version-dockerfile.sh $(GO_VERSION)
+	./scripts/check-go-version-dockerfile.sh $(GO_VERSION)
 
 lint-source: docker-tools
 	@$(call print, "Linting source.")
