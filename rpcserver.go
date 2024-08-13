@@ -4670,8 +4670,14 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 	}
 	switch {
 	case rpcID.GetAssetId() != nil:
+		rpcAssetID := rpcID.GetAssetId()
+		if len(rpcAssetID) != sha256.Size {
+			return universe.Identifier{}, fmt.Errorf("asset ID " +
+				"must be 32 bytes")
+		}
+
 		var assetID asset.ID
-		copy(assetID[:], rpcID.GetAssetId())
+		copy(assetID[:], rpcAssetID)
 
 		return universe.Identifier{
 			AssetID:   assetID,
@@ -4679,7 +4685,13 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}, nil
 
 	case rpcID.GetAssetIdStr() != "":
-		assetIDBytes, err := hex.DecodeString(rpcID.GetAssetIdStr())
+		rpcAssetIDStr := rpcID.GetAssetIdStr()
+		if len(rpcAssetIDStr) != sha256.Size*2 {
+			return universe.Identifier{}, fmt.Errorf("asset ID string " +
+				"must be 64 bytes")
+		}
+
+		assetIDBytes, err := hex.DecodeString(rpcAssetIDStr)
 		if err != nil {
 			return universe.Identifier{}, err
 		}
