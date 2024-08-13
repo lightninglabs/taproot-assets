@@ -909,7 +909,7 @@ func TestSplitCommitment(t *testing.T) {
 	}
 }
 
-// TestTapCommitmentPopulation tests a series of invariants related to the
+// TestTapCommitmentKeyPopulation tests a series of invariants related to the
 // Taproot Asset commitment key.
 func TestTapCommitmentKeyPopulation(t *testing.T) {
 	type assetDescription struct {
