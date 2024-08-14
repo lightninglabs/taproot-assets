@@ -1340,6 +1340,11 @@
             "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
+        },
+        "anchor_tx_block_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The block hash the contains the anchor transaction above. If unset, the\nanchor transaction is unconfirmed."
         }
       }
     },
@@ -1914,6 +1919,16 @@
         }
       }
     },
+    "taprpcProofDeliveryStatus": {
+      "type": "string",
+      "enum": [
+        "PROOF_DELIVERY_STATUS_NOT_APPLICABLE",
+        "PROOF_DELIVERY_STATUS_COMPLETE",
+        "PROOF_DELIVERY_STATUS_PENDING"
+      ],
+      "default": "PROOF_DELIVERY_STATUS_NOT_APPLICABLE",
+      "description": "ProofDeliveryStatus is an enum that describes the status of the delivery of\na proof associated with an asset transfer output.\n\n - PROOF_DELIVERY_STATUS_NOT_APPLICABLE: Delivery is not applicable; the proof will not be delivered.\n - PROOF_DELIVERY_STATUS_COMPLETE: The proof has been successfully delivered.\n - PROOF_DELIVERY_STATUS_PENDING: The proof is pending delivery. This status indicates that the proof has\nnot yet been delivered successfully. One or more attempts at proof\ndelivery may have been made."
+    },
     "taprpcProofFile": {
       "type": "object",
       "properties": {
@@ -2168,6 +2183,10 @@
         "relative_lock_time": {
           "type": "string",
           "format": "uint64"
+        },
+        "proof_delivery_status": {
+          "$ref": "#/definitions/taprpcProofDeliveryStatus",
+          "description": "The delivery status of the proof associated with this output."
         }
       }
     },

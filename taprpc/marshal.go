@@ -20,6 +20,15 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
+// Shorthand for the asset transfer output proof delivery status enum.
+//
+// nolint: lll
+var (
+	ProofDeliveryStatusNotApplicable = ProofDeliveryStatus_PROOF_DELIVERY_STATUS_NOT_APPLICABLE
+	ProofDeliveryStatusComplete      = ProofDeliveryStatus_PROOF_DELIVERY_STATUS_COMPLETE
+	ProofDeliveryStatusPending       = ProofDeliveryStatus_PROOF_DELIVERY_STATUS_PENDING
+)
+
 // KeyLookup is used to determine whether a key is under the control of the
 // local wallet.
 type KeyLookup interface {

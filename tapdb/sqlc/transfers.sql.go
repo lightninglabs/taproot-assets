@@ -425,36 +425,48 @@ func (q *Queries) LogProofTransferAttempt(ctx context.Context, arg LogProofTrans
 
 const queryAssetTransfers = `-- name: QueryAssetTransfers :many
 SELECT
-    id, height_hint, txns.txid, transfer_time_unix
+    id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,
+    transfer_time_unix
 FROM asset_transfers transfers
 JOIN chain_txns txns
-    ON transfers.anchor_txn_id = txns.txn_id
-WHERE ($1 = false OR $1 IS NULL OR
-    (CASE WHEN txns.block_hash IS NULL THEN true ELSE false END) = $1)
+    ON txns.txn_id = transfers.anchor_txn_id
+WHERE
+    -- Optionally filter on a given anchor_tx_hash.
+    (txns.txid = $1
+        OR $1 IS NULL)
 
-AND (txns.txid = $2 OR
-    $2 IS NULL)
+    -- Filter for pending transfers only if requested.
+    AND (
+        $2 = true AND
+        (
+            txns.block_hash IS NULL
+                OR EXISTS (
+                    SELECT 1
+                    FROM asset_transfer_outputs outputs
+                    WHERE outputs.transfer_id = transfers.id
+                      AND outputs.proof_delivery_complete = false
+                )
+        )
+        OR $2 = false OR $2 IS NULL
+    )
 ORDER BY transfer_time_unix
 `
 
 type QueryAssetTransfersParams struct {
-	UnconfOnly   interface{}
-	AnchorTxHash []byte
+	AnchorTxHash         []byte
+	PendingTransfersOnly interface{}
 }
 
 type QueryAssetTransfersRow struct {
-	ID               int64
-	HeightHint       int32
-	Txid             []byte
-	TransferTimeUnix time.Time
+	ID                int64
+	HeightHint        int32
+	Txid              []byte
+	AnchorTxBlockHash []byte
+	TransferTimeUnix  time.Time
 }
 
-// We'll use this clause to filter out for only transfers that are
-// unconfirmed. But only if the unconf_only field is set.
-// Here we have another optional query clause to select a given transfer
-// based on the anchor_tx_hash, but only if it's specified.
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetTransfers, arg.UnconfOnly, arg.AnchorTxHash)
+	rows, err := q.db.QueryContext(ctx, queryAssetTransfers, arg.AnchorTxHash, arg.PendingTransfersOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -466,6 +478,7 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 			&i.ID,
 			&i.HeightHint,
 			&i.Txid,
+			&i.AnchorTxBlockHash,
 			&i.TransferTimeUnix,
 		); err != nil {
 			return nil, err

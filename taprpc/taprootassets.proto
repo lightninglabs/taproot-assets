@@ -627,6 +627,10 @@ message AssetTransfer {
 
     // Describes the set of newly created asset outputs.
     repeated TransferOutput outputs = 6;
+
+    // The block hash the contains the anchor transaction above. If unset, the
+    // anchor transaction is unconfirmed.
+    bytes anchor_tx_block_hash = 7;
 }
 
 message TransferInput {
@@ -680,6 +684,21 @@ enum OutputType {
     reserved 4;
 }
 
+// ProofDeliveryStatus is an enum that describes the status of the delivery of
+// a proof associated with an asset transfer output.
+enum ProofDeliveryStatus {
+    // Delivery is not applicable; the proof will not be delivered.
+    PROOF_DELIVERY_STATUS_NOT_APPLICABLE = 0;
+
+    // The proof has been successfully delivered.
+    PROOF_DELIVERY_STATUS_COMPLETE = 1;
+
+    // The proof is pending delivery. This status indicates that the proof has
+    // not yet been delivered successfully. One or more attempts at proof
+    // delivery may have been made.
+    PROOF_DELIVERY_STATUS_PENDING = 2;
+}
+
 message TransferOutput {
     TransferOutputAnchor anchor = 1;
 
@@ -702,6 +721,9 @@ message TransferOutput {
     uint64 lock_time = 9;
 
     uint64 relative_lock_time = 10;
+
+    // The delivery status of the proof associated with this output.
+    ProofDeliveryStatus proof_delivery_status = 11;
 }
 
 message StopRequest {

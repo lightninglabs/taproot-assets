@@ -116,10 +116,6 @@ type Querier interface {
 	QueryAssetBalancesByGroup(ctx context.Context, keyGroupFilter []byte) ([]QueryAssetBalancesByGroupRow, error)
 	QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error)
 	QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAssetStatsPerDaySqliteParams) ([]QueryAssetStatsPerDaySqliteRow, error)
-	// We'll use this clause to filter out for only transfers that are
-	// unconfirmed. But only if the unconf_only field is set.
-	// Here we have another optional query clause to select a given transfer
-	// based on the anchor_tx_hash, but only if it's specified.
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset

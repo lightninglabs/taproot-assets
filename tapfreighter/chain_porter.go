@@ -408,7 +408,14 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 	case confEvent = <-confNtfn.Confirmed:
 		log.Debugf("Got chain confirmation: %v", confEvent.Tx.TxHash())
 		pkg.TransferTxConfEvent = confEvent
-		pkg.SendState = SendStateStoreProofs
+
+		// If the anchoring tx block hash is given, we'll also store it
+		// in the outbound package.
+		pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
+			confEvent.BlockHash,
+		)
+
+		pkg.SendState = SendStateStorePostAnchorTxConf
 
 	case err := <-errChan:
 		return fmt.Errorf("error whilst waiting for package tx "+
@@ -605,6 +612,60 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	return nil
 }
 
+// storePackageAnchorTxConf logs the on-chain confirmation of the transfer
+// anchor transaction for the given package.
+func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
+	ctx, cancel := p.WithCtxQuitNoTimeout()
+	defer cancel()
+
+	// Load passive asset proof files from archive.
+	passiveAssetProofFiles := map[asset.ID][]*proof.AnnotatedProof{}
+	for idx := range pkg.OutboundPkg.PassiveAssets {
+		passivePkt := pkg.OutboundPkg.PassiveAssets[idx]
+		passiveOut := passivePkt.Outputs[0]
+
+		proofLocator := proof.Locator{
+			AssetID:   fn.Ptr(passiveOut.Asset.ID()),
+			ScriptKey: *passiveOut.ScriptKey.PubKey,
+			OutPoint:  fn.Ptr(passiveOut.ProofSuffix.OutPoint()),
+		}
+		proofFileBlob, err := p.cfg.ProofReader.FetchProof(
+			ctx, proofLocator,
+		)
+		if err != nil {
+			return fmt.Errorf("error fetching passive asset "+
+				"proof file: %w", err)
+		}
+
+		passiveAssetProofFiles[passiveOut.Asset.ID()] = append(
+			passiveAssetProofFiles[passiveOut.Asset.ID()],
+			&proof.AnnotatedProof{
+				Locator: proofLocator,
+				Blob:    proofFileBlob,
+			},
+		)
+	}
+
+	// At this point we have the confirmation signal, so we can mark the
+	// parcel delivery as completed in the database.
+	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
+	anchorTxBlockHeight := int32(pkg.TransferTxConfEvent.BlockHeight)
+	err := p.cfg.ExportLog.LogAnchorTxConfirm(ctx, &AssetConfirmEvent{
+		AnchorTXID:             anchorTXID,
+		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
+		BlockHeight:            anchorTxBlockHeight,
+		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
+		FinalProofs:            pkg.FinalProofs,
+		PassiveAssetProofFiles: passiveAssetProofFiles,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to log parcel delivery "+
+			"confirmation: %w", err)
+	}
+
+	return nil
+}
+
 // fetchInputProof fetches a proof for the given input from the proof archive.
 func (p *ChainPorter) fetchInputProof(ctx context.Context,
 	input asset.PrevID) (*proof.File, error) {
@@ -708,8 +769,6 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context,
 func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
-
-	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
 
 	deliver := func(ctx context.Context, out TransferOutput) error {
 		key := out.ScriptKey.PubKey
@@ -816,54 +875,14 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		return fmt.Errorf("error delivering proof(s): %w", err)
 	}
 
-	log.Infof("Marking parcel (txid=%v) as confirmed!",
+	// At this point, the transfer is fully finalised and successful:
+	// - The anchoring transaction has been confirmed on-chain.
+	// - The proof(s) have been delivered to the receiver(s).
+	// - The database has been updated to reflect the successful transfer.
+	log.Infof("Parcel transfer is fully complete (anchor_txid=%v)",
 		pkg.OutboundPkg.AnchorTx.TxHash())
 
-	// Load passive asset proof files from archive.
-	passiveAssetProofFiles := map[asset.ID][]*proof.AnnotatedProof{}
-	for idx := range pkg.OutboundPkg.PassiveAssets {
-		passivePkt := pkg.OutboundPkg.PassiveAssets[idx]
-		passiveOut := passivePkt.Outputs[0]
-
-		proofLocator := proof.Locator{
-			AssetID:   fn.Ptr(passiveOut.Asset.ID()),
-			ScriptKey: *passiveOut.ScriptKey.PubKey,
-			OutPoint:  fn.Ptr(passiveOut.ProofSuffix.OutPoint()),
-		}
-		proofFileBlob, err := p.cfg.ProofReader.FetchProof(
-			ctx, proofLocator,
-		)
-		if err != nil {
-			return fmt.Errorf("error fetching passive asset "+
-				"proof file: %w", err)
-		}
-
-		passiveAssetProofFiles[passiveOut.Asset.ID()] = append(
-			passiveAssetProofFiles[passiveOut.Asset.ID()],
-			&proof.AnnotatedProof{
-				Locator: proofLocator,
-				Blob:    proofFileBlob,
-			},
-		)
-	}
-
-	// At this point we have the confirmation signal, so we can mark the
-	// parcel delivery as completed in the database.
-	err = p.cfg.ExportLog.ConfirmParcelDelivery(ctx, &AssetConfirmEvent{
-		AnchorTXID:             anchorTXID,
-		BlockHash:              *pkg.TransferTxConfEvent.BlockHash,
-		BlockHeight:            int32(pkg.TransferTxConfEvent.BlockHeight),
-		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
-		FinalProofs:            pkg.FinalProofs,
-		PassiveAssetProofFiles: passiveAssetProofFiles,
-	})
-	if err != nil {
-		return fmt.Errorf("unable to log parcel delivery "+
-			"confirmation: %w", err)
-	}
-
-	// If we've reached this point, then the parcel has been successfully
-	// delivered. We'll send out the final notification.
+	// Send out the final notification that the transfer is complete.
 	p.publishSubscriberEvent(newAssetSendEvent(SendStateComplete, *pkg))
 
 	pkg.SendState = SendStateComplete
@@ -1214,11 +1233,25 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		err := p.waitForTransferTxConf(&currentPkg)
 		return &currentPkg, err
 
-	// At this point, the transfer transaction is confirmed on-chain. We go
-	// on to store the sender and receiver proofs in the proof archive.
-	case SendStateStoreProofs:
+	// The transfer transaction is now confirmed on-chain. We'll update the
+	// package state on disk to reflect this. This step frees up the change
+	// outputs so that they can be used in future transactions.
+	case SendStateStorePostAnchorTxConf:
 		err := p.storeProofs(&currentPkg)
-		return &currentPkg, err
+		if err != nil {
+			return nil, fmt.Errorf("unable to store proofs: %w",
+				err)
+		}
+
+		// We'll now update the parcel state in storage to reflect that
+		// the transfer anchoring tx is confirmed on-chain.
+		err = p.storePackageAnchorTxConf(&currentPkg)
+		if err != nil {
+			return nil, fmt.Errorf("storing transfer anchor tx "+
+				"on-chain confirmation: %w", err)
+		}
+
+		return &currentPkg, nil
 
 	// At this point, the transfer transaction is confirmed on-chain, and
 	// we've stored the sender and receiver proofs in the proof archive.
