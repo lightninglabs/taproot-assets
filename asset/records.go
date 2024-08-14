@@ -29,9 +29,6 @@ const (
 	LeafScriptVersion       LeafTlvType = 14
 	LeafScriptKey           LeafTlvType = 16
 	LeafGroupKey            LeafTlvType = 17
-
-	// Types for future asset format.
-	LeafAssetID LeafTlvType = 11
 )
 
 // KnownAssetLeafTypes is a set of all known asset leaf TLV types. This set is
