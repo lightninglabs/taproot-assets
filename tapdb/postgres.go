@@ -36,8 +36,7 @@ var (
 	// to work with sqlite primarily, and postgres has some differences.
 	postgresSchemaReplacements = map[string]string{
 		"BLOB":                "BYTEA",
-		"INTEGER PRIMARY KEY": "SERIAL PRIMARY KEY",
-		"BIGINT PRIMARY KEY":  "BIGSERIAL PRIMARY KEY",
+		"INTEGER PRIMARY KEY": "BIGSERIAL PRIMARY KEY",
 		"TIMESTAMP":           "TIMESTAMP WITHOUT TIME ZONE",
 		"UNHEX":               "DECODE",
 	}

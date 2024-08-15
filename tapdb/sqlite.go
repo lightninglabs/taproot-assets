@@ -39,12 +39,9 @@ const (
 
 var (
 	// sqliteSchemaReplacements is a map of schema strings that need to be
-	// replaced for sqlite. This is needed because sqlite doesn't directly
-	// support the BIGINT type for primary keys, so we need to replace it
-	// with INTEGER.
-	sqliteSchemaReplacements = map[string]string{
-		"BIGINT PRIMARY KEY": "INTEGER PRIMARY KEY",
-	}
+	// replaced for sqlite. There currently aren't any replacements, because
+	// the SQL files are written with SQLite compatibility in mind.
+	sqliteSchemaReplacements = map[string]string{}
 )
 
 // SqliteConfig holds all the config arguments needed to interact with our

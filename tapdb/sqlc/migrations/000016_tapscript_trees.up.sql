@@ -6,7 +6,7 @@ ALTER TABLE asset_minting_batches ADD COLUMN tapscript_sibling BLOB;
 -- This table stores root hashes for tapscript trees, and a flag to ensure that
 -- the stored tree nodes are decoded correctly.
 CREATE TABLE IF NOT EXISTS tapscript_roots (
-        root_id BIGINT PRIMARY KEY,
+        root_id INTEGER PRIMARY KEY,
 
         -- The root hash of a tapscript tree.
         root_hash BLOB NOT NULL UNIQUE CHECK(length(root_hash) = 32),
@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS tapscript_roots (
 -- This table stores tapscript nodes, which are tapHashes or tapLeafs. A node
 -- may be included in multiple tapscript trees.
 CREATE TABLE IF NOT EXISTS tapscript_nodes (
-        node_id BIGINT PRIMARY KEY,
+        node_id INTEGER PRIMARY KEY,
 
         -- The serialized tapscript node, which may be a tapHash or tapLeaf.
         raw_node BLOB NOT NULL UNIQUE
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS tapscript_nodes (
 -- This table stores tapscript edges, which link a serialized tapscript node
 -- to a tapscript tree root hash and preserve the node ordering in the tree.
 CREATE TABLE IF NOT EXISTS tapscript_edges (
-        edge_id BIGINT PRIMARY KEY,
+        edge_id INTEGER PRIMARY KEY,
 
         -- The root hash of a tree that includes the referenced tapscript node.
         root_hash_id BIGINT NOT NULL REFERENCES tapscript_roots(root_id),

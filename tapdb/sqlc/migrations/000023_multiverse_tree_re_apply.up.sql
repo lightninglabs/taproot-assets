@@ -1,3 +1,8 @@
+-- This is a slightly modified duplicate of migration 14, which due to a git
+-- branch cherry-pick mistake wasn't included in a released version.
+-- If this is running on a version that already has the tables, then this is a
+-- no-op.
+
 CREATE TABLE IF NOT EXISTS multiverse_roots (
     id INTEGER PRIMARY KEY,
 
@@ -35,7 +40,7 @@ CREATE TABLE IF NOT EXISTS multiverse_leaves (
     )
 );
 
-CREATE UNIQUE INDEX multiverse_leaves_unique ON multiverse_leaves (
+CREATE UNIQUE INDEX IF NOT EXISTS multiverse_leaves_unique ON multiverse_leaves (
     leaf_node_key, leaf_node_namespace
 );
 
@@ -46,13 +51,13 @@ INSERT INTO multiverse_roots (namespace_root, proof_type)
 SELECT 'multiverse-issuance', 'issuance'
 WHERE EXISTS (
     SELECT 1 FROM mssmt_roots WHERE namespace = 'multiverse-issuance'
-);
+) ON CONFLICT DO NOTHING;
 
 INSERT INTO multiverse_roots (namespace_root, proof_type)
 SELECT 'multiverse-transfer', 'transfer'
 WHERE EXISTS (
     SELECT 1 FROM mssmt_roots WHERE namespace = 'multiverse-transfer'
-);
+) ON CONFLICT DO NOTHING;
 
 -- And now we create the multiverse_leaves entries for the multiverse roots.
 -- This is a no-op if the multiverse root doesn't exist yet.
@@ -68,8 +73,9 @@ INSERT INTO multiverse_leaves (
       -- DECODE() which needs the 'hex' argument.
       UNHEX(REPLACE(ur.namespace_root, 'issuance-', ''), 'hex'),
       ur.namespace_root
-  FROM universe_roots ur
-  WHERE ur.namespace_root LIKE 'issuance-%';
+FROM universe_roots ur
+WHERE ur.namespace_root LIKE 'issuance-%'
+ON CONFLICT DO NOTHING;
 
 INSERT INTO multiverse_leaves (
     multiverse_root_id, asset_id, group_key, leaf_node_key, leaf_node_namespace
@@ -84,4 +90,5 @@ INSERT INTO multiverse_leaves (
       UNHEX(REPLACE(ur.namespace_root, 'transfer-', ''), 'hex'),
       ur.namespace_root
 FROM universe_roots ur
-WHERE ur.namespace_root LIKE 'transfer-%';
+WHERE ur.namespace_root LIKE 'transfer-%'
+ON CONFLICT DO NOTHING;

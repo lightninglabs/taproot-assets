@@ -2,7 +2,7 @@
 -- a creation time and all the information needed to reconstruct the taproot
 -- output on chain we'll use to send/recv to/from this address.
 CREATE TABLE IF NOT EXISTS addrs (
-    id BIGINT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
 
     -- version is the version of the Taproot Asset address format.
     version SMALLINT NOT NULL,
