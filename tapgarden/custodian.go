@@ -563,13 +563,8 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 
 	// Initiate proof courier service handle from the proof courier address
 	// found in the Tap address.
-	recipient := proof.Recipient{
-		ScriptKey: &addr.ScriptKey,
-		AssetID:   assetID,
-		Amount:    addr.Amount,
-	}
 	courier, err := c.cfg.ProofCourierDispatcher.NewCourier(
-		&addr.ProofCourierAddr, recipient,
+		&addr.ProofCourierAddr,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to initiate proof courier service "+
@@ -593,13 +588,18 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	}
 
 	// Attempt to receive proof via proof courier service.
+	recipient := proof.Recipient{
+		ScriptKey: &addr.ScriptKey,
+		AssetID:   assetID,
+		Amount:    addr.Amount,
+	}
 	loc := proof.Locator{
 		AssetID:   &assetID,
 		GroupKey:  addr.GroupKey,
 		ScriptKey: addr.ScriptKey,
 		OutPoint:  &op,
 	}
-	addrProof, err := courier.ReceiveProof(ctx, loc)
+	addrProof, err := courier.ReceiveProof(ctx, recipient, loc)
 	if err != nil {
 		return fmt.Errorf("unable to receive proof using courier: %w",
 			err)

@@ -801,21 +801,20 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 
 		// First, we'll make a courier to use in fetching the proofs we
 		// need.
-		proofFetcher, err := proofDispatch.NewCourier(
-			courierAddr, proof.Recipient{
-				ScriptKey: scriptKey,
-				AssetID:   proofPrevID.ID,
-				Amount:    proofToImport.Asset.Amount,
-			},
-		)
+		proofFetcher, err := proofDispatch.NewCourier(courierAddr)
 		if err != nil {
 			return fmt.Errorf("unable to create proof courier: %w",
 				err)
 		}
 
 		ctxb := context.Background()
+		recipient := proof.Recipient{
+			ScriptKey: scriptKey,
+			AssetID:   proofPrevID.ID,
+			Amount:    proofToImport.Asset.Amount,
+		}
 		prefixProof, err := proofFetcher.ReceiveProof(
-			ctxb, inputProofLocator,
+			ctxb, recipient, inputProofLocator,
 		)
 
 		// Always attempt to close the courier, even if we encounter an

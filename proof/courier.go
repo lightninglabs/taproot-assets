@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -58,11 +57,12 @@ type CourierHarness interface {
 type Courier interface {
 	// DeliverProof attempts to delivery a proof to the receiver, using the
 	// information in the Addr type.
-	DeliverProof(context.Context, *AnnotatedProof) error
+	DeliverProof(context.Context, Recipient, *AnnotatedProof) error
 
 	// ReceiveProof attempts to obtain a proof as identified by the passed
 	// locator from the source encapsulated within the specified address.
-	ReceiveProof(context.Context, Locator) (*AnnotatedProof, error)
+	ReceiveProof(context.Context, Recipient,
+		Locator) (*AnnotatedProof, error)
 
 	// SetSubscribers sets the set of subscribers that will be notified
 	// of proof courier related events.
@@ -96,7 +96,7 @@ type CourierCfg struct {
 type CourierDispatch interface {
 	// NewCourier instantiates a new courier service handle given a service
 	// URL address.
-	NewCourier(addr *url.URL, recipient Recipient) (Courier, error)
+	NewCourier(addr *url.URL) (Courier, error)
 }
 
 // URLDispatch is a proof courier dispatch that uses the courier address URL
@@ -114,9 +114,7 @@ func NewCourierDispatch(cfg *CourierCfg) *URLDispatch {
 
 // NewCourier instantiates a new courier service handle given a service URL
 // address.
-func (u *URLDispatch) NewCourier(addr *url.URL,
-	recipient Recipient) (Courier, error) {
-
+func (u *URLDispatch) NewCourier(addr *url.URL) (Courier, error) {
 	subscribers := make(map[uint64]*fn.EventReceiver[fn.Event])
 
 	// Create new courier addr based on URL scheme.
@@ -136,7 +134,6 @@ func (u *URLDispatch) NewCourier(addr *url.URL,
 		return &HashMailCourier{
 			cfg:           u.cfg,
 			backoffHandle: backoffHandler,
-			recipient:     recipient,
 			mailbox:       hashMailBox,
 			subscribers:   subscribers,
 		}, nil
@@ -162,7 +159,6 @@ func (u *URLDispatch) NewCourier(addr *url.URL,
 		client := unirpc.NewUniverseClient(conn)
 
 		return &UniverseRpcCourier{
-			recipient:     recipient,
 			client:        client,
 			backoffHandle: backoffHandler,
 			cfg:           u.cfg,
@@ -728,9 +724,8 @@ type HashMailCourier struct {
 	// delivery.
 	backoffHandle *BackoffHandler
 
-	// recipient describes the recipient of the proof.
-	recipient Recipient
-
+	// mailbox is the mailbox service that the courier will use to interact
+	// with the hashmail server.
 	mailbox ProofMailbox
 
 	// subscribers is a map of components that want to be notified on new
@@ -747,14 +742,14 @@ type HashMailCourier struct {
 //
 // TODO(roasbeef): other delivery context as type param?
 func (h *HashMailCourier) DeliverProof(ctx context.Context,
-	proof *AnnotatedProof) error {
+	recipient Recipient, proof *AnnotatedProof) error {
 
 	log.Infof("Attempting to deliver receiver proof for send of "+
-		"asset_id=%v, amt=%v", h.recipient.AssetID, h.recipient.Amount)
+		"asset_id=%v, amt=%v", recipient.AssetID, recipient.Amount)
 
 	// Compute the stream IDs for the sender and receiver.
-	senderStreamID := deriveSenderStreamID(h.recipient)
-	receiverStreamID := deriveReceiverStreamID(h.recipient)
+	senderStreamID := deriveSenderStreamID(recipient)
+	receiverStreamID := deriveReceiverStreamID(recipient)
 
 	// Interact with the hashmail service using a backoff procedure to
 	// ensure that we don't overwhelm the service with delivery attempts.
@@ -891,8 +886,7 @@ func (h *HashMailCourier) publishSubscriberEvent(event fn.Event) {
 // Close closes the underlying connection to the hashmail server.
 func (h *HashMailCourier) Close() error {
 	if err := h.mailbox.Close(); err != nil {
-		log.Warnf("unable to close mailbox session, "+
-			"recipient=%v: %v", err, spew.Sdump(h.recipient))
+		log.Warnf("Unable to close mailbox session: %v", err)
 		return err
 	}
 
@@ -941,10 +935,10 @@ func NewBackoffWaitEvent(
 
 // ReceiveProof attempts to obtain a proof as identified by the passed locator
 // from the source encapsulated within the specified address.
-func (h *HashMailCourier) ReceiveProof(ctx context.Context,
+func (h *HashMailCourier) ReceiveProof(ctx context.Context, recipient Recipient,
 	loc Locator) (*AnnotatedProof, error) {
 
-	senderStreamID := deriveSenderStreamID(h.recipient)
+	senderStreamID := deriveSenderStreamID(recipient)
 	if err := h.mailbox.Init(ctx, senderStreamID); err != nil {
 		return nil, err
 	}
@@ -960,7 +954,7 @@ func (h *HashMailCourier) ReceiveProof(ctx context.Context,
 
 	// Now that we've read the proof, we'll create our mailbox (which might
 	// already exist) to send an ACK back to the sender.
-	receiverStreamID := deriveReceiverStreamID(h.recipient)
+	receiverStreamID := deriveReceiverStreamID(recipient)
 	log.Infof("Sending ACK to sender via sid=%x", receiverStreamID)
 	if err := h.mailbox.Init(ctx, receiverStreamID); err != nil {
 		return nil, err
@@ -1001,9 +995,6 @@ type UniverseRpcCourierCfg struct {
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
 // implements the Courier interface.
 type UniverseRpcCourier struct {
-	// recipient describes the recipient of the proof.
-	recipient Recipient
-
 	// client is the RPC client that the courier will use to interact with
 	// the universe RPC server.
 	client unirpc.UniverseClient
@@ -1030,7 +1021,7 @@ type UniverseRpcCourier struct {
 
 // DeliverProof attempts to delivery a proof file to the receiver.
 func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
-	annotatedProof *AnnotatedProof) error {
+	recipient Recipient, annotatedProof *AnnotatedProof) error {
 
 	// Decode annotated proof into proof file.
 	proofFile := &File{}
@@ -1041,7 +1032,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 
 	log.Infof("Universe RPC proof courier attempting to deliver proof "+
 		"file (num_proofs=%d) for send event (asset_id=%v, amt=%v)",
-		proofFile.NumProofs(), c.recipient.AssetID, c.recipient.Amount)
+		proofFile.NumProofs(), recipient.AssetID, recipient.Amount)
 
 	// Iterate over each proof in the proof file and submit to the courier
 	// service.
@@ -1136,7 +1127,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 // ReceiveProof attempts to obtain a proof file from the courier service. The
 // final proof in the target proof file is identified by the given locator.
 func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
-	originLocator Locator) (*AnnotatedProof, error) {
+	_ Recipient, originLocator Locator) (*AnnotatedProof, error) {
 
 	fetchProof := func(ctx context.Context, loc Locator) (Blob, error) {
 		var groupKeyBytes []byte

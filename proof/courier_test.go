@@ -41,9 +41,9 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 
 	localArchive.proofs.Store(locHash, proofBlob)
 
+	recipient := Recipient{}
 	courier := &UniverseRpcCourier{
-		recipient: Recipient{},
-		client:    nil,
+		client: nil,
 		cfg: &CourierCfg{
 			LocalArchive: localArchive,
 		},
@@ -58,7 +58,7 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 
 	// If we attempt to receive a proof that the local archive has, we
 	// expect to get it back.
-	annotatedProof, err := courier.ReceiveProof(ctxt, locator)
+	annotatedProof, err := courier.ReceiveProof(ctxt, recipient, locator)
 	require.NoError(t, err)
 
 	require.Equal(t, proofBlob, annotatedProof.Blob)
@@ -67,7 +67,7 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 	// should end up in the code path that attempts to fetch the proof from
 	// the universe. Since we don't want to set up a full universe server
 	// in the test, we just make sure we get an error from that code path.
-	_, err = courier.ReceiveProof(ctxt, Locator{
+	_, err = courier.ReceiveProof(ctxt, recipient, Locator{
 		AssetID:   fn.Ptr(genesis.ID()),
 		ScriptKey: *proof.Asset.ScriptKey.PubKey,
 	})

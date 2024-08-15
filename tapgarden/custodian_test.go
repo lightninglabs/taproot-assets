@@ -644,7 +644,8 @@ func TestTransactionHandling(t *testing.T) {
 	h.walletAnchor.Transactions = append(h.walletAnchor.Transactions, *tx)
 
 	mockProof := randProof(t, outputIdx, tx.Tx, genesis[0], addrs[0])
-	err := h.courier.DeliverProof(nil, mockProof)
+	recipient := proof.Recipient{}
+	err := h.courier.DeliverProof(nil, recipient, mockProof)
 	require.NoError(t, err)
 
 	require.NoError(t, h.c.Start())
@@ -708,6 +709,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 	// need to signal an unconfirmed transaction for each of them now.
 	outputIndexes := make([]int, numAddrs)
 	transactions := make([]*lndclient.Transaction, numAddrs)
+	recipient := proof.Recipient{}
 	for idx := range addrs {
 		outputIndex, tx := randWalletTx(addrs[idx])
 		outputIndexes[idx] = outputIndex
@@ -719,7 +721,7 @@ func runTransactionConfirmedOnlyTest(t *testing.T, withRestart bool) {
 		mockProof := randProof(
 			t, outputIndexes[idx], tx.Tx, genesis[idx], addrs[idx],
 		)
-		_ = h.courier.DeliverProof(nil, mockProof)
+		_ = h.courier.DeliverProof(nil, recipient, mockProof)
 	}
 
 	// We want events to be created for each address, they should be in the
