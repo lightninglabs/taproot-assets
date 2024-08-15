@@ -1,7 +1,7 @@
 -- addr_events stores all events related to inbound (received) assets for
 -- addresses.
 CREATE TABLE IF NOT EXISTS addr_events (
-    id BIGINT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
 
     -- creation_time is the creation time of this event.
     creation_time TIMESTAMP NOT NULL,

@@ -1,7 +1,7 @@
 -- This table stores the log of federation universe proof sync attempts. Rows
 -- in this table are specific to a given proof leaf, server, and sync direction.
 CREATE TABLE IF NOT EXISTS federation_proof_sync_log (
-    id BIGINT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
 
     -- The status of the proof sync attempt.
     status TEXT NOT NULL CHECK(status IN ('pending', 'complete')),

@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS multiverse_roots (
-    id BIGINT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
 
     -- For the namespace root, we set the foreign key constraint evaluation to
     -- be deferred until after the database transaction ends. Otherwise, if the
@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS multiverse_roots (
 );
 
 CREATE TABLE IF NOT EXISTS multiverse_leaves (
-    id BIGINT PRIMARY KEY,
+    id INTEGER PRIMARY KEY,
 
     multiverse_root_id BIGINT NOT NULL REFERENCES multiverse_roots(id),
 

@@ -1,5 +1,5 @@
 CREATE TABLE IF NOT EXISTS asset_transfers (
-    id BIGINT PRIMARY KEY, 
+    id INTEGER PRIMARY KEY, 
 
     height_hint INTEGER NOT NULL,
     
@@ -13,7 +13,7 @@ CREATE INDEX IF NOT EXISTS transfer_txn_idx
     ON asset_transfers (anchor_txn_id);
 
 CREATE TABLE IF NOT EXISTS asset_transfer_inputs (
-    input_id BIGINT PRIMARY KEY,
+    input_id INTEGER PRIMARY KEY,
     
     transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
     
@@ -29,7 +29,7 @@ CREATE INDEX IF NOT EXISTS transfer_inputs_idx
     ON asset_transfer_inputs (transfer_id);
 
 CREATE TABLE IF NOT EXISTS asset_transfer_outputs (
-    output_id BIGINT PRIMARY KEY,
+    output_id INTEGER PRIMARY KEY,
     
     transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
     
@@ -74,7 +74,7 @@ CREATE INDEX IF NOT EXISTS proof_locator_hash_index
 -- passive_assets is a table that stores the information needed to
 -- re-anchor a passive asset.
 CREATE TABLE IF NOT EXISTS passive_assets (
-    passive_id BIGINT PRIMARY KEY,
+    passive_id INTEGER PRIMARY KEY,
 
     transfer_id BIGINT NOT NULL REFERENCES asset_transfers(id),
 
