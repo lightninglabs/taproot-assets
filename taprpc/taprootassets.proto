@@ -611,6 +611,28 @@ message ListTransfersResponse {
     repeated AssetTransfer transfers = 1;
 }
 
+// ChainHash represents a hash value, typically a double SHA-256 of some data.
+// Common examples include block hashes and transaction hashes.
+//
+// This versatile message type is used in various Bitcoin-related messages and
+// structures, providing two different formats of the same hash to accommodate
+// both developer and user needs.
+message ChainHash {
+    // The raw hash value in byte format.
+    //
+    // This format is optimized for programmatic use, particularly for Go
+    // developers, enabling easy integration with other RPC calls or binary
+    // operations.
+    bytes hash = 1;
+
+    // The byte-reversed hash value as a hexadecimal string.
+    //
+    // This format is intended for human interaction, making it easy to copy,
+    // paste, and use in contexts like command-line arguments or configuration
+    // files.
+    string hash_str = 2;
+}
+
 message AssetTransfer {
     int64 transfer_timestamp = 1;
 
@@ -628,9 +650,10 @@ message AssetTransfer {
     // Describes the set of newly created asset outputs.
     repeated TransferOutput outputs = 6;
 
-    // The block hash the contains the anchor transaction above. If unset, the
-    // anchor transaction is unconfirmed.
-    bytes anchor_tx_block_hash = 7;
+    // The block hash of the blockchain block that contains the anchor
+    // transaction. If this value is unset, the anchor transaction is
+    // unconfirmed.
+    ChainHash anchor_tx_block_hash = 7;
 }
 
 message TransferInput {

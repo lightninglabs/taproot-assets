@@ -895,9 +895,8 @@
           "description": "Describes the set of newly created asset outputs."
         },
         "anchor_tx_block_hash": {
-          "type": "string",
-          "format": "byte",
-          "description": "The block hash the contains the anchor transaction above. If unset, the\nanchor transaction is unconfirmed."
+          "$ref": "#/definitions/taprpcChainHash",
+          "description": "The block hash of the blockchain block that contains the anchor\ntransaction. If this value is unset, the anchor transaction is\nunconfirmed."
         }
       }
     },
@@ -909,6 +908,21 @@
       ],
       "default": "ASSET_VERSION_V0",
       "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
+    },
+    "taprpcChainHash": {
+      "type": "object",
+      "properties": {
+        "hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw hash value in byte format.\n\nThis format is optimized for programmatic use, particularly for Go\ndevelopers, enabling easy integration with other RPC calls or binary\noperations."
+        },
+        "hash_str": {
+          "type": "string",
+          "description": "The byte-reversed hash value as a hexadecimal string.\n\nThis format is intended for human interaction, making it easy to copy,\npaste, and use in contexts like command-line arguments or configuration\nfiles."
+        }
+      },
+      "description": "ChainHash represents a hash value, typically a double SHA-256 of some data.\nCommon examples include block hashes and transaction hashes.\n\nThis versatile message type is used in various Bitcoin-related messages and\nstructures, providing two different formats of the same hash to accommodate\nboth developer and user needs."
     },
     "taprpcKeyDescriptor": {
       "type": "object",
