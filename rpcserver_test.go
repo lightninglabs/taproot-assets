@@ -9,9 +9,88 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"pgregory.net/rapid"
+)
+
+// Custom generators.
+var (
+	ByteSliceGen   = rapid.SliceOf(rapid.Byte())
+	GenesisInfoGen = rapid.Custom(func(t *rapid.T) taprpc.GenesisInfo {
+		return taprpc.GenesisInfo{
+			GenesisPoint: rapid.String().Draw(t, "genesis_point"),
+			Name:         rapid.String().Draw(t, "name"),
+			MetaHash:     ByteSliceGen.Draw(t, "meta_hash"),
+			AssetId:      ByteSliceGen.Draw(t, "id"),
+			AssetType: taprpc.AssetType(
+				rapid.Int32().Draw(t, "asset_type"),
+			),
+			OutputIndex: rapid.Uint32().Draw(t, "output_index"),
+		}
+	})
+	AssetGroupGen = rapid.Custom(func(t *rapid.T) taprpc.AssetGroup {
+		return taprpc.AssetGroup{
+			RawGroupKey: ByteSliceGen.Draw(t, "raw_group_key"),
+			TweakedGroupKey: ByteSliceGen.Draw(
+				t, "tweaked_group_key",
+			),
+			AssetWitness:  ByteSliceGen.Draw(t, "asset_witness"),
+			TapscriptRoot: ByteSliceGen.Draw(t, "tapscript_root"),
+		}
+	})
+	AnchorInfoGen = rapid.Custom(func(t *rapid.T) taprpc.AnchorInfo {
+		return taprpc.AnchorInfo{
+			AnchorTx: ByteSliceGen.Draw(t, "anchor_tx"),
+			AnchorBlockHash: rapid.String().Draw(
+				t, "anchor_block_hash",
+			),
+			AnchorOutpoint: rapid.String().Draw(
+				t, "anchor_outpoint",
+			),
+			InternalKey: ByteSliceGen.Draw(t, "internal_key"),
+			MerkleRoot:  ByteSliceGen.Draw(t, "merkle_root"),
+			TapscriptSibling: ByteSliceGen.Draw(
+				t, "tapscript_sibling",
+			),
+			BlockHeight: rapid.Uint32().Draw(t, "block_height"),
+		}
+	})
+	PrevInputAssetGen = rapid.Custom(
+		func(t *rapid.T) taprpc.PrevInputAsset {
+
+			return taprpc.PrevInputAsset{
+				AnchorPoint: rapid.String().Draw(
+					t, "anchor_point",
+				),
+				AssetId:   ByteSliceGen.Draw(t, "asset_id"),
+				ScriptKey: ByteSliceGen.Draw(t, "script_key"),
+				Amount:    rapid.Uint64().Draw(t, "amount"),
+			}
+		})
+	PrevWitnessGen = rapid.Custom(func(t *rapid.T) taprpc.PrevWitness {
+		// Leave the split commitment as nil.
+		return taprpc.PrevWitness{
+			PrevId: rapid.Ptr(PrevInputAssetGen, true).Draw(
+				t, "prev_id",
+			),
+			TxWitness: rapid.SliceOf(ByteSliceGen).Draw(
+				t, "tx_witnesses",
+			),
+		}
+	})
+	PrevWitnessesGen = rapid.Custom(func(t *rapid.T) []*taprpc.PrevWitness {
+		witnessGen := rapid.Ptr(PrevWitnessGen, false)
+		return rapid.SliceOf(witnessGen).Draw(t, "prev_witnesses")
+	})
+	DecDisplayGen = rapid.Custom(func(t *rapid.T) taprpc.DecimalDisplay {
+		return taprpc.DecimalDisplay{
+			DecimalDisplay: rapid.Uint32().Draw(
+				t, "decimal_display",
+			),
+		}
+	})
 )
 
 // Result is used to store the output of a fallible function call.
@@ -86,7 +165,7 @@ func (id genAssetId) Inner() []byte {
 // NewAssetId creates a new genAssetId instance.
 func NewAssetId(t *rapid.T) genAssetId {
 	var id genAssetId
-	id.Bytes = rapid.SliceOf(rapid.Byte()).Draw(t, "ID")
+	id.Bytes = ByteSliceGen.Draw(t, "ID")
 
 	return id
 }
@@ -204,7 +283,7 @@ func (id genGroupKey) Inner() []byte {
 // NewGroupKey creates a new genGroupKey instance.
 func NewGroupKey(t *rapid.T) genGroupKey {
 	var id genGroupKey
-	id.Bytes = rapid.SliceOf(rapid.Byte()).Draw(t, "Group key")
+	id.Bytes = ByteSliceGen.Draw(t, "Group key")
 
 	return id
 }
@@ -448,4 +527,74 @@ func testUnmarshalUniId(t *rapid.T) {
 
 func TestUnmarshalUniId(t *testing.T) {
 	rapid.Check(t, testUnmarshalUniId)
+}
+
+func testUnmarshalAssetLeaf(t *rapid.T) {
+	// rapid.Make failed on the private gRPC-specific fields of
+	// taprpc.Asset, so we'll populate only the public fields.
+	LeafAssetGen := rapid.Custom(func(t *rapid.T) taprpc.Asset {
+		vers := taprpc.AssetVersion(rapid.Int32().Draw(t, "version"))
+		genesis := rapid.Ptr(GenesisInfoGen, true).Draw(t, "genesis")
+		amount := rapid.Uint64().Draw(t, "amount")
+		lockTime := rapid.Int32().Draw(t, "lock_time")
+		relativeLockTime := rapid.Int32().Draw(t, "relative_lock_time")
+		scriptVersion := rapid.Int32().Draw(t, "script_version")
+		scriptKey := ByteSliceGen.Draw(t, "script_key")
+		scriptKeyIsLocal := rapid.Bool().Draw(t, "script_key_is_local")
+		group := rapid.Ptr(AssetGroupGen, true).Draw(t, "asset_group")
+		chainAnchor := rapid.Ptr(AnchorInfoGen, true).Draw(
+			t, "chain_anchor",
+		)
+		prevWitnesses := PrevWitnessesGen.Draw(t, "prev_witnesses")
+		isSpent := rapid.Bool().Draw(t, "is_spent")
+		leaseOwner := ByteSliceGen.Draw(t, "lease_owner")
+		leaseExpiry := rapid.Int64().Draw(t, "lease_expiry")
+		isBurn := rapid.Bool().Draw(t, "is_burn")
+		scriptKeyDeclaredKnown := rapid.Bool().Draw(
+			t, "script_key_declared_known",
+		)
+		scriptKeyHasScriptPath := rapid.Bool().Draw(
+			t, "script_key_has_script_path",
+		)
+		decimalDisplay := rapid.Ptr(DecDisplayGen, true).Draw(
+			t, "decimal_display",
+		)
+
+		return taprpc.Asset{
+			Version:                vers,
+			AssetGenesis:           genesis,
+			Amount:                 amount,
+			LockTime:               lockTime,
+			RelativeLockTime:       relativeLockTime,
+			ScriptVersion:          scriptVersion,
+			ScriptKey:              scriptKey,
+			ScriptKeyIsLocal:       scriptKeyIsLocal,
+			AssetGroup:             group,
+			ChainAnchor:            chainAnchor,
+			PrevWitnesses:          prevWitnesses,
+			IsSpent:                isSpent,
+			LeaseOwner:             leaseOwner,
+			LeaseExpiry:            leaseExpiry,
+			IsBurn:                 isBurn,
+			ScriptKeyDeclaredKnown: scriptKeyDeclaredKnown,
+			ScriptKeyHasScriptPath: scriptKeyHasScriptPath,
+			DecimalDisplay:         decimalDisplay,
+		}
+	})
+
+	leafGen := rapid.Custom(func(t *rapid.T) universerpc.AssetLeaf {
+		return universerpc.AssetLeaf{
+			Asset: rapid.Ptr(LeafAssetGen, true).Draw(t, "Asset"),
+			Proof: ByteSliceGen.Draw(t, "Proof"),
+		}
+	})
+	leaf := rapid.Ptr(leafGen, true).Draw(t, "Leaf")
+
+	// Don't check the unmarshal output, we are only testing if we can
+	// cause unmarshal to panic.
+	_, _ = unmarshalAssetLeaf(leaf)
+}
+
+func TestUnmarshalAssetLeaf(t *testing.T) {
+	rapid.Check(t, testUnmarshalAssetLeaf)
 }
