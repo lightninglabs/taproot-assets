@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -17,7 +18,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -687,5 +690,86 @@ func NewAddAssetSellOrderResponse(
 	default:
 		return nil, fmt.Errorf("unknown AddAssetSellOrder event "+
 			"type: %T", e)
+	}
+}
+
+// IsAssetBtc is a helper function that returns true if the given asset
+// specifier represents BTC, and false otherwise.
+func IsAssetBtc(assetSpecifier *priceoraclerpc.AssetSpecifier) bool {
+	// An unset asset specifier does not represent BTC.
+	if assetSpecifier == nil {
+		return false
+	}
+
+	// Verify that the asset specifier has a valid asset ID (either bytes or
+	// string). The asset ID must be all zeros for the asset specifier to
+	// represent BTC.
+	assetIdBytes := assetSpecifier.GetAssetId()
+	assetIdStr := assetSpecifier.GetAssetIdStr()
+
+	if len(assetIdBytes) != 32 && assetIdStr == "" {
+		return false
+	}
+
+	var assetId [32]byte
+	copy(assetId[:], assetIdBytes)
+
+	var zeroAssetId [32]byte
+	zeroAssetHexStr := hex.EncodeToString(zeroAssetId[:])
+
+	isAssetIdZero := bytes.Equal(assetId[:], zeroAssetId[:]) ||
+		assetIdStr == zeroAssetHexStr
+
+	// Ensure that the asset specifier does not have any group key related
+	// fields set. When specifying BTC, the group key fields must be unset.
+	groupKeySet := assetSpecifier.GetGroupKey() != nil ||
+		assetSpecifier.GetGroupKeyStr() != ""
+
+	return isAssetIdZero && !groupKeySet
+}
+
+// MarshalOutpoint marshals a wire.OutPoint into an RPC ready Outpoint.
+func MarshalOutpoint(outPoint wire.OutPoint) *universerpc.Outpoint {
+	return &universerpc.Outpoint{
+		HashStr: outPoint.Hash.String(),
+		Index:   int32(outPoint.Index),
+	}
+}
+
+// MarshalAssetKey returns an RPC ready AssetKey.
+func MarshalAssetKey(outPoint wire.OutPoint,
+	scriptKeyPubKey *btcec.PublicKey) *universerpc.AssetKey {
+
+	scriptKeyBytes := scriptKeyPubKey.SerializeCompressed()
+
+	return &universerpc.AssetKey{
+		Outpoint: &universerpc.AssetKey_Op{
+			Op: MarshalOutpoint(outPoint),
+		},
+		ScriptKey: &universerpc.AssetKey_ScriptKeyBytes{
+			ScriptKeyBytes: scriptKeyBytes,
+		},
+	}
+}
+
+// MarshalUniverseID returns an RPC ready universe ID.
+func MarshalUniverseID(assetIDBytes []byte,
+	groupKeyBytes []byte) *universerpc.ID {
+
+	// We will marshal either a group key ID or an asset ID. If group key
+	// bytes are given, we marshal a group key ID, otherwise we marshal an
+	// asset ID.
+	if groupKeyBytes != nil {
+		return &universerpc.ID{
+			Id: &universerpc.ID_GroupKey{
+				GroupKey: groupKeyBytes,
+			},
+		}
+	}
+
+	return &universerpc.ID{
+		Id: &universerpc.ID_AssetId{
+			AssetId: assetIDBytes,
+		},
 	}
 }

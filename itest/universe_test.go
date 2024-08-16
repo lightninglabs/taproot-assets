@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -709,7 +710,7 @@ func testFederationSyncConfig(t *harnessTest) {
 		AssetID:   assetID1,
 		ProofType: universe.ProofTypeIssuance,
 	}
-	uniIdRpc1 := unirpc.MarshalUniverseID(assetIDBytes1, nil)
+	uniIdRpc1 := rpcutils.MarshalUniverseID(assetIDBytes1, nil)
 	uniIdRpc1.ProofType = unirpc.ProofType_PROOF_TYPE_ISSUANCE
 
 	// Generate universe ID #2.
@@ -720,7 +721,7 @@ func testFederationSyncConfig(t *harnessTest) {
 		GroupKey:  groupKey2,
 		ProofType: universe.ProofTypeTransfer,
 	}
-	uniIdRpc2 := unirpc.MarshalUniverseID(nil, groupKeyBytes2)
+	uniIdRpc2 := rpcutils.MarshalUniverseID(nil, groupKeyBytes2)
 	uniIdRpc2.ProofType = unirpc.ProofType_PROOF_TYPE_TRANSFER
 
 	// Set both the global and a universe specific federation sync configs.

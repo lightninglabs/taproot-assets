@@ -6166,7 +6166,7 @@ func MarshalAssetFedSyncCfg(
 	if uniID.GroupKey != nil {
 		groupKeyBytes = uniID.GroupKey.SerializeCompressed()
 	}
-	uniIdRPC := unirpc.MarshalUniverseID(assetIDBytes, groupKeyBytes)
+	uniIdRPC := rpcutils.MarshalUniverseID(assetIDBytes, groupKeyBytes)
 
 	// Marshal proof type.
 	proofTypeRpc, err := MarshalUniProofType(uniID.ProofType)
