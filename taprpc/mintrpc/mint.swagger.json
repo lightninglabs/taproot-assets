@@ -368,7 +368,6 @@
         "batches": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/mintrpcVerboseBatch"
           }
         }
@@ -498,7 +497,6 @@
         "assets": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/mintrpcPendingAsset"
           },
           "description": "The assets that are part of the batch."
@@ -582,7 +580,6 @@
         "group_witnesses": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcGroupWitness"
           },
           "description": "The assetID, witness pairs that authorize asset membership in a group."
@@ -634,7 +631,6 @@
         "unsealed_assets": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/mintrpcUnsealedAsset"
           },
           "description": "The assets that are part of the batch."
@@ -644,11 +640,14 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "@type": {
+        "type_url": {
           "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
         }
-      },
-      "additionalProperties": {}
+      }
     },
     "rpcStatus": {
       "type": "object",
@@ -663,7 +662,6 @@
         "details": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -891,7 +889,6 @@
         "all_leaves": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcTapLeaf"
           },
           "description": "The complete, ordered list of all tap leaves of the tree."

@@ -709,7 +709,6 @@
         "route_hints": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/lnrpcRouteHint"
           },
           "description": "Route hints that can each be individually used to assist in reaching the\ninvoice's destination."
@@ -750,7 +749,6 @@
         "htlcs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/lnrpcInvoiceHTLC"
           },
           "description": "List of HTLCs paying to this invoice [EXPERIMENTAL].\nNote: Output only, don't specify for creating an invoice."
@@ -941,7 +939,6 @@
         "htlcs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/lnrpcHTLCAttempt"
           },
           "description": "The HTLCs made in attempt to settle the payment."
@@ -1002,7 +999,6 @@
         "hops": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/lnrpcHop"
           },
           "description": "Contains details concerning the specific forwarding details at each hop."
@@ -1026,7 +1022,6 @@
         "hop_hints": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/lnrpcHopHint"
           },
           "description": "A list of hop hints that when chained together can assist in reaching a\nspecific destination."
@@ -1036,11 +1031,14 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "@type": {
+        "type_url": {
           "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
         }
-      },
-      "additionalProperties": {}
+      }
     },
     "rfqrpcPeerAcceptedBuyQuote": {
       "type": "object",
@@ -1160,7 +1158,6 @@
         "route_hints": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/lnrpcRouteHint"
           },
           "description": "Optional route hints to reach the destination through private channels."
@@ -1258,7 +1255,6 @@
         "details": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

@@ -537,7 +537,6 @@
         "lnd_locked_utxos": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcOutPoint"
           },
           "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
@@ -707,7 +706,6 @@
         "lnd_locked_utxos": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcOutPoint"
           },
           "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
@@ -776,7 +774,6 @@
         "inputs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/assetwalletrpcPrevId"
           },
           "description": "An optional list of inputs to use. Every input must be an asset UTXO known\nto the wallet. The sum of all inputs must be greater than or equal to the\nsum of all outputs.\n\nIf no inputs are specified, asset coin selection will be performed instead\nand inputs of sufficient value will be added to the resulting PSBT."
@@ -833,11 +830,14 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "@type": {
+        "type_url": {
           "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
         }
-      },
-      "additionalProperties": {}
+      }
     },
     "rpcStatus": {
       "type": "object",
@@ -852,7 +852,6 @@
         "details": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -881,7 +880,6 @@
         "inputs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcTransferInput"
           },
           "description": "Describes the set of spent assets."
@@ -889,7 +887,6 @@
         "outputs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
