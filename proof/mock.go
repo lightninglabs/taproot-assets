@@ -443,7 +443,7 @@ type MockProofCourierDispatcher struct {
 
 // NewCourier instantiates a new courier service handle given a service
 // URL address.
-func (m *MockProofCourierDispatcher) NewCourier(*url.URL, Recipient) (Courier,
+func (m *MockProofCourierDispatcher) NewCourier(*url.URL) (Courier,
 	error) {
 
 	return m.Courier, nil
@@ -479,7 +479,7 @@ func (m *MockProofCourier) Stop() error {
 // DeliverProof attempts to delivery a proof to the receiver, using the
 // information in the Addr type.
 func (m *MockProofCourier) DeliverProof(_ context.Context,
-	proof *AnnotatedProof) error {
+	_ Recipient, proof *AnnotatedProof) error {
 
 	m.Lock()
 	defer m.Unlock()
@@ -492,7 +492,7 @@ func (m *MockProofCourier) DeliverProof(_ context.Context,
 // ReceiveProof attempts to obtain a proof as identified by the passed
 // locator from the source encapsulated within the specified address.
 func (m *MockProofCourier) ReceiveProof(_ context.Context,
-	loc Locator) (*AnnotatedProof, error) {
+	_ Recipient, loc Locator) (*AnnotatedProof, error) {
 
 	m.Lock()
 	defer m.Unlock()

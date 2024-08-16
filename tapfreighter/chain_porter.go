@@ -819,13 +819,8 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 		// Initiate proof courier service handle from the proof
 		// courier address found in the Tap address.
-		recipient := proof.Recipient{
-			ScriptKey: key,
-			AssetID:   *receiverProof.AssetID,
-			Amount:    out.Amount,
-		}
 		courier, err := p.cfg.ProofCourierDispatcher.NewCourier(
-			proofCourierAddr, recipient,
+			proofCourierAddr,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to initiate proof courier "+
@@ -841,7 +836,12 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		p.subscriberMtx.Unlock()
 
 		// Deliver proof to proof courier service.
-		err = courier.DeliverProof(ctx, receiverProof)
+		recipient := proof.Recipient{
+			ScriptKey: key,
+			AssetID:   *receiverProof.AssetID,
+			Amount:    out.Amount,
+		}
+		err = courier.DeliverProof(ctx, recipient, receiverProof)
 
 		// If the proof courier returned a backoff error, then
 		// we'll just return nil here so that we can retry
