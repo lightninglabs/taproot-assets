@@ -23,8 +23,10 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/build"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -496,6 +498,20 @@ func TestGenesisProofVerification(t *testing.T) {
 			expectedErr: ErrGenesisRevealRequired,
 		},
 		{
+			name:      "meta reveal with unknown odd type",
+			assetType: asset.Collectible,
+			metaReveal: &MetaReveal{
+				Data: []byte("{\"foo\": \"bar\"}"),
+				Type: MetaJson,
+				UnknownOddTypes: tlv.TypeMap{
+					//nolint:lll
+					test.TestVectorAllowedUnknownType: []byte(
+						"decimalDisplay?",
+					),
+				},
+			},
+		},
+		{
 			name:       "genesis reveal asset ID mismatch",
 			assetType:  asset.Normal,
 			amount:     &amount,
@@ -939,6 +955,49 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				buf.Bytes(),
 			)
 
+			// Make sure the proof in the test vectors doesn't use
+			// a record type we haven't marked as known/supported
+			// yet. If the following check fails, you need to update
+			// the KnownProofTypes set.
+			for _, record := range p.EncodeRecords() {
+				// Test vectors may contain this one type to
+				// demonstrate that it is not rejected.
+				if record.Type() ==
+					test.TestVectorAllowedUnknownType {
+
+					continue
+				}
+
+				require.Contains(
+					tt, KnownProofTypes, record.Type(),
+				)
+			}
+
+			checkTaprootProofTypes(tt, p.InclusionProof)
+			for i := range p.ExclusionProofs {
+				checkTaprootProofTypes(tt, p.ExclusionProofs[i])
+			}
+
+			if p.MetaReveal != nil {
+				metaRecords := p.MetaReveal.EncodeRecords()
+				for _, record := range metaRecords {
+					// Test vectors may contain this one
+					// type to demonstrate that it is not
+					// rejected.
+					// nolint:lll
+					if record.Type() ==
+						test.TestVectorAllowedUnknownType {
+
+						continue
+					}
+
+					require.Contains(
+						tt, KnownMetaRevealTypes,
+						record.Type(),
+					)
+				}
+			}
+
 			// Create nice diff if things don't match.
 			if !areEqual {
 				expectedProof := &Proof{}
@@ -984,6 +1043,118 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			})
 		})
 	}
+}
+
+// checkTaprootProofTypes ensures that the taproot proof contains only known
+// TLV types.
+func checkTaprootProofTypes(t *testing.T, p TaprootProof) {
+	for _, record := range p.EncodeRecords() {
+		// Test vectors may contain this one type to demonstrate that
+		// it is not rejected.
+		if record.Type() ==
+			test.TestVectorAllowedUnknownType {
+
+			continue
+		}
+
+		require.Contains(t, KnownTaprootProofTypes, record.Type())
+	}
+
+	if p.CommitmentProof != nil {
+		for _, record := range p.CommitmentProof.EncodeRecords() {
+			// Test vectors may contain this one type to demonstrate
+			// that it is not rejected.
+			if record.Type() ==
+				test.TestVectorAllowedUnknownType {
+
+				continue
+			}
+
+			require.Contains(
+				t, KnownCommitmentProofTypes, record.Type(),
+			)
+
+			tap := p.CommitmentProof.TaprootAssetProof
+			types := commitment.KnownTaprootAssetProofTypes
+			for _, record := range tap.Records() {
+				require.Contains(
+					t, types, record.Type(),
+				)
+			}
+
+			if p.CommitmentProof.AssetProof != nil {
+				ap := p.CommitmentProof.AssetProof
+				types := commitment.KnownAssetProofTypes
+				for _, record := range ap.Records() {
+					require.Contains(
+						t, types, record.Type(),
+					)
+				}
+			}
+		}
+	}
+
+	if p.TapscriptProof != nil {
+		for _, record := range p.TapscriptProof.EncodeRecords() {
+			// Test vectors may contain this one type to demonstrate
+			// that it is not rejected.
+			if record.Type() ==
+				test.TestVectorAllowedUnknownType {
+
+				continue
+			}
+
+			require.Contains(
+				t, KnownTapscriptProofTypes, record.Type(),
+			)
+		}
+	}
+}
+
+// TestProofUnknownOddType tests that an unknown odd type is allowed in a proof
+// and that we can still arrive at the correct serialized version with it.
+func TestProofUnknownOddType(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	oddTxBlock := testBlocks[0]
+
+	genesis := asset.RandGenesis(t, asset.Collectible)
+	scriptKey := test.RandPubKey(t)
+	knownProof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+
+	var knownProofBytes []byte
+	test.RunUnknownOddTypeTest(
+		t, &knownProof, &asset.ErrUnknownType{},
+		func(buf *bytes.Buffer, proof *Proof) error {
+			err := proof.Encode(buf)
+
+			knownProofBytes = fn.CopySlice(buf.Bytes())
+
+			return err
+		},
+		func(buf *bytes.Buffer) (*Proof, error) {
+			var parsedProof Proof
+			return &parsedProof, parsedProof.Decode(buf)
+		},
+		func(parsedProof *Proof, unknownTypes tlv.TypeMap) {
+			require.Equal(
+				t, unknownTypes, parsedProof.UnknownOddTypes,
+			)
+
+			// The proof should've changed, to make sure the unknown
+			// value was taken into account when creating the
+			// serialized proof.
+			var newBuf bytes.Buffer
+			err := parsedProof.Encode(&newBuf)
+			require.NoError(t, err)
+
+			require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+
+			parsedProof.UnknownOddTypes = nil
+			require.Equal(t, &knownProof, parsedProof)
+		},
+	)
 }
 
 func init() {

@@ -8,6 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -114,4 +117,40 @@ func TestProofInvalidJsonMetaReveal(t *testing.T) {
 	_, decDisplay, err := p.MetaReveal.GetDecDisplay()
 	require.ErrorIs(t, err, ErrInvalidJSON)
 	require.Zero(t, decDisplay)
+}
+
+// TestMetaRevealUnknownOddType tests that an unknown odd type is allowed in a
+// meta reveal and that we can still arrive at the correct meta hash with it.
+func TestMetaRevealUnknownOddType(t *testing.T) {
+	knownMeta := &MetaReveal{
+		Type: 123,
+		Data: []byte("probably some JPEG or something"),
+	}
+	knownMetaHash := knownMeta.MetaHash()
+
+	test.RunUnknownOddTypeTest(
+		t, knownMeta, &asset.ErrUnknownType{},
+		func(buf *bytes.Buffer, meta *MetaReveal) error {
+			return meta.Encode(buf)
+		},
+		func(buf *bytes.Buffer) (*MetaReveal, error) {
+			var parsedMeta MetaReveal
+			return &parsedMeta, parsedMeta.Decode(buf)
+		},
+		func(parsedMeta *MetaReveal, unknownTypes tlv.TypeMap) {
+			require.Equal(
+				t, unknownTypes, parsedMeta.UnknownOddTypes,
+			)
+
+			// The meta should've changed, to make sure the unknown
+			// value was taken into account when creating the
+			// serialized meta.
+			parsedMetaHash := parsedMeta.MetaHash()
+
+			require.NotEqual(t, knownMetaHash, parsedMetaHash)
+
+			parsedMeta.UnknownOddTypes = nil
+			require.Equal(t, knownMeta, parsedMeta)
+		},
+	)
 }

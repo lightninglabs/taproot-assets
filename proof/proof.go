@@ -277,8 +277,6 @@ type Proof struct {
 	// MetaReveal is the set of bytes that were revealed to prove the
 	// derivation of the meta data hash contained in the genesis asset.
 	//
-	// TODO(roasbeef): use even/odd framing here?
-	//
 	// NOTE: This field is optional, and can only be specified if the asset
 	// above is a genesis asset. If specified, then verifiers _should_ also
 	// verify the hashes match up.
@@ -300,7 +298,7 @@ type Proof struct {
 	// provided for minting proofs, and must be empty for non-minting
 	// proofs. This allows for derivation of the asset ID. If the asset is
 	// part of an asset group, the Genesis information is also used for
-	// rederivation of the asset group key.
+	// re-derivation of the asset group key.
 	GenesisReveal *asset.Genesis
 
 	// GroupKeyReveal is an optional set of bytes that represent the public
@@ -308,6 +306,14 @@ type Proof struct {
 	// the asset group. This field must be provided for issuance proofs of
 	// grouped assets.
 	GroupKeyReveal *asset.GroupKeyReveal
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
 // OutPoint returns the outpoint that commits to the asset associated with this
@@ -361,7 +367,9 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 			&p.GroupKeyReveal,
 		))
 	}
-	return records
+
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, p.UnknownOddTypes)
 }
 
 // DecodeRecords returns the set of known TLV records to decode a Proof.
@@ -427,7 +435,16 @@ func (p *Proof) Decode(r io.Reader) error {
 	// Note, we can't use the DecodeP2P method here, because the additional
 	// inputs records might be larger than 64k each. Instead, we add
 	// individual limits to each record.
-	return stream.Decode(r)
+	unknownOddTypes, err := asset.TlvStrictDecode(
+		stream, r, KnownProofTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	p.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
 
 // Record returns a TLV record that can be used to encode/decode a Proof to/from

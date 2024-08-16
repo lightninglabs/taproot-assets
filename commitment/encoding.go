@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -31,11 +32,9 @@ func TapCommitmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
 
 func AssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(**AssetProof); ok {
-		records := []tlv.Record{
-			AssetProofVersionRecord(&(*t).Version),
-			AssetProofAssetIDRecord(&(*t).TapKey),
-			AssetProofRecord(&(*t).Proof),
-		}
+		records := asset.CombineRecords(
+			(*t).Records(), (*t).UnknownOddTypes,
+		)
 		stream, err := tlv.NewStream(records...)
 		if err != nil {
 			return err
@@ -58,18 +57,21 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			return err
 		}
 		var proof AssetProof
-		records := []tlv.Record{
-			AssetProofVersionRecord(&proof.Version),
-			AssetProofAssetIDRecord(&proof.TapKey),
-			AssetProofRecord(&proof.Proof),
-		}
-		stream, err := tlv.NewStream(records...)
+		stream, err := tlv.NewStream(proof.Records()...)
 		if err != nil {
 			return err
 		}
-		if err := stream.Decode(bytes.NewReader(streamBytes)); err != nil {
+
+		unknownOddTypes, err := asset.TlvStrictDecodeP2P(
+			stream, bytes.NewReader(streamBytes),
+			KnownAssetProofTypes,
+		)
+		if err != nil {
 			return err
 		}
+
+		proof.UnknownOddTypes = unknownOddTypes
+
 		*typ = &proof
 		return nil
 	}
@@ -78,10 +80,9 @@ func AssetProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 
 func TaprootAssetProofEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*TaprootAssetProof); ok {
-		records := []tlv.Record{
-			TaprootAssetProofVersionRecord(&(*t).Version),
-			TaprootAssetProofRecord(&(*t).Proof),
-		}
+		records := asset.CombineRecords(
+			(*t).Records(), (*t).UnknownOddTypes,
+		)
 		stream, err := tlv.NewStream(records...)
 		if err != nil {
 			return err
@@ -106,17 +107,21 @@ func TaprootAssetProofDecoder(r io.Reader, val any, buf *[8]byte,
 			return err
 		}
 		var proof TaprootAssetProof
-		records := []tlv.Record{
-			TaprootAssetProofVersionRecord(&proof.Version),
-			TaprootAssetProofRecord(&proof.Proof),
-		}
-		stream, err := tlv.NewStream(records...)
+		stream, err := tlv.NewStream(proof.Records()...)
 		if err != nil {
 			return err
 		}
-		if err := stream.Decode(bytes.NewReader(streamBytes)); err != nil {
+
+		unknownOddTypes, err := asset.TlvStrictDecodeP2P(
+			stream, bytes.NewReader(streamBytes),
+			KnownTaprootAssetProofTypes,
+		)
+		if err != nil {
 			return err
 		}
+
+		proof.UnknownOddTypes = unknownOddTypes
+
 		*typ = proof
 		return nil
 	}

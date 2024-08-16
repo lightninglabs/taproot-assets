@@ -23,6 +23,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -566,13 +567,14 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 	t.Helper()
 
 	tp := &TestProof{
-		PrevOut:        p.PrevOut.String(),
-		BlockHeader:    NewTestFromBlockHeader(t, &p.BlockHeader),
-		BlockHeight:    p.BlockHeight,
-		AnchorTx:       test.HexTx(t, &p.AnchorTx),
-		TxMerkleProof:  NewTestFromTxMerkleProof(t, &p.TxMerkleProof),
-		Asset:          asset.NewTestFromAsset(t, &p.Asset),
-		InclusionProof: NewTestFromTaprootProof(t, &p.InclusionProof),
+		PrevOut:         p.PrevOut.String(),
+		BlockHeader:     NewTestFromBlockHeader(t, &p.BlockHeader),
+		BlockHeight:     p.BlockHeight,
+		AnchorTx:        test.HexTx(t, &p.AnchorTx),
+		TxMerkleProof:   NewTestFromTxMerkleProof(t, &p.TxMerkleProof),
+		Asset:           asset.NewTestFromAsset(t, &p.Asset),
+		InclusionProof:  NewTestFromTaprootProof(t, &p.InclusionProof),
+		UnknownOddTypes: p.UnknownOddTypes,
 	}
 
 	for i := range p.ExclusionProofs {
@@ -637,19 +639,21 @@ type TestProof struct {
 	ChallengeWitness []string                  `json:"challenge_witness"`
 	GenesisReveal    *asset.TestGenesisReveal  `json:"genesis_reveal"`
 	GroupKeyReveal   *asset.TestGroupKeyReveal `json:"group_key_reveal"`
+	UnknownOddTypes  tlv.TypeMap               `json:"unknown_odd_types"`
 }
 
 func (tp *TestProof) ToProof(t testing.TB) *Proof {
 	t.Helper()
 
 	p := &Proof{
-		PrevOut:        test.ParseOutPoint(t, tp.PrevOut),
-		BlockHeader:    *tp.BlockHeader.ToBlockHeader(t),
-		BlockHeight:    tp.BlockHeight,
-		AnchorTx:       *test.ParseTx(t, tp.AnchorTx),
-		TxMerkleProof:  *tp.TxMerkleProof.ToTxMerkleProof(t),
-		Asset:          *tp.Asset.ToAsset(t),
-		InclusionProof: *tp.InclusionProof.ToTaprootProof(t),
+		PrevOut:         test.ParseOutPoint(t, tp.PrevOut),
+		BlockHeader:     *tp.BlockHeader.ToBlockHeader(t),
+		BlockHeight:     tp.BlockHeight,
+		AnchorTx:        *test.ParseTx(t, tp.AnchorTx),
+		TxMerkleProof:   *tp.TxMerkleProof.ToTxMerkleProof(t),
+		Asset:           *tp.Asset.ToAsset(t),
+		InclusionProof:  *tp.InclusionProof.ToTaprootProof(t),
+		UnknownOddTypes: tp.UnknownOddTypes,
 	}
 
 	for i := range tp.ExclusionProofs {
@@ -774,8 +778,9 @@ func NewTestFromTaprootProof(t testing.TB,
 	t.Helper()
 
 	ttp := &TestTaprootProof{
-		OutputIndex: p.OutputIndex,
-		InternalKey: test.HexPubKey(p.InternalKey),
+		OutputIndex:     p.OutputIndex,
+		InternalKey:     test.HexPubKey(p.InternalKey),
+		UnknownOddTypes: p.UnknownOddTypes,
 	}
 
 	if p.CommitmentProof != nil {
@@ -798,14 +803,16 @@ type TestTaprootProof struct {
 	InternalKey     string               `json:"internal_key"`
 	CommitmentProof *TestCommitmentProof `json:"commitment_proof"`
 	TapscriptProof  *TestTapscriptProof  `json:"tapscript_proof"`
+	UnknownOddTypes tlv.TypeMap          `json:"unknown_odd_types"`
 }
 
 func (ttp *TestTaprootProof) ToTaprootProof(t testing.TB) *TaprootProof {
 	t.Helper()
 
 	p := &TaprootProof{
-		OutputIndex: ttp.OutputIndex,
-		InternalKey: test.ParsePubKey(t, ttp.InternalKey),
+		OutputIndex:     ttp.OutputIndex,
+		InternalKey:     test.ParsePubKey(t, ttp.InternalKey),
+		UnknownOddTypes: ttp.UnknownOddTypes,
 	}
 
 	if ttp.CommitmentProof != nil {
@@ -829,12 +836,14 @@ func NewTestFromCommitmentProof(t testing.TB,
 		TapscriptSibling: commitment.HexTapscriptSibling(
 			t, p.TapSiblingPreimage,
 		),
+		UnknownOddTypes: p.UnknownOddTypes,
 	}
 }
 
 type TestCommitmentProof struct {
 	Proof            *commitment.TestProof `json:"proof"`
 	TapscriptSibling string                `json:"tapscript_sibling"`
+	UnknownOddTypes  tlv.TypeMap           `json:"unknown_odd_types"`
 }
 
 func (tcp *TestCommitmentProof) ToCommitmentProof(
@@ -847,6 +856,7 @@ func (tcp *TestCommitmentProof) ToCommitmentProof(
 		TapSiblingPreimage: commitment.ParseTapscriptSibling(
 			t, tcp.TapscriptSibling,
 		),
+		UnknownOddTypes: tcp.UnknownOddTypes,
 	}
 }
 
@@ -856,16 +866,22 @@ func NewTestFromTapscriptProof(t testing.TB,
 	t.Helper()
 
 	return &TestTapscriptProof{
-		TapPreimage1: commitment.HexTapscriptSibling(t, p.TapPreimage1),
-		TapPreimage2: commitment.HexTapscriptSibling(t, p.TapPreimage2),
-		Bip86:        p.Bip86,
+		TapPreimage1: commitment.HexTapscriptSibling(
+			t, p.TapPreimage1,
+		),
+		TapPreimage2: commitment.HexTapscriptSibling(
+			t, p.TapPreimage2,
+		),
+		Bip86:           p.Bip86,
+		UnknownOddTypes: p.UnknownOddTypes,
 	}
 }
 
 type TestTapscriptProof struct {
-	TapPreimage1 string `json:"tap_preimage_1"`
-	TapPreimage2 string `json:"tap_preimage_2"`
-	Bip86        bool   `json:"bip86"`
+	TapPreimage1    string      `json:"tap_preimage_1"`
+	TapPreimage2    string      `json:"tap_preimage_2"`
+	Bip86           bool        `json:"bip86"`
+	UnknownOddTypes tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 func (ttp *TestTapscriptProof) ToTapscriptProof(t testing.TB) *TapscriptProof {
@@ -878,7 +894,8 @@ func (ttp *TestTapscriptProof) ToTapscriptProof(t testing.TB) *TapscriptProof {
 		TapPreimage2: commitment.ParseTapscriptSibling(
 			t, ttp.TapPreimage2,
 		),
-		Bip86: ttp.Bip86,
+		Bip86:           ttp.Bip86,
+		UnknownOddTypes: ttp.UnknownOddTypes,
 	}
 }
 
@@ -886,14 +903,16 @@ func NewTestFromMetaReveal(t testing.TB, m *MetaReveal) *TestMetaReveal {
 	t.Helper()
 
 	return &TestMetaReveal{
-		Type: uint8(m.Type),
-		Data: hex.EncodeToString(m.Data),
+		Type:            uint8(m.Type),
+		Data:            hex.EncodeToString(m.Data),
+		UnknownOddTypes: m.UnknownOddTypes,
 	}
 }
 
 type TestMetaReveal struct {
-	Type uint8  `json:"type"`
-	Data string `json:"data"`
+	Type            uint8       `json:"type"`
+	Data            string      `json:"data"`
+	UnknownOddTypes tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
@@ -903,7 +922,8 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 	require.NoError(t, err)
 
 	return &MetaReveal{
-		Type: MetaType(tmr.Type),
-		Data: data,
+		Type:            MetaType(tmr.Type),
+		Data:            data,
+		UnknownOddTypes: tmr.UnknownOddTypes,
 	}
 }

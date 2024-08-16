@@ -1470,6 +1470,16 @@ type Asset struct {
 	// together across distinct asset IDs, allowing further issuance of the
 	// asset to be made possible.
 	GroupKey *GroupKey
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing
+	// as a leaf to arrive at the same byte representation and with that
+	// same commitment root hash. This enables forward compatibility with
+	// future versions of the protocol as it allows new odd (optional) types
+	// to be added without breaking old clients that don't yet fully
+	// understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
 // IsUnknownVersion returns true if an asset has a version that is not
@@ -1863,16 +1873,27 @@ func (a *Asset) deepEqual(allowSegWitIgnoreTxWitness bool, o *Asset) bool {
 		return false
 	}
 
-	// If both assets have a tweaked key
-	//
-	// TODO(roasbeef): fin
-	if !a.ScriptKey.PubKey.IsEqual(o.ScriptKey.PubKey) {
-		return false
-	}
+	// If both assets have a script public key, comparing that is enough.
+	// We just want to know that we have the same key, not that the internal
+	// representation (e.g. the TweakedKey sub struct being set) is the same
+	// as well.
+	switch {
+	// If only one of the keys is nil, they are not equal.
+	case (a.ScriptKey.PubKey == nil && o.ScriptKey.PubKey != nil) ||
+		(a.ScriptKey.PubKey != nil && o.ScriptKey.PubKey == nil):
 
-	/*if !reflect.DeepEqual(a.ScriptKey, o.ScriptKey) {
 		return false
-	}*/
+
+	// If both are non-nil, we compare the public keys.
+	case a.ScriptKey.PubKey != nil && o.ScriptKey.PubKey != nil &&
+		!a.ScriptKey.PubKey.IsEqual(o.ScriptKey.PubKey):
+
+		return false
+
+	// If both are nil or both are non-nil and equal, we continue below.
+	default:
+		// Continue below
+	}
 
 	if !a.GroupKey.IsEqual(o.GroupKey) {
 		return false
@@ -1924,7 +1945,9 @@ func (a *Asset) encodeRecords(encodeType EncodeType) []tlv.Record {
 	if a.GroupKey != nil {
 		records = append(records, NewLeafGroupKeyRecord(&a.GroupKey))
 	}
-	return records
+
+	// Add any unknown odd types that were encountered during decoding.
+	return CombineRecords(records, a.UnknownOddTypes)
 }
 
 // EncodeRecords determines the non-nil records to include when encoding an
@@ -2000,7 +2023,15 @@ func (a *Asset) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	unknownOddTypes, err := TlvStrictDecode(stream, r, KnownAssetLeafTypes)
+	if err != nil {
+		return err
+	}
+
+	a.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
 
 // Leaf returns the asset encoded as a MS-SMT leaf node.

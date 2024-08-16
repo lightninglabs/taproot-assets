@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -43,6 +44,45 @@ const (
 
 	MetaRevealEncodingType tlv.Type = 0
 	MetaRevealDataType     tlv.Type = 2
+)
+
+// KnownProofTypes is a set of all known proof TLV types. This set is asserted
+// to be complete by a check in the BIP test vector unit tests.
+var KnownProofTypes = fn.NewSet(
+	VersionType, PrevOutType, BlockHeaderType, AnchorTxType,
+	TxMerkleProofType, AssetLeafType, InclusionProofType,
+	ExclusionProofsType, SplitRootProofType, MetaRevealType,
+	AdditionalInputsType, ChallengeWitnessType, BlockHeightType,
+	GenesisRevealType, GroupKeyRevealType,
+)
+
+// KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This
+// set is asserted to be complete by a check in the BIP test vector unit tests.
+var KnownTaprootProofTypes = fn.NewSet(
+	TaprootProofOutputIndexType, TaprootProofInternalKeyType,
+	TaprootProofCommitmentProofType, TaprootProofTapscriptProofType,
+)
+
+// KnownCommitmentProofTypes is a set of all known commitment proof TLV types.
+// This set is asserted to be complete by a check in the BIP test vector unit
+// tests.
+var KnownCommitmentProofTypes = fn.NewSet(
+	commitment.ProofAssetProofType, commitment.ProofTaprootAssetProofType,
+	CommitmentProofTapSiblingPreimageType,
+)
+
+// KnownTapscriptProofTypes is a set of all known Tapscript proof TLV types.
+// This set is asserted to be complete by a check in the BIP test vector unit
+// tests.
+var KnownTapscriptProofTypes = fn.NewSet(
+	TapscriptProofTapPreimage1, TapscriptProofTapPreimage2,
+	TapscriptProofBip86,
+)
+
+// KnownMetaRevealTypes is a set of all known meta reveal TLV types. This set is
+// asserted to be complete by a check in the BIP test vector unit tests.
+var KnownMetaRevealTypes = fn.NewSet(
+	MetaRevealEncodingType, MetaRevealDataType,
 )
 
 func VersionRecord(version *TransitionVersion) tlv.Record {

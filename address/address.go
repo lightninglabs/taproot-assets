@@ -130,6 +130,14 @@ type Tap struct {
 	// ProofCourierAddr is the address of the proof courier that will be
 	// used to distribute related proofs for this address.
 	ProofCourierAddr url.URL
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
 // newAddrOptions are a set of options that can modified how a new address is
@@ -380,7 +388,8 @@ func (a *Tap) EncodeRecords() []tlv.Record {
 		records, newProofCourierAddrRecord(&a.ProofCourierAddr),
 	)
 
-	return records
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, a.UnknownOddTypes)
 }
 
 // DecodeRecords provides all records known for an address for proper
@@ -414,7 +423,17 @@ func (a *Tap) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.DecodeP2P(r)
+
+	unknownOddTypes, err := asset.TlvStrictDecodeP2P(
+		stream, r, KnownAddressTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	a.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
 
 // EncodeAddress returns a bech32m string encoding of a Taproot Asset address.

@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -362,6 +363,29 @@ func TestAddressEncoding(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "simnet collectible with sibling and unknown " +
+				"TLV type",
+			f: func() (*Tap, string, error) {
+				addr, _, err := randEncodedAddress(
+					t, &SimNetTap, false, true,
+					asset.Collectible,
+				)
+
+				if err != nil {
+					return nil, "", err
+				}
+
+				foo := []byte("foo")
+				addr.UnknownOddTypes = tlv.TypeMap{
+					test.TestVectorAllowedUnknownType: foo,
+				}
+
+				str, err := addr.EncodeAddress()
+				return addr, str, err
+			},
+			err: nil,
+		},
+		{
 			name: "unsupported hrp",
 			f: func() (*Tap, string, error) {
 				return randEncodedAddress(
@@ -492,6 +516,24 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 
 			areEqual := validCase.Expected == addrString
 
+			// Make sure the address in the test vectors doesn't use
+			// a record type we haven't marked as known/supported
+			// yet. If the following check fails, you need to update
+			// the KnownAddressTypes set.
+			for _, record := range a.EncodeRecords() {
+				// Test vectors may contain this one type to
+				// demonstrate that it is not rejected.
+				if record.Type() ==
+					test.TestVectorAllowedUnknownType {
+
+					continue
+				}
+
+				require.Contains(
+					tt, KnownAddressTypes, record.Type(),
+				)
+			}
+
 			// Create nice diff if things don't match.
 			if !areEqual {
 				chainParams, err := a.Net()
@@ -543,4 +585,47 @@ func FuzzAddressDecode(f *testing.F) {
 		a := &Tap{}
 		_ = a.Decode(bytes.NewReader(data))
 	})
+}
+
+// TestAddressUnknownOddType tests that an unknown odd type is allowed in an
+// address and that we can still arrive at the correct leaf hash with it.
+func TestAddressUnknownOddType(t *testing.T) {
+	knownAddr, _, _ := RandAddr(t, &TestNet3Tap, RandProofCourierAddr(t))
+	knownAddrString, err := knownAddr.EncodeAddress()
+	require.NoError(t, err)
+
+	test.RunUnknownOddTypeTest(
+		t, knownAddr.Tap, &asset.ErrUnknownType{},
+		func(buf *bytes.Buffer, addr *Tap) error {
+			return addr.Encode(buf)
+		},
+		func(buf *bytes.Buffer) (*Tap, error) {
+			parsedAddr := &Tap{
+				ChainParams: &TestNet3Tap,
+			}
+			return parsedAddr, parsedAddr.Decode(buf)
+		},
+		func(parsedAddr *Tap, unknownTypes tlv.TypeMap) {
+			require.Equal(
+				t, unknownTypes, parsedAddr.UnknownOddTypes,
+			)
+
+			// The address should've changed, to make sure the
+			// unknown value was taken into account when creating
+			// the serialized address.
+			parsedAddrString, err := parsedAddr.EncodeAddress()
+			require.NoError(t, err)
+
+			require.NotEqual(t, knownAddrString, parsedAddrString)
+
+			parsedAddr.UnknownOddTypes = nil
+
+			// The genesis information isn't actually encoded in the
+			// address, so we need to clear that out before
+			// comparing.
+			knownAddr.Tap.assetGen = asset.Genesis{}
+
+			require.Equal(t, knownAddr.Tap, parsedAddr)
+		},
+	)
 }

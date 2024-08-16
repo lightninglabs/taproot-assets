@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -552,6 +553,7 @@ func NewTestFromAsset(t testing.TB, a *Asset) *TestAsset {
 		RelativeLockTime:    a.RelativeLockTime,
 		ScriptVersion:       uint16(a.ScriptVersion),
 		ScriptKey:           test.HexPubKey(a.ScriptKey.PubKey),
+		UnknownOddTypes:     a.UnknownOddTypes,
 	}
 
 	for _, w := range a.PrevWitnesses {
@@ -588,6 +590,7 @@ type TestAsset struct {
 	ScriptVersion       uint16          `json:"script_version"`
 	ScriptKey           string          `json:"script_key"`
 	GroupKey            *TestGroupKey   `json:"group_key"`
+	UnknownOddTypes     tlv.TypeMap     `json:"unknown_odd_types"`
 }
 
 func (ta *TestAsset) ToAsset(t testing.TB) *Asset {
@@ -635,6 +638,7 @@ func (ta *TestAsset) ToAsset(t testing.TB) *Asset {
 		ScriptKey: ScriptKey{
 			PubKey: test.ParsePubKey(t, ta.ScriptKey),
 		},
+		UnknownOddTypes: ta.UnknownOddTypes,
 	}
 
 	for _, tw := range ta.PrevWitnesses {

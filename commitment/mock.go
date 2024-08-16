@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/maps"
 )
@@ -75,15 +76,21 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 
 	tp := &TestProof{
 		TaprootAssetProof: &TestTaprootAssetProof{
-			Proof:   mssmt.HexProof(t, &p.TaprootAssetProof.Proof),
-			Version: uint8(p.TaprootAssetProof.Version),
+			Proof: mssmt.HexProof(
+				t, &p.TaprootAssetProof.Proof,
+			),
+			Version:         uint8(p.TaprootAssetProof.Version),
+			UnknownOddTypes: p.UnknownOddTypes,
 		},
 	}
 	if p.AssetProof != nil {
 		tp.AssetProof = &TestAssetProof{
 			Proof:   mssmt.HexProof(t, &p.AssetProof.Proof),
 			Version: uint8(p.AssetProof.Version),
-			TapKey:  hex.EncodeToString(p.AssetProof.TapKey[:]),
+			TapKey: hex.EncodeToString(
+				p.AssetProof.TapKey[:],
+			),
+			UnknownOddTypes: p.UnknownOddTypes,
 		}
 	}
 
@@ -93,6 +100,7 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 type TestProof struct {
 	AssetProof        *TestAssetProof        `json:"asset_proof"`
 	TaprootAssetProof *TestTaprootAssetProof `json:"taproot_asset_proof"`
+	UnknownOddTypes   tlv.TypeMap            `json:"unknown_odd_types"`
 }
 
 func (tp *TestProof) ToProof(t testing.TB) *Proof {
@@ -106,12 +114,17 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 			Version: TapCommitmentVersion(
 				tp.TaprootAssetProof.Version,
 			),
+			UnknownOddTypes: tp.TaprootAssetProof.UnknownOddTypes,
 		},
+		UnknownOddTypes: tp.UnknownOddTypes,
 	}
 	if tp.AssetProof != nil {
 		p.AssetProof = &AssetProof{
-			Proof:   mssmt.ParseProof(t, tp.AssetProof.Proof),
-			Version: asset.Version(tp.AssetProof.Version),
+			Proof: mssmt.ParseProof(
+				t, tp.AssetProof.Proof,
+			),
+			Version:         asset.Version(tp.AssetProof.Version),
+			UnknownOddTypes: tp.AssetProof.UnknownOddTypes,
 		}
 		assetID, err := hex.DecodeString(tp.AssetProof.TapKey)
 		require.NoError(t, err)
@@ -122,14 +135,16 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 }
 
 type TestAssetProof struct {
-	Proof   string `json:"proof"`
-	Version uint8  `json:"version"`
-	TapKey  string `json:"tap_key"`
+	Proof           string      `json:"proof"`
+	Version         uint8       `json:"version"`
+	TapKey          string      `json:"tap_key"`
+	UnknownOddTypes tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 type TestTaprootAssetProof struct {
-	Proof   string `json:"proof"`
-	Version uint8  `json:"version"`
+	Proof           string      `json:"proof"`
+	Version         uint8       `json:"version"`
+	UnknownOddTypes tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 func NewTestFromSplitSet(t testing.TB, s SplitSet) TestSplitSet {

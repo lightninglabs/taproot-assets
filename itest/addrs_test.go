@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -22,6 +23,7 @@ import (
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -659,6 +661,179 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	} else {
 		AssertNumAssets(t.t, ctxt, alice, 3+(runIdx*3))
 	}
+}
+
+// testUnknownTlvType tests that we can create an address with an unknown TLV
+// type and that assets can be sent to it. We then modify a proof similarly and
+// make sure it can be imported by a node correctly.
+func testUnknownTlvType(t *harnessTest) {
+	// First, mint an asset, so we have one to create addresses for.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0], issuableAssets[0],
+		},
+	)
+	mintedAsset := rpcAssets[0]
+	genInfo := mintedAsset.AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// We'll make a second node now that'll be the receiver of all the
+	// assets made above.
+	alice := t.tapd
+	bob := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	// We now create an address for Bob and add some unknown TLV type to it.
+	bobAddr, err := bob.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     123,
+	})
+	require.NoError(t.t, err)
+
+	decoded, err := address.DecodeAddress(
+		bobAddr.Encoded, &address.RegressionNetTap,
+	)
+	require.NoError(t.t, err)
+
+	decoded.UnknownOddTypes = tlv.TypeMap{
+		345: []byte("plz send assets"),
+	}
+	bobAddr.Encoded, err = decoded.EncodeAddress()
+	require.NoError(t.t, err)
+
+	sendResp, sendEvents := sendAssetsToAddr(t, alice, bobAddr)
+	sendRespJSON, err := formatProtoJSON(sendResp)
+	require.NoError(t.t, err)
+	t.Logf("Got response from sending assets: %v", sendRespJSON)
+
+	AssertAddrEvent(t.t, bob, bobAddr, 1, statusDetected)
+
+	// Mine a block to make sure the events are marked as confirmed.
+	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+
+	// Eventually the event should be marked as confirmed.
+	AssertAddrEventByStatus(t.t, bob, statusConfirmed, 1)
+
+	// Make sure we have imported and finalized all proofs.
+	AssertNonInteractiveRecvComplete(t.t, bob, 1)
+	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
+
+	// We export the proof for the address so we can modify it.
+	transferProof := exportProof(
+		t, bob, sendResp, bobAddr.ScriptKey, genInfo,
+	)
+
+	f, err := proof.DecodeFile(transferProof.RawProofFile)
+	require.NoError(t.t, err)
+
+	lastProof, err := f.LastProof()
+	require.NoError(t.t, err)
+
+	proofCustomTypes := tlv.TypeMap{
+		123: []byte("got something to prove"),
+	}
+	lastProof.UnknownOddTypes = proofCustomTypes
+	lastProof.InclusionProof.UnknownOddTypes = tlv.TypeMap{
+		345: []byte("it's included"),
+	}
+	cp := lastProof.InclusionProof.CommitmentProof
+	cp.UnknownOddTypes = tlv.TypeMap{
+		567: []byte("it's committed"),
+	}
+	cp.TaprootAssetProof.UnknownOddTypes = tlv.TypeMap{
+		789: []byte("there's assets in here..."),
+	}
+	cp.AssetProof.UnknownOddTypes = tlv.TypeMap{
+		987: []byte("...and here"),
+	}
+	lastProof.ExclusionProofs[0].UnknownOddTypes = tlv.TypeMap{
+		321: []byte("it's excluded"),
+	}
+
+	// Let's re-encode the proof and import it to the new node.
+	err = f.ReplaceLastProof(*lastProof)
+	require.NoError(t.t, err)
+	modifiedBlob, err := proof.EncodeFile(f)
+	require.NoError(t.t, err)
+
+	// We make a new node to import the modified proof.
+	charlie := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, charlie.stop(!*noDelete))
+	}()
+
+	importProof(t, charlie, modifiedBlob, genInfo.GenesisPoint)
+
+	// When we export it again, it should have the same TLV types.
+	transferProof2 := exportProof(
+		t, charlie, sendResp, bobAddr.ScriptKey, genInfo,
+	)
+	f2, err := proof.DecodeFile(transferProof2.RawProofFile)
+	require.NoError(t.t, err)
+
+	lastProof2, err := f2.LastProof()
+	require.NoError(t.t, err)
+
+	// If the contents are identical to what we uploaded, we just need to
+	// check a single value in the proof to be sure all the custom types are
+	// there.
+	require.Equal(t.t, modifiedBlob, transferProof2.RawProofFile)
+	require.True(t.t, bytes.Contains(modifiedBlob, []byte("it's included")))
+	require.True(
+		t.t, bytes.Contains(modifiedBlob, []byte("it's committed")),
+	)
+	require.Equal(t.t, proofCustomTypes, lastProof2.UnknownOddTypes)
+
+	// The proof should also still be valid. Importing the proof validates
+	// it, but we also want to do it explicitly.
+	verifyResp, err := charlie.VerifyProof(ctxb, &taprpc.ProofFile{
+		RawProofFile: modifiedBlob,
+		GenesisPoint: genInfo.GenesisPoint,
+	})
+	require.NoError(t.t, err)
+	require.True(t.t, verifyResp.Valid)
+
+	// The final test involves adding some extra data to the meta reveal of
+	// a proof. That will invalidate the proof, as the commitments are for
+	// a different meta. But the meta hash should be calculated differently,
+	// showing that the extra data is considered for the meta hash
+	// calculation.
+	firstProof, err := f2.ProofAt(0)
+	require.NoError(t.t, err)
+
+	require.NotNil(t.t, firstProof.MetaReveal)
+	hashBeforeUpdate := firstProof.MetaReveal.MetaHash()
+
+	// Let's modify the meta hash with some extra data.
+	firstProof.MetaReveal.UnknownOddTypes = tlv.TypeMap{
+		123: []byte("extra data"),
+	}
+	hashAfterUpdate := firstProof.MetaReveal.MetaHash()
+
+	require.NotEqual(t.t, hashBeforeUpdate, hashAfterUpdate)
+
+	// We should not be able to verify the proof anymore.
+	err = f2.ReplaceProofAt(0, *firstProof)
+	require.NoError(t.t, err)
+	modifiedBlob2, err := proof.EncodeFile(f2)
+	require.NoError(t.t, err)
+
+	verifyResp, err = charlie.VerifyProof(ctxb, &taprpc.ProofFile{
+		RawProofFile: modifiedBlob2,
+		GenesisPoint: genInfo.GenesisPoint,
+	})
+	require.NoError(t.t, err)
+	require.False(t.t, verifyResp.Valid)
 }
 
 // sendProof manually exports a proof from the given source node and imports it

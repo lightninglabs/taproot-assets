@@ -1,6 +1,7 @@
 package commitment
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 	"math/rand"
@@ -16,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1633,4 +1635,161 @@ func TestAssetCommitmentDeleteMaxVersion(t *testing.T) {
 	require.NoError(t, assetCommitment.Delete(asset2))
 
 	require.Equal(t, asset.V0, assetCommitment.Version)
+}
+
+// TestProofUnknownOddType tests that an unknown odd type is allowed in a
+// commitment proof and that we can still arrive at the correct root hash with
+// it.
+func TestProofUnknownOddType(t *testing.T) {
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	singleCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, knownProof, err := singleCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	var knownProofBytes []byte
+	test.RunUnknownOddTypeTest(
+		t, knownProof, &asset.ErrUnknownType{},
+		func(buf *bytes.Buffer, proof *Proof) error {
+			err := proof.Encode(buf)
+
+			knownProofBytes = fn.CopySlice(buf.Bytes())
+
+			return err
+		},
+		func(buf *bytes.Buffer) (*Proof, error) {
+			var parsedProof Proof
+			return &parsedProof, parsedProof.Decode(buf)
+		},
+		func(parsedProof *Proof, unknownTypes tlv.TypeMap) {
+			require.Equal(
+				t, unknownTypes, parsedProof.UnknownOddTypes,
+			)
+
+			// The proof should've changed, to make sure the
+			// unknown value was taken into account when creating
+			// the serialized proof.
+			var newBuf bytes.Buffer
+			err = parsedProof.Encode(&newBuf)
+			require.NoError(t, err)
+
+			require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+
+			parsedProof.UnknownOddTypes = nil
+			require.Equal(t, knownProof, parsedProof)
+		},
+	)
+}
+
+// TestAssetProofUnknownOddType tests that an unknown odd type is allowed in an
+// asset proof and that we can still arrive at the correct root hash with it.
+func TestAssetProofUnknownOddType(t *testing.T) {
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	singleCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := singleCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	require.NotNil(t, commitmentProof.AssetProof)
+	knownAssetProof := commitmentProof.AssetProof
+
+	var knownProofBytes []byte
+	test.RunUnknownOddTypeTest(
+		t, knownAssetProof, &asset.ErrUnknownType{},
+		func(buf *bytes.Buffer, proof *AssetProof) error {
+			err := AssetProofEncoder(buf, &proof, nil)
+
+			knownProofBytes = fn.CopySlice(buf.Bytes())
+
+			return err
+		},
+		func(buf *bytes.Buffer) (*AssetProof, error) {
+			parsedProof := &AssetProof{}
+			return parsedProof, AssetProofDecoder(
+				buf, &parsedProof, nil, uint64(buf.Len()),
+			)
+		},
+		func(parsedProof *AssetProof, unknownTypes tlv.TypeMap) {
+			require.Equal(
+				t, unknownTypes, parsedProof.UnknownOddTypes,
+			)
+
+			// The proof should've changed, to make sure the unknown
+			// value was taken into account when creating the
+			// serialized proof.
+			var newBuf bytes.Buffer
+			err = AssetProofEncoder(&newBuf, &parsedProof, nil)
+			require.NoError(t, err)
+
+			require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+
+			parsedProof.UnknownOddTypes = nil
+			require.Equal(t, knownAssetProof, parsedProof)
+		},
+	)
+}
+
+// TestTaprootAssetProofUnknownOddType tests that an unknown odd type is allowed
+// in a Taproot asset proof and that we can still arrive at the correct root
+// hash with it.
+func TestTaprootAssetProofUnknownOddType(t *testing.T) {
+	genesis := asset.RandGenesis(t, asset.Normal)
+	asset1 := randAsset(t, genesis, nil)
+
+	singleCommitment, err := FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	_, commitmentProof, err := singleCommitment.Proof(
+		asset1.TapCommitmentKey(), asset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	knownTaprootAssetProof := commitmentProof.TaprootAssetProof
+
+	var knownProofBytes []byte
+	test.RunUnknownOddTypeTest(
+		t, knownTaprootAssetProof, &asset.ErrUnknownType{},
+		func(buf *bytes.Buffer, proof TaprootAssetProof) error {
+			err := TaprootAssetProofEncoder(buf, &proof, nil)
+
+			knownProofBytes = fn.CopySlice(buf.Bytes())
+
+			return err
+		},
+		func(buf *bytes.Buffer) (TaprootAssetProof, error) {
+			var parsedProof TaprootAssetProof
+			return parsedProof, TaprootAssetProofDecoder(
+				buf, &parsedProof, nil, uint64(buf.Len()),
+			)
+		},
+		func(parsedProof TaprootAssetProof, unknownTypes tlv.TypeMap) {
+			require.Equal(
+				t, unknownTypes, parsedProof.UnknownOddTypes,
+			)
+
+			// The proof should've changed, to make sure the unknown
+			// value was taken into account when creating the
+			// serialized proof.
+			var newBuf bytes.Buffer
+			err = TaprootAssetProofEncoder(
+				&newBuf, &parsedProof, nil,
+			)
+			require.NoError(t, err)
+
+			require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+
+			parsedProof.UnknownOddTypes = nil
+			require.Equal(t, knownTaprootAssetProof, parsedProof)
+		},
+	)
 }

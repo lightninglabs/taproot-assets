@@ -37,17 +37,29 @@ type CommitmentProof struct {
 	// hash together with the Taproot Asset commitment leaf node to arrive
 	// at the tapscript root of the expected output.
 	TapSiblingPreimage *commitment.TapscriptPreimage
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
 // EncodeRecords returns the encoding records for the CommitmentProof.
 func (p CommitmentProof) EncodeRecords() []tlv.Record {
 	records := p.Proof.EncodeRecords()
 	if p.TapSiblingPreimage != nil {
-		records = append(records, CommitmentProofTapSiblingPreimageRecord(
-			&p.TapSiblingPreimage,
-		))
+		records = append(
+			records, CommitmentProofTapSiblingPreimageRecord(
+				&p.TapSiblingPreimage,
+			),
+		)
 	}
-	return records
+
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, p.UnknownOddTypes)
 }
 
 // DecodeRecords returns the decoding records for the CommitmentProof.
@@ -74,7 +86,17 @@ func (p *CommitmentProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	unknownOddTypes, err := asset.TlvStrictDecodeP2P(
+		stream, r, KnownCommitmentProofTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	p.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
 
 // TapscriptProof represents a proof of a Taproot output not including a
@@ -96,6 +118,14 @@ type TapscriptProof struct {
 	// change output) that does not commit to any script or Taproot Asset
 	// root.
 	Bip86 bool
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
 // EncodeRecords returns the encoding records for TapscriptProof.
@@ -112,7 +142,9 @@ func (p TapscriptProof) EncodeRecords() []tlv.Record {
 		))
 	}
 	records = append(records, TapscriptProofBip86Record(&p.Bip86))
-	return records
+
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, p.UnknownOddTypes)
 }
 
 // DecodeRecords returns the decoding records for TapscriptProof.
@@ -139,7 +171,17 @@ func (p *TapscriptProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	unknownOddTypes, err := asset.TlvStrictDecodeP2P(
+		stream, r, KnownTapscriptProofTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	p.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
 
 // TaprootProof represents a proof that reveals the partial contents to a
@@ -164,6 +206,14 @@ type TaprootProof struct {
 	// NOTE: This field will be set only if the output does NOT contain a
 	// valid Taproot Asset commitment.
 	TapscriptProof *TapscriptProof
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
 // ProofCommitmentKeys stores the Taproot Asset commitments and taproot output
@@ -183,7 +233,9 @@ func (p TaprootProof) EncodeRecords() []tlv.Record {
 			&p.TapscriptProof,
 		))
 	}
-	return records
+
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, p.UnknownOddTypes)
 }
 
 func (p *TaprootProof) DecodeRecords() []tlv.Record {
@@ -208,7 +260,17 @@ func (p *TaprootProof) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.DecodeP2P(r)
+
+	unknownOddTypes, err := asset.TlvStrictDecodeP2P(
+		stream, r, KnownTaprootProofTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	p.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
 
 // deriveTaprootKey derives the taproot key backing a Taproot Asset commitment.

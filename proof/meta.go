@@ -42,7 +42,7 @@ const (
 	// minted asset to express the decimal display of the minted asset.
 	MetadataDecDisplayKey = "decimal_display"
 
-	// maxDecDisplay is the maximum value of decimal display that a user can
+	// MaxDecDisplay is the maximum value of decimal display that a user can
 	// define when minting assets. Since the uint64 max value has 19 decimal
 	// places we will allow for a max of 12 decimal places.
 	MaxDecDisplay = uint32(12)
@@ -99,9 +99,18 @@ type MetaReveal struct {
 
 	// Data is the committed data being revealed.
 	Data []byte
+
+	// UnknownOddTypes is a map of unknown odd types that were encountered
+	// during decoding. This map is used to preserve unknown types that we
+	// don't know of yet, so we can still encode them back when serializing.
+	// This enables forward compatibility with future versions of the
+	// protocol as it allows new odd (optional) types to be added without
+	// breaking old clients that don't yet fully understand them.
+	UnknownOddTypes tlv.TypeMap
 }
 
-// A subset of Integer that excludes int8, since we never use it in practice.
+// SizableInteger is a subset of Integer that excludes int8, since we never use
+// it in practice.
 type SizableInteger interface {
 	constraints.Unsigned | ~int | ~int16 | ~int32 | ~int64
 }
@@ -336,10 +345,13 @@ func (m *MetaReveal) MetaHash() [asset.MetaHashLen]byte {
 
 // EncodeRecords returns the TLV encode records for the meta reveal.
 func (m *MetaReveal) EncodeRecords() []tlv.Record {
-	return []tlv.Record{
+	records := []tlv.Record{
 		MetaRevealTypeRecord(&m.Type),
 		MetaRevealDataRecord(&m.Data),
 	}
+
+	// Add any unknown odd types that were encountered during decoding.
+	return asset.CombineRecords(records, m.UnknownOddTypes)
 }
 
 // DecodeRecords returns the TLV decode records for the meta reveal.
@@ -365,5 +377,18 @@ func (m *MetaReveal) Decode(r io.Reader) error {
 	if err != nil {
 		return err
 	}
-	return stream.Decode(r)
+
+	// Note, we can't use the DecodeP2P method here, because the meta data
+	// itself can be larger than 65k bytes. But we impose limits in the
+	// individual decoding functions.
+	unknownOddTypes, err := asset.TlvStrictDecode(
+		stream, r, KnownMetaRevealTypes,
+	)
+	if err != nil {
+		return err
+	}
+
+	m.UnknownOddTypes = unknownOddTypes
+
+	return nil
 }
