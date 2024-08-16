@@ -46,6 +46,10 @@ var testCases = []*testCase{
 		test: testMultiAddress,
 	},
 	{
+		name: "unknown TLV type",
+		test: testUnknownTlvType,
+	},
+	{
 		name: "address syncer",
 		test: testAddressAssetSyncer,
 	},
