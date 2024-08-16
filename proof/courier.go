@@ -15,7 +15,7 @@ import (
 	"github.com/lightninglabs/lightning-node-connect/hashmailrpc"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -1055,7 +1055,7 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		// Construct asset leaf.
 		// Note: We pass in a none-value for the decimal display option,
 		// as this doesn't matter for the courrier.
-		rpcAsset, err := taprpc.MarshalAsset(
+		rpcAsset, err := rpcutils.MarshalAsset(
 			ctx, &proofAsset, true, true, nil, fn.None[uint32](),
 		)
 		if err != nil {

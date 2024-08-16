@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -562,7 +563,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 		OutputIndex:  anchorIdx,
 		Type:         asset.Type(req.AssetType),
 	}
-	assetVersion, err := taprpc.UnmarshalAssetVersion(req.AssetVersion)
+	assetVersion, err := rpcutils.UnmarshalAssetVersion(req.AssetVersion)
 	require.NoError(t.t, err)
 
 	newAsset, err := asset.New(

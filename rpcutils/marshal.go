@@ -1,4 +1,4 @@
-package taprpc
+package rpcutils
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -24,9 +25,9 @@ import (
 //
 // nolint: lll
 var (
-	ProofDeliveryStatusNotApplicable = ProofDeliveryStatus_PROOF_DELIVERY_STATUS_NOT_APPLICABLE
-	ProofDeliveryStatusComplete      = ProofDeliveryStatus_PROOF_DELIVERY_STATUS_COMPLETE
-	ProofDeliveryStatusPending       = ProofDeliveryStatus_PROOF_DELIVERY_STATUS_PENDING
+	ProofDeliveryStatusNotApplicable = taprpc.ProofDeliveryStatus_PROOF_DELIVERY_STATUS_NOT_APPLICABLE
+	ProofDeliveryStatusComplete      = taprpc.ProofDeliveryStatus_PROOF_DELIVERY_STATUS_COMPLETE
+	ProofDeliveryStatusPending       = taprpc.ProofDeliveryStatus_PROOF_DELIVERY_STATUS_PENDING
 )
 
 // KeyLookup is used to determine whether a key is under the control of the
@@ -39,15 +40,15 @@ type KeyLookup interface {
 
 // MarshalKeyDescriptor marshals the native key descriptor into the RPC
 // counterpart.
-func MarshalKeyDescriptor(desc keychain.KeyDescriptor) *KeyDescriptor {
+func MarshalKeyDescriptor(desc keychain.KeyDescriptor) *taprpc.KeyDescriptor {
 	var rawKeyBytes []byte
 	if desc.PubKey != nil {
 		rawKeyBytes = desc.PubKey.SerializeCompressed()
 	}
 
-	return &KeyDescriptor{
+	return &taprpc.KeyDescriptor{
 		RawKeyBytes: rawKeyBytes,
-		KeyLoc: &KeyLocator{
+		KeyLoc: &taprpc.KeyLocator{
 			KeyFamily: int32(desc.KeyLocator.Family),
 			KeyIndex:  int32(desc.KeyLocator.Index),
 		},
@@ -56,8 +57,8 @@ func MarshalKeyDescriptor(desc keychain.KeyDescriptor) *KeyDescriptor {
 
 // UnmarshalKeyDescriptor parses the RPC key descriptor into the native
 // counterpart.
-func UnmarshalKeyDescriptor(rpcDesc *KeyDescriptor) (keychain.KeyDescriptor,
-	error) {
+func UnmarshalKeyDescriptor(rpcDesc *taprpc.KeyDescriptor) (
+	keychain.KeyDescriptor, error) {
 
 	var (
 		desc keychain.KeyDescriptor
@@ -84,7 +85,7 @@ func UnmarshalKeyDescriptor(rpcDesc *KeyDescriptor) (keychain.KeyDescriptor,
 }
 
 // UnmarshalScriptKey parses the RPC script key into the native counterpart.
-func UnmarshalScriptKey(rpcKey *ScriptKey) (*asset.ScriptKey, error) {
+func UnmarshalScriptKey(rpcKey *taprpc.ScriptKey) (*asset.ScriptKey, error) {
 	var (
 		scriptKey asset.ScriptKey
 		err       error
@@ -116,8 +117,8 @@ func UnmarshalScriptKey(rpcKey *ScriptKey) (*asset.ScriptKey, error) {
 }
 
 // MarshalScriptKey marshals the native script key into the RPC counterpart.
-func MarshalScriptKey(scriptKey asset.ScriptKey) *ScriptKey {
-	rpcScriptKey := &ScriptKey{
+func MarshalScriptKey(scriptKey asset.ScriptKey) *taprpc.ScriptKey {
+	rpcScriptKey := &taprpc.ScriptKey{
 		PubKey: schnorr.SerializePubKey(scriptKey.PubKey),
 	}
 
@@ -132,15 +133,15 @@ func MarshalScriptKey(scriptKey asset.ScriptKey) *ScriptKey {
 }
 
 // UnmarshalAssetVersion parses an asset version from the RPC variant.
-func UnmarshalAssetVersion(version AssetVersion) (asset.Version, error) {
+func UnmarshalAssetVersion(version taprpc.AssetVersion) (asset.Version, error) {
 	// For now, we'll only support two asset versions. The ones in the
 	// future should be reserved for future use, so we disallow unknown
 	// versions.
 	switch version {
-	case AssetVersion_ASSET_VERSION_V0:
+	case taprpc.AssetVersion_ASSET_VERSION_V0:
 		return asset.V0, nil
 
-	case AssetVersion_ASSET_VERSION_V1:
+	case taprpc.AssetVersion_ASSET_VERSION_V1:
 		return asset.V1, nil
 
 	default:
@@ -149,16 +150,16 @@ func UnmarshalAssetVersion(version AssetVersion) (asset.Version, error) {
 }
 
 // MarshalAssetVersion parses an asset version from the RPC variant.
-func MarshalAssetVersion(version asset.Version) (AssetVersion, error) {
+func MarshalAssetVersion(version asset.Version) (taprpc.AssetVersion, error) {
 	// For now, we'll only support two asset versions. The ones in the
 	// future should be reserved for future use, so we disallow unknown
 	// versions.
 	switch version {
 	case asset.V0:
-		return AssetVersion_ASSET_VERSION_V0, nil
+		return taprpc.AssetVersion_ASSET_VERSION_V0, nil
 
 	case asset.V1:
-		return AssetVersion_ASSET_VERSION_V1, nil
+		return taprpc.AssetVersion_ASSET_VERSION_V1, nil
 
 	default:
 		return 0, fmt.Errorf("unknown asset version: %v", version)
@@ -166,18 +167,20 @@ func MarshalAssetVersion(version asset.Version) (AssetVersion, error) {
 }
 
 // UnmarshalAddressVerion parses an address version from the RPC variant.
-func UnmarshalAddressVersion(version AddrVersion) (address.Version, error) {
+func UnmarshalAddressVersion(version taprpc.AddrVersion) (address.Version,
+	error) {
+
 	// For now we'll only support two address versions. The ones in the
 	// future should be reserved for future use, so we disallow unknown
 	// versions.
 	switch version {
-	case AddrVersion_ADDR_VERSION_UNSPECIFIED:
+	case taprpc.AddrVersion_ADDR_VERSION_UNSPECIFIED:
 		return address.V1, nil
 
-	case AddrVersion_ADDR_VERSION_V0:
+	case taprpc.AddrVersion_ADDR_VERSION_V0:
 		return address.V0, nil
 
-	case AddrVersion_ADDR_VERSION_V1:
+	case taprpc.AddrVersion_ADDR_VERSION_V1:
 		return address.V1, nil
 
 	default:
@@ -187,16 +190,18 @@ func UnmarshalAddressVersion(version AddrVersion) (address.Version, error) {
 
 // MarshalAddressVerion marshals the native address version into the RPC
 // variant.
-func MarshalAddressVersion(version address.Version) (AddrVersion, error) {
+func MarshalAddressVersion(version address.Version) (taprpc.AddrVersion,
+	error) {
+
 	// For now we'll only support two address versions. The ones in the
 	// future should be reserved for future use, so we disallow unknown
 	// versions.
 	switch version {
 	case address.V0:
-		return AddrVersion_ADDR_VERSION_V0, nil
+		return taprpc.AddrVersion_ADDR_VERSION_V0, nil
 
 	case address.V1:
-		return AddrVersion_ADDR_VERSION_V1, nil
+		return taprpc.AddrVersion_ADDR_VERSION_V1, nil
 
 	default:
 		return 0, fmt.Errorf("unknown address version: %v", version)
@@ -205,10 +210,12 @@ func MarshalAddressVersion(version address.Version) (AddrVersion, error) {
 
 // MarshalGenesisInfo marshals the native asset genesis into the RPC
 // counterpart.
-func MarshalGenesisInfo(gen *asset.Genesis, assetType asset.Type) *GenesisInfo {
-	return &GenesisInfo{
+func MarshalGenesisInfo(gen *asset.Genesis,
+	assetType asset.Type) *taprpc.GenesisInfo {
+
+	return &taprpc.GenesisInfo{
 		GenesisPoint: gen.FirstPrevOut.String(),
-		AssetType:    AssetType(assetType),
+		AssetType:    taprpc.AssetType(assetType),
 		Name:         gen.Tag,
 		MetaHash:     gen.MetaHash[:],
 		AssetId:      fn.ByteSlice(gen.ID()),
@@ -217,7 +224,7 @@ func MarshalGenesisInfo(gen *asset.Genesis, assetType asset.Type) *GenesisInfo {
 }
 
 // UnmarshalGenesisInfo parses an asset Genesis from the RPC variant.
-func UnmarshalGenesisInfo(rpcGen *GenesisInfo) (*asset.Genesis, error) {
+func UnmarshalGenesisInfo(rpcGen *taprpc.GenesisInfo) (*asset.Genesis, error) {
 	firstPrevOut, err := wire.NewOutPointFromString(rpcGen.GenesisPoint)
 	if err != nil {
 		return nil, err
@@ -238,7 +245,7 @@ func UnmarshalGenesisInfo(rpcGen *GenesisInfo) (*asset.Genesis, error) {
 }
 
 // UnmarshalTapscriptFullTree parses a Tapscript tree from the RPC variant.
-func UnmarshalTapscriptFullTree(tree *TapscriptFullTree) (
+func UnmarshalTapscriptFullTree(tree *taprpc.TapscriptFullTree) (
 	*asset.TapscriptTreeNodes, error) {
 
 	rpcLeaves := tree.GetAllLeaves()
@@ -263,8 +270,8 @@ func UnmarshalTapscriptFullTree(tree *TapscriptFullTree) (
 }
 
 // UnmarshalTapscriptBranch parses a Tapscript branch from the RPC variant.
-func UnmarshalTapscriptBranch(branch *TapBranch) (*asset.TapscriptTreeNodes,
-	error) {
+func UnmarshalTapscriptBranch(branch *taprpc.TapBranch) (
+	*asset.TapscriptTreeNodes, error) {
 
 	branchData := [][]byte{branch.LeftTaphash, branch.RightTaphash}
 	tapBranch, err := asset.DecodeTapBranchNodes(branchData)
@@ -276,8 +283,9 @@ func UnmarshalTapscriptBranch(branch *TapBranch) (*asset.TapscriptTreeNodes,
 }
 
 // UnmarshalTapscriptSibling parses a Tapscript sibling from the RPC variant.
-func UnmarshalTapscriptSibling(rpcTree *TapscriptFullTree,
-	rpcBranch *TapBranch) (fn.Option[asset.TapscriptTreeNodes], error) {
+func UnmarshalTapscriptSibling(rpcTree *taprpc.TapscriptFullTree,
+	rpcBranch *taprpc.TapBranch) (fn.Option[asset.TapscriptTreeNodes],
+	error) {
 
 	var (
 		tapSibling *asset.TapscriptTreeNodes
@@ -303,8 +311,8 @@ func UnmarshalTapscriptSibling(rpcTree *TapscriptFullTree,
 }
 
 // UnmarshalGroupKeyRequest parses a group key request from the RPC variant.
-func UnmarshalGroupKeyRequest(req *GroupKeyRequest) (*asset.GroupKeyRequest,
-	error) {
+func UnmarshalGroupKeyRequest(req *taprpc.GroupKeyRequest) (
+	*asset.GroupKeyRequest, error) {
 
 	rawKey, err := UnmarshalKeyDescriptor(req.RawKey)
 	if err != nil {
@@ -339,8 +347,8 @@ func UnmarshalGroupKeyRequest(req *GroupKeyRequest) (*asset.GroupKeyRequest,
 
 // MarshalGroupKeyRequest marshals the native group key request into the RPC
 // counterpart.
-func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
-	error) {
+func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (
+	*taprpc.GroupKeyRequest, error) {
 
 	err := req.Validate()
 	if err != nil {
@@ -353,7 +361,7 @@ func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
 		return nil, err
 	}
 
-	return &GroupKeyRequest{
+	return &taprpc.GroupKeyRequest{
 		RawKey: MarshalKeyDescriptor(req.RawKey),
 		AnchorGenesis: MarshalGenesisInfo(
 			&req.AnchorGen, req.NewAsset.Type,
@@ -365,7 +373,7 @@ func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
 
 // MarshalGroupVirtualTx marshals the native asset group virtual transaction
 // into the RPC counterpart.
-func MarshalGroupVirtualTx(genTx *asset.GroupVirtualTx) (*GroupVirtualTx,
+func MarshalGroupVirtualTx(genTx *asset.GroupVirtualTx) (*taprpc.GroupVirtualTx,
 	error) {
 
 	var groupTxBuf bytes.Buffer
@@ -374,12 +382,12 @@ func MarshalGroupVirtualTx(genTx *asset.GroupVirtualTx) (*GroupVirtualTx,
 		return nil, err
 	}
 
-	rpcPrevOut := TxOut{
+	rpcPrevOut := taprpc.TxOut{
 		Value:    genTx.PrevOut.Value,
 		PkScript: genTx.PrevOut.PkScript,
 	}
 
-	return &GroupVirtualTx{
+	return &taprpc.GroupVirtualTx{
 		Transaction: groupTxBuf.Bytes(),
 		PrevOut:     &rpcPrevOut,
 		GenesisId:   fn.ByteSlice(genTx.GenID),
@@ -389,8 +397,8 @@ func MarshalGroupVirtualTx(genTx *asset.GroupVirtualTx) (*GroupVirtualTx,
 
 // UnmarshalGroupVirtualTx parses a group virtual transaction from the RPC
 // variant.
-func UnmarshalGroupVirtualTx(genTx *GroupVirtualTx) (*asset.GroupVirtualTx,
-	error) {
+func UnmarshalGroupVirtualTx(genTx *taprpc.GroupVirtualTx) (
+	*asset.GroupVirtualTx, error) {
 
 	var virtualTx wire.MsgTx
 	err := virtualTx.Deserialize(bytes.NewReader(genTx.Transaction))
@@ -425,8 +433,8 @@ func UnmarshalGroupVirtualTx(genTx *GroupVirtualTx) (*asset.GroupVirtualTx,
 }
 
 // UnmarshalGroupWitness parses an asset group witness from the RPC variant.
-func UnmarshalGroupWitness(wit *GroupWitness) (*asset.PendingGroupWitness,
-	error) {
+func UnmarshalGroupWitness(wit *taprpc.GroupWitness) (
+	*asset.PendingGroupWitness, error) {
 
 	if len(wit.GenesisId) != sha256.Size {
 		return nil, fmt.Errorf("invalid genesis id length: "+
@@ -454,7 +462,7 @@ func UnmarshalGroupWitness(wit *GroupWitness) (*asset.PendingGroupWitness,
 // MarshalAsset converts an asset to its rpc representation.
 func MarshalAsset(ctx context.Context, a *asset.Asset,
 	isSpent, withWitness bool, keyRing KeyLookup,
-	decDisplay fn.Option[uint32]) (*Asset, error) {
+	decDisplay fn.Option[uint32]) (*taprpc.Asset, error) {
 
 	scriptKeyIsLocal := false
 	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
@@ -469,7 +477,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	scriptKeyBytes := a.ScriptKey.PubKey.SerializeCompressed()
-	rpcAsset := &Asset{
+	rpcAsset := &taprpc.Asset{
 		Version:                assetVersion,
 		AssetGenesis:           MarshalGenesisInfo(&a.Genesis, a.Type),
 		Amount:                 a.Amount,
@@ -485,7 +493,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	}
 
 	decDisplay.WhenSome(func(u uint32) {
-		rpcAsset.DecimalDisplay = &DecimalDisplay{
+		rpcAsset.DecimalDisplay = &taprpc.DecimalDisplay{
 			DecimalDisplay: u,
 		}
 	})
@@ -512,7 +520,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		if len(a.GroupKey.TapscriptRoot) != 0 {
 			tapscriptRoot = a.GroupKey.TapscriptRoot[:]
 		}
-		rpcAsset.AssetGroup = &AssetGroup{
+		rpcAsset.AssetGroup = &taprpc.AssetGroup{
 			RawGroupKey: rawKey,
 			TweakedGroupKey: a.GroupKey.GroupPubKey.
 				SerializeCompressed(),
@@ -526,13 +534,13 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 			witness := a.PrevWitnesses[idx]
 
 			prevID := witness.PrevID
-			rpcPrevID := &PrevInputAsset{
+			rpcPrevID := &taprpc.PrevInputAsset{
 				AnchorPoint: prevID.OutPoint.String(),
 				AssetId:     prevID.ID[:],
 				ScriptKey:   prevID.ScriptKey[:],
 			}
 
-			var rpcSplitCommitment *SplitCommitment
+			var rpcSplitCommitment *taprpc.SplitCommitment
 			if witness.SplitCommitment != nil {
 				rootAsset, err := MarshalAsset(
 					ctx, &witness.SplitCommitment.RootAsset,
@@ -542,13 +550,13 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 					return nil, err
 				}
 
-				rpcSplitCommitment = &SplitCommitment{
+				rpcSplitCommitment = &taprpc.SplitCommitment{
 					RootAsset: rootAsset,
 				}
 			}
 
 			rpcAsset.PrevWitnesses = append(
-				rpcAsset.PrevWitnesses, &PrevWitness{
+				rpcAsset.PrevWitnesses, &taprpc.PrevWitness{
 					PrevId:          rpcPrevID,
 					TxWitness:       witness.TxWitness,
 					SplitCommitment: rpcSplitCommitment,
