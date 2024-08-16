@@ -5,6 +5,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"maps"
+	"reflect"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -12,85 +14,108 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	"pgregory.net/rapid"
 )
 
+type rapidFieldGen = map[string]*rapid.Generator[any]
+type rapidFieldMap = map[reflect.Type]rapidFieldGen
+type rapidTypeMap = map[reflect.Type]*rapid.Generator[any]
+
 // Custom generators.
 var (
-	ByteSliceGen   = rapid.SliceOf(rapid.Byte())
-	GenesisInfoGen = rapid.Custom(func(t *rapid.T) taprpc.GenesisInfo {
-		return taprpc.GenesisInfo{
-			GenesisPoint: rapid.String().Draw(t, "genesis_point"),
-			Name:         rapid.String().Draw(t, "name"),
-			MetaHash:     ByteSliceGen.Draw(t, "meta_hash"),
-			AssetId:      ByteSliceGen.Draw(t, "id"),
-			AssetType: taprpc.AssetType(
-				rapid.Int32().Draw(t, "asset_type"),
-			),
-			OutputIndex: rapid.Uint32().Draw(t, "output_index"),
-		}
-	})
-	AssetGroupGen = rapid.Custom(func(t *rapid.T) taprpc.AssetGroup {
-		return taprpc.AssetGroup{
-			RawGroupKey: ByteSliceGen.Draw(t, "raw_group_key"),
-			TweakedGroupKey: ByteSliceGen.Draw(
-				t, "tweaked_group_key",
-			),
-			AssetWitness:  ByteSliceGen.Draw(t, "asset_witness"),
-			TapscriptRoot: ByteSliceGen.Draw(t, "tapscript_root"),
-		}
-	})
-	AnchorInfoGen = rapid.Custom(func(t *rapid.T) taprpc.AnchorInfo {
-		return taprpc.AnchorInfo{
-			AnchorTx: ByteSliceGen.Draw(t, "anchor_tx"),
-			AnchorBlockHash: rapid.String().Draw(
-				t, "anchor_block_hash",
-			),
-			AnchorOutpoint: rapid.String().Draw(
-				t, "anchor_outpoint",
-			),
-			InternalKey: ByteSliceGen.Draw(t, "internal_key"),
-			MerkleRoot:  ByteSliceGen.Draw(t, "merkle_root"),
-			TapscriptSibling: ByteSliceGen.Draw(
-				t, "tapscript_sibling",
-			),
-			BlockHeight: rapid.Uint32().Draw(t, "block_height"),
-		}
-	})
-	PrevInputAssetGen = rapid.Custom(
-		func(t *rapid.T) taprpc.PrevInputAsset {
+	ByteSliceGen = rapid.SliceOf(rapid.Byte())
 
-			return taprpc.PrevInputAsset{
-				AnchorPoint: rapid.String().Draw(
-					t, "anchor_point",
-				),
-				AssetId:   ByteSliceGen.Draw(t, "asset_id"),
-				ScriptKey: ByteSliceGen.Draw(t, "script_key"),
-				Amount:    rapid.Uint64().Draw(t, "amount"),
-			}
-		})
-	PrevWitnessGen = rapid.Custom(func(t *rapid.T) taprpc.PrevWitness {
-		// Leave the split commitment as nil.
-		return taprpc.PrevWitness{
-			PrevId: rapid.Ptr(PrevInputAssetGen, true).Draw(
-				t, "prev_id",
-			),
-			TxWitness: rapid.SliceOf(ByteSliceGen).Draw(
-				t, "tx_witnesses",
-			),
+	// Ignore private gRPC fields of messages, which we don't read when
+	// unmarshalling and cause issues with rapid.Make().
+	ignorePrivateRPCFields = rapidFieldGen{
+		"state":         rapid.Just(protoimpl.MessageState{}).AsAny(),
+		"sizeCache":     rapid.Just(protoimpl.SizeCache(0)).AsAny(),
+		"unknownFields": rapid.Just(protoimpl.UnknownFields{}).AsAny(),
+	}
+
+	// Create a generator config for a gRPC message, which may include
+	// custom generators or type generator overrides.
+	genMakeConfig = func(rpcType any, customGens rapidFieldGen,
+		genOverrides rapidTypeMap) rapid.MakeConfig {
+
+		cfg := rapid.MakeConfig{
+			Types:  make(rapidTypeMap),
+			Fields: make(rapidFieldMap),
 		}
-	})
+
+		// Add custom generators for fields, by field name, to override
+		// default rapid.Make() behavior.
+		ignoredFields := maps.Clone(ignorePrivateRPCFields)
+		for k, v := range customGens {
+			ignoredFields[k] = v
+		}
+
+		cfg.Fields[reflect.TypeOf(rpcType)] = ignoredFields
+
+		// Add custom generators that will override the generators
+		// rapid.Make() would create for struct member types.
+		for k, v := range genOverrides {
+			cfg.Types[k] = v
+		}
+
+		return cfg
+	}
+
+	GenesisInfoGen = rapid.Ptr(rapid.MakeCustom[taprpc.GenesisInfo](
+		genMakeConfig(taprpc.GenesisInfo{}, nil, nil),
+	), true)
+	AssetGroupGen = rapid.Ptr(rapid.MakeCustom[taprpc.AssetGroup](
+		genMakeConfig(taprpc.AssetGroup{}, nil, nil),
+	), true)
+	AnchorInfoGen = rapid.Ptr(rapid.MakeCustom[taprpc.AnchorInfo](
+		genMakeConfig(taprpc.AnchorInfo{}, nil, nil),
+	), true)
+	PrevInputAssetGen = rapid.MakeCustom[taprpc.PrevInputAsset](
+		genMakeConfig(taprpc.PrevInputAsset{}, nil, nil),
+	)
+
+	// Leave the split commitment for prev witnesses as nil.
+	emptySplitCommitmentGen = rapid.Just(taprpc.SplitCommitment{})
+	splitCommitPtrGen       = rapid.Ptr(emptySplitCommitmentGen, true)
+	nilSplitCommitment      = rapidTypeMap{
+		//nolint:lll
+		reflect.TypeOf(&taprpc.SplitCommitment{}): splitCommitPtrGen.AsAny(),
+	}
+	PrevWitnessGen = rapid.MakeCustom[taprpc.PrevWitness](
+		genMakeConfig(taprpc.PrevWitness{}, nil, nilSplitCommitment),
+	)
 	PrevWitnessesGen = rapid.Custom(func(t *rapid.T) []*taprpc.PrevWitness {
 		witnessGen := rapid.Ptr(PrevWitnessGen, false)
 		return rapid.SliceOf(witnessGen).Draw(t, "prev_witnesses")
 	})
-	DecDisplayGen = rapid.Custom(func(t *rapid.T) taprpc.DecimalDisplay {
-		return taprpc.DecimalDisplay{
-			DecimalDisplay: rapid.Uint32().Draw(
-				t, "decimal_display",
-			),
-		}
-	})
+	DecDisplayGen = rapid.Ptr(rapid.MakeCustom[taprpc.DecimalDisplay](
+		genMakeConfig(taprpc.DecimalDisplay{}, nil, nil),
+	), true)
+
+	// Set generator overrides for members of taprpc.Asset that are gRPC
+	// messages.
+	assetMemberGens = rapidTypeMap{
+		reflect.TypeOf(&taprpc.GenesisInfo{}): GenesisInfoGen.AsAny(),
+		reflect.TypeOf(&taprpc.AssetGroup{}):  AssetGroupGen.AsAny(),
+		reflect.TypeOf(&taprpc.AnchorInfo{}):  AnchorInfoGen.AsAny(),
+		//nolint:lll
+		reflect.TypeOf([]*taprpc.PrevWitness{}):  PrevWitnessesGen.AsAny(),
+		reflect.TypeOf(&taprpc.DecimalDisplay{}): DecDisplayGen.AsAny(),
+	}
+	AssetGen = rapid.MakeCustom[taprpc.Asset](
+		genMakeConfig(taprpc.Asset{}, nil, assetMemberGens),
+	)
+	AssetPtrGen = rapid.Ptr(AssetGen, true)
+
+	// Use the custom taprpc.Asset generator for *universerpc.AssetLeaf.
+	leafMemberGens = rapidTypeMap{
+		reflect.TypeOf(&taprpc.Asset{}): AssetPtrGen.AsAny(),
+	}
+	AssetLeafGen = rapid.MakeCustom[universerpc.AssetLeaf](
+		genMakeConfig(universerpc.AssetLeaf{}, nil, leafMemberGens),
+	)
+	AssetLeafPtrGen = rapid.Ptr(AssetLeafGen, true)
 )
 
 // Result is used to store the output of a fallible function call.
@@ -530,68 +555,9 @@ func TestUnmarshalUniId(t *testing.T) {
 }
 
 func testUnmarshalAssetLeaf(t *rapid.T) {
-	// rapid.Make failed on the private gRPC-specific fields of
-	// taprpc.Asset, so we'll populate only the public fields.
-	LeafAssetGen := rapid.Custom(func(t *rapid.T) taprpc.Asset {
-		vers := taprpc.AssetVersion(rapid.Int32().Draw(t, "version"))
-		genesis := rapid.Ptr(GenesisInfoGen, true).Draw(t, "genesis")
-		amount := rapid.Uint64().Draw(t, "amount")
-		lockTime := rapid.Int32().Draw(t, "lock_time")
-		relativeLockTime := rapid.Int32().Draw(t, "relative_lock_time")
-		scriptVersion := rapid.Int32().Draw(t, "script_version")
-		scriptKey := ByteSliceGen.Draw(t, "script_key")
-		scriptKeyIsLocal := rapid.Bool().Draw(t, "script_key_is_local")
-		group := rapid.Ptr(AssetGroupGen, true).Draw(t, "asset_group")
-		chainAnchor := rapid.Ptr(AnchorInfoGen, true).Draw(
-			t, "chain_anchor",
-		)
-		prevWitnesses := PrevWitnessesGen.Draw(t, "prev_witnesses")
-		isSpent := rapid.Bool().Draw(t, "is_spent")
-		leaseOwner := ByteSliceGen.Draw(t, "lease_owner")
-		leaseExpiry := rapid.Int64().Draw(t, "lease_expiry")
-		isBurn := rapid.Bool().Draw(t, "is_burn")
-		scriptKeyDeclaredKnown := rapid.Bool().Draw(
-			t, "script_key_declared_known",
-		)
-		scriptKeyHasScriptPath := rapid.Bool().Draw(
-			t, "script_key_has_script_path",
-		)
-		decimalDisplay := rapid.Ptr(DecDisplayGen, true).Draw(
-			t, "decimal_display",
-		)
-
-		return taprpc.Asset{
-			Version:                vers,
-			AssetGenesis:           genesis,
-			Amount:                 amount,
-			LockTime:               lockTime,
-			RelativeLockTime:       relativeLockTime,
-			ScriptVersion:          scriptVersion,
-			ScriptKey:              scriptKey,
-			ScriptKeyIsLocal:       scriptKeyIsLocal,
-			AssetGroup:             group,
-			ChainAnchor:            chainAnchor,
-			PrevWitnesses:          prevWitnesses,
-			IsSpent:                isSpent,
-			LeaseOwner:             leaseOwner,
-			LeaseExpiry:            leaseExpiry,
-			IsBurn:                 isBurn,
-			ScriptKeyDeclaredKnown: scriptKeyDeclaredKnown,
-			ScriptKeyHasScriptPath: scriptKeyHasScriptPath,
-			DecimalDisplay:         decimalDisplay,
-		}
-	})
-
-	leafGen := rapid.Custom(func(t *rapid.T) universerpc.AssetLeaf {
-		return universerpc.AssetLeaf{
-			Asset: rapid.Ptr(LeafAssetGen, true).Draw(t, "Asset"),
-			Proof: ByteSliceGen.Draw(t, "Proof"),
-		}
-	})
-	leaf := rapid.Ptr(leafGen, true).Draw(t, "Leaf")
-
 	// Don't check the unmarshal output, we are only testing if we can
 	// cause unmarshal to panic.
+	leaf := AssetLeafPtrGen.Draw(t, "Leaf")
 	_, _ = unmarshalAssetLeaf(leaf)
 }
 
