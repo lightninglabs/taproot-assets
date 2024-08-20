@@ -110,7 +110,10 @@ type Wallet interface {
 	// SignOwnershipProof creates and signs an ownership proof for the given
 	// owned asset. The ownership proof consists of a valid witness of a
 	// signed virtual packet that spends the asset fully to the NUMS key.
-	SignOwnershipProof(ownedAsset *asset.Asset) (wire.TxWitness, error)
+	// A challenge may be accepted, which modifies the NUMS key, binding the
+	// ownership proof to the provided challenge.
+	SignOwnershipProof(ownedAsset *asset.Asset,
+		challenge fn.Option[[32]byte]) (wire.TxWitness, error)
 
 	// FetchScriptKey attempts to fetch the full tweaked script key struct
 	// (including the key descriptor) for the given tweaked script key. If
@@ -1422,14 +1425,14 @@ func (f *AssetWallet) AnchorVirtualTransactions(ctx context.Context,
 // SignOwnershipProof creates and signs an ownership proof for the given owned
 // asset. The ownership proof consists of a signed virtual packet that spends
 // the asset fully to the NUMS key.
-func (f *AssetWallet) SignOwnershipProof(
-	ownedAsset *asset.Asset) (wire.TxWitness, error) {
+func (f *AssetWallet) SignOwnershipProof(ownedAsset *asset.Asset,
+	challenge fn.Option[[32]byte]) (wire.TxWitness, error) {
 
 	outputAsset := ownedAsset.Copy()
 	log.Infof("Generating ownership proof for asset %v", outputAsset.ID())
 
 	vPkt := tappsbt.OwnershipProofPacket(
-		ownedAsset.Copy(), f.cfg.ChainParams,
+		ownedAsset.Copy(), challenge, f.cfg.ChainParams,
 	)
 	err := tapsend.SignVirtualTransaction(
 		vPkt, f.cfg.Signer, f.cfg.WitnessValidator,

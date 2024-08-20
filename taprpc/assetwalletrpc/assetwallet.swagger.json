@@ -663,6 +663,11 @@
         },
         "outpoint": {
           "$ref": "#/definitions/taprpcOutPoint"
+        },
+        "challenge": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional 32-byte challenge that may be used to bind the generated\nproof. This challenge needs to be also presented on the\nVerifyAssetOwnership RPC in order to check the proof against it."
         }
       }
     },
@@ -797,6 +802,11 @@
         "proof_with_witness": {
           "type": "string",
           "format": "byte"
+        },
+        "challenge": {
+          "type": "string",
+          "format": "byte",
+          "description": "An optional 32-byte challenge that may be used to check the ownership\nproof against. This challenge must match the one that the prover used\non the ProveAssetOwnership RPC."
         }
       }
     },

@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -535,4 +536,49 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	}
 
 	return &a, nil
+}
+
+// GenChallengeNUMS generates a variant of the NUMS script key that is modified
+// by the provided challenge.
+//
+//	The resulting scriptkey is:
+//	res := NUMS + challenge*G
+func GenChallengeNUMS(challengeBytesOpt fn.Option[[32]byte]) asset.ScriptKey {
+	var (
+		nums, g, res btcec.JacobianPoint
+		challenge    secp256k1.ModNScalar
+	)
+
+	if challengeBytesOpt.IsNone() {
+		return asset.NUMSScriptKey
+	}
+
+	var challengeBytes [32]byte
+
+	challengeBytesOpt.WhenSome(func(b [32]byte) {
+		challengeBytes = b
+	})
+
+	// Convert the NUMS key to a Jacobian point.
+	asset.NUMSPubKey.AsJacobian(&nums)
+
+	// Multiply G by 1 to get G as a Jacobian point.
+	secp256k1.ScalarBaseMultNonConst(
+		new(secp256k1.ModNScalar).SetInt(1), &g,
+	)
+
+	// Convert the challenge to a scalar.
+	challenge.SetByteSlice(challengeBytes[:])
+
+	// Calculate res = challenge * G.
+	secp256k1.ScalarMultNonConst(&challenge, &g, &res)
+
+	// Calculate res = nums + res.
+	secp256k1.AddNonConst(&nums, &res, &res)
+
+	res.ToAffine()
+
+	resultPubKey := btcec.NewPublicKey(&res.X, &res.Y)
+
+	return asset.NewScriptKey(resultPubKey)
 }

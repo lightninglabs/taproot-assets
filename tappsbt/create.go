@@ -139,12 +139,16 @@ func AddOutput(pkt *VPacket, amount uint64, scriptAddr asset.ScriptKey,
 
 // OwnershipProofPacket creates a virtual transaction packet that is used to
 // prove ownership of an asset. It creates a 1-in-1-out transaction that spends
-// the owned asset to the NUMS key. The witness is created over an empty
-// previous outpoint, so it can never be used in an actual state transition.
+// the owned asset to the NUMS key. If a challenge is defined the NUMS key is
+// modified based on that value. The witness is created over an empty previous
+// outpoint, so it can never be used in an actual state transition.
 func OwnershipProofPacket(ownedAsset *asset.Asset,
+	challengeBytes fn.Option[[32]byte],
 	chainParams *address.ChainParams) *VPacket {
 
-	prevId, outputAsset := proof.CreateOwnershipProofAsset(ownedAsset)
+	prevId, outputAsset := proof.CreateOwnershipProofAsset(
+		ownedAsset, challengeBytes,
+	)
 	vPkt := &VPacket{
 		Inputs: []*VInput{{
 			PrevID: prevId,
@@ -155,7 +159,7 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 			Amount:            outputAsset.Amount,
 			Interactive:       true,
 			AnchorOutputIndex: 0,
-			ScriptKey:         asset.NUMSScriptKey,
+			ScriptKey:         outputAsset.ScriptKey,
 		}},
 		ChainParams: chainParams,
 		Version:     V1,

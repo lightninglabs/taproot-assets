@@ -13,8 +13,10 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/vm"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
@@ -318,14 +320,17 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 // well-defined 1-in-1-out packet and verifying the witness is valid for that
 // virtual transaction.
 func (p *Proof) verifyChallengeWitness(ctx context.Context,
-	chainLookup asset.ChainLookup) (bool, error) {
+	chainLookup asset.ChainLookup,
+	challengeBytes fn.Option[[32]byte]) (bool, error) {
 
 	// The challenge witness packet always has one input and one output,
 	// independent of how the asset was created. The chain params are only
 	// needed when encoding/decoding a vPkt, so it doesn't matter what
 	// network we choose as we only need the packet to get the witness.
 	ownedAsset := p.Asset.Copy()
-	prevId, proofAsset := CreateOwnershipProofAsset(ownedAsset)
+	prevId, proofAsset := CreateOwnershipProofAsset(
+		ownedAsset, challengeBytes,
+	)
 
 	// The 1-in-1-out packet for the challenge witness is well-defined, we
 	// don't have to do any extra checks, just set the witness and then
@@ -347,9 +352,10 @@ func (p *Proof) verifyChallengeWitness(ctx context.Context,
 
 // CreateOwnershipProofAsset creates a virtual asset that can be used to prove
 // ownership of an asset. The virtual asset is created by spending the full
-// asset into a NUMS key.
-func CreateOwnershipProofAsset(
-	ownedAsset *asset.Asset) (asset.PrevID, *asset.Asset) {
+// asset into a NUMS key. If a challenge is defined, the NUMS key will be
+// modified based on that value.
+func CreateOwnershipProofAsset(ownedAsset *asset.Asset,
+	challengeBytes fn.Option[[32]byte]) (asset.PrevID, *asset.Asset) {
 
 	// We create the ownership proof by creating a virtual input and output
 	// that spends the full asset into a NUMS key. But in order to prevent
@@ -370,7 +376,7 @@ func CreateOwnershipProofAsset(
 	}
 
 	outputAsset := ownedAsset.Copy()
-	outputAsset.ScriptKey = asset.NUMSScriptKey
+	outputAsset.ScriptKey = address.GenChallengeNUMS(challengeBytes)
 	outputAsset.PrevWitnesses = []asset.Witness{{
 		PrevID: &prevId,
 	}}
@@ -494,6 +500,29 @@ type GroupVerifier func(groupKey *btcec.PublicKey) error
 type GroupAnchorVerifier func(gen *asset.Genesis,
 	groupKey *asset.GroupKey) error
 
+// ProofVerificationOption is an option that may be applied on
+// *proofVerificationOpts.
+type ProofVerificationOption func(p *proofVerificationParams)
+
+// proofVerificationParams is a struct containing various options that may be used
+// during proof verification
+type proofVerificationParams struct {
+	// ChallengeBytes is an optional field that is used when verifying an
+	// ownership proof. This field is only populated when the corresponding
+	// ProofVerificationOption option is defined.
+	ChallengeBytes fn.Option[[32]byte]
+}
+
+// WithChallengeBytes is a ProofVerificationOption that defines some challenge
+// bytes to be used when verifying this proof.
+func WithChallengeBytes(challenge [32]byte) ProofVerificationOption {
+	return func(p *proofVerificationParams) {
+		var byteCopy [32]byte
+		copy(byteCopy[:], challenge[:])
+		p.ChallengeBytes = fn.Some(byteCopy)
+	}
+}
+
 // Verify verifies the proof by ensuring that:
 //
 //  0. A proof has a valid version.
@@ -508,7 +537,14 @@ type GroupAnchorVerifier func(gen *asset.Genesis,
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
 	groupVerifier GroupVerifier,
-	chainLookup asset.ChainLookup) (*AssetSnapshot, error) {
+	chainLookup asset.ChainLookup,
+	opts ...ProofVerificationOption) (*AssetSnapshot, error) {
+
+	var verificationParams proofVerificationParams
+
+	for _, opt := range opts {
+		opt(&verificationParams)
+	}
 
 	// 0. Check only for the proof version.
 	if p.IsUnknownVersion() {
@@ -622,7 +658,9 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	var splitAsset bool
 	switch {
 	case prev == nil && p.ChallengeWitness != nil:
-		splitAsset, err = p.verifyChallengeWitness(ctx, chainLookup)
+		splitAsset, err = p.verifyChallengeWitness(
+			ctx, chainLookup, verificationParams.ChallengeBytes,
+		)
 
 	default:
 		splitAsset, err = p.verifyAssetStateTransition(

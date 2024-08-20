@@ -5852,6 +5852,10 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
 
+	if len(req.Challenge) != 0 && len(req.Challenge) != 32 {
+		return nil, fmt.Errorf("challenge must be 32 bytes")
+	}
+
 	var (
 		assetID  = fn.ToArray[asset.ID](req.AssetId)
 		outPoint *wire.OutPoint
@@ -5906,8 +5910,16 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("error fetching commitment: %w", err)
 	}
 
+	var challengeOpt fn.Option[[32]byte]
+
+	if len(req.Challenge) == 32 {
+		var bCopy [32]byte
+		copy(bCopy[:], req.Challenge[:32])
+		challengeOpt = fn.Some[[32]byte](bCopy)
+	}
+
 	challengeWitness, err := r.cfg.AssetWallet.SignOwnershipProof(
-		inputCommitment.Asset.Copy(),
+		inputCommitment.Asset.Copy(), challengeOpt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error signing ownership proof: %w", err)
@@ -5940,6 +5952,10 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 		return nil, fmt.Errorf("a valid proof must be specified")
 	}
 
+	if len(req.Challenge) != 0 && len(req.Challenge) != 32 {
+		return nil, fmt.Errorf("challenge must be 32 bytes")
+	}
+
 	p, err := proof.Decode(req.ProofWithWitness)
 	if err != nil {
 		return nil, fmt.Errorf("cannot decode proof file: %w", err)
@@ -5953,9 +5969,20 @@ func (r *rpcServer) VerifyAssetOwnership(ctx context.Context,
 
 	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
 	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+
+	var (
+		challengeBytes [32]byte
+		opts           []proof.ProofVerificationOption
+	)
+
+	if len(req.Challenge) == 32 {
+		copy(challengeBytes[:], req.Challenge[:32])
+		opts = append(opts, proof.WithChallengeBytes(challengeBytes))
+	}
+
 	snapShot, err := p.Verify(
 		ctx, nil, headerVerifier, proof.DefaultMerkleVerifier,
-		groupVerifier, lookup,
+		groupVerifier, lookup, opts...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error verifying proof: %w", err)
