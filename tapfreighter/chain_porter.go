@@ -763,10 +763,10 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context,
 	}, nil
 }
 
-// transferReceiverProof retrieves the sender and receiver proofs from the
-// archive and then transfers the receiver's proof to the receiver. Upon
-// successful transfer, the asset parcel delivery is marked as complete.
-func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
+// transferProofs delivers the transfer output proofs to the relevant receiving
+// peers. Once successfully delivered, the delivery status of each corresponding
+// proof is marked as complete.
+func (p *ChainPorter) transferProofs(pkg *sendPackage) error {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
@@ -1266,7 +1266,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		go func() {
 			defer p.Wg.Done()
 
-			err := p.transferReceiverProof(&currentPkg)
+			err := p.transferProofs(&currentPkg)
 			if err != nil {
 				log.Errorf("unable to transfer receiver "+
 					"proof: %v", err)
