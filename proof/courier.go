@@ -18,6 +18,7 @@ import (
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
+	grpcconn "google.golang.org/grpc/connectivity"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/status"
 )
@@ -91,12 +92,80 @@ type CourierCfg struct {
 	LocalArchive Archiver
 }
 
+// CourierConnStatus is an enum that represents the different states a courier
+// connection can be in.
+type CourierConnStatus int
+
+const (
+	// CourierConnStatusUnknown indicates that the connection status is
+	// unknown.
+	CourierConnStatusUnknown CourierConnStatus = iota
+
+	// CourierConnStatusIdle indicates that the connection is idle.
+	CourierConnStatusIdle
+
+	// CourierConnStatusConnecting indicates that the connection is being
+	// established.
+	CourierConnStatusConnecting
+
+	// CourierConnStatusReady indicates that the connection is ready for
+	// work.
+	CourierConnStatusReady
+
+	// CourierConnStatusTransientFailure indicates that the connection has
+	// seen a failure but expects to recover.
+	CourierConnStatusTransientFailure
+
+	// CourierConnStatusShutdown indicates that the connection has started
+	// shutting down.
+	CourierConnStatusShutdown
+
+	// CourierConnStatusDisconnected indicates that the connection is
+	// disconnected.
+	CourierConnStatusDisconnected
+)
+
+// NewCourierConnStatusFromRpcStatus creates a new courier connection status
+// from the given gRPC connection status.
+func NewCourierConnStatusFromRpcStatus(
+	rpcStatus grpcconn.State) (CourierConnStatus, error) {
+
+	switch rpcStatus {
+	case grpcconn.Idle:
+		return CourierConnStatusIdle, nil
+	case grpcconn.Connecting:
+		return CourierConnStatusConnecting, nil
+	case grpcconn.Ready:
+		return CourierConnStatusReady, nil
+	case grpcconn.TransientFailure:
+		return CourierConnStatusTransientFailure, nil
+	case grpcconn.Shutdown:
+		return CourierConnStatusShutdown, nil
+	default:
+		return CourierConnStatusUnknown, fmt.Errorf("unknown courier "+
+			"connection status: %d", rpcStatus)
+	}
+}
+
+// IsPending returns true if the courier connection status is pending,
+// indicating it is either ready or will soon be ready for use.
+func (c CourierConnStatus) IsPending() bool {
+	return c == CourierConnStatusIdle ||
+		c == CourierConnStatusConnecting ||
+		c == CourierConnStatusReady
+}
+
 // CourierDispatch is an interface that abstracts away the different proof
 // courier services that are supported.
 type CourierDispatch interface {
 	// NewCourier instantiates a new courier service handle given a service
 	// URL address.
-	NewCourier(addr *url.URL) (Courier, error)
+	//
+	// The `lazyConnect` flag determines whether the courier should
+	// establish a connection to the service immediately or delay it
+	// until the connection is actually needed.
+	NewCourier(ctx context.Context, addr *url.URL,
+		lazyConnect bool) (Courier, error)
 }
 
 // URLDispatch is a proof courier dispatch that uses the courier address URL
@@ -114,29 +183,18 @@ func NewCourierDispatch(cfg *CourierCfg) *URLDispatch {
 
 // NewCourier instantiates a new courier service handle given a service URL
 // address.
-func (u *URLDispatch) NewCourier(addr *url.URL) (Courier, error) {
+func (u *URLDispatch) NewCourier(ctx context.Context, addr *url.URL,
+	lazyConnect bool) (Courier, error) {
+
 	subscribers := make(map[uint64]*fn.EventReceiver[fn.Event])
 
 	// Create new courier addr based on URL scheme.
 	switch addr.Scheme {
 	case HashmailCourierType:
-		cfg := u.cfg.HashMailCfg
-		backoffHandler := NewBackoffHandler(
-			cfg.BackoffCfg, u.cfg.TransferLog,
+		return NewHashMailCourier(
+			ctx, u.cfg.HashMailCfg, u.cfg.TransferLog, addr,
+			lazyConnect,
 		)
-
-		hashMailBox, err := NewHashMailBox(addr)
-		if err != nil {
-			return nil, fmt.Errorf("unable to make mailbox: %w",
-				err)
-		}
-
-		return &HashMailCourier{
-			cfg:           u.cfg,
-			backoffHandle: backoffHandler,
-			mailbox:       hashMailBox,
-			subscribers:   subscribers,
-		}, nil
 
 	case UniverseRpcCourierType:
 		cfg := u.cfg.UniverseRpcCfg
@@ -237,6 +295,10 @@ type ProofMailbox interface {
 
 	// Close closes the underlying connection to the hashmail server.
 	Close() error
+
+	// ConnectionStatus returns the current connection status of the
+	// mailbox service connection.
+	ConnectionStatus() (CourierConnStatus, error)
 }
 
 // HashMailBox is an implementation of the ProofMailbox interface backed by the
@@ -265,7 +327,7 @@ func serverDialOpts() ([]grpc.DialOption, error) {
 //
 // NOTE: The TLS certificate path argument (tlsCertPath) is optional. If unset,
 // then the system's TLS trust store is used.
-func NewHashMailBox(courierAddr *url.URL) (*HashMailBox,
+func NewHashMailBox(ctx context.Context, courierAddr *url.URL) (*HashMailBox,
 	error) {
 
 	if courierAddr.Scheme != HashmailCourierType {
@@ -281,7 +343,7 @@ func NewHashMailBox(courierAddr *url.URL) (*HashMailBox,
 	serverAddr := fmt.Sprintf(
 		"%s:%s", courierAddr.Hostname(), courierAddr.Port(),
 	)
-	conn, err := grpc.Dial(serverAddr, dialOpts...)
+	conn, err := grpc.DialContext(ctx, serverAddr, dialOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -432,6 +494,17 @@ func (h *HashMailBox) CleanUp(ctx context.Context, sid streamID) error {
 // Close closes the underlying connection to the hashmail server.
 func (h *HashMailBox) Close() error {
 	return h.rawConn.Close()
+}
+
+// ConnectionStatus returns the current connection status of the mailbox service
+// connection.
+func (h *HashMailBox) ConnectionStatus() (CourierConnStatus, error) {
+	if h == nil || h.rawConn == nil {
+		return CourierConnStatusDisconnected, nil
+	}
+
+	grpcStatus := h.rawConn.GetState()
+	return NewCourierConnStatusFromRpcStatus(grpcStatus)
 }
 
 // A compile-time assertion to ensure that the HashMailBox meets the
@@ -717,8 +790,15 @@ type HashMailCourierCfg struct {
 // HashMailCourier is a hashmail proof courier service handle. It implements the
 // Courier interface.
 type HashMailCourier struct {
-	// cfg is the general courier configuration.
-	cfg *CourierCfg
+	// cfg is the hashmail courier configuration.
+	cfg *HashMailCourierCfg
+
+	// addr is the address of the hashmail server.
+	addr *url.URL
+
+	// transferLog is a log for recording proof delivery and retrieval
+	// attempts.
+	transferLog TransferLog
 
 	// backoffHandle is a handle to the backoff procedure used in proof
 	// delivery.
@@ -735,6 +815,74 @@ type HashMailCourier struct {
 	// subscriberMtx guards the subscribers map and access to the
 	// subscriptionID.
 	subscriberMtx sync.Mutex
+}
+
+// NewHashMailCourier creates a new hashmail proof courier service handle.
+func NewHashMailCourier(ctx context.Context, cfg *HashMailCourierCfg,
+	transferLog TransferLog, courierAddr *url.URL,
+	lazyConnect bool) (*HashMailCourier, error) {
+
+	courier := HashMailCourier{
+		cfg:           cfg,
+		addr:          courierAddr,
+		transferLog:   transferLog,
+		backoffHandle: NewBackoffHandler(cfg.BackoffCfg, transferLog),
+		subscribers:   make(map[uint64]*fn.EventReceiver[fn.Event]),
+	}
+
+	// If we're not lazy connecting, then we'll attempt to connect to the
+	// mailbox service immediately.
+	if !lazyConnect {
+		err := courier.ensureConnect(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to connect to mailbox "+
+				"service during hashmail courier "+
+				"instantiation: %w", err)
+		}
+	}
+
+	return &courier, nil
+}
+
+// ensureConnect ensures that the courier is connected to the hashmail server.
+// This method does nothing if a mailbox service connection is already
+// established.
+func (h *HashMailCourier) ensureConnect(ctx context.Context) error {
+	// If we're already connected, we'll return early.
+	if h.mailbox != nil {
+		// If the mailbox is already instantiated, we'll check the
+		// to determine if the connection is ready.
+		connStatus, err := h.mailbox.ConnectionStatus()
+		if err != nil {
+			return fmt.Errorf("unable to determine connection "+
+				"status: %w", err)
+		}
+
+		// Return early and don't attempt to establish a new connection
+		// if the connection status is idle, ready, or connecting.
+		if connStatus.IsPending() {
+			return nil
+		}
+
+		// At this point, even though the mailbox is instantiated, a
+		// connection is not ready. We'll close the mailbox and attempt
+		// to establish a new connection.
+		err = h.mailbox.Close()
+		if err != nil {
+			return fmt.Errorf("unable to close existing mailbox "+
+				"service connection: %w", err)
+		}
+	}
+
+	// Instantiate a new connection to the mailbox service.
+	mailbox, err := NewHashMailBox(ctx, h.addr)
+	if err != nil {
+		return fmt.Errorf("unable to connect to hashmail server: %w",
+			err)
+	}
+
+	h.mailbox = mailbox
+	return nil
 }
 
 // DeliverProof attempts to delivery a proof to the receiver, using the
@@ -754,7 +902,17 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 	// Interact with the hashmail service using a backoff procedure to
 	// ensure that we don't overwhelm the service with delivery attempts.
 	deliveryExec := func() error {
-		err := h.initMailboxes(
+		// Connect to the hashmail service if a connection hasn't been
+		// established yet.
+		err := h.ensureConnect(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to connect to hashmail "+
+				"mailbox service during delivery attempt: %w",
+				err)
+		}
+
+		// Initialize the mailboxes for the sender and receiver.
+		err = h.initMailboxes(
 			ctx, senderStreamID, receiverStreamID,
 		)
 		if err != nil {
@@ -781,10 +939,10 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 		// Wait to receive the ACK from the remote party over
 		// their stream.
 		log.Infof("Waiting (%v) for receiver ACK via sid=%x",
-			h.cfg.HashMailCfg.ReceiverAckTimeout, receiverStreamID)
+			h.cfg.ReceiverAckTimeout, receiverStreamID)
 
 		ctxTimeout, cancel := context.WithTimeout(
-			ctx, h.cfg.HashMailCfg.ReceiverAckTimeout,
+			ctx, h.cfg.ReceiverAckTimeout,
 		)
 		defer cancel()
 		err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
@@ -824,13 +982,21 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 func (h *HashMailCourier) initMailboxes(ctx context.Context,
 	senderStreamID streamID, receiverStreamID streamID) error {
 
+	// Connect to the hashmail service if a connection hasn't been
+	// established yet.
+	err := h.ensureConnect(ctx)
+	if err != nil {
+		return fmt.Errorf("unable to connect to hashmail mailbox "+
+			"service during mailbox init: %w", err)
+	}
+
 	// To deliver the proof to the receiver, we'll use our hashmail box to
 	// create a new session that we'll use to send the proof over.
 	// We'll send on this stream, while the receiver receives on it.
 	//
 	// TODO(roasbeef): should do this as early in the process as possible.
 	log.Infof("Creating sender mailbox w/ sid=%x", senderStreamID)
-	if err := h.mailbox.Init(ctx, senderStreamID); err != nil {
+	if err = h.mailbox.Init(ctx, senderStreamID); err != nil {
 		return fmt.Errorf("failed to init sender stream mailbox: %w",
 			err)
 	}
@@ -937,6 +1103,14 @@ func NewBackoffWaitEvent(
 // from the source encapsulated within the specified address.
 func (h *HashMailCourier) ReceiveProof(ctx context.Context, recipient Recipient,
 	loc Locator) (*AnnotatedProof, error) {
+
+	// Connect to the hashmail service if a connection hasn't been
+	// established yet.
+	err := h.ensureConnect(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to connect to hashmail "+
+			"mailbox service during proof receive attempt: %w", err)
+	}
 
 	senderStreamID := deriveSenderStreamID(recipient)
 	if err := h.mailbox.Init(ctx, senderStreamID); err != nil {
