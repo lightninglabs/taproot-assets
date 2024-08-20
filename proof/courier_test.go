@@ -43,10 +43,9 @@ func TestUniverseRpcCourierLocalArchiveShortCut(t *testing.T) {
 
 	recipient := Recipient{}
 	courier := &UniverseRpcCourier{
-		client: nil,
-		cfg: &CourierCfg{
-			LocalArchive: localArchive,
-		},
+		client:        nil,
+		cfg:           &UniverseRpcCourierCfg{},
+		localArchive:  localArchive,
 		rawConn:       nil,
 		backoffHandle: nil,
 		subscribers:   nil,
