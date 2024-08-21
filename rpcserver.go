@@ -3382,6 +3382,7 @@ func marshalOutboundParcel(
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
 			ProofDeliveryStatus: proofDeliveryStatus,
+			Position:            out.Position,
 		}
 	}
 
