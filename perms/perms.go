@@ -40,6 +40,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/SetPendingTransferProofCourierAddr": {{
+			Entity: "assets",
+			Action: "write",
+		}},
 		"/taprpc.TaprootAssets/QueryAddrs": {{
 			Entity: "addresses",
 			Action: "read",

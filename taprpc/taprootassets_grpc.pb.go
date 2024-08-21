@@ -32,6 +32,7 @@ type TaprootAssetsClient interface {
 	// tapcli: `assets balance`
 	// ListBalances lists asset balances
 	ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error)
+	SetPendingTransferProofCourierAddr(ctx context.Context, in *SetPendingTransferProofCourierAddrRequest, opts ...grpc.CallOption) (*SetPendingTransferProofCourierAddrResponse, error)
 	// tapcli: `assets transfers`
 	// ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(ctx context.Context, in *ListTransfersRequest, opts ...grpc.CallOption) (*ListTransfersResponse, error)
@@ -140,6 +141,15 @@ func (c *taprootAssetsClient) ListGroups(ctx context.Context, in *ListGroupsRequ
 func (c *taprootAssetsClient) ListBalances(ctx context.Context, in *ListBalancesRequest, opts ...grpc.CallOption) (*ListBalancesResponse, error) {
 	out := new(ListBalancesResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ListBalances", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetsClient) SetPendingTransferProofCourierAddr(ctx context.Context, in *SetPendingTransferProofCourierAddrRequest, opts ...grpc.CallOption) (*SetPendingTransferProofCourierAddrResponse, error) {
+	out := new(SetPendingTransferProofCourierAddrResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/SetPendingTransferProofCourierAddr", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -354,6 +364,7 @@ type TaprootAssetsServer interface {
 	// tapcli: `assets balance`
 	// ListBalances lists asset balances
 	ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error)
+	SetPendingTransferProofCourierAddr(context.Context, *SetPendingTransferProofCourierAddrRequest) (*SetPendingTransferProofCourierAddrResponse, error)
 	// tapcli: `assets transfers`
 	// ListTransfers lists outbound asset transfers tracked by the target daemon.
 	ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error)
@@ -440,6 +451,9 @@ func (UnimplementedTaprootAssetsServer) ListGroups(context.Context, *ListGroupsR
 }
 func (UnimplementedTaprootAssetsServer) ListBalances(context.Context, *ListBalancesRequest) (*ListBalancesResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListBalances not implemented")
+}
+func (UnimplementedTaprootAssetsServer) SetPendingTransferProofCourierAddr(context.Context, *SetPendingTransferProofCourierAddrRequest) (*SetPendingTransferProofCourierAddrResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SetPendingTransferProofCourierAddr not implemented")
 }
 func (UnimplementedTaprootAssetsServer) ListTransfers(context.Context, *ListTransfersRequest) (*ListTransfersResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTransfers not implemented")
@@ -570,6 +584,24 @@ func _TaprootAssets_ListBalances_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(TaprootAssetsServer).ListBalances(ctx, req.(*ListBalancesRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TaprootAssets_SetPendingTransferProofCourierAddr_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetPendingTransferProofCourierAddrRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).SetPendingTransferProofCourierAddr(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/SetPendingTransferProofCourierAddr",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).SetPendingTransferProofCourierAddr(ctx, req.(*SetPendingTransferProofCourierAddrRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -890,6 +922,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListBalances",
 			Handler:    _TaprootAssets_ListBalances_Handler,
+		},
+		{
+			MethodName: "SetPendingTransferProofCourierAddr",
+			Handler:    _TaprootAssets_SetPendingTransferProofCourierAddr_Handler,
 		},
 		{
 			MethodName: "ListTransfers",
