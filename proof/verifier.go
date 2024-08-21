@@ -504,8 +504,8 @@ type GroupAnchorVerifier func(gen *asset.Genesis,
 // *proofVerificationOpts.
 type ProofVerificationOption func(p *proofVerificationParams)
 
-// proofVerificationParams is a struct containing various options that may be used
-// during proof verification
+// proofVerificationParams is a struct containing various options that may be
+// used during proof verification
 type proofVerificationParams struct {
 	// ChallengeBytes is an optional field that is used when verifying an
 	// ownership proof. This field is only populated when the corresponding
