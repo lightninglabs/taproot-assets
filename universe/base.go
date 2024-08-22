@@ -349,7 +349,13 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 		a.cfg.MerkleVerifier, a.cfg.GroupVerifier, lookup,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to verify proof: %w", err)
+		var skBytes []byte
+		if key.ScriptKey != nil {
+			skBytes = key.ScriptKey.PubKey.SerializeCompressed()
+		}
+		return nil, fmt.Errorf("unable to verify proof (%v, "+
+			"outpoint=%v, scriptKey=%x): %w", id.StringForLog(),
+			key.OutPoint.String(), skBytes, err)
 	}
 
 	newAsset := assetSnapshot.Asset
@@ -403,10 +409,10 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 	log.Infof("Verifying %d new proofs for insertion into Universe",
 		len(items))
 
-	// Issuances that also create an asset group, group anchors, must be
-	// verified and stored before any issuances that may be reissuances into
-	// the same asset group. This is required for proper verification of
-	// reissuances, which may be in this batch.
+	// Issuance proofs that also create an asset group (a.k.a. group
+	// anchors) must be verified and stored before any issuance proofs that
+	// may be re-issuances into the same asset group. This is required for
+	// proper verification of re-issuances, which may be in this batch.
 	var anchorItems []*Item
 	nonAnchorItems := make([]*Item, 0, len(items))
 	assetProofs := make(map[LeafKey]*proof.Proof)
@@ -476,7 +482,8 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 				}
 
 				assetSnapshot, err := a.verifyIssuanceProof(
-					ctx, i.ID, i.Key, assetProof, prevAssets,
+					ctx, i.ID, i.Key, assetProof,
+					prevAssets,
 				)
 				if err != nil {
 					return err
@@ -488,8 +495,8 @@ func (a *Archive) UpsertProofLeafBatch(ctx context.Context,
 			},
 		)
 		if err != nil {
-			return fmt.Errorf("unable to verify issuance proofs: "+
-				"%w", err)
+			return fmt.Errorf("unable to batch verify issuance "+
+				"proofs: %w", err)
 		}
 
 		return nil

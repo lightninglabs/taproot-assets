@@ -272,20 +272,9 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	// local registrar as they're fetched.
 	var (
 		fetchedLeaves = make(chan *Item, len(keysToFetch))
-		newLeafProofs []*Leaf
+		newLeafProofs = make([]*Leaf, 0, len(keysToFetch))
 		batchSyncEG   errgroup.Group
 	)
-
-	// We use an error group to simply the error handling of a goroutine.
-	// This goroutine will handle reading in batches of new leaves to
-	// insert into the DB. We'll fee the output of the goroutines below
-	// into the input fetchedLeaves channel.
-	batchSyncEG.Go(func() error {
-		newLeafProofs, err = s.batchStreamNewItems(
-			ctx, uniID, fetchedLeaves, len(keysToFetch),
-		)
-		return err
-	})
 
 	// If this is a transfer tree, then we'll use these channels to sort
 	// the contents before sending to the batch writer.
@@ -319,6 +308,37 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 			// Otherwise, we'll another step to the pipeline below
 			// for sorting.
 			if isIssuanceTree {
+				// If this is an issuance proof _AND_ it has a
+				// group key reveal, then we'll need to import
+				// it right away. Otherwise, all other issuance
+				// proofs in the batch might fail, as they might
+				// reference the group key in this proof's
+				// group key reveal.
+				reg := s.cfg.LocalRegistrar
+				if hasGroupKeyReveal(leafProof.Leaf.RawProof) {
+					log.Debugf("UniverseRoot(%v): "+
+						"Inserting new group key "+
+						"reveal leaf", uniID.String())
+					_, err = reg.UpsertProofLeaf(
+						ctx, uniID, key, leafProof.Leaf,
+					)
+					if err != nil {
+						return fmt.Errorf("unable to "+
+							"register group "+
+							"anchor proof: %w", err)
+					}
+
+					// Track this manually inserted proof in
+					// the result.
+					newLeafProofs = append(
+						newLeafProofs, leafProof.Leaf,
+					)
+
+					// No need to batch this further, we've
+					// already inserted it.
+					return nil
+				}
+
 				fetchedLeaves <- &Item{
 					ID:   uniID,
 					Key:  key,
@@ -337,6 +357,23 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	if err != nil {
 		return err
 	}
+
+	// We use an error group to simply the error handling of a goroutine.
+	// This goroutine will handle reading in batches of new leaves to
+	// insert into the DB. We'll fee the output of the goroutines below
+	// into the input fetchedLeaves channel.
+	batchSyncEG.Go(func() error {
+		insertedProofs, err := s.batchStreamNewItems(
+			ctx, uniID, fetchedLeaves, len(keysToFetch),
+		)
+		if err != nil {
+			return err
+		}
+
+		newLeafProofs = append(newLeafProofs, insertedProofs...)
+
+		return nil
+	})
 
 	// If this is a transfer tree, then we'll collect all the items as we
 	// need to sort them to ensure we can validate them in dep order.
@@ -393,6 +430,23 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 		"universe_root=%v", uniID.String(), spew.Sdump(remoteRoot))
 
 	return nil
+}
+
+// hasGroupKeyReveal determines whether a proof has a group key reveal. This is
+// used to determine whether we should insert the proof right away, or batch it
+// with other proofs.
+func hasGroupKeyReveal(rawProof []byte) bool {
+	// We'll decode the proof to determine if it's a group key reveal.
+	var dummyProof proof.Proof
+	record := proof.GroupKeyRevealRecord(&dummyProof.GroupKeyReveal)
+
+	proofReader := bytes.NewReader(rawProof)
+	err := proof.SparseDecode(proofReader, record)
+	if err != nil {
+		return false
+	}
+
+	return dummyProof.GroupKeyReveal != nil
 }
 
 // batchStreamNewItems streams the set of new items to the local registrar in
