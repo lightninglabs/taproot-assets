@@ -870,9 +870,41 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// If we have a non-interactive proof, then we'll launch several
 	// goroutines to deliver the proof(s) to the receiver(s).
-	err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
+	instanceErrors, err := fn.ParSliceErrCollect(
+		ctx, pkg.OutboundPkg.Outputs, deliver,
+	)
 	if err != nil {
 		return fmt.Errorf("error delivering proof(s): %w", err)
+	}
+
+	// If there were any errors during the proof delivery process, we'll
+	// log them all here.
+	for idx := range instanceErrors {
+		output := pkg.OutboundPkg.Outputs[idx]
+		instanceErr := instanceErrors[idx]
+
+		scriptPubKey := output.ScriptKey.PubKey.SerializeCompressed()
+		anchorOutpoint := output.Anchor.OutPoint.String()
+		courierAddr := string(output.ProofCourierAddr)
+
+		log.Errorf("Error delivering transfer output proof "+
+			"(anchor_outpoint=%s, script_pub_key=%v, "+
+			"position=%d, proof_courier_addr=%s, "+
+			"proof_delivery_status=%v): %v",
+			anchorOutpoint, scriptPubKey, output.Position,
+			courierAddr, output.ProofDeliveryComplete,
+			instanceErr)
+	}
+
+	// Return the first error encountered during the proof delivery process,
+	// if any.
+	var firstErr error
+	fn.PeekMap(instanceErrors).WhenSome(func(kv fn.KV[int, error]) {
+		firstErr = err
+	})
+
+	if firstErr != nil {
+		return firstErr
 	}
 
 	// At this point, the transfer is fully finalised and successful:
