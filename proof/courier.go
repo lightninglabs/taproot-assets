@@ -654,7 +654,7 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 	if err != nil {
 		return err
 	}
-	log.Infof("Starting proof transfer backoff procedure for proof "+
+	log.Infof("Starting proof transfer backoff procedure "+
 		"(transfer_type=%s, locator_hash=%x)", transferType,
 		locatorHash[:])
 
@@ -710,7 +710,7 @@ func (b *BackoffHandler) Exec(ctx context.Context, proofLocator Locator,
 		)
 		subscriberEvent(waitEvent)
 
-		log.Debugf("Proof delivery failed with error. Backing off. "+
+		log.Debugf("Proof transfer failed with error. Backing off. "+
 			"(transfer_type=%s, locator_hash=%x, backoff=%s, "+
 			"attempt=%d): %v",
 			transferType, locatorHash[:], backoff, i, errExec)
@@ -742,7 +742,7 @@ func (b *BackoffHandler) wait(ctx context.Context, wait time.Duration) error {
 	case <-time.After(wait):
 		return nil
 	case <-ctx.Done():
-		return fmt.Errorf("context canceled")
+		return fmt.Errorf("back off handler context done")
 	}
 }
 
@@ -1423,8 +1423,8 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 			err := c.ensureConnect(ctx)
 			if err != nil {
 				return fmt.Errorf("unable to connect to "+
-					"courier service during delivery "+
-					"attempt: %w", err)
+					"universe RPC courier service during "+
+					"recieve attempt: %w", err)
 			}
 
 			// Retrieve proof from courier.
