@@ -564,7 +564,7 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	// Initiate proof courier service handle from the proof courier address
 	// found in the Tap address.
 	courier, err := c.cfg.ProofCourierDispatcher.NewCourier(
-		&addr.ProofCourierAddr,
+		ctx, &addr.ProofCourierAddr, true,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to initiate proof courier service "+

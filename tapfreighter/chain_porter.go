@@ -820,7 +820,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		// Initiate proof courier service handle from the proof
 		// courier address found in the Tap address.
 		courier, err := p.cfg.ProofCourierDispatcher.NewCourier(
-			proofCourierAddr,
+			ctx, proofCourierAddr, true,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to initiate proof courier "+

@@ -444,8 +444,8 @@ type MockProofCourierDispatcher struct {
 
 // NewCourier instantiates a new courier service handle given a service
 // URL address.
-func (m *MockProofCourierDispatcher) NewCourier(*url.URL) (Courier,
-	error) {
+func (m *MockProofCourierDispatcher) NewCourier(context.Context,
+	*url.URL, bool) (Courier, error) {
 
 	return m.Courier, nil
 }
