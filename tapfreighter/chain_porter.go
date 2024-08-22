@@ -881,6 +881,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// those that do not.
 	reportProofTransfers(notDeliveringOutputs, pendingDeliveryOutputs)
 
+	// incompleteDelivery is set to true if any proof delivery attempts fail
+	// and exceed the maximum backoff limit.
+	incompleteDelivery := false
+
 	deliver := func(ctx context.Context, out TransferOutput) error {
 		scriptKey := out.ScriptKey.PubKey
 		scriptKeyBytes := scriptKey.SerializeCompressed()
@@ -940,6 +944,14 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		// later.
 		var backoffExecErr *proof.BackoffExecError
 		if errors.As(err, &backoffExecErr) {
+			log.Debugf("Exceeded backoff limit for proof delivery "+
+				"(script_key=%x, proof_courier_addr=%s)",
+				scriptKey.SerializeCompressed(),
+				out.ProofCourierAddr)
+
+			// Set the incomplete delivery flag to true so that we
+			// can retry the proof transfer state later.
+			incompleteDelivery = true
 			return nil
 		}
 		if err != nil {
@@ -956,6 +968,10 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 			return fmt.Errorf("unable to log proof delivery "+
 				"confirmation: %w", err)
 		}
+
+		log.Infof("Transfer output proof delivery complete "+
+			"(anchor_txid=%v, output_position=%d)",
+			pkg.OutboundPkg.AnchorTx.TxHash(), out.Position)
 
 		return nil
 	}
@@ -997,6 +1013,17 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	if firstErr != nil {
 		return firstErr
+	}
+
+	// If the delivery is incomplete, we'll return early so that we can
+	// retry proof transfer later.
+	if incompleteDelivery {
+		log.Debugf("Proof delivery incomplete, will retry executing "+
+			"the proof transfer state (transfer_anchor_tx_hash=%v)",
+			pkg.OutboundPkg.AnchorTx.TxHash())
+
+		// Return here before setting the transfer to complete.
+		return nil
 	}
 
 	// At this point, the transfer is fully finalised and successful:
