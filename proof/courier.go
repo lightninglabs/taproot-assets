@@ -1473,7 +1473,11 @@ func (c *UniverseRpcCourier) publishSubscriberEvent(event fn.Event) {
 
 // Close closes the courier's connection to the remote gRPC service.
 func (c *UniverseRpcCourier) Close() error {
-	return c.rawConn.Close()
+	if c.rawConn != nil {
+		return c.rawConn.Close()
+	}
+
+	return nil
 }
 
 // A compile-time assertion to ensure the UniverseRpcCourier meets the
