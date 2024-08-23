@@ -763,6 +763,58 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context,
 	}, nil
 }
 
+// reportProofTransfers logs a summary of the transfer outputs that require
+// proof delivery and those that do not.
+func reportProofTransfers(
+	notDeliveringOutputs []TransferOutput,
+	pendingDeliveryOutputs []TransferOutput) {
+
+	log.Debugf("Count of transfer output(s) by proof delivery status: "+
+		"(count_delivery_not_applicable=%d, count_pending_delivery=%d)",
+		len(notDeliveringOutputs), len(pendingDeliveryOutputs))
+
+	// Report the transfer outputs that do not require proof delivery.
+	if len(notDeliveringOutputs) > 0 {
+		logEntries := make([]string, 0, len(notDeliveringOutputs))
+		for idx := range notDeliveringOutputs {
+			out := notDeliveringOutputs[idx]
+			key := out.ScriptKey.PubKey
+
+			entry := fmt.Sprintf("transfer_output_position=%d, "+
+				"proof_delivery_status=%v, "+
+				"script_key=%x", out.Position,
+				out.ProofDeliveryComplete,
+				key.SerializeCompressed())
+			logEntries = append(logEntries, entry)
+		}
+
+		entriesJoin := strings.Join(logEntries, "\n")
+		log.Debugf("Transfer outputs that do not require proof "+
+			"delivery:\n%v", entriesJoin)
+	}
+
+	// Report the transfer outputs that require proof delivery.
+	if len(pendingDeliveryOutputs) > 0 {
+		logEntries := make([]string, 0, len(pendingDeliveryOutputs))
+		for idx := range pendingDeliveryOutputs {
+			out := pendingDeliveryOutputs[idx]
+			key := out.ScriptKey.PubKey
+
+			entry := fmt.Sprintf("transfer_output_position=%d, "+
+				"proof_delivery_status=%v, "+
+				"proof_courier_addr=%s, "+
+				"script_key=%x", out.Position,
+				out.ProofDeliveryComplete, out.ProofCourierAddr,
+				key.SerializeCompressed())
+			logEntries = append(logEntries, entry)
+		}
+
+		entriesJoin := strings.Join(logEntries, "\n")
+		log.Debugf("Transfer outputs that require proof delivery:\n%v",
+			entriesJoin)
+	}
+}
+
 // transferReceiverProof retrieves the sender and receiver proofs from the
 // archive and then transfers the receiver's proof to the receiver. Upon
 // successful transfer, the asset parcel delivery is marked as complete.
@@ -770,8 +822,14 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	deliver := func(ctx context.Context, out TransferOutput) error {
-		key := out.ScriptKey.PubKey
+	// Classify transfer outputs into those that require proof delivery and
+	// those that do not.
+	var (
+		notDeliveringOutputs   []TransferOutput
+		pendingDeliveryOutputs []TransferOutput
+	)
+	for idx := range pkg.OutboundPkg.Outputs {
+		out := pkg.OutboundPkg.Outputs[idx]
 
 		// We'll first check to see if the proof should be delivered.
 		shouldDeliverProof, err := out.ShouldDeliverProof()
@@ -781,14 +839,19 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		}
 
 		if !shouldDeliverProof {
-			log.Debugf("Transfer ouput proof does not require "+
-				"delivery (transfer_output_position=%d, "+
-				"proof_delivery_status=%v, "+
-				"script_key=%x)", out.Position,
-				out.ProofDeliveryComplete,
-				key.SerializeCompressed())
-			return nil
+			notDeliveringOutputs = append(notDeliveringOutputs, out)
+			continue
 		}
+
+		pendingDeliveryOutputs = append(pendingDeliveryOutputs, out)
+	}
+
+	// Log a summary of the transfer outputs that require proof delivery and
+	// those that do not.
+	reportProofTransfers(notDeliveringOutputs, pendingDeliveryOutputs)
+
+	deliver := func(ctx context.Context, out TransferOutput) error {
+		key := out.ScriptKey.PubKey
 
 		// We just look for the full proof in the list of final proofs
 		// by matching the content of the proof suffix.
@@ -871,7 +934,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// If we have a non-interactive proof, then we'll launch several
 	// goroutines to deliver the proof(s) to the receiver(s).
 	instanceErrors, err := fn.ParSliceErrCollect(
-		ctx, pkg.OutboundPkg.Outputs, deliver,
+		ctx, pendingDeliveryOutputs, deliver,
 	)
 	if err != nil {
 		return fmt.Errorf("error delivering proof(s): %w", err)
