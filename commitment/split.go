@@ -210,6 +210,12 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 		}}
 		assetSplit.SplitCommitmentRoot = nil
 
+		// We'll also make sure to clear out the lock time and relative
+		// lock time from the input. The input at this point is already
+		// valid, so we don't need to inherit the time lock encumbrance.
+		assetSplit.RelativeLockTime = 0
+		assetSplit.LockTime = 0
+
 		splitAssets[*locator] = &SplitAsset{
 			Asset:       *assetSplit,
 			OutputIndex: locator.OutputIndex,

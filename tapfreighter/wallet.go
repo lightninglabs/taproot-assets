@@ -315,6 +315,11 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	// asset.
 	outputAsset.SplitCommitmentRoot = nil
 
+	// If this was previously a time locked asset, it's now a simple asset.
+	// So we need to clear out the time locks as well.
+	outputAsset.LockTime = 0
+	outputAsset.RelativeLockTime = 0
+
 	// Clear the output asset witness data. We'll be creating a new witness.
 	outputAsset.PrevWitnesses = []asset.Witness{{
 		PrevID: &vInput.PrevID,

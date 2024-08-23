@@ -385,8 +385,11 @@ func CreateOwnershipProofAsset(ownedAsset *asset.Asset,
 	// definitely not have a split commitment. Keeping the split commitment
 	// of the copied owned asset would lead to an issue with the
 	// non-inflation check we have in the VM that takes the split commitment
-	// root sum as the expected total output amount.
+	// root sum as the expected total output amount. We also clear any time
+	// locks, as they don't apply to the ownership proof.
 	outputAsset.SplitCommitmentRoot = nil
+	outputAsset.LockTime = 0
+	outputAsset.RelativeLockTime = 0
 
 	return prevId, outputAsset
 }
