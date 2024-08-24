@@ -1831,6 +1831,26 @@ func (a *Asset) Copy() *Asset {
 	return &assetCopy
 }
 
+// CopySpendTemplate is similar to Copy, but should be used when wanting to
+// spend an input asset in a new transaction. Compared to Copy, this method
+// also blanks out some other fields that shouldn't always be carried along for
+// a dependent spend.
+func (a *Asset) CopySpendTemplate() *Asset {
+	assetCopy := a.Copy()
+
+	// We nil out the split commitment root, as we don't need to carry that
+	// into the next spend.
+	assetCopy.SplitCommitmentRoot = nil
+
+	// We'll also make sure to clear out the lock time and relative lock
+	// time from the input. The input at this point is already valid, so we
+	// don't need to inherit the time lock encumbrance.
+	assetCopy.RelativeLockTime = 0
+	assetCopy.LockTime = 0
+
+	return assetCopy
+}
+
 // DeepEqual returns true if this asset is equal with the given asset.
 func (a *Asset) DeepEqual(o *Asset) bool {
 	return a.deepEqual(false, o)

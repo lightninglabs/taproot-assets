@@ -194,7 +194,7 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 	remainingAmount := totalInputAmount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
-		assetSplit := inputs[0].Asset.Copy()
+		assetSplit := inputs[0].Asset.CopySpendTemplate()
 		assetSplit.Amount = locator.Amount
 		assetSplit.Version = locator.AssetVersion
 
@@ -208,13 +208,6 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}}
-		assetSplit.SplitCommitmentRoot = nil
-
-		// We'll also make sure to clear out the lock time and relative
-		// lock time from the input. The input at this point is already
-		// valid, so we don't need to inherit the time lock encumbrance.
-		assetSplit.RelativeLockTime = 0
-		assetSplit.LockTime = 0
 
 		splitAssets[*locator] = &SplitAsset{
 			Asset:       *assetSplit,

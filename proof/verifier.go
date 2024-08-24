@@ -375,21 +375,20 @@ func CreateOwnershipProofAsset(ownedAsset *asset.Asset,
 		),
 	}
 
-	outputAsset := ownedAsset.Copy()
-	outputAsset.ScriptKey = address.GenChallengeNUMS(challengeBytes)
-	outputAsset.PrevWitnesses = []asset.Witness{{
-		PrevID: &prevId,
-	}}
-
 	// The ownership proof needs to be a 1-in-1-out transaction. So it will
 	// definitely not have a split commitment. Keeping the split commitment
 	// of the copied owned asset would lead to an issue with the
 	// non-inflation check we have in the VM that takes the split commitment
 	// root sum as the expected total output amount. We also clear any time
 	// locks, as they don't apply to the ownership proof.
-	outputAsset.SplitCommitmentRoot = nil
-	outputAsset.LockTime = 0
-	outputAsset.RelativeLockTime = 0
+	//
+	// This is handled by CopySpendTemplate.
+	outputAsset := ownedAsset.CopySpendTemplate()
+
+	outputAsset.ScriptKey = address.GenChallengeNUMS(challengeBytes)
+	outputAsset.PrevWitnesses = []asset.Witness{{
+		PrevID: &prevId,
+	}}
 
 	return prevId, outputAsset
 }

@@ -309,16 +309,7 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	}
 
 	// Specify virtual output.
-	outputAsset := passiveAsset.Copy()
-
-	// Clear the split commitment root, as we'll be transferring the whole
-	// asset.
-	outputAsset.SplitCommitmentRoot = nil
-
-	// If this was previously a time locked asset, it's now a simple asset.
-	// So we need to clear out the time locks as well.
-	outputAsset.LockTime = 0
-	outputAsset.RelativeLockTime = 0
+	outputAsset := passiveAsset.CopySpendTemplate()
 
 	// Clear the output asset witness data. We'll be creating a new witness.
 	outputAsset.PrevWitnesses = []asset.Witness{{
