@@ -657,6 +657,43 @@ func TestSplitCommitment(t *testing.T) {
 			err: nil,
 		},
 		{
+			name: "single input split commitment lock time input",
+			f: func() (*asset.Asset, *SplitLocator,
+				[]*SplitLocator) {
+
+				input := randAsset(
+					t, genesisNormal, groupKeyNormal,
+				)
+				input.Amount = 3
+				input.RelativeLockTime = 1
+				input.LockTime = 1
+
+				root := &SplitLocator{
+					OutputIndex: 0,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey: asset.ToSerialized(
+						input.ScriptKey.PubKey,
+					),
+					Amount: 1,
+				}
+				external := []*SplitLocator{{
+					OutputIndex: 1,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      1,
+				}, {
+
+					OutputIndex: 2,
+					AssetID:     genesisNormal.ID(),
+					ScriptKey:   asset.RandSerializedKey(t),
+					Amount:      1,
+				}}
+
+				return input, root, external
+			},
+			err: nil,
+		},
+		{
 			name: "no external splits",
 			f: func() (*asset.Asset, *SplitLocator, []*SplitLocator) {
 				input := randAsset(
@@ -870,6 +907,11 @@ func TestSplitCommitment(t *testing.T) {
 			for _, l := range append(external, root) {
 				require.Contains(t, split.SplitAssets, *l)
 				splitAsset := split.SplitAssets[*l]
+
+				// Make sure that the splits don't inherit lock
+				// time information from the root asset.
+				require.Zero(t, splitAsset.LockTime)
+				require.Zero(t, splitAsset.RelativeLockTime)
 
 				// If this is a leaf split, then we need to
 				// ensure that the prev ID is zero.

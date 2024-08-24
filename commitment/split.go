@@ -194,7 +194,7 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 	remainingAmount := totalInputAmount
 	rootIdx := len(locators) - 1
 	addAssetSplit := func(locator *SplitLocator) error {
-		assetSplit := inputs[0].Asset.Copy()
+		assetSplit := inputs[0].Asset.CopySpendTemplate()
 		assetSplit.Amount = locator.Amount
 		assetSplit.Version = locator.AssetVersion
 
@@ -208,7 +208,6 @@ func NewSplitCommitment(ctx context.Context, inputs []SplitCommitmentInput,
 			TxWitness:       nil,
 			SplitCommitment: nil,
 		}}
-		assetSplit.SplitCommitmentRoot = nil
 
 		splitAssets[*locator] = &SplitAsset{
 			Asset:       *assetSplit,

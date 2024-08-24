@@ -1194,3 +1194,25 @@ func TestNewAssetWithCustomVersion(t *testing.T) {
 
 	require.Equal(t, int(assetCustomVersion.Version), newVersion)
 }
+
+// TestCopySpendTemplate tests that the spend template is copied correctly.
+func TestCopySpendTemplate(t *testing.T) {
+	newAsset := RandAsset(t, Normal)
+	newAsset.SplitCommitmentRoot = mssmt.NewComputedNode(hashBytes1, 1337)
+	newAsset.RelativeLockTime = 1
+	newAsset.LockTime = 2
+
+	// The template should have the relevant set of fields blanked.
+	spendTemplate := newAsset.CopySpendTemplate()
+	require.Zero(t, spendTemplate.SplitCommitmentRoot)
+	require.Zero(t, spendTemplate.RelativeLockTime)
+	require.Zero(t, spendTemplate.LockTime)
+
+	// If blank these fields of the OG asset, then things should be
+	// identical.
+	newAsset.SplitCommitmentRoot = nil
+	newAsset.RelativeLockTime = 0
+	newAsset.LockTime = 0
+
+	require.True(t, newAsset.DeepEqual(spendTemplate))
+}
