@@ -373,7 +373,8 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ChannelLister:   walletAnchor,
 			AliasManager:    lndRouterClient,
 			// nolint: lll
-			AcceptPriceDeviationPpm:   rfqCfg.AcceptPriceDeviationPpm,
+			AcceptPriceDeviationPpm: rfqCfg.AcceptPriceDeviationPpm,
+			// nolint: lll
 			SkipAcceptQuotePriceCheck: rfqCfg.SkipAcceptQuotePriceCheck,
 			ErrChan:                   mainErrChan,
 		},
