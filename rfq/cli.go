@@ -22,7 +22,7 @@ const (
 type CliConfig struct {
 	PriceOracleAddress string `long:"priceoracleaddress" description:"Price oracle gRPC server address (rfqrpc://<hostname>:<port>). To use the integrated mock, use the following value: use_mock_price_oracle_service_promise_to_not_use_on_mainnet"`
 
-	AcceptPriceDeviationPpm uint64 `long:"acceptpricedeviationppm" description:"The default price deviation in parts per million that is accepted by the RFQ negotiator."`
+	AcceptPriceDeviationPpm uint64 `long:"acceptpricedeviationppm" description:"The default price deviation in parts per million that is accepted by the RFQ negotiator"`
 
 	SkipAcceptQuotePriceCheck bool `long:"skipacceptquotepricecheck" description:"Accept any price quote returned by RFQ peer, skipping price validation"`
 

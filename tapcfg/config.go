@@ -428,7 +428,11 @@ func DefaultConfig() Config {
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
 		},
-		Experimental: &ExperimentalConfig{},
+		Experimental: &ExperimentalConfig{
+			Rfq: rfq.CliConfig{
+				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
+			},
+		},
 	}
 }
 

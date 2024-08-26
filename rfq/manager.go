@@ -75,7 +75,7 @@ type ManagerCfg struct {
 	// into the manager once lnd and tapd are hooked together.
 	AliasManager ScidAliasManager
 
-	// The default price deviation in
+	// AcceptPriceDeviationPpm is the price deviation in
 	// parts per million that is accepted by the RFQ negotiator.
 	//
 	// Example: 50,000 ppm => price deviation is set to 5% .
@@ -224,11 +224,6 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	if err := m.streamHandler.Start(); err != nil {
 		return fmt.Errorf("unable to start RFQ subsystem service: "+
 			"peer message stream handler: %w", err)
-	}
-
-	// If the accept price deviation is not set, set it to the default value.
-	if m.cfg.AcceptPriceDeviationPpm == 0 {
-		m.cfg.AcceptPriceDeviationPpm = DefaultAcceptPriceDeviationPpm
 	}
 
 	// Initialise and start the quote negotiator.
