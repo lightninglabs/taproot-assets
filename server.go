@@ -92,10 +92,8 @@ func (s *Server) UpdateConfig(cfg *Config) {
 func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// Show version at startup.
 	srvrLog.Infof("Version: %s, build=%s, logging=%s, "+
-		"debuglevel=%s", Version(), build.Deployment,
-		build.LoggingType, s.cfg.DebugLevel)
-
-	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
+		"debuglevel=%s, active_network=%v", Version(), build.Deployment,
+		build.LoggingType, s.cfg.DebugLevel, s.cfg.ChainParams.Name)
 
 	// Depending on how far we got in initializing the server, we might need
 	// to clean up certain services that were already started. Keep track of
