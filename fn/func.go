@@ -1,6 +1,10 @@
 package fn
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/lightningnetwork/lnd/fn"
+)
 
 // Reducer represents a function that takes an accumulator and the value, then
 // returns a new accumulator.
@@ -262,4 +266,20 @@ func Last[T any](xs []*T, pred func(*T) bool) (*T, error) {
 	}
 
 	return matches[len(matches)-1], nil
+}
+
+// KV is a generic struct that holds a key-value pair.
+type KV[K any, V any] struct {
+	Key   K
+	Value V
+}
+
+// PeekMap non-deterministically selects and returns a single key-value pair
+// from the given map.
+func PeekMap[K comparable, V any](m map[K]V) fn.Option[KV[K, V]] {
+	for k, v := range m {
+		return fn.Some(KV[K, V]{Key: k, Value: v})
+	}
+
+	return fn.None[KV[K, V]]()
 }
