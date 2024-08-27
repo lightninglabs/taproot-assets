@@ -653,6 +653,35 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		)
 		require.NoError(t.t, err)
 
+		activeAsset, err := tappsbt.Decode(fundResp.FundedPsbt)
+		require.NoError(t.t, err)
+
+		// We expect stxo alt leaves as well, so we'll create those to
+		// use in an assertion comparison later.
+		var stxoAltLeaves []*asset.Asset
+		for _, output := range activeAsset.Outputs {
+			if !output.Asset.IsTransferRoot() {
+				continue
+			}
+
+			witnesses, err := output.PrevWitnesses()
+			require.NoError(t.t, err)
+			for _, wit := range witnesses {
+				prevIdKey := asset.DeriveBurnKey(*wit.PrevID)
+				scriptKey := asset.NewScriptKey(prevIdKey)
+				altLeaf, err := asset.NewAltLeaf(
+					scriptKey, asset.ScriptV0,
+				)
+				require.NoError(t.t, err)
+
+				stxoAltLeaves = append(stxoAltLeaves, altLeaf)
+			}
+		}
+		leafMap[string(receiverScriptKeyBytes)] = append(
+			leafMap[string(receiverScriptKeyBytes)],
+			stxoAltLeaves...,
+		)
+
 		numOutputs := 1
 		amounts := []uint64{fullAmt}
 		ConfirmAndAssertOutboundTransferWithOutputs(

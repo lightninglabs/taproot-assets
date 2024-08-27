@@ -995,6 +995,18 @@ func commitPacket(vPkt *tappsbt.VPacket,
 			return fmt.Errorf("error committing assets: %w", err)
 		}
 
+		// Collect the spent assets for this output.
+		stxoAssets, err := asset.CollectSTXO(vOut.Asset)
+		if err != nil {
+			return fmt.Errorf("error collecting STXO assets: %w",
+				err)
+		}
+
+		// If we have STXOs, we will encumber vOut.AltLeaves with
+		// them.They will be merged into the commitment later with
+		// MergeAltLeaves.
+		vOut.AltLeaves = append(vOut.AltLeaves, stxoAssets...)
+
 		// Because the receiver of this output might be receiving
 		// through an address (non-interactive), we need to blank out
 		// the split commitment proof, as the receiver doesn't know of
