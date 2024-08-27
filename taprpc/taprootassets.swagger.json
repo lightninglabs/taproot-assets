@@ -2096,6 +2096,9 @@
         }
       }
     },
+    "taprpcSetPendingTransferProofCourierAddrResponse": {
+      "type": "object"
+    },
     "taprpcSplitCommitment": {
       "type": "object",
       "properties": {
@@ -2201,6 +2204,11 @@
         "proof_delivery_status": {
           "$ref": "#/definitions/taprpcProofDeliveryStatus",
           "description": "The delivery status of the proof associated with this output."
+        },
+        "position": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The position of the output in the transfer output list."
         }
       }
     },

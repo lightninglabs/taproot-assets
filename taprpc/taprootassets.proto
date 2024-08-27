@@ -27,6 +27,10 @@ service TaprootAssets {
     */
     rpc ListBalances (ListBalancesRequest) returns (ListBalancesResponse);
 
+    rpc SetPendingTransferProofCourierAddr (
+        SetPendingTransferProofCourierAddrRequest)
+        returns (SetPendingTransferProofCourierAddrResponse);
+
     /* tapcli: `assets transfers`
     ListTransfers lists outbound asset transfers tracked by the target daemon.
     */
@@ -611,6 +615,25 @@ message ListTransfersResponse {
     repeated AssetTransfer transfers = 1;
 }
 
+message SetPendingTransferProofCourierAddrRequest {
+    // The new proof courier address to use for the target transfer output proof
+    // delivery.
+    string new_proof_courier_addr = 1;
+
+    // The hexadecimal encoded transaction ID (txid) of the anchor transaction
+    // for the target transfer.
+    string anchor_txid = 2;
+
+    // Script public key of the target transfer output.
+    bytes transfer_output_script_pub_key = 3;
+
+    // The position of the output in the transfer output list.
+    uint64 transfer_output_position = 4;
+}
+
+message SetPendingTransferProofCourierAddrResponse {
+}
+
 // ChainHash represents a hash value, typically a double SHA-256 of some data.
 // Common examples include block hashes and transaction hashes.
 //
@@ -747,6 +770,9 @@ message TransferOutput {
 
     // The delivery status of the proof associated with this output.
     ProofDeliveryStatus proof_delivery_status = 11;
+
+    // The position of the output in the transfer output list.
+    uint64 position = 12;
 }
 
 message StopRequest {

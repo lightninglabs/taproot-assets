@@ -107,7 +107,12 @@ const (
 	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
 )
 
+// nolint: lll
 type (
+	// Shorthand gRPC types.
+	updateCourierAddrReq  = taprpc.SetPendingTransferProofCourierAddrRequest
+	updateCourierAddrResp = taprpc.SetPendingTransferProofCourierAddrResponse
+
 	// cacheableTimestamp is a wrapper around a uint32 that can be used as a
 	// value in an LRU cache.
 	cacheableTimestamp uint32
@@ -1355,6 +1360,114 @@ func (r *rpcServer) ListTransfers(ctx context.Context,
 	}
 
 	return resp, nil
+}
+
+// SetPendingTransferProofCourierAddr sets the transfer output proof courier
+// address for a pending (undelivered proof) transfer. The anchoring transaction
+// of the target transfer must have already been confirmed on-chain.
+func (r *rpcServer) SetPendingTransferProofCourierAddr(ctx context.Context,
+	req *updateCourierAddrReq) (*updateCourierAddrResp, error) {
+
+	// Unmarshal the anchor tx hash.
+	if len(req.AnchorTxid) == 0 {
+		return nil, fmt.Errorf("anchor txid must be set")
+	}
+
+	anchorTxHash, err := chainhash.NewHashFromStr(req.AnchorTxid)
+	if err != nil {
+		return nil, fmt.Errorf("invalid anchor tx hash: %w", err)
+	}
+
+	// Validate the requested new proof courier address.
+	_, err = proof.ParseCourierAddress(req.NewProofCourierAddr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid proof courier address: %w", err)
+	}
+
+	// Unmarshal the transfer output script key public key.
+	outputScriptKey, err := parseUserKey(req.TransferOutputScriptPubKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid script pub key: %w", err)
+	}
+
+	// Query for pending transfers only.
+	pendingParcels, err := r.cfg.AssetStore.QueryParcels(
+		ctx, anchorTxHash, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query parcels: %w", err)
+	}
+
+	// Identify the target parcel and modify the proof courier address.
+	var targetParcel *tapfreighter.OutboundParcel
+	for idxParcel := range pendingParcels {
+		pendingParcel := pendingParcels[idxParcel]
+
+		// The anchoring transaction of target parcel must have already
+		// been confirmed on-chain.
+		if pendingParcel.AnchorTxBlockHash.IsNone() {
+			continue
+		}
+
+		// Investigate every output in the parcel.
+		for idxOut := range pendingParcel.Outputs {
+			output := pendingParcel.Outputs[idxOut]
+
+			// Skip outputs that don't match the target output.
+			if !output.ScriptKey.PubKey.IsEqual(outputScriptKey) ||
+				output.Position != req.TransferOutputPosition {
+
+				continue
+			}
+
+			// At this point we've matched on the correct transfer
+			// output. We will now perform a sanity check to ensure
+			// check whether a proof should be delivered for this
+			// output.
+			shouldDeliverProof, err := output.ShouldDeliverProof()
+			if err != nil {
+				return nil, fmt.Errorf("unable to determine "+
+					"if proof should be delivered for "+
+					"the given transfer output: %w", err)
+			}
+
+			if !shouldDeliverProof {
+				return nil, fmt.Errorf("target transfer " +
+					"output has been identified in a " +
+					"pending transfer but a proof should " +
+					"not be delivered for this output")
+			}
+
+			// Modify the proof courier address of the transfer
+			// output.
+			pendingParcel.Outputs[idxOut].ProofCourierAddr =
+				[]byte(req.NewProofCourierAddr)
+
+			targetParcel = pendingParcel
+			break
+		}
+
+		// Break if we've found the target parcel.
+		if targetParcel != nil {
+			break
+		}
+	}
+
+	// Return an error if the target parcel was not found.
+	if targetParcel == nil {
+		return nil, fmt.Errorf("target pending transfer output not " +
+			"found")
+	}
+
+	// Request delivery of the updated parcel.
+	pendingParcel := tapfreighter.NewPendingParcel(targetParcel)
+	_, err = r.cfg.ChainPorter.RequestShipment(pendingParcel)
+	if err != nil {
+		return nil, fmt.Errorf("error requesting delivery of "+
+			"modified pending parcel: %w", err)
+	}
+
+	return &updateCourierAddrResp{}, nil
 }
 
 // QueryAddrs queries the set of Taproot Asset addresses stored in the database.
@@ -3382,6 +3495,7 @@ func marshalOutboundParcel(
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
 			ProofDeliveryStatus: proofDeliveryStatus,
+			Position:            out.Position,
 		}
 	}
 

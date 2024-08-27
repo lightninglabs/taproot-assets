@@ -340,8 +340,7 @@ func (p *ChainPorter) advanceState(pkg *sendPackage, kit *parcelKit) {
 	// Continue state transitions whilst state complete has not yet
 	// been reached.
 	for pkg.SendState < SendStateComplete {
-		log.Infof("ChainPorter executing state: %v",
-			pkg.SendState)
+		log.Infof("ChainPorter executing state: %v", pkg.SendState)
 
 		// Before we attempt a state transition, make sure that
 		// we aren't trying to shut down.
@@ -763,10 +762,10 @@ func (p *ChainPorter) updateAssetProofFile(ctx context.Context,
 	}, nil
 }
 
-// transferReceiverProof retrieves the sender and receiver proofs from the
-// archive and then transfers the receiver's proof to the receiver. Upon
-// successful transfer, the asset parcel delivery is marked as complete.
-func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
+// transferProofs delivers the transfer output proofs to the relevant receiving
+// peers. Once successfully delivered, the delivery status of each corresponding
+// proof is marked as complete.
+func (p *ChainPorter) transferProofs(pkg *sendPackage) error {
 	ctx, cancel := p.WithCtxQuitNoTimeout()
 	defer cancel()
 
@@ -870,6 +869,9 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 	// If we have a non-interactive proof, then we'll launch several
 	// goroutines to deliver the proof(s) to the receiver(s).
+	//
+	// TODO(ffranr): even if some of these deliveries fail, we should
+	//  continue with the rest of the deliveries.
 	err := fn.ParSlice(ctx, pkg.OutboundPkg.Outputs, deliver)
 	if err != nil {
 		return fmt.Errorf("error delivering proof(s): %w", err)
@@ -1237,6 +1239,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// package state on disk to reflect this. This step frees up the change
 	// outputs so that they can be used in future transactions.
 	case SendStateStorePostAnchorTxConf:
+		// Store the proofs in the proof archive. This step also
+		// populates the FinalProofs field in the package.
 		err := p.storeProofs(&currentPkg)
 		if err != nil {
 			return nil, fmt.Errorf("unable to store proofs: %w",
@@ -1266,7 +1270,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		go func() {
 			defer p.Wg.Done()
 
-			err := p.transferReceiverProof(&currentPkg)
+			err := p.transferProofs(&currentPkg)
 			if err != nil {
 				log.Errorf("unable to transfer receiver "+
 					"proof: %v", err)
