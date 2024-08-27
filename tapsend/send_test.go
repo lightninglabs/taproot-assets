@@ -637,11 +637,23 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 		false, includesAssetCommitment, inputMatchingAsset,
 	)
 
+	// Create the spent asset for stxo minimal asset commitment
+	// verification.
+	spentAsset, err := asset.MakeSpentAsset(
+		newAsset.PrevWitnesses[0],
+	)
+	require.NoError(t, err)
+
 	// Assert inclusion of the validated asset in the receiver tree
 	// when not splitting.
 	if !isSplit {
 		checkTapCommitment(
 			t, []*asset.Asset{newAsset}, receiverTree,
+			true, true, true,
+		)
+
+		checkTapCommitment(
+			t, []*asset.Asset{spentAsset}, receiverTree,
 			true, true, true,
 		)
 	} else {
@@ -651,6 +663,11 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 		receiver := outputs[1].Asset
 		checkTapCommitment(
 			t, []*asset.Asset{newAsset}, senderTree,
+			true, true, true,
+		)
+
+		checkTapCommitment(
+			t, []*asset.Asset{spentAsset}, senderTree,
 			true, true, true,
 		)
 
