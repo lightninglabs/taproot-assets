@@ -439,6 +439,17 @@ func (h *HashMailBox) RecvAck(ctx context.Context, sid streamID) error {
 		return fmt.Errorf("unable to create read stream: %w", err)
 	}
 
+	// Ensure the read stream is closed before returning.
+	defer func() {
+		log.Debugf("Closing hashmail read stream (sid=%x)", sid[:])
+
+		err := readStream.CloseSend()
+		if err != nil {
+			log.Errorf("Unable to close hashmail read stream: %v",
+				err)
+		}
+	}()
+
 	log.Debugf("Exec stream Recv for receiver ACK (sid=%x)", sid[:])
 	msg, err := readStream.Recv()
 	if err != nil {
@@ -447,10 +458,11 @@ func (h *HashMailBox) RecvAck(ctx context.Context, sid streamID) error {
 	}
 
 	if bytes.Equal(msg.Msg, ackMsg) {
+		log.Debugf("Received ACK from sender (sid=%x)", sid[:])
 		return nil
 	}
 
-	return fmt.Errorf("expected ack, got %x", msg.Msg)
+	return fmt.Errorf("expected ACK from hashmail service, got %x", msg.Msg)
 }
 
 // CleanUp attempts to tear down the mailbox as specified by the passed sid.
