@@ -92,10 +92,8 @@ func (s *Server) UpdateConfig(cfg *Config) {
 func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	// Show version at startup.
 	srvrLog.Infof("Version: %s, build=%s, logging=%s, "+
-		"debuglevel=%s", Version(), build.Deployment,
-		build.LoggingType, s.cfg.DebugLevel)
-
-	srvrLog.Infof("Active network: %v", s.cfg.ChainParams.Name)
+		"debuglevel=%s, active_network=%v", Version(), build.Deployment,
+		build.LoggingType, s.cfg.DebugLevel, s.cfg.ChainParams.Name)
 
 	// Depending on how far we got in initializing the server, we might need
 	// to clean up certain services that were already started. Keep track of
@@ -1037,7 +1035,7 @@ func (s *Server) AuxCloseOutputs(
 	desc chancloser.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
 	error) {
 
-	srvrLog.Infof("AuxCloseOutputs called, desc=%v", spew.Sdump(desc))
+	srvrLog.Tracef("AuxCloseOutputs called, desc=%v", spew.Sdump(desc))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.None[chancloser.AuxCloseOutputs](), err
@@ -1054,7 +1052,7 @@ func (s *Server) ShutdownBlob(
 	req chancloser.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
 	error) {
 
-	srvrLog.Infof("ShutdownBlob called, req=%v", spew.Sdump(req))
+	srvrLog.Tracef("ShutdownBlob called, req=%v", spew.Sdump(req))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.None[lnwire.CustomRecords](), err
@@ -1071,7 +1069,7 @@ func (s *Server) ShutdownBlob(
 func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 	closeTx *wire.MsgTx) error {
 
-	srvrLog.Infof("FinalizeClose called, desc=%v, closeTx=%v",
+	srvrLog.Tracef("FinalizeClose called, desc=%v, closeTx=%v",
 		spew.Sdump(desc), spew.Sdump(closeTx))
 
 	if err := s.waitForReady(); err != nil {
@@ -1086,7 +1084,7 @@ func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 func (s *Server) ResolveContract(
 	req lnwallet.ResolutionReq) lfn.Result[tlv.Blob] {
 
-	srvrLog.Infof("ResolveContract called, req=%v", spew.Sdump(req))
+	srvrLog.Tracef("ResolveContract called, req=%v", spew.Sdump(req))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.Err[tlv.Blob](err)
@@ -1101,7 +1099,7 @@ func (s *Server) ResolveContract(
 func (s *Server) DeriveSweepAddr(inputs []input.Input,
 	change lnwallet.AddrWithKey) lfn.Result[sweep.SweepOutput] {
 
-	srvrLog.Infof("DeriveSweepAddr called, inputs=%v, change=%v",
+	srvrLog.Tracef("DeriveSweepAddr called, inputs=%v, change=%v",
 		spew.Sdump(inputs), spew.Sdump(change))
 
 	if err := s.waitForReady(); err != nil {
@@ -1116,7 +1114,7 @@ func (s *Server) DeriveSweepAddr(inputs []input.Input,
 func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount) error {
 
-	srvrLog.Infof("NotifyBroadcast called, req=%v, tx=%v, fee=%v",
+	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v",
 		spew.Sdump(req), spew.Sdump(tx), fee)
 
 	if err := s.waitForReady(); err != nil {
