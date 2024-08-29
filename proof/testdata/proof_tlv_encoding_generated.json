@@ -67,6 +67,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -213,6 +214,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -325,6 +327,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "00c01876a914f6c97547d73156abb300ae059905c4acaadd09dd88",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -471,6 +474,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "016c2e4bb01e316abaaee288d69c06cc608cedefd6e1a06813786c4ec51b6e1d3868ba2662554025b18af167c2ab17cd720b0c46ac7bd5750800b93c0b26a4af43",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -583,6 +587,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -712,6 +717,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -806,6 +812,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "00c01876a914f6c97547d73156abb300ae059905c4acaadd09dd88",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -918,6 +925,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "016c2e4bb01e316abaaee288d69c06cc608cedefd6e1a06813786c4ec51b6e1d3868ba2662554025b18af167c2ab17cd720b0c46ac7bd5750800b93c0b26a4af43",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -1030,6 +1038,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -1132,6 +1141,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -1252,6 +1262,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -1374,6 +1385,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -1530,6 +1542,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,
@@ -1652,6 +1665,7 @@
               "unknown_odd_types": null
             },
             "tapscript_sibling": "",
+            "stxo_proofs": {},
             "unknown_odd_types": null
           },
           "tapscript_proof": null,

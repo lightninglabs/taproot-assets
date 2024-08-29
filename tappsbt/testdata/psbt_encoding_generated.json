@@ -284,6 +284,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -309,6 +310,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -358,6 +360,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -596,6 +599,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -621,6 +625,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -670,6 +675,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1059,6 +1065,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1084,6 +1091,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -1133,6 +1141,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1371,6 +1380,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1396,6 +1406,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -1445,6 +1456,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,

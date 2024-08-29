@@ -872,14 +872,30 @@ func NewTestFromCommitmentProof(t testing.TB,
 		TapscriptSibling: commitment.HexTapscriptSibling(
 			t, p.TapSiblingPreimage,
 		),
+		STXOProofs:      NewTestFromSTXOProofs(t, p),
 		UnknownOddTypes: p.UnknownOddTypes,
 	}
 }
 
+func NewTestFromSTXOProofs(t testing.TB,
+	p *CommitmentProof) *map[string]commitment.TestProof {
+
+	t.Helper()
+
+	stxoProofs := make(map[string]commitment.TestProof)
+	for key, proof := range p.STXOProofs {
+		keyHex := hex.EncodeToString(key[:])
+		stxoProofs[keyHex] = *commitment.NewTestFromProof(t, &proof)
+	}
+	return &stxoProofs
+}
+
+// nolint: lll
 type TestCommitmentProof struct {
-	Proof            *commitment.TestProof `json:"proof"`
-	TapscriptSibling string                `json:"tapscript_sibling"`
-	UnknownOddTypes  tlv.TypeMap           `json:"unknown_odd_types"`
+	Proof            *commitment.TestProof            `json:"proof"`
+	TapscriptSibling string                           `json:"tapscript_sibling"`
+	STXOProofs       *map[string]commitment.TestProof `json:"stxo_proofs"`
+	UnknownOddTypes  tlv.TypeMap                      `json:"unknown_odd_types"`
 }
 
 func (tcp *TestCommitmentProof) ToCommitmentProof(
@@ -887,13 +903,27 @@ func (tcp *TestCommitmentProof) ToCommitmentProof(
 
 	t.Helper()
 
-	return &CommitmentProof{
+	stxoProofs := make(map[asset.SerializedKey]commitment.Proof)
+	for key, proof := range *tcp.STXOProofs {
+		keyBytes, err := hex.DecodeString(key)
+		require.NoError(t, err)
+		key := asset.SerializedKey(keyBytes)
+		stxoProofs[key] = *proof.ToProof(t)
+	}
+
+	cp := &CommitmentProof{
 		Proof: *tcp.Proof.ToProof(t),
 		TapSiblingPreimage: commitment.ParseTapscriptSibling(
 			t, tcp.TapscriptSibling,
 		),
 		UnknownOddTypes: tcp.UnknownOddTypes,
 	}
+
+	if len(stxoProofs) > 0 {
+		cp.STXOProofs = stxoProofs
+	}
+
+	return cp
 }
 
 func NewTestFromTapscriptProof(t testing.TB,
