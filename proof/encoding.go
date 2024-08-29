@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -344,6 +345,102 @@ func CommitmentProofDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error 
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "*CommitmentProof")
+}
+
+func CommitmentProofsEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*map[asset.SerializedKey]commitment.Proof); ok {
+		numProofs := uint64(len(*t))
+		if err := tlv.WriteVarInt(w, numProofs, buf); err != nil {
+			return err
+		}
+
+		var proofBuf bytes.Buffer
+		for key, proof := range *t {
+			var keyBytes [33]byte
+			copy(keyBytes[:], key[:])
+
+			err := tlv.EBytes33(w, &keyBytes, buf)
+			if err != nil {
+				return err
+			}
+
+			if err := proof.Encode(&proofBuf); err != nil {
+				return err
+			}
+
+			proofBytes := proofBuf.Bytes()
+			err = asset.InlineVarBytesEncoder(w, &proofBytes, buf)
+			if err != nil {
+				return err
+			}
+
+			proofBuf.Reset()
+		}
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(
+		val, "map[asset.SerializedKey]CommitmentProof",
+	)
+}
+
+func CommitmentProofsDecoder(r io.Reader, val any, buf *[8]byte,
+	_ uint64) error {
+
+	if typ, ok := val.(*map[asset.SerializedKey]commitment.Proof); ok {
+		numProofs, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		// Avoid OOM by limiting the number of commitment proofs we
+		// accept.
+		if numProofs > MaxNumTaprootProofs {
+			return fmt.Errorf("%w: too many commitment proofs",
+				ErrProofInvalid)
+		}
+
+		proofs := make(
+			map[asset.SerializedKey]commitment.Proof, numProofs,
+		)
+		for i := uint64(0); i < numProofs; i++ {
+			var keyBytes [33]byte
+
+			err := tlv.DBytes33(
+				r, &keyBytes, buf,
+				btcec.PubKeyBytesLenCompressed,
+			)
+			if err != nil {
+				return err
+			}
+
+			var proofBytes []byte
+			err = asset.InlineVarBytesDecoder(
+				r, &proofBytes, buf, MaxTaprootProofSizeBytes,
+			)
+			if err != nil {
+				return err
+			}
+
+			var key asset.SerializedKey
+			copy(key[:], keyBytes[:])
+
+			var proof commitment.Proof
+			err = proof.Decode(bytes.NewReader(proofBytes))
+			if err != nil {
+				return err
+			}
+
+			proofs[key] = proof
+		}
+
+		*typ = proofs
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(
+		val, "map[asset.SerializedKey]CommitmentProof",
+	)
 }
 
 func TapscriptProofEncoder(w io.Writer, val any, buf *[8]byte) error {
