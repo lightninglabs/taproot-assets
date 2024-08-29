@@ -107,11 +107,22 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 		return db.WithTx(tx)
 	}
 
+	metaTxCreator := func(tx *sql.Tx) tapdb.MetaStore {
+		return db.WithTx(tx)
+	}
+
 	assetDB := tapdb.NewTransactionExecutor(
 		db, txCreator,
 	)
+
+	metaDB := tapdb.NewTransactionExecutor(
+		db, metaTxCreator,
+	)
+
 	testClock := clock.NewTestClock(time.Now())
-	assetStore := tapdb.NewAssetStore(assetDB, testClock)
+	assetStore := tapdb.NewAssetStore(
+		assetDB, metaDB, testClock, db.Backend(),
+	)
 
 	proofArchive := proof.NewMultiArchiver(
 		proof.NewMockVerifier(t), tapdb.DefaultStoreTimeout,

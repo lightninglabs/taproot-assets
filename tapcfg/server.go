@@ -42,18 +42,25 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	lndServices *lndclient.LndServices, enableChannelFeatures bool,
 	mainErrChan chan<- error) (*tap.Config, error) {
 
-	var err error
+	var (
+		err    error
+		db     databaseBackend
+		dbType sqlc.BackendType
+	)
 
 	// Now that we know where the database will live, we'll go ahead and
 	// open up the default implementation of it.
-	var db databaseBackend
 	switch cfg.DatabaseBackend {
 	case DatabaseBackendSqlite:
+		dbType = sqlc.BackendTypeSqlite
+
 		cfgLogger.Infof("Opening sqlite3 database at: %v",
 			cfg.Sqlite.DatabaseFileName)
 		db, err = tapdb.NewSqliteStore(cfg.Sqlite)
 
 	case DatabaseBackendPostgres:
+		dbType = sqlc.BackendTypePostgres
+
 		cfgLogger.Infof("Opening postgres database at: %v",
 			cfg.Postgres.DSN(true))
 		db, err = tapdb.NewPostgresStore(cfg.Postgres)
@@ -85,6 +92,12 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		},
 	)
 
+	metaDB := tapdb.NewTransactionExecutor(
+		db, func(tx *sql.Tx) tapdb.MetaStore {
+			return db.WithTx(tx)
+		},
+	)
+
 	addrBookDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.AddrBook {
 			return db.WithTx(tx)
@@ -94,7 +107,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	tapdbAddrBook := tapdb.NewTapAddressBook(
 		addrBookDB, &tapChainParams, defaultClock,
 	)
-	assetStore := tapdb.NewAssetStore(assetDB, defaultClock)
+	assetStore := tapdb.NewAssetStore(assetDB, metaDB, defaultClock, dbType)
 
 	keyRing := tap.NewLndRpcKeyRing(lndServices)
 	walletAnchor := tap.NewLndRpcWalletAnchor(lndServices)
