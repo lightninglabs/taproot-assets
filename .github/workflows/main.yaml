@@ -291,7 +291,50 @@ jobs:
           path: logs-itest-postgres.zip
           retention-days: 5
 
-    # Notify about the completion of all coverage collecting jobs.
+  ########################
+  # Run LiTd tests
+  ########################
+  run-lit-tests:
+    name: run LiT tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: git checkout
+        uses: actions/checkout@v3
+
+      - name: Setup go environment
+        uses: ./.github/actions/setup-go
+
+      - name: Clone Lit repository
+        run: git clone https://github.com/lightninglabs/lightning-terminal.git
+
+      - name: Update go.mod to use the local Tap repository
+        working-directory: ./lightning-terminal
+        run: |
+          go mod edit -replace=github.com/lightning-labs/taproot-assets=../
+          go mod tidy
+
+      - name: Install yarn
+        run: npm install -g yarn
+          
+      - name: setup nodejs
+        uses: ./lightning-terminal/.github/actions/setup-node
+        with:
+          node-version: 16.x
+
+      - name: install LiT app dependencies
+        working-directory: ./lightning-terminal/app
+        run: yarn
+
+      - name: Run LiT itests
+        working-directory: ./lightning-terminal
+        run: make itest
+
+      - name: Run LiT unit tests
+        working-directory: ./lightning-terminal
+        run: make unit
+
+  # Notify about the completion of all coverage collecting jobs.
   finish:
     if: ${{ always() }}
     needs: [unit-test]
