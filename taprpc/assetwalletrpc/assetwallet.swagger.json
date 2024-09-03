@@ -460,6 +460,16 @@
         }
       }
     },
+    "assetwalletrpcCoinSelectType": {
+      "type": "string",
+      "enum": [
+        "COIN_SELECT_DEFAULT",
+        "COIN_SELECT_BIP86_ONLY",
+        "COIN_SELECT_SCRIPT_TREES_ALLOWED"
+      ],
+      "default": "COIN_SELECT_DEFAULT",
+      "description": " - COIN_SELECT_DEFAULT: Use the default coin selection type, which currently allows script keys and\nkey spend paths.\n - COIN_SELECT_BIP86_ONLY: Explicitly only select inputs that are known to be BIP-086 compliant (have\na key-spend path only and no script tree).\n - COIN_SELECT_SCRIPT_TREES_ALLOWED: Allow the selection of inputs that have a script tree spend path as well as\na key spend path."
+    },
     "assetwalletrpcCommitVirtualPsbtsRequest": {
       "type": "object",
       "properties": {
@@ -571,6 +581,10 @@
         "raw": {
           "$ref": "#/definitions/assetwalletrpcTxTemplate",
           "description": "Use the asset outputs and optional asset inputs from this raw template."
+        },
+        "coin_select_type": {
+          "$ref": "#/definitions/assetwalletrpcCoinSelectType",
+          "description": "Specify the type of coins that should be selected. Defaults to allowing both\nscript trees and BIP-086 compliant inputs."
         }
       }
     },

@@ -114,6 +114,26 @@ service AssetWallet {
         returns (DeclareScriptKeyResponse);
 }
 
+enum CoinSelectType {
+    /*
+    Use the default coin selection type, which currently allows script keys and
+    key spend paths.
+    */
+    COIN_SELECT_DEFAULT = 0;
+
+    /*
+    Explicitly only select inputs that are known to be BIP-086 compliant (have
+    a key-spend path only and no script tree).
+    */
+    COIN_SELECT_BIP86_ONLY = 1;
+
+    /*
+    Allow the selection of inputs that have a script tree spend path as well as
+    a key spend path.
+    */
+    COIN_SELECT_SCRIPT_TREES_ALLOWED = 2;
+}
+
 message FundVirtualPsbtRequest {
     oneof template {
         /*
@@ -126,6 +146,12 @@ message FundVirtualPsbtRequest {
         */
         TxTemplate raw = 2;
     }
+
+    /*
+    Specify the type of coins that should be selected. Defaults to allowing both
+    script trees and BIP-086 compliant inputs.
+    */
+    CoinSelectType coin_select_type = 3;
 }
 
 message FundVirtualPsbtResponse {
