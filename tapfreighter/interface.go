@@ -131,8 +131,7 @@ type CoinSelector interface {
 	SelectCoins(ctx context.Context, constraints CommitmentConstraints,
 		strategy MultiCommitmentSelectStrategy,
 		maxVersion commitment.TapCommitmentVersion,
-	) ([]*AnchoredCommitment,
-		error)
+	) ([]*AnchoredCommitment, error)
 
 	// ReleaseCoins releases/unlocks coins that were previously leased and
 	// makes them available for coin selection again.

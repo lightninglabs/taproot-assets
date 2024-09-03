@@ -2019,6 +2019,12 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	req *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
+	coinSelectType, err := unmarshalCoinSelectType(req.CoinSelectType)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing coin select type: %w",
+			err)
+	}
+
 	var fundedVPkt *tapfreighter.FundedVPacket
 	switch {
 	case req.GetPsbt() != nil:
@@ -2040,9 +2046,8 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 				"recipients: %w", err)
 		}
 
-		fundedVPkt, err = r.cfg.AssetWallet.FundPacket(
-			ctx, desc, vPkt,
-		)
+		desc.CoinSelectType = coinSelectType
+		fundedVPkt, err = r.cfg.AssetWallet.FundPacket(ctx, desc, vPkt)
 		if err != nil {
 			return nil, fmt.Errorf("error funding packet: %w", err)
 		}
@@ -2073,7 +2078,9 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 			return nil, fmt.Errorf("no recipients specified")
 		}
 
-		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(ctx, addr)
+		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
+			ctx, coinSelectType, addr,
+		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
 				"%w", err)
@@ -2115,6 +2122,26 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	}
 
 	return response, nil
+}
+
+// unmarshalCoinSelectType converts an RPC select type into a native one.
+func unmarshalCoinSelectType(
+	coinSelectType wrpc.CoinSelectType) (tapsend.CoinSelectType, error) {
+
+	switch coinSelectType {
+	case wrpc.CoinSelectType_COIN_SELECT_DEFAULT:
+		return tapsend.DefaultCoinSelectType, nil
+
+	case wrpc.CoinSelectType_COIN_SELECT_BIP86_ONLY:
+		return tapsend.Bip86Only, nil
+
+	case wrpc.CoinSelectType_COIN_SELECT_SCRIPT_TREES_ALLOWED:
+		return tapsend.ScriptTreesAllowed, nil
+
+	default:
+		return 0, fmt.Errorf("unknown coin select type: %d",
+			coinSelectType)
+	}
 }
 
 // SignVirtualPsbt signs the inputs of a virtual transaction and prepares the

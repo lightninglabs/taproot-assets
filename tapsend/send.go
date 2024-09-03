@@ -192,6 +192,9 @@ type FundingDescriptor struct {
 
 	// Amount is the amount of the asset to transfer.
 	Amount uint64
+
+	// CoinSelectType specifies the type of coins that should be selected.
+	CoinSelectType CoinSelectType
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset

@@ -68,6 +68,7 @@ type Wallet interface {
 	// asset re-anchors and the Taproot Asset level commitment of the
 	// selected assets.
 	FundAddressSend(ctx context.Context,
+		coinSelectType tapsend.CoinSelectType,
 		receiverAddrs ...*address.Tap) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
@@ -234,6 +235,7 @@ type FundedVPacket struct {
 //
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
+	coinSelectType tapsend.CoinSelectType,
 	receiverAddrs ...*address.Tap) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
@@ -251,6 +253,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 		return nil, fmt.Errorf("unable to describe recipients: %w", err)
 	}
 
+	fundDesc.CoinSelectType = coinSelectType
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
 		return nil, err
@@ -367,7 +370,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 	constraints := CommitmentConstraints{
 		AssetSpecifier: fundDesc.AssetSpecifier,
 		MinAmt:         fundDesc.Amount,
-		CoinSelectType: tapsend.Bip86Only,
+		CoinSelectType: fundDesc.CoinSelectType,
 	}
 
 	anchorVersion, err := tappsbt.CommitmentVersion(vPkt.Version)
