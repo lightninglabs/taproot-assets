@@ -385,6 +385,27 @@ func testMintFundSealAssets(t *harnessTest) {
 		Amt:     assetTweakedScriptKey.Amount / 2,
 	})
 	require.NoError(t.t, err)
+
+	// We only have script encumbered assets now, so selecting BIP-086 only
+	// assets should result in an error.
+	const bip86Only = wrpc.CoinSelectType_COIN_SELECT_BIP86_ONLY
+	_, err = aliceTapd.FundVirtualPsbt(
+		ctxt, &wrpc.FundVirtualPsbtRequest{
+			Template: &wrpc.FundVirtualPsbtRequest_Raw{
+				Raw: &wrpc.TxTemplate{
+					Recipients: map[string]uint64{
+						bobAddr.Encoded: 1,
+					},
+				},
+			},
+			CoinSelectType: bip86Only,
+		},
+	)
+	require.ErrorContains(
+		t.t, err, "failed to find coin(s) that satisfy given "+
+			"constraints",
+	)
+
 	signedAddrPsbt, signedPassivePsbts := signTransferWithTweakedScriptKey(
 		t, ctxt, aliceTapd, bobAddr, &tweakedScript, 2,
 		tweakedScriptSigLock, tweakedScriptTapTree,
