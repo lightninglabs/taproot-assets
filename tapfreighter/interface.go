@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -34,9 +35,8 @@ type CommitmentConstraints struct {
 	// to satisfy the constraints.
 	MinAmt uint64
 
-	// Bip86ScriptKeysOnly is a flag that when set, will exclude any assets
-	// that have a script key with a tapscript tree (a non-empty tweak).
-	Bip86ScriptKeysOnly bool
+	// CoinSelectType is the type of coins that should be selected.
+	CoinSelectType tapsend.CoinSelectType
 }
 
 // String returns the string representation of the commitment constraints.

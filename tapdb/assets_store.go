@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -873,7 +874,11 @@ func (a *AssetStore) constraintsToDbFilter(
 		// TODO(roasbeef): only want to allow asset ID or other and not
 		// both?
 
-		if query.Bip86ScriptKeysOnly {
+		switch query.CoinSelectType {
+		case tapsend.ScriptTreesAllowed:
+			assetFilter.Bip86ScriptKeysOnly = false
+
+		default:
 			assetFilter.Bip86ScriptKeysOnly = true
 		}
 	}
