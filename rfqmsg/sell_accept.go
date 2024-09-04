@@ -5,7 +5,6 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -54,40 +53,6 @@ func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
 		BidPrice: bidPrice,
 		Expiry:   expiry,
 	}
-}
-
-// newSellAcceptFromWireMsg instantiates a new instance from a wire message.
-func newSellAcceptFromWireMsg(wireMsg WireMessage,
-	msgData acceptWireMsgData) (*SellAccept, error) {
-
-	// Ensure that the message type is an accept message.
-	if wireMsg.MsgType != MsgTypeAccept {
-		return nil, fmt.Errorf("unable to create an asset sell "+
-			"accept message from wire message of type %d",
-			wireMsg.MsgType)
-	}
-
-	// Extract the rate tick from the out-in rate tick field. We use this
-	// field (and not the in-out rate tick field) because this is the rate
-	// tick field populated in response to a peer initiated sell quote
-	// request.
-	var bidPrice lnwire.MilliSatoshi
-	msgData.OutInRateTick.WhenSome(
-		func(rate tlv.RecordT[tlv.TlvType5, uint64]) {
-			bidPrice = lnwire.MilliSatoshi(rate.Val)
-		},
-	)
-
-	// Note that the `Request` field is populated later in the RFQ stream
-	// service.
-	return &SellAccept{
-		Peer:     wireMsg.Peer,
-		Version:  msgData.Version.Val,
-		ID:       msgData.ID.Val,
-		BidPrice: bidPrice,
-		Expiry:   msgData.Expiry.Val,
-		sig:      msgData.Sig.Val,
-	}, nil
 }
 
 // ShortChannelId returns the short channel ID associated with the asset sale

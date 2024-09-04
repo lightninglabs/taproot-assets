@@ -122,59 +122,51 @@ func (h *StreamHandler) handleIncomingWireMessage(
 		// Delete the corresponding outgoing request from the store.
 		h.outgoingRequests.Delete(typedMsg.ID.Val)
 
-	case *rfqmsg.BuyAccept:
+	// We don't know what type of request the accept message is in response
+	// to. We will need to match it to an outgoing request to fully convert
+	// it to the correct type.
+	case *rfqmsg.AcceptWireMsg:
 		// Load and delete the corresponding outgoing request from the
 		// store.
 		outgoingRequest, found := h.outgoingRequests.LoadAndDelete(
-			typedMsg.ID,
+			typedMsg.ID.Val,
 		)
 
 		// Ensure that we have an outgoing request to match the incoming
 		// accept message.
 		if !found {
 			return fmt.Errorf("no outgoing request found for "+
-				"incoming accept message: %s", typedMsg.ID)
+				"incoming accept message: %s", typedMsg.ID.Val)
 		}
 
-		// Type cast the outgoing message to a BuyRequest (the request
-		// type that corresponds to a buy accept message).
-		buyReq, ok := outgoingRequest.(*rfqmsg.BuyRequest)
-		if !ok {
+		// Depending on the type, we convert the message to the correct
+		// type now.
+		var concreteMessage rfqmsg.IncomingMsg
+		switch req := outgoingRequest.(type) {
+		case *rfqmsg.BuyRequest:
+			// TODO(guggero): Feed in the suggested ask price here.
+			concreteMessage = rfqmsg.NewBuyAcceptFromRequest(
+				*req, 0, typedMsg.Expiry.Val,
+			)
+
+		case *rfqmsg.SellRequest:
+			// TODO(guggero): Feed in the suggested bid price here.
+			concreteMessage = rfqmsg.NewSellAcceptFromRequest(
+				*req, 0, typedMsg.Expiry.Val,
+			)
+
+		default:
 			return fmt.Errorf("expected BuyRequest, got %T",
 				outgoingRequest)
 		}
 
-		typedMsg.Request = *buyReq
-
-	case *rfqmsg.SellAccept:
-		// Load and delete the corresponding outgoing request from the
-		// store.
-		outgoingRequest, found := h.outgoingRequests.LoadAndDelete(
-			typedMsg.ID,
+		// Send the incoming message to the RFQ manager.
+		sendSuccess := fn.SendOrQuit(
+			h.cfg.IncomingMessages, concreteMessage, h.Quit,
 		)
-
-		// Ensure that we have an outgoing request to match the incoming
-		// accept message.
-		if !found {
-			return fmt.Errorf("no outgoing request found for "+
-				"incoming accept message: %s", typedMsg.ID)
+		if !sendSuccess {
+			return fmt.Errorf("RFQ stream handler shutting down")
 		}
-
-		// Type cast the outgoing message to a SellRequest (the request
-		// type that corresponds to a sell accept message).
-		req, ok := outgoingRequest.(*rfqmsg.SellRequest)
-		if !ok {
-			return fmt.Errorf("expected SellRequest, got %T",
-				outgoingRequest)
-		}
-
-		typedMsg.Request = *req
-	}
-
-	// Send the incoming message to the RFQ manager.
-	sendSuccess := fn.SendOrQuit(h.cfg.IncomingMessages, msg, h.Quit)
-	if !sendSuccess {
-		return fmt.Errorf("RFQ stream handler shutting down")
 	}
 
 	return nil

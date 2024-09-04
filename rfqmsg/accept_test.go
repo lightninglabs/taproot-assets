@@ -11,7 +11,7 @@ import (
 )
 
 // acceptEncodeDecodeTC is a test case for encoding and decoding a
-// acceptWireMsgData.
+// AcceptWireMsg.
 type acceptEncodeDecodeTC struct {
 	testName string
 
@@ -24,8 +24,8 @@ type acceptEncodeDecodeTC struct {
 	outInRateTick *uint64
 }
 
-// MsgData generates a acceptWireMsgData instance from the test case.
-func (tc acceptEncodeDecodeTC) MsgData() acceptWireMsgData {
+// MsgData generates a AcceptWireMsg instance from the test case.
+func (tc acceptEncodeDecodeTC) MsgData() AcceptWireMsg {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
 	id := tlv.NewPrimitiveRecord[tlv.TlvType1](tc.id)
 	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.expiry)
@@ -49,7 +49,7 @@ func (tc acceptEncodeDecodeTC) MsgData() acceptWireMsgData {
 		)
 	}
 
-	return acceptWireMsgData{
+	return AcceptWireMsg{
 		Version:       version,
 		ID:            id,
 		Expiry:        expiry,
@@ -59,7 +59,7 @@ func (tc acceptEncodeDecodeTC) MsgData() acceptWireMsgData {
 	}
 }
 
-// TestAcceptMsgDataEncodeDecode tests acceptWireMsgData encoding/decoding.
+// TestAcceptMsgDataEncodeDecode tests AcceptWireMsg encoding/decoding.
 func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 	t.Parallel()
 
@@ -120,7 +120,7 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 			require.NoError(tt, err, "unable to encode message")
 
 			// Decode the message.
-			decodedMsgData := acceptWireMsgData{}
+			decodedMsgData := AcceptWireMsg{}
 			err = decodedMsgData.Decode(
 				bytes.NewReader(msgDataBytes),
 			)

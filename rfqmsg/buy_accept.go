@@ -5,7 +5,6 @@ import (
 
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -54,37 +53,6 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 		AskPrice: askPrice,
 		Expiry:   expiry,
 	}
-}
-
-// newBuyAcceptFromWireMsg instantiates a new instance from a wire message.
-func newBuyAcceptFromWireMsg(wireMsg WireMessage,
-	msgData acceptWireMsgData) (*BuyAccept, error) {
-
-	// Ensure that the message type is an accept message.
-	if wireMsg.MsgType != MsgTypeAccept {
-		return nil, fmt.Errorf("unable to create an accept message "+
-			"from wire message of type %d", wireMsg.MsgType)
-	}
-
-	// Extract the rate tick from the in-out rate tick field. We use this
-	// field (and not the out-in rate tick field) because this is the rate
-	// tick field populated in response to a peer initiated buy quote
-	// request.
-	var askPrice lnwire.MilliSatoshi
-	msgData.InOutRateTick.WhenSome(
-		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
-			askPrice = lnwire.MilliSatoshi(rate.Val)
-		},
-	)
-
-	return &BuyAccept{
-		Peer:     wireMsg.Peer,
-		Version:  msgData.Version.Val,
-		ID:       msgData.ID.Val,
-		Expiry:   msgData.Expiry.Val,
-		sig:      msgData.Sig.Val,
-		AskPrice: askPrice,
-	}, nil
 }
 
 // ShortChannelId returns the short channel ID of the quote accept.

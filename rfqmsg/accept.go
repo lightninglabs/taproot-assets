@@ -25,9 +25,9 @@ type (
 	acceptOutInRateTick = tlv.OptionalRecordT[tlv.TlvType5, uint64]
 )
 
-// acceptWireMsgData is a struct that represents the message data field for
-// a quote accept wire message.
-type acceptWireMsgData struct {
+// AcceptWireMsg is a struct that represents the message data field for a quote
+// accept wire message.
+type AcceptWireMsg struct {
 	// Version is the version of the message data.
 	Version tlv.RecordT[tlv.TlvType0, WireMsgDataVersion]
 
@@ -51,9 +51,9 @@ type acceptWireMsgData struct {
 	OutInRateTick acceptOutInRateTick
 }
 
-// newAcceptWireMsgDataFromBuy creates a new acceptWireMsgData from a buy
+// newAcceptWireMsgDataFromBuy creates a new AcceptWireMsg from a buy
 // accept message.
-func newAcceptWireMsgDataFromBuy(q BuyAccept) acceptWireMsgData {
+func newAcceptWireMsgDataFromBuy(q BuyAccept) AcceptWireMsg {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
 	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](q.Expiry)
@@ -71,7 +71,7 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) acceptWireMsgData {
 	)
 
 	// Encode message data component as TLV bytes.
-	return acceptWireMsgData{
+	return AcceptWireMsg{
 		Version:       version,
 		ID:            id,
 		Expiry:        expiry,
@@ -80,9 +80,9 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) acceptWireMsgData {
 	}
 }
 
-// newAcceptWireMsgDataFromSell creates a new acceptWireMsgData from a sell
+// newAcceptWireMsgDataFromSell creates a new AcceptWireMsg from a sell
 // accept message.
-func newAcceptWireMsgDataFromSell(q SellAccept) acceptWireMsgData {
+func newAcceptWireMsgDataFromSell(q SellAccept) AcceptWireMsg {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
 	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](q.Expiry)
@@ -100,7 +100,7 @@ func newAcceptWireMsgDataFromSell(q SellAccept) acceptWireMsgData {
 	)
 
 	// Encode message data component as TLV bytes.
-	return acceptWireMsgData{
+	return AcceptWireMsg{
 		Version:       version,
 		ID:            id,
 		Expiry:        expiry,
@@ -110,7 +110,7 @@ func newAcceptWireMsgDataFromSell(q SellAccept) acceptWireMsgData {
 }
 
 // Validate ensures that the quote accept message is valid.
-func (m *acceptWireMsgData) Validate() error {
+func (m *AcceptWireMsg) Validate() error {
 	// Ensure the version specified in the version field is supported.
 	if m.Version.Val > latestAcceptWireMsgDataVersion {
 		return fmt.Errorf("unsupported quote accept message data "+
@@ -135,8 +135,8 @@ func (m *acceptWireMsgData) Validate() error {
 	return nil
 }
 
-// Encode serializes the acceptWireMsgData to the given io.Writer.
-func (m *acceptWireMsgData) Encode(w io.Writer) error {
+// Encode serializes the AcceptWireMsg to the given io.Writer.
+func (m *AcceptWireMsg) Encode(w io.Writer) error {
 	// Validate the message before encoding.
 	err := m.Validate()
 	if err != nil {
@@ -173,8 +173,8 @@ func (m *acceptWireMsgData) Encode(w io.Writer) error {
 	return tlvStream.Encode(w)
 }
 
-// Decode deserializes the acceptWireMsgData from the given io.Reader.
-func (m *acceptWireMsgData) Decode(r io.Reader) error {
+// Decode deserializes the AcceptWireMsg from the given io.Reader.
+func (m *AcceptWireMsg) Decode(r io.Reader) error {
 	// Define zero values for optional fields.
 	inOutRateTick := m.InOutRateTick.Zero()
 	outInRateTick := m.OutInRateTick.Zero()
@@ -212,7 +212,7 @@ func (m *acceptWireMsgData) Decode(r io.Reader) error {
 }
 
 // Bytes encodes the structure into a TLV stream and returns the bytes.
-func (m *acceptWireMsgData) Bytes() ([]byte, error) {
+func (m *AcceptWireMsg) Bytes() ([]byte, error) {
 	var b bytes.Buffer
 	err := m.Encode(&b)
 	if err != nil {
@@ -222,21 +222,25 @@ func (m *acceptWireMsgData) Bytes() ([]byte, error) {
 	return b.Bytes(), nil
 }
 
+// String returns a human-readable string representation of the message.
+func (m *AcceptWireMsg) String() string {
+	return fmt.Sprintf("AcceptWireMsg(id=%x, expiry=%d)", m.ID.Val[:],
+		m.Expiry.Val)
+}
+
 // NewIncomingAcceptFromWire creates a new quote accept message from an incoming
 // wire message.
 //
-// This is an incoming accept message. An incoming buy accept message indicates
-// that our peer accepts our buy request, meaning they are willing to sell the
-// asset to us. Conversely, an incoming sell accept message indicates that our
-// peer accepts our sell request, meaning they are willing to buy the asset from
-// us.
-func NewIncomingAcceptFromWire(wireMsg WireMessage) (IncomingMsg, error) {
+// This is an incoming accept wire message, and we don't yet know what request
+// it is in response to. We will need to match it to an outgoing request to
+// fully convert it to the correct type.
+func NewIncomingAcceptFromWire(wireMsg WireMessage) (*AcceptWireMsg, error) {
 	// Ensure that the message type is a quote accept message.
 	if wireMsg.MsgType != MsgTypeAccept {
 		return nil, ErrUnknownMessageType
 	}
 
-	var msgData acceptWireMsgData
+	var msgData AcceptWireMsg
 	err := msgData.Decode(bytes.NewBuffer(wireMsg.Data))
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode incoming quote "+
@@ -248,17 +252,5 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 			"quote accept message: %w", err)
 	}
 
-	// We will now determine whether this is a buy or sell accept. We can
-	// distinguish between buy/sell accept messages by inspecting which tick
-	// rate field is populated.
-	isBuyAccept := msgData.InOutRateTick.IsSome()
-
-	// If this is a buy request, then we will create a new buy request
-	// message.
-	if isBuyAccept {
-		return newBuyAcceptFromWireMsg(wireMsg, msgData)
-	}
-
-	// Otherwise, this is a sell request.
-	return newSellAcceptFromWireMsg(wireMsg, msgData)
+	return &msgData, nil
 }
