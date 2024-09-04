@@ -139,6 +139,12 @@ updates the daemon's funds-custody material. Merely having the `lnd` seed phrase
 is **NOT** enough to restore assets minted or received.
 **WITHOUT BACKUP BEFORE DELETION, FUNDS ARE DESTROYED**.
 
+## RFQ, asset decimal display, unit precision and price oracle
+
+[Everything related to the RFQ (Request For Quote) system, the asset's currency
+precision (decimal display) and the RFQ price oracle can be found in this
+document](./docs/rfq-and-decimal-display.md). 
+
 ## Submit feature requests
 
 The [GitHub issue tracker](https://github.com/lightninglabs/taproot-assets/issues) can be used to request specific improvements or report bugs.
