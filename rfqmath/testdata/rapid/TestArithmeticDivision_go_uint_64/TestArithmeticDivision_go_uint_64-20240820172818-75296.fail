@@ -1,0 +1,9 @@
+# 2024/08/20 17:28:18.799517 [TestArithmeticDivision/go_uint_64] [rapid] draw a: rfq.GoInt[uint64]{value:0x2}
+# 2024/08/20 17:28:18.799524 [TestArithmeticDivision/go_uint_64] [rapid] draw b: rfq.GoInt[uint64]{value:0x1}
+# 2024/08/20 17:28:18.799525 [TestArithmeticDivision/go_uint_64] average not between values: ({2} + {1}) / 2 = {1}, expected to be between {2} and {1}
+# 
+v0.4.8#4179823434397146909
+0x0
+0x1
+0x0
+0x0

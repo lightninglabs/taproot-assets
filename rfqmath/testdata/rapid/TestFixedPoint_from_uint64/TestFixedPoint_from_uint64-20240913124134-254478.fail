@@ -1,0 +1,19 @@
+# 2024/09/13 12:41:34.066731 [TestFixedPoint/from_uint64] [rapid] draw value: 0x1
+# 2024/09/13 12:41:34.066735 [TestFixedPoint/from_uint64] [rapid] draw scale: 1
+# 2024/09/13 12:41:34.066762 [TestFixedPoint/from_uint64] 
+# 	Error Trace:	/home/guggero/projects/go/src/github.com/lightninglabs/taproot-assets/rfqmath/fixed_point_test.go:159
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Not equal: 
+# 	            	expected: 0x1
+# 	            	actual  : 0x0
+# 	Test:       	TestFixedPoint/from_uint64
+# 
+v0.4.8#7214229959836792886
+0x0
+0x1
+0x0
+0x0
+0x1

@@ -1,0 +1,13 @@
+# 2024/08/20 18:32:55.871867 [TestFixedPoint/multiplication] [rapid] draw a: 0xffffffffffffffff
+# 2024/08/20 18:32:55.871935 [TestFixedPoint/multiplication] [rapid] draw b: 0x1
+# 2024/08/20 18:32:55.871938 [TestFixedPoint/multiplication] [rapid] draw scale: 0
+# 2024/08/20 18:32:55.871944 [TestFixedPoint/multiplication] Precision loss in multiplication: (18446744073709551616 * 1) / 1 = 18446744073709551616, expected approx 18446744073709551616
+# 
+v0.4.8#10594727827758254320
+0x1f4c4038d2fde5
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0

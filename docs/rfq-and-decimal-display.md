@@ -248,7 +248,7 @@ node as:
 ## Examples
 
 See `TestFindDecimalDisplayBoundaries` and `TestUsdToJpy`  in 
-`rfq/convert_test.go` for how these examples are constructed.
+`rfqmath/convert_test.go` for how these examples are constructed.
 
 **Case 1**: Buying/selling USD against BTC.
 

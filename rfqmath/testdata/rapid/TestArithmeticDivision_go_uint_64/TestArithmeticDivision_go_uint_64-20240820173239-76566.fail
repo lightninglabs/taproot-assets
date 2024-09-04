@@ -1,0 +1,9 @@
+# 2024/08/20 17:32:39.628206 [TestArithmeticDivision/go_uint_64] [rapid] draw a: rfq.GoInt[uint64]{value:0x2}
+# 2024/08/20 17:32:39.628214 [TestArithmeticDivision/go_uint_64] [rapid] draw b: rfq.GoInt[uint64]{value:0xffffffffffffffff}
+# 2024/08/20 17:32:39.628215 [TestArithmeticDivision/go_uint_64] (a * b) / b: ({2} * {18446744073709551615}) / {18446744073709551615} = {0}, expected {2}
+# 
+v0.4.8#17898137883115097820
+0x0
+0x1
+0x1f4c4038d2fde5
+0x0

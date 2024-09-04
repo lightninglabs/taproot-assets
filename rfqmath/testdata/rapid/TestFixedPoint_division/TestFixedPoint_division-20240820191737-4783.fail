@@ -1,0 +1,20 @@
+# 2024/08/20 19:17:37.445373 [TestFixedPoint/division] [rapid] draw a: 0x1
+# 2024/08/20 19:17:37.445376 [TestFixedPoint/division] [rapid] draw b: 0x43
+# 2024/08/20 19:17:37.445377 [TestFixedPoint/division] [rapid] draw scale: 3
+# 2024/08/20 19:17:37.445411 [TestFixedPoint/division] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/fixed_point_test.go:118
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Max difference between 1 and 0.938 allowed is 0.05, but difference was 0.062000000000000055
+# 	Test:       	TestFixedPoint/division
+# 
+v0.4.8#11228210291612621324
+0x0
+0x1
+0xca79d95bdbce4
+0x42
+0x0
+0x38e38e38e38e4
+0x2

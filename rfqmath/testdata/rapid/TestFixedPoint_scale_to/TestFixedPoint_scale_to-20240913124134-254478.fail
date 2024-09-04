@@ -1,0 +1,22 @@
+# 2024/09/13 12:41:34.062877 [TestFixedPoint/scale_to] [rapid] draw value: 0x1
+# 2024/09/13 12:41:34.062881 [TestFixedPoint/scale_to] [rapid] draw scale: 0
+# 2024/09/13 12:41:34.062882 [TestFixedPoint/scale_to] [rapid] draw newScale: 1
+# 2024/09/13 12:41:34.062913 [TestFixedPoint/scale_to] 
+# 	Error Trace:	/home/guggero/projects/go/src/github.com/lightninglabs/taproot-assets/rfqmath/fixed_point_test.go:30
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Should be true
+# 	Test:       	TestFixedPoint/scale_to
+# 	Messages:   	scaling up then down didn't return to original: 1 to 1.0 to -92233720368547758080
+# 
+v0.4.8#14913217214437782375
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1
