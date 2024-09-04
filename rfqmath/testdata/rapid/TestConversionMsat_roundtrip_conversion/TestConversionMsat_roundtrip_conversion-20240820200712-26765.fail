@@ -1,0 +1,22 @@
+# 2024/08/20 20:07:12.567913 [TestConversionMsat/roundtrip_conversion] [rapid] draw unitsPerBtc: 0x3e8
+# 2024/08/20 20:07:12.567918 [TestConversionMsat/roundtrip_conversion] [rapid] draw scale: 2
+# 2024/08/20 20:07:12.567919 [TestConversionMsat/roundtrip_conversion] [rapid] draw msat: 0x1
+# 2024/08/20 20:07:12.567948 [TestConversionMsat/roundtrip_conversion] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/convert_test.go:624
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Not equal: 
+# 	            	expected: 0x1
+# 	            	actual  : 0x0
+# 	Test:       	TestConversionMsat/roundtrip_conversion
+# 
+v0.4.8#2761056324836857054
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

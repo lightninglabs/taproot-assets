@@ -1,0 +1,21 @@
+# 2024/08/20 19:42:25.968272 [TestConversionMsat/msat_to_units] [rapid] draw unitsPerBtc: 0x1
+# 2024/08/20 19:42:25.968276 [TestConversionMsat/msat_to_units] [rapid] draw scale: 3
+# 2024/08/20 19:42:25.968277 [TestConversionMsat/msat_to_units] [rapid] draw msat: 0x1
+# 2024/08/20 19:42:25.968307 [TestConversionMsat/msat_to_units] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/convert_test.go:584
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Relative error is too high: 0.1 (expected)
+# 	            	        < 1 (actual)
+# 	Test:       	TestConversionMsat/msat_to_units
+# 
+v0.4.8#1404303672777295698
+0x0
+0x0
+0x0
+0x0
+0x1
+0x0
+0x0

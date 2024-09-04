@@ -1,0 +1,20 @@
+# 2024/08/20 19:29:21.826824 [TestConversionMsat/msat_to_units] [rapid] draw unitsPerBtc: 0x5c8038
+# 2024/08/20 19:29:21.826828 [TestConversionMsat/msat_to_units] [rapid] draw scale: 3
+# 2024/08/20 19:29:21.826830 [TestConversionMsat/msat_to_units] [rapid] draw msat: 0x4954713993f4
+# 2024/08/20 19:29:21.826866 [TestConversionMsat/msat_to_units] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/convert_test.go:582
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Max difference between 4.887719949437e+09 and 4.887719949436e+09 allowed is 0.001, but difference was 0.0010004043579101562
+# 	Test:       	TestConversionMsat/msat_to_units
+# 
+v0.4.8#10172577110180847590
+0x17917e6c82f04d
+0x5c8037
+0x0
+0x38e38e38e38e4
+0x3
+0x1e083305a49553
+0x4954713993f4

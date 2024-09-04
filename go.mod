@@ -50,6 +50,7 @@ require (
 	gopkg.in/macaroon-bakery.v2 v2.1.0
 	gopkg.in/macaroon.v2 v2.1.0
 	modernc.org/sqlite v1.30.0
+	pgregory.net/rapid v1.1.0
 )
 
 require (
@@ -201,7 +202,6 @@ require (
 	modernc.org/strutil v1.2.0 // indirect
 	modernc.org/token v1.1.0 // indirect
 	nhooyr.io/websocket v1.8.7 // indirect
-	pgregory.net/rapid v1.1.0 // indirect
 	sigs.k8s.io/yaml v1.2.0 // indirect
 )
 

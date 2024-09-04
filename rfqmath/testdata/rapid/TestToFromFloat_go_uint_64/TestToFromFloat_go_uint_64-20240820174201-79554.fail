@@ -1,0 +1,6 @@
+# 2024/08/20 17:42:01.534951 [TestToFromFloat/go_uint_64] [rapid] draw a: rfq.GoInt[uint64]{value:0x20000000000001}
+# 2024/08/20 17:42:01.534957 [TestToFromFloat/go_uint_64] toFloat/fromFloat conversion failed: original {9007199254740993}, got {9007199254740992}
+# 
+v0.4.8#8285709902570533030
+0x1eb66c6cc8c439
+0x20000000000001

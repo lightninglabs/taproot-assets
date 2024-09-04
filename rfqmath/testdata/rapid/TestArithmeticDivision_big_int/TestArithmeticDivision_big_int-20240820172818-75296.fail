@@ -1,0 +1,9 @@
+# 2024/08/20 17:28:18.801605 [TestArithmeticDivision/big_int] [rapid] draw a: rfq.BigInt{value:(*big.Int)(0x140004106e0)}
+# 2024/08/20 17:28:18.801608 [TestArithmeticDivision/big_int] [rapid] draw b: rfq.BigInt{value:(*big.Int)(0x14000410780)}
+# 2024/08/20 17:28:18.801610 [TestArithmeticDivision/big_int] average not between values: (2 + 1) / 2 = 1, expected to be between 2 and 1
+# 
+v0.4.8#5821315167184086184
+0x0
+0x1
+0x0
+0x0
