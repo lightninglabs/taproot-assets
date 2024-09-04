@@ -5,9 +5,12 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math"
+	"time"
 
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -76,6 +79,10 @@ var (
 	// ErrUnknownMessageType is an error that is returned when an unknown
 	// message type is encountered.
 	ErrUnknownMessageType = errors.New("unknown message type")
+
+	// MilliSatPerBtc is the number of milli-satoshis in a bitcoin.
+	// This is 100 billion, which is 10^11.
+	MilliSatPerBtc = NewUint64FixedPoint(1, 11)
 )
 
 // WireMessage is a struct that represents a general wire message.
@@ -181,4 +188,56 @@ type QuoteResponse interface {
 
 	// String returns a human-readable string representation of the message.
 	String() string
+}
+
+// Uint64FixedPoint is a fixed point record that can be used to encode/decode a
+// fixed point number with a uint64 value to/from a TLV stream.
+type Uint64FixedPoint rfqmath.FixedPoint[rfqmath.GoInt[uint64]]
+
+// NewUint64FixedPoint creates a new fixed point record with a uint64
+// value and a scale.
+func NewUint64FixedPoint(value uint64, scale int) Uint64FixedPoint {
+	return Uint64FixedPoint{
+		Value: rfqmath.NewGoInt(value),
+		Scale: scale,
+	}
+}
+
+// Record returns a TLV record that can be used to encode/decode an ID to/from a
+// TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (r *Uint64FixedPoint) Record() tlv.Record {
+	// We use a value of uint64 (8 bytes) and a scale of 1 byte.
+	const recordSize = 8 + 1
+
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeStaticRecord(
+		0, r, recordSize, Uint64FixedPointEncoder,
+		Uint64FixedPointDecoder,
+	)
+}
+
+// PriceQuote is a struct that holds the price quote by an oracle for a swap
+// between two assets.
+type PriceQuote struct {
+	// InAssetPrice is the price of the input asset, expressed in asset
+	// units per BTC, represented as a fixed point number. If the input
+	// asset is BTC, this is set to MilliSatPerBtc.
+	InAssetPrice Uint64FixedPoint
+
+	// InAssetPrice is the price of the output asset, expressed in asset
+	// units per BTC, represented as a fixed point number. If the output
+	// asset is BTC, this is set to MilliSatPerBtc.
+	OutAssetPrice Uint64FixedPoint
+
+	// Expiry is the price's expiry.
+	Expiry time.Time
+}
+
+// String returns a human-readable string representation of the price quote.
+func (p PriceQuote) String() string {
+	return fmt.Sprintf("PriceQuote(InAssetPrice=%v, OutAssetPrice=%v, "+
+		"Expiry=%v)", p.InAssetPrice, p.OutAssetPrice, p.Expiry)
 }

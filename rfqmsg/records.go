@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -389,4 +390,45 @@ func IdDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "MessageID", l, idBytesLen)
+}
+
+func Uint64FixedPointEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*Uint64FixedPoint); ok {
+		err := tlv.EUint64T(w, t.Value.ToUint64(), buf)
+		if err != nil {
+			return err
+		}
+
+		return tlv.EUint8T(w, uint8(t.Scale), buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*Uint64FixedPoint")
+}
+
+func Uint64FixedPointDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*Uint64FixedPoint); ok {
+		var (
+			value uint64
+			scale uint8
+		)
+
+		if err := tlv.DUint64(r, &value, buf, 8); err != nil {
+			return err
+		}
+
+		if err := tlv.DUint8(r, &scale, buf, 1); err != nil {
+			return err
+		}
+
+		*typ = Uint64FixedPoint{
+			Value: rfqmath.NewGoInt(value),
+			Scale: int(scale),
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "*Uint64FixedPoint", l, 9)
 }
