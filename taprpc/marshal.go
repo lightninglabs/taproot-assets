@@ -612,9 +612,9 @@ func MarshalIncomingRejectQuoteEvent(
 
 	return &rfqrpc.RejectedQuoteResponse{
 		Peer:         event.Peer.String(),
-		Id:           event.ID[:],
-		ErrorMessage: event.Err.Msg,
-		ErrorCode:    uint32(event.Err.Code),
+		Id:           event.ID.Val[:],
+		ErrorMessage: event.Err.Val.Msg,
+		ErrorCode:    uint32(event.Err.Val.Code),
 	}
 }
 

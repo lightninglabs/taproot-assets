@@ -9,74 +9,45 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
-const (
-	// Reject message type field TLV types.
+func rejectErrEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if typ, ok := val.(*RejectErr); ok {
+		if err := tlv.EUint8(w, &typ.Code, buf); err != nil {
+			return err
+		}
 
-	TypeRejectVersion tlv.Type = 0
-	TypeRejectID      tlv.Type = 2
-	TypeRejectErrCode tlv.Type = 3
-	TypeRejectErrMsg  tlv.Type = 5
-)
-
-func TypeRecordRejectVersion(version *WireMsgDataVersion) tlv.Record {
-	const recordSize = 1
-
-	return tlv.MakeStaticRecord(
-		TypeRejectVersion, version, recordSize,
-		WireMsgDataVersionEncoder, WireMsgDataVersionDecoder,
-	)
-}
-
-func TypeRecordRejectID(id *ID) tlv.Record {
-	const recordSize = 32
-
-	return tlv.MakeStaticRecord(
-		TypeRejectID, id, recordSize, IdEncoder, IdDecoder,
-	)
-}
-
-func TypeRecordRejectErrCode(errCode *uint8) tlv.Record {
-	return tlv.MakePrimitiveRecord(TypeRejectErrCode, errCode)
-}
-
-func TypeRecordRejectErrMsg(errMsg *string) tlv.Record {
-	sizeFunc := func() uint64 {
-		return uint64(len(*errMsg))
-	}
-	return tlv.MakeDynamicRecord(
-		TypeRejectErrMsg, errMsg, sizeFunc,
-		rejectErrMsgEncoder, rejectErrMsgDecoder,
-	)
-}
-
-func rejectErrMsgEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if typ, ok := val.(*string); ok {
-		msgBytes := []byte(*typ)
-		err := tlv.EVarBytes(w, &msgBytes, buf)
-		if err != nil {
+		msgBytes := []byte(typ.Msg)
+		if err := tlv.EVarBytes(w, &msgBytes, buf); err != nil {
 			return err
 		}
 
 		return nil
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "RejectErrMsg")
+	return tlv.NewTypeForEncodingErr(val, "RejectErr")
 }
 
-func rejectErrMsgDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if typ, ok := val.(*string); ok {
+func rejectErrDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if typ, ok := val.(*RejectErr); ok {
+		var rejectCode uint8
+		if err := tlv.DUint8(r, &rejectCode, buf, 1); err != nil {
+			return err
+		}
+
 		var errMsgBytes []byte
-		err := tlv.DVarBytes(r, &errMsgBytes, buf, l)
+		err := tlv.DVarBytes(r, &errMsgBytes, buf, l-1)
 		if err != nil {
 			return err
 		}
 
-		*typ = string(errMsgBytes)
+		*typ = RejectErr{
+			Code: rejectCode,
+			Msg:  string(errMsgBytes),
+		}
 
 		return nil
 	}
 
-	return tlv.NewTypeForDecodingErr(val, "RejectErrMsg", l, l)
+	return tlv.NewTypeForDecodingErr(val, "RejectErr", l, l)
 }
 
 // RejectErr is a struct that represents the error code and message of a quote
@@ -87,6 +58,20 @@ type RejectErr struct {
 
 	// Msg is the error message that provides the reason for the rejection.
 	Msg string
+}
+
+// Record returns a TLV record that can be used to encode/decode a RejectErr
+// to/from a TLV stream.
+func (v *RejectErr) Record() tlv.Record {
+	sizeFunc := func() uint64 {
+		return 1 + uint64(len(v.Msg))
+	}
+
+	// We set the type to zero here because the type parameter in
+	// tlv.RecordT will be used as the actual type.
+	return tlv.MakeDynamicRecord(
+		0, v, sizeFunc, rejectErrEncoder, rejectErrDecoder,
+	)
 }
 
 var (
@@ -125,54 +110,42 @@ const (
 	latestRejectVersion = V0
 )
 
-// rejectMsgData is a struct that represents the data field of a quote
-// reject message.
+// rejectMsgData is a struct that represents the data field of a quote reject
+// message.
 type rejectMsgData struct {
 	// Version is the version of the message data.
-	Version WireMsgDataVersion
+	Version tlv.RecordT[tlv.TlvType0, WireMsgDataVersion]
 
 	// ID represents the unique identifier of the quote request message that
 	// this response is associated with.
-	ID ID
+	ID tlv.RecordT[tlv.TlvType2, ID]
 
 	// Err is the error code and message that provides the reason for the
 	// rejection.
-	Err RejectErr
+	Err tlv.RecordT[tlv.TlvType4, RejectErr]
 }
 
-// EncodeRecords determines the non-nil records to include when encoding at
-// runtime.
-func (q *rejectMsgData) encodeRecords() []tlv.Record {
+// records returns all records for encoding/decoding.
+func (q *rejectMsgData) records() []tlv.Record {
 	return []tlv.Record{
-		TypeRecordRejectVersion(&q.Version),
-		TypeRecordRejectID(&q.ID),
-		TypeRecordRejectErrCode(&q.Err.Code),
-		TypeRecordRejectErrMsg(&q.Err.Msg),
+		q.Version.Record(),
+		q.ID.Record(),
+		q.Err.Record(),
 	}
 }
 
 // Encode encodes the structure into a TLV stream.
 func (q *rejectMsgData) Encode(writer io.Writer) error {
-	stream, err := tlv.NewStream(q.encodeRecords()...)
+	stream, err := tlv.NewStream(q.records()...)
 	if err != nil {
 		return err
 	}
 	return stream.Encode(writer)
 }
 
-// DecodeRecords provides all TLV records for decoding.
-func (q *rejectMsgData) decodeRecords() []tlv.Record {
-	return []tlv.Record{
-		TypeRecordRejectVersion(&q.Version),
-		TypeRecordRejectID(&q.ID),
-		TypeRecordRejectErrCode(&q.Err.Code),
-		TypeRecordRejectErrMsg(&q.Err.Msg),
-	}
-}
-
 // Decode decodes the structure from a TLV stream.
 func (q *rejectMsgData) Decode(r io.Reader) error {
-	stream, err := tlv.NewStream(q.decodeRecords()...)
+	stream, err := tlv.NewStream(q.records()...)
 	if err != nil {
 		return err
 	}
@@ -206,9 +179,11 @@ func NewReject(peer route.Vertex, requestId ID,
 	return &Reject{
 		Peer: peer,
 		rejectMsgData: rejectMsgData{
-			Version: latestRejectVersion,
-			ID:      requestId,
-			Err:     rejectErr,
+			Version: tlv.NewRecordT[tlv.TlvType0](
+				latestRejectVersion,
+			),
+			ID:  tlv.NewRecordT[tlv.TlvType2](requestId),
+			Err: tlv.NewRecordT[tlv.TlvType4](rejectErr),
 		},
 	}
 }
@@ -230,9 +205,9 @@ func NewQuoteRejectFromWireMsg(wireMsg WireMessage) (*Reject, error) {
 	}
 
 	// Ensure that the message version is supported.
-	if msgData.Version > latestRejectVersion {
+	if msgData.Version.Val > latestRejectVersion {
 		return nil, fmt.Errorf("unsupported reject message version: %d",
-			msgData.Version)
+			msgData.Version.Val)
 	}
 
 	return &Reject{
@@ -260,7 +235,7 @@ func (q *Reject) ToWire() (WireMessage, error) {
 // String returns a human-readable string representation of the message.
 func (q *Reject) String() string {
 	return fmt.Sprintf("Reject(id=%x, err_code=%d, err_msg=%s)",
-		q.ID[:], q.Err.Code, q.Err.Msg)
+		q.ID.Val[:], q.Err.Val.Code, q.Err.Val.Msg)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

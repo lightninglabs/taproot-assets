@@ -40,6 +40,13 @@ func TestRejectEncodeDecode(t *testing.T) {
 			id:       id,
 			err:      ErrNoSuitableBuyOffer,
 		},
+		{
+			testName: "empty error message",
+			peer:     route.Vertex{1, 2, 3},
+			version:  5,
+			id:       id,
+			err:      RejectErr{},
+		},
 	}
 
 	for _, tc := range testCases {

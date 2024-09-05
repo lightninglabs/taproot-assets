@@ -120,7 +120,7 @@ func (h *StreamHandler) handleIncomingWireMessage(
 	switch typedMsg := msg.(type) {
 	case *rfqmsg.Reject:
 		// Delete the corresponding outgoing request from the store.
-		h.outgoingRequests.Delete(typedMsg.ID)
+		h.outgoingRequests.Delete(typedMsg.ID.Val)
 
 	case *rfqmsg.BuyAccept:
 		// Load and delete the corresponding outgoing request from the
