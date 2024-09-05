@@ -575,6 +575,9 @@ message ListBalancesRequest {
     // group key filter may be provided to query the balance of a specific
     // asset group.
     bytes group_key_filter = 4;
+
+    // An option to include previous leased assets in the balances.
+    bool include_leased = 5;
 }
 
 message AssetBalance {
