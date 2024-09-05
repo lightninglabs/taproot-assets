@@ -20,6 +20,8 @@ env:
   GOPATH: /home/runner/work/go
 
   GO_VERSION: '1.22.3'
+  
+  LITD_ITEST_BRANCH: '0-19-staging'
 
 jobs:
   #######################
@@ -306,7 +308,11 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: Clone Lit repository
-        run: git clone https://github.com/lightninglabs/lightning-terminal.git
+        uses: actions/checkout@v3
+        with:
+          repository: lightninglabs/lightning-terminal
+          ref: ${{ env.LITD_ITEST_BRANCH }}
+          path: lightning-terminal
 
       - name: Update go.mod to use the local Tap repository
         working-directory: ./lightning-terminal
@@ -316,7 +322,7 @@ jobs:
 
       - name: Install yarn
         run: npm install -g yarn
-          
+
       - name: setup nodejs
         uses: ./lightning-terminal/.github/actions/setup-node
         with:
