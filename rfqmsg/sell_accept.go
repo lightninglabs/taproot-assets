@@ -3,14 +3,13 @@ package rfqmsg
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
 	// latestSellAcceptVersion is the latest supported sell accept wire
 	// message data field version.
-	latestSellAcceptVersion = V0
+	latestSellAcceptVersion = V1
 )
 
 // SellAccept is a struct that represents a sell quote request accept message.
@@ -29,12 +28,8 @@ type SellAccept struct {
 	// message that this response is associated with.
 	ID ID
 
-	// BidPrice is the bid price that the message author is willing to pay
-	// for the asset that is for sale.
-	BidPrice lnwire.MilliSatoshi
-
-	// Expiry is the bid price expiry lifetime unix timestamp.
-	Expiry uint64
+	// Price is the accepted price quote given by the responder.
+	Price PriceQuote
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
@@ -42,16 +37,15 @@ type SellAccept struct {
 
 // NewSellAcceptFromRequest creates a new instance of an asset sell quote accept
 // message given an asset sell quote request message.
-func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
-	expiry uint64) *SellAccept {
+func NewSellAcceptFromRequest(request SellRequest,
+	acceptedPrice PriceQuote) *SellAccept {
 
 	return &SellAccept{
-		Peer:     request.Peer,
-		Request:  request,
-		Version:  latestSellAcceptVersion,
-		ID:       request.ID,
-		BidPrice: bidPrice,
-		Expiry:   expiry,
+		Peer:    request.Peer,
+		Request: request,
+		Version: latestSellAcceptVersion,
+		ID:      request.ID,
+		Price:   acceptedPrice,
 	}
 }
 
@@ -98,9 +92,8 @@ func (q *SellAccept) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *SellAccept) String() string {
-	return fmt.Sprintf("SellAccept(peer=%x, id=%x, bid_price=%d, "+
-		"expiry=%d, scid=%d)", q.Peer[:], q.ID[:], q.BidPrice, q.Expiry,
-		q.ShortChannelId())
+	return fmt.Sprintf("SellAccept(peer=%x, id=%x, scid=%d, price=%v",
+		q.Peer[:], q.ID[:], q.ShortChannelId(), q.Price)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

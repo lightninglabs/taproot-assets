@@ -11,7 +11,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwire"
 )
 
 const (
@@ -179,20 +178,11 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			}
 		}
 
-		// TODO(guggero): This is obviously wrong and we'll want to fix
-		// this after refactoring the wire messages. For now, we'll just
-		// want for things to compile in this commit.
-		var suggestedBuyPriceMSat lnwire.MilliSatoshi
-		if suggestedBuyPrice != nil {
-			suggestedBuyPriceMSat = lnwire.MilliSatoshi(
-				suggestedBuyPrice.InAssetPrice.Value.ToUint64(),
-			)
-		}
-
 		request, err := rfqmsg.NewBuyRequest(
-			*buyOrder.Peer, buyOrder.AssetID,
+			*buyOrder.Peer, time.Unix(int64(buyOrder.Expiry), 0),
+			buyOrder.AssetID,
 			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-			suggestedBuyPriceMSat,
+			suggestedBuyPrice,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
@@ -295,7 +285,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(request rfqmsg.BuyRequest) error {
 	// requested. Here we can handle the case where this node does not wish
 	// to sell a particular asset.
 	offerAvailable := n.HasAssetSellOffer(
-		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+		request.AssetID, request.AssetGroupKey, request.InAssetMaxAmount,
 	)
 	if !offerAvailable {
 		log.Infof("Would reject buy request: no suitable buy offer, " +
@@ -322,14 +312,10 @@ func (n *Negotiator) HandleIncomingBuyRequest(request rfqmsg.BuyRequest) error {
 	go func() {
 		defer n.Wg.Done()
 
-		// TODO(guggero): Set this to the suggested price from the
-		// request, once the wire messages are refactored.
-		var suggestedPrice *rfqmsg.PriceQuote
-
 		// Query the price oracle for an asking price.
 		buyPrice, err := n.queryBuyPriceFromOracle(
 			request.AssetID, request.AssetGroupKey,
-			request.AssetAmount, suggestedPrice,
+			request.InAssetMaxAmount, request.SuggestedPrice,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -346,20 +332,8 @@ func (n *Negotiator) HandleIncomingBuyRequest(request rfqmsg.BuyRequest) error {
 			return
 		}
 
-		// TODO(guggero): This is obviously wrong and we'll want to fix
-		// this after refactoring the wire messages. For now, we'll just
-		// want for things to compile in this commit.
-		var buyPriceMSat lnwire.MilliSatoshi
-		if buyPrice != nil {
-			buyPriceMSat = lnwire.MilliSatoshi(
-				buyPrice.InAssetPrice.Value.ToUint64(),
-			)
-		}
-
 		// Construct and send a buy accept message.
-		msg := rfqmsg.NewBuyAcceptFromRequest(
-			request, buyPriceMSat, uint64(buyPrice.Expiry.Unix()),
-		)
+		msg := rfqmsg.NewBuyAcceptFromRequest(request, *buyPrice)
 		sendOutgoingMsg(msg)
 	}()
 
@@ -402,7 +376,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	// At this point we can handle the case where this node does not wish
 	// to buy some amount of a particular asset regardless of its price.
 	offerAvailable := n.HasAssetBuyOffer(
-		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+		request.AssetID, request.AssetGroupKey,
+		request.InAssetMaxAmount,
 	)
 	if !offerAvailable {
 		log.Infof("Would reject sell request: no suitable buy offer, " +
@@ -438,7 +413,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// sell to us.
 		sellPrice, err := n.querySellPriceFromOracle(
 			request.AssetID, request.AssetGroupKey,
-			request.AssetAmount, suggestedPrice,
+			request.InAssetMaxAmount, suggestedPrice,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -455,20 +430,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			return
 		}
 
-		// TODO(guggero): This is obviously wrong and we'll want to fix
-		// this after refactoring the wire messages. For now, we'll just
-		// want for things to compile in this commit.
-		var sellPriceMSat lnwire.MilliSatoshi
-		if sellPrice != nil {
-			sellPriceMSat = lnwire.MilliSatoshi(
-				sellPrice.InAssetPrice.Value.ToUint64(),
-			)
-		}
-
 		// Construct and send a sell accept message.
-		msg := rfqmsg.NewSellAcceptFromRequest(
-			request, sellPriceMSat, uint64(sellPrice.Expiry.Unix()),
-		)
+		msg := rfqmsg.NewSellAcceptFromRequest(request, *sellPrice)
 		sendOutgoingMsg(msg)
 	}()
 
@@ -505,20 +468,10 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			}
 		}
 
-		// TODO(guggero): This is obviously wrong and we'll want to fix
-		// this after refactoring the wire messages. For now, we'll just
-		// want for things to compile in this commit.
-		var suggestedSellPriceMSat lnwire.MilliSatoshi
-		if suggestedSellPrice != nil {
-			suggestedSellPriceMSat = lnwire.MilliSatoshi(
-				suggestedSellPrice.InAssetPrice.Value.
-					ToUint64(),
-			)
-		}
-
 		request, err := rfqmsg.NewSellRequest(
-			*order.Peer, order.AssetID, order.AssetGroupKey,
-			order.MaxAssetAmount, suggestedSellPriceMSat,
+			*order.Peer, time.Unix(int64(order.Expiry), 0),
+			order.AssetID, order.AssetGroupKey,
+			order.MaxAssetAmount, suggestedSellPrice,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+
@@ -542,26 +495,23 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 	}()
 }
 
-// expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
-// within acceptable bounds. This check ensures that the expiry timestamp is far
-// enough in the future for the quote to be useful.
-func expiryWithinBounds(expiryUnixTimestamp uint64,
-	minExpiryLifetime uint64) bool {
-
-	// Convert the expiry timestamp into a time.Time.
-	actualExpiry := time.Unix(int64(expiryUnixTimestamp), 0)
-	diff := actualExpiry.Unix() - time.Now().Unix()
+// expiryWithinBounds checks if a quote expiry is within acceptable bounds. This
+// check ensures that the expiry timestamp is far enough in the future for the
+// quote to be useful.
+func expiryWithinBounds(expiry time.Time, minExpiryLifetime uint64) bool {
+	diff := expiry.Unix() - time.Now().Unix()
 	return diff >= int64(minExpiryLifetime)
 }
 
 // priceWithinBounds returns true if the difference between the first price and
 // the second price is within the given tolerance (in parts per million (PPM)).
-func pricesWithinBounds(firstPrice lnwire.MilliSatoshi,
-	secondPriceQuote *rfqmsg.PriceQuote, tolerancePpm uint64) bool {
+func pricesWithinBounds(firstPriceQuote, secondPriceQuote *rfqmsg.PriceQuote,
+	tolerancePpm uint64) bool {
 
 	// TODO(guggero): This is obviously wrong and we'll want to fix this
 	// after refactoring the wire messages. For now, we'll just want for
 	// things to compile in this commit.
+	firstPrice := firstPriceQuote.InAssetPrice.Value.ToUint64()
 	secondPrice := secondPriceQuote.InAssetPrice.Value.ToUint64()
 
 	// Handle the case where both prices are zero.
@@ -602,10 +552,10 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	// TODO(ffranr): Sanity check the buy accept quote expiry
 	//  timestamp given the expiry timestamp provided by the price
 	//  oracle.
-	if !expiryWithinBounds(msg.Expiry, minRateTickExpiryLifetime) {
+	if !expiryWithinBounds(msg.Price.Expiry, minRateTickExpiryLifetime) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Buy accept quote expiry time is not within "+
-			"acceptable bounds (expiry=%d)", msg.Expiry)
+			"acceptable bounds (expiry=%v)", msg.Price.Expiry)
 
 		// Construct an invalid quote response event so that we can
 		// inform the peer that the quote response has not validated
@@ -653,7 +603,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// by the price oracle with the buy price provided by the peer.
 		oraclePrice, err := n.queryBuyPriceFromOracle(
 			msg.Request.AssetID, msg.Request.AssetGroupKey,
-			msg.Request.AssetAmount, nil,
+			msg.Request.InAssetMaxAmount, nil,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -682,16 +632,15 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// Ensure that the peer provided price is reasonable given the
 		// price provided by the price oracle service.
 		acceptablePrice := pricesWithinBounds(
-			msg.AskPrice, oraclePrice,
-			n.cfg.AcceptPriceDeviationPpm,
+			&msg.Price, oraclePrice, n.cfg.AcceptPriceDeviationPpm,
 		)
 		if !acceptablePrice {
 			// The price is not within the acceptable tolerance.
 			// We will return without calling the quote accept
 			// callback.
 			log.Debugf("Buy accept price is not within "+
-				"acceptable bounds (peer_price=%d, "+
-				"oracle_price=%v)", msg.AskPrice, oraclePrice)
+				"acceptable bounds (peer_price=%v, "+
+				"oracle_price=%v)", msg.Price, oraclePrice)
 
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not
@@ -723,10 +672,10 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	//
 	// TODO(ffranr): Sanity check the quote expiry timestamp given
 	//  the expiry timestamp provided by the price oracle.
-	if !expiryWithinBounds(msg.Expiry, minRateTickExpiryLifetime) {
+	if !expiryWithinBounds(msg.Price.Expiry, minRateTickExpiryLifetime) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Sell accept quote expiry time is not within "+
-			"acceptable bounds (expiry=%d)", msg.Expiry)
+			"acceptable bounds (expiry=%v)", msg.Price.Expiry)
 
 		// Construct an invalid quote response event so that we can
 		// inform the peer that the quote response has not validated
@@ -774,7 +723,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// by the price oracle with the sell price provided by the peer.
 		oraclePrice, err := n.querySellPriceFromOracle(
 			msg.Request.AssetID, msg.Request.AssetGroupKey,
-			msg.Request.AssetAmount, nil,
+			msg.Request.InAssetMaxAmount, nil,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -803,16 +752,15 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// Ensure that the peer provided price is reasonable given the
 		// price provided by the price oracle service.
 		acceptablePrice := pricesWithinBounds(
-			msg.BidPrice, oraclePrice,
-			n.cfg.AcceptPriceDeviationPpm,
+			&msg.Price, oraclePrice, n.cfg.AcceptPriceDeviationPpm,
 		)
 		if !acceptablePrice {
 			// The price is not within the acceptable bounds.
 			// We will return without calling the quote accept
 			// callback.
 			log.Debugf("Sell accept quote price is not within "+
-				"acceptable bounds (peer_price=%d, "+
-				"oracle_price=%v)", msg.BidPrice, oraclePrice)
+				"acceptable bounds (peer_price=%v, "+
+				"oracle_price=%v)", msg.Price, oraclePrice)
 
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not

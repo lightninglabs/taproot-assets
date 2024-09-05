@@ -3,14 +3,13 @@ package rfqmsg
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
 	// latestBuyAcceptVersion is the latest supported buy accept wire
 	// message data field version.
-	latestBuyAcceptVersion = V0
+	latestBuyAcceptVersion = V1
 )
 
 // BuyAccept is a struct that represents a buy quote request accept message.
@@ -29,12 +28,8 @@ type BuyAccept struct {
 	// this response is associated with.
 	ID ID
 
-	// AskPrice is the asking price of the quote in milli-satoshis per asset
-	// unit.
-	AskPrice lnwire.MilliSatoshi
-
-	// Expiry is the asking price expiry lifetime unix timestamp.
-	Expiry uint64
+	// Price is the accepted price quote given by the responder.
+	Price PriceQuote
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
@@ -42,16 +37,15 @@ type BuyAccept struct {
 
 // NewBuyAcceptFromRequest creates a new instance of a quote accept message
 // given a quote request message.
-func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
-	expiry uint64) *BuyAccept {
+func NewBuyAcceptFromRequest(request BuyRequest,
+	acceptedPrice PriceQuote) *BuyAccept {
 
 	return &BuyAccept{
-		Peer:     request.Peer,
-		Request:  request,
-		Version:  latestBuyAcceptVersion,
-		ID:       request.ID,
-		AskPrice: askPrice,
-		Expiry:   expiry,
+		Peer:    request.Peer,
+		Request: request,
+		Version: latestBuyAcceptVersion,
+		ID:      request.ID,
+		Price:   acceptedPrice,
 	}
 }
 
@@ -97,9 +91,8 @@ func (q *BuyAccept) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *BuyAccept) String() string {
-	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, "+
-		"expiry=%d, scid=%d)",
-		q.Peer[:], q.ID[:], q.AskPrice, q.Expiry, q.ShortChannelId())
+	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, scid=%d, price=%v",
+		q.Peer[:], q.ID[:], q.ShortChannelId(), q.Price)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

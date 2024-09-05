@@ -17,15 +17,7 @@ import (
 type testCaseEncodeDecode struct {
 	testName string
 
-	version        WireMsgDataVersion
-	id             ID
-	expiry         uint64
-	assetMaxAmount uint64
-
-	suggestedRateTick *uint64
-
-	inAssetId       *asset.ID
-	inAssetGroupKey *btcec.PublicKey
+	buyReq BuyRequest
 
 	outAssetId       *asset.ID
 	outAssetGroupKey *btcec.PublicKey
@@ -33,65 +25,24 @@ type testCaseEncodeDecode struct {
 
 // Request generates a requestWireMsgData instance from the test case.
 func (tc testCaseEncodeDecode) Request() requestWireMsgData {
-	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
-	id := tlv.NewPrimitiveRecord[tlv.TlvType1](tc.id)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.expiry)
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType3](
-		tc.assetMaxAmount,
-	)
+	data := newRequestWireMsgDataFromBuy(tc.buyReq)
 
-	var suggestedRateTick requestSuggestedTickRate
-	if tc.suggestedRateTick != nil {
-		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType4](
-			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				*tc.suggestedRateTick,
-			),
-		)
-	}
-
-	var inAssetID requestInAssetID
-	if tc.inAssetId != nil {
-		inAssetID = tlv.SomeRecordT[tlv.TlvType5](
-			tlv.NewPrimitiveRecord[tlv.TlvType5](*tc.inAssetId),
-		)
-	}
-
-	var inAssetGroupKey requestInAssetGroupKey
-	if tc.inAssetGroupKey != nil {
-		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType6](
-			tlv.NewPrimitiveRecord[tlv.TlvType6](
-				tc.inAssetGroupKey,
-			),
-		)
-	}
-
-	var outAssetID requestOutAssetID
 	if tc.outAssetId != nil {
-		outAssetID = tlv.SomeRecordT[tlv.TlvType7](
-			tlv.NewPrimitiveRecord[tlv.TlvType7](*tc.outAssetId),
+		data.OutAssetID = tlv.SomeRecordT[tlv.TlvType8](
+			tlv.NewPrimitiveRecord[tlv.TlvType8](*tc.outAssetId),
 		)
 	}
 
-	var outAssetGroupKey requestOutAssetGroupKey
 	if tc.outAssetGroupKey != nil {
-		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType8](
-			tlv.NewPrimitiveRecord[tlv.TlvType8](
+		data.OutAssetID = tlv.OptionalRecordT[tlv.TlvType8, asset.ID]{}
+		data.OutAssetGroupKey = tlv.SomeRecordT[tlv.TlvType9](
+			tlv.NewPrimitiveRecord[tlv.TlvType9](
 				tc.outAssetGroupKey,
 			),
 		)
 	}
 
-	return requestWireMsgData{
-		Version:           version,
-		ID:                id,
-		Expiry:            expiry,
-		AssetMaxAmount:    assetMaxAmount,
-		SuggestedRateTick: suggestedRateTick,
-		InAssetID:         inAssetID,
-		InAssetGroupKey:   inAssetGroupKey,
-		OutAssetID:        outAssetID,
-		OutAssetGroupKey:  outAssetGroupKey,
-	}
+	return data
 }
 
 // TestRequestMsgDataEncodeDecode tests requestWireMsgData encoding/decoding.
@@ -103,7 +54,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	id := ID(randomIdBytes)
 
 	// Compute a future expiry timestamp.
-	expiry := uint64(time.Now().Add(time.Hour).Unix())
+	expiry := time.Now().Add(time.Hour)
 
 	// Create a random asset ID.
 	randomAssetIdBytes := test.RandBytes(32)
@@ -116,58 +67,70 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	// context of the request message.
 	var zeroAssetId asset.ID
 
-	suggestedRateTick := uint64(1000)
+	suggestedInAssetPrice := NewUint64FixedPoint(123456, 7)
+	suggestedOutAssetPrice := NewUint64FixedPoint(9876543, 2)
 
 	testCases := []testCaseEncodeDecode{
 		{
 			testName: "in asset ID, out asset ID zero, " +
 				"no asset group keys, suggested tick rate",
-			version:           0,
-			id:                id,
-			expiry:            expiry,
-			assetMaxAmount:    1000,
-			suggestedRateTick: &suggestedRateTick,
-			inAssetId:         &assetId,
-			inAssetGroupKey:   nil,
-			outAssetId:        &zeroAssetId,
-			outAssetGroupKey:  nil,
+			buyReq: BuyRequest{
+				Version:                1,
+				ID:                     id,
+				Expiry:                 expiry,
+				InAssetMaxAmount:       1000,
+				SuggestedInAssetPrice:  &suggestedInAssetPrice,
+				SuggestedOutAssetPrice: &suggestedOutAssetPrice,
+				AssetID:                &assetId,
+				AssetGroupKey:          nil,
+			},
+			outAssetId:       &zeroAssetId,
+			outAssetGroupKey: nil,
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +
 				"group keys",
-			version:           0,
-			id:                id,
-			expiry:            expiry,
-			assetMaxAmount:    1000,
-			suggestedRateTick: nil,
-			inAssetId:         &assetId,
-			inAssetGroupKey:   nil,
-			outAssetId:        &zeroAssetId,
-			outAssetGroupKey:  nil,
+			buyReq: BuyRequest{
+				Version:                1,
+				ID:                     id,
+				Expiry:                 expiry,
+				InAssetMaxAmount:       1000,
+				SuggestedInAssetPrice:  nil,
+				SuggestedOutAssetPrice: &suggestedOutAssetPrice,
+				AssetID:                &assetId,
+				AssetGroupKey:          nil,
+			},
+			outAssetId:       &zeroAssetId,
+			outAssetGroupKey: nil,
 		},
 		{
-			testName: "in asset group key, out asset " +
-				"ID zero",
-			version:           0,
-			id:                id,
-			expiry:            expiry,
-			assetMaxAmount:    1000,
-			suggestedRateTick: nil,
-			inAssetGroupKey:   assetGroupKey,
-			outAssetId:        &zeroAssetId,
-			outAssetGroupKey:  nil,
+			testName: "in asset group key, out asset ID zero",
+			buyReq: BuyRequest{
+				Version:                1,
+				ID:                     id,
+				Expiry:                 expiry,
+				InAssetMaxAmount:       1000,
+				SuggestedInAssetPrice:  &suggestedInAssetPrice,
+				SuggestedOutAssetPrice: nil,
+				AssetID:                nil,
+				AssetGroupKey:          assetGroupKey,
+			},
+			outAssetId:       &zeroAssetId,
+			outAssetGroupKey: nil,
 		},
 		{
-			testName: "in asset ID zero, out asset " +
-				"group key",
-			version:           0,
-			id:                id,
-			expiry:            expiry,
-			assetMaxAmount:    1000,
-			suggestedRateTick: nil,
-			inAssetId:         &zeroAssetId,
-			inAssetGroupKey:   nil,
-			outAssetGroupKey:  assetGroupKey,
+			testName: "in asset ID zero, out asset group key",
+			buyReq: BuyRequest{
+				Version:                1,
+				ID:                     id,
+				Expiry:                 expiry,
+				InAssetMaxAmount:       1000,
+				SuggestedInAssetPrice:  nil,
+				SuggestedOutAssetPrice: nil,
+				AssetID:                &zeroAssetId,
+				AssetGroupKey:          nil,
+			},
+			outAssetGroupKey: assetGroupKey,
 		},
 	}
 

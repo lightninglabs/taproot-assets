@@ -759,7 +759,7 @@ func (m *Manager) PeerAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if accept.Price.Expiry.Before(time.Now()) {
 				m.peerAcceptedBuyQuotes.Delete(scid)
 				return nil
 			}
@@ -783,7 +783,7 @@ func (m *Manager) PeerAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept 
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
 	m.peerAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if accept.Price.Expiry.Before(time.Now()) {
 				m.peerAcceptedSellQuotes.Delete(scid)
 				return nil
 			}
@@ -805,7 +805,7 @@ func (m *Manager) LocalAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 	m.localAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if accept.Price.Expiry.Before(time.Now()) {
 				m.localAcceptedBuyQuotes.Delete(scid)
 				return nil
 			}
@@ -829,7 +829,7 @@ func (m *Manager) LocalAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
 	m.localAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if accept.Price.Expiry.Before(time.Now()) {
 				m.localAcceptedSellQuotes.Delete(scid)
 				return nil
 			}

@@ -118,6 +118,12 @@ type WireMsgDataVersion uint8
 const (
 	// V0 represents version 0 of the contents in a wire message data field.
 	V0 WireMsgDataVersion = 0
+
+	// V1 represents version 1 of the contents in a wire message data field.
+	// This version is used by RFQ messages that use the fixed point type to
+	// represent price rates.
+	// NOTE: This version is explicitly _not_ backward compatible with V0.
+	V1 WireMsgDataVersion = 1
 )
 
 // Record returns a TLV record that can be used to encode/decode a

@@ -12,17 +12,7 @@ import (
 const (
 	// latestAcceptWireMsgDataVersion is the latest supported quote accept
 	// wire message data field version.
-	latestAcceptWireMsgDataVersion = V0
-)
-
-type (
-	// acceptInOutRateTick is a type alias for a record that represents the
-	// in-out rate tick of a quote accept message.
-	acceptInOutRateTick = tlv.OptionalRecordT[tlv.TlvType4, uint64]
-
-	// acceptOutInRateTick is a type alias for a record that represents the
-	// out-in rate tick of a quote accept message.
-	acceptOutInRateTick = tlv.OptionalRecordT[tlv.TlvType5, uint64]
+	latestAcceptWireMsgDataVersion = V1
 )
 
 // AcceptWireMsg is a struct that represents the message data field for a quote
@@ -42,79 +32,66 @@ type AcceptWireMsg struct {
 	// Sig is a signature over the serialized contents of the message.
 	Sig tlv.RecordT[tlv.TlvType3, [64]byte]
 
-	// InOutRateTick is the tick rate for the accept, defined in
-	// in_asset/out_asset. This is only set in a buy accept message.
-	InOutRateTick acceptInOutRateTick
+	// InAssetPrice represents the accepted price as a fixed point,
+	// representing the number of in asset units per BTC. If the in asset is
+	// BTC, this represents the number of milli-satoshi per BTC
+	// (100_000_000_000).
+	InAssetPrice tlv.RecordT[tlv.TlvType4, Uint64FixedPoint]
 
-	// OutInRateTick is the tick rate for the accept, defined in
-	// out_asset/in_asset. This is only set in a sell accept message.
-	OutInRateTick acceptOutInRateTick
+	// OutAssetPrice represents the accepted price as a fixed point,
+	// representing the number of out asset units per BTC. If the out asset
+	// is BTC, this represents the number of milli-satoshi per BTC
+	// (100_000_000_000).
+	OutAssetPrice tlv.RecordT[tlv.TlvType5, Uint64FixedPoint]
 }
 
 // newAcceptWireMsgDataFromBuy creates a new AcceptWireMsg from a buy
 // accept message.
 func newAcceptWireMsgDataFromBuy(q BuyAccept) AcceptWireMsg {
-	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
-	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](q.Expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](q.sig)
-
-	// When processing a buy request/accept, the incoming asset must be
-	// specified. Currently, we assume the outgoing asset is BTC,
-	// considering the perspective of the quote request initiator.
-	// To indicate that this quote accept wire message is for a buy request,
-	// we set the in-out rate tick instead of the out-in rate tick.
-	inOutRateTick := tlv.SomeRecordT[tlv.TlvType4](
-		tlv.NewPrimitiveRecord[tlv.TlvType4](
-			uint64(q.AskPrice),
-		),
-	)
-
-	// Encode message data component as TLV bytes.
 	return AcceptWireMsg{
-		Version:       version,
-		ID:            id,
-		Expiry:        expiry,
-		Sig:           sig,
-		InOutRateTick: inOutRateTick,
+		Version: tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version),
+		ID:      tlv.NewRecordT[tlv.TlvType1](q.ID),
+		Expiry: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint64(q.Price.Expiry.Unix()),
+		),
+		Sig: tlv.NewPrimitiveRecord[tlv.TlvType3](q.sig),
+		InAssetPrice: tlv.NewRecordT[tlv.TlvType4](
+			q.Price.InAssetPrice,
+		),
+		OutAssetPrice: tlv.NewRecordT[tlv.TlvType5](
+			q.Price.OutAssetPrice,
+		),
 	}
 }
 
 // newAcceptWireMsgDataFromSell creates a new AcceptWireMsg from a sell
 // accept message.
 func newAcceptWireMsgDataFromSell(q SellAccept) AcceptWireMsg {
-	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
-	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](q.Expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](q.sig)
-
-	// When processing a sell request/accept, the outgoing asset must be
-	// specified. Currently, we assume the incoming asset is BTC,
-	// considering the perspective of the quote request initiator.
-	// To indicate that this quote accept wire message is for a sell
-	// request, we set the out-in rate tick instead of the in-out rate tick.
-	outInRateTick := tlv.SomeRecordT[tlv.TlvType5](
-		tlv.NewPrimitiveRecord[tlv.TlvType5](
-			uint64(q.BidPrice),
-		),
-	)
-
-	// Encode message data component as TLV bytes.
 	return AcceptWireMsg{
-		Version:       version,
-		ID:            id,
-		Expiry:        expiry,
-		Sig:           sig,
-		OutInRateTick: outInRateTick,
+		Version: tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version),
+		ID:      tlv.NewRecordT[tlv.TlvType1](q.ID),
+		Expiry: tlv.NewPrimitiveRecord[tlv.TlvType2](
+			uint64(q.Price.Expiry.Unix()),
+		),
+		Sig: tlv.NewPrimitiveRecord[tlv.TlvType3](q.sig),
+		InAssetPrice: tlv.NewRecordT[tlv.TlvType4](
+			q.Price.InAssetPrice,
+		),
+		OutAssetPrice: tlv.NewRecordT[tlv.TlvType5](
+			q.Price.OutAssetPrice,
+		),
 	}
 }
 
 // Validate ensures that the quote accept message is valid.
 func (m *AcceptWireMsg) Validate() error {
 	// Ensure the version specified in the version field is supported.
-	if m.Version.Val > latestAcceptWireMsgDataVersion {
+	// We explicitly only accept the latest version here, as this is a
+	// breaking change in the way the prices are encoded.
+	if m.Version.Val != latestAcceptWireMsgDataVersion {
 		return fmt.Errorf("unsupported quote accept message data "+
-			"version: %d", m.Version.Val)
+			"version: %d; consider upgrading to latest version",
+			m.Version.Val)
 	}
 
 	// Ensure that the expiry is set to a future time.
@@ -122,14 +99,14 @@ func (m *AcceptWireMsg) Validate() error {
 		return fmt.Errorf("expiry must be set to a future time")
 	}
 
-	// Ensure that at least one of the rate ticks is set.
-	if m.InOutRateTick.IsNone() && m.OutInRateTick.IsNone() {
-		return fmt.Errorf("at least one of the rate ticks must be set")
+	// Ensure that the in asset price is set.
+	if m.InAssetPrice.Val.Value.ToUint64() == 0 {
+		return fmt.Errorf("in asset price must be specified")
 	}
 
-	// Ensure that both rate ticks are not set.
-	if m.InOutRateTick.IsSome() && m.OutInRateTick.IsSome() {
-		return fmt.Errorf("both rate ticks cannot be set")
+	// Ensure that the out asset price is set.
+	if m.OutAssetPrice.Val.Value.ToUint64() == 0 {
+		return fmt.Errorf("out asset price must be specified")
 	}
 
 	return nil
@@ -148,21 +125,9 @@ func (m *AcceptWireMsg) Encode(w io.Writer) error {
 		m.ID.Record(),
 		m.Expiry.Record(),
 		m.Sig.Record(),
+		m.InAssetPrice.Record(),
+		m.OutAssetPrice.Record(),
 	}
-
-	m.InOutRateTick.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType4, uint64]) {
-			records = append(records, r.Record())
-		},
-	)
-
-	m.OutInRateTick.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType5, uint64]) {
-			records = append(records, r.Record())
-		},
-	)
-
-	tlv.SortRecords(records)
 
 	// Create the tlv stream.
 	tlvStream, err := tlv.NewStream(records...)
@@ -175,40 +140,21 @@ func (m *AcceptWireMsg) Encode(w io.Writer) error {
 
 // Decode deserializes the AcceptWireMsg from the given io.Reader.
 func (m *AcceptWireMsg) Decode(r io.Reader) error {
-	// Define zero values for optional fields.
-	inOutRateTick := m.InOutRateTick.Zero()
-	outInRateTick := m.OutInRateTick.Zero()
-
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
 		m.Version.Record(),
 		m.ID.Record(),
 		m.Expiry.Record(),
 		m.Sig.Record(),
-
-		inOutRateTick.Record(),
-		outInRateTick.Record(),
+		m.InAssetPrice.Record(),
+		m.OutAssetPrice.Record(),
 	)
 	if err != nil {
 		return err
 	}
 
 	// Decode the reader's contents into the tlv stream.
-	tlvMap, err := tlvStream.DecodeWithParsedTypes(r)
-	if err != nil {
-		return err
-	}
-
-	// Set optional fields if they are present.
-	if _, ok := tlvMap[inOutRateTick.TlvType()]; ok {
-		m.InOutRateTick = tlv.SomeRecordT(inOutRateTick)
-	}
-
-	if _, ok := tlvMap[outInRateTick.TlvType()]; ok {
-		m.OutInRateTick = tlv.SomeRecordT(outInRateTick)
-	}
-
-	return nil
+	return tlvStream.DecodeP2P(r)
 }
 
 // Bytes encodes the structure into a TLV stream and returns the bytes.

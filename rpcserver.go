@@ -6562,9 +6562,9 @@ func marshalPeerAcceptedBuyQuotes(
 			Peer:        quote.Peer.String(),
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			AskPrice:    uint64(quote.AskPrice),
-			Expiry:      quote.Expiry,
+			AssetAmount: quote.Request.InAssetMaxAmount,
+			// AskPrice:    uint64(quote.AskPrice),
+			Expiry: quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
@@ -6585,9 +6585,9 @@ func marshalPeerAcceptedSellQuotes(
 			Peer:        quote.Peer.String(),
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			BidPrice:    uint64(quote.BidPrice),
-			Expiry:      quote.Expiry,
+			AssetAmount: quote.Request.InAssetMaxAmount,
+			// BidPrice:    uint64(quote.BidPrice),
+			Expiry: quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}

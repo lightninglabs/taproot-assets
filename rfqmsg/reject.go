@@ -107,7 +107,7 @@ var (
 const (
 	// latestRejectVersion is the latest supported reject wire message data
 	// field version.
-	latestRejectVersion = V0
+	latestRejectVersion = V1
 )
 
 // rejectMsgData is a struct that represents the data field of a quote reject
@@ -205,7 +205,7 @@ func NewQuoteRejectFromWireMsg(wireMsg WireMessage) (*Reject, error) {
 	}
 
 	// Ensure that the message version is supported.
-	if msgData.Version.Val > latestRejectVersion {
+	if msgData.Version.Val != latestRejectVersion {
 		return nil, fmt.Errorf("unsupported reject message version: %d",
 			msgData.Version.Val)
 	}

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/internal/test"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,48 +14,7 @@ import (
 type acceptEncodeDecodeTC struct {
 	testName string
 
-	version WireMsgDataVersion
-	id      ID
-	expiry  uint64
-	sig     [64]byte
-
-	inOutRateTick *uint64
-	outInRateTick *uint64
-}
-
-// MsgData generates a AcceptWireMsg instance from the test case.
-func (tc acceptEncodeDecodeTC) MsgData() AcceptWireMsg {
-	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
-	id := tlv.NewPrimitiveRecord[tlv.TlvType1](tc.id)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](tc.sig)
-
-	var inOutRateTick acceptInOutRateTick
-	if tc.inOutRateTick != nil {
-		inOutRateTick = tlv.SomeRecordT[tlv.TlvType4](
-			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				*tc.inOutRateTick,
-			),
-		)
-	}
-
-	var outInRateTick acceptOutInRateTick
-	if tc.outInRateTick != nil {
-		outInRateTick = tlv.SomeRecordT[tlv.TlvType5](
-			tlv.NewPrimitiveRecord[tlv.TlvType5](
-				*tc.outInRateTick,
-			),
-		)
-	}
-
-	return AcceptWireMsg{
-		Version:       version,
-		ID:            id,
-		Expiry:        expiry,
-		Sig:           sig,
-		InOutRateTick: inOutRateTick,
-		OutInRateTick: outInRateTick,
-	}
+	buyAccept BuyAccept
 }
 
 // TestAcceptMsgDataEncodeDecode tests AcceptWireMsg encoding/decoding.
@@ -78,42 +36,39 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 	// Crate an all zero signature.
 	var zeroSig [64]byte
 
-	inOutRateTick := uint64(42000)
-	outInRateTick := uint64(22000)
+	inAssetPrice := NewUint64FixedPoint(123456, 7)
+	outAssetPrice := NewUint64FixedPoint(9876543, 2)
 
 	testCases := []acceptEncodeDecodeTC{
 		{
 			testName: "rand sig, in-out rate tick set, out-in " +
-				"rate tick unset",
-			version:       0,
-			id:            id,
-			expiry:        expiry,
-			sig:           randSig,
-			inOutRateTick: &inOutRateTick,
-		},
-		{
-			testName: "rand sig, in-out rate tick unset, out-in " +
-				"rate tick set",
-			version:       0,
-			id:            id,
-			expiry:        expiry,
-			sig:           randSig,
-			outInRateTick: &outInRateTick,
+				"prices set",
+			buyAccept: BuyAccept{
+				Version:       1,
+				ID:            id,
+				Expiry:        expiry,
+				sig:           randSig,
+				InAssetPrice:  inAssetPrice,
+				OutAssetPrice: outAssetPrice,
+			},
 		},
 		{
 			testName: "zero sig, in-out rate tick unset, out-in " +
-				"rate tick set",
-			version:       0,
-			id:            id,
-			expiry:        expiry,
-			sig:           zeroSig,
-			outInRateTick: &outInRateTick,
+				"prices set",
+			buyAccept: BuyAccept{
+				Version:       1,
+				ID:            id,
+				Expiry:        expiry,
+				sig:           zeroSig,
+				InAssetPrice:  inAssetPrice,
+				OutAssetPrice: outAssetPrice,
+			},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.testName, func(tt *testing.T) {
-			msgData := tc.MsgData()
+			msgData := newAcceptWireMsgDataFromBuy(tc.buyAccept)
 
 			// Encode the message.
 			msgDataBytes, err := msgData.Bytes()
