@@ -82,7 +82,8 @@ func TestPerformance(t *testing.T) {
 			t.Fatalf("test case %v failed", tc.name)
 		}
 
-		// Calculate the test duration and push metrics if the test case succeeded.
+		// Calculate the test duration and push metrics if the test case
+		// succeeded.
 		if cfg.PrometheusGateway.Enabled {
 			duration := time.Since(startTime).Seconds()
 
@@ -93,19 +94,22 @@ func TestPerformance(t *testing.T) {
 			// Update the metric with the test duration.
 			testDuration.WithLabelValues(label).Set(duration)
 
-			t.Logf("Pushing testDuration %v with label %v to gateway", duration, label)
+			t.Logf("Pushing testDuration %v with label %v to "+
+				"gateway", duration, label)
 
 			// Create a new pusher to push the metrics.
-			pusher := push.New(cfg.PrometheusGateway.PushURL, "load_test").
-				Collector(testDuration)
+			pusher := push.New(
+				cfg.PrometheusGateway.PushURL, "load_test",
+			).Collector(testDuration)
 
 			// Push the metrics to Prometheus PushGateway.
 			if err := pusher.Add(); err != nil {
-				t.Logf("Could not push metrics to Prometheus PushGateway: %v",
-					err)
+				t.Logf("Could not push metrics to Prometheus "+
+					"PushGateway: %v", err)
 			} else {
-				t.Logf("Metrics pushed for test case '%s': duration = %v seconds",
-					tc.name, duration)
+				t.Logf("Metrics pushed for test case '%s': "+
+					"duration = %v seconds", tc.name,
+					duration)
 			}
 		}
 	}

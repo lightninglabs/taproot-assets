@@ -60,16 +60,18 @@ type BitcoinConfig struct {
 
 // PrometheusGatewayConfig defines exported config options for connecting to the
 // Prometheus PushGateway.
+//
+//nolint:lll
 type PrometheusGatewayConfig struct {
-	// nolint: lll
-	Enabled bool `long:"enabled" description:"Enable pushing metrics to Prometheus PushGateway"`
-	// nolint: lll
+	Enabled bool   `long:"enabled" description:"Enable pushing metrics to Prometheus PushGateway"`
 	Host    string `long:"host" description:"Prometheus PushGateway host address"`
 	Port    int    `long:"port" description:"Prometheus PushGateway port"`
 	PushURL string
 }
 
 // Config holds the main configuration for the performance testing binary.
+//
+//nolint:lll
 type Config struct {
 	// TestCases is a comma separated list of test cases that will be
 	// executed.
@@ -111,8 +113,6 @@ type Config struct {
 
 	// PrometheusGateway is the configuration for the Prometheus
 	// PushGateway.
-	//
-	// nolint: lll
 	PrometheusGateway *PrometheusGatewayConfig `group:"prometheus-gateway" namespace:"prometheus-gateway" description:"Prometheus PushGateway configuration"`
 }
 
@@ -185,9 +185,8 @@ func ValidateConfig(cfg Config) (*Config, error) {
 		gatewayPort := cfg.PrometheusGateway.Port
 
 		if gatewayHost == "" {
-			return nil, fmt.Errorf(
-				"gateway hostname may not be empty",
-			)
+			return nil, fmt.Errorf("gateway hostname may not be " +
+				"empty")
 		}
 
 		if gatewayPort == 0 {
