@@ -76,6 +76,16 @@ type (
 	// or for things like coin selection.
 	QueryAssetFilters = sqlc.QueryAssetsParams
 
+	// QueryAssetBalancesByGroupFilters lets us query the asset balances for
+	// asset groups or alternatively for a selected one that matches the
+	// passed filter.
+	QueryAssetBalancesByGroupFilters = sqlc.QueryAssetBalancesByGroupParams
+
+	// QueryAssetBalancesByAssetFilters lets us query the asset balances for
+	// assets or alternatively for a selected one that matches the passed
+	// filter.
+	QueryAssetBalancesByAssetFilters = sqlc.QueryAssetBalancesByAssetParams
+
 	// UtxoQuery lets us query a managed UTXO by either the transaction it
 	// references, or the outpoint.
 	UtxoQuery = sqlc.FetchManagedUTXOParams
@@ -184,14 +194,15 @@ type ActiveAssetsStore interface {
 	// QueryAssetBalancesByAsset queries the balances for assets or
 	// alternatively for a selected one that matches the passed asset ID
 	// filter.
-	QueryAssetBalancesByAsset(context.Context, []byte) ([]RawAssetBalance,
-		error)
+	QueryAssetBalancesByAsset(context.Context,
+		QueryAssetBalancesByAssetFilters) ([]RawAssetBalance, error)
 
 	// QueryAssetBalancesByGroup queries the asset balances for asset
 	// groups or alternatively for a selected one that matches the passed
 	// filter.
 	QueryAssetBalancesByGroup(context.Context,
-		[]byte) ([]RawAssetGroupBalance, error)
+		QueryAssetBalancesByGroupFilters) ([]RawAssetGroupBalance,
+		error)
 
 	// FetchGroupedAssets fetches all assets with non-nil group keys.
 	FetchGroupedAssets(context.Context) ([]RawGroupedAsset, error)
@@ -960,18 +971,35 @@ type AssetQueryFilters struct {
 // QueryBalancesByAsset queries the balances for assets or alternatively
 // for a selected one that matches the passed asset ID filter.
 func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
-	assetID *asset.ID) (map[asset.ID]AssetBalance, error) {
+	assetID *asset.ID,
+	includeLeased bool) (map[asset.ID]AssetBalance, error) {
 
-	var assetFilter []byte
+	// We'll now map the application level filtering to the type of
+	// filtering our database query understands.
+	assetBalancesFilter := QueryAssetBalancesByAssetFilters{
+		Now: sql.NullTime{
+			Time:  a.clock.Now().UTC(),
+			Valid: true,
+		},
+	}
+
+	// By default, we only show assets that are not leased.
+	if !includeLeased {
+		assetBalancesFilter.Leased = sqlBool(false)
+	}
+
+	// Only show assets that match the filter that has been passed
 	if assetID != nil {
-		assetFilter = assetID[:]
+		assetBalancesFilter.AssetIDFilter = assetID[:]
 	}
 
 	balances := make(map[asset.ID]AssetBalance)
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		dbBalances, err := q.QueryAssetBalancesByAsset(ctx, assetFilter)
+		dbBalances, err := q.QueryAssetBalancesByAsset(
+			ctx, assetBalancesFilter,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to query asset "+
 				"balances by asset: %w", err)
@@ -1014,20 +1042,37 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 // QueryAssetBalancesByGroup queries the asset balances for asset groups or
 // alternatively for a selected one that matches the passed filter.
 func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
-	groupKey *btcec.PublicKey) (map[asset.SerializedKey]AssetGroupBalance,
+	groupKey *btcec.PublicKey,
+	includeLeased bool) (map[asset.SerializedKey]AssetGroupBalance,
 	error) {
 
-	var groupFilter []byte
+	// We'll now map the application level filtering to the type of
+	// filtering our database query understands.
+	assetBalancesFilter := QueryAssetBalancesByGroupFilters{
+		Now: sql.NullTime{
+			Time:  a.clock.Now().UTC(),
+			Valid: true,
+		},
+	}
+
+	// By default, we only show assets that are not leased.
+	if !includeLeased {
+		assetBalancesFilter.Leased = sqlBool(false)
+	}
+
+	// Only show specific group if a groupKey has been passed.
 	if groupKey != nil {
 		groupKeySerialized := groupKey.SerializeCompressed()
-		groupFilter = groupKeySerialized[:]
+		assetBalancesFilter.KeyGroupFilter = groupKeySerialized[:]
 	}
 
 	balances := make(map[asset.SerializedKey]AssetGroupBalance)
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		dbBalances, err := q.QueryAssetBalancesByGroup(ctx, groupFilter)
+		dbBalances, err := q.QueryAssetBalancesByGroup(
+			ctx, assetBalancesFilter,
+		)
 		if err != nil {
 			return fmt.Errorf("unable to query asset "+
 				"balances by asset: %w", err)
