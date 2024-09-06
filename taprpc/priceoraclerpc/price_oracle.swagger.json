@@ -139,30 +139,6 @@
     }
   },
   "definitions": {
-    "priceoraclerpcAssetSpecifier": {
-      "type": "object",
-      "properties": {
-        "asset_id": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-        },
-        "asset_id_str": {
-          "type": "string",
-          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-        },
-        "group_key": {
-          "type": "string",
-          "format": "byte",
-          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-        },
-        "group_key_str": {
-          "type": "string",
-          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-        }
-      },
-      "description": "AssetSpecifier is a union type for specifying an asset by either its asset ID\nor group key."
-    },
     "priceoraclerpcQueryRateTickErrResponse": {
       "type": "object",
       "properties": {
@@ -235,6 +211,29 @@
         }
       },
       "additionalProperties": {}
+    },
+    "rfqrpcAssetSpecifier": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+        },
+        "group_key_str": {
+          "type": "string",
+          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
+        }
+      }
     },
     "rpcStatus": {
       "type": "object",

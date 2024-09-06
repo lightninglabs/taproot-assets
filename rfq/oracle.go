@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/asset"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
@@ -245,14 +246,14 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 	req := &oraclerpc.QueryRateTickRequest{
 		TransactionType: oraclerpc.TransactionType_SALE,
-		SubjectAsset: &oraclerpc.AssetSpecifier{
-			Id: &oraclerpc.AssetSpecifier_AssetId{
+		SubjectAsset: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
 				AssetId: subjectAssetId,
 			},
 		},
 		SubjectAssetMaxAmount: assetAmount,
-		PaymentAsset: &oraclerpc.AssetSpecifier{
-			Id: &oraclerpc.AssetSpecifier_AssetId{
+		PaymentAsset: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
 				AssetId: paymentAssetId,
 			},
 		},
@@ -317,14 +318,14 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 
 	req := &oraclerpc.QueryRateTickRequest{
 		TransactionType: oraclerpc.TransactionType_PURCHASE,
-		SubjectAsset: &oraclerpc.AssetSpecifier{
-			Id: &oraclerpc.AssetSpecifier_AssetId{
+		SubjectAsset: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
 				AssetId: subjectAssetId,
 			},
 		},
 		SubjectAssetMaxAmount: maxAssetAmount,
-		PaymentAsset: &oraclerpc.AssetSpecifier{
-			Id: &oraclerpc.AssetSpecifier_AssetId{
+		PaymentAsset: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
 				AssetId: paymentAssetId,
 			},
 		},

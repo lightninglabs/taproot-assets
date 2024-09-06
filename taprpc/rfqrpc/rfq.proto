@@ -67,6 +67,27 @@ message AssetSpecifier {
     }
 }
 
+// FixedPoint is used to represent fixed point arithmetic for currency related
+// calculations. A fixed point consists of a value, and a scale. The value is
+// the integer representation of the number. The scale is used to represent the
+// fractional/decimal component of the number.
+// As an example, if the BTC/USD rate was $61,234.95, and we wanted to represent
+// that using a fixed point, then we multiply that by 100 (scale 2) to arrive at
+// the fixed point representation:
+// $61,234.95 * 100 = 6,123,495 = FixedPoint{value=6_123_495, scale=2}.
+// To convert back to our normal rate, we divide the value by 100 in float space
+// to arrive back at $61,234.95.
+message FixedPoint {
+    // The value of the fixed point integer.
+    uint64 value = 1;
+
+    // The scale is used to represent the fractional component. This always
+    // represents a power of 10. Eg: a scale value of 2 (two decimal places)
+    // maps to a multiplication by 100. A scale of 0 means no decimal places and
+    // the value can be used as is.
+    uint32 scale = 2;
+}
+
 message AddAssetBuyOrderRequest {
     // asset_specifier is the subject asset.
     AssetSpecifier asset_specifier = 1;

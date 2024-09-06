@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "rfqrpc/rfq.proto";
+
 package priceoraclerpc;
 
 option go_package = "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc";
@@ -41,25 +43,6 @@ message RateTick {
     uint64 expiry_timestamp = 2;
 }
 
-// AssetSpecifier is a union type for specifying an asset by either its asset ID
-// or group key.
-message AssetSpecifier {
-    oneof id {
-        // The 32-byte asset ID specified as raw bytes (gRPC only).
-        bytes asset_id = 1;
-
-        // The 32-byte asset ID encoded as a hex string (use this for REST).
-        string asset_id_str = 2;
-
-        // The 32-byte asset group key specified as raw bytes (gRPC only).
-        bytes group_key = 3;
-
-        // The 32-byte asset group key encoded as hex string (use this for
-        // REST).
-        string group_key_str = 4;
-    }
-}
-
 // QueryRateTickResponse is the request to a rate tick query.
 message QueryRateTickRequest {
     // transaction_type indicates whether the transaction is a purchase or a
@@ -67,7 +50,7 @@ message QueryRateTickRequest {
     TransactionType transaction_type = 1;
 
     // subject_asset is the asset to be priced for purchase or sale.
-    AssetSpecifier subject_asset = 2;
+    rfqrpc.AssetSpecifier subject_asset = 2;
 
     // subject_asset_max_amount is the maximum amount of the subject asset that
     // could be involved in the transaction.
@@ -78,7 +61,7 @@ message QueryRateTickRequest {
     // NOTE: An asset ID of all zeros indicates that the payment asset is BTC.
     // In this case, the rate tick will be given as milli-satoshi per asset
     // unit
-    AssetSpecifier payment_asset = 4;
+    rfqrpc.AssetSpecifier payment_asset = 4;
 
     // rate_tick_hint is an optional suggested rate tick for the transaction,
     // used to provide guidance on expected pricing.

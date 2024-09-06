@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/stretchr/testify/require"
 )
 
@@ -11,7 +12,7 @@ import (
 type isAssetBtcTC struct {
 	testName string
 
-	assetSpecifier *AssetSpecifier
+	assetSpecifier *rfqrpc.AssetSpecifier
 	expected       bool
 }
 
@@ -32,13 +33,13 @@ func TestIsAssetBtc(t *testing.T) {
 		},
 		{
 			testName:       "empty asset specifier",
-			assetSpecifier: &AssetSpecifier{},
+			assetSpecifier: &rfqrpc.AssetSpecifier{},
 			expected:       false,
 		},
 		{
 			testName: "asset specifier with zero asset ID bytes",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_AssetId{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
 					AssetId: zeroAssetId[:],
 				},
 			},
@@ -47,8 +48,8 @@ func TestIsAssetBtc(t *testing.T) {
 		{
 			testName: "asset specifier with incorrect length " +
 				"zero asset ID bytes",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_AssetId{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
 					AssetId: []byte{0, 0, 0},
 				},
 			},
@@ -56,8 +57,8 @@ func TestIsAssetBtc(t *testing.T) {
 		},
 		{
 			testName: "asset specifier with empty asset ID bytes",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_AssetId{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetId{
 					AssetId: []byte{},
 				},
 			},
@@ -65,8 +66,8 @@ func TestIsAssetBtc(t *testing.T) {
 		},
 		{
 			testName: "asset specifier with zero asset ID string",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_AssetIdStr{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetIdStr{
 					AssetIdStr: zeroAssetHexStr,
 				},
 			},
@@ -74,8 +75,8 @@ func TestIsAssetBtc(t *testing.T) {
 		},
 		{
 			testName: "asset specifier with empty asset ID string",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_AssetIdStr{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_AssetIdStr{
 					AssetIdStr: "",
 				},
 			},
@@ -83,8 +84,8 @@ func TestIsAssetBtc(t *testing.T) {
 		},
 		{
 			testName: "asset specifier with set group key bytes",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_GroupKey{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_GroupKey{
 					GroupKey: []byte{0, 0, 0},
 				},
 			},
@@ -92,8 +93,8 @@ func TestIsAssetBtc(t *testing.T) {
 		},
 		{
 			testName: "asset specifier with set group key string",
-			assetSpecifier: &AssetSpecifier{
-				Id: &AssetSpecifier_GroupKeyStr{
+			assetSpecifier: &rfqrpc.AssetSpecifier{
+				Id: &rfqrpc.AssetSpecifier_GroupKeyStr{
 					GroupKeyStr: "test-group-key",
 				},
 			},

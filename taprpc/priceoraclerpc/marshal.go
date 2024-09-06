@@ -3,11 +3,13 @@ package priceoraclerpc
 import (
 	"bytes"
 	"encoding/hex"
+
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 )
 
 // IsAssetBtc is a helper function that returns true if the given asset
 // specifier represents BTC, and false otherwise.
-func IsAssetBtc(assetSpecifier *AssetSpecifier) bool {
+func IsAssetBtc(assetSpecifier *rfqrpc.AssetSpecifier) bool {
 	// An unset asset specifier does not represent BTC.
 	if assetSpecifier == nil {
 		return false
