@@ -48,6 +48,7 @@ var (
 	assetShowWitnessName         = "show_witness"
 	assetShowSpentName           = "show_spent"
 	assetShowLeasedName          = "show_leased"
+	assetIncludeLeasedName       = "include_leased"
 	assetShowUnconfMintsName     = "show_unconfirmed_mints"
 	assetGroupKeyName            = "group_key"
 	assetGroupAnchorName         = "group_anchor"
@@ -642,6 +643,10 @@ var listAssetBalancesCommand = cli.Command{
 			Name:  groupByGroupName,
 			Usage: "Group asset balances by group key",
 		},
+		cli.BoolFlag{
+			Name:  assetIncludeLeasedName,
+			Usage: "Include leased assets in balances",
+		},
 		cli.StringFlag{
 			Name: assetIDName,
 			Usage: "A specific asset ID to run the balance query " +
@@ -663,7 +668,9 @@ func listAssetBalances(ctx *cli.Context) error {
 
 	var err error
 
-	req := &taprpc.ListBalancesRequest{}
+	req := &taprpc.ListBalancesRequest{
+		IncludeLeased: ctx.Bool(assetIncludeLeasedName),
+	}
 
 	if !ctx.Bool(groupByGroupName) {
 		req.GroupBy = &taprpc.ListBalancesRequest_AssetId{
