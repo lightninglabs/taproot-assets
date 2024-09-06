@@ -21,10 +21,10 @@ func RegisterPriceOracleJSONCallbacks(registry map[string]func(ctx context.Conte
 		},
 	}
 
-	registry["priceoraclerpc.PriceOracle.QueryRateTick"] = func(ctx context.Context,
+	registry["priceoraclerpc.PriceOracle.QueryPrice"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 
-		req := &QueryRateTickRequest{}
+		req := &QueryPriceRequest{}
 		err := marshaler.Unmarshal([]byte(reqJSON), req)
 		if err != nil {
 			callback("", err)
@@ -32,7 +32,7 @@ func RegisterPriceOracleJSONCallbacks(registry map[string]func(ctx context.Conte
 		}
 
 		client := NewPriceOracleClient(conn)
-		resp, err := client.QueryRateTick(ctx, req)
+		resp, err := client.QueryPrice(ctx, req)
 		if err != nil {
 			callback("", err)
 			return

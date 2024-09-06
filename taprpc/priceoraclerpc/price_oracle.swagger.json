@@ -16,15 +16,15 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taproot-assets/rfq/priceoracle/ratetick": {
+    "/v1/taproot-assets/rfq/priceoracle/price": {
       "get": {
-        "summary": "QueryRateTick queries the rate tick for a given transaction type, subject\nasset, and payment asset. The rate tick is the exchange rate between the\nsubject asset and the payment asset.",
-        "operationId": "PriceOracle_QueryRateTick",
+        "summary": "QueryPrice queries the price for a swap from the input asset to the output\nasset. The direction of \"in\" vs. \"out\" is always as seen from the\nperspective of the wallet end user, where \"out\" means the value that goes\nfrom the wallet to the edge node and \"in\" means the value that goes from the\nedge node to the wallet.\nThis direction should not be confused with the direction of a Lightning\npayment that involves assets:\n- If a wallet end user is paying a satoshi-denominated invoice with assets\n(sell order), the input asset is the asset that the user is selling and\nthe output asset is the asset that flows into the network to satisfy the\ninvoice.\n- If a wallet end user is receiving assets via an invoice (buy order), the\ninput asset is the asset that flows into the user's wallet and the output\nasset is the satoshis that flow from the network to the edge node to\nsatisfy the invoice.",
+        "operationId": "PriceOracle_QueryPrice",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/priceoraclerpcQueryRateTickResponse"
+              "$ref": "#/definitions/priceoraclerpcQueryPriceResponse"
             }
           },
           "default": {
@@ -37,7 +37,7 @@
         "parameters": [
           {
             "name": "transaction_type",
-            "description": "transaction_type indicates whether the transaction is a purchase or a\nsale.\n\n - PURCHASE: PURCHASE indicates a purchase transaction.\n - SALE: SALE indicates a sale transaction.",
+            "description": "The type of transaction, either a purchase or a sale.\n\n - PURCHASE: PURCHASE indicates a purchase transaction (also called buy or bid order).\n - SALE: SALE indicates a sale transaction (also called sell or ask order).",
             "in": "query",
             "required": false,
             "type": "string",
@@ -48,7 +48,7 @@
             "default": "PURCHASE"
           },
           {
-            "name": "subject_asset.asset_id",
+            "name": "in_asset.asset_id",
             "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -56,14 +56,14 @@
             "format": "byte"
           },
           {
-            "name": "subject_asset.asset_id_str",
+            "name": "in_asset.asset_id_str",
             "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "subject_asset.group_key",
+            "name": "in_asset.group_key",
             "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -71,22 +71,22 @@
             "format": "byte"
           },
           {
-            "name": "subject_asset.group_key_str",
+            "name": "in_asset.group_key_str",
             "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "subject_asset_max_amount",
-            "description": "subject_asset_max_amount is the maximum amount of the subject asset that\ncould be involved in the transaction.",
+            "name": "in_asset_max_amount",
+            "description": "The maximum amount of the input asset that the user requests to sell or buy.\nThe edge node should accept swaps up to that total amount. This is always\nexpressed in the input asset, because that is the variable the user knows.\nFor example, when paying a satoshi-denominated invoice (sell order), the\nuser knows the amount of satoshis that need to flow into the network (the\ninvoice amount plus a maximum user-defined routing fee). When receiving\nassets via an invoice (buy order), the user knows the amount of assets that\nthey want to receive. The output asset amount is always the result of the\nprice query, so it is the unknown value to the user.",
             "in": "query",
             "required": false,
             "type": "string",
             "format": "uint64"
           },
           {
-            "name": "payment_asset.asset_id",
+            "name": "out_asset.asset_id",
             "description": "The 32-byte asset ID specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -94,14 +94,14 @@
             "format": "byte"
           },
           {
-            "name": "payment_asset.asset_id_str",
+            "name": "out_asset.asset_id_str",
             "description": "The 32-byte asset ID encoded as a hex string (use this for REST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "payment_asset.group_key",
+            "name": "out_asset.group_key",
             "description": "The 32-byte asset group key specified as raw bytes (gRPC only).",
             "in": "query",
             "required": false,
@@ -109,23 +109,47 @@
             "format": "byte"
           },
           {
-            "name": "payment_asset.group_key_str",
+            "name": "out_asset.group_key_str",
             "description": "The 32-byte asset group key encoded as hex string (use this for\nREST).",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "rate_tick_hint.rate",
-            "description": "rate is the exchange rate between the subject asset and the payment\nasset.",
+            "name": "price_hint.in_asset_price.value",
+            "description": "The value of the fixed point integer.",
             "in": "query",
             "required": false,
             "type": "string",
             "format": "uint64"
           },
           {
-            "name": "rate_tick_hint.expiry_timestamp",
-            "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\ntick is no longer valid.",
+            "name": "price_hint.in_asset_price.scale",
+            "description": "The scale is used to represent the fractional component. This always\nrepresents a power of 10. Eg: a scale value of 2 (two decimal places)\nmaps to a multiplication by 100. A scale of 0 means no decimal places and\nthe value can be used as is.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "price_hint.out_asset_price.value",
+            "description": "The value of the fixed point integer.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "price_hint.out_asset_price.scale",
+            "description": "The scale is used to represent the fractional component. This always\nrepresents a power of 10. Eg: a scale value of 2 (two decimal places)\nmaps to a multiplication by 100. A scale of 0 means no decimal places and\nthe value can be used as is.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "price_hint.expiry_timestamp",
+            "description": "The expiry as a Unix timestamp in seconds after which the price is no\nlonger valid.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -139,60 +163,50 @@
     }
   },
   "definitions": {
-    "priceoraclerpcQueryRateTickErrResponse": {
+    "priceoraclerpcPriceQuote": {
       "type": "object",
       "properties": {
-        "message": {
-          "type": "string",
-          "description": "error is the error message."
+        "in_asset_price": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "The price of the input asset, expressed as number of asset units per BTC,\nrepresented as a fixed point number. If The input asset is BTC, the value\nwill be given as a static value of milli-satoshi per BTC (10^11)."
         },
-        "code": {
-          "type": "integer",
-          "format": "int64",
-          "description": "code is the error code."
-        }
-      },
-      "description": "QueryRateTickErrResponse is the error response to a rate tick query."
-    },
-    "priceoraclerpcQueryRateTickResponse": {
-      "type": "object",
-      "properties": {
-        "success": {
-          "$ref": "#/definitions/priceoraclerpcQueryRateTickSuccessResponse",
-          "description": "success is the successful response to the rate tick query."
-        },
-        "error": {
-          "$ref": "#/definitions/priceoraclerpcQueryRateTickErrResponse",
-          "description": "error is the error response to the rate tick query."
-        }
-      },
-      "description": "QueryRateTickResponse is the response to a rate tick query."
-    },
-    "priceoraclerpcQueryRateTickSuccessResponse": {
-      "type": "object",
-      "properties": {
-        "rate_tick": {
-          "$ref": "#/definitions/priceoraclerpcRateTick",
-          "description": "rate_tick is the rate tick for the transaction."
-        }
-      },
-      "description": "QueryRateTickSuccessResponse is the successful response to a rate tick query."
-    },
-    "priceoraclerpcRateTick": {
-      "type": "object",
-      "properties": {
-        "rate": {
-          "type": "string",
-          "format": "uint64",
-          "description": "rate is the exchange rate between the subject asset and the payment\nasset."
+        "out_asset_price": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "The price of the output asset, expressed as number of asset units per BTC,\nrepresented as a fixed point number. If The output asset is BTC, the value\nwill be given as a static value of milli-satoshi per BTC (10^11)."
         },
         "expiry_timestamp": {
           "type": "string",
           "format": "uint64",
-          "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\ntick is no longer valid."
+          "description": "The expiry as a Unix timestamp in seconds after which the price is no\nlonger valid."
         }
-      },
-      "description": "RateTick is the internal unit used for asset conversions. A tick is 1/10000th\nof a currency unit. It gives us up to 4 decimal places of precision (0.0001\nor 0.01% or 1 bps). As an example, if the BTC/USD rate was $61,234.95, then\nwe multiply that by 10,000 to arrive at the usd_rate_tick:\n$61,234.95 * 10000 = 612,349,500. To convert back to our normal rate, we\ndecide by 10,000 to arrive back at $61,234.95.\n\nNOTE: That if the payment asset is BTC, the rate tick will be given as\nmilli-satoshi per asset unit."
+      }
+    },
+    "priceoraclerpcQueryPriceError": {
+      "type": "object",
+      "properties": {
+        "message": {
+          "type": "string",
+          "description": "The human-readable message of the error."
+        },
+        "code": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The code of the error."
+        }
+      }
+    },
+    "priceoraclerpcQueryPriceResponse": {
+      "type": "object",
+      "properties": {
+        "success": {
+          "$ref": "#/definitions/priceoraclerpcPriceQuote",
+          "description": "The successful response to the price query."
+        },
+        "error": {
+          "$ref": "#/definitions/priceoraclerpcQueryPriceError",
+          "description": "The error response to the price query."
+        }
+      }
     },
     "priceoraclerpcTransactionType": {
       "type": "string",
@@ -201,7 +215,7 @@
         "SALE"
       ],
       "default": "PURCHASE",
-      "description": "TransactionType is an enum representing the type of transaction.\n\n - PURCHASE: PURCHASE indicates a purchase transaction.\n - SALE: SALE indicates a sale transaction."
+      "description": "TransactionType is an enum representing the type of transaction.\n\n - PURCHASE: PURCHASE indicates a purchase transaction (also called buy or bid order).\n - SALE: SALE indicates a sale transaction (also called sell or ask order)."
     },
     "protobufAny": {
       "type": "object",
@@ -234,6 +248,22 @@
           "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
         }
       }
+    },
+    "rfqrpcFixedPoint": {
+      "type": "object",
+      "properties": {
+        "value": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The value of the fixed point integer."
+        },
+        "scale": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The scale is used to represent the fractional component. This always\nrepresents a power of 10. Eg: a scale value of 2 (two decimal places)\nmaps to a multiplication by 100. A scale of 0 means no decimal places and\nthe value can be used as is."
+        }
+      },
+      "description": "FixedPoint is used to represent fixed point arithmetic for currency related\ncalculations. A fixed point consists of a value, and a scale. The value is\nthe integer representation of the number. The scale is used to represent the\nfractional/decimal component of the number.\nAs an example, if the BTC/USD rate was $61,234.95, and we wanted to represent\nthat using a fixed point, then we multiply that by 100 (scale 2) to arrive at\nthe fixed point representation:\n$61,234.95 * 100 = 6,123,495 = FixedPoint{value=6_123_495, scale=2}.\nTo convert back to our normal rate, we divide the value by 100 in float space\nto arrive back at $61,234.95."
     },
     "rpcStatus": {
       "type": "object",

@@ -12,7 +12,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
@@ -103,48 +102,49 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 	}, nil
 }
 
-// queryBidFromPriceOracle queries the price oracle for a bid price. It returns
-// an appropriate outgoing response message which should be sent to the peer.
-func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey,
-	assetAmount uint64) (lnwire.MilliSatoshi, uint64, error) {
-
-	// TODO(ffranr): Optionally accept a peer's proposed ask price as an
-	//  arg to this func and pass it to the price oracle. The price oracle
-	//  service might be intelligent enough to use the peer's proposed ask
-	//  price as a factor when computing the bid price. This argument must
-	//  be optional because at some call sites we are initiating a request
-	//  and do not have a peer's proposed ask price.
+// queryBuyPriceFromOracle queries the price oracle for a buy price. It returns
+// an appropriate price quote that can be included in an outgoing message.
+func (n *Negotiator) queryBuyPriceFromOracle(inAssetId *asset.ID,
+	inAssetGroupKey *btcec.PublicKey, inAssetMaxAmount uint64,
+	suggestedPrice *rfqmsg.PriceQuote) (*rfqmsg.PriceQuote, error) {
 
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
-		ctx, assetId, assetGroupKey, assetAmount,
+	oracleResponse, err := n.cfg.PriceOracle.QueryBuyPrice(
+		ctx, inAssetId, inAssetGroupKey, inAssetMaxAmount,
+		suggestedPrice,
 	)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to query price oracle for "+
-			"bid: %w", err)
+		return nil, fmt.Errorf("failed to query price oracle for buy "+
+			"price: %w", err)
 	}
 
 	// Now we will check for an error in the response from the price oracle.
 	// If present, we will convert it to a string and return it as an error.
 	if oracleResponse.Err != nil {
-		return 0, 0, fmt.Errorf("failed to query price oracle for "+
-			"bid price: %s", oracleResponse.Err)
+		return nil, fmt.Errorf("failed to query price oracle for buy "+
+			"price: %s", oracleResponse.Err)
 	}
 
-	// By this point, the price oracle did not return an error or a bid
+	// By this point, the price oracle did not return an error or a buy
 	// price. We will therefore return an error.
-	if oracleResponse.BidPrice == nil {
-		return 0, 0, fmt.Errorf("price oracle did not specify a bid " +
+	if oracleResponse.Price == nil {
+		return nil, fmt.Errorf("price oracle did not specify a buy " +
 			"price")
 	}
 
-	// TODO(ffranr): Check that the bid price is reasonable.
-	// TODO(ffranr): Ensure that the expiry time is valid and sufficient.
+	// We expect the price's expiry to be in the future.
+	if oracleResponse.Price.Expiry.IsZero() ||
+		oracleResponse.Price.Expiry.Before(time.Now()) {
 
-	return *oracleResponse.BidPrice, oracleResponse.Expiry, nil
+		return nil, fmt.Errorf("price oracle did not specify a valid "+
+			"expiry time: %v", oracleResponse.Price.Expiry)
+	}
+
+	// TODO(ffranr): Check that the bid price is reasonable.
+
+	return oracleResponse.Price, nil
 }
 
 // HandleOutgoingBuyOrder handles an outgoing buy order by constructing buy
@@ -161,14 +161,13 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		// We calculate a proposed bid price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
-		var bidPrice lnwire.MilliSatoshi
-
+		var suggestedBuyPrice *rfqmsg.PriceQuote
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for a bid price.
 			var err error
-			bidPrice, _, err = n.queryBidFromPriceOracle(
-				*buyOrder.Peer, buyOrder.AssetID,
-				buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
+			suggestedBuyPrice, err = n.queryBuyPriceFromOracle(
+				buyOrder.AssetID, buyOrder.AssetGroupKey,
+				buyOrder.MinAssetAmount, nil,
 			)
 			if err != nil {
 				// If we fail to query the price oracle for a
@@ -180,10 +179,20 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			}
 		}
 
+		// TODO(guggero): This is obviously wrong and we'll want to fix
+		// this after refactoring the wire messages. For now, we'll just
+		// want for things to compile in this commit.
+		var suggestedBuyPriceMSat lnwire.MilliSatoshi
+		if suggestedBuyPrice != nil {
+			suggestedBuyPriceMSat = lnwire.MilliSatoshi(
+				suggestedBuyPrice.InAssetPrice.Value.ToUint64(),
+			)
+		}
+
 		request, err := rfqmsg.NewBuyRequest(
 			*buyOrder.Peer, buyOrder.AssetID,
 			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-			bidPrice,
+			suggestedBuyPriceMSat,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
@@ -209,64 +218,55 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 	return nil
 }
 
-// queryAskFromPriceOracle queries the price oracle for an asking price. It
-// returns an appropriate outgoing response message which should be sent to the
-// peer.
-func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	bid *lnwire.MilliSatoshi) (lnwire.MilliSatoshi, uint64, error) {
+// querySellPriceFromOracle queries the price oracle for a sell price. It
+// returns an appropriate price quote that can be included in an outgoing
+// message.
+func (n *Negotiator) querySellPriceFromOracle(outAssetId *asset.ID,
+	outAssetGroupKey *btcec.PublicKey, inAssetMaxAmount uint64,
+	suggestedPrice *rfqmsg.PriceQuote) (*rfqmsg.PriceQuote, error) {
 
 	// Query the price oracle for an asking price.
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
-		ctx, assetId, assetGroupKey, assetAmount, bid,
+	oracleResponse, err := n.cfg.PriceOracle.QuerySellPrice(
+		ctx, outAssetId, outAssetGroupKey, inAssetMaxAmount,
+		suggestedPrice,
 	)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to query price oracle for "+
-			"ask price: %w", err)
+		return nil, fmt.Errorf("failed to query price oracle for sell "+
+			"price: %w", err)
 	}
 
 	// Now we will check for an error in the response from the price oracle.
 	// If present, we will convert it to a string and return it as an error.
 	if oracleResponse.Err != nil {
-		return 0, 0, fmt.Errorf("failed to query price oracle for "+
-			"ask price: %s", oracleResponse.Err)
+		return nil, fmt.Errorf("failed to query price oracle for sell "+
+			"price: %s", oracleResponse.Err)
 	}
 
-	// By this point, the price oracle did not return an error or an asking
+	// By this point, the price oracle did not return an error or a sell
 	// price. We will therefore return an error.
-	if oracleResponse.AskPrice == nil {
-		return 0, 0, fmt.Errorf("price oracle did not specify an " +
-			"asking price")
+	if oracleResponse.Price == nil {
+		return nil, fmt.Errorf("price oracle did not specify a sell " +
+			"price")
+	}
+
+	// We expect the price's expiry to be in the future.
+	if oracleResponse.Price.Expiry.IsZero() ||
+		oracleResponse.Price.Expiry.Before(time.Now()) {
+
+		return nil, fmt.Errorf("price oracle did not specify a valid "+
+			"expiry time: %v", oracleResponse.Price.Expiry)
 	}
 
 	// TODO(ffranr): Check that the asking price is reasonable.
-	// TODO(ffranr): Ensure that the expiry time is valid and sufficient.
 
-	// If the asking price is not nil, then we can proceed to compute a
-	// final asking price.
-	//
-	// If the bid price (bid price suggested in the buy request) is greater
-	// than the asking price, then we will use the bid price as the final
-	// asking price. Otherwise, we will use the asking price provided by the
-	// price oracle as the final asking price.
-	var finalAskPrice lnwire.MilliSatoshi
-
-	if bid != nil && *bid > *oracleResponse.AskPrice {
-		finalAskPrice = *bid
-	} else {
-		finalAskPrice = *oracleResponse.AskPrice
-	}
-
-	return finalAskPrice, oracleResponse.Expiry, nil
+	return oracleResponse.Price, nil
 }
 
 // HandleIncomingBuyRequest handles an incoming asset buy quote request.
-func (n *Negotiator) HandleIncomingBuyRequest(
-	request rfqmsg.BuyRequest) error {
-
+func (n *Negotiator) HandleIncomingBuyRequest(request rfqmsg.BuyRequest) error {
 	// Define a thread safe helper function for adding outgoing message to
 	// the outgoing messages channel.
 	sendOutgoingMsg := func(msg rfqmsg.OutgoingMsg) {
@@ -322,10 +322,14 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	go func() {
 		defer n.Wg.Done()
 
+		// TODO(guggero): Set this to the suggested price from the
+		// request, once the wire messages are refactored.
+		var suggestedPrice *rfqmsg.PriceQuote
+
 		// Query the price oracle for an asking price.
-		askPrice, askExpiry, err := n.queryAskFromPriceOracle(
-			nil, request.AssetID, request.AssetGroupKey,
-			request.AssetAmount, &request.BidPrice,
+		buyPrice, err := n.queryBuyPriceFromOracle(
+			request.AssetID, request.AssetGroupKey,
+			request.AssetAmount, suggestedPrice,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -342,9 +346,19 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 			return
 		}
 
+		// TODO(guggero): This is obviously wrong and we'll want to fix
+		// this after refactoring the wire messages. For now, we'll just
+		// want for things to compile in this commit.
+		var buyPriceMSat lnwire.MilliSatoshi
+		if buyPrice != nil {
+			buyPriceMSat = lnwire.MilliSatoshi(
+				buyPrice.InAssetPrice.Value.ToUint64(),
+			)
+		}
+
 		// Construct and send a buy accept message.
 		msg := rfqmsg.NewBuyAcceptFromRequest(
-			request, askPrice, askExpiry,
+			request, buyPriceMSat, uint64(buyPrice.Expiry.Unix()),
 		)
 		sendOutgoingMsg(msg)
 	}()
@@ -415,12 +429,16 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	go func() {
 		defer n.Wg.Done()
 
+		// TODO(guggero): Set this to the suggested price from the
+		// request, once the wire messages are refactored.
+		var suggestedPrice *rfqmsg.PriceQuote
+
 		// Query the price oracle for a bid price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
-		bidPrice, bidExpiry, err := n.queryBidFromPriceOracle(
-			request.Peer, request.AssetID, request.AssetGroupKey,
-			request.AssetAmount,
+		sellPrice, err := n.querySellPriceFromOracle(
+			request.AssetID, request.AssetGroupKey,
+			request.AssetAmount, suggestedPrice,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -437,9 +455,19 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			return
 		}
 
+		// TODO(guggero): This is obviously wrong and we'll want to fix
+		// this after refactoring the wire messages. For now, we'll just
+		// want for things to compile in this commit.
+		var sellPriceMSat lnwire.MilliSatoshi
+		if sellPrice != nil {
+			sellPriceMSat = lnwire.MilliSatoshi(
+				sellPrice.InAssetPrice.Value.ToUint64(),
+			)
+		}
+
 		// Construct and send a sell accept message.
 		msg := rfqmsg.NewSellAcceptFromRequest(
-			request, bidPrice, bidExpiry,
+			request, sellPriceMSat, uint64(sellPrice.Expiry.Unix()),
 		)
 		sendOutgoingMsg(msg)
 	}()
@@ -461,13 +489,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		// We calculate a proposed ask price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
-		var askPrice lnwire.MilliSatoshi
-
+		var suggestedSellPrice *rfqmsg.PriceQuote
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for an asking price.
 			var err error
-			askPrice, _, err = n.queryAskFromPriceOracle(
-				order.Peer, order.AssetID, order.AssetGroupKey,
+			suggestedSellPrice, err = n.querySellPriceFromOracle(
+				order.AssetID, order.AssetGroupKey,
 				order.MaxAssetAmount, nil,
 			)
 			if err != nil {
@@ -478,9 +505,20 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			}
 		}
 
+		// TODO(guggero): This is obviously wrong and we'll want to fix
+		// this after refactoring the wire messages. For now, we'll just
+		// want for things to compile in this commit.
+		var suggestedSellPriceMSat lnwire.MilliSatoshi
+		if suggestedSellPrice != nil {
+			suggestedSellPriceMSat = lnwire.MilliSatoshi(
+				suggestedSellPrice.InAssetPrice.Value.
+					ToUint64(),
+			)
+		}
+
 		request, err := rfqmsg.NewSellRequest(
 			*order.Peer, order.AssetID, order.AssetGroupKey,
-			order.MaxAssetAmount, askPrice,
+			order.MaxAssetAmount, suggestedSellPriceMSat,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+
@@ -519,7 +557,12 @@ func expiryWithinBounds(expiryUnixTimestamp uint64,
 // priceWithinBounds returns true if the difference between the first price and
 // the second price is within the given tolerance (in parts per million (PPM)).
 func pricesWithinBounds(firstPrice lnwire.MilliSatoshi,
-	secondPrice lnwire.MilliSatoshi, tolerancePpm uint64) bool {
+	secondPriceQuote *rfqmsg.PriceQuote, tolerancePpm uint64) bool {
+
+	// TODO(guggero): This is obviously wrong and we'll want to fix this
+	// after refactoring the wire messages. For now, we'll just want for
+	// things to compile in this commit.
+	secondPrice := secondPriceQuote.InAssetPrice.Value.ToUint64()
 
 	// Handle the case where both prices are zero.
 	if firstPrice == 0 && secondPrice == 0 {
@@ -601,15 +644,15 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	go func() {
 		defer n.Wg.Done()
 
-		// The buy accept message contains an ask price. This price
+		// The buy accept message contains a buy price. This price
 		// is the price that the peer is willing to accept in order to
 		// sell the asset that we are buying.
 		//
 		// We will sanity check that price by querying our price oracle
-		// for an ask price. We will then compare the ask price returned
-		// by the price oracle with the ask price provided by the peer.
-		oraclePrice, _, err := n.queryAskFromPriceOracle(
-			&msg.Peer, msg.Request.AssetID, nil,
+		// for a buy price. We will then compare the ask price returned
+		// by the price oracle with the buy price provided by the peer.
+		oraclePrice, err := n.queryBuyPriceFromOracle(
+			msg.Request.AssetID, msg.Request.AssetGroupKey,
 			msg.Request.AssetAmount, nil,
 		)
 		if err != nil {
@@ -648,7 +691,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			// callback.
 			log.Debugf("Buy accept price is not within "+
 				"acceptable bounds (peer_price=%d, "+
-				"oracle_price=%d)", msg.AskPrice, oraclePrice)
+				"oracle_price=%v)", msg.AskPrice, oraclePrice)
 
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not
@@ -722,16 +765,16 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	go func() {
 		defer n.Wg.Done()
 
-		// The sell accept message contains a bid price. This price
+		// The sell accept message contains a sell price. This price
 		// is the price that the peer is willing to pay in order to buy
 		// the asset that we are selling.
 		//
 		// We will sanity check that price by querying our price oracle
-		// for a bid price. We will then compare the bid price returned
-		// by the price oracle with the bid price provided by the peer.
-		oraclePrice, _, err := n.queryBidFromPriceOracle(
-			msg.Peer, msg.Request.AssetID, nil,
-			msg.Request.AssetAmount,
+		// for a sell price. We will then compare the bid price returned
+		// by the price oracle with the sell price provided by the peer.
+		oraclePrice, err := n.querySellPriceFromOracle(
+			msg.Request.AssetID, msg.Request.AssetGroupKey,
+			msg.Request.AssetAmount, nil,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -769,7 +812,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 			// callback.
 			log.Debugf("Sell accept quote price is not within "+
 				"acceptable bounds (peer_price=%d, "+
-				"oracle_price=%d)", msg.BidPrice, oraclePrice)
+				"oracle_price=%v)", msg.BidPrice, oraclePrice)
 
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not

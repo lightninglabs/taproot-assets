@@ -10,24 +10,14 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-)
-
-const (
-	// defaultRateTickExpirySeconds is the default rate tick expiry lifetime
-	// in seconds. 600s = 10 minutes.
-	//
-	// TODO(ffranr): This const is currently used in conjunction with the
-	//  AcceptSuggestedPrices flag. It is used to set the expiry time of the
-	//  rate tick in the accept message. This is a temporary solution and
-	//  should be replaced with an expiry time provided by the peer in the
-	//  quote request message.
-	defaultRateTickExpirySeconds = 600
 )
 
 // OracleError is a struct that holds an error returned by the price oracle
@@ -53,27 +43,11 @@ func (o *OracleError) Error() string {
 	return fmt.Sprintf("OracleError(code=%d, msg=%s)", o.Code, errMsg)
 }
 
-// OracleAskResponse is a struct that holds the price oracle's suggested ask
-// price for an asset.
-type OracleAskResponse struct {
-	// AskPrice is the asking price of the quote.
-	AskPrice *lnwire.MilliSatoshi
-
-	// Expiry is the price expiryDelay lifetime unix timestamp.
-	Expiry uint64
-
-	// Err is an optional error returned by the price oracle service.
-	Err *OracleError
-}
-
-// OracleBidResponse is a struct that holds the price oracle's suggested bid
-// price for an asset.
-type OracleBidResponse struct {
-	// BidPrice is the suggested bid price for the asset amount.
-	BidPrice *lnwire.MilliSatoshi
-
-	// Expiry is the price expiry lifetime unix timestamp in seconds.
-	Expiry uint64
+// OracleResponse is a struct that holds the price oracle's suggested buy or
+// sell price for an asset swap.
+type OracleResponse struct {
+	// Price is the buy or sell price of the swap quote.
+	Price *rfqmsg.PriceQuote
 
 	// Err is an optional error returned by the price oracle service.
 	Err *OracleError
@@ -117,20 +91,21 @@ func ParsePriceOracleAddress(addrStr string) (*OracleAddr, error) {
 // PriceOracle is an interface that provides exchange rate information for
 // assets.
 type PriceOracle interface {
-	// QueryAskPrice returns the ask price for a given asset amount.
-	// The ask price is the amount the oracle suggests a peer should accept
-	// from another peer to provide the specified asset amount.
-	QueryAskPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey, assetAmount uint64,
-		suggestedBidPrice *lnwire.MilliSatoshi) (*OracleAskResponse,
-		error)
+	// QuerySellPrice returns the price for selling output assets up to
+	// the specified amount of input assets (BTC). The suggestedPrice is an
+	// optional price hint that tells the oracle the price the requesting
+	// party is willing to pay for the asset swap.
+	QuerySellPrice(ctx context.Context, outAssetId *asset.ID,
+		outAssetGroupKey *btcec.PublicKey, inAssetMaxAmount uint64,
+		suggestedPrice *rfqmsg.PriceQuote) (*OracleResponse, error)
 
-	// QueryBidPrice returns the bid price for a given asset amount.
-	// The bid price is the amount the oracle suggests a peer should pay
-	// to another peer to receive the specified asset amount.
-	QueryBidPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey,
-		assetAmount uint64) (*OracleBidResponse, error)
+	// QueryBuyPrice returns the price for buying an input asset up to the
+	// specified amount and receiving output assets (BTC) in return. The
+	// suggestedPrice is an optional price hint that tells the oracle the
+	// price the requesting party is willing to pay for the asset swap.
+	QueryBuyPrice(ctx context.Context, inAssetId *asset.ID,
+		inAssetGroupKey *btcec.PublicKey, inAssetMaxAmount uint64,
+		suggestedPrice *rfqmsg.PriceQuote) (*OracleResponse, error)
 }
 
 // RpcPriceOracle is a price oracle that uses an external RPC server to get
@@ -212,153 +187,130 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 	}, nil
 }
 
-// QueryAskPrice returns the ask price for the given asset amount.
-func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	bidPrice *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
+// QuerySellPrice returns the price for selling output assets up to the
+// specified amount of input assets (BTC). The suggestedPrice is an optional
+// price hint that tells the oracle the price the requesting party is willing to
+// pay for the asset swap.
+func (r *RpcPriceOracle) QuerySellPrice(ctx context.Context,
+	outAssetId *asset.ID, _ *btcec.PublicKey, inAssetMaxAmount uint64,
+	suggestedPrice *rfqmsg.PriceQuote) (*OracleResponse, error) {
 
-	// For now, we only support querying the ask price with an asset ID.
-	if assetId == nil {
+	// For now, we only support querying the sell price with an asset ID.
+	if outAssetId == nil {
 		return nil, fmt.Errorf("asset ID is nil")
 	}
 
 	var (
-		subjectAssetId = make([]byte, 32)
-		paymentAssetId = make([]byte, 32)
+		// For a sell request the input asset is BTC, so we leave it at
+		// all zeroes.
+		inAssetID  = make([]byte, 32)
+		outAssetID = outAssetId[:]
 	)
 
-	// The payment asset ID is BTC, so we leave it at all zeroes. We only
-	// set the subject asset ID.
-	copy(subjectAssetId, assetId[:])
-
-	// Construct the RPC rate tick hint.
-	var rateTickHint *oraclerpc.RateTick
-	if bidPrice != nil {
-		// Compute an expiry time using the default expiry delay.
-		expiryTimestamp := uint64(time.Now().Unix()) +
-			defaultRateTickExpirySeconds
-
-		rateTickHint = &oraclerpc.RateTick{
-			Rate:            uint64(*bidPrice),
-			ExpiryTimestamp: expiryTimestamp,
-		}
+	var priceHint *oraclerpc.PriceQuote
+	if suggestedPrice != nil {
+		priceHint = marshalQuote(suggestedPrice)
 	}
 
-	req := &oraclerpc.QueryRateTickRequest{
+	req := &oraclerpc.QueryPriceRequest{
 		TransactionType: oraclerpc.TransactionType_SALE,
-		SubjectAsset: &rfqrpc.AssetSpecifier{
+		InAsset: &rfqrpc.AssetSpecifier{
 			Id: &rfqrpc.AssetSpecifier_AssetId{
-				AssetId: subjectAssetId,
+				AssetId: inAssetID,
 			},
 		},
-		SubjectAssetMaxAmount: assetAmount,
-		PaymentAsset: &rfqrpc.AssetSpecifier{
+		InAssetMaxAmount: inAssetMaxAmount,
+		OutAsset: &rfqrpc.AssetSpecifier{
 			Id: &rfqrpc.AssetSpecifier_AssetId{
-				AssetId: paymentAssetId,
+				AssetId: outAssetID,
 			},
 		},
-		RateTickHint: rateTickHint,
+		PriceHint: priceHint,
 	}
 
-	// Perform query.
-	resp, err := r.client.QueryRateTick(ctx, req)
+	resp, err := r.client.QueryPrice(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
-	// Parse the response.
-	switch result := resp.GetResult().(type) {
-	case *oraclerpc.QueryRateTickResponse_Success:
-		if result.Success.RateTick == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
-				"successful but rate tick is nil")
-		}
-
-		rate := lnwire.MilliSatoshi(result.Success.RateTick.Rate)
-		return &OracleAskResponse{
-			AskPrice: &rate,
-			Expiry:   result.Success.RateTick.ExpiryTimestamp,
-		}, nil
-
-	case *oraclerpc.QueryRateTickResponse_Error:
-		if result.Error == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
-				"an error but error is nil")
-		}
-
-		return &OracleAskResponse{
-			Err: &OracleError{
-				Msg: result.Error.Message,
-			},
-		}, nil
-
-	default:
-		return nil, fmt.Errorf("unexpected response type: %T", result)
-	}
+	return parseOracleResponse(resp)
 }
 
-// QueryBidPrice returns a bid price for the given asset amount.
-func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
-	assetGroupKey *btcec.PublicKey,
-	maxAssetAmount uint64) (*OracleBidResponse, error) {
+// QueryBuyPrice returns the price for buying an input asset up to the
+// specified amount and receiving output assets (BTC) in return. The
+// suggestedPrice is an optional price hint that tells the oracle the
+// price the requesting party is willing to pay for the asset swap.
+func (r *RpcPriceOracle) QueryBuyPrice(ctx context.Context, inAssetId *asset.ID,
+	_ *btcec.PublicKey, inAssetMaxAmount uint64,
+	suggestedPrice *rfqmsg.PriceQuote) (*OracleResponse, error) {
 
-	// For now, we only support querying the ask price with an asset ID.
-	if assetId == nil {
+	// For now, we only support querying the buy price with an asset ID.
+	if inAssetId == nil {
 		return nil, fmt.Errorf("asset ID is nil")
 	}
 
 	var (
-		subjectAssetId = make([]byte, 32)
-		paymentAssetId = make([]byte, 32)
+		// For a buy request the output asset is BTC, so we leave it at
+		// all zeroes.
+		outAssetID = make([]byte, 32)
+		inAssetID  = inAssetId[:]
 	)
 
-	// The payment asset ID is BTC, so we leave it at all zeroes. We only
-	// set the subject asset ID.
-	copy(subjectAssetId, assetId[:])
-
-	req := &oraclerpc.QueryRateTickRequest{
-		TransactionType: oraclerpc.TransactionType_PURCHASE,
-		SubjectAsset: &rfqrpc.AssetSpecifier{
-			Id: &rfqrpc.AssetSpecifier_AssetId{
-				AssetId: subjectAssetId,
-			},
-		},
-		SubjectAssetMaxAmount: maxAssetAmount,
-		PaymentAsset: &rfqrpc.AssetSpecifier{
-			Id: &rfqrpc.AssetSpecifier_AssetId{
-				AssetId: paymentAssetId,
-			},
-		},
-		RateTickHint: nil,
+	var priceHint *oraclerpc.PriceQuote
+	if suggestedPrice != nil {
+		priceHint = marshalQuote(suggestedPrice)
 	}
 
-	// Perform query.
-	resp, err := r.client.QueryRateTick(ctx, req)
+	req := &oraclerpc.QueryPriceRequest{
+		TransactionType: oraclerpc.TransactionType_PURCHASE,
+		InAsset: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: inAssetID,
+			},
+		},
+		InAssetMaxAmount: inAssetMaxAmount,
+		OutAsset: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: outAssetID,
+			},
+		},
+		PriceHint: priceHint,
+	}
+
+	resp, err := r.client.QueryPrice(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
+	return parseOracleResponse(resp)
+}
+
+// parseOracleResponse parses the response from the price oracle service and
+// returns an OracleResponse instance.
+func parseOracleResponse(resp *oraclerpc.QueryPriceResponse) (*OracleResponse,
+	error) {
+
 	// Parse the response.
 	switch result := resp.GetResult().(type) {
-	case *oraclerpc.QueryRateTickResponse_Success:
-		if result.Success.RateTick == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
-				"successful but rate tick is nil")
+	case *oraclerpc.QueryPriceResponse_Success:
+		quote, err := unmarshalPriceQuote(result.Success)
+		if err != nil {
+			return nil, fmt.Errorf("QueryPrice response is "+
+				"successful but price quote is invalid: %w",
+				err)
 		}
 
-		rate := lnwire.MilliSatoshi(result.Success.RateTick.Rate)
-		return &OracleBidResponse{
-			BidPrice: &rate,
-			Expiry:   result.Success.RateTick.ExpiryTimestamp,
+		return &OracleResponse{
+			Price: quote,
 		}, nil
 
-	case *oraclerpc.QueryRateTickResponse_Error:
+	case *oraclerpc.QueryPriceResponse_Error:
 		if result.Error == nil {
 			return nil, fmt.Errorf("QueryRateTick response is " +
 				"an error but error is nil")
 		}
 
-		return &OracleBidResponse{
+		return &OracleResponse{
 			Err: &OracleError{
 				Msg: result.Error.Message,
 			},
@@ -401,32 +353,85 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 	}
 }
 
-// QueryAskPrice returns the ask price for the given asset amount.
-func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
+// QuerySellPrice returns the sell price for the given asset amount.
+func (m *MockPriceOracle) QuerySellPrice(_ context.Context,
 	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
-	_ *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
+	_ *rfqmsg.PriceQuote) (*OracleResponse, error) {
 
-	// Calculate the rate expiryDelay lifetime.
-	expiry := uint64(time.Now().Unix()) + m.expiryDelay
-
-	return &OracleAskResponse{
-		AskPrice: &m.mSatPerAsset,
-		Expiry:   expiry,
+	return &OracleResponse{
+		// TODO(guggero): Fix mock oracle response.
 	}, nil
 }
 
-// QueryBidPrice returns a bid price for the given asset amount.
-func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
-	_ *btcec.PublicKey, _ uint64) (*OracleBidResponse, error) {
+// QueryBuyPrice returns a buy price for the given asset amount.
+func (m *MockPriceOracle) QueryBuyPrice(_ context.Context, _ *asset.ID,
+	_ *btcec.PublicKey, _ uint64, _ *rfqmsg.PriceQuote) (*OracleResponse, error) {
 
-	// Calculate the rate expiryDelay lifetime.
-	expiry := uint64(time.Now().Unix()) + m.expiryDelay
-
-	return &OracleBidResponse{
-		BidPrice: &m.mSatPerAsset,
-		Expiry:   expiry,
+	return &OracleResponse{
+		// TODO(guggero): Fix mock oracle response.
 	}, nil
 }
 
 // Ensure that MockPriceOracle implements the PriceOracle interface.
 var _ PriceOracle = (*MockPriceOracle)(nil)
+
+// marshalQuote marshals a PriceQuote to the RPC price quote type. If the given
+// quote is nil, nil is returned.
+func marshalQuote(q *rfqmsg.PriceQuote) *oraclerpc.PriceQuote {
+	if q == nil {
+		return nil
+	}
+
+	return &oraclerpc.PriceQuote{
+		InAssetPrice:    marshalFixedPoint(&q.InAssetPrice),
+		OutAssetPrice:   marshalFixedPoint(&q.OutAssetPrice),
+		ExpiryTimestamp: uint64(q.Expiry.Unix()),
+	}
+}
+
+// unmarshalPriceQuote unmarshals a PriceQuote from the RPC price quote type.
+func unmarshalPriceQuote(q *oraclerpc.PriceQuote) (*rfqmsg.PriceQuote, error) {
+	if q == nil {
+		return nil, fmt.Errorf("quote is nil")
+	}
+
+	if q.InAssetPrice == nil {
+		return nil, fmt.Errorf("in asset price is nil")
+	}
+
+	if q.OutAssetPrice == nil {
+		return nil, fmt.Errorf("out asset price is nil")
+	}
+
+	return &rfqmsg.PriceQuote{
+		InAssetPrice:  *unmarshalFixedPoint(q.InAssetPrice),
+		OutAssetPrice: *unmarshalFixedPoint(q.OutAssetPrice),
+		Expiry:        time.Unix(int64(q.ExpiryTimestamp), 0),
+	}, nil
+}
+
+// marshalFixedPoint marshals a Uint64FixedPoint to the RPC fixed point type.
+// If the given fixed point is nil, nil is returned.
+func marshalFixedPoint(q *rfqmsg.Uint64FixedPoint) *rfqrpc.FixedPoint {
+	if q == nil {
+		return nil
+	}
+
+	return &rfqrpc.FixedPoint{
+		Value: q.Value.ToUint64(),
+		Scale: uint32(q.Scale),
+	}
+}
+
+// unmarshalFixedPoint unmarshals a Uint64FixedPoint from the RPC fixed point
+// type.
+func unmarshalFixedPoint(q *rfqrpc.FixedPoint) *rfqmsg.Uint64FixedPoint {
+	if q == nil {
+		return nil
+	}
+
+	return &rfqmsg.Uint64FixedPoint{
+		Value: rfqmath.NewGoInt(q.Value),
+		Scale: int(q.Scale),
+	}
+}

@@ -1,8 +1,8 @@
 // This example demonstrates a basic RPC price oracle server that implements the
-// QueryRateTick RPC method. The server listens on localhost:8095 and returns a
-// rate tick for a given transaction type, subject asset, and payment asset. The
-// rate tick is the exchange rate between the subject asset and the payment
-// asset.
+// QueryPrice RPC method. The server listens on localhost:8095 and returns a
+// price for a given transaction type, input asset, and output asset. The
+// price is the exchange rate between the input asset and BTC and between the
+// output asset and BTC.
 package main
 
 import (
@@ -12,6 +12,7 @@ import (
 	"time"
 
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
@@ -21,6 +22,15 @@ const (
 	serviceListenAddress = "localhost:8095"
 )
 
+var (
+	// priceMilliSatPerBtc is the static price of 1 BTC expressed in
+	// milli-satoshi (10^11) and represented as a fixed point number.
+	priceMilliSatPerBtc = &rfqrpc.FixedPoint{
+		Value: 1,
+		Scale: 11,
+	}
+)
+
 // RpcPriceOracleServer is a basic example RPC price oracle server.
 type RpcPriceOracleServer struct {
 	oraclerpc.UnimplementedPriceOracleServer
@@ -28,7 +38,7 @@ type RpcPriceOracleServer struct {
 
 // isSupportedSubjectAsset returns true if the given subject asset is supported
 // by the price oracle, and false otherwise.
-func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
+func isSupportedSubjectAsset(subjectAsset *rfqrpc.AssetSpecifier) bool {
 	// Ensure that the subject asset is set.
 	if subjectAsset == nil {
 		return false
@@ -42,118 +52,167 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 	return assetIdStr == supportedAssetId
 }
 
-// getRateTick returns a rate tick for a given transaction type and subject
+// getPrice returns a rate tick for a given transaction type and subject
 // asset max amount.
-func getRateTick(transactionType oraclerpc.TransactionType,
-	subjectAssetMaxAmount uint64) oraclerpc.RateTick {
+func getPrice(transactionType oraclerpc.TransactionType,
+	inAssetMaxAmount uint64) *oraclerpc.PriceQuote {
 
-	// Determine the rate based on the transaction type.
-	var rate uint64
+	// Determine the price based on the transaction type.
+	var quote *oraclerpc.PriceQuote
 	if transactionType == oraclerpc.TransactionType_PURCHASE {
-		// The rate for a purchase transaction is 42,000 asset units per
-		// mSAT.
-		rate = 42_000
+		// The price for a purchase transaction is 5_578_020 asset units
+		// per BTC (with a scale of 2 decimal places, which results in
+		// an exchange rate of $55,780.20 USD per BTC).
+		quote = &oraclerpc.PriceQuote{
+			InAssetPrice: &rfqrpc.FixedPoint{
+				Value: 5_578_020,
+				Scale: 2,
+			},
+			OutAssetPrice: priceMilliSatPerBtc,
+		}
 	} else {
-		// The rate for a sale transaction is 40,000 asset units per
-		// mSAT.
-		rate = 40_000
+		// The price for a sale transaction is 5_580_930 asset units
+		// per BTC (with a scale of 2 decimal places, which results in
+		// an exchange rate of $55,809.30 USD per BTC).
+		quote = &oraclerpc.PriceQuote{
+			InAssetPrice: priceMilliSatPerBtc,
+			OutAssetPrice: &rfqrpc.FixedPoint{
+				Value: 5_580_930,
+				Scale: 2,
+			},
+		}
 	}
 
 	// Set the rate expiry to 5 minutes by default.
-	expiry := time.Now().Add(5 * time.Minute).Unix()
+	timeout := 5 * time.Minute
 
 	// If the subject asset max amount is greater than 100,000, set the rate
 	// expiry to 1 minute.
-	if subjectAssetMaxAmount > 100_000 {
-		expiry = time.Now().Add(1 * time.Minute).Unix()
+	if inAssetMaxAmount > 100_000 {
+		timeout = 1 * time.Minute
 	}
 
-	return oraclerpc.RateTick{
-		Rate:            rate,
-		ExpiryTimestamp: uint64(expiry),
-	}
+	quote.ExpiryTimestamp = uint64(time.Now().Add(timeout).Unix())
+	return quote
 }
 
-// QueryRateTick queries the rate tick for a given transaction type, subject
-// asset, and payment asset. The rate tick is the exchange rate between the
-// subject asset and the payment asset.
+// QueryPrice queries the price for a given transaction type, input asset, and
+// output asset. The price is the exchange rate between the input asset and BTC
+// and between the output asset and BTC.
 //
 // Example use case:
 //
 // Alice is trying to pay an invoice by spending an asset. Alice therefore
-// requests that Bob (her asset channel counterparty) purchase the asset from
-// her. Bob's payment, in BTC, will pay the invoice.
+// requests that Bob (her asset channel counterparty and edge node) purchase the
+// asset from her. Bob's payment, in BTC, will pay the invoice by forwarding the
+// BTC to the wider network.
 //
-// Alice requests a bid quote from Bob. Her request includes a rate tick
-// hint (ask). Alice get the rate tick hint by calling this endpoint. She sets:
-// - `SubjectAsset` to the asset she is trying to sell.
-// - `SubjectAssetMaxAmount` to the max channel asset outbound.
-// - `PaymentAsset` to BTC.
+// Alice requests a price quote from Bob. Her request includes a price hint.
+// Alice get the price hint by calling this endpoint. She sets:
+// - `InAsset` to BTC.
+// - `InAssetMaxAmount` to the invoice amount + max routing fee.
+// - `OutAsset` to the asset she is trying to sell.
 // - `TransactionType` to SALE.
-// - `RateTickHint` to nil.
+// - `InAssetPriceHint` to nil.
+// - `OutAssetPriceHint` to nil.
 //
-// Bob calls this endpoint to get the bid quote rate tick that he will send as a
+// Bob calls this endpoint to get the sell quote price that he will send as a
 // response to Alice's request. He sets:
-// - `SubjectAsset` to the asset that Alice is trying to sell.
-// - `SubjectAssetMaxAmount` to the value given in Alice's quote request.
-// - `PaymentAsset` to BTC.
-// - `TransactionType` to PURCHASE.
-// - `RateTickHint` to the value given in Alice's quote request.
-func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
-	req *oraclerpc.QueryRateTickRequest) (
-	*oraclerpc.QueryRateTickResponse, error) {
+// - `InAsset` to BTC.
+// - `InAssetMaxAmount` to the value given in Alice's quote request.
+// - `OutAsset` to the asset that Alice is trying to sell.
+// - `TransactionType` to SALE.
+// - `InAssetPriceHint` to the value given in Alice's quote request.
+// - `OutAssetPriceHint` to the value given in Alice's quote request.
+func (p *RpcPriceOracleServer) QueryPrice(_ context.Context,
+	req *oraclerpc.QueryPriceRequest) (*oraclerpc.QueryPriceResponse,
+	error) {
 
-	// Ensure that the payment asset is BTC. We only support BTC as the
-	// payment asset in this example.
-	if !oraclerpc.IsAssetBtc(req.PaymentAsset) {
-		return &oraclerpc.QueryRateTickResponse{
-			Result: &oraclerpc.QueryRateTickResponse_Error{
-				Error: &oraclerpc.QueryRateTickErrResponse{
-					Message: "unsupported payment asset, " +
-						"only BTC is supported",
+	// Depending on the transaction type, either the input or output asset
+	// needs to be BTC, as we currently only support BTC as the secondary
+	// asset.
+	switch req.TransactionType {
+	case oraclerpc.TransactionType_SALE:
+		// A sell order (paying an invoice) means the input asset is
+		// BTC.
+		if !oraclerpc.IsAssetBtc(req.InAsset) {
+			return &oraclerpc.QueryPriceResponse{
+				Result: &oraclerpc.QueryPriceResponse_Error{
+					Error: &oraclerpc.QueryPriceError{
+						Message: "unsupported input " +
+							"asset, only BTC is " +
+							"supported",
+					},
 				},
-			},
-		}, nil
-	}
+			}, nil
+		}
 
-	// Ensure that the subject asset is set.
-	if req.SubjectAsset == nil {
-		return nil, fmt.Errorf("subject asset is not set")
-	}
+		// We make sure the other asset is set.
+		if req.OutAsset == nil {
+			return nil, fmt.Errorf("output asset is not set")
+		}
 
-	// Ensure that the subject asset is supported.
-	if !isSupportedSubjectAsset(req.SubjectAsset) {
-		return &oraclerpc.QueryRateTickResponse{
-			Result: &oraclerpc.QueryRateTickResponse_Error{
-				Error: &oraclerpc.QueryRateTickErrResponse{
-					Message: "unsupported subject asset",
+	case oraclerpc.TransactionType_PURCHASE:
+		// A buy order (receiving via an invoice) means the output asset
+		// is BTC.
+		if !oraclerpc.IsAssetBtc(req.OutAsset) {
+			return &oraclerpc.QueryPriceResponse{
+				Result: &oraclerpc.QueryPriceResponse_Error{
+					Error: &oraclerpc.QueryPriceError{
+						Message: "unsupported output " +
+							"asset, only BTC is " +
+							"supported",
+					},
 				},
-			},
-		}, nil
+			}, nil
+		}
+
+		// We make sure the other asset is set.
+		if req.InAsset == nil {
+			return nil, fmt.Errorf("input asset is not set")
+		}
+
+	default:
+		return nil, fmt.Errorf("unsupported transaction type: %d",
+			req.TransactionType)
 	}
 
-	// Determine which rate tick to return.
-	var rateTick oraclerpc.RateTick
+	// Determine which price quote to return.
+	var priceQuote *oraclerpc.PriceQuote
+	if req.PriceHint != nil {
+		// We make sure the price hint hasn't expired yet.
+		if req.PriceHint.ExpiryTimestamp < uint64(time.Now().Unix()) {
+			return &oraclerpc.QueryPriceResponse{
+				Result: &oraclerpc.QueryPriceResponse_Error{
+					Error: &oraclerpc.QueryPriceError{
+						Message: "price hint has " +
+							"expired",
+					},
+				},
+			}, nil
+		}
 
-	if req.RateTickHint != nil {
 		// If a rate tick hint is provided, return it as the rate tick.
 		// In doing so, we effectively accept the rate tick proposed by
 		// our peer.
-		rateTick.Rate = req.RateTickHint.Rate
-		rateTick.ExpiryTimestamp = req.RateTickHint.ExpiryTimestamp
+		priceQuote = &oraclerpc.PriceQuote{
+			InAssetPrice:  req.PriceHint.InAssetPrice,
+			OutAssetPrice: req.PriceHint.OutAssetPrice,
+			// We now make our own offer, so a new expiry should
+			// start ticking.
+			ExpiryTimestamp: uint64(
+				time.Now().Add(5 * time.Minute).Unix(),
+			),
+		}
 	} else {
 		// If a rate tick hint is not provided, fetch a rate tick from
 		// our internal system.
-		rateTick = getRateTick(
-			req.TransactionType, req.SubjectAssetMaxAmount,
-		)
+		priceQuote = getPrice(req.TransactionType, req.InAssetMaxAmount)
 	}
 
-	return &oraclerpc.QueryRateTickResponse{
-		Result: &oraclerpc.QueryRateTickResponse_Success{
-			Success: &oraclerpc.QueryRateTickSuccessResponse{
-				RateTick: &rateTick,
-			},
+	return &oraclerpc.QueryPriceResponse{
+		Result: &oraclerpc.QueryPriceResponse_Success{
+			Success: priceQuote,
 		},
 	}, nil
 }

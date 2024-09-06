@@ -18,10 +18,22 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PriceOracleClient interface {
-	// QueryRateTick queries the rate tick for a given transaction type, subject
-	// asset, and payment asset. The rate tick is the exchange rate between the
-	// subject asset and the payment asset.
-	QueryRateTick(ctx context.Context, in *QueryRateTickRequest, opts ...grpc.CallOption) (*QueryRateTickResponse, error)
+	// QueryPrice queries the price for a swap from the input asset to the output
+	// asset. The direction of "in" vs. "out" is always as seen from the
+	// perspective of the wallet end user, where "out" means the value that goes
+	// from the wallet to the edge node and "in" means the value that goes from the
+	// edge node to the wallet.
+	// This direction should not be confused with the direction of a Lightning
+	// payment that involves assets:
+	// - If a wallet end user is paying a satoshi-denominated invoice with assets
+	// (sell order), the input asset is the asset that the user is selling and
+	// the output asset is the asset that flows into the network to satisfy the
+	// invoice.
+	// - If a wallet end user is receiving assets via an invoice (buy order), the
+	// input asset is the asset that flows into the user's wallet and the output
+	// asset is the satoshis that flow from the network to the edge node to
+	// satisfy the invoice.
+	QueryPrice(ctx context.Context, in *QueryPriceRequest, opts ...grpc.CallOption) (*QueryPriceResponse, error)
 }
 
 type priceOracleClient struct {
@@ -32,9 +44,9 @@ func NewPriceOracleClient(cc grpc.ClientConnInterface) PriceOracleClient {
 	return &priceOracleClient{cc}
 }
 
-func (c *priceOracleClient) QueryRateTick(ctx context.Context, in *QueryRateTickRequest, opts ...grpc.CallOption) (*QueryRateTickResponse, error) {
-	out := new(QueryRateTickResponse)
-	err := c.cc.Invoke(ctx, "/priceoraclerpc.PriceOracle/QueryRateTick", in, out, opts...)
+func (c *priceOracleClient) QueryPrice(ctx context.Context, in *QueryPriceRequest, opts ...grpc.CallOption) (*QueryPriceResponse, error) {
+	out := new(QueryPriceResponse)
+	err := c.cc.Invoke(ctx, "/priceoraclerpc.PriceOracle/QueryPrice", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +57,22 @@ func (c *priceOracleClient) QueryRateTick(ctx context.Context, in *QueryRateTick
 // All implementations must embed UnimplementedPriceOracleServer
 // for forward compatibility
 type PriceOracleServer interface {
-	// QueryRateTick queries the rate tick for a given transaction type, subject
-	// asset, and payment asset. The rate tick is the exchange rate between the
-	// subject asset and the payment asset.
-	QueryRateTick(context.Context, *QueryRateTickRequest) (*QueryRateTickResponse, error)
+	// QueryPrice queries the price for a swap from the input asset to the output
+	// asset. The direction of "in" vs. "out" is always as seen from the
+	// perspective of the wallet end user, where "out" means the value that goes
+	// from the wallet to the edge node and "in" means the value that goes from the
+	// edge node to the wallet.
+	// This direction should not be confused with the direction of a Lightning
+	// payment that involves assets:
+	// - If a wallet end user is paying a satoshi-denominated invoice with assets
+	// (sell order), the input asset is the asset that the user is selling and
+	// the output asset is the asset that flows into the network to satisfy the
+	// invoice.
+	// - If a wallet end user is receiving assets via an invoice (buy order), the
+	// input asset is the asset that flows into the user's wallet and the output
+	// asset is the satoshis that flow from the network to the edge node to
+	// satisfy the invoice.
+	QueryPrice(context.Context, *QueryPriceRequest) (*QueryPriceResponse, error)
 	mustEmbedUnimplementedPriceOracleServer()
 }
 
@@ -56,8 +80,8 @@ type PriceOracleServer interface {
 type UnimplementedPriceOracleServer struct {
 }
 
-func (UnimplementedPriceOracleServer) QueryRateTick(context.Context, *QueryRateTickRequest) (*QueryRateTickResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method QueryRateTick not implemented")
+func (UnimplementedPriceOracleServer) QueryPrice(context.Context, *QueryPriceRequest) (*QueryPriceResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryPrice not implemented")
 }
 func (UnimplementedPriceOracleServer) mustEmbedUnimplementedPriceOracleServer() {}
 
@@ -72,20 +96,20 @@ func RegisterPriceOracleServer(s grpc.ServiceRegistrar, srv PriceOracleServer) {
 	s.RegisterService(&PriceOracle_ServiceDesc, srv)
 }
 
-func _PriceOracle_QueryRateTick_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryRateTickRequest)
+func _PriceOracle_QueryPrice_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryPriceRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PriceOracleServer).QueryRateTick(ctx, in)
+		return srv.(PriceOracleServer).QueryPrice(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/priceoraclerpc.PriceOracle/QueryRateTick",
+		FullMethod: "/priceoraclerpc.PriceOracle/QueryPrice",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PriceOracleServer).QueryRateTick(ctx, req.(*QueryRateTickRequest))
+		return srv.(PriceOracleServer).QueryPrice(ctx, req.(*QueryPriceRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -98,8 +122,8 @@ var PriceOracle_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*PriceOracleServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "QueryRateTick",
-			Handler:    _PriceOracle_QueryRateTick_Handler,
+			MethodName: "QueryPrice",
+			Handler:    _PriceOracle_QueryPrice_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

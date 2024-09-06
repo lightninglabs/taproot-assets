@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
@@ -27,21 +28,41 @@ const (
 	testRateTick uint64 = 42_000
 )
 
+var (
+	// priceMilliSatPerBtc is the static price of 1 BTC expressed in
+	// milli-satoshi (10^11) and represented as a fixed point number.
+	priceMilliSatPerBtc = &rfqrpc.FixedPoint{
+		Value: 1,
+		Scale: 11,
+	}
+
+	// testPrice is a static price quote used in the test cases.
+	testPrice = &rfqrpc.FixedPoint{
+		Value: 5_578_020,
+		Scale: 2,
+	}
+)
+
 // mockRpcPriceOracleServer is a mock implementation of the price oracle server.
 type mockRpcPriceOracleServer struct {
 	priceoraclerpc.UnimplementedPriceOracleServer
 }
 
-// QueryRateTick is a mock implementation of the QueryRateTick RPC endpoint.
-func (p *mockRpcPriceOracleServer) QueryRateTick(_ context.Context,
-	req *priceoraclerpc.QueryRateTickRequest) (
-	*priceoraclerpc.QueryRateTickResponse, error) {
+// QueryRateTick is a mock implementation of the QueryPrice RPC endpoint.
+func (p *mockRpcPriceOracleServer) QueryPrice(_ context.Context,
+	req *priceoraclerpc.QueryPriceRequest) (
+	*priceoraclerpc.QueryPriceResponse, error) {
 
-	// Specify a default rate tick in case a rate tick hint is not provided.
-	expiry := time.Now().Add(5 * time.Minute).Unix()
-	rateTick := priceoraclerpc.RateTick{
-		Rate:            testRateTick,
-		ExpiryTimestamp: uint64(expiry),
+	expiry := uint64(time.Now().Add(5 * time.Minute).Unix())
+	priceQuote := &priceoraclerpc.PriceQuote{
+		ExpiryTimestamp: expiry,
+	}
+	if req.TransactionType == priceoraclerpc.TransactionType_PURCHASE {
+		priceQuote.InAssetPrice = testPrice
+		priceQuote.OutAssetPrice = priceMilliSatPerBtc
+	} else {
+		priceQuote.InAssetPrice = priceMilliSatPerBtc
+		priceQuote.OutAssetPrice = testPrice
 	}
 
 	err := validateRateTickRequest(req)
@@ -50,41 +71,57 @@ func (p *mockRpcPriceOracleServer) QueryRateTick(_ context.Context,
 	}
 
 	// If a rate tick hint is provided, return it as the rate tick.
-	if req.RateTickHint != nil {
-		rateTick.Rate = req.RateTickHint.Rate
-		rateTick.ExpiryTimestamp = req.RateTickHint.ExpiryTimestamp
+	if req.PriceHint != nil {
+		priceQuote.InAssetPrice = req.PriceHint.InAssetPrice
+		priceQuote.OutAssetPrice = req.PriceHint.OutAssetPrice
+		priceQuote.ExpiryTimestamp = req.PriceHint.ExpiryTimestamp
 	}
 
-	return &priceoraclerpc.QueryRateTickResponse{
-		Result: &priceoraclerpc.QueryRateTickResponse_Success{
-			Success: &priceoraclerpc.QueryRateTickSuccessResponse{
-				RateTick: &rateTick,
-			},
+	return &priceoraclerpc.QueryPriceResponse{
+		Result: &priceoraclerpc.QueryPriceResponse_Success{
+			Success: priceQuote,
 		},
 	}, nil
 }
 
-// validateRateTickRequest validates the given rate tick request.
-func validateRateTickRequest(req *priceoraclerpc.QueryRateTickRequest) error {
+// validateRateTickRequest validates the given price query request.
+func validateRateTickRequest(req *priceoraclerpc.QueryPriceRequest) error {
 	var zeroAssetID [32]byte
-	if req.SubjectAsset == nil {
-		return fmt.Errorf("subject asset must be specified")
+	if req.InAsset == nil {
+		return fmt.Errorf("in asset must be specified")
 	}
-	if len(req.SubjectAsset.GetAssetId()) != 32 {
-		return fmt.Errorf("invalid subject asset ID length")
-	}
-	if bytes.Equal(req.SubjectAsset.GetAssetId(), zeroAssetID[:]) {
-		return fmt.Errorf("subject asset ID must NOT be all zero")
+	if len(req.InAsset.GetAssetId()) != 32 {
+		return fmt.Errorf("invalid in asset ID length")
 	}
 
-	if req.PaymentAsset == nil {
-		return fmt.Errorf("payment asset must be specified")
+	if req.OutAsset == nil {
+		return fmt.Errorf("out asset must be specified")
 	}
-	if len(req.PaymentAsset.GetAssetId()) != 32 {
-		return fmt.Errorf("invalid payment asset ID length")
+	if len(req.OutAsset.GetAssetId()) != 32 {
+		return fmt.Errorf("out payment asset ID length")
 	}
-	if !bytes.Equal(req.PaymentAsset.GetAssetId(), zeroAssetID[:]) {
-		return fmt.Errorf("payment asset ID must be all zero")
+
+	// Depending on the transaction type, one of the assets must be the zero
+	// asset and the other one must not.
+	switch req.TransactionType {
+	case priceoraclerpc.TransactionType_SALE:
+		if !bytes.Equal(req.InAsset.GetAssetId(), zeroAssetID[:]) {
+			return fmt.Errorf("in asset ID must be all zero")
+		}
+		if bytes.Equal(req.OutAsset.GetAssetId(), zeroAssetID[:]) {
+			return fmt.Errorf("out asset ID must NOT be all zero")
+		}
+	case priceoraclerpc.TransactionType_PURCHASE:
+		if bytes.Equal(req.InAsset.GetAssetId(), zeroAssetID[:]) {
+			return fmt.Errorf("in asset ID must NOT be all zero")
+		}
+		if !bytes.Equal(req.OutAsset.GetAssetId(), zeroAssetID[:]) {
+			return fmt.Errorf("out asset ID must be all zero")
+		}
+
+	default:
+		return fmt.Errorf("unsupported transaction type: %d",
+			req.TransactionType)
 	}
 
 	return nil
@@ -104,7 +141,7 @@ func startBackendRPC(grpcServer *grpc.Server) error {
 }
 
 // testCaseQueryAskPrice is a test case for the RPC price oracle client
-// QueryAskPrice function.
+// QuerySellPrice function.
 type testCaseQueryAskPrice struct {
 	name string
 
@@ -116,7 +153,7 @@ type testCaseQueryAskPrice struct {
 	suggestedRateTick uint64
 }
 
-// runQueryAskPriceTest runs the RPC price oracle client QueryAskPrice test.
+// runQueryAskPriceTest runs the RPC price oracle client QuerySellPrice test.
 func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	// Start the mock RPC price oracle service.
 	serverOpts := []grpc.ServerOption{
@@ -139,7 +176,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	assetAmount := uint64(42)
 	bidPrice := lnwire.MilliSatoshi(tc.suggestedRateTick)
 
-	resp, err := client.QueryAskPrice(
+	resp, err := client.QuerySellPrice(
 		ctx, tc.assetId, tc.assetGroupKey, assetAmount, &bidPrice,
 	)
 
@@ -161,7 +198,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	require.True(t, responseExpiry.After(time.Now()))
 }
 
-// TestRpcPriceOracle tests the RPC price oracle client QueryAskPrice function.
+// TestRpcPriceOracle tests the RPC price oracle client QuerySellPrice function.
 func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 	// Create a random asset ID and asset group key.
 	var assetId asset.ID
@@ -202,7 +239,7 @@ func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 }
 
 // testCaseQueryBidPrice is a test case for the RPC price oracle client
-// QueryBidPrice function.
+// QueryBuyPrice function.
 type testCaseQueryBidPrice struct {
 	name string
 
@@ -212,7 +249,7 @@ type testCaseQueryBidPrice struct {
 	assetGroupKey *btcec.PublicKey
 }
 
-// runQueryBidPriceTest runs the RPC price oracle client QueryBidPrice test.
+// runQueryBidPriceTest runs the RPC price oracle client QueryBuyPrice test.
 func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	// Start the mock RPC price oracle service.
 	serverOpts := []grpc.ServerOption{
@@ -234,7 +271,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	ctx := context.Background()
 	assetAmount := uint64(42)
 
-	resp, err := client.QueryBidPrice(
+	resp, err := client.QueryBuyPrice(
 		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
 	)
 
@@ -256,7 +293,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	require.True(t, responseExpiry.After(time.Now()))
 }
 
-// TestRpcPriceOracle tests the RPC price oracle client QueryBidPrice function.
+// TestRpcPriceOracle tests the RPC price oracle client QueryBuyPrice function.
 func TestRpcPriceOracleQueryBidPrice(t *testing.T) {
 	// Create a random asset ID and asset group key.
 	var assetId asset.ID
