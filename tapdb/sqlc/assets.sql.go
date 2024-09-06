@@ -2048,12 +2048,29 @@ JOIN genesis_info_view
         $1 IS NULL)
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
-WHERE spent = FALSE
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+       CASE
+           WHEN $2 = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $3)
+           WHEN $2 = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= $3)
+           ELSE TRUE
+       END
+WHERE spent = FALSE 
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
          genesis_info_view.prev_out
 `
+
+type QueryAssetBalancesByAssetParams struct {
+	AssetIDFilter []byte
+	Leased        interface{}
+	Now           sql.NullTime
+}
 
 type QueryAssetBalancesByAssetRow struct {
 	AssetID      []byte
@@ -2069,8 +2086,8 @@ type QueryAssetBalancesByAssetRow struct {
 // generate rows that have NULL values for the group key fields if an asset
 // doesn't have a group key. See the comment in fetchAssetSprouts for a work
 // around that needs to be used with this query until a sqlc bug is fixed.
-func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter []byte) ([]QueryAssetBalancesByAssetRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByAsset, assetIDFilter)
+func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetBalancesByAssetParams) ([]QueryAssetBalancesByAssetRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByAsset, arg.AssetIDFilter, arg.Leased, arg.Now)
 	if err != nil {
 		return nil, err
 	}
@@ -2108,17 +2125,34 @@ JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id AND
       (key_group_info_view.tweaked_group_key = $1 OR
         $1 IS NULL)
-WHERE spent = FALSE
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+       CASE
+           WHEN $2 = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > $3)
+           WHEN $2 = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= $3)
+           ELSE TRUE
+       END
+WHERE spent = FALSE 
 GROUP BY key_group_info_view.tweaked_group_key
 `
+
+type QueryAssetBalancesByGroupParams struct {
+	KeyGroupFilter []byte
+	Leased         interface{}
+	Now            sql.NullTime
+}
 
 type QueryAssetBalancesByGroupRow struct {
 	TweakedGroupKey []byte
 	Balance         int64
 }
 
-func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, keyGroupFilter []byte) ([]QueryAssetBalancesByGroupRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByGroup, keyGroupFilter)
+func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetBalancesByGroupParams) ([]QueryAssetBalancesByGroupRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByGroup, arg.KeyGroupFilter, arg.Leased, arg.Now)
 	if err != nil {
 		return nil, err
 	}
