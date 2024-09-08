@@ -22,7 +22,6 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -40,10 +39,58 @@ var (
 	)
 
 	testTimeout = time.Second
+
+	chanState = &channeldb.OpenChannel{
+		ChanType: channeldb.AnchorOutputsBit |
+			channeldb.ScidAliasChanBit | channeldb.SingleFunderBit |
+			channeldb.SimpleTaprootFeatureBit |
+			channeldb.TapscriptRootBit,
+		IsInitiator: true,
+	}
+
+	// sig job batch size when making more that one sig job.
+	numSigJobs = int32(10)
+
+	// Threshold for trying to cancel or quit the aux leaf signer (allow
+	// the signer to complete a third of the batch).
+	sigJobCancelThreshold = numSigJobs / 3
 )
 
-// TestAuxLeafSigner tests the AuxLeafSigner implementation.
-func TestAuxLeafSigner(t *testing.T) {
+// RandAuxSigJob generates a basic aux signer job with random key material.
+func RandAuxSigJob(t *testing.T, cancelChan chan struct{},
+	commitBlob lfn.Option[[]byte], outputIdx int32) lnwallet.AuxSigJob {
+
+	keyDesc, _ := test.RandKeyDesc(t)
+	keyRing := test.RandCommitmentKeyRing(t)
+
+	return lnwallet.AuxSigJob{
+		SignDesc: input.SignDescriptor{
+			KeyDesc: keyDesc,
+		},
+		BaseAuxJob: lnwallet.BaseAuxJob{
+			OutputIndex: outputIdx,
+			KeyRing:     keyRing,
+			HTLC: lnwallet.PaymentDescriptor{
+				HtlcIndex: 0,
+				Amount: lnwire.NewMSatFromSatoshis(
+					354,
+				),
+				EntryType: lnwallet.Add,
+			},
+			Incoming:   false,
+			CommitBlob: commitBlob,
+			HtlcLeaf:   input.AuxTapLeaf{},
+		},
+		Resp:   make(chan lnwallet.AuxSigJobResp, 1),
+		Cancel: cancelChan,
+	}
+}
+
+// setupAuxLeafSigner sets up an AuxLeafSigner instance and a batch of sig jobs
+// to use in unit tests.
+func setupAuxLeafSigner(t *testing.T, numJobs int32) (*AuxLeafSigner,
+	chan struct{}, *wire.MsgTx, []lnwallet.AuxSigJob) {
+
 	cfg := &LeafSignerConfig{
 		ChainParams: testChainParams,
 		Signer:      &mockVirtualSigner{},
@@ -52,30 +99,8 @@ func TestAuxLeafSigner(t *testing.T) {
 	signer := NewAuxLeafSigner(cfg)
 	require.NoError(t, signer.Start())
 
-	defer func() {
-		require.NoError(t, signer.Stop())
-	}()
-
-	chanState := &channeldb.OpenChannel{
-		ChanType: channeldb.AnchorOutputsBit |
-			channeldb.ScidAliasChanBit | channeldb.SingleFunderBit |
-			channeldb.SimpleTaprootFeatureBit |
-			channeldb.TapscriptRootBit,
-		IsInitiator: true,
-	}
 	randInputProof := randProof(t)
 	commitTx := &randInputProof.AnchorTx
-	keyRing := lnwallet.CommitmentKeyRing{
-		CommitPoint:         test.RandPubKey(t),
-		LocalCommitKeyTweak: test.RandBytes(32),
-		LocalHtlcKeyTweak:   test.RandBytes(32),
-		LocalHtlcKey:        test.RandPubKey(t),
-		RemoteHtlcKey:       test.RandPubKey(t),
-		ToLocalKey:          test.RandPubKey(t),
-		ToRemoteKey:         test.RandPubKey(t),
-		RevocationKey:       test.RandPubKey(t),
-	}
-
 	outgoingHtlcs := make(map[input.HtlcIndex][]*cmsg.AssetOutput)
 	outgoingHtlcs[0] = []*cmsg.AssetOutput{
 		cmsg.NewAssetOutput(
@@ -87,32 +112,27 @@ func TestAuxLeafSigner(t *testing.T) {
 	com := cmsg.NewCommitment(
 		nil, nil, outgoingHtlcs, nil, lnwallet.CommitAuxLeaves{},
 	)
+	cancelChan := make(chan struct{})
 
-	randKeyDesc, _ := test.RandKeyDesc(t)
-
-	jobs := []lnwallet.AuxSigJob{
-		{
-			SignDesc: input.SignDescriptor{
-				KeyDesc: randKeyDesc,
-			},
-			BaseAuxJob: lnwallet.BaseAuxJob{
-				OutputIndex: 0,
-				KeyRing:     keyRing,
-				HTLC: lnwallet.PaymentDescriptor{
-					HtlcIndex: 0,
-					Amount: lnwire.NewMSatFromSatoshis(
-						354,
-					),
-					EntryType: lnwallet.Add,
-				},
-				Incoming:   false,
-				CommitBlob: lfn.Some[tlv.Blob](com.Bytes()),
-				HtlcLeaf:   input.AuxTapLeaf{},
-			},
-			Resp:   make(chan lnwallet.AuxSigJobResp),
-			Cancel: make(chan struct{}),
-		},
+	// Constructing multiple jobs will allow us to assert that later jobs
+	// are cancelled successfully.
+	jobs := make([]lnwallet.AuxSigJob, 0, numJobs)
+	for idx := range numJobs {
+		newJob := RandAuxSigJob(
+			t, cancelChan, lfn.Some(com.Bytes()), idx,
+		)
+		jobs = append(jobs, newJob)
 	}
+
+	return signer, cancelChan, commitTx, jobs
+}
+
+// TestAuxLeafSigner tests the AuxLeafSigner implementation.
+func TestAuxLeafSigner(t *testing.T) {
+	signer, _, commitTx, jobs := setupAuxLeafSigner(t, 1)
+	defer func() {
+		require.NoError(t, signer.Stop())
+	}()
 
 	err := signer.SubmitSecondLevelSigBatch(chanState, commitTx, jobs)
 	require.NoError(t, err)
@@ -128,6 +148,79 @@ func TestAuxLeafSigner(t *testing.T) {
 
 	case <-time.After(testTimeout):
 		t.Fatalf("timeout waiting for response")
+	}
+}
+
+// TestAuxLeafSignerCancel tests that the AuxLeafSigner will handle a cancel
+// signal correctly, which involves skipping all remaining sig jobs.
+func TestAuxLeafSignerCancel(t *testing.T) {
+	// Constructing multiple jobs will allow us to assert that later jobs
+	// are cancelled successfully.
+	signer, cancelChan, commitTx, jobs := setupAuxLeafSigner(t, numSigJobs)
+	defer func() {
+		require.NoError(t, signer.Stop())
+	}()
+
+	err := signer.SubmitSecondLevelSigBatch(chanState, commitTx, jobs)
+	require.NoError(t, err)
+
+	select {
+	case <-time.After(testTimeout):
+		t.Fatalf("timeout waiting for response")
+	case <-jobs[sigJobCancelThreshold].Resp:
+		// Send the cancel signal; jobs at the end of the batch should
+		// not be processed.
+		close(cancelChan)
+	}
+
+	signer.Wg.Wait()
+
+	// Once the aux signer finishes handling the batch, the last job of the
+	// batch should have an empty response channel. Otherwise, the signer
+	// failed to skip that job after the cancel channel was closed.
+	select {
+	case <-jobs[numSigJobs-1].Resp:
+		t.Fatalf("Job cancellation failed")
+	default:
+	}
+}
+
+// TestAuxLeafSignerCancelAndQuit tests that the AuxLeafSigner will handle a
+// quit signal correctly, which involves ending sig job handling as soon as
+// possible. This test also sends a cancel signal before the quit signal, to
+// check that quits are handled correctly alongside other sent signals.
+func TestAuxLeafSignerCancelAndQuit(t *testing.T) {
+	// Constructing multiple jobs will allow us to assert that later jobs
+	// are skipped successfully after sending the quit signal.
+	signer, cancelChan, commitTx, jobs := setupAuxLeafSigner(t, numSigJobs)
+	defer func() {
+		require.NoError(t, signer.Stop())
+	}()
+
+	err := signer.SubmitSecondLevelSigBatch(chanState, commitTx, jobs)
+	require.NoError(t, err)
+
+	select {
+	case <-time.After(testTimeout):
+		t.Fatalf("timeout waiting for response")
+	case <-jobs[sigJobCancelThreshold].Resp:
+		// Another component could have sent the cancel signal; we'll
+		// send that before the quit signal.
+		close(cancelChan)
+		time.Sleep(time.Millisecond)
+
+		// Send the quit signal; jobs at the end of the batch should not
+		// be processed.
+		require.NoError(t, signer.Stop())
+	}
+
+	// Once the aux signer stops, the last job of the batch should have an
+	// an empty response. Otherwise, the signer failed to stop as soon as
+	// the quit signal was sent.
+	select {
+	case <-jobs[numSigJobs-1].Resp:
+		t.Fatalf("Aux signer quitting failed")
+	default:
 	}
 }
 
