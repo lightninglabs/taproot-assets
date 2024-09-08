@@ -240,6 +240,7 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 
 	defer s.Wg.Done()
 
+	shutdownErr := fmt.Errorf("tapd is shutting down")
 	log.Tracef("Processing %d aux sig jobs", len(sigJobs))
 
 	for idx := range sigJobs {
@@ -247,18 +248,27 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		cancelAndErr := func(err error) {
 			log.Errorf("Error processing aux sig job: %v", err)
 
-			close(sigJob.Cancel)
+			// Check that the cancel signal was not already sent
+			// before cancelling all jobs. The cancel signal must
+			// only be sent exactly once.
+			select {
+			case <-sigJob.Cancel:
+			default:
+				close(sigJob.Cancel)
+			}
+
 			sigJob.Resp <- lnwallet.AuxSigJobResp{
 				Err: err,
 			}
 		}
 
-		// If we're shutting down, we cancel the job and return.
+		// Check for cancel or quit signals before beginning the job.
 		select {
+		case <-sigJob.Cancel:
+			continue
 		case <-s.Quit:
-			cancelAndErr(fmt.Errorf("tapd is shutting down"))
+			cancelAndErr(shutdownErr)
 			return
-
 		default:
 		}
 
@@ -266,10 +276,17 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		// still need to signal the job as done though, even if we don't
 		// have a signature to return.
 		if sigJob.CommitBlob.IsNone() {
-			sigJob.Resp <- lnwallet.AuxSigJobResp{
+			select {
+			case sigJob.Resp <- lnwallet.AuxSigJobResp{
 				HtlcIndex: sigJob.HTLC.HtlcIndex,
+			}:
+				continue
+			case <-sigJob.Cancel:
+				continue
+			case <-s.Quit:
+				cancelAndErr(shutdownErr)
+				return
 			}
-			continue
 		}
 
 		com, err := cmsg.DecodeCommitment(
@@ -299,10 +316,17 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		// If the HTLC doesn't have any asset outputs, it's not an
 		// asset HTLC, so we can skip it.
 		if len(htlcOutputs) == 0 {
-			sigJob.Resp <- lnwallet.AuxSigJobResp{
+			select {
+			case sigJob.Resp <- lnwallet.AuxSigJobResp{
 				HtlcIndex: sigJob.HTLC.HtlcIndex,
+			}:
+				continue
+			case <-sigJob.Cancel:
+				continue
+			case <-s.Quit:
+				cancelAndErr(shutdownErr)
+				return
 			}
-			continue
 		}
 
 		resp, err := s.generateHtlcSignature(
@@ -318,7 +342,15 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		// Success!
 		log.Tracef("Generated HTLC signature for HTLC with index %d",
 			sigJob.HTLC.HtlcIndex)
-		sigJob.Resp <- resp
+
+		select {
+		case sigJob.Resp <- resp:
+		case <-sigJob.Cancel:
+			continue
+		case <-s.Quit:
+			cancelAndErr(shutdownErr)
+			return
+		}
 	}
 }
 
