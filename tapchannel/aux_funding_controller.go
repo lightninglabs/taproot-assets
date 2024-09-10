@@ -697,6 +697,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 
 	// Fund the packet. This will derive an anchor internal key for us, but
 	// we'll overwrite that later on.
+	fundDesc.CoinSelectType = tapsend.Bip86Only
 	return f.cfg.AssetWallet.FundPacket(ctx, fundDesc, pktTemplate)
 }
 
