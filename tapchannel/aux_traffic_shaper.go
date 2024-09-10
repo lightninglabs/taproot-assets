@@ -120,8 +120,8 @@ func (s *AuxTrafficShaper) HandleTraffic(_ lnwire.ShortChannelID,
 // should be handled by the traffic shaper, the HandleTraffic method should be
 // called first.
 func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
-	commitmentBlob lfn.Option[tlv.Blob],
-	linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
+	htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	// If the commitment or HTLC blob is not set, we don't have any
 	// information about the channel and cannot determine the available
@@ -138,6 +138,28 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// don't have any information about the channel.
 	if len(commitmentBytes) == 0 || len(htlcBytes) == 0 {
 		return linkBandwidth, nil
+	}
+
+	// Get the minimum HTLC amount, which is just above dust.
+	minHtlcAmt := lnwire.NewMSatFromSatoshis(DefaultOnChainHtlcAmount)
+
+	// LND calls this hook twice. Once to see if the overall budget of the
+	// node is enough, and then during pathfinding to actually see if
+	// there's enough balance in the channel to make the payment attempt.
+	//
+	// When doing the overall balance check, we don't know what the actual
+	// htlcAmt is in satoshis, so a value of 0 will be passed here. Let's at
+	// least check if we can afford the min amount above dust. If the actual
+	// htlc amount ends up being greater when calling this method during
+	// pathfinding, we will still check it below.
+
+	// If the passed htlcAmt is below dust, then assume the dust amount. At
+	// this point we know we are sending assets, so we cannot anchor them to
+	// dust amounts. Dust HTLCs are added to the fees and aren't
+	// materialized in an on-chain output, so we wouldn't have anything
+	// to anchor the asset commitment to.
+	if htlcAmt < minHtlcAmt {
+		htlcAmt = minHtlcAmt
 	}
 
 	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
@@ -161,6 +183,14 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// the amount.
 	htlcAssetAmount := htlc.Amounts.Val.Sum()
 	if htlcAssetAmount != 0 && htlcAssetAmount <= localBalance {
+		// Check if the current link bandwidth can afford sending out
+		// the htlc amount without dipping into the channel reserve. If
+		// it goes below the reserve, we report zero bandwdith as we
+		// cannot push the htlc amount.
+		if linkBandwidth < htlcAmt {
+			return 0, nil
+		}
+
 		// We signal "infinite" bandwidth by returning a very high
 		// value (number of Satoshis ever in existence), since we might
 		// not have a quote available to know what the asset amount
@@ -189,6 +219,14 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	}
 
 	mSatPerAssetUnit := quote.BidPrice
+
+	// At this point we have acquired what we need to express the asset
+	// bandwidth expressed in satoshis. Before we return the result, we need
+	// to check if the link bandwidth can afford sending a non-dust htlc to
+	// the other side.
+	if linkBandwidth < minHtlcAmt {
+		return 0, nil
+	}
 
 	// The available balance is the local asset unit expressed in
 	// milli-satoshis.
