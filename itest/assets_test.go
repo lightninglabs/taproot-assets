@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -109,7 +110,9 @@ func testMintAssets(t *harnessTest) {
 	// Now that all our assets have been issued, we'll use the balance
 	// calls to ensure that we're able to retrieve the proper balance for
 	// them all.
-	AssertAssetBalances(t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets)
+	AssertAssetBalances(
+		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
+	)
 
 	// Check that we can retrieve the group keys for the issuable assets.
 	assertGroups(t.t, t.tapd, issuableAssets)
@@ -441,7 +444,9 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 	rpcIssuableAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner.Client, t.tapd, issuableAssets,
 	)
-	AssertAssetBalances(t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets)
+	AssertAssetBalances(
+		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
+	)
 
 	// Filter the managed UTXOs to select the genesis UTXO with the
 	// tapscript sibling.
@@ -616,4 +621,78 @@ func testMintBatchAndTransfer(t *harnessTest) {
 		})
 
 	require.True(t.t, proto.Equal(originalBatch, afterBatch))
+}
+
+// testAssetBalances tests the balance retrieval functionality for issued
+// assets. The function mints two batches of assets and asserts if the tapcli
+// `assets balance` returns the correct balances. It then funds a vPSBT, putting
+// a lease on one of the two batches. It then asserts whether the endpoint still
+// returns the correct balances, taking into account the `include_leased` flag.
+func testAssetBalances(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	rpcSimpleAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
+	)
+	rpcIssuableAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner.Client, t.tapd, issuableAssets,
+	)
+	targetAsset := rpcSimpleAssets[0]
+
+	// Now that all our assets have been issued, we'll use the balance
+	// calls to ensure that we're able to retrieve the proper balance for
+	// them all.
+	AssertAssetBalances(
+		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
+	)
+
+	var (
+		targetAssetGenesis = targetAsset.AssetGenesis
+		aliceTapd          = t.tapd
+		bobLnd             = t.lndHarness.Bob
+	)
+
+	// We create a second tapd node that will be used to simulate a second
+	// party in the test. This tapd node is connected to lnd "Bob".
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bobTapd.stop(!*noDelete))
+	}()
+
+	const assetsToSend = 1000
+	bobAddr, err := bobTapd.NewAddr(ctxt, &taprpc.NewAddrRequest{
+		AssetId: targetAssetGenesis.AssetId,
+		Amt:     assetsToSend,
+	})
+	require.NoError(t.t, err)
+
+	// Now we can create our virtual transaction and ask Alice's tapd to
+	// fund it.
+	recipients := map[string]uint64{
+		bobAddr.Encoded: bobAddr.Amount,
+	}
+	_, err = aliceTapd.FundVirtualPsbt(
+		ctxt, &wrpc.FundVirtualPsbtRequest{
+			Template: &wrpc.FundVirtualPsbtRequest_Raw{
+				Raw: &wrpc.TxTemplate{
+					Recipients: recipients,
+				},
+			},
+		},
+	)
+	require.NoError(t.t, err)
+
+	// With a transaction funding should have led to a lease on the simple
+	// assets, we'll use the balance calls to ensure that we're able to
+	// retrieve the proper balances.
+	rpcEmptyAssets := []*taprpc.Asset{}
+	AssertAssetBalances(
+		t.t, t.tapd, rpcEmptyAssets, rpcIssuableAssets, false,
+	)
+
+	AssertAssetBalances(
+		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, true,
+	)
 }

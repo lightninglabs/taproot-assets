@@ -1886,7 +1886,7 @@ func AssertGenesisOutput(t *testing.T, output *taprpc.ManagedUtxo,
 }
 
 func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
-	simpleAssets, issuableAssets []*taprpc.Asset) {
+	simpleAssets, issuableAssets []*taprpc.Asset, includeLeased bool) {
 
 	t.Helper()
 
@@ -1901,7 +1901,8 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 	}
 	assetIDBalances, err := client.ListBalances(
 		ctxt, &taprpc.ListBalancesRequest{
-			GroupBy: balanceReq,
+			GroupBy:       balanceReq,
+			IncludeLeased: includeLeased,
 		},
 	)
 	require.NoError(t, err)
