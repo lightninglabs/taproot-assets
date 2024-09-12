@@ -28,6 +28,9 @@ import (
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
+// shutdownErr is used in multiple spots when exiting the sig batch processor.
+var shutdownErr = fmt.Errorf("tapd is shutting down")
+
 // VirtualPacketSigner is an interface that can be used to sign virtual packets.
 type VirtualPacketSigner interface {
 	// SignVirtualPacket signs the virtual transaction of the given packet
@@ -241,24 +244,23 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 	defer s.Wg.Done()
 
 	log.Tracef("Processing %d aux sig jobs", len(sigJobs))
-
 	for idx := range sigJobs {
 		sigJob := sigJobs[idx]
-		cancelAndErr := func(err error) {
+		respondErr := func(err error) {
 			log.Errorf("Error processing aux sig job: %v", err)
 
-			close(sigJob.Cancel)
 			sigJob.Resp <- lnwallet.AuxSigJobResp{
 				Err: err,
 			}
 		}
 
-		// If we're shutting down, we cancel the job and return.
+		// Check for cancel or quit signals before beginning the job.
 		select {
+		case <-sigJob.Cancel:
+			continue
 		case <-s.Quit:
-			cancelAndErr(fmt.Errorf("tapd is shutting down"))
+			respondErr(shutdownErr)
 			return
-
 		default:
 		}
 
@@ -266,18 +268,25 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		// still need to signal the job as done though, even if we don't
 		// have a signature to return.
 		if sigJob.CommitBlob.IsNone() {
-			sigJob.Resp <- lnwallet.AuxSigJobResp{
+			select {
+			case sigJob.Resp <- lnwallet.AuxSigJobResp{
 				HtlcIndex: sigJob.HTLC.HtlcIndex,
+			}:
+				continue
+			case <-sigJob.Cancel:
+				continue
+			case <-s.Quit:
+				respondErr(shutdownErr)
+				return
 			}
-			continue
 		}
 
 		com, err := cmsg.DecodeCommitment(
 			sigJob.CommitBlob.UnsafeFromSome(),
 		)
 		if err != nil {
-			cancelAndErr(fmt.Errorf("error decoding commitment: "+
-				"%w", err))
+			respondErr(fmt.Errorf("error decoding commitment: %w",
+				err))
 			return
 		}
 
@@ -299,10 +308,17 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		// If the HTLC doesn't have any asset outputs, it's not an
 		// asset HTLC, so we can skip it.
 		if len(htlcOutputs) == 0 {
-			sigJob.Resp <- lnwallet.AuxSigJobResp{
+			select {
+			case sigJob.Resp <- lnwallet.AuxSigJobResp{
 				HtlcIndex: sigJob.HTLC.HtlcIndex,
+			}:
+				continue
+			case <-sigJob.Cancel:
+				continue
+			case <-s.Quit:
+				respondErr(shutdownErr)
+				return
 			}
-			continue
 		}
 
 		resp, err := s.generateHtlcSignature(
@@ -310,7 +326,7 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 			sigJob.BaseAuxJob,
 		)
 		if err != nil {
-			cancelAndErr(fmt.Errorf("error generating HTLC "+
+			respondErr(fmt.Errorf("error generating HTLC "+
 				"signature: %w", err))
 			return
 		}
@@ -318,7 +334,15 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 		// Success!
 		log.Tracef("Generated HTLC signature for HTLC with index %d",
 			sigJob.HTLC.HtlcIndex)
-		sigJob.Resp <- resp
+
+		select {
+		case sigJob.Resp <- resp:
+		case <-sigJob.Cancel:
+			continue
+		case <-s.Quit:
+			respondErr(shutdownErr)
+			return
+		}
 	}
 }
 

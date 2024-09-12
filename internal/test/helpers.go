@@ -21,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc/signrpc"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/exp/constraints"
 )
@@ -135,6 +136,19 @@ func SchnorrKeysEqual(t testing.TB, a, b *btcec.PublicKey) bool {
 
 func RandPubKey(t testing.TB) *btcec.PublicKey {
 	return SchnorrPubKey(t, RandPrivKey(t))
+}
+
+func RandCommitmentKeyRing(t *testing.T) lnwallet.CommitmentKeyRing {
+	return lnwallet.CommitmentKeyRing{
+		CommitPoint:         RandPubKey(t),
+		LocalCommitKeyTweak: RandBytes(32),
+		LocalHtlcKeyTweak:   RandBytes(32),
+		LocalHtlcKey:        RandPubKey(t),
+		RemoteHtlcKey:       RandPubKey(t),
+		ToLocalKey:          RandPubKey(t),
+		ToRemoteKey:         RandPubKey(t),
+		RevocationKey:       RandPubKey(t),
+	}
 }
 
 func RandBytes(num int) []byte {
