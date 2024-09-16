@@ -23,7 +23,7 @@ type ErrFunc[V any] func(context.Context, V) error
 // non-nil error (if any).
 func ParSlice[V any](ctx context.Context, s []V, f ErrFunc[V]) error {
 	errGroup, ctx := errgroup.WithContext(ctx)
-	errGroup.SetLimit(runtime.NumCPU())
+	errGroup.SetLimit(runtime.GOMAXPROCS(0))
 
 	for _, v := range s {
 		v := v
@@ -44,7 +44,7 @@ func ParSliceErrCollect[V any](ctx context.Context, s []V,
 	f ErrFunc[V]) (map[int]error, error) {
 
 	errGroup, ctx := errgroup.WithContext(ctx)
-	errGroup.SetLimit(runtime.NumCPU())
+	errGroup.SetLimit(runtime.GOMAXPROCS(0))
 
 	var instanceErrorsMutex sync.Mutex
 	instanceErrors := make(map[int]error, len(s))
