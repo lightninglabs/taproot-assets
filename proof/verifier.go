@@ -266,7 +266,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 	// bail out as soon as any of the active goroutines encounters an
 	// error.
 	errGroup, ctx := errgroup.WithContext(ctx)
-	errGroup.SetLimit(runtime.NumCPU())
+	errGroup.SetLimit(runtime.GOMAXPROCS(0))
 
 	var assetsMtx sync.Mutex
 	for _, inputProof := range p.AdditionalInputs {
