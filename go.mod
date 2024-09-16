@@ -50,6 +50,7 @@ require (
 	gopkg.in/macaroon-bakery.v2 v2.1.0
 	gopkg.in/macaroon.v2 v2.1.0
 	modernc.org/sqlite v1.30.0
+	pgregory.net/rapid v1.1.0
 )
 
 require (

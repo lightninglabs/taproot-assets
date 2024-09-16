@@ -1,0 +1,20 @@
+# 2024/08/20 20:00:33.807631 [TestConversionMsat/units_to_msat] [rapid] draw units: 0x400000
+# 2024/08/20 20:00:33.807634 [TestConversionMsat/units_to_msat] [rapid] draw unitsPerBtc: 0xb
+# 2024/08/20 20:00:33.807635 [TestConversionMsat/units_to_msat] [rapid] draw scale: 2
+# 2024/08/20 20:00:33.807664 [TestConversionMsat/units_to_msat] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/convert_test.go:600
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Max difference between 38130036363636368 and 38130036363636363 allowed is 4, but difference was 8
+# 	Test:       	TestConversionMsat/units_to_msat
+# 
+v0.4.8#6951556080559585419
+0x19ed5016d8f2ed
+0x3fffff
+0x783f437ca4dff
+0xa
+0x0
+0x0
+0x0

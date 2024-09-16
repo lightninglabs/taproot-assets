@@ -1,0 +1,20 @@
+# 2024/08/20 19:40:02.856056 [TestConversionMsat/msat_to_units] [rapid] draw unitsPerBtc: 0x1
+# 2024/08/20 19:40:02.856059 [TestConversionMsat/msat_to_units] [rapid] draw scale: 2
+# 2024/08/20 19:40:02.856061 [TestConversionMsat/msat_to_units] [rapid] draw msat: 0x0
+# 2024/08/20 19:40:02.856085 [TestConversionMsat/msat_to_units] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/convert_test.go:582
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	expected value must have a value other than zero to calculate the relative error
+# 	Test:       	TestConversionMsat/msat_to_units
+# 
+v0.4.8#5012443549421810556
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

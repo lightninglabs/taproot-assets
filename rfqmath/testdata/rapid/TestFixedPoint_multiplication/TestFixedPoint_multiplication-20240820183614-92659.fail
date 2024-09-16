@@ -1,0 +1,13 @@
+# 2024/08/20 18:36:14.294423 [TestFixedPoint/multiplication] [rapid] draw a: 0x0
+# 2024/08/20 18:36:14.294428 [TestFixedPoint/multiplication] [rapid] draw b: 0x0
+# 2024/08/20 18:36:14.294429 [TestFixedPoint/multiplication] [rapid] draw scale: 2
+# 2024/08/20 18:36:14.294435 [TestFixedPoint/multiplication] Fractional multiplication incorrect: 0.5 * 0.5 = 25.0, expected 0.25
+# 
+v0.4.8#17258131092389388373
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2

@@ -1,0 +1,6 @@
+# 2024/08/20 17:42:01.537632 [TestToFromFloat/big_int] [rapid] draw a: rfq.BigInt{value:(*big.Int)(0x1400038ca60)}
+# 2024/08/20 17:42:01.537635 [TestToFromFloat/big_int] toFloat/fromFloat conversion failed: original 9007199254740993, got 9007199254740992
+# 
+v0.4.8#9170116783179485040
+0x1eb66c6cc8c439
+0x20000000000001

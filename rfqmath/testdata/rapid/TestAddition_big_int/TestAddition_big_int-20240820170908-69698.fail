@@ -1,0 +1,12 @@
+# 2024/08/20 17:09:08.916662 [TestAddition/big_int] [rapid] draw a: rfq.BigInt{value:(*big.Int)(0x14000590fc0)}
+# 2024/08/20 17:09:08.916668 [TestAddition/big_int] [rapid] draw b: rfq.BigInt{value:(*big.Int)(0x14000591020)}
+# 2024/08/20 17:09:08.916670 [TestAddition/big_int] [rapid] draw c: rfq.BigInt{value:(*big.Int)(0x14000591100)}
+# 2024/08/20 17:09:08.916673 [TestAddition/big_int] increment: a + 1 = {0x14000591200}, expected {0x14000590fc0}
+# 
+v0.4.8#8843793317408812300
+0x1fcb25faecfd25
+0xffffffffffffffff
+0x1360cf102c1ff4
+0xfd21
+0x102a03ee9e647e
+0xf39

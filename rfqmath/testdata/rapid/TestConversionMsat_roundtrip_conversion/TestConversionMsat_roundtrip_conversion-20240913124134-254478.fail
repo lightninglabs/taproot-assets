@@ -1,0 +1,20 @@
+# 2024/09/13 12:41:34.065837 [TestConversionMsat/roundtrip_conversion] [rapid] draw unitsPerBtc: 0x3e8
+# 2024/09/13 12:41:34.065842 [TestConversionMsat/roundtrip_conversion] [rapid] draw scale: 9
+# 2024/09/13 12:41:34.065843 [TestConversionMsat/roundtrip_conversion] [rapid] draw msat: 0x2
+# 2024/09/13 12:41:34.065885 [TestConversionMsat/roundtrip_conversion] 
+# 	Error Trace:	/home/guggero/projects/go/src/github.com/lightninglabs/taproot-assets/rfqmath/convert_test.go:633
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/home/guggero/projects/go/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Max difference between 2 and 0 allowed is 1, but difference was 2
+# 	Test:       	TestConversionMsat/roundtrip_conversion
+# 
+v0.4.8#51941873740363090
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1

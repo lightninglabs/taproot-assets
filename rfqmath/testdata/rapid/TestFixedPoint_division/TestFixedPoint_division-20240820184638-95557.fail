@@ -1,0 +1,21 @@
+# 2024/08/20 18:46:38.429436 [TestFixedPoint/division] [rapid] draw a: 0x1
+# 2024/08/20 18:46:38.429440 [TestFixedPoint/division] [rapid] draw b: 0x2
+# 2024/08/20 18:46:38.429442 [TestFixedPoint/division] [rapid] draw scale: 0
+# 2024/08/20 18:46:38.429467 [TestFixedPoint/division] 
+# 	Error Trace:	/Users/roasbeef/gocode/src/github.com/lightninglabs/taproot-assets/rfq/fixed_point_test.go:101
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:368
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:377
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:203
+# 	            				/Users/roasbeef/gocode/pkg/mod/pgregory.net/rapid@v1.1.0/engine.go:138
+# 	Error:      	Should be true
+# 	Test:       	TestFixedPoint/division
+# 	Messages:   	division and multiplication didn't return to original: 1 / 2 * 2 = 0
+# 
+v0.4.8#11577463865337840042
+0x0
+0x1
+0x0
+0x1
+0x0
+0x0
+0x0
