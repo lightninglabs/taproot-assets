@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/urfave/cli"
 )
@@ -82,7 +83,7 @@ func newAddr(ctx *cli.Context) error {
 	client, cleanUp := getClient(ctx)
 	defer cleanUp()
 
-	assetVersion, err := taprpc.MarshalAssetVersion(
+	assetVersion, err := rpcutils.MarshalAssetVersion(
 		asset.Version(ctx.Uint64(assetVersionName)),
 	)
 	if err != nil {

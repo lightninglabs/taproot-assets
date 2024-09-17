@@ -48,35 +48,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    },
-                    "group_key_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "max_units": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "max_units is the maximum amount of the asset to buy."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetBuyOfferRequest"
             }
           }
         ],
@@ -117,35 +89,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "asset_id_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "max_units": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "max_units is the maximum amount of the asset to buy."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetBuyOfferRequest"
             }
           }
         ],
@@ -185,55 +129,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    },
-                    "group_key_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "min_asset_amount": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The minimum amount of the asset to buy."
-                },
-                "max_bid": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The maximum amount BTC to spend (units: millisats)."
-                },
-                "expiry": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The unix timestamp in seconds after which the order is no longer valid."
-                },
-                "peer_pub_key": {
-                  "type": "string",
-                  "format": "byte",
-                  "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
-                },
-                "timeout_seconds": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetBuyOrderRequest"
             }
           }
         ],
@@ -273,55 +169,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "asset_id_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "min_asset_amount": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The minimum amount of the asset to buy."
-                },
-                "max_bid": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The maximum amount BTC to spend (units: millisats)."
-                },
-                "expiry": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The unix timestamp in seconds after which the order is no longer valid."
-                },
-                "peer_pub_key": {
-                  "type": "string",
-                  "format": "byte",
-                  "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
-                },
-                "timeout_seconds": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetBuyOrderRequest"
             }
           }
         ],
@@ -426,35 +274,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    },
-                    "group_key_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "max_units": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "max_units is the maximum amount of the asset to sell."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetSellOfferRequest"
             }
           }
         ],
@@ -494,35 +314,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "asset_id_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "max_units": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "max_units is the maximum amount of the asset to sell."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetSellOfferRequest"
             }
           }
         ],
@@ -562,55 +354,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    },
-                    "group_key_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "max_asset_amount": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The maximum amount of the asset to sell."
-                },
-                "min_ask": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The minimum amount of BTC to accept (units: millisats)."
-                },
-                "expiry": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The unix timestamp in seconds after which the order is no longer valid."
-                },
-                "peer_pub_key": {
-                  "type": "string",
-                  "format": "byte",
-                  "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
-                },
-                "timeout_seconds": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetSellOrderRequest"
             }
           }
         ],
@@ -650,55 +394,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "asset_specifier": {
-                  "type": "object",
-                  "properties": {
-                    "asset_id": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                    },
-                    "asset_id_str": {
-                      "type": "string",
-                      "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-                    },
-                    "group_key": {
-                      "type": "string",
-                      "format": "byte",
-                      "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                    }
-                  },
-                  "description": "asset_specifier is the subject asset.",
-                  "title": "asset_specifier is the subject asset."
-                },
-                "max_asset_amount": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The maximum amount of the asset to sell."
-                },
-                "min_ask": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The minimum amount of BTC to accept (units: millisats)."
-                },
-                "expiry": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The unix timestamp in seconds after which the order is no longer valid."
-                },
-                "peer_pub_key": {
-                  "type": "string",
-                  "format": "byte",
-                  "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
-                },
-                "timeout_seconds": {
-                  "type": "integer",
-                  "format": "int64",
-                  "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
-                }
-              }
+              "$ref": "#/definitions/rfqrpcAddAssetSellOrderRequest"
             }
           }
         ],
@@ -712,11 +408,14 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "@type": {
+        "type_url": {
           "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
         }
-      },
-      "additionalProperties": {}
+      }
     },
     "rfqrpcAcceptHtlcEvent": {
       "type": "object",
@@ -733,8 +432,56 @@
         }
       }
     },
+    "rfqrpcAddAssetBuyOfferRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/rfqrpcAssetSpecifier",
+          "description": "asset_specifier is the subject asset."
+        },
+        "max_units": {
+          "type": "string",
+          "format": "uint64",
+          "description": "max_units is the maximum amount of the asset to buy."
+        }
+      }
+    },
     "rfqrpcAddAssetBuyOfferResponse": {
       "type": "object"
+    },
+    "rfqrpcAddAssetBuyOrderRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/rfqrpcAssetSpecifier",
+          "description": "asset_specifier is the subject asset."
+        },
+        "min_asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum amount of the asset to buy."
+        },
+        "max_bid": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum amount BTC to spend (units: millisats)."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unix timestamp in seconds after which the order is no longer valid."
+        },
+        "peer_pub_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "format": "int64",
+          "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
+        }
+      }
     },
     "rfqrpcAddAssetBuyOrderResponse": {
       "type": "object",
@@ -753,8 +500,56 @@
         }
       }
     },
+    "rfqrpcAddAssetSellOfferRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/rfqrpcAssetSpecifier",
+          "description": "asset_specifier is the subject asset."
+        },
+        "max_units": {
+          "type": "string",
+          "format": "uint64",
+          "description": "max_units is the maximum amount of the asset to sell."
+        }
+      }
+    },
     "rfqrpcAddAssetSellOfferResponse": {
       "type": "object"
+    },
+    "rfqrpcAddAssetSellOrderRequest": {
+      "type": "object",
+      "properties": {
+        "asset_specifier": {
+          "$ref": "#/definitions/rfqrpcAssetSpecifier",
+          "description": "asset_specifier is the subject asset."
+        },
+        "max_asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum amount of the asset to sell."
+        },
+        "min_ask": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum amount of BTC to accept (units: millisats)."
+        },
+        "expiry": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The unix timestamp in seconds after which the order is no longer valid."
+        },
+        "peer_pub_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "peer_pub_key is an optional field for specifying the public key of the\nintended recipient peer for the order."
+        },
+        "timeout_seconds": {
+          "type": "integer",
+          "format": "int64",
+          "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
+        }
+      }
     },
     "rfqrpcAddAssetSellOrderResponse": {
       "type": "object",
@@ -917,7 +712,6 @@
         "buy_quotes": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/rfqrpcPeerAcceptedBuyQuote"
           },
           "description": "buy_quotes is a list of asset buy quotes which were requested by our\nnode and have been accepted by our peers."
@@ -925,7 +719,6 @@
         "sell_quotes": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/rfqrpcPeerAcceptedSellQuote"
           },
           "description": "sell_quotes is a list of asset sell quotes which were requested by our\nnode and have been accepted by our peers."
@@ -999,7 +792,6 @@
         "details": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }

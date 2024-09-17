@@ -846,11 +846,14 @@
     "protobufAny": {
       "type": "object",
       "properties": {
-        "@type": {
+        "type_url": {
           "type": "string"
+        },
+        "value": {
+          "type": "string",
+          "format": "byte"
         }
-      },
-      "additionalProperties": {}
+      }
     },
     "rpcStatus": {
       "type": "object",
@@ -865,7 +868,6 @@
         "details": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/protobufAny"
           }
         }
@@ -1002,7 +1004,6 @@
         "events": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAddrEvent"
           },
           "description": "The events that match the filter criteria."
@@ -1082,7 +1083,6 @@
         "lnd_locked_utxos": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcOutPoint"
           },
           "description": "The list of UTXO lock leases that were acquired for the inputs in the funded\nPSBT packet from lnd. Only inputs added to the PSBT by this RPC are locked,\ninputs that were already present in the PSBT are not locked."
@@ -1145,7 +1145,6 @@
         "prev_witnesses": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcPrevWitness"
           }
         },
@@ -1328,7 +1327,6 @@
         "inputs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcTransferInput"
           },
           "description": "Describes the set of spent assets."
@@ -1336,7 +1334,6 @@
         "outputs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcTransferOutput"
           },
           "description": "Describes the set of newly created asset outputs."
@@ -1663,7 +1660,6 @@
         "assets": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAssetHumanReadable"
           },
           "description": "A list of assets with the same group key."
@@ -1705,7 +1701,6 @@
         "assets": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAsset"
           }
         },
@@ -1756,7 +1751,6 @@
         "transfers": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAssetTransfer"
           },
           "description": "The unordered list of outgoing asset transfers."
@@ -1805,7 +1799,6 @@
         "assets": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAsset"
           },
           "description": "The assets held at this UTXO."
@@ -1962,7 +1955,6 @@
         "addrs": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAddr"
           }
         }
@@ -2030,7 +2022,7 @@
         "fee_rate": {
           "type": "integer",
           "format": "int64",
-          "description": "The optional fee rate to use for the minting transaction, in sat/kw.\n\nTODO(roasbeef): maybe in future add details re type of ProofCourier or\n w/e"
+          "description": "The optional fee rate to use for the minting transaction, in sat/kw."
         }
       }
     },
@@ -2061,7 +2053,6 @@
         "addresses": {
           "type": "array",
           "items": {
-            "type": "object",
             "$ref": "#/definitions/taprpcAddr"
           },
           "description": "The list of addresses the parcel sends to (recipient addresses only, not\nincluding change going back to own wallet). This is only set for parcels\nof type PARCEL_TYPE_ADDRESS."

@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
@@ -3023,12 +3024,12 @@ func sendToTapscriptAddr(ctx context.Context, t *harnessTest, alice,
 		AssetVersion: mintedAsset.Version,
 		ScriptKey: &taprpc.ScriptKey{
 			PubKey: schnorr.SerializePubKey(bobAssetScriptKey),
-			KeyDesc: taprpc.MarshalKeyDescriptor(
+			KeyDesc: rpcutils.MarshalKeyDescriptor(
 				bobScriptKey.RawKey,
 			),
 			TapTweak: rootHash,
 		},
-		InternalKey: taprpc.MarshalKeyDescriptor(bobInternalKey),
+		InternalKey: rpcutils.MarshalKeyDescriptor(bobInternalKey),
 	})
 
 	require.NoError(t.t, err)

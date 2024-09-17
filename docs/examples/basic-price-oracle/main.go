@@ -11,6 +11,7 @@ import (
 	"net"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/rpcutils"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -105,7 +106,7 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 
 	// Ensure that the payment asset is BTC. We only support BTC as the
 	// payment asset in this example.
-	if !oraclerpc.IsAssetBtc(req.PaymentAsset) {
+	if !rpcutils.IsAssetBtc(req.PaymentAsset) {
 		return &oraclerpc.QueryRateTickResponse{
 			Result: &oraclerpc.QueryRateTickResponse_Error{
 				Error: &oraclerpc.QueryRateTickErrResponse{

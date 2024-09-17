@@ -79,22 +79,20 @@ func RegisterPriceOracleHandlerServer(ctx context.Context, mux *runtime.ServeMux
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/priceoraclerpc.PriceOracle/QueryRateTick", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/priceoracle/ratetick"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/priceoraclerpc.PriceOracle/QueryRateTick", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/priceoracle/ratetick"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_PriceOracle_QueryRateTick_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_PriceOracle_QueryRateTick_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_PriceOracle_QueryRateTick_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_PriceOracle_QueryRateTick_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -104,7 +102,7 @@ func RegisterPriceOracleHandlerServer(ctx context.Context, mux *runtime.ServeMux
 // RegisterPriceOracleHandlerFromEndpoint is same as RegisterPriceOracleHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
 func RegisterPriceOracleHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
-	conn, err := grpc.DialContext(ctx, endpoint, opts...)
+	conn, err := grpc.Dial(endpoint, opts...)
 	if err != nil {
 		return err
 	}
@@ -143,21 +141,19 @@ func RegisterPriceOracleHandlerClient(ctx context.Context, mux *runtime.ServeMux
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/priceoraclerpc.PriceOracle/QueryRateTick", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/priceoracle/ratetick"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/priceoraclerpc.PriceOracle/QueryRateTick", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/priceoracle/ratetick"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_PriceOracle_QueryRateTick_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_PriceOracle_QueryRateTick_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_PriceOracle_QueryRateTick_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_PriceOracle_QueryRateTick_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 

@@ -630,22 +630,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetBuyOrder_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetBuyOrder_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOrder_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOrder_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -655,22 +653,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetBuyOrder_1(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetBuyOrder_1(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOrder_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOrder_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -680,22 +676,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetSellOrder_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetSellOrder_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOrder_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOrder_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -705,22 +699,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetSellOrder_1(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetSellOrder_1(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOrder_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOrder_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -730,22 +722,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetSellOffer_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetSellOffer_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOffer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOffer_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -755,22 +745,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetSellOffer_1(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetSellOffer_1(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOffer_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOffer_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -780,22 +768,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetBuyOffer_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetBuyOffer_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOffer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOffer_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -805,22 +791,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_AddAssetBuyOffer_1(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_AddAssetBuyOffer_1(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOffer_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOffer_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -830,22 +814,20 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 		var stream runtime.ServerTransportStream
 		ctx = grpc.NewContextWithServerTransportStream(ctx, &stream)
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/QueryPeerAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/peeraccepted"))
+		rctx, err := runtime.AnnotateIncomingContext(ctx, mux, req, "/rfqrpc.Rfq/QueryPeerAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/peeraccepted"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := local_request_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, inboundMarshaler, server, req, pathParams)
+		resp, md, err := local_request_Rfq_QueryPeerAcceptedQuotes_0(rctx, inboundMarshaler, server, req, pathParams)
 		md.HeaderMD, md.TrailerMD = metadata.Join(md.HeaderMD, stream.Header()), metadata.Join(md.TrailerMD, stream.Trailer())
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_QueryPeerAcceptedQuotes_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -862,7 +844,7 @@ func RegisterRfqHandlerServer(ctx context.Context, mux *runtime.ServeMux, server
 // RegisterRfqHandlerFromEndpoint is same as RegisterRfqHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
 func RegisterRfqHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
-	conn, err := grpc.DialContext(ctx, endpoint, opts...)
+	conn, err := grpc.Dial(endpoint, opts...)
 	if err != nil {
 		return err
 	}
@@ -901,21 +883,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetBuyOrder_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetBuyOrder_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOrder_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOrder_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -923,21 +903,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetBuyOrder_1(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetBuyOrder_1(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOrder_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOrder_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -945,21 +923,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetSellOrder_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetSellOrder_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOrder_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOrder_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -967,21 +943,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOrder", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/sellorder/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetSellOrder_1(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetSellOrder_1(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOrder_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOrder_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -989,21 +963,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetSellOffer_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetSellOffer_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOffer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOffer_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1011,21 +983,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetSellOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/selloffer/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetSellOffer_1(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetSellOffer_1(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetSellOffer_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetSellOffer_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1033,21 +1003,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/asset-id/{asset_specifier.asset_id_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/asset-id/{asset_specifier.asset_id_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetBuyOffer_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetBuyOffer_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOffer_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOffer_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1055,21 +1023,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/group-key/{asset_specifier.group_key_str}"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/AddAssetBuyOffer", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/buyoffer/group-key/{asset_specifier.group_key_str}"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_AddAssetBuyOffer_1(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_AddAssetBuyOffer_1(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_AddAssetBuyOffer_1(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_AddAssetBuyOffer_1(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1077,21 +1043,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/QueryPeerAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/peeraccepted"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/QueryPeerAcceptedQuotes", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/quotes/peeraccepted"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_QueryPeerAcceptedQuotes_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_QueryPeerAcceptedQuotes_0(annotatedContext, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
+		forward_Rfq_QueryPeerAcceptedQuotes_0(ctx, mux, outboundMarshaler, w, req, resp, mux.GetForwardResponseOptions()...)
 
 	})
 
@@ -1099,21 +1063,19 @@ func RegisterRfqHandlerClient(ctx context.Context, mux *runtime.ServeMux, client
 		ctx, cancel := context.WithCancel(req.Context())
 		defer cancel()
 		inboundMarshaler, outboundMarshaler := runtime.MarshalerForRequest(mux, req)
-		var err error
-		var annotatedContext context.Context
-		annotatedContext, err = runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/SubscribeRfqEventNtfns", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/ntfs"))
+		rctx, err := runtime.AnnotateContext(ctx, mux, req, "/rfqrpc.Rfq/SubscribeRfqEventNtfns", runtime.WithHTTPPathPattern("/v1/taproot-assets/rfq/ntfs"))
 		if err != nil {
 			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
-		resp, md, err := request_Rfq_SubscribeRfqEventNtfns_0(annotatedContext, inboundMarshaler, client, req, pathParams)
-		annotatedContext = runtime.NewServerMetadataContext(annotatedContext, md)
+		resp, md, err := request_Rfq_SubscribeRfqEventNtfns_0(rctx, inboundMarshaler, client, req, pathParams)
+		ctx = runtime.NewServerMetadataContext(ctx, md)
 		if err != nil {
-			runtime.HTTPError(annotatedContext, mux, outboundMarshaler, w, req, err)
+			runtime.HTTPError(ctx, mux, outboundMarshaler, w, req, err)
 			return
 		}
 
-		forward_Rfq_SubscribeRfqEventNtfns_0(annotatedContext, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
+		forward_Rfq_SubscribeRfqEventNtfns_0(ctx, mux, outboundMarshaler, w, req, func() (proto.Message, error) { return resp.Recv() }, mux.GetForwardResponseOptions()...)
 
 	})
 
