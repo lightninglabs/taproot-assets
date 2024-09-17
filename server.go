@@ -90,6 +90,16 @@ func (s *Server) UpdateConfig(cfg *Config) {
 //
 // NOTE: the rpc server is not registered with any grpc server in this function.
 func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
+	var ready bool
+
+	// If by the time this function exits we haven't yet given the ready
+	// signal, we detect it here and signal that the daemon should quit.
+	defer func() {
+		if !ready {
+			close(s.quit)
+		}
+	}()
+
 	// Show version at startup.
 	srvrLog.Infof("Version: %s, build=%s, logging=%s, "+
 		"debuglevel=%s, active_network=%v", Version(), build.Deployment,
@@ -239,6 +249,7 @@ func (s *Server) initialize(interceptorChain *rpcperms.InterceptorChain) error {
 	shutdownFuncs = nil
 
 	close(s.ready)
+	ready = true
 
 	return nil
 }
@@ -701,11 +712,17 @@ func (s *Server) waitForReady() error {
 	// shutdown in case of a startup error). If we shut down after passing
 	// this part of the code, the called component will handle the quit
 	// signal.
+
+	// In order to give priority to the quit signal, we wrap the blocking
+	// select so that we give a chance to the quit signal to be read first.
+	// This is needed as there is currently no wait to un-set the ready
+	// signal, so we would have a race between the 2 channels.
 	select {
 	case <-s.quit:
 		return fmt.Errorf("tapd is shutting down")
 
 	default:
+		// We now wait for either signal to be provided.
 		select {
 		case <-s.ready:
 			return nil
@@ -825,7 +842,13 @@ func (s *Server) Name() protofsm.EndpointName {
 //
 // NOTE: This method is part of the protofsm.MsgEndpoint interface.
 func (s *Server) CanHandle(msg protofsm.PeerMsg) bool {
-	<-s.ready
+	err := s.waitForReady()
+	if err != nil {
+		srvrLog.Debugf("Can't handle PeerMsg, server not ready %v",
+			err)
+		return false
+	}
+
 	return s.cfg.AuxFundingController.CanHandle(msg)
 }
 
@@ -834,7 +857,13 @@ func (s *Server) CanHandle(msg protofsm.PeerMsg) bool {
 //
 // NOTE: This method is part of the protofsm.MsgEndpoint interface.
 func (s *Server) SendMessage(msg protofsm.PeerMsg) bool {
-	<-s.ready
+	err := s.waitForReady()
+	if err != nil {
+		srvrLog.Debugf("Failed to send PeerMsg, server not ready %v",
+			err)
+		return false
+	}
+
 	return s.cfg.AuxFundingController.SendMessage(msg)
 }
 
