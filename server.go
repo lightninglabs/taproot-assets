@@ -702,11 +702,16 @@ func (s *Server) waitForReady() error {
 	// this part of the code, the called component will handle the quit
 	// signal.
 	select {
-	case <-s.ready:
-		return nil
-
 	case <-s.quit:
 		return fmt.Errorf("tapd is shutting down")
+
+	default:
+		select {
+		case <-s.ready:
+			return nil
+		case <-s.quit:
+			return fmt.Errorf("tapd is shutting down")
+		}
 	}
 }
 
