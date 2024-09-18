@@ -71,7 +71,8 @@ func TestRejectEncodeDecode(t *testing.T) {
 			// Assert that the decoded message is equal to the
 			// original message.
 			require.Equal(
-				tt, msg.rejectMsgData, decodedMsg.rejectMsgData,
+				tt, msg.rejectWireMsgData,
+				decodedMsg.rejectWireMsgData,
 			)
 		})
 	}
