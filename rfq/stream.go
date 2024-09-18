@@ -92,8 +92,12 @@ func NewStreamHandler(ctx context.Context,
 func (h *StreamHandler) handleIncomingWireMessage(
 	wireMsg rfqmsg.WireMessage) error {
 
-	// Parse the wire message as an RFQ message.
-	msg, err := rfqmsg.NewIncomingMsgFromWire(wireMsg)
+	// Parse the wire message as an RFQ message. The session cache load
+	// function is provided to associate incoming wire messages with their
+	// corresponding outgoing requests during parsing.
+	msg, err := rfqmsg.NewIncomingMsgFromWire(
+		wireMsg, h.outgoingRequests.Load,
+	)
 	if err != nil {
 		if errors.Is(err, rfqmsg.ErrUnknownMessageType) {
 			// Silently disregard the message if we don't recognise
@@ -109,66 +113,13 @@ func (h *StreamHandler) handleIncomingWireMessage(
 
 	log.Debugf("Stream handling incoming message: %s", msg)
 
-	// If the incoming message is an accept message, lookup the
-	// corresponding outgoing request message. Assign the outgoing request
-	// to a field on the accept message. This step allows us to easily
-	// access the request that the accept message is responding to. Some of
-	// the request fields are not present in the accept message.
-	//
-	// If the incoming message is a reject message, remove the corresponding
-	// outgoing request from the store.
-	switch typedMsg := msg.(type) {
-	case *rfqmsg.Reject:
-		// Delete the corresponding outgoing request from the store.
-		h.outgoingRequests.Delete(typedMsg.ID)
-
-	case *rfqmsg.BuyAccept:
-		// Load and delete the corresponding outgoing request from the
-		// store.
-		outgoingRequest, found := h.outgoingRequests.LoadAndDelete(
-			typedMsg.ID,
-		)
-
-		// Ensure that we have an outgoing request to match the incoming
-		// accept message.
-		if !found {
-			return fmt.Errorf("no outgoing request found for "+
-				"incoming accept message: %s", typedMsg.ID)
-		}
-
-		// Type cast the outgoing message to a BuyRequest (the request
-		// type that corresponds to a buy accept message).
-		buyReq, ok := outgoingRequest.(*rfqmsg.BuyRequest)
-		if !ok {
-			return fmt.Errorf("expected BuyRequest, got %T",
-				outgoingRequest)
-		}
-
-		typedMsg.Request = *buyReq
-
-	case *rfqmsg.SellAccept:
-		// Load and delete the corresponding outgoing request from the
-		// store.
-		outgoingRequest, found := h.outgoingRequests.LoadAndDelete(
-			typedMsg.ID,
-		)
-
-		// Ensure that we have an outgoing request to match the incoming
-		// accept message.
-		if !found {
-			return fmt.Errorf("no outgoing request found for "+
-				"incoming accept message: %s", typedMsg.ID)
-		}
-
-		// Type cast the outgoing message to a SellRequest (the request
-		// type that corresponds to a sell accept message).
-		req, ok := outgoingRequest.(*rfqmsg.SellRequest)
-		if !ok {
-			return fmt.Errorf("expected SellRequest, got %T",
-				outgoingRequest)
-		}
-
-		typedMsg.Request = *req
+	// If the incoming message is a response to an outgoing request, we
+	// will remove the corresponding session from the store. We can safely
+	// remove the session at this point because we have received the only
+	// response we expect for this session.
+	switch msg.(type) {
+	case *rfqmsg.BuyAccept, *rfqmsg.SellAccept, *rfqmsg.Reject:
+		h.outgoingRequests.Delete(msg.MsgID())
 	}
 
 	// Send the incoming message to the RFQ manager.

@@ -58,7 +58,7 @@ func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
 
 // newBuyAcceptFromWireMsg instantiates a new instance from a wire message.
 func newBuyAcceptFromWireMsg(wireMsg WireMessage,
-	msgData acceptWireMsgData) (*BuyAccept, error) {
+	msgData acceptWireMsgData, request BuyRequest) (*BuyAccept, error) {
 
 	// Ensure that the message type is an accept message.
 	if wireMsg.MsgType != MsgTypeAccept {
@@ -79,6 +79,7 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 
 	return &BuyAccept{
 		Peer:     wireMsg.Peer,
+		Request:  request,
 		Version:  msgData.Version.Val,
 		ID:       msgData.ID.Val,
 		Expiry:   msgData.Expiry.Val,

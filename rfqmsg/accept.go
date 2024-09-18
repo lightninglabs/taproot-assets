@@ -230,7 +230,9 @@ func (m *acceptWireMsgData) Bytes() ([]byte, error) {
 // asset to us. Conversely, an incoming sell accept message indicates that our
 // peer accepts our sell request, meaning they are willing to buy the asset from
 // us.
-func NewIncomingAcceptFromWire(wireMsg WireMessage) (IncomingMsg, error) {
+func NewIncomingAcceptFromWire(wireMsg WireMessage,
+	sessionLookup SessionLookup) (IncomingMsg, error) {
+
 	// Ensure that the message type is a quote accept message.
 	if wireMsg.MsgType != MsgTypeAccept {
 		return nil, ErrUnknownMessageType
@@ -248,17 +250,30 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 			"quote accept message: %w", err)
 	}
 
-	// We will now determine whether this is a buy or sell accept. We can
-	// distinguish between buy/sell accept messages by inspecting which tick
-	// rate field is populated.
-	isBuyAccept := msgData.InOutRateTick.IsSome()
-
-	// If this is a buy request, then we will create a new buy request
-	// message.
-	if isBuyAccept {
-		return newBuyAcceptFromWireMsg(wireMsg, msgData)
+	// Before we can determine whether this is a buy or sell accept, we need
+	// to look up the corresponding outgoing request message. This step is
+	// necessary because the accept message data does not contain sufficient
+	// data to distinguish between buy and sell accept messages.
+	if sessionLookup == nil {
+		return nil, fmt.Errorf("RFQ session lookup function is " +
+			"required")
 	}
 
-	// Otherwise, this is a sell request.
-	return newSellAcceptFromWireMsg(wireMsg, msgData)
+	request, found := sessionLookup(msgData.ID.Val)
+	if !found {
+		return nil, fmt.Errorf("no outgoing request found for "+
+			"incoming accept message: %s", msgData.ID.Val)
+	}
+
+	// Use the corresponding request to determine the type of accept
+	// message.
+	switch typedRequest := request.(type) {
+	case *BuyRequest:
+		return newBuyAcceptFromWireMsg(wireMsg, msgData, *typedRequest)
+	case *SellRequest:
+		return newSellAcceptFromWireMsg(wireMsg, msgData, *typedRequest)
+	default:
+		return nil, fmt.Errorf("unknown request type for incoming "+
+			"accept message: %T", request)
+	}
 }
