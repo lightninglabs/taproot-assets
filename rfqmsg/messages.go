@@ -156,6 +156,12 @@ func WireMsgDataVersionDecoder(r io.Reader, val any, buf *[8]byte,
 // IncomingMsg is an interface that represents an inbound wire message
 // that has been received from a peer.
 type IncomingMsg interface {
+	// MsgPeer returns the peer that sent the message.
+	MsgPeer() route.Vertex
+
+	// MsgID returns the quote request session ID.
+	MsgID() ID
+
 	// String returns a human-readable string representation of the message.
 	String() string
 }

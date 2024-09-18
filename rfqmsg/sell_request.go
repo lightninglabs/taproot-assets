@@ -174,6 +174,16 @@ func (q *SellRequest) ToWire() (WireMessage, error) {
 	}, nil
 }
 
+// MsgPeer returns the peer that sent the message.
+func (q *SellRequest) MsgPeer() route.Vertex {
+	return q.Peer
+}
+
+// MsgID returns the quote request session ID.
+func (q *SellRequest) MsgID() ID {
+	return q.ID
+}
+
 // String returns a human-readable string representation of the message.
 func (q *SellRequest) String() string {
 	var groupKeyBytes []byte
