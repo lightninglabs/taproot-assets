@@ -1203,6 +1203,9 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		batch.RootAssetCommitment, err = fetchAssetSprouts(
 			ctx, q, dbBatch.RawKey, tapscriptSibling, genesisScript,
 		)
+		if err != nil {
+			return nil, err
+		}
 
 		// Finally, for each asset contained in the root
 		// commitment above, we'll fetch the meta reveal for
