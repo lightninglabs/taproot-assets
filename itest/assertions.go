@@ -1913,7 +1913,9 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	require.Equal(t, len(allAssets), len(assetIDBalances.AssetBalances))
 
+	var totalBalance uint64
 	for _, balance := range assetIDBalances.AssetBalances {
+		totalBalance += balance.Balance
 		for _, rpcAsset := range allAssets {
 			balanceGen := balance.AssetGenesis
 			targetGen := rpcAsset.AssetGenesis
@@ -1931,6 +1933,20 @@ func AssertAssetBalances(t *testing.T, client taprpc.TaprootAssetsClient,
 			}
 		}
 	}
+
+	// We should also ensure that the total balance returned by
+	// `ListBalances` matches the total balance returned by `ListAssets`.
+	assetList, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		IncludeLeased: includeLeased,
+	})
+	require.NoError(t, err)
+
+	var totalAssetListBalance uint64
+	for _, asset := range assetList.Assets {
+		totalAssetListBalance += asset.Amount
+	}
+
+	require.Equal(t, totalBalance, totalAssetListBalance)
 
 	// We'll also ensure that we're able to get the balance by key group
 	// for all the assets that have one specified.
