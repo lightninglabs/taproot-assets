@@ -56,3 +56,17 @@ type JsonCloseOutput struct {
 	AssetInternalKey string            `json:"asset_internal_key"`
 	ScriptKeys       map[string]string `json:"script_keys"`
 }
+
+// JsonHtlcBalance is a struct that represents the balance of a single asset
+// HTLC.
+type JsonHtlcBalance struct {
+	AssetID string `json:"asset_id"`
+	Amount  uint64 `json:"amount"`
+}
+
+// JsonHtlc is a struct that represents the asset information that can be
+// transferred via an HTLC.
+type JsonHtlc struct {
+	Balances []*JsonHtlcBalance `json:"balances"`
+	RfqID    string             `json:"rfq_id"`
+}
