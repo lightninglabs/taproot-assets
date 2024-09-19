@@ -152,7 +152,7 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 	}, nil
 }
 
-// fundingSpendwitness creates a complete witness to spend the OP_TRUE funding
+// fundingSpendWitness creates a complete witness to spend the OP_TRUE funding
 // script of an asset funding output.
 func fundingSpendWitness() lfn.Result[wire.TxWitness] {
 	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
