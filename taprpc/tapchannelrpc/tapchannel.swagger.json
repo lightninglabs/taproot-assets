@@ -341,6 +341,34 @@
         }
       }
     },
+    "lnrpcBlindedPathConfig": {
+      "type": "object",
+      "properties": {
+        "min_num_real_hops": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The minimum number of real hops to include in a blinded path. This doesn't\ninclude our node, so if the minimum is 1, then the path will contain at\nminimum our node along with an introduction node hop. If it is zero then\nthe shortest path will use our node as an introduction node."
+        },
+        "num_hops": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The number of hops to include in a blinded path. This doesn't include our\nnode, so if it is 1, then the path will contain our node along with an\nintroduction node or dummy node hop. If paths shorter than NumHops is\nfound, then they will be padded using dummy hops."
+        },
+        "max_num_paths": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The maximum number of blinded paths to select and add to an invoice."
+        },
+        "node_omission_list": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "A list of node IDs of nodes that should not be used in any of our generated\nblinded paths."
+        }
+      }
+    },
     "lnrpcChannelUpdate": {
       "type": "object",
       "properties": {
@@ -782,6 +810,14 @@
           },
           "description": "Maps a 32-byte hex-encoded set ID to the sub-invoice AMP state for the\ngiven set ID. This field is always populated for AMP invoices, and can be\nused along side LookupInvoice to obtain the HTLC information related to a\ngiven sub-invoice.\nNote: Output only, don't specify for creating an invoice.",
           "title": "[EXPERIMENTAL]:"
+        },
+        "is_blinded": {
+          "type": "boolean",
+          "description": "Signals that the invoice should include blinded paths to hide the true\nidentity of the recipient."
+        },
+        "blinded_path_config": {
+          "$ref": "#/definitions/lnrpcBlindedPathConfig",
+          "description": "Config values to use when creating blinded paths for this invoice. These\ncan be used to override the defaults config values provided in by the\nglobal config. This field is only used if is_blinded is true."
         }
       }
     },
@@ -844,13 +880,10 @@
           "$ref": "#/definitions/lnrpcAMP",
           "description": "Details relevant to AMP HTLCs, only populated if this is an AMP HTLC."
         },
-        "wire_custom_records": {
-          "type": "object",
-          "additionalProperties": {
-            "type": "string",
-            "format": "byte"
-          },
-          "description": "Custom tlv records that were only sent on the p2p wire message, not in\nthe onion."
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       },
       "title": "Details of an HTLC that paid to an invoice"
@@ -953,6 +986,14 @@
         },
         "failure_reason": {
           "$ref": "#/definitions/lnrpcPaymentFailureReason"
+        },
+        "first_hop_custom_records": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The custom TLV records that were sent to the first hop as part of the HTLC\nwire message for this payment."
         }
       }
     },
@@ -964,10 +1005,11 @@
         "FAILURE_REASON_NO_ROUTE",
         "FAILURE_REASON_ERROR",
         "FAILURE_REASON_INCORRECT_PAYMENT_DETAILS",
-        "FAILURE_REASON_INSUFFICIENT_BALANCE"
+        "FAILURE_REASON_INSUFFICIENT_BALANCE",
+        "FAILURE_REASON_CANCELED"
       ],
       "default": "FAILURE_REASON_NONE",
-      "description": " - FAILURE_REASON_NONE: Payment isn't failed (yet).\n - FAILURE_REASON_TIMEOUT: There are more routes to try, but the payment timeout was exceeded.\n - FAILURE_REASON_NO_ROUTE: All possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILURE_REASON_ERROR: A non-recoverable error has occured.\n - FAILURE_REASON_INCORRECT_PAYMENT_DETAILS: Payment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILURE_REASON_INSUFFICIENT_BALANCE: Insufficient local balance."
+      "description": " - FAILURE_REASON_NONE: Payment isn't failed (yet).\n - FAILURE_REASON_TIMEOUT: There are more routes to try, but the payment timeout was exceeded.\n - FAILURE_REASON_NO_ROUTE: All possible routes were tried and failed permanently. Or were no\nroutes to the destination at all.\n - FAILURE_REASON_ERROR: A non-recoverable error has occured.\n - FAILURE_REASON_INCORRECT_PAYMENT_DETAILS: Payment details incorrect (unknown hash, invalid amt or\ninvalid final cltv delta)\n - FAILURE_REASON_INSUFFICIENT_BALANCE: Insufficient local balance.\n - FAILURE_REASON_CANCELED: The payment was canceled."
     },
     "lnrpcPaymentPaymentStatus": {
       "type": "string",
@@ -1016,6 +1058,16 @@
           "type": "string",
           "format": "int64",
           "description": "The total amount in millisatoshis."
+        },
+        "first_hop_amount_msat": {
+          "type": "string",
+          "format": "int64",
+          "description": "The actual on-chain amount that was sent out to the first hop. This value is\nonly different from the total_amt_msat field if this is a custom channel\npayment and the value transported in the HTLC is different from the BTC\namount in the HTLC. If this value is zero, then this is an old payment that\ndidn't have this value yet and can be ignored."
+        },
+        "custom_channel_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "Custom channel data that might be populated in custom channels."
         }
       },
       "description": "A path through the channel graph which runs over one or more channels in\nsuccession. This struct carries all the information required to craft the\nSphinx onion packet, and send the payment along the first hop in the path. A\nroute is only selected as valid if all the channels have sufficient capacity to\ncarry the initial payment amount after fees are accounted for."
@@ -1234,6 +1286,10 @@
           "type": "number",
           "format": "double",
           "description": "The time preference for this payment. Set to -1 to optimize for fees\nonly, to 1 to optimize for reliability only or a value inbetween for a mix."
+        },
+        "cancelable": {
+          "type": "boolean",
+          "description": "If set, the payment loop can be interrupted by manually canceling the\npayment context, even before the payment timeout is reached. Note that the\npayment may still succeed after cancellation, as in-flight attempts can\nstill settle afterwards. Canceling will only prevent further attempts from\nbeing sent."
         },
         "first_hop_custom_records": {
           "type": "object",
