@@ -151,7 +151,7 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 	}, nil
 }
 
-// fundingSpendwitness creates a complete witness to spend the OP_TRUE funding
+// fundingSpendWitness creates a complete witness to spend the OP_TRUE funding
 // script of an asset funding output.
 func fundingSpendWitness() lfn.Result[wire.TxWitness] {
 	fundingScriptTree := NewFundingScriptTree()
@@ -162,8 +162,8 @@ func fundingSpendWitness() lfn.Result[wire.TxWitness] {
 	)
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
-		return lfn.Errf[wire.TxWitness]("unable to serialize control "+
-			"block: %w", err)
+		return lfn.Err[wire.TxWitness](fmt.Errorf("unable to "+
+			"serialize control block: %w", err))
 	}
 
 	return lfn.Ok(wire.TxWitness{
