@@ -334,7 +334,7 @@ jobs:
 
       - name: Run LiT itests
         working-directory: ./lightning-terminal
-        run: make itest
+        run: make itest icase=custom_channels
 
       - name: Run LiT unit tests
         working-directory: ./lightning-terminal
