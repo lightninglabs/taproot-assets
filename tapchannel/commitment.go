@@ -630,6 +630,11 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 		leaseExpiry = chanState.ThawHeight
 	}
 
+	dustLimit := chanState.LocalChanCfg.DustLimit
+	if !isOurCommit {
+		dustLimit = chanState.RemoteChanCfg.DustLimit
+	}
+
 	// The "local" and "remote" notations are always from the perspective of
 	// the local node. So if we want to find out the asset balance of the
 	// _initiator_ of the channel, we just need to take into account the
@@ -707,6 +712,19 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 			allocType = CommitAllocationHtlcIncoming
 		}
 
+		// If HTLC is dust, do not create allocation for it.
+		isDust := lnwallet.HtlcIsDust(
+			chanState.ChanType, isIncoming, isOurCommit,
+			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
+			dustLimit,
+		)
+		if isDust {
+			// We need to error out, as a dust HTLC carrying assets
+			// should not be expected.
+			return fmt.Errorf("error creating asset HTLC " +
+				"allocation, HTLC is dust")
+		}
+
 		allocations = append(allocations, &Allocation{
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
@@ -771,6 +789,16 @@ func CreateAllocations(chanState *channeldb.OpenChannel, ourBalance,
 		if err != nil {
 			return fmt.Errorf("error creating HTLC script "+
 				"sibling: %w", err)
+		}
+
+		// If HTLC is dust, do not create allocation for it.
+		isDust := lnwallet.HtlcIsDust(
+			chanState.ChanType, isIncoming, isOurCommit,
+			filteredView.FeePerKw, htlc.Amount.ToSatoshis(),
+			dustLimit,
+		)
+		if isDust {
+			return nil
 		}
 
 		allocations = append(allocations, &Allocation{

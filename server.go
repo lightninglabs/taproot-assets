@@ -990,7 +990,8 @@ func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) PaymentBandwidth(htlcBlob, commitmentBlob lfn.Option[tlv.Blob],
-	linkBandwidth lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	linkBandwidth,
+	htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, htlcBlob=%v, "+
 		"commitmentBlob=%v", spew.Sdump(htlcBlob),
@@ -1001,7 +1002,7 @@ func (s *Server) PaymentBandwidth(htlcBlob, commitmentBlob lfn.Option[tlv.Blob],
 	}
 
 	return s.cfg.AuxTrafficShaper.PaymentBandwidth(
-		htlcBlob, commitmentBlob, linkBandwidth,
+		htlcBlob, commitmentBlob, linkBandwidth, htlcAmt,
 	)
 }
 
