@@ -18,7 +18,7 @@ import (
 // testBurnAssets tests that we're able to mint assets and then burn assets
 // again.
 func testBurnAssets(t *harnessTest) {
-	minerClient := t.lndHarness.Miner.Client
+	minerClient := t.lndHarness.Miner().Client
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, minerClient, t.tapd, []*mintrpc.MintAssetRequest{
 			simpleAssets[0], simpleAssets[1], issuableAssets[0],
@@ -312,7 +312,7 @@ func testBurnAssets(t *harnessTest) {
 func testBurnGroupedAssets(t *harnessTest) {
 	var (
 		ctxb  = context.Background()
-		miner = t.lndHarness.Miner.Client
+		miner = t.lndHarness.Miner().Client
 
 		firstMintReq = issuableAssets[0]
 	)

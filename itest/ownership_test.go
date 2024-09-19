@@ -25,7 +25,7 @@ func testOwnershipVerification(t *harnessTest) {
 
 	// Mint some assets on alice.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 
@@ -48,7 +48,7 @@ func testOwnershipVerification(t *harnessTest) {
 
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
 		genInfo.AssetId,
 		[]uint64{currentUnits - numUnits, numUnits}, 0, 1,
 	)

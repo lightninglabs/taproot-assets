@@ -34,7 +34,7 @@ func testAddresses(t *harnessTest) {
 	// for multiple internal asset transfers when only sending one of them
 	// to an external address.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
@@ -79,7 +79,7 @@ func testAddresses(t *harnessTest) {
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusDetected)
 
 		// Mine a block to make sure the events are marked as confirmed.
-		MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+		MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 		// Eventually the event should be marked as confirmed.
 		AssertAddrEvent(t.t, secondTapd, addr, 1, statusConfirmed)
@@ -219,7 +219,7 @@ func testAddresses(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Confirm the transfer.
-	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 	AssertAddrEvent(t.t, secondTapd, oldAddr, 1, statusConfirmed)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 3)
 
@@ -239,7 +239,7 @@ func testAddresses(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 	AssertAddrEvent(t.t, secondTapd, newAddr, 1, statusConfirmed)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 4)
 }
@@ -249,7 +249,7 @@ func testAddresses(t *harnessTest) {
 func testMultiAddress(t *harnessTest) {
 	// First, mint an asset, so we have one to create addresses for.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
@@ -325,7 +325,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	miner := t.lndHarness.Miner.Client
+	miner := t.lndHarness.Miner().Client
 
 	// Now that Bob is active, we'll mint some assets with the main node.
 	rpcAssets := MintAssetsConfirmBatch(
@@ -605,7 +605,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 	AssertAddrEvent(t.t, alice, aliceAddr2, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
-	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// Eventually the events should be marked as confirmed.
 	AssertAddrEventByStatus(t.t, bob, statusConfirmed, 2)
@@ -669,7 +669,7 @@ func runMultiSendTest(ctxt context.Context, t *harnessTest, alice,
 func testUnknownTlvType(t *harnessTest) {
 	// First, mint an asset, so we have one to create addresses for.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},
@@ -717,7 +717,7 @@ func testUnknownTlvType(t *harnessTest) {
 	AssertAddrEvent(t.t, bob, bobAddr, 1, statusDetected)
 
 	// Mine a block to make sure the events are marked as confirmed.
-	_ = MineBlocks(t.t, t.lndHarness.Miner.Client, 1, 1)
+	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// Eventually the event should be marked as confirmed.
 	AssertAddrEventByStatus(t.t, bob, statusConfirmed, 1)

@@ -230,7 +230,7 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 	htlc lndclient.InterceptedHtlc) error {
 
 	// Check that the HTLC contains the accepted quote ID.
-	htlcRecord, err := parseHtlcCustomRecords(htlc.WireCustomRecords)
+	htlcRecord, err := parseHtlcCustomRecords(htlc.InWireCustomRecords)
 	if err != nil {
 		return fmt.Errorf("parsing HTLC custom records failed: %w", err)
 	}
@@ -288,7 +288,7 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	htlcRecord, err := parseHtlcCustomRecords(htlc.WireCustomRecords)
+	htlcRecord, err := parseHtlcCustomRecords(htlc.InWireCustomRecords)
 	if err != nil {
 		return nil, fmt.Errorf("parsing HTLC custom records failed: %w",
 			err)
@@ -639,10 +639,10 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 
 	// If the HTLC has a custom record, we check if it is relevant to the
 	// RFQ service.
-	if len(htlc.WireCustomRecords) > 0 {
+	if len(htlc.InWireCustomRecords) > 0 {
 		log.Debug("HTLC has custom records, parsing them")
 		htlcRecords, err := parseHtlcCustomRecords(
-			htlc.WireCustomRecords,
+			htlc.InWireCustomRecords,
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf("parsing HTLC custom "+

@@ -128,7 +128,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	firstAssetReq := &mintrpc.MintAssetRequest{Asset: firstAsset}
 
 	rpcSimpleAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{firstAssetReq},
 	)
 	require.Len(t.t, rpcSimpleAssets, 1)
@@ -187,7 +187,7 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 		Type: taprpc.AssetMetaType_META_TYPE_JSON,
 	}
 	MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{secondAssetReq},
 	)
 

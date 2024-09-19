@@ -528,7 +528,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	// Initialize logging at the default logging level.
 	tap.SetupLoggers(cfg.LogWriter, interceptor)
 	err = cfg.LogWriter.InitLogRotator(
-		filepath.Join(cleanCfg.LogDir, defaultLogFilename),
+		filepath.Join(cleanCfg.LogDir, defaultLogFilename), build.Gzip,
 		cleanCfg.MaxLogFileSize, cfg.MaxLogFiles,
 	)
 	if err != nil {
