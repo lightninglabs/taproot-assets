@@ -44,7 +44,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 
 	// Mint an asset with Bob's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, ts.BobTapd,
+		t.t, t.lndHarness.Miner().Client, ts.BobTapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
@@ -222,7 +222,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	// Mint an asset with Alice's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, ts.AliceTapd,
+		t.t, t.lndHarness.Miner().Client, ts.AliceTapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
 	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
@@ -403,7 +403,7 @@ func newLndNode(name string, outputFunds []btcutil.Amount,
 			PkScript: addrScript,
 			Value:    int64(amt),
 		}
-		ht.Miner.SendOutput(output, minerFeeRate)
+		ht.Miner().SendOutput(output, minerFeeRate)
 	}
 
 	// Mine any funding transactions.

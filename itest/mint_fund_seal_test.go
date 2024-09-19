@@ -311,10 +311,10 @@ func testMintFundSealAssets(t *harnessTest) {
 	}
 
 	batchTXID, batchKey := FinalizeBatchUnconfirmed(
-		t.t, t.lndHarness.Miner.Client, aliceTapd, assetReqs,
+		t.t, t.lndHarness.Miner().Client, aliceTapd, assetReqs,
 	)
 	batchAssets := ConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, aliceTapd, assetReqs, sub,
+		t.t, t.lndHarness.Miner().Client, aliceTapd, assetReqs, sub,
 		batchTXID, batchKey,
 	)
 	assetTweakedScriptKey, err := fn.First(
@@ -472,7 +472,7 @@ func testMintFundSealAssets(t *harnessTest) {
 	transferAmount := assetTweakedScriptKey.Amount / 2
 	numOutputs := 2
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner.Client, aliceTapd, logResp,
+		t.t, t.lndHarness.Miner().Client, aliceTapd, logResp,
 		assetTweakedScriptKey.AssetGenesis.AssetId,
 		[]uint64{transferAmount, transferAmount}, 0, 1, numOutputs,
 	)

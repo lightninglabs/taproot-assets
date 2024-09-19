@@ -19,9 +19,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/vm"
-	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -100,7 +100,7 @@ func (s *AuxLeafSigner) Stop() error {
 // SubmitSecondLevelSigBatch takes a batch of aux sign jobs and processes them
 // asynchronously.
 func (s *AuxLeafSigner) SubmitSecondLevelSigBatch(
-	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
+	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	jobs []lnwallet.AuxSigJob) error {
 
 	s.Wg.Add(1)
@@ -111,7 +111,9 @@ func (s *AuxLeafSigner) SubmitSecondLevelSigBatch(
 
 // PackSigs takes a series of aux signatures and packs them into a single blob
 // that can be sent alongside the CommitSig messages.
-func PackSigs(sigBlob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
+func PackSigs(sigBlob []lfn.Option[tlv.Blob]) lfn.Result[lfn.Option[tlv.Blob]] {
+	type returnType = lfn.Option[tlv.Blob]
+
 	htlcSigs := make([][]*cmsg.AssetSig, len(sigBlob))
 	for idx := range sigBlob {
 		err := lfn.MapOptionZ(
@@ -129,8 +131,8 @@ func PackSigs(sigBlob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
 			},
 		)
 		if err != nil {
-			return lfn.None[tlv.Blob](), fmt.Errorf("error "+
-				"decoding asset sig list record: %w", err)
+			return lfn.Err[returnType](fmt.Errorf("error "+
+				"decoding asset sig list record: %w", err))
 		}
 	}
 
@@ -138,23 +140,26 @@ func PackSigs(sigBlob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
 
 	var buf bytes.Buffer
 	if err := commitSig.Encode(&buf); err != nil {
-		return lfn.None[tlv.Blob](), fmt.Errorf("error encoding "+
-			"commit sig: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("error encoding "+
+			"commit sig: %w", err))
 	}
 
-	return lfn.Some(buf.Bytes()), nil
+	return lfn.Ok(lfn.Some(buf.Bytes()))
 }
 
 // UnpackSigs takes a packed blob of signatures and returns the original
 // signatures for each HTLC, keyed by HTLC index.
-func UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob], error) {
+func UnpackSigs(blob lfn.Option[tlv.Blob]) lfn.Result[[]lfn.Option[tlv.Blob]] {
+	type returnType = []lfn.Option[tlv.Blob]
+
 	if blob.IsNone() {
-		return nil, nil
+		return lfn.Ok[returnType](nil)
 	}
 
 	commitSig, err := cmsg.DecodeCommitSig(blob.UnsafeFromSome())
 	if err != nil {
-		return nil, fmt.Errorf("error decoding commit sig: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("error decoding commit "+
+			"sig: %w", err))
 	}
 
 	htlcSigRec := commitSig.HtlcPartialSigs.Val.HtlcPartialSigs
@@ -163,13 +168,13 @@ func UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob], error) {
 		htlcSigs[idx] = lfn.Some(htlcSigRec[idx].Bytes())
 	}
 
-	return htlcSigs, nil
+	return lfn.Ok(htlcSigs)
 }
 
 // VerifySecondLevelSigs attempts to synchronously verify a batch of aux sig
 // jobs.
 func VerifySecondLevelSigs(chainParams *address.ChainParams,
-	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
+	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	verifyJobs []lnwallet.AuxVerifyJob) error {
 
 	for idx := range verifyJobs {
@@ -238,7 +243,7 @@ func VerifySecondLevelSigs(chainParams *address.ChainParams,
 // processAuxSigBatch processes a batch of aux sign jobs asynchronously.
 //
 // NOTE: This method must be called as a goroutine.
-func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
+func (s *AuxLeafSigner) processAuxSigBatch(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, sigJobs []lnwallet.AuxSigJob) {
 
 	defer s.Wg.Done()
@@ -349,7 +354,7 @@ func (s *AuxLeafSigner) processAuxSigBatch(chanState *channeldb.OpenChannel,
 // verifyHtlcSignature verifies the HTLC signature in the commitment transaction
 // described by the sign job.
 func verifyHtlcSignature(chainParams *address.ChainParams,
-	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
+	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, sigs []*cmsg.AssetSig,
 	htlcOutputs []*cmsg.AssetOutput, baseJob lnwallet.BaseAuxJob) error {
 
@@ -388,10 +393,10 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 
 		// We are always verifying the signature of the remote party,
 		// which are for our commitment transaction.
-		const isOurCommit = true
+		const whoseCommit = lntypes.Local
 
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
-			baseJob.Incoming, isOurCommit, baseJob.HTLC.Timeout,
+			baseJob.Incoming, whoseCommit, baseJob.HTLC.Timeout,
 			baseJob.HTLC.RHash, &keyRing,
 			lfn.None[txscript.TapLeaf](),
 		)
@@ -484,7 +489,7 @@ func applySignDescToVIn(signDesc input.SignDescriptor, vIn *tappsbt.VInput,
 
 // generateHtlcSignature generates the signature for the HTLC output in the
 // commitment transaction described by the sign job.
-func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
+func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcOutputs []*cmsg.AssetOutput,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
@@ -499,11 +504,11 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 	}
 
 	// We are always signing the commitment transaction of the remote party,
-	// which is why we set isOurCommit to false.
-	const isOurCommit = false
+	// which is why we set whoseCommit to remote.
+	const whoseCommit = lntypes.Remote
 
 	htlcScript, err := lnwallet.GenTaprootHtlcScript(
-		baseJob.Incoming, isOurCommit, baseJob.HTLC.Timeout,
+		baseJob.Incoming, whoseCommit, baseJob.HTLC.Timeout,
 		baseJob.HTLC.RHash, &baseJob.KeyRing,
 		lfn.None[txscript.TapLeaf](),
 	)
@@ -577,7 +582,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState *channeldb.OpenChannel,
 // the commitment transaction. A bool is returned indicating if the HTLC was
 // incoming or outgoing.
 func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
-	chanState *channeldb.OpenChannel, commitTx *wire.MsgTx,
+	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
 	baseJob lnwallet.BaseAuxJob) ([]*tappsbt.VPacket, error) {
 

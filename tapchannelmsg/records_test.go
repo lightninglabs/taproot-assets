@@ -127,7 +127,7 @@ func TestAuxLeaves(t *testing.T) {
 			leaves: NewAuxLeaves(
 				lfn.Some(test.RandTapLeaf(nil)),
 				lfn.Some(test.RandTapLeaf(nil)),
-				input.AuxTapLeaves{
+				input.HtlcAuxLeaves{
 					0: input.HtlcAuxLeaf{
 						AuxTapLeaf: lfn.Some(
 							test.RandTapLeaf(nil),
@@ -142,7 +142,7 @@ func TestAuxLeaves(t *testing.T) {
 						),
 					},
 				},
-				input.AuxTapLeaves{
+				input.HtlcAuxLeaves{
 					0: input.HtlcAuxLeaf{
 						AuxTapLeaf: lfn.Some(
 							test.RandTapLeaf(nil),
@@ -303,7 +303,7 @@ func TestCommitment(t *testing.T) {
 					RemoteAuxLeaf: lfn.Some(
 						test.RandTapLeaf(nil),
 					),
-					OutgoingHtlcLeaves: input.AuxTapLeaves{
+					OutgoingHtlcLeaves: input.HtlcAuxLeaves{
 						0: input.HtlcAuxLeaf{
 							AuxTapLeaf: randLeaf,
 						},
@@ -313,7 +313,7 @@ func TestCommitment(t *testing.T) {
 							SecondLevelLeaf: randLeaf,
 						},
 					},
-					IncomingHtlcLeaves: input.AuxTapLeaves{
+					IncomingHtlcLeaves: input.HtlcAuxLeaves{
 						0: input.HtlcAuxLeaf{
 							AuxTapLeaf: randLeaf,
 						},
