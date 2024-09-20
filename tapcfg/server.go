@@ -451,6 +451,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			DefaultCourierAddr: proofCourierAddr,
 			AssetSyncer:        addrBook,
 			FeatureBits:        lndFeatureBitsVerifier,
+			ErrChan:            mainErrChan,
 		},
 	)
 	auxTrafficShaper := tapchannel.NewAuxTrafficShaper(

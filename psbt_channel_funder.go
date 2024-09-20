@@ -110,6 +110,7 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 			},
 		}),
 		lndclient.WithRemoteReserve(CustomChannelRemoteReserve),
+		lndclient.WithRemoteMaxHtlc(req.RemoteMaxHtlc),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel with "+
@@ -141,6 +142,16 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 	case err := <-errChan:
 		return nil, err
 	}
+}
+
+// ChannelAcceptor is used to accept and potentially influence parameters of
+// incoming channels.
+func (l *LndPbstChannelFunder) ChannelAcceptor(ctx context.Context,
+	acceptor lndclient.AcceptorFunction) (chan error, error) {
+
+	return l.lnd.Client.ChannelAcceptor(
+		ctx, tapchannel.DefaultTimeout/2, acceptor,
+	)
 }
 
 // A compile-time check to ensure that LndPbstChannelFunder fully implements
