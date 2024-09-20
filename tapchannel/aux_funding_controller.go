@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -52,6 +53,28 @@ const (
 	// ackTimeout is the amount of time we'll wait to receive the protocol
 	// level ACK from the remote party before timing out.
 	ackTimeout = time.Second * 30
+
+	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
+	// IDs) that can be committed to a single channel. The number needs to
+	// be limited to prevent the number of required HTLC signatures to be
+	// too large for a single CommitSig wire message to carry them. This
+	// value is tightly coupled with the number of HTLCs that can be added
+	// to a channel at the same time (maxNumHTLCs). The values were
+	// determined with the TestMaxCommitSigMsgSize test in
+	// aux_leaf_signer_test.go then a set was chosen that would allow for
+	// a decent number of HTLCs (and also a number that is divisible by two
+	// because each side will only be allowed to add half of the total).
+	maxNumAssetIDs = 3
+
+	// maxNumHTLCs is the maximum number of HTLCs there can be in an asset
+	// channel to avoid the number of signatures exceeding the maximum
+	// message size of a CommitSig message. See maxNumAssetIDs for more
+	// information.
+	maxNumHTLCs = 166
+
+	// maxNumHTLCsPerParty is the maximum number of HTLCs that can be added
+	// by a single party to a channel.
+	maxNumHTLCsPerParty = maxNumHTLCs / 2
 )
 
 // ErrorReporter is used to report an error back to the caller and/or peer that
@@ -138,6 +161,11 @@ type PsbtChannelFunder interface {
 	// process. Afterward, the funding transaction should be signed and
 	// broadcast.
 	OpenChannel(context.Context, OpenChanReq) (AssetChanIntent, error)
+
+	// ChannelAcceptor is used to accept and potentially influence
+	// parameters of incoming channels.
+	ChannelAcceptor(ctx context.Context,
+		acceptor lndclient.AcceptorFunction) (chan error, error)
 }
 
 // TxPublisher is an interface used to publish transactions.
@@ -222,6 +250,9 @@ type FundingControllerCfg struct {
 	// FeatureBits is used to verify that the peer has the required feature
 	// to fund asset channels.
 	FeatureBits FeatureBitVerifer
+
+	// ErrChan is used to report errors back to the main server.
+	ErrChan chan<- error
 }
 
 // bindFundingReq is a request to bind a pending channel ID to a complete aux
@@ -297,6 +328,36 @@ func (f *FundingController) Start() error {
 
 	f.Wg.Add(1)
 	go f.chanFunder()
+
+	f.Wg.Add(1)
+	go func() {
+		defer f.Wg.Done()
+
+		ctx, cancel := f.WithCtxQuitNoTimeout()
+		defer cancel()
+
+		errChan, err := f.cfg.ChannelFunder.ChannelAcceptor(
+			ctx, f.channelAcceptor,
+		)
+		if err != nil {
+			err = fmt.Errorf("unable to start channel acceptor: %w",
+				err)
+			f.cfg.ErrChan <- err
+			return
+		}
+
+		// We'll accept channels for as long as the funding controller
+		// is running or until we receive an error.
+		select {
+		case err := <-errChan:
+			err = fmt.Errorf("channel acceptor error: %w", err)
+			f.cfg.ErrChan <- err
+
+		case <-f.Quit:
+			log.Infof("Stopping channel acceptor, funding " +
+				"controller shutting down")
+		}
+	}()
 
 	return nil
 }
@@ -1008,10 +1069,11 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// Now that we have the initial PSBT template, we can start the funding
 	// flow with lnd.
 	fundingReq := OpenChanReq{
-		ChanAmt: 100_000,
-		PushAmt: fundingState.pushAmt,
-		PeerPub: fundingState.peerPub,
-		TempPID: fundingState.pid,
+		ChanAmt:       100_000,
+		PushAmt:       fundingState.pushAmt,
+		PeerPub:       fundingState.peerPub,
+		TempPID:       fundingState.pid,
+		RemoteMaxHtlc: maxNumHTLCsPerParty,
 	}
 	assetChanIntent, err := f.cfg.ChannelFunder.OpenChannel(ctx, fundingReq)
 	if err != nil {
@@ -1680,6 +1742,43 @@ func (f *FundingController) chanFunder() {
 			return
 		}
 	}
+}
+
+// channelAcceptor is a callback that's called by the lnd client when a new
+// channel is proposed. This function is responsible for deciding whether to
+// accept the channel based on the channel parameters, and to also set some
+// channel parameters for our own side.
+func (f *FundingController) channelAcceptor(_ context.Context,
+	req *lndclient.AcceptorRequest) (*lndclient.AcceptorResponse, error) {
+
+	// Avoid nil pointer dereference.
+	if req.CommitmentType == nil {
+		return nil, fmt.Errorf("commitment type is required")
+	}
+
+	// Ignore any non-asset channels, just accept them.
+	if *req.CommitmentType != lnwallet.CommitmentTypeSimpleTaprootOverlay {
+		return &lndclient.AcceptorResponse{
+			Accept: true,
+		}, nil
+	}
+
+	// Reject custom channels that don't observe the max HTLC limit.
+	if req.MaxAcceptedHtlcs > maxNumHTLCsPerParty {
+		return &lndclient.AcceptorResponse{
+			Accept: false,
+			Error: fmt.Sprintf("max accepted HTLCs must be at "+
+				"most %d, got %d", maxNumHTLCsPerParty,
+				req.MaxAcceptedHtlcs),
+		}, nil
+	}
+
+	// Everything looks good, we can now set our own max HTLC limit we'll
+	// observe for this channel.
+	return &lndclient.AcceptorResponse{
+		Accept:       true,
+		MaxHtlcCount: maxNumHTLCsPerParty,
+	}, nil
 }
 
 // validateProofs validates the inclusion/exclusion/split proofs and the

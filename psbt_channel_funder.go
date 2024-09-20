@@ -156,6 +156,16 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 	}
 }
 
+// ChannelAcceptor is used to accept and potentially influence parameters of
+// incoming channels.
+func (l *LndPbstChannelFunder) ChannelAcceptor(ctx context.Context,
+	acceptor lndclient.AcceptorFunction) (chan error, error) {
+
+	return l.lnd.Client.ChannelAcceptor(
+		ctx, tapchannel.DefaultTimeout/2, acceptor,
+	)
+}
+
 // A compile-time check to ensure that LndPbstChannelFunder fully implements
 // the tapchannel.PsbtChannelFunder interface.
 var _ tapchannel.PsbtChannelFunder = (*LndPbstChannelFunder)(nil)
