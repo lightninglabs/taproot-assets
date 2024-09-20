@@ -94,6 +94,11 @@ type OpenChanReq struct {
 	// PushAmt is the amount of BTC to push to the remote peer.
 	PushAmt btcutil.Amount
 
+	// RemoteMaxHtlc is the maximum number of HTLCs we allow the remote to
+	// add to the channel. If this is zero, then the default value defined
+	// by lnd (and dependent on the channel capacity) will be used.
+	RemoteMaxHtlc uint32
+
 	// PeerPub is the identity public key of the remote peer we wish to
 	// open the channel with.
 	PeerPub btcec.PublicKey
