@@ -26,9 +26,9 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.3.2-beta.0.20240919071136-db27bb9a78bd
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v1.0.1-0.20240920110952-ac3012686ab5
+	github.com/lightninglabs/lndclient v1.0.1-0.20240920113744-6c0e26f97430
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20240919095711-611852fd34b1
+	github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20240920093603-53cea846b417
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn v1.2.1
@@ -207,8 +207,3 @@ require (
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.30.0-hex-display
-
-// We need this replace until the final custom channel PR (part5) is merged and
-// the lnd-18-4 branch of `lndclient` points to that. Otherwise go mod tidy will
-// revert the version to what `lndclient` has in its go.mod file.
-replace github.com/lightningnetwork/lnd => github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20240919124701-168e301ccfdc
