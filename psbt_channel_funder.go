@@ -110,6 +110,7 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 			},
 		}),
 		lndclient.WithRemoteReserve(CustomChannelRemoteReserve),
+		lndclient.WithRemoteMaxHtlc(req.RemoteMaxHtlc),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel with "+
