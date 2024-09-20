@@ -1497,6 +1497,26 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		}
 	}()
 
+	// We need to limit the number of different fungible assets (asset IDs)
+	// we allow to be commited to a single channel. This is to make sure we
+	// have a decent number of HTLCs available. See Godoc of maxNumAssetIDs
+	// for more information.
+	//
+	// TODO(guggero): This following code is obviously wrong and needs to be
+	// changed when we support committing fungible assets into a channel. To
+	// avoid this TODO from being overlooked, we add a dummy implementation
+	// with a condition that currently will never be true (since there's
+	// only a single vPacket being selected currently anyway).
+	assetIDSet := lfn.NewSet[asset.ID]()
+	for _, out := range fundingVpkt.VPacket.Outputs {
+		assetIDSet.Add(out.Asset.ID())
+	}
+	if assetIDSet.Size() > maxNumAssetIDs {
+		return fmt.Errorf("too many different asset IDs in channel "+
+			"funding, got %d, max is %d", len(assetIDSet.ToSlice()),
+			maxNumAssetIDs)
+	}
+
 	// Now that we know the final funding asset root along with the splits,
 	// we can derive the tapscript root that'll be used alongside the
 	// internal key (which we'll only learn from lnd later as we finalize
