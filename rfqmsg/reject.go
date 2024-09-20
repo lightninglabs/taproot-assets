@@ -243,6 +243,16 @@ func (q *Reject) ToWire() (WireMessage, error) {
 	}, nil
 }
 
+// MsgPeer returns the peer that sent the message.
+func (q *Reject) MsgPeer() route.Vertex {
+	return q.Peer
+}
+
+// MsgID returns the quote request session ID.
+func (q *Reject) MsgID() ID {
+	return q.ID
+}
+
 // String returns a human-readable string representation of the message.
 func (q *Reject) String() string {
 	return fmt.Sprintf("Reject(id=%x, err_code=%d, err_msg=%s)",

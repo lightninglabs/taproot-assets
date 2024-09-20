@@ -90,13 +90,19 @@ type WireMessage struct {
 	Data []byte
 }
 
+// SessionLookup is a function that can be used to look up a session quote
+// request message given a session ID.
+type SessionLookup func(id ID) (OutgoingMsg, bool)
+
 // NewIncomingMsgFromWire creates a new RFQ message from a wire message.
-func NewIncomingMsgFromWire(wireMsg WireMessage) (IncomingMsg, error) {
+func NewIncomingMsgFromWire(wireMsg WireMessage,
+	sessionLookup SessionLookup) (IncomingMsg, error) {
+
 	switch wireMsg.MsgType {
 	case MsgTypeRequest:
 		return NewIncomingRequestFromWire(wireMsg)
 	case MsgTypeAccept:
-		return NewIncomingAcceptFromWire(wireMsg)
+		return NewIncomingAcceptFromWire(wireMsg, sessionLookup)
 	case MsgTypeReject:
 		return NewQuoteRejectFromWireMsg(wireMsg)
 	default:
@@ -156,6 +162,12 @@ func WireMsgDataVersionDecoder(r io.Reader, val any, buf *[8]byte,
 // IncomingMsg is an interface that represents an inbound wire message
 // that has been received from a peer.
 type IncomingMsg interface {
+	// MsgPeer returns the peer that sent the message.
+	MsgPeer() route.Vertex
+
+	// MsgID returns the quote request session ID.
+	MsgID() ID
+
 	// String returns a human-readable string representation of the message.
 	String() string
 }
