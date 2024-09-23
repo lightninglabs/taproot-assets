@@ -2205,3 +2205,147 @@ func TestTransferOutputProofDeliveryStatus(t *testing.T) {
 		t, randBlockHash[:], assetTransfers[0].AnchorTxBlockHash,
 	)
 }
+
+func TestQueryAssetBalances(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, _ := newAssetStore(t)
+	ctx := context.Background()
+
+	// First, we'll generate 3 assets, two of them sharing the same anchor
+	// transaction, but all having distinct asset IDs.
+	const numAssets = 4
+	const numGroups = 2
+	assetGen := newAssetGenerator(t, numAssets, numGroups)
+	assetDesc := []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+			keyGroup:    assetGen.groupKeys[0],
+			amt:         16,
+		},
+		{
+			assetGen:    assetGen.assetGens[1],
+			anchorPoint: assetGen.anchorPoints[0],
+			keyGroup:    assetGen.groupKeys[1],
+			amt:         10,
+		},
+		{
+			assetGen:            assetGen.assetGens[2],
+			anchorPoint:         assetGen.anchorPoints[1],
+			keyGroup:            assetGen.groupKeys[0],
+			groupAnchorGen:      &assetGen.assetGens[0],
+			groupAnchorGenPoint: &assetGen.anchorPoints[0],
+			amt:                 6,
+		},
+		{
+			assetGen:    assetGen.assetGens[3],
+			anchorPoint: assetGen.anchorPoints[3],
+			noGroupKey:  true,
+			amt:         4,
+		},
+	}
+	assetGen.genAssets(t, assetsStore, assetDesc)
+
+	// Loop through assetDesc and sum the amt values
+	totalBalances := uint64(0)
+	for _, desc := range assetDesc {
+		totalBalances += desc.amt
+	}
+	totalGroupedBalances := totalBalances - assetDesc[3].amt
+
+	// At first, none of the assets should be leased.
+	includeLeased := false
+	balances, err := assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	balancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, numAssets)
+	require.Len(t, balancesByGroup, len(assetGen.groupKeys))
+
+	balanceSum := uint64(0)
+	for _, balance := range balances {
+		balanceSum += balance.Balance
+	}
+	require.Equal(t, totalBalances, balanceSum)
+
+	balanceByGroupSum := uint64(0)
+	for _, balance := range balancesByGroup {
+		balanceByGroupSum += balance.Balance
+	}
+	require.Equal(t, totalGroupedBalances, balanceByGroupSum)
+
+	// Now we lease the first asset for 1 hour. This will cause the second
+	// one also to be leased, since it's on the same anchor transaction. The
+	// second asset is in its own group, so when leased, the entire group is
+	// leased.
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour)
+	err = assetsStore.LeaseCoins(
+		ctx, leaseOwner, leaseExpiry, assetGen.anchorPoints[0],
+	)
+	require.NoError(t, err)
+	// With the first two assets leased, the total balance of unleased
+	// assets is the sum of the third and fourth asset.
+	totalUnleasedBalances := assetDesc[2].amt + assetDesc[3].amt
+	// The total of unleased grouped assets is only the third asset.
+	totalUnleasedGroupedBalances := assetDesc[2].amt
+
+	// Only two assets should be returned that is not leased.
+	unleasedBalances, err := assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	require.Len(t, unleasedBalances, numAssets-2)
+
+	// Only one group should be returned that is not leased.
+	unleasedBalancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	require.Len(t, unleasedBalancesByGroup, numGroups-1)
+
+	unleasedBalanceSum := uint64(0)
+	for _, balance := range unleasedBalances {
+		unleasedBalanceSum += balance.Balance
+	}
+	require.Equal(t, totalUnleasedBalances, unleasedBalanceSum)
+
+	unleasedBalanceByGroupSum := uint64(0)
+	for _, balance := range unleasedBalancesByGroup {
+		unleasedBalanceByGroupSum += balance.Balance
+	}
+	require.Equal(
+		t, totalUnleasedGroupedBalances, unleasedBalanceByGroupSum,
+	)
+
+	// Now we'll query with the leased assets included. This should return
+	// the same results as when the assets where unleased.
+	includeLeased = true
+	includeLeasedBalances, err := assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	require.Len(t, includeLeasedBalances, numAssets)
+	includeLeasedBalByGroup, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	require.Len(t, includeLeasedBalByGroup, len(assetGen.groupKeys))
+
+	leasedBalanceSum := uint64(0)
+	for _, balance := range includeLeasedBalances {
+		leasedBalanceSum += balance.Balance
+	}
+	require.Equal(t, totalBalances, leasedBalanceSum)
+
+	leasedBalanceByGroupSum := uint64(0)
+	for _, balance := range includeLeasedBalByGroup {
+		leasedBalanceByGroupSum += balance.Balance
+	}
+	require.Equal(t, totalGroupedBalances, leasedBalanceByGroupSum)
+}

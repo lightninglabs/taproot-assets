@@ -150,9 +150,13 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 		_, err = maybeUpsertAssetMeta(ctx, q, &assetGen, nil)
 		require.NoError(t, err)
 
-		_, _, err := upsertAssetsWithGenesis(
+		// Insert a random managed UTXO.
+		utxoID := addRandomManagedUTXO(t, ctx, q, initialAsset)
+
+		_, _, err = upsertAssetsWithGenesis(
 			ctx, q, assetGen.FirstPrevOut,
-			[]*asset.Asset{initialAsset}, nil,
+			[]*asset.Asset{initialAsset},
+			[]sql.NullInt64{sqlInt64(utxoID)},
 		)
 		require.NoError(t, err)
 		return nil
@@ -166,6 +170,85 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 		Genesis:  &assetGen,
 		GroupKey: groupKey,
 	}
+}
+
+// addRandomManagedUTXO is a helper function that will create a random managed
+// UTXO for a given asset.
+func addRandomManagedUTXO(t *testing.T, ctx context.Context,
+	db PendingAssetStore, asset *asset.Asset) int64 {
+
+	// Create the taproot asset root for the given asset.
+	assetRoot, err := commitment.NewAssetCommitment(asset)
+	require.NoError(t, err)
+
+	commitVersion := test.RandFlip(nil, fn.Ptr(commitment.TapCommitmentV2))
+	taprootAssetCommitment, err := commitment.NewTapCommitment(
+		commitVersion, assetRoot,
+	)
+	taprootAssetRoot := taprootAssetCommitment.TapscriptRoot(nil)
+	require.NoError(t, err)
+
+	// Create an anchor transaction.
+	var blockHash chainhash.Hash
+	_, err = rand.Read(blockHash[:])
+	require.NoError(t, err)
+
+	anchorTx := wire.NewMsgTx(2)
+	anchorTx.AddTxIn(&wire.TxIn{})
+	anchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    10,
+	})
+
+	// We'll add the chain transaction to the database
+	var anchorTxBuf bytes.Buffer
+	err = anchorTx.Serialize(&anchorTxBuf)
+	require.NoError(t, err)
+	anchorTXID := anchorTx.TxHash()
+	chainTXID, err := db.UpsertChainTx(ctx, ChainTxParams{
+		Txid:        anchorTXID[:],
+		RawTx:       anchorTxBuf.Bytes(),
+		BlockHeight: sqlInt32(20),
+		BlockHash:   blockHash[:],
+		TxIndex:     sqlInt32(0),
+	})
+	require.NoError(t, err, "unable to insert chain tx: %w", err)
+
+	anchorPoint := wire.OutPoint{
+		Hash:  anchorTx.TxHash(),
+		Index: 0,
+	}
+	outpointBytes, err := encodeOutpoint(anchorPoint)
+	require.NoError(t, err)
+
+	randPubKey := test.RandPubKey(t)
+
+	// Insert an internal key.
+	_, err = db.UpsertInternalKey(ctx, InternalKey{
+		RawKey:    randPubKey.SerializeCompressed(),
+		KeyFamily: 1,
+		KeyIndex:  2,
+	})
+	require.NoError(t, err)
+
+	// Insert the managed UTXO.
+	managedUTXO := RawManagedUTXO{
+		RawKey:           randPubKey.SerializeCompressed(),
+		Outpoint:         outpointBytes,
+		AmtSats:          10,
+		TaprootAssetRoot: taprootAssetRoot[:],
+		RootVersion: sql.NullInt16{
+			Int16: int16(1),
+			Valid: true,
+		},
+		MerkleRoot:       taprootAssetRoot[:],
+		TapscriptSibling: []byte{},
+		TxnID:            chainTXID,
+	}
+	utxoID, err := db.UpsertManagedUTXO(ctx, managedUTXO)
+	require.NoError(t, err)
+
+	return utxoID
 }
 
 // treeFromLeaves generates a tapscript tree in multiple forms from a list of
@@ -790,6 +873,7 @@ type randAssetCtx struct {
 	tapSiblingBytes []byte
 	tapSiblingHash  chainhash.Hash
 	mintingBatch    *tapgarden.MintingBatch
+	groupGenesis    *asset.Genesis
 }
 
 func addRandAssets(t *testing.T, ctx context.Context,
@@ -848,6 +932,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 		tapSiblingBytes: siblingBytes,
 		tapSiblingHash:  randSiblingHash,
 		mintingBatch:    mintingBatch,
+		groupGenesis:    group.Genesis,
 	}
 }
 
@@ -967,13 +1052,14 @@ func TestCommitBatchChainActions(t *testing.T) {
 	)
 	require.Equal(t, txIndex, extractSqlInt32[uint32](dbGenTx.TxIndex))
 
-	// If we query for the set of all active assets, then we should get
-	// back the same number of seedlings.
+	// If we query for the set of all active assets, then we should get back
+	// the number of seedlings AND also the genesis asset we have created
+	// with `addRandAssets`.
 	//
 	// TODO(roasbeef): move into isolated test
 	assets, err := confAssets.FetchAllAssets(ctx, false, false, nil)
 	require.NoError(t, err)
-	require.Equal(t, numSeedlings, len(assets))
+	require.Equal(t, numSeedlings+1, len(assets))
 
 	// Count the number of assets with a group key. Each grouped asset
 	// should have a grouped genesis witness.
@@ -995,9 +1081,15 @@ func TestCommitBatchChainActions(t *testing.T) {
 	// All the assets should also have a matching asset version as the
 	// seedlings we created.
 	mintingBatch := randAssetCtx.mintingBatch
+	randomGenesisTag := randAssetCtx.groupGenesis.Tag
 	require.True(t, fn.All(assets, func(dbAsset *asset.ChainAsset) bool {
 		seedling, ok := mintingBatch.Seedlings[dbAsset.Genesis.Tag]
 		if !ok {
+			// The only asset that doesn't have a seedling is the
+			// random genesis asset created by `addRandAssets`
+			if dbAsset.Genesis.Tag == randomGenesisTag {
+				return true
+			}
 			t.Logf("seedling for %v not found",
 				dbAsset.Genesis.Tag)
 			return ok
@@ -1039,7 +1131,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// We'll now query for the set of balances to ensure they all line up
 	// with the assets we just created, including the group genesis asset.
-	assetBalances, err := confAssets.QueryBalancesByAsset(ctx, nil)
+	assetBalances, err := confAssets.QueryBalancesByAsset(ctx, nil, false)
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings+1, len(assetBalances))
 
@@ -1061,7 +1153,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	}
 	numKeyGroups := fn.Reduce(mintedAssets, keyGroupSumReducer)
 	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(
-		ctx, nil,
+		ctx, nil, false,
 	)
 	require.NoError(t, err)
 	require.Equal(t, numKeyGroups, len(assetBalancesByGroup))

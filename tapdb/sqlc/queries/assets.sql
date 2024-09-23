@@ -321,7 +321,18 @@ JOIN genesis_info_view
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id
-WHERE spent = FALSE
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+       CASE
+           WHEN sqlc.narg('leased') = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
+           WHEN sqlc.narg('leased') = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= @now)
+           ELSE TRUE
+       END
+WHERE spent = FALSE 
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -335,7 +346,18 @@ JOIN key_group_info_view
     ON assets.genesis_id = key_group_info_view.gen_asset_id AND
       (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
         sqlc.narg('key_group_filter') IS NULL)
-WHERE spent = FALSE
+JOIN managed_utxos utxos
+    ON assets.anchor_utxo_id = utxos.utxo_id AND
+       CASE
+           WHEN sqlc.narg('leased') = true THEN
+               (utxos.lease_owner IS NOT NULL AND utxos.lease_expiry > @now)
+           WHEN sqlc.narg('leased') = false THEN
+               (utxos.lease_owner IS NULL OR 
+                utxos.lease_expiry IS NULL OR
+                utxos.lease_expiry <= @now)
+           ELSE TRUE
+       END
+WHERE spent = FALSE 
 GROUP BY key_group_info_view.tweaked_group_key;
 
 -- name: FetchGroupedAssets :many

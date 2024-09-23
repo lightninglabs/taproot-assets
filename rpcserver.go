@@ -922,7 +922,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 	case assetID != nil:
 		// Retrieve the current asset balance.
 		balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-			ctx, assetID,
+			ctx, assetID, true,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query asset balance: %w",
@@ -938,7 +938,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 	case groupPubKey != nil:
 		// Retrieve the current balance of the group.
 		balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-			ctx, groupPubKey,
+			ctx, groupPubKey, true,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query group balance: %w",
@@ -1106,9 +1106,12 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
-	assetID *asset.ID) (*taprpc.ListBalancesResponse, error) {
+	assetID *asset.ID, includeLeased bool) (*taprpc.ListBalancesResponse,
+	error) {
 
-	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(ctx, assetID)
+	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
+		ctx, assetID, includeLeased,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
 	}
@@ -1138,10 +1141,11 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 }
 
 func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
-	groupKey *btcec.PublicKey) (*taprpc.ListBalancesResponse, error) {
+	groupKey *btcec.PublicKey,
+	includeLeased bool) (*taprpc.ListBalancesResponse, error) {
 
 	balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-		ctx, groupKey,
+		ctx, groupKey, includeLeased,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1293,7 +1297,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 			copy(assetID[:], req.AssetFilter)
 		}
 
-		return r.listBalancesByAsset(ctx, assetID)
+		return r.listBalancesByAsset(ctx, assetID, req.IncludeLeased)
 
 	case *taprpc.ListBalancesRequest_GroupKey:
 		if !groupBy.GroupKey {
@@ -1310,7 +1314,9 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 			}
 		}
 
-		return r.listBalancesByGroupKey(ctx, groupKey)
+		return r.listBalancesByGroupKey(
+			ctx, groupKey, req.IncludeLeased,
+		)
 
 	default:
 		return nil, fmt.Errorf("invalid group_by")

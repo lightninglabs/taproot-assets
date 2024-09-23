@@ -115,8 +115,8 @@ type Querier interface {
 	// generate rows that have NULL values for the group key fields if an asset
 	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
-	QueryAssetBalancesByAsset(ctx context.Context, assetIDFilter []byte) ([]QueryAssetBalancesByAssetRow, error)
-	QueryAssetBalancesByGroup(ctx context.Context, keyGroupFilter []byte) ([]QueryAssetBalancesByGroupRow, error)
+	QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetBalancesByAssetParams) ([]QueryAssetBalancesByAssetRow, error)
+	QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetBalancesByGroupParams) ([]QueryAssetBalancesByGroupRow, error)
 	QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error)
 	QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAssetStatsPerDaySqliteParams) ([]QueryAssetStatsPerDaySqliteRow, error)
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)
