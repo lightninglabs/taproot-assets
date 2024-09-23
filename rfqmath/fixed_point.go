@@ -72,16 +72,45 @@ func (f FixedPoint[T]) ToFloat64() float64 {
 	return float
 }
 
-// Mul returns a new FixedPoint that is the result of multiplying the existing
-// int by the passed one.
+// Mul multiplies the current FixedPoint value by another and returns the result
+// as a new FixedPoint value.
 func (f FixedPoint[T]) Mul(other FixedPoint[T]) FixedPoint[T] {
-	multiplier := NewInt[T]().FromFloat(math.Pow10(int(f.Scale)))
+	// Multiply the coefficients of the two FixedPoint values.
+	coefficientProduct := f.Coefficient.Mul(other.Coefficient)
 
-	result := f.Coefficient.Mul(other.Coefficient).Div(multiplier)
+	// Our goals are twofold: to incorporate both scale values into the
+	// result and to avoid unnecessarily large scale values in the final
+	// result. A naive approach would be to set the final scale as the sum
+	// of the two scales, but this would result in an unnecessarily large
+	// scale.
+	//
+	// To minimize the final scale, we divide the product of the
+	// coefficients by the smaller of the two scale values. The larger scale
+	// is then used as the final scale for the result.
+	//
+	// Determine which fixed-point has the smaller and larger scale.
+	var (
+		smallScale uint8
+		bigScale   uint8
+	)
 
+	if other.Scale < f.Scale {
+		smallScale = other.Scale
+		bigScale = f.Scale
+	} else {
+		smallScale = f.Scale
+		bigScale = other.Scale
+	}
+
+	// Scale the coefficient product down using the smaller scale.
+	divisor := NewInt[T]().FromFloat(math.Pow10(int(smallScale)))
+	downScaleProduct := coefficientProduct.Div(divisor)
+
+	// Return a new FixedPoint with the adjusted coefficient and the
+	// larger scale.
 	return FixedPoint[T]{
-		Coefficient: result,
-		Scale:       f.Scale,
+		Coefficient: downScaleProduct,
+		Scale:       bigScale,
 	}
 }
 
