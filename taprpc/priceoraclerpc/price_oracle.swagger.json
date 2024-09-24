@@ -116,12 +116,34 @@
             "type": "string"
           },
           {
-            "name": "rate_tick_hint.rate",
-            "description": "rate is the exchange rate between the subject asset and the payment\nasset.",
+            "name": "rate_tick_hint.subjectAssetRate.coefficient",
+            "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64.",
             "in": "query",
             "required": false,
-            "type": "string",
-            "format": "uint64"
+            "type": "string"
+          },
+          {
+            "name": "rate_tick_hint.subjectAssetRate.scale",
+            "description": "The scale is the component that determines how many decimal places\nthe coefficient should be divided by to obtain the fractional value.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
+          },
+          {
+            "name": "rate_tick_hint.paymentAssetRate.coefficient",
+            "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64.",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "rate_tick_hint.paymentAssetRate.scale",
+            "description": "The scale is the component that determines how many decimal places\nthe coefficient should be divided by to obtain the fractional value.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           },
           {
             "name": "rate_tick_hint.expiry_timestamp",
@@ -162,6 +184,21 @@
         }
       },
       "description": "AssetSpecifier is a union type for specifying an asset by either its asset ID\nor group key."
+    },
+    "priceoraclerpcFixedPoint": {
+      "type": "object",
+      "properties": {
+        "coefficient": {
+          "type": "string",
+          "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64."
+        },
+        "scale": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The scale is the component that determines how many decimal places\nthe coefficient should be divided by to obtain the fractional value."
+        }
+      },
+      "description": "FixedPoint is a scaled integer representation of a fractional number.\n\nThis type consists of two integer fields: a coefficient and a scale.\nUsing this format enables precise and consistent representation of fractional\nnumbers while avoiding floating-point data types, which are prone to\nprecision errors.\n\nThe relationship between the fractional representation and its fixed-point\nrepresentation is expressed as:\n```\nV = F_c / (10^F_s)\n```\nwhere:\n\n* `V` is the fractional value.\n\n* `F_c` is the coefficient component of the fixed-point representation. It is\n   the scaled-up fractional value represented as an integer.\n\n* `F_s` is the scale component. It is an integer specifying how\n  many decimal places `F_c` should be divided by to obtain the fractional\n  representation."
     },
     "priceoraclerpcQueryRateTickErrResponse": {
       "type": "object",
@@ -205,10 +242,13 @@
     "priceoraclerpcRateTick": {
       "type": "object",
       "properties": {
-        "rate": {
-          "type": "string",
-          "format": "uint64",
-          "description": "rate is the exchange rate between the subject asset and the payment\nasset."
+        "subjectAssetRate": {
+          "$ref": "#/definitions/priceoraclerpcFixedPoint",
+          "description": "subjectAssetRate is the subject asset to BTC conversion rate\nrepresented as a fixed-point number. When the subject asset is BTC\nmilli-satoshis (msats), this field should be set to 100 billion since\nthere are 100 billion msats in a BTC."
+        },
+        "paymentAssetRate": {
+          "$ref": "#/definitions/priceoraclerpcFixedPoint",
+          "description": "paymentAssetRate is the payment asset to BTC conversion rate\nrepresented as a fixed-point number. When the payment asset is BTC\nmilli-satoshis (msats), this field should be set to 100 billion since\nthere are 100 billion msats in a BTC."
         },
         "expiry_timestamp": {
           "type": "string",

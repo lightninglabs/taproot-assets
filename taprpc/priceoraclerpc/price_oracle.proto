@@ -22,6 +22,39 @@ enum TransactionType {
     SALE = 1;
 }
 
+// FixedPoint is a scaled integer representation of a fractional number.
+//
+// This type consists of two integer fields: a coefficient and a scale.
+// Using this format enables precise and consistent representation of fractional
+// numbers while avoiding floating-point data types, which are prone to
+// precision errors.
+//
+// The relationship between the fractional representation and its fixed-point
+// representation is expressed as:
+// ```
+// V = F_c / (10^F_s)
+// ```
+// where:
+//
+// * `V` is the fractional value.
+//
+// * `F_c` is the coefficient component of the fixed-point representation. It is
+//    the scaled-up fractional value represented as an integer.
+//
+// * `F_s` is the scale component. It is an integer specifying how
+//   many decimal places `F_c` should be divided by to obtain the fractional
+//   representation.
+message FixedPoint {
+    // The coefficient is the fractional value scaled-up as an integer. This
+    // integer is represented as a string as it may be too large to fit in a
+    // uint64.
+    string coefficient = 1;
+
+    // The scale is the component that determines how many decimal places
+    // the coefficient should be divided by to obtain the fractional value.
+    uint32 scale = 2;
+}
+
 // RateTick is the internal unit used for asset conversions. A tick is 1/10000th
 // of a currency unit. It gives us up to 4 decimal places of precision (0.0001
 // or 0.01% or 1 bps). As an example, if the BTC/USD rate was $61,234.95, then
@@ -32,13 +65,21 @@ enum TransactionType {
 // NOTE: That if the payment asset is BTC, the rate tick will be given as
 // milli-satoshi per asset unit.
 message RateTick {
-    // rate is the exchange rate between the subject asset and the payment
-    // asset.
-    uint64 rate = 1;
+    // subjectAssetRate is the subject asset to BTC conversion rate
+    // represented as a fixed-point number. When the subject asset is BTC
+    // milli-satoshis (msats), this field should be set to 100 billion since
+    // there are 100 billion msats in a BTC.
+    FixedPoint subjectAssetRate = 1;
+
+    // paymentAssetRate is the payment asset to BTC conversion rate
+    // represented as a fixed-point number. When the payment asset is BTC
+    // milli-satoshis (msats), this field should be set to 100 billion since
+    // there are 100 billion msats in a BTC.
+    FixedPoint paymentAssetRate = 2;
 
     // expiry_timestamp is the Unix timestamp in seconds after which the rate
     // tick is no longer valid.
-    uint64 expiry_timestamp = 2;
+    uint64 expiry_timestamp = 3;
 }
 
 // AssetSpecifier is a union type for specifying an asset by either its asset ID
