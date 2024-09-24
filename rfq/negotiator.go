@@ -3,12 +3,14 @@ package rfq
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -330,14 +332,8 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		}
 
 		// Construct and send a buy accept message.
-		//
-		// TODO(ffranr): This is a temporary solution which will be
-		//  re-written once RFQ quote request messages are updated to
-		//  include a suggested asset rate.
-		askPrice := assetRate.Coefficient.ToUint64()
-
 		msg := rfqmsg.NewBuyAcceptFromRequest(
-			request, lnwire.MilliSatoshi(askPrice), rateExpiry,
+			request, *assetRate, rateExpiry,
 		)
 		sendOutgoingMsg(msg)
 	}()
@@ -648,24 +644,22 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			return
 		}
 
-		// TODO(ffranr): Temp solution.
-		oraclePrice := lnwire.MilliSatoshi(
-			assetRate.Coefficient.ToUint64(),
-		)
-
 		// Ensure that the peer provided price is reasonable given the
 		// price provided by the price oracle service.
-		acceptablePrice := pricesWithinBounds(
-			msg.AskPrice, oraclePrice,
-			n.cfg.AcceptPriceDeviationPpm,
+		tolerance := rfqmath.NewBigInt(
+			big.NewInt(0).SetUint64(n.cfg.AcceptPriceDeviationPpm),
+		)
+		acceptablePrice := msg.AssetRate.WithinTolerance(
+			*assetRate, tolerance,
 		)
 		if !acceptablePrice {
 			// The price is not within the acceptable tolerance.
 			// We will return without calling the quote accept
 			// callback.
 			log.Debugf("Buy accept price is not within "+
-				"acceptable bounds (peer_price=%d, "+
-				"oracle_price=%d)", msg.AskPrice, oraclePrice)
+				"acceptable bounds (ask_asset_rate=%v, "+
+				"oracle_asset_rate=%v)", msg.AssetRate,
+				assetRate)
 
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not

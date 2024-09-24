@@ -66,7 +66,8 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) acceptWireMsgData {
 	// we set the in-out rate tick instead of the out-in rate tick.
 	inOutRateTick := tlv.SomeRecordT[tlv.TlvType4](
 		tlv.NewPrimitiveRecord[tlv.TlvType4](
-			uint64(q.AskPrice),
+			// TODO(ffranr): Temp solution.
+			q.AssetRate.Coefficient.ToUint64(),
 		),
 	)
 
