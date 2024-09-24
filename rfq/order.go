@@ -79,6 +79,8 @@ type Policy interface {
 // AssetSalePolicy is a struct that holds the terms which determine whether an
 // asset sale channel HTLC is accepted or rejected.
 type AssetSalePolicy struct {
+	// ID is the unique identifier of the RFQ session that the policy is
+	// associated with.
 	ID rfqmsg.ID
 
 	// MaxAssetAmount is the maximum amount of the asset that is being
