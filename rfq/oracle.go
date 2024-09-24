@@ -8,10 +8,9 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -52,26 +51,15 @@ func (o *OracleError) Error() string {
 	return fmt.Sprintf("OracleError(code=%d, msg=%s)", o.Code, errMsg)
 }
 
-// OracleAskResponse is a struct that holds the price oracle's suggested ask
-// price for an asset.
-type OracleAskResponse struct {
-	// AskPrice is the asking price of the quote.
-	AskPrice *lnwire.MilliSatoshi
+// OracleResponse is a struct that holds the price oracle's suggested buy or
+// sell price for an asset swap.
+type OracleResponse struct {
+	// AssetRate is the asset to BTC rate. Other asset in the transfer is
+	// assumed to be BTC and therefore not included in the response.
+	AssetRate rfqmsg.BigIntFixedPoint
 
-	// Expiry is the price expiryDelay lifetime unix timestamp.
-	Expiry uint64
-
-	// Err is an optional error returned by the price oracle service.
-	Err *OracleError
-}
-
-// OracleBidResponse is a struct that holds the price oracle's suggested bid
-// price for an asset.
-type OracleBidResponse struct {
-	// BidPrice is the suggested bid price for the asset amount.
-	BidPrice *lnwire.MilliSatoshi
-
-	// Expiry is the price expiry lifetime unix timestamp in seconds.
+	// Expiry is the asset to BTC rate expiry lifetime unix timestamp. The
+	// rate is only valid until this time.
 	Expiry uint64
 
 	// Err is an optional error returned by the price oracle service.
@@ -121,7 +109,7 @@ type PriceOracle interface {
 	// from another peer to provide the specified asset amount.
 	QueryAskPrice(ctx context.Context, assetId *asset.ID,
 		assetGroupKey *btcec.PublicKey, assetAmount uint64,
-		suggestedBidPrice *lnwire.MilliSatoshi) (*OracleAskResponse,
+		assetRateHint *rfqmsg.BigIntFixedPoint) (*OracleResponse,
 		error)
 
 	// QueryBidPrice returns the bid price for a given asset amount.
@@ -129,7 +117,7 @@ type PriceOracle interface {
 	// to another peer to receive the specified asset amount.
 	QueryBidPrice(ctx context.Context, assetId *asset.ID,
 		assetGroupKey *btcec.PublicKey,
-		assetAmount uint64) (*OracleBidResponse, error)
+		assetAmount uint64) (*OracleResponse, error)
 }
 
 // RpcPriceOracle is a price oracle that uses an external RPC server to get
@@ -214,7 +202,7 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 // QueryAskPrice returns the ask price for the given asset amount.
 func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	bidPrice *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
+	assetRateHint *rfqmsg.BigIntFixedPoint) (*OracleResponse, error) {
 
 	// For now, we only support querying the ask price with an asset ID.
 	if assetId == nil {
@@ -232,13 +220,28 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 	// Construct the RPC rate tick hint.
 	var rateTickHint *oraclerpc.RateTick
-	if bidPrice != nil {
+	if assetRateHint != nil {
 		// Compute an expiry time using the default expiry delay.
 		expiryTimestamp := uint64(time.Now().Unix()) +
 			defaultRateTickExpirySeconds
 
+		// Marshal the subject asset rate.
+		subjectAssetRate, err := oraclerpc.MarshalBigIntFixedPoint(
+			*assetRateHint,
+		)
+		if err != nil {
+			return nil, err
+		}
+
 		rateTickHint = &oraclerpc.RateTick{
-			Rate:            uint64(*bidPrice),
+			SubjectAssetRate: subjectAssetRate,
+
+			// For now, we only support BTC as the payment asset.
+			PaymentAssetRate: &oraclerpc.FixedPoint{
+				Coefficient: rfqmsg.MilliSatPerBtc.Uint64(),
+				Scale:       0,
+			},
+
 			ExpiryTimestamp: expiryTimestamp,
 		}
 	}
@@ -273,10 +276,17 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 				"successful but rate tick is nil")
 		}
 
-		rate := lnwire.MilliSatoshi(result.Success.RateTick.Rate)
-		return &OracleAskResponse{
-			AskPrice: &rate,
-			Expiry:   result.Success.RateTick.ExpiryTimestamp,
+		// Unmarshal the subject asset to BTC rate.
+		rate, err := oraclerpc.UnmarshalFixedPoint(
+			result.Success.RateTick.SubjectAssetRate,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &OracleResponse{
+			AssetRate: *rate,
+			Expiry:    result.Success.RateTick.ExpiryTimestamp,
 		}, nil
 
 	case *oraclerpc.QueryRateTickResponse_Error:
@@ -285,7 +295,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 				"an error but error is nil")
 		}
 
-		return &OracleAskResponse{
+		return &OracleResponse{
 			Err: &OracleError{
 				Msg: result.Error.Message,
 			},
@@ -299,7 +309,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 // QueryBidPrice returns a bid price for the given asset amount.
 func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 	assetGroupKey *btcec.PublicKey,
-	maxAssetAmount uint64) (*OracleBidResponse, error) {
+	maxAssetAmount uint64) (*OracleResponse, error) {
 
 	// For now, we only support querying the ask price with an asset ID.
 	if assetId == nil {
@@ -345,10 +355,17 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 				"successful but rate tick is nil")
 		}
 
-		rate := lnwire.MilliSatoshi(result.Success.RateTick.Rate)
-		return &OracleBidResponse{
-			BidPrice: &rate,
-			Expiry:   result.Success.RateTick.ExpiryTimestamp,
+		// Unmarshal the subject asset to BTC rate.
+		rate, err := oraclerpc.UnmarshalFixedPoint(
+			result.Success.RateTick.SubjectAssetRate,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &OracleResponse{
+			AssetRate: *rate,
+			Expiry:    result.Success.RateTick.ExpiryTimestamp,
 		}, nil
 
 	case *oraclerpc.QueryRateTickResponse_Error:
@@ -357,7 +374,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 				"an error but error is nil")
 		}
 
-		return &OracleBidResponse{
+		return &OracleResponse{
 			Err: &OracleError{
 				Msg: result.Error.Message,
 			},
@@ -374,56 +391,59 @@ var _ PriceOracle = (*RpcPriceOracle)(nil)
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
 // It returns the suggested rate as the exchange rate.
 type MockPriceOracle struct {
-	expiryDelay  uint64
-	mSatPerAsset lnwire.MilliSatoshi
+	expiryDelay    uint64
+	assetToBtcRate rfqmsg.BigIntFixedPoint
 }
 
 // NewMockPriceOracle creates a new mock price oracle.
-func NewMockPriceOracle(expiryDelay, assetsPerBTC uint64) *MockPriceOracle {
-	mSatPerAsset := lnwire.NewMSatFromSatoshis(btcutil.SatoshiPerBitcoin) /
-		lnwire.MilliSatoshi(assetsPerBTC)
+func NewMockPriceOracle(expiryDelay,
+	assetRateCoefficient uint64) *MockPriceOracle {
 
 	return &MockPriceOracle{
-		expiryDelay:  expiryDelay,
-		mSatPerAsset: mSatPerAsset,
+		expiryDelay: expiryDelay,
+		assetToBtcRate: rfqmsg.NewBigIntFixedPoint(
+			assetRateCoefficient, 0,
+		),
 	}
 }
 
 // NewMockPriceOracleSatPerAsset creates a new mock price oracle with a
 // specified satoshis per asset rate.
 func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
-	satPerAsset btcutil.Amount) *MockPriceOracle {
+	assetRateCoefficient uint64) *MockPriceOracle {
 
 	return &MockPriceOracle{
-		expiryDelay:  expiryDelay,
-		mSatPerAsset: lnwire.NewMSatFromSatoshis(satPerAsset),
+		expiryDelay: expiryDelay,
+		assetToBtcRate: rfqmsg.NewBigIntFixedPoint(
+			assetRateCoefficient, 0,
+		),
 	}
 }
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
-	_ *lnwire.MilliSatoshi) (*OracleAskResponse, error) {
+	_ *rfqmsg.BigIntFixedPoint) (*OracleResponse, error) {
 
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
-	return &OracleAskResponse{
-		AskPrice: &m.mSatPerAsset,
-		Expiry:   expiry,
+	return &OracleResponse{
+		AssetRate: m.assetToBtcRate,
+		Expiry:    expiry,
 	}, nil
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
-	_ *btcec.PublicKey, _ uint64) (*OracleBidResponse, error) {
+	_ *btcec.PublicKey, _ uint64) (*OracleResponse, error) {
 
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay
 
-	return &OracleBidResponse{
-		BidPrice: &m.mSatPerAsset,
-		Expiry:   expiry,
+	return &OracleResponse{
+		AssetRate: m.assetToBtcRate,
+		Expiry:    expiry,
 	}, nil
 }
 
