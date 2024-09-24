@@ -33,6 +33,13 @@ type Int[N any] interface {
 	// Equals returns true if the two integers are equal.
 	Equals(other N) bool
 
+	// Gt returns true if the integer is greater than the other integer.
+	Gt(other N) bool
+
+	// Gte returns true if the integer is greater than or equal to the other
+	// integer.
+	Gte(other N) bool
+
 	// ToFloat converts the integer to a float.
 	ToFloat() float64
 
@@ -121,6 +128,17 @@ func (b GoInt[T]) Equals(other GoInt[T]) bool {
 	return b.value == other.value
 }
 
+// Gt returns true if the integer is greater than the other integer.
+func (b GoInt[T]) Gt(other GoInt[T]) bool {
+	return b.value > other.value
+}
+
+// Gte returns true if the integer is greater than or equal to the other
+// integer.
+func (b GoInt[T]) Gte(other GoInt[T]) bool {
+	return b.value >= other.value
+}
+
 // A compile-time constraint to ensure that the GoInt type implements the Int
 // interface.
 var _ Int[GoInt[uint]] = GoInt[uint]{}
@@ -206,6 +224,17 @@ func (b BigInt) ToUint64() uint64 {
 // Equals returns true if the two integers are equal.
 func (b BigInt) Equals(other BigInt) bool {
 	return b.value.Cmp(other.value) == 0
+}
+
+// Gt returns true if the integer is greater than the other integer.
+func (b BigInt) Gt(other BigInt) bool {
+	return b.value.Cmp(other.value) == 1
+}
+
+// Gte returns true if the integer is greater than or equal to the other
+// integer.
+func (b BigInt) Gte(other BigInt) bool {
+	return b.Equals(other) || b.Gt(other)
 }
 
 // A compile-time constraint to ensure that the BigInt type implements the Int
