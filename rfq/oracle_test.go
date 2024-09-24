@@ -10,7 +10,9 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -39,19 +41,29 @@ func (p *mockRpcPriceOracleServer) QueryRateTick(_ context.Context,
 
 	// Specify a default rate tick in case a rate tick hint is not provided.
 	expiry := time.Now().Add(5 * time.Minute).Unix()
-	rateTick := priceoraclerpc.RateTick{
-		Rate:            testRateTick,
-		ExpiryTimestamp: uint64(expiry),
+	subjectAssetRate := rfqmath.NewBigIntFixedPoint(testRateTick, 3)
+
+	// Marshal the subject asset rate to a fixed point.
+	subjectAssetFp, err := priceoraclerpc.MarshalBigIntFixedPoint(
+		subjectAssetRate,
+	)
+	if err != nil {
+		return nil, err
 	}
 
-	err := validateRateTickRequest(req)
+	rateTick := priceoraclerpc.RateTick{
+		SubjectAssetRate: subjectAssetFp,
+		ExpiryTimestamp:  uint64(expiry),
+	}
+
+	err = validateRateTickRequest(req)
 	if err != nil {
 		return nil, err
 	}
 
 	// If a rate tick hint is provided, return it as the rate tick.
 	if req.RateTickHint != nil {
-		rateTick.Rate = req.RateTickHint.Rate
+		rateTick.SubjectAssetRate = req.RateTickHint.SubjectAssetRate
 		rateTick.ExpiryTimestamp = req.RateTickHint.ExpiryTimestamp
 	}
 
@@ -139,8 +151,13 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	assetAmount := uint64(42)
 	bidPrice := lnwire.MilliSatoshi(tc.suggestedRateTick)
 
+	inAssetRate := rfqmath.NewBigIntFixedPoint(
+		tc.suggestedRateTick, 3,
+	)
+
 	resp, err := client.QueryAskPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount, &bidPrice,
+		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
+		fn.Some(inAssetRate),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -153,8 +170,10 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	require.NoError(t, err)
 
 	// The mock server should return the rate tick hint/bid.
-	require.NotNil(t, resp.AskPrice)
-	require.Equal(t, uint64(bidPrice), uint64(*resp.AskPrice))
+	require.NotNil(t, resp.AssetRate)
+	require.Equal(
+		t, uint64(bidPrice), resp.AssetRate.Coefficient.ToUint64(),
+	)
 
 	// Ensure that the expiry timestamp is in the future.
 	responseExpiry := time.Unix(int64(resp.Expiry), 0)
@@ -248,8 +267,8 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	require.NoError(t, err)
 
 	// The mock server should return the rate tick hint/ask.
-	require.NotNil(t, resp.BidPrice)
-	require.Equal(t, testRateTick, uint64(*resp.BidPrice))
+	require.NotNil(t, resp.AssetRate)
+	require.Equal(t, testRateTick, resp.AssetRate.Coefficient.ToUint64())
 
 	// Ensure that the expiry timestamp is in the future.
 	responseExpiry := time.Unix(int64(resp.Expiry), 0)
