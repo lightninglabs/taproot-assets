@@ -102,9 +102,12 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
 		ID:             quote.ID,
 		MaxAssetAmount: quote.Request.AssetAmount,
-		AskPrice:       quote.AskPrice,
-		expiry:         quote.Expiry,
-		assetID:        quote.Request.AssetID,
+		// TODO(ffranr): Temp solution.
+		AskPrice: lnwire.MilliSatoshi(
+			quote.AssetRate.Coefficient.ToUint64(),
+		),
+		expiry:  quote.Expiry,
+		assetID: quote.Request.AssetID,
 	}
 }
 

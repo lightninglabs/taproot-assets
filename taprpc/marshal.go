@@ -585,8 +585,9 @@ func MarshalAcceptedBuyQuoteEvent(
 		Id:          event.ID[:],
 		Scid:        uint64(event.ShortChannelId()),
 		AssetAmount: event.Request.AssetAmount,
-		AskPrice:    uint64(event.AskPrice),
-		Expiry:      event.Expiry,
+		// TODO(ffranr): Temp solution.
+		AskPrice: event.AssetRate.Coefficient.ToUint64(),
+		Expiry:   event.Expiry,
 	}
 }
 

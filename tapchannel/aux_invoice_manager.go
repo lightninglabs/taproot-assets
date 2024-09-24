@@ -213,7 +213,10 @@ func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
 		log.Debugf("Found buy quote for ID %x / SCID %d: %#v",
 			rfqID[:], rfqID.Scid(), buyQuote)
 
-		return buyQuote.AskPrice, nil
+		// TODO(ffranr): Temp solution.
+		return lnwire.MilliSatoshi(
+			buyQuote.AssetRate.Coefficient.ToUint64(),
+		), nil
 
 	case isSell:
 		log.Debugf("Found sell quote for ID %x / SCID %d: %#v",
