@@ -113,13 +113,14 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) requestWireMsgData {
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType3](q.AssetAmount)
 
 	var suggestedRateTick requestSuggestedTickRate
-	if uint64(q.BidPrice) != 0 {
+	q.SuggestedAssetRate.WhenSome(func(rate BigIntFixedPoint) {
 		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType4](
+			// TODO(ffranr): Temp solution.
 			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				uint64(q.BidPrice),
+				rate.Coefficient.ToUint64(),
 			),
 		)
-	}
+	})
 
 	var inAssetID requestInAssetID
 	if q.AssetID != nil {
