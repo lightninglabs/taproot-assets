@@ -161,12 +161,12 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		// We calculate a proposed bid price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
-		var bidPrice lnwire.MilliSatoshi
+		var assetRateBid *rfqmsg.BigIntFixedPoint
 
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for a bid price.
 			var err error
-			assetRate, _, err := n.queryBidFromPriceOracle(
+			assetRateBid, _, err = n.queryBidFromPriceOracle(
 				*buyOrder.Peer, buyOrder.AssetID,
 				buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
 			)
@@ -178,19 +178,12 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 					"price oracle for outgoing buy "+
 					"request: %v", err)
 			}
-
-			// TODO(ffranr): This is a temporary solution which will
-			//  be re-written once RFQ quote request messages are
-			//  updated to include a suggested asset rate.
-			bidPrice = lnwire.MilliSatoshi(
-				assetRate.Coefficient.ToUint64(),
-			)
 		}
 
 		request, err := rfqmsg.NewBuyRequest(
 			*buyOrder.Peer, buyOrder.AssetID,
 			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-			bidPrice,
+			assetRateBid,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
@@ -315,17 +308,10 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	go func() {
 		defer n.Wg.Done()
 
-		// TODO(ffranr): This is a temporary solution which will be
-		//  re-written once RFQ quote request messages are updated to
-		//  include a suggested asset rate.
-		suggestedAssetRate := rfqmsg.NewUint64FixedPoint(
-			uint64(request.BidPrice), 4,
-		)
-
 		// Query the price oracle for an asking price.
 		assetRate, rateExpiry, err := n.queryAskFromPriceOracle(
 			nil, request.AssetID, request.AssetGroupKey,
-			request.AssetAmount, &suggestedAssetRate,
+			request.AssetAmount, request.SuggestedAssetRate,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
