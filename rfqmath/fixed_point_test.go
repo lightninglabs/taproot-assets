@@ -2,6 +2,7 @@ package rfqmath
 
 import (
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -159,6 +160,375 @@ func testFromUint64[N Int[N]](t *rapid.T) {
 	require.Equal(t, coefficient, scaledBack.Coefficient.ToUint64())
 }
 
+// testCasesWithinTolerance is a table-driven test for the WithinTolerance
+// method.
+func testCasesWithinTolerance[N Int[N]](t *testing.T) {
+	type testCase struct {
+		// firstFp is the fixed-point to compare with secondFp.
+		firstFp FixedPoint[N]
+
+		// secondFp is the fixed-point to compare with firstFp.
+		secondFp FixedPoint[N]
+
+		// tolerancePpm is the tolerance in parts per million (PPM) that
+		// the second price can deviate from the first price and still
+		// be considered within bounds.
+		tolerancePpm uint64
+
+		// withinBounds is the expected result of the bounds check.
+		withinBounds bool
+	}
+
+	testCases := []testCase{
+		{
+			// Case where secondFp is 10% less than firstFp,
+			// tolerance allows 11.11% (111111 PPM). Diff within
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](1000000, 1),
+			secondFp:     FixedPointFromUint64[N](900000, 1),
+			tolerancePpm: 111111, // 11.11% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where firstFp is 15% less than secondFp,
+			// tolerance allows 17.65% (176470 PPM). Diff within
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](8_500_00, 1),
+			secondFp:     FixedPointFromUint64[N](1_000_000, 1),
+			tolerancePpm: 176470, // 17.65% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where firstFp is 15% less than secondFp,
+			// tolerance allows 17.65% (176470 PPM). Diff within
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](85_000, 3),
+			secondFp:     FixedPointFromUint64[N](100_000, 2),
+			tolerancePpm: 176470, // 17.65% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where secondFp is 15% less than firstFp,
+			// tolerance allows 10% (100000 PPM). Diff outside
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](85_000, 3),
+			secondFp:     FixedPointFromUint64[N](100_000, 2),
+			tolerancePpm: 100000, // 10% tolerance in PPM
+			withinBounds: false,
+		},
+		{
+			// Case where firstFp and secondFp are equal,
+			// tolerance is 0 PPM. Diff within bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 2),
+			secondFp:     FixedPointFromUint64[N](100_000, 4),
+			tolerancePpm: 0, // 0% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where firstFp and secondFp are equal,
+			// tolerance is 0 PPM. Diff within bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 2),
+			secondFp:     FixedPointFromUint64[N](100_000, 2),
+			tolerancePpm: 0, // 0% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where secondFp is 1% more than firstFp,
+			// tolerance allows 0.99% (9900 PPM). Diff outside
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 2),
+			secondFp:     FixedPointFromUint64[N](101_000, 3),
+			tolerancePpm: 9900, // 0.99% tolerance in PPM
+			withinBounds: false,
+		},
+		{
+			// Case where secondFp is 5% less than firstFp,
+			// tolerance allows 5% (50000 PPM). Diff within bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 1),
+			secondFp:     FixedPointFromUint64[N](95000, 2),
+			tolerancePpm: 50000, // 5% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where secondFp is greater than firstFp,
+			// tolerance allows 5% (50000 PPM). Diff within bounds.
+			firstFp: FixedPoint[N]{
+				Coefficient: NewInt[N]().FromUint64(314),
+				Scale:       2,
+			},
+			secondFp: FixedPoint[N]{
+				Coefficient: NewInt[N]().FromUint64(
+					314_159_265_359,
+				),
+				Scale: 11,
+			},
+
+			tolerancePpm: 50000, // 5% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where secondFp is 10% less than firstFp,
+			// tolerance allows 9% (90000 PPM). Diff outside bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 3),
+			secondFp:     FixedPointFromUint64[N](90_000, 1),
+			tolerancePpm: 90000, // 9% tolerance in PPM
+			withinBounds: false,
+		},
+		{
+			// Case where secondFp is 9% less than firstFp,
+			// tolerance allows 10% (100000 PPM). Diff within
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 4),
+			secondFp:     FixedPointFromUint64[N](91_000, 1),
+			tolerancePpm: 100000, // 10% tolerance in PPM
+			withinBounds: true,
+		},
+		{
+			// Case where both prices are zero, should be within
+			// bounds.
+			firstFp:      FixedPointFromUint64[N](0, 0),
+			secondFp:     FixedPointFromUint64[N](0, 0),
+			tolerancePpm: 1_000_00, // tolerance not effectual
+			withinBounds: true,
+		},
+		{
+			// Case where firstFp is zero and secondFp is
+			// non-zero, should not be within bounds.
+			firstFp:      FixedPointFromUint64[N](0, 0),
+			secondFp:     FixedPointFromUint64[N](100_000, 4),
+			tolerancePpm: 1_000_00, // tolerance not effectual
+			withinBounds: false,
+		},
+		{
+			// Case where secondFp is zero and firstFp is
+			// non-zero, should not be within bounds.
+			firstFp:      FixedPointFromUint64[N](100_000, 4),
+			secondFp:     FixedPointFromUint64[N](0, 0),
+			tolerancePpm: 1_000_00, // tolerance not effectual
+			withinBounds: false,
+		},
+	}
+
+	// Run the test cases.
+	for idx, tc := range testCases {
+		result := tc.firstFp.WithinTolerance(
+			tc.secondFp, NewInt[N]().FromUint64(tc.tolerancePpm),
+		)
+
+		// Compare bounds check result with expected test case within
+		// bounds flag.
+		require.Equal(
+			t, tc.withinBounds, result, "Test case %d failed", idx,
+		)
+	}
+}
+
+// testWithinToleranceEqualValues is a property-based test which ensures that
+// the WithinTolerance method returns true when the fixed-point values are equal
+// regardless of the tolerance.
+func testWithinToleranceEqualValues(t *rapid.T) {
+	tolerancePpm := rapid.Int64Min(0).Draw(t, "tolerance")
+
+	// Generate a random coefficient and scale.
+	coefficient := rapid.Int64Min(0).Draw(t, "coefficient")
+	scale := rapid.Uint8Range(0, 18).Draw(t, "scale")
+
+	// Create two identical FixedPoint[BigInt] values.
+	f1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient)),
+		Scale:       scale,
+	}
+
+	f2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient)),
+		Scale:       scale,
+	}
+
+	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
+
+	// The result should always be true when the fixed-point values
+	// are equal.
+	result := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	if !result {
+		t.Fatalf("WithinTolerance should be true when values " +
+			"are equal, but got false")
+	}
+}
+
+// testWithinToleranceZeroTolerance is a property-based test which ensures that
+// the WithinTolerance method returns true if both fixed-point values are equal
+// and the tolerance is zero.
+func testWithinToleranceZeroTolerance(t *rapid.T) {
+	// Use a tolerance of zero.
+	tolerancePpmBigInt := NewBigInt(big.NewInt(0))
+
+	// Generate two equal fixed-points.
+	coefficient := rapid.Int64Min(0).Draw(t, "coefficient")
+	scale := rapid.Uint8Range(0, 18).Draw(t, "scale")
+	f1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient)),
+		Scale:       scale,
+	}
+
+	f2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient)),
+		Scale:       scale,
+	}
+
+	require.True(t, f1.WithinTolerance(f2, tolerancePpmBigInt))
+}
+
+// testWithinToleranceSymmetric is a property-based test which ensures that the
+// WithinTolerance method is symmetric (swapping the order of the fixed-point
+// values does not change the result).
+func testWithinToleranceSymmetric(t *rapid.T) {
+	// Generate random coefficients, scales, and tolerance
+	coefficient := rapid.Int64Min(0).Draw(t, "coefficient_1")
+	coefficient2 := rapid.Int64Min(0).Draw(t, "coefficient_2")
+	scale1 := rapid.Uint8Range(0, 18).Draw(t, "scale_1")
+	scale2 := rapid.Uint8Range(0, 18).Draw(t, "scale_2")
+	tolerancePpm := rapid.Int64Range(0, 1_000_000).Draw(t, "tolerance")
+
+	f1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient)),
+		Scale:       scale1,
+	}
+
+	f2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient2)),
+		Scale:       scale2,
+	}
+
+	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
+
+	result1 := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	result2 := f2.WithinTolerance(f1, tolerancePpmBigInt)
+
+	if result1 != result2 {
+		t.Fatalf("WithinTolerance is not symmetric: "+
+			"f1.WithinTolerance(f2)=%v, "+
+			"f2.WithinTolerance(f1)=%v", result1, result2)
+	}
+}
+
+// testWithinToleranceMaxTolerance is a property-based test which ensures that
+// the WithinTolerance method returns true when the tolerance is at its maximum
+// value.
+func testWithinToleranceMaxTolerance(t *rapid.T) {
+	// Set tolerancePpm to any value above 100%.
+	tolerancePpm := rapid.Int64Min(1_000_000).Draw(t, "tolerance")
+	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
+
+	// Generate random fixed-point values.
+	coefficient1 := rapid.Int64Min(0).Draw(t, "coefficient_1")
+	scale1 := rapid.Uint8Range(0, 18).Draw(t, "scale_1")
+	f1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient1)),
+		Scale:       scale1,
+	}
+
+	coefficient2 := rapid.Int64Min(0).Draw(t, "coefficient_2")
+	scale2 := rapid.Uint8Range(0, 18).Draw(t, "scale_2")
+	f2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient2)),
+		Scale:       scale2,
+	}
+
+	// The result should always be true when tolerancePpm is at its max or
+	// larger.
+	result := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	if !result {
+		t.Fatalf("WithinTolerance should be true when tolerancePpm " +
+			"is large, but got false")
+	}
+}
+
+// testWithinToleranceFloatReproduce is a property-based test that verifies
+// the reproducibility of the WithinTolerance method's result using calculations
+// on float64 values.
+func testWithinToleranceFloatReproduce(t *rapid.T) {
+	// Generate a random tolerance in parts per million (PPM).
+	tolerancePpm := rapid.Int64Range(0, 1_000_000).Draw(t, "tolerance")
+	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
+
+	// Generate random fixed-point values.
+	coefficientsRange := rapid.Int64Range(0, 1_000_000_000)
+
+	coefficient1 := coefficientsRange.Draw(t, "coefficient_1")
+	scale1 := rapid.Uint8Range(0, 9).Draw(t, "scale_1")
+	f1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient1)),
+		Scale:       scale1,
+	}
+
+	coefficient2 := coefficientsRange.Draw(t, "coefficient_2")
+	scale2 := rapid.Uint8Range(0, 9).Draw(t, "scale_2")
+	f2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient2)),
+		Scale:       scale2,
+	}
+
+	// Compute the result using the WithinTolerance method.
+	result := f1.WithinTolerance(f2, tolerancePpmBigInt)
+
+	// Compute expected result using float64.
+	f1Float := f1.ToFloat64()
+	f2Float := f2.ToFloat64()
+
+	delta := math.Abs(f1Float - f2Float)
+	maxVal := math.Max(math.Abs(f1Float), math.Abs(f2Float))
+
+	tolerance := (float64(tolerancePpm) / 1_000_000) * maxVal
+
+	expected := delta <= tolerance
+
+	if result != expected {
+		t.Fatalf("WithinTolerance mismatch:\n"+
+			"f1 = %v (float: %f),\n"+
+			"f2 = %v (float: %f),\n"+
+			"tolerancePpm = %v,\n"+
+			"delta = %e,\n"+
+			"tolerance = %e,\n"+
+			"result = %v,\n"+
+			"expected = %v",
+			f1, f1Float, f2, f2Float, tolerancePpm, delta,
+			tolerance, result, expected)
+	}
+}
+
+// testWithinTolerance runs a series of tests to ensure the WithinTolerance
+// method behaves as expected.
+func testWithinTolerance(t *testing.T) {
+	t.Parallel()
+
+	t.Run("testcases_within_tolerance", testCasesWithinTolerance[BigInt])
+
+	t.Run(
+		"within_tolerance_equal_values",
+		rapid.MakeCheck(testWithinToleranceEqualValues),
+	)
+
+	t.Run(
+		"within_tolerance_zero_tolerance",
+		rapid.MakeCheck(testWithinToleranceZeroTolerance),
+	)
+
+	t.Run(
+		"within_tolerance_symmetric",
+		rapid.MakeCheck(testWithinToleranceSymmetric),
+	)
+
+	t.Run(
+		"within_tolerance_max_tolerance",
+		rapid.MakeCheck(testWithinToleranceMaxTolerance),
+	)
+
+	t.Run(
+		"within_tolerance_float_reproduce",
+		rapid.MakeCheck(testWithinToleranceFloatReproduce),
+	)
+}
+
 // TestFixedPoint runs a series of property-based tests on the FixedPoint type
 // exercising key invariant properties.
 func TestFixedPoint(t *testing.T) {
@@ -175,4 +545,6 @@ func TestFixedPoint(t *testing.T) {
 	t.Run("equality", rapid.MakeCheck(testEquality[BigInt]))
 
 	t.Run("from_uint64", rapid.MakeCheck(testFromUint64[BigInt]))
+
+	t.Run("within_tolerance", testWithinTolerance)
 }
