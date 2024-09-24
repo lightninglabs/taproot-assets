@@ -32,6 +32,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -6591,14 +6592,18 @@ func marshalPeerAcceptedBuyQuotes(
 		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
 	for scid, quote := range quotes {
+		rpcAskAssetRate := &rfqrpc.FixedPoint{
+			Coefficient: quote.AssetRate.Coefficient.ToUint64(),
+			Scale:       uint32(quote.AssetRate.Scale),
+		}
+
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:        quote.Peer.String(),
-			Id:          quote.ID[:],
-			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			// TODO(ffranr): Temp solution.
-			AskPrice: quote.AssetRate.Coefficient.ToUint64(),
-			Expiry:   quote.Expiry,
+			Peer:         quote.Peer.String(),
+			Id:           quote.ID[:],
+			Scid:         uint64(scid),
+			AssetAmount:  quote.Request.AssetAmount,
+			AskAssetRate: rpcAskAssetRate,
+			Expiry:       quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
@@ -7136,8 +7141,19 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	// Now that we have the accepted quote, we know the amount in Satoshi
 	// that we need to pay. We can now update the invoice with this amount.
-	mSatPerUnit := acceptedQuote.AskPrice
-	iReq.ValueMsat = int64(req.AssetAmount * mSatPerUnit)
+	askAssetRate := rfqmath.FixedPoint[rfqmath.GoInt[uint64]]{
+		Coefficient: rfqmath.NewGoInt(
+			acceptedQuote.AskAssetRate.Coefficient,
+		),
+		Scale: uint8(acceptedQuote.AskAssetRate.Scale),
+	}
+	assetAmount := rfqmath.FixedPoint[rfqmath.GoInt[uint64]]{
+		Coefficient: rfqmath.NewGoInt(req.AssetAmount),
+		Scale:       0,
+	}
+
+	valMsat := rfqmath.UnitsToMilliSatoshi(assetAmount, askAssetRate)
+	iReq.ValueMsat = int64(valMsat)
 
 	// The last step is to create a hop hint that includes the fake SCID of
 	// the quote, alongside the channel's routing policy. We need to choose
