@@ -11,6 +11,8 @@ import (
 	"net"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -45,18 +47,26 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 // getRateTick returns a rate tick for a given transaction type and subject
 // asset max amount.
 func getRateTick(transactionType oraclerpc.TransactionType,
-	subjectAssetMaxAmount uint64) oraclerpc.RateTick {
+	subjectAssetMaxAmount uint64) (oraclerpc.RateTick, error) {
 
 	// Determine the rate based on the transaction type.
-	var rate uint64
+	var subjectAssetRate rfqmsg.BigIntFixedPoint
 	if transactionType == oraclerpc.TransactionType_PURCHASE {
-		// The rate for a purchase transaction is 42,000 asset units per
-		// mSAT.
-		rate = 42_000
+		// As an example, the purchase rate is $42,000 per BTC. To
+		// increase precision, we represent this as 42 billion
+		// taproot asset units per BTC. Therefore, we scale the
+		// $42,000 per BTC rate by a factor of 10^6.
+		subjectAssetRate = rfqmath.FixedPointFromUint64[rfqmath.BigInt](
+			42_000, 6,
+		)
 	} else {
-		// The rate for a sale transaction is 40,000 asset units per
-		// mSAT.
-		rate = 40_000
+		// Our example sell rate will be lower at $40,000 per BTC. This
+		// rate will be represented as 40 billion taproot asset units
+		// per BTC. Therefore, we scale the $40,000 per BTC rate by a
+		// factor of 10^6.
+		subjectAssetRate = rfqmath.FixedPointFromUint64[rfqmath.BigInt](
+			40_000, 6,
+		)
 	}
 
 	// Set the rate expiry to 5 minutes by default.
@@ -68,10 +78,27 @@ func getRateTick(transactionType oraclerpc.TransactionType,
 		expiry = time.Now().Add(1 * time.Minute).Unix()
 	}
 
-	return oraclerpc.RateTick{
-		Rate:            rate,
-		ExpiryTimestamp: uint64(expiry),
+	// Marshal subject asset rate to RPC format.
+	rpcSubjectAssetToBtcRate, err := oraclerpc.MarshalBigIntFixedPoint(
+		subjectAssetRate,
+	)
+	if err != nil {
+		return oraclerpc.RateTick{}, err
 	}
+
+	// Marshal payment asset rate to RPC format.
+	rpcPaymentAssetToBtcRate, err := oraclerpc.MarshalBigIntFixedPoint(
+		rfqmsg.MilliSatPerBtc,
+	)
+	if err != nil {
+		return oraclerpc.RateTick{}, err
+	}
+
+	return oraclerpc.RateTick{
+		SubjectAssetRate: rpcSubjectAssetToBtcRate,
+		PaymentAssetRate: rpcPaymentAssetToBtcRate,
+		ExpiryTimestamp:  uint64(expiry),
+	}, nil
 }
 
 // QueryRateTick queries the rate tick for a given transaction type, subject
@@ -133,20 +160,29 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 	}
 
 	// Determine which rate tick to return.
-	var rateTick oraclerpc.RateTick
+	var (
+		rateTick oraclerpc.RateTick
+		err      error
+	)
 
 	if req.RateTickHint != nil {
 		// If a rate tick hint is provided, return it as the rate tick.
 		// In doing so, we effectively accept the rate tick proposed by
 		// our peer.
-		rateTick.Rate = req.RateTickHint.Rate
-		rateTick.ExpiryTimestamp = req.RateTickHint.ExpiryTimestamp
+		rateTick = oraclerpc.RateTick{
+			SubjectAssetRate: req.RateTickHint.SubjectAssetRate,
+			PaymentAssetRate: req.RateTickHint.PaymentAssetRate,
+			ExpiryTimestamp:  req.RateTickHint.ExpiryTimestamp,
+		}
 	} else {
 		// If a rate tick hint is not provided, fetch a rate tick from
 		// our internal system.
-		rateTick = getRateTick(
+		rateTick, err = getRateTick(
 			req.TransactionType, req.SubjectAssetMaxAmount,
 		)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	return &oraclerpc.QueryRateTickResponse{
