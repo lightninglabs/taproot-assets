@@ -74,6 +74,9 @@ func (f FixedPoint[T]) ToFloat64() float64 {
 
 // Mul returns a new FixedPoint that is the result of multiplying the existing
 // int by the passed one.
+//
+// NOTE: This function assumes that the scales of the two FixedPoint values are
+// identical. If the scales differ, the result may be incorrect.
 func (f FixedPoint[T]) Mul(other FixedPoint[T]) FixedPoint[T] {
 	multiplier := NewInt[T]().FromFloat(math.Pow10(int(f.Scale)))
 
@@ -87,6 +90,9 @@ func (f FixedPoint[T]) Mul(other FixedPoint[T]) FixedPoint[T] {
 
 // Div returns a new FixedPoint that is the result of dividing the existing int
 // by the passed one.
+//
+// NOTE: This function assumes that the scales of the two FixedPoint values are
+// identical. If the scales differ, the result may be incorrect.
 func (f FixedPoint[T]) Div(other FixedPoint[T]) FixedPoint[T] {
 	multiplier := NewInt[T]().FromFloat(math.Pow10(int(f.Scale)))
 
