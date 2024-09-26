@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -87,9 +88,8 @@ type AssetSalePolicy struct {
 	// requested.
 	MaxAssetAmount uint64
 
-	// AskPrice is the asking price of the quote in milli-satoshis per asset
-	// unit.
-	AskPrice lnwire.MilliSatoshi
+	// AskAssetRate is the quote's asking asset unit to BTC conversion rate.
+	AskAssetRate rfqmath.BigIntFixedPoint
 
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
@@ -104,12 +104,9 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
 		ID:             quote.ID,
 		MaxAssetAmount: quote.Request.AssetAmount,
-		// TODO(ffranr): Temp solution.
-		AskPrice: lnwire.MilliSatoshi(
-			quote.AssetRate.Coefficient.ToUint64(),
-		),
-		expiry:  quote.Expiry,
-		assetID: quote.Request.AssetID,
+		AskAssetRate:   quote.AssetRate,
+		expiry:         quote.Expiry,
+		assetID:        quote.Request.AssetID,
 	}
 }
 
@@ -128,7 +125,12 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(
 
 	// Check that the HTLC amount is not greater than the negotiated maximum
 	// amount.
-	maxOutboundAmount := lnwire.MilliSatoshi(c.MaxAssetAmount) * c.AskPrice
+	maxAssetAmount := rfqmath.NewBigIntFixedPoint(c.MaxAssetAmount, 0)
+
+	maxOutboundAmount := rfqmath.UnitsToMilliSatoshi(
+		maxAssetAmount, c.AskAssetRate,
+	)
+
 	if htlc.AmountOutMsat > maxOutboundAmount {
 		return fmt.Errorf("htlc out amount is greater than the policy "+
 			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
@@ -175,8 +177,15 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 		return nil, fmt.Errorf("policy has no asset ID")
 	}
 
-	outgoingAssetAmount := uint64(htlc.AmountOutMsat / c.AskPrice)
-	htlcBalance := rfqmsg.NewAssetBalance(*c.assetID, outgoingAssetAmount)
+	// Compute the outgoing asset amount given the msat outgoing amount and
+	// the asset to BTC rate.
+	outgoingAssetAmount := rfqmath.MilliSatoshiToUnits(
+		htlc.AmountOutMsat, c.AskAssetRate,
+	)
+	amt := outgoingAssetAmount.ScaleTo(0).ToUint64()
+
+	// Include the asset balance in the HTLC record.
+	htlcBalance := rfqmsg.NewAssetBalance(*c.assetID, amt)
 	htlcRecord := rfqmsg.NewHtlc(
 		[]*rfqmsg.AssetBalance{htlcBalance}, fn.Some(c.ID),
 	)
