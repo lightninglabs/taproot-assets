@@ -518,6 +518,8 @@ func expiryWithinBounds(expiryUnixTimestamp uint64,
 
 // priceWithinBounds returns true if the difference between the first price and
 // the second price is within the given tolerance (in parts per million (PPM)).
+//
+// TODO(ffranr): Replace with FixedPoint[T].WithinTolerance.
 func pricesWithinBounds(firstPrice lnwire.MilliSatoshi,
 	secondPrice lnwire.MilliSatoshi, tolerancePpm uint64) bool {
 

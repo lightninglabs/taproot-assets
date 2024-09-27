@@ -109,6 +109,53 @@ func (f FixedPoint[T]) Equals(other FixedPoint[T]) bool {
 	return f.Coefficient.Equals(other.Coefficient) && f.Scale == other.Scale
 }
 
+// WithinTolerance returns true if the two FixedPoint values are within the
+// given tolerance (in parts per million (PPM)).
+func (f FixedPoint[T]) WithinTolerance(
+	other FixedPoint[T], tolerancePpm T) bool {
+
+	// Determine the larger scale between the two fixed-point numbers.
+	// Both values will be scaled to this larger scale to ensure a
+	// consistent comparison.
+	var largerScale uint8
+	if f.Scale > other.Scale {
+		largerScale = f.Scale
+	} else {
+		largerScale = other.Scale
+	}
+
+	subjectFp := f.ScaleTo(largerScale)
+	otherFp := other.ScaleTo(largerScale)
+
+	var (
+		// delta will be the absolute difference between the two
+		// coefficients.
+		delta T
+
+		// maxCoefficient is the larger of the two coefficients.
+		maxCoefficient T
+	)
+	if subjectFp.Coefficient.Gt(otherFp.Coefficient) {
+		delta = subjectFp.Coefficient.Sub(otherFp.Coefficient)
+		maxCoefficient = subjectFp.Coefficient
+	} else {
+		delta = otherFp.Coefficient.Sub(subjectFp.Coefficient)
+		maxCoefficient = otherFp.Coefficient
+	}
+
+	// Calculate the tolerance in absolute terms based on the largest
+	// coefficient.
+	//
+	// tolerancePpm is parts per million, therefore we multiply the delta by
+	// 1,000,000 instead of dividing the tolerance.
+	scaledDelta := delta.Mul(NewInt[T]().FromUint64(1_000_000))
+
+	// Compare the scaled delta to the product of the maximum coefficient
+	// and the tolerance.
+	toleranceCoefficient := maxCoefficient.Mul(tolerancePpm)
+	return toleranceCoefficient.Gte(scaledDelta)
+}
+
 // FixedPointFromUint64 creates a new FixedPoint from the given integer and
 // scale. Note that the input here should be *unscaled*.
 func FixedPointFromUint64[N Int[N]](value uint64, scale uint8) FixedPoint[N] {
