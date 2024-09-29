@@ -46,6 +46,13 @@ func TestRejectEncodeDecode(t *testing.T) {
 			id:      id,
 			err:     ErrPriceOracleUnavailable,
 		},
+		{
+			testName: "empty error message",
+			peer:     route.Vertex{1, 2, 3},
+			version:  5,
+			id:       id,
+			err:      RejectErr{},
+		},
 	}
 
 	for _, tc := range testCases {
@@ -64,7 +71,8 @@ func TestRejectEncodeDecode(t *testing.T) {
 			// Assert that the decoded message is equal to the
 			// original message.
 			require.Equal(
-				tt, msg.rejectMsgData, decodedMsg.rejectMsgData,
+				tt, msg.rejectWireMsgData,
+				decodedMsg.rejectWireMsgData,
 			)
 		})
 	}
