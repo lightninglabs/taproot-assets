@@ -233,8 +233,9 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 		scid:            quote.ShortChannelId(),
 		AcceptedQuoteId: quote.ID,
 		AssetAmount:     quote.Request.AssetAmount,
-		BidPrice:        quote.BidPrice,
-		expiry:          quote.Expiry,
+		// TODO(ffranr): Temp solution.
+		BidPrice: lnwire.MilliSatoshi(quote.AssetRate.ToUint64()),
+		expiry:   quote.Expiry,
 	}
 }
 

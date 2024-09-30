@@ -570,8 +570,9 @@ func MarshalAcceptedSellQuoteEvent(
 		Id:          event.ID[:],
 		Scid:        uint64(event.ShortChannelId()),
 		AssetAmount: event.Request.AssetAmount,
-		BidPrice:    uint64(event.BidPrice),
-		Expiry:      event.Expiry,
+		// TODO(ffranr): Temp solution.
+		BidPrice: event.AssetRate.ToUint64(),
+		Expiry:   event.Expiry,
 	}
 }
 
