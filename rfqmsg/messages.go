@@ -7,7 +7,9 @@ import (
 	"errors"
 	"io"
 	"math"
+	"math/big"
 
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -196,4 +198,17 @@ type QuoteResponse interface {
 
 	// String returns a human-readable string representation of the message.
 	String() string
+}
+
+// BigIntFixedPoint is a fixed-point number with a BigInt coefficient.
+type BigIntFixedPoint = rfqmath.FixedPoint[rfqmath.BigInt]
+
+// NewBigIntFixedPoint creates a new BigInt fixed-point given a coefficient and
+// scale.
+func NewBigIntFixedPoint(coefficient uint64, scale uint8) BigIntFixedPoint {
+	cBigInt := new(big.Int).SetUint64(coefficient)
+	return BigIntFixedPoint{
+		Coefficient: rfqmath.NewBigInt(cBigInt),
+		Scale:       scale,
+	}
 }
