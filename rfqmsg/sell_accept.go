@@ -3,7 +3,7 @@ package rfqmsg
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -30,9 +30,8 @@ type SellAccept struct {
 	// message that this response is associated with.
 	ID ID
 
-	// BidPrice is the bid price that the message author is willing to pay
-	// for the asset that is for sale.
-	BidPrice lnwire.MilliSatoshi
+	// AssetRate is the accepted asset to BTC rate.
+	AssetRate rfqmath.BigIntFixedPoint
 
 	// Expiry is the bid price expiry lifetime unix timestamp.
 	Expiry uint64
@@ -43,16 +42,16 @@ type SellAccept struct {
 
 // NewSellAcceptFromRequest creates a new instance of an asset sell quote accept
 // message given an asset sell quote request message.
-func NewSellAcceptFromRequest(request SellRequest, bidPrice lnwire.MilliSatoshi,
-	expiry uint64) *SellAccept {
+func NewSellAcceptFromRequest(request SellRequest,
+	assetRate rfqmath.BigIntFixedPoint, expiry uint64) *SellAccept {
 
 	return &SellAccept{
-		Peer:     request.Peer,
-		Request:  request,
-		Version:  latestSellAcceptVersion,
-		ID:       request.ID,
-		BidPrice: bidPrice,
-		Expiry:   expiry,
+		Peer:      request.Peer,
+		Request:   request,
+		Version:   latestSellAcceptVersion,
+		ID:        request.ID,
+		AssetRate: assetRate,
+		Expiry:    expiry,
 	}
 }
 
@@ -72,23 +71,24 @@ func newSellAcceptFromWireMsg(wireMsg WireMessage,
 	// field (and not the in-out rate tick field) because this is the rate
 	// tick field populated in response to a peer initiated sell quote
 	// request.
-	var bidPrice lnwire.MilliSatoshi
+	var assetRate rfqmath.BigIntFixedPoint
 	msgData.OutInRateTick.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType5, uint64]) {
-			bidPrice = lnwire.MilliSatoshi(rate.Val)
+			// TODO(ffranr): Temp solution.
+			assetRate = rfqmath.NewBigIntFixedPoint(rate.Val, 0)
 		},
 	)
 
 	// Note that the `Request` field is populated later in the RFQ stream
 	// service.
 	return &SellAccept{
-		Peer:     wireMsg.Peer,
-		Request:  request,
-		Version:  msgData.Version.Val,
-		ID:       msgData.ID.Val,
-		BidPrice: bidPrice,
-		Expiry:   msgData.Expiry.Val,
-		sig:      msgData.Sig.Val,
+		Peer:      wireMsg.Peer,
+		Request:   request,
+		Version:   msgData.Version.Val,
+		ID:        msgData.ID.Val,
+		AssetRate: assetRate,
+		Expiry:    msgData.Expiry.Val,
+		sig:       msgData.Sig.Val,
 	}, nil
 }
 
@@ -135,9 +135,9 @@ func (q *SellAccept) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *SellAccept) String() string {
-	return fmt.Sprintf("SellAccept(peer=%x, id=%x, bid_price=%d, "+
-		"expiry=%d, scid=%d)", q.Peer[:], q.ID[:], q.BidPrice, q.Expiry,
-		q.ShortChannelId())
+	return fmt.Sprintf("SellAccept(peer=%x, id=%x, bid_asset_rate=%v, "+
+		"expiry=%d, scid=%d)", q.Peer[:], q.ID[:], q.AssetRate,
+		q.Expiry, q.ShortChannelId())
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
