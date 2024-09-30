@@ -75,9 +75,13 @@ const (
 )
 
 var (
-	// ErrUnknownMessageType is an error that is returned when an unknown
-	// message type is encountered.
+	// ErrUnknownMessageType is an error returned when an unknown message
+	// type is encountered.
 	ErrUnknownMessageType = errors.New("unknown message type")
+
+	// MilliSatPerBtc is the number of milli-satoshis in one bitcoin:
+	// 100 billion = 100 * (10^9).
+	MilliSatPerBtc = rfqmath.FixedPointFromUint64[rfqmath.BigInt](100, 9)
 )
 
 // WireMessage is a struct that represents a general wire message.
