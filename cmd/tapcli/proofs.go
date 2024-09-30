@@ -23,6 +23,7 @@ var proofCommands = []cli.Command{
 			verifyProofCommand,
 			decodeProofCommand,
 			exportProofCommand,
+			importProofCommand,
 			proveOwnershipCommand,
 			verifyOwnershipCommand,
 		},
@@ -271,6 +272,52 @@ func exportProof(ctx *cli.Context) error {
 	if ctx.String(proofPathName) != "" {
 		filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
 		return writeToFile(filePath, resp.RawProofFile)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var importProofCommand = cli.Command{
+	Name:      "importproof",
+	ShortName: "i",
+	Usage:     "import a taproot asset proof",
+	Description: `
+	Imports a taproot asset proof that contains the full provenance of an
+	asset. If the asset script key of the asset is known to the lnd node
+	the daemon is connected to, then this results in a spendable asset being
+	imported into the wallet.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: proofPathName,
+			Usage: "the path to the proof file on disk; use the " +
+				"dash character (-) to read from stdin instead",
+		},
+	},
+	Action: importProof,
+}
+
+func importProof(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	if ctx.String(proofPathName) == "" {
+		return cli.ShowSubcommandHelp(ctx)
+	}
+
+	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+	proofFile, err := readFile(filePath)
+	if err != nil {
+		return fmt.Errorf("unable to read proof file: %w", err)
+	}
+
+	resp, err := client.ImportProof(ctxc, &taprpc.ImportProofRequest{
+		ProofFile: proofFile,
+	})
+	if err != nil {
+		return fmt.Errorf("unable to import proof file: %w", err)
 	}
 
 	printRespJSON(resp)

@@ -100,6 +100,11 @@ type TaprootAssetsClient interface {
 	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
 	// asset transfers.
 	SubscribeSendEvents(ctx context.Context, in *SubscribeSendEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendEventsClient, error)
+	// tapcli: `dev importproof`
+	// ImportProof attempts to import a proof file into the daemon. If successful,
+	// a new asset will be inserted on disk, spendable using the specified target
+	// script key, and internal key.
+	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 }
 
 type taprootAssetsClient struct {
@@ -336,6 +341,15 @@ func (x *taprootAssetsSubscribeSendEventsClient) Recv() (*SendEvent, error) {
 	return m, nil
 }
 
+func (c *taprootAssetsClient) ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error) {
+	out := new(ImportProofResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ImportProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaprootAssetsServer is the server API for TaprootAssets service.
 // All implementations must embed UnimplementedTaprootAssetsServer
 // for forward compatibility
@@ -422,6 +436,11 @@ type TaprootAssetsServer interface {
 	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
 	// asset transfers.
 	SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error
+	// tapcli: `dev importproof`
+	// ImportProof attempts to import a proof file into the daemon. If successful,
+	// a new asset will be inserted on disk, spendable using the specified target
+	// script key, and internal key.
+	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	mustEmbedUnimplementedTaprootAssetsServer()
 }
 
@@ -488,6 +507,9 @@ func (UnimplementedTaprootAssetsServer) SubscribeReceiveEvents(*SubscribeReceive
 }
 func (UnimplementedTaprootAssetsServer) SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeSendEvents not implemented")
+}
+func (UnimplementedTaprootAssetsServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
 }
 func (UnimplementedTaprootAssetsServer) mustEmbedUnimplementedTaprootAssetsServer() {}
 
@@ -868,6 +890,24 @@ func (x *taprootAssetsSubscribeSendEventsServer) Send(m *SendEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _TaprootAssets_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ImportProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).ImportProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/ImportProof",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).ImportProof(ctx, req.(*ImportProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaprootAssets_ServiceDesc is the grpc.ServiceDesc for TaprootAssets service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -946,6 +986,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchAssetMeta",
 			Handler:    _TaprootAssets_FetchAssetMeta_Handler,
+		},
+		{
+			MethodName: "ImportProof",
+			Handler:    _TaprootAssets_ImportProof_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

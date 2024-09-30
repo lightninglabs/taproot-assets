@@ -19,7 +19,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
-	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -840,7 +839,7 @@ func testUnknownTlvType(t *harnessTest) {
 // using the development only ImportProof RPC on the destination node.
 func sendProof(t *harnessTest, src, dst *tapdHarness,
 	sendResp *taprpc.SendAssetResponse, scriptKey []byte,
-	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
+	genInfo *taprpc.GenesisInfo) *taprpc.ImportProofResponse {
 
 	proofResp := exportProof(t, src, sendResp, scriptKey, genInfo)
 	return importProof(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
@@ -892,12 +891,12 @@ func exportProof(t *harnessTest, src *tapdHarness,
 // importProof manually imports a proof using the development only ImportProof
 // RPC.
 func importProof(t *harnessTest, dst *tapdHarness, rawFile []byte,
-	genesisPoint string) *tapdevrpc.ImportProofResponse {
+	genesisPoint string) *taprpc.ImportProofResponse {
 
 	t.Logf("Importing proof %x", rawFile)
 
 	ctxb := context.Background()
-	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
+	importResp, err := dst.ImportProof(ctxb, &taprpc.ImportProofRequest{
 		ProofFile:    rawFile,
 		GenesisPoint: genesisPoint,
 	})
@@ -910,7 +909,7 @@ func importProof(t *harnessTest, dst *tapdHarness, rawFile []byte,
 // universe RPCs and then imports it into the destination node.
 func sendUniProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo, group *taprpc.AssetGroup,
-	outpoint string) *tapdevrpc.ImportProofResponse {
+	outpoint string) *taprpc.ImportProofResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -990,7 +989,7 @@ func sendUniProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 
 	t.Logf("Importing proof %x", buf.Bytes())
 
-	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
+	importResp, err := dst.ImportProof(ctxb, &taprpc.ImportProofRequest{
 		ProofFile:    buf.Bytes(),
 		GenesisPoint: genInfo.GenesisPoint,
 	})

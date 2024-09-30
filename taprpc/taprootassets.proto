@@ -128,6 +128,13 @@ service TaprootAssets {
     */
     rpc SubscribeSendEvents (SubscribeSendEventsRequest)
         returns (stream SendEvent);
+
+    /* tapcli: `dev importproof`
+    ImportProof attempts to import a proof file into the daemon. If successful,
+    a new asset will be inserted on disk, spendable using the specified target
+    script key, and internal key.
+    */
+    rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
 }
 
 enum AssetType {
@@ -1387,4 +1394,13 @@ message AnchorTransaction {
     The final, signed anchor transaction that was broadcast to the network.
     */
     bytes final_tx = 6;
+}
+
+message ImportProofRequest {
+    bytes proof_file = 1;
+
+    string genesis_point = 2;
+}
+
+message ImportProofResponse {
 }

@@ -1899,7 +1899,7 @@ func (r *rpcServer) ExportProof(ctx context.Context,
 // new asset will be inserted on disk, spendable using the specified target
 // script key, and internal key.
 func (r *rpcServer) ImportProof(ctx context.Context,
-	req *tapdevrpc.ImportProofRequest) (*tapdevrpc.ImportProofResponse,
+	req *taprpc.ImportProofRequest) (*taprpc.ImportProofResponse,
 	error) {
 
 	// We'll perform some basic input validation before we move forward.
@@ -1939,7 +1939,7 @@ func (r *rpcServer) ImportProof(ctx context.Context,
 		return nil, err
 	}
 
-	return &tapdevrpc.ImportProofResponse{}, nil
+	return &taprpc.ImportProofResponse{}, nil
 }
 
 // AddrReceives lists all receives for incoming asset transfers for addresses

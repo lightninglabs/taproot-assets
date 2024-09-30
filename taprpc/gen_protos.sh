@@ -26,6 +26,7 @@ tapchannelrpc/tapchannel.proto"
 
     # Generate the REST reverse proxy.
     annotationsFile=${file//proto/yaml}
+    echo $annotationsFile
     protoc -I/usr/local/include -I. \
       -I/tmp/build/.modcache/github.com/lightningnetwork/lnd@${LND_VERSION}/lnrpc \
       --grpc-gateway_out . \

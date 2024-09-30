@@ -88,6 +88,10 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/ImportProof": {{
+			Entity: "proofs",
+			Action: "write",
+		}},
 		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
 			Entity: "assets",
 			Action: "write",
@@ -280,10 +284,6 @@ var (
 			// This RPC is completely stateless and doesn't require
 			// any permissions to use.
 		},
-		"/tapdevrpc.TapDev/ImportProof": {{
-			Entity: "proofs",
-			Action: "write",
-		}},
 		"/tapdevrpc.TapDev/SubscribeSendAssetEventNtfns": {{
 			Entity: "assets",
 			Action: "write",

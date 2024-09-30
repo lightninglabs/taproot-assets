@@ -77,9 +77,6 @@
         }
       }
     },
-    "tapdevrpcImportProofResponse": {
-      "type": "object"
-    },
     "tapdevrpcProofTransferBackoffWaitEvent": {
       "type": "object",
       "properties": {

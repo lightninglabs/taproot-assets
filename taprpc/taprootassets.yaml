@@ -78,3 +78,7 @@ http:
     - selector: taprpc.TaprootAssets.SubscribeSendEvents
       post: "/v1/taproot-assets/events/asset-send"
       body: "*"
+
+    - selector: taprpc.TaprootAssets.ImportProof
+      post: "/v1/taproot-assets/proofs/import"
+      body: "*"

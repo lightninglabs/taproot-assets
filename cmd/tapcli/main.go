@@ -347,7 +347,6 @@ func main() {
 	app.Commands = append(app.Commands, proofCommands...)
 	app.Commands = append(app.Commands, rfqCommands...)
 	app.Commands = append(app.Commands, universeCommands...)
-	app.Commands = append(app.Commands, devCommands...)
 
 	if err := app.Run(os.Args); err != nil {
 		fatal(err)
