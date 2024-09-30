@@ -6,7 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -40,10 +40,11 @@ type SellRequest struct {
 	// peer intends to sell.
 	AssetAmount uint64
 
-	// AskPrice is the peer's proposed ask price for the asset amount. This
-	// is not the final price, but a suggested price that the requesting
-	// peer is willing to accept.
-	AskPrice lnwire.MilliSatoshi
+	// SuggestedAssetRate represents a proposed conversion rate between the
+	// subject asset and BTC. This rate is an initial suggestion intended to
+	// initiate the RFQ negotiation process and may differ from the final
+	// agreed rate.
+	SuggestedAssetRate fn.Option[BigIntFixedPoint]
 
 	// TODO(ffranr): Add expiry time for suggested ask price.
 }
@@ -51,7 +52,7 @@ type SellRequest struct {
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	askPrice lnwire.MilliSatoshi) (*SellRequest, error) {
+	suggestedAssetRate fn.Option[BigIntFixedPoint]) (*SellRequest, error) {
 
 	var id [32]byte
 	_, err := rand.Read(id[:])
@@ -60,13 +61,13 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	}
 
 	return &SellRequest{
-		Peer:          peer,
-		Version:       latestSellRequestVersion,
-		ID:            id,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   assetAmount,
-		AskPrice:      askPrice,
+		Peer:               peer,
+		Version:            latestSellRequestVersion,
+		ID:                 id,
+		AssetID:            assetID,
+		AssetGroupKey:      assetGroupKey,
+		AssetAmount:        assetAmount,
+		SuggestedAssetRate: suggestedAssetRate,
 	}, nil
 }
 
@@ -105,22 +106,25 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 	}
 
 	// Extract the suggested rate tick if provided.
-	var askPrice lnwire.MilliSatoshi
+	//
+	// TODO(ffranr): Temp solution.
+	var suggestedAssetRate fn.Option[BigIntFixedPoint]
 	msgData.SuggestedRateTick.WhenSome(
 		// nolint: lll
 		func(suggestedRateTick tlv.RecordT[tlv.TlvType4, uint64]) {
-			askPrice = lnwire.MilliSatoshi(suggestedRateTick.Val)
+			r := NewBigIntFixedPoint(suggestedRateTick.Val, 0)
+			suggestedAssetRate = fn.Some[BigIntFixedPoint](r)
 		},
 	)
 
 	req := SellRequest{
-		Peer:          wireMsg.Peer,
-		Version:       msgData.Version.Val,
-		ID:            msgData.ID.Val,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   msgData.AssetMaxAmount.Val,
-		AskPrice:      askPrice,
+		Peer:               wireMsg.Peer,
+		Version:            msgData.Version.Val,
+		ID:                 msgData.ID.Val,
+		AssetID:            assetID,
+		AssetGroupKey:      assetGroupKey,
+		AssetAmount:        msgData.AssetMaxAmount.Val,
+		SuggestedAssetRate: suggestedAssetRate,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -192,8 +196,9 @@ func (q *SellRequest) String() string {
 	}
 
 	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, ask_price=%d)", q.Peer[:],
-		q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount, q.AskPrice)
+		"asset_group_key=%x, asset_amount=%d, ask_asset_rate=%v)",
+		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount,
+		q.SuggestedAssetRate)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

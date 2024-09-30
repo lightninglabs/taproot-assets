@@ -456,12 +456,11 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		// We calculate a proposed ask price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
-		var askPrice lnwire.MilliSatoshi
+		var assetRate fn.Option[rfqmsg.BigIntFixedPoint]
 
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for an asking price.
-			var err error
-			assetRate, _, err := n.queryAskFromPriceOracle(
+			rate, _, err := n.queryAskFromPriceOracle(
 				order.Peer, order.AssetID, order.AssetGroupKey,
 				order.MaxAssetAmount,
 				fn.None[rfqmsg.BigIntFixedPoint](),
@@ -473,17 +472,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 				return
 			}
 
-			// TODO(ffranr): This is a temporary solution which will
-			//  be re-written once RFQ quote request messages are
-			//  updated to include a suggested asset rate.
-			askPrice = lnwire.MilliSatoshi(
-				assetRate.Coefficient.ToUint64(),
-			)
+			assetRate = fn.Some[rfqmsg.BigIntFixedPoint](*rate)
 		}
 
 		request, err := rfqmsg.NewSellRequest(
 			*order.Peer, order.AssetID, order.AssetGroupKey,
-			order.MaxAssetAmount, askPrice,
+			order.MaxAssetAmount, assetRate,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+
