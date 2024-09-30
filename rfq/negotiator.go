@@ -2,7 +2,6 @@ package rfq
 
 import (
 	"fmt"
-	"math"
 	"math/big"
 	"sync"
 	"time"
@@ -13,7 +12,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -502,39 +500,6 @@ func expiryWithinBounds(expiryUnixTimestamp uint64,
 	actualExpiry := time.Unix(int64(expiryUnixTimestamp), 0)
 	diff := actualExpiry.Unix() - time.Now().Unix()
 	return diff >= int64(minExpiryLifetime)
-}
-
-// priceWithinBounds returns true if the difference between the first price and
-// the second price is within the given tolerance (in parts per million (PPM)).
-//
-// TODO(ffranr): Replace with FixedPoint[T].WithinTolerance.
-func pricesWithinBounds(firstPrice lnwire.MilliSatoshi,
-	secondPrice lnwire.MilliSatoshi, tolerancePpm uint64) bool {
-
-	// Handle the case where both prices are zero.
-	if firstPrice == 0 && secondPrice == 0 {
-		return true
-	}
-
-	// Handle cases where either price is zero.
-	if firstPrice == 0 || secondPrice == 0 {
-		return false
-	}
-
-	firstP := float64(firstPrice)
-	secondP := float64(secondPrice)
-
-	// Calculate the absolute difference between both prices.
-	delta := math.Abs(firstP - secondP)
-
-	// Normalize the delta by dividing by the greater of the two prices.
-	normalisedDelta := delta / math.Max(firstP, secondP)
-
-	// Convert the fraction to parts per million (PPM).
-	deltaPpm := 1_000_000 * normalisedDelta
-
-	// Compare the difference to the tolerance.
-	return deltaPpm <= float64(tolerancePpm)
 }
 
 // HandleIncomingBuyAccept handles an incoming buy accept message. This method
