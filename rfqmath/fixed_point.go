@@ -3,6 +3,7 @@ package rfqmath
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"strconv"
 )
 
@@ -164,6 +165,19 @@ func FixedPointFromUint64[N Int[N]](value uint64, scale uint8) FixedPoint[N] {
 
 	return FixedPoint[N]{
 		Coefficient: scaleN.Mul(coefficientN),
+		Scale:       scale,
+	}
+}
+
+// BigIntFixedPoint is a fixed-point number with a BigInt coefficient.
+type BigIntFixedPoint = FixedPoint[BigInt]
+
+// NewBigIntFixedPoint creates a new BigInt fixed-point given a coefficient and
+// scale.
+func NewBigIntFixedPoint(coefficient uint64, scale uint8) BigIntFixedPoint {
+	cBigInt := new(big.Int).SetUint64(coefficient)
+	return BigIntFixedPoint{
+		Coefficient: NewBigInt(cBigInt),
 		Scale:       scale,
 	}
 }
