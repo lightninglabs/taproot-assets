@@ -218,7 +218,8 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 			"%x (SCID %d)", rfqID[:], rfqID.Scid())
 	}
 
-	mSatPerAssetUnit := quote.BidPrice
+	// TODO(ffranr): Temp solution.
+	mSatPerAssetUnit := lnwire.MilliSatoshi(quote.AssetRate.ToUint64())
 
 	// At this point we have acquired what we need to express the asset
 	// bandwidth expressed in satoshis. Before we return the result, we need
@@ -285,7 +286,9 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// nearest 10 units to avoid more than half an asset unit of rounding
 	// error that we would get if we did normal integer division (rounding
 	// down).
-	mSatPerAssetUnit := quote.BidPrice
+	//
+	// TODO(ffranr): Temp solution.
+	mSatPerAssetUnit := lnwire.MilliSatoshi(quote.AssetRate.ToUint64())
 	numAssetUnits := uint64(totalAmount*10/mSatPerAssetUnit) / 10
 
 	// We now know how many units we need. We take the asset ID from the

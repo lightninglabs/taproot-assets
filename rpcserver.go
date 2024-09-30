@@ -6625,8 +6625,9 @@ func marshalPeerAcceptedSellQuotes(
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
 			AssetAmount: quote.Request.AssetAmount,
-			BidPrice:    uint64(quote.BidPrice),
-			Expiry:      quote.Expiry,
+			// TODO(ffranr): Temp solution.
+			BidPrice: quote.AssetRate.ToUint64(),
+			Expiry:   quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
