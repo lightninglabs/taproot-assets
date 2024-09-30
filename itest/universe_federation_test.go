@@ -67,7 +67,7 @@ func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 	// Now that federation peer node is inactive, we'll mint some assets.
 	t.Logf("Minting assets on minting node")
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, mintingNode,
+		t.t, t.lndHarness.Miner().Client, mintingNode,
 		[]*mintrpc.MintAssetRequest{
 			simpleAssets[0], issuableAssets[0],
 		},

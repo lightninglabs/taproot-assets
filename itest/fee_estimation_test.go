@@ -64,7 +64,7 @@ func testFeeEstimation(t *harnessTest) {
 	// Mint some assets with a NP2WPKH input, which will give us an anchor
 	// output to spend for a transfer.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd, simpleAssets,
+		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
 	)
 
 	// Check the final fee rate of the mint TX.
@@ -76,7 +76,7 @@ func testFeeEstimation(t *harnessTest) {
 	// not adjust the fee rate of the TX after it was funded by our backing
 	// wallet.
 	AssertFeeRate(
-		t.t, t.lndHarness.Miner.Client, anchorAmounts[0],
+		t.t, t.lndHarness.Miner().Client, anchorAmounts[0],
 		&mintOutpoint.Hash, defaultFeeRate,
 	)
 
@@ -95,7 +95,7 @@ func testFeeEstimation(t *harnessTest) {
 
 	transferIdx := 0
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp, normalAssetId,
+		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp, normalAssetId,
 		[]uint64{splitAmount, splitAmount}, transferIdx, transferIdx+1,
 	)
 	transferIdx += 1
@@ -105,7 +105,7 @@ func testFeeEstimation(t *harnessTest) {
 
 	sendInputAmt := anchorAmounts[1] + 1000
 	AssertTransferFeeRate(
-		t.t, t.lndHarness.Miner.Client, sendResp, sendInputAmt,
+		t.t, t.lndHarness.Miner().Client, sendResp, sendInputAmt,
 		defaultFeeRate,
 	)
 
@@ -124,7 +124,7 @@ func testFeeEstimation(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr2)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp, normalAssetId,
+		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp, normalAssetId,
 		[]uint64{secondSplitAmount, secondSplitAmount},
 		transferIdx, transferIdx+1,
 	)
@@ -135,7 +135,7 @@ func testFeeEstimation(t *harnessTest) {
 
 	sendInputAmt = anchorAmounts[2] + 1000
 	AssertTransferFeeRate(
-		t.t, t.lndHarness.Miner.Client, sendResp, sendInputAmt,
+		t.t, t.lndHarness.Miner().Client, sendResp, sendInputAmt,
 		higherFeeRate,
 	)
 
@@ -179,7 +179,7 @@ func testFeeEstimation(t *harnessTest) {
 	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr3)
 
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp, normalAssetId,
+		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp, normalAssetId,
 		[]uint64{thirdSplitAmount, thirdSplitAmount},
 		transferIdx, transferIdx+1,
 	)
@@ -190,7 +190,7 @@ func testFeeEstimation(t *harnessTest) {
 
 	sendInputAmt = initialUTXOs[3].Amount + 1000
 	AssertTransferFeeRate(
-		t.t, t.lndHarness.Miner.Client, sendResp, sendInputAmt,
+		t.t, t.lndHarness.Miner().Client, sendResp, sendInputAmt,
 		lowFeeRate,
 	)
 }

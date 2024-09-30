@@ -177,7 +177,7 @@ type AuxLeaves struct {
 // NewAuxLeaves creates a new AuxLeaves record with the given local, remote,
 // incoming, and outgoing auxiliary leaves.
 func NewAuxLeaves(local, remote input.AuxTapLeaf, outgoing,
-	incoming input.AuxTapLeaves) AuxLeaves {
+	incoming input.HtlcAuxLeaves) AuxLeaves {
 
 	leaves := AuxLeaves{
 		OutgoingHtlcLeaves: tlv.NewRecordT[tlv.TlvType2](
@@ -467,8 +467,8 @@ func (c *Commitment) Bytes() []byte {
 // Leaves returns the auxiliary leaves that correspond to the commitment.
 func (c *Commitment) Leaves() lnwallet.CommitAuxLeaves {
 	leaves := lnwallet.CommitAuxLeaves{
-		OutgoingHtlcLeaves: make(input.AuxTapLeaves),
-		IncomingHtlcLeaves: make(input.AuxTapLeaves),
+		OutgoingHtlcLeaves: make(input.HtlcAuxLeaves),
+		IncomingHtlcLeaves: make(input.HtlcAuxLeaves),
 	}
 	c.AuxLeaves.Val.LocalAuxLeaf.WhenSome(
 		func(r tlv.RecordT[tlv.TlvType0, TapLeafRecord]) {
@@ -1076,9 +1076,7 @@ type HtlcAuxLeafMapRecord struct {
 
 // NewHtlcAuxLeafMapRecord creates a new HtlcAuxLeafMapRecord record with the
 // given HTLC aux leaves.
-func NewHtlcAuxLeafMapRecord(
-	leaves map[input.HtlcIndex]input.HtlcAuxLeaf) HtlcAuxLeafMapRecord {
-
+func NewHtlcAuxLeafMapRecord(leaves input.HtlcAuxLeaves) HtlcAuxLeafMapRecord {
 	if leaves == nil {
 		return HtlcAuxLeafMapRecord{}
 	}

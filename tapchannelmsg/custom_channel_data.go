@@ -356,7 +356,7 @@ func ParseCustomChannelData(msg proto.Message) error {
 				continue
 			}
 
-			if rpcChannel.CustomChannelData == nil {
+			if len(rpcChannel.CustomChannelData) == 0 {
 				continue
 			}
 
@@ -396,6 +396,46 @@ func ParseCustomChannelData(msg proto.Message) error {
 			if err != nil {
 				return fmt.Errorf("error replacing remote "+
 					"custom close data: %w", err)
+			}
+		}
+
+	case *lnrpc.Route:
+		if len(m.CustomChannelData) == 0 {
+			return nil
+		}
+
+		parsedHtlc, err := rfqmsg.DecodeHtlc(m.CustomChannelData)
+		if err != nil {
+			return fmt.Errorf("error parsing custom "+
+				"channel data: %w", err)
+		}
+
+		m.CustomChannelData, err = parsedHtlc.AsJson()
+		if err != nil {
+			return fmt.Errorf("error converting custom "+
+				"channel data to JSON: %w", err)
+		}
+
+	case *lnrpc.Invoice:
+		for idx := range m.Htlcs {
+			htlc := m.Htlcs[idx]
+
+			if len(htlc.CustomChannelData) == 0 {
+				continue
+			}
+
+			parsedHtlc, err := rfqmsg.DecodeHtlc(
+				htlc.CustomChannelData,
+			)
+			if err != nil {
+				return fmt.Errorf("error parsing custom "+
+					"channel data: %w", err)
+			}
+
+			htlc.CustomChannelData, err = parsedHtlc.AsJson()
+			if err != nil {
+				return fmt.Errorf("error converting custom "+
+					"channel data to JSON: %w", err)
 			}
 		}
 	}

@@ -12,8 +12,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
-	"github.com/lightningnetwork/lnd/lnwire"
+	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -26,40 +25,37 @@ const (
 // FetchLeavesFromView attempts to fetch the auxiliary leaves that correspond to
 // the passed aux blob, and pending fully evaluated HTLC view.
 func FetchLeavesFromView(chainParams *address.ChainParams,
-	chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
-	originalView *lnwallet.HtlcView, isOurCommit bool, ourBalance,
-	theirBalance lnwire.MilliSatoshi,
-	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
-	lnwallet.CommitSortFunc, error) {
+	in lnwl.CommitDiffAuxInput) lfn.Result[lnwl.CommitDiffAuxResult] {
 
-	none := lfn.None[lnwallet.CommitAuxLeaves]()
+	type returnType = lnwl.CommitDiffAuxResult
 
 	// If the channel has no custom blob, we don't need to do anything.
-	if chanState.CustomBlob.IsNone() {
-		return none, nil, nil
+	if in.ChannelState.CustomBlob.IsNone() {
+		return lfn.Ok(lnwl.CommitDiffAuxResult{})
 	}
 
 	chanAssetState, err := cmsg.DecodeOpenChannel(
-		chanState.CustomBlob.UnsafeFromSome(),
+		in.ChannelState.CustomBlob.UnsafeFromSome(),
 	)
 	if err != nil {
-		return none, nil, fmt.Errorf("unable to decode channel asset "+
-			"state: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to decode "+
+			"channel asset state: %w", err))
 	}
 
-	prevState, err := cmsg.DecodeCommitment(prevBlob)
+	prevState, err := cmsg.DecodeCommitment(in.PrevBlob)
 	if err != nil {
-		return none, nil, fmt.Errorf("unable to decode prev commit "+
-			"state: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to decode prev "+
+			"commit state: %w", err))
 	}
 
 	allocations, newCommitment, err := GenerateCommitmentAllocations(
-		prevState, chanState, chanAssetState, isOurCommit, ourBalance,
-		theirBalance, originalView, chainParams, keys,
+		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
+		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
+		in.KeyRing,
 	)
 	if err != nil {
-		return none, nil, fmt.Errorf("unable to generate allocations: "+
-			"%w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
+			"allocations: %w", err))
 	}
 
 	customCommitSort := func(tx *wire.MsgTx, cltvs []uint32,
@@ -70,28 +66,33 @@ func FetchLeavesFromView(chainParams *address.ChainParams,
 		)
 	}
 
-	return lfn.Some(newCommitment.Leaves()), customCommitSort, nil
+	return lfn.Ok(lnwl.CommitDiffAuxResult{
+		AuxLeaves: lfn.Some(newCommitment.Leaves()),
+		CommitSortFunc: lfn.Some[lnwl.CommitSortFunc](
+			customCommitSort,
+		),
+	})
 }
 
 // FetchLeavesFromCommit attempts to fetch the auxiliary leaves that correspond
 // to the passed aux blob, and an existing channel commitment.
 func FetchLeavesFromCommit(chainParams *address.ChainParams,
-	chanState *channeldb.OpenChannel, com channeldb.ChannelCommitment,
-	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
-	error) {
+	chanState lnwl.AuxChanState, com channeldb.ChannelCommitment,
+	keys lnwl.CommitmentKeyRing) lfn.Result[lnwl.CommitDiffAuxResult] {
 
-	none := lfn.None[lnwallet.CommitAuxLeaves]()
+	type returnType = lnwl.CommitDiffAuxResult
 
 	// If the commitment has no custom blob, we don't need to do anything.
 	if com.CustomBlob.IsNone() {
-		return none, nil
+		return lfn.Ok(lnwl.CommitDiffAuxResult{})
 	}
 
 	commitment, err := cmsg.DecodeCommitment(
 		com.CustomBlob.UnsafeFromSome(),
 	)
 	if err != nil {
-		return none, fmt.Errorf("unable to decode commitment: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to decode "+
+			"commitment: %w", err))
 	}
 
 	incomingHtlcs := commitment.IncomingHtlcAssets.Val.HtlcOutputs
@@ -119,8 +120,9 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 				keys, chainParams, htlcOutputs,
 			)
 			if err != nil {
-				return none, fmt.Errorf("unable to create "+
-					"second level HTLC leaf: %w", err)
+				return lfn.Err[returnType](fmt.Errorf("unable "+
+					"to create second level HTLC leaf: %w",
+					err))
 			}
 
 			existingLeaf := lfn.MapOption(
@@ -150,8 +152,9 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 				keys, chainParams, htlcOutputs,
 			)
 			if err != nil {
-				return none, fmt.Errorf("unable to create "+
-					"second level HTLC leaf: %w", err)
+				return lfn.Err[returnType](fmt.Errorf("unable "+
+					"to create second level HTLC leaf: %w",
+					err))
 			}
 
 			existingLeaf := lfn.MapOption(
@@ -169,76 +172,77 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 		}
 	}
 
-	return lfn.Some(commitment.Leaves()), nil
+	return lfn.Ok(lnwl.CommitDiffAuxResult{
+		AuxLeaves: lfn.Some(commitment.Leaves()),
+	})
 }
 
 // FetchLeavesFromRevocation attempts to fetch the auxiliary leaves
 // from a channel revocation that stores balance + blob information.
 func FetchLeavesFromRevocation(
-	rev *channeldb.RevocationLog) (lfn.Option[lnwallet.CommitAuxLeaves],
-	error) {
+	r *channeldb.RevocationLog) lfn.Result[lnwl.CommitDiffAuxResult] {
 
-	none := lfn.None[lnwallet.CommitAuxLeaves]()
+	type returnType = lnwl.CommitDiffAuxResult
 
-	// If the revocation has no custom blob, we don't need to do anything.
-	if rev.CustomBlob.ValOpt().IsNone() {
-		return none, nil
-	}
+	return lfn.MapOptionZ(
+		r.CustomBlob.ValOpt(),
+		func(blob tlv.Blob) lfn.Result[lnwl.CommitDiffAuxResult] {
+			commitment, err := cmsg.DecodeCommitment(blob)
+			if err != nil {
+				return lfn.Err[returnType](fmt.Errorf("unable "+
+					"to decode commitment: %w", err))
+			}
 
-	commitment, err := cmsg.DecodeCommitment(
-		rev.CustomBlob.ValOpt().UnsafeFromSome(),
+			return lfn.Ok(lnwl.CommitDiffAuxResult{
+				AuxLeaves: lfn.Some(commitment.Leaves()),
+			})
+		},
 	)
-	if err != nil {
-		return none, fmt.Errorf("unable to decode commitment: %w", err)
-	}
-
-	return lfn.Some(commitment.Leaves()), nil
 }
 
 // ApplyHtlcView serves as the state transition function for the custom
 // channel's blob. Given the old blob, and an HTLC view, then a new
 // blob should be returned that reflects the pending updates.
 func ApplyHtlcView(chainParams *address.ChainParams,
-	chanState *channeldb.OpenChannel, prevBlob tlv.Blob,
-	originalView *lnwallet.HtlcView, isOurCommit bool,
-	ourBalance, theirBalance lnwire.MilliSatoshi,
-	keys lnwallet.CommitmentKeyRing) (lfn.Option[tlv.Blob], error) {
+	in lnwl.CommitDiffAuxInput) lfn.Result[lfn.Option[tlv.Blob]] {
 
-	none := lfn.None[tlv.Blob]()
+	type returnType = lfn.Option[tlv.Blob]
 
 	// If the channel has no custom blob, we don't need to do anything.
-	if chanState.CustomBlob.IsNone() {
-		return none, nil
+	if in.ChannelState.CustomBlob.IsNone() {
+		return lfn.Ok(lfn.None[tlv.Blob]())
 	}
 
 	chanAssetState, err := cmsg.DecodeOpenChannel(
-		chanState.CustomBlob.UnsafeFromSome(),
+		in.ChannelState.CustomBlob.UnsafeFromSome(),
 	)
 	if err != nil {
-		return none, fmt.Errorf("unable to decode channel asset "+
-			"state: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to decode "+
+			"channel asset state: %w", err))
 	}
 
-	prevState, err := cmsg.DecodeCommitment(prevBlob)
+	prevState, err := cmsg.DecodeCommitment(in.PrevBlob)
 	if err != nil {
-		return none, fmt.Errorf("unable to decode prev commit state: "+
-			"%w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to decode prev "+
+			"commit state: %w", err))
 	}
 
 	_, newCommitment, err := GenerateCommitmentAllocations(
-		prevState, chanState, chanAssetState, isOurCommit, ourBalance,
-		theirBalance, originalView, chainParams, keys,
+		prevState, in.ChannelState, chanAssetState, in.WhoseCommit,
+		in.OurBalance, in.TheirBalance, in.UnfilteredView, chainParams,
+		in.KeyRing,
 	)
 	if err != nil {
-		return none, fmt.Errorf("unable to generate allocations: %w",
-			err)
+		return lfn.Err[returnType](fmt.Errorf("unable to generate "+
+			"allocations: %w", err))
 	}
 
 	var buf bytes.Buffer
 	err = newCommitment.Encode(&buf)
 	if err != nil {
-		return none, fmt.Errorf("unable to encode commitment: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to encode "+
+			"commitment: %w", err))
 	}
 
-	return lfn.Some(buf.Bytes()), nil
+	return lfn.Ok(lfn.Some(buf.Bytes()))
 }
