@@ -175,13 +175,14 @@ func newRequestWireMsgDataFromSell(q SellRequest) requestWireMsgData {
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType3](q.AssetAmount)
 
 	var suggestedRateTick requestSuggestedTickRate
-	if uint64(q.AskPrice) != 0 {
+	q.SuggestedAssetRate.WhenSome(func(rate BigIntFixedPoint) {
 		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType4](
+			// TODO(ffranr): Temp solution.
 			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				uint64(q.AskPrice),
+				rate.Coefficient.ToUint64(),
 			),
 		)
-	}
+	})
 
 	// We are constructing a sell request. Therefore, the requesting peer's
 	// outbound asset is the taproot asset, and the inbound asset is BTC.
