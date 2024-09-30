@@ -1,6 +1,7 @@
 package rfqmath
 
 import (
+	"fmt"
 	"math/big"
 
 	"golang.org/x/exp/constraints"
@@ -217,8 +218,21 @@ func (b BigInt) FromUint64(u uint64) BigInt {
 }
 
 // ToUint64 converts the integer to a uint64.
+//
+// TODO(ffranr): Remove this method in favour of ToUint64Safe.
 func (b BigInt) ToUint64() uint64 {
 	return b.value.Uint64()
+}
+
+// ToUint64Safe converts the integer to a `uint64`. It returns an error if the
+// integer is negative or exceeds the maximum value for `uint64`.
+func (b BigInt) ToUint64Safe() (uint64, error) {
+	if !b.value.IsUint64() {
+		return 0, fmt.Errorf("cannot convert %s to uint64",
+			b.value.String())
+	}
+
+	return b.value.Uint64(), nil
 }
 
 // Equals returns true if the two integers are equal.
