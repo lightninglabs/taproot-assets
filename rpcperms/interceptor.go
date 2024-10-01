@@ -413,6 +413,11 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 	return func(ctx context.Context, req interface{}, info *grpc.UnaryServerInfo,
 		handler grpc.UnaryHandler) (interface{}, error) {
 
+		if info.Server == nil {
+			return nil, fmt.Errorf("cannot handle call, server " +
+				"not ready")
+		}
+
 		if err := r.checkRPCState(info.Server); err != nil {
 			return nil, err
 		}
@@ -426,6 +431,10 @@ func (r *InterceptorChain) rpcStateUnaryServerInterceptor() grpc.UnaryServerInte
 func (r *InterceptorChain) rpcStateStreamServerInterceptor() grpc.StreamServerInterceptor {
 	return func(srv interface{}, ss grpc.ServerStream,
 		info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
+
+		if srv == nil {
+			return fmt.Errorf("srv is nil, can't check RPC state")
+		}
 
 		if err := r.checkRPCState(srv); err != nil {
 			return err
