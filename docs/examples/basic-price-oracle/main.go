@@ -7,13 +7,22 @@ package main
 
 import (
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
+	"log"
+	"math/big"
 	"net"
 	"time"
 
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 )
 
 const (
@@ -174,12 +183,76 @@ func startService(grpcServer *grpc.Server) error {
 	return grpcServer.Serve(grpcListener)
 }
 
+// Generate a self-signed TLS certificate and private key.
+func generateSelfSignedCert() (tls.Certificate, error) {
+	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	keyUsage := x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature
+	extKeyUsage := []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}
+	template := x509.Certificate{
+		SerialNumber: big.NewInt(1),
+		Subject: pkix.Name{
+			Organization: []string{"basic-price-oracle"},
+		},
+		NotBefore: time.Now(),
+		NotAfter:  time.Now().Add(24 * time.Hour), // Valid for 1 day
+
+		KeyUsage:              keyUsage,
+		ExtKeyUsage:           extKeyUsage,
+		BasicConstraintsValid: true,
+	}
+
+	certDER, err := x509.CreateCertificate(
+		rand.Reader, &template, &template, &privateKey.PublicKey,
+		privateKey,
+	)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	privateKeyBits, err := x509.MarshalECPrivateKey(privateKey)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	certPEM := pem.EncodeToMemory(
+		&pem.Block{Type: "CERTIFICATE", Bytes: certDER},
+	)
+	keyPEM := pem.EncodeToMemory(
+		&pem.Block{Type: "EC PRIVATE KEY", Bytes: privateKeyBits},
+	)
+
+	tlsCert, err := tls.X509KeyPair(certPEM, keyPEM)
+	if err != nil {
+		return tls.Certificate{}, err
+	}
+
+	return tlsCert, nil
+}
+
 func main() {
 	// Start the mock RPC price oracle service.
-	serverOpts := []grpc.ServerOption{
-		grpc.Creds(insecure.NewCredentials()),
+	//
+	// Generate self-signed certificate. This allows us to use TLS for the
+	// gRPC server.
+	tlsCert, err := generateSelfSignedCert()
+	if err != nil {
+		log.Fatalf("Failed to generate TLS certificate: %v", err)
 	}
-	backendService := grpc.NewServer(serverOpts...)
-	_ = startService(backendService)
-	backendService.Stop()
+
+	// Create the gRPC server with TLS
+	transportCredentials := credentials.NewTLS(&tls.Config{
+		Certificates: []tls.Certificate{tlsCert},
+	})
+	backendService := grpc.NewServer(grpc.Creds(transportCredentials))
+
+	err = startService(backendService)
+	if err != nil {
+		log.Fatalf("Start service error: %v", err)
+	}
+
+	backendService.GracefulStop()
 }
