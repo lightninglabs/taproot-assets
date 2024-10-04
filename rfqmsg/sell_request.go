@@ -105,15 +105,12 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 			"request")
 	}
 
-	// Extract the suggested rate tick if provided.
-	//
-	// TODO(ffranr): Temp solution.
+	// Extract the suggested asset to BTC rate if provided.
 	var suggestedAssetRate fn.Option[BigIntFixedPoint]
-	msgData.SuggestedRateTick.WhenSome(
-		// nolint: lll
-		func(suggestedRateTick tlv.RecordT[tlv.TlvType4, uint64]) {
-			r := NewBigIntFixedPoint(suggestedRateTick.Val, 0)
-			suggestedAssetRate = fn.Some[BigIntFixedPoint](r)
+	msgData.SuggestedAssetRate.WhenSome(
+		func(rate tlv.RecordT[tlv.TlvType4, TlvFixedPoint]) {
+			fp := rate.Val.IntoBigIntFixedPoint()
+			suggestedAssetRate = fn.Some[BigIntFixedPoint](fp)
 		},
 	)
 
@@ -164,7 +161,12 @@ func (q *SellRequest) ToWire() (WireMessage, error) {
 	}
 
 	// Formulate the message data.
-	msgData := newRequestWireMsgDataFromSell(*q)
+	msgData, err := newRequestWireMsgDataFromSell(*q)
+	if err != nil {
+		return WireMessage{}, fmt.Errorf("unable to create wire "+
+			"message from sell request: %w", err)
+	}
+
 	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
