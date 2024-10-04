@@ -218,9 +218,8 @@ type AssetPurchasePolicy struct {
 	// AssetAmount is the amount of the tap asset that is being requested.
 	AssetAmount uint64
 
-	// BidPrice is the milli-satoshi per asset unit price that was
-	// negotiated.
-	BidPrice lnwire.MilliSatoshi
+	// BidAssetRate is the quote's asset to BTC conversion rate.
+	BidAssetRate rfqmsg.BigIntFixedPoint
 
 	// expiry is the policy's expiry unix timestamp in seconds after which
 	// the policy is no longer valid.
@@ -233,9 +232,8 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 		scid:            quote.ShortChannelId(),
 		AcceptedQuoteId: quote.ID,
 		AssetAmount:     quote.Request.AssetAmount,
-		// TODO(ffranr): Temp solution.
-		BidPrice: lnwire.MilliSatoshi(quote.AssetRate.ToUint64()),
-		expiry:   quote.Expiry,
+		BidAssetRate:    quote.AssetRate,
+		expiry:          quote.Expiry,
 	}
 }
 
@@ -262,7 +260,13 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 			"accepted_quote_id=%v)", htlc, c.AcceptedQuoteId)
 	}
 
-	inboundAmountMSat := lnwire.MilliSatoshi(c.AssetAmount) * c.BidPrice
+	// Convert the inbound asset amount to millisatoshis and ensure that the
+	// outgoing HTLC amount is not more than the inbound asset amount.
+	assetAmt := rfqmsg.NewBigIntFixedPoint(c.AssetAmount, 0)
+	inboundAmountMSat := rfqmath.UnitsToMilliSatoshi(
+		assetAmt, c.BidAssetRate,
+	)
+
 	if inboundAmountMSat < htlc.AmountOutMsat {
 		return fmt.Errorf("htlc out amount is more than inbound "+
 			"asset amount in millisatoshis (htlc_out_msat=%d, "+
@@ -316,11 +320,15 @@ func (c *AssetPurchasePolicy) GenerateInterceptorResponse(
 	// unit to ensure that the fee logic in lnd does not reject the HTLC.
 	const roundingCorrection = 1
 	htlcAssetAmount := htlcRecord.Amounts.Val.Sum() + roundingCorrection
-	incomingValue := lnwire.MilliSatoshi(htlcAssetAmount) * c.BidPrice
+
+	assetAmt := rfqmsg.NewBigIntFixedPoint(htlcAssetAmount, 0)
+	incomingHtlcMsats := rfqmath.UnitsToMilliSatoshi(
+		assetAmt, c.BidAssetRate,
+	)
 
 	return &lndclient.InterceptedHtlcResponse{
 		Action:         lndclient.InterceptorActionResumeModified,
-		IncomingAmount: incomingValue,
+		IncomingAmount: incomingHtlcMsats,
 	}, nil
 }
 
