@@ -216,3 +216,54 @@ func NewBigIntFixedPoint(coefficient uint64, scale uint8) BigIntFixedPoint {
 		Scale:       scale,
 	}
 }
+
+// TlvFixedPoint is a fixed-point that can be TLV encode/decode.
+type TlvFixedPoint struct {
+	// fp is the underlying BigInt fixed-point.
+	fp BigIntFixedPoint
+}
+
+// NewTlvFixedPointFromBigInt creates a new fixed-point given a BigInt
+// fixed-point.
+func NewTlvFixedPointFromBigInt(fp BigIntFixedPoint) TlvFixedPoint {
+	return TlvFixedPoint{
+		fp: fp,
+	}
+}
+
+// NewTlvFixedPointFromUint64 creates a new fixed point record given a `uint64`
+// coefficient and scale.
+func NewTlvFixedPointFromUint64(coefficient uint64, scale uint8) TlvFixedPoint {
+	return TlvFixedPoint{
+		fp: NewBigIntFixedPoint(coefficient, scale),
+	}
+}
+
+// Record returns a TLV record that can be used to encode/decode an ID to/from a
+// TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (f *TlvFixedPoint) Record() tlv.Record {
+	recordSize := func() uint64 {
+		// 1 byte for the scale (uint8)
+		scaleLength := uint64(1)
+
+		coefficientBytesLength := uint64(len(f.fp.Coefficient.Bytes()))
+		return scaleLength + coefficientBytesLength
+	}
+
+	// Note that the type here is set to zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeDynamicRecord(
+		0, f, recordSize, TlvFixedPointEncoder,
+		TlvFixedPointDecoder,
+	)
+}
+
+// IntoBigIntFixedPoint converts the TlvFixedPoint to a BigIntFixedPoint.
+func (f *TlvFixedPoint) IntoBigIntFixedPoint() BigIntFixedPoint {
+	return BigIntFixedPoint{
+		Coefficient: f.fp.Coefficient,
+		Scale:       f.fp.Scale,
+	}
+}
