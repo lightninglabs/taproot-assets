@@ -5,7 +5,6 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
@@ -65,17 +64,9 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 			"from wire message of type %d", wireMsg.MsgType)
 	}
 
-	// Extract the rate tick from the in-out rate tick field. We use this
-	// field (and not the out-in rate tick field) because this is the rate
-	// tick field populated in response to a peer initiated buy quote
-	// request.
-	var assetRate rfqmath.BigIntFixedPoint
-	msgData.InOutRateTick.WhenSome(
-		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
-			// TODO(ffranr): Temp solution.
-			assetRate = rfqmath.NewBigIntFixedPoint(rate.Val, 0)
-		},
-	)
+	// Extract the in-asset to BTC rate. We use this field because we
+	// currently assume that the out-asset is BTC.
+	assetRate := msgData.InAssetRate.Val.IntoBigIntFixedPoint()
 
 	return &BuyAccept{
 		Peer:      wireMsg.Peer,
@@ -104,7 +95,12 @@ func (q *BuyAccept) ToWire() (WireMessage, error) {
 	}
 
 	// Encode message data component as TLV bytes.
-	msgData := newAcceptWireMsgDataFromBuy(*q)
+	msgData, err := newAcceptWireMsgDataFromBuy(*q)
+	if err != nil {
+		return WireMessage{}, fmt.Errorf("failed to derive accept "+
+			"wire message data from buy accept: %w", err)
+	}
+
 	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
