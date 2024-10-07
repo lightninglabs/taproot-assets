@@ -26,11 +26,11 @@ type acceptEncodeDecodeTC struct {
 // MsgData generates a acceptWireMsgData instance from the test case.
 func (tc acceptEncodeDecodeTC) MsgData() acceptWireMsgData {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
-	id := tlv.NewPrimitiveRecord[tlv.TlvType1](tc.id)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](tc.sig)
-	inAssetRate := tlv.NewRecordT[tlv.TlvType4](tc.inAssetRate)
-	outAssetRate := tlv.NewRecordT[tlv.TlvType5](tc.outAssetRate)
+	id := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.id)
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](tc.expiry)
+	sig := tlv.NewPrimitiveRecord[tlv.TlvType6](tc.sig)
+	inAssetRate := tlv.NewRecordT[tlv.TlvType8](tc.inAssetRate)
+	outAssetRate := tlv.NewRecordT[tlv.TlvType10](tc.outAssetRate)
 
 	return acceptWireMsgData{
 		Version:      version,

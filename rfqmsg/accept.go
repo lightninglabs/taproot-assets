@@ -22,39 +22,39 @@ type acceptWireMsgData struct {
 	Version tlv.RecordT[tlv.TlvType0, WireMsgDataVersion]
 
 	// ID is the unique identifier of the quote request.
-	ID tlv.RecordT[tlv.TlvType1, ID]
+	ID tlv.RecordT[tlv.TlvType2, ID]
 
 	// Expiry is the expiry Unix timestamp (in seconds) of the quote
 	// request. This timestamp defines the lifetime of both the suggested
 	// rate tick and the quote request.
-	Expiry tlv.RecordT[tlv.TlvType2, uint64]
+	Expiry tlv.RecordT[tlv.TlvType4, uint64]
 
 	// Sig is a signature over the serialized contents of the message.
-	Sig tlv.RecordT[tlv.TlvType3, [64]byte]
+	Sig tlv.RecordT[tlv.TlvType6, [64]byte]
 
 	// InAssetRate is the in-asset to BTC rate.
-	InAssetRate tlv.RecordT[tlv.TlvType4, TlvFixedPoint]
+	InAssetRate tlv.RecordT[tlv.TlvType8, TlvFixedPoint]
 
 	// OutAssetRate is the out-asset to BTC rate.
-	OutAssetRate tlv.RecordT[tlv.TlvType5, TlvFixedPoint]
+	OutAssetRate tlv.RecordT[tlv.TlvType10, TlvFixedPoint]
 }
 
 // newAcceptWireMsgDataFromBuy creates a new acceptWireMsgData from a buy
 // accept message.
 func newAcceptWireMsgDataFromBuy(q BuyAccept) (acceptWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
-	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](q.Expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](q.sig)
+	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](q.Expiry)
+	sig := tlv.NewPrimitiveRecord[tlv.TlvType6](q.sig)
 
 	// The rate provided in the buy acceptance message represents the
 	// exchange rate from the incoming asset to BTC.
 	rate := NewTlvFixedPointFromBigInt(q.AssetRate)
-	inAssetRate := tlv.NewRecordT[tlv.TlvType4](rate)
+	inAssetRate := tlv.NewRecordT[tlv.TlvType8](rate)
 
 	// Currently, only BTC is supported as the outgoing asset in buy
 	// request and accept messages.
-	outAssetRate := tlv.NewRecordT[tlv.TlvType5](
+	outAssetRate := tlv.NewRecordT[tlv.TlvType10](
 		NewTlvFixedPointFromBigInt(MilliSatPerBtc),
 	)
 
@@ -73,20 +73,20 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) (acceptWireMsgData, error) {
 // accept message.
 func newAcceptWireMsgDataFromSell(q SellAccept) (acceptWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
-	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](q.Expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](q.sig)
+	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](q.Expiry)
+	sig := tlv.NewPrimitiveRecord[tlv.TlvType6](q.sig)
 
 	// Currently, only BTC is supported as the incoming asset in sell
 	// request and accept messages.
-	inAssetRate := tlv.NewRecordT[tlv.TlvType4](
+	inAssetRate := tlv.NewRecordT[tlv.TlvType8](
 		NewTlvFixedPointFromBigInt(MilliSatPerBtc),
 	)
 
 	// The rate provided in the sell acceptance message represents the
 	// exchange rate from the outgoing asset to BTC.
 	rate := NewTlvFixedPointFromBigInt(q.AssetRate)
-	outAssetRate := tlv.NewRecordT[tlv.TlvType5](rate)
+	outAssetRate := tlv.NewRecordT[tlv.TlvType10](rate)
 
 	// Encode message data component as TLV bytes.
 	return acceptWireMsgData{
