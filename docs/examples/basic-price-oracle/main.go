@@ -6,6 +6,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
@@ -13,6 +14,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -68,15 +70,35 @@ type RpcPriceOracleServer struct {
 func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 	// Ensure that the subject asset is set.
 	if subjectAsset == nil {
+		logrus.Info("Subject asset is not set (nil)")
 		return false
 	}
 
-	// In this example we'll only support a single asset.
-	assetIdStr := subjectAsset.GetAssetIdStr()
-	supportedAssetId := "7b4336d33b019df9438e586f83c587ca00fa65602497b9" +
+	supportedAssetIdStr := "7b4336d33b019df9438e586f83c587ca00fa65602497b9" +
 		"3ace193e9ce53b1a67"
+	supportedAssetIdBytes, err := hex.DecodeString(supportedAssetIdStr)
+	if err != nil {
+		fmt.Println("Error decoding supported asset hex string:", err)
+		return false
+	}
 
-	return assetIdStr == supportedAssetId
+	// Check the subject asset bytes if set.
+	subjectAssetIdBytes := subjectAsset.GetAssetId()
+	if len(subjectAssetIdBytes) > 0 {
+		logrus.Infof("Subject asset ID bytes populated: %x",
+			supportedAssetIdBytes)
+		return bytes.Equal(supportedAssetIdBytes, subjectAssetIdBytes)
+	}
+
+	subjectAssetIdStr := subjectAsset.GetAssetIdStr()
+	if len(subjectAssetIdStr) > 0 {
+		logrus.Infof("Subject asset ID str populated: %s",
+			supportedAssetIdStr)
+		return subjectAssetIdStr == supportedAssetIdStr
+	}
+
+	logrus.Infof("Subject asset ID not set")
+	return false
 }
 
 // getRateTick returns a rate tick for a given transaction type and subject
