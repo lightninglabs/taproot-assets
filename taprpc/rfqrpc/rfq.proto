@@ -237,8 +237,9 @@ message PeerAcceptedSellQuote {
     // asset_amount is the amount of the subject asset.
     uint64 asset_amount = 4;
 
-    // bid_price is the price in milli-satoshi per asset unit.
-    uint64 bid_price = 5;
+    // bid_asset_rate is the asset to BTC conversion rate represented as a
+    // fixed-point number.
+    FixedPoint bid_asset_rate = 5;
 
     // The unix timestamp in seconds after which the quote is no longer valid.
     uint64 expiry = 6;
