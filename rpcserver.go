@@ -6616,25 +6616,31 @@ func marshalPeerAcceptedBuyQuotes(
 // marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
 // quotes into the RPC form. These are quotes that were requested by our node
 // and have been accepted by our peers.
-func marshalPeerAcceptedSellQuotes(
-	quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) []*rfqrpc.PeerAcceptedSellQuote {
+//
+// nolint: lll
+func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAccept) (
+	[]*rfqrpc.PeerAcceptedSellQuote, error) {
 
 	// Marshal the accepted quotes into the RPC form.
 	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
 	for scid, quote := range quotes {
+		rpcAssetRate := &rfqrpc.FixedPoint{
+			Coefficient: quote.AssetRate.Coefficient.String(),
+			Scale:       uint32(quote.AssetRate.Scale),
+		}
+
 		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
-			Peer:        quote.Peer.String(),
-			Id:          quote.ID[:],
-			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			// TODO(ffranr): Temp solution.
-			BidPrice: quote.AssetRate.ToUint64(),
-			Expiry:   quote.Expiry,
+			Peer:         quote.Peer.String(),
+			Id:           quote.ID[:],
+			Scid:         uint64(scid),
+			AssetAmount:  quote.Request.AssetAmount,
+			BidAssetRate: rpcAssetRate,
+			Expiry:       quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
 
-	return rpcQuotes
+	return rpcQuotes, nil
 }
 
 // QueryPeerAcceptedQuotes is used to query for quotes that were requested by
@@ -6654,7 +6660,13 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 			"quotes: %w", err)
 	}
 
-	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
+	rpcSellQuotes, err := marshalPeerAcceptedSellQuotes(
+		peerAcceptedSellQuotes,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling peer accepted sell "+
+			"quotes: %w", err)
+	}
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
 		BuyQuotes:  rpcBuyQuotes,
@@ -6684,11 +6696,18 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		acceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(event)
+		rpcAcceptedQuote, err := taprpc.MarshalAcceptedSellQuoteEvent(
+			event,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error marshalling accepted "+
+				"sell quote event: %w", err)
+		}
+
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
 			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
 				Timestamp:             uint64(timestamp),
-				PeerAcceptedSellQuote: acceptedQuote,
+				PeerAcceptedSellQuote: rpcAcceptedQuote,
 			},
 		}
 		return &rfqrpc.RfqEvent{
@@ -6987,10 +7006,23 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			return err
 		}
 
-		msatPerUnit := acceptedQuote.BidPrice
-		numUnits := uint64(*invoice.MilliSat) / msatPerUnit
-		rpcsLog.Infof("Got quote for %v asset units at %v msat/unit "+
-			"from peer %x with SCID %d", numUnits, msatPerUnit,
+		// Unmarshall the accepted quote's asset rate.
+		assetRate, err := rfqrpc.UnmarshalFixedPoint(
+			acceptedQuote.BidAssetRate,
+		)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling asset rate: %w",
+				err)
+		}
+
+		// Calculate the equivalent asset units for the given invoice
+		// amount based on the asset-to-BTC conversion rate.
+		numAssetUnits := rfqmath.MilliSatoshiToUnits(
+			*invoice.MilliSat, *assetRate,
+		)
+
+		rpcsLog.Infof("Got quote for %v asset units at %v asset/BTC "+
+			"from peer %x with SCID %d", numAssetUnits, assetRate,
 			peerPubKey, acceptedQuote.Scid)
 
 		var rfqID rfqmsg.ID
