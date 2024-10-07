@@ -14,7 +14,7 @@ import (
 const (
 	// latestSellRequestVersion is the latest supported sell request wire
 	// message data field version.
-	latestSellRequestVersion = V0
+	latestSellRequestVersion = V1
 )
 
 // SellRequest is a struct that represents a asset sell quote request.

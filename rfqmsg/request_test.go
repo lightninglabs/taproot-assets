@@ -121,7 +121,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 		{
 			testName: "in asset ID, out asset ID zero, " +
 				"no asset group keys, suggested tick rate",
-			version:            0,
+			version:            V1,
 			id:                 id,
 			expiry:             expiry,
 			assetMaxAmount:     1000,
@@ -134,7 +134,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +
 				"group keys",
-			version:            0,
+			version:            V1,
 			id:                 id,
 			expiry:             expiry,
 			assetMaxAmount:     1000,
@@ -147,7 +147,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 		{
 			testName: "in asset group key, out asset " +
 				"ID zero",
-			version:            0,
+			version:            V1,
 			id:                 id,
 			expiry:             expiry,
 			assetMaxAmount:     1000,
@@ -159,7 +159,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 		{
 			testName: "in asset ID zero, out asset " +
 				"group key",
-			version:            0,
+			version:            V1,
 			id:                 id,
 			expiry:             expiry,
 			assetMaxAmount:     1000,

@@ -14,7 +14,7 @@ import (
 const (
 	// latestBuyRequestVersion is the latest supported buy request wire
 	// message data field version.
-	latestBuyRequestVersion = V0
+	latestBuyRequestVersion = V1
 )
 
 // BuyRequest is a struct that represents an asset buy quote request.
