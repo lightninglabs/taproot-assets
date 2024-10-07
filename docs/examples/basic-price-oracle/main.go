@@ -15,10 +15,14 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"log"
 	"math/big"
 	"net"
+	"os"
 	"time"
+
+	"github.com/sirupsen/logrus"
 
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"google.golang.org/grpc"
@@ -29,6 +33,30 @@ const (
 	// serviceListenAddress is the listening address of the service.
 	serviceListenAddress = "localhost:8095"
 )
+
+// setupLogger sets up the logger to write logs to a file.
+func setupLogger() {
+	// Create a log file.
+	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
+	file, err := os.OpenFile("basic-price-oracle-example.log", flags, 0666)
+	if err != nil {
+		logrus.Fatalf("Failed to open log file: %v", err)
+	}
+
+	// Create a multi-writer to write to both stdout and the file.
+	multiWriter := io.MultiWriter(os.Stdout, file)
+
+	// Set the output of logrus to the multi-writer.
+	logrus.SetOutput(multiWriter)
+
+	// Set the log level (optional).
+	logrus.SetLevel(logrus.DebugLevel)
+
+	// Set the log format (optional).
+	logrus.SetFormatter(&logrus.TextFormatter{
+		FullTimestamp: true,
+	})
+}
 
 // RpcPriceOracleServer is a basic example RPC price oracle server.
 type RpcPriceOracleServer struct {
@@ -115,6 +143,8 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 	// Ensure that the payment asset is BTC. We only support BTC as the
 	// payment asset in this example.
 	if !oraclerpc.IsAssetBtc(req.PaymentAsset) {
+		logrus.Infof("Payment asset is not BTC: %v", req.PaymentAsset)
+
 		return &oraclerpc.QueryRateTickResponse{
 			Result: &oraclerpc.QueryRateTickResponse_Error{
 				Error: &oraclerpc.QueryRateTickErrResponse{
@@ -127,11 +157,15 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 
 	// Ensure that the subject asset is set.
 	if req.SubjectAsset == nil {
+		logrus.Info("Subject asset is not set")
 		return nil, fmt.Errorf("subject asset is not set")
 	}
 
 	// Ensure that the subject asset is supported.
 	if !isSupportedSubjectAsset(req.SubjectAsset) {
+		logrus.Infof("Unsupported subject asset ID str: %v\n",
+			req.SubjectAsset)
+
 		return &oraclerpc.QueryRateTickResponse{
 			Result: &oraclerpc.QueryRateTickResponse_Error{
 				Error: &oraclerpc.QueryRateTickErrResponse{
@@ -148,15 +182,23 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 		// If a rate tick hint is provided, return it as the rate tick.
 		// In doing so, we effectively accept the rate tick proposed by
 		// our peer.
+		logrus.Info("Suggested asset to BTC rate provided, " +
+			"returning rate as accepted rate")
+
 		rateTick.Rate = req.RateTickHint.Rate
 		rateTick.ExpiryTimestamp = req.RateTickHint.ExpiryTimestamp
 	} else {
 		// If a rate tick hint is not provided, fetch a rate tick from
 		// our internal system.
+		logrus.Info("Suggested asset to BTC rate not provided, " +
+			"querying internal system for rate")
+
 		rateTick = getRateTick(
 			req.TransactionType, req.SubjectAssetMaxAmount,
 		)
 	}
+
+	logrus.Infof("QueryRateTick returning rate: %v", rateTick.Rate)
 
 	return &oraclerpc.QueryRateTickResponse{
 		Result: &oraclerpc.QueryRateTickResponse_Success{
@@ -171,7 +213,8 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 // shut down.
 func startService(grpcServer *grpc.Server) error {
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", serviceListenAddress)
-	println("Starting RPC price oracle service at address: ", serviceAddr)
+	logrus.Infof("Starting RPC price oracle service at address: %s\n",
+		serviceAddr)
 
 	server := RpcPriceOracleServer{}
 	oraclerpc.RegisterPriceOracleServer(grpcServer, &server)
@@ -234,6 +277,8 @@ func generateSelfSignedCert() (tls.Certificate, error) {
 }
 
 func main() {
+	setupLogger()
+
 	// Start the mock RPC price oracle service.
 	//
 	// Generate self-signed certificate. This allows us to use TLS for the
