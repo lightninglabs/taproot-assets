@@ -12,7 +12,7 @@ import (
 const (
 	// latestAcceptWireMsgDataVersion is the latest supported quote accept
 	// wire message data field version.
-	latestAcceptWireMsgDataVersion = V0
+	latestAcceptWireMsgDataVersion = V1
 )
 
 // acceptWireMsgData is a struct that represents the message data field for
@@ -102,7 +102,7 @@ func newAcceptWireMsgDataFromSell(q SellAccept) (acceptWireMsgData, error) {
 // Validate ensures that the quote accept message is valid.
 func (m *acceptWireMsgData) Validate() error {
 	// Ensure the version specified in the version field is supported.
-	if m.Version.Val > latestAcceptWireMsgDataVersion {
+	if m.Version.Val != latestAcceptWireMsgDataVersion {
 		return fmt.Errorf("unsupported quote accept message data "+
 			"version: %d", m.Version.Val)
 	}

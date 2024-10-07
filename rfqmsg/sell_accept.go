@@ -9,7 +9,7 @@ import (
 const (
 	// latestSellAcceptVersion is the latest supported sell accept wire
 	// message data field version.
-	latestSellAcceptVersion = V0
+	latestSellAcceptVersion = V1
 )
 
 // SellAccept is a struct that represents a sell quote request accept message.

@@ -68,7 +68,7 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 		{
 			testName: "rand sig, in-out rate tick set, out-in " +
 				"rate tick unset",
-			version:      0,
+			version:      V1,
 			id:           id,
 			expiry:       expiry,
 			sig:          randSig,
@@ -78,7 +78,7 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 		{
 			testName: "zero sig, in-out rate tick unset, out-in " +
 				"rate tick set",
-			version:      0,
+			version:      V1,
 			id:           id,
 			expiry:       expiry,
 			sig:          zeroSig,
