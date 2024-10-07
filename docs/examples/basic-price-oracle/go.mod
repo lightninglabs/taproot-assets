@@ -8,6 +8,7 @@ replace github.com/lightninglabs/taproot-assets => ../../../
 
 require (
 	github.com/lightninglabs/taproot-assets v0.0.0
+	github.com/sirupsen/logrus v1.9.2
 	google.golang.org/grpc v1.59.0
 )
 
