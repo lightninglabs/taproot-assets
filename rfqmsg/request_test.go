@@ -34,9 +34,9 @@ type testCaseEncodeDecode struct {
 // Request generates a requestWireMsgData instance from the test case.
 func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
-	id := tlv.NewPrimitiveRecord[tlv.TlvType1](tc.id)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.expiry)
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType3](
+	id := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.id)
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](tc.expiry)
+	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](
 		tc.assetMaxAmount,
 	)
 
@@ -44,22 +44,22 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 	if tc.suggestedAssetRate != nil {
 		// We use a fixed-point scale of 2 here just for testing.
 		rate := NewTlvFixedPointFromUint64(*tc.suggestedAssetRate, 2)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType4](
-			tlv.NewRecordT[tlv.TlvType4](rate),
+		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+			tlv.NewRecordT[tlv.TlvType19](rate),
 		)
 	}
 
 	var inAssetID requestInAssetID
 	if tc.inAssetId != nil {
-		inAssetID = tlv.SomeRecordT[tlv.TlvType5](
-			tlv.NewPrimitiveRecord[tlv.TlvType5](*tc.inAssetId),
+		inAssetID = tlv.SomeRecordT[tlv.TlvType9](
+			tlv.NewPrimitiveRecord[tlv.TlvType9](*tc.inAssetId),
 		)
 	}
 
 	var inAssetGroupKey requestInAssetGroupKey
 	if tc.inAssetGroupKey != nil {
-		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType6](
-			tlv.NewPrimitiveRecord[tlv.TlvType6](
+		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType11](
+			tlv.NewPrimitiveRecord[tlv.TlvType11](
 				tc.inAssetGroupKey,
 			),
 		)
@@ -67,15 +67,15 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 
 	var outAssetID requestOutAssetID
 	if tc.outAssetId != nil {
-		outAssetID = tlv.SomeRecordT[tlv.TlvType7](
-			tlv.NewPrimitiveRecord[tlv.TlvType7](*tc.outAssetId),
+		outAssetID = tlv.SomeRecordT[tlv.TlvType13](
+			tlv.NewPrimitiveRecord[tlv.TlvType13](*tc.outAssetId),
 		)
 	}
 
 	var outAssetGroupKey requestOutAssetGroupKey
 	if tc.outAssetGroupKey != nil {
-		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType8](
-			tlv.NewPrimitiveRecord[tlv.TlvType8](
+		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType15](
+			tlv.NewPrimitiveRecord[tlv.TlvType15](
 				tc.outAssetGroupKey,
 			),
 		)
