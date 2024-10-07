@@ -18,7 +18,7 @@ const (
 
 	// latestRequestWireMsgDataVersion is the latest supported quote request
 	// wire message data field version.
-	latestRequestWireMsgDataVersion = V0
+	latestRequestWireMsgDataVersion = V1
 )
 
 type (
@@ -230,7 +230,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 // Validate ensures that the quote request is valid.
 func (m *requestWireMsgData) Validate() error {
 	// Ensure the version specified in the version field is supported.
-	if m.Version.Val > latestRequestWireMsgDataVersion {
+	if m.Version.Val != latestRequestWireMsgDataVersion {
 		return fmt.Errorf("unsupported quote request message data "+
 			"version: %d", m.Version.Val)
 	}
