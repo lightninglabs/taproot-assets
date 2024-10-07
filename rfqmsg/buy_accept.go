@@ -10,7 +10,7 @@ import (
 const (
 	// latestBuyAcceptVersion is the latest supported buy accept wire
 	// message data field version.
-	latestBuyAcceptVersion = V0
+	latestBuyAcceptVersion = V1
 )
 
 // BuyAccept is a struct that represents a buy quote request accept message.
