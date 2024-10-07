@@ -8,6 +8,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn"
@@ -172,6 +173,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
 	}
 
+	// localBalance is the total number of local asset units.
 	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
 
 	// There either already is an amount set in the HTLC (which would
@@ -218,8 +220,14 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 			"%x (SCID %d)", rfqID[:], rfqID.Scid())
 	}
 
-	// TODO(ffranr): Temp solution.
-	mSatPerAssetUnit := lnwire.MilliSatoshi(quote.AssetRate.ToUint64())
+	// Calculate the local available balance in the local asset unit,
+	// expressed in milli-satoshis.
+	localBalanceFp := rfqmsg.NewBigIntFixedPoint(
+		localBalance, 0,
+	)
+	availableBalanceMsat := rfqmath.UnitsToMilliSatoshi(
+		localBalanceFp, quote.AssetRate,
+	)
 
 	// At this point we have acquired what we need to express the asset
 	// bandwidth expressed in satoshis. Before we return the result, we need
@@ -231,7 +239,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 
 	// The available balance is the local asset unit expressed in
 	// milli-satoshis.
-	return lnwire.MilliSatoshi(localBalance) * mSatPerAssetUnit, nil
+	return availableBalanceMsat, nil
 }
 
 // ProduceHtlcExtraData is a function that, based on the previous custom record
@@ -282,14 +290,10 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// convert the BTC amount originally intended to be sent out into the
 	// corresponding number of assets, then reduce the number of satoshis of
 	// the HTLC to the bare minimum that can be materialized on chain.
-	// The bid price is in milli-satoshis per asset unit. We round to the
-	// nearest 10 units to avoid more than half an asset unit of rounding
-	// error that we would get if we did normal integer division (rounding
-	// down).
-	//
-	// TODO(ffranr): Temp solution.
-	mSatPerAssetUnit := lnwire.MilliSatoshi(quote.AssetRate.ToUint64())
-	numAssetUnits := uint64(totalAmount*10/mSatPerAssetUnit) / 10
+	numAssetUnitsFp := rfqmath.MilliSatoshiToUnits(
+		totalAmount, quote.AssetRate,
+	)
+	numAssetUnits := numAssetUnitsFp.ScaleTo(0).ToUint64()
 
 	// We now know how many units we need. We take the asset ID from the
 	// RFQ so the recipient can match it back to the quote.
@@ -303,9 +307,9 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// small (small satoshi or sub satoshi total value) or the price oracle
 	// has given a very high price for the asset.
 	if numAssetUnits == 0 {
-		return 0, nil, fmt.Errorf("asset unit price (%d mSat per "+
-			"asset unit) too high to represent HTLC value of %v",
-			mSatPerAssetUnit, totalAmount)
+		return 0, nil, fmt.Errorf("asset unit price (%v asset per "+
+			"BTC) too high to represent HTLC value of %v",
+			quote.AssetRate, totalAmount)
 	}
 
 	log.Debugf("Producing HTLC extra data for RFQ ID %x (SCID %d): "+
