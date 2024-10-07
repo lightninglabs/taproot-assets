@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"math/big"
@@ -214,5 +215,63 @@ func NewBigIntFixedPoint(coefficient uint64, scale uint8) BigIntFixedPoint {
 	return BigIntFixedPoint{
 		Coefficient: rfqmath.NewBigInt(cBigInt),
 		Scale:       scale,
+	}
+}
+
+// Uint64FixedPoint is a fixed point record that can be used to encode/decode a
+// fixed point number with a `uint64` coefficient to/from a TLV stream.
+type Uint64FixedPoint rfqmath.FixedPoint[rfqmath.GoInt[uint64]]
+
+// NewUint64FixedPointFromBigInt creates a new fixed-point given a BigInt
+// fixed-point.
+func NewUint64FixedPointFromBigInt(fp BigIntFixedPoint) (Uint64FixedPoint,
+	error) {
+
+	// Convert the BigInt coefficient to a uint64.
+	coefficient, err := fp.Coefficient.ToUint64Safe()
+	if err != nil {
+		return Uint64FixedPoint{}, fmt.Errorf("unable to convert "+
+			"BigInt coefficient to uint64: %w", err)
+	}
+
+	return Uint64FixedPoint{
+		Coefficient: rfqmath.NewGoInt(coefficient),
+		Scale:       fp.Scale,
+	}, nil
+}
+
+// NewUint64FixedPoint creates a new fixed point record given a fixed-point
+// coefficient and scale.
+func NewUint64FixedPoint(coefficient uint64, scale uint8) Uint64FixedPoint {
+	return Uint64FixedPoint{
+		Coefficient: rfqmath.NewGoInt(coefficient),
+		Scale:       scale,
+	}
+}
+
+// Record returns a TLV record that can be used to encode/decode an ID to/from a
+// TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (f *Uint64FixedPoint) Record() tlv.Record {
+	// The record size breaks down as follows:
+	// * 8 bytes for the coefficient (uint64).
+	// * 1 byte for the scale (uint8).
+	const recordSize = 8 + 1
+
+	// Note that the type here is set to zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeStaticRecord(
+		0, f, recordSize, Uint64FixedPointEncoder,
+		Uint64FixedPointDecoder,
+	)
+}
+
+// IntoBigIntFixedPoint converts the Uint64FixedPoint to a BigIntFixedPoint.
+func (f *Uint64FixedPoint) IntoBigIntFixedPoint() BigIntFixedPoint {
+	cBigInt := new(big.Int).SetUint64(f.Coefficient.ToUint64())
+	return BigIntFixedPoint{
+		Coefficient: rfqmath.NewBigInt(cBigInt),
+		Scale:       f.Scale,
 	}
 }

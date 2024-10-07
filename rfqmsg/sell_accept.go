@@ -4,13 +4,12 @@ import (
 	"fmt"
 
 	"github.com/lightningnetwork/lnd/routing/route"
-	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
 	// latestSellAcceptVersion is the latest supported sell accept wire
 	// message data field version.
-	latestSellAcceptVersion = V0
+	latestSellAcceptVersion = V1
 )
 
 // SellAccept is a struct that represents a sell quote request accept message.
@@ -66,17 +65,9 @@ func newSellAcceptFromWireMsg(wireMsg WireMessage,
 			wireMsg.MsgType)
 	}
 
-	// Extract the rate tick from the out-in rate tick field. We use this
-	// field (and not the in-out rate tick field) because this is the rate
-	// tick field populated in response to a peer initiated sell quote
-	// request.
-	var assetRate BigIntFixedPoint
-	msgData.OutInRateTick.WhenSome(
-		func(rate tlv.RecordT[tlv.TlvType5, uint64]) {
-			// TODO(ffranr): Temp solution.
-			assetRate = NewBigIntFixedPoint(rate.Val, 0)
-		},
-	)
+	// Extract the out-asset to BTC rate. We use this field because we
+	// currently assume that the in-asset is BTC.
+	assetRate := msgData.OutAssetRate.Val.IntoBigIntFixedPoint()
 
 	// Note that the `Request` field is populated later in the RFQ stream
 	// service.
@@ -108,7 +99,12 @@ func (q *SellAccept) ToWire() (WireMessage, error) {
 	}
 
 	// Formulate the message data.
-	msgData := newAcceptWireMsgDataFromSell(*q)
+	msgData, err := newAcceptWireMsgDataFromSell(*q)
+	if err != nil {
+		return WireMessage{}, fmt.Errorf("failed to derive accept "+
+			"wire message data from sell accept: %w", err)
+	}
+
 	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
