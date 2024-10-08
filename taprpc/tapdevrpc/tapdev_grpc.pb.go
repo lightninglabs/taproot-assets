@@ -18,11 +18,6 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TapDevClient interface {
-	// tapcli: `dev importproof`
-	// ImportProof attempts to import a proof file into the daemon. If successful,
-	// a new asset will be inserted on disk, spendable using the specified target
-	// script key, and internal key.
-	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 	// SubscribeSendAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeSendAssetEventNtfnsClient, error)
@@ -37,15 +32,6 @@ type tapDevClient struct {
 
 func NewTapDevClient(cc grpc.ClientConnInterface) TapDevClient {
 	return &tapDevClient{cc}
-}
-
-func (c *tapDevClient) ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error) {
-	out := new(ImportProofResponse)
-	err := c.cc.Invoke(ctx, "/tapdevrpc.TapDev/ImportProof", in, out, opts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *tapDevClient) SubscribeSendAssetEventNtfns(ctx context.Context, in *SubscribeSendAssetEventNtfnsRequest, opts ...grpc.CallOption) (TapDev_SubscribeSendAssetEventNtfnsClient, error) {
@@ -116,11 +102,6 @@ func (x *tapDevSubscribeReceiveAssetEventNtfnsClient) Recv() (*ReceiveAssetEvent
 // All implementations must embed UnimplementedTapDevServer
 // for forward compatibility
 type TapDevServer interface {
-	// tapcli: `dev importproof`
-	// ImportProof attempts to import a proof file into the daemon. If successful,
-	// a new asset will be inserted on disk, spendable using the specified target
-	// script key, and internal key.
-	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	// SubscribeSendAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset sending process.
 	SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TapDev_SubscribeSendAssetEventNtfnsServer) error
@@ -134,9 +115,6 @@ type TapDevServer interface {
 type UnimplementedTapDevServer struct {
 }
 
-func (UnimplementedTapDevServer) ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method ImportProof not implemented")
-}
 func (UnimplementedTapDevServer) SubscribeSendAssetEventNtfns(*SubscribeSendAssetEventNtfnsRequest, TapDev_SubscribeSendAssetEventNtfnsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeSendAssetEventNtfns not implemented")
 }
@@ -154,24 +132,6 @@ type UnsafeTapDevServer interface {
 
 func RegisterTapDevServer(s grpc.ServiceRegistrar, srv TapDevServer) {
 	s.RegisterService(&TapDev_ServiceDesc, srv)
-}
-
-func _TapDev_ImportProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ImportProofRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(TapDevServer).ImportProof(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/tapdevrpc.TapDev/ImportProof",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TapDevServer).ImportProof(ctx, req.(*ImportProofRequest))
-	}
-	return interceptor(ctx, in, info, handler)
 }
 
 func _TapDev_SubscribeSendAssetEventNtfns_Handler(srv interface{}, stream grpc.ServerStream) error {
@@ -222,12 +182,7 @@ func (x *tapDevSubscribeReceiveAssetEventNtfnsServer) Send(m *ReceiveAssetEvent)
 var TapDev_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "tapdevrpc.TapDev",
 	HandlerType: (*TapDevServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "ImportProof",
-			Handler:    _TapDev_ImportProof_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "SubscribeSendAssetEventNtfns",

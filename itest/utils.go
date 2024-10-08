@@ -507,7 +507,7 @@ func ConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 
 func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	tapClient *tapdHarness, commitVersion commitment.TapCommitmentVersion,
-	req *mintrpc.MintAsset) (*taprpc.Asset, *tapdevrpc.ImportProofRequest) {
+	req *mintrpc.MintAsset) (*taprpc.Asset, *taprpc.ImportProofRequest) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -668,7 +668,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	require.NoError(t.t, err)
 	require.True(t.t, proof.IsProofFile(proofBlob))
 
-	importReq := tapdevrpc.ImportProofRequest{
+	importReq := taprpc.ImportProofRequest{
 		ProofFile:    proofBlob,
 		GenesisPoint: genesisOutpoint.String(),
 	}

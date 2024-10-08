@@ -3,8 +3,6 @@ config_version: 3
 
 http:
   rules:
-    - selector: tapdevrpc.TapDev.ImportProof
-      
     - selector: tapdevrpc.TapDev.SubscribeSendAssetEventNtfns
 
     - selector: tapdevrpc.TapDev.SubscribeReceiveAssetEventNtfns
