@@ -221,6 +221,22 @@ func (b BigInt) ToUint64() uint64 {
 	return b.value.Uint64()
 }
 
+// Bytes returns the absolute value of b as a big-endian byte slice.
+func (b BigInt) Bytes() []byte {
+	return b.value.Bytes()
+}
+
+// FromBytes interprets `buf` as a big-endian unsigned integer and returns a new
+// BigInt with that value.
+func (b BigInt) FromBytes(buf []byte) BigInt {
+	if b.value == nil {
+		b.value = new(big.Int)
+	}
+
+	b.value.SetBytes(buf)
+	return b
+}
+
 // String returns the decimal representation of the BigInt as a string.
 // It provides a human-readable format suitable for use in RPC messages and JSON
 // serialization.
