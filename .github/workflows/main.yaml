@@ -19,7 +19,7 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOPATH: /home/runner/work/go
 
-  GO_VERSION: '1.22.3'
+  GO_VERSION: '1.22.6'
   
   LITD_ITEST_BRANCH: '0-19-staging'
 
