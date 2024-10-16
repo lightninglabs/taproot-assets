@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -154,7 +155,7 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 // fundingSpendwitness creates a complete witness to spend the OP_TRUE funding
 // script of an asset funding output.
 func fundingSpendWitness() lfn.Result[wire.TxWitness] {
-	fundingScriptTree := NewFundingScriptTree()
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
 
 	tapscriptTree := fundingScriptTree.TapscriptTree
 	ctrlBlock := tapscriptTree.LeafMerkleProofs[0].ToControlBlock(
@@ -167,7 +168,7 @@ func fundingSpendWitness() lfn.Result[wire.TxWitness] {
 	}
 
 	return lfn.Ok(wire.TxWitness{
-		anyoneCanSpendScript(), ctrlBlockBytes,
+		tapscript.AnyoneCanSpendScript(), ctrlBlockBytes,
 	})
 }
 
