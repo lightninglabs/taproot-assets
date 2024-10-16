@@ -32,6 +32,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
@@ -6584,25 +6585,32 @@ func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
 // into the RPC form. These are quotes that were requested by our node and have
 // been accepted by our peers.
 func marshalPeerAcceptedBuyQuotes(
-	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) []*rfqrpc.PeerAcceptedBuyQuote {
+	quotes map[rfq.SerialisedScid]rfqmsg.BuyAccept) (
+	[]*rfqrpc.PeerAcceptedBuyQuote, error) {
 
 	// Marshal the accepted quotes into the RPC form.
 	rpcQuotes := make(
 		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
 	for scid, quote := range quotes {
+		coefficient := quote.AssetRate.Coefficient.String()
+		rpcAskAssetRate := &rfqrpc.FixedPoint{
+			Coefficient: coefficient,
+			Scale:       uint32(quote.AssetRate.Scale),
+		}
+
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:        quote.Peer.String(),
-			Id:          quote.ID[:],
-			Scid:        uint64(scid),
-			AssetAmount: quote.Request.AssetAmount,
-			AskPrice:    uint64(quote.AskPrice),
-			Expiry:      quote.Expiry,
+			Peer:         quote.Peer.String(),
+			Id:           quote.ID[:],
+			Scid:         uint64(scid),
+			AssetAmount:  quote.Request.AssetAmount,
+			AskAssetRate: rpcAskAssetRate,
+			Expiry:       quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
 
-	return rpcQuotes
+	return rpcQuotes, nil
 }
 
 // marshalPeerAcceptedSellQuotes marshals a map of peer accepted asset sell
@@ -6619,8 +6627,9 @@ func marshalPeerAcceptedSellQuotes(
 			Id:          quote.ID[:],
 			Scid:        uint64(scid),
 			AssetAmount: quote.Request.AssetAmount,
-			BidPrice:    uint64(quote.BidPrice),
-			Expiry:      quote.Expiry,
+			// TODO(ffranr): Temp solution.
+			BidPrice: quote.AssetRate.ToUint64(),
+			Expiry:   quote.Expiry,
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
@@ -6639,7 +6648,12 @@ func (r *rpcServer) QueryPeerAcceptedQuotes(_ context.Context,
 	peerAcceptedBuyQuotes := r.cfg.RfqManager.PeerAcceptedBuyQuotes()
 	peerAcceptedSellQuotes := r.cfg.RfqManager.PeerAcceptedSellQuotes()
 
-	rpcBuyQuotes := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
+	rpcBuyQuotes, err := marshalPeerAcceptedBuyQuotes(peerAcceptedBuyQuotes)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling peer accepted buy "+
+			"quotes: %w", err)
+	}
+
 	rpcSellQuotes := marshalPeerAcceptedSellQuotes(peerAcceptedSellQuotes)
 
 	return &rfqrpc.QueryPeerAcceptedQuotesResponse{
@@ -6654,7 +6668,11 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote := taprpc.MarshalAcceptedBuyQuoteEvent(event)
+		acceptedQuote, err := taprpc.MarshalAcceptedBuyQuoteEvent(event)
+		if err != nil {
+			return nil, err
+		}
+
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedBuyQuote{
 			PeerAcceptedBuyQuote: &rfqrpc.PeerAcceptedBuyQuoteEvent{
 				Timestamp:            uint64(timestamp),
@@ -7135,8 +7153,22 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	// Now that we have the accepted quote, we know the amount in Satoshi
 	// that we need to pay. We can now update the invoice with this amount.
-	mSatPerUnit := acceptedQuote.AskPrice
-	iReq.ValueMsat = int64(req.AssetAmount * mSatPerUnit)
+	//
+	// First, un-marshall the ask asset rate from the accepted quote.
+	askAssetRate, err := rfqrpc.UnmarshalFixedPoint(
+		acceptedQuote.AskAssetRate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling ask asset rate: %w",
+			err)
+	}
+
+	// Convert the asset amount into a fixed-point.
+	assetAmount := rfqmath.NewBigIntFixedPoint(req.AssetAmount, 0)
+
+	// Calculate the invoice amount in msat.
+	valMsat := rfqmath.UnitsToMilliSatoshi(assetAmount, *askAssetRate)
+	iReq.ValueMsat = int64(valMsat)
 
 	// The last step is to create a hop hint that includes the fake SCID of
 	// the quote, alongside the channel's routing policy. We need to choose

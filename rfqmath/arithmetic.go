@@ -221,6 +221,13 @@ func (b BigInt) ToUint64() uint64 {
 	return b.value.Uint64()
 }
 
+// String returns the decimal representation of the BigInt as a string.
+// It provides a human-readable format suitable for use in RPC messages and JSON
+// serialization.
+func (b BigInt) String() string {
+	return b.value.String()
+}
+
 // Equals returns true if the two integers are equal.
 func (b BigInt) Equals(other BigInt) bool {
 	return b.value.Cmp(other.value) == 0

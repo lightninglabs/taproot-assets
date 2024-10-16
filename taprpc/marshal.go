@@ -570,24 +570,29 @@ func MarshalAcceptedSellQuoteEvent(
 		Id:          event.ID[:],
 		Scid:        uint64(event.ShortChannelId()),
 		AssetAmount: event.Request.AssetAmount,
-		BidPrice:    uint64(event.BidPrice),
-		Expiry:      event.Expiry,
+		// TODO(ffranr): Temp solution.
+		BidPrice: event.AssetRate.ToUint64(),
+		Expiry:   event.Expiry,
 	}
 }
 
 // MarshalAcceptedBuyQuoteEvent marshals a peer accepted buy quote event to
 // its rpc representation.
 func MarshalAcceptedBuyQuoteEvent(
-	event *rfq.PeerAcceptedBuyQuoteEvent) *rfqrpc.PeerAcceptedBuyQuote {
+	event *rfq.PeerAcceptedBuyQuoteEvent) (*rfqrpc.PeerAcceptedBuyQuote,
+	error) {
 
 	return &rfqrpc.PeerAcceptedBuyQuote{
 		Peer:        event.Peer.String(),
 		Id:          event.ID[:],
 		Scid:        uint64(event.ShortChannelId()),
 		AssetAmount: event.Request.AssetAmount,
-		AskPrice:    uint64(event.AskPrice),
-		Expiry:      event.Expiry,
-	}
+		AskAssetRate: &rfqrpc.FixedPoint{
+			Coefficient: event.AssetRate.Coefficient.String(),
+			Scale:       uint32(event.AssetRate.Scale),
+		},
+		Expiry: event.Expiry,
+	}, nil
 }
 
 // MarshalInvalidQuoteRespEvent marshals an invalid quote response event to
@@ -627,8 +632,13 @@ func NewAddAssetBuyOrderResponse(
 
 	switch e := event.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
+		acceptedQuote, err := MarshalAcceptedBuyQuoteEvent(e)
+		if err != nil {
+			return nil, err
+		}
+
 		resp.Response = &rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote{
-			AcceptedQuote: MarshalAcceptedBuyQuoteEvent(e),
+			AcceptedQuote: acceptedQuote,
 		}
 		return resp, nil
 

@@ -458,6 +458,140 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 	}
 }
 
+// TestPriceOracleRateExample demonstrates how to use the price oracle to
+// convert an asset amount to milli-satoshis.
+func TestPriceOracleRateExample(t *testing.T) {
+	// A query is sent to the price oracle for the tap asset to BTC rate for
+	// a given tap asset.
+	//
+	// The price oracle recognizes the asset as a USD stable coin. It looks
+	// up the current BTC price in USD: 67,918.90 USD/BTC, equivalent to
+	// 1472 satoshi per USD. This is expressed as a fixed-point with
+	// coefficient 679_189_000 and scale 2.
+	centsPerBtcCoefficient := uint64(679_189_000)
+	centsPerBtc := NewBigIntFixedPoint(centsPerBtcCoefficient, 2)
+	require.Equal(t, "6791890.00", centsPerBtc.String())
+
+	// The price oracle doesn't return the cents per BTC rate, instead it
+	// returns the tap asset units per BTC rate. It does this so that the
+	// asset to BTC rate in the RFQ wire messages and in all internal tapd
+	// calculations do not need to be aware of the asset's decimal display.
+	//
+	// In order to return the tap asset units per BTC rate, the price oracle
+	// needs to convert the cents per BTC rate to tap asset units per BTC
+	// rate. This is accomplished internally by the price oracle by
+	// constructing a multiplier from the asset's decimal display.
+	//
+	// The asset has a decimal display of 2, which means 100 tap asset units
+	// are equal to one USD cent.
+	decimalDisplay := 2
+	centsToTap := uint64(math.Pow(float64(10), float64(decimalDisplay)))
+
+	// Calculating the asset units per BTC rate is done by multiplying the
+	// cents per BTC rate by the decimal display multiplier. It is not a
+	// matter of re-scaling the cents per BTC rate fixed-point.
+	assetUnitsPerBtc := NewBigIntFixedPoint(
+		centsPerBtcCoefficient*centsToTap, 2,
+	)
+	require.Equal(t, "679189000.00", assetUnitsPerBtc.String())
+
+	// Now we'll use the asset units per BTC rate to convert an asset amount
+	// to milli-satoshis.
+	//
+	// The decimal display of the asset is 2, which means 100 units are
+	// equal to one USD cent. We have an asset amount of 10_000 units, which
+	// is equal to one USD dollar (100 USD cents). Note that previously we
+	// said that 67,918.90 USD/BTC is equivalent to 1472 satoshi per USD.
+	assetAmount := NewBigIntFixedPoint(10_000, 0)
+	mSat := UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
+	require.EqualValues(t, 1472, mSat.ToSatoshis())
+
+	// The asset amount fixed point can have any scale and does not need to
+	// match the asset's decimal display. This is because the price oracle
+	// returns an asset units per BTC rate and not a cents per BTC rate.
+	assetAmount = NewBigIntFixedPoint(10_000_000, 3)
+	mSat = UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
+	require.EqualValues(t, 1472, mSat.ToSatoshis())
+}
+
+// TestAssetAmtScaleRedundant ensures that the asset amount, when represented
+// as a fixed-point value, behaves consistently across different scale factors.
+//
+// The test validates that converting an asset amount to two different
+// fixed-point representations (one with a scale of 0 and one with a random
+// non-zero scale) will yield the same result when both are used in the
+// `UnitsToMilliSatoshi` function.
+//
+// Specifically, the test does the following:
+//  1. Generates a random `uint64` asset amount and constructs a fixed-point
+//     representation with a scale of 0.
+//  2. Generates a random scale greater than 0 and constructs another
+//     fixed-point representation of the same asset amount with this non-zero
+//     scale.
+//  3. Validates that the two fixed-point representations yield the same
+//     result when used with a randomly generated asset unit to BTC rate
+//     in the `UnitsToMilliSatoshi` function.
+//
+// The test ensures that despite differences in scale, the conversion to
+// milli-satoshis remains equivalent, confirming that the scale factor
+// does not introduce inconsistencies.
+//
+// The test demonstrates that including the decimal display value (as the scale
+// value or otherwise) when defining the asset amount has no effect on the
+// result calculated using `UnitsToMilliSatoshi`.
+func TestAssetAmtScaleRedundant(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		// Compute the asset amount as a `uint64`. We will convert this
+		// value to two different FixedPoint values, one with a scale of
+		// 0 and one with a random scale value greater than 0.
+		assetAmt :=
+			rapid.Uint64Range(1, 100_000_000).Draw(t, "assetAmt")
+
+		// Construct asset amount fixed-point with a scale value of 0.
+		//
+		// Note: We use the `NewBigIntFixedPoint` helper function to
+		// construct the fixed-point value with a scale of 0. This is
+		// equivalent to:
+		//
+		// assetAmtBigInt := new(big.Int).SetUint64(assetAmt)
+		// assetAmtZeroScale := FixedPoint[BigInt]{
+		//	Coefficient: NewBigInt(assetAmtBigInt),
+		//	Scale:       uint8(0),
+		// }
+		assetAmtZeroScale := NewBigIntFixedPoint(assetAmt, 0)
+		require.Equal(t, assetAmtZeroScale.Scale, uint8(0))
+
+		// Construct a second asset amount fixed-point with a random
+		// scale value which is greater than 0.
+		assetAmtFpScale := uint8(
+			rapid.IntRange(2, 9).Draw(t, "assetAmountFpScale"),
+		)
+		assetAmtNonZeroScale := FixedPointFromUint64[BigInt](
+			assetAmt, assetAmtFpScale,
+		)
+		require.Greater(t, assetAmtNonZeroScale.Scale, uint8(0))
+
+		// Ensure that both asset amounts, when used with
+		// UnitsToMilliSatoshi, yield the same result.
+		//
+		// Construct a random asset unit to BTC rate.
+		assetRate :=
+			rapid.Uint64Range(1, 100_000_000).Draw(t, "assetRate")
+		scale := uint8(rapid.IntRange(2, 9).Draw(t, "scale"))
+		assetRateFp := FixedPointFromUint64[BigInt](assetRate, scale)
+
+		// Call UnitsToMilliSatoshi with both asset amount fixed-point
+		// numbers.
+		mSat1 := UnitsToMilliSatoshi(assetAmtZeroScale, assetRateFp)
+		mSat2 := UnitsToMilliSatoshi(assetAmtNonZeroScale, assetRateFp)
+
+		require.Equal(t, mSat1, mSat2)
+		require.Greater(t, uint64(mSat1), uint64(0))
+	})
+}
+
 // TestConvertUsdToJpy tests the conversion of USD to JPY using a BTC price in
 // USD and a BTC price in JPY, both expressed as a FixedPoint.
 func TestConvertUsdToJpy(t *testing.T) {

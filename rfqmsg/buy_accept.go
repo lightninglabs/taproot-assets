@@ -3,7 +3,7 @@ package rfqmsg
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -30,9 +30,8 @@ type BuyAccept struct {
 	// this response is associated with.
 	ID ID
 
-	// AskPrice is the asking price of the quote in milli-satoshis per asset
-	// unit.
-	AskPrice lnwire.MilliSatoshi
+	// AssetRate is the accepted asset to BTC rate.
+	AssetRate rfqmath.BigIntFixedPoint
 
 	// Expiry is the asking price expiry lifetime unix timestamp.
 	Expiry uint64
@@ -43,16 +42,16 @@ type BuyAccept struct {
 
 // NewBuyAcceptFromRequest creates a new instance of a quote accept message
 // given a quote request message.
-func NewBuyAcceptFromRequest(request BuyRequest, askPrice lnwire.MilliSatoshi,
-	expiry uint64) *BuyAccept {
+func NewBuyAcceptFromRequest(request BuyRequest,
+	assetRate rfqmath.BigIntFixedPoint, expiry uint64) *BuyAccept {
 
 	return &BuyAccept{
-		Peer:     request.Peer,
-		Request:  request,
-		Version:  latestBuyAcceptVersion,
-		ID:       request.ID,
-		AskPrice: askPrice,
-		Expiry:   expiry,
+		Peer:      request.Peer,
+		Request:   request,
+		Version:   latestBuyAcceptVersion,
+		ID:        request.ID,
+		AssetRate: assetRate,
+		Expiry:    expiry,
 	}
 }
 
@@ -70,21 +69,22 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 	// field (and not the out-in rate tick field) because this is the rate
 	// tick field populated in response to a peer initiated buy quote
 	// request.
-	var askPrice lnwire.MilliSatoshi
+	var assetRate rfqmath.BigIntFixedPoint
 	msgData.InOutRateTick.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
-			askPrice = lnwire.MilliSatoshi(rate.Val)
+			// TODO(ffranr): Temp solution.
+			assetRate = rfqmath.NewBigIntFixedPoint(rate.Val, 0)
 		},
 	)
 
 	return &BuyAccept{
-		Peer:     wireMsg.Peer,
-		Request:  request,
-		Version:  msgData.Version.Val,
-		ID:       msgData.ID.Val,
-		Expiry:   msgData.Expiry.Val,
-		sig:      msgData.Sig.Val,
-		AskPrice: askPrice,
+		Peer:      wireMsg.Peer,
+		Request:   request,
+		Version:   msgData.Version.Val,
+		ID:        msgData.ID.Val,
+		Expiry:    msgData.Expiry.Val,
+		sig:       msgData.Sig.Val,
+		AssetRate: assetRate,
 	}, nil
 }
 
@@ -132,7 +132,7 @@ func (q *BuyAccept) MsgID() ID {
 func (q *BuyAccept) String() string {
 	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, "+
 		"expiry=%d, scid=%d)",
-		q.Peer[:], q.ID[:], q.AskPrice, q.Expiry, q.ShortChannelId())
+		q.Peer[:], q.ID[:], q.AssetRate, q.Expiry, q.ShortChannelId())
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

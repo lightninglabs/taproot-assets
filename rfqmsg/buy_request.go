@@ -6,7 +6,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -40,14 +41,18 @@ type BuyRequest struct {
 	// requesting a quote.
 	AssetAmount uint64
 
-	// BidPrice is the peer's proposed bid price for the asset amount.
-	BidPrice lnwire.MilliSatoshi
+	// SuggestedAssetRate represents a proposed conversion rate between the
+	// subject asset and BTC. This rate is an initial suggestion intended to
+	// initiate the RFQ negotiation process and may differ from the final
+	// agreed rate.
+	SuggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
 }
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	bidPrice lnwire.MilliSatoshi) (*BuyRequest, error) {
+	suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]) (*BuyRequest,
+	error) {
 
 	var id [32]byte
 	_, err := rand.Read(id[:])
@@ -57,13 +62,13 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	}
 
 	return &BuyRequest{
-		Peer:          peer,
-		Version:       latestBuyRequestVersion,
-		ID:            id,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   assetAmount,
-		BidPrice:      bidPrice,
+		Peer:               peer,
+		Version:            latestBuyRequestVersion,
+		ID:                 id,
+		AssetID:            assetID,
+		AssetGroupKey:      assetGroupKey,
+		AssetAmount:        assetAmount,
+		SuggestedAssetRate: suggestedAssetRate,
 	}, nil
 }
 
@@ -99,22 +104,26 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 			"request")
 	}
 
-	// Extract the suggested rate tick if provided.
-	var bidPrice lnwire.MilliSatoshi
+	// Extract the suggested asset to BTC rate if provided.
+	//
+	// TODO(ffranr): Temp solution.
+	var suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
 	msgData.SuggestedRateTick.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
-			bidPrice = lnwire.MilliSatoshi(rate.Val)
+			r := rfqmath.NewBigIntFixedPoint(rate.Val, 0)
+			suggestedAssetRate =
+				fn.Some[rfqmath.BigIntFixedPoint](r)
 		},
 	)
 
 	req := BuyRequest{
-		Peer:          wireMsg.Peer,
-		Version:       msgData.Version.Val,
-		ID:            msgData.ID.Val,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   msgData.AssetMaxAmount.Val,
-		BidPrice:      bidPrice,
+		Peer:               wireMsg.Peer,
+		Version:            msgData.Version.Val,
+		ID:                 msgData.ID.Val,
+		AssetID:            assetID,
+		AssetGroupKey:      assetGroupKey,
+		AssetAmount:        msgData.AssetMaxAmount.Val,
+		SuggestedAssetRate: suggestedAssetRate,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -186,8 +195,9 @@ func (q *BuyRequest) String() string {
 	}
 
 	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, bid_price=%d)", q.Peer[:],
-		q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount, q.BidPrice)
+		"asset_group_key=%x, asset_amount=%d, "+
+		"suggested_asset_rate=%v)", q.Peer[:], q.ID[:], q.AssetID,
+		groupKeyBytes, q.AssetAmount, q.SuggestedAssetRate)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
