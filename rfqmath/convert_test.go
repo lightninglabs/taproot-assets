@@ -458,6 +458,84 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 	}
 }
 
+// TestAssetAmtScaleRedundant ensures that the asset amount, when represented
+// as a fixed-point value, behaves consistently across different scale factors.
+//
+// The test validates that converting an asset amount to two different
+// fixed-point representations (one with a scale of 0 and one with a random
+// non-zero scale) will yield the same result when both are used in the
+// `UnitsToMilliSatoshi` function.
+//
+// Specifically, the test does the following:
+//  1. Generates a random `uint64` asset amount and constructs a fixed-point
+//     representation with a scale of 0.
+//  2. Generates a random scale greater than 0 and constructs another
+//     fixed-point representation of the same asset amount with this non-zero
+//     scale.
+//  3. Validates that the two fixed-point representations yield the same
+//     result when used with a randomly generated asset unit to BTC rate
+//     in the `UnitsToMilliSatoshi` function.
+//
+// The test ensures that despite differences in scale, the conversion to
+// milli-satoshis remains equivalent, confirming that the scale factor
+// does not introduce inconsistencies.
+//
+// The test demonstrates that including the decimal display value (as the scale
+// value or otherwise) when defining the asset amount has no effect on the
+// result calculated using `UnitsToMilliSatoshi`.
+func TestAssetAmtScaleRedundant(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(t *rapid.T) {
+		// Compute the asset amount as a `uint64`. We will convert this
+		// value to two different FixedPoint values, one with a scale of
+		// 0 and one with a random scale value greater than 0.
+		assetAmt :=
+			rapid.Uint64Range(1, 100_000_000).Draw(t, "assetAmt")
+
+		// Construct asset amount fixed-point with a scale value of 0.
+		//
+		// Note: We use the `NewBigIntFixedPoint` helper function to
+		// construct the fixed-point value with a scale of 0. This is
+		// equivalent to:
+		//
+		// assetAmtBigInt := new(big.Int).SetUint64(assetAmt)
+		// assetAmtZeroScale := FixedPoint[BigInt]{
+		//	Coefficient: NewBigInt(assetAmtBigInt),
+		//	Scale:       uint8(0),
+		// }
+		assetAmtZeroScale := NewBigIntFixedPoint(assetAmt, 0)
+		require.Equal(t, assetAmtZeroScale.Scale, uint8(0))
+
+		// Construct a second asset amount fixed-point with a random
+		// scale value which is greater than 0.
+		assetAmtFpScale := uint8(
+			rapid.IntRange(2, 9).Draw(t, "assetAmountFpScale"),
+		)
+		assetAmtNonZeroScale := FixedPointFromUint64[BigInt](
+			assetAmt, assetAmtFpScale,
+		)
+		require.Greater(t, assetAmtNonZeroScale.Scale, uint8(0))
+
+		// Ensure that both asset amounts, when used with
+		// UnitsToMilliSatoshi, yield the same result.
+		//
+		// Construct a random asset unit to BTC rate.
+		assetRate :=
+			rapid.Uint64Range(1, 100_000_000).Draw(t, "assetRate")
+		scale := uint8(rapid.IntRange(2, 9).Draw(t, "scale"))
+		assetRateFp := FixedPointFromUint64[BigInt](assetRate, scale)
+
+		// Call UnitsToMilliSatoshi with both asset amount fixed-point
+		// numbers.
+		mSat1 := UnitsToMilliSatoshi(assetAmtZeroScale, assetRateFp)
+		mSat2 := UnitsToMilliSatoshi(assetAmtNonZeroScale, assetRateFp)
+
+		require.Equal(t, mSat1, mSat2)
+		require.Greater(t, uint64(mSat1), uint64(0))
+	})
+}
+
 // TestConvertUsdToJpy tests the conversion of USD to JPY using a BTC price in
 // USD and a BTC price in JPY, both expressed as a FixedPoint.
 func TestConvertUsdToJpy(t *testing.T) {
