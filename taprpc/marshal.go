@@ -563,17 +563,22 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 // MarshalAcceptedSellQuoteEvent marshals a peer accepted sell quote event to
 // its rpc representation.
 func MarshalAcceptedSellQuoteEvent(
-	event *rfq.PeerAcceptedSellQuoteEvent) *rfqrpc.PeerAcceptedSellQuote {
+	event *rfq.PeerAcceptedSellQuoteEvent) (*rfqrpc.PeerAcceptedSellQuote,
+	error) {
+
+	rpcAssetRate := &rfqrpc.FixedPoint{
+		Coefficient: event.AssetRate.Coefficient.String(),
+		Scale:       uint32(event.AssetRate.Scale),
+	}
 
 	return &rfqrpc.PeerAcceptedSellQuote{
-		Peer:        event.Peer.String(),
-		Id:          event.ID[:],
-		Scid:        uint64(event.ShortChannelId()),
-		AssetAmount: event.Request.AssetAmount,
-		// TODO(ffranr): Temp solution.
-		BidPrice: event.AssetRate.ToUint64(),
-		Expiry:   event.Expiry,
-	}
+		Peer:         event.Peer.String(),
+		Id:           event.ID[:],
+		Scid:         uint64(event.ShortChannelId()),
+		AssetAmount:  event.Request.AssetAmount,
+		BidAssetRate: rpcAssetRate,
+		Expiry:       event.Expiry,
+	}, nil
 }
 
 // MarshalAcceptedBuyQuoteEvent marshals a peer accepted buy quote event to
@@ -669,8 +674,14 @@ func NewAddAssetSellOrderResponse(
 
 	switch e := event.(type) {
 	case *rfq.PeerAcceptedSellQuoteEvent:
+		rpcAcceptedQuote, err := MarshalAcceptedSellQuoteEvent(e)
+		if err != nil {
+			return nil, fmt.Errorf("unable to marshal accepted "+
+				"sell quote event to RPC: %w", err)
+		}
+
 		resp.Response = &rfqrpc.AddAssetSellOrderResponse_AcceptedQuote{
-			AcceptedQuote: MarshalAcceptedSellQuoteEvent(e),
+			AcceptedQuote: rpcAcceptedQuote,
 		}
 		return resp, nil
 
