@@ -3,6 +3,7 @@ package rfqmath
 import (
 	"fmt"
 	"math"
+	"math/big"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -461,54 +462,77 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 // TestPriceOracleRateExample demonstrates how to use the price oracle to
 // convert an asset amount to milli-satoshis.
 func TestPriceOracleRateExample(t *testing.T) {
-	// A query is sent to the price oracle for the tap asset to BTC rate for
-	// a given tap asset.
+	// A query is sent to the price oracle to obtain the conversion rate
+	// between the tap asset and BTC.
 	//
-	// The price oracle recognizes the asset as a USD stable coin. It looks
-	// up the current BTC price in USD: 67,918.90 USD/BTC, equivalent to
-	// 1472 satoshi per USD. This is expressed as a fixed-point with
-	// coefficient 679_189_000 and scale 2.
-	centsPerBtcCoefficient := uint64(679_189_000)
-	centsPerBtc := NewBigIntFixedPoint(centsPerBtcCoefficient, 2)
-	require.Equal(t, "6791890.00", centsPerBtc.String())
+	// The price oracle recognizes the tap asset as a USD stablecoin and
+	// retrieves the current BTC price in USD: 67,918.90 USD/BTC, which is
+	// equivalent to 1,472 satoshis per USD. In other words, 1 BTC is equal
+	// to 67,918.90 USD dollars.
+	//
+	// This floating-point rate of 67,918.90 USD/BTC will be converted into
+	// a fixed-point representation to eliminate floating-point precision
+	// issues.
+	//
+	// The fixed-point value is constructed by multiplying the rate by 10^2,
+	// resulting in 67918_90, where the scale of 2 accounts for the two
+	// decimal places in the rate.
+	dollarPerBtc := NewBigIntFixedPoint(67918_90, 2)
+	require.Equal(t, "67918.90", dollarPerBtc.String())
 
-	// The price oracle doesn't return the cents per BTC rate, instead it
-	// returns the tap asset units per BTC rate. It does this so that the
-	// asset to BTC rate in the RFQ wire messages and in all internal tapd
-	// calculations do not need to be aware of the asset's decimal display.
+	// The taproot asset is a USD stablecoin, where each USD dollar is
+	// equivalent to 10,000 (=10^4) tap asset units. Thus, the asset has a
+	// decimal display of 4.
 	//
-	// In order to return the tap asset units per BTC rate, the price oracle
-	// needs to convert the cents per BTC rate to tap asset units per BTC
-	// rate. This is accomplished internally by the price oracle by
-	// constructing a multiplier from the asset's decimal display.
+	// Using this decimal display, it’s possible to convert an amount of the
+	// tap asset into its equivalent in USD. For example: 20,000 tap asset
+	// units equal 2 dollars.
 	//
-	// The asset has a decimal display of 2, which means 100 tap asset units
-	// are equal to one USD cent.
-	decimalDisplay := 2
-	centsToTap := uint64(math.Pow(float64(10), float64(decimalDisplay)))
+	// The price oracle does not return the dollar per BTC rate directly.
+	// Instead, it provides the tap asset units per BTC rate. This approach
+	// ensures that the asset-to-BTC rate in RFQ wire messages and internal
+	// tapd calculations of asset amounts to satoshis are independent of the
+	// asset's decimal display.
+	//
+	// To achieve this, the price oracle internally converts the dollar per
+	// BTC rate into tap asset units per BTC by applying a multiplier
+	// (`dollarToTap`) based on the asset’s decimal display.
+	decimalDisplay := 4
+	dollarToTap := NewBigInt(
+		big.NewInt(0).SetUint64(uint64(
+			math.Pow(float64(10), float64(decimalDisplay)),
+		)),
+	)
 
 	// Calculating the asset units per BTC rate is done by multiplying the
-	// cents per BTC rate by the decimal display multiplier. It is not a
-	// matter of re-scaling the cents per BTC rate fixed-point.
-	assetUnitsPerBtc := NewBigIntFixedPoint(
-		centsPerBtcCoefficient*centsToTap, 2,
-	)
+	// dollar per BTC rate by the decimal display multiplier dollarToTap. It
+	// is not a matter of re-scaling the dollar per BTC rate fixed-point.
+	// The new fixed-point when evaluated as an int will have a different
+	// value.
+	//
+	// Since we're effectively multiplying a fixed-point `dollarPerBtc` by
+	// an integer `dollarToTap`, we can just create a new coefficient and
+	// use the same scale as `dollarPerBtc`. Fixed-point and integer
+	// multiplication:
+	assetUnitsPerBtc := BigIntFixedPoint{
+		Coefficient: dollarPerBtc.Coefficient.Mul(dollarToTap),
+		Scale:       2,
+	}
 	require.Equal(t, "679189000.00", assetUnitsPerBtc.String())
 
 	// Now we'll use the asset units per BTC rate to convert an asset amount
 	// to milli-satoshis.
 	//
-	// The decimal display of the asset is 2, which means 100 units are
-	// equal to one USD cent. We have an asset amount of 10_000 units, which
-	// is equal to one USD dollar (100 USD cents). Note that previously we
-	// said that 67,918.90 USD/BTC is equivalent to 1472 satoshi per USD.
+	// The decimal display of the asset is 4, which means 10_000 units are
+	// equal to 1 dollar. Note that previously we said that
+	// 67,918.90 USD/BTC is equivalent to 1472 satoshi per USD.
 	assetAmount := NewBigIntFixedPoint(10_000, 0)
 	mSat := UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
 	require.EqualValues(t, 1472, mSat.ToSatoshis())
 
 	// The asset amount fixed point can have any scale and does not need to
 	// match the asset's decimal display. This is because the price oracle
-	// returns an asset units per BTC rate and not a cents per BTC rate.
+	// returns an asset units per BTC rate and not a dollar per BTC rate.
 	assetAmount = NewBigIntFixedPoint(10_000_000, 3)
 	mSat = UnitsToMilliSatoshi(assetAmount, assetUnitsPerBtc)
 	require.EqualValues(t, 1472, mSat.ToSatoshis())
