@@ -65,7 +65,7 @@ func testMintBatchNStressTest(t *harnessTest, batchSize int,
 
 	mintBatches := func(reqs []*mintrpc.MintAssetRequest) []*taprpc.Asset {
 		return MintAssetsConfirmBatch(
-			t.t, t.lndHarness.Miner.Client, t.tapd, reqs,
+			t.t, t.lndHarness.Miner().Client, t.tapd, reqs,
 			WithMintingTimeout(timeout),
 		)
 	}

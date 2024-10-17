@@ -2,6 +2,8 @@ package rfqmsg
 
 import (
 	"bytes"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -135,6 +137,31 @@ func (h *Htlc) Bytes() []byte {
 	var buf bytes.Buffer
 	_ = h.Encode(&buf)
 	return buf.Bytes()
+}
+
+// ToCustomRecords converts the Htlc record to a map of custom records.
+func (h *Htlc) ToCustomRecords() (lnwire.CustomRecords, error) {
+	return tlv.RecordsToMap(h.Records())
+}
+
+// AsJson returns the Htlc record as a JSON blob.
+func (h *Htlc) AsJson() ([]byte, error) {
+	j := &JsonHtlc{
+		Balances: make([]*JsonHtlcBalance, len(h.Balances())),
+	}
+
+	h.RfqID.ValOpt().WhenSome(func(id ID) {
+		j.RfqID = hex.EncodeToString(id[:])
+	})
+
+	for idx, balance := range h.Balances() {
+		j.Balances[idx] = &JsonHtlcBalance{
+			AssetID: hex.EncodeToString(balance.AssetID.Val[:]),
+			Amount:  balance.Amount.Val,
+		}
+	}
+
+	return json.Marshal(j)
 }
 
 // DecodeHtlc deserializes a Htlc from the given blob.

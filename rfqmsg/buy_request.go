@@ -1,7 +1,6 @@
 package rfqmsg
 
 import (
-	"crypto/rand"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
@@ -49,8 +48,7 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
 	bidPrice lnwire.MilliSatoshi) (*BuyRequest, error) {
 
-	var id [32]byte
-	_, err := rand.Read(id[:])
+	id, err := NewID()
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate random "+
 			"quote request id: %w", err)

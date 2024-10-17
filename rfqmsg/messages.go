@@ -1,6 +1,7 @@
 package rfqmsg
 
 import (
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/lightningnetwork/lnd/aliasmgr"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -16,8 +18,44 @@ import (
 // SerialisedScid is a serialised short channel id (SCID).
 type SerialisedScid uint64
 
-// ID is the identifier for a RFQ message.
+// ID is the identifier for a RFQ message. A new ID _MUST_ be created using the
+// NewID constructor to make sure it can be transformed into a valid SCID alias.
 type ID [32]byte
+
+// NewID generates a new random ID that can be transformed into a valid SCID
+// alias that is in the allowed range for lnd.
+func NewID() (ID, error) {
+	// We make sure we don't loop endlessly in case we can't find a valid
+	// ID. We should never reach this limit in practice, the chances for
+	// finding a valid ID are very high.
+	const maxNumTries = 10e6
+	var (
+		id       ID
+		numTries int
+	)
+
+	for {
+		_, err := rand.Read(id[:])
+		if err != nil {
+			return id, err
+		}
+
+		// We make sure that when deriving the SCID alias from the ID,
+		// we get a valid alias. If not, we try again.
+		scid := lnwire.NewShortChanIDFromInt(uint64(id.Scid()))
+		if aliasmgr.IsAlias(scid) {
+			break
+		}
+
+		numTries++
+
+		if numTries >= maxNumTries {
+			return id, errors.New("unable to find valid ID")
+		}
+	}
+
+	return id, nil
+}
 
 // String returns the string representation of the ID.
 func (id ID) String() string {
@@ -32,7 +70,9 @@ func (id ID) Scid() SerialisedScid {
 	scidBytes := id[24:]
 
 	scidInteger := binary.BigEndian.Uint64(scidBytes)
-	return SerialisedScid(scidInteger)
+	scid := lnwire.NewShortChanIDFromInt(scidInteger)
+
+	return SerialisedScid(scid.ToUint64())
 }
 
 // Record returns a TLV record that can be used to encode/decode an ID to/from a
