@@ -1,13 +1,13 @@
-package tapchannel
+package tapscript
 
 import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightningnetwork/lnd/input"
 )
 
-// anyoneCanSpendScript is a simple script that allows anyone to spend the
+// AnyoneCanSpendScript is a simple script that allows anyone to spend the
 // output.
-func anyoneCanSpendScript() []byte {
+func AnyoneCanSpendScript() []byte {
 	return []byte{txscript.OP_TRUE}
 }
 
@@ -17,15 +17,15 @@ type FundingScriptTree struct {
 	input.ScriptTree
 }
 
-// NewFundingScriptTree creates a new funding script tree for a custom channel
-// asset-level script key. The script tree is constructed with a simple OP_TRUE
-// script that allows anyone to spend the output. This simplifies the funding
-// process as no signatures for the asset-level witnesses need to be exchanged.
-// This is still safe because the BTC level multi-sig output is still protected
-// by a 2-of-2 MuSig2 output.
-func NewFundingScriptTree() *FundingScriptTree {
+// NewChannelFundingScriptTree creates a new funding script tree for a custom
+// channel asset-level script key. The script tree is constructed with a simple
+// OP_TRUE script that allows anyone to spend the output. This simplifies the
+// funding process as no signatures for the asset-level witnesses need to be
+// exchanged. This is still safe because the BTC level multi-sig output is still
+// protected by a 2-of-2 MuSig2 output.
+func NewChannelFundingScriptTree() *FundingScriptTree {
 	// First, we'll generate our OP_TRUE script.
-	fundingScript := anyoneCanSpendScript()
+	fundingScript := AnyoneCanSpendScript()
 	fundingTapLeaf := txscript.NewBaseTapLeaf(fundingScript)
 
 	// With the funding script derived, we'll now create the tapscript tree

@@ -332,7 +332,11 @@ JOIN managed_utxos utxos
                 utxos.lease_expiry <= @now)
            ELSE TRUE
        END
-WHERE spent = FALSE 
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+WHERE spent = FALSE AND 
+        (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
+                sqlc.narg('exclude_key') IS NULL)
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -357,7 +361,11 @@ JOIN managed_utxos utxos
                 utxos.lease_expiry <= @now)
            ELSE TRUE
        END
-WHERE spent = FALSE 
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+WHERE spent = FALSE AND 
+        (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
+                sqlc.narg('exclude_key') IS NULL)
 GROUP BY key_group_info_view.tweaked_group_key;
 
 -- name: FetchGroupedAssets :many

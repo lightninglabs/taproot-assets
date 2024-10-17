@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -983,6 +984,15 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 		},
 	}
 
+	// We exclude the assets that are specifically used for funding custom
+	// channels. The balance of those assets is reported through lnd channel
+	// balance. Those assets are identified by the funding script tree for a
+	// custom channel asset-level script key.
+	excludeKey := asset.NewScriptKey(
+		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	)
+	assetBalancesFilter.ExcludeKey = excludeKey.PubKey.SerializeCompressed()
+
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
 		assetBalancesFilter.Leased = sqlBool(false)
@@ -1054,6 +1064,15 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 			Valid: true,
 		},
 	}
+
+	// We exclude the assets that are specifically used for funding custom
+	// channels. The balance of those assets is reported through lnd channel
+	// balance. Those assets are identified by the funding script tree for a
+	// custom channel asset-level script key.
+	excludeKey := asset.NewScriptKey(
+		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	)
+	assetBalancesFilter.ExcludeKey = excludeKey.PubKey.SerializeCompressed()
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {

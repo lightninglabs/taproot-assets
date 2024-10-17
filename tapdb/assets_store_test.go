@@ -2349,3 +2349,64 @@ func TestQueryAssetBalances(t *testing.T) {
 	}
 	require.Equal(t, totalGroupedBalances, leasedBalanceByGroupSum)
 }
+
+func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
+	t.Parallel()
+
+	_, assetsStore, _ := newAssetStore(t)
+	ctx := context.Background()
+
+	// First, we'll generate 2 assets, one of them having a script key that
+	// is the typical funding script key.
+	const numAssets = 2
+	const numGroups = 1
+	assetGen := newAssetGenerator(t, numAssets, numGroups)
+
+	fundingScriptKey := asset.NewScriptKey(
+		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	)
+
+	assetDesc := []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+			keyGroup:    assetGen.groupKeys[0],
+			amt:         4,
+			scriptKey:   &fundingScriptKey,
+		},
+		{
+			assetGen:    assetGen.assetGens[1],
+			anchorPoint: assetGen.anchorPoints[1],
+			keyGroup:    assetGen.groupKeys[0],
+			amt:         4,
+		},
+	}
+	assetGen.genAssets(t, assetsStore, assetDesc)
+
+	// Hit both balance queries, they should return the same result.
+	includeLeased := false
+	balances, err := assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	balancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased,
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, numAssets-1)
+	require.Len(t, balancesByGroup, numAssets-1)
+
+	// Both sums should be equal to the amount of the second asset; the
+	// asset that is not part of a custom channel funding tx.
+	balanceSum := uint64(0)
+	for _, balance := range balances {
+		balanceSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[1].amt, balanceSum)
+
+	balanceByGroupSum := uint64(0)
+	for _, balance := range balancesByGroup {
+		balanceByGroupSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[1].amt, balanceByGroupSum)
+}
