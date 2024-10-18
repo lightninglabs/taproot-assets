@@ -8,6 +8,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -389,4 +390,67 @@ func IdDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 
 	return tlv.NewTypeForDecodingErr(val, "MessageID", l, idBytesLen)
+}
+
+// TlvFixedPointEncoder is a function that can be used to encode a TlvFixedPoint
+// to a writer.
+func TlvFixedPointEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*TlvFixedPoint); ok {
+		err := tlv.EUint8T(w, t.fp.Scale, buf)
+		if err != nil {
+			return fmt.Errorf("unable to encode scale: %w", err)
+		}
+
+		cBytes := t.fp.Coefficient.Bytes()
+		err = tlv.EVarBytes(w, &cBytes, buf)
+		if err != nil {
+			return fmt.Errorf("unable to encode coefficient "+
+				"bytes: %w", err)
+		}
+
+		return nil
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*TlvFixedPoint")
+}
+
+// TlvFixedPointDecoder is a function that can be used to decode a TlvFixedPoint
+// from a reader.
+func TlvFixedPointDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	// Enforce the maximum record size.
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if typ, ok := val.(*TlvFixedPoint); ok {
+		// Decode the scale.
+		var scale uint8
+		if err := tlv.DUint8(r, &scale, buf, 1); err != nil {
+			return err
+		}
+
+		// Decode the coefficient.
+		var bytesLen uint64
+		if l > 1 {
+			bytesLen = l - 1
+		}
+
+		var cBytes []byte
+		if err := tlv.DVarBytes(r, &cBytes, buf, bytesLen); err != nil {
+			return err
+		}
+
+		var coefficient rfqmath.BigInt
+		coefficient = coefficient.FromBytes(cBytes)
+
+		*typ = NewTlvFixedPointFromBigInt(rfqmath.BigIntFixedPoint{
+			Coefficient: coefficient,
+			Scale:       scale,
+		})
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "*TlvFixedPoint", l, 9)
 }

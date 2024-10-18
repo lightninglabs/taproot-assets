@@ -1112,10 +1112,9 @@
           "format": "uint64",
           "description": "asset_amount is the amount of the subject asset."
         },
-        "bid_price": {
-          "type": "string",
-          "format": "uint64",
-          "description": "bid_price is the price in milli-satoshi per asset unit."
+        "bid_asset_rate": {
+          "$ref": "#/definitions/rfqrpcFixedPoint",
+          "description": "bid_asset_rate is the asset to BTC conversion rate represented as a\nfixed-point number."
         },
         "expiry": {
           "type": "string",
