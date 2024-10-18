@@ -598,11 +598,196 @@ func remoteHtlcSuccessSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		},
 	})
 }
+
+// localHtlcTimeoutSweepDesc creates a sweep desc for an HTLC output that is
+// present on our local commitment transaction. These are second level HTLCs, so
+// we'll need to perform two stages of sweeps.
+func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
+) lfn.Result[tapscriptSweepDescs] {
+
+	isIncoming := false
+	localCommit := true
+
+	payHash, err := req.PayHash.UnwrapOrErr(
+		fmt.Errorf("no pay hash"),
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	htlcExpiry, err := req.CltvDelay.UnwrapOrErr(
+		fmt.Errorf("no htlc expiry"),
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	// We'll need to complete the control block to spend the second-level
+	// HTLC, so first we'll make the script tree for the HTLC.
+	htlcScriptTree, err := lnwallet.GenTaprootHtlcScript(
+		isIncoming, localCommit, htlcExpiry,
+		payHash, req.KeyRing, lfn.None[txscript.TapLeaf](),
+	)
+	if err != nil {
+		return lfn.Errf[tapscriptSweepDescs]("error creating "+
+			"HTLC script: %w", err)
+	}
+
+	// Now that we have the script tree, we'll make the control block needed
+	// to spend it, but taking the revoked path.
+	ctrlBlock, err := htlcScriptTree.CtrlBlockForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
 	}
 
+	//  For the second level transaction, the witness looks like this:
+	//
+	//  <receiver sig> <sender sig> <timeout_script> <control_block>
+	//
+	//  We're the sender, so we'll need to insert their sig at the very
+	//  front.
+	sigIndex := lfn.Some(uint32(0))
+
+	// As this is an HTLC on our local commitment transaction, we'll also
+	// need to generate a sweep desc for second level HTLC.
+	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
+		req.KeyRing.RevocationKey, req.KeyRing.ToLocalKey,
+		req.CommitCsvDelay, lfn.None[txscript.TapLeaf](),
+	)
+	if err != nil {
+		return lfn.Errf[tapscriptSweepDescs]("error "+
+			"creating second level htlc script: %w", err)
+	}
+	secondLevelCtrBlock, err := secondLevelScriptTree.CtrlBlockForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	secondLevelCtrlBlockBytes, err := secondLevelCtrBlock.ToBytes()
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	secondLevelDesc := tapscriptSweepDesc{
+		scriptTree:     secondLevelScriptTree,
+		relativeDelay:  lfn.Some(uint64(req.CommitCsvDelay)),
+		ctrlBlockBytes: secondLevelCtrlBlockBytes,
+	}
+
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree:          htlcScriptTree,
+			ctrlBlockBytes:      ctrlBlockBytes,
+			relativeDelay:       lfn.Some(uint64(req.CsvDelay)),
+			absoluteDelay:       lfn.Some(uint64(htlcExpiry)),
+			auxSigInfo:          req.AuxSigDesc,
+			secondLevelSigIndex: sigIndex,
+		},
+		secondLevel: lfn.Some(secondLevelDesc),
+	})
+}
+
+// localHtlcSucessSweepDesc creates a sweep desc for an HTLC output that is
+// preimage. These sweeps take two stages, so we'll add that extra information.
+// present on our local commitment transaction that we can sweep with a
+func localHtlcSucessSweepDesc(req lnwallet.ResolutionReq,
+) lfn.Result[tapscriptSweepDescs] {
+
+	isIncoming := true
+	localCommit := true
+
+	payHash, err := req.PayHash.UnwrapOrErr(
+		fmt.Errorf("no pay hash"),
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	htlcExpiry, err := req.CltvDelay.UnwrapOrErr(
+		fmt.Errorf("no htlc expiry"),
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	// We'll need to complete the control block to spend the second-level
+	// HTLC, so first we'll make the script tree for the HTLC.
+	htlcScriptTree, err := lnwallet.GenTaprootHtlcScript(
+		isIncoming, localCommit, htlcExpiry,
+		payHash, req.KeyRing, lfn.None[txscript.TapLeaf](),
+	)
+	if err != nil {
+		return lfn.Errf[tapscriptSweepDescs]("error creating "+
+			"HTLC script: %w", err)
+	}
+
+	// Now that we have the script tree, we'll make the control block needed
+	// to spend it, but taking the revoked path.
+	ctrlBlock, err := htlcScriptTree.CtrlBlockForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	//  For the second level transaction, the witness looks like this:
+	//
+	//  * <sender sig> <receiver sig> <preimage> <success_script>
+	//    <control_block>
+	//
+	// In this case, we're the receiver. After we sign the witness will look
+	// like this: <receiver sig> <witness script> <ctrlBlock>.
+	//
+	// So we'll need to insert the remote party's signature at the very
+	// front.
+	sigIndex := lfn.Some(uint32(0))
+
+	// As this is an HTLC on our local commitment transaction, we'll also
+	// need to generate a sweep desc for second level HTLC.
+	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
+		req.KeyRing.RevocationKey, req.KeyRing.ToLocalKey,
+		req.CommitCsvDelay, lfn.None[txscript.TapLeaf](),
+	)
+	if err != nil {
+		return lfn.Errf[tapscriptSweepDescs]("error "+
+			"creating second level htlc script: %w", err)
+	}
+	secondLevelCtrBlock, err := secondLevelScriptTree.CtrlBlockForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	secondLevelCtrlBlockBytes, err := secondLevelCtrBlock.ToBytes()
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	secondLevelDesc := tapscriptSweepDesc{
+		scriptTree:     secondLevelScriptTree,
+		relativeDelay:  lfn.Some(uint64(req.CommitCsvDelay)),
+		ctrlBlockBytes: secondLevelCtrlBlockBytes,
+	}
+
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree:          htlcScriptTree,
+			ctrlBlockBytes:      ctrlBlockBytes,
+			relativeDelay:       lfn.Some(uint64(req.CsvDelay)),
+			absoluteDelay:       lfn.Some(uint64(htlcExpiry)),
+			auxSigInfo:          req.AuxSigDesc,
+			secondLevelSigIndex: sigIndex,
+		},
+		secondLevel: lfn.Some(secondLevelDesc),
 	})
 }
 
@@ -1342,6 +1527,37 @@ func (a *AuxSweeper) resolveContract(
 			req.KeyRing, payHash[:], req.CsvDelay,
 			req.AuxSigDesc,
 		)
+
+	// In this case, we broadcast a commitment transaction which held an
+	// HTLC that we may need to time out in the future. This is the
+	// second-level case, so we'll actually be creating+signing two sets of
+	// vPkts later (1st + 2nd level).
+	case input.TaprootHtlcLocalOfferedTimeout:
+		// Like the other HTLC cases, there's only a single output we care about
+		// here.
+		htlcOutputs := commitState.OutgoingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(
+			req.HtlcID.UnwrapOr(math.MaxUint64),
+		)
+
+		// With the output and pay desc located, we'll now create the sweep
+		// desc.
+		sweepDesc = localHtlcTimeoutSweepDesc(req)
+
+	// In this case, we've broadcast a commitment, with an incoming HTLC
+	// that we can sweep. We'll annotate the sweepDesc with the information
+	// needed to sweep both this output, as well as the second level
+	// output it creates.
+	case input.TaprootHtlcAcceptedLocalSuccess:
+		htlcOutputs := commitState.OutgoingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(
+			req.HtlcID.UnwrapOr(math.MaxUint64),
+		)
+
+		// With the output and pay desc located, we'll now create the sweep
+		// desc.
+		sweepDesc = localHtlcSucessSweepDesc(req)
+
 	default:
 		return lfn.Err[tlv.Blob](fmt.Errorf("unknown resolution "+
 			"type: %v", req.Type))
