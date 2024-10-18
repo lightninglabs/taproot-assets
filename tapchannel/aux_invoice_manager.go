@@ -3,6 +3,7 @@ package tapchannel
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/davecgh/go-spew/spew"
@@ -12,7 +13,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 // InvoiceHtlcModifier is an interface that abstracts the invoice HTLC
@@ -25,6 +28,20 @@ type InvoiceHtlcModifier interface {
 	// invoice acceptance tests.
 	HtlcModifier(ctx context.Context,
 		handler lndclient.InvoiceHtlcModifyHandler) error
+}
+
+// RfqManager is an interface that abstracts the functionalities of the rfq
+// manager that are needed by AuxInvoiceManager.
+type RfqManager interface {
+	// PeerAcceptedBuyQuotes returns buy quotes that were requested by our
+	// node and have been accepted by our peers. These quotes are
+	// exclusively available to our node for the acquisition of assets.
+	PeerAcceptedBuyQuotes() rfq.BuyAcceptMap
+
+	// LocalAcceptedSellQuotes returns sell quotes that were accepted by our
+	// node and have been requested by our peers. These quotes are
+	// exclusively available to our node for the sale of assets.
+	LocalAcceptedSellQuotes() rfq.SellAcceptMap
 }
 
 // InvoiceManagerConfig defines the configuration for the auxiliary invoice
@@ -41,7 +58,7 @@ type InvoiceManagerConfig struct {
 	// RfqManager is the RFQ manager that will be used to retrieve the
 	// accepted quotes for determining the incoming value of invoice related
 	// HTLCs.
-	RfqManager *rfq.Manager
+	RfqManager RfqManager
 }
 
 // AuxInvoiceManager is a Taproot Asset auxiliary invoice manager that can be
@@ -120,6 +137,14 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 
 	// No custom record on the HTLC, so we have nothing to do.
 	if len(req.WireCustomRecords) == 0 {
+		// If there's no wire custom records and the invoice is an asset
+		// invoice do not settle the invoice.
+		//
+		// TODO(george): Strict-forwarding could be configurable?
+		if s.isAssetInvoice(req.Invoice) {
+			resp.AmtPaid = 1
+		}
+
 		return resp, nil
 	}
 
@@ -225,6 +250,59 @@ func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
 		return 0, fmt.Errorf("no accepted quote found for RFQ SCID "+
 			"%d", rfqID.Scid())
 	}
+}
+
+// rfqPeerFromScid attempts to match the provided scid with a negotiated quote,
+// then it returns the RFQ peer's node id.
+func (s *AuxInvoiceManager) rfqPeerFromScid(scid uint64) (route.Vertex, error) {
+	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
+
+	buyQuote, isBuy := acceptedBuyQuotes[rfqmsg.SerialisedScid(scid)]
+	sellQuote, isSell := acceptedSellQuotes[rfqmsg.SerialisedScid(scid)]
+
+	switch {
+	case isBuy:
+		return buyQuote.Peer, nil
+
+	case isSell:
+		return sellQuote.Peer, nil
+
+	default:
+		return route.Vertex{},
+			fmt.Errorf("no peer found for RFQ SCID %d", scid)
+	}
+}
+
+// isAssetInvoice checks whether the provided invoice is an asset invoice. This
+// method checks whether the routing hints of the invoice match those created
+// when generating an asset invoice, and if that's the case we then check that
+// the scid matches an existing quote.
+func (s *AuxInvoiceManager) isAssetInvoice(invoice *lnrpc.Invoice) bool {
+	hints := invoice.RouteHints
+
+	if len(hints) != 1 {
+		return false
+	}
+
+	hint := hints[0]
+	if len(hint.HopHints) != 1 {
+		return false
+	}
+
+	hop := hint.HopHints[0]
+	scid := hop.ChanId
+	peer, err := s.rfqPeerFromScid(scid)
+	if err != nil {
+		log.Debugf("scid %v does not correspond to a valid RFQ quote",
+			scid)
+
+		return false
+	}
+
+	// We also want the RFQ peer and the node ID of the hop hint to match.
+	nodeId := hop.NodeId
+	return strings.Compare(peer.String(), nodeId) == 0
 }
 
 // Stop signals for an aux invoice manager to gracefully exit.
