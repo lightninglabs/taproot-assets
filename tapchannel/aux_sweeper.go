@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 	"net/url"
+	"slices"
 	"sync"
 	"sync/atomic"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -26,6 +29,7 @@ import (
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/sweep"
@@ -322,12 +326,14 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 // signSweepVpackets attempts to sign the vPackets specified using the passed
 // sign desc and script tree.
 func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
-	signDesc input.SignDescriptor, tapscriptDesc tapscriptSweepDesc) error {
+	signDesc input.SignDescriptor, tapTweak, ctrlBlock []byte,
+	auxSigDesc lfn.Option[lnwallet.AuxSigDesc],
+	secondLevelSigIndex lfn.Option[uint32]) error {
 
 	// Before we sign below, we also need to generate the tapscript With
 	// the vPackets prepared, we can now sign the output asset we'll create
 	// at a later step.
-	for _, vPacket := range vPackets {
+	for vPktIndex, vPacket := range vPackets {
 		if len(vPacket.Inputs) != 1 {
 			return fmt.Errorf("expected single input, got %v",
 				len(vPacket.Inputs))
@@ -343,12 +349,12 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// signature.
 		signingKey, leafToSign := applySignDescToVIn(
 			signDesc, vIn, &a.cfg.ChainParams,
-			tapscriptDesc.scriptTree.TapTweak(),
+			tapTweak,
 		)
 
 		// In this case, the witness isn't special, so we'll set the
 		// control block now for it.
-		ctrlBlock := tapscriptDesc.ctrlBlockBytes
+		ctrlBlock := ctrlBlock
 		vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
 
 		log.Debugf("signing vPacket for input=%v",
@@ -372,6 +378,50 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		if len(signed) != 1 || signed[0] != 0 {
 			return fmt.Errorf("error signing virtual packet, " +
 				"got no sig")
+		}
+
+		// At this point, the witness looks like: <sig> <witnessScript>
+		// <ctrlBlock>. If, This is a second level transaction, so we
+		// have another signature that we need to add to the witness
+		// this additional signature for the multi-sig.
+		err = lfn.MapOptionZ(
+			auxSigDesc,
+			func(aux lnwallet.AuxSigDesc) error {
+				assetSigs, err := cmsg.DecodeAssetSigListRecord(
+					aux.AuxSig,
+				)
+				if err != nil {
+					return fmt.Errorf("error "+
+						"decoding asset sig list "+
+						"record: %w", err)
+				}
+				auxSig := assetSigs.Sigs[vPktIndex]
+
+				// With the sig obtained, we'll now insert the
+				// signature are the specified index.
+				sigIndex, err := secondLevelSigIndex.UnwrapOrErr(
+					fmt.Errorf("no sig index"),
+				)
+				if err != nil {
+					return err
+				}
+
+				auxSigBytes := append(
+					auxSig.Sig.Val.RawBytes(),
+					byte(auxSig.SigHashType.Val),
+				)
+
+				prevWitness := vIn.Asset().PrevWitnesses[0].TxWitness
+				vIn.Asset().PrevWitnesses[0].TxWitness = slices.Insert(
+					prevWitness, int(sigIndex),
+					auxSigBytes,
+				)
+
+				return nil
+			},
+		)
+		if err != nil {
+			return err
 		}
 	}
 
