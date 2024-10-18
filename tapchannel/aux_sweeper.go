@@ -1226,7 +1226,9 @@ func (a *AuxSweeper) resolveContract(
 	// it into a resolution blob to return.
 	return lfn.AndThen(
 		sPkts, func(vPkts []*tappsbt.VPacket) lfn.Result[tlv.Blob] {
-			res := cmsg.NewContractResolution(vPkts)
+			res := cmsg.NewContractResolution(
+				vPkts, nil, lfn.None[cmsg.TapscriptSigDesc](),
+			)
 
 			var b bytes.Buffer
 			if err := res.Encode(&b); err != nil {
@@ -1264,7 +1266,7 @@ func extractInputVPackets(inputs []input.Input) lfn.Result[[]*tappsbt.VPacket] {
 				return nil, err
 			}
 
-			return res.VPkts(), nil
+			return res.Vpkts1(), nil
 		},
 	)
 	if err != nil {
