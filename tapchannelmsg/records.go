@@ -2201,6 +2201,11 @@ func (c *ContractResolution) Decode(r io.Reader) error {
 	return nil
 }
 
+// SigDescs returns the list of tapscriptSigDescs.
+func (c *ContractResolution) SigDescs() lfn.Option[TapscriptSigDesc] {
+	return c.secondLevelSigDescs.ValOpt()
+}
+
 // Vpkts1 returns the set of first level Vpkts.
 func (c *ContractResolution) Vpkts1() []*tappsbt.VPacket {
 	return c.firstLevelSweepVpkts.Val.Pkts
