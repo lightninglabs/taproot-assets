@@ -106,6 +106,9 @@ var (
 	// asset split leaves.
 	ZeroPrevID PrevID
 
+	// EmptyGenesis is the empty Genesis struct used for alt leaves.
+	EmptyGenesis Genesis
+
 	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
 	// "taproot-assets" with SHA2-256. The code for the try-and-increment
@@ -2238,3 +2241,137 @@ type ChainAsset struct {
 	// available for coin selection.
 	AnchorLeaseExpiry *time.Time
 }
+
+// An AltLeaf is a type that is used to carry arbitrary data, and does not
+// represent a Taproot asset. An AltLeaf can be used to anchor other protocols
+// alongside Taproot Asset transactions.
+type AltLeaf[T any] interface {
+	// Copyable asserts that the target type of this interface satisfies
+	// the Copyable interface.
+	fn.Copyable[T]
+
+	// ValidateAltLeaf ensures that an AltLeaf is valid.
+	ValidateAltLeaf() error
+
+	// EncodeAltLeaf encodes an AltLeaf into a TLV stream.
+	EncodeAltLeaf(w io.Writer) error
+
+	// DecodeAltLeaf decodes an AltLeaf from a TLV stream.
+	DecodeAltLeaf(r io.Reader) error
+}
+
+// NewAltLeaf instantiates a new valid AltLeaf.
+func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
+	prevWitness []Witness) (*Asset, error) {
+
+	if key.PubKey == nil {
+		return nil, fmt.Errorf("script key must be non-nil")
+	}
+
+	return &Asset{
+		Version:             V0,
+		Genesis:             EmptyGenesis,
+		Amount:              0,
+		LockTime:            0,
+		RelativeLockTime:    0,
+		PrevWitnesses:       prevWitness,
+		SplitCommitmentRoot: nil,
+		GroupKey:            nil,
+		ScriptKey:           key,
+		ScriptVersion:       keyVersion,
+	}, nil
+}
+
+// CopyAltLeaf performs a deep copy of an AltLeaf.
+func CopyAltLeaf[T AltLeaf[T]](a AltLeaf[T]) AltLeaf[T] {
+	return a.Copy()
+}
+
+// CopyAltLeaves performs a deep copy of an AltLeaf slice.
+func CopyAltLeaves[T AltLeaf[T]](a []AltLeaf[T]) []AltLeaf[T] {
+	return fn.Map(a, CopyAltLeaf[T])
+}
+
+// Validate checks that an Asset is a valid AltLeaf. An Asset used as an AltLeaf
+// must meet these constraints:
+// - Version must be V0.
+// - Genesis must be the empty Genesis.
+// - Amount, LockTime, and RelativeLockTime must be 0.
+// - SplitCommitmentRoot and GroupKey must be nil.
+// - ScriptKey must be non-nil.
+func (a *Asset) ValidateAltLeaf() error {
+	if a.Version != V0 {
+		return fmt.Errorf("alt leaf version must be 0")
+	}
+
+	if a.Genesis != EmptyGenesis {
+		return fmt.Errorf("alt leaf genesis must be the empty genesis")
+	}
+
+	if a.Amount != 0 {
+		return fmt.Errorf("alt leaf amount must be 0")
+	}
+
+	if a.LockTime != 0 {
+		return fmt.Errorf("alt leaf lock time must be 0")
+	}
+
+	if a.RelativeLockTime != 0 {
+		return fmt.Errorf("alt leaf relative lock time must be 0")
+	}
+
+	if a.SplitCommitmentRoot != nil {
+		return fmt.Errorf(
+			"alt leaf split commitment root must be empty",
+		)
+	}
+
+	if a.GroupKey != nil {
+		return fmt.Errorf("alt leaf group key must be empty")
+	}
+
+	if a.ScriptKey.PubKey == nil {
+		return fmt.Errorf("alt leaf script key must be non-nil")
+	}
+
+	return nil
+}
+
+// encodeAltLeafRecords determines the set of non-nil records to include when
+// encoding an AltLeaf. Since the Genesis, Group Key, Amount, and Version fields
+// are static, we can omit those fields.
+func (a *Asset) encodeAltLeafRecords() []tlv.Record {
+	records := make([]tlv.Record, 0, 3)
+
+	// Always use the normal witness encoding, since the asset version is
+	// always V0.
+	if len(a.PrevWitnesses) > 0 {
+		records = append(records, NewLeafPrevWitnessRecord(
+			&a.PrevWitnesses, EncodeNormal,
+		))
+	}
+	records = append(records, NewLeafScriptVersionRecord(&a.ScriptVersion))
+	records = append(records, NewLeafScriptKeyRecord(&a.ScriptKey.PubKey))
+
+	// Add any unknown odd types that were encountered during decoding.
+	return CombineRecords(records, a.UnknownOddTypes)
+}
+
+// EncodeAltLeaf encodes an AltLeaf into a TLV stream.
+func (a *Asset) EncodeAltLeaf(w io.Writer) error {
+	stream, err := tlv.NewStream(a.encodeAltLeafRecords()...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(w)
+}
+
+// DecodeAltLeaf decodes an AltLeaf from a TLV stream. The normal Asset decoder
+// can be reused here, since any Asset field not encoded in the AltLeaf will
+// be set to its default value, which matches the AltLeaf validity constraints.
+func (a *Asset) DecodeAltLeaf(r io.Reader) error {
+	return a.Decode(r)
+}
+
+// Ensure Asset implements the AltLeaf interface.
+var _ AltLeaf[*Asset] = (*Asset)(nil)
