@@ -519,6 +519,85 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		},
 	})
 }
+
+// remoteHtlcTimeoutSweepDesc creates a sweep desc for an HTLC output that is
+// close to timing out on the remote party's commitment transaction.
+func remoteHtlcTimeoutSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
+	payHash []byte, csvDelay uint32, htlcExpiry uint32,
+) lfn.Result[tapscriptSweepDescs] {
+
+	// We're sweeping a timed out HTLC, which means that we'll need to
+	// create the receiver's HTLC script tree (from the remote party's PoV).
+	htlcScriptTree, err := input.ReceiverHTLCScriptTaproot(
+		htlcExpiry, keyRing.ToLocalKey, keyRing.ToRemoteKey,
+		keyRing.RevocationKey, payHash, false, input.NoneTapLeaf(),
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	// Now that we have the script tree, we'll make the control block needed
+	// to spend it, but taking the revoked path.
+	ctrlBlock, err := htlcScriptTree.CtrlBlockForPath(
+		input.ScriptPathTimeout,
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			relativeDelay:  lfn.Some(uint64(csvDelay)),
+			absoluteDelay:  lfn.Some(uint64(htlcExpiry)),
+			scriptTree:     htlcScriptTree,
+			ctrlBlockBytes: ctrlBlockBytes,
+		},
+	})
+}
+
+// remoteHtlcSuccessSweepDesc creates a sweep desc for an HTLC output present on
+// the remote party's commitment transaction that we can sweep with the
+// preimage.
+func remoteHtlcSuccessSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
+	payHash []byte, csvDelay uint32,
+	auxSigs lfn.Option[lnwallet.AuxSigDesc]) lfn.Result[tapscriptSweepDescs] {
+
+	// We're planning on sweeping an HTLC that we know the preimage to,
+	// which the remote party sent, so we'll construct the sender version of
+	// the HTLC script tree (from their PoV, they're the sender).
+	htlcScriptTree, err := input.SenderHTLCScriptTaproot(
+		keyRing.ToLocalKey, keyRing.ToRemoteKey, keyRing.RevocationKey,
+		payHash, false, input.NoneTapLeaf(),
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	// Now that we have the script tree, we'll make the control block needed
+	// to spend it, but taking the revoked path.
+	ctrlBlock, err := htlcScriptTree.CtrlBlockForPath(
+		input.ScriptPathSuccess,
+	)
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+	ctrlBlockBytes, err := ctrlBlock.ToBytes()
+	if err != nil {
+		return lfn.Err[tapscriptSweepDescs](err)
+	}
+
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			relativeDelay:  lfn.Some(uint64(csvDelay)),
+			ctrlBlockBytes: ctrlBlockBytes,
+			scriptTree:     htlcScriptTree,
+		},
+	})
+}
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
@@ -1213,6 +1292,56 @@ func (a *AuxSweeper) resolveContract(
 		// party's local output.
 		sweepDesc = commitRevokeSweepDesc(req.KeyRing, req.CsvDelay)
 
+	// The remote party broadcasted a commitment transaction which held an
+	// HTLC that we can timeout eventually.
+	case input.TaprootHtlcOfferedRemoteTimeout:
+		// In this case, we're interested in sweeping the incoming
+		// assets for the remote party, which are actually the HTLCs we
+		// sent outgoing. We only care about this particular HTLC, so
+		// we'll filter out the rest.
+		htlcOutputs := commitState.IncomingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(
+			req.HtlcID.UnwrapOr(math.MaxUint64),
+		)
+
+		payHash, err := req.PayHash.UnwrapOrErr(
+			fmt.Errorf("no payment hash provided"),
+		)
+		if err != nil {
+			return lfn.Err[tlv.Blob](err)
+		}
+
+		// Now that we know which output we'll be sweeping, we'll make a
+		// sweep desc for the timeout txn.
+		sweepDesc = remoteHtlcTimeoutSweepDesc(
+			req.KeyRing, payHash[:], req.CsvDelay,
+			req.CltvDelay.UnwrapOr(0),
+		)
+
+	// The remote party broadcasted a commitment transaction which held an
+	// outgoing HTLC that we may claim with a preimage.
+	case input.TaprootHtlcAcceptedRemoteSuccess:
+		// In this case, it's an outgoing HTLC from the PoV of the
+		// remote party, which is incoming for us. We'll only sweep this
+		// HTLC, so we'll filter out the rest.
+		htlcOutputs := commitState.OutgoingHtlcAssets.Val
+		assetOutputs = htlcOutputs.FilterByHtlcIndex(
+			req.HtlcID.UnwrapOr(math.MaxUint64),
+		)
+
+		payHash, err := req.PayHash.UnwrapOrErr(
+			fmt.Errorf("no payment hash provided"),
+		)
+		if err != nil {
+			return lfn.Err[tlv.Blob](err)
+		}
+
+		// Now that we know which output we'll be sweeping, we'll make a
+		// sweep desc for the timeout txn.
+		sweepDesc = remoteHtlcSuccessSweepDesc(
+			req.KeyRing, payHash[:], req.CsvDelay,
+			req.AuxSigDesc,
+		)
 	default:
 		return lfn.Err[tlv.Blob](fmt.Errorf("unknown resolution "+
 			"type: %v", req.Type))
