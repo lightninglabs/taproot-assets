@@ -1614,6 +1614,105 @@ func (a *AuxSweeper) resolveContract(
 	)
 }
 
+// preimageDesc is a helper struct that contains the preimage and the witness
+// index that the preimage should be placed within the witness stack. This is
+// useful as in an earlier step, we've already pre-signed the witness, but will
+// learn of the preimage later.
+type preimageDesc struct {
+	// preimage is the preimage that we'll use to update the witness stack.
+	preimage lntypes.Preimage
+
+	// witnessIndex is the index within the witness stack that the preimage
+	// should be placed at.
+	witnessIndex int
+}
+
+// blobWithWitnessInfo is a helper struct that contains a resolution blob, along
+// with optional preimage information. If the preimage information is present,
+// then we'll use this to update the witness stack of the final vPacket before
+// we anchor it into the sweep output.
+type blobWithWitnessInfo struct {
+	// resolutionBlob is the serialized resolution blob that contains the
+	// vPackets.
+	resolutionBlob tlv.Blob
+
+	// input is the sweep input that we created this blob using.
+	input input.Input
+
+	// preimageInfo is an optional field that contains the preimage and info
+	// w.r.t where to place it in the witness stack.
+	preimageInfo lfn.Option[preimageDesc]
+
+	// secondLevel indicates if this is a second level sweep.
+	secondLevel bool
+}
+
+// newBlobWithWitnessInfo creates a new blobWithWitnessInfo struct from a passed
+// input.Input, which stores the resolution blob and other information.
+func newBlobWithWitnessInfo(i input.Input) blobWithWitnessInfo {
+	// If this is a success input, then we'll need to extract the preimage
+	// from the inner struct, so we can update the witness stack.
+	var (
+		preimageInfo lfn.Option[preimageDesc]
+		secondLevel  bool
+	)
+	switch i.WitnessType() {
+	// This is the case when we're sweeping the HTLC output on our local
+	// commitment transaction via a second level HTLC.
+	//
+	// The final witness stack is:
+	//  * <sender sig> <receiver sig> <preimage> <success_script>
+	//    <control_block>
+	//
+	// So we'll place the preimage at index 2.
+	case input.TaprootHtlcAcceptedLocalSuccess:
+		preimage := i.Preimage()
+
+		preimageInfo = lfn.MapOption(
+			func(p lntypes.Preimage) preimageDesc {
+				return preimageDesc{
+					preimage:     p,
+					witnessIndex: 2,
+				}
+			},
+		)(preimage)
+
+	// This is the case when we're sweeping the HTLC output we received on
+	// the remote party's version of the commitment transaction.
+	//
+	// The final witness stack is:
+	//  <receiver sig> <preimage> <success_script> <control_block>
+	//
+	//  So we'll place the preimage at index 1.
+	case input.TaprootHtlcAcceptedRemoteSuccess:
+		preimage := i.Preimage()
+
+		preimageInfo = lfn.MapOption(
+			func(p lntypes.Preimage) preimageDesc {
+				return preimageDesc{
+					preimage:     p,
+					witnessIndex: 1,
+				}
+			},
+		)(preimage)
+
+	// For second level sweeps, we don't need to note anything about a
+	// preimage, but will note that this is a second level output.
+	case input.TaprootHtlcOfferedTimeoutSecondLevel:
+		fallthrough
+	case input.TaprootHtlcAcceptedSuccessSecondLevel:
+		secondLevel = true
+	}
+
+	// We already know this has a blob from the filter in an earlier step.
+	return blobWithWitnessInfo{
+		resolutionBlob: i.ResolutionBlob().UnwrapOr(nil),
+		input:          i,
+		preimageInfo:   preimageInfo,
+		secondLevel:    secondLevel,
+	}
+}
+
 // extractInputVPackets extracts the vPackets from the inputs passed in. If
 // none of the inputs have any resolution blobs. Then an empty slice will be
 // returned.
