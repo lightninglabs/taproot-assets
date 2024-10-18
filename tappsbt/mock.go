@@ -337,6 +337,28 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 		ti.Proof = proof.NewTestFromProof(t, i.Proof)
 	}
 
+	if len(i.AltLeaves) > 0 {
+		// Assert that the concrete type of AltLeaf is supported.
+		require.IsTypef(
+			t, &asset.Asset{}, i.AltLeaves[0],
+			"AltLeaves must be of type *asset.Asset",
+		)
+
+		ti.AltLeaves = make([]*asset.TestAsset, 0, len(i.AltLeaves))
+		for idx := range i.AltLeaves {
+			// We also need a type assertion on each leaf.
+			leaf, ok := i.AltLeaves[idx].(*asset.Asset)
+			if !ok {
+				t.Errorf("AltLeaf must be of type *asset.Asset")
+			}
+
+			ti.AltLeaves = append(
+				ti.AltLeaves,
+				asset.NewTestFromAsset(t, leaf),
+			)
+		}
+	}
+
 	return ti
 }
 
@@ -349,6 +371,7 @@ type TestVInput struct {
 	Anchor            *TestAnchor              `json:"anchor"`
 	Asset             *asset.TestAsset         `json:"asset"`
 	Proof             *proof.TestProof         `json:"proof"`
+	AltLeaves         []*asset.TestAsset       `json:"alt_leaves"`
 }
 
 func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
@@ -389,6 +412,13 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 
 	if ti.Proof != nil {
 		vi.Proof = ti.Proof.ToProof(t)
+	}
+
+	if len(ti.AltLeaves) > 0 {
+		vi.AltLeaves = make([]AltLeafAsset, len(ti.AltLeaves))
+		for idx, leaf := range ti.AltLeaves {
+			vi.AltLeaves[idx] = leaf.ToAsset(t)
+		}
 	}
 
 	return vi
@@ -629,6 +659,28 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		vo.SplitAsset = asset.NewTestFromAsset(t, v.SplitAsset)
 	}
 
+	if len(v.AltLeaves) > 0 {
+		// Assert that the concrete type of AltLeaf is supported.
+		switch v.AltLeaves[0].(type) {
+		case *asset.Asset:
+		default:
+			t.Errorf("AltLeaves must be of type *asset.Asset")
+		}
+
+		vo.AltLeaves = make([]*asset.TestAsset, 0, len(vo.AltLeaves))
+		for idx := range v.AltLeaves {
+			// We also need a type assertion on each leaf.
+			leaf, ok := v.AltLeaves[idx].(*asset.Asset)
+			if !ok {
+				t.Errorf("AltLeaf must be of type *asset.Asset")
+			}
+
+			vo.AltLeaves = append(
+				vo.AltLeaves,
+				asset.NewTestFromAsset(t, leaf),
+			)
+		}
+	}
 	return vo
 }
 
@@ -654,6 +706,7 @@ type TestVOutput struct {
 	ProofSuffix                   *proof.TestProof         `json:"proof_suffix"`
 	RelativeLockTime              uint64                   `json:"relative_lock_time"`
 	LockTime                      uint64                   `json:"lock_time"`
+	AltLeaves                     []*asset.TestAsset       `json:"alt_leaves"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -744,6 +797,13 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 			v.AnchorOutputTaprootBip32Derivation,
 			derivation.ToTrBip32Derivation(t),
 		)
+	}
+
+	if len(to.AltLeaves) > 0 {
+		v.AltLeaves = make([]AltLeafAsset, len(to.AltLeaves))
+		for idx, leaf := range to.AltLeaves {
+			v.AltLeaves[idx] = leaf.ToAsset(t)
+		}
 	}
 
 	return v
