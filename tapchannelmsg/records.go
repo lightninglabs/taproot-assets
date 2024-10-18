@@ -1333,6 +1333,20 @@ func NewHtlcAssetOutput(
 	}
 }
 
+// FilterByHtlcIndex returns a slice of AssetOutputs that are associated with
+// the given htlc index.
+func (h *HtlcAssetOutput) FilterByHtlcIndex(id input.HtlcIndex) []*AssetOutput {
+	if h.HtlcOutputs == nil {
+		return nil
+	}
+
+	if outputs, ok := h.HtlcOutputs[id]; ok {
+		return outputs.Outputs
+	}
+
+	return nil
+}
+
 // Record creates a Record out of a HtlcAssetOutput using the
 // eHtlcAssetOutput and dHtlcAssetOutput functions.
 //
