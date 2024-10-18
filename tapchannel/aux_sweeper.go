@@ -431,7 +431,7 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 // createAndSignSweepVpackets creates vPackets that sweep the funds from the
 // channel to the wallet, and then signs them as well.
 func (a *AuxSweeper) createAndSignSweepVpackets(
-	sweepInputs []*cmsg.AssetOutput, signDesc input.SignDescriptor,
+	sweepInputs []*cmsg.AssetOutput, resReq lnwallet.ResolutionReq,
 	sweepDesc lfn.Result[tapscriptSweepDesc],
 ) lfn.Result[[]*tappsbt.VPacket] {
 
@@ -443,7 +443,20 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	signPkts := func(vPkts []*tappsbt.VPacket,
 		desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
 
-		err := a.signSweepVpackets(vPkts, signDesc, desc)
+		// If this is a second level output, then we'll use the
+		// specified aux sign desc, otherwise, we'll use the
+		// normal one.
+		signDesc := lfn.MapOption(
+			func(aux lnwallet.AuxSigDesc) input.SignDescriptor {
+				return aux.SignDetails.SignDesc
+			},
+		)(desc.auxSigInfo).UnwrapOr(resReq.SignDesc)
+
+		err := a.signSweepVpackets(
+			vPkts, signDesc, desc.scriptTree.TapTweak(),
+			desc.ctrlBlockBytes, desc.auxSigInfo,
+			desc.secondLevelSigIndex,
+		)
 		if err != nil {
 			return lfn.Err[[]*tappsbt.VPacket](err)
 		}
@@ -452,7 +465,10 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	}
 
 	return lfn.AndThen2(
-		a.createSweepVpackets(sweepInputs, sweepDesc), sweepDesc,
+		a.createSweepVpackets(
+			sweepInputs, sweepDesc, resReq,
+		),
+		sweepDesc,
 		signPkts,
 	)
 }
