@@ -447,9 +447,19 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	signPkts := func(vPkts []*tappsbt.VPacket,
 		desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
 
+		// If this is a second level output, then we'll use the
+		// specified aux sign desc, otherwise, we'll use the
+		// normal one.
+		signDesc := lfn.MapOption(
+			func(aux lnwallet.AuxSigDesc) input.SignDescriptor {
+				return aux.SignDetails.SignDesc
+			},
+		)(desc.auxSigInfo).UnwrapOr(resReq.SignDesc)
+
 		err := a.signSweepVpackets(
-			vPkts, resReq.SignDesc, nil, nil,
-			lfn.None[lnwallet.AuxSigDesc](), lfn.None[uint32](),
+			vPkts, signDesc, desc.scriptTree.TapTweak(),
+			desc.ctrlBlockBytes, desc.auxSigInfo,
+			desc.secondLevelSigIndex,
 		)
 		if err != nil {
 			return lfn.Err[returnType](err)
