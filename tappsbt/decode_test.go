@@ -146,18 +146,18 @@ func TestEncodingDecoding(t *testing.T) {
 	}, {
 		name: "random packet",
 		pkg: func(t *testing.T) *VPacket {
-			return RandPacket(t, true)
+			return RandPacket(t, true, true)
 		},
 	}, {
 		name: "random packet with no explicit version",
 		pkg: func(t *testing.T) *VPacket {
-			return RandPacket(t, false)
+			return RandPacket(t, false, true)
 		},
 	}, {
 		name: "invalid packet version",
 		pkg: func(t *testing.T) *VPacket {
 			validVers := fn.NewSet(uint8(V0), uint8(V1))
-			pkt := RandPacket(t, false)
+			pkt := RandPacket(t, false, true)
 
 			invalidPktVersion := test.RandInt[uint8]()
 			for validVers.Contains(invalidPktVersion) {

@@ -489,7 +489,7 @@ func TestContractResolution(t *testing.T) {
 
 	testPkts := make([]*tappsbt.VPacket, numPackets)
 	for i := 0; i < numPackets; i++ {
-		testPkts[i] = tappsbt.RandPacket(t, true)
+		testPkts[i] = tappsbt.RandPacket(t, true, false)
 	}
 
 	testRes := NewContractResolution(testPkts)

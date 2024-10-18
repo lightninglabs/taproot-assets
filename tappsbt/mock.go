@@ -37,6 +37,37 @@ var (
 	)
 )
 
+// RandAltLeaf generates a random Asset that is a valid AltLeaf.
+func RandAltLeaf(t testing.TB) *asset.Asset {
+	randWitness := []asset.Witness{
+		{TxWitness: test.RandTxWitnesses(t)},
+	}
+	randKey := asset.RandScriptKey(t)
+	randVersion := asset.ScriptVersion(test.RandInt[uint16]())
+	randLeaf, err := asset.NewAltLeaf(randKey, randVersion, randWitness)
+	require.NoError(t, err)
+
+	require.NoError(t, randLeaf.ValidateAltLeaf())
+
+	return randLeaf
+}
+
+// RandAltLeaves generates a set of random number of random alt leaves.
+func RandAltLeaves(t testing.TB) []AltLeafAsset {
+	// Limit the number of leaves to keep the test vectors small.
+	maxLeaves := int32(4)
+	numLeaves := test.RandInt31n(maxLeaves)
+	if numLeaves == 0 {
+		return nil
+	}
+
+	altLeaves := make([]AltLeafAsset, 0, numLeaves)
+	for range numLeaves {
+		altLeaves = append(altLeaves, AltLeafAsset(RandAltLeaf(t)))
+	}
+
+	return altLeaves
+}
 
 func RandAssetForPacket(t testing.TB, assetType asset.Type,
 	desc keychain.KeyDescriptor) *asset.Asset {
@@ -54,7 +85,7 @@ func RandAssetForPacket(t testing.TB, assetType asset.Type,
 }
 
 // RandPacket generates a random virtual packet for testing purposes.
-func RandPacket(t testing.TB, setVersion bool) *VPacket {
+func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 	testPubKey := test.RandPubKey(t)
 	op := test.RandOp(t)
 	keyDesc := keychain.KeyDescriptor{
@@ -117,61 +148,72 @@ func RandPacket(t testing.TB, setVersion bool) *VPacket {
 	courierAddress, err := url.Parse("https://example.com")
 	require.NoError(t, err)
 
+	randVInput := VInput{
+		PrevID: asset.PrevID{
+			OutPoint:  op,
+			ID:        asset.RandID(t),
+			ScriptKey: asset.RandSerializedKey(t),
+		},
+		Anchor: Anchor{
+			Value:             777,
+			PkScript:          []byte("anchor pkscript"),
+			SigHashType:       txscript.SigHashSingle,
+			InternalKey:       testPubKey,
+			MerkleRoot:        []byte("merkle root"),
+			TapscriptSibling:  []byte("sibling"),
+			Bip32Derivation:   bip32Derivations,
+			TrBip32Derivation: trBip32Derivations,
+		},
+		Proof: &inputProof,
+	}
+
+	randVOutput1 := VOutput{
+		Amount: 123,
+		AssetVersion: asset.Version(
+			test.RandIntn(2),
+		),
+		Type:                               TypeSplitRoot,
+		Interactive:                        true,
+		AnchorOutputIndex:                  0,
+		AnchorOutputInternalKey:            testPubKey,
+		AnchorOutputBip32Derivation:        bip32Derivations,
+		AnchorOutputTaprootBip32Derivation: trBip32Derivations,
+		Asset:                              testOutputAsset,
+		ScriptKey:                          testOutputAsset.ScriptKey,
+		SplitAsset:                         testOutputAsset,
+		AnchorOutputTapscriptSibling:       testPreimage1,
+		ProofDeliveryAddress:               courierAddress,
+		ProofSuffix:                        &inputProof,
+		RelativeLockTime:                   345,
+		LockTime:                           456,
+	}
+
+	randVOutput2 := VOutput{
+		Amount: 345,
+		AssetVersion: asset.Version(
+			test.RandIntn(2),
+		),
+		Type:                               TypeSplitRoot,
+		Interactive:                        false,
+		AnchorOutputIndex:                  1,
+		AnchorOutputInternalKey:            testPubKey,
+		AnchorOutputBip32Derivation:        bip32Derivations,
+		AnchorOutputTaprootBip32Derivation: trBip32Derivations,
+		Asset:                              testOutputAsset,
+		ScriptKey:                          testOutputAsset.ScriptKey,
+		AnchorOutputTapscriptSibling:       &testPreimage2,
+	}
+
+	if altLeaves {
+		randVInput.AltLeaves = RandAltLeaves(t)
+		randVOutput1.AltLeaves = RandAltLeaves(t)
+		randVOutput2.AltLeaves = RandAltLeaves(t)
+	}
+
 	vPacket := &VPacket{
-		Inputs: []*VInput{{
-			PrevID: asset.PrevID{
-				OutPoint:  op,
-				ID:        asset.RandID(t),
-				ScriptKey: asset.RandSerializedKey(t),
-			},
-			Anchor: Anchor{
-				Value:             777,
-				PkScript:          []byte("anchor pkscript"),
-				SigHashType:       txscript.SigHashSingle,
-				InternalKey:       testPubKey,
-				MerkleRoot:        []byte("merkle root"),
-				TapscriptSibling:  []byte("sibling"),
-				Bip32Derivation:   bip32Derivations,
-				TrBip32Derivation: trBip32Derivations,
-			},
-			Proof: &inputProof,
-		}, {
-			// Empty input.
-		}},
-		Outputs: []*VOutput{{
-			Amount: 123,
-			AssetVersion: asset.Version(
-				test.RandIntn(2),
-			),
-			Type:                               TypeSplitRoot,
-			Interactive:                        true,
-			AnchorOutputIndex:                  0,
-			AnchorOutputInternalKey:            testPubKey,
-			AnchorOutputBip32Derivation:        bip32Derivations,
-			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
-			Asset:                              testOutputAsset,
-			ScriptKey:                          testOutputAsset.ScriptKey,
-			SplitAsset:                         testOutputAsset,
-			AnchorOutputTapscriptSibling:       testPreimage1,
-			ProofDeliveryAddress:               courierAddress,
-			ProofSuffix:                        &inputProof,
-			RelativeLockTime:                   345,
-			LockTime:                           456,
-		}, {
-			Amount: 345,
-			AssetVersion: asset.Version(
-				test.RandIntn(2),
-			),
-			Type:                               TypeSplitRoot,
-			Interactive:                        false,
-			AnchorOutputIndex:                  1,
-			AnchorOutputInternalKey:            testPubKey,
-			AnchorOutputBip32Derivation:        bip32Derivations,
-			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
-			Asset:                              testOutputAsset,
-			ScriptKey:                          testOutputAsset.ScriptKey,
-			AnchorOutputTapscriptSibling:       &testPreimage2,
-		}},
+		// Empty input.
+		Inputs:      []*VInput{&randVInput, {}},
+		Outputs:     []*VOutput{&randVOutput1, &randVOutput2},
 		ChainParams: testParams,
 	}
 	vPacket.SetInputAsset(0, testAsset)
