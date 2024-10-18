@@ -185,6 +185,9 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		{
 			key:     PsbtKeyTypeInputTapAssetProof,
 			encoder: proofEncoder(i.Proof),
+		}, {
+			key:     PsbtKeyTypeInputAltLeaves,
+			encoder: altLeavesEncoder(i.AltLeaves),
 		},
 	}
 
@@ -300,6 +303,9 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 		{
 			key:     PsbtKeyTypeOutputTapAssetRelativeLockTime,
 			encoder: tlvEncoder(&o.RelativeLockTime, tlv.EUint64),
+		}, {
+			key:     PsbtKeyTypeOutputTapAltLeaves,
+			encoder: altLeavesEncoder(o.AltLeaves),
 		},
 	}
 
@@ -375,6 +381,18 @@ func proofEncoder(p *proof.Proof) encoderFunc {
 			},
 		}, nil
 	}
+}
+
+// altLeavesEncoder is an encoder that does nothing if the given alt leaf slice
+// is nil.
+func altLeavesEncoder(a []AltLeafAsset) encoderFunc {
+	if a == nil {
+		return func([]byte) ([]*customPsbtField, error) {
+			return nil, nil
+		}
+	}
+
+	return tlvEncoder(&a, asset.AltLeavesEncoder)
 }
 
 // assetEncoder is an encoder that does nothing if the given asset is nil.

@@ -179,6 +179,9 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	}, {
 		key:     PsbtKeyTypeInputTapAssetProof,
 		decoder: proofDecoder(&i.Proof),
+	}, {
+		key:     PsbtKeyTypeInputAltLeaves,
+		decoder: altLeavesDecoder(&i.AltLeaves),
 	}}
 
 	for idx := range mapping {
@@ -308,8 +311,10 @@ func (o *VOutput) decode(pOut psbt.POutput, txOut *wire.TxOut) error {
 		{
 			key:     PsbtKeyTypeOutputTapAssetRelativeLockTime,
 			decoder: tlvDecoder(&o.RelativeLockTime, tlv.DUint64),
-		},
-	}
+		}, {
+			key:     PsbtKeyTypeOutputTapAltLeaves,
+			decoder: altLeavesDecoder(&o.AltLeaves),
+		}}
 
 	for idx := range mapping {
 		unknown, err := findCustomFieldsByKeyPrefix(
@@ -363,6 +368,17 @@ func proofDecoder(p **proof.Proof) decoderFunc {
 			*p = &proof.Proof{}
 		}
 		return (*p).Decode(bytes.NewReader(byteVal))
+	}
+}
+
+// altLeavesDecoder returns a decoder function that can handle nil alt leaves.
+func altLeavesDecoder(a *[]AltLeafAsset) decoderFunc {
+	return func(key, byteVal []byte) error {
+		if len(byteVal) == 0 {
+			return nil
+		}
+
+		return tlvDecoder(a, asset.AltLeavesDecoder)(key, byteVal)
 	}
 }
 
