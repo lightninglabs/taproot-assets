@@ -1758,6 +1758,7 @@ func (a *AuxSweeper) resolveContract(
 	default:
 		return lfn.Errf[returnType]("unknown resolution type: %v",
 			req.Type)
+		// TODO(roasbeef): need to do HTLC revocation casesj:w
 	}
 
 	// The input proofs above were made originally using the fake commit tx
@@ -2240,34 +2241,87 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 		return nil
 	}
 
-	ourSweepOutput, err := req.ExtraTxOut.UnwrapOrErr(
-		fmt.Errorf("extra tx out not populated"),
-	)
-	if err != nil {
-		return err
-	}
-	internalKey, err := ourSweepOutput.InternalKey.UnwrapOrErr(
-		fmt.Errorf("internal key not populated"),
-	)
-	if err != nil {
-		return err
-	}
-
-	log.Infof("Using %x for internal key: ",
-		internalKey.PubKey.SerializeCompressed())
-
-	// We'll also use the passed in context to set the anchor key again for
-	// all the vOuts.
-	for idx := range vPkts.firstLevelPkts() {
-		for _, vOut := range vPkts.firstLevelPkts()[idx].Outputs {
-			vOut.SetAnchorInternalKey(
-				internalKey, a.cfg.ChainParams.HDCoinType,
+	// If this is a transaction that's only sweeping HTLC outputs via a
+	// pre-signed transaction, then we won't actually have an extra sweep
+	// output.
+	err = lfn.MapOptionZ(
+		req.ExtraTxOut,
+		func(extraTxOut sweep.SweepOutput) error {
+			ourSweepOutput, err := req.ExtraTxOut.UnwrapOrErr(
+				fmt.Errorf("extra tx out not populated"),
 			)
+			if err != nil {
+				return err
+			}
+			iKey, err := ourSweepOutput.InternalKey.UnwrapOrErr(
+				fmt.Errorf("internal key not populated"),
+			)
+			if err != nil {
+				return err
+			}
+
+			// We'll also use the passed in context to set the
+			// anchor key again for all the vOuts, but only for
+			// first level vPkts, as second level packets already
+			// commit to the internal key of the vOut.
+			vPkts := vPkts.directSpendPkts()
+			for idx := range vPkts {
+				for _, vOut := range vPkts[idx].Outputs {
+					vOut.SetAnchorInternalKey(
+						iKey,
+						a.cfg.ChainParams.HDCoinType,
+					)
+				}
+			}
+
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// For any second level outputs we're sweeping, we'll need to sign for
+	// it, as now we know the txid of the sweeping transaction.
+	for _, sweepSet := range vPkts.secondLevel {
+		for _, vPkt := range sweepSet.vPkts {
+			prevOut := sweepSet.btcInput.OutPoint()
+			for _, vIn := range vPkt.Inputs {
+				vIn.PrevID.OutPoint = prevOut
+			}
+
+			for _, vOut := range vPkt.Outputs {
+				vOut.Asset.PrevWitnesses[0].PrevID.OutPoint = prevOut //nolint:lll
+			}
+		}
+	}
+
+	// If we have second level vPkts, then we'll need to sign them here, as
+	// now we know the input we're spending which was set above.
+	for _, sweepSet := range vPkts.secondLevel {
+		tapSigDesc, err := sweepSet.tapSigDesc.UnwrapOrErr(
+			fmt.Errorf("tap sig desc not populated"),
+		)
+		if err != nil {
+			return err
+		}
+
+		err = a.signSweepVpackets(
+			sweepSet.vPkts, *sweepSet.btcInput.SignDesc(),
+			tapSigDesc.TapTweak.Val, tapSigDesc.CtrlBlock.Val,
+			lfn.None[lnwallet.AuxSigDesc](),
+			lfn.None[uint32](),
+		)
+		if err != nil {
+			return fmt.Errorf("unable to sign second level "+
+				"vPkts: %w", err)
 		}
 	}
 
 	// Now that we have our vPkts, we'll re-create the output commitments.
-	outCommitments, err := tapsend.CreateOutputCommitments(vPkts.allPkts())
+	outCommitments, err := tapsend.CreateOutputCommitments(
+		vPkts.allPkts(),
+	)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
