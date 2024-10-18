@@ -382,16 +382,27 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 
 // tapscriptSweepDesc is a helper struct that contains the tapscript tree and
 // the control block needed to generate a valid spend.
-//
-// TODO(roasbeef): only needs the merkle root?
 type tapscriptSweepDesc struct {
+	auxSigInfo lfn.Option[lnwallet.AuxSigDesc]
+
 	scriptTree input.TapscriptDescriptor
 
 	ctrlBlockBytes []byte
 
-	relativeDelay fn.Option[uint64]
+	relativeDelay lfn.Option[uint64]
 
-	absoluteDelay fn.Option[uint64] //nolint:unused
+	absoluteDelay lfn.Option[uint64]
+
+	secondLevelSigIndex lfn.Option[uint32]
+}
+
+// tapscriptSweepDescs contains the sweep decs for the first and second level.
+// Most outputs only go to the first level, but HTLCs on our local commitment
+// transaction go to the second level.
+type tapscriptSweepDescs struct {
+	firstLevel tapscriptSweepDesc
+
+	secondLevel lfn.Option[tapscriptSweepDesc]
 }
 
 // commitNoDelaySweepDesc creates a sweep desc for a commitment output that
@@ -399,9 +410,9 @@ type tapscriptSweepDesc struct {
 // non-delay output, so we don't need to worry about the CSV delay when
 // sweeping it.
 func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
-	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
+	csvDelay uint32) lfn.Result[tapscriptSweepDescs] {
 
-	type returnType = tapscriptSweepDesc
+	type returnType = tapscriptSweepDescs
 
 	// We'll make the script tree for the to remote script (we're remote as
 	// this is their commitment transaction). We don't have an auxLeaf here
@@ -410,8 +421,8 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		keyRing.ToRemoteKey, input.NoneTapLeaf(),
 	)
 	if err != nil {
-		return lfn.Errf[returnType]("unable to make remote script "+
-			"tree: %w", err)
+		return lfn.Errf[returnType]("unable to make remote "+
+			"script tree: %w", err)
 	}
 
 	// Now that we have the script tree, we'll make the control block
@@ -420,19 +431,19 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.ScriptPathSuccess,
 	)
 	if err != nil {
-		return lfn.Errf[returnType]("unable to make ctrl block: %w",
-			err)
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
-		return lfn.Errf[returnType]("unable to encode ctrl block: %w",
-			err)
+		return lfn.Errf[returnType]("unable to encode ctrl "+
+			"block: %w", err)
 	}
 
-	return lfn.Ok(tapscriptSweepDesc{
-		scriptTree:     toRemoteScriptTree,
-		relativeDelay:  fn.Some(uint64(csvDelay)),
-		ctrlBlockBytes: ctrlBlockBytes,
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree:     toRemoteScriptTree,
+			relativeDelay:  lfn.Some(uint64(csvDelay)),
+			ctrlBlockBytes: ctrlBlockBytes,
+		},
 	})
 }
 
@@ -440,9 +451,9 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 // resides on our local commitment transaction. This output is a delay output,
 // so we need to mind the CSV delay when sweeping it.
 func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
-	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
+	csvDelay uint32) lfn.Result[tapscriptSweepDescs] {
 
-	type returnType = tapscriptSweepDesc
+	type returnType = tapscriptSweepDescs
 
 	// We'll make the script tree for the to remote script (we're remote as
 	// this is their commitment transaction). We don't have an auxLeaf here
@@ -461,17 +472,18 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.ScriptPathSuccess,
 	)
 	if err != nil {
-		return lfn.Err[returnType](err)
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
 		return lfn.Err[returnType](err)
 	}
 
-	return lfn.Ok(tapscriptSweepDesc{
-		scriptTree:     toLocalScriptTree,
-		relativeDelay:  fn.Some(uint64(csvDelay)),
-		ctrlBlockBytes: ctrlBlockBytes,
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree:     toLocalScriptTree,
+			relativeDelay:  lfn.Some(uint64(csvDelay)),
+			ctrlBlockBytes: ctrlBlockBytes,
+		},
 	})
 }
 
@@ -479,9 +491,9 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 // the local output on the remote party's commitment transaction. We can seep
 // this in the case of a revoked commitment.
 func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
-	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
+	csvDelay uint32) lfn.Result[tapscriptSweepDescs] {
 
-	type returnType = tapscriptSweepDesc
+	type returnType = tapscriptSweepDescs
 
 	// To sweep their revoked output, we'll make the script tree for the
 	// local tree of their commitment transaction, which is actually their
@@ -504,12 +516,14 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
-		return lfn.Err[returnType](err)
+		return lfn.Err[tapscriptSweepDescs](err)
 	}
 
-	return lfn.Ok(tapscriptSweepDesc{
-		scriptTree:     toLocalScriptTree,
-		ctrlBlockBytes: ctrlBlockBytes,
+	return lfn.Ok(tapscriptSweepDescs{
+		firstLevel: tapscriptSweepDesc{
+			scriptTree:     toLocalScriptTree,
+			ctrlBlockBytes: ctrlBlockBytes,
+		},
 	})
 }
 
@@ -1159,7 +1173,7 @@ func (a *AuxSweeper) resolveContract(
 	}
 
 	var (
-		sweepDesc    lfn.Result[tapscriptSweepDesc]
+		sweepDesc    lfn.Result[tapscriptSweepDescs]
 		assetOutputs []*cmsg.AssetOutput
 	)
 
@@ -1192,13 +1206,13 @@ func (a *AuxSweeper) resolveContract(
 	// The remote party has breached the channel. We'll sweep the revoked
 	// key that we learned in the past.
 	case input.TaprootCommitmentRevoke:
-		// In this case, we'll be sweeping the remote party's asset
 		// outputs, as they broadcast a revoked commitment. For the
+		// In this case, we'll be sweeping the remote party's asset
 		// remote party, this is actually their local output.
 		assetOutputs = commitState.LocalAssets.Val.Outputs
 
-		// As we have multiple outputs to sweep above, we'll also have
-		// two sweep descs.
+		// Next, we'll make a sweep desk capable of sweeping the remote
+		// party's local output.
 		sweepDesc = commitRevokeSweepDesc(req.KeyRing, req.CsvDelay)
 
 	default:
@@ -1216,10 +1230,17 @@ func (a *AuxSweeper) resolveContract(
 	log.Infof("Sweeping %v asset outputs: %v", len(assetOutputs),
 		limitSpewer.Sdump(assetOutputs))
 
+	firstLevelSweepDesc := lfn.AndThen(
+		sweepDesc,
+		func(sweepDesc tapscriptSweepDescs) lfn.Result[tapscriptSweepDesc] { //nolint:lll
+			return lfn.Ok(sweepDesc.firstLevel)
+		},
+	)
+
 	// With the sweep desc constructed above, we'll create vPackets for
 	// each of the local assets, then sign them all.
 	sPkts := a.createAndSignSweepVpackets(
-		assetOutputs, req.SignDesc, sweepDesc,
+		assetOutputs, req.SignDesc, firstLevelSweepDesc,
 	)
 
 	// With the vPackets fully generated and signed above, we'll serialize
