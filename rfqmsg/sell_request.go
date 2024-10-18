@@ -15,7 +15,7 @@ import (
 const (
 	// latestSellRequestVersion is the latest supported sell request wire
 	// message data field version.
-	latestSellRequestVersion = V0
+	latestSellRequestVersion = V1
 )
 
 // SellRequest is a struct that represents a asset sell quote request.
@@ -86,7 +86,7 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 	// Extract outbound asset ID/group key.
 	var assetID *asset.ID
 	msgData.OutAssetID.WhenSome(
-		func(inAssetID tlv.RecordT[tlv.TlvType7, asset.ID]) {
+		func(inAssetID tlv.RecordT[tlv.TlvType13, asset.ID]) {
 			assetID = &inAssetID.Val
 		},
 	)
@@ -94,7 +94,7 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 	var assetGroupKey *btcec.PublicKey
 	msgData.OutAssetGroupKey.WhenSome(
 		// nolint: lll
-		func(inAssetGroupKey tlv.RecordT[tlv.TlvType8, *btcec.PublicKey]) {
+		func(inAssetGroupKey tlv.RecordT[tlv.TlvType15, *btcec.PublicKey]) {
 			assetGroupKey = inAssetGroupKey.Val
 		},
 	)
@@ -107,17 +107,13 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 			"request")
 	}
 
-	// Extract the suggested rate tick if provided.
-	//
-	// TODO(ffranr): Temp solution.
+	// Extract the suggested asset to BTC rate if provided.
 	var suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
-	msgData.SuggestedRateTick.WhenSome(
-		// nolint: lll
-		func(suggestedRateTick tlv.RecordT[tlv.TlvType4, uint64]) {
-			r := rfqmath.NewBigIntFixedPoint(
-				suggestedRateTick.Val, 0,
-			)
-			suggestedAssetRate = fn.Some[rfqmath.BigIntFixedPoint](r)
+	msgData.SuggestedAssetRate.WhenSome(
+		func(rate tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
+			fp := rate.Val.IntoBigIntFixedPoint()
+			suggestedAssetRate =
+				fn.Some[rfqmath.BigIntFixedPoint](fp)
 		},
 	)
 
@@ -168,7 +164,12 @@ func (q *SellRequest) ToWire() (WireMessage, error) {
 	}
 
 	// Formulate the message data.
-	msgData := newRequestWireMsgDataFromSell(*q)
+	msgData, err := newRequestWireMsgDataFromSell(*q)
+	if err != nil {
+		return WireMessage{}, fmt.Errorf("unable to create wire "+
+			"message from sell request: %w", err)
+	}
+
 	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
