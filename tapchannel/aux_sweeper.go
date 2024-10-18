@@ -175,6 +175,7 @@ func (a *AuxSweeper) Stop() error {
 // set of asset inputs into the backing wallet.
 func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	tapscriptDesc lfn.Result[tapscriptSweepDesc],
+	resReq lnwallet.ResolutionReq,
 ) lfn.Result[[]*tappsbt.VPacket] {
 
 	log.Infof("Creating sweep packets for %v inputs", len(sweepInputs))
@@ -186,39 +187,61 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		return lfn.Err[[]*tappsbt.VPacket](err)
 	}
 
-	// For each out we want to sweep, we'll construct an allocation that
-	// we'll use to deliver the funds back to the wallet.
-	ctx := context.Background()
 	allocs := make([]*Allocation, 0, len(sweepInputs))
-	for _, localAsset := range sweepInputs {
-		// For each output, we'll need to create a new script key to
-		// use for the sweep transaction.
-		scriptKey, err := a.cfg.AddrBook.NextScriptKey(
-			ctx, asset.TaprootAssetsKeyFamily,
+	ctx := context.Background()
+
+	// If this is a second level HTLC sweep, then we already have
+	// the output information locked in, as this was a pre-signed
+	// transaction.
+	if sweepDesc.auxSigInfo.IsSome() {
+		alloc, err := createSecondLevelHtlcAllocations(
+			resReq.ChanType, resReq.Initiator, sweepInputs,
+			resReq.HtlcAmt, resReq.CommitCsvDelay, *resReq.KeyRing,
+			fn.Some(resReq.ContractPoint.Index),
 		)
 		if err != nil {
 			return lfn.Err[[]*tappsbt.VPacket](err)
 		}
 
-		// With the script key created, we can make a new allocation
-		// that will be used to sweep the funds back to our wallet.
-		//
-		// We leave out the internal key here, as we'll make it later
-		// once we actually have the other set of inputs we need to
-		// sweep.
-		allocs = append(allocs, &Allocation{
-			Type: CommitAllocationToLocal,
-			// We don't need to worry about sorting, as we'll
-			// always be the first output index in the transaction.
-			OutputIndex:  0,
-			Amount:       localAsset.Amount.Val,
-			AssetVersion: asset.V1,
-			BtcAmount:    tapsend.DummyAmtSats,
-			ScriptKey:    scriptKey,
-			SortTaprootKeyBytes: schnorr.SerializePubKey(
-				scriptKey.PubKey,
-			),
-		})
+		// TODO(roasbeef): allocation needs precise output index set?
+
+		allocs = append(allocs, alloc...)
+	} else {
+		// Otherwise, for each out we want to sweep, we'll construct an
+		// allocation that we'll use to deliver the funds back to the
+		// wallet.
+		for _, localAsset := range sweepInputs {
+			// For each output, we'll need to create a new script
+			// key to use for the sweep transaction.
+			scriptKey, err := a.cfg.AddrBook.NextScriptKey(
+				ctx, asset.TaprootAssetsKeyFamily,
+			)
+			if err != nil {
+				return lfn.Err[[]*tappsbt.VPacket](err)
+			}
+
+			// With the script key created, we can make a new
+			// allocation that will be used to sweep the funds back
+			// to our wallet.
+			//
+			// We leave out the internal key here, as we'll make it
+			// later once we actually have the other set of inputs
+			// we need to sweep.
+			allocs = append(allocs, &Allocation{
+				Type: CommitAllocationToLocal,
+				// We don't need to worry about sorting, as
+				// we'll always be the first output index in the
+				// transaction.
+				OutputIndex:  0,
+				Amount:       localAsset.Amount.Val,
+				AssetVersion: asset.V1,
+				BtcAmount:    tapsend.DummyAmtSats,
+				ScriptKey:    scriptKey,
+				SortTaprootKeyBytes: schnorr.SerializePubKey(
+					scriptKey.PubKey,
+				),
+			})
+		}
 	}
 
 	log.Infof("Created %v allocations for commit tx sweep: %v",
@@ -260,6 +283,14 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		sweepDesc.relativeDelay.WhenSome(func(delay uint64) {
 			for _, vOut := range vPackets[idx].Outputs {
 				vOut.RelativeLockTime = delay
+			}
+		})
+
+		// Similarly, if we have an absolute delay, we'll set it for all
+		// the vOuts in this packet.
+		sweepDesc.absoluteDelay.WhenSome(func(expiry uint64) {
+			for _, vOut := range vPackets[idx].Outputs {
+				vOut.LockTime = expiry
 			}
 		})
 
