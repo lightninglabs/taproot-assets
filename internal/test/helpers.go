@@ -103,16 +103,20 @@ func RandPrivKey(_ testing.TB) *btcec.PrivateKey {
 	return priv
 }
 
+func RandKeyLoc() keychain.KeyLocator {
+	return keychain.KeyLocator{
+		Index:  RandInt[uint32](),
+		Family: keychain.KeyFamily(RandInt[uint32]()),
+	}
+}
+
 func RandKeyDesc(t testing.TB) (keychain.KeyDescriptor, *btcec.PrivateKey) {
 	priv, err := btcec.NewPrivateKey()
 	require.NoError(t, err)
 
 	return keychain.KeyDescriptor{
-		PubKey: priv.PubKey(),
-		KeyLocator: keychain.KeyLocator{
-			Index:  RandInt[uint32](),
-			Family: keychain.KeyFamily(RandInt[uint32]()),
-		},
+		PubKey:     priv.PubKey(),
+		KeyLocator: RandKeyLoc(),
 	}, priv
 }
 

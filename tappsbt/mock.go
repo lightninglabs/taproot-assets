@@ -37,6 +37,22 @@ var (
 	)
 )
 
+
+func RandAssetForPacket(t testing.TB, assetType asset.Type,
+	desc keychain.KeyDescriptor) *asset.Asset {
+
+	randAsset := asset.RandAsset(t, assetType)
+	randAsset.ScriptKey = asset.NewScriptKeyBip86(desc)
+
+	// The raw key won't be serialized within the asset, so let's blank it
+	// out here to get a fully, byte-by-byte comparable PSBT.
+	randAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
+	randAsset.GroupKey.Witness = nil
+	randAsset.ScriptKey.TweakedScriptKey = nil
+
+	return randAsset
+}
+
 // RandPacket generates a random virtual packet for testing purposes.
 func RandPacket(t testing.TB, setVersion bool) *VPacket {
 	testPubKey := test.RandPubKey(t)
@@ -66,16 +82,12 @@ func RandPacket(t testing.TB, setVersion bool) *VPacket {
 	testAsset := asset.RandAsset(t, asset.Normal)
 	testAsset.ScriptKey = inputScriptKey
 
-	testOutputAsset := asset.RandAsset(t, asset.Normal)
-	testOutputAsset.ScriptKey = asset.NewScriptKeyBip86(keyDesc)
-
 	// The raw key won't be serialized within the asset, so let's blank it
 	// out here to get a fully, byte-by-byte comparable PSBT.
 	testAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
 	testAsset.GroupKey.Witness = nil
-	testOutputAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
-	testOutputAsset.GroupKey.Witness = nil
-	testOutputAsset.ScriptKey.TweakedScriptKey = nil
+
+	testOutputAsset := RandAssetForPacket(t, asset.Normal, keyDesc)
 	leaf1 := txscript.TapLeaf{
 		LeafVersion: txscript.BaseLeafVersion,
 		Script:      []byte("not a valid script"),
