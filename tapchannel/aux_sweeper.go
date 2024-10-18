@@ -378,16 +378,27 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 
 // tapscriptSweepDesc is a helper struct that contains the tapscript tree and
 // the control block needed to generate a valid spend.
-//
-// TODO(roasbeef): only needs the merkle root?
 type tapscriptSweepDesc struct {
+	auxSigInfo lfn.Option[lnwallet.AuxSigDesc]
+
 	scriptTree input.TapscriptDescriptor
 
 	ctrlBlockBytes []byte
 
-	relativeDelay fn.Option[uint64]
+	relativeDelay lfn.Option[uint64]
 
-	absoluteDelay fn.Option[uint64] //nolint:unused
+	absoluteDelay lfn.Option[uint64]
+
+	secondLevelSigIndex lfn.Option[uint32]
+}
+
+// tapscriptSweepDescs contains the sweep decs for the first and second level.
+// Most outputs only go to the first level, but HTLCs on our local commitment
+// transaction go to the second level.
+type tapscriptSweepDescs struct {
+	firstLevel tapscriptSweepDesc
+
+	secondLevel lfn.Option[tapscriptSweepDesc]
 }
 
 // commitNoDelaySweepDesc creates a sweep desc for a commitment output that
