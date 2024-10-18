@@ -178,13 +178,15 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	tapscriptDesc lfn.Result[tapscriptSweepDesc],
 ) lfn.Result[[]*tappsbt.VPacket] {
 
+	type returnType = []*tappsbt.VPacket
+
 	log.Infof("Creating sweep packets for %v inputs", len(sweepInputs))
 
 	// Unpack the tapscript desc, as we need it to be able to continue
 	// forward.
 	sweepDesc, err := tapscriptDesc.Unpack()
 	if err != nil {
-		return lfn.Err[[]*tappsbt.VPacket](err)
+		return lfn.Err[returnType](err)
 	}
 
 	// For each out we want to sweep, we'll construct an allocation that
@@ -198,7 +200,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 			ctx, asset.TaprootAssetsKeyFamily,
 		)
 		if err != nil {
-			return lfn.Err[[]*tappsbt.VPacket](err)
+			return lfn.Err[returnType](err)
 		}
 
 		// With the script key created, we can make a new allocation
@@ -239,8 +241,8 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		inputProofs, allocs, &a.cfg.ChainParams,
 	)
 	if err != nil {
-		return lfn.Errf[[]*tappsbt.VPacket]("error distributing "+
-			"coins: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("error distributing "+
+			"coins: %w", err))
 	}
 
 	log.Infof("Created %v sweep packets: %v", len(vPackets),
@@ -248,8 +250,8 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 
 	fundingWitness, err := fundingSpendWitness().Unpack()
 	if err != nil {
-		return lfn.Errf[[]*tappsbt.VPacket]("unable to make "+
-			"funding witness: %v", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to make "+
+			"funding witness: %w", err))
 	}
 
 	// Next, we'll prepare all the vPackets for the sweep transaction, and
@@ -266,8 +268,8 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 
 		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
 		if err != nil {
-			return lfn.Errf[[]*tappsbt.VPacket]("unable to "+
-				"prepare output assets: %w", err)
+			return lfn.Err[returnType](fmt.Errorf("unable to "+
+				"prepare output assets: %w", err))
 		}
 
 		// Next before we sign, we'll make sure to update the witness
@@ -355,6 +357,8 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	sweepDesc lfn.Result[tapscriptSweepDesc],
 ) lfn.Result[[]*tappsbt.VPacket] {
 
+	type returnType = []*tappsbt.VPacket
+
 	// Based on the sweep inputs, make vPackets that sweep all the inputs
 	// into a new output with a fresh script key. They won't have an
 	// internal key set, we'll do that when we go to make the output to
@@ -365,7 +369,7 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 
 		err := a.signSweepVpackets(vPkts, signDesc, desc)
 		if err != nil {
-			return lfn.Err[[]*tappsbt.VPacket](err)
+			return lfn.Err[returnType](err)
 		}
 
 		return lfn.Ok(vPkts)
@@ -398,6 +402,8 @@ type tapscriptSweepDesc struct {
 func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
 
+	type returnType = tapscriptSweepDesc
+
 	// We'll make the script tree for the to remote script (we're remote as
 	// this is their commitment transaction). We don't have an auxLeaf here
 	// as we're on the TAP layer.
@@ -405,8 +411,8 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		keyRing.ToRemoteKey, input.NoneTapLeaf(),
 	)
 	if err != nil {
-		return lfn.Errf[tapscriptSweepDesc]("unable to make remote "+
-			"script tree: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to make remote "+
+			"script tree: %w", err))
 	}
 
 	// Now that we have the script tree, we'll make the control block
@@ -415,13 +421,13 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.ScriptPathSuccess,
 	)
 	if err != nil {
-		return lfn.Errf[tapscriptSweepDesc]("unable to make "+
-			"ctrl block: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to make ctrl "+
+			"block: %w", err))
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
-		return lfn.Errf[tapscriptSweepDesc]("unable to encode ctrl "+
-			"block: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to encode ctrl "+
+			"block: %w", err))
 	}
 
 	return lfn.Ok(tapscriptSweepDesc{
@@ -437,6 +443,8 @@ func commitNoDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
 
+	type returnType = tapscriptSweepDesc
+
 	// We'll make the script tree for the to remote script (we're remote as
 	// this is their commitment transaction). We don't have an auxLeaf here
 	// as we're on the TAP layer.
@@ -445,7 +453,7 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.NoneTapLeaf(),
 	)
 	if err != nil {
-		return lfn.Err[tapscriptSweepDesc](err)
+		return lfn.Err[returnType](err)
 	}
 
 	// Now that we have the script tree, we'll make the control block
@@ -454,11 +462,11 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.ScriptPathSuccess,
 	)
 	if err != nil {
-		return lfn.Err[tapscriptSweepDesc](err)
+		return lfn.Err[returnType](err)
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
-		return lfn.Err[tapscriptSweepDesc](err)
+		return lfn.Err[returnType](err)
 	}
 
 	return lfn.Ok(tapscriptSweepDesc{
@@ -474,6 +482,8 @@ func commitDelaySweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 	csvDelay uint32) lfn.Result[tapscriptSweepDesc] {
 
+	type returnType = tapscriptSweepDesc
+
 	// To sweep their revoked output, we'll make the script tree for the
 	// local tree of their commitment transaction, which is actually their
 	// output.
@@ -482,7 +492,7 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.NoneTapLeaf(),
 	)
 	if err != nil {
-		return lfn.Err[tapscriptSweepDesc](err)
+		return lfn.Err[returnType](err)
 	}
 
 	// Now that we have the script tree, we'll make the control block
@@ -491,11 +501,11 @@ func commitRevokeSweepDesc(keyRing *lnwallet.CommitmentKeyRing,
 		input.ScriptPathRevocation,
 	)
 	if err != nil {
-		return lfn.Err[tapscriptSweepDesc](err)
+		return lfn.Err[returnType](err)
 	}
 	ctrlBlockBytes, err := ctrlBlock.ToBytes()
 	if err != nil {
-		return lfn.Err[tapscriptSweepDesc](err)
+		return lfn.Err[returnType](err)
 	}
 
 	return lfn.Ok(tapscriptSweepDesc{
@@ -1098,6 +1108,8 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 func (a *AuxSweeper) resolveContract(
 	req lnwallet.ResolutionReq) lfn.Result[tlv.Blob] {
 
+	type returnType = tlv.Blob
+
 	// If there's no commit blob, then there's nothing to resolve.
 	if req.CommitBlob.IsNone() {
 		return lfn.Err[tlv.Blob](nil)
@@ -1113,13 +1125,13 @@ func (a *AuxSweeper) resolveContract(
 		req.CommitBlob.UnwrapOr(nil),
 	)
 	if err != nil {
-		return lfn.Err[tlv.Blob](err)
+		return lfn.Err[returnType](err)
 	}
 	fundingInfo, err := tapchannelmsg.DecodeOpenChannel(
 		req.FundingBlob.UnwrapOr(nil),
 	)
 	if err != nil {
-		return lfn.Err[tlv.Blob](err)
+		return lfn.Err[returnType](err)
 	}
 
 	// To be able to construct all the proofs we need to spend later, we'll
@@ -1131,7 +1143,7 @@ func (a *AuxSweeper) resolveContract(
 		ctx, fn.Some(req.CommitTx.TxHash()), false,
 	)
 	if err != nil {
-		return lfn.Err[tlv.Blob](err)
+		return lfn.Err[returnType](err)
 	}
 	if len(commitParcel) == 0 {
 		log.Infof("First time seeing commit_txid=%v, importing",
@@ -1139,8 +1151,8 @@ func (a *AuxSweeper) resolveContract(
 
 		err := a.importCommitTx(req, commitState, fundingInfo)
 		if err != nil {
-			return lfn.Errf[tlv.Blob]("unable to import "+
-				"commitment txn: %v", err)
+			return lfn.Err[returnType](fmt.Errorf("unable to "+
+				"import commitment txn: %w", err))
 		}
 	} else {
 		log.Infof("Commitment commit_txid=%v already imported, "+
@@ -1191,7 +1203,7 @@ func (a *AuxSweeper) resolveContract(
 		sweepDesc = commitRevokeSweepDesc(req.KeyRing, req.CsvDelay)
 
 	default:
-		return lfn.Err[tlv.Blob](fmt.Errorf("unknown resolution "+
+		return lfn.Err[returnType](fmt.Errorf("unknown resolution "+
 			"type: %v", req.Type))
 	}
 
@@ -1219,7 +1231,7 @@ func (a *AuxSweeper) resolveContract(
 
 			var b bytes.Buffer
 			if err := res.Encode(&b); err != nil {
-				return lfn.Err[tlv.Blob](err)
+				return lfn.Err[returnType](err)
 			}
 
 			return lfn.Ok(b.Bytes())
@@ -1231,6 +1243,8 @@ func (a *AuxSweeper) resolveContract(
 // none of the inputs have any resolution blobs. Then an empty slice will be
 // returned.
 func extractInputVPackets(inputs []input.Input) lfn.Result[[]*tappsbt.VPacket] {
+	type returnType = []*tappsbt.VPacket
+
 	// Otherwise, we'll extract the set of resolution blobs from the inputs
 	// passed in.
 	relevantInputs := fn.Filter(inputs, func(i input.Input) bool {
@@ -1255,7 +1269,7 @@ func extractInputVPackets(inputs []input.Input) lfn.Result[[]*tappsbt.VPacket] {
 		},
 	)
 	if err != nil {
-		return lfn.Err[[]*tappsbt.VPacket](err)
+		return lfn.Err[returnType](err)
 	}
 
 	return lfn.Ok(vPkts)
@@ -1267,13 +1281,15 @@ func extractInputVPackets(inputs []input.Input) lfn.Result[[]*tappsbt.VPacket] {
 func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	change lnwallet.AddrWithKey) lfn.Result[sweep.SweepOutput] {
 
+	type returnType = sweep.SweepOutput
+
 	// If none of the inputs have a resolution blob, then we have nothing
 	// to generate.
 	if fn.NotAny(inputs, func(i input.Input) bool {
 		return !i.ResolutionBlob().IsNone()
 	}) {
 
-		return lfn.Err[sweep.SweepOutput](nil)
+		return lfn.Err[returnType](nil)
 	}
 
 	// TODO(roasbeef): can pipline entire thing instead?
@@ -1282,7 +1298,7 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	// vPackets from the inputs.
 	vPkts, err := extractInputVPackets(inputs).Unpack()
 	if err != nil {
-		return lfn.Err[sweep.SweepOutput](err)
+		return lfn.Err[returnType](err)
 	}
 
 	log.Infof("Generating anchor output for vpkts=%v",
@@ -1297,7 +1313,7 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 		context.Background(), asset.TaprootAssetsKeyFamily,
 	)
 	if err != nil {
-		return lfn.Err[sweep.SweepOutput](err)
+		return lfn.Err[returnType](err)
 	}
 	for idx := range vPkts {
 		for _, vOut := range vPkts[idx].Outputs {
@@ -1311,15 +1327,14 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	// out of all the vPackets contained.
 	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
 	if err != nil {
-		return lfn.Errf[sweep.SweepOutput]("unable to create output "+
-			"commitments: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("unable to create "+
+			"output commitments: %w", err))
 	}
 
 	// We should only have a single output commitment at this point.
 	if len(outCommitments) != 1 {
-		return lfn.Err[sweep.SweepOutput](fmt.Errorf("expected a "+
-			"single output commitment, got: %v",
-			len(outCommitments)))
+		return lfn.Err[returnType](fmt.Errorf("expected a single "+
+			"output commitment, got: %v", len(outCommitments)))
 	}
 
 	// With the output commitments created, we'll now create the anchor
@@ -1328,7 +1343,7 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 		internalKey.PubKey, nil, outCommitments[0],
 	)
 	if err != nil {
-		return lfn.Err[sweep.SweepOutput](err)
+		return lfn.Err[returnType](err)
 	}
 
 	return lfn.Ok(sweep.SweepOutput{
@@ -1507,18 +1522,20 @@ func (a *AuxSweeper) contractResolver() {
 func (a *AuxSweeper) ResolveContract(
 	req lnwallet.ResolutionReq) lfn.Result[tlv.Blob] {
 
+	type returnType = tlv.Blob
+
 	auxReq := &resolutionReq{
 		req:  req,
 		resp: make(chan lfn.Result[tlv.Blob], 1),
 	}
 
 	if !fn.SendOrQuit(a.resolutionReqs, auxReq, a.quit) {
-		return lfn.Err[tlv.Blob](fmt.Errorf("aux sweeper stopped"))
+		return lfn.Err[returnType](fmt.Errorf("aux sweeper stopped"))
 	}
 
 	resp, quitErr := fn.RecvResp(auxReq.resp, nil, a.quit)
 	if quitErr != nil {
-		return lfn.Err[tlv.Blob](quitErr)
+		return lfn.Err[returnType](quitErr)
 	}
 
 	return resp
@@ -1530,6 +1547,8 @@ func (a *AuxSweeper) ResolveContract(
 func (a *AuxSweeper) DeriveSweepAddr(inputs []input.Input,
 	change lnwallet.AddrWithKey) lfn.Result[sweep.SweepOutput] {
 
+	type returnType = sweep.SweepOutput
+
 	auxReq := &sweepAddrReq{
 		inputs: inputs,
 		change: change,
@@ -1537,17 +1556,32 @@ func (a *AuxSweeper) DeriveSweepAddr(inputs []input.Input,
 	}
 
 	if !fn.SendOrQuit(a.sweepAddrReqs, auxReq, a.quit) {
-		return lfn.Err[sweep.SweepOutput](
-			fmt.Errorf("aux sweeper stopped"),
-		)
+		return lfn.Err[returnType](fmt.Errorf("aux sweeper stopped"))
 	}
 
 	resp, quitErr := fn.RecvResp(auxReq.resp, nil, a.quit)
 	if quitErr != nil {
-		return lfn.Err[sweep.SweepOutput](quitErr)
+		return lfn.Err[returnType](quitErr)
 	}
 
 	return resp
+}
+
+// ExtraBudgetForInputs takes a set of inputs and maybe returns an extra budget
+// that should be added to the sweep transaction.
+func (a *AuxSweeper) ExtraBudgetForInputs(
+	inputs []input.Input) lfn.Result[btcutil.Amount] {
+
+	hasResolutionBlob := fn.Any(inputs, func(i input.Input) bool {
+		return i.ResolutionBlob().IsSome()
+	})
+
+	var extraBudget btcutil.Amount
+	if hasResolutionBlob {
+		extraBudget = tapsend.DummyAmtSats
+	}
+
+	return lfn.Ok(extraBudget)
 }
 
 // NotifyBroadcast is used to notify external callers of the broadcast of a

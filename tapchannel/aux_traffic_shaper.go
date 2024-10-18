@@ -86,12 +86,12 @@ func (s *AuxTrafficShaper) Stop() error {
 // routing.TlvTrafficShaper interface.
 var _ routing.TlvTrafficShaper = (*AuxTrafficShaper)(nil)
 
-// HandleTraffic is called in order to check if the channel identified by the
-// provided channel ID is handled by the traffic shaper implementation. If it
-// is handled by the traffic shaper, then the normal bandwidth calculation can
-// be skipped and the bandwidth returned by PaymentBandwidth should be used
+// ShouldHandleTraffic is called in order to check if the channel identified by
+// the provided channel ID is handled by the traffic shaper implementation. If
+// it is handled by the traffic shaper, then the normal bandwidth calculation
+// can be skipped and the bandwidth returned by PaymentBandwidth should be used
 // instead.
-func (s *AuxTrafficShaper) HandleTraffic(_ lnwire.ShortChannelID,
+func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
 
 	// If there is no auxiliary blob in the channel, it's not a custom
@@ -237,8 +237,8 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 // blob of an HTLC, may produce a different blob or modify the amount of bitcoin
 // this HTLC should carry.
 func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi, tlv.Blob,
-	error) {
+	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
+	lnwire.CustomRecords, error) {
 
 	if len(htlcCustomRecords) == 0 {
 		return totalAmount, nil, nil
@@ -246,13 +246,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 
 	// We need to do a round trip to convert the custom records to a blob
 	// that we can then parse into the correct struct again.
-	htlcBlob, err := htlcCustomRecords.Serialize()
-	if err != nil {
-		return 0, nil, fmt.Errorf("error serializing HTLC blob: %w",
-			err)
-	}
-
-	htlc, err := rfqmsg.DecodeHtlc(htlcBlob)
+	htlc, err := rfqmsg.HtlcFromCustomRecords(htlcCustomRecords)
 	if err != nil {
 		return 0, nil, fmt.Errorf("error decoding HTLC blob: %w", err)
 	}
@@ -261,7 +255,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// keysend payment and don't need to do anything. We even return the
 	// original on-chain amount as we don't want to change it.
 	if htlc.Amounts.Val.Sum() > 0 {
-		return totalAmount, htlcBlob, nil
+		return totalAmount, htlcCustomRecords, nil
 	}
 
 	if htlc.RfqID.ValOpt().IsNone() {
@@ -318,5 +312,10 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// amount that should be sent on-chain, which is a value in satoshi that
 	// is just above the dust limit.
 	htlcAmountMSat := lnwire.NewMSatFromSatoshis(DefaultOnChainHtlcAmount)
-	return htlcAmountMSat, htlc.Bytes(), nil
+	updatedRecords, err := htlc.ToCustomRecords()
+	if err != nil {
+		return 0, nil, fmt.Errorf("error encoding HTLC blob: %w", err)
+	}
+
+	return htlcAmountMSat, updatedRecords, nil
 }

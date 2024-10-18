@@ -34,14 +34,14 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/vm"
-	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/msgmux"
 )
 
 const (
@@ -227,11 +227,9 @@ type bindFundingReq struct {
 
 	pendingChanID funding.PendingChanID
 
-	openChan *channeldb.OpenChannel
+	openChan lnwallet.AuxChanState
 
-	localKeyRing lnwallet.CommitmentKeyRing
-
-	remoteKeyRing lnwallet.CommitmentKeyRing
+	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing]
 
 	resp chan lfn.Option[lnwallet.AuxFundingDesc]
 }
@@ -253,7 +251,7 @@ type FundingController struct {
 
 	cfg FundingControllerCfg
 
-	msgs chan protofsm.PeerMsg
+	msgs chan msgmux.PeerMsg
 
 	bindFundingReqs chan *bindFundingReq
 
@@ -272,7 +270,7 @@ type FundingController struct {
 func NewFundingController(cfg FundingControllerCfg) *FundingController {
 	return &FundingController{
 		cfg:             cfg,
-		msgs:            make(chan protofsm.PeerMsg, 10),
+		msgs:            make(chan msgmux.PeerMsg, 10),
 		bindFundingReqs: make(chan *bindFundingReq, 10),
 		newFundingReqs:  make(chan *FundReq, 10),
 		rootReqs:        make(chan *assetRootReq, 10),
@@ -396,9 +394,10 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
 // newCommitBlobAndLeaves creates a new commitment blob that'll be stored in
 // the channel state for the specified party.
 func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
-	lndOpenChan *channeldb.OpenChannel, assetOpenChan *cmsg.OpenChannel,
-	keyRing lnwallet.CommitmentKeyRing,
-	localCommit bool) ([]byte, lnwallet.CommitAuxLeaves, error) {
+	lndOpenChan lnwallet.AuxChanState, assetOpenChan *cmsg.OpenChannel,
+	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing],
+	whoseCommit lntypes.ChannelParty) ([]byte, lnwallet.CommitAuxLeaves,
+	error) {
 
 	chanAssets := assetOpenChan.FundedAssets.Val.Outputs
 
@@ -413,16 +412,16 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	// the balances in the previous state are reversed and
 	// generateAllocations will flip them back.
 	switch {
-	case pendingFunding.initiator && localCommit:
+	case pendingFunding.initiator && whoseCommit.IsLocal():
 		localAssets = chanAssets
 
-	case pendingFunding.initiator && !localCommit:
+	case pendingFunding.initiator && whoseCommit.IsRemote():
 		remoteAssets = chanAssets
 
-	case !pendingFunding.initiator && localCommit:
+	case !pendingFunding.initiator && whoseCommit.IsLocal():
 		remoteAssets = chanAssets
 
-	case !pendingFunding.initiator && !localCommit:
+	case !pendingFunding.initiator && whoseCommit.IsRemote():
 		localAssets = chanAssets
 	}
 
@@ -441,9 +440,9 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 	// With all the above, we'll generate the first commitment that'll be
 	// stored
 	_, firstCommit, err := GenerateCommitmentAllocations(
-		fakePrevState, lndOpenChan, assetOpenChan, localCommit,
+		fakePrevState, lndOpenChan, assetOpenChan, whoseCommit,
 		localSatBalance, remoteSatBalance, fakeView,
-		pendingFunding.chainParams, keyRing,
+		pendingFunding.chainParams, keyRing.GetForParty(whoseCommit),
 	)
 	if err != nil {
 		return nil, lnwallet.CommitAuxLeaves{}, err
@@ -482,13 +481,13 @@ func (p *pendingAssetFunding) toAuxFundingDesc(
 	// Encode the commitment blobs for both the local and remote party.
 	// This will be the information for the very first state (state 0).
 	localCommitBlob, localAuxLeaves, err := newCommitBlobAndLeaves(
-		p, req.openChan, openChanDesc, req.localKeyRing, true,
+		p, req.openChan, openChanDesc, req.keyRing, lntypes.Local,
 	)
 	if err != nil {
 		return nil, err
 	}
 	remoteCommitBlob, remoteAuxLeaves, err := newCommitBlobAndLeaves(
-		p, req.openChan, openChanDesc, req.remoteKeyRing, false,
+		p, req.openChan, openChanDesc, req.keyRing, lntypes.Remote,
 	)
 	if err != nil {
 		return nil, err
@@ -608,7 +607,7 @@ type fundingFlowIndex map[funding.PendingChanID]*pendingAssetFunding
 // fromMsg attempts to match an incoming message to the pending funding flow,
 // and extracts the asset proof from the message.
 func (f *fundingFlowIndex) fromMsg(chainParams *address.ChainParams,
-	msg protofsm.PeerMsg) (cmsg.AssetFundingMsg, *pendingAssetFunding,
+	msg msgmux.PeerMsg) (cmsg.AssetFundingMsg, *pendingAssetFunding,
 	error) {
 
 	assetProof, err := msgToAssetProof(msg.Message)
@@ -1200,7 +1199,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 // This is used to advance the state machine of an incoming funding flow.
 func (f *FundingController) processFundingMsg(ctx context.Context,
 	fundingFlows fundingFlowIndex,
-	msg protofsm.PeerMsg) (funding.PendingChanID, error) {
+	msg msgmux.PeerMsg) (funding.PendingChanID, error) {
 
 	var tempPID funding.PendingChanID
 
@@ -1780,39 +1779,42 @@ func (f *FundingController) FundChannel(ctx context.Context,
 // due to prior custom channel messages, and maybe returns an aux funding desc
 // which can be used to modify how a channel is funded.
 func (f *FundingController) DescFromPendingChanID(pid funding.PendingChanID,
-	openChan *channeldb.OpenChannel, localKeyRing,
-	remoteKeyRing lnwallet.CommitmentKeyRing,
-	initiator bool) (lfn.Option[lnwallet.AuxFundingDesc], error) {
+	openChan lnwallet.AuxChanState,
+	keyRing lntypes.Dual[lnwallet.CommitmentKeyRing],
+	initiator bool) funding.AuxFundingDescResult {
+
+	type returnType = lfn.Option[lnwallet.AuxFundingDesc]
 
 	req := &bindFundingReq{
 		pendingChanID: pid,
 		initiator:     initiator,
 		openChan:      openChan,
-		localKeyRing:  localKeyRing,
-		remoteKeyRing: remoteKeyRing,
+		keyRing:       keyRing,
 		resp: make(
 			chan lfn.Option[lnwallet.AuxFundingDesc], 1,
 		),
 	}
 
 	if !fn.SendOrQuit(f.bindFundingReqs, req, f.Quit) {
-		return lfn.None[lnwallet.AuxFundingDesc](),
-			fmt.Errorf("timeout when sending to funding controller")
+		return lfn.Err[returnType](fmt.Errorf("timeout when sending " +
+			"to funding controller"))
 	}
 
 	resp, err := fn.RecvResp(req.resp, nil, f.Quit)
 	if err != nil {
-		return lfn.None[lnwallet.AuxFundingDesc](),
-			fmt.Errorf("timeout when waiting for response: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("timeout when waiting "+
+			"for response: %w", err))
 	}
 
-	return resp, nil
+	return lfn.Ok(resp)
 }
 
 // DeriveTapscriptRoot returns the tapscript root for the channel identified by
 // the pid. If we don't have any information about the channel, we return None.
 func (f *FundingController) DeriveTapscriptRoot(
-	pid funding.PendingChanID) (lfn.Option[chainhash.Hash], error) {
+	pid funding.PendingChanID) funding.AuxTapscriptResult {
+
+	type returnType = lfn.Option[chainhash.Hash]
 
 	req := &assetRootReq{
 		pendingChanID: pid,
@@ -1820,22 +1822,22 @@ func (f *FundingController) DeriveTapscriptRoot(
 	}
 
 	if !fn.SendOrQuit(f.rootReqs, req, f.Quit) {
-		return lfn.None[chainhash.Hash](),
-			fmt.Errorf("timeout when sending to funding controller")
+		return lfn.Err[returnType](fmt.Errorf("timeout when sending " +
+			"to funding controller"))
 	}
 
 	resp, err := fn.RecvResp(req.resp, nil, f.Quit)
 	if err != nil {
-		return lfn.None[chainhash.Hash](),
-			fmt.Errorf("timeout when waiting for response: %w", err)
+		return lfn.Err[returnType](fmt.Errorf("timeout when waiting "+
+			"for response: %w", err))
 	}
 
-	return resp, nil
+	return lfn.Ok(resp)
 }
 
 // ChannelReady is called when a channel has been fully opened and is ready to
 // be used. This can be used to perform any final setup or cleanup.
-func (f *FundingController) ChannelReady(channel *channeldb.OpenChannel) error {
+func (f *FundingController) ChannelReady(channel lnwallet.AuxChanState) error {
 	// Currently, there is only something we need to do if we are the
 	// responder of a channel funding. Since we're going to be swapping
 	// assets for BTC, we need to have a buy offer ready for the channel
@@ -1892,7 +1894,7 @@ func (f *FundingController) Name() string {
 }
 
 // CanHandle returns true if the target message can be routed to this endpoint.
-func (f *FundingController) CanHandle(msg protofsm.PeerMsg) bool {
+func (f *FundingController) CanHandle(msg msgmux.PeerMsg) bool {
 	log.Tracef("Request to handle: %T", msg.Message)
 	log.Tracef("Request to handle: %v", int64(msg.MsgType()))
 
@@ -1927,7 +1929,7 @@ func (f *FundingController) CanHandle(msg protofsm.PeerMsg) bool {
 
 // SendMessage handles the target message, and returns true if the message was
 // able being processed.
-func (f *FundingController) SendMessage(msg protofsm.PeerMsg) bool {
+func (f *FundingController) SendMessage(msg msgmux.PeerMsg) bool {
 	return fn.SendOrQuit(f.msgs, msg, f.Quit)
 }
 
