@@ -1539,8 +1539,9 @@ func (a *AuxSweeper) resolveContract(
 	}
 
 	var (
-		sweepDesc    lfn.Result[tapscriptSweepDescs]
-		assetOutputs []*cmsg.AssetOutput
+		sweepDesc        lfn.Result[tapscriptSweepDescs]
+		assetOutputs     []*cmsg.AssetOutput
+		needsSecondLevel bool
 	)
 
 	switch req.Type {
@@ -1649,6 +1650,8 @@ func (a *AuxSweeper) resolveContract(
 		// sweep desc.
 		sweepDesc = localHtlcTimeoutSweepDesc(req)
 
+		needsSecondLevel = true
+
 	// In this case, we've broadcast a commitment, with an incoming HTLC
 	// that we can sweep. We'll annotate the sweepDesc with the information
 	// needed to sweep both this output, as well as the second level
@@ -1662,6 +1665,8 @@ func (a *AuxSweeper) resolveContract(
 		// With the output and pay desc located, we'll now create the
 		// sweep desc.
 		sweepDesc = localHtlcSucessSweepDesc(req)
+
+		needsSecondLevel = true
 
 	default:
 		return lfn.Errf[returnType]("unknown resolution type: %v",
@@ -1678,35 +1683,93 @@ func (a *AuxSweeper) resolveContract(
 	log.Infof("Sweeping %v asset outputs: %v", len(assetOutputs),
 		limitSpewer.Sdump(assetOutputs))
 
-	firstLevelSweepDesc := lfn.AndThen(
-		sweepDesc,
-		func(sweepDesc tapscriptSweepDescs) lfn.Result[tapscriptSweepDesc] { //nolint:lll
-			return lfn.Ok(sweepDesc.firstLevel)
-		},
+	tapSweepDesc, err := sweepDesc.Unpack()
+	if err != nil {
+		return lfn.Err[tlv.Blob](err)
+	}
+
+	// With the sweep desc constructed above, we'll create vPackets for each
+	// of the local assets, then sign them all.
+	firstLevelPkts, err := a.createAndSignSweepVpackets(
+		assetOutputs, req, lfn.Ok(tapSweepDesc.firstLevel),
+	).Unpack()
+	if err != nil {
+		return lfn.Err[tlv.Blob](err)
+	}
+
+	var (
+		secondLevelPkts    []*tappsbt.VPacket
+		secondLevelSigDesc lfn.Option[cmsg.TapscriptSigDesc]
 	)
 
-	// With the sweep desc constructed above, we'll create vPackets for
-	// each of the local assets, then sign them all.
-	sPkts := a.createAndSignSweepVpackets(
-		assetOutputs, req, firstLevelSweepDesc,
-	)
+	// We'll only need a set of second level packets if we're sweeping a set
+	// of HTLC outputs on the local party's commitment transaction.
+	if needsSecondLevel {
+		log.Infof("Creating+signing 2nd level vPkts")
 
-	// With the vPackets fully generated and signed above, we'll serialize
-	// it into a resolution blob to return.
-	return lfn.AndThen(
-		sPkts, func(vPkts []*tappsbt.VPacket) lfn.Result[tlv.Blob] {
-			res := cmsg.NewContractResolution(
-				vPkts, nil, lfn.None[cmsg.TapscriptSigDesc](),
-			)
+		// We'll make a place holder for the second level output based
+		// on the assetID+value tuple.
+		secondLevelInputs := []*cmsg.AssetOutput{cmsg.NewAssetOutput(
+			assetOutputs[0].AssetID.Val,
+			assetOutputs[0].Amount.Val, assetOutputs[0].Proof.Val,
+		)}
 
-			var b bytes.Buffer
-			if err := res.Encode(&b); err != nil {
-				return lfn.Err[returnType](err)
+		// Unlike the first level packets, we can't yet sign the second
+		// level packets yet, as we don't know what the sweeping
+		// transaction will look like. So we'll just create them.
+		secondLevelPkts, err = lfn.MapOption(
+			func(desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] { //nolint:lll
+				return a.createSweepVpackets(
+					secondLevelInputs, lfn.Ok(desc), req,
+				)
+			},
+		)(tapSweepDesc.secondLevel).UnwrapOr(
+			lfn.Ok[[]*tappsbt.VPacket](nil),
+		).Unpack()
+		if err != nil {
+			return lfn.Errf[tlv.Blob]("unable to make "+
+				"second level pkts: %w", err)
+		}
+
+		// We'll update some of the details of the 2nd level pkt based
+		// on the first lvl packet created above (as we don't yet have
+		// the full proof for the first lvl packet above).
+		for pktIdx, vPkt := range secondLevelPkts {
+			prevAsset := firstLevelPkts[pktIdx].Outputs[0].Asset
+
+			for inputIdx, vIn := range vPkt.Inputs {
+				//nolint:lll
+				prevScriptKey := prevAsset.ScriptKey
+				vIn.PrevID.ScriptKey = asset.ToSerialized(
+					prevScriptKey.PubKey,
+				)
+
+				vPkt.SetInputAsset(inputIdx, prevAsset)
 			}
+		}
 
-			return lfn.Ok(b.Bytes())
-		},
+		// With the vPackets fully generated and signed above, we'll
+		// serialize it into a resolution blob to return.
+		secondLevelSigDesc = lfn.MapOption(
+			func(d tapscriptSweepDesc) cmsg.TapscriptSigDesc {
+				return cmsg.NewTapscriptSigDesc(
+					d.scriptTree.TapTweak(),
+					d.ctrlBlockBytes,
+				)
+			},
+		)(tapSweepDesc.secondLevel)
+	}
+
+	res := cmsg.NewContractResolution(
+		firstLevelPkts, secondLevelPkts, secondLevelSigDesc,
 	)
+
+	var b bytes.Buffer
+	if err := res.Encode(&b); err != nil {
+		return lfn.Err[tlv.Blob](err)
+	}
+
+	return lfn.Ok(b.Bytes())
 }
 
 // preimageDesc is a helper struct that contains the preimage and the witness
