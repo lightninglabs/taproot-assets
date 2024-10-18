@@ -428,6 +428,61 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 	return nil
 }
 
+// applySignDescToVIn couples a vPkt along with the input that contained it.
+type vPktsWithInput struct {
+	// btcInput is the Bitcoin that the vPkt will the spending from (on the
+	// TAP layer).
+	btcInput input.Input
+
+	// vPkts is the set of vPacket that will be used to spend the input.
+	vPkts []*tappsbt.VPacket
+
+	// tapsigDesc houses the information we'll need to re-sign the vPackets
+	// above. Note that this is only set if this is a second level packet.
+	tapSigDesc lfn.Option[cmsg.TapscriptSigDesc]
+}
+
+// sweepVpkts contains the set of vPkts needed for sweeping an output. Most
+// outputs will only have the first level specified. The second level is needed
+// for HTLC outputs on our local commitment transaction.
+type sweepVpkts struct {
+	// firstLevel houses vPackets that are used to sweep outputs directly
+	// from the commitment transaction.
+	firstLevel []vPktsWithInput
+
+	// secondLevel is used to sweep outputs that are created by second level
+	// HTLC transactions.
+	secondLevel []vPktsWithInput
+}
+
+// isEmpty returns true if the sweepVpkts is empty.
+func (s sweepVpkts) isEmpty() bool {
+	return len(s.firstLevel) == 0 && len(s.secondLevel) == 0
+}
+
+// firstLevelPkts returns a slice of the first level pkts.
+func (s sweepVpkts) firstLevelPkts() []*tappsbt.VPacket {
+	return fn.FlatMap(
+		s.firstLevel, func(v vPktsWithInput) []*tappsbt.VPacket {
+			return v.vPkts
+		},
+	)
+}
+
+// secondLevelPkts returns a slice of the second level pkts.
+func (s sweepVpkts) secondLevelPkts() []*tappsbt.VPacket {
+	return fn.FlatMap(
+		s.secondLevel, func(v vPktsWithInput) []*tappsbt.VPacket {
+			return v.vPkts
+		},
+	)
+}
+
+// allPkts returns a slice of both the first and second level pkts.
+func (s sweepVpkts) allPkts() []*tappsbt.VPacket {
+	return append(s.firstLevelPkts(), s.secondLevelPkts()...)
+}
+
 // createAndSignSweepVpackets creates vPackets that sweep the funds from the
 // channel to the wallet, and then signs them as well.
 func (a *AuxSweeper) createAndSignSweepVpackets(
@@ -1837,40 +1892,119 @@ func newBlobWithWitnessInfo(i input.Input) lfn.Result[blobWithWitnessInfo] {
 		secondLevel:    secondLevel,
 	})
 }
+
+// prepVpkts decodes the set of vPkts, supplementing them as needed to ensure
+// all inputs can be swept properly.
+func prepVpkts(bRes lfn.Result[blobWithWitnessInfo],
+	secondLevel bool) (*vPktsWithInput, error) {
+
+	b, err := bRes.Unpack()
+	if err != nil {
+		return nil, err
+	}
+	var res cmsg.ContractResolution
+
+	err = res.Decode(bytes.NewReader(b.resolutionBlob))
+	if err != nil {
+		return nil, err
+	}
+
+	// For each vPacket, if we have a preimage to insert, then we'll we'll
+	// update the witness to insert the preimage at the correct index.
+	var tapSigDesc lfn.Option[cmsg.TapscriptSigDesc]
+	pkts := res.Vpkts1()
+	if secondLevel {
+		pkts = res.Vpkts2()
+	}
+
+	b.preimageInfo.WhenSome(func(p preimageDesc) {
+		vIns := fn.FlatMap(
+			pkts,
+			func(vPkt *tappsbt.VPacket) []*tappsbt.VInput {
+				return vPkt.Inputs
+			},
+		)
+
+		for _, vIn := range vIns {
+			prevWitness := vIn.Asset().PrevWitnesses[0].TxWitness
+			vIn.Asset().PrevWitnesses[0].TxWitness = slices.Insert(
+				prevWitness, p.witnessIndex,
+				p.preimage[:],
+			)
+		}
+	})
+
+	return &vPktsWithInput{
+		vPkts:      pkts,
+		btcInput:   b.input,
+		tapSigDesc: tapSigDesc,
+	}, nil
 }
 
 // extractInputVPackets extracts the vPackets from the inputs passed in. If
 // none of the inputs have any resolution blobs. Then an empty slice will be
 // returned.
-func extractInputVPackets(inputs []input.Input) lfn.Result[[]*tappsbt.VPacket] {
 	// Otherwise, we'll extract the set of resolution blobs from the inputs
 	// passed in.
 	relevantInputs := fn.Filter(inputs, func(i input.Input) bool {
 		return i.ResolutionBlob().IsSome()
 	})
-	resolutionBlobs := fn.Map(relevantInputs, func(i input.Input) tlv.Blob {
-		// We already know this has a blob from the filter above.
-		return i.ResolutionBlob().UnwrapOr(nil)
-	})
-
-	// With our set of resolution inputs extracted, we'll now decode them
-	// in the vPackets we'll use to generate the output to addr.
-	vPkts, err := fn.FlatMapErr(
-		resolutionBlobs,
-		func(b tlv.Blob) ([]*tappsbt.VPacket, error) {
-			var res cmsg.ContractResolution
-			if err := res.Decode(bytes.NewReader(b)); err != nil {
-				return nil, err
-			}
-
-			return res.VPkts(), nil
+	resolutionInfo := fn.Map(
+		relevantInputs,
+		func(i input.Input) lfn.Result[blobWithWitnessInfo] {
+			return newBlobWithWitnessInfo(i)
 		},
 	)
-	if err != nil {
-		return lfn.Err[[]*tappsbt.VPacket](err)
+
+	firstLevelSweeps := lfn.Filter(
+		func(info lfn.Result[blobWithWitnessInfo]) bool {
+			var secondLevel bool
+			info.WhenResult(func(i blobWithWitnessInfo) {
+				secondLevel = i.secondLevel
+			})
+
+			return !secondLevel
+		},
+		resolutionInfo,
+	)
+	secondLevelSweeps := lfn.Filter(
+		func(info lfn.Result[blobWithWitnessInfo]) bool {
+			var secondLevel bool
+			info.WhenResult(func(i blobWithWitnessInfo) {
+				secondLevel = i.secondLevel
+			})
+
+			return secondLevel
+		},
+		resolutionInfo,
+	)
+
+	// With our set of resolution inputs extracted, we'll now decode them in
+	// the vPackets we'll use to generate the output to addr.
+	var vPkts1 []vPktsWithInput
+	for _, bRes := range firstLevelSweeps {
+		vpkt, err := prepVpkts(bRes, false)
+		if err != nil {
+			return lfn.Err[sweepVpkts](err)
+		}
+
+		vPkts1 = append(vPkts1, *vpkt)
 	}
 
-	return lfn.Ok(vPkts)
+	var vPkts2 []vPktsWithInput
+	for _, bRes := range secondLevelSweeps {
+		vpkt, err := prepVpkts(bRes, true)
+		if err != nil {
+			return lfn.Err[sweepVpkts](err)
+		}
+
+		vPkts2 = append(vPkts1, *vpkt)
+	}
+
+	return lfn.Ok(sweepVpkts{
+		firstLevel:  vPkts1,
+		secondLevel: vPkts2,
+	})
 }
 
 // sweepContracts takes a set of inputs, and the change address we'd use to
@@ -1892,13 +2026,24 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 
 	// Now that we know we have a relevant input set, extract all the
 	// vPackets from the inputs.
-	vPkts, err := extractInputVPackets(inputs).Unpack()
+	sPkts, err := extractInputVPackets(inputs).Unpack()
 	if err != nil {
 		return lfn.Err[sweep.SweepOutput](err)
 	}
 
 	log.Infof("Generating anchor output for vpkts=%v",
-		limitSpewer.Sdump(vPkts))
+		limitSpewer.Sdump(sPkts))
+
+	// Second level packets will already be anchored to the output assigned
+	// to it, so we only need to re-create the commitment for the first
+	// level outputs, which can be swept directly into the wallet.
+	firstLevelVpkts := sPkts.firstLevelPkts()
+
+	// If there're no first level vPkts, then we can just return a nil error
+	// as we don't have a real sweep output to create.
+	if len(firstLevelVpkts) == 0 {
+		return lfn.Err[sweep.SweepOutput](nil)
+	}
 
 	// At this point, now that we're about to generate a new output, we'll
 	// need an internal key, so we can update all the vPkts.
@@ -1911,8 +2056,8 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 	if err != nil {
 		return lfn.Err[sweep.SweepOutput](err)
 	}
-	for idx := range vPkts {
-		for _, vOut := range vPkts[idx].Outputs {
+	for idx := range firstLevelVpkts {
+		for _, vOut := range firstLevelVpkts[idx].Outputs {
 			vOut.SetAnchorInternalKey(
 				internalKey, a.cfg.ChainParams.HDCoinType,
 			)
@@ -1921,10 +2066,11 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 
 	// Now that we have our set of resolutions, we'll make a new commitment
 	// out of all the vPackets contained.
-	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
+	outCommitments, err := tapsend.CreateOutputCommitments(firstLevelVpkts)
 	if err != nil {
 		return lfn.Errf[sweep.SweepOutput]("unable to create output "+
 			"commitments: %w", err)
+
 	}
 
 	// We should only have a single output commitment at this point.
