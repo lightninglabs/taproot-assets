@@ -1220,45 +1220,46 @@ func collectOutputs(a *Allocation,
 	return outputs, nil
 }
 
-// CreateSecondLevelHtlcPackets creates the virtual packets for the second level
-// HTLC transaction.
-func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
-	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
-	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
-	htlcOutputs []*cmsg.AssetOutput) ([]*tappsbt.VPacket, []*Allocation,
-	error) {
+// createSecondLevelHtlcAllocations creates the allocations for the second level
+// HTLCs. This will be used to generate the vPkts that corresponds to the second
+// level HTLC sweep.
+func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
+	initiator bool, htlcOutputs []*cmsg.AssetOutput, htlcAmt btcutil.Amount,
+	commitCsvDelay uint32, keys lnwallet.CommitmentKeyRing,
+	outputIndex fn.Option[uint32],
+) ([]*Allocation, error) {
 
-	var leaseExpiry uint32
-	if chanState.ChanType.HasLeaseExpiration() {
-		leaseExpiry = chanState.ThawHeight
-	}
+	// TODO(roasbeef): thaw height not implemented for taproot chans rn
+	// (lease expiry)
 
-	// Next, we'll generate the script used as the output for all second
-	// level HTLC which forces a covenant w.r.t what can be done with all
-	// HTLC outputs.
 	scriptInfo, err := lnwallet.SecondLevelHtlcScript(
-		chanState.ChanType, chanState.IsInitiator, keys.RevocationKey,
-		keys.ToLocalKey, uint32(chanState.LocalChanCfg.CsvDelay),
-		leaseExpiry, lfn.None[txscript.TapLeaf](),
+		chanType, initiator, keys.RevocationKey,
+		keys.ToLocalKey, commitCsvDelay,
+		0, lfn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error creating second level htlc "+
-			"script: %w", err)
+		return nil, fmt.Errorf("error creating second level "+
+			"htlc script: %w", err)
 	}
 
 	sibling, htlcTree, err := LeavesFromTapscriptScriptTree(scriptInfo)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error creating second level HTLC "+
+		return nil, fmt.Errorf("error creating second level HTLC "+
 			"script sibling: %w", err)
 	}
 
 	allocations := []*Allocation{{
-		Type:         SecondLevelHtlcAllocation,
+		Type: SecondLevelHtlcAllocation,
+		// If we're making the second-level transaction just to sign,
+		// then we'll have an output index of zero. Otherwise, we'll
+		// want to use the output index as appears in the final
+		// commitment transaction.
+		OutputIndex:  outputIndex.UnwrapOr(0),
 		Amount:       cmsg.OutputSum(htlcOutputs),
 		AssetVersion: asset.V1,
 		BtcAmount:    htlcAmt,
 		Sequence: lnwallet.HtlcSecondLevelInputSequence(
-			chanState.ChanType,
+			chanType,
 		),
 		InternalKey:    htlcTree.InternalKey,
 		NonAssetLeaves: sibling,
@@ -1268,13 +1269,31 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 		),
 	}}
 
-	// The proofs in the asset outputs don't have the full commitment
-	// transaction, so we need to add it now to make them complete.
+	return allocations, nil
+}
+
+// CreateSecondLevelHtlcPackets creates the virtual packets for the second level
+// HTLC.
+func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
+	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
+	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
+	htlcOutputs []*cmsg.AssetOutput) ([]*tappsbt.VPacket, []*Allocation,
+	error) {
+
+	allocations, err := createSecondLevelHtlcAllocations(
+		chanState.ChanType, chanState.IsInitiator,
+		htlcOutputs, htlcAmt,
+		uint32(chanState.LocalChanCfg.CsvDelay), keys,
+		fn.None[uint32](),
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	inputProofs := fn.Map(
 		htlcOutputs, func(o *cmsg.AssetOutput) *proof.Proof {
 			p := o.Proof.Val
 			p.AnchorTx = *commitTx
-
 			return &p
 		},
 	)
@@ -1284,14 +1303,12 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 		return nil, nil, fmt.Errorf("error distributing coins: %w", err)
 	}
 
-	// Prepare the output assets for each virtual packet, then create the
-	// output commitments.
 	ctx := context.Background()
 	for idx := range vPackets {
 		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
 		if err != nil {
-			return nil, nil, fmt.Errorf("unable to prepare output "+
-				"assets: %w", err)
+			return nil, nil, fmt.Errorf("unable to prepare "+
+				"output assets: %w", err)
 		}
 	}
 
