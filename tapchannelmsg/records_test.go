@@ -20,6 +20,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 const (
@@ -485,20 +486,49 @@ func TestAuxShutdownMsg(t *testing.T) {
 func TestContractResolution(t *testing.T) {
 	t.Parallel()
 
-	const numPackets = 10
+	sigDescGen := rapid.Custom(func(t *rapid.T) TapscriptSigDesc {
+		byteSliceGen := rapid.SliceOfN(rapid.Byte(), 1, 256)
 
-	testPkts := make([]*tappsbt.VPacket, numPackets)
-	for i := 0; i < numPackets; i++ {
-		testPkts[i] = tappsbt.RandPacket(t, true)
-	}
+		return NewTapscriptSigDesc(
+			byteSliceGen.Draw(t, "taptweak"),
+			byteSliceGen.Draw(t, "ctrlBlock"),
+		)
+	})
 
-	testRes := NewContractResolution(testPkts)
+	rapid.Check(t, func(r *rapid.T) {
+		numPackets := rapid.IntRange(1, 10).Draw(r, "numPackets")
 
-	var b bytes.Buffer
-	require.NoError(t, testRes.Encode(&b))
+		testPkts1 := make([]*tappsbt.VPacket, numPackets)
+		for i := 0; i < numPackets; i++ {
+			testPkts1[i] = tappsbt.RandPacket(t, true)
+		}
 
-	var newRes ContractResolution
-	require.NoError(t, newRes.Decode(&b))
+		var testPkts2 []*tappsbt.VPacket
 
-	require.Equal(t, testRes, newRes)
+		if rapid.Bool().Draw(r, "secondPacketSet") {
+			testPkts2 = make([]*tappsbt.VPacket, numPackets)
+			for i := 0; i < numPackets; i++ {
+				testPkts2[i] = tappsbt.RandPacket(t, true)
+			}
+		}
+
+		var sigDesc lfn.Option[TapscriptSigDesc]
+		if rapid.Bool().Draw(r, "sigDescSet") {
+			sigDesc = lfn.Some(
+				sigDescGen.Draw(r, "sigDesc"),
+			)
+		}
+
+		testRes := NewContractResolution(
+			testPkts1, testPkts2, sigDesc,
+		)
+
+		var b bytes.Buffer
+		require.NoError(t, testRes.Encode(&b))
+
+		var newRes ContractResolution
+		require.NoError(t, newRes.Decode(&b))
+
+		require.Equal(t, testRes, newRes)
+	})
 }
