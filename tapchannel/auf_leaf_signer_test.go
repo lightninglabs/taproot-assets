@@ -49,7 +49,7 @@ var (
 	}
 
 	// sig job batch size when making more that one sig job.
-	numSigJobs = int32(10)
+	numSigJobs = int32(25)
 
 	// Threshold for trying to cancel or quit the aux leaf signer (allow
 	// the signer to complete a third of the batch).
@@ -207,7 +207,6 @@ func TestAuxLeafSignerCancelAndQuit(t *testing.T) {
 		// Another component could have sent the cancel signal; we'll
 		// send that before the quit signal.
 		close(cancelChan)
-		time.Sleep(time.Millisecond)
 
 		// Send the quit signal; jobs at the end of the batch should not
 		// be processed.

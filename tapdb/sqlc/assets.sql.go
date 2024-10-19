@@ -2059,7 +2059,11 @@ JOIN managed_utxos utxos
                 utxos.lease_expiry <= $3)
            ELSE TRUE
        END
-WHERE spent = FALSE 
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+WHERE spent = FALSE AND 
+        (script_keys.tweaked_script_key != $4 OR
+                $4 IS NULL)
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -2070,6 +2074,7 @@ type QueryAssetBalancesByAssetParams struct {
 	AssetIDFilter []byte
 	Leased        interface{}
 	Now           sql.NullTime
+	ExcludeKey    []byte
 }
 
 type QueryAssetBalancesByAssetRow struct {
@@ -2087,7 +2092,12 @@ type QueryAssetBalancesByAssetRow struct {
 // doesn't have a group key. See the comment in fetchAssetSprouts for a work
 // around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetBalancesByAssetParams) ([]QueryAssetBalancesByAssetRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByAsset, arg.AssetIDFilter, arg.Leased, arg.Now)
+	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByAsset,
+		arg.AssetIDFilter,
+		arg.Leased,
+		arg.Now,
+		arg.ExcludeKey,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -2136,7 +2146,11 @@ JOIN managed_utxos utxos
                 utxos.lease_expiry <= $3)
            ELSE TRUE
        END
-WHERE spent = FALSE 
+JOIN script_keys
+    ON assets.script_key_id = script_keys.script_key_id
+WHERE spent = FALSE AND 
+        (script_keys.tweaked_script_key != $4 OR
+                $4 IS NULL)
 GROUP BY key_group_info_view.tweaked_group_key
 `
 
@@ -2144,6 +2158,7 @@ type QueryAssetBalancesByGroupParams struct {
 	KeyGroupFilter []byte
 	Leased         interface{}
 	Now            sql.NullTime
+	ExcludeKey     []byte
 }
 
 type QueryAssetBalancesByGroupRow struct {
@@ -2152,7 +2167,12 @@ type QueryAssetBalancesByGroupRow struct {
 }
 
 func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetBalancesByGroupParams) ([]QueryAssetBalancesByGroupRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByGroup, arg.KeyGroupFilter, arg.Leased, arg.Now)
+	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByGroup,
+		arg.KeyGroupFilter,
+		arg.Leased,
+		arg.Now,
+		arg.ExcludeKey,
+	)
 	if err != nil {
 		return nil, err
 	}

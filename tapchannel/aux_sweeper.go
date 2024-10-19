@@ -22,6 +22,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
@@ -910,7 +911,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 
 	// Just in case we don't know about it already, we'll import the
 	// funding script key.
-	fundingScriptTree := NewFundingScriptTree()
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
 	fundingTaprootKey, _ := schnorr.ParsePubKey(
 		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
 	)

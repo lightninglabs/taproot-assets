@@ -31,6 +31,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/vm"
 	"github.com/lightningnetwork/lnd/channeldb"
@@ -646,7 +647,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 
 	// Our funding script key will be the OP_TRUE addr that we'll use as
 	// the funding script on the asset level.
-	fundingScriptTree := NewFundingScriptTree()
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
 	fundingTaprootKey, _ := schnorr.ParsePubKey(
 		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
 	)
@@ -1088,7 +1089,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// With all the vPackets signed, we'll now anchor them to the funding
 	// PSBT. This'll update all the pkScripts for our funding output and
 	// change.
-	fundingScriptTree := NewFundingScriptTree()
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
 	fundingScriptKey := asset.NewScriptKey(fundingScriptTree.TaprootKey)
 	fundingOutputProofs, err := f.anchorVPackets(
 		finalFundedPsbt, signedPkts, fundingScriptKey,
