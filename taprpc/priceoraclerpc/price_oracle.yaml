@@ -3,5 +3,5 @@ config_version: 3
 
 http:
   rules:
-    - selector: priceoraclerpc.PriceOracle.QueryRateTick
-      get: "/v1/taproot-assets/rfq/priceoracle/ratetick"
+    - selector: priceoraclerpc.PriceOracle.QueryAssetRates
+      get: "/v1/taproot-assets/rfq/priceoracle/assetrates"

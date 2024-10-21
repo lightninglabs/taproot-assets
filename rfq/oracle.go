@@ -221,10 +221,10 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	// set the subject asset ID.
 	copy(subjectAssetId, assetId[:])
 
-	// Construct the RPC rate tick hint.
+	// Construct the RPC asset rates hint.
 	var (
-		rateTickHint *oraclerpc.RateTick
-		err          error
+		rpcAssetRatesHint *oraclerpc.AssetRates
+		err               error
 	)
 	assetRateHint.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
 		// Compute an expiry time using the default expiry delay.
@@ -248,7 +248,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 			return
 		}
 
-		rateTickHint = &oraclerpc.RateTick{
+		rpcAssetRatesHint = &oraclerpc.AssetRates{
 			SubjectAssetRate: subjectAssetRate,
 			PaymentAssetRate: paymentAssetRate,
 			ExpiryTimestamp:  expiryTimestamp,
@@ -258,7 +258,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 		return nil, err
 	}
 
-	req := &oraclerpc.QueryRateTickRequest{
+	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType: oraclerpc.TransactionType_SALE,
 		SubjectAsset: &oraclerpc.AssetSpecifier{
 			Id: &oraclerpc.AssetSpecifier_AssetId{
@@ -271,26 +271,26 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 				AssetId: paymentAssetId,
 			},
 		},
-		RateTickHint: rateTickHint,
+		AssetRatesHint: rpcAssetRatesHint,
 	}
 
 	// Perform query.
-	resp, err := r.client.QueryRateTick(ctx, req)
+	resp, err := r.client.QueryAssetRates(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse the response.
 	switch result := resp.GetResult().(type) {
-	case *oraclerpc.QueryRateTickResponse_Success:
-		if result.Success.RateTick == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
+	case *oraclerpc.QueryAssetRatesResponse_Ok:
+		if result.Ok.AssetRates == nil {
+			return nil, fmt.Errorf("QueryAssetRates response is " +
 				"successful but rate tick is nil")
 		}
 
 		// Unmarshal the subject asset to BTC rate.
 		rate, err := oraclerpc.UnmarshalFixedPoint(
-			result.Success.RateTick.SubjectAssetRate,
+			result.Ok.AssetRates.SubjectAssetRate,
 		)
 		if err != nil {
 			return nil, err
@@ -298,12 +298,12 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 		return &OracleResponse{
 			AssetRate: *rate,
-			Expiry:    result.Success.RateTick.ExpiryTimestamp,
+			Expiry:    result.Ok.AssetRates.ExpiryTimestamp,
 		}, nil
 
-	case *oraclerpc.QueryRateTickResponse_Error:
+	case *oraclerpc.QueryAssetRatesResponse_Error:
 		if result.Error == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
+			return nil, fmt.Errorf("QueryAssetRates response is " +
 				"an error but error is nil")
 		}
 
@@ -337,7 +337,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 	// set the subject asset ID.
 	copy(subjectAssetId, assetId[:])
 
-	req := &oraclerpc.QueryRateTickRequest{
+	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType: oraclerpc.TransactionType_PURCHASE,
 		SubjectAsset: &oraclerpc.AssetSpecifier{
 			Id: &oraclerpc.AssetSpecifier_AssetId{
@@ -350,26 +350,26 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 				AssetId: paymentAssetId,
 			},
 		},
-		RateTickHint: nil,
+		AssetRatesHint: nil,
 	}
 
 	// Perform query.
-	resp, err := r.client.QueryRateTick(ctx, req)
+	resp, err := r.client.QueryAssetRates(ctx, req)
 	if err != nil {
 		return nil, err
 	}
 
 	// Parse the response.
 	switch result := resp.GetResult().(type) {
-	case *oraclerpc.QueryRateTickResponse_Success:
-		if result.Success.RateTick == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
+	case *oraclerpc.QueryAssetRatesResponse_Ok:
+		if result.Ok.AssetRates == nil {
+			return nil, fmt.Errorf("QueryAssetRates response is " +
 				"successful but rate tick is nil")
 		}
 
 		// Unmarshal the subject asset to BTC rate.
 		rate, err := oraclerpc.UnmarshalFixedPoint(
-			result.Success.RateTick.SubjectAssetRate,
+			result.Ok.AssetRates.SubjectAssetRate,
 		)
 		if err != nil {
 			return nil, err
@@ -377,12 +377,12 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 
 		return &OracleResponse{
 			AssetRate: *rate,
-			Expiry:    result.Success.RateTick.ExpiryTimestamp,
+			Expiry:    result.Ok.AssetRates.ExpiryTimestamp,
 		}, nil
 
-	case *oraclerpc.QueryRateTickResponse_Error:
+	case *oraclerpc.QueryAssetRatesResponse_Error:
 		if result.Error == nil {
-			return nil, fmt.Errorf("QueryRateTick response is " +
+			return nil, fmt.Errorf("QueryAssetRates response is " +
 				"an error but error is nil")
 		}
 

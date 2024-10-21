@@ -34,10 +34,10 @@ type mockRpcPriceOracleServer struct {
 	priceoraclerpc.UnimplementedPriceOracleServer
 }
 
-// QueryRateTick is a mock implementation of the QueryRateTick RPC endpoint.
-func (p *mockRpcPriceOracleServer) QueryRateTick(_ context.Context,
-	req *priceoraclerpc.QueryRateTickRequest) (
-	*priceoraclerpc.QueryRateTickResponse, error) {
+// QueryAssetRates is a mock implementation of the QueryAssetRates RPC endpoint.
+func (p *mockRpcPriceOracleServer) QueryAssetRates(_ context.Context,
+	req *priceoraclerpc.QueryAssetRatesRequest) (
+	*priceoraclerpc.QueryAssetRatesResponse, error) {
 
 	// Specify a default rate tick in case a rate tick hint is not provided.
 	expiry := time.Now().Add(5 * time.Minute).Unix()
@@ -51,7 +51,7 @@ func (p *mockRpcPriceOracleServer) QueryRateTick(_ context.Context,
 		return nil, err
 	}
 
-	rateTick := priceoraclerpc.RateTick{
+	assetRates := priceoraclerpc.AssetRates{
 		SubjectAssetRate: subjectAssetFp,
 		ExpiryTimestamp:  uint64(expiry),
 	}
@@ -62,22 +62,23 @@ func (p *mockRpcPriceOracleServer) QueryRateTick(_ context.Context,
 	}
 
 	// If a rate tick hint is provided, return it as the rate tick.
-	if req.RateTickHint != nil {
-		rateTick.SubjectAssetRate = req.RateTickHint.SubjectAssetRate
-		rateTick.ExpiryTimestamp = req.RateTickHint.ExpiryTimestamp
+	if req.AssetRatesHint != nil {
+		assetRates.SubjectAssetRate =
+			req.AssetRatesHint.SubjectAssetRate
+		assetRates.ExpiryTimestamp = req.AssetRatesHint.ExpiryTimestamp
 	}
 
-	return &priceoraclerpc.QueryRateTickResponse{
-		Result: &priceoraclerpc.QueryRateTickResponse_Success{
-			Success: &priceoraclerpc.QueryRateTickSuccessResponse{
-				RateTick: &rateTick,
+	return &priceoraclerpc.QueryAssetRatesResponse{
+		Result: &priceoraclerpc.QueryAssetRatesResponse_Ok{
+			Ok: &priceoraclerpc.QueryAssetRatesOkResponse{
+				AssetRates: &assetRates,
 			},
 		},
 	}, nil
 }
 
 // validateRateTickRequest validates the given rate tick request.
-func validateRateTickRequest(req *priceoraclerpc.QueryRateTickRequest) error {
+func validateRateTickRequest(req *priceoraclerpc.QueryAssetRatesRequest) error {
 	var zeroAssetID [32]byte
 	if req.SubjectAsset == nil {
 		return fmt.Errorf("subject asset must be specified")

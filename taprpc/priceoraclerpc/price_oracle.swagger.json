@@ -16,15 +16,15 @@
     "application/json"
   ],
   "paths": {
-    "/v1/taproot-assets/rfq/priceoracle/ratetick": {
+    "/v1/taproot-assets/rfq/priceoracle/assetrates": {
       "get": {
-        "summary": "QueryRateTick queries the rate tick for a given transaction type, subject\nasset, and payment asset. The rate tick is the exchange rate between the\nsubject asset and the payment asset.",
-        "operationId": "PriceOracle_QueryRateTick",
+        "summary": "QueryAssetRates retrieves the exchange rate between a tap asset and BTC for\na specified transaction type, subject asset, and payment asset. The asset\nrate represents the number of tap asset units per BTC.",
+        "operationId": "PriceOracle_QueryAssetRates",
         "responses": {
           "200": {
             "description": "A successful response.",
             "schema": {
-              "$ref": "#/definitions/priceoraclerpcQueryRateTickResponse"
+              "$ref": "#/definitions/priceoraclerpcQueryAssetRatesResponse"
             }
           },
           "default": {
@@ -116,14 +116,14 @@
             "type": "string"
           },
           {
-            "name": "rate_tick_hint.subjectAssetRate.coefficient",
+            "name": "asset_rates_hint.subjectAssetRate.coefficient",
             "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "rate_tick_hint.subjectAssetRate.scale",
+            "name": "asset_rates_hint.subjectAssetRate.scale",
             "description": "The scale is the component that determines how many decimal places\nthe coefficient should be divided by to obtain the fractional value.",
             "in": "query",
             "required": false,
@@ -131,14 +131,14 @@
             "format": "int64"
           },
           {
-            "name": "rate_tick_hint.paymentAssetRate.coefficient",
+            "name": "asset_rates_hint.paymentAssetRate.coefficient",
             "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64.",
             "in": "query",
             "required": false,
             "type": "string"
           },
           {
-            "name": "rate_tick_hint.paymentAssetRate.scale",
+            "name": "asset_rates_hint.paymentAssetRate.scale",
             "description": "The scale is the component that determines how many decimal places\nthe coefficient should be divided by to obtain the fractional value.",
             "in": "query",
             "required": false,
@@ -146,8 +146,8 @@
             "format": "int64"
           },
           {
-            "name": "rate_tick_hint.expiry_timestamp",
-            "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\ntick is no longer valid.",
+            "name": "asset_rates_hint.expiry_timestamp",
+            "description": "expiry_timestamp is the Unix timestamp in seconds after which the asset\nrates are no longer valid.",
             "in": "query",
             "required": false,
             "type": "string",
@@ -161,6 +161,25 @@
     }
   },
   "definitions": {
+    "priceoraclerpcAssetRates": {
+      "type": "object",
+      "properties": {
+        "subjectAssetRate": {
+          "$ref": "#/definitions/priceoraclerpcFixedPoint",
+          "description": "subjectAssetRate is the number of subject asset units per BTC represented\nas a fixed-point number. This field is also commonly referred to as the\nsubject asset to BTC (conversion) rate. When the subject asset is BTC,\nthis field should be set to 100 billion, as one BTC is equivalent to 100\nbillion msats."
+        },
+        "paymentAssetRate": {
+          "$ref": "#/definitions/priceoraclerpcFixedPoint",
+          "description": "paymentAssetRate is the number of payment asset units per BTC represented\nas a fixed-point number. This field is also commonly referred to as the\npayment asset to BTC (conversion) rate. When the payment asset is BTC,\nthis field should be set to 100 billion, as one BTC is equivalent to 100\nbillion msats."
+        },
+        "expiry_timestamp": {
+          "type": "string",
+          "format": "uint64",
+          "description": "expiry_timestamp is the Unix timestamp in seconds after which the asset\nrates are no longer valid."
+        }
+      },
+      "description": "AssetRates represents the exchange rates for subject and payment assets\nrelative to BTC, expressed as fixed-point numbers. It includes the rates\nfor both assets and an expiration timestamp indicating when the rates\nare no longer valid."
+    },
     "priceoraclerpcAssetSpecifier": {
       "type": "object",
       "properties": {
@@ -200,7 +219,7 @@
       },
       "description": "FixedPoint is a scaled integer representation of a fractional number.\n\nThis type consists of two integer fields: a coefficient and a scale.\nUsing this format enables precise and consistent representation of fractional\nnumbers while avoiding floating-point data types, which are prone to\nprecision errors.\n\nThe relationship between the fractional representation and its fixed-point\nrepresentation is expressed as:\n```\nV = F_c / (10^F_s)\n```\nwhere:\n\n* `V` is the fractional value.\n\n* `F_c` is the coefficient component of the fixed-point representation. It is\n   the scaled-up fractional value represented as an integer.\n\n* `F_s` is the scale component. It is an integer specifying how\n  many decimal places `F_c` should be divided by to obtain the fractional\n  representation."
     },
-    "priceoraclerpcQueryRateTickErrResponse": {
+    "priceoraclerpcQueryAssetRatesErrResponse": {
       "type": "object",
       "properties": {
         "message": {
@@ -213,50 +232,31 @@
           "description": "code is the error code."
         }
       },
-      "description": "QueryRateTickErrResponse is the error response to a rate tick query."
+      "description": "QueryAssetRatesErrResponse is the error response to a QueryAssetRates call."
     },
-    "priceoraclerpcQueryRateTickResponse": {
+    "priceoraclerpcQueryAssetRatesOkResponse": {
       "type": "object",
       "properties": {
-        "success": {
-          "$ref": "#/definitions/priceoraclerpcQueryRateTickSuccessResponse",
-          "description": "success is the successful response to the rate tick query."
+        "asset_rates": {
+          "$ref": "#/definitions/priceoraclerpcAssetRates",
+          "description": "asset_rates is the asset exchange rates for the transaction."
+        }
+      },
+      "description": "QueryAssetRatesOkResponse is the successful response to a\nQueryAssetRates call."
+    },
+    "priceoraclerpcQueryAssetRatesResponse": {
+      "type": "object",
+      "properties": {
+        "ok": {
+          "$ref": "#/definitions/priceoraclerpcQueryAssetRatesOkResponse",
+          "description": "ok is the successful response to the query."
         },
         "error": {
-          "$ref": "#/definitions/priceoraclerpcQueryRateTickErrResponse",
-          "description": "error is the error response to the rate tick query."
+          "$ref": "#/definitions/priceoraclerpcQueryAssetRatesErrResponse",
+          "description": "error is the error response to the query."
         }
       },
-      "description": "QueryRateTickResponse is the response to a rate tick query."
-    },
-    "priceoraclerpcQueryRateTickSuccessResponse": {
-      "type": "object",
-      "properties": {
-        "rate_tick": {
-          "$ref": "#/definitions/priceoraclerpcRateTick",
-          "description": "rate_tick is the rate tick for the transaction."
-        }
-      },
-      "description": "QueryRateTickSuccessResponse is the successful response to a rate tick query."
-    },
-    "priceoraclerpcRateTick": {
-      "type": "object",
-      "properties": {
-        "subjectAssetRate": {
-          "$ref": "#/definitions/priceoraclerpcFixedPoint",
-          "description": "subjectAssetRate is the number of subject asset units per BTC represented\nas a fixed-point number. This field is also commonly referred to as the\nsubject asset to BTC (conversion) rate.  When the subject asset is BTC\nmilli-satoshis (msats), this field should be set to 100 billion since\nthere are 100 billion msats in a BTC."
-        },
-        "paymentAssetRate": {
-          "$ref": "#/definitions/priceoraclerpcFixedPoint",
-          "description": "paymentAssetRate is the number of payment asset units per BTC represented\nas a fixed-point number. This field is also commonly referred to as the\npayment asset to BTC (conversion) rate. When the payment asset is BTC\nmilli-satoshis (msats), this field should be set to 100 billion since\nthere are 100 billion msats in a BTC."
-        },
-        "expiry_timestamp": {
-          "type": "string",
-          "format": "uint64",
-          "description": "expiry_timestamp is the Unix timestamp in seconds after which the rate\ntick is no longer valid."
-        }
-      },
-      "description": "RateTick is the internal unit used for asset conversions. A tick is 1/10000th\nof a currency unit. It gives us up to 4 decimal places of precision (0.0001\nor 0.01% or 1 bps). As an example, if the BTC/USD rate was $61,234.95, then\nwe multiply that by 10,000 to arrive at the usd_rate_tick:\n$61,234.95 * 10000 = 612,349,500. To convert back to our normal rate, we\ndecide by 10,000 to arrive back at $61,234.95.\n\nNOTE: That if the payment asset is BTC, the rate tick will be given as\nmilli-satoshi per asset unit."
+      "description": "QueryAssetRatesResponse is the response from a QueryAssetRates RPC call."
     },
     "priceoraclerpcTransactionType": {
       "type": "string",

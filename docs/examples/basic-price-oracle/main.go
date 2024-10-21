@@ -1,5 +1,5 @@
 // This example demonstrates a basic RPC price oracle server that implements the
-// QueryRateTick RPC method. The server listens on localhost:8095 and returns a
+// QueryAssetRates RPC method. The server listens on localhost:8095 and returns a
 // rate tick for a given transaction type, subject asset, and payment asset. The
 // rate tick is the exchange rate between the subject asset and the payment
 // asset.
@@ -106,7 +106,7 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 // getRateTick returns a rate tick for a given transaction type and subject
 // asset max amount.
 func getRateTick(transactionType oraclerpc.TransactionType,
-	subjectAssetMaxAmount uint64) (oraclerpc.RateTick, error) {
+	subjectAssetMaxAmount uint64) (oraclerpc.AssetRates, error) {
 
 	// Determine the rate based on the transaction type.
 	var subjectAssetRate rfqmath.BigIntFixedPoint
@@ -142,7 +142,7 @@ func getRateTick(transactionType oraclerpc.TransactionType,
 		subjectAssetRate,
 	)
 	if err != nil {
-		return oraclerpc.RateTick{}, err
+		return oraclerpc.AssetRates{}, err
 	}
 
 	// Marshal payment asset rate to RPC format.
@@ -150,17 +150,17 @@ func getRateTick(transactionType oraclerpc.TransactionType,
 		rfqmsg.MilliSatPerBtc,
 	)
 	if err != nil {
-		return oraclerpc.RateTick{}, err
+		return oraclerpc.AssetRates{}, err
 	}
 
-	return oraclerpc.RateTick{
+	return oraclerpc.AssetRates{
 		SubjectAssetRate: rpcSubjectAssetToBtcRate,
 		PaymentAssetRate: rpcPaymentAssetToBtcRate,
 		ExpiryTimestamp:  uint64(expiry),
 	}, nil
 }
 
-// QueryRateTick queries the rate tick for a given transaction type, subject
+// QueryAssetRates queries the rate tick for a given transaction type, subject
 // asset, and payment asset. The rate tick is the exchange rate between the
 // subject asset and the payment asset.
 //
@@ -185,18 +185,18 @@ func getRateTick(transactionType oraclerpc.TransactionType,
 // - `PaymentAsset` to BTC.
 // - `TransactionType` to PURCHASE.
 // - `RateTickHint` to the value given in Alice's quote request.
-func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
-	req *oraclerpc.QueryRateTickRequest) (
-	*oraclerpc.QueryRateTickResponse, error) {
+func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
+	req *oraclerpc.QueryAssetRatesRequest) (
+	*oraclerpc.QueryAssetRatesResponse, error) {
 
 	// Ensure that the payment asset is BTC. We only support BTC as the
 	// payment asset in this example.
 	if !oraclerpc.IsAssetBtc(req.PaymentAsset) {
 		logrus.Infof("Payment asset is not BTC: %v", req.PaymentAsset)
 
-		return &oraclerpc.QueryRateTickResponse{
-			Result: &oraclerpc.QueryRateTickResponse_Error{
-				Error: &oraclerpc.QueryRateTickErrResponse{
+		return &oraclerpc.QueryAssetRatesResponse{
+			Result: &oraclerpc.QueryAssetRatesResponse_Error{
+				Error: &oraclerpc.QueryAssetRatesErrResponse{
 					Message: "unsupported payment asset, " +
 						"only BTC is supported",
 				},
@@ -215,32 +215,32 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 		logrus.Infof("Unsupported subject asset ID str: %v\n",
 			req.SubjectAsset)
 
-		return &oraclerpc.QueryRateTickResponse{
-			Result: &oraclerpc.QueryRateTickResponse_Error{
-				Error: &oraclerpc.QueryRateTickErrResponse{
+		return &oraclerpc.QueryAssetRatesResponse{
+			Result: &oraclerpc.QueryAssetRatesResponse_Error{
+				Error: &oraclerpc.QueryAssetRatesErrResponse{
 					Message: "unsupported subject asset",
 				},
 			},
 		}, nil
 	}
 
-	// Determine which rate tick to return.
+	// Determine which asset rate to return.
 	var (
-		rateTick oraclerpc.RateTick
-		err      error
+		assetRates oraclerpc.AssetRates
+		err        error
 	)
 
-	if req.RateTickHint != nil {
+	if req.AssetRatesHint != nil {
 		// If a rate tick hint is provided, return it as the rate tick.
 		// In doing so, we effectively accept the rate tick proposed by
 		// our peer.
 		logrus.Info("Suggested asset to BTC rate provided, " +
 			"returning rate as accepted rate")
 
-		rateTick = oraclerpc.RateTick{
-			SubjectAssetRate: req.RateTickHint.SubjectAssetRate,
-			PaymentAssetRate: req.RateTickHint.PaymentAssetRate,
-			ExpiryTimestamp:  req.RateTickHint.ExpiryTimestamp,
+		assetRates = oraclerpc.AssetRates{
+			SubjectAssetRate: req.AssetRatesHint.SubjectAssetRate,
+			PaymentAssetRate: req.AssetRatesHint.PaymentAssetRate,
+			ExpiryTimestamp:  req.AssetRatesHint.ExpiryTimestamp,
 		}
 	} else {
 		// If a rate tick hint is not provided, fetch a rate tick from
@@ -248,7 +248,7 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 		logrus.Info("Suggested asset to BTC rate not provided, " +
 			"querying internal system for rate")
 
-		rateTick, err = getRateTick(
+		assetRates, err = getRateTick(
 			req.TransactionType, req.SubjectAssetMaxAmount,
 		)
 		if err != nil {
@@ -256,14 +256,14 @@ func (p *RpcPriceOracleServer) QueryRateTick(_ context.Context,
 		}
 	}
 
-	logrus.Infof("QueryRateTick returning rate (subject_asset_rate=%v, "+
-		"payment_asset_rate=%v)", rateTick.SubjectAssetRate,
-		rateTick.PaymentAssetRate)
+	logrus.Infof("QueryAssetRates returning rate (subject_asset_rate=%v, "+
+		"payment_asset_rate=%v)", assetRates.SubjectAssetRate,
+		assetRates.PaymentAssetRate)
 
-	return &oraclerpc.QueryRateTickResponse{
-		Result: &oraclerpc.QueryRateTickResponse_Success{
-			Success: &oraclerpc.QueryRateTickSuccessResponse{
-				RateTick: &rateTick,
+	return &oraclerpc.QueryAssetRatesResponse{
+		Result: &oraclerpc.QueryAssetRatesResponse_Ok{
+			Ok: &oraclerpc.QueryAssetRatesOkResponse{
+				AssetRates: &assetRates,
 			},
 		},
 	}, nil
