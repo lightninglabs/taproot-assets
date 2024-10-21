@@ -25,8 +25,8 @@ const (
 	// service.
 	testServiceAddress = "localhost:8095"
 
-	// testRateTick is the rate tick used in the test cases.
-	testRateTick uint64 = 42_000
+	// testAssetRate is the asset units to BTC rate used in the test cases.
+	testAssetRate uint64 = 42_000
 )
 
 // mockRpcPriceOracleServer is a mock implementation of the price oracle server.
@@ -39,9 +39,10 @@ func (p *mockRpcPriceOracleServer) QueryAssetRates(_ context.Context,
 	req *priceoraclerpc.QueryAssetRatesRequest) (
 	*priceoraclerpc.QueryAssetRatesResponse, error) {
 
-	// Specify a default rate tick in case a rate tick hint is not provided.
+	// Specify a default asset rate in case an asset rates hint is not
+	// provided.
 	expiry := time.Now().Add(5 * time.Minute).Unix()
-	subjectAssetRate := rfqmath.NewBigIntFixedPoint(testRateTick, 3)
+	subjectAssetRate := rfqmath.NewBigIntFixedPoint(testAssetRate, 3)
 
 	// Marshal the subject asset rate to a fixed point.
 	subjectAssetFp, err := priceoraclerpc.MarshalBigIntFixedPoint(
@@ -61,7 +62,7 @@ func (p *mockRpcPriceOracleServer) QueryAssetRates(_ context.Context,
 		return nil, err
 	}
 
-	// If a rate tick hint is provided, return it as the rate tick.
+	// If a asset rates hint is provided, return it.
 	if req.AssetRatesHint != nil {
 		assetRates.SubjectAssetRate =
 			req.AssetRatesHint.SubjectAssetRate
@@ -128,7 +129,7 @@ type testCaseQueryAskPrice struct {
 	assetId       *asset.ID
 	assetGroupKey *btcec.PublicKey
 
-	suggestedRateTick uint64
+	suggestedAssetRate uint64
 }
 
 // runQueryAskPriceTest runs the RPC price oracle client QueryAskPrice test.
@@ -152,10 +153,10 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	// Query for an ask price.
 	ctx := context.Background()
 	assetAmount := uint64(42)
-	bidPrice := lnwire.MilliSatoshi(tc.suggestedRateTick)
+	bidPrice := lnwire.MilliSatoshi(tc.suggestedAssetRate)
 
 	inAssetRate := rfqmath.NewBigIntFixedPoint(
-		tc.suggestedRateTick, 3,
+		tc.suggestedAssetRate, 3,
 	)
 
 	resp, err := client.QueryAskPrice(
@@ -172,7 +173,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	// Otherwise, ensure that the response is valid.
 	require.NoError(t, err)
 
-	// The mock server should return the rate tick hint/bid.
+	// The mock server should return the asset rates hint.
 	require.NotNil(t, resp.AssetRate)
 	require.Equal(
 		t, uint64(bidPrice), resp.AssetRate.Coefficient.ToUint64(),
@@ -193,28 +194,28 @@ func TestRpcPriceOracleQueryAskPrice(t *testing.T) {
 
 	testCases := []*testCaseQueryAskPrice{
 		{
-			name:              "asset ID only",
-			assetId:           &assetId,
-			suggestedRateTick: 42_000,
+			name:               "asset ID only",
+			assetId:            &assetId,
+			suggestedAssetRate: 42_000,
 		},
 		{
 			name: "asset group key only, expect " +
 				"error: asset ID must be specified",
-			expectError:       true,
-			assetGroupKey:     assetGroupKey,
-			suggestedRateTick: 42_000,
+			expectError:        true,
+			assetGroupKey:      assetGroupKey,
+			suggestedAssetRate: 42_000,
 		},
 		{
 			name: "asset ID and asset group key " +
 				"missing",
-			expectError:       true,
-			suggestedRateTick: 42_000,
+			expectError:        true,
+			suggestedAssetRate: 42_000,
 		},
 		{
-			name: "asset ID only; suggested rate " +
-				"tick 0",
-			assetId:           &assetId,
-			suggestedRateTick: 0,
+			name: "asset ID only; suggested asset " +
+				"rate 0",
+			assetId:            &assetId,
+			suggestedAssetRate: 0,
 		},
 	}
 
@@ -269,9 +270,9 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	// Otherwise, ensure that the response is valid.
 	require.NoError(t, err)
 
-	// The mock server should return the rate tick hint/ask.
+	// The mock server should return the asset rates hint.
 	require.NotNil(t, resp.AssetRate)
-	require.Equal(t, testRateTick, resp.AssetRate.Coefficient.ToUint64())
+	require.Equal(t, testAssetRate, resp.AssetRate.Coefficient.ToUint64())
 
 	// Ensure that the expiry timestamp is in the future.
 	responseExpiry := time.Unix(int64(resp.Expiry), 0)
