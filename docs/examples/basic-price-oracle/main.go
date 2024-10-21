@@ -1,7 +1,6 @@
 // This example demonstrates a basic RPC price oracle server that implements the
-// QueryAssetRates RPC method. The server listens on localhost:8095 and returns a
-// rate tick for a given transaction type, subject asset, and payment asset. The
-// rate tick is the exchange rate between the subject asset and the payment
+// QueryAssetRates RPC method. The server listens on localhost:8095 and returns
+// the asset rates for a given transaction type, subject asset, and payment
 // asset.
 package main
 
@@ -103,9 +102,9 @@ func isSupportedSubjectAsset(subjectAsset *oraclerpc.AssetSpecifier) bool {
 	return false
 }
 
-// getRateTick returns a rate tick for a given transaction type and subject
-// asset max amount.
-func getRateTick(transactionType oraclerpc.TransactionType,
+// getAssetRates returns the asset rates for a given transaction type and
+// subject asset max amount.
+func getAssetRates(transactionType oraclerpc.TransactionType,
 	subjectAssetMaxAmount uint64) (oraclerpc.AssetRates, error) {
 
 	// Determine the rate based on the transaction type.
@@ -160,9 +159,9 @@ func getRateTick(transactionType oraclerpc.TransactionType,
 	}, nil
 }
 
-// QueryAssetRates queries the rate tick for a given transaction type, subject
-// asset, and payment asset. The rate tick is the exchange rate between the
-// subject asset and the payment asset.
+// QueryAssetRates queries the asset rates for a given transaction type, subject
+// asset, and payment asset. An asset rate is the number of asset units per
+// BTC.
 //
 // Example use case:
 //
@@ -170,21 +169,21 @@ func getRateTick(transactionType oraclerpc.TransactionType,
 // requests that Bob (her asset channel counterparty) purchase the asset from
 // her. Bob's payment, in BTC, will pay the invoice.
 //
-// Alice requests a bid quote from Bob. Her request includes a rate tick
-// hint (ask). Alice get the rate tick hint by calling this endpoint. She sets:
+// Alice requests a bid quote from Bob. Her request includes an asset rates hint
+// (ask). Alice obtains the asset rates hint by calling this endpoint. She sets:
 // - `SubjectAsset` to the asset she is trying to sell.
 // - `SubjectAssetMaxAmount` to the max channel asset outbound.
 // - `PaymentAsset` to BTC.
 // - `TransactionType` to SALE.
-// - `RateTickHint` to nil.
+// - `AssetRateHint` to nil.
 //
-// Bob calls this endpoint to get the bid quote rate tick that he will send as a
-// response to Alice's request. He sets:
+// Bob calls this endpoint to get the bid quote asset rates that he will send as
+// a response to Alice's request. He sets:
 // - `SubjectAsset` to the asset that Alice is trying to sell.
 // - `SubjectAssetMaxAmount` to the value given in Alice's quote request.
 // - `PaymentAsset` to BTC.
 // - `TransactionType` to PURCHASE.
-// - `RateTickHint` to the value given in Alice's quote request.
+// - `AssetRateHint` to the value given in Alice's quote request.
 func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 	req *oraclerpc.QueryAssetRatesRequest) (
 	*oraclerpc.QueryAssetRatesResponse, error) {
@@ -231,9 +230,9 @@ func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 	)
 
 	if req.AssetRatesHint != nil {
-		// If a rate tick hint is provided, return it as the rate tick.
-		// In doing so, we effectively accept the rate tick proposed by
-		// our peer.
+		// If the asset rates hint is provided, return it as the asset
+		// rate. In doing so, we effectively accept the asset rates
+		// proposed by our peer.
 		logrus.Info("Suggested asset to BTC rate provided, " +
 			"returning rate as accepted rate")
 
@@ -243,12 +242,12 @@ func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 			ExpiryTimestamp:  req.AssetRatesHint.ExpiryTimestamp,
 		}
 	} else {
-		// If a rate tick hint is not provided, fetch a rate tick from
-		// our internal system.
+		// If an asset rates hint is not provided, fetch asset rates
+		// from our internal system.
 		logrus.Info("Suggested asset to BTC rate not provided, " +
 			"querying internal system for rate")
 
-		assetRates, err = getRateTick(
+		assetRates, err = getAssetRates(
 			req.TransactionType, req.SubjectAssetMaxAmount,
 		)
 		if err != nil {
@@ -256,7 +255,7 @@ func (p *RpcPriceOracleServer) QueryAssetRates(_ context.Context,
 		}
 	}
 
-	logrus.Infof("QueryAssetRates returning rate (subject_asset_rate=%v, "+
+	logrus.Infof("QueryAssetRates returning rates (subject_asset_rate=%v, "+
 		"payment_asset_rate=%v)", assetRates.SubjectAssetRate,
 		assetRates.PaymentAssetRate)
 
