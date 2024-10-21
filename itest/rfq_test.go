@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
-	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
@@ -21,6 +20,11 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
+)
+
+var (
+	// rfqTimeout is the timeout used for RFQ related operations.
+	rfqTimeout = 5 * time.Second
 )
 
 // testRfqAssetBuyHtlcIntercept tests RFQ negotiation, HTLC interception, and
@@ -97,7 +101,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 			// node.
 			PeerPubKey: ts.BobLnd.PubKey[:],
 
-			TimeoutSeconds: 5,
+			TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 		},
 	)
 	require.NoError(t.t, err, "unable to upsert asset buy order")
@@ -110,7 +114,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 
 		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
-	}, defaultWaitTimeout)
+	}, rfqTimeout)
 
 	// Carol should have received an accepted quote from Bob. This accepted
 	// quote can be used by Carol to make a payment to Bob.
@@ -203,7 +207,7 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 			t.t, acceptedQuote.Scid, acceptHtlc.AcceptHtlc.Scid,
 		)
 		t.Log("Bob has accepted the HTLC")
-	}, defaultWaitTimeout)
+	}, rfqTimeout)
 
 	// Close event streams.
 	err = carolEventNtfns.CloseSend()
@@ -273,6 +277,8 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 			// tapd node to send a request for quote message to
 			// Bob's node.
 			PeerPubKey: ts.BobLnd.PubKey[:],
+
+			TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 		},
 	)
 	require.NoError(t.t, err, "unable to upsert asset sell order")
@@ -285,7 +291,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
 		require.True(t.t, ok, "unexpected event: %v", event)
-	}, defaultWaitTimeout)
+	}, rfqTimeout)
 
 	// Alice should have received an accepted quote from Bob. This accepted
 	// quote can be used by Alice to make a payment to Bob.
@@ -329,28 +335,21 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	}
 	routeBuildResp := ts.AliceLnd.RPC.BuildRoute(&routeBuildRequest)
 
-	// Add the accepted quote ID as a record to the custom records field of
-	// the route's first hop.
-	aliceBobHop := routeBuildResp.Route.Hops[0]
-	if aliceBobHop.CustomRecords == nil {
-		aliceBobHop.CustomRecords = make(map[uint64][]byte)
-	}
-
-	var htlcRfqIDTlvType rfqmsg.HtlcRfqIDType
-	aliceBobHop.CustomRecords[uint64(htlcRfqIDTlvType.TypeVal())] =
-		acceptedQuote.Id[:]
-
-	// Update the route with the modified first hop.
-	routeBuildResp.Route.Hops[0] = aliceBobHop
-
 	// Send the payment to the route.
 	t.Log("Alice paying invoice")
+	var htlcRfqIDTlvType rfqmsg.HtlcRfqIDType
 	routeReq := routerrpc.SendToRouteRequest{
 		PaymentHash: invoice.RHash,
 		Route:       routeBuildResp.Route,
+		FirstHopCustomRecords: map[uint64][]byte{
+			uint64(htlcRfqIDTlvType.TypeVal()): acceptedQuote.Id[:],
+		},
 	}
 	sendAttempt := ts.AliceLnd.RPC.SendToRouteV2(&routeReq)
-	require.Equal(t.t, lnrpc.HTLCAttempt_SUCCEEDED, sendAttempt.Status)
+
+	// The payment will fail since it doesn't transport the correct amount
+	// of the asset.
+	require.Equal(t.t, lnrpc.HTLCAttempt_FAILED, sendAttempt.Status)
 
 	// At this point Bob should have received a HTLC with the asset transfer
 	// specific scid. We'll wait for Bob to publish an accept HTLC event and
@@ -362,11 +361,11 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 		_, ok := event.Event.(*rfqrpc.RfqEvent_AcceptHtlc)
 		require.True(t.t, ok, "unexpected event: %v", event)
-	}, defaultWaitTimeout)
+	}, rfqTimeout)
 
 	// Confirm that Carol receives the lightning payment from Alice via Bob.
 	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-	require.Equal(t.t, invoice.State, lnrpc.Invoice_SETTLED)
+	require.Equal(t.t, invoice.State, lnrpc.Invoice_OPEN)
 
 	// Close event notification streams.
 	err = aliceEventNtfns.CloseSend()
@@ -374,44 +373,6 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	err = bobEventNtfns.CloseSend()
 	require.NoError(t.t, err)
-}
-
-// newLndNode creates a new lnd node with the given name and funds its wallet
-// with the specified outputs.
-func newLndNode(name string, outputFunds []btcutil.Amount,
-	ht *lntest.HarnessTest) *node.HarnessNode {
-
-	newNode := ht.NewNode(name, nil)
-
-	// Fund node wallet with specified outputs.
-	totalTxes := len(outputFunds)
-	const (
-		numBlocksSendOutput = 2
-		minerFeeRate        = btcutil.Amount(7500)
-	)
-
-	for i := range outputFunds {
-		amt := outputFunds[i]
-
-		resp := newNode.RPC.NewAddress(&lnrpc.NewAddressRequest{
-			Type: lnrpc.AddressType_WITNESS_PUBKEY_HASH},
-		)
-		addr := ht.DecodeAddress(resp.Address)
-		addrScript := ht.PayToAddrScript(addr)
-
-		output := &wire.TxOut{
-			PkScript: addrScript,
-			Value:    int64(amt),
-		}
-		ht.Miner().SendOutput(output, minerFeeRate)
-	}
-
-	// Mine any funding transactions.
-	if totalTxes > 0 {
-		ht.MineBlocksAndAssertNumTxes(numBlocksSendOutput, totalTxes)
-	}
-
-	return newNode
 }
 
 // rfqTestScenario is a struct which holds test scenario helper infra.
@@ -438,26 +399,27 @@ type rfqTestScenario struct {
 // It also creates new tapd nodes for each of the LND nodes.
 func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 	// Specify wallet outputs to fund the wallets of the new nodes.
-	const (
-		fundAmount  = 1 * btcutil.SatoshiPerBitcoin
-		numOutputs  = 100
-		totalAmount = fundAmount * numOutputs
-	)
-
-	var outputFunds [numOutputs]btcutil.Amount
-	for i := range outputFunds {
-		outputFunds[i] = fundAmount
-	}
+	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
 
 	// Generate a unique name for each new node.
 	aliceName := genRandomNodeName("AliceLnd")
 	bobName := genRandomNodeName("BobLnd")
 	carolName := genRandomNodeName("CarolLnd")
 
+	scidAliasArgs := []string{
+		"--protocol.option-scid-alias",
+		"--protocol.anchors",
+	}
+
 	// Create three new nodes.
-	aliceLnd := newLndNode(aliceName, outputFunds[:], t.lndHarness)
-	bobLnd := newLndNode(bobName, outputFunds[:], t.lndHarness)
-	carolLnd := newLndNode(carolName, outputFunds[:], t.lndHarness)
+	aliceLnd := t.lndHarness.NewNode(aliceName, scidAliasArgs)
+	t.lndHarness.FundCoins(fundAmount, aliceLnd)
+
+	bobLnd := t.lndHarness.NewNode(bobName, scidAliasArgs)
+	t.lndHarness.FundCoins(fundAmount, bobLnd)
+
+	carolLnd := t.lndHarness.NewNode(carolName, scidAliasArgs)
+	t.lndHarness.FundCoins(fundAmount, carolLnd)
 
 	// Now we want to wait for the nodes to catch up.
 	t.lndHarness.WaitForBlockchainSync(aliceLnd)
@@ -465,15 +427,15 @@ func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 	t.lndHarness.WaitForBlockchainSync(carolLnd)
 
 	// Now block until both wallets have fully synced up.
-	t.lndHarness.WaitForBalanceConfirmed(aliceLnd, totalAmount)
-	t.lndHarness.WaitForBalanceConfirmed(bobLnd, totalAmount)
-	t.lndHarness.WaitForBalanceConfirmed(carolLnd, totalAmount)
+	t.lndHarness.WaitForBalanceConfirmed(aliceLnd, fundAmount)
+	t.lndHarness.WaitForBalanceConfirmed(bobLnd, fundAmount)
+	t.lndHarness.WaitForBalanceConfirmed(carolLnd, fundAmount)
 
 	// Connect the nodes.
 	t.lndHarness.EnsureConnected(aliceLnd, bobLnd)
 	t.lndHarness.EnsureConnected(bobLnd, carolLnd)
 
-	// Open channels between the nodes: Alice -> Bob -> Carol
+	// Open channels between the nodes: Alice -> Bob -> Carol.
 	const chanAmt = btcutil.Amount(300000)
 	p := lntest.OpenChannelParams{Amt: chanAmt}
 	reqs := []*lntest.OpenChannelRequest{
@@ -485,6 +447,9 @@ func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 
 	// Make sure Alice is aware of channel Bob -> Carol.
 	t.lndHarness.AssertTopologyChannelOpen(aliceLnd, bobCarolChannel)
+
+	// Make sure Carol is aware of channel Alice -> Bob.
+	t.lndHarness.AssertTopologyChannelOpen(carolLnd, aliceBobChannel)
 
 	// Create tapd nodes.
 	aliceTapd := setupTapdHarness(t.t, t, aliceLnd, t.universeServer)

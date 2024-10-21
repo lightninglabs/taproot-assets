@@ -330,6 +330,7 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 		require.Equal(t.t, a.GroupKey, b.GroupKey)
 		require.Equal(t.t, a.GroupAnchor, b.GroupAnchor)
 	}
+
 	// If we attempt to add both assets to the same batch, the second mint
 	// call should fail.
 	collideResp, err := t.tapd.MintAsset(ctxt, &assetCollide)
@@ -376,12 +377,11 @@ func testMintAssetNameCollisionError(t *harnessTest) {
 
 	// The only change in the returned batch after cancellation should be
 	// the batch state.
-	cancelBatch, err := t.tapd.ListBatches(
-		ctxt, &mintrpc.ListBatchRequest{
-			Filter: &mintrpc.ListBatchRequest_BatchKey{
-				BatchKey: collideResp.PendingBatch.BatchKey,
-			},
-		})
+	cancelBatch, err := t.tapd.ListBatches(ctxt, &mintrpc.ListBatchRequest{
+		Filter: &mintrpc.ListBatchRequest_BatchKey{
+			BatchKey: collideResp.PendingBatch.BatchKey,
+		},
+	})
 	require.NoError(t.t, err)
 
 	require.Len(t.t, cancelBatch.Batches, 1)
