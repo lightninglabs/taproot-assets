@@ -247,9 +247,9 @@ message PeerAcceptedSellQuote {
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
 enum QuoteRespStatus {
-    // INVALID_RATE_TICK indicates that the rate tick in the quote response is
-    // invalid.
-    INVALID_RATE_TICK = 0;
+    // INVALID_ASSET_RATES indicates that at least one asset rate in the
+    // quote response is invalid.
+    INVALID_ASSET_RATES = 0;
 
     // INVALID_EXPIRY indicates that the expiry in the quote response is
     // invalid.
