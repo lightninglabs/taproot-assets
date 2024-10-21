@@ -121,7 +121,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	testCases := []testCaseEncodeDecode{
 		{
 			testName: "in asset ID, out asset ID zero, " +
-				"no asset group keys, suggested tick rate",
+				"no asset group keys, suggested asset rate",
 			version:            V1,
 			id:                 id,
 			expiry:             expiry,
