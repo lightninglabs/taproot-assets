@@ -62,6 +62,10 @@ func MilliSatoshiToUnits[N Int[N]](milliSat lnwire.MilliSatoshi,
 // compute the total amount of mSAT (X) as follows:
 //   - X = (U / Y) * M
 //   - where M is the number of mSAT in a BTC (100,000,000,000).
+//
+// TODO(ffranr): This function only works with BigInt as the underlying
+// integer type. For built-in integer types, oneBtcInMilliSat overflows.
+// We should remove the type generic or reformulate.
 func UnitsToMilliSatoshi[N Int[N]](assetUnits,
 	unitsPerBtc FixedPoint[N]) lnwire.MilliSatoshi {
 

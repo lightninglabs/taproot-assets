@@ -15,47 +15,30 @@ import (
 type acceptEncodeDecodeTC struct {
 	testName string
 
-	version WireMsgDataVersion
-	id      ID
-	expiry  uint64
-	sig     [64]byte
-
-	inOutRateTick *uint64
-	outInRateTick *uint64
+	version      WireMsgDataVersion
+	id           ID
+	expiry       uint64
+	sig          [64]byte
+	inAssetRate  TlvFixedPoint
+	outAssetRate TlvFixedPoint
 }
 
 // MsgData generates a acceptWireMsgData instance from the test case.
 func (tc acceptEncodeDecodeTC) MsgData() acceptWireMsgData {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
-	id := tlv.NewPrimitiveRecord[tlv.TlvType1](tc.id)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.expiry)
-	sig := tlv.NewPrimitiveRecord[tlv.TlvType3](tc.sig)
-
-	var inOutRateTick acceptInOutRateTick
-	if tc.inOutRateTick != nil {
-		inOutRateTick = tlv.SomeRecordT[tlv.TlvType4](
-			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				*tc.inOutRateTick,
-			),
-		)
-	}
-
-	var outInRateTick acceptOutInRateTick
-	if tc.outInRateTick != nil {
-		outInRateTick = tlv.SomeRecordT[tlv.TlvType5](
-			tlv.NewPrimitiveRecord[tlv.TlvType5](
-				*tc.outInRateTick,
-			),
-		)
-	}
+	id := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.id)
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](tc.expiry)
+	sig := tlv.NewPrimitiveRecord[tlv.TlvType6](tc.sig)
+	inAssetRate := tlv.NewRecordT[tlv.TlvType8](tc.inAssetRate)
+	outAssetRate := tlv.NewRecordT[tlv.TlvType10](tc.outAssetRate)
 
 	return acceptWireMsgData{
-		Version:       version,
-		ID:            id,
-		Expiry:        expiry,
-		Sig:           sig,
-		InOutRateTick: inOutRateTick,
-		OutInRateTick: outInRateTick,
+		Version:      version,
+		ID:           id,
+		Expiry:       expiry,
+		Sig:          sig,
+		InAssetRate:  inAssetRate,
+		OutAssetRate: outAssetRate,
 	}
 }
 
@@ -78,36 +61,29 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 	// Crate an all zero signature.
 	var zeroSig [64]byte
 
-	inOutRateTick := uint64(42000)
-	outInRateTick := uint64(22000)
+	inOutRateTick := NewTlvFixedPointFromUint64(42000, 0)
+	outInRateTick := NewTlvFixedPointFromUint64(22000, 0)
 
 	testCases := []acceptEncodeDecodeTC{
 		{
 			testName: "rand sig, in-out rate tick set, out-in " +
 				"rate tick unset",
-			version:       0,
-			id:            id,
-			expiry:        expiry,
-			sig:           randSig,
-			inOutRateTick: &inOutRateTick,
-		},
-		{
-			testName: "rand sig, in-out rate tick unset, out-in " +
-				"rate tick set",
-			version:       0,
-			id:            id,
-			expiry:        expiry,
-			sig:           randSig,
-			outInRateTick: &outInRateTick,
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          randSig,
+			inAssetRate:  inOutRateTick,
+			outAssetRate: outInRateTick,
 		},
 		{
 			testName: "zero sig, in-out rate tick unset, out-in " +
 				"rate tick set",
-			version:       0,
-			id:            id,
-			expiry:        expiry,
-			sig:           zeroSig,
-			outInRateTick: &outInRateTick,
+			version:      V1,
+			id:           id,
+			expiry:       expiry,
+			sig:          zeroSig,
+			inAssetRate:  inOutRateTick,
+			outAssetRate: outInRateTick,
 		},
 	}
 

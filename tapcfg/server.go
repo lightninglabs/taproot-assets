@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btclog"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
@@ -356,9 +355,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 
 		case rfqCfg.MockOracleSatsPerAsset > 0:
 			priceOracle = rfq.NewMockPriceOracleSatPerAsset(
-				3600, btcutil.Amount(
-					rfqCfg.MockOracleSatsPerAsset,
-				),
+				3600, rfqCfg.MockOracleSatsPerAsset,
 			)
 		}
 

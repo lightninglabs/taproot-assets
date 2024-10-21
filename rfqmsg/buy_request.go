@@ -6,7 +6,8 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -14,7 +15,7 @@ import (
 const (
 	// latestBuyRequestVersion is the latest supported buy request wire
 	// message data field version.
-	latestBuyRequestVersion = V0
+	latestBuyRequestVersion = V1
 )
 
 // BuyRequest is a struct that represents an asset buy quote request.
@@ -40,14 +41,18 @@ type BuyRequest struct {
 	// requesting a quote.
 	AssetAmount uint64
 
-	// BidPrice is the peer's proposed bid price for the asset amount.
-	BidPrice lnwire.MilliSatoshi
+	// SuggestedAssetRate represents a proposed conversion rate between the
+	// subject asset and BTC. This rate is an initial suggestion intended to
+	// initiate the RFQ negotiation process and may differ from the final
+	// agreed rate.
+	SuggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
 }
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	bidPrice lnwire.MilliSatoshi) (*BuyRequest, error) {
+	suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]) (*BuyRequest,
+	error) {
 
 	var id [32]byte
 	_, err := rand.Read(id[:])
@@ -57,13 +62,13 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	}
 
 	return &BuyRequest{
-		Peer:          peer,
-		Version:       latestBuyRequestVersion,
-		ID:            id,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   assetAmount,
-		BidPrice:      bidPrice,
+		Peer:               peer,
+		Version:            latestBuyRequestVersion,
+		ID:                 id,
+		AssetID:            assetID,
+		AssetGroupKey:      assetGroupKey,
+		AssetAmount:        assetAmount,
+		SuggestedAssetRate: suggestedAssetRate,
 	}, nil
 }
 
@@ -79,14 +84,14 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 
 	var assetID *asset.ID
 	msgData.InAssetID.WhenSome(
-		func(inAssetID tlv.RecordT[tlv.TlvType5, asset.ID]) {
+		func(inAssetID tlv.RecordT[tlv.TlvType9, asset.ID]) {
 			assetID = &inAssetID.Val
 		},
 	)
 
 	var assetGroupKey *btcec.PublicKey
 	msgData.InAssetGroupKey.WhenSome(
-		func(key tlv.RecordT[tlv.TlvType6, *btcec.PublicKey]) {
+		func(key tlv.RecordT[tlv.TlvType11, *btcec.PublicKey]) {
 			assetGroupKey = key.Val
 		},
 	)
@@ -99,22 +104,24 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 			"request")
 	}
 
-	// Extract the suggested rate tick if provided.
-	var bidPrice lnwire.MilliSatoshi
-	msgData.SuggestedRateTick.WhenSome(
-		func(rate tlv.RecordT[tlv.TlvType4, uint64]) {
-			bidPrice = lnwire.MilliSatoshi(rate.Val)
+	// Extract the suggested asset to BTC rate if provided.
+	var suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
+	msgData.SuggestedAssetRate.WhenSome(
+		func(rate tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
+			fp := rate.Val.IntoBigIntFixedPoint()
+			suggestedAssetRate =
+				fn.Some[rfqmath.BigIntFixedPoint](fp)
 		},
 	)
 
 	req := BuyRequest{
-		Peer:          wireMsg.Peer,
-		Version:       msgData.Version.Val,
-		ID:            msgData.ID.Val,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   msgData.AssetMaxAmount.Val,
-		BidPrice:      bidPrice,
+		Peer:               wireMsg.Peer,
+		Version:            msgData.Version.Val,
+		ID:                 msgData.ID.Val,
+		AssetID:            assetID,
+		AssetGroupKey:      assetGroupKey,
+		AssetAmount:        msgData.AssetMaxAmount.Val,
+		SuggestedAssetRate: suggestedAssetRate,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -154,7 +161,12 @@ func (q *BuyRequest) ToWire() (WireMessage, error) {
 	}
 
 	// Formulate the message data.
-	msgData := newRequestWireMsgDataFromBuy(*q)
+	msgData, err := newRequestWireMsgDataFromBuy(*q)
+	if err != nil {
+		return WireMessage{}, fmt.Errorf("unable to create wire "+
+			"message from buy request: %w", err)
+	}
+
 	msgDataBytes, err := msgData.Bytes()
 	if err != nil {
 		return WireMessage{}, fmt.Errorf("unable to encode message "+
@@ -186,8 +198,9 @@ func (q *BuyRequest) String() string {
 	}
 
 	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, bid_price=%d)", q.Peer[:],
-		q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount, q.BidPrice)
+		"asset_group_key=%x, asset_amount=%d, "+
+		"suggested_asset_rate=%v)", q.Peer[:], q.ID[:], q.AssetID,
+		groupKeyBytes, q.AssetAmount, q.SuggestedAssetRate)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

@@ -8,6 +8,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -18,32 +19,34 @@ const (
 
 	// latestRequestWireMsgDataVersion is the latest supported quote request
 	// wire message data field version.
-	latestRequestWireMsgDataVersion = V0
+	latestRequestWireMsgDataVersion = V1
 )
 
 type (
-	// requestSuggestedTickRate is a type alias for a record that represents
-	// the suggested rate tick for the quote request.
-	requestSuggestedTickRate = tlv.OptionalRecordT[tlv.TlvType4, uint64]
+	// requestSuggestedAssetRate is a type alias for a record that
+	// represents the suggested asset to BTC rate for the quote request.
+	requestSuggestedAssetRate = tlv.OptionalRecordT[
+		tlv.TlvType19, TlvFixedPoint,
+	]
 
 	// requestInAssetID is a type alias for a record that represents the
 	// asset ID of the inbound asset.
-	requestInAssetID = tlv.OptionalRecordT[tlv.TlvType5, asset.ID]
+	requestInAssetID = tlv.OptionalRecordT[tlv.TlvType9, asset.ID]
 
 	// requestInAssetGroupKey is a type alias for a record that represents
 	// the public group key of the inbound asset.
 	requestInAssetGroupKey = tlv.OptionalRecordT[
-		tlv.TlvType6, *btcec.PublicKey,
+		tlv.TlvType11, *btcec.PublicKey,
 	]
 
 	// requestOutAssetID is a type alias for a record that represents the
 	// asset ID of the outbound asset.
-	requestOutAssetID = tlv.OptionalRecordT[tlv.TlvType7, asset.ID]
+	requestOutAssetID = tlv.OptionalRecordT[tlv.TlvType13, asset.ID]
 
 	// requestOutAssetGroupKey is a type alias for a record that represents
 	// the public group key of the outbound asset.
 	requestOutAssetGroupKey = tlv.OptionalRecordT[
-		tlv.TlvType8, *btcec.PublicKey,
+		tlv.TlvType15, *btcec.PublicKey,
 	]
 )
 
@@ -54,23 +57,25 @@ type requestWireMsgData struct {
 	Version tlv.RecordT[tlv.TlvType0, WireMsgDataVersion]
 
 	// ID is the unique identifier of the quote request.
-	ID tlv.RecordT[tlv.TlvType1, ID]
+	ID tlv.RecordT[tlv.TlvType2, ID]
+
+	// TODO(ffranr): Add transfer type field with TLV type 4.
 
 	// Expiry is the expiry Unix timestamp (in seconds) of the quote
 	// request. This timestamp defines the lifetime of both the suggested
 	// rate tick and the quote request.
-	Expiry tlv.RecordT[tlv.TlvType2, uint64]
+	Expiry tlv.RecordT[tlv.TlvType6, uint64]
 
 	// AssetMaxAmount represents the maximum asset amount that the target
 	// peer is expected to accept/divest.
-	AssetMaxAmount tlv.RecordT[tlv.TlvType3, uint64]
+	AssetMaxAmount tlv.RecordT[tlv.TlvType16, uint64]
 
-	// SuggestedRateTick is the peer's proposed rate tick. This is not the
-	// final rate tick, but a suggested rate tick that the requesting peer
+	// SuggestedAssetRate is the peer's proposed asset to BTC rate. This is
+	// not the final rate, but a suggested rate that the requesting peer
 	// would be willing to accept.
 	//
 	// NOTE: This field is optional.
-	SuggestedRateTick requestSuggestedTickRate
+	SuggestedAssetRate requestSuggestedAssetRate
 
 	// InAssetID represents the identifier of the asset which will be
 	// inbound to the requesting peer (therefore outbound to the
@@ -99,39 +104,40 @@ type requestWireMsgData struct {
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
 // request.
-func newRequestWireMsgDataFromBuy(q BuyRequest) requestWireMsgData {
+func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	version := tlv.NewRecordT[tlv.TlvType0](q.Version)
-	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
+	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
 
 	// Calculate the expiration unix timestamp in seconds.
 	// TODO(ffranr): The expiry timestamp should be obtained from the
 	//  request message.
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
 		uint64(time.Now().Add(defaultRequestExpiry).Unix()),
 	)
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType3](q.AssetAmount)
+	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
-	var suggestedRateTick requestSuggestedTickRate
-	if uint64(q.BidPrice) != 0 {
-		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType4](
-			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				uint64(q.BidPrice),
-			),
+	// Convert the suggested asset to BTC rate to a TLV record.
+	var suggestedAssetRate requestSuggestedAssetRate
+	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
+		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
+		wireRate := NewTlvFixedPointFromBigInt(rate)
+		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+			tlv.NewRecordT[tlv.TlvType19](wireRate),
 		)
-	}
+	})
 
 	var inAssetID requestInAssetID
 	if q.AssetID != nil {
-		inAssetID = tlv.SomeRecordT[tlv.TlvType5](
-			tlv.NewPrimitiveRecord[tlv.TlvType5](*q.AssetID),
+		inAssetID = tlv.SomeRecordT[tlv.TlvType9](
+			tlv.NewPrimitiveRecord[tlv.TlvType9](*q.AssetID),
 		)
 	}
 
 	var inAssetGroupKey requestInAssetGroupKey
 	if q.AssetGroupKey != nil {
-		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType6](
-			tlv.NewPrimitiveRecord[tlv.TlvType6](
+		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType11](
+			tlv.NewPrimitiveRecord[tlv.TlvType11](
 				q.AssetGroupKey,
 			),
 		)
@@ -140,47 +146,50 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) requestWireMsgData {
 	// Use a zero asset ID for the outbound asset ID. This indicates that
 	// the outbound asset is BTC.
 	var zeroOutAssetID asset.ID
-	outAssetID := tlv.SomeRecordT[tlv.TlvType7](
-		tlv.NewPrimitiveRecord[tlv.TlvType7](zeroOutAssetID),
+	outAssetID := tlv.SomeRecordT[tlv.TlvType13](
+		tlv.NewPrimitiveRecord[tlv.TlvType13](zeroOutAssetID),
 	)
 
 	outAssetGroupKey := requestOutAssetGroupKey{}
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
-		Version:           version,
-		ID:                id,
-		Expiry:            expiry,
-		AssetMaxAmount:    assetMaxAmount,
-		SuggestedRateTick: suggestedRateTick,
-		InAssetID:         inAssetID,
-		InAssetGroupKey:   inAssetGroupKey,
-		OutAssetID:        outAssetID,
-		OutAssetGroupKey:  outAssetGroupKey,
-	}
+		Version:            version,
+		ID:                 id,
+		Expiry:             expiry,
+		AssetMaxAmount:     assetMaxAmount,
+		SuggestedAssetRate: suggestedAssetRate,
+		InAssetID:          inAssetID,
+		InAssetGroupKey:    inAssetGroupKey,
+		OutAssetID:         outAssetID,
+		OutAssetGroupKey:   outAssetGroupKey,
+	}, nil
 }
 
 // newRequestWireMsgDataFromSell creates a new requestWireMsgData from a sell
 // request.
-func newRequestWireMsgDataFromSell(q SellRequest) requestWireMsgData {
+func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
-	id := tlv.NewRecordT[tlv.TlvType1](q.ID)
+	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
 
 	// Calculate the expiration unix timestamp in seconds.
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType2](
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
 		uint64(time.Now().Add(defaultRequestExpiry).Unix()),
 	)
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType3](q.AssetAmount)
+	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
-	var suggestedRateTick requestSuggestedTickRate
-	if uint64(q.AskPrice) != 0 {
-		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType4](
-			tlv.NewPrimitiveRecord[tlv.TlvType4](
-				uint64(q.AskPrice),
+	// Convert the suggested rate to a TLV record.
+	var suggestedRateTick requestSuggestedAssetRate
+	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
+		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
+		wireRate := NewTlvFixedPointFromBigInt(rate)
+		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType19](
+			tlv.NewRecordT[tlv.TlvType19](
+				wireRate,
 			),
 		)
-	}
+	})
 
 	// We are constructing a sell request. Therefore, the requesting peer's
 	// outbound asset is the taproot asset, and the inbound asset is BTC.
@@ -188,21 +197,21 @@ func newRequestWireMsgDataFromSell(q SellRequest) requestWireMsgData {
 	// Use a zero asset ID for the inbound asset ID. This indicates that
 	// the inbound asset is BTC.
 	var zeroAssetID asset.ID
-	inAssetID := tlv.SomeRecordT[tlv.TlvType5](
-		tlv.NewPrimitiveRecord[tlv.TlvType5](zeroAssetID),
+	inAssetID := tlv.SomeRecordT[tlv.TlvType9](
+		tlv.NewPrimitiveRecord[tlv.TlvType9](zeroAssetID),
 	)
 
 	outAssetID := requestOutAssetID{}
 	if q.AssetID != nil {
-		outAssetID = tlv.SomeRecordT[tlv.TlvType7](
-			tlv.NewPrimitiveRecord[tlv.TlvType7](*q.AssetID),
+		outAssetID = tlv.SomeRecordT[tlv.TlvType13](
+			tlv.NewPrimitiveRecord[tlv.TlvType13](*q.AssetID),
 		)
 	}
 
 	outAssetGroupKey := requestOutAssetGroupKey{}
 	if q.AssetGroupKey != nil {
-		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType8](
-			tlv.NewPrimitiveRecord[tlv.TlvType8](
+		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType15](
+			tlv.NewPrimitiveRecord[tlv.TlvType15](
 				q.AssetGroupKey,
 			),
 		)
@@ -210,21 +219,21 @@ func newRequestWireMsgDataFromSell(q SellRequest) requestWireMsgData {
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
-		Version:           version,
-		ID:                id,
-		Expiry:            expiry,
-		AssetMaxAmount:    assetMaxAmount,
-		SuggestedRateTick: suggestedRateTick,
-		InAssetID:         inAssetID,
-		OutAssetID:        outAssetID,
-		OutAssetGroupKey:  outAssetGroupKey,
-	}
+		Version:            version,
+		ID:                 id,
+		Expiry:             expiry,
+		AssetMaxAmount:     assetMaxAmount,
+		SuggestedAssetRate: suggestedRateTick,
+		InAssetID:          inAssetID,
+		OutAssetID:         outAssetID,
+		OutAssetGroupKey:   outAssetGroupKey,
+	}, nil
 }
 
 // Validate ensures that the quote request is valid.
 func (m *requestWireMsgData) Validate() error {
 	// Ensure the version specified in the version field is supported.
-	if m.Version.Val > latestRequestWireMsgDataVersion {
+	if m.Version.Val != latestRequestWireMsgDataVersion {
 		return fmt.Errorf("unsupported quote request message data "+
 			"version: %d", m.Version.Val)
 	}
@@ -262,14 +271,14 @@ func (m *requestWireMsgData) Validate() error {
 
 	inAssetIsBTC := false
 	m.InAssetID.WhenSome(
-		func(inAssetID tlv.RecordT[tlv.TlvType5, asset.ID]) {
+		func(inAssetID tlv.RecordT[tlv.TlvType9, asset.ID]) {
 			inAssetIsBTC = inAssetID.Val == zeroAssetID
 		},
 	)
 
 	outAssetIsBTC := false
 	m.OutAssetID.WhenSome(
-		func(outAssetID tlv.RecordT[tlv.TlvType7, asset.ID]) {
+		func(outAssetID tlv.RecordT[tlv.TlvType13, asset.ID]) {
 			outAssetIsBTC = outAssetID.Val == zeroAssetID
 		},
 	)
@@ -297,32 +306,32 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 		m.AssetMaxAmount.Record(),
 	}
 
-	m.SuggestedRateTick.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType4, uint64]) {
+	m.SuggestedAssetRate.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
 			records = append(records, r.Record())
 		},
 	)
 
 	// Encode the inbound asset.
 	m.InAssetID.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType5, asset.ID]) {
+		func(r tlv.RecordT[tlv.TlvType9, asset.ID]) {
 			records = append(records, r.Record())
 		},
 	)
 	m.InAssetGroupKey.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType6, *btcec.PublicKey]) {
+		func(r tlv.RecordT[tlv.TlvType11, *btcec.PublicKey]) {
 			records = append(records, r.Record())
 		},
 	)
 
 	// Encode the outbound asset.
 	m.OutAssetID.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType7, asset.ID]) {
+		func(r tlv.RecordT[tlv.TlvType13, asset.ID]) {
 			records = append(records, r.Record())
 		},
 	)
 	m.OutAssetGroupKey.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType8, *btcec.PublicKey]) {
+		func(r tlv.RecordT[tlv.TlvType15, *btcec.PublicKey]) {
 			records = append(records, r.Record())
 		},
 	)
@@ -341,7 +350,7 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 // Decode deserializes the requestWireMsgData from the given io.Reader.
 func (m *requestWireMsgData) Decode(r io.Reader) error {
 	// Define zero values for optional fields.
-	suggestedRateTick := m.SuggestedRateTick.Zero()
+	suggestedAssetRate := m.SuggestedAssetRate.Zero()
 
 	inAssetID := m.InAssetID.Zero()
 	inAssetGroupKey := m.InAssetGroupKey.Zero()
@@ -354,15 +363,16 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 		m.Version.Record(),
 		m.ID.Record(),
 		m.Expiry.Record(),
-		m.AssetMaxAmount.Record(),
-
-		suggestedRateTick.Record(),
 
 		inAssetID.Record(),
 		inAssetGroupKey.Record(),
 
 		outAssetID.Record(),
 		outAssetGroupKey.Record(),
+
+		m.AssetMaxAmount.Record(),
+
+		suggestedAssetRate.Record(),
 	)
 	if err != nil {
 		return err
@@ -375,8 +385,8 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 
 	// Set optional fields if they are present.
-	if _, ok := tlvMap[suggestedRateTick.TlvType()]; ok {
-		m.SuggestedRateTick = tlv.SomeRecordT(suggestedRateTick)
+	if _, ok := tlvMap[suggestedAssetRate.TlvType()]; ok {
+		m.SuggestedAssetRate = tlv.SomeRecordT(suggestedAssetRate)
 	}
 
 	if _, ok := tlvMap[inAssetID.TlvType()]; ok {
@@ -439,7 +449,7 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 
 	// Check the outgoing asset ID to determine if this is a buy request.
 	msgData.OutAssetID.WhenSome(
-		func(outAssetID tlv.RecordT[tlv.TlvType7, asset.ID]) {
+		func(outAssetID tlv.RecordT[tlv.TlvType13, asset.ID]) {
 			var zeroAssetID [32]byte
 
 			// If the outgoing asset ID is all zeros (signifying
@@ -456,7 +466,7 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	// In other words, only the inbound asset is specified, and the outbound
 	// asset is BTC.
 	msgData.OutAssetGroupKey.WhenSome(
-		func(gk tlv.RecordT[tlv.TlvType8, *btcec.PublicKey]) {
+		func(gk tlv.RecordT[tlv.TlvType15, *btcec.PublicKey]) {
 			// Here we carry through any ture value of isBuyRequest
 			// from the previous check.
 			isBuyRequest = isBuyRequest || (gk.Val != nil)

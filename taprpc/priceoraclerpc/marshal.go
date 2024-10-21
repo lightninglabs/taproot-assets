@@ -3,6 +3,10 @@ package priceoraclerpc
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
+	"math/big"
+
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 )
 
 // IsAssetBtc is a helper function that returns true if the given asset
@@ -38,4 +42,30 @@ func IsAssetBtc(assetSpecifier *AssetSpecifier) bool {
 		assetSpecifier.GetGroupKeyStr() != ""
 
 	return isAssetIdZero && !groupKeySet
+}
+
+// MarshalBigIntFixedPoint converts a BigIntFixedPoint to an RPC FixedPoint.
+func MarshalBigIntFixedPoint(fp rfqmath.BigIntFixedPoint) (*FixedPoint, error) {
+	return &FixedPoint{
+		Coefficient: fp.Coefficient.String(),
+		Scale:       uint32(fp.Scale),
+	}, nil
+}
+
+// UnmarshalFixedPoint converts an RPC FixedPoint to a BigIntFixedPoint.
+func UnmarshalFixedPoint(fp *FixedPoint) (*rfqmath.BigIntFixedPoint, error) {
+	// Return an error is the scale component of the fixed point is greater
+	// than the max value of uint8.
+	if fp.Scale > 255 {
+		return nil, fmt.Errorf("scale value overflow: %v", fp.Scale)
+	}
+	scale := uint8(fp.Scale)
+
+	cBigInt := new(big.Int)
+	cBigInt.SetString(fp.Coefficient, 10)
+
+	return &rfqmath.BigIntFixedPoint{
+		Coefficient: rfqmath.NewBigInt(cBigInt),
+		Scale:       scale,
+	}, nil
 }

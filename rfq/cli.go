@@ -28,6 +28,7 @@ type CliConfig struct {
 
 	MockOracleAssetsPerBTC uint64 `long:"mockoracleassetsperbtc" description:"Mock price oracle static asset units per BTC rate (for example number of USD cents per BTC if one asset unit represents a USD cent); whole numbers only, use either this or mockoraclesatsperasset depending on required precision"`
 
+	// TODO(ffranr): Remove in favour of MockOracleAssetsPerBTC.
 	MockOracleSatsPerAsset uint64 `long:"mockoraclesatsperasset" description:"Mock price oracle static satoshis per asset unit rate (for example number of satoshis to pay for one USD cent if one asset unit represents a USD cent); whole numbers only, use either this or mockoracleassetsperbtc depending on required precision"`
 }
 

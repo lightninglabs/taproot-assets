@@ -10,6 +10,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -143,15 +144,18 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 		return resp, nil
 	}
 
+	// Convert the total asset amount to milli-satoshis using the price from
+	// the accepted quote.
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
-	mSatPerAssetUnit, err := s.priceFromQuote(rfqID)
+	assetRate, err := s.priceFromQuote(rfqID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get price from quote with "+
 			"ID %x / SCID %d: %w", rfqID[:], rfqID.Scid(), err)
 	}
 
-	htlcAssetAmount := lnwire.MilliSatoshi(htlc.Amounts.Val.Sum())
-	resp.AmtPaid = htlcAssetAmount * mSatPerAssetUnit
+	htlcAssetAmount := htlc.Amounts.Val.Sum()
+	totalAssetAmt := rfqmath.NewBigIntFixedPoint(htlcAssetAmount, 0)
+	resp.AmtPaid = rfqmath.UnitsToMilliSatoshi(totalAssetAmt, *assetRate)
 
 	// If all previously accepted HTLC amounts plus the intercepted HTLC
 	// amount together add up to just about the asset invoice amount, then
@@ -164,10 +168,13 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	// We assume that each shard can have a rounding error of up to 1 asset
 	// unit. So we allow the final amount to be off by up to 1 asset unit
 	// per accepted HTLC (plus the one we're currently processing).
-	allowedMarginAssetUnits := lnwire.MilliSatoshi(
-		len(req.Invoice.Htlcs) + 1,
+	allowedMarginAssetUnits := uint64(len(req.Invoice.Htlcs) + 1)
+	marginAssetUnits := rfqmath.NewBigIntFixedPoint(
+		allowedMarginAssetUnits, 0,
 	)
-	allowedMarginMSat := allowedMarginAssetUnits * mSatPerAssetUnit
+	allowedMarginMSat := rfqmath.UnitsToMilliSatoshi(
+		marginAssetUnits, *assetRate,
+	)
 
 	// If the sum of the accepted HTLCs plus the current HTLC amount plus
 	// the error margin is greater than the invoice amount, we'll accept it.
@@ -197,7 +204,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 // quote, since that's what the peer created to find out how many units to send
 // for an invoice denominated in BTC.
 func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
-	lnwire.MilliSatoshi, error) {
+	*rfqmath.BigIntFixedPoint, error) {
 
 	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
 	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
@@ -213,16 +220,16 @@ func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
 		log.Debugf("Found buy quote for ID %x / SCID %d: %#v",
 			rfqID[:], rfqID.Scid(), buyQuote)
 
-		return buyQuote.AskPrice, nil
+		return &buyQuote.AssetRate, nil
 
 	case isSell:
 		log.Debugf("Found sell quote for ID %x / SCID %d: %#v",
 			rfqID[:], rfqID.Scid(), sellQuote)
 
-		return sellQuote.BidPrice, nil
+		return &sellQuote.AssetRate, nil
 
 	default:
-		return 0, fmt.Errorf("no accepted quote found for RFQ SCID "+
+		return nil, fmt.Errorf("no accepted quote found for RFQ SCID "+
 			"%d", rfqID.Scid())
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -73,9 +74,13 @@ const (
 )
 
 var (
-	// ErrUnknownMessageType is an error that is returned when an unknown
-	// message type is encountered.
+	// ErrUnknownMessageType is an error returned when an unknown message
+	// type is encountered.
 	ErrUnknownMessageType = errors.New("unknown message type")
+
+	// MilliSatPerBtc is the number of milli-satoshis in one bitcoin:
+	// 100 billion = 100 * (10^9).
+	MilliSatPerBtc = rfqmath.FixedPointFromUint64[rfqmath.BigInt](100, 9)
 )
 
 // WireMessage is a struct that represents a general wire message.
@@ -196,4 +201,55 @@ type QuoteResponse interface {
 
 	// String returns a human-readable string representation of the message.
 	String() string
+}
+
+// TlvFixedPoint is a fixed-point that can be TLV encode/decode.
+type TlvFixedPoint struct {
+	// fp is the underlying BigInt fixed-point.
+	fp rfqmath.BigIntFixedPoint
+}
+
+// NewTlvFixedPointFromBigInt creates a new fixed-point given a BigInt
+// fixed-point.
+func NewTlvFixedPointFromBigInt(fp rfqmath.BigIntFixedPoint) TlvFixedPoint {
+	return TlvFixedPoint{
+		fp: fp,
+	}
+}
+
+// NewTlvFixedPointFromUint64 creates a new fixed point record given a `uint64`
+// coefficient and scale.
+func NewTlvFixedPointFromUint64(coefficient uint64, scale uint8) TlvFixedPoint {
+	return TlvFixedPoint{
+		fp: rfqmath.NewBigIntFixedPoint(coefficient, scale),
+	}
+}
+
+// Record returns a TLV record that can be used to encode/decode an ID to/from a
+// TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (f *TlvFixedPoint) Record() tlv.Record {
+	recordSize := func() uint64 {
+		// 1 byte for the scale (uint8)
+		scaleLength := uint64(1)
+
+		coefficientBytesLength := uint64(len(f.fp.Coefficient.Bytes()))
+		return scaleLength + coefficientBytesLength
+	}
+
+	// Note that the type here is set to zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeDynamicRecord(
+		0, f, recordSize, TlvFixedPointEncoder,
+		TlvFixedPointDecoder,
+	)
+}
+
+// IntoBigIntFixedPoint converts the TlvFixedPoint to a BigIntFixedPoint.
+func (f *TlvFixedPoint) IntoBigIntFixedPoint() rfqmath.BigIntFixedPoint {
+	return rfqmath.BigIntFixedPoint{
+		Coefficient: f.fp.Coefficient,
+		Scale:       f.fp.Scale,
+	}
 }
