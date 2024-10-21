@@ -16,9 +16,9 @@ import (
 )
 
 const (
-	// minRateTickExpiryLifetime is the minimum rate tick expiry lifetime in
-	// seconds.
-	minRateTickExpiryLifetime = 60
+	// minAssetRatesExpiryLifetime is the minimum asset rates expiry
+	// lifetime in seconds.
+	minAssetRatesExpiryLifetime = 60
 
 	// DefaultAcceptPriceDeviationPpm is the default price deviation in
 	// parts per million that is accepted by the RFQ negotiator.
@@ -517,7 +517,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	// TODO(ffranr): Sanity check the buy accept quote expiry
 	//  timestamp given the expiry timestamp provided by the price
 	//  oracle.
-	if !expiryWithinBounds(msg.Expiry, minRateTickExpiryLifetime) {
+	if !expiryWithinBounds(msg.Expiry, minAssetRatesExpiryLifetime) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Buy accept quote expiry time is not within "+
 			"acceptable bounds (expiry=%d)", msg.Expiry)
@@ -642,7 +642,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	//
 	// TODO(ffranr): Sanity check the quote expiry timestamp given
 	//  the expiry timestamp provided by the price oracle.
-	if !expiryWithinBounds(msg.Expiry, minRateTickExpiryLifetime) {
+	if !expiryWithinBounds(msg.Expiry, minAssetRatesExpiryLifetime) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Sell accept quote expiry time is not within "+
 			"acceptable bounds (expiry=%d)", msg.Expiry)
