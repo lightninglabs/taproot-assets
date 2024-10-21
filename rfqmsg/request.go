@@ -178,12 +178,12 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
-	// Convert the suggested rate to a TLV record.
-	var suggestedRateTick requestSuggestedAssetRate
+	// Convert the suggested asset rate to a TLV record.
+	var suggestedAssetRate requestSuggestedAssetRate
 	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
 		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
 		wireRate := NewTlvFixedPointFromBigInt(rate)
-		suggestedRateTick = tlv.SomeRecordT[tlv.TlvType19](
+		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
 			tlv.NewRecordT[tlv.TlvType19](
 				wireRate,
 			),
@@ -222,7 +222,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		ID:                 id,
 		Expiry:             expiry,
 		AssetMaxAmount:     assetMaxAmount,
-		SuggestedAssetRate: suggestedRateTick,
+		SuggestedAssetRate: suggestedAssetRate,
 		InAssetID:          inAssetID,
 		OutAssetID:         outAssetID,
 		OutAssetGroupKey:   outAssetGroupKey,
