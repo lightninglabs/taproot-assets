@@ -922,9 +922,9 @@ var _ fn.Event = (*PeerAcceptedBuyQuoteEvent)(nil)
 type QuoteRespStatus uint8
 
 const (
-	// InvalidRateTickQuoteRespStatus indicates that the rate tick in the
-	// quote response is invalid.
-	InvalidRateTickQuoteRespStatus QuoteRespStatus = 0
+	// InvalidAssetRatesQuoteRespStatus indicates that the asset rates in
+	// the quote response is invalid.
+	InvalidAssetRatesQuoteRespStatus QuoteRespStatus = 0
 
 	// InvalidExpiryQuoteRespStatus indicates that the expiry in the quote
 	// response is invalid.

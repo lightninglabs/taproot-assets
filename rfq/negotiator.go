@@ -616,7 +616,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			// can inform the peer that the quote response has not
 			// validated successfully.
 			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, InvalidRateTickQuoteRespStatus,
+				&msg, InvalidAssetRatesQuoteRespStatus,
 			)
 			finalise(
 				msg, fn.Some[InvalidQuoteRespEvent](
@@ -740,7 +740,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 			// can inform the peer that the quote response has not
 			// validated successfully.
 			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
-				&msg, InvalidRateTickQuoteRespStatus,
+				&msg, InvalidAssetRatesQuoteRespStatus,
 			)
 			finalise(
 				msg, fn.Some[InvalidQuoteRespEvent](
