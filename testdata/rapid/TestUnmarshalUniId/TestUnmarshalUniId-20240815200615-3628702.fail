@@ -1,0 +1,21 @@
+# 2024/08/15 20:06:15.870045 [TestUnmarshalUniId] [rapid] draw ID: []byte{0x0}
+# 2024/08/15 20:06:15.870050 [TestUnmarshalUniId] [rapid] draw ID string: ""
+# 2024/08/15 20:06:15.870052 [TestUnmarshalUniId] [rapid] draw Group key: []byte{}
+# 2024/08/15 20:06:15.870053 [TestUnmarshalUniId] [rapid] draw Group key string: ""
+# 2024/08/15 20:06:15.870053 [TestUnmarshalUniId] [rapid] draw ID field selector: 0x0
+# 2024/08/15 20:06:15.870055 [TestUnmarshalUniId] [rapid] draw proofType: 0
+# 2024/08/15 20:06:15.870056 [TestUnmarshalUniId] <nil>
+# 
+v0.4.8#17568384081585189385
+0x5555555555555
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0

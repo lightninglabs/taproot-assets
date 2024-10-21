@@ -4702,24 +4702,48 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		return universe.Identifier{}, fmt.Errorf("unable to unmarshal "+
 			"proof type: %w", err)
 	}
+
+	var (
+		assetIDBytes  []byte
+		groupKeyBytes []byte
+	)
+
 	switch {
 	case rpcID.GetAssetId() != nil:
-		var assetID asset.ID
-		copy(assetID[:], rpcID.GetAssetId())
-
-		return universe.Identifier{
-			AssetID:   assetID,
-			ProofType: proofType,
-		}, nil
+		assetIDBytes = rpcID.GetAssetId()
+		if len(assetIDBytes) != sha256.Size {
+			return universe.Identifier{}, fmt.Errorf("asset ID " +
+				"must be 32 bytes")
+		}
 
 	case rpcID.GetAssetIdStr() != "":
-		assetIDBytes, err := hex.DecodeString(rpcID.GetAssetIdStr())
+		rpcAssetIDStr := rpcID.GetAssetIdStr()
+		if len(rpcAssetIDStr) != sha256.Size*2 {
+			return universe.Identifier{}, fmt.Errorf("asset ID " +
+				"string must be 64 chars")
+		}
+
+		assetIDBytes, err = hex.DecodeString(rpcAssetIDStr)
 		if err != nil {
 			return universe.Identifier{}, err
 		}
 
-		// TODO(roasbeef): reuse with above
+	case rpcID.GetGroupKey() != nil:
+		groupKeyBytes = rpcID.GetGroupKey()
 
+	case rpcID.GetGroupKeyStr() != "":
+		rpcGroupKeyStr := rpcID.GetGroupKeyStr()
+		groupKeyBytes, err = hex.DecodeString(rpcGroupKeyStr)
+		if err != nil {
+			return universe.Identifier{}, err
+		}
+
+	default:
+		return universe.Identifier{}, fmt.Errorf("no id set")
+	}
+
+	switch {
+	case len(assetIDBytes) != 0:
 		var assetID asset.ID
 		copy(assetID[:], assetIDBytes)
 
@@ -4728,25 +4752,7 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 			ProofType: proofType,
 		}, nil
 
-	case rpcID.GetGroupKey() != nil:
-		groupKey, err := parseUserKey(rpcID.GetGroupKey())
-		if err != nil {
-			return universe.Identifier{}, err
-		}
-
-		return universe.Identifier{
-			GroupKey:  groupKey,
-			ProofType: proofType,
-		}, nil
-
-	case rpcID.GetGroupKeyStr() != "":
-		groupKeyBytes, err := hex.DecodeString(rpcID.GetGroupKeyStr())
-		if err != nil {
-			return universe.Identifier{}, err
-		}
-
-		// TODO(roasbeef): reuse with above
-
+	case len(groupKeyBytes) != 0:
 		groupKey, err := parseUserKey(groupKeyBytes)
 		if err != nil {
 			return universe.Identifier{}, err
@@ -4758,7 +4764,7 @@ func UnmarshalUniID(rpcID *unirpc.ID) (universe.Identifier, error) {
 		}, nil
 
 	default:
-		return universe.Identifier{}, fmt.Errorf("no id set")
+		return universe.Identifier{}, fmt.Errorf("malformed id")
 	}
 }
 
@@ -5363,6 +5369,10 @@ func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.
 func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
+	if leaf == nil {
+		return nil, fmt.Errorf("missing asset leaf")
+	}
+
 	// We'll just pull the asset details from the serialized issuance proof
 	// itself.
 	var proofAsset asset.Asset
@@ -5392,6 +5402,10 @@ func unmarshalAssetLeaf(leaf *unirpc.AssetLeaf) (*universe.Leaf, error) {
 // asset_id/group_key.
 func (r *rpcServer) InsertProof(ctx context.Context,
 	req *unirpc.AssetProof) (*unirpc.AssetProofResponse, error) {
+
+	if req == nil {
+		return nil, fmt.Errorf("missing proof and universe key")
+	}
 
 	universeID, leafKey, err := unmarshalUniverseKey(req.Key)
 	if err != nil {
@@ -6245,54 +6259,44 @@ func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
 	// give precedence to the asset ID due to its higher level of
 	// specificity.
 	var (
-		assetID *asset.ID
-
+		assetIDBytes  []byte
+		assetID       *asset.ID
 		groupKeyBytes []byte
 		groupKey      *btcec.PublicKey
-
-		err error
+		err           error
 	)
 
 	switch {
 	// Parse the asset ID if it's set.
 	case len(req.GetAssetId()) > 0:
-		var assetIdBytes [32]byte
-		copy(assetIdBytes[:], req.GetAssetId())
-		id := asset.ID(assetIdBytes)
-		assetID = &id
+		assetIDBytes = req.GetAssetId()
+		if len(assetIDBytes) != sha256.Size {
+			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
+		}
 
 	case len(req.GetAssetIdStr()) > 0:
-		assetIDBytes, err := hex.DecodeString(req.GetAssetIdStr())
+		reqAssetIDStr := req.GetAssetIdStr()
+		if len(reqAssetIDStr) != sha256.Size*2 {
+			return nil, nil, fmt.Errorf("asset ID string must be " +
+				"64 chars")
+		}
+
+		assetIDBytes, err = hex.DecodeString(reqAssetIDStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding asset "+
 				"ID: %w", err)
 		}
 
-		var id asset.ID
-		copy(id[:], assetIDBytes)
-		assetID = &id
-
 	// Parse the group key if it's set.
 	case len(req.GetGroupKey()) > 0:
 		groupKeyBytes = req.GetGroupKey()
-		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error parsing group "+
-				"key: %w", err)
-		}
 
 	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(
+		groupKeyBytes, err = hex.DecodeString(
 			req.GetGroupKeyStr(),
 		)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding group "+
-				"key: %w", err)
-		}
-
-		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
-		if err != nil {
-			return nil, nil, fmt.Errorf("error parsing group "+
 				"key: %w", err)
 		}
 
@@ -6301,6 +6305,23 @@ func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
 		// group key are specified. Return an error.
 		return nil, nil, fmt.Errorf("either asset ID or asset group " +
 			"key must be specified")
+	}
+
+	switch {
+	case len(assetIDBytes) != 0:
+		var id asset.ID
+		copy(id[:], assetIDBytes)
+		assetID = &id
+
+	case len(groupKeyBytes) != 0:
+		groupKey, err = parseUserKey(groupKeyBytes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing group "+
+				"key: group key: %w", err)
+		}
+
+	default:
+		return nil, nil, fmt.Errorf("malformed asset specifier")
 	}
 
 	return assetID, groupKey, nil
