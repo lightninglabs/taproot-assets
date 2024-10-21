@@ -61,9 +61,8 @@ type requestWireMsgData struct {
 
 	// TODO(ffranr): Add transfer type field with TLV type 4.
 
-	// Expiry is the expiry Unix timestamp (in seconds) of the quote
-	// request. This timestamp defines the lifetime of both the suggested
-	// rate tick and the quote request.
+	// Expiry is the Unix timestamp (in seconds) when the quote expires.
+	// The quote becomes invalid after this time.
 	Expiry tlv.RecordT[tlv.TlvType6, uint64]
 
 	// AssetMaxAmount represents the maximum asset amount that the target
