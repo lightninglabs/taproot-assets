@@ -56,7 +56,7 @@ func (p *mockRpcPriceOracleServer) QueryAssetRates(_ context.Context,
 		ExpiryTimestamp:  uint64(expiry),
 	}
 
-	err = validateRateTickRequest(req)
+	err = validateAssetRatesRequest(req)
 	if err != nil {
 		return nil, err
 	}
@@ -77,8 +77,10 @@ func (p *mockRpcPriceOracleServer) QueryAssetRates(_ context.Context,
 	}, nil
 }
 
-// validateRateTickRequest validates the given rate tick request.
-func validateRateTickRequest(req *priceoraclerpc.QueryAssetRatesRequest) error {
+// validateAssetRatesRequest validates the given asset rates query RPC request.
+func validateAssetRatesRequest(
+	req *priceoraclerpc.QueryAssetRatesRequest) error {
+
 	var zeroAssetID [32]byte
 	if req.SubjectAsset == nil {
 		return fmt.Errorf("subject asset must be specified")

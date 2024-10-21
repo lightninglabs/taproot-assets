@@ -19,15 +19,15 @@ import (
 )
 
 const (
-	// defaultRateTickExpirySeconds is the default rate tick expiry lifetime
-	// in seconds. 600s = 10 minutes.
+	// defaultAssetRateExpirySeconds is the default asset units to BTC rate
+	// expiry lifetime in seconds. 600s = 10 minutes.
 	//
 	// TODO(ffranr): This const is currently used in conjunction with the
 	//  AcceptSuggestedPrices flag. It is used to set the expiry time of the
-	//  rate tick in the accept message. This is a temporary solution and
-	//  should be replaced with an expiry time provided by the peer in the
-	//  quote request message.
-	defaultRateTickExpirySeconds = 600
+	//  asset units to BTC rate in the accept message. This is a temporary
+	//  solution and should be replaced with an expiry time provided by the
+	//  peer in the quote request message.
+	defaultAssetRateExpirySeconds = 600
 )
 
 // OracleError is a struct that holds an error returned by the price oracle
@@ -229,7 +229,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	assetRateHint.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
 		// Compute an expiry time using the default expiry delay.
 		expiryTimestamp := uint64(time.Now().Unix()) +
-			defaultRateTickExpirySeconds
+			defaultAssetRateExpirySeconds
 
 		// Marshal the subject asset rate.
 		subjectAssetRate, err := oraclerpc.MarshalBigIntFixedPoint(
@@ -285,7 +285,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	case *oraclerpc.QueryAssetRatesResponse_Ok:
 		if result.Ok.AssetRates == nil {
 			return nil, fmt.Errorf("QueryAssetRates response is " +
-				"successful but rate tick is nil")
+				"successful but asset rates is nil")
 		}
 
 		// Unmarshal the subject asset to BTC rate.
@@ -364,7 +364,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 	case *oraclerpc.QueryAssetRatesResponse_Ok:
 		if result.Ok.AssetRates == nil {
 			return nil, fmt.Errorf("QueryAssetRates response is " +
-				"successful but rate tick is nil")
+				"successful but asset rates is nil")
 		}
 
 		// Unmarshal the subject asset to BTC rate.
