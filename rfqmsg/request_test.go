@@ -27,8 +27,9 @@ type testCaseEncodeDecode struct {
 	outAssetId       *asset.ID
 	outAssetGroupKey *btcec.PublicKey
 
-	assetMaxAmount  uint64
-	inAssetRateHint *uint64
+	assetMaxAmount   uint64
+	inAssetRateHint  *uint64
+	outAssetRateHint *uint64
 }
 
 // Request generates a requestWireMsgData instance from the test case.
@@ -82,6 +83,15 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
+	var outAssetRateHint requestOutAssetRateHint
+	if tc.outAssetRateHint != nil {
+		// We use a fixed-point scale of 2 here just for testing.
+		rate := NewTlvFixedPointFromUint64(*tc.outAssetRateHint, 2)
+		outAssetRateHint = tlv.SomeRecordT[tlv.TlvType21](
+			tlv.NewRecordT[tlv.TlvType21](rate),
+		)
+	}
+
 	return requestWireMsgData{
 		Version:          version,
 		ID:               id,
@@ -92,6 +102,7 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		OutAssetGroupKey: outAssetGroupKey,
 		AssetMaxAmount:   assetMaxAmount,
 		InAssetRateHint:  inAssetRateHint,
+		OutAssetRateHint: outAssetRateHint,
 	}
 }
 
@@ -118,11 +129,13 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	var zeroAssetId asset.ID
 
 	inAssetRateHint := uint64(1000)
+	outAssetRateHint := uint64(2000)
 
 	testCases := []testCaseEncodeDecode{
 		{
 			testName: "in asset ID, out asset ID zero, " +
-				"no asset group keys, in-asset rate hint set",
+				"no asset group keys, in-asset rate hint " +
+				"set, out-asset rate hint set",
 			version:          V1,
 			id:               id,
 			expiry:           expiry,
@@ -132,6 +145,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			outAssetGroupKey: nil,
 			assetMaxAmount:   1000,
 			inAssetRateHint:  &inAssetRateHint,
+			outAssetRateHint: &outAssetRateHint,
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +
@@ -145,6 +159,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			outAssetGroupKey: nil,
 			assetMaxAmount:   1000,
 			inAssetRateHint:  nil,
+			outAssetRateHint: nil,
 		},
 		{
 			testName: "in asset group key, out asset " +
@@ -157,6 +172,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			outAssetGroupKey: nil,
 			assetMaxAmount:   1000,
 			inAssetRateHint:  nil,
+			outAssetRateHint: nil,
 		},
 		{
 			testName: "in asset ID zero, out asset " +
@@ -169,6 +185,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			outAssetGroupKey: assetGroupKey,
 			assetMaxAmount:   1000,
 			inAssetRateHint:  nil,
+			outAssetRateHint: nil,
 		},
 	}
 
