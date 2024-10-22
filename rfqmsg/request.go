@@ -94,9 +94,10 @@ type requestWireMsgData struct {
 	// counterparty peer).
 	OutAssetGroupKey requestOutAssetGroupKey
 
-	// AssetMaxAmount represents the maximum asset amount that the target
-	// peer is expected to accept/divest.
-	AssetMaxAmount tlv.RecordT[tlv.TlvType16, uint64]
+	// MaxInAsset represents the maximum quantity of in-asset that the
+	// counterparty is expected to divest, whether the asset involved is BTC
+	// or otherwise.
+	MaxInAsset tlv.RecordT[tlv.TlvType16, uint64]
 
 	// InAssetRateHint is the peer's proposed in-asset to BTC rate. This is
 	// not the final rate, but a suggested rate that the requesting peer
@@ -162,7 +163,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		)
 	})
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
@@ -173,7 +174,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		InAssetGroupKey:  inAssetGroupKey,
 		OutAssetID:       outAssetID,
 		OutAssetGroupKey: outAssetGroupKey,
-		AssetMaxAmount:   assetMaxAmount,
+		MaxInAsset:       maxInAsset,
 		InAssetRateHint:  inAssetRateHint,
 	}, nil
 }
@@ -192,7 +193,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	})
 	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
 	// Convert the in-asset to BTC rate to a TLV record.
 	var outAssetRateHint requestOutAssetRateHint
@@ -238,7 +239,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 		InAssetID:        inAssetID,
 		OutAssetID:       outAssetID,
 		OutAssetGroupKey: outAssetGroupKey,
-		AssetMaxAmount:   assetMaxAmount,
+		MaxInAsset:       maxInAsset,
 		OutAssetRateHint: outAssetRateHint,
 	}, nil
 }
@@ -316,7 +317,7 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 		m.Version.Record(),
 		m.ID.Record(),
 		m.Expiry.Record(),
-		m.AssetMaxAmount.Record(),
+		m.MaxInAsset.Record(),
 	}
 
 	// Encode the inbound asset.
@@ -389,7 +390,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 		outAssetID.Record(),
 		outAssetGroupKey.Record(),
 
-		m.AssetMaxAmount.Record(),
+		m.MaxInAsset.Record(),
 
 		inAssetRateHint.Record(),
 		outAssetRateHint.Record(),
