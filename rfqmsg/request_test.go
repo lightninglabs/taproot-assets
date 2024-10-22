@@ -17,18 +17,18 @@ import (
 type testCaseEncodeDecode struct {
 	testName string
 
-	version        WireMsgDataVersion
-	id             ID
-	expiry         uint64
-	assetMaxAmount uint64
-
-	suggestedAssetRate *uint64
+	version WireMsgDataVersion
+	id      ID
+	expiry  uint64
 
 	inAssetId       *asset.ID
 	inAssetGroupKey *btcec.PublicKey
 
 	outAssetId       *asset.ID
 	outAssetGroupKey *btcec.PublicKey
+
+	assetMaxAmount     uint64
+	suggestedAssetRate *uint64
 }
 
 // Request generates a requestWireMsgData instance from the test case.
@@ -36,18 +36,6 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](tc.version)
 	id := tlv.NewPrimitiveRecord[tlv.TlvType2](tc.id)
 	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](tc.expiry)
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](
-		tc.assetMaxAmount,
-	)
-
-	var suggestedAssetRate requestSuggestedAssetRate
-	if tc.suggestedAssetRate != nil {
-		// We use a fixed-point scale of 2 here just for testing.
-		rate := NewTlvFixedPointFromUint64(*tc.suggestedAssetRate, 2)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
-			tlv.NewRecordT[tlv.TlvType19](rate),
-		)
-	}
 
 	var inAssetID requestInAssetID
 	if tc.inAssetId != nil {
@@ -81,16 +69,29 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
+	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](
+		tc.assetMaxAmount,
+	)
+
+	var suggestedAssetRate requestSuggestedAssetRate
+	if tc.suggestedAssetRate != nil {
+		// We use a fixed-point scale of 2 here just for testing.
+		rate := NewTlvFixedPointFromUint64(*tc.suggestedAssetRate, 2)
+		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+			tlv.NewRecordT[tlv.TlvType19](rate),
+		)
+	}
+
 	return requestWireMsgData{
 		Version:            version,
 		ID:                 id,
 		Expiry:             expiry,
-		AssetMaxAmount:     assetMaxAmount,
-		SuggestedAssetRate: suggestedAssetRate,
 		InAssetID:          inAssetID,
 		InAssetGroupKey:    inAssetGroupKey,
 		OutAssetID:         outAssetID,
 		OutAssetGroupKey:   outAssetGroupKey,
+		AssetMaxAmount:     assetMaxAmount,
+		SuggestedAssetRate: suggestedAssetRate,
 	}
 }
 
@@ -125,12 +126,12 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			version:            V1,
 			id:                 id,
 			expiry:             expiry,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: &suggestedAssetRate,
 			inAssetId:          &assetId,
 			inAssetGroupKey:    nil,
 			outAssetId:         &zeroAssetId,
 			outAssetGroupKey:   nil,
+			assetMaxAmount:     1000,
+			suggestedAssetRate: &suggestedAssetRate,
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +
@@ -138,12 +139,12 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			version:            V1,
 			id:                 id,
 			expiry:             expiry,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: nil,
 			inAssetId:          &assetId,
 			inAssetGroupKey:    nil,
 			outAssetId:         &zeroAssetId,
 			outAssetGroupKey:   nil,
+			assetMaxAmount:     1000,
+			suggestedAssetRate: nil,
 		},
 		{
 			testName: "in asset group key, out asset " +
@@ -151,11 +152,11 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			version:            V1,
 			id:                 id,
 			expiry:             expiry,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: nil,
 			inAssetGroupKey:    assetGroupKey,
 			outAssetId:         &zeroAssetId,
 			outAssetGroupKey:   nil,
+			assetMaxAmount:     1000,
+			suggestedAssetRate: nil,
 		},
 		{
 			testName: "in asset ID zero, out asset " +
@@ -163,11 +164,11 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			version:            V1,
 			id:                 id,
 			expiry:             expiry,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: nil,
 			inAssetId:          &zeroAssetId,
 			inAssetGroupKey:    nil,
 			outAssetGroupKey:   assetGroupKey,
+			assetMaxAmount:     1000,
+			suggestedAssetRate: nil,
 		},
 	}
 
