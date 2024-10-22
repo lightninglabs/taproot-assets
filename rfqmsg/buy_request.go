@@ -118,7 +118,7 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 		ID:                 msgData.ID.Val,
 		AssetID:            assetID,
 		AssetGroupKey:      assetGroupKey,
-		AssetAmount:        msgData.AssetMaxAmount.Val,
+		AssetAmount:        msgData.MaxInAsset.Val,
 		SuggestedAssetRate: suggestedAssetRate,
 	}
 

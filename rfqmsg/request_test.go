@@ -27,7 +27,7 @@ type testCaseEncodeDecode struct {
 	outAssetId       *asset.ID
 	outAssetGroupKey *btcec.PublicKey
 
-	assetMaxAmount   uint64
+	maxInAsset       uint64
 	inAssetRateHint  *uint64
 	outAssetRateHint *uint64
 }
@@ -70,9 +70,7 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](
-		tc.assetMaxAmount,
-	)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](tc.maxInAsset)
 
 	var inAssetRateHint requestInAssetRateHint
 	if tc.inAssetRateHint != nil {
@@ -100,7 +98,7 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		InAssetGroupKey:  inAssetGroupKey,
 		OutAssetID:       outAssetID,
 		OutAssetGroupKey: outAssetGroupKey,
-		AssetMaxAmount:   assetMaxAmount,
+		MaxInAsset:       maxInAsset,
 		InAssetRateHint:  inAssetRateHint,
 		OutAssetRateHint: outAssetRateHint,
 	}
@@ -143,7 +141,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			inAssetGroupKey:  nil,
 			outAssetId:       &zeroAssetId,
 			outAssetGroupKey: nil,
-			assetMaxAmount:   1000,
+			maxInAsset:       1000,
 			inAssetRateHint:  &inAssetRateHint,
 			outAssetRateHint: &outAssetRateHint,
 		},
@@ -157,7 +155,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			inAssetGroupKey:  nil,
 			outAssetId:       &zeroAssetId,
 			outAssetGroupKey: nil,
-			assetMaxAmount:   1000,
+			maxInAsset:       1000,
 			inAssetRateHint:  nil,
 			outAssetRateHint: nil,
 		},
@@ -170,7 +168,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			inAssetGroupKey:  assetGroupKey,
 			outAssetId:       &zeroAssetId,
 			outAssetGroupKey: nil,
-			assetMaxAmount:   1000,
+			maxInAsset:       1000,
 			inAssetRateHint:  nil,
 			outAssetRateHint: nil,
 		},
@@ -183,7 +181,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			inAssetId:        &zeroAssetId,
 			inAssetGroupKey:  nil,
 			outAssetGroupKey: assetGroupKey,
-			assetMaxAmount:   1000,
+			maxInAsset:       1000,
 			inAssetRateHint:  nil,
 			outAssetRateHint: nil,
 		},
