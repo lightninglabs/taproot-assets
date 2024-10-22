@@ -27,8 +27,8 @@ type testCaseEncodeDecode struct {
 	outAssetId       *asset.ID
 	outAssetGroupKey *btcec.PublicKey
 
-	assetMaxAmount     uint64
-	suggestedAssetRate *uint64
+	assetMaxAmount  uint64
+	inAssetRateHint *uint64
 }
 
 // Request generates a requestWireMsgData instance from the test case.
@@ -73,25 +73,25 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		tc.assetMaxAmount,
 	)
 
-	var suggestedAssetRate requestSuggestedAssetRate
-	if tc.suggestedAssetRate != nil {
+	var inAssetRateHint requestInAssetRateHint
+	if tc.inAssetRateHint != nil {
 		// We use a fixed-point scale of 2 here just for testing.
-		rate := NewTlvFixedPointFromUint64(*tc.suggestedAssetRate, 2)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+		rate := NewTlvFixedPointFromUint64(*tc.inAssetRateHint, 2)
+		inAssetRateHint = tlv.SomeRecordT[tlv.TlvType19](
 			tlv.NewRecordT[tlv.TlvType19](rate),
 		)
 	}
 
 	return requestWireMsgData{
-		Version:            version,
-		ID:                 id,
-		Expiry:             expiry,
-		InAssetID:          inAssetID,
-		InAssetGroupKey:    inAssetGroupKey,
-		OutAssetID:         outAssetID,
-		OutAssetGroupKey:   outAssetGroupKey,
-		AssetMaxAmount:     assetMaxAmount,
-		SuggestedAssetRate: suggestedAssetRate,
+		Version:          version,
+		ID:               id,
+		Expiry:           expiry,
+		InAssetID:        inAssetID,
+		InAssetGroupKey:  inAssetGroupKey,
+		OutAssetID:       outAssetID,
+		OutAssetGroupKey: outAssetGroupKey,
+		AssetMaxAmount:   assetMaxAmount,
+		InAssetRateHint:  inAssetRateHint,
 	}
 }
 
@@ -117,58 +117,58 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	// context of the request message.
 	var zeroAssetId asset.ID
 
-	suggestedAssetRate := uint64(1000)
+	inAssetRateHint := uint64(1000)
 
 	testCases := []testCaseEncodeDecode{
 		{
 			testName: "in asset ID, out asset ID zero, " +
-				"no asset group keys, suggested asset rate",
-			version:            V1,
-			id:                 id,
-			expiry:             expiry,
-			inAssetId:          &assetId,
-			inAssetGroupKey:    nil,
-			outAssetId:         &zeroAssetId,
-			outAssetGroupKey:   nil,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: &suggestedAssetRate,
+				"no asset group keys, in-asset rate hint set",
+			version:          V1,
+			id:               id,
+			expiry:           expiry,
+			inAssetId:        &assetId,
+			inAssetGroupKey:  nil,
+			outAssetId:       &zeroAssetId,
+			outAssetGroupKey: nil,
+			assetMaxAmount:   1000,
+			inAssetRateHint:  &inAssetRateHint,
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +
 				"group keys",
-			version:            V1,
-			id:                 id,
-			expiry:             expiry,
-			inAssetId:          &assetId,
-			inAssetGroupKey:    nil,
-			outAssetId:         &zeroAssetId,
-			outAssetGroupKey:   nil,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: nil,
+			version:          V1,
+			id:               id,
+			expiry:           expiry,
+			inAssetId:        &assetId,
+			inAssetGroupKey:  nil,
+			outAssetId:       &zeroAssetId,
+			outAssetGroupKey: nil,
+			assetMaxAmount:   1000,
+			inAssetRateHint:  nil,
 		},
 		{
 			testName: "in asset group key, out asset " +
 				"ID zero",
-			version:            V1,
-			id:                 id,
-			expiry:             expiry,
-			inAssetGroupKey:    assetGroupKey,
-			outAssetId:         &zeroAssetId,
-			outAssetGroupKey:   nil,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: nil,
+			version:          V1,
+			id:               id,
+			expiry:           expiry,
+			inAssetGroupKey:  assetGroupKey,
+			outAssetId:       &zeroAssetId,
+			outAssetGroupKey: nil,
+			assetMaxAmount:   1000,
+			inAssetRateHint:  nil,
 		},
 		{
 			testName: "in asset ID zero, out asset " +
 				"group key",
-			version:            V1,
-			id:                 id,
-			expiry:             expiry,
-			inAssetId:          &zeroAssetId,
-			inAssetGroupKey:    nil,
-			outAssetGroupKey:   assetGroupKey,
-			assetMaxAmount:     1000,
-			suggestedAssetRate: nil,
+			version:          V1,
+			id:               id,
+			expiry:           expiry,
+			inAssetId:        &zeroAssetId,
+			inAssetGroupKey:  nil,
+			outAssetGroupKey: assetGroupKey,
+			assetMaxAmount:   1000,
+			inAssetRateHint:  nil,
 		},
 	}
 
