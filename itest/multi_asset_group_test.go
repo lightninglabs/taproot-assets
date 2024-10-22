@@ -40,7 +40,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 	// now be aware of 3 asset groups. Each group should have a different
 	// number of assets, and a different total balance.
 	mintedBatch := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd, complexBatch,
+		t.t, t.lndHarness.Miner().Client, t.tapd, complexBatch,
 	)
 
 	// Once the batch is minted, we can verify that all asset groups were
@@ -123,7 +123,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		t, t.tapd, bobNormalAddr,
 	)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, normalGroupSend,
+		t.t, t.lndHarness.Miner().Client, t.tapd, normalGroupSend,
 		normalMember.AssetGenesis.AssetId,
 		[]uint64{0, normalMember.Amount}, 0, 1,
 	)
@@ -163,7 +163,7 @@ func testMintMultiAssetGroups(t *harnessTest) {
 		t, t.tapd, bobCollectAddr,
 	)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, collectGroupSend,
+		t.t, t.lndHarness.Miner().Client, t.tapd, collectGroupSend,
 		collectMember.AssetGenesis.AssetId,
 		[]uint64{0, collectMember.Amount}, 1, 2,
 	)
@@ -260,7 +260,7 @@ func testMintMultiAssetGroupErrors(t *harnessTest) {
 
 	// The assets should be minted into the same group.
 	rpcGroupedAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd, multiAssetGroup,
+		t.t, t.lndHarness.Miner().Client, t.tapd, multiAssetGroup,
 	)
 	AssertNumGroups(t.t, t.tapd, 1)
 	groupKey := rpcGroupedAssets[0].AssetGroup.TweakedGroupKey
@@ -291,7 +291,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 	// The minted batch should contain 51 assets total, and the daemon
 	// should now be aware of one asset group.
 	mintedBatch := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd, collectibleGroup,
+		t.t, t.lndHarness.Miner().Client, t.tapd, collectibleGroup,
 	)
 	require.Len(t.t, mintedBatch, collectibleGroupMembers+1)
 
@@ -363,7 +363,7 @@ func testMultiAssetGroupSend(t *harnessTest) {
 		sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 
 		ConfirmAndAssertOutboundTransfer(
-			t.t, t.lndHarness.Miner.Client, t.tapd,
+			t.t, t.lndHarness.Miner().Client, t.tapd,
 			sendResp, genInfo.AssetId,
 			[]uint64{0, numUnits}, i, i+1,
 		)

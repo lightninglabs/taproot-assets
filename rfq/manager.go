@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -521,12 +522,9 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
 	}
 
 	// Filter for channels with the given peer.
-	peerChannels := make([]lndclient.ChannelInfo, 0)
-	for _, localChan := range localChans {
-		if localChan.PubKeyBytes == peer {
-			peerChannels = append(peerChannels, localChan)
-		}
-	}
+	peerChannels := lfn.Filter(func(c lndclient.ChannelInfo) bool {
+		return c.PubKeyBytes == peer
+	}, localChans)
 
 	// Identify the correct channel to use as the base SCID for the alias
 	// by inspecting the asset data in the custom channel data.
@@ -534,8 +532,11 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
 		assetIDStr = assetID.String()
 		baseSCID   uint64
 	)
-
 	for _, localChan := range peerChannels {
+		if len(localChan.CustomChannelData) == 0 {
+			continue
+		}
+
 		var assetData rfqmsg.JsonAssetChannel
 		err = json.Unmarshal(localChan.CustomChannelData, &assetData)
 		if err != nil {

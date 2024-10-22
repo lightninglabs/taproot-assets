@@ -40,7 +40,7 @@ var (
 
 	testTimeout = time.Second
 
-	chanState = &channeldb.OpenChannel{
+	chanState = lnwallet.AuxChanState{
 		ChanType: channeldb.AnchorOutputsBit |
 			channeldb.ScidAliasChanBit | channeldb.SingleFunderBit |
 			channeldb.SimpleTaprootFeatureBit |
@@ -70,7 +70,7 @@ func RandAuxSigJob(t *testing.T, cancelChan chan struct{},
 		BaseAuxJob: lnwallet.BaseAuxJob{
 			OutputIndex: outputIdx,
 			KeyRing:     keyRing,
-			HTLC: lnwallet.PaymentDescriptor{
+			HTLC: lnwallet.AuxHtlcDescriptor{
 				HtlcIndex: 0,
 				Amount: lnwire.NewMSatFromSatoshis(
 					354,

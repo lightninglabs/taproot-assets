@@ -25,7 +25,7 @@ func testMultiSignature(t *harnessTest) {
 
 	MultiSigTest(
 		t.t, context.Background(), aliceTapd, bobTapd,
-		aliceTapd.rpcHost(), t.lndHarness.Miner.Client, aliceLnd.RPC,
+		aliceTapd.rpcHost(), t.lndHarness.Miner().Client, aliceLnd.RPC,
 		bobLnd.RPC, regtestParams, defaultTimeout,
 	)
 }

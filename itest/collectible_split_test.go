@@ -27,7 +27,7 @@ import (
 func testCollectibleSend(t *harnessTest) {
 	// First, we'll make a collectible with emission enabled.
 	rpcAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			issuableAssets[1],
 			// Our "passive" asset.
@@ -86,7 +86,7 @@ func testCollectibleSend(t *harnessTest) {
 				t, t.tapd, receiverAddr,
 			)
 			ConfirmAndAssertOutboundTransfer(
-				t.t, t.lndHarness.Miner.Client, t.tapd,
+				t.t, t.lndHarness.Miner().Client, t.tapd,
 				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, senderTransferIdx,
 				senderTransferIdx+1,
@@ -115,7 +115,7 @@ func testCollectibleSend(t *harnessTest) {
 				t, secondTapd, receiverAddr,
 			)
 			ConfirmAndAssertOutboundTransfer(
-				t.t, t.lndHarness.Miner.Client, secondTapd,
+				t.t, t.lndHarness.Miner().Client, secondTapd,
 				sendResp, genInfo.AssetId,
 				[]uint64{0, fullAmount}, receiverTransferIdx,
 				receiverTransferIdx+1,
@@ -196,7 +196,7 @@ func testCollectibleSend(t *harnessTest) {
 	AssertAddrCreated(t.t, secondTapd, rpcAssets[1], bobAddr)
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
 	ConfirmAndAssertOutboundTransfer(
-		t.t, t.lndHarness.Miner.Client, t.tapd, sendResp,
+		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
 		passiveGen.AssetId, []uint64{0, rpcAssets[1].Amount}, 2, 3,
 	)
 
@@ -269,7 +269,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 		batchSize)
 
 	mintBatch := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd, batchReqs,
+		t.t, t.lndHarness.Miner().Client, t.tapd, batchReqs,
 		WithMintingTimeout(minterTimeout),
 	)
 
@@ -379,7 +379,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 
 		sendAssets(
 			t.t, ctxt, numAssets, sendType, send, receive,
-			t.lndHarness.Miner.Client,
+			t.lndHarness.Miner().Client,
 		)
 
 		t.Logf("Finished %d of %d send operations", i, numSends)

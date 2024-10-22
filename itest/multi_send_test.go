@@ -94,7 +94,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	// In our first batch we create multiple units of the grouped asset X
 	// and Y as well as a passive asset P.
 	firstBatch := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: assetXTranche1Req,
@@ -123,7 +123,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	// In our second batch we create the third tranche of the grouped asset
 	// X and Y as well as a passive asset Q.
 	secondBatch := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner.Client, t.tapd,
+		t.t, t.lndHarness.Miner().Client, t.tapd,
 		[]*mintrpc.MintAssetRequest{
 			{
 				Asset: assetXTranche3Req,
@@ -260,7 +260,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 	t.Logf("Send response: %v", toJSON(t.t, sendResp))
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner.Client, aliceTapd, sendResp,
+		t.t, t.lndHarness.Miner().Client, aliceTapd, sendResp,
 		assetXTranche1ID[:], []uint64{300, 300, 300}, 0, 1, 3,
 	)
 
@@ -384,7 +384,7 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 		assetYTranche1.Amount - assetsToSend, assetsToSend,
 	}
 	ConfirmAndAssertOutboundTransferWithOutputs(
-		t.t, t.lndHarness.Miner.Client, aliceTapd,
+		t.t, t.lndHarness.Miner().Client, aliceTapd,
 		sendResp, assetYTranche1.AssetGenesis.AssetId, expectedAmounts,
 		3, 4, len(expectedAmounts),
 	)

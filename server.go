@@ -31,11 +31,12 @@ import (
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnwallet"
+	"github.com/lightningnetwork/lnd/lntypes"
+	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
-	"github.com/lightningnetwork/lnd/protofsm"
+	"github.com/lightningnetwork/lnd/msgmux"
 	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -695,15 +696,17 @@ func (s *Server) Stop() error {
 
 // A compile-time check to ensure that Server fully implements the
 // lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
-// protofsm.MsgEndpoint, funding.AuxFundingController, routing.TlvTrafficShaper
+// msgmux.Endpoint, funding.AuxFundingController, routing.TlvTrafficShaper
 // and chancloser.AuxChanCloser interfaces.
-var _ lnwallet.AuxLeafStore = (*Server)(nil)
+var _ lnwl.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
-var _ lnwallet.AuxSigner = (*Server)(nil)
-var _ protofsm.MsgEndpoint = (*Server)(nil)
+var _ lnwl.AuxSigner = (*Server)(nil)
+var _ msgmux.Endpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
 var _ routing.TlvTrafficShaper = (*Server)(nil)
 var _ chancloser.AuxChanCloser = (*Server)(nil)
+var _ lnwl.AuxContractResolver = (*Server)(nil)
+var _ sweep.AuxSweeper = (*Server)(nil)
 
 // waitForReady blocks until the server is ready to serve requests. If the
 // server is shutting down before we ever become ready, an error is returned.
@@ -736,23 +739,18 @@ func (s *Server) waitForReady() error {
 // the passed aux blob, and pending fully evaluated HTLC view.
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
-func (s *Server) FetchLeavesFromView(chanState *channeldb.OpenChannel,
-	prevBlob tlv.Blob, view *lnwallet.HtlcView, isOurCommit bool,
-	ourBalance, theirBalance lnwire.MilliSatoshi,
-	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
-	lnwallet.CommitSortFunc, error) {
+func (s *Server) FetchLeavesFromView(
+	in lnwl.CommitDiffAuxInput) lfn.Result[lnwl.CommitDiffAuxResult] {
 
-	srvrLog.Debugf("FetchLeavesFromView called, isOurCommit=%v, "+
+	srvrLog.Debugf("FetchLeavesFromView called, whoseCommit=%v, "+
 		"ourBalance=%v, theirBalance=%v, numOurUpdates=%d, "+
-		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
-		len(view.OurUpdates), len(view.TheirUpdates))
+		"numTheirUpdates=%d", in.WhoseCommit, in.OurBalance,
+		in.TheirBalance, len(in.UnfilteredView.OurUpdates),
+		len(in.UnfilteredView.TheirUpdates))
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.FetchLeavesFromView(
-		s.chainParams, chanState, prevBlob, view, isOurCommit,
-		ourBalance, theirBalance, keys,
-	)
+	return tapchannel.FetchLeavesFromView(s.chainParams, in)
 }
 
 // FetchLeavesFromCommit attempts to fetch the auxiliary leaves that
@@ -760,10 +758,10 @@ func (s *Server) FetchLeavesFromView(chanState *channeldb.OpenChannel,
 // commitment.
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
-func (s *Server) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
+// nolint:lll
+func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 	com channeldb.ChannelCommitment,
-	keys lnwallet.CommitmentKeyRing) (lfn.Option[lnwallet.CommitAuxLeaves],
-	error) {
+	keys lnwl.CommitmentKeyRing) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	srvrLog.Debugf("FetchLeavesFromCommit called, ourBalance=%v, "+
 		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
@@ -781,16 +779,15 @@ func (s *Server) FetchLeavesFromCommit(chanState *channeldb.OpenChannel,
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
 func (s *Server) FetchLeavesFromRevocation(
-	rev *channeldb.RevocationLog) (lfn.Option[lnwallet.CommitAuxLeaves],
-	error) {
+	r *channeldb.RevocationLog) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	srvrLog.Debugf("FetchLeavesFromRevocation called, ourBalance=%v, "+
-		"teirBalance=%v, numHtlcs=%d", rev.OurBalance, rev.TheirBalance,
-		len(rev.HTLCEntries))
+		"teirBalance=%v, numHtlcs=%d", r.OurBalance, r.TheirBalance,
+		len(r.HTLCEntries))
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.FetchLeavesFromRevocation(rev)
+	return tapchannel.FetchLeavesFromRevocation(r)
 }
 
 // ApplyHtlcView serves as the state transition function for the custom
@@ -798,22 +795,18 @@ func (s *Server) FetchLeavesFromRevocation(
 // blob should be returned that reflects the pending updates.
 //
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
-func (s *Server) ApplyHtlcView(chanState *channeldb.OpenChannel,
-	prevBlob tlv.Blob, originalView *lnwallet.HtlcView, isOurCommit bool,
-	ourBalance, theirBalance lnwire.MilliSatoshi,
-	keys lnwallet.CommitmentKeyRing) (lfn.Option[tlv.Blob], error) {
+func (s *Server) ApplyHtlcView(
+	in lnwl.CommitDiffAuxInput) lfn.Result[lfn.Option[tlv.Blob]] {
 
-	srvrLog.Debugf("ApplyHtlcView called, isOurCommit=%v, "+
+	srvrLog.Debugf("ApplyHtlcView called, whoseCommit=%v, "+
 		"ourBalance=%v, theirBalance=%v, numOurUpdates=%d, "+
-		"numTheirUpdates=%d", isOurCommit, ourBalance, theirBalance,
-		len(originalView.OurUpdates), len(originalView.TheirUpdates))
+		"numTheirUpdates=%d", in.WhoseCommit, in.OurBalance,
+		in.TheirBalance, len(in.UnfilteredView.OurUpdates),
+		len(in.UnfilteredView.TheirUpdates))
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
-	return tapchannel.ApplyHtlcView(
-		s.chainParams, chanState, prevBlob, originalView, isOurCommit,
-		ourBalance, theirBalance, keys,
-	)
+	return tapchannel.ApplyHtlcView(s.chainParams, in)
 }
 
 // InlineParseCustomData replaces any custom data binary blob in the given RPC
@@ -833,37 +826,35 @@ func (s *Server) InlineParseCustomData(msg proto.Message) error {
 // Name returns the name of this endpoint. This MUST be unique across all
 // registered endpoints.
 //
-// NOTE: This method is part of the protofsm.MsgEndpoint interface.
-func (s *Server) Name() protofsm.EndpointName {
+// NOTE: This method is part of the msgmux.MsgEndpoint interface.
+func (s *Server) Name() msgmux.EndpointName {
 	return tapchannel.MsgEndpointName
 }
 
 // CanHandle returns true if the target message can be routed to this endpoint.
 //
-// NOTE: This method is part of the protofsm.MsgEndpoint interface.
-func (s *Server) CanHandle(msg protofsm.PeerMsg) bool {
+// NOTE: This method is part of the msgmux.MsgEndpoint interface.
+func (s *Server) CanHandle(msg msgmux.PeerMsg) bool {
 	err := s.waitForReady()
 	if err != nil {
 		srvrLog.Debugf("Can't handle PeerMsg, server not ready %v",
 			err)
 		return false
 	}
-
 	return s.cfg.AuxFundingController.CanHandle(msg)
 }
 
 // SendMessage handles the target message, and returns true if the message was
 // able to be processed.
 //
-// NOTE: This method is part of the protofsm.MsgEndpoint interface.
-func (s *Server) SendMessage(msg protofsm.PeerMsg) bool {
+// NOTE: This method is part of the msgmux.MsgEndpoint interface.
+func (s *Server) SendMessage(msg msgmux.PeerMsg) bool {
 	err := s.waitForReady()
 	if err != nil {
 		srvrLog.Debugf("Failed to send PeerMsg, server not ready %v",
 			err)
 		return false
 	}
-
 	return s.cfg.AuxFundingController.SendMessage(msg)
 }
 
@@ -871,8 +862,8 @@ func (s *Server) SendMessage(msg protofsm.PeerMsg) bool {
 // asynchronously.
 //
 // NOTE: This method is part of the lnwallet.AuxSigner interface.
-func (s *Server) SubmitSecondLevelSigBatch(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx, sigJob []lnwallet.AuxSigJob) error {
+func (s *Server) SubmitSecondLevelSigBatch(chanState lnwl.AuxChanState,
+	commitTx *wire.MsgTx, sigJob []lnwl.AuxSigJob) error {
 
 	srvrLog.Debugf("SubmitSecondLevelSigBatch called, numSigs=%d",
 		len(sigJob))
@@ -891,7 +882,7 @@ func (s *Server) SubmitSecondLevelSigBatch(chanState *channeldb.OpenChannel,
 //
 // NOTE: This method is part of the lnwallet.AuxSigner interface.
 func (s *Server) PackSigs(
-	blob []lfn.Option[tlv.Blob]) (lfn.Option[tlv.Blob], error) {
+	blob []lfn.Option[tlv.Blob]) lfn.Result[lfn.Option[tlv.Blob]] {
 
 	srvrLog.Debugf("PackSigs called")
 
@@ -904,8 +895,8 @@ func (s *Server) PackSigs(
 // signatures for each HTLC, keyed by HTLC index.
 //
 // NOTE: This method is part of the lnwallet.AuxSigner interface.
-func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
-	error) {
+func (s *Server) UnpackSigs(
+	blob lfn.Option[tlv.Blob]) lfn.Result[[]lfn.Option[tlv.Blob]] {
 
 	srvrLog.Debugf("UnpackSigs called")
 
@@ -918,8 +909,8 @@ func (s *Server) UnpackSigs(blob lfn.Option[tlv.Blob]) ([]lfn.Option[tlv.Blob],
 // jobs.
 //
 // NOTE: This method is part of the lnwallet.AuxSigner interface.
-func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
-	commitTx *wire.MsgTx, verifyJob []lnwallet.AuxVerifyJob) error {
+func (s *Server) VerifySecondLevelSigs(chanState lnwl.AuxChanState,
+	commitTx *wire.MsgTx, verifyJob []lnwl.AuxVerifyJob) error {
 
 	srvrLog.Debugf("VerifySecondLevelSigs called")
 
@@ -936,18 +927,18 @@ func (s *Server) VerifySecondLevelSigs(chanState *channeldb.OpenChannel,
 //
 // NOTE: This method is part of the funding.AuxFundingController interface.
 func (s *Server) DescFromPendingChanID(pid funding.PendingChanID,
-	chanState *channeldb.OpenChannel, localKeys,
-	remoteKeys lnwallet.CommitmentKeyRing,
-	initiator bool) (lfn.Option[lnwallet.AuxFundingDesc], error) {
+	chanState lnwl.AuxChanState,
+	keyRing lntypes.Dual[lnwl.CommitmentKeyRing],
+	initiator bool) funding.AuxFundingDescResult {
 
 	srvrLog.Debugf("DescFromPendingChanID called")
 
 	if err := s.waitForReady(); err != nil {
-		return lfn.None[lnwallet.AuxFundingDesc](), err
+		return lfn.Err[lfn.Option[lnwl.AuxFundingDesc]](err)
 	}
 
 	return s.cfg.AuxFundingController.DescFromPendingChanID(
-		pid, chanState, localKeys, remoteKeys, initiator,
+		pid, chanState, keyRing, initiator,
 	)
 }
 
@@ -957,12 +948,12 @@ func (s *Server) DescFromPendingChanID(pid funding.PendingChanID,
 //
 // NOTE: This method is part of the funding.AuxFundingController interface.
 func (s *Server) DeriveTapscriptRoot(
-	pid funding.PendingChanID) (lfn.Option[chainhash.Hash], error) {
+	pid funding.PendingChanID) funding.AuxTapscriptResult {
 
 	srvrLog.Debugf("DeriveTapscriptRoot called")
 
 	if err := s.waitForReady(); err != nil {
-		return lfn.None[chainhash.Hash](), err
+		return lfn.Err[lfn.Option[chainhash.Hash]](err)
 	}
 
 	return s.cfg.AuxFundingController.DeriveTapscriptRoot(pid)
@@ -972,7 +963,7 @@ func (s *Server) DeriveTapscriptRoot(
 // be used. This can be used to perform any final setup or cleanup.
 //
 // NOTE: This method is part of the funding.AuxFundingController interface.
-func (s *Server) ChannelReady(openChan *channeldb.OpenChannel) error {
+func (s *Server) ChannelReady(openChan lnwl.AuxChanState) error {
 	srvrLog.Debugf("ChannelReady called")
 
 	if err := s.waitForReady(); err != nil {
@@ -996,14 +987,14 @@ func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 	return s.cfg.AuxFundingController.ChannelFinalized(pid)
 }
 
-// HandleTraffic is called in order to check if the channel identified by the
-// provided channel ID is handled by the traffic shaper implementation. If it
-// is handled by the traffic shaper, then the normal bandwidth calculation can
-// be skipped and the bandwidth returned by PaymentBandwidth should be used
+// ShouldHandleTraffic is called in order to check if the channel identified by
+// the provided channel ID is handled by the traffic shaper implementation. If
+// it is handled by the traffic shaper, then the normal bandwidth calculation
+// can be skipped and the bandwidth returned by PaymentBandwidth should be used
 // instead.
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
-func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
+func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
 
 	srvrLog.Debugf("HandleTraffic called, cid=%v, fundingBlob=%v", cid,
@@ -1013,7 +1004,7 @@ func (s *Server) HandleTraffic(cid lnwire.ShortChannelID,
 		return false, err
 	}
 
-	return s.cfg.AuxTrafficShaper.HandleTraffic(cid, fundingBlob)
+	return s.cfg.AuxTrafficShaper.ShouldHandleTraffic(cid, fundingBlob)
 }
 
 // PaymentBandwidth returns the available bandwidth for a custom channel decided
@@ -1046,8 +1037,8 @@ func (s *Server) PaymentBandwidth(htlcBlob, commitmentBlob lfn.Option[tlv.Blob],
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
-	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi, tlv.Blob,
-	error) {
+	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
+	lnwire.CustomRecords, error) {
 
 	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
 		"htlcBlob=%v", totalAmount, spew.Sdump(htlcCustomRecords))
@@ -1116,9 +1107,9 @@ func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 
 // ResolveContract attempts to obtain a resolution blob for the specified
 // contract.
-func (s *Server) ResolveContract(
-	req lnwallet.ResolutionReq) lfn.Result[tlv.Blob] {
-
+//
+// NOTE: This method is part of the lnwallet.AuxContractResolver interface.
+func (s *Server) ResolveContract(req lnwl.ResolutionReq) lfn.Result[tlv.Blob] {
 	srvrLog.Tracef("ResolveContract called, req=%v", spew.Sdump(req))
 
 	if err := s.waitForReady(); err != nil {
@@ -1131,8 +1122,10 @@ func (s *Server) ResolveContract(
 // DeriveSweepAddr takes a set of inputs, and the change address we'd use to
 // sweep them, and maybe results in an extra sweep output that we should add to
 // the sweeping transaction.
+//
+// NOTE: This method is part of the sweep.AuxSweeper interface.
 func (s *Server) DeriveSweepAddr(inputs []input.Input,
-	change lnwallet.AddrWithKey) lfn.Result[sweep.SweepOutput] {
+	change lnwl.AddrWithKey) lfn.Result[sweep.SweepOutput] {
 
 	srvrLog.Tracef("DeriveSweepAddr called, inputs=%v, change=%v",
 		spew.Sdump(inputs), spew.Sdump(change))
@@ -1144,8 +1137,27 @@ func (s *Server) DeriveSweepAddr(inputs []input.Input,
 	return s.cfg.AuxSweeper.DeriveSweepAddr(inputs, change)
 }
 
+// ExtraBudgetForInputs takes a set of inputs and maybe returns an extra budget
+// that should be added to the sweep transaction.
+//
+// NOTE: This method is part of the sweep.AuxSweeper interface.
+func (s *Server) ExtraBudgetForInputs(
+	inputs []input.Input) lfn.Result[btcutil.Amount] {
+
+	srvrLog.Tracef("ExtraBudgetForInputs called, inputs=%v",
+		spew.Sdump(inputs))
+
+	if err := s.waitForReady(); err != nil {
+		return lfn.Err[btcutil.Amount](err)
+	}
+
+	return s.cfg.AuxSweeper.ExtraBudgetForInputs(inputs)
+}
+
 // NotifyBroadcast is used to notify external callers of the broadcast of a
 // sweep transaction, generated by the passed BumpRequest.
+//
+// NOTE: This method is part of the sweep.AuxSweeper interface.
 func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount) error {
 

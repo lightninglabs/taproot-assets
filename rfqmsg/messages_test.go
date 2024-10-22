@@ -11,6 +11,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// TestNewID tests that we can easily derive 1000 new IDs without any errors.
+func TestNewID(t *testing.T) {
+	const numIDs = 1000
+
+	for range numIDs {
+		_, err := NewID()
+		require.NoError(t, err)
+	}
+}
+
 // TestTlvFixedPoint tests encoding and decoding of the TlvFixedPoint struct.
 func TestTlvFixedPoint(t *testing.T) {
 	// This is the test case structure which will be encoded and decoded.

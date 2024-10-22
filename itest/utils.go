@@ -221,7 +221,7 @@ func MakeOutput(t *harnessTest, wallet *node.HarnessNode,
 func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
 	feeRate btcutil.Amount, reqs []*UTXORequest) {
 
-	minerAddr := t.lndHarness.Miner.NewMinerAddress()
+	minerAddr := t.lndHarness.Miner().NewMinerAddress()
 
 	// Drain any funds held by the node.
 	wallet.RPC.SendCoins(&lnrpc.SendCoinsRequest{
@@ -237,7 +237,7 @@ func SetNodeUTXOs(t *harnessTest, wallet *node.HarnessNode,
 		return MakeOutput(t, wallet, r.Type, r.Amount)
 	})
 
-	_ = t.lndHarness.Miner.SendOutputsWithoutChange(aliceOutputs, feeRate)
+	_ = t.lndHarness.Miner().SendOutputsWithoutChange(aliceOutputs, feeRate)
 	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
 	t.lndHarness.WaitForBlockchainSync(wallet)
 }

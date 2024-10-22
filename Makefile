@@ -58,7 +58,7 @@ DOCKER_TOOLS = docker run \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
   -v $$(pwd):/build taproot-assets-tools
 
-GO_VERSION = 1.22.3
+GO_VERSION = 1.22.6
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"

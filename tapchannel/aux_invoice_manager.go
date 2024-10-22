@@ -179,7 +179,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	// If the sum of the accepted HTLCs plus the current HTLC amount plus
 	// the error margin is greater than the invoice amount, we'll accept it.
 	totalInbound := acceptedHtlcSum + resp.AmtPaid
-	totalInboundWithMargin := totalInbound + allowedMarginMSat
+	totalInboundWithMargin := totalInbound + allowedMarginMSat + 1
 	invoiceValue := lnwire.MilliSatoshi(req.Invoice.ValueMsat)
 
 	log.Debugf("Accepted HTLC sum: %v, current HTLC amount: %v, allowed "+
