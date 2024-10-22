@@ -61,29 +61,27 @@ func TestAcceptMsgDataEncodeDecode(t *testing.T) {
 	// Crate an all zero signature.
 	var zeroSig [64]byte
 
-	inOutRateTick := NewTlvFixedPointFromUint64(42000, 0)
-	outInRateTick := NewTlvFixedPointFromUint64(22000, 0)
+	inAssetRate := NewTlvFixedPointFromUint64(42000, 0)
+	outAssetRate := NewTlvFixedPointFromUint64(22000, 0)
 
 	testCases := []acceptEncodeDecodeTC{
 		{
-			testName: "rand sig, in-out rate tick set, out-in " +
-				"rate tick unset",
+			testName:     "rand sig, asset rates set",
 			version:      V1,
 			id:           id,
 			expiry:       expiry,
 			sig:          randSig,
-			inAssetRate:  inOutRateTick,
-			outAssetRate: outInRateTick,
+			inAssetRate:  inAssetRate,
+			outAssetRate: outAssetRate,
 		},
 		{
-			testName: "zero sig, in-out rate tick unset, out-in " +
-				"rate tick set",
+			testName:     "zero sig, asset rates set",
 			version:      V1,
 			id:           id,
 			expiry:       expiry,
 			sig:          zeroSig,
-			inAssetRate:  inOutRateTick,
-			outAssetRate: outInRateTick,
+			inAssetRate:  inAssetRate,
+			outAssetRate: outAssetRate,
 		},
 	}
 

@@ -18,10 +18,10 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type PriceOracleClient interface {
-	// QueryRateTick queries the rate tick for a given transaction type, subject
-	// asset, and payment asset. The rate tick is the exchange rate between the
-	// subject asset and the payment asset.
-	QueryRateTick(ctx context.Context, in *QueryRateTickRequest, opts ...grpc.CallOption) (*QueryRateTickResponse, error)
+	// QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
+	// a specified transaction type, subject asset, and payment asset. The asset
+	// rate represents the number of tap asset units per BTC.
+	QueryAssetRates(ctx context.Context, in *QueryAssetRatesRequest, opts ...grpc.CallOption) (*QueryAssetRatesResponse, error)
 }
 
 type priceOracleClient struct {
@@ -32,9 +32,9 @@ func NewPriceOracleClient(cc grpc.ClientConnInterface) PriceOracleClient {
 	return &priceOracleClient{cc}
 }
 
-func (c *priceOracleClient) QueryRateTick(ctx context.Context, in *QueryRateTickRequest, opts ...grpc.CallOption) (*QueryRateTickResponse, error) {
-	out := new(QueryRateTickResponse)
-	err := c.cc.Invoke(ctx, "/priceoraclerpc.PriceOracle/QueryRateTick", in, out, opts...)
+func (c *priceOracleClient) QueryAssetRates(ctx context.Context, in *QueryAssetRatesRequest, opts ...grpc.CallOption) (*QueryAssetRatesResponse, error) {
+	out := new(QueryAssetRatesResponse)
+	err := c.cc.Invoke(ctx, "/priceoraclerpc.PriceOracle/QueryAssetRates", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -45,10 +45,10 @@ func (c *priceOracleClient) QueryRateTick(ctx context.Context, in *QueryRateTick
 // All implementations must embed UnimplementedPriceOracleServer
 // for forward compatibility
 type PriceOracleServer interface {
-	// QueryRateTick queries the rate tick for a given transaction type, subject
-	// asset, and payment asset. The rate tick is the exchange rate between the
-	// subject asset and the payment asset.
-	QueryRateTick(context.Context, *QueryRateTickRequest) (*QueryRateTickResponse, error)
+	// QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
+	// a specified transaction type, subject asset, and payment asset. The asset
+	// rate represents the number of tap asset units per BTC.
+	QueryAssetRates(context.Context, *QueryAssetRatesRequest) (*QueryAssetRatesResponse, error)
 	mustEmbedUnimplementedPriceOracleServer()
 }
 
@@ -56,8 +56,8 @@ type PriceOracleServer interface {
 type UnimplementedPriceOracleServer struct {
 }
 
-func (UnimplementedPriceOracleServer) QueryRateTick(context.Context, *QueryRateTickRequest) (*QueryRateTickResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method QueryRateTick not implemented")
+func (UnimplementedPriceOracleServer) QueryAssetRates(context.Context, *QueryAssetRatesRequest) (*QueryAssetRatesResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method QueryAssetRates not implemented")
 }
 func (UnimplementedPriceOracleServer) mustEmbedUnimplementedPriceOracleServer() {}
 
@@ -72,20 +72,20 @@ func RegisterPriceOracleServer(s grpc.ServiceRegistrar, srv PriceOracleServer) {
 	s.RegisterService(&PriceOracle_ServiceDesc, srv)
 }
 
-func _PriceOracle_QueryRateTick_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(QueryRateTickRequest)
+func _PriceOracle_QueryAssetRates_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(QueryAssetRatesRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(PriceOracleServer).QueryRateTick(ctx, in)
+		return srv.(PriceOracleServer).QueryAssetRates(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: "/priceoraclerpc.PriceOracle/QueryRateTick",
+		FullMethod: "/priceoraclerpc.PriceOracle/QueryAssetRates",
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(PriceOracleServer).QueryRateTick(ctx, req.(*QueryRateTickRequest))
+		return srv.(PriceOracleServer).QueryAssetRates(ctx, req.(*QueryAssetRatesRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -98,8 +98,8 @@ var PriceOracle_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*PriceOracleServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "QueryRateTick",
-			Handler:    _PriceOracle_QueryRateTick_Handler,
+			MethodName: "QueryAssetRates",
+			Handler:    _PriceOracle_QueryAssetRates_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

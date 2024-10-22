@@ -24,9 +24,8 @@ type acceptWireMsgData struct {
 	// ID is the unique identifier of the quote request.
 	ID tlv.RecordT[tlv.TlvType2, ID]
 
-	// Expiry is the expiry Unix timestamp (in seconds) of the quote
-	// request. This timestamp defines the lifetime of both the suggested
-	// rate tick and the quote request.
+	// Expiry is the Unix timestamp (in seconds) when the quote expires.
+	// The quote becomes invalid after this time.
 	Expiry tlv.RecordT[tlv.TlvType4, uint64]
 
 	// Sig is a signature over the serialized contents of the message.
