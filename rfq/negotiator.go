@@ -2,7 +2,6 @@ package rfq
 
 import (
 	"fmt"
-	"math/big"
 	"sync"
 	"time"
 
@@ -598,8 +597,8 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 
 		// Ensure that the peer provided price is reasonable given the
 		// price provided by the price oracle service.
-		tolerance := rfqmath.NewBigInt(
-			big.NewInt(0).SetUint64(n.cfg.AcceptPriceDeviationPpm),
+		tolerance := rfqmath.NewBigIntFromUint64(
+			n.cfg.AcceptPriceDeviationPpm,
 		)
 		acceptablePrice := msg.AssetRate.WithinTolerance(
 			*assetRate, tolerance,
@@ -724,8 +723,8 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 
 		// Ensure that the peer provided price is reasonable given the
 		// price provided by the price oracle service.
-		tolerance := rfqmath.NewBigInt(
-			big.NewInt(0).SetUint64(n.cfg.AcceptPriceDeviationPpm),
+		tolerance := rfqmath.NewBigIntFromUint64(
+			n.cfg.AcceptPriceDeviationPpm,
 		)
 		acceptablePrice := msg.AssetRate.WithinTolerance(
 			*assetRate, tolerance,
