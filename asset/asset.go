@@ -417,6 +417,12 @@ func (s *Specifier) UnwrapGroupKeyToPtr() *btcec.PublicKey {
 	return s.groupKey.UnwrapToPtr()
 }
 
+// UnwrapToPtr unwraps the asset ID and asset group public key fields,
+// returning them as pointers.
+func (s *Specifier) UnwrapToPtr() (*ID, *btcec.PublicKey) {
+	return s.UnwrapIdToPtr(), s.UnwrapGroupKeyToPtr()
+}
+
 // Type denotes the asset types supported by the Taproot Asset protocol.
 type Type uint8
 
