@@ -2,7 +2,6 @@ package rfqmath
 
 import (
 	"math"
-	"math/big"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -284,7 +283,7 @@ func TestArithmeticIntConstructor(t *testing.T) {
 
 	// We should be able to create a new BigInt from a uint64.
 	val := uint64(123)
-	a := NewBigInt(new(big.Int).SetUint64(val))
+	a := NewBigIntFromUint64(val)
 	if !a.Equals(NewInt[BigInt]().FromUint64(val)) {
 		t.Fatalf("expected %v, got %v", val, a)
 	}

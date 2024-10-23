@@ -263,6 +263,47 @@ type Specifier struct {
 	groupKey fn.Option[btcec.PublicKey]
 }
 
+// NewSpecifier creates a new Specifier instance based on the provided
+// parameters.
+//
+// The Specifier identifies an asset using either an asset ID, a group public
+// key, or a group key. At least one of these must be specified if the
+// `mustBeSpecified` parameter is set to true.
+func NewSpecifier(id *ID, groupPubKey *btcec.PublicKey, groupKey *GroupKey,
+	mustBeSpecified bool) (Specifier, error) {
+
+	// Return an error if the asset ID, group public key, and group key are
+	// all nil and at least one of them must be specified.
+	isAnySpecified := id != nil || groupPubKey != nil || groupKey != nil
+	if !isAnySpecified && mustBeSpecified {
+		return Specifier{}, fmt.Errorf("at least one of the asset ID "+
+			"or asset group key fields must be specified "+
+			"(id=%v, groupPubKey=%v, groupKey=%v)",
+			id, groupPubKey, groupKey)
+	}
+
+	// Create an option for the asset ID.
+	var optId fn.Option[ID]
+	if id != nil {
+		optId = fn.Some(*id)
+	}
+
+	// Create an option for the group public key.
+	var optGroupPubKey fn.Option[btcec.PublicKey]
+	if groupPubKey != nil {
+		optGroupPubKey = fn.Some(*groupPubKey)
+	}
+
+	if groupKey != nil {
+		optGroupPubKey = fn.Some(groupKey.GroupPubKey)
+	}
+
+	return Specifier{
+		id:       optId,
+		groupKey: optGroupPubKey,
+	}, nil
+}
+
 // NewSpecifierOptionalGroupPubKey creates a new specifier that specifies an
 // asset by its ID and an optional group public key.
 func NewSpecifierOptionalGroupPubKey(id ID,
@@ -306,6 +347,22 @@ func NewSpecifierFromGroupKey(groupPubKey btcec.PublicKey) Specifier {
 	return Specifier{
 		groupKey: fn.Some(groupPubKey),
 	}
+}
+
+// String returns a human-readable description of the specifier.
+func (s *Specifier) String() string {
+	var assetID ID
+	s.WhenId(func(id ID) {
+		assetID = id
+	})
+
+	var groupKeyBytes []byte
+	s.WhenGroupPubKey(func(key btcec.PublicKey) {
+		groupKeyBytes = key.SerializeCompressed()
+	})
+
+	return fmt.Sprintf("AssetSpecifier(id=%s, group_pub_key=%x)",
+		assetID, groupKeyBytes)
 }
 
 // AsBytes returns the asset ID and group public key as byte slices.
@@ -363,6 +420,12 @@ func (s *Specifier) UnwrapIdToPtr() *ID {
 // UnwrapGroupKeyToPtr unwraps the asset group public key field to a pointer.
 func (s *Specifier) UnwrapGroupKeyToPtr() *btcec.PublicKey {
 	return s.groupKey.UnwrapToPtr()
+}
+
+// UnwrapToPtr unwraps the asset ID and asset group public key fields,
+// returning them as pointers.
+func (s *Specifier) UnwrapToPtr() (*ID, *btcec.PublicKey) {
+	return s.UnwrapIdToPtr(), s.UnwrapGroupKeyToPtr()
 }
 
 // Type denotes the asset types supported by the Taproot Asset protocol.

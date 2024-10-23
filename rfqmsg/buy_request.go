@@ -104,7 +104,7 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 
 	// Extract the suggested asset to BTC rate if provided.
 	var suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
-	msgData.SuggestedAssetRate.WhenSome(
+	msgData.InAssetRateHint.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
 			fp := rate.Val.IntoBigIntFixedPoint()
 			suggestedAssetRate =
@@ -118,7 +118,7 @@ func NewBuyRequestMsgFromWire(wireMsg WireMessage,
 		ID:                 msgData.ID.Val,
 		AssetID:            assetID,
 		AssetGroupKey:      assetGroupKey,
-		AssetAmount:        msgData.AssetMaxAmount.Val,
+		AssetAmount:        msgData.MaxInAsset.Val,
 		SuggestedAssetRate: suggestedAssetRate,
 	}
 
