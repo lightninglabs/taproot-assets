@@ -156,6 +156,13 @@ func NewBigInt(value *big.Int) BigInt {
 	}
 }
 
+// NewBigIntFromUint64 creates a new BigInt from the given uint64.
+func NewBigIntFromUint64(value uint64) BigInt {
+	return BigInt{
+		value: big.NewInt(0).SetUint64(value),
+	}
+}
+
 // copyInt returns a copy of the internal big.Int. This is used to ensure we
 // don't mutate the underlying bit.Int during arithmetic operations.
 func (b BigInt) copyInt() *big.Int {
