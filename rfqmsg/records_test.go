@@ -9,15 +9,43 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type htlcTestCase struct {
+	name         string
+	htlc         *Htlc
+	expectedJSON string
+}
+
+// assetHtlcTestCase is a helper function that asserts different properties of
+// the test case.
+func assetHtlcTestCase(t *testing.T, tc htlcTestCase) {
+	// Serialize the HTLC and then deserialize it again.
+	var b bytes.Buffer
+	err := tc.htlc.Encode(&b)
+	require.NoError(t, err)
+
+	deserializedHtlc := &Htlc{}
+	err = deserializedHtlc.Decode(&b)
+	require.NoError(t, err)
+
+	require.Equal(t, tc.htlc, deserializedHtlc)
+
+	jsonBytes, err := deserializedHtlc.AsJson()
+	require.NoError(t, err)
+
+	var formatted bytes.Buffer
+	err = json.Indent(&formatted, jsonBytes, "", "  ")
+	require.NoError(t, err)
+
+	if tc.expectedJSON != "" {
+		require.Equal(t, tc.expectedJSON, formatted.String())
+	}
+}
+
 // TestHtlc tests encoding and decoding of the Htlc struct.
 func TestHtlc(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name         string
-		htlc         *Htlc
-		expectedJSON string
-	}{
+	testCases := []htlcTestCase{
 		{
 			name: "empty HTLC",
 			htlc: &Htlc{},
@@ -67,25 +95,7 @@ func TestHtlc(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Serialize the HTLC and then deserialize it again.
-			var b bytes.Buffer
-			err := tc.htlc.Encode(&b)
-			require.NoError(t, err)
-
-			deserializedHtlc := &Htlc{}
-			err = deserializedHtlc.Decode(&b)
-			require.NoError(t, err)
-
-			require.Equal(t, tc.htlc, deserializedHtlc)
-
-			jsonBytes, err := deserializedHtlc.AsJson()
-			require.NoError(t, err)
-
-			var formatted bytes.Buffer
-			err = json.Indent(&formatted, jsonBytes, "", "  ")
-			require.NoError(t, err)
-
-			require.Equal(t, tc.expectedJSON, formatted.String())
+			assetHtlcTestCase(t, tc)
 		})
 	}
 }
