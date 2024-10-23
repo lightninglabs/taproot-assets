@@ -263,6 +263,47 @@ type Specifier struct {
 	groupKey fn.Option[btcec.PublicKey]
 }
 
+// NewSpecifier creates a new Specifier instance based on the provided
+// parameters.
+//
+// The Specifier identifies an asset using either an asset ID, a group public
+// key, or a group key. At least one of these must be specified if the
+// `mustBeSpecified` parameter is set to true.
+func NewSpecifier(id *ID, groupPubKey *btcec.PublicKey, groupKey *GroupKey,
+	mustBeSpecified bool) (Specifier, error) {
+
+	// Return an error if the asset ID, group public key, and group key are
+	// all nil and at least one of them must be specified.
+	isAnySpecified := id != nil || groupPubKey != nil || groupKey != nil
+	if !isAnySpecified && mustBeSpecified {
+		return Specifier{}, fmt.Errorf("at least one of the asset ID "+
+			"or asset group key fields must be specified "+
+			"(id=%v, groupPubKey=%v, groupKey=%v)",
+			id, groupPubKey, groupKey)
+	}
+
+	// Create an option for the asset ID.
+	var optId fn.Option[ID]
+	if id != nil {
+		optId = fn.Some(*id)
+	}
+
+	// Create an option for the group public key.
+	var optGroupPubKey fn.Option[btcec.PublicKey]
+	if groupPubKey != nil {
+		optGroupPubKey = fn.Some(*groupPubKey)
+	}
+
+	if groupKey != nil {
+		optGroupPubKey = fn.Some(groupKey.GroupPubKey)
+	}
+
+	return Specifier{
+		id:       optId,
+		groupKey: optGroupPubKey,
+	}, nil
+}
+
 // NewSpecifierOptionalGroupPubKey creates a new specifier that specifies an
 // asset by its ID and an optional group public key.
 func NewSpecifierOptionalGroupPubKey(id ID,
