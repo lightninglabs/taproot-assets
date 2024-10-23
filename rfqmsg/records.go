@@ -82,6 +82,32 @@ func (h *Htlc) Balances() []*AssetBalance {
 	return h.Amounts.Val.Balances
 }
 
+// SumAssetBalance returns the sum of the asset balances for the given asset.
+func (h *Htlc) SumAssetBalance(assetSpecifier asset.Specifier) (rfqmath.BigInt,
+	error) {
+
+	balanceTotal := rfqmath.NewBigIntFromUint64(0)
+
+	targetAssetID, err := assetSpecifier.UnwrapIdOrErr()
+	if err != nil {
+		return balanceTotal, fmt.Errorf("unable to unwrap asset ID: %w",
+			err)
+	}
+
+	for idx := range h.Amounts.Val.Balances {
+		balance := h.Amounts.Val.Balances[idx]
+
+		if balance.AssetID.Val != targetAssetID {
+			continue
+		}
+
+		amt := rfqmath.NewBigIntFromUint64(balance.Amount.Val)
+		balanceTotal = balanceTotal.Add(amt)
+	}
+
+	return balanceTotal, nil
+}
+
 // Records returns the records that make up the Htlc.
 func (h *Htlc) Records() []tlv.Record {
 	records := []tlv.Record{

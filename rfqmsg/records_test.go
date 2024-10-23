@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/stretchr/testify/require"
 )
 
@@ -13,6 +15,10 @@ type htlcTestCase struct {
 	name         string
 	htlc         *Htlc
 	expectedJSON string
+
+	// sumBalances is a map of asset ID to the expected sum of balances for
+	// that asset in the HTLC.
+	sumBalances map[asset.ID]rfqmath.BigInt
 }
 
 // assetHtlcTestCase is a helper function that asserts different properties of
@@ -38,6 +44,19 @@ func assetHtlcTestCase(t *testing.T, tc htlcTestCase) {
 
 	if tc.expectedJSON != "" {
 		require.Equal(t, tc.expectedJSON, formatted.String())
+	}
+
+	// Check expected asset sum balances if specified in test case.
+	if tc.sumBalances == nil {
+		tc.sumBalances = make(map[asset.ID]rfqmath.BigInt)
+	}
+
+	for assetID, expectedBalance := range tc.sumBalances {
+		assetSpecifier := asset.NewSpecifierFromId(assetID)
+		balance, err := tc.htlc.SumAssetBalance(assetSpecifier)
+		require.NoError(t, err)
+
+		require.Equal(t, expectedBalance, balance)
 	}
 }
 
@@ -69,6 +88,18 @@ func TestHtlc(t *testing.T) {
   ],
   "rfq_id": ""
 }`,
+		},
+		{
+			name: "HTLC sum balance check",
+			htlc: NewHtlc([]*AssetBalance{
+				NewAssetBalance([32]byte{1}, 1000),
+				NewAssetBalance([32]byte{1}, 2000),
+				NewAssetBalance([32]byte{2}, 5000),
+			}, fn.None[ID]()),
+			sumBalances: map[asset.ID]rfqmath.BigInt{
+				[32]byte{1}: rfqmath.NewBigIntFromUint64(3000),
+				[32]byte{2}: rfqmath.NewBigIntFromUint64(5000),
+			},
 		},
 		{
 			name: "channel with multiple balance assets",
