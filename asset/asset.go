@@ -343,6 +343,23 @@ func NewSpecifierFromGroupKey(groupPubKey btcec.PublicKey) Specifier {
 	}
 }
 
+// String returns a human-readable description of the specifier.
+func (s *Specifier) String() string {
+	// An unset asset ID is represented as an empty string.
+	var assetIdStr string
+	s.WhenId(func(id ID) {
+		assetIdStr = id.String()
+	})
+
+	var groupKeyBytes []byte
+	s.WhenGroupPubKey(func(key btcec.PublicKey) {
+		groupKeyBytes = key.SerializeCompressed()
+	})
+
+	return fmt.Sprintf("AssetSpecifier(id=%s, group_pub_key=%x)",
+		assetIdStr, groupKeyBytes)
+}
+
 // AsBytes returns the asset ID and group public key as byte slices.
 func (s *Specifier) AsBytes() ([]byte, []byte) {
 	var assetIDBytes, groupKeyBytes []byte
