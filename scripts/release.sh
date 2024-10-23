@@ -204,7 +204,7 @@ required Go version ($goversion)."
 function usage() {
   red "Usage: "
   red "release.sh check-tag <version-tag>"
-  red "release.sh build-release <version-tag> <build-system(s)> <build-tags> <ldflags>"
+  red "release.sh build-release <version-tag> <build-system(s)> <build-tags> <ldflags> <go-version>"
 }
 
 # Whatever sub command is passed in, we need at least 2 arguments.
