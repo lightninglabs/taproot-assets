@@ -210,13 +210,17 @@ var _ Policy = (*AssetSalePolicy)(nil)
 type AssetPurchasePolicy struct {
 	// scid is the serialised short channel ID (SCID) of the channel to
 	// which the policy applies.
+	//
+	// TODO(ffranr): Remove this field. It can be derived from
+	//  AcceptedQuoteId.
 	scid SerialisedScid
+
+	// AssetSpecifier is the identifier for the specific asset or asset
+	// group to which this policy applies.
+	AssetSpecifier asset.Specifier
 
 	// AcceptedQuoteId is the ID of the accepted quote.
 	AcceptedQuoteId rfqmsg.ID
-
-	// AssetAmount is the amount of the tap asset that is being requested.
-	AssetAmount uint64
 
 	// BidAssetRate is the quote's asset to BTC conversion rate.
 	BidAssetRate rfqmath.BigIntFixedPoint
@@ -230,8 +234,8 @@ type AssetPurchasePolicy struct {
 func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 	return &AssetPurchasePolicy{
 		scid:            quote.ShortChannelId(),
+		AssetSpecifier:  quote.Request.AssetSpecifier,
 		AcceptedQuoteId: quote.ID,
-		AssetAmount:     quote.Request.AssetAmount,
 		BidAssetRate:    quote.AssetRate,
 		expiry:          quote.Expiry,
 	}
@@ -260,19 +264,25 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 			"accepted_quote_id=%v)", htlc, c.AcceptedQuoteId)
 	}
 
+	// Sum the asset balance in the HTLC record.
+	assetAmt, err := htlcRecord.SumAssetBalance(c.AssetSpecifier)
+	if err != nil {
+		return fmt.Errorf("error summing asset balance: %w", err)
+	}
+
 	// Convert the inbound asset amount to millisatoshis and ensure that the
 	// outgoing HTLC amount is not more than the inbound asset amount.
-	assetAmt := rfqmath.NewBigIntFixedPoint(c.AssetAmount, 0)
+	assetAmtFp := new(rfqmath.BigIntFixedPoint).SetIntValue(assetAmt)
 	inboundAmountMSat := rfqmath.UnitsToMilliSatoshi(
-		assetAmt, c.BidAssetRate,
+		assetAmtFp, c.BidAssetRate,
 	)
 
 	if inboundAmountMSat < htlc.AmountOutMsat {
 		return fmt.Errorf("htlc out amount is more than inbound "+
 			"asset amount in millisatoshis (htlc_out_msat=%d, "+
-			"inbound_asset_amount=%d, "+
+			"inbound_asset_amount=%s, "+
 			"inbound_asset_amount_msat=%v)", htlc.AmountOutMsat,
-			c.AssetAmount, inboundAmountMSat)
+			assetAmt.String(), inboundAmountMSat)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.

@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
@@ -19,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -229,7 +232,11 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		t.t, t.lndHarness.Miner().Client, ts.AliceTapd,
 		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
 	)
-	mintedAssetId := rpcAssets[0].AssetGenesis.AssetId
+	mintedAssetIdBytes := rpcAssets[0].AssetGenesis.AssetId
+
+	// Type convert the asset ID bytes to an `asset.ID`.
+	var mintedAssetId asset.ID
+	copy(mintedAssetId[:], mintedAssetIdBytes[:])
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -241,7 +248,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		ctxt, &rfqrpc.AddAssetBuyOfferRequest{
 			AssetSpecifier: &rfqrpc.AssetSpecifier{
 				Id: &rfqrpc.AssetSpecifier_AssetId{
-					AssetId: mintedAssetId,
+					AssetId: mintedAssetIdBytes,
 				},
 			},
 			MaxUnits: 1000,
@@ -265,7 +272,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 		ctxt, &rfqrpc.AddAssetSellOrderRequest{
 			AssetSpecifier: &rfqrpc.AssetSpecifier{
 				Id: &rfqrpc.AssetSpecifier_AssetId{
-					AssetId: mintedAssetId,
+					AssetId: mintedAssetIdBytes,
 				},
 			},
 			MaxAssetAmount: purchaseAssetAmt,
@@ -303,6 +310,10 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	acceptedQuote := acceptedQuotes.SellQuotes[0]
 
+	// Type cast the accepted quote ID bytes to an `rfqmsg.ID`.
+	var acceptedQuoteId rfqmsg.ID
+	copy(acceptedQuoteId[:], acceptedQuote.Id[:])
+
 	// Register to receive RFQ events from Bob's tapd node. We'll use this
 	// to wait for Bob to receive the HTLC with the asset transfer specific
 	// scid.
@@ -337,19 +348,40 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	// Send the payment to the route.
 	t.Log("Alice paying invoice")
-	var htlcRfqIDTlvType rfqmsg.HtlcRfqIDType
+
+	// Construct first hop custom records for payment.
+	//
+	// The custom records will contain the accepted quote ID and the asset
+	// amounts that Alice will pay to Bob.
+	//
+	// We select an asset amount which is sufficient to cover the invoice
+	// amount.
+	paymentAssetAmount := uint64(42)
+	assetAmounts := []*rfqmsg.AssetBalance{
+		rfqmsg.NewAssetBalance(mintedAssetId, paymentAssetAmount),
+	}
+
+	htlcCustomRecords := rfqmsg.NewHtlc(
+		assetAmounts, fn.Some(acceptedQuoteId),
+	)
+
+	// Convert the custom records to a TLV map for inclusion in
+	// SendToRouteRequest.
+	firstHopCustomRecords, err := tlv.RecordsToMap(
+		htlcCustomRecords.Records(),
+	)
+	require.NoError(t.t, err)
+
 	routeReq := routerrpc.SendToRouteRequest{
-		PaymentHash: invoice.RHash,
-		Route:       routeBuildResp.Route,
-		FirstHopCustomRecords: map[uint64][]byte{
-			uint64(htlcRfqIDTlvType.TypeVal()): acceptedQuote.Id[:],
-		},
+		PaymentHash:           invoice.RHash,
+		Route:                 routeBuildResp.Route,
+		FirstHopCustomRecords: firstHopCustomRecords,
 	}
 	sendAttempt := ts.AliceLnd.RPC.SendToRouteV2(&routeReq)
 
-	// The payment will fail since it doesn't transport the correct amount
-	// of the asset.
-	require.Equal(t.t, lnrpc.HTLCAttempt_FAILED, sendAttempt.Status)
+	// The payment will succeed since it the asset amount transport is
+	// sufficient to cover the invoice amount.
+	require.Equal(t.t, lnrpc.HTLCAttempt_SUCCEEDED, sendAttempt.Status)
 
 	// At this point Bob should have received a HTLC with the asset transfer
 	// specific scid. We'll wait for Bob to publish an accept HTLC event and
@@ -365,7 +397,7 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	// Confirm that Carol receives the lightning payment from Alice via Bob.
 	invoice = ts.CarolLnd.RPC.LookupInvoice(addInvoiceResp.RHash)
-	require.Equal(t.t, invoice.State, lnrpc.Invoice_OPEN)
+	require.Equal(t.t, lnrpc.Invoice_SETTLED, invoice.State)
 
 	// Close event notification streams.
 	err = aliceEventNtfns.CloseSend()
