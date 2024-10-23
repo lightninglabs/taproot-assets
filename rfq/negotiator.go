@@ -376,7 +376,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	// At this point we can handle the case where this node does not wish
 	// to buy some amount of a particular asset regardless of its price.
 	offerAvailable := n.HasAssetBuyOffer(
-		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+		request.AssetSpecifier, request.AssetAmount,
 	)
 	if !offerAvailable {
 		log.Infof("Would reject sell request: no suitable buy offer, " +
@@ -406,8 +406,9 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// Query the price oracle for a bid price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
+		assetID, assetGroupKey := request.AssetSpecifier.UnwrapToPtr()
 		assetRate, err := n.queryBidFromPriceOracle(
-			request.Peer, request.AssetID, request.AssetGroupKey,
+			request.Peer, assetID, assetGroupKey,
 			request.AssetAmount, request.AssetRateHint,
 		)
 		if err != nil {
@@ -692,8 +693,10 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// We will sanity check that price by querying our price oracle
 		// for a bid price. We will then compare the bid price returned
 		// by the price oracle with the bid price provided by the peer.
+		assetID, assetGroupKey :=
+			msg.Request.AssetSpecifier.UnwrapToPtr()
 		assetRate, err := n.queryBidFromPriceOracle(
-			msg.Peer, msg.Request.AssetID, nil,
+			msg.Peer, assetID, assetGroupKey,
 			msg.Request.AssetAmount, msg.Request.AssetRateHint,
 		)
 		if err != nil {
@@ -967,33 +970,34 @@ func (n *Negotiator) UpsertAssetBuyOffer(offer BuyOffer) error {
 //
 // TODO(ffranr): This method should return errors which can be used to
 // differentiate between a missing offer and an invalid offer.
-func (n *Negotiator) HasAssetBuyOffer(assetID *asset.ID,
-	assetGroupKey *btcec.PublicKey, assetAmt uint64) bool {
+func (n *Negotiator) HasAssetBuyOffer(assetSpecifier asset.Specifier,
+	assetAmt uint64) bool {
 
 	// If the asset group key is not nil, then we will use it as the lookup
 	// key to retrieve an offer. Otherwise, we will use the asset ID as the
 	// lookup key.
 	var buyOffer *BuyOffer
-	switch {
-	case assetGroupKey != nil:
-		keyFixedBytes := asset.ToSerialized(assetGroupKey)
+
+	assetSpecifier.WhenGroupPubKey(func(assetGroupKey btcec.PublicKey) {
+		keyFixedBytes := asset.ToSerialized(&assetGroupKey)
 		offer, ok := n.assetGroupBuyOffers.Load(keyFixedBytes)
 		if !ok {
 			// Corresponding offer not found.
-			return false
+			return
 		}
 
 		buyOffer = &offer
+	})
 
-	case assetID != nil:
-		offer, ok := n.assetBuyOffers.Load(*assetID)
+	assetSpecifier.WhenId(func(assetID asset.ID) {
+		offer, ok := n.assetBuyOffers.Load(assetID)
 		if !ok {
 			// Corresponding offer not found.
-			return false
+			return
 		}
 
 		buyOffer = &offer
-	}
+	})
 
 	// We should never have a nil buy offer at this point. Check added here
 	// for robustness.

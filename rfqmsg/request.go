@@ -216,20 +216,20 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	)
 
 	outAssetID := requestOutAssetID{}
-	if q.AssetID != nil {
+	q.AssetSpecifier.WhenId(func(id asset.ID) {
 		outAssetID = tlv.SomeRecordT[tlv.TlvType13](
-			tlv.NewPrimitiveRecord[tlv.TlvType13](*q.AssetID),
+			tlv.NewPrimitiveRecord[tlv.TlvType13](id),
 		)
-	}
+	})
 
 	outAssetGroupKey := requestOutAssetGroupKey{}
-	if q.AssetGroupKey != nil {
+	q.AssetSpecifier.WhenGroupPubKey(func(groupPubKey btcec.PublicKey) {
 		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType15](
 			tlv.NewPrimitiveRecord[tlv.TlvType15](
-				q.AssetGroupKey,
+				&groupPubKey,
 			),
 		)
-	}
+	})
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{

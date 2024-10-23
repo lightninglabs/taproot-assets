@@ -28,13 +28,9 @@ type SellRequest struct {
 	// ID is the unique identifier of the quote request.
 	ID ID
 
-	// AssetID represents the identifier of the asset for which the peer
-	// is requesting a quote.
-	AssetID *asset.ID
-
-	// AssetGroupKey is the public group key of the asset for which the peer
-	// is requesting a quote.
-	AssetGroupKey *btcec.PublicKey
+	// AssetSpecifier represents the asset for which this quote request is
+	// made. It specifies the particular asset involved in the request.
+	AssetSpecifier asset.Specifier
 
 	// AssetAmount represents the quantity of the specific asset that the
 	// peer intends to sell.
@@ -57,14 +53,21 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 		return nil, fmt.Errorf("unable to generate random id: %w", err)
 	}
 
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, assetGroupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
 	return &SellRequest{
-		Peer:          peer,
-		Version:       latestSellRequestVersion,
-		ID:            id,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   assetAmount,
-		AssetRateHint: assetRateHint,
+		Peer:           peer,
+		Version:        latestSellRequestVersion,
+		ID:             id,
+		AssetSpecifier: assetSpecifier,
+		AssetAmount:    assetAmount,
+		AssetRateHint:  assetRateHint,
 	}, nil
 }
 
@@ -94,6 +97,14 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, assetGroupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
 	// Sanity check that at least one of the inbound asset ID or
 	// group key is set. At least one must be set in a buy request.
 	if assetID == nil && assetGroupKey == nil {
@@ -114,13 +125,12 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 	)
 
 	req := SellRequest{
-		Peer:          wireMsg.Peer,
-		Version:       msgData.Version.Val,
-		ID:            msgData.ID.Val,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   msgData.MaxInAsset.Val,
-		AssetRateHint: assetRateHint,
+		Peer:           wireMsg.Peer,
+		Version:        msgData.Version.Val,
+		ID:             msgData.ID.Val,
+		AssetSpecifier: assetSpecifier,
+		AssetAmount:    msgData.MaxInAsset.Val,
+		AssetRateHint:  assetRateHint,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -134,13 +144,12 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 
 // Validate ensures that the quote request is valid.
 func (q *SellRequest) Validate() error {
-	if q.AssetID == nil && q.AssetGroupKey == nil {
-		return fmt.Errorf("asset id and group key cannot both be nil")
-	}
-
-	if q.AssetID != nil && q.AssetGroupKey != nil {
-		return fmt.Errorf("asset id and group key cannot both be " +
-			"non-nil")
+	// Ensure that the asset specifier is set.
+	//
+	// TODO(ffranr): For now, the asset ID must be set. We do not currently
+	//  support group keys.
+	if !q.AssetSpecifier.HasId() {
+		return fmt.Errorf("asset id not specified in SellRequest")
 	}
 
 	// Ensure that the message version is supported.
@@ -191,11 +200,6 @@ func (q *SellRequest) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *SellRequest) String() string {
-	var groupKeyBytes []byte
-	if q.AssetGroupKey != nil {
-		groupKeyBytes = q.AssetGroupKey.SerializeCompressed()
-	}
-
 	// Convert the asset rate hint to a string representation. Use empty
 	// string if the hint is not set.
 	assetRateHintStr := fn.MapOptionZ(
@@ -205,9 +209,9 @@ func (q *SellRequest) String() string {
 		},
 	)
 
-	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, asset_rate_hint=%s)",
-		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount,
+	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset=%s, "+
+		"asset_amount=%d, asset_rate_hint=%s)",
+		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.AssetAmount,
 		assetRateHintStr)
 }
 
