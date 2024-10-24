@@ -699,18 +699,25 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 				"key is spendable: %w", err)
 		}
 		if unSpendable && !fullValue {
-			changeScriptKey, err := f.cfg.KeyRing.DeriveNextKey(
-				ctx, asset.TaprootAssetsKeyFamily,
-			)
-			if err != nil {
-				return nil, err
-			}
+			/*
+				changeScriptKey, err := f.cfg.KeyRing.DeriveNextKey(
+					ctx, asset.TaprootAssetsKeyFamily,
+				)
+				if err != nil {
+					return nil, err
+				}
 
-			// We'll assume BIP-0086 everywhere, and use the tweaked
-			// key from here on out.
-			changeOut.ScriptKey = asset.NewScriptKeyBip86(
-				changeScriptKey,
-			)
+				// We'll assume BIP-0086 everywhere, and use the tweaked
+				// key from here on out.
+				changeOut.ScriptKey = asset.NewScriptKeyBip86(
+					changeScriptKey,
+				)*/
+			// re-use the scriptkey from the input asset
+			// the assumption above that the change should go to the
+			// operator of the pocket universe is incorrect/not useful
+			// in the context of Tajfi nostr users
+			changeOut.ScriptKey = vPkt.Inputs[0].Asset().ScriptKey
+			fmt.Printf("reused change script key: %v\n", changeOut.ScriptKey)
 		}
 
 		// For existing change outputs, we'll just update the amount
