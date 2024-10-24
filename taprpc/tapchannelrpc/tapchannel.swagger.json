@@ -1354,6 +1354,10 @@
         "invoice_request": {
           "$ref": "#/definitions/lnrpcInvoice",
           "description": "The full lnd invoice request to send. All fields (except for the value\nand the route hints) behave the same way as they do for lnd's\nlnrpc.AddInvoice RPC method (see the API docs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/add-invoice\nfor more details). The value/value_msat fields will be overwritten by the\nsatoshi (or milli-satoshi) equivalent of the asset amount, after\nnegotiating a quote with a peer that supports the given asset ID."
+        },
+        "hodl_invoice": {
+          "$ref": "#/definitions/tapchannelrpcHodlInvoice",
+          "description": "If set, then this will make the invoice created a hodl invoice, which\nwon't be settled automatically. Instead, users will need to use the\ninvoicesrpc.SettleInvoice call to manually settle the invoice."
         }
       }
     },
@@ -1402,6 +1406,15 @@
           "type": "integer",
           "format": "int32",
           "description": "The index of the channel funding output in the funding transaction."
+        }
+      }
+    },
+    "tapchannelrpcHodlInvoice": {
+      "type": "object",
+      "properties": {
+        "payment_hash": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },
