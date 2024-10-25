@@ -20,6 +20,15 @@ type FixedPoint[T Int[T]] struct {
 	Scale uint8
 }
 
+// SetIntValue assigns the specified integer value to the FixedPoint. The
+// coefficient is set to the given value, and the scale is reset to 0.
+func (f FixedPoint[T]) SetIntValue(value T) FixedPoint[T] {
+	f.Coefficient = value
+	f.Scale = 0
+
+	return f
+}
+
 // String returns the string version of the fixed point value.
 func (f FixedPoint[T]) String() string {
 	coefficient := f.Coefficient.ToFloat() / math.Pow10(int(f.Scale))
