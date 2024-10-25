@@ -112,6 +112,12 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
 // does not satisfy the subject policy.
+//
+// The HTLC examined by this function was likely created by a peer unaware of
+// the RFQ agreement (i.e., they are simply paying an invoice), with the SCID
+// included as a hop hint within the invoice. The SCID is the only piece of
+// information used to determine the policy applicable to the HTLC. As a result,
+// HTLC custom records are not expected to be present.
 func (c *AssetSalePolicy) CheckHtlcCompliance(
 	htlc lndclient.InterceptedHtlc) error {
 
@@ -123,18 +129,27 @@ func (c *AssetSalePolicy) CheckHtlcCompliance(
 			htlcScid, c.ID.Scid())
 	}
 
-	// Check that the HTLC amount is not greater than the negotiated maximum
-	// amount.
+	// The RFQ quote sets an upper limit on the amount of assets this node
+	// is willing to sell. We need to ensure that the HTLC outbound amount
+	// does not correspond to an asset amount exceeding this agreed maximum.
+	//
+	// In other words, this check ensures our peer isn't trying to obtain
+	// more assets than we are willing to sell.
+	//
+	// Verify that the HTLC outbound amount (msat) does not exceed the
+	// maximum asset amount (converted to msat) as specified in the quote.
+	// Convert the maximum asset amount to msat using the asset-to-BTC rate
+	// from the quote, and ensure it is less than the HTLC outbound amount
+	// (msat).
 	maxAssetAmount := rfqmath.NewBigIntFixedPoint(c.MaxAssetAmount, 0)
-
-	maxOutboundAmount := rfqmath.UnitsToMilliSatoshi(
+	policyMaxOutMsat := rfqmath.UnitsToMilliSatoshi(
 		maxAssetAmount, c.AskAssetRate,
 	)
 
-	if htlc.AmountOutMsat > maxOutboundAmount {
+	if htlc.AmountOutMsat > policyMaxOutMsat {
 		return fmt.Errorf("htlc out amount is greater than the policy "+
 			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
-			htlc.AmountOutMsat, maxOutboundAmount)
+			htlc.AmountOutMsat, policyMaxOutMsat)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.

@@ -193,8 +193,8 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	t.Log("Alice payment sent")
 
 	// At this point Bob should have received a HTLC with the asset transfer
-	// specific scid. We'll wait for Bob to publish an accept HTLC event and
-	// then validate it against the accepted quote.
+	// specific scid. We'll wait for Bob to validate the HTLC against the
+	// accepted quote and publish a HTLC accept event.
 	BeforeTimeout(t.t, func() {
 		t.Log("Waiting for Bob to receive HTLC")
 
