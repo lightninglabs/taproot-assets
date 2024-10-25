@@ -591,7 +591,7 @@ func MarshalAcceptedBuyQuoteEvent(
 		Peer:        event.Peer.String(),
 		Id:          event.ID[:],
 		Scid:        uint64(event.ShortChannelId()),
-		AssetAmount: event.Request.AssetAmount,
+		AssetAmount: event.Request.AssetMaxAmt,
 		AskAssetRate: &rfqrpc.FixedPoint{
 			Coefficient: event.AssetRate.Coefficient.String(),
 			Scale:       uint32(event.AssetRate.Scale),

@@ -163,7 +163,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 		)
 	})
 
-	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetMaxAmt)
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{

@@ -6575,7 +6575,7 @@ func marshalPeerAcceptedBuyQuotes(
 			Peer:         quote.Peer.String(),
 			Id:           quote.ID[:],
 			Scid:         uint64(scid),
-			AssetAmount:  quote.Request.AssetAmount,
+			AssetAmount:  quote.Request.AssetMaxAmt,
 			AskAssetRate: rpcAskAssetRate,
 			Expiry:       quote.Expiry,
 		}

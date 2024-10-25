@@ -281,7 +281,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 	// requested. Here we can handle the case where this node does not wish
 	// to sell a particular asset.
 	offerAvailable := n.HasAssetSellOffer(
-		request.AssetID, request.AssetGroupKey, request.AssetAmount,
+		request.AssetID, request.AssetGroupKey, request.AssetMaxAmt,
 	)
 	if !offerAvailable {
 		log.Infof("Would reject buy request: no suitable buy offer, " +
@@ -311,7 +311,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		// Query the price oracle for an asking price.
 		assetRate, err := n.queryAskFromPriceOracle(
 			nil, request.AssetID, request.AssetGroupKey,
-			request.AssetAmount, request.AssetRateHint,
+			request.AssetMaxAmt, request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -570,7 +570,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, err := n.queryAskFromPriceOracle(
 			&msg.Peer, msg.Request.AssetID, nil,
-			msg.Request.AssetAmount, fn.None[rfqmsg.AssetRate](),
+			msg.Request.AssetMaxAmt, fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return

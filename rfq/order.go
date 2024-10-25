@@ -105,7 +105,7 @@ type AssetSalePolicy struct {
 func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
 		AcceptedQuoteId:        quote.ID,
-		MaxOutboundAssetAmount: quote.Request.AssetAmount,
+		MaxOutboundAssetAmount: quote.Request.AssetMaxAmt,
 		AskAssetRate:           quote.AssetRate,
 		expiry:                 quote.Expiry,
 		assetID:                quote.Request.AssetID,

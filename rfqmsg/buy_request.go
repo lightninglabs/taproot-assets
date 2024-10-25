@@ -37,9 +37,9 @@ type BuyRequest struct {
 	// is requesting a quote.
 	AssetGroupKey *btcec.PublicKey
 
-	// AssetAmount is the amount of the asset for which the peer is
-	// requesting a quote.
-	AssetAmount uint64
+	// AssetMaxAmt represents the maximum asset amount that the responding
+	// peer must agree to divest.
+	AssetMaxAmt uint64
 
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
@@ -50,7 +50,7 @@ type BuyRequest struct {
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
-	assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetGroupKey *btcec.PublicKey, assetMaxAmt uint64,
 	assetRateHint fn.Option[AssetRate]) (*BuyRequest, error) {
 
 	id, err := NewID()
@@ -65,7 +65,7 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 		ID:            id,
 		AssetID:       assetID,
 		AssetGroupKey: assetGroupKey,
-		AssetAmount:   assetAmount,
+		AssetMaxAmt:   assetMaxAmt,
 		AssetRateHint: assetRateHint,
 	}, nil
 }
@@ -124,7 +124,7 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 		ID:            msgData.ID.Val,
 		AssetID:       assetID,
 		AssetGroupKey: assetGroupKey,
-		AssetAmount:   msgData.MaxInAsset.Val,
+		AssetMaxAmt:   msgData.MaxInAsset.Val,
 		AssetRateHint: assetRateHint,
 	}
 
@@ -222,8 +222,8 @@ func (q *BuyRequest) String() string {
 	)
 
 	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, asset_rate_hint=%s)",
-		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount,
+		"asset_group_key=%x, asset_max_amt=%d, asset_rate_hint=%s)",
+		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetMaxAmt,
 		assetRateHintStr)
 }
 
