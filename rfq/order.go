@@ -80,6 +80,10 @@ type Policy interface {
 // AssetSalePolicy is a struct that holds the terms which determine whether an
 // asset sale channel HTLC is accepted or rejected.
 type AssetSalePolicy struct {
+	// AssetSpecifier is the identifier for the specific asset or asset
+	// group to which this policy applies.
+	AssetSpecifier asset.Specifier
+
 	// AcceptedQuoteId is the unique identifier of the RFQ session quote
 	// accept message that the policy is associated with.
 	AcceptedQuoteId rfqmsg.ID
@@ -96,19 +100,16 @@ type AssetSalePolicy struct {
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
 	expiry uint64
-
-	// assetID is the asset ID of the asset that the accept message is for.
-	assetID *asset.ID
 }
 
 // NewAssetSalePolicy creates a new asset sale policy.
 func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
+		AssetSpecifier:         quote.Request.AssetSpecifier,
 		AcceptedQuoteId:        quote.ID,
 		MaxOutboundAssetAmount: quote.Request.AssetMaxAmt,
 		AskAssetRate:           quote.AssetRate,
 		expiry:                 quote.Expiry,
-		assetID:                quote.Request.AssetID,
 	}
 }
 
@@ -192,8 +193,11 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 		input.UnknownWitnessSize,
 	))
 
-	if c.assetID == nil {
-		return nil, fmt.Errorf("policy has no asset ID")
+	// Unpack asset ID.
+	assetID, err := c.AssetSpecifier.UnwrapIdOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("asset sale policy has no asset ID: %w",
+			err)
 	}
 
 	// Compute the outgoing asset amount given the msat outgoing amount and
@@ -204,7 +208,7 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	amt := outgoingAssetAmount.ScaleTo(0).ToUint64()
 
 	// Include the asset balance in the HTLC record.
-	htlcBalance := rfqmsg.NewAssetBalance(*c.assetID, amt)
+	htlcBalance := rfqmsg.NewAssetBalance(assetID, amt)
 	htlcRecord := rfqmsg.NewHtlc(
 		[]*rfqmsg.AssetBalance{htlcBalance}, fn.Some(c.AcceptedQuoteId),
 	)

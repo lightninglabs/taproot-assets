@@ -129,20 +129,20 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
 	var inAssetID requestInAssetID
-	if q.AssetID != nil {
+	q.AssetSpecifier.WhenId(func(id asset.ID) {
 		inAssetID = tlv.SomeRecordT[tlv.TlvType9](
-			tlv.NewPrimitiveRecord[tlv.TlvType9](*q.AssetID),
+			tlv.NewPrimitiveRecord[tlv.TlvType9](id),
 		)
-	}
+	})
 
 	var inAssetGroupKey requestInAssetGroupKey
-	if q.AssetGroupKey != nil {
+	q.AssetSpecifier.WhenGroupPubKey(func(groupPubKey btcec.PublicKey) {
 		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType11](
 			tlv.NewPrimitiveRecord[tlv.TlvType11](
-				q.AssetGroupKey,
+				&groupPubKey,
 			),
 		)
-	}
+	})
 
 	// Use a zero asset ID for the outbound asset ID. This indicates that
 	// the outbound asset is BTC.
