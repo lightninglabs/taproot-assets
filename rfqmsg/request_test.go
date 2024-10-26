@@ -30,6 +30,9 @@ type testCaseEncodeDecode struct {
 	maxInAsset       uint64
 	inAssetRateHint  *uint64
 	outAssetRateHint *uint64
+
+	minInAsset  *uint64
+	minOutAsset *uint64
 }
 
 // Request generates a requestWireMsgData instance from the test case.
@@ -90,6 +93,20 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		)
 	}
 
+	var minInAsset tlv.OptionalRecordT[tlv.TlvType23, uint64]
+	if tc.minInAsset != nil {
+		minInAsset = tlv.SomeRecordT[tlv.TlvType23](
+			tlv.NewPrimitiveRecord[tlv.TlvType23](*tc.minInAsset),
+		)
+	}
+
+	var minOutAsset tlv.OptionalRecordT[tlv.TlvType25, uint64]
+	if tc.minOutAsset != nil {
+		minOutAsset = tlv.SomeRecordT[tlv.TlvType25](
+			tlv.NewPrimitiveRecord[tlv.TlvType25](*tc.minOutAsset),
+		)
+	}
+
 	return requestWireMsgData{
 		Version:          version,
 		ID:               id,
@@ -101,6 +118,8 @@ func (tc testCaseEncodeDecode) Request() requestWireMsgData {
 		MaxInAsset:       maxInAsset,
 		InAssetRateHint:  inAssetRateHint,
 		OutAssetRateHint: outAssetRateHint,
+		MinInAsset:       minInAsset,
+		MinOutAsset:      minOutAsset,
 	}
 }
 
@@ -129,6 +148,9 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	inAssetRateHint := uint64(1000)
 	outAssetRateHint := uint64(2000)
 
+	minInAsset := uint64(1)
+	minOutAsset := uint64(10)
+
 	testCases := []testCaseEncodeDecode{
 		{
 			testName: "in asset ID, out asset ID zero, " +
@@ -144,6 +166,8 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 			maxInAsset:       1000,
 			inAssetRateHint:  &inAssetRateHint,
 			outAssetRateHint: &outAssetRateHint,
+			minInAsset:       &minInAsset,
+			minOutAsset:      &minOutAsset,
 		},
 		{
 			testName: "in asset ID, out asset ID zero, no asset " +

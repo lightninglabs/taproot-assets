@@ -112,6 +112,16 @@ type requestWireMsgData struct {
 	//
 	// NOTE: This field is optional.
 	OutAssetRateHint requestOutAssetRateHint
+
+	// MinInAsset is an optional minimum quantity of in-asset that may be
+	// transferred under the terms of the quote, applicable whether the
+	// asset is BTC or any other.
+	MinInAsset tlv.OptionalRecordT[tlv.TlvType23, uint64]
+
+	// MinOutAsset is an optional minimum quantity of out-asset that may be
+	// transferred under the terms of the quote, applicable whether the
+	// asset is BTC or any other.
+	MinOutAsset tlv.OptionalRecordT[tlv.TlvType25, uint64]
 }
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
@@ -355,6 +365,17 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 		},
 	)
 
+	m.MinInAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType23, uint64]) {
+			records = append(records, r.Record())
+		},
+	)
+	m.MinOutAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType25, uint64]) {
+			records = append(records, r.Record())
+		},
+	)
+
 	tlv.SortRecords(records)
 
 	// Create the tlv stream.
@@ -378,6 +399,9 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	inAssetRateHint := m.InAssetRateHint.Zero()
 	outAssetRateHint := m.OutAssetRateHint.Zero()
 
+	minInAsset := m.MinInAsset.Zero()
+	minOutAsset := m.MinOutAsset.Zero()
+
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
 		m.Version.Record(),
@@ -394,6 +418,9 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 
 		inAssetRateHint.Record(),
 		outAssetRateHint.Record(),
+
+		minInAsset.Record(),
+		minOutAsset.Record(),
 	)
 	if err != nil {
 		return err
@@ -425,6 +452,13 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 	if _, ok := tlvMap[outAssetRateHint.TlvType()]; ok {
 		m.OutAssetRateHint = tlv.SomeRecordT(outAssetRateHint)
+	}
+
+	if _, ok := tlvMap[minInAsset.TlvType()]; ok {
+		m.MinInAsset = tlv.SomeRecordT(minInAsset)
+	}
+	if _, ok := tlvMap[minOutAsset.TlvType()]; ok {
+		m.MinOutAsset = tlv.SomeRecordT(minOutAsset)
 	}
 
 	return nil
