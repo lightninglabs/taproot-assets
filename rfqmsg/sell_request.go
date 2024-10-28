@@ -7,7 +7,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -51,20 +50,12 @@ type SellRequest struct {
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	rateHint fn.Option[rfqmath.BigIntFixedPoint]) (*SellRequest,
-	error) {
+	assetRateHint fn.Option[AssetRate]) (*SellRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate random id: %w", err)
 	}
-
-	// Construct a suggested asset rate if a rate hint is provided.
-	var assetRateHint fn.Option[AssetRate]
-	rateHint.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
-		expiry := time.Now().Add(DefaultQuoteLifetime).UTC()
-		assetRateHint = fn.Some(NewAssetRate(rate, expiry))
-	})
 
 	return &SellRequest{
 		Peer:          peer,

@@ -450,11 +450,11 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		// We calculate a proposed ask price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
-		var assetRate fn.Option[rfqmath.BigIntFixedPoint]
+		var assetRate fn.Option[rfqmsg.AssetRate]
 
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for an asking price.
-			rate, _, err := n.queryAskFromPriceOracle(
+			rate, expiryUnix, err := n.queryAskFromPriceOracle(
 				order.Peer, order.AssetID, order.AssetGroupKey,
 				order.MaxAssetAmount,
 				fn.None[rfqmsg.AssetRate](),
@@ -466,7 +466,10 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 				return
 			}
 
-			assetRate = fn.Some[rfqmath.BigIntFixedPoint](*rate)
+			expiry := time.Unix(int64(expiryUnix), 0)
+			assetRate = fn.Some[rfqmsg.AssetRate](
+				rfqmsg.NewAssetRate(*rate, expiry),
+			)
 		}
 
 		request, err := rfqmsg.NewSellRequest(
