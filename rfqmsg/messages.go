@@ -6,8 +6,10 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/aliasmgr"
@@ -86,6 +88,40 @@ func (id *ID) Record() tlv.Record {
 	// Note that we set the type here as zero, as when used with a
 	// tlv.RecordT, the type param will be used as the type.
 	return tlv.MakeStaticRecord(0, id, recordSize, IdEncoder, IdDecoder)
+}
+
+// AssetRate represents the exchange rate of an asset to BTC, encapsulating
+// both the rate in fixed-point format and an expiration timestamp.
+//
+// These fields are combined in AssetRate because each rate is inherently tied
+// to an expiry, ensuring that the rate's validity is clear and time-limited.
+type AssetRate struct {
+	// Rate defines the exchange rate of asset units to BTC using a
+	// fixed-point representation, ensuring precision for fractional asset
+	// rates.
+	Rate rfqmath.BigIntFixedPoint
+
+	// Expiry indicates the UTC timestamp when this rate expires and should
+	// no longer be considered valid.
+	Expiry time.Time
+}
+
+// String returns a human-readable string representation of the asset rate.
+func (a *AssetRate) String() string {
+	// Format the expiry timestamp into a string.
+	expiryUtc := a.Expiry.UTC()
+	expiryString := expiryUtc.Format(time.RFC3339)
+
+	return fmt.Sprintf("AssetRate(rate=%s, expiry=%s)", a.Rate.String(),
+		expiryString)
+}
+
+// NewAssetRate creates a new asset rate.
+func NewAssetRate(rate rfqmath.BigIntFixedPoint, expiry time.Time) AssetRate {
+	return AssetRate{
+		Rate:   rate,
+		Expiry: expiry,
+	}
 }
 
 // MaxMessageType is the maximum supported message type value.
