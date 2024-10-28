@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -158,10 +159,12 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	inAssetRate := rfqmath.NewBigIntFixedPoint(
 		tc.suggestedAssetRate, 3,
 	)
+	expiry := time.Now().Add(rfqmsg.DefaultQuoteLifetime).UTC()
+	assetRateHint := rfqmsg.NewAssetRate(inAssetRate, expiry)
 
 	resp, err := client.QueryAskPrice(
 		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
-		fn.Some(inAssetRate),
+		fn.Some(assetRateHint),
 	)
 
 	// If we expect an error, ensure that it is returned.

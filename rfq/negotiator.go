@@ -215,7 +215,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // peer.
 func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]) (
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (
 	*rfqmath.BigIntFixedPoint, uint64, error) {
 
 	// Query the price oracle for an asking price.
@@ -223,7 +223,7 @@ func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
-		ctx, assetId, assetGroupKey, assetAmount, suggestedAssetRate,
+		ctx, assetId, assetGroupKey, assetAmount, assetRateHint,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query price oracle for "+
@@ -312,7 +312,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		// Query the price oracle for an asking price.
 		assetRate, rateExpiry, err := n.queryAskFromPriceOracle(
 			nil, request.AssetID, request.AssetGroupKey,
-			request.AssetAmount, request.SuggestedAssetRate,
+			request.AssetAmount, request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -455,7 +455,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			rate, _, err := n.queryAskFromPriceOracle(
 				order.Peer, order.AssetID, order.AssetGroupKey,
 				order.MaxAssetAmount,
-				fn.None[rfqmath.BigIntFixedPoint](),
+				fn.None[rfqmsg.AssetRate](),
 			)
 			if err != nil {
 				err := fmt.Errorf("negotiator failed to "+
@@ -568,8 +568,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, _, err := n.queryAskFromPriceOracle(
 			&msg.Peer, msg.Request.AssetID, nil,
-			msg.Request.AssetAmount,
-			fn.None[rfqmath.BigIntFixedPoint](),
+			msg.Request.AssetAmount, fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
