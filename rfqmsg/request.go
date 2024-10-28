@@ -13,9 +13,9 @@ import (
 )
 
 const (
-	// defaultRequestExpiry is the default duration after which a quote
+	// DefaultQuoteLifetime is the default duration after which a quote
 	// request will expire.
-	defaultRequestExpiry = 10 * time.Minute
+	DefaultQuoteLifetime = 10 * time.Minute
 
 	// latestRequestWireMsgDataVersion is the latest supported quote request
 	// wire message data field version.
@@ -111,7 +111,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	// TODO(ffranr): The expiry timestamp should be obtained from the
 	//  request message.
 	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
-		uint64(time.Now().Add(defaultRequestExpiry).Unix()),
+		uint64(time.Now().Add(DefaultQuoteLifetime).Unix()),
 	)
 
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
@@ -173,7 +173,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 
 	// Calculate the expiration unix timestamp in seconds.
 	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
-		uint64(time.Now().Add(defaultRequestExpiry).Unix()),
+		uint64(time.Now().Add(DefaultQuoteLifetime).Unix()),
 	)
 
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
