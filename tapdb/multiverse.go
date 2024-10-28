@@ -40,8 +40,10 @@ var (
 )
 
 type (
+	// BaseUniverseRoot is the type returned from the UniverseRoots query.
 	BaseUniverseRoot = sqlc.UniverseRootsRow
 
+	// UniverseRootsParams are the parameters for the UniverseRoots query.
 	UniverseRootsParams = sqlc.UniverseRootsParams
 
 	// MultiverseRoot is the root of a multiverse tree. Two trees exist:
@@ -176,10 +178,10 @@ func (p *proofCache) fetchProof(id universe.Identifier,
 	// With that lower level cache obtained, we can check to see if we have
 	// a hit or not.
 	proofKey := NewProofKey(id, leafKey)
-	proof, err := assetProofCache.Get(proofKey)
+	proofFromCache, err := assetProofCache.Get(proofKey)
 	if err == nil {
 		p.Hit()
-		return *proof
+		return *proofFromCache
 	}
 
 	p.Miss()
@@ -446,8 +448,8 @@ func newUniverseLeafCache() *universeLeafCache {
 }
 
 // fetchLeafKeys reads the cached leaf keys for the given ID.
-func (u *universeLeafCache) fetchLeafKeys(q universe.UniverseLeafKeysQuery,
-) []universe.LeafKey {
+func (u *universeLeafCache) fetchLeafKeys(
+	q universe.UniverseLeafKeysQuery) []universe.LeafKey {
 
 	idStr := treeID(q.Id.String())
 
@@ -673,7 +675,7 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 		return leafKeys, nil
 	}
 
-	// The leaves wasn't populated, so we'll go to disk to fetch it.
+	// The leaves weren't populated, so we'll go to disk to fetch it.
 	b.leafKeysCache.Lock()
 	defer b.leafKeysCache.Unlock()
 
@@ -849,9 +851,9 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	// First, check the cached to see if we already have this proof.
-	proof := b.proofCache.fetchProof(id, universeKey)
-	if len(proof) > 0 {
-		return proof, nil
+	proofsFromCache := b.proofCache.fetchProof(id, universeKey)
+	if len(proofsFromCache) > 0 {
+		return proofsFromCache, nil
 	}
 
 	var (
@@ -864,11 +866,9 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
+	dbErr := b.db.ExecTx(ctx, &readTx, func(tx BaseMultiverseStore) error {
 		var err error
-		proofs, err = universeFetchProofLeaf(
-			ctx, id, universeKey, dbTx,
-		)
+		proofs, err = universeFetchProofLeaf(ctx, id, universeKey, tx)
 		if err != nil {
 			return err
 		}
@@ -877,7 +877,7 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		//
 		// Retrieve a handle to the multiverse MS-SMT tree.
 		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(dbTx, multiverseNS),
+			newTreeStoreWrapperTx(tx, multiverseNS),
 		)
 
 		multiverseRoot, err := multiverseTree.Root(ctx)
@@ -900,6 +900,8 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 
 		for i := range proofs {
 			proofs[i].MultiverseRoot = multiverseRoot
+
+			//nolint:lll
 			proofs[i].MultiverseInclusionProof = multiverseInclusionProof
 		}
 
@@ -992,8 +994,7 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
-	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.Leaf,
+	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
@@ -1093,9 +1094,11 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	}
 
 	// Invalidate the root node cache for all the assets we just inserted.
-	idsToDelete := fn.NewSet(fn.Map(items, func(item *universe.Item) treeID {
-		return treeID(item.ID.String())
-	})...)
+	idsToDelete := fn.NewSet(
+		fn.Map(items, func(item *universe.Item) treeID {
+			return treeID(item.ID.String())
+		})...,
+	)
 
 	for id := range idsToDelete {
 		b.proofCache.Delete(id)
@@ -1111,14 +1114,14 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 
 	var writeTx BaseUniverseStoreOptions
 
-	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseMultiverseStore) error {
+	dbErr := b.db.ExecTx(ctx, &writeTx, func(tx BaseMultiverseStore) error {
 		multiverseNS, err := namespaceForProof(id.ProofType)
 		if err != nil {
 			return err
 		}
 
 		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(dbTx, multiverseNS),
+			newTreeStoreWrapperTx(tx, multiverseNS),
 		)
 
 		multiverseLeafKey := id.Bytes()
@@ -1127,7 +1130,7 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 			return err
 		}
 
-		return deleteUniverseTree(ctx, dbTx, id)
+		return deleteUniverseTree(ctx, tx, id)
 	})
 	if dbErr != nil {
 		return "", dbErr

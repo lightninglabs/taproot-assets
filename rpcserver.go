@@ -4581,7 +4581,9 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	}
 
 	resp := &unirpc.AssetRootResponse{
-		UniverseRoots: make(map[string]*unirpc.UniverseRoot),
+		UniverseRoots: make(
+			map[string]*unirpc.UniverseRoot, len(assetRoots),
+		),
 	}
 
 	// Retrieve config for use in filtering asset roots based on sync export
@@ -4759,7 +4761,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		return nil, err
 	}
 
-	// Query for both a issaunce and transfer universe root.
+	// Query for both an issuance and transfer universe root.
 	assetRoots, err := r.queryAssetProofRoots(ctx, universeID)
 	if err != nil {
 		return nil, err
