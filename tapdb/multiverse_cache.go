@@ -34,51 +34,52 @@ func NewProofKey(id universe.Identifier, key universe.LeafKey) ProofKey {
 // numCachedProofs is the number of universe proofs we'll cache.
 const numCachedProofs = 50_000
 
-// cachedProof is a single cached proof.
-type cachedProof []*universe.Proof
+// cachedProofs is a list of cached proof leaves.
+type cachedProofs []*universe.Proof
 
-// Size just returns 1 as we're limiting based on the total number of proofs.
-func (c *cachedProof) Size() (uint64, error) {
+// Size just returns 1 as we're limiting based on the total number different
+// leaf keys we query by. So we might store more than one proof per cache entry
+// if the universe key's script key isn't set. But we only want a certain number
+// of different keys stored in the cache.
+func (c *cachedProofs) Size() (uint64, error) {
 	return 1, nil
 }
 
-// leafProofCache is used to cache proofs for issuance leaves for assets w/o a
-// group key.
-type leafProofCache = *lru.Cache[ProofKey, *cachedProof]
-
-// newLeafCache creates a new leaf proof cache.
-func newLeafCache() leafProofCache {
-	return lru.NewCache[ProofKey, *cachedProof](
+// newProofCache creates a new leaf proof cache.
+func newProofCache() *lru.Cache[ProofKey, *cachedProofs] {
+	return lru.NewCache[ProofKey, *cachedProofs](
 		numCachedProofs,
 	)
 }
 
-// treeID is used to uniquely identify a multiverse tree.
-type treeID string
+// universeIDKey is a cache key that is used to uniquely identify a universe
+// within a multiverse tree cache.
+type universeIDKey = string
 
-// proofCache a map of proof caches for each proof type.
-type proofCache struct {
-	lnutils.SyncMap[treeID, leafProofCache]
+// universeProofCache a map of proof caches for each proof type.
+type universeProofCache struct {
+	lnutils.SyncMap[universeIDKey, *lru.Cache[ProofKey, *cachedProofs]]
 
 	*cacheLogger
 }
 
-// newProofCache creates a new proof cache.
-func newProofCache() *proofCache {
-	return &proofCache{
-		SyncMap:     lnutils.SyncMap[treeID, leafProofCache]{},
+// newUniverseProofCache creates a new proof cache.
+func newUniverseProofCache() *universeProofCache {
+	return &universeProofCache{
+		SyncMap: lnutils.SyncMap[
+			universeIDKey, *lru.Cache[ProofKey, *cachedProofs],
+		]{},
 		cacheLogger: newCacheLogger("universe_proofs"),
 	}
 }
 
 // fetchProof reads the cached proof for the given ID and leaf key.
-func (p *proofCache) fetchProof(id universe.Identifier,
+func (p *universeProofCache) fetchProof(id universe.Identifier,
 	leafKey universe.LeafKey) []*universe.Proof {
 
 	// First, get the sub-cache for this universe ID from the map of
 	// caches.
-	idStr := treeID(id.String())
-	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
+	assetProofCache, _ := p.LoadOrStore(id.String(), newProofCache())
 
 	// With that lower level cache obtained, we can check to see if we have
 	// a hit or not.
@@ -94,45 +95,42 @@ func (p *proofCache) fetchProof(id universe.Identifier,
 	return nil
 }
 
-// insertProof inserts the given proof into the cache.
-func (p *proofCache) insertProof(id universe.Identifier,
+// insertProofs inserts the given proofs into the cache.
+func (p *universeProofCache) insertProofs(id universe.Identifier,
 	leafKey universe.LeafKey, proof []*universe.Proof) {
 
-	idStr := treeID(id.String())
-
-	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
+	assetProofCache, _ := p.LoadOrStore(id.String(), newProofCache())
 
 	proofKey := NewProofKey(id, leafKey)
 
 	log.Debugf("storing proof for %v+%v in cache, key=%x",
 		id.StringForLog(), leafKey, proofKey[:])
 
-	proofVal := cachedProof(proof)
+	proofVal := cachedProofs(proof)
 	if _, err := assetProofCache.Put(proofKey, &proofVal); err != nil {
 		log.Errorf("unable to insert into proof cache: %v", err)
 	}
 }
 
 // delProofsForAsset deletes all the proofs for the given asset.
-func (p *proofCache) delProofsForAsset(id universe.Identifier) {
+func (p *universeProofCache) delProofsForAsset(id universe.Identifier) {
 	log.Debugf("wiping proofs for %v from cache", id)
 
-	idStr := treeID(id.String())
-	p.Delete(idStr)
+	p.Delete(id.String())
 }
 
-// rootPageQuery is a wrapper around a query to fetch all the roots, but with
-// pagination parameters.
-type rootPageQuery struct {
+// rootPageQueryKey is a cache key that wraps around a query to fetch all the
+// roots, but with pagination parameters.
+type rootPageQueryKey struct {
 	withAmountsById bool
-	leafQuery
+	leafQueryKey
 }
 
 // newRootPageQuery creates a new root page query.
-func newRootPageQuery(q universe.RootNodesQuery) rootPageQuery {
-	return rootPageQuery{
+func newRootPageQuery(q universe.RootNodesQuery) rootPageQueryKey {
+	return rootPageQueryKey{
 		withAmountsById: q.WithAmountsById,
-		leafQuery: leafQuery{
+		leafQueryKey: leafQueryKey{
 			sortDirection: q.SortDirection,
 			offset:        q.Offset,
 			limit:         q.Limit,
@@ -148,36 +146,45 @@ func (u universeRootPage) Size() (uint64, error) {
 	return uint64(len(u)), nil
 }
 
-// rootPageCache is used to store the latest root pages for a given treeID.
-type rootPageCache = lru.Cache[rootPageQuery, universeRootPage]
+// rootPageCache is used to store the latest root pages for a given
+// universeIDKey.
+type rootPageCache struct {
+	atomic.Pointer[lru.Cache[rootPageQueryKey, universeRootPage]]
+}
 
-// atomicRootCache is an atomic pointer to a root cache.
-type atomicRootCache = atomic.Pointer[rootPageCache]
+// newRootPageCache creates a new atomic root cache.
+func newRootPageCache() *rootPageCache {
+	var cache rootPageCache
+	cache.wipe()
 
-// newAtomicRootCache creates a new atomic root cache.
-func newAtomicRootCache() *atomicRootCache {
-	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
+	return &cache
+}
+
+// wipe wipes the cache.
+func (r *rootPageCache) wipe() {
+	rootCache := lru.NewCache[rootPageQueryKey, universeRootPage](
 		numCachedProofs,
 	)
+	r.Store(rootCache)
+}
 
-	var a atomicRootCache
-	a.Store(rootCache)
+// rootIndex maps a tree ID to a universe root.
+type rootIndex struct {
+	atomic.Pointer[lnutils.SyncMap[universeIDKey, *universe.Root]]
+}
+
+// newRootIndex creates a new atomic root index.
+func newRootIndex() *rootIndex {
+	var a rootIndex
+	a.wipe()
 
 	return &a
 }
 
-// rootIndex maps a tree ID to a universe root.
-type rootIndex = lnutils.SyncMap[treeID, *universe.Root]
-
-// atomicRootIndex is an atomic pointer to a root index.
-type atomicRootIndex = atomic.Pointer[rootIndex]
-
-// newAtomicRootIndex creates a new atomic root index.
-func newAtomicRootIndex() *atomicRootIndex {
-	var a atomicRootIndex
-	a.Store(&rootIndex{})
-
-	return &a
+// wipe wipes the cache.
+func (r *rootIndex) wipe() {
+	var idx lnutils.SyncMap[universeIDKey, *universe.Root]
+	r.Store(&idx)
 }
 
 // rootNodeCache is used to cache the set of active root nodes for the
@@ -185,9 +192,9 @@ func newAtomicRootIndex() *atomicRootIndex {
 type rootNodeCache struct {
 	sync.RWMutex
 
-	rootIndex *atomicRootIndex
+	rootIndex *rootIndex
 
-	allRoots *atomicRootCache
+	allRoots *rootPageCache
 
 	*cacheLogger
 
@@ -197,8 +204,8 @@ type rootNodeCache struct {
 // newRootNodeCache creates a new root node cache.
 func newRootNodeCache() *rootNodeCache {
 	return &rootNodeCache{
-		rootIndex:   newAtomicRootIndex(),
-		allRoots:    newAtomicRootCache(),
+		rootIndex:   newRootIndex(),
+		allRoots:    newRootPageCache(),
 		cacheLogger: newCacheLogger("universe_roots"),
 	}
 }
@@ -232,7 +239,7 @@ func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
 func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
 	rootIndex := r.rootIndex.Load()
 
-	root, ok := rootIndex.Load(treeID(id.String()))
+	root, ok := rootIndex.Load(id.String())
 	if ok {
 		r.Hit()
 		return root
@@ -244,11 +251,9 @@ func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
 }
 
 // cacheRoot stores the given root in the cache.
-func (r *rootNodeCache) cacheRoot(id universe.Identifier,
-	root universe.Root) {
-
+func (r *rootNodeCache) cacheRoot(id universe.Identifier, root universe.Root) {
 	rootIndex := r.rootIndex.Load()
-	rootIndex.Store(treeID(id.String()), &root)
+	rootIndex.Store(id.String(), &root)
 }
 
 // cacheRoots stores the given roots in the cache.
@@ -266,10 +271,7 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 
 	rootIndex := r.rootIndex.Load()
 	for _, rootNode := range rootNodes {
-		rootNode := rootNode
-
-		idStr := treeID(rootNode.ID.String())
-		rootIndex.Store(idStr, &rootNode)
+		rootIndex.Store(rootNode.ID.String(), &rootNode)
 	}
 }
 
@@ -277,17 +279,11 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 func (r *rootNodeCache) wipeCache() {
 	log.Debugf("wiping universe cache")
 
-	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
-		numCachedProofs,
-	)
-	r.allRoots.Store(rootCache)
-
-	r.rootIndex.Store(&rootIndex{})
+	r.allRoots.wipe()
+	r.rootIndex.wipe()
 }
 
 // cachedLeafKeys is used to cache the set of leaf keys for a given universe.
-//
-// TODO(roasbeef); cacheable[T]
 type cachedLeafKeys []universe.LeafKey
 
 // Size just returns 1, as we cache based on the total number of assets, but
@@ -301,26 +297,27 @@ func (c cachedLeafKeys) Size() (uint64, error) {
 // for a given namespace.
 const numMaxCachedPages = 1000
 
-// leafQuery is a wrapper around the existing UniverseLeafKeysQuery struct that
+// leafQueryKey is a wrapper around the existing UniverseLeafKeysQuery struct that
 // doesn't include a pointer so it can be safely used as a map key.
-type leafQuery struct {
+type leafQueryKey struct {
 	sortDirection universe.SortDirection
 	offset        int32
 	limit         int32
 }
 
 // newLeafQuery creates a new leaf query.
-func newLeafQuery(q universe.UniverseLeafKeysQuery) leafQuery {
-	return leafQuery{
+func newLeafQuery(q universe.UniverseLeafKeysQuery) leafQueryKey {
+	return leafQueryKey{
 		sortDirection: q.SortDirection,
 		offset:        q.Offset,
 		limit:         q.Limit,
 	}
 }
 
-// leafPageCache caches the various paginated responses for a given treeID.
+// leafPageCache caches the various paginated responses for a given
+// universeIDKey.
 type leafPageCache struct {
-	*lru.Cache[leafQuery, *cachedLeafKeys]
+	*lru.Cache[leafQueryKey, *cachedLeafKeys]
 }
 
 // Size returns the number of elements in the leaf page cache.
@@ -328,24 +325,20 @@ func (l *leafPageCache) Size() (uint64, error) {
 	return uint64(l.Len()), nil
 }
 
-// leafKeysCache is used to cache the set of leaf keys for a given universe.
-// For each treeID we store an inner cache for the paginated responses.
-type leafKeysCache = lru.Cache[treeID, *leafPageCache]
-
 // universeLeafCaches is used to cache the set of leaf keys for a given
 // universe.
-type universeLeafCache struct {
+type universeLeafPageCache struct {
 	sync.Mutex
 
-	leafCache *leafKeysCache
+	leafCache *lru.Cache[universeIDKey, *leafPageCache]
 
 	*cacheLogger
 }
 
-// newUniverseLeafCache creates a new universe leaf cache.
-func newUniverseLeafCache() *universeLeafCache {
-	return &universeLeafCache{
-		leafCache: lru.NewCache[treeID, *leafPageCache](
+// newUniverseLeafPageCache creates a new universe leaf cache.
+func newUniverseLeafPageCache() *universeLeafPageCache {
+	return &universeLeafPageCache{
+		leafCache: lru.NewCache[universeIDKey, *leafPageCache](
 			numCachedProofs,
 		),
 		cacheLogger: newCacheLogger("universe_leaf_keys"),
@@ -353,12 +346,10 @@ func newUniverseLeafCache() *universeLeafCache {
 }
 
 // fetchLeafKeys reads the cached leaf keys for the given ID.
-func (u *universeLeafCache) fetchLeafKeys(
+func (u *universeLeafPageCache) fetchLeafKeys(
 	q universe.UniverseLeafKeysQuery) []universe.LeafKey {
 
-	idStr := treeID(q.Id.String())
-
-	leafPageCache, err := u.leafCache.Get(idStr)
+	leafPageCache, err := u.leafCache.Get(q.Id.String())
 	if err == nil {
 		leafKeys, err := leafPageCache.Get(newLeafQuery(q))
 		if err == nil {
@@ -375,12 +366,12 @@ func (u *universeLeafCache) fetchLeafKeys(
 }
 
 // cacheLeafKeys stores the given leaf keys in the cache.
-func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
+func (u *universeLeafPageCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 	keys []universe.LeafKey) {
 
 	cachedKeys := cachedLeafKeys(keys)
 
-	idStr := treeID(q.Id.String())
+	idStr := q.Id.String()
 
 	log.Debugf("storing leaf keys for %v in cache", q.Id.StringForLog())
 
@@ -388,7 +379,7 @@ func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 	if err != nil {
 		// No page cache yet, so we'll create one now.
 		pageCache = &leafPageCache{
-			Cache: lru.NewCache[leafQuery, *cachedLeafKeys](
+			Cache: lru.NewCache[leafQueryKey, *cachedLeafKeys](
 				numMaxCachedPages,
 			),
 		}
@@ -410,7 +401,7 @@ func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 }
 
 // wipeCache wipes the cache of leaf keys for a given universe ID.
-func (u *universeLeafCache) wipeCache(id treeID) {
+func (u *universeLeafPageCache) wipeCache(id universeIDKey) {
 	log.Debugf("wiping leaf keys for %x in cache", id)
 
 	u.leafCache.Delete(id)

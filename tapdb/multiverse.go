@@ -109,9 +109,9 @@ type MultiverseStore struct {
 
 	rootNodeCache *rootNodeCache
 
-	proofCache *proofCache
+	proofCache *universeProofCache
 
-	leafKeysCache *universeLeafCache
+	leafKeysCache *universeLeafPageCache
 
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
@@ -126,8 +126,8 @@ func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
 	return &MultiverseStore{
 		db:                       db,
 		rootNodeCache:            newRootNodeCache(),
-		proofCache:               newProofCache(),
-		leafKeysCache:            newUniverseLeafCache(),
+		proofCache:               newUniverseProofCache(),
+		leafKeysCache:            newUniverseLeafPageCache(),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
 	}
 }
@@ -501,8 +501,8 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		return nil, dbErr
 	}
 
-	// Insert the proof we just read up into the main cache.
-	b.proofCache.insertProof(id, universeKey, proofs)
+	// Insert the proofs we just read up into the main cache.
+	b.proofCache.insertProofs(id, universeKey, proofs)
 
 	return proofs, nil
 }
@@ -610,12 +610,10 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		return nil, dbErr
 	}
 
-	idStr := treeID(id.String())
-
 	// Invalidate the cache since we just updated the root.
 	b.rootNodeCache.wipeCache()
 	b.proofCache.delProofsForAsset(id)
-	b.leafKeysCache.wipeCache(idStr)
+	b.leafKeysCache.wipeCache(id.String())
 
 	// Notify subscribers about the new proof leaf, now that we're sure we
 	// have written it to the database. But we only care about transfer
@@ -685,8 +683,8 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 
 	// Invalidate the root node cache for all the assets we just inserted.
 	idsToDelete := fn.NewSet(
-		fn.Map(items, func(item *universe.Item) treeID {
-			return treeID(item.ID.String())
+		fn.Map(items, func(item *universe.Item) universeIDKey {
+			return item.ID.String()
 		})...,
 	)
 
@@ -729,9 +727,8 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	// Wipe the cache items from this node.
 	b.rootNodeCache.wipeCache()
 
-	idStr := treeID(id.String())
-	b.proofCache.Delete(idStr)
-	b.leafKeysCache.wipeCache(idStr)
+	b.proofCache.Delete(id.String())
+	b.leafKeysCache.wipeCache(id.String())
 
 	return id.String(), dbErr
 }

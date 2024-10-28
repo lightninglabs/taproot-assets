@@ -172,7 +172,7 @@ type BatchedUniverseServerStore interface {
 }
 
 // assetSyncCfgs is a map of asset ID to universe specific sync config.
-type assetSyncCfgs = lnutils.SyncMap[treeID, *universe.FedUniSyncConfig]
+type assetSyncCfgs = lnutils.SyncMap[universeIDKey, *universe.FedUniSyncConfig]
 
 // globalSyncCfgs is a map of proof type to global sync config.
 type globalSyncCfgs = lnutils.SyncMap[
@@ -699,7 +699,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 
 		return true
 	})
-	u.assetCfgs.Load().Range(func(treeID treeID,
+	u.assetCfgs.Load().Range(func(treeID universeIDKey,
 		cfg *universe.FedUniSyncConfig) bool {
 
 		uniConfigs = append(uniConfigs, cfg)
@@ -820,7 +820,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 	}
 	assetCfgs := u.assetCfgs.Load()
 	for _, uniCfg := range uniConfigs {
-		assetCfgs.Store(treeID(uniCfg.UniverseID.String()), uniCfg)
+		assetCfgs.Store(uniCfg.UniverseID.String(), uniCfg)
 	}
 
 	return globalConfigs, uniConfigs, nil
