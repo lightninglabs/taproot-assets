@@ -59,12 +59,12 @@ func NewID() (ID, error) {
 }
 
 // String returns the string representation of the ID.
-func (id ID) String() string {
+func (id *ID) String() string {
 	return hex.EncodeToString(id[:])
 }
 
 // Scid returns the short channel id (SCID) of the RFQ message.
-func (id ID) Scid() SerialisedScid {
+func (id *ID) Scid() SerialisedScid {
 	// Given valid RFQ message id, we then define a RFQ short channel id
 	// (SCID) by taking the last 8 bytes of the RFQ message id and
 	// interpreting them as a 64-bit integer.
