@@ -8,7 +8,6 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -172,22 +171,23 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
 
-	// Calculate the expiration unix timestamp in seconds.
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
-		uint64(time.Now().Add(DefaultQuoteLifetime).Unix()),
-	)
+	// Set the expiry to the default request lifetime unless an asset rate
+	// hint is provided.
+	expiry := time.Now().Add(DefaultQuoteLifetime).Unix()
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		expiry = assetRate.Expiry.Unix()
+	})
+	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
 	// Convert the suggested asset rate to a TLV record.
 	var suggestedAssetRate requestSuggestedAssetRate
-	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
-		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
-		wireRate := NewTlvFixedPointFromBigInt(rate)
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		// Convert the BigIntFixedPoint to a TlvFixedPoint.
+		wireRate := NewTlvFixedPointFromBigInt(assetRate.Rate)
 		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
-			tlv.NewRecordT[tlv.TlvType19](
-				wireRate,
-			),
+			tlv.NewRecordT[tlv.TlvType19](wireRate),
 		)
 	})
 
@@ -221,7 +221,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	return requestWireMsgData{
 		Version:            version,
 		ID:                 id,
-		Expiry:             expiry,
+		Expiry:             expiryTlv,
 		AssetMaxAmount:     assetMaxAmount,
 		SuggestedAssetRate: suggestedAssetRate,
 		InAssetID:          inAssetID,
