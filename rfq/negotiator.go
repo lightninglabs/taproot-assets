@@ -162,11 +162,11 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		// We calculate a proposed bid price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
-		var assetRateBid fn.Option[rfqmath.BigIntFixedPoint]
+		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for a bid price.
-			rate, _, err := n.queryBidFromPriceOracle(
+			rate, expiryUnix, err := n.queryBidFromPriceOracle(
 				*buyOrder.Peer, buyOrder.AssetID,
 				buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
 				fn.None[rfqmsg.AssetRate](),
@@ -180,13 +180,16 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 					"request: %v", err)
 			}
 
-			assetRateBid = fn.Some[rfqmath.BigIntFixedPoint](*rate)
+			expiry := time.Unix(int64(expiryUnix), 0)
+			assetRateHint = fn.Some[rfqmsg.AssetRate](
+				rfqmsg.NewAssetRate(*rate, expiry),
+			)
 		}
 
 		request, err := rfqmsg.NewBuyRequest(
 			*buyOrder.Peer, buyOrder.AssetID,
 			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-			assetRateBid,
+			assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
