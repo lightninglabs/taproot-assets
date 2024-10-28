@@ -475,7 +475,7 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	// If this is a buy request, then we will create a new buy request
 	// message.
 	if isBuyRequest {
-		return NewBuyRequestMsgFromWire(wireMsg, msgData)
+		return NewBuyRequestFromWire(wireMsg, msgData)
 	}
 
 	// Otherwise, this is a sell request.

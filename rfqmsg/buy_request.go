@@ -70,8 +70,8 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	}, nil
 }
 
-// NewBuyRequestMsgFromWire instantiates a new instance from a wire message.
-func NewBuyRequestMsgFromWire(wireMsg WireMessage,
+// NewBuyRequestFromWire instantiates a new instance from a wire message.
+func NewBuyRequestFromWire(wireMsg WireMessage,
 	msgData requestWireMsgData) (*BuyRequest, error) {
 
 	// Ensure that the message type is a quote request message.
