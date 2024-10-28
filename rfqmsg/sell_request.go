@@ -71,8 +71,8 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	}, nil
 }
 
-// NewSellRequestMsgFromWire instantiates a new instance from a wire message.
-func NewSellRequestMsgFromWire(wireMsg WireMessage,
+// NewSellRequestFromWire instantiates a new instance from a wire message.
+func NewSellRequestFromWire(wireMsg WireMessage,
 	msgData requestWireMsgData) (*SellRequest, error) {
 
 	// Ensure that the message type is a quote request message.

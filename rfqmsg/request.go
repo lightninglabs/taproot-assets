@@ -479,5 +479,5 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	}
 
 	// Otherwise, this is a sell request.
-	return NewSellRequestMsgFromWire(wireMsg, msgData)
+	return NewSellRequestFromWire(wireMsg, msgData)
 }
