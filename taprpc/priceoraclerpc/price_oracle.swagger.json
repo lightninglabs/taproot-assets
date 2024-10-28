@@ -152,6 +152,14 @@
             "required": false,
             "type": "string",
             "format": "uint64"
+          },
+          {
+            "name": "transaction_counterparty",
+            "description": "The counterparty is the transaction's counterparty. The price oracle\nmay use this information to adjust asset rates based on the\nstructure of the Lightning Network topology.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
           }
         ],
         "tags": [

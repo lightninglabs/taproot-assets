@@ -119,8 +119,10 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	counterparty := fn.Some[route.Vertex](peer)
 	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
-		ctx, assetId, assetGroupKey, assetAmount, assetRateHint,
+		ctx, counterparty, assetId, assetGroupKey, assetAmount,
+		assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -216,7 +218,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // queryAskFromPriceOracle queries the price oracle for an asking price. It
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
-func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
+func (n *Negotiator) queryAskFromPriceOracle(peer route.Vertex,
 	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -224,8 +226,10 @@ func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	counterparty := fn.Some[route.Vertex](peer)
 	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
-		ctx, assetId, assetGroupKey, assetAmount, assetRateHint,
+		ctx, counterparty, assetId, assetGroupKey, assetAmount,
+		assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -313,7 +317,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 
 		// Query the price oracle for an asking price.
 		assetRate, err := n.queryAskFromPriceOracle(
-			nil, request.AssetID, request.AssetGroupKey,
+			request.Peer, request.AssetID, request.AssetGroupKey,
 			request.AssetAmount, request.AssetRateHint,
 		)
 		if err != nil {
@@ -457,7 +461,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		if n.cfg.PriceOracle != nil {
 			// Query the price oracle for an asking price.
 			assetRate, err := n.queryAskFromPriceOracle(
-				order.Peer, order.AssetID, order.AssetGroupKey,
+				*order.Peer, order.AssetID, order.AssetGroupKey,
 				order.MaxAssetAmount,
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -571,7 +575,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// for an ask price. We will then compare the ask price returned
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, err := n.queryAskFromPriceOracle(
-			&msg.Peer, msg.Request.AssetID, nil,
+			msg.Peer, msg.Request.AssetID, nil,
 			msg.Request.AssetAmount, fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {

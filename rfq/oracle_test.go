@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -163,8 +164,8 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	assetRateHint := rfqmsg.NewAssetRate(inAssetRate, expiry)
 
 	resp, err := client.QueryAskPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
-		fn.Some(assetRateHint),
+		ctx, fn.None[route.Vertex](), tc.assetId, tc.assetGroupKey,
+		assetAmount, fn.Some(assetRateHint),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -260,8 +261,8 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	assetAmount := uint64(42)
 
 	resp, err := client.QueryBidPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
-		fn.None[rfqmsg.AssetRate](),
+		ctx, fn.None[route.Vertex](), tc.assetId, tc.assetGroupKey,
+		assetAmount, fn.None[rfqmsg.AssetRate](),
 	)
 
 	// If we expect an error, ensure that it is returned.

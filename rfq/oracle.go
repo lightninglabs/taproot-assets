@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	"github.com/lightningnetwork/lnd/routing/route"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
@@ -95,17 +96,17 @@ type PriceOracle interface {
 	// QueryAskPrice returns the ask price for a given asset amount.
 	// The ask price is the amount the oracle suggests a peer should accept
 	// from another peer to provide the specified asset amount.
-	QueryAskPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey, assetAmount uint64,
-		assetRateHint fn.Option[rfqmsg.AssetRate]) (
+	QueryAskPrice(ctx context.Context, peer fn.Option[route.Vertex],
+		assetId *asset.ID, assetGroupKey *btcec.PublicKey,
+		assetAmount uint64, assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
 
 	// QueryBidPrice returns the bid price for a given asset amount.
 	// The bid price is the amount the oracle suggests a peer should pay
 	// to another peer to receive the specified asset amount.
-	QueryBidPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey, assetAmount uint64,
-		assetRateHint fn.Option[rfqmsg.AssetRate]) (
+	QueryBidPrice(ctx context.Context, peer fn.Option[route.Vertex],
+		assetId *asset.ID, assetGroupKey *btcec.PublicKey,
+		assetAmount uint64, assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
 }
 
@@ -190,7 +191,8 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	peer fn.Option[route.Vertex], assetId *asset.ID,
+	assetGroupKey *btcec.PublicKey, assetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
 
@@ -244,6 +246,12 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 		return nil, err
 	}
 
+	// Marshal transaction counterparty.
+	var counterparty []byte
+	peer.WhenSome(func(p route.Vertex) {
+		counterparty = p[:]
+	})
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType: oraclerpc.TransactionType_SALE,
 		SubjectAsset: &oraclerpc.AssetSpecifier{
@@ -257,7 +265,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 				AssetId: paymentAssetId,
 			},
 		},
-		AssetRatesHint: rpcAssetRatesHint,
+		AssetRatesHint:          rpcAssetRatesHint,
+		TransactionCounterparty: counterparty,
 	}
 
 	// Perform query.
@@ -313,7 +322,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
-func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
+func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
+	peer fn.Option[route.Vertex], assetId *asset.ID,
 	assetGroupKey *btcec.PublicKey, maxAssetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
@@ -475,7 +485,7 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
-	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
+	_ fn.Option[route.Vertex], _ *asset.ID, _ *btcec.PublicKey, _ uint64,
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiry timestamp.
@@ -488,8 +498,8 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
-func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
-	_ *btcec.PublicKey, _ uint64,
+func (m *MockPriceOracle) QueryBidPrice(_ context.Context,
+	_ fn.Option[route.Vertex], _ *asset.ID, _ *btcec.PublicKey, _ uint64,
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiry timestamp.

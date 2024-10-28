@@ -124,6 +124,11 @@ message QueryAssetRatesRequest {
     // asset_rates_hint is an optional suggestion of asset rates for the
     // transaction, intended to provide guidance on expected pricing.
     AssetRates asset_rates_hint = 5;
+
+    // The counterparty is the transaction's counterparty. The price oracle
+    // may use this information to adjust asset rates based on the
+    // structure of the Lightning Network topology.
+    bytes transaction_counterparty = 6;
 }
 
 // QueryAssetRatesOkResponse is the successful response to a
