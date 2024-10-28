@@ -100,10 +100,6 @@ const (
 )
 
 type (
-	// cacheableTimestamp is a wrapper around a uint32 that can be used as a
-	// value in an LRU cache.
-	cacheableTimestamp uint32
-
 	// devSendEventStream is a type alias for the asset send event
 	// notification stream.
 	devSendEventStream = tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsServer
@@ -147,13 +143,6 @@ type (
 		grpc.ServerStream
 	}
 )
-
-// Size returns the size of the cacheable timestamp. Since we scale the cache by
-// the number of items and not the total memory size, we can simply return 1
-// here to count each timestamp as 1 item.
-func (c cacheableTimestamp) Size() (uint64, error) {
-	return 1, nil
-}
 
 // rpcServer is the main RPC server for the Taproot Assets daemon that handles
 // gRPC/REST/Websockets incoming requests.

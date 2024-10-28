@@ -31,6 +31,17 @@ const (
 	maxNumBlocksInCache = 100_000
 )
 
+// cacheableTimestamp is a wrapper around an uint32 that can be used as a value
+// in an LRU cache.
+type cacheableTimestamp uint32
+
+// Size returns the size of the cacheable timestamp. Since we scale the cache by
+// the number of items and not the total memory size, we can simply return 1
+// here to count each timestamp as 1 item.
+func (c cacheableTimestamp) Size() (uint64, error) {
+	return 1, nil
+}
+
 // LndRpcChainBridge is an implementation of the tapgarden.ChainBridge
 // interface backed by an active remote lnd node.
 type LndRpcChainBridge struct {
