@@ -41,6 +41,8 @@ type BuyAccept struct {
 
 // NewBuyAcceptFromRequest creates a new instance of a quote accept message
 // given a quote request message.
+//
+// TODO(ffranr): Use new AssetRate type for assetRate arg.
 func NewBuyAcceptFromRequest(request BuyRequest,
 	assetRate rfqmath.BigIntFixedPoint, expiry uint64) *BuyAccept {
 

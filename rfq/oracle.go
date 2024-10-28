@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"time"
 
+	"math"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -46,11 +48,7 @@ func (o *OracleError) Error() string {
 type OracleResponse struct {
 	// AssetRate is the asset to BTC rate. Other asset in the transfer is
 	// assumed to be BTC and therefore not included in the response.
-	AssetRate rfqmath.BigIntFixedPoint
-
-	// Expiry is the asset to BTC rate expiry lifetime unix timestamp. The
-	// rate is only valid until this time.
-	Expiry uint64
+	AssetRate rfqmsg.AssetRate
 
 	// Err is an optional error returned by the price oracle service.
 	Err *OracleError
@@ -256,9 +254,17 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 			return nil, err
 		}
 
+		// Unmarshal the expiry timestamp.
+		if result.Ok.AssetRates.ExpiryTimestamp > math.MaxInt64 {
+			return nil, fmt.Errorf("expiry timestamp exceeds " +
+				"int64 max")
+		}
+		expiry := time.Unix(int64(
+			result.Ok.AssetRates.ExpiryTimestamp,
+		), 0).UTC()
+
 		return &OracleResponse{
-			AssetRate: *rate,
-			Expiry:    result.Ok.AssetRates.ExpiryTimestamp,
+			AssetRate: rfqmsg.NewAssetRate(*rate, expiry),
 		}, nil
 
 	case *oraclerpc.QueryAssetRatesResponse_Error:
@@ -343,9 +349,17 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 			return nil, err
 		}
 
+		// Unmarshal the expiry timestamp.
+		if result.Ok.AssetRates.ExpiryTimestamp > math.MaxInt64 {
+			return nil, fmt.Errorf("expiry timestamp exceeds " +
+				"int64 max")
+		}
+		expiry := time.Unix(int64(
+			result.Ok.AssetRates.ExpiryTimestamp,
+		), 0).UTC()
+
 		return &OracleResponse{
-			AssetRate: *rate,
-			Expiry:    result.Ok.AssetRates.ExpiryTimestamp,
+			AssetRate: rfqmsg.NewAssetRate(*rate, expiry),
 		}, nil
 
 	case *oraclerpc.QueryAssetRatesResponse_Error:
@@ -371,6 +385,7 @@ var _ PriceOracle = (*RpcPriceOracle)(nil)
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
 // It returns the suggested rate as the exchange rate.
 type MockPriceOracle struct {
+	// expiryDelay is the lifetime of a quote in seconds.
 	expiryDelay    uint64
 	assetToBtcRate rfqmath.BigIntFixedPoint
 }
@@ -407,12 +422,12 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
-	// Calculate the rate expiryDelay lifetime.
-	expiry := uint64(time.Now().Unix()) + m.expiryDelay
+	// Calculate the rate expiry timestamp.
+	lifetime := time.Duration(m.expiryDelay) * time.Second
+	expiry := time.Now().Add(lifetime).UTC()
 
 	return &OracleResponse{
-		AssetRate: m.assetToBtcRate,
-		Expiry:    expiry,
+		AssetRate: rfqmsg.NewAssetRate(m.assetToBtcRate, expiry),
 	}, nil
 }
 
@@ -421,12 +436,12 @@ func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
 	_ *btcec.PublicKey, _ uint64,
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
-	// Calculate the rate expiryDelay lifetime.
-	expiry := uint64(time.Now().Unix()) + m.expiryDelay
+	// Calculate the rate expiry timestamp.
+	lifetime := time.Duration(m.expiryDelay) * time.Second
+	expiry := time.Now().Add(lifetime).UTC()
 
 	return &OracleResponse{
-		AssetRate: m.assetToBtcRate,
-		Expiry:    expiry,
+		AssetRate: rfqmsg.NewAssetRate(m.assetToBtcRate, expiry),
 	}, nil
 }
 
