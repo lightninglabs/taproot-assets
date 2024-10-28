@@ -262,6 +262,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 
 	resp, err := client.QueryBidPrice(
 		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
+		fn.None[rfqmsg.AssetRate](),
 	)
 
 	// If we expect an error, ensure that it is returned.

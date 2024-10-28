@@ -106,8 +106,9 @@ type PriceOracle interface {
 	// The bid price is the amount the oracle suggests a peer should pay
 	// to another peer to receive the specified asset amount.
 	QueryBidPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey,
-		assetAmount uint64) (*OracleResponse, error)
+		assetGroupKey *btcec.PublicKey, assetAmount uint64,
+		assetRateHint fn.Option[rfqmsg.AssetRate]) (
+		*OracleResponse, error)
 }
 
 // RpcPriceOracle is a price oracle that uses an external RPC server to get
@@ -279,8 +280,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
-	assetGroupKey *btcec.PublicKey,
-	maxAssetAmount uint64) (*OracleResponse, error) {
+	assetGroupKey *btcec.PublicKey, maxAssetAmount uint64,
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// For now, we only support querying the ask price with an asset ID.
 	if assetId == nil {
@@ -296,6 +297,14 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 	// set the subject asset ID.
 	copy(subjectAssetId, assetId[:])
 
+	// Construct the RPC asset rates hint.
+	rpcAssetRatesHint, err := fn.MapOptionZ(
+		assetRateHint, oraclerpc.MarshalAssetRates,
+	).Unpack()
+	if err != nil {
+		return nil, err
+	}
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType: oraclerpc.TransactionType_PURCHASE,
 		SubjectAsset: &oraclerpc.AssetSpecifier{
@@ -309,7 +318,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 				AssetId: paymentAssetId,
 			},
 		},
-		AssetRatesHint: nil,
+		AssetRatesHint: rpcAssetRatesHint,
 	}
 
 	// Perform query.
@@ -409,7 +418,8 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
-	_ *btcec.PublicKey, _ uint64) (*OracleResponse, error) {
+	_ *btcec.PublicKey, _ uint64,
+	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiryDelay lifetime.
 	expiry := uint64(time.Now().Unix()) + m.expiryDelay

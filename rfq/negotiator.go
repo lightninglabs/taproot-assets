@@ -106,8 +106,9 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // queryBidFromPriceOracle queries the price oracle for a bid price. It returns
 // an appropriate outgoing response message which should be sent to the peer.
 func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey,
-	assetAmount uint64) (*rfqmath.BigIntFixedPoint, uint64, error) {
+	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmath.BigIntFixedPoint,
+	uint64, error) {
 
 	// TODO(ffranr): Optionally accept a peer's proposed ask price as an
 	//  arg to this func and pass it to the price oracle. The price oracle
@@ -120,7 +121,7 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
-		ctx, assetId, assetGroupKey, assetAmount,
+		ctx, assetId, assetGroupKey, assetAmount, assetRateHint,
 	)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to query price oracle for "+
@@ -168,6 +169,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			rate, _, err := n.queryBidFromPriceOracle(
 				*buyOrder.Peer, buyOrder.AssetID,
 				buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
+				fn.None[rfqmsg.AssetRate](),
 			)
 			if err != nil {
 				// If we fail to query the price oracle for a
@@ -407,7 +409,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// sell to us.
 		assetRate, rateExpiry, err := n.queryBidFromPriceOracle(
 			request.Peer, request.AssetID, request.AssetGroupKey,
-			request.AssetAmount,
+			request.AssetAmount, request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -692,7 +694,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// by the price oracle with the bid price provided by the peer.
 		assetRate, _, err := n.queryBidFromPriceOracle(
 			msg.Peer, msg.Request.AssetID, nil,
-			msg.Request.AssetAmount,
+			msg.Request.AssetAmount, msg.Request.AssetRateHint,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
