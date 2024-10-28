@@ -2,6 +2,8 @@ package rfqmsg
 
 import (
 	"fmt"
+	"math"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -40,18 +42,17 @@ type BuyRequest struct {
 	// requesting a quote.
 	AssetAmount uint64
 
-	// SuggestedAssetRate represents a proposed conversion rate between the
+	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
 	// initiate the RFQ negotiation process and may differ from the final
 	// agreed rate.
-	SuggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
+	AssetRateHint fn.Option[AssetRate]
 }
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]) (*BuyRequest,
-	error) {
+	rateHint fn.Option[rfqmath.BigIntFixedPoint]) (*BuyRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
@@ -59,14 +60,21 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 			"quote request id: %w", err)
 	}
 
+	// Construct a suggested asset rate if a rate hint is provided.
+	var assetRateHint fn.Option[AssetRate]
+	rateHint.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
+		expiry := time.Now().Add(DefaultQuoteLifetime).UTC()
+		assetRateHint = fn.Some(NewAssetRate(rate, expiry))
+	})
+
 	return &BuyRequest{
-		Peer:               peer,
-		Version:            latestBuyRequestVersion,
-		ID:                 id,
-		AssetID:            assetID,
-		AssetGroupKey:      assetGroupKey,
-		AssetAmount:        assetAmount,
-		SuggestedAssetRate: suggestedAssetRate,
+		Peer:          peer,
+		Version:       latestBuyRequestVersion,
+		ID:            id,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   assetAmount,
+		AssetRateHint: assetRateHint,
 	}, nil
 }
 
@@ -102,24 +110,30 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 			"request")
 	}
 
+	// Convert the wire message expiration time to a time.Time.
+	if msgData.Expiry.Val > math.MaxInt64 {
+		return nil, fmt.Errorf("expiry time exceeds maximum int64")
+	}
+
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0)
+
 	// Extract the suggested asset to BTC rate if provided.
-	var suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
+	var assetRateHint fn.Option[AssetRate]
 	msgData.SuggestedAssetRate.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
 			fp := rate.Val.IntoBigIntFixedPoint()
-			suggestedAssetRate =
-				fn.Some[rfqmath.BigIntFixedPoint](fp)
+			assetRateHint = fn.Some(NewAssetRate(fp, expiry))
 		},
 	)
 
 	req := BuyRequest{
-		Peer:               wireMsg.Peer,
-		Version:            msgData.Version.Val,
-		ID:                 msgData.ID.Val,
-		AssetID:            assetID,
-		AssetGroupKey:      assetGroupKey,
-		AssetAmount:        msgData.AssetMaxAmount.Val,
-		SuggestedAssetRate: suggestedAssetRate,
+		Peer:          wireMsg.Peer,
+		Version:       msgData.Version.Val,
+		ID:            msgData.ID.Val,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   msgData.AssetMaxAmount.Val,
+		AssetRateHint: assetRateHint,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -146,6 +160,17 @@ func (q *BuyRequest) Validate() error {
 	if q.Version > latestBuyRequestVersion {
 		return fmt.Errorf("unsupported buy request message version: %d",
 			q.Version)
+	}
+
+	// Ensure that the suggested asset rate has not expired.
+	err := fn.MapOptionZ(q.AssetRateHint, func(rate AssetRate) error {
+		if rate.Expiry.Before(time.Now()) {
+			return fmt.Errorf("suggested asset rate has expired")
+		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -195,10 +220,19 @@ func (q *BuyRequest) String() string {
 		groupKeyBytes = q.AssetGroupKey.SerializeCompressed()
 	}
 
+	// Convert the asset rate hint to a string representation. Use empty
+	// string if the hint is not set.
+	assetRateHintStr := fn.MapOptionZ(
+		q.AssetRateHint,
+		func(rate AssetRate) string {
+			return rate.String()
+		},
+	)
+
 	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, "+
-		"suggested_asset_rate=%v)", q.Peer[:], q.ID[:], q.AssetID,
-		groupKeyBytes, q.AssetAmount, q.SuggestedAssetRate)
+		"asset_group_key=%x, asset_amount=%d, asset_rate_hint=%s)",
+		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount,
+		assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

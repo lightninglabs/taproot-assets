@@ -107,24 +107,13 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	version := tlv.NewRecordT[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
 
-	// Calculate the expiration unix timestamp in seconds.
-	// TODO(ffranr): The expiry timestamp should be obtained from the
-	//  request message.
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
-		uint64(time.Now().Add(DefaultQuoteLifetime).Unix()),
-	)
-
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
-
-	// Convert the suggested asset to BTC rate to a TLV record.
-	var suggestedAssetRate requestSuggestedAssetRate
-	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
-		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
-		wireRate := NewTlvFixedPointFromBigInt(rate)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
-			tlv.NewRecordT[tlv.TlvType19](wireRate),
-		)
+	// Set the expiry to the default request lifetime unless an asset rate
+	// hint is provided.
+	expiry := time.Now().Add(DefaultQuoteLifetime).Unix()
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		expiry = assetRate.Expiry.Unix()
 	})
+	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
 	var inAssetID requestInAssetID
 	if q.AssetID != nil {
@@ -151,11 +140,23 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 
 	outAssetGroupKey := requestOutAssetGroupKey{}
 
+	// Convert the suggested asset to BTC rate to a TLV record.
+	var suggestedAssetRate requestSuggestedAssetRate
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		// Convert the BigIntFixedPoint to a TlvFixedPoint.
+		wireRate := NewTlvFixedPointFromBigInt(assetRate.Rate)
+		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+			tlv.NewRecordT[tlv.TlvType19](wireRate),
+		)
+	})
+
+	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:            version,
 		ID:                 id,
-		Expiry:             expiry,
+		Expiry:             expiryTlv,
 		AssetMaxAmount:     assetMaxAmount,
 		SuggestedAssetRate: suggestedAssetRate,
 		InAssetID:          inAssetID,
