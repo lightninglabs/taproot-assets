@@ -7,6 +7,8 @@ import (
 	"math/big"
 
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	lfn "github.com/lightningnetwork/lnd/fn"
 )
 
 // IsAssetBtc is a helper function that returns true if the given asset
@@ -42,6 +44,33 @@ func IsAssetBtc(assetSpecifier *AssetSpecifier) bool {
 		assetSpecifier.GetGroupKeyStr() != ""
 
 	return isAssetIdZero && !groupKeySet
+}
+
+// MarshalAssetRates converts an asset rate to an RPC AssetRates.
+// The OK result has a pointer type so that it is nil if there is an error.
+// NOTE: The payment asset is assumed to be BTC.
+func MarshalAssetRates(assetRate rfqmsg.AssetRate) lfn.Result[*AssetRates] {
+	// Marshal the subject asset rate.
+	subjectAssetRate, err := MarshalBigIntFixedPoint(assetRate.Rate)
+	if err != nil {
+		return lfn.Err[*AssetRates](err)
+	}
+
+	// Marshal the payment asset rate. For now, we only support BTC as the
+	// payment asset.
+	paymentAssetRate, err := MarshalBigIntFixedPoint(rfqmsg.MilliSatPerBtc)
+	if err != nil {
+		return lfn.Err[*AssetRates](err)
+	}
+
+	// Compute an expiry unix timestamp from the given asset rate expiry.
+	expiryTimestamp := uint64(assetRate.Expiry.Unix())
+
+	return lfn.Ok[*AssetRates](&AssetRates{
+		SubjectAssetRate: subjectAssetRate,
+		PaymentAssetRate: paymentAssetRate,
+		ExpiryTimestamp:  expiryTimestamp,
+	})
 }
 
 // MarshalBigIntFixedPoint converts a BigIntFixedPoint to an RPC FixedPoint.
