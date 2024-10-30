@@ -302,6 +302,14 @@ func (m *MockWalletAnchor) ListTransactions(ctx context.Context, _, _ int32,
 	return m.Transactions, nil
 }
 
+// MinRelayFee estimates the minimum fee rate required for a
+// transaction.
+func (m *MockWalletAnchor) MinRelayFee(
+	ctx context.Context) (chainfee.SatPerKWeight, error) {
+
+	return chainfee.SatPerKWeight(10), nil
+}
+
 type MockChainBridge struct {
 	FeeEstimateSignal chan struct{}
 	PublishReq        chan *wire.MsgTx

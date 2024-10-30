@@ -1354,6 +1354,18 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 			fundReq.PeerPub.SerializeCompressed())
 	}
 
+	// Before we proceed, we'll make sure the fee rate we're using is above
+	// the min relay fee.
+	minRelayFee, err := f.cfg.ChainWallet.MinRelayFee(fundReq.ctx)
+	if err != nil {
+		return fmt.Errorf("unable to establish min_relay_fee: %w",
+			err)
+	}
+	if fundReq.FeeRate.FeePerKWeight() < minRelayFee {
+		return fmt.Errorf("fee rate %v too low, min_relay_fee: %v",
+			fundReq.FeeRate.FeePerKWeight(), minRelayFee)
+	}
+
 	// To start, we'll make a new pending asset funding desc. This'll be
 	// our scratch pad during the asset funding process.
 	tempPID, err := newPendingChanID()

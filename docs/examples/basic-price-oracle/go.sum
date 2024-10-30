@@ -418,8 +418,8 @@ github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf/go.mod h1:vxmQ
 github.com/lightninglabs/lightning-node-connect v0.2.5-alpha h1:ZRVChwczFXK0CEbxOCWwUA6TIZvrkE0APd1T3WjFAwg=
 github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2 h1:Er1miPZD2XZwcfE4xoS5AILqP1mj7kqnhbBSxW9BDxY=
 github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2/go.mod h1:antQGRDRJiuyQF6l+k6NECCSImgCpwaZapATth2Chv4=
-github.com/lightninglabs/lndclient v0.18.4-1 h1:k2UnxHGNH243NRe5/dL2sKgrxc8WMHbFQRdnCtfilwc=
-github.com/lightninglabs/lndclient v0.18.4-1/go.mod h1:/HLqmZGL9MtP8F1g+laq+L9VrsugBN5tsTct3C5wWCg=
+github.com/lightninglabs/lndclient v0.18.4-3 h1:Xk3ZuCQE4ZlF70jaToryL2MvRcryiE0zTfUjJbmzUBY=
+github.com/lightninglabs/lndclient v0.18.4-3/go.mod h1:/HLqmZGL9MtP8F1g+laq+L9VrsugBN5tsTct3C5wWCg=
 github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd h1:D8aRocHpoCv43hL8egXEMYyPmyOiefFHZ66338KQB2s=
 github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd/go.mod h1:x3OmY2wsA18+Kc3TSV2QpSUewOCiscw2mKpXgZv2kZk=
 github.com/lightninglabs/neutrino/cache v1.1.2 h1:C9DY/DAPaPxbFC+xNNEI/z1SJY9GS3shmlu5hIQ798g=

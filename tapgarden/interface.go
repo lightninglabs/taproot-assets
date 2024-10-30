@@ -372,6 +372,10 @@ type WalletAnchor interface {
 	// relevant to the wallet are sent over.
 	SubscribeTransactions(context.Context) (<-chan lndclient.Transaction,
 		<-chan error, error)
+
+	// MinRelayFee returns the current minimum relay fee based on
+	// our chain backend in sat/kw.
+	MinRelayFee(ctx context.Context) (chainfee.SatPerKWeight, error)
 }
 
 // KeyRing is a mirror of the keychain.KeyRing interface, with the addition of
