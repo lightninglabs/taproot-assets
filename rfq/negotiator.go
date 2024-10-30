@@ -106,7 +106,7 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // queryBidFromPriceOracle queries the price oracle for a bid price. It returns
 // an appropriate outgoing response message which should be sent to the peer.
 func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
-	assetSpecifier asset.Specifier, assetAmount uint64,
+	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -121,7 +121,7 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
-		ctx, assetSpecifier, assetAmount, paymentMaxAmt, assetRateHint,
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -178,9 +178,12 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 
 		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for a bid price.
+			//
+			// TODO(ffranr): Add assetMaxAmt to BuyOrder and use as
+			//  arg here.
 			assetRate, err := n.queryBidFromPriceOracle(
 				*buyOrder.Peer, assetSpecifier,
-				buyOrder.MinAssetAmount,
+				fn.None[uint64](),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -229,7 +232,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
 func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
-	assetSpecifier asset.Specifier, assetAmount uint64,
+	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -238,7 +241,7 @@ func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
-		ctx, assetSpecifier, assetAmount, paymentMaxAmt,
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt,
 		assetRateHint,
 	)
 	if err != nil {
@@ -327,7 +330,8 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 
 		// Query the price oracle for an asking price.
 		assetRate, err := n.queryAskFromPriceOracle(
-			nil, request.AssetSpecifier, request.AssetMaxAmt,
+			nil, request.AssetSpecifier,
+			fn.Some(request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
 			request.AssetRateHint,
 		)
@@ -423,9 +427,12 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// Query the price oracle for a bid price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
+		//
+		// TODO(ffranr): Add paymentMaxAmt to SellRequest and use as arg
+		//  here.
 		assetRate, err := n.queryBidFromPriceOracle(
 			request.Peer, request.AssetSpecifier,
-			request.AssetAmount, fn.None[lnwire.MilliSatoshi](),
+			fn.None[uint64](), fn.None[lnwire.MilliSatoshi](),
 			request.AssetRateHint,
 		)
 		if err != nil {
@@ -483,9 +490,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 
 		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
+			//
+			// TODO(ffranr): Add paymentMaxAmt to SellOrder and use
+			//  as arg here.
 			assetRate, err := n.queryAskFromPriceOracle(
 				order.Peer, assetSpecifier,
-				order.MaxAssetAmount,
+				fn.None[uint64](),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -600,7 +610,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, err := n.queryAskFromPriceOracle(
 			&msg.Peer, msg.Request.AssetSpecifier,
-			msg.Request.AssetMaxAmt,
+			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
 			fn.None[rfqmsg.AssetRate](),
 		)
@@ -724,9 +734,12 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// We will sanity check that price by querying our price oracle
 		// for a bid price. We will then compare the bid price returned
 		// by the price oracle with the bid price provided by the peer.
+		//
+		// TODO(ffranr): Add paymentMaxAmt to SellRequest and use as arg
+		//  here.
 		assetRate, err := n.queryBidFromPriceOracle(
 			msg.Peer, msg.Request.AssetSpecifier,
-			msg.Request.AssetAmount, fn.None[lnwire.MilliSatoshi](),
+			fn.None[uint64](), fn.None[lnwire.MilliSatoshi](),
 			msg.Request.AssetRateHint,
 		)
 		if err != nil {

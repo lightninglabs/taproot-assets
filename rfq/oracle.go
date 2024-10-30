@@ -95,7 +95,7 @@ type PriceOracle interface {
 	// The ask price is the amount the oracle suggests a peer should accept
 	// from another peer to provide the specified asset amount.
 	QueryAskPrice(ctx context.Context, assetSpecifier asset.Specifier,
-		assetAmount uint64,
+		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
@@ -104,7 +104,7 @@ type PriceOracle interface {
 	// The bid price is the amount the oracle suggests a peer should pay
 	// to another peer to receive the specified asset amount.
 	QueryBidPrice(ctx context.Context, assetSpecifier asset.Specifier,
-		assetAmount uint64,
+		assetMaxAmt fn.Option[uint64],
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
@@ -191,7 +191,7 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
-	assetSpecifier asset.Specifier, assetAmount uint64,
+	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
@@ -211,6 +211,9 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	assetSpecifier.WhenId(func(assetId asset.ID) {
 		copy(subjectAssetId, assetId[:])
 	})
+
+	// Marshal asset max amount.
+	assetMaxAmount := assetMaxAmt.UnwrapOr(0)
 
 	// Construct the RPC asset rates hint.
 	rpcAssetRatesHint, err := fn.MapOptionZ(
@@ -232,7 +235,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 				AssetId: subjectAssetId,
 			},
 		},
-		SubjectAssetMaxAmount: assetAmount,
+		SubjectAssetMaxAmount: assetMaxAmount,
 		PaymentAsset: &oraclerpc.AssetSpecifier{
 			Id: &oraclerpc.AssetSpecifier_AssetId{
 				AssetId: paymentAssetId,
@@ -296,7 +299,7 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
-	assetSpecifier asset.Specifier, maxAssetAmount uint64,
+	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
@@ -316,6 +319,9 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 	assetSpecifier.WhenId(func(assetId asset.ID) {
 		copy(subjectAssetId, assetId[:])
 	})
+
+	// Marshal asset max amount.
+	assetMaxAmount := assetMaxAmt.UnwrapOr(0)
 
 	// Marshal payment asset max amount.
 	paymentAssetMaxAmount := uint64(
@@ -337,7 +343,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 				AssetId: subjectAssetId,
 			},
 		},
-		SubjectAssetMaxAmount: maxAssetAmount,
+		SubjectAssetMaxAmount: assetMaxAmount,
 		PaymentAsset: &oraclerpc.AssetSpecifier{
 			Id: &oraclerpc.AssetSpecifier_AssetId{
 				AssetId: paymentAssetId,
@@ -439,7 +445,8 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
-	_ asset.Specifier, _ uint64, _ fn.Option[lnwire.MilliSatoshi],
+	_ asset.Specifier, _ fn.Option[uint64],
+	_ fn.Option[lnwire.MilliSatoshi],
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiry timestamp.
@@ -453,7 +460,7 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ asset.Specifier,
-	_ uint64, _ fn.Option[lnwire.MilliSatoshi],
+	_ fn.Option[uint64], _ fn.Option[lnwire.MilliSatoshi],
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiry timestamp.
