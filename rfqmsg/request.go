@@ -8,14 +8,13 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
 const (
-	// defaultRequestExpiry is the default duration after which a quote
+	// DefaultQuoteLifetime is the default duration after which a quote
 	// request will expire.
-	defaultRequestExpiry = 10 * time.Minute
+	DefaultQuoteLifetime = 10 * time.Minute
 
 	// latestRequestWireMsgDataVersion is the latest supported quote request
 	// wire message data field version.
@@ -107,24 +106,13 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	version := tlv.NewRecordT[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
 
-	// Calculate the expiration unix timestamp in seconds.
-	// TODO(ffranr): The expiry timestamp should be obtained from the
-	//  request message.
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
-		uint64(time.Now().Add(defaultRequestExpiry).Unix()),
-	)
-
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
-
-	// Convert the suggested asset to BTC rate to a TLV record.
-	var suggestedAssetRate requestSuggestedAssetRate
-	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
-		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
-		wireRate := NewTlvFixedPointFromBigInt(rate)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
-			tlv.NewRecordT[tlv.TlvType19](wireRate),
-		)
+	// Set the expiry to the default request lifetime unless an asset rate
+	// hint is provided.
+	expiry := time.Now().Add(DefaultQuoteLifetime).Unix()
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		expiry = assetRate.Expiry.Unix()
 	})
+	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
 	var inAssetID requestInAssetID
 	if q.AssetID != nil {
@@ -151,11 +139,23 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 
 	outAssetGroupKey := requestOutAssetGroupKey{}
 
+	// Convert the suggested asset to BTC rate to a TLV record.
+	var suggestedAssetRate requestSuggestedAssetRate
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		// Convert the BigIntFixedPoint to a TlvFixedPoint.
+		wireRate := NewTlvFixedPointFromBigInt(assetRate.Rate)
+		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+			tlv.NewRecordT[tlv.TlvType19](wireRate),
+		)
+	})
+
+	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
 		Version:            version,
 		ID:                 id,
-		Expiry:             expiry,
+		Expiry:             expiryTlv,
 		AssetMaxAmount:     assetMaxAmount,
 		SuggestedAssetRate: suggestedAssetRate,
 		InAssetID:          inAssetID,
@@ -171,22 +171,23 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
 
-	// Calculate the expiration unix timestamp in seconds.
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType6](
-		uint64(time.Now().Add(defaultRequestExpiry).Unix()),
-	)
+	// Set the expiry to the default request lifetime unless an asset rate
+	// hint is provided.
+	expiry := time.Now().Add(DefaultQuoteLifetime).Unix()
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		expiry = assetRate.Expiry.Unix()
+	})
+	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
 	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
 
 	// Convert the suggested asset rate to a TLV record.
 	var suggestedAssetRate requestSuggestedAssetRate
-	q.SuggestedAssetRate.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
-		// Convert the BigIntFixedPoint to a Uint64FixedPoint.
-		wireRate := NewTlvFixedPointFromBigInt(rate)
+	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
+		// Convert the BigIntFixedPoint to a TlvFixedPoint.
+		wireRate := NewTlvFixedPointFromBigInt(assetRate.Rate)
 		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
-			tlv.NewRecordT[tlv.TlvType19](
-				wireRate,
-			),
+			tlv.NewRecordT[tlv.TlvType19](wireRate),
 		)
 	})
 
@@ -220,7 +221,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	return requestWireMsgData{
 		Version:            version,
 		ID:                 id,
-		Expiry:             expiry,
+		Expiry:             expiryTlv,
 		AssetMaxAmount:     assetMaxAmount,
 		SuggestedAssetRate: suggestedAssetRate,
 		InAssetID:          inAssetID,
@@ -475,9 +476,9 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 	// If this is a buy request, then we will create a new buy request
 	// message.
 	if isBuyRequest {
-		return NewBuyRequestMsgFromWire(wireMsg, msgData)
+		return NewBuyRequestFromWire(wireMsg, msgData)
 	}
 
 	// Otherwise, this is a sell request.
-	return NewSellRequestMsgFromWire(wireMsg, msgData)
+	return NewSellRequestFromWire(wireMsg, msgData)
 }

@@ -13,6 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
@@ -158,10 +159,12 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	inAssetRate := rfqmath.NewBigIntFixedPoint(
 		tc.suggestedAssetRate, 3,
 	)
+	expiry := time.Now().Add(rfqmsg.DefaultQuoteLifetime).UTC()
+	assetRateHint := rfqmsg.NewAssetRate(inAssetRate, expiry)
 
 	resp, err := client.QueryAskPrice(
 		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
-		fn.Some(inAssetRate),
+		fn.Some(assetRateHint),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -176,12 +179,11 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	// The mock server should return the asset rates hint.
 	require.NotNil(t, resp.AssetRate)
 	require.Equal(
-		t, uint64(bidPrice), resp.AssetRate.Coefficient.ToUint64(),
+		t, uint64(bidPrice), resp.AssetRate.Rate.Coefficient.ToUint64(),
 	)
 
 	// Ensure that the expiry timestamp is in the future.
-	responseExpiry := time.Unix(int64(resp.Expiry), 0)
-	require.True(t, responseExpiry.After(time.Now()))
+	require.True(t, resp.AssetRate.Expiry.After(time.Now()))
 }
 
 // TestRpcPriceOracle tests the RPC price oracle client QueryAskPrice function.
@@ -259,6 +261,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 
 	resp, err := client.QueryBidPrice(
 		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
+		fn.None[rfqmsg.AssetRate](),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -272,11 +275,12 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 
 	// The mock server should return the asset rates hint.
 	require.NotNil(t, resp.AssetRate)
-	require.Equal(t, testAssetRate, resp.AssetRate.Coefficient.ToUint64())
+	require.Equal(
+		t, testAssetRate, resp.AssetRate.Rate.Coefficient.ToUint64(),
+	)
 
 	// Ensure that the expiry timestamp is in the future.
-	responseExpiry := time.Unix(int64(resp.Expiry), 0)
-	require.True(t, responseExpiry.After(time.Now()))
+	require.True(t, resp.AssetRate.Expiry.After(time.Now()))
 }
 
 // TestRpcPriceOracle tests the RPC price oracle client QueryBidPrice function.

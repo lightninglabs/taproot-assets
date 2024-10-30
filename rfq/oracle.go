@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"time"
 
+	"math"
+
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -16,18 +18,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
-)
-
-const (
-	// defaultAssetRateExpirySeconds is the default asset units to BTC rate
-	// expiry lifetime in seconds. 600s = 10 minutes.
-	//
-	// TODO(ffranr): This const is currently used in conjunction with the
-	//  AcceptSuggestedPrices flag. It is used to set the expiry time of the
-	//  asset units to BTC rate in the accept message. This is a temporary
-	//  solution and should be replaced with an expiry time provided by the
-	//  peer in the quote request message.
-	defaultAssetRateExpirySeconds = 600
 )
 
 // OracleError is a struct that holds an error returned by the price oracle
@@ -58,11 +48,7 @@ func (o *OracleError) Error() string {
 type OracleResponse struct {
 	// AssetRate is the asset to BTC rate. Other asset in the transfer is
 	// assumed to be BTC and therefore not included in the response.
-	AssetRate rfqmath.BigIntFixedPoint
-
-	// Expiry is the asset to BTC rate expiry lifetime unix timestamp. The
-	// rate is only valid until this time.
-	Expiry uint64
+	AssetRate rfqmsg.AssetRate
 
 	// Err is an optional error returned by the price oracle service.
 	Err *OracleError
@@ -111,15 +97,16 @@ type PriceOracle interface {
 	// from another peer to provide the specified asset amount.
 	QueryAskPrice(ctx context.Context, assetId *asset.ID,
 		assetGroupKey *btcec.PublicKey, assetAmount uint64,
-		assetRateHint fn.Option[rfqmath.BigIntFixedPoint]) (
+		assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
 
 	// QueryBidPrice returns the bid price for a given asset amount.
 	// The bid price is the amount the oracle suggests a peer should pay
 	// to another peer to receive the specified asset amount.
 	QueryBidPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey,
-		assetAmount uint64) (*OracleResponse, error)
+		assetGroupKey *btcec.PublicKey, assetAmount uint64,
+		assetRateHint fn.Option[rfqmsg.AssetRate]) (
+		*OracleResponse, error)
 }
 
 // RpcPriceOracle is a price oracle that uses an external RPC server to get
@@ -204,7 +191,7 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 // QueryAskPrice returns the ask price for the given asset amount.
 func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	assetRateHint fn.Option[rfqmath.BigIntFixedPoint]) (*OracleResponse,
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
 
 	// For now, we only support querying the ask price with an asset ID.
@@ -222,38 +209,9 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	copy(subjectAssetId, assetId[:])
 
 	// Construct the RPC asset rates hint.
-	var (
-		rpcAssetRatesHint *oraclerpc.AssetRates
-		err               error
-	)
-	assetRateHint.WhenSome(func(rate rfqmath.BigIntFixedPoint) {
-		// Compute an expiry time using the default expiry delay.
-		expiryTimestamp := uint64(time.Now().Unix()) +
-			defaultAssetRateExpirySeconds
-
-		// Marshal the subject asset rate.
-		subjectAssetRate, err := oraclerpc.MarshalBigIntFixedPoint(
-			rate,
-		)
-		if err != nil {
-			return
-		}
-
-		// Marshal the payment asset rate. For now, we only support BTC
-		// as the payment asset.
-		paymentAssetRate, err := oraclerpc.MarshalBigIntFixedPoint(
-			rfqmsg.MilliSatPerBtc,
-		)
-		if err != nil {
-			return
-		}
-
-		rpcAssetRatesHint = &oraclerpc.AssetRates{
-			SubjectAssetRate: subjectAssetRate,
-			PaymentAssetRate: paymentAssetRate,
-			ExpiryTimestamp:  expiryTimestamp,
-		}
-	})
+	rpcAssetRatesHint, err := fn.MapOptionZ(
+		assetRateHint, oraclerpc.MarshalAssetRates,
+	).Unpack()
 	if err != nil {
 		return nil, err
 	}
@@ -296,9 +254,17 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 			return nil, err
 		}
 
+		// Unmarshal the expiry timestamp.
+		if result.Ok.AssetRates.ExpiryTimestamp > math.MaxInt64 {
+			return nil, fmt.Errorf("expiry timestamp exceeds " +
+				"int64 max")
+		}
+		expiry := time.Unix(int64(
+			result.Ok.AssetRates.ExpiryTimestamp,
+		), 0).UTC()
+
 		return &OracleResponse{
-			AssetRate: *rate,
-			Expiry:    result.Ok.AssetRates.ExpiryTimestamp,
+			AssetRate: rfqmsg.NewAssetRate(*rate, expiry),
 		}, nil
 
 	case *oraclerpc.QueryAssetRatesResponse_Error:
@@ -320,8 +286,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
-	assetGroupKey *btcec.PublicKey,
-	maxAssetAmount uint64) (*OracleResponse, error) {
+	assetGroupKey *btcec.PublicKey, maxAssetAmount uint64,
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// For now, we only support querying the ask price with an asset ID.
 	if assetId == nil {
@@ -337,6 +303,14 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 	// set the subject asset ID.
 	copy(subjectAssetId, assetId[:])
 
+	// Construct the RPC asset rates hint.
+	rpcAssetRatesHint, err := fn.MapOptionZ(
+		assetRateHint, oraclerpc.MarshalAssetRates,
+	).Unpack()
+	if err != nil {
+		return nil, err
+	}
+
 	req := &oraclerpc.QueryAssetRatesRequest{
 		TransactionType: oraclerpc.TransactionType_PURCHASE,
 		SubjectAsset: &oraclerpc.AssetSpecifier{
@@ -350,7 +324,7 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 				AssetId: paymentAssetId,
 			},
 		},
-		AssetRatesHint: nil,
+		AssetRatesHint: rpcAssetRatesHint,
 	}
 
 	// Perform query.
@@ -375,9 +349,17 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 			return nil, err
 		}
 
+		// Unmarshal the expiry timestamp.
+		if result.Ok.AssetRates.ExpiryTimestamp > math.MaxInt64 {
+			return nil, fmt.Errorf("expiry timestamp exceeds " +
+				"int64 max")
+		}
+		expiry := time.Unix(int64(
+			result.Ok.AssetRates.ExpiryTimestamp,
+		), 0).UTC()
+
 		return &OracleResponse{
-			AssetRate: *rate,
-			Expiry:    result.Ok.AssetRates.ExpiryTimestamp,
+			AssetRate: rfqmsg.NewAssetRate(*rate, expiry),
 		}, nil
 
 	case *oraclerpc.QueryAssetRatesResponse_Error:
@@ -403,6 +385,7 @@ var _ PriceOracle = (*RpcPriceOracle)(nil)
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
 // It returns the suggested rate as the exchange rate.
 type MockPriceOracle struct {
+	// expiryDelay is the lifetime of a quote in seconds.
 	expiryDelay    uint64
 	assetToBtcRate rfqmath.BigIntFixedPoint
 }
@@ -437,27 +420,28 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
-	_ fn.Option[rfqmath.BigIntFixedPoint]) (*OracleResponse, error) {
+	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
-	// Calculate the rate expiryDelay lifetime.
-	expiry := uint64(time.Now().Unix()) + m.expiryDelay
+	// Calculate the rate expiry timestamp.
+	lifetime := time.Duration(m.expiryDelay) * time.Second
+	expiry := time.Now().Add(lifetime).UTC()
 
 	return &OracleResponse{
-		AssetRate: m.assetToBtcRate,
-		Expiry:    expiry,
+		AssetRate: rfqmsg.NewAssetRate(m.assetToBtcRate, expiry),
 	}, nil
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
 func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
-	_ *btcec.PublicKey, _ uint64) (*OracleResponse, error) {
+	_ *btcec.PublicKey, _ uint64,
+	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
-	// Calculate the rate expiryDelay lifetime.
-	expiry := uint64(time.Now().Unix()) + m.expiryDelay
+	// Calculate the rate expiry timestamp.
+	lifetime := time.Duration(m.expiryDelay) * time.Second
+	expiry := time.Now().Add(lifetime).UTC()
 
 	return &OracleResponse{
-		AssetRate: m.assetToBtcRate,
-		Expiry:    expiry,
+		AssetRate: rfqmsg.NewAssetRate(m.assetToBtcRate, expiry),
 	}, nil
 }
 

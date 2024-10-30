@@ -41,6 +41,8 @@ type SellAccept struct {
 
 // NewSellAcceptFromRequest creates a new instance of an asset sell quote accept
 // message given an asset sell quote request message.
+//
+// // TODO(ffranr): Use new AssetRate type for assetRate arg.
 func NewSellAcceptFromRequest(request SellRequest,
 	assetRate rfqmath.BigIntFixedPoint, expiry uint64) *SellAccept {
 

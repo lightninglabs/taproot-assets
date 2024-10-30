@@ -2,11 +2,11 @@ package rfqmsg
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -40,20 +40,17 @@ type SellRequest struct {
 	// peer intends to sell.
 	AssetAmount uint64
 
-	// SuggestedAssetRate represents a proposed conversion rate between the
+	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
 	// initiate the RFQ negotiation process and may differ from the final
 	// agreed rate.
-	SuggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
-
-	// TODO(ffranr): Add expiry time for suggested ask price.
+	AssetRateHint fn.Option[AssetRate]
 }
 
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	assetGroupKey *btcec.PublicKey, assetAmount uint64,
-	suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]) (*SellRequest,
-	error) {
+	assetRateHint fn.Option[AssetRate]) (*SellRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
@@ -61,18 +58,18 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 	}
 
 	return &SellRequest{
-		Peer:               peer,
-		Version:            latestSellRequestVersion,
-		ID:                 id,
-		AssetID:            assetID,
-		AssetGroupKey:      assetGroupKey,
-		AssetAmount:        assetAmount,
-		SuggestedAssetRate: suggestedAssetRate,
+		Peer:          peer,
+		Version:       latestSellRequestVersion,
+		ID:            id,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   assetAmount,
+		AssetRateHint: assetRateHint,
 	}, nil
 }
 
-// NewSellRequestMsgFromWire instantiates a new instance from a wire message.
-func NewSellRequestMsgFromWire(wireMsg WireMessage,
+// NewSellRequestFromWire instantiates a new instance from a wire message.
+func NewSellRequestFromWire(wireMsg WireMessage,
 	msgData requestWireMsgData) (*SellRequest, error) {
 
 	// Ensure that the message type is a quote request message.
@@ -105,24 +102,25 @@ func NewSellRequestMsgFromWire(wireMsg WireMessage,
 			"request")
 	}
 
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0)
+
 	// Extract the suggested asset to BTC rate if provided.
-	var suggestedAssetRate fn.Option[rfqmath.BigIntFixedPoint]
+	var assetRateHint fn.Option[AssetRate]
 	msgData.SuggestedAssetRate.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
 			fp := rate.Val.IntoBigIntFixedPoint()
-			suggestedAssetRate =
-				fn.Some[rfqmath.BigIntFixedPoint](fp)
+			assetRateHint = fn.Some(NewAssetRate(fp, expiry))
 		},
 	)
 
 	req := SellRequest{
-		Peer:               wireMsg.Peer,
-		Version:            msgData.Version.Val,
-		ID:                 msgData.ID.Val,
-		AssetID:            assetID,
-		AssetGroupKey:      assetGroupKey,
-		AssetAmount:        msgData.AssetMaxAmount.Val,
-		SuggestedAssetRate: suggestedAssetRate,
+		Peer:          wireMsg.Peer,
+		Version:       msgData.Version.Val,
+		ID:            msgData.ID.Val,
+		AssetID:       assetID,
+		AssetGroupKey: assetGroupKey,
+		AssetAmount:   msgData.AssetMaxAmount.Val,
+		AssetRateHint: assetRateHint,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -198,10 +196,19 @@ func (q *SellRequest) String() string {
 		groupKeyBytes = q.AssetGroupKey.SerializeCompressed()
 	}
 
+	// Convert the asset rate hint to a string representation. Use empty
+	// string if the hint is not set.
+	assetRateHintStr := fn.MapOptionZ(
+		q.AssetRateHint,
+		func(rate AssetRate) string {
+			return rate.String()
+		},
+	)
+
 	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, ask_asset_rate=%v)",
+		"asset_group_key=%x, asset_amount=%d, asset_rate_hint=%s)",
 		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount,
-		q.SuggestedAssetRate)
+		assetRateHintStr)
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
