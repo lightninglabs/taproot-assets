@@ -323,11 +323,6 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	now := time.Now()
 	log.Infof("populating root cache...")
 
-	var (
-		uniRoots []universe.Root
-		readTx   = NewBaseMultiverseReadTx()
-	)
-
 	params := sqlc.UniverseRootsParams{
 		SortDirection: sqlInt16(q.SortDirection),
 		NumOffset:     q.Offset,
@@ -339,7 +334,29 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			return q.Limit
 		}(),
 	}
+	uniRoots, err := b.queryRootNodes(ctx, params, q.WithAmountsById)
+	if err != nil {
+		return nil, err
+	}
 
+	log.Debugf("Populating %v root nodes into cache, took=%v",
+		len(uniRoots), time.Since(now))
+
+	// Cache all the root nodes we just read from the database.
+	b.rootNodeCache.cacheRoots(q, uniRoots)
+
+	return uniRoots, nil
+}
+
+// queryRootNodes returns the set of root nodes for the given query parameters.
+func (b *MultiverseStore) queryRootNodes(ctx context.Context,
+	params sqlc.UniverseRootsParams,
+	withAmountsByID bool) ([]universe.Root, error) {
+
+	var (
+		uniRoots []universe.Root
+		readTx   = NewBaseMultiverseReadTx()
+	)
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
 		dbRoots, err := db.UniverseRoots(ctx, params)
 		if err != nil {
@@ -377,7 +394,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			// We skip the grouped assets if that wasn't explicitly
 			// requested by the user, saves us some calls for
 			// grouped assets.
-			if dbRoot.GroupKey != nil && q.WithAmountsById {
+			if dbRoot.GroupKey != nil && withAmountsByID {
 				groupLeaves, err := db.QueryUniverseLeaves(
 					ctx, UniverseLeafQuery{
 						Namespace: id.String(),
@@ -395,7 +412,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 					copy(id[:], leaf.AssetID)
 					groupedAssets[id] = uint64(leaf.SumAmt)
 				}
-			} else if q.WithAmountsById {
+			} else if withAmountsByID {
 				// For non-grouped assets, there's exactly one
 				// member, the asset itself.
 				groupedAssets = map[asset.ID]uint64{
@@ -422,12 +439,6 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	if dbErr != nil {
 		return nil, dbErr
 	}
-
-	log.Debugf("Populating %v root nodes into cache, took=%v",
-		len(uniRoots), time.Since(now))
-
-	// Cache all the root nodes we just read from the database.
-	b.rootNodeCache.cacheRoots(q, uniRoots)
 
 	return uniRoots, nil
 }
