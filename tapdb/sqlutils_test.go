@@ -258,7 +258,9 @@ func newDbHandleFromDb(db *BaseDB) *DbHandler {
 			return db.WithTx(tx)
 		},
 	)
-	multiverseStore := NewMultiverseStore(multiverseTxCreator)
+	multiverseStore := NewMultiverseStore(
+		multiverseTxCreator, DefaultMultiverseStoreConfig(),
+	)
 
 	// Gain a handle to the pending (minting) assets store.
 	assetMintingDB := NewTransactionExecutor(

@@ -126,7 +126,9 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
-	multiverse := tapdb.NewMultiverseStore(multiverseDB)
+	multiverse := tapdb.NewMultiverseStore(
+		multiverseDB, tapdb.DefaultMultiverseStoreConfig(),
+	)
 
 	uniStatsDB := tapdb.NewTransactionExecutor(
 		db, func(tx *sql.Tx) tapdb.UniverseStatsStore {

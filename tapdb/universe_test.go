@@ -91,7 +91,7 @@ func newTestMultiverse(t *testing.T) (*MultiverseStore, sqlc.Querier) {
 		},
 	)
 
-	return NewMultiverseStore(dbTxer), db
+	return NewMultiverseStore(dbTxer, DefaultMultiverseStoreConfig()), db
 }
 
 func newTestMultiverseWithDb(db *BaseDB) (*MultiverseStore, sqlc.Querier) {
@@ -101,7 +101,7 @@ func newTestMultiverseWithDb(db *BaseDB) (*MultiverseStore, sqlc.Querier) {
 		},
 	)
 
-	return NewMultiverseStore(dbTxer), db
+	return NewMultiverseStore(dbTxer, DefaultMultiverseStoreConfig()), db
 }
 
 func newTestUniverseWithDb(db *BaseDB,
@@ -541,7 +541,9 @@ func TestUniverseTreeIsolation(t *testing.T) {
 			return db.WithTx(tx)
 		},
 	)
-	multiverse := NewMultiverseStore(multiverseDB)
+	multiverse := NewMultiverseStore(
+		multiverseDB, DefaultMultiverseStoreConfig(),
+	)
 
 	rootNodes, err := multiverse.RootNodes(
 		ctx, universe.RootNodesQuery{

@@ -63,12 +63,35 @@ func TestMultiverseRootsCachePerformance(t *testing.T) {
 	require.EqualValues(
 		t, numMisses, multiverse.rootNodeCache.miss.Load(),
 	)
+
+	// We now turn on the syncer proof and make sure all our queries are
+	// served by that cache.
+	multiverse.syncerCache.enabled = true
+	multiverse.cfg.Caches.SyncerCacheEnabled = true
+	roots = queryRoots(t, multiverse, pageSize)
+	require.Len(t, roots, numAssets)
+	assertAllLeavesInRoots(t, allLeaves, roots)
+
+	// The old page based cache should still have exactly the same numbers
+	// as before.
+	require.EqualValues(t, numHits, multiverse.rootNodeCache.hit.Load())
+	require.EqualValues(
+		t, numMisses, multiverse.rootNodeCache.miss.Load(),
+	)
+
+	// The new syncer cache should only have two misses, one from when the
+	// cache was empty, one from after acquiring the write lock and all
+	// other queries should be hits.
+	require.EqualValues(t, 2, multiverse.syncerCache.miss.Load())
+	require.EqualValues(t, numHits, multiverse.syncerCache.hit.Load())
 }
 
 // TestMultiverseSyncerCache tests the syncer cache of the multiverse store.
 func TestMultiverseSyncerCache(t *testing.T) {
 	ctx := context.Background()
 	multiverse, _ := newTestMultiverse(t)
+	multiverse.syncerCache.enabled = true
+	multiverse.cfg.Caches.SyncerCacheEnabled = true
 
 	// We insert a couple of assets into the multiverse store.
 	const (

@@ -101,11 +101,28 @@ type BatchedMultiverse interface {
 	BatchedTx[BaseMultiverseStore]
 }
 
+// MultiverseStoreConfig is the set of configuration options for the multiverse
+// store.
+type MultiverseStoreConfig struct {
+	// Caches is the set of cache configurations for the multiverse store.
+	Caches MultiverseCacheConfig
+}
+
+// DefaultMultiverseStoreConfig returns the default configuration for the
+// multiverse store.
+func DefaultMultiverseStoreConfig() *MultiverseStoreConfig {
+	return &MultiverseStoreConfig{
+		Caches: DefaultMultiverseCacheConfig(),
+	}
+}
+
 // MultiverseStore implements the persistent storage for a multiverse.
 //
 // NOTE: This implements the universe.MultiverseArchive interface.
 type MultiverseStore struct {
 	db BatchedMultiverse
+
+	cfg *MultiverseStoreConfig
 
 	syncerCache *syncerRootNodeCache
 
@@ -124,13 +141,26 @@ type MultiverseStore struct {
 }
 
 // NewMultiverseStore creates a new multiverse DB store handle.
-func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
+func NewMultiverseStore(db BatchedMultiverse,
+	cfg *MultiverseStoreConfig) *MultiverseStore {
+
 	return &MultiverseStore{
-		db:                       db,
-		syncerCache:              newSyncerRootNodeCache(),
-		rootNodeCache:            newRootNodeCache(),
-		proofCache:               newUniverseProofCache(),
-		leafKeysCache:            newUniverseLeafPageCache(),
+		db:  db,
+		cfg: cfg,
+		syncerCache: newSyncerRootNodeCache(
+			cfg.Caches.SyncerCacheEnabled,
+			cfg.Caches.SyncerCachePreAllocSize,
+		),
+		rootNodeCache: newRootNodeCache(
+			cfg.Caches.RootNodePageCacheSize,
+		),
+		proofCache: newUniverseProofCache(
+			cfg.Caches.ProofsPerUniverse,
+		),
+		leafKeysCache: newUniverseLeafPageCache(
+			cfg.Caches.LeavesNumCachedUniverses,
+			cfg.Caches.LeavesPerUniverse,
+		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
 	}
 }
@@ -207,13 +237,16 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 	// syncer cache, as that should have all root nodes that are currently
 	// known. We never update the syncer cache on a cache miss of a single
 	// root node, as that shouldn't happen (unless the cache is empty).
+	// This will always return nil if the cache is disabled, so we don't
+	// need an extra indentation for that check here.
 	rootNode := b.syncerCache.fetchRoot(id)
 	if rootNode != nil {
 		return *rootNode, nil
 	}
 
-	// If the cache is still empty, we'll populate it now.
-	if b.syncerCache.isEmpty() {
+	// If the cache is still empty, we'll populate it now, given it is
+	// enabled.
+	if b.syncerCache.isEmpty() && b.cfg.Caches.SyncerCacheEnabled {
 		// We attempt to acquire the write lock to fill the cache. If
 		// another goroutine is already filling the cache, we'll wait
 		// for it to finish that way.
@@ -336,7 +369,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	// WithAmountsById=false)? This cache is complete (all root nodes) and
 	// can be directly sliced into, but it doesn't have any amounts by ID
 	// and doesn't support descending order.
-	if isQueryForSyncerCache(q) {
+	if isQueryForSyncerCache(q) && b.cfg.Caches.SyncerCacheEnabled {
 		// First, check to see if we have the root nodes cached in the
 		// syncer cache.
 		rootNodes, emptyPage := b.syncerCache.fetchRoots(q, false)
@@ -543,7 +576,9 @@ func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
 		NumLimit:      universe.MaxPageSize,
 	}
 
-	allRoots := make([]universe.Root, 0, numCachedProofs)
+	allRoots := make(
+		[]universe.Root, 0, b.cfg.Caches.SyncerCachePreAllocSize,
+	)
 	for {
 		newRoots, err := b.queryRootNodes(ctx, params, false)
 		if err != nil {

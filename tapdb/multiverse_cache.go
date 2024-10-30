@@ -14,6 +14,59 @@ import (
 	"github.com/lightningnetwork/lnd/lnutils"
 )
 
+// MultiverseCacheConfig is the configuration for the different multiverse
+// caches that exist.
+//
+//nolint:lll
+type MultiverseCacheConfig struct {
+	// ProofsPerUniverse is the number of proofs that are cached per
+	// universe. This number needs to be multiplied by the total number of
+	// universes to get the total number of proofs that are cached. There is
+	// no limit to the number of universes that can hold cached keys, so a
+	// cache is created for each universe that receives a request.
+	ProofsPerUniverse uint64 `long:"proofs-per-universe" description:"The number of proofs that are cached per universe."`
+
+	// LeavesNumCachedUniverses is the number of universes that can have a
+	// cache of leaf keys. Each cached universe can have up to
+	// LeavesPerUniverse keys cached. The total number of cached keys is
+	// therefore LeavesNumCachedUniverses * LeavesPerUniverse.
+	LeavesNumCachedUniverses uint64 `long:"leaves-num-cached-universes" description:"The number of universes that can have a cache of leaf keys."`
+
+	// LeavesPerUniverse is the number of leaf keys that are cached per
+	// universe. This number needs to be multiplied by
+	// LeavesNumCachedUniverses to get the total number of leaf keys that
+	// are cached.
+	LeavesPerUniverse uint64 `long:"leaves-per-universe" description:"The number of leaf keys that are cached per cached universe."`
+
+	// SyncerCacheEnabled is a flag that indicates if the syncer cache is
+	// enabled. The syncer cache is used to cache the set of active root
+	// nodes for the multiverse tree, which is specifically kept for the
+	// universe sync.
+	SyncerCacheEnabled bool `long:"syncer-cache-enabled" description:"If the syncer cache is enabled."`
+
+	// SyncerCachePreAllocSize is the pre-allocated size of the syncer
+	// cache.
+	SyncerCachePreAllocSize uint64 `long:"syncer-cache-pre-alloc-size" description:"The pre-allocated size of the syncer cache."`
+
+	// RootNodePageCacheSize is the size of the root node page cache that
+	// serves all paginated queries for root nodes that use different
+	// parameters than the syncer cache.
+	RootNodePageCacheSize uint64 `long:"root-node-page-cache-size" description:"The size of the root node page cache for all requests that aren't served by the syncer cache."`
+}
+
+// DefaultMultiverseCacheConfig returns the default configuration for the
+// multiverse cache.
+func DefaultMultiverseCacheConfig() MultiverseCacheConfig {
+	return MultiverseCacheConfig{
+		ProofsPerUniverse:        5,
+		LeavesNumCachedUniverses: 2_000,
+		LeavesPerUniverse:        50,
+		SyncerCacheEnabled:       false,
+		SyncerCachePreAllocSize:  100_000,
+		RootNodePageCacheSize:    20 * universe.MaxPageSize,
+	}
+}
+
 // ProofKey is used to uniquely identify a proof within a universe. This is
 // used for the LRU cache for the proofs themselves, which are considered to be
 // immutable.
@@ -34,9 +87,6 @@ func NewProofKey(id universe.Identifier, key universe.LeafKey) ProofKey {
 	return fn.ToArray[ProofKey](h.Sum(nil))
 }
 
-// numCachedProofs is the number of universe proofs we'll cache.
-const numCachedProofs = 50_000
-
 // cachedProofs is a list of cached proof leaves.
 type cachedProofs []*universe.Proof
 
@@ -49,10 +99,8 @@ func (c *cachedProofs) Size() (uint64, error) {
 }
 
 // newProofCache creates a new leaf proof cache.
-func newProofCache() *lru.Cache[ProofKey, *cachedProofs] {
-	return lru.NewCache[ProofKey, *cachedProofs](
-		numCachedProofs,
-	)
+func newProofCache(proofCacheSize uint64) *lru.Cache[ProofKey, *cachedProofs] {
+	return lru.NewCache[ProofKey, *cachedProofs](proofCacheSize)
 }
 
 // universeIDKey is a cache key that is used to uniquely identify a universe
@@ -61,14 +109,17 @@ type universeIDKey = string
 
 // universeProofCache a map of proof caches for each proof type.
 type universeProofCache struct {
+	proofsPerUniverse uint64
+
 	lnutils.SyncMap[universeIDKey, *lru.Cache[ProofKey, *cachedProofs]]
 
 	*cacheLogger
 }
 
 // newUniverseProofCache creates a new proof cache.
-func newUniverseProofCache() *universeProofCache {
+func newUniverseProofCache(proofsPerUniverse uint64) *universeProofCache {
 	return &universeProofCache{
+		proofsPerUniverse: proofsPerUniverse,
 		SyncMap: lnutils.SyncMap[
 			universeIDKey, *lru.Cache[ProofKey, *cachedProofs],
 		]{},
@@ -82,7 +133,9 @@ func (p *universeProofCache) fetchProof(id universe.Identifier,
 
 	// First, get the sub-cache for this universe ID from the map of
 	// caches.
-	assetProofCache, _ := p.LoadOrStore(id.String(), newProofCache())
+	assetProofCache, _ := p.LoadOrStore(
+		id.String(), newProofCache(p.proofsPerUniverse),
+	)
 
 	// With that lower level cache obtained, we can check to see if we have
 	// a hit or not.
@@ -102,7 +155,9 @@ func (p *universeProofCache) fetchProof(id universe.Identifier,
 func (p *universeProofCache) insertProofs(id universe.Identifier,
 	leafKey universe.LeafKey, proof []*universe.Proof) {
 
-	assetProofCache, _ := p.LoadOrStore(id.String(), newProofCache())
+	assetProofCache, _ := p.LoadOrStore(
+		id.String(), newProofCache(p.proofsPerUniverse),
+	)
 
 	proofKey := NewProofKey(id, leafKey)
 
@@ -156,18 +211,16 @@ type rootPageCache struct {
 }
 
 // newRootPageCache creates a new atomic root cache.
-func newRootPageCache() *rootPageCache {
+func newRootPageCache(cacheSize uint64) *rootPageCache {
 	var cache rootPageCache
-	cache.wipe()
+	cache.wipe(cacheSize)
 
 	return &cache
 }
 
 // wipe wipes the cache.
-func (r *rootPageCache) wipe() {
-	rootCache := lru.NewCache[rootPageQueryKey, universeRootPage](
-		numCachedProofs,
-	)
+func (r *rootPageCache) wipe(cacheSize uint64) {
+	rootCache := lru.NewCache[rootPageQueryKey, universeRootPage](cacheSize)
 	r.Store(rootCache)
 }
 
@@ -195,6 +248,12 @@ func (r *rootIndex) wipe() {
 type syncerRootNodeCache struct {
 	sync.RWMutex
 
+	// enabled is a flag that indicates if the cache is enabled.
+	enabled bool
+
+	// preAllocSize is the pre-allocated size of the cache.
+	preAllocSize uint64
+
 	// universeKeyList is the list of all keys of the universes that are
 	// currently known in this multiverse. This slice is sorted by the key
 	// (which might differ from the database ordering) and can be used to
@@ -221,13 +280,20 @@ type syncerRootNodeCache struct {
 }
 
 // newSyncerRootNodeCache creates a new root node cache.
-func newSyncerRootNodeCache() *syncerRootNodeCache {
+func newSyncerRootNodeCache(enabled bool,
+	preAllocSize uint64) *syncerRootNodeCache {
+
+	rootsMap := make(map[universe.IdentifierKey]universe.Root)
+	if enabled {
+		rootsMap = make(
+			map[universe.IdentifierKey]universe.Root, preAllocSize,
+		)
+	}
+
 	return &syncerRootNodeCache{
-		universeRoots: make(
-			map[universe.IdentifierKey]universe.Root,
-			numCachedProofs,
-		),
-		cacheLogger: newCacheLogger("syncer_universe_roots"),
+		preAllocSize:  preAllocSize,
+		universeRoots: rootsMap,
+		cacheLogger:   newCacheLogger("syncer_universe_roots"),
 	}
 }
 
@@ -253,7 +319,7 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 
 	// We shouldn't be called for a query that can't be served from the
 	// cache. But in case we are, we'll just short-cut here.
-	if !isQueryForSyncerCache(q) {
+	if !isQueryForSyncerCache(q) || !r.enabled {
 		return nil, false
 	}
 
@@ -325,6 +391,10 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 
 // fetchRoot reads the cached root for the given ID.
 func (r *syncerRootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
+	if !r.enabled {
+		return nil
+	}
+
 	r.RLock()
 	defer r.RUnlock()
 
@@ -357,6 +427,10 @@ func (r *syncerRootNodeCache) sortKeys() {
 //
 // NOTE: This method must be called while holding the syncer cache lock.
 func (r *syncerRootNodeCache) replaceCache(newRoots []universe.Root) {
+	if !r.enabled {
+		return
+	}
+
 	r.universeKeyList = make([]universe.IdentifierKey, len(newRoots))
 	for idx, root := range newRoots {
 		r.universeKeyList[idx] = root.ID.Key()
@@ -369,6 +443,10 @@ func (r *syncerRootNodeCache) replaceCache(newRoots []universe.Root) {
 // addOrReplace adds a single root to the cache if it isn't already present or
 // replaces the existing value if it is.
 func (r *syncerRootNodeCache) addOrReplace(root universe.Root) {
+	if !r.enabled {
+		return
+	}
+
 	r.Lock()
 	defer r.Unlock()
 
@@ -389,6 +467,10 @@ func (r *syncerRootNodeCache) addOrReplace(root universe.Root) {
 
 // remove removes a single root from the cache.
 func (r *syncerRootNodeCache) remove(key universe.IdentifierKey) {
+	if !r.enabled {
+		return
+	}
+
 	r.Lock()
 	defer r.Unlock()
 
@@ -417,6 +499,8 @@ func (r *syncerRootNodeCache) isEmpty() bool {
 type rootNodeCache struct {
 	sync.RWMutex
 
+	cacheSize uint64
+
 	rootIndex *rootIndex
 
 	allRoots *rootPageCache
@@ -427,10 +511,11 @@ type rootNodeCache struct {
 }
 
 // newRootNodeCache creates a new root node cache.
-func newRootNodeCache() *rootNodeCache {
+func newRootNodeCache(cacheSize uint64) *rootNodeCache {
 	return &rootNodeCache{
+		cacheSize:   cacheSize,
 		rootIndex:   newRootIndex(),
-		allRoots:    newRootPageCache(),
+		allRoots:    newRootPageCache(cacheSize),
 		cacheLogger: newCacheLogger("universe_roots"),
 	}
 }
@@ -484,7 +569,7 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 func (r *rootNodeCache) wipeCache() {
 	log.Debugf("wiping universe cache")
 
-	r.allRoots.wipe()
+	r.allRoots.wipe(r.cacheSize)
 	r.rootIndex.wipe()
 }
 
@@ -497,13 +582,8 @@ func (c cachedLeafKeys) Size() (uint64, error) {
 	return uint64(1), nil
 }
 
-// numMaxCachedPages is the maximum number of pages we'll cache for a given
-// page cache. Each page is 512 items, so we'll cache 10 of them, up to 5,120
-// for a given namespace.
-const numMaxCachedPages = 1000
-
-// leafQueryKey is a wrapper around the existing UniverseLeafKeysQuery struct that
-// doesn't include a pointer so it can be safely used as a map key.
+// leafQueryKey is a wrapper around the existing UniverseLeafKeysQuery struct
+// that doesn't include a pointer so it can be safely used as a map key.
 type leafQueryKey struct {
 	sortDirection universe.SortDirection
 	offset        int32
@@ -535,16 +615,21 @@ func (l *leafPageCache) Size() (uint64, error) {
 type universeLeafPageCache struct {
 	sync.Mutex
 
+	leavesPerUniverse uint64
+
 	leafCache *lru.Cache[universeIDKey, *leafPageCache]
 
 	*cacheLogger
 }
 
 // newUniverseLeafPageCache creates a new universe leaf cache.
-func newUniverseLeafPageCache() *universeLeafPageCache {
+func newUniverseLeafPageCache(numCachedUniverses,
+	leavesPerUniverse uint64) *universeLeafPageCache {
+
 	return &universeLeafPageCache{
+		leavesPerUniverse: leavesPerUniverse,
 		leafCache: lru.NewCache[universeIDKey, *leafPageCache](
-			numCachedProofs,
+			numCachedUniverses,
 		),
 		cacheLogger: newCacheLogger("universe_leaf_keys"),
 	}
@@ -585,7 +670,7 @@ func (u *universeLeafPageCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 		// No page cache yet, so we'll create one now.
 		pageCache = &leafPageCache{
 			Cache: lru.NewCache[leafQueryKey, *cachedLeafKeys](
-				numMaxCachedPages,
+				u.leavesPerUniverse,
 			),
 		}
 
