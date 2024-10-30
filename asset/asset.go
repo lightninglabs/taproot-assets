@@ -385,6 +385,11 @@ func (s *Specifier) HasGroupPubKey() bool {
 	return s.groupKey.IsSome()
 }
 
+// IsSome returns true if the specifier is set.
+func (s *Specifier) IsSome() bool {
+	return s.HasId() || s.HasGroupPubKey()
+}
+
 // WhenId executes the given function if the ID field is specified.
 func (s *Specifier) WhenId(f func(ID)) {
 	s.id.WhenSome(f)

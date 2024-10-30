@@ -162,9 +162,16 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	expiry := time.Now().Add(rfqmsg.DefaultQuoteLifetime).UTC()
 	assetRateHint := rfqmsg.NewAssetRate(inAssetRate, expiry)
 
+	// Construct the asset specifier. Note: In the test case, both the asset
+	// ID and asset group key may be missing, but we intentionally do not
+	// raise an error here.
+	assetSpecifier, err := asset.NewSpecifier(
+		tc.assetId, tc.assetGroupKey, nil, false,
+	)
+	require.NoError(t, err)
+
 	resp, err := client.QueryAskPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
-		fn.Some(assetRateHint),
+		ctx, assetSpecifier, assetAmount, fn.Some(assetRateHint),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -259,8 +266,16 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 	ctx := context.Background()
 	assetAmount := uint64(42)
 
+	// Construct the asset specifier. Note: In the test case, both the asset
+	// ID and asset group key may be missing, but we intentionally do not
+	// raise an error here.
+	assetSpecifier, err := asset.NewSpecifier(
+		tc.assetId, tc.assetGroupKey, nil, false,
+	)
+	require.NoError(t, err)
+
 	resp, err := client.QueryBidPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
+		ctx, assetSpecifier, assetAmount,
 		fn.None[rfqmsg.AssetRate](),
 	)
 

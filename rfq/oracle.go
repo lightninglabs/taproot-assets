@@ -94,17 +94,16 @@ type PriceOracle interface {
 	// QueryAskPrice returns the ask price for a given asset amount.
 	// The ask price is the amount the oracle suggests a peer should accept
 	// from another peer to provide the specified asset amount.
-	QueryAskPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	QueryAskPrice(ctx context.Context, assetSpecifier asset.Specifier,
+		assetAmount uint64,
 		assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
 
 	// QueryBidPrice returns the bid price for a given asset amount.
 	// The bid price is the amount the oracle suggests a peer should pay
 	// to another peer to receive the specified asset amount.
-	QueryBidPrice(ctx context.Context, assetId *asset.ID,
-		assetGroupKey *btcec.PublicKey, assetAmount uint64,
-		assetRateHint fn.Option[rfqmsg.AssetRate]) (
+	QueryBidPrice(ctx context.Context, assetSpecifier asset.Specifier,
+		assetAmount uint64, assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
 }
 
@@ -189,12 +188,12 @@ func NewRpcPriceOracle(addrStr string, dialInsecure bool) (*RpcPriceOracle,
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetSpecifier asset.Specifier, assetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
 
 	// For now, we only support querying the ask price with an asset ID.
-	if assetId == nil {
+	if !assetSpecifier.HasId() {
 		return nil, fmt.Errorf("asset ID is nil")
 	}
 
@@ -205,7 +204,9 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 
 	// The payment asset ID is BTC, so we leave it at all zeroes. We only
 	// set the subject asset ID.
-	copy(subjectAssetId, assetId[:])
+	assetSpecifier.WhenId(func(assetId asset.ID) {
+		copy(subjectAssetId, assetId[:])
+	})
 
 	// Construct the RPC asset rates hint.
 	rpcAssetRatesHint, err := fn.MapOptionZ(
@@ -284,12 +285,12 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
-func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
-	assetGroupKey *btcec.PublicKey, maxAssetAmount uint64,
+func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
+	assetSpecifier asset.Specifier, maxAssetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// For now, we only support querying the ask price with an asset ID.
-	if assetId == nil {
+	if !assetSpecifier.HasId() {
 		return nil, fmt.Errorf("asset ID is nil")
 	}
 
@@ -300,7 +301,9 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context, assetId *asset.ID,
 
 	// The payment asset ID is BTC, so we leave it at all zeroes. We only
 	// set the subject asset ID.
-	copy(subjectAssetId, assetId[:])
+	assetSpecifier.WhenId(func(assetId asset.ID) {
+		copy(subjectAssetId, assetId[:])
+	})
 
 	// Construct the RPC asset rates hint.
 	rpcAssetRatesHint, err := fn.MapOptionZ(
@@ -418,7 +421,7 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 
 // QueryAskPrice returns the ask price for the given asset amount.
 func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
-	_ *asset.ID, _ *btcec.PublicKey, _ uint64,
+	_ asset.Specifier, _ uint64,
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiry timestamp.
@@ -431,8 +434,8 @@ func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
-func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ *asset.ID,
-	_ *btcec.PublicKey, _ uint64,
+func (m *MockPriceOracle) QueryBidPrice(_ context.Context,
+	_ asset.Specifier, _ uint64,
 	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
 	// Calculate the rate expiry timestamp.

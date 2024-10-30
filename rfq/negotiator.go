@@ -105,7 +105,7 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // queryBidFromPriceOracle queries the price oracle for a bid price. It returns
 // an appropriate outgoing response message which should be sent to the peer.
 func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetSpecifier asset.Specifier, assetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
 	// TODO(ffranr): Optionally accept a peer's proposed ask price as an
@@ -119,7 +119,7 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
-		ctx, assetId, assetGroupKey, assetAmount, assetRateHint,
+		ctx, assetSpecifier, assetAmount, assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -162,11 +162,23 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		// skip this step.
 		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-		if n.cfg.PriceOracle != nil {
+		// Construct an asset specifier from the order.
+		// TODO(ffranr): The order should have an asset specifier field
+		//  rather than an asset ID and group key.
+		assetSpecifier, err := asset.NewSpecifier(
+			buyOrder.AssetID, buyOrder.AssetGroupKey, nil,
+			true,
+		)
+		if err != nil {
+			log.Warnf("failed to construct asset "+
+				"specifier from buy order: %v", err)
+		}
+
+		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for a bid price.
 			assetRate, err := n.queryBidFromPriceOracle(
-				*buyOrder.Peer, buyOrder.AssetID,
-				buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
+				*buyOrder.Peer, assetSpecifier,
+				buyOrder.MinAssetAmount,
 				fn.None[rfqmsg.AssetRate](),
 			)
 			if err != nil {
@@ -214,7 +226,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
 func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
-	assetId *asset.ID, assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetSpecifier asset.Specifier, assetAmount uint64,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
 	// Query the price oracle for an asking price.
@@ -222,7 +234,7 @@ func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
-		ctx, assetId, assetGroupKey, assetAmount, assetRateHint,
+		ctx, assetSpecifier, assetAmount, assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -309,10 +321,9 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		defer n.Wg.Done()
 
 		// Query the price oracle for an asking price.
-		assetID, assetGroupKey := request.AssetSpecifier.UnwrapToPtr()
 		assetRate, err := n.queryAskFromPriceOracle(
-			nil, assetID, assetGroupKey,
-			request.AssetMaxAmt, request.AssetRateHint,
+			nil, request.AssetSpecifier, request.AssetMaxAmt,
+			request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -406,9 +417,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// Query the price oracle for a bid price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
-		assetID, assetGroupKey := request.AssetSpecifier.UnwrapToPtr()
 		assetRate, err := n.queryBidFromPriceOracle(
-			request.Peer, assetID, assetGroupKey,
+			request.Peer, request.AssetSpecifier,
 			request.AssetAmount, request.AssetRateHint,
 		)
 		if err != nil {
@@ -453,10 +463,21 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		// skip this step.
 		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-		if n.cfg.PriceOracle != nil {
+		// Construct an asset specifier from the order.
+		// TODO(ffranr): The order should have an asset specifier.
+		assetSpecifier, err := asset.NewSpecifier(
+			order.AssetID, order.AssetGroupKey, nil,
+			true,
+		)
+		if err != nil {
+			log.Warnf("failed to construct asset "+
+				"specifier from buy order: %v", err)
+		}
+
+		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
 			assetRate, err := n.queryAskFromPriceOracle(
-				order.Peer, order.AssetID, order.AssetGroupKey,
+				order.Peer, assetSpecifier,
 				order.MaxAssetAmount,
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -569,11 +590,8 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// We will sanity check that price by querying our price oracle
 		// for an ask price. We will then compare the ask price returned
 		// by the price oracle with the ask price provided by the peer.
-		assetID, assetGroupKey :=
-			msg.Request.AssetSpecifier.UnwrapToPtr()
-
 		assetRate, err := n.queryAskFromPriceOracle(
-			&msg.Peer, assetID, assetGroupKey,
+			&msg.Peer, msg.Request.AssetSpecifier,
 			msg.Request.AssetMaxAmt, fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {
@@ -696,10 +714,8 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// We will sanity check that price by querying our price oracle
 		// for a bid price. We will then compare the bid price returned
 		// by the price oracle with the bid price provided by the peer.
-		assetID, assetGroupKey :=
-			msg.Request.AssetSpecifier.UnwrapToPtr()
 		assetRate, err := n.queryBidFromPriceOracle(
-			msg.Peer, assetID, assetGroupKey,
+			msg.Peer, msg.Request.AssetSpecifier,
 			msg.Request.AssetAmount, msg.Request.AssetRateHint,
 		)
 		if err != nil {
