@@ -41,6 +41,10 @@ const (
 	MaxPageSize = 512
 )
 
+// IdentifierKey is the compact representation of a universe identifier that can
+// be used as a map key.
+type IdentifierKey [33]byte
+
 // Identifier is the identifier for a universe.
 type Identifier struct {
 	// AssetID is the asset ID for the universe.
@@ -62,6 +66,18 @@ func (i *Identifier) Bytes() [32]byte {
 	}
 
 	return i.AssetID
+}
+
+// Key returns a bytes representation of the ID with the proof type appended to
+// the end. This contains the same information as the String method, but in a
+// way more compact form (42 bytes less), so it can be used as a map key.
+func (i *Identifier) Key() IdentifierKey {
+	id := i.Bytes()
+	var b [33]byte
+	copy(b[:], id[:])
+	b[32] = byte(i.ProofType)
+
+	return b
 }
 
 // String returns a string representation of the ID.
