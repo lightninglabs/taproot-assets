@@ -1,7 +1,10 @@
 package tapdb
 
 import (
+	"bytes"
 	"crypto/sha256"
+	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 
@@ -187,6 +190,228 @@ func (r *rootIndex) wipe() {
 	r.Store(&idx)
 }
 
+// syncerRootNodeCache is used to cache the set of active root nodes for the
+// multiverse tree, which is specifically kept for the universe sync.
+type syncerRootNodeCache struct {
+	sync.RWMutex
+
+	// universeKeyList is the list of all keys of the universes that are
+	// currently known in this multiverse. This slice is sorted by the key
+	// (which might differ from the database ordering) and can be used to
+	// paginate through the universes efficiently. The universe identifier
+	// key also contains the proof type, so there will be two entries
+	// per asset ID or group key, one for issuance and one for transfer
+	// universes. The universe roots map below will contain a root for each
+	// of these universes. The stable sort order allows us to add and remove
+	// entries without needing to fetch the entire list from the database,
+	// as remove can be done by binary search and add can be done by
+	// inserting and then sorting again.
+	universeKeyList []universe.IdentifierKey
+
+	// universeRoots is a map of universe ID key to the root of the
+	// universe. This map is needed to look up the root of an individual
+	// universe quickly, or to look up the roots of all the universes when
+	// paging through them. This map never needs to be cleared, as universe
+	// roots are only added (new issuance or transfer events) or modified
+	// (re-issuance into grouped asset or new transfer) but rarely deleted.
+	// Therefore, we never need to do a full wipe of the cache.
+	universeRoots map[universe.IdentifierKey]universe.Root
+
+	*cacheLogger
+}
+
+// newSyncerRootNodeCache creates a new root node cache.
+func newSyncerRootNodeCache() *syncerRootNodeCache {
+	return &syncerRootNodeCache{
+		universeRoots: make(
+			map[universe.IdentifierKey]universe.Root,
+			numCachedProofs,
+		),
+		cacheLogger: newCacheLogger("syncer_universe_roots"),
+	}
+}
+
+// isQueryForSyncerCache returns true if the given query can be served from the
+// syncer cache. We explicitly only cache the syncer queries in the syncer
+// cache, which _always_ queries with sort direction "ascending" and no amounts
+// by ID. For any other query, we'll go to the LRU based secondary cache or the
+// database.
+func isQueryForSyncerCache(q universe.RootNodesQuery) bool {
+	if q.WithAmountsById || q.SortDirection != universe.SortAscending {
+		return false
+	}
+
+	return true
+}
+
+// fetchRoots reads the cached roots for the given proof type. If the amounts
+// are needed, then we return nothing so we go to the database to fetch the
+// information. The boolean indicates if there are more roots available because
+// the caller has reached the end of the list with the given offset.
+func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
+	haveWriteLock bool) ([]universe.Root, bool) {
+
+	// We shouldn't be called for a query that can't be served from the
+	// cache. But in case we are, we'll just short-cut here.
+	if !isQueryForSyncerCache(q) {
+		return nil, false
+	}
+
+	// If we've acquired the write lock because we're doing a last lookup
+	// before potentially populating the cache, we don't need to acquire the
+	// read lock. If we're just normally reading from the cache, we'll need
+	// to acquire the read lock.
+	if !haveWriteLock {
+		r.RLock()
+		defer r.RUnlock()
+	}
+
+	// If the cache is empty, we'll short-cut as well.
+	if len(r.universeRoots) == 0 {
+		// This is a miss, but we'll return nil to indicate that we
+		// don't have any roots.
+		r.Miss()
+
+		return nil, false
+	}
+
+	offset := q.Offset
+	limit := q.Limit
+
+	// Is the page valid?
+	if offset < 0 || limit <= 0 {
+		log.Warnf("Invalid page query for syncer cache: offset=%v, "+
+			"limit=%v", offset, limit)
+
+		return nil, false
+	}
+
+	// Because the cache is not empty, and we know it should contain all
+	// roots, we know the caller has reached the end of the list when their
+	// offset is larger than the number of roots. Since this is a "legal"
+	// query (how else would they know they're at the end?), we'll return
+	// an empty list and a boolean to indicate that there are no more roots.
+	if offset >= int32(len(r.universeRoots)) {
+		return nil, true
+	}
+
+	endIndex := offset + limit
+	if endIndex > int32(len(r.universeRoots)) {
+		endIndex = int32(len(r.universeRoots))
+	}
+
+	rootNodeIDs := r.universeKeyList[offset:endIndex]
+	rootNodes := make([]universe.Root, len(rootNodeIDs))
+	for idx, id := range rootNodeIDs {
+		root, ok := r.universeRoots[id]
+		if !ok {
+			// This should never happen, the two maps should be in
+			// sync.
+			log.Errorf("Root key %x found in cache list but not "+
+				"in map", id[:])
+			r.Miss()
+
+			return nil, false
+		}
+
+		rootNodes[idx] = root
+	}
+
+	// This was a cache hit.
+	r.Hit()
+
+	return rootNodes, false
+}
+
+// fetchRoot reads the cached root for the given ID.
+func (r *syncerRootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
+	r.RLock()
+	defer r.RUnlock()
+
+	root, ok := r.universeRoots[id.Key()]
+	if !ok {
+		r.Miss()
+
+		return nil
+	}
+
+	r.Hit()
+	return &root
+}
+
+// sortKeys sorts the universe key list.
+//
+// NOTE: This method must be called while holding the syncer cache lock.
+func (r *syncerRootNodeCache) sortKeys() {
+	// To make sure we can easily add and remove entries, we sort the
+	// universe list by the key. This order will be different from the
+	// database order, but that's fine.
+	sort.Slice(r.universeKeyList, func(i, j int) bool {
+		return bytes.Compare(
+			r.universeKeyList[i][:], r.universeKeyList[j][:],
+		) < 0
+	})
+}
+
+// replaceCache replaces the cache with the given roots.
+//
+// NOTE: This method must be called while holding the syncer cache lock.
+func (r *syncerRootNodeCache) replaceCache(newRoots []universe.Root) {
+	r.universeKeyList = make([]universe.IdentifierKey, len(newRoots))
+	for idx, root := range newRoots {
+		r.universeKeyList[idx] = root.ID.Key()
+		r.universeRoots[root.ID.Key()] = root
+	}
+
+	r.sortKeys()
+}
+
+// addOrReplace adds a single root to the cache if it isn't already present or
+// replaces the existing value if it is.
+func (r *syncerRootNodeCache) addOrReplace(root universe.Root) {
+	r.Lock()
+	defer r.Unlock()
+
+	if _, ok := r.universeRoots[root.ID.Key()]; ok {
+		// If the root is already in the cache, we'll just replace it in
+		// the map. The key list doesn't need to be updated, as the key
+		// never changes.
+		r.universeRoots[root.ID.Key()] = root
+
+		return
+	}
+
+	r.universeKeyList = append(r.universeKeyList, root.ID.Key())
+	r.universeRoots[root.ID.Key()] = root
+
+	r.sortKeys()
+}
+
+// remove removes a single root from the cache.
+func (r *syncerRootNodeCache) remove(key universe.IdentifierKey) {
+	r.Lock()
+	defer r.Unlock()
+
+	idx := sort.Search(len(r.universeKeyList), func(i int) bool {
+		return bytes.Compare(r.universeKeyList[i][:], key[:]) >= 0
+	})
+	if idx < len(r.universeKeyList) && r.universeKeyList[idx] == key {
+		// Remove the entry from the list.
+		r.universeKeyList = slices.Delete(r.universeKeyList, idx, idx+1)
+
+		// Remove the entry from the map.
+		delete(r.universeRoots, key)
+	}
+}
+
+// isEmpty returns true if the cache is empty.
+func (r *syncerRootNodeCache) isEmpty() bool {
+	r.RLock()
+	defer r.RUnlock()
+
+	return len(r.universeKeyList) == 0
+}
+
 // rootNodeCache is used to cache the set of active root nodes for the
 // multiverse tree.
 type rootNodeCache struct {
@@ -235,27 +460,6 @@ func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
 	return rootNodes
 }
 
-// fetchRoot reads the cached root for the given ID.
-func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
-	rootIndex := r.rootIndex.Load()
-
-	root, ok := rootIndex.Load(id.String())
-	if ok {
-		r.Hit()
-		return root
-	}
-
-	r.Miss()
-
-	return nil
-}
-
-// cacheRoot stores the given root in the cache.
-func (r *rootNodeCache) cacheRoot(id universe.Identifier, root universe.Root) {
-	rootIndex := r.rootIndex.Load()
-	rootIndex.Store(id.String(), &root)
-}
-
 // cacheRoots stores the given roots in the cache.
 func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 	rootNodes []universe.Root) {
@@ -271,6 +475,7 @@ func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
 
 	rootIndex := r.rootIndex.Load()
 	for _, rootNode := range rootNodes {
+		rootNode := rootNode
 		rootIndex.Store(rootNode.ID.String(), &rootNode)
 	}
 }

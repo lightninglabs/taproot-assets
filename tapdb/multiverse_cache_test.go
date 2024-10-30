@@ -65,6 +65,72 @@ func TestMultiverseRootsCachePerformance(t *testing.T) {
 	)
 }
 
+// TestMultiverseSyncerCache tests the syncer cache of the multiverse store.
+func TestMultiverseSyncerCache(t *testing.T) {
+	ctx := context.Background()
+	multiverse, _ := newTestMultiverse(t)
+
+	// We insert a couple of assets into the multiverse store.
+	const (
+		numAssets = 50
+		pageSize  = 10
+	)
+	var allLeaves []*universe.Item
+	for i := 0; i < numAssets; i++ {
+		leaf := genRandomAsset(t)
+		allLeaves = append(allLeaves, leaf)
+	}
+
+	err := multiverse.UpsertProofLeafBatch(ctx, allLeaves)
+	require.NoError(t, err)
+
+	// We query all roots and make sure they are all there. This will also
+	// cause the syncer cache to be filled.
+	originalRoots := queryRoots(t, multiverse, pageSize)
+	require.Len(t, originalRoots, numAssets)
+	assertAllLeavesInRoots(t, allLeaves, originalRoots)
+
+	// Because we've enabled the cache from the beginning, the leaves
+	// inserted into the DB above should already be in the cache. That means
+	// we should have zero misses.
+	hitsPerFetch := numAssets / pageSize
+	require.EqualValues(t, 0, multiverse.syncerCache.miss.Load())
+	require.EqualValues(t, hitsPerFetch, multiverse.syncerCache.hit.Load())
+
+	// We now randomly remove and re-insert some of the assets. The result
+	// should always be identical to the original one.
+	for i := 0; i < numAssets*100; i++ {
+		// Remove a random root from the cache.
+		root := originalRoots[test.RandIntn(len(originalRoots))]
+		cache := multiverse.syncerCache
+		cache.remove(root.ID.Key())
+
+		// The key should be removed from the cache.
+		require.Len(t, cache.universeKeyList, numAssets-1)
+		require.Len(t, cache.universeRoots, numAssets-1)
+		require.NotContains(t, cache.universeKeyList, root.ID.Key())
+		require.NotContains(t, cache.universeRoots, root.ID.Key())
+
+		// Re-insert the root.
+		cache.addOrReplace(root)
+
+		require.Len(t, cache.universeKeyList, numAssets)
+		require.Len(t, cache.universeRoots, numAssets)
+		require.Contains(t, cache.universeKeyList, root.ID.Key())
+		require.Contains(t, cache.universeRoots, root.ID.Key())
+
+		roots := queryRoots(t, multiverse, pageSize)
+		require.Len(t, roots, numAssets)
+		require.Equal(t, originalRoots, roots)
+
+		// No matter how we manipulate the entries, we should always hit
+		// the cache for syncer queries.
+		hits := hitsPerFetch * (i + 2)
+		require.EqualValues(t, 0, multiverse.syncerCache.miss.Load())
+		require.EqualValues(t, hits, multiverse.syncerCache.hit.Load())
+	}
+}
+
 func genRandomAsset(t *testing.T) *universe.Item {
 	proofType := universe.ProofTypeIssuance
 	if test.RandBool() {
