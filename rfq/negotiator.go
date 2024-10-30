@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -106,6 +107,7 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 // an appropriate outgoing response message which should be sent to the peer.
 func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	assetSpecifier asset.Specifier, assetAmount uint64,
+	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
 	// TODO(ffranr): Optionally accept a peer's proposed ask price as an
@@ -119,7 +121,7 @@ func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
-		ctx, assetSpecifier, assetAmount, assetRateHint,
+		ctx, assetSpecifier, assetAmount, paymentMaxAmt, assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -179,6 +181,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			assetRate, err := n.queryBidFromPriceOracle(
 				*buyOrder.Peer, assetSpecifier,
 				buyOrder.MinAssetAmount,
+				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
 			)
 			if err != nil {
@@ -227,6 +230,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // peer.
 func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	assetSpecifier asset.Specifier, assetAmount uint64,
+	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
 	// Query the price oracle for an asking price.
@@ -234,7 +238,8 @@ func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
 	defer cancel()
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
-		ctx, assetSpecifier, assetAmount, assetRateHint,
+		ctx, assetSpecifier, assetAmount, paymentMaxAmt,
+		assetRateHint,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query price oracle for "+
@@ -323,6 +328,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		// Query the price oracle for an asking price.
 		assetRate, err := n.queryAskFromPriceOracle(
 			nil, request.AssetSpecifier, request.AssetMaxAmt,
+			fn.None[lnwire.MilliSatoshi](),
 			request.AssetRateHint,
 		)
 		if err != nil {
@@ -419,7 +425,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// sell to us.
 		assetRate, err := n.queryBidFromPriceOracle(
 			request.Peer, request.AssetSpecifier,
-			request.AssetAmount, request.AssetRateHint,
+			request.AssetAmount, fn.None[lnwire.MilliSatoshi](),
+			request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -479,6 +486,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			assetRate, err := n.queryAskFromPriceOracle(
 				order.Peer, assetSpecifier,
 				order.MaxAssetAmount,
+				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
 			)
 			if err != nil {
@@ -592,7 +600,9 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, err := n.queryAskFromPriceOracle(
 			&msg.Peer, msg.Request.AssetSpecifier,
-			msg.Request.AssetMaxAmt, fn.None[rfqmsg.AssetRate](),
+			msg.Request.AssetMaxAmt,
+			fn.None[lnwire.MilliSatoshi](),
+			fn.None[rfqmsg.AssetRate](),
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -716,7 +726,8 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// by the price oracle with the bid price provided by the peer.
 		assetRate, err := n.queryBidFromPriceOracle(
 			msg.Peer, msg.Request.AssetSpecifier,
-			msg.Request.AssetAmount, msg.Request.AssetRateHint,
+			msg.Request.AssetAmount, fn.None[lnwire.MilliSatoshi](),
+			msg.Request.AssetRateHint,
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return

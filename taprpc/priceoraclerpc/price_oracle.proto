@@ -121,9 +121,14 @@ message QueryAssetRatesRequest {
     // unit
     AssetSpecifier payment_asset = 4;
 
+    // payment_asset_max_amount is the maximum amount of the payment asset that
+    // could be involved in the transaction. This field is optional. If set to
+    // zero, it is considered unset.
+    uint64 payment_asset_max_amount = 5;
+
     // asset_rates_hint is an optional suggestion of asset rates for the
     // transaction, intended to provide guidance on expected pricing.
-    AssetRates asset_rates_hint = 5;
+    AssetRates asset_rates_hint = 6;
 }
 
 // QueryAssetRatesOkResponse is the successful response to a

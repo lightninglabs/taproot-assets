@@ -171,7 +171,8 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	require.NoError(t, err)
 
 	resp, err := client.QueryAskPrice(
-		ctx, assetSpecifier, assetAmount, fn.Some(assetRateHint),
+		ctx, assetSpecifier, assetAmount,
+		fn.None[lnwire.MilliSatoshi](), fn.Some(assetRateHint),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -276,6 +277,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 
 	resp, err := client.QueryBidPrice(
 		ctx, assetSpecifier, assetAmount,
+		fn.None[lnwire.MilliSatoshi](),
 		fn.None[rfqmsg.AssetRate](),
 	)
 
