@@ -234,7 +234,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 
 	t.Helper()
 
-	genesisPrivKey := test.RandPrivKey(t)
+	genesisPrivKey := test.RandPrivKey()
 	genesisPubKey := test.PubToKeyDesc(genesisPrivKey.PubKey())
 
 	// If we have a specified meta reveal, then we'll replace the meta hash
@@ -371,7 +371,7 @@ func TestGenesisProofVerification(t *testing.T) {
 
 	// Create a script tree that we'll use for our tapscript sibling test
 	// cases.
-	scriptInternalKey := test.RandPrivKey(t).PubKey()
+	scriptInternalKey := test.RandPrivKey().PubKey()
 	leaf1 := test.ScriptHashLock(t, []byte("foobar"))
 	leaf2 := test.ScriptSchnorrSig(t, scriptInternalKey)
 	testLeafPreimage, err := commitment.NewPreimageFromLeaf(leaf1)

@@ -194,7 +194,7 @@ func invalidGenesisStateTransitionWitness(assetType asset.Type,
 func collectibleStateTransition(t *testing.T) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32) {
 
-	privKey := test.RandPrivKey(t)
+	privKey := test.RandPrivKey()
 	scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
 
 	genesisOutPoint := wire.OutPoint{}
@@ -206,7 +206,7 @@ func collectibleStateTransition(t *testing.T) (*asset.Asset,
 		ScriptKey: asset.ToSerialized(genesisAsset.ScriptKey.PubKey),
 	}
 	newAsset := genesisAsset.Copy()
-	newAsset.ScriptKey = asset.NewScriptKey(test.RandPrivKey(t).PubKey())
+	newAsset.ScriptKey = asset.NewScriptKey(test.RandPrivKey().PubKey())
 	newAsset.PrevWitnesses = []asset.Witness{{
 		PrevID:          prevID,
 		TxWitness:       nil,
@@ -245,12 +245,12 @@ func normalStateTransition(t *testing.T, currentHeight uint32, sequence,
 	lockTime uint64, addCsvScript, addCltvScript bool) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32) {
 
-	privKey1 := test.RandPrivKey(t)
+	privKey1 := test.RandPrivKey()
 	scriptKey1 := txscript.ComputeTaprootKeyNoScript(
 		privKey1.PubKey(),
 	)
 
-	privKey2 := test.RandPrivKey(t)
+	privKey2 := test.RandPrivKey()
 	builder := txscript.NewScriptBuilder().
 		AddData(schnorr.SerializePubKey(privKey2.PubKey())).
 		AddOp(txscript.OP_CHECKSIG)
@@ -357,7 +357,7 @@ func customScriptStateTransition(t *testing.T, currentHeight uint32, sequence,
 	lockTime uint64, tapLeaf txscript.TapLeaf) (*asset.Asset,
 	commitment.SplitSet, commitment.InputSet, uint32) {
 
-	privKey := test.RandPrivKey(t)
+	privKey := test.RandPrivKey()
 	tapTree := txscript.AssembleTaprootScriptTree(tapLeaf)
 	tapTreeRoot := tapTree.RootNode.TapHash()
 	scriptKey := txscript.ComputeTaprootOutputKey(
@@ -414,7 +414,7 @@ func customScriptStateTransition(t *testing.T, currentHeight uint32, sequence,
 func splitStateTransition(t *testing.T) (*asset.Asset, commitment.SplitSet,
 	commitment.InputSet, uint32) {
 
-	privKey := test.RandPrivKey(t)
+	privKey := test.RandPrivKey()
 	scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
 
 	genesisOutPoint := wire.OutPoint{}
@@ -470,7 +470,7 @@ func splitFullValueStateTransition(validRootLocator,
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
-		privKey := test.RandPrivKey(t)
+		privKey := test.RandPrivKey()
 		scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
 
 		genesisOutPoint := wire.OutPoint{}
@@ -530,7 +530,7 @@ func splitCollectibleStateTransition(validRoot bool) stateTransitionFunc {
 	return func(t *testing.T) (*asset.Asset, commitment.SplitSet,
 		commitment.InputSet, uint32) {
 
-		privKey := test.RandPrivKey(t)
+		privKey := test.RandPrivKey()
 		scriptKey := txscript.ComputeTaprootKeyNoScript(privKey.PubKey())
 
 		genesisOutPoint := wire.OutPoint{}
@@ -595,7 +595,7 @@ func groupAnchorStateTransition(useHashLock, BIP86, keySpend, valid bool,
 func scriptTreeSpendStateTransition(t *testing.T, useHashLock,
 	valid bool, sigHashType txscript.SigHashType) stateTransitionFunc {
 
-	scriptPrivKey := test.RandPrivKey(t)
+	scriptPrivKey := test.RandPrivKey()
 	usedLeaf, testTapScript, _, _, scriptWitness := test.BuildTapscriptTree(
 		t, useHashLock, valid, scriptPrivKey.PubKey(),
 	)

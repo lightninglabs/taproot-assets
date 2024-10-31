@@ -417,7 +417,7 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 	defer cancel()
 
 	// Build the tapscript tree.
-	sigLockPrivKey := test.RandPrivKey(t.t)
+	sigLockPrivKey := test.RandPrivKey()
 	hashLockPreimage := []byte("foobar")
 	hashLockLeaf := test.ScriptHashLock(t.t, hashLockPreimage)
 	sigLeaf := test.ScriptSchnorrSig(t.t, sigLockPrivKey.PubKey())

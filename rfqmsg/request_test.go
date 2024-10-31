@@ -139,7 +139,7 @@ func TestRequestMsgDataEncodeDecode(t *testing.T) {
 	assetId := asset.ID(randomAssetIdBytes)
 
 	// Create a random asset group key.
-	assetGroupKey := test.RandPrivKey(t).PubKey()
+	assetGroupKey := test.RandPrivKey().PubKey()
 
 	// Create a zero asset ID. An asset ID of all zeros indicates BTC in the
 	// context of the request message.

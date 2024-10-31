@@ -857,7 +857,7 @@ func TestAssetGroupKey(t *testing.T) {
 func TestDeriveGroupKey(t *testing.T) {
 	t.Parallel()
 
-	groupPriv := test.RandPrivKey(t)
+	groupPriv := test.RandPrivKey()
 	groupPub := groupPriv.PubKey()
 	groupKeyDesc := test.PubToKeyDesc(groupPub)
 	genSigner := NewMockGenesisSigner(groupPriv)

@@ -98,7 +98,7 @@ func RandOp(t testing.TB) wire.OutPoint {
 	return op
 }
 
-func RandPrivKey(_ testing.TB) *btcec.PrivateKey {
+func RandPrivKey() *btcec.PrivateKey {
 	priv, _ := btcec.PrivKeyFromBytes(RandBytes(32))
 	return priv
 }
@@ -139,7 +139,7 @@ func SchnorrKeysEqual(t testing.TB, a, b *btcec.PublicKey) bool {
 }
 
 func RandPubKey(t testing.TB) *btcec.PublicKey {
-	return SchnorrPubKey(t, RandPrivKey(t))
+	return SchnorrPubKey(t, RandPrivKey())
 }
 
 func RandCommitmentKeyRing(t *testing.T) lnwallet.CommitmentKeyRing {

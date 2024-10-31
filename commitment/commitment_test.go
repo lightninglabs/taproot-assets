@@ -53,7 +53,7 @@ func randAssetDetails(t *testing.T, assetType asset.Type) *AssetDetails {
 		Version: assetVersion,
 		Type:    assetType,
 		ScriptKey: keychain.KeyDescriptor{
-			PubKey: test.RandPrivKey(t).PubKey(),
+			PubKey: test.RandPrivKey().PubKey(),
 		},
 		Amount:           &amount,
 		LockTime:         rand.Uint64(),
@@ -127,7 +127,7 @@ func TestNewAssetCommitment(t *testing.T) {
 	)
 	group1Anchor := randAsset(t, genesis1, nil)
 	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(
-		t, genesis1, group1Anchor,
+		t, nil, genesis1, group1Anchor,
 	)
 	group1Anchor = asset.NewAssetNoErr(
 		t, genesis1, group1Anchor.Amount, group1Anchor.LockTime,
@@ -289,7 +289,7 @@ func TestMintTapCommitment(t *testing.T) {
 	genesisNormal := asset.RandGenesis(t, asset.Normal)
 	genesisCollectible := asset.RandGenesis(t, asset.Collectible)
 	pubKey := keychain.KeyDescriptor{
-		PubKey: test.RandPrivKey(t).PubKey(),
+		PubKey: test.RandPrivKey().PubKey(),
 	}
 
 	testCases := []struct {
@@ -1008,7 +1008,7 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	genesis1collect.Type = asset.Collectible
 	group1Anchor := randAsset(t, genesis1, nil)
 	groupKey1, group1PrivBytes := asset.RandGroupKeyWithSigner(
-		t, genesis1, group1Anchor,
+		t, nil, genesis1, group1Anchor,
 	)
 	group1Anchor = asset.NewAssetNoErr(
 		t, genesis1, group1Anchor.Amount, group1Anchor.LockTime,

@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 // RandGenesis creates a random genesis for testing.
@@ -38,17 +39,24 @@ func RandGenesis(t testing.TB, assetType Type) Genesis {
 }
 
 // RandGroupKey creates a random group key for testing.
-func RandGroupKey(t testing.TB, genesis Genesis, newAsset *Asset) *GroupKey {
-	groupKey, _ := RandGroupKeyWithSigner(t, genesis, newAsset)
+func RandGroupKey(t rapid.TB, genesis Genesis, newAsset *Asset) *GroupKey {
+	groupKey, _ := RandGroupKeyWithSigner(t, nil, genesis, newAsset)
 	return groupKey
 }
 
 // RandGroupKeyWithSigner creates a random group key for testing, and provides
 // the signer for reissuing assets into the same group.
-func RandGroupKeyWithSigner(t testing.TB, genesis Genesis,
-	newAsset *Asset) (*GroupKey, []byte) {
+func RandGroupKeyWithSigner(t rapid.TB, privKey *btcec.PrivateKey,
+	genesis Genesis, newAsset *Asset) (*GroupKey, []byte) {
 
-	privateKey := test.RandPrivKey(t)
+	var privateKey *btcec.PrivateKey
+	switch {
+	case privKey != nil:
+		privateKey = privKey
+
+	default:
+		privateKey = test.RandPrivKey()
+	}
 
 	genSigner := NewMockGenesisSigner(privateKey)
 	genBuilder := MockGroupTxBuilder{}
@@ -352,7 +360,7 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 	scriptKey := RandScriptKey(t)
 	protoAsset := RandAssetWithValues(t, gen, nil, scriptKey)
 
-	groupPrivKey := test.RandPrivKey(t)
+	groupPrivKey := test.RandPrivKey()
 	groupInternalKey := groupPrivKey.PubKey()
 	genSigner := NewMockGenesisSigner(groupPrivKey)
 	genBuilder := MockGroupTxBuilder{}
@@ -430,12 +438,12 @@ func AssetCustomGroupKey(t *testing.T, useHashLock, BIP86, keySpend,
 
 // RandScriptKey creates a random script key for testing.
 func RandScriptKey(t testing.TB) ScriptKey {
-	return NewScriptKey(test.RandPrivKey(t).PubKey())
+	return NewScriptKey(test.RandPrivKey().PubKey())
 }
 
 // RandSerializedKey creates a random serialized key for testing.
 func RandSerializedKey(t testing.TB) SerializedKey {
-	return ToSerialized(test.RandPrivKey(t).PubKey())
+	return ToSerialized(test.RandPrivKey().PubKey())
 }
 
 // RandID creates a random asset ID.

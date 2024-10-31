@@ -22,7 +22,7 @@ func TestNewMintingBlobs(t *testing.T) {
 
 	// First, we'll create a fake, but legit looking set of minting params
 	// to generate a proof with.
-	genesisPrivKey := test.RandPrivKey(t)
+	genesisPrivKey := test.RandPrivKey()
 	genesisScriptKey := test.PubToKeyDesc(genesisPrivKey.PubKey())
 
 	// We'll modify the returned genesis to instead commit to some actual
@@ -71,7 +71,7 @@ func TestNewMintingBlobs(t *testing.T) {
 	)
 	taprootScript := test.ComputeTaprootScript(t, taprootKey)
 
-	changeInternalKey := test.RandPrivKey(t).PubKey()
+	changeInternalKey := test.RandPrivKey().PubKey()
 	changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
 		changeInternalKey,
 	)
