@@ -22,6 +22,135 @@ import (
 	"pgregory.net/rapid"
 )
 
+// AssetAssert is a function type that asserts a property of an asset.
+type AssetAssert func(a *Asset) error
+
+// AssetAmountAssert returns an Assert that checks equality for an asset's
+// amount.
+func AssetAmountAssert(amt uint64) AssetAssert {
+	return func(a *Asset) error {
+		if a.Amount != amt {
+			return fmt.Errorf("unexpected asset amount, got %v "+
+				"wanted %v", a.Amount, amt)
+		}
+
+		return nil
+	}
+}
+
+// AssetVersionAssert returns an Assert that checks equality for an asset's
+// version.
+func AssetVersionAssert(v Version) AssetAssert {
+	return func(a *Asset) error {
+		if a.Version != v {
+			return fmt.Errorf("unexpected asset version, got %v "+
+				"wanted %v", a.Version, v)
+		}
+
+		return nil
+	}
+}
+
+// AssetGenesisAssert returns an Assert that checks equality for an asset's
+// genesis.
+func AssetGenesisAssert(g Genesis) AssetAssert {
+	return func(a *Asset) error {
+		if a.Genesis != g {
+			return fmt.Errorf("unexpected asset genesis, got %v "+
+				"wanted %v", a.Genesis, g)
+		}
+
+		return nil
+	}
+}
+
+// AssetLockTimeAssert returns an Assert that checks equality for an asset's
+// lock time.
+func AssetLockTimeAssert(l uint64) AssetAssert {
+	return func(a *Asset) error {
+		if a.LockTime != l {
+			return fmt.Errorf("unexpected asset lock time, got %v "+
+				"wanted %v", a.LockTime, l)
+		}
+
+		return nil
+	}
+}
+
+// AssetRelativeLockTimeAssert returns an Assert that checks equality for an
+// asset's relative lock time.
+func AssetRelativeLockTimeAssert(r uint64) AssetAssert {
+	return func(a *Asset) error {
+		if a.RelativeLockTime != r {
+			return fmt.Errorf("unexpected asset relative lock "+
+				"time, got %v wanted %v", a.RelativeLockTime, r)
+		}
+
+		return nil
+	}
+}
+
+// AssetHasSplitRootAssert returns an Assert that checks the state of an asset's
+// split commitment root.
+func AssetHasSplitRootAssert(hasSplit bool) AssetAssert {
+	return func(a *Asset) error {
+		switch {
+		case hasSplit && a.SplitCommitmentRoot == nil:
+			return fmt.Errorf("expected asset split commitment")
+
+		case !hasSplit && a.SplitCommitmentRoot != nil:
+			return fmt.Errorf("unexpected asset split "+
+				"commitment, got %v", a.SplitCommitmentRoot)
+
+		default:
+			return nil
+		}
+	}
+}
+
+// AssetHasSplitRootAssert returns an Assert that checks the state of an asset's
+// split commitment root.
+func AssetHasScriptKeyAssert(hasKey bool) AssetAssert {
+	return func(a *Asset) error {
+		switch {
+		case hasKey && a.ScriptKey.PubKey == nil:
+			return fmt.Errorf("expected asset script key")
+
+		case !hasKey && a.ScriptKey.PubKey != nil:
+			return fmt.Errorf("unexpected asset script key")
+
+		default:
+			return nil
+		}
+	}
+}
+
+// AssetGroupKeyAssert returns an Assert that checks equality for an asset's
+// group key.
+func AssetGroupKeyAssert(g *GroupKey) AssetAssert {
+	return func(a *Asset) error {
+		if !a.GroupKey.IsEqual(g) {
+			return fmt.Errorf("unexpected asset group key, got %v "+
+				"wanted %v", a.GroupKey, g)
+		}
+
+		return nil
+	}
+}
+
+// CheckAssetAsserts runs a series of asset assertions and propagates an error
+// if any of them fail.
+func CheckAssetAsserts(a *Asset, checks ...AssetAssert) error {
+	for _, check := range checks {
+		err := check(a)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 // RandGenesis creates a random genesis for testing.
 func RandGenesis(t testing.TB, assetType Type) Genesis {
 	t.Helper()
