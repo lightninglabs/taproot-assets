@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -68,6 +69,73 @@ func assertEqualPackets(t *testing.T, expected, actual *VPacket) {
 			require.Fail(t, "output not equal")
 		}
 	}
+}
+
+// TestGlobalUnknownFields tests that the global Unknown fields mandatory for a
+// valid VPacket are present for an encoded VPacket. We also test that when
+// decoding a VPacket from a Packet, a Packet with missing mandatory fields is
+// rejected, and extra global Unknown fields are permitted.
+func TestGlobalUnknownFields(t *testing.T) {
+	// Make a random packet.
+	pkg := RandPacket(t, false, false)
+
+	// An encoded valid packet should have exactly three global Unknown
+	// fields.
+	packet, err := pkg.EncodeAsPsbt()
+	require.NoError(t, err)
+	require.Len(t, packet.Unknowns, 3)
+
+	// Specifically, the isVirtual marker, HRP, and Version must be present.
+	requiredKeys := [][]byte{
+		PsbtKeyTypeGlobalTapIsVirtualTx,
+		PsbtKeyTypeGlobalTapChainParamsHRP,
+		PsbtKeyTypeGlobalTapPsbtVersion,
+	}
+	for _, key := range requiredKeys {
+		_, err := findCustomFieldsByKeyPrefix(packet.Unknowns, key)
+		require.NoError(t, err)
+	}
+
+	// Decoding a VPacket from this minimal Packet must succeed.
+	_, err = NewFromPsbt(packet)
+	require.NoError(t, err)
+
+	var packetBuf bytes.Buffer
+	err = packet.Serialize(&packetBuf)
+	require.NoError(t, err)
+
+	cloneBuffer := func(b *bytes.Buffer) *bytes.Buffer {
+		return bytes.NewBuffer(bytes.Clone(b.Bytes()))
+	}
+
+	// If we remove a mandatory VPacket field from the Packet, decoding
+	// must fail.
+	invalidPacketBytes := cloneBuffer(&packetBuf)
+	invalidPacket, err := psbt.NewFromRawBytes(invalidPacketBytes, false)
+	require.NoError(t, err)
+
+	invalidPacket.Unknowns = invalidPacket.Unknowns[1:]
+	_, err = NewFromPsbt(invalidPacket)
+	require.Error(t, err)
+
+	// If we add a global Unknown field to the valid Packet, decoding must
+	// still succeed.
+	extraPacketBytes := cloneBuffer(&packetBuf)
+	extraPacket, err := psbt.NewFromRawBytes(extraPacketBytes, false)
+	require.NoError(t, err)
+
+	// The VPacket global Unknown keys start at 0x70, so we'll use a key
+	// value very far from that.
+	extraUnknown := &psbt.Unknown{
+		Key:   []byte{0xaa},
+		Value: []byte("really_cool_unknown_value"),
+	}
+	extraPacket.Unknowns = append(extraPacket.Unknowns, extraUnknown)
+
+	// The decoded VPacket should not contain the extra Unknown field, but
+	// the decoder should succeed.
+	_, err = NewFromPsbt(extraPacket)
+	require.NoError(t, err)
 }
 
 // TestEncodingDecoding tests the decoding of a virtual packet from raw bytes.
