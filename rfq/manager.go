@@ -739,14 +739,15 @@ type SellOrder struct {
 	// AssetGroupKey is the public key of the asset group to sell.
 	AssetGroupKey *btcec.PublicKey
 
-	// MaxAssetAmount is the maximum amount of the asset that can be sold as
-	// part of the order.
-	MaxAssetAmount uint64
-
-	// MinAsk is the minimum ask price that the seller is willing to accept.
-	MinAsk lnwire.MilliSatoshi
+	// PaymentMaxAmt is the maximum msat amount that the responding peer
+	// must agree to pay.
+	PaymentMaxAmt lnwire.MilliSatoshi
 
 	// Expiry is the unix timestamp at which the order expires.
+	//
+	// TODO(ffranr): This is the invoice expiry unix timestamp in seconds.
+	//  We should make use of this field to ensure quotes are valid for the
+	//  duration of the invoice.
 	Expiry uint64
 
 	// Peer is the peer that the buy order is intended for. This field is

@@ -264,7 +264,6 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 
 	// Alice sends a sell order to Bob for some amount of the newly minted
 	// asset.
-	purchaseAssetAmt := uint64(200)
 	askAmt := uint64(42000)
 	sellOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
 
@@ -275,9 +274,8 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 					AssetId: mintedAssetIdBytes,
 				},
 			},
-			MaxAssetAmount: purchaseAssetAmt,
-			MinAsk:         askAmt,
-			Expiry:         sellOrderExpiry,
+			PaymentMaxAmt: askAmt,
+			Expiry:        sellOrderExpiry,
 
 			// Here we explicitly specify Bob as the destination
 			// peer for the sell order. This will prompt Alice's

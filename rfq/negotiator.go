@@ -489,13 +489,10 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 
 		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
-			//
-			// TODO(ffranr): Add paymentMaxAmt to SellOrder and use
-			//  as arg here.
 			assetRate, err := n.queryAskFromPriceOracle(
 				order.Peer, assetSpecifier,
 				fn.None[uint64](),
-				fn.None[lnwire.MilliSatoshi](),
+				fn.Some(order.PaymentMaxAmt),
 				fn.None[rfqmsg.AssetRate](),
 			)
 			if err != nil {
@@ -508,12 +505,9 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
 		}
 
-		// TODO(ffranr): Add paymentMaxAmt to SellOrder and use as arg
-		//  here.
 		request, err := rfqmsg.NewSellRequest(
 			*order.Peer, order.AssetID, order.AssetGroupKey,
-			lnwire.MilliSatoshi(order.MaxAssetAmount),
-			assetRateHint,
+			order.PaymentMaxAmt, assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+

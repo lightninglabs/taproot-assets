@@ -585,15 +585,10 @@
                   "description": "asset_specifier is the subject asset.",
                   "title": "asset_specifier is the subject asset."
                 },
-                "max_asset_amount": {
+                "payment_max_amt": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The maximum amount of the asset to sell."
-                },
-                "min_ask": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The minimum amount of BTC to accept (units: millisats)."
+                  "description": "The maximum msat amount that the responding peer must agree to pay\n(units: millisats)."
                 },
                 "expiry": {
                   "type": "string",
@@ -673,15 +668,10 @@
                   "description": "asset_specifier is the subject asset.",
                   "title": "asset_specifier is the subject asset."
                 },
-                "max_asset_amount": {
+                "payment_max_amt": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The maximum amount of the asset to sell."
-                },
-                "min_ask": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The minimum amount of BTC to accept (units: millisats)."
+                  "description": "The maximum msat amount that the responding peer must agree to pay\n(units: millisats)."
                 },
                 "expiry": {
                   "type": "string",
