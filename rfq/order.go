@@ -248,6 +248,9 @@ type AssetPurchasePolicy struct {
 	// BidAssetRate is the quote's asset to BTC conversion rate.
 	BidAssetRate rfqmath.BigIntFixedPoint
 
+	// PaymentMaxAmt is the maximum agreed BTC payment.
+	PaymentMaxAmt lnwire.MilliSatoshi
+
 	// expiry is the policy's expiry unix timestamp in seconds after which
 	// the policy is no longer valid.
 	expiry uint64
@@ -260,6 +263,7 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 		AssetSpecifier:  quote.Request.AssetSpecifier,
 		AcceptedQuoteId: quote.ID,
 		BidAssetRate:    quote.AssetRate,
+		PaymentMaxAmt:   quote.Request.PaymentMaxAmt,
 		expiry:          quote.Expiry,
 	}
 }
@@ -306,6 +310,15 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 			"inbound_asset_amount=%s, "+
 			"inbound_asset_amount_msat=%v)", htlc.AmountOutMsat,
 			assetAmt.String(), inboundAmountMSat)
+	}
+
+	// Ensure that the outbound HTLC amount is less than the maximum agreed
+	// BTC payment.
+	if htlc.AmountOutMsat > c.PaymentMaxAmt {
+		return fmt.Errorf("htlc out amount is more than the maximum "+
+			"agreed BTC payment (htlc_out_msat=%d, "+
+			"payment_max_amt=%d)", htlc.AmountOutMsat,
+			c.PaymentMaxAmt)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
