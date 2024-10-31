@@ -52,12 +52,6 @@ func NewFromRawBytes(r io.Reader, b64 bool) (*VPacket, error) {
 // NewFromPsbt returns a new instance of a VPacket struct created by reading the
 // custom fields on the given PSBT packet.
 func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
-	// Make sure we have the correct markers for a virtual transaction.
-	if len(packet.Unknowns) != 3 {
-		return nil, fmt.Errorf("expected 3 global unknown fields, "+
-			"got %d", len(packet.Unknowns))
-	}
-
 	// We want an explicit "isVirtual" boolean marker.
 	isVirtual, err := findCustomFieldsByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTapIsVirtualTx,
@@ -83,16 +77,16 @@ func NewFromPsbt(packet *psbt.Packet) (*VPacket, error) {
 			"params HRP: %w", err)
 	}
 
-	// The version is currently optional. An unset version implies a V0
-	// VPacket.
-	var version uint8
+	// We also need the VPacket version.
 	versionField, err := findCustomFieldsByKeyPrefix(
 		packet.Unknowns, PsbtKeyTypeGlobalTapPsbtVersion,
 	)
-	if err == nil {
-		version = versionField.Value[0]
+	if err != nil {
+		return nil, fmt.Errorf("error finding virtual tx version: %w",
+			err)
 	}
 
+	version := versionField.Value[0]
 	switch version {
 	case uint8(V0), uint8(V1):
 	default:
