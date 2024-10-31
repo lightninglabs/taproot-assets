@@ -3,7 +3,6 @@
 package monitoring
 
 import (
-	//nolint:lll
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"google.golang.org/grpc"
 )

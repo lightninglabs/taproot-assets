@@ -8,7 +8,7 @@ require (
 	github.com/btcsuite/btcd/btcutil v1.1.5
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.8
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
-	github.com/btcsuite/btclog v0.0.0-20170628155309-84c8d2346e9f
+	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btcwallet v0.16.10-0.20240912233857-ffb143c77cc5
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.4
@@ -26,12 +26,12 @@ require (
 	github.com/lib/pq v1.10.9
 	github.com/lightninglabs/aperture v0.3.2-beta.0.20241015115230-d59b5514c19a
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
-	github.com/lightninglabs/lndclient v0.18.4-0
+	github.com/lightninglabs/lndclient v0.18.4-1
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lnd v0.18.3-beta.rc3.0.20241021112623-6f0d7f9a87d3
+	github.com/lightningnetwork/lnd v0.18.3-beta.rc3.0.20241025090009-615f3d633e61
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
-	github.com/lightningnetwork/lnd/fn v1.2.1
+	github.com/lightningnetwork/lnd/fn v1.2.3
 	github.com/lightningnetwork/lnd/tlv v1.2.6
 	github.com/lightningnetwork/lnd/tor v1.1.2
 	github.com/ory/dockertest/v3 v3.10.0

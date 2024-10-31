@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	//nolint:lll
 	grpc_prometheus "github.com/grpc-ecosystem/go-grpc-middleware/providers/prometheus"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"

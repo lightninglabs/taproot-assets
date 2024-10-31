@@ -53,6 +53,14 @@ type ScidAliasManager interface {
 		baseScid lnwire.ShortChannelID) error
 }
 
+type (
+	// BuyAcceptMap is a map of buy accepts, keyed by the serialised SCID.
+	BuyAcceptMap map[SerialisedScid]rfqmsg.BuyAccept
+
+	// SellAcceptMap is a map of sell accepts, keyed by the serialised SCID.
+	SellAcceptMap map[SerialisedScid]rfqmsg.SellAccept
+)
+
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
 // manager.
 type ManagerCfg struct {
@@ -760,7 +768,7 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
 // PeerAcceptedBuyQuotes returns buy quotes that were requested by our node and
 // have been accepted by our peers. These quotes are exclusively available to
 // our node for the acquisition of assets.
-func (m *Manager) PeerAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+func (m *Manager) PeerAcceptedBuyQuotes() BuyAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
@@ -782,9 +790,7 @@ func (m *Manager) PeerAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 // PeerAcceptedSellQuotes returns sell quotes that were requested by our node
 // and have been accepted by our peers. These quotes are exclusively available
 // to our node for the sale of assets.
-//
-//nolint:lll
-func (m *Manager) PeerAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept {
+func (m *Manager) PeerAcceptedSellQuotes() SellAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
@@ -806,7 +812,7 @@ func (m *Manager) PeerAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept 
 // LocalAcceptedBuyQuotes returns buy quotes that were accepted by our node and
 // have been requested by our peers. These quotes are exclusively available to
 // our node for the acquisition of assets.
-func (m *Manager) LocalAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
+func (m *Manager) LocalAcceptedBuyQuotes() BuyAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
@@ -828,9 +834,7 @@ func (m *Manager) LocalAcceptedBuyQuotes() map[SerialisedScid]rfqmsg.BuyAccept {
 // LocalAcceptedSellQuotes returns sell quotes that were accepted by our node
 // and have been requested by our peers. These quotes are exclusively available
 // to our node for the sale of assets.
-//
-//nolint:lll
-func (m *Manager) LocalAcceptedSellQuotes() map[SerialisedScid]rfqmsg.SellAccept {
+func (m *Manager) LocalAcceptedSellQuotes() SellAcceptMap {
 	// Returning the map directly is not thread safe. We will therefore
 	// create a copy.
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
