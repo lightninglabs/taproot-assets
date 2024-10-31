@@ -4,10 +4,9 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"math"
 	"net/url"
 	"time"
-
-	"math"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
