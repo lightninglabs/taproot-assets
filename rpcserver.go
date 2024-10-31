@@ -6601,11 +6601,12 @@ func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAcce
 			Scale:       uint32(quote.AssetRate.Scale),
 		}
 
+		// TODO(ffranr): Add SellRequest payment max amount to
+		//  PeerAcceptedSellQuote.
 		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
 			Peer:         quote.Peer.String(),
 			Id:           quote.ID[:],
 			Scid:         uint64(scid),
-			AssetAmount:  quote.Request.AssetAmount,
 			BidAssetRate: rpcAssetRate,
 			Expiry:       quote.Expiry,
 		}

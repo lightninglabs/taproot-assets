@@ -7,6 +7,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -32,9 +33,9 @@ type SellRequest struct {
 	// made. It specifies the particular asset involved in the request.
 	AssetSpecifier asset.Specifier
 
-	// AssetAmount represents the quantity of the specific asset that the
-	// peer intends to sell.
-	AssetAmount uint64
+	// PaymentMaxAmt is the maximum msat amount that the responding peer
+	// must agree to pay.
+	PaymentMaxAmt lnwire.MilliSatoshi
 
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
@@ -45,7 +46,7 @@ type SellRequest struct {
 
 // NewSellRequest creates a new asset sell quote request.
 func NewSellRequest(peer route.Vertex, assetID *asset.ID,
-	assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetGroupKey *btcec.PublicKey, paymentMaxAmt lnwire.MilliSatoshi,
 	assetRateHint fn.Option[AssetRate]) (*SellRequest, error) {
 
 	id, err := NewID()
@@ -66,7 +67,7 @@ func NewSellRequest(peer route.Vertex, assetID *asset.ID,
 		Version:        latestSellRequestVersion,
 		ID:             id,
 		AssetSpecifier: assetSpecifier,
-		AssetAmount:    assetAmount,
+		PaymentMaxAmt:  paymentMaxAmt,
 		AssetRateHint:  assetRateHint,
 	}, nil
 }
@@ -129,7 +130,7 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 		Version:        msgData.Version.Val,
 		ID:             msgData.ID.Val,
 		AssetSpecifier: assetSpecifier,
-		AssetAmount:    msgData.MaxInAsset.Val,
+		PaymentMaxAmt:  lnwire.MilliSatoshi(msgData.MaxInAsset.Val),
 		AssetRateHint:  assetRateHint,
 	}
 
@@ -210,8 +211,8 @@ func (q *SellRequest) String() string {
 	)
 
 	return fmt.Sprintf("SellRequest(peer=%x, id=%x, asset=%s, "+
-		"asset_amount=%d, asset_rate_hint=%s)",
-		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.AssetAmount,
+		"payment_max_amt=%d, asset_rate_hint=%s)",
+		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.PaymentMaxAmt,
 		assetRateHintStr)
 }
 

@@ -396,8 +396,10 @@ func (n *Negotiator) HandleIncomingSellRequest(
 	// it is willing to buy a particular asset (before price is considered).
 	// At this point we can handle the case where this node does not wish
 	// to buy some amount of a particular asset regardless of its price.
+	//
+	// TODO(ffranr): Reformulate once BuyOffer fields have been revised.
 	offerAvailable := n.HasAssetBuyOffer(
-		request.AssetSpecifier, request.AssetAmount,
+		request.AssetSpecifier, uint64(request.PaymentMaxAmt),
 	)
 	if !offerAvailable {
 		log.Infof("Would reject sell request: no suitable buy offer, " +
@@ -427,12 +429,9 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// Query the price oracle for a bid price. This is the price we
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
-		//
-		// TODO(ffranr): Add paymentMaxAmt to SellRequest and use as arg
-		//  here.
 		assetRate, err := n.queryBidFromPriceOracle(
 			request.Peer, request.AssetSpecifier,
-			fn.None[uint64](), fn.None[lnwire.MilliSatoshi](),
+			fn.None[uint64](), fn.Some(request.PaymentMaxAmt),
 			request.AssetRateHint,
 		)
 		if err != nil {
@@ -509,9 +508,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
 		}
 
+		// TODO(ffranr): Add paymentMaxAmt to SellOrder and use as arg
+		//  here.
 		request, err := rfqmsg.NewSellRequest(
 			*order.Peer, order.AssetID, order.AssetGroupKey,
-			order.MaxAssetAmount, assetRateHint,
+			lnwire.MilliSatoshi(order.MaxAssetAmount),
+			assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+
@@ -734,12 +736,10 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// We will sanity check that price by querying our price oracle
 		// for a bid price. We will then compare the bid price returned
 		// by the price oracle with the bid price provided by the peer.
-		//
-		// TODO(ffranr): Add paymentMaxAmt to SellRequest and use as arg
-		//  here.
 		assetRate, err := n.queryBidFromPriceOracle(
 			msg.Peer, msg.Request.AssetSpecifier,
-			fn.None[uint64](), fn.None[lnwire.MilliSatoshi](),
+			fn.None[uint64](),
+			fn.Some(msg.Request.PaymentMaxAmt),
 			msg.Request.AssetRateHint,
 		)
 		if err != nil {

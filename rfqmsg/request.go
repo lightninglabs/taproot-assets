@@ -203,7 +203,9 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	})
 	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
-	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](
+		uint64(q.PaymentMaxAmt),
+	)
 
 	// Convert the in-asset to BTC rate to a TLV record.
 	var outAssetRateHint requestOutAssetRateHint
