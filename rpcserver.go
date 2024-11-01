@@ -52,7 +52,6 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
-	"github.com/lightningnetwork/lnd/lnrpc/verrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -78,17 +77,6 @@ var (
 	// P2TRChangeType is the type of change address that should be used for
 	// funding PSBTs, as we'll always want to use P2TR change addresses.
 	P2TRChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
-
-	// fundPsbtCoinSelectVersion is the version of lnd that enabled better
-	// coin selection support in the FundPsbt RPC call.
-	fundPsbtCoinSelectVersion = &verrpc.Version{
-		AppMajor: 0,
-		AppMinor: 17,
-		AppPatch: 99,
-		BuildTags: []string{
-			"signrpc", "walletrpc", "chainrpc", "invoicesrpc",
-		},
-	}
 )
 
 const (
@@ -2303,22 +2291,6 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 	req *wrpc.CommitVirtualPsbtsRequest) (*wrpc.CommitVirtualPsbtsResponse,
 	error) {
-
-	// For this call we require `lnd` to be at least v0.17.99-beta (which
-	// will become v0.18.0-beta eventually) as we need the new coin
-	// selection mode in the FundPsbt call.
-	fundPsbtCoinSelectNotSupportedErr := fmt.Errorf("connected lnd "+
-		"version %v does not support advanced coin selection in the "+
-		"FundPsbt RPC, need at least v%d.%d.%d for this call",
-		r.cfg.Lnd.Version.Version, fundPsbtCoinSelectVersion.AppMajor,
-		fundPsbtCoinSelectVersion.AppMinor,
-		fundPsbtCoinSelectVersion.AppPatch)
-	verErr := lndclient.AssertVersionCompatible(
-		r.cfg.Lnd.Version, fundPsbtCoinSelectVersion,
-	)
-	if verErr != nil {
-		return nil, fundPsbtCoinSelectNotSupportedErr
-	}
 
 	if len(req.VirtualPsbts) == 0 {
 		return nil, fmt.Errorf("no virtual PSBTs specified")

@@ -218,6 +218,14 @@ func (l *LndRpcWalletAnchor) ListChannels(
 	return l.lnd.Client.ListChannels(ctx, true, false)
 }
 
+// MinRelayFee estimates the minimum fee rate required for a
+// transaction.
+func (l *LndRpcWalletAnchor) MinRelayFee(
+	ctx context.Context) (chainfee.SatPerKWeight, error) {
+
+	return l.lnd.WalletKit.MinRelayFee(ctx)
+}
+
 // A compile time assertion to ensure LndRpcWalletAnchor meets the
 // tapgarden.WalletAnchor interface.
 var _ tapgarden.WalletAnchor = (*LndRpcWalletAnchor)(nil)
