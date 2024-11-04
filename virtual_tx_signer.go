@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"path/filepath"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
@@ -31,10 +32,19 @@ func NewLndRpcVirtualTxSigner(lnd *lndclient.LndServices) *LndRpcVirtualTxSigner
 
 // Save sigHash to a file named sighash.hex, clearing any previous contents.
 func saveSigHashToFile(sigHash []byte) error {
-	// Open the file with write-only mode, create it if it doesn't exist, and truncate it to clear existing content.
-	file, err := os.OpenFile("sighash.hex", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	fileName := "sighash.hex"
+	// Get the current working directory
+	cwd, err := os.Getwd()
 	if err != nil {
-		return fmt.Errorf("failed to open/create file: %w", err)
+		return fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	filePath := filepath.Join(cwd, fileName)
+	fmt.Printf("Writing SigHash to file: %s\n", filePath)
+
+	// Open the file with write-only mode, create it if it doesn't exist, and truncate it to clear existing content.
+	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return fmt.Errorf("failed to open/create file %s: %w", filePath, err)
 	}
 	defer file.Close()
 
@@ -50,7 +60,15 @@ func saveSigHashToFile(sigHash []byte) error {
 
 // Helper function to read the override signature from a file.
 func readOverrideSignature(filename string) (string, error) {
-	data, err := ioutil.ReadFile(filename)
+	// Get the current working directory
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("failed to get current working directory: %w", err)
+	}
+	filePath := filepath.Join(cwd, filename)
+	fmt.Printf("Reading override signature from file: %s\n", filePath)
+
+	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
 			// If the file doesn't exist, return an empty string.
