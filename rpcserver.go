@@ -597,7 +597,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
-		"issuance=%v", seedling.AssetVersion, seedling.AssetType,
+		"enable_emission=%v", seedling.AssetVersion, seedling.AssetType,
 		seedling.AssetName, seedling.Amount, seedling.EnableEmission)
 
 	if scriptKey != nil {
