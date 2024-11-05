@@ -59,10 +59,10 @@ const (
 // BatchCaretakerConfig houses all the items that the BatchCaretaker needs to
 // carry out its duties.
 type BatchCaretakerConfig struct {
-	// Batch is the minting batch that this caretaker is responsible for?
+	// Batch is the minting batch that this caretaker is responsible for.
 	Batch *MintingBatch
 
-	// BatchFeeRate is an optional manually-set feerate specified when
+	// BatchFeeRate is an optional manually-set fee rate specified when
 	// finalizing a batch.
 	BatchFeeRate *chainfee.SatPerKWeight
 
