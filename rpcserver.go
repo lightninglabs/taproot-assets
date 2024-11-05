@@ -6315,7 +6315,7 @@ func unmarshalAssetBuyOrder(
 		AssetSpecifier: assetSpecifier,
 		AssetMaxAmt:    req.AssetMaxAmt,
 		Expiry:         req.Expiry,
-		Peer:           peer,
+		Peer:           fn.MaybeSome(peer),
 	}, nil
 }
 
@@ -6335,12 +6335,13 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 		return nil, fmt.Errorf("error unmarshalling buy order: %w", err)
 	}
 
-	var peer string
-	if buyOrder.Peer != nil {
-		peer = buyOrder.Peer.String()
-	}
+	peerStr := fn.MapOptionZ(
+		buyOrder.Peer, func(peerVertex route.Vertex) string {
+			return peerVertex.String()
+		},
+	)
 	rpcsLog.Debugf("[AddAssetBuyOrder]: upserting buy order "+
-		"(dest_peer=%s)", peer)
+		"(dest_peer=%s)", peerStr)
 
 	// Register an event listener before actually inserting the order, so we
 	// definitely don't miss any responses.
@@ -6382,7 +6383,7 @@ func (r *rpcServer) AddAssetBuyOrder(_ context.Context,
 
 		case <-timeout:
 			return nil, fmt.Errorf("timeout waiting for response "+
-				"from peer %x", buyOrder.Peer[:])
+				"(peer=%s)", peerStr)
 		}
 	}
 }

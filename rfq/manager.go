@@ -702,7 +702,10 @@ type BuyOrder struct {
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
-	Peer *route.Vertex
+	//
+	// TODO(ffranr): Currently, this field must be specified. In the future,
+	//  the negotiator should be able to determine the optimal peer.
+	Peer fn.Option[route.Vertex]
 }
 
 // UpsertAssetBuyOrder upserts an asset buy order for management.
@@ -711,7 +714,7 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	//
 	// TODO(ffranr): Add support for peerless buy orders. The negotiator
 	//  should be able to determine the optimal peer.
-	if order.Peer == nil {
+	if order.Peer.IsNone() {
 		return fmt.Errorf("buy order peer must be specified")
 	}
 

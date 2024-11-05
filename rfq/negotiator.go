@@ -159,6 +159,15 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 	go func() {
 		defer n.Wg.Done()
 
+		// Unwrap the peer from the buy order. For now, we can assume
+		// that the peer is always specified.
+		peer, err := buyOrder.Peer.UnwrapOrErr(
+			fmt.Errorf("buy order peer must be specified"),
+		)
+		if err != nil {
+			n.cfg.ErrChan <- err
+		}
+
 		// We calculate a proposed bid price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
@@ -169,7 +178,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 
 			// Query the price oracle for a bid price.
 			assetRate, err := n.queryBidFromPriceOracle(
-				*buyOrder.Peer, buyOrder.AssetSpecifier,
+				peer, buyOrder.AssetSpecifier,
 				fn.Some(buyOrder.AssetMaxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
@@ -186,8 +195,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
 		}
 
+		// Construct a new buy request to send to the peer.
 		request, err := rfqmsg.NewBuyRequest(
-			*buyOrder.Peer, buyOrder.AssetSpecifier,
+			peer, buyOrder.AssetSpecifier,
 			buyOrder.AssetMaxAmt, assetRateHint,
 		)
 		if err != nil {
