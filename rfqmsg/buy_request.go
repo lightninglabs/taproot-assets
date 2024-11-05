@@ -45,22 +45,14 @@ type BuyRequest struct {
 }
 
 // NewBuyRequest creates a new asset buy quote request.
-func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
-	assetGroupKey *btcec.PublicKey, assetMaxAmt uint64,
-	assetRateHint fn.Option[AssetRate]) (*BuyRequest, error) {
+func NewBuyRequest(peer route.Vertex, assetSpecifier asset.Specifier,
+	assetMaxAmt uint64, assetRateHint fn.Option[AssetRate]) (*BuyRequest,
+	error) {
 
 	id, err := NewID()
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate random "+
 			"quote request id: %w", err)
-	}
-
-	assetSpecifier, err := asset.NewSpecifier(
-		assetID, assetGroupKey, nil, true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create asset specifier: %w",
-			err)
 	}
 
 	return &BuyRequest{

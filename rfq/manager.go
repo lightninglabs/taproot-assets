@@ -690,12 +690,8 @@ func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
 
 // BuyOrder is a struct that represents a buy order.
 type BuyOrder struct {
-	// AssetID is the ID of the asset that the buyer is interested in.
-	AssetID *asset.ID
-
-	// AssetGroupKey is the public key of the asset group that the buyer is
-	// interested in.
-	AssetGroupKey *btcec.PublicKey
+	// AssetSpecifier is the asset that the buyer is interested in.
+	AssetSpecifier asset.Specifier
 
 	// MinAssetAmount is the minimum amount of the asset that the buyer is
 	// willing to accept.

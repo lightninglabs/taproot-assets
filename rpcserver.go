@@ -6302,9 +6302,17 @@ func unmarshalAssetBuyOrder(
 		peer = &pv
 	}
 
+	// Construct an asset specifier from the asset ID and/or group key.
+	assetSpecifier, err := asset.NewSpecifier(
+		assetId, assetGroupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating asset specifier: %w",
+			err)
+	}
+
 	return &rfq.BuyOrder{
-		AssetID:        assetId,
-		AssetGroupKey:  assetGroupKey,
+		AssetSpecifier: assetSpecifier,
 		MinAssetAmount: req.MinAssetAmount,
 		MaxBid:         lnwire.MilliSatoshi(req.MaxBid),
 		Expiry:         req.Expiry,

@@ -164,25 +164,15 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		// skip this step.
 		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-		// Construct an asset specifier from the order.
-		// TODO(ffranr): The order should have an asset specifier field
-		//  rather than an asset ID and group key.
-		assetSpecifier, err := asset.NewSpecifier(
-			buyOrder.AssetID, buyOrder.AssetGroupKey, nil,
-			true,
-		)
-		if err != nil {
-			log.Warnf("failed to construct asset "+
-				"specifier from buy order: %v", err)
-		}
+		if n.cfg.PriceOracle != nil &&
+			buyOrder.AssetSpecifier.IsSome() {
 
-		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for a bid price.
 			//
 			// TODO(ffranr): Add assetMaxAmt to BuyOrder and use as
 			//  arg here.
 			assetRate, err := n.queryBidFromPriceOracle(
-				*buyOrder.Peer, assetSpecifier,
+				*buyOrder.Peer, buyOrder.AssetSpecifier,
 				fn.None[uint64](),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
@@ -200,9 +190,8 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 		}
 
 		request, err := rfqmsg.NewBuyRequest(
-			*buyOrder.Peer, buyOrder.AssetID,
-			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-			assetRateHint,
+			*buyOrder.Peer, buyOrder.AssetSpecifier,
+			buyOrder.MinAssetAmount, assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+
