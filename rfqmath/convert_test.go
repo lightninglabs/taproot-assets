@@ -3,7 +3,6 @@ package rfqmath
 import (
 	"fmt"
 	"math"
-	"math/big"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcutil"
@@ -498,11 +497,7 @@ func TestPriceOracleRateExample(t *testing.T) {
 	// BTC rate into tap asset units per BTC by applying a multiplier
 	// (`dollarToTap`) based on the asset’s decimal display.
 	decimalDisplay := 4
-	dollarToTap := NewBigInt(
-		big.NewInt(0).SetUint64(uint64(
-			math.Pow(float64(10), float64(decimalDisplay)),
-		)),
-	)
+	dollarToTap := NewBigIntFromUint64(uint64(math.Pow10(decimalDisplay)))
 
 	// Calculating the asset units per BTC rate is done by multiplying the
 	// dollar per BTC rate by the decimal display multiplier dollarToTap. It

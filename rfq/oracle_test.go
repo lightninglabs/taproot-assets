@@ -153,7 +153,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 
 	// Query for an ask price.
 	ctx := context.Background()
-	assetAmount := uint64(42)
+	assetMaxAmt := uint64(42)
 	bidPrice := lnwire.MilliSatoshi(tc.suggestedAssetRate)
 
 	inAssetRate := rfqmath.NewBigIntFixedPoint(
@@ -162,9 +162,17 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 	expiry := time.Now().Add(rfqmsg.DefaultQuoteLifetime).UTC()
 	assetRateHint := rfqmsg.NewAssetRate(inAssetRate, expiry)
 
+	// Construct the asset specifier. Note: In the test case, both the asset
+	// ID and asset group key may be missing, but we intentionally do not
+	// raise an error here.
+	assetSpecifier, err := asset.NewSpecifier(
+		tc.assetId, tc.assetGroupKey, nil, false,
+	)
+	require.NoError(t, err)
+
 	resp, err := client.QueryAskPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
-		fn.Some(assetRateHint),
+		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
+		fn.None[lnwire.MilliSatoshi](), fn.Some(assetRateHint),
 	)
 
 	// If we expect an error, ensure that it is returned.
@@ -257,10 +265,19 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 
 	// Query for an ask price.
 	ctx := context.Background()
-	assetAmount := uint64(42)
+	assetMaxAmt := uint64(42)
+
+	// Construct the asset specifier. Note: In the test case, both the asset
+	// ID and asset group key may be missing, but we intentionally do not
+	// raise an error here.
+	assetSpecifier, err := asset.NewSpecifier(
+		tc.assetId, tc.assetGroupKey, nil, false,
+	)
+	require.NoError(t, err)
 
 	resp, err := client.QueryBidPrice(
-		ctx, tc.assetId, tc.assetGroupKey, assetAmount,
+		ctx, assetSpecifier, fn.Some[uint64](assetMaxAmt),
+		fn.None[lnwire.MilliSatoshi](),
 		fn.None[rfqmsg.AssetRate](),
 	)
 

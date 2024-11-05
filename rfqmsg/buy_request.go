@@ -29,17 +29,13 @@ type BuyRequest struct {
 	// ID is the unique identifier of the quote request.
 	ID ID
 
-	// AssetID represents the identifier of the asset for which the peer
-	// is requesting a quote.
-	AssetID *asset.ID
+	// AssetSpecifier represents the asset for which this quote request is
+	// made. It specifies the particular asset involved in the request.
+	AssetSpecifier asset.Specifier
 
-	// AssetGroupKey is the public group key of the asset for which the peer
-	// is requesting a quote.
-	AssetGroupKey *btcec.PublicKey
-
-	// AssetAmount is the amount of the asset for which the peer is
-	// requesting a quote.
-	AssetAmount uint64
+	// AssetMaxAmt represents the maximum asset amount that the responding
+	// peer must agree to divest.
+	AssetMaxAmt uint64
 
 	// AssetRateHint represents a proposed conversion rate between the
 	// subject asset and BTC. This rate is an initial suggestion intended to
@@ -50,7 +46,7 @@ type BuyRequest struct {
 
 // NewBuyRequest creates a new asset buy quote request.
 func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
-	assetGroupKey *btcec.PublicKey, assetAmount uint64,
+	assetGroupKey *btcec.PublicKey, assetMaxAmt uint64,
 	assetRateHint fn.Option[AssetRate]) (*BuyRequest, error) {
 
 	id, err := NewID()
@@ -59,14 +55,21 @@ func NewBuyRequest(peer route.Vertex, assetID *asset.ID,
 			"quote request id: %w", err)
 	}
 
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, assetGroupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
 	return &BuyRequest{
-		Peer:          peer,
-		Version:       latestBuyRequestVersion,
-		ID:            id,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   assetAmount,
-		AssetRateHint: assetRateHint,
+		Peer:           peer,
+		Version:        latestBuyRequestVersion,
+		ID:             id,
+		AssetSpecifier: assetSpecifier,
+		AssetMaxAmt:    assetMaxAmt,
+		AssetRateHint:  assetRateHint,
 	}, nil
 }
 
@@ -94,6 +97,14 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 		},
 	)
 
+	assetSpecifier, err := asset.NewSpecifier(
+		assetID, assetGroupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to create asset specifier: %w",
+			err)
+	}
+
 	// Sanity check that at least one of the inbound asset ID or
 	// group key is set. At least one must be set in a buy request.
 	if assetID == nil && assetGroupKey == nil {
@@ -111,7 +122,7 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 
 	// Extract the suggested asset to BTC rate if provided.
 	var assetRateHint fn.Option[AssetRate]
-	msgData.SuggestedAssetRate.WhenSome(
+	msgData.InAssetRateHint.WhenSome(
 		func(rate tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
 			fp := rate.Val.IntoBigIntFixedPoint()
 			assetRateHint = fn.Some(NewAssetRate(fp, expiry))
@@ -119,13 +130,12 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 	)
 
 	req := BuyRequest{
-		Peer:          wireMsg.Peer,
-		Version:       msgData.Version.Val,
-		ID:            msgData.ID.Val,
-		AssetID:       assetID,
-		AssetGroupKey: assetGroupKey,
-		AssetAmount:   msgData.AssetMaxAmount.Val,
-		AssetRateHint: assetRateHint,
+		Peer:           wireMsg.Peer,
+		Version:        msgData.Version.Val,
+		ID:             msgData.ID.Val,
+		AssetSpecifier: assetSpecifier,
+		AssetMaxAmt:    msgData.MaxInAsset.Val,
+		AssetRateHint:  assetRateHint,
 	}
 
 	// Perform basic sanity checks on the quote request.
@@ -139,13 +149,12 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 
 // Validate ensures that the buy request is valid.
 func (q *BuyRequest) Validate() error {
-	if q.AssetID == nil && q.AssetGroupKey == nil {
-		return fmt.Errorf("asset id and group key cannot both be nil")
-	}
-
-	if q.AssetID != nil && q.AssetGroupKey != nil {
-		return fmt.Errorf("asset id and group key cannot both be " +
-			"non-nil")
+	// Ensure that the asset specifier is set.
+	//
+	// TODO(ffranr): For now, the asset ID must be set. We do not currently
+	//  support group keys.
+	if !q.AssetSpecifier.HasId() {
+		return fmt.Errorf("asset id not specified in BuyRequest")
 	}
 
 	// Ensure that the message version is supported.
@@ -207,11 +216,6 @@ func (q *BuyRequest) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *BuyRequest) String() string {
-	var groupKeyBytes []byte
-	if q.AssetGroupKey != nil {
-		groupKeyBytes = q.AssetGroupKey.SerializeCompressed()
-	}
-
 	// Convert the asset rate hint to a string representation. Use empty
 	// string if the hint is not set.
 	assetRateHintStr := fn.MapOptionZ(
@@ -221,9 +225,9 @@ func (q *BuyRequest) String() string {
 		},
 	)
 
-	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset_id=%s, "+
-		"asset_group_key=%x, asset_amount=%d, asset_rate_hint=%s)",
-		q.Peer[:], q.ID[:], q.AssetID, groupKeyBytes, q.AssetAmount,
+	return fmt.Sprintf("BuyRequest(peer=%x, id=%x, asset=%s, "+
+		"max_asset_amount=%d, asset_rate_hint=%s)",
+		q.Peer[:], q.ID[:], q.AssetSpecifier.String(), q.AssetMaxAmt,
 		assetRateHintStr)
 }
 

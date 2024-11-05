@@ -22,12 +22,6 @@ const (
 )
 
 type (
-	// requestSuggestedAssetRate is a type alias for a record that
-	// represents the suggested asset to BTC rate for the quote request.
-	requestSuggestedAssetRate = tlv.OptionalRecordT[
-		tlv.TlvType19, TlvFixedPoint,
-	]
-
 	// requestInAssetID is a type alias for a record that represents the
 	// asset ID of the inbound asset.
 	requestInAssetID = tlv.OptionalRecordT[tlv.TlvType9, asset.ID]
@@ -47,6 +41,18 @@ type (
 	requestOutAssetGroupKey = tlv.OptionalRecordT[
 		tlv.TlvType15, *btcec.PublicKey,
 	]
+
+	// requestInAssetRateHint is a type alias for a record that represents
+	// the in-asset to BTC rate hint for the quote request.
+	requestInAssetRateHint = tlv.OptionalRecordT[
+		tlv.TlvType19, TlvFixedPoint,
+	]
+
+	// requestOutAssetRateHint is a type alias for a record that represents
+	// the out-asset to BTC rate hint for the quote request.
+	requestOutAssetRateHint = tlv.OptionalRecordT[
+		tlv.TlvType21, TlvFixedPoint,
+	]
 )
 
 // requestWireMsgData is a struct that represents the message data field for
@@ -63,17 +69,6 @@ type requestWireMsgData struct {
 	// Expiry is the Unix timestamp (in seconds) when the quote expires.
 	// The quote becomes invalid after this time.
 	Expiry tlv.RecordT[tlv.TlvType6, uint64]
-
-	// AssetMaxAmount represents the maximum asset amount that the target
-	// peer is expected to accept/divest.
-	AssetMaxAmount tlv.RecordT[tlv.TlvType16, uint64]
-
-	// SuggestedAssetRate is the peer's proposed asset to BTC rate. This is
-	// not the final rate, but a suggested rate that the requesting peer
-	// would be willing to accept.
-	//
-	// NOTE: This field is optional.
-	SuggestedAssetRate requestSuggestedAssetRate
 
 	// InAssetID represents the identifier of the asset which will be
 	// inbound to the requesting peer (therefore outbound to the
@@ -98,6 +93,35 @@ type requestWireMsgData struct {
 	// outbound to the requesting peer (therefore inbound to the
 	// counterparty peer).
 	OutAssetGroupKey requestOutAssetGroupKey
+
+	// MaxInAsset represents the maximum quantity of in-asset that the
+	// counterparty is expected to divest, whether the asset involved is BTC
+	// or otherwise.
+	MaxInAsset tlv.RecordT[tlv.TlvType16, uint64]
+
+	// InAssetRateHint is the peer's proposed in-asset to BTC rate. This is
+	// not the final rate, but a suggested rate that the requesting peer
+	// would be willing to accept.
+	//
+	// NOTE: This field is optional.
+	InAssetRateHint requestInAssetRateHint
+
+	// OutAssetRateHint is the peer's proposed out-asset to BTC rate. This
+	// is not the final rate, but a suggested rate that the requesting peer
+	// would be willing to accept.
+	//
+	// NOTE: This field is optional.
+	OutAssetRateHint requestOutAssetRateHint
+
+	// MinInAsset is an optional minimum quantity of in-asset that may be
+	// transferred under the terms of the quote, applicable whether the
+	// asset is BTC or any other.
+	MinInAsset tlv.OptionalRecordT[tlv.TlvType23, uint64]
+
+	// MinOutAsset is an optional minimum quantity of out-asset that may be
+	// transferred under the terms of the quote, applicable whether the
+	// asset is BTC or any other.
+	MinOutAsset tlv.OptionalRecordT[tlv.TlvType25, uint64]
 }
 
 // newRequestWireMsgDataFromBuy creates a new requestWireMsgData from a buy
@@ -115,20 +139,20 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
 	var inAssetID requestInAssetID
-	if q.AssetID != nil {
+	q.AssetSpecifier.WhenId(func(id asset.ID) {
 		inAssetID = tlv.SomeRecordT[tlv.TlvType9](
-			tlv.NewPrimitiveRecord[tlv.TlvType9](*q.AssetID),
+			tlv.NewPrimitiveRecord[tlv.TlvType9](id),
 		)
-	}
+	})
 
 	var inAssetGroupKey requestInAssetGroupKey
-	if q.AssetGroupKey != nil {
+	q.AssetSpecifier.WhenGroupPubKey(func(groupPubKey btcec.PublicKey) {
 		inAssetGroupKey = tlv.SomeRecordT[tlv.TlvType11](
 			tlv.NewPrimitiveRecord[tlv.TlvType11](
-				q.AssetGroupKey,
+				&groupPubKey,
 			),
 		)
-	}
+	})
 
 	// Use a zero asset ID for the outbound asset ID. This indicates that
 	// the outbound asset is BTC.
@@ -140,28 +164,28 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	outAssetGroupKey := requestOutAssetGroupKey{}
 
 	// Convert the suggested asset to BTC rate to a TLV record.
-	var suggestedAssetRate requestSuggestedAssetRate
+	var inAssetRateHint requestInAssetRateHint
 	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
 		// Convert the BigIntFixedPoint to a TlvFixedPoint.
 		wireRate := NewTlvFixedPointFromBigInt(assetRate.Rate)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
+		inAssetRateHint = tlv.SomeRecordT[tlv.TlvType19](
 			tlv.NewRecordT[tlv.TlvType19](wireRate),
 		)
 	})
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetMaxAmt)
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
-		Version:            version,
-		ID:                 id,
-		Expiry:             expiryTlv,
-		AssetMaxAmount:     assetMaxAmount,
-		SuggestedAssetRate: suggestedAssetRate,
-		InAssetID:          inAssetID,
-		InAssetGroupKey:    inAssetGroupKey,
-		OutAssetID:         outAssetID,
-		OutAssetGroupKey:   outAssetGroupKey,
+		Version:          version,
+		ID:               id,
+		Expiry:           expiryTlv,
+		InAssetID:        inAssetID,
+		InAssetGroupKey:  inAssetGroupKey,
+		OutAssetID:       outAssetID,
+		OutAssetGroupKey: outAssetGroupKey,
+		MaxInAsset:       maxInAsset,
+		InAssetRateHint:  inAssetRateHint,
 	}, nil
 }
 
@@ -179,15 +203,17 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	})
 	expiryTlv := tlv.NewPrimitiveRecord[tlv.TlvType6](uint64(expiry))
 
-	assetMaxAmount := tlv.NewPrimitiveRecord[tlv.TlvType16](q.AssetAmount)
+	maxInAsset := tlv.NewPrimitiveRecord[tlv.TlvType16](
+		uint64(q.PaymentMaxAmt),
+	)
 
-	// Convert the suggested asset rate to a TLV record.
-	var suggestedAssetRate requestSuggestedAssetRate
+	// Convert the in-asset to BTC rate to a TLV record.
+	var outAssetRateHint requestOutAssetRateHint
 	q.AssetRateHint.WhenSome(func(assetRate AssetRate) {
 		// Convert the BigIntFixedPoint to a TlvFixedPoint.
 		wireRate := NewTlvFixedPointFromBigInt(assetRate.Rate)
-		suggestedAssetRate = tlv.SomeRecordT[tlv.TlvType19](
-			tlv.NewRecordT[tlv.TlvType19](wireRate),
+		outAssetRateHint = tlv.SomeRecordT[tlv.TlvType21](
+			tlv.NewRecordT[tlv.TlvType21](wireRate),
 		)
 	})
 
@@ -202,31 +228,31 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	)
 
 	outAssetID := requestOutAssetID{}
-	if q.AssetID != nil {
+	q.AssetSpecifier.WhenId(func(id asset.ID) {
 		outAssetID = tlv.SomeRecordT[tlv.TlvType13](
-			tlv.NewPrimitiveRecord[tlv.TlvType13](*q.AssetID),
+			tlv.NewPrimitiveRecord[tlv.TlvType13](id),
 		)
-	}
+	})
 
 	outAssetGroupKey := requestOutAssetGroupKey{}
-	if q.AssetGroupKey != nil {
+	q.AssetSpecifier.WhenGroupPubKey(func(groupPubKey btcec.PublicKey) {
 		outAssetGroupKey = tlv.SomeRecordT[tlv.TlvType15](
 			tlv.NewPrimitiveRecord[tlv.TlvType15](
-				q.AssetGroupKey,
+				&groupPubKey,
 			),
 		)
-	}
+	})
 
 	// Encode message data component as TLV bytes.
 	return requestWireMsgData{
-		Version:            version,
-		ID:                 id,
-		Expiry:             expiryTlv,
-		AssetMaxAmount:     assetMaxAmount,
-		SuggestedAssetRate: suggestedAssetRate,
-		InAssetID:          inAssetID,
-		OutAssetID:         outAssetID,
-		OutAssetGroupKey:   outAssetGroupKey,
+		Version:          version,
+		ID:               id,
+		Expiry:           expiryTlv,
+		InAssetID:        inAssetID,
+		OutAssetID:       outAssetID,
+		OutAssetGroupKey: outAssetGroupKey,
+		MaxInAsset:       maxInAsset,
+		OutAssetRateHint: outAssetRateHint,
 	}, nil
 }
 
@@ -303,14 +329,8 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 		m.Version.Record(),
 		m.ID.Record(),
 		m.Expiry.Record(),
-		m.AssetMaxAmount.Record(),
+		m.MaxInAsset.Record(),
 	}
-
-	m.SuggestedAssetRate.WhenSome(
-		func(r tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
-			records = append(records, r.Record())
-		},
-	)
 
 	// Encode the inbound asset.
 	m.InAssetID.WhenSome(
@@ -336,6 +356,28 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 		},
 	)
 
+	m.InAssetRateHint.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType19, TlvFixedPoint]) {
+			records = append(records, r.Record())
+		},
+	)
+	m.OutAssetRateHint.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType21, TlvFixedPoint]) {
+			records = append(records, r.Record())
+		},
+	)
+
+	m.MinInAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType23, uint64]) {
+			records = append(records, r.Record())
+		},
+	)
+	m.MinOutAsset.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType25, uint64]) {
+			records = append(records, r.Record())
+		},
+	)
+
 	tlv.SortRecords(records)
 
 	// Create the tlv stream.
@@ -350,13 +392,17 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 // Decode deserializes the requestWireMsgData from the given io.Reader.
 func (m *requestWireMsgData) Decode(r io.Reader) error {
 	// Define zero values for optional fields.
-	suggestedAssetRate := m.SuggestedAssetRate.Zero()
-
 	inAssetID := m.InAssetID.Zero()
 	inAssetGroupKey := m.InAssetGroupKey.Zero()
 
 	outAssetID := m.OutAssetID.Zero()
 	outAssetGroupKey := m.OutAssetGroupKey.Zero()
+
+	inAssetRateHint := m.InAssetRateHint.Zero()
+	outAssetRateHint := m.OutAssetRateHint.Zero()
+
+	minInAsset := m.MinInAsset.Zero()
+	minOutAsset := m.MinOutAsset.Zero()
 
 	// Create a tlv stream with all the fields.
 	tlvStream, err := tlv.NewStream(
@@ -370,9 +416,13 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 		outAssetID.Record(),
 		outAssetGroupKey.Record(),
 
-		m.AssetMaxAmount.Record(),
+		m.MaxInAsset.Record(),
 
-		suggestedAssetRate.Record(),
+		inAssetRateHint.Record(),
+		outAssetRateHint.Record(),
+
+		minInAsset.Record(),
+		minOutAsset.Record(),
 	)
 	if err != nil {
 		return err
@@ -385,10 +435,6 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 
 	// Set optional fields if they are present.
-	if _, ok := tlvMap[suggestedAssetRate.TlvType()]; ok {
-		m.SuggestedAssetRate = tlv.SomeRecordT(suggestedAssetRate)
-	}
-
 	if _, ok := tlvMap[inAssetID.TlvType()]; ok {
 		m.InAssetID = tlv.SomeRecordT(inAssetID)
 	}
@@ -401,6 +447,20 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	}
 	if _, ok := tlvMap[outAssetGroupKey.TlvType()]; ok {
 		m.OutAssetGroupKey = tlv.SomeRecordT(outAssetGroupKey)
+	}
+
+	if _, ok := tlvMap[inAssetRateHint.TlvType()]; ok {
+		m.InAssetRateHint = tlv.SomeRecordT(inAssetRateHint)
+	}
+	if _, ok := tlvMap[outAssetRateHint.TlvType()]; ok {
+		m.OutAssetRateHint = tlv.SomeRecordT(outAssetRateHint)
+	}
+
+	if _, ok := tlvMap[minInAsset.TlvType()]; ok {
+		m.MinInAsset = tlv.SomeRecordT(minInAsset)
+	}
+	if _, ok := tlvMap[minOutAsset.TlvType()]; ok {
+		m.MinOutAsset = tlv.SomeRecordT(minOutAsset)
 	}
 
 	return nil

@@ -142,22 +142,20 @@ message AddAssetSellOrderRequest {
     // asset_specifier is the subject asset.
     AssetSpecifier asset_specifier = 1;
 
-    // The maximum amount of the asset to sell.
-    uint64 max_asset_amount = 2;
-
-    // The minimum amount of BTC to accept (units: millisats).
-    uint64 min_ask = 3;
+    // The maximum msat amount that the responding peer must agree to pay
+    // (units: millisats).
+    uint64 payment_max_amt = 2;
 
     // The unix timestamp in seconds after which the order is no longer valid.
-    uint64 expiry = 4;
+    uint64 expiry = 3;
 
     // peer_pub_key is an optional field for specifying the public key of the
     // intended recipient peer for the order.
-    bytes peer_pub_key = 5;
+    bytes peer_pub_key = 4;
 
     // timeout_seconds is the number of seconds to wait for the peer to respond
     // with an accepted quote (or a rejection).
-    uint32 timeout_seconds = 6;
+    uint32 timeout_seconds = 5;
 }
 
 message AddAssetSellOrderResponse {

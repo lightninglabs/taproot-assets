@@ -6405,12 +6405,10 @@ func unmarshalAssetSellOrder(
 	}
 
 	return &rfq.SellOrder{
-		AssetID:        assetId,
-		AssetGroupKey:  assetGroupKey,
-		MaxAssetAmount: req.MaxAssetAmount,
-		MinAsk:         lnwire.MilliSatoshi(req.MinAsk),
-		Expiry:         req.Expiry,
-		Peer:           peer,
+		AssetID:       assetId,
+		AssetGroupKey: assetGroupKey,
+		PaymentMaxAmt: lnwire.MilliSatoshi(req.PaymentMaxAmt),
+		Peer:          peer,
 	}, nil
 }
 
@@ -6575,7 +6573,7 @@ func marshalPeerAcceptedBuyQuotes(
 			Peer:         quote.Peer.String(),
 			Id:           quote.ID[:],
 			Scid:         uint64(scid),
-			AssetAmount:  quote.Request.AssetAmount,
+			AssetAmount:  quote.Request.AssetMaxAmt,
 			AskAssetRate: rpcAskAssetRate,
 			Expiry:       quote.Expiry,
 		}
@@ -6601,11 +6599,12 @@ func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAcce
 			Scale:       uint32(quote.AssetRate.Scale),
 		}
 
+		// TODO(ffranr): Add SellRequest payment max amount to
+		//  PeerAcceptedSellQuote.
 		rpcQuote := &rfqrpc.PeerAcceptedSellQuote{
 			Peer:         quote.Peer.String(),
 			Id:           quote.ID[:],
 			Scid:         uint64(scid),
-			AssetAmount:  quote.Request.AssetAmount,
 			BidAssetRate: rpcAssetRate,
 			Expiry:       quote.Expiry,
 		}
@@ -6921,11 +6920,36 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// set.
 		peerPubKey = &assetChan.channelInfo.PubKeyBytes
 
-		// TODO(guggero): This should actually be the max BTC amount
-		// (invoice amount plus fee limit) in milli-satoshi, not the
-		// asset amount. Need to change the whole RFQ API to do that
-		// though.
-		maxAssetAmount := assetChan.assetInfo.LocalBalance
+		// paymentMaxAmt is the maximum amount that the counterparty is
+		// expected to pay. This is the amount that the invoice is
+		// asking for plus the fee limit in milli-satoshis.
+		var paymentMaxAmt lnwire.MilliSatoshi
+		if invoice.MilliSat == nil {
+			amt, err := lnrpc.UnmarshallAmt(pReq.Amt, pReq.AmtMsat)
+			if err != nil {
+				return fmt.Errorf("error unmarshalling "+
+					"amount: %w", err)
+			}
+			if amt == 0 {
+				return errors.New("amount must be specified " +
+					"when paying a zero amount invoice")
+			}
+
+			paymentMaxAmt = amt
+		} else {
+			paymentMaxAmt = *invoice.MilliSat
+		}
+
+		// Calculate the fee limit that should be used for this payment.
+		feeLimit, err := lnrpc.UnmarshallAmt(
+			pReq.FeeLimitSat, pReq.FeeLimitMsat,
+		)
+		if err != nil {
+			return fmt.Errorf("error unmarshalling fee limit: %w",
+				err)
+		}
+
+		paymentMaxAmt += feeLimit
 
 		expiryTimestamp := invoice.Timestamp.Add(invoice.Expiry())
 		resp, err := r.AddAssetSellOrder(
@@ -6935,10 +6959,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 						AssetId: assetID[:],
 					},
 				},
-				MaxAssetAmount: maxAssetAmount,
-				MinAsk:         uint64(*invoice.MilliSat),
-				Expiry:         uint64(expiryTimestamp.Unix()),
-				PeerPubKey:     peerPubKey[:],
+				PaymentMaxAmt: uint64(paymentMaxAmt),
+				Expiry:        uint64(expiryTimestamp.Unix()),
+				PeerPubKey:    peerPubKey[:],
 				TimeoutSeconds: uint32(
 					rfq.DefaultTimeout.Seconds(),
 				),

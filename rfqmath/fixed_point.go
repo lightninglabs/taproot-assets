@@ -3,7 +3,6 @@ package rfqmath
 import (
 	"fmt"
 	"math"
-	"math/big"
 	"strconv"
 )
 
@@ -19,6 +18,15 @@ type FixedPoint[T Int[T]] struct {
 	// represents a power of 10. Eg: a scale value of 2 (two decimal
 	// places) maps to a multiplication by 100.
 	Scale uint8
+}
+
+// SetIntValue assigns the specified integer value to the FixedPoint. The
+// coefficient is set to the given value, and the scale is reset to 0.
+func (f FixedPoint[T]) SetIntValue(value T) FixedPoint[T] {
+	f.Coefficient = value
+	f.Scale = 0
+
+	return f
 }
 
 // String returns the string version of the fixed point value.
@@ -175,9 +183,8 @@ type BigIntFixedPoint = FixedPoint[BigInt]
 // NewBigIntFixedPoint creates a new BigInt fixed-point given a coefficient and
 // scale.
 func NewBigIntFixedPoint(coefficient uint64, scale uint8) BigIntFixedPoint {
-	cBigInt := new(big.Int).SetUint64(coefficient)
 	return BigIntFixedPoint{
-		Coefficient: NewBigInt(cBigInt),
+		Coefficient: NewBigIntFromUint64(coefficient),
 		Scale:       scale,
 	}
 }

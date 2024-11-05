@@ -80,13 +80,19 @@ type Policy interface {
 // AssetSalePolicy is a struct that holds the terms which determine whether an
 // asset sale channel HTLC is accepted or rejected.
 type AssetSalePolicy struct {
-	// ID is the unique identifier of the RFQ session that the policy is
-	// associated with.
-	ID rfqmsg.ID
+	// AssetSpecifier is the identifier for the specific asset or asset
+	// group to which this policy applies.
+	AssetSpecifier asset.Specifier
 
-	// MaxAssetAmount is the maximum amount of the asset that is being
-	// requested.
-	MaxAssetAmount uint64
+	// AcceptedQuoteId is the unique identifier of the RFQ session quote
+	// accept message that the policy is associated with.
+	AcceptedQuoteId rfqmsg.ID
+
+	// MaxOutboundAssetAmount represents the maximum asset amount permitted
+	// by policy for outbound transactions. It sets an upper limit on the
+	// amount of assets this node is willing to divest within the remit of
+	// the policy.
+	MaxOutboundAssetAmount uint64
 
 	// AskAssetRate is the quote's asking asset unit to BTC conversion rate.
 	AskAssetRate rfqmath.BigIntFixedPoint
@@ -94,47 +100,61 @@ type AssetSalePolicy struct {
 	// expiry is the policy's expiry unix timestamp after which the policy
 	// is no longer valid.
 	expiry uint64
-
-	// assetID is the asset ID of the asset that the accept message is for.
-	assetID *asset.ID
 }
 
 // NewAssetSalePolicy creates a new asset sale policy.
 func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 	return &AssetSalePolicy{
-		ID:             quote.ID,
-		MaxAssetAmount: quote.Request.AssetAmount,
-		AskAssetRate:   quote.AssetRate,
-		expiry:         quote.Expiry,
-		assetID:        quote.Request.AssetID,
+		AssetSpecifier:         quote.Request.AssetSpecifier,
+		AcceptedQuoteId:        quote.ID,
+		MaxOutboundAssetAmount: quote.Request.AssetMaxAmt,
+		AskAssetRate:           quote.AssetRate,
+		expiry:                 quote.Expiry,
 	}
 }
 
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
 // does not satisfy the subject policy.
+//
+// The HTLC examined by this function was likely created by a peer unaware of
+// the RFQ agreement (i.e., they are simply paying an invoice), with the SCID
+// included as a hop hint within the invoice. The SCID is the only piece of
+// information used to determine the policy applicable to the HTLC. As a result,
+// HTLC custom records are not expected to be present.
 func (c *AssetSalePolicy) CheckHtlcCompliance(
 	htlc lndclient.InterceptedHtlc) error {
 
 	// Check that the channel SCID is as expected.
 	htlcScid := SerialisedScid(htlc.OutgoingChannelID.ToUint64())
-	if htlcScid != c.ID.Scid() {
+	if htlcScid != c.AcceptedQuoteId.Scid() {
 		return fmt.Errorf("htlc outgoing channel ID does not match "+
 			"policy's SCID (htlc_scid=%d, policy_scid=%d)",
-			htlcScid, c.ID.Scid())
+			htlcScid, c.AcceptedQuoteId.Scid())
 	}
 
-	// Check that the HTLC amount is not greater than the negotiated maximum
-	// amount.
-	maxAssetAmount := rfqmath.NewBigIntFixedPoint(c.MaxAssetAmount, 0)
-
-	maxOutboundAmount := rfqmath.UnitsToMilliSatoshi(
+	// The RFQ quote sets an upper limit on the amount of assets this node
+	// is willing to sell. We need to ensure that the HTLC outbound amount
+	// does not correspond to an asset amount exceeding this agreed maximum.
+	//
+	// In other words, this check ensures our peer isn't trying to obtain
+	// more assets than we are willing to sell.
+	//
+	// Verify that the HTLC outbound amount (msat) does not exceed the
+	// maximum asset amount (converted to msat) as specified in the quote.
+	// Convert the maximum asset amount to msat using the asset-to-BTC rate
+	// from the quote, and ensure it is less than the HTLC outbound amount
+	// (msat).
+	maxAssetAmount := rfqmath.NewBigIntFixedPoint(
+		c.MaxOutboundAssetAmount, 0,
+	)
+	policyMaxOutMsat := rfqmath.UnitsToMilliSatoshi(
 		maxAssetAmount, c.AskAssetRate,
 	)
 
-	if htlc.AmountOutMsat > maxOutboundAmount {
+	if htlc.AmountOutMsat > policyMaxOutMsat {
 		return fmt.Errorf("htlc out amount is greater than the policy "+
 			"maximum (htlc_out_msat=%d, policy_max_out_msat=%d)",
-			htlc.AmountOutMsat, maxOutboundAmount)
+			htlc.AmountOutMsat, policyMaxOutMsat)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
@@ -161,7 +181,7 @@ func (c *AssetSalePolicy) HasExpired() bool {
 // Scid returns the serialised short channel ID (SCID) of the channel to which
 // the policy applies.
 func (c *AssetSalePolicy) Scid() uint64 {
-	return uint64(c.ID.Scid())
+	return uint64(c.AcceptedQuoteId.Scid())
 }
 
 // GenerateInterceptorResponse generates an interceptor response for the policy.
@@ -173,8 +193,11 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 		input.UnknownWitnessSize,
 	))
 
-	if c.assetID == nil {
-		return nil, fmt.Errorf("policy has no asset ID")
+	// Unpack asset ID.
+	assetID, err := c.AssetSpecifier.UnwrapIdOrErr()
+	if err != nil {
+		return nil, fmt.Errorf("asset sale policy has no asset ID: %w",
+			err)
 	}
 
 	// Compute the outgoing asset amount given the msat outgoing amount and
@@ -185,9 +208,9 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	amt := outgoingAssetAmount.ScaleTo(0).ToUint64()
 
 	// Include the asset balance in the HTLC record.
-	htlcBalance := rfqmsg.NewAssetBalance(*c.assetID, amt)
+	htlcBalance := rfqmsg.NewAssetBalance(assetID, amt)
 	htlcRecord := rfqmsg.NewHtlc(
-		[]*rfqmsg.AssetBalance{htlcBalance}, fn.Some(c.ID),
+		[]*rfqmsg.AssetBalance{htlcBalance}, fn.Some(c.AcceptedQuoteId),
 	)
 
 	customRecords, err := lnwire.ParseCustomRecords(htlcRecord.Bytes())
@@ -210,16 +233,23 @@ var _ Policy = (*AssetSalePolicy)(nil)
 type AssetPurchasePolicy struct {
 	// scid is the serialised short channel ID (SCID) of the channel to
 	// which the policy applies.
+	//
+	// TODO(ffranr): Remove this field. It can be derived from
+	//  AcceptedQuoteId.
 	scid SerialisedScid
+
+	// AssetSpecifier is the identifier for the specific asset or asset
+	// group to which this policy applies.
+	AssetSpecifier asset.Specifier
 
 	// AcceptedQuoteId is the ID of the accepted quote.
 	AcceptedQuoteId rfqmsg.ID
 
-	// AssetAmount is the amount of the tap asset that is being requested.
-	AssetAmount uint64
-
 	// BidAssetRate is the quote's asset to BTC conversion rate.
 	BidAssetRate rfqmath.BigIntFixedPoint
+
+	// PaymentMaxAmt is the maximum agreed BTC payment.
+	PaymentMaxAmt lnwire.MilliSatoshi
 
 	// expiry is the policy's expiry unix timestamp in seconds after which
 	// the policy is no longer valid.
@@ -230,9 +260,10 @@ type AssetPurchasePolicy struct {
 func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 	return &AssetPurchasePolicy{
 		scid:            quote.ShortChannelId(),
+		AssetSpecifier:  quote.Request.AssetSpecifier,
 		AcceptedQuoteId: quote.ID,
-		AssetAmount:     quote.Request.AssetAmount,
 		BidAssetRate:    quote.AssetRate,
+		PaymentMaxAmt:   quote.Request.PaymentMaxAmt,
 		expiry:          quote.Expiry,
 	}
 }
@@ -260,19 +291,34 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 			"accepted_quote_id=%v)", htlc, c.AcceptedQuoteId)
 	}
 
+	// Sum the asset balance in the HTLC record.
+	assetAmt, err := htlcRecord.SumAssetBalance(c.AssetSpecifier)
+	if err != nil {
+		return fmt.Errorf("error summing asset balance: %w", err)
+	}
+
 	// Convert the inbound asset amount to millisatoshis and ensure that the
 	// outgoing HTLC amount is not more than the inbound asset amount.
-	assetAmt := rfqmath.NewBigIntFixedPoint(c.AssetAmount, 0)
+	assetAmtFp := new(rfqmath.BigIntFixedPoint).SetIntValue(assetAmt)
 	inboundAmountMSat := rfqmath.UnitsToMilliSatoshi(
-		assetAmt, c.BidAssetRate,
+		assetAmtFp, c.BidAssetRate,
 	)
 
 	if inboundAmountMSat < htlc.AmountOutMsat {
 		return fmt.Errorf("htlc out amount is more than inbound "+
 			"asset amount in millisatoshis (htlc_out_msat=%d, "+
-			"inbound_asset_amount=%d, "+
+			"inbound_asset_amount=%s, "+
 			"inbound_asset_amount_msat=%v)", htlc.AmountOutMsat,
-			c.AssetAmount, inboundAmountMSat)
+			assetAmt.String(), inboundAmountMSat)
+	}
+
+	// Ensure that the outbound HTLC amount is less than the maximum agreed
+	// BTC payment.
+	if htlc.AmountOutMsat > c.PaymentMaxAmt {
+		return fmt.Errorf("htlc out amount is more than the maximum "+
+			"agreed BTC payment (htlc_out_msat=%d, "+
+			"payment_max_amt=%d)", htlc.AmountOutMsat,
+			c.PaymentMaxAmt)
 	}
 
 	// Lastly, check to ensure that the policy has not expired.
@@ -622,7 +668,7 @@ func (h *OrderHandler) RegisterAssetSalePolicy(buyAccept rfqmsg.BuyAccept) {
 		"buy accept message: %s", buyAccept.String())
 
 	policy := NewAssetSalePolicy(buyAccept)
-	h.policies.Store(policy.ID.Scid(), policy)
+	h.policies.Store(policy.AcceptedQuoteId.Scid(), policy)
 }
 
 // RegisterAssetPurchasePolicy generates and registers an asset buy policy with the

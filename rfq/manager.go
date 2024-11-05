@@ -391,7 +391,7 @@ func (m *Manager) handleIncomingMessage(incomingMsg rfqmsg.IncomingMsg) error {
 			// and compare it to the one in the invoice.
 			err := m.addScidAlias(
 				uint64(msg.ShortChannelId()),
-				*msg.Request.AssetID, msg.Peer,
+				msg.Request.AssetSpecifier, msg.Peer,
 			)
 			if err != nil {
 				m.handleError(
@@ -483,8 +483,8 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 		// make sure we can identify the forwarded asset payment by the
 		// outgoing SCID alias within the onion packet.
 		err := m.addScidAlias(
-			uint64(msg.ShortChannelId()), *msg.Request.AssetID,
-			msg.Peer,
+			uint64(msg.ShortChannelId()),
+			msg.Request.AssetSpecifier, msg.Peer,
 		)
 		if err != nil {
 			return fmt.Errorf("error adding local alias: %w", err)
@@ -514,7 +514,7 @@ func (m *Manager) handleOutgoingMessage(outgoingMsg rfqmsg.OutgoingMsg) error {
 }
 
 // addScidAlias adds a SCID alias to the alias manager.
-func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
+func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	peer route.Vertex) error {
 
 	// Retrieve all local channels.
@@ -536,6 +536,12 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetID asset.ID,
 
 	// Identify the correct channel to use as the base SCID for the alias
 	// by inspecting the asset data in the custom channel data.
+	assetID, err := assetSpecifier.UnwrapIdOrErr()
+	if err != nil {
+		return fmt.Errorf("asset ID must be specified when adding "+
+			"alias: %w", err)
+	}
+
 	var (
 		assetIDStr = assetID.String()
 		baseSCID   uint64
@@ -733,14 +739,15 @@ type SellOrder struct {
 	// AssetGroupKey is the public key of the asset group to sell.
 	AssetGroupKey *btcec.PublicKey
 
-	// MaxAssetAmount is the maximum amount of the asset that can be sold as
-	// part of the order.
-	MaxAssetAmount uint64
-
-	// MinAsk is the minimum ask price that the seller is willing to accept.
-	MinAsk lnwire.MilliSatoshi
+	// PaymentMaxAmt is the maximum msat amount that the responding peer
+	// must agree to pay.
+	PaymentMaxAmt lnwire.MilliSatoshi
 
 	// Expiry is the unix timestamp at which the order expires.
+	//
+	// TODO(ffranr): This is the invoice expiry unix timestamp in seconds.
+	//  We should make use of this field to ensure quotes are valid for the
+	//  duration of the invoice.
 	Expiry uint64
 
 	// Peer is the peer that the buy order is intended for. This field is

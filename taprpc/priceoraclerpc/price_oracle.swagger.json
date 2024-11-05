@@ -116,6 +116,14 @@
             "type": "string"
           },
           {
+            "name": "payment_asset_max_amount",
+            "description": "payment_asset_max_amount is the maximum amount of the payment asset that\ncould be involved in the transaction. This field is optional. If set to\nzero, it is considered unset.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
             "name": "asset_rates_hint.subjectAssetRate.coefficient",
             "description": "The coefficient is the fractional value scaled-up as an integer. This\ninteger is represented as a string as it may be too large to fit in a\nuint64.",
             "in": "query",
