@@ -108,19 +108,16 @@ message AddAssetBuyOrderRequest {
     // offer.
     uint64 asset_max_amt = 2;
 
-    // The maximum amount BTC to spend (units: millisats).
-    uint64 max_bid = 3;
-
     // The unix timestamp in seconds after which the order is no longer valid.
-    uint64 expiry = 4;
+    uint64 expiry = 3;
 
     // peer_pub_key is an optional field for specifying the public key of the
     // intended recipient peer for the order.
-    bytes peer_pub_key = 5;
+    bytes peer_pub_key = 4;
 
     // timeout_seconds is the number of seconds to wait for the peer to respond
     // with an accepted quote (or a rejection).
-    uint32 timeout_seconds = 6;
+    uint32 timeout_seconds = 5;
 }
 
 message AddAssetBuyOrderResponse {

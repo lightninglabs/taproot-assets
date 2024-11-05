@@ -213,11 +213,6 @@
                   "format": "uint64",
                   "description": "The maximum amount of the asset that the provider must be willing to\noffer."
                 },
-                "max_bid": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The maximum amount BTC to spend (units: millisats)."
-                },
                 "expiry": {
                   "type": "string",
                   "format": "uint64",
@@ -300,11 +295,6 @@
                   "type": "string",
                   "format": "uint64",
                   "description": "The maximum amount of the asset that the provider must be willing to\noffer."
-                },
-                "max_bid": {
-                  "type": "string",
-                  "format": "uint64",
-                  "description": "The maximum amount BTC to spend (units: millisats)."
                 },
                 "expiry": {
                   "type": "string",

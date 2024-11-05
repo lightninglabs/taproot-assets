@@ -95,7 +95,6 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 				},
 			},
 			AssetMaxAmt: purchaseAssetAmt,
-			MaxBid:      bidAmt,
 			Expiry:      buyOrderExpiry,
 
 			// Here we explicitly specify Bob as the destination

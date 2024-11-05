@@ -697,9 +697,6 @@ type BuyOrder struct {
 	// be willing to offer.
 	AssetMaxAmt uint64
 
-	// MaxBid is the maximum bid price that the buyer is willing to pay.
-	MaxBid lnwire.MilliSatoshi
-
 	// Expiry is the unix timestamp at which the buy order expires.
 	Expiry uint64
 

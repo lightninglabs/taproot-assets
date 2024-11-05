@@ -6314,7 +6314,6 @@ func unmarshalAssetBuyOrder(
 	return &rfq.BuyOrder{
 		AssetSpecifier: assetSpecifier,
 		AssetMaxAmt:    req.AssetMaxAmt,
-		MaxBid:         lnwire.MilliSatoshi(req.MaxBid),
 		Expiry:         req.Expiry,
 		Peer:           peer,
 	}, nil
