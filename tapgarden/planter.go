@@ -1967,6 +1967,10 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		newBatch.Seedlings[req.AssetName] = req
 
+		// The batch enable universe announcement flag inherits from the
+		// first seedling added to the batch.
+		newBatch.EnableUniAnnounce = req.EnableUniAnnounce
+
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
@@ -1981,12 +1985,26 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	case c.pendingBatch != nil:
 		log.Infof("Adding %v to existing MintingBatch", req)
 
+		// The batch already exist and may contain seedlings. Before
+		// adding the seedling to the batch, we'll ensure that the
+		// batch will still be valid after adding the seedling.
+		err := c.pendingBatch.ValidateSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("seedling can not be added to "+
+				"pending batch: %w", err)
+		}
+
 		c.pendingBatch.Seedlings[req.AssetName] = req
+
+		// The batch may already exist, but it may not have any
+		// seedlings. If this is the first seedling, we'll inherit the
+		// universe announcement flag from it.
+		c.pendingBatch.EnableUniAnnounce = req.EnableUniAnnounce
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err := c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
