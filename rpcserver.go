@@ -408,18 +408,15 @@ func (r *rpcServer) GetInfo(ctx context.Context,
 	}, nil
 }
 
-// MintAsset attempts to mint the set of assets (async by default to ensure
-// proper batching) specified in the request.
-func (r *rpcServer) MintAsset(ctx context.Context,
-	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
-
+// validateMintAssetRequest validates the given mint asset request.
+func validateMintAssetRequest(req *mintrpc.MintAssetRequest) error {
 	if req.Asset == nil {
-		return nil, fmt.Errorf("asset cannot be nil")
+		return fmt.Errorf("asset cannot be nil")
 	}
 
 	err := asset.ValidateAssetName(req.Asset.Name)
 	if err != nil {
-		return nil, fmt.Errorf("invalid asset name: %w", err)
+		return fmt.Errorf("invalid asset name: %w", err)
 	}
 
 	specificGroupKey := len(req.Asset.GroupKey) != 0
@@ -431,32 +428,32 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	if groupTapscriptRootSize != 0 &&
 		groupTapscriptRootSize != sha256.Size {
 
-		return nil, fmt.Errorf("group tapscript root must be %d bytes",
+		return fmt.Errorf("group tapscript root must be %d bytes",
 			sha256.Size)
 	}
 
 	switch {
 	// New grouped asset and grouped asset cannot both be set.
 	case req.Asset.NewGroupedAsset && req.Asset.GroupedAsset:
-		return nil, fmt.Errorf("cannot set both new grouped asset " +
+		return fmt.Errorf("cannot set both new grouped asset " +
 			"and grouped asset",
 		)
 
 	// Using a specific group key or anchor implies disabling emission.
 	case req.Asset.NewGroupedAsset:
 		if specificGroupKey || specificGroupAnchor {
-			return nil, fmt.Errorf("must disable emission to " +
+			return fmt.Errorf("must disable emission to " +
 				"specify a group")
 		}
 
 	// A group tapscript root cannot be specified if emission is disabled.
 	case !req.Asset.NewGroupedAsset && groupTapscriptRootSize != 0:
-		return nil, fmt.Errorf("cannot specify a group tapscript root" +
+		return fmt.Errorf("cannot specify a group tapscript root" +
 			"with emission disabled")
 
 	// A group internal key cannot be specified if emission is disabled.
 	case !req.Asset.NewGroupedAsset && specificGroupInternalKey:
-		return nil, fmt.Errorf("cannot specify a group internal key" +
+		return fmt.Errorf("cannot specify a group internal key" +
 			"with emission disabled")
 
 	// If the asset is intended to be part of an existing group, a group key
@@ -464,29 +461,50 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	// root nor group internal key can be specified.
 	case req.Asset.GroupedAsset:
 		if !specificGroupKey && !specificGroupAnchor {
-			return nil, fmt.Errorf("must specify a group key or" +
+			return fmt.Errorf("must specify a group key or" +
 				"group anchor")
 		}
 
 		if specificGroupKey && specificGroupAnchor {
-			return nil, fmt.Errorf("cannot specify both a group " +
+			return fmt.Errorf("cannot specify both a group " +
 				"key and a group anchor")
 		}
 
 		if groupTapscriptRootSize != 0 {
-			return nil, fmt.Errorf("cannot specify a group " +
+			return fmt.Errorf("cannot specify a group " +
 				"tapscript root with emission disabled")
 		}
 
 		if specificGroupInternalKey {
-			return nil, fmt.Errorf("cannot specify a group " +
+			return fmt.Errorf("cannot specify a group " +
 				"internal key with emission disabled")
 		}
 
 	// A group was specified without GroupedAsset being set.
 	case specificGroupKey || specificGroupAnchor:
-		return nil, fmt.Errorf("must set grouped asset to mint into " +
+		return fmt.Errorf("must set grouped asset to mint into " +
 			"a specific group")
+	}
+
+	// If a custom decimal display is set, the meta type must also be set to
+	// JSON.
+	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
+		return fmt.Errorf("decimal display requires JSON asset " +
+			"metadata")
+	}
+
+	return nil
+}
+
+// MintAsset attempts to mint the set of assets (async by default to ensure
+// proper batching) specified in the request.
+func (r *rpcServer) MintAsset(ctx context.Context,
+	req *mintrpc.MintAssetRequest) (*mintrpc.MintAssetResponse, error) {
+
+	// Validate the request.
+	err := validateMintAssetRequest(req)
+	if err != nil {
+		return nil, err
 	}
 
 	assetVersion, err := taprpc.UnmarshalAssetVersion(
@@ -497,14 +515,6 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	var seedlingMeta *proof.MetaReveal
-
-	// If a custom decimal display is set, the meta type must also be set to
-	// JSON.
-	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
-		return nil, fmt.Errorf("decimal display requires JSON asset " +
-			"metadata")
-	}
-
 	if req.Asset.AssetMeta != nil {
 		// Ensure that the meta type is valid.
 		metaType, err := proof.IsValidMetaType(req.Asset.AssetMeta.Type)
@@ -574,7 +584,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		}
 	}
 
-	if specificGroupInternalKey {
+	if req.Asset.GroupInternalKey != nil {
 		groupInternalKey, err = taprpc.UnmarshalKeyDescriptor(
 			req.Asset.GroupInternalKey,
 		)
@@ -582,6 +592,8 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 	}
+
+	groupTapscriptRootSize := len(req.Asset.GroupTapscriptRoot)
 
 	if groupTapscriptRootSize != 0 {
 		groupTapscriptRoot = bytes.Clone(req.Asset.GroupTapscriptRoot)
@@ -604,7 +616,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		seedling.ScriptKey = *scriptKey
 	}
 
-	if specificGroupInternalKey {
+	if req.Asset.GroupInternalKey != nil {
 		seedling.GroupInternalKey = &groupInternalKey
 	}
 
@@ -615,7 +627,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	switch {
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
-	case specificGroupKey:
+	case len(req.Asset.GroupKey) != 0:
 		groupTweakedKey, err := btcec.ParsePubKey(req.Asset.GroupKey)
 		if err != nil {
 			return nil, fmt.Errorf("invalid group key: %w", err)
@@ -634,9 +646,9 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			},
 		}
 
-	// If a group anchor is provided, propoate the name to the seedling.
+	// If a group anchor is provided, propagate the name to the seedling.
 	// We cannot do any name validation from outside the minter.
-	case specificGroupAnchor:
+	case len(req.Asset.GroupAnchor) != 0:
 		seedling.GroupAnchor = &req.Asset.GroupAnchor
 	}
 
