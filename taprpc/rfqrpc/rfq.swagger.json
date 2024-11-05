@@ -157,6 +157,7 @@
     "/v1/taproot-assets/rfq/buyorder/asset-id/{asset_specifier.asset_id_str}": {
       "post": {
         "summary": "tapcli: `rfq buyorder`\nAddAssetBuyOrder is used to add a buy order for a specific asset. If a buy\norder already exists for the asset, it will be updated.",
+        "description": "A buy order instructs the RFQ (Request For Quote) system to request a quote\nfrom a peer for the acquisition of an asset.\n\nThe normal use of a buy order is as follows:\n1. Alice, operating a wallet node, wants to receive a Tap asset as payment\nby issuing a Lightning invoice.\n2. Alice has an asset channel established with Bob's edge node.\n3. Before issuing the invoice, Alice needs to agree on an exchange rate with\nBob, who will facilitate the asset transfer.\n4. To obtain the best exchange rate, Alice creates a buy order specifying\nthe desired asset.\n5. Alice's RFQ subsystem processes the buy order and sends buy requests to\nrelevant peers to find the best rate. In this example, Bob is the only\navailable peer.\n6. Once Bob provides a satisfactory quote, Alice accepts it.\n7. Alice issues the Lightning invoice, which Charlie will pay.\n8. Instead of paying Alice directly, Charlie pays Bob.\n9. Bob then forwards the agreed amount of the Tap asset to Alice over their\nasset channel.",
         "operationId": "Rfq_AddAssetBuyOrder",
         "responses": {
           "200": {
@@ -240,6 +241,7 @@
     "/v1/taproot-assets/rfq/buyorder/group-key/{asset_specifier.group_key_str}": {
       "post": {
         "summary": "tapcli: `rfq buyorder`\nAddAssetBuyOrder is used to add a buy order for a specific asset. If a buy\norder already exists for the asset, it will be updated.",
+        "description": "A buy order instructs the RFQ (Request For Quote) system to request a quote\nfrom a peer for the acquisition of an asset.\n\nThe normal use of a buy order is as follows:\n1. Alice, operating a wallet node, wants to receive a Tap asset as payment\nby issuing a Lightning invoice.\n2. Alice has an asset channel established with Bob's edge node.\n3. Before issuing the invoice, Alice needs to agree on an exchange rate with\nBob, who will facilitate the asset transfer.\n4. To obtain the best exchange rate, Alice creates a buy order specifying\nthe desired asset.\n5. Alice's RFQ subsystem processes the buy order and sends buy requests to\nrelevant peers to find the best rate. In this example, Bob is the only\navailable peer.\n6. Once Bob provides a satisfactory quote, Alice accepts it.\n7. Alice issues the Lightning invoice, which Charlie will pay.\n8. Instead of paying Alice directly, Charlie pays Bob.\n9. Bob then forwards the agreed amount of the Tap asset to Alice over their\nasset channel.",
         "operationId": "Rfq_AddAssetBuyOrder2",
         "responses": {
           "200": {
