@@ -1179,6 +1179,10 @@ func (c *ChainPlanter) gardener() {
 			// After some basic validation, prepare the asset
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
+			//
+			// This method will also include the seedling in any
+			// existing pending batch or create a new pending batch
+			// if necessary.
 			ctx, cancel := c.WithCtxQuit()
 			err := c.prepAssetSeedling(ctx, req)
 			cancel()
@@ -1842,8 +1846,7 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 }
 
 // prepAssetSeedling performs some basic validation for the Seedling, then
-// either adds it to an existing pending batch or creates a new batch for it. A
-// bool indicating if a new batch should immediately be created is returned.
+// either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
