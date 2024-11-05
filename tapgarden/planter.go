@@ -1759,8 +1759,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	return caretaker, nil
 }
 
-// PendingBatch returns the current pending batch. If there's no pending batch,
-// then an error is returned.
+// PendingBatch returns the current pending batch, or nil if no batch is
+// pending.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 	req := newStateReq[*MintingBatch](reqTypePendingBatch)
 
