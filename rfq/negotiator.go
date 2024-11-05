@@ -168,12 +168,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			buyOrder.AssetSpecifier.IsSome() {
 
 			// Query the price oracle for a bid price.
-			//
-			// TODO(ffranr): Add assetMaxAmt to BuyOrder and use as
-			//  arg here.
 			assetRate, err := n.queryBidFromPriceOracle(
 				*buyOrder.Peer, buyOrder.AssetSpecifier,
-				fn.None[uint64](),
+				fn.Some(buyOrder.AssetMaxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -191,7 +188,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 
 		request, err := rfqmsg.NewBuyRequest(
 			*buyOrder.Peer, buyOrder.AssetSpecifier,
-			buyOrder.MinAssetAmount, assetRateHint,
+			buyOrder.AssetMaxAmt, assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+

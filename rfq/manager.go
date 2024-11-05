@@ -693,9 +693,9 @@ type BuyOrder struct {
 	// AssetSpecifier is the asset that the buyer is interested in.
 	AssetSpecifier asset.Specifier
 
-	// MinAssetAmount is the minimum amount of the asset that the buyer is
-	// willing to accept.
-	MinAssetAmount uint64
+	// AssetMaxAmt is the maximum amount of the asset that the provider must
+	// be willing to offer.
+	AssetMaxAmt uint64
 
 	// MaxBid is the maximum bid price that the buyer is willing to pay.
 	MaxBid lnwire.MilliSatoshi

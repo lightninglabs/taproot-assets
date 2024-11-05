@@ -208,10 +208,10 @@
                   "description": "asset_specifier is the subject asset.",
                   "title": "asset_specifier is the subject asset."
                 },
-                "min_asset_amount": {
+                "asset_max_amt": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The minimum amount of the asset to buy."
+                  "description": "The maximum amount of the asset that the provider must be willing to\noffer."
                 },
                 "max_bid": {
                   "type": "string",
@@ -296,10 +296,10 @@
                   "description": "asset_specifier is the subject asset.",
                   "title": "asset_specifier is the subject asset."
                 },
-                "min_asset_amount": {
+                "asset_max_amt": {
                   "type": "string",
                   "format": "uint64",
-                  "description": "The minimum amount of the asset to buy."
+                  "description": "The maximum amount of the asset that the provider must be willing to\noffer."
                 },
                 "max_bid": {
                   "type": "string",

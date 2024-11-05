@@ -6313,7 +6313,7 @@ func unmarshalAssetBuyOrder(
 
 	return &rfq.BuyOrder{
 		AssetSpecifier: assetSpecifier,
-		MinAssetAmount: req.MinAssetAmount,
+		AssetMaxAmt:    req.AssetMaxAmt,
 		MaxBid:         lnwire.MilliSatoshi(req.MaxBid),
 		Expiry:         req.Expiry,
 		Peer:           peer,
@@ -7156,9 +7156,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				AssetId: assetID[:],
 			},
 		},
-		MinAssetAmount: req.AssetAmount,
-		Expiry:         uint64(expiryTimestamp.Unix()),
-		PeerPubKey:     peerPubKey[:],
+		AssetMaxAmt: req.AssetAmount,
+		Expiry:      uint64(expiryTimestamp.Unix()),
+		PeerPubKey:  peerPubKey[:],
 		TimeoutSeconds: uint32(
 			rfq.DefaultTimeout.Seconds(),
 		),

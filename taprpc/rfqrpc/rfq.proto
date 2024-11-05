@@ -104,8 +104,9 @@ message AddAssetBuyOrderRequest {
     // asset_specifier is the subject asset.
     AssetSpecifier asset_specifier = 1;
 
-    // The minimum amount of the asset to buy.
-    uint64 min_asset_amount = 2;
+    // The maximum amount of the asset that the provider must be willing to
+    // offer.
+    uint64 asset_max_amt = 2;
 
     // The maximum amount BTC to spend (units: millisats).
     uint64 max_bid = 3;

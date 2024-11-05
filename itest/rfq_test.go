@@ -94,9 +94,9 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 					AssetId: mintedAssetId,
 				},
 			},
-			MinAssetAmount: purchaseAssetAmt,
-			MaxBid:         bidAmt,
-			Expiry:         buyOrderExpiry,
+			AssetMaxAmt: purchaseAssetAmt,
+			MaxBid:      bidAmt,
+			Expiry:      buyOrderExpiry,
 
 			// Here we explicitly specify Bob as the destination
 			// peer for the buy order. This will prompt Carol's tapd
