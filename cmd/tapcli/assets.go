@@ -29,6 +29,7 @@ var assetsCommands = []cli.Command{
 			listAssetBalancesCommand,
 			sendAssetsCommand,
 			burnAssetsCommand,
+			listBurnsCommand,
 			listTransfersCommand,
 			fetchMetaCommand,
 		},
@@ -52,6 +53,7 @@ var (
 	assetShowUnconfMintsName     = "show_unconfirmed_mints"
 	assetGroupKeyName            = "group_key"
 	assetGroupAnchorName         = "group_anchor"
+	anchorTxidName               = "anchor_txid"
 	batchKeyName                 = "batch_key"
 	groupByGroupName             = "by_group"
 	assetIDName                  = "asset_id"
@@ -852,6 +854,71 @@ func burnAssets(ctx *cli.Context) error {
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var listBurnsCommand = cli.Command{
+	Name:  "listburns",
+	Usage: "list burnt assets",
+	Description: `
+	List assets that have been burned by this daemon. These are assets that
+	have been destroyed and are no longer spendable.
+
+	Some filters may be used to return more specific results.
+	`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name:  assetIDName,
+			Usage: "the asset ID of the burnt asset",
+		},
+		cli.StringFlag{
+			Name:  assetGroupKeyName,
+			Usage: "the group key of the burnt asset",
+		},
+		cli.StringFlag{
+			Name: anchorTxidName,
+			Usage: "the txid of the transaction the burn was " +
+				"anchored to",
+		},
+	},
+	Action: listBurns,
+}
+
+func listBurns(ctx *cli.Context) error {
+	assetIDHex := ctx.String(assetIDName)
+	assetIDBytes, err := hex.DecodeString(assetIDHex)
+	if err != nil {
+		return fmt.Errorf("invalid asset ID: %w", err)
+	}
+
+	groupKeyHex := ctx.String(assetGroupKeyName)
+	groupKeyBytes, err := hex.DecodeString(groupKeyHex)
+	if err != nil {
+		return fmt.Errorf("invalid group key: %w", err)
+	}
+
+	anchorTxidStr := ctx.String(anchorTxidName)
+	anchorTxid, err := hex.DecodeString(anchorTxidStr)
+	if err != nil {
+		return fmt.Errorf("invalid anchor txid: %w", err)
+	}
+
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	resp, err := client.ListBurns(
+		ctxc, &taprpc.ListBurnsRequest{
+			AssetId:         assetIDBytes,
+			TweakedGroupKey: groupKeyBytes,
+			AnchorTxid:      anchorTxid,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("could not list burns: %w", err)
 	}
 
 	printRespJSON(resp)
