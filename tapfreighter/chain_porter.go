@@ -657,7 +657,7 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
 		FinalProofs:            pkg.FinalProofs,
 		PassiveAssetProofFiles: passiveAssetProofFiles,
-	})
+	}, nil)
 	if err != nil {
 		return fmt.Errorf("unable to log parcel delivery "+
 			"confirmation: %w", err)

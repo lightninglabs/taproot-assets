@@ -54,6 +54,15 @@ type Asset struct {
 	Spent                    bool
 }
 
+type AssetBurnTransfer struct {
+	BurnID     int64
+	TransferID int32
+	Note       sql.NullString
+	AssetID    []byte
+	GroupKey   []byte
+	Amount     int64
+}
+
 type AssetGroup struct {
 	GroupID         int64
 	TweakedGroupKey []byte

@@ -441,7 +441,8 @@ type ExportLog interface {
 	// LogAnchorTxConfirm updates the send package state on disk to reflect
 	// the confirmation of the anchor transaction, ensuring the on-chain
 	// reference information is up to date.
-	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent) error
+	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent,
+		[]*AssetBurn) error
 
 	// QueryParcels returns the set of confirmed or unconfirmed parcels.
 	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,

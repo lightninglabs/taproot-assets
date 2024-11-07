@@ -101,6 +101,7 @@ type Querier interface {
 	InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error
 	InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error
 	InsertBranch(ctx context.Context, arg InsertBranchParams) error
+	InsertBurn(ctx context.Context, arg InsertBurnParams) (int64, error)
 	InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error
 	InsertLeaf(ctx context.Context, arg InsertLeafParams) error
 	InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error
@@ -130,6 +131,7 @@ type Querier interface {
 	// make the entire statement evaluate to true, if none of these extra args are
 	// specified.
 	QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error)
+	QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error)
 	QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error)
 	QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error)
 	// Join on mssmt_nodes to get leaf related fields.
