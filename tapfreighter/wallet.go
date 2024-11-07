@@ -69,6 +69,7 @@ type Wallet interface {
 	// selected assets.
 	FundAddressSend(ctx context.Context,
 		coinSelectType tapsend.CoinSelectType,
+		prevIDs []asset.PrevID,
 		receiverAddrs ...*address.Tap) (*FundedVPacket, error)
 
 	// FundPacket funds a virtual transaction, selecting assets to spend
@@ -236,6 +237,7 @@ type FundedVPacket struct {
 // NOTE: This is part of the Wallet interface.
 func (f *AssetWallet) FundAddressSend(ctx context.Context,
 	coinSelectType tapsend.CoinSelectType,
+	prevIDs []asset.PrevID,
 	receiverAddrs ...*address.Tap) (*FundedVPacket, error) {
 
 	// We start by creating a new virtual transaction that will be used to
