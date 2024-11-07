@@ -8,6 +8,26 @@ service Rfq {
     /* tapcli: `rfq buyorder`
     AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
     order already exists for the asset, it will be updated.
+
+    A buy order instructs the RFQ (Request For Quote) system to request a quote
+    from a peer for the acquisition of an asset.
+
+    The normal use of a buy order is as follows:
+    1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+       by issuing a Lightning invoice.
+    2. Alice has an asset channel established with Bob's edge node.
+    3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+       Bob, who will facilitate the asset transfer.
+    4. To obtain the best exchange rate, Alice creates a buy order specifying
+       the desired asset.
+    5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+       relevant peers to find the best rate. In this example, Bob is the only
+       available peer.
+    6. Once Bob provides a satisfactory quote, Alice accepts it.
+    7. Alice issues the Lightning invoice, which Charlie will pay.
+    8. Instead of paying Alice directly, Charlie pays Bob.
+    9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+       asset channel.
     */
     rpc AddAssetBuyOrder (AddAssetBuyOrderRequest)
         returns (AddAssetBuyOrderResponse);
@@ -104,22 +124,20 @@ message AddAssetBuyOrderRequest {
     // asset_specifier is the subject asset.
     AssetSpecifier asset_specifier = 1;
 
-    // The minimum amount of the asset to buy.
-    uint64 min_asset_amount = 2;
-
-    // The maximum amount BTC to spend (units: millisats).
-    uint64 max_bid = 3;
+    // The maximum amount of the asset that the provider must be willing to
+    // offer.
+    uint64 asset_max_amt = 2;
 
     // The unix timestamp in seconds after which the order is no longer valid.
-    uint64 expiry = 4;
+    uint64 expiry = 3;
 
     // peer_pub_key is an optional field for specifying the public key of the
     // intended recipient peer for the order.
-    bytes peer_pub_key = 5;
+    bytes peer_pub_key = 4;
 
     // timeout_seconds is the number of seconds to wait for the peer to respond
     // with an accepted quote (or a rejection).
-    uint32 timeout_seconds = 6;
+    uint32 timeout_seconds = 5;
 }
 
 message AddAssetBuyOrderResponse {

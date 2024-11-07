@@ -159,31 +159,27 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 	go func() {
 		defer n.Wg.Done()
 
+		// Unwrap the peer from the buy order. For now, we can assume
+		// that the peer is always specified.
+		peer, err := buyOrder.Peer.UnwrapOrErr(
+			fmt.Errorf("buy order peer must be specified"),
+		)
+		if err != nil {
+			n.cfg.ErrChan <- err
+		}
+
 		// We calculate a proposed bid price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
 		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-		// Construct an asset specifier from the order.
-		// TODO(ffranr): The order should have an asset specifier field
-		//  rather than an asset ID and group key.
-		assetSpecifier, err := asset.NewSpecifier(
-			buyOrder.AssetID, buyOrder.AssetGroupKey, nil,
-			true,
-		)
-		if err != nil {
-			log.Warnf("failed to construct asset "+
-				"specifier from buy order: %v", err)
-		}
+		if n.cfg.PriceOracle != nil &&
+			buyOrder.AssetSpecifier.IsSome() {
 
-		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
 			// Query the price oracle for a bid price.
-			//
-			// TODO(ffranr): Add assetMaxAmt to BuyOrder and use as
-			//  arg here.
 			assetRate, err := n.queryBidFromPriceOracle(
-				*buyOrder.Peer, assetSpecifier,
-				fn.None[uint64](),
+				peer, buyOrder.AssetSpecifier,
+				fn.Some(buyOrder.AssetMaxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -199,10 +195,10 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
 		}
 
+		// Construct a new buy request to send to the peer.
 		request, err := rfqmsg.NewBuyRequest(
-			*buyOrder.Peer, buyOrder.AssetID,
-			buyOrder.AssetGroupKey, buyOrder.MinAssetAmount,
-			assetRateHint,
+			peer, buyOrder.AssetSpecifier,
+			buyOrder.AssetMaxAmt, assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create buy request "+

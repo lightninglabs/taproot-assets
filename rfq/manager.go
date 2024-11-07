@@ -688,28 +688,42 @@ func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
 	return nil
 }
 
-// BuyOrder is a struct that represents a buy order.
+// BuyOrder instructs the RFQ (Request For Quote) system to request a quote from
+// a peer for the acquisition of an asset.
+//
+// The normal use of a buy order is as follows:
+//  1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+//     by issuing a Lightning invoice.
+//  2. Alice has an asset channel established with Bob's edge node.
+//  3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+//     Bob, who will facilitate the asset transfer.
+//  4. To obtain the best exchange rate, Alice creates a buy order specifying
+//     the desired asset.
+//  5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+//     relevant peers to find the best rate. In this example, Bob is the only
+//     available peer.
+//  6. Once Bob provides a satisfactory quote, Alice accepts it.
+//  7. Alice issues the Lightning invoice, which Charlie will pay.
+//  8. Instead of paying Alice directly, Charlie pays Bob.
+//  9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+//     asset channel.
 type BuyOrder struct {
-	// AssetID is the ID of the asset that the buyer is interested in.
-	AssetID *asset.ID
+	// AssetSpecifier is the asset that the buyer is interested in.
+	AssetSpecifier asset.Specifier
 
-	// AssetGroupKey is the public key of the asset group that the buyer is
-	// interested in.
-	AssetGroupKey *btcec.PublicKey
-
-	// MinAssetAmount is the minimum amount of the asset that the buyer is
-	// willing to accept.
-	MinAssetAmount uint64
-
-	// MaxBid is the maximum bid price that the buyer is willing to pay.
-	MaxBid lnwire.MilliSatoshi
+	// AssetMaxAmt is the maximum amount of the asset that the provider must
+	// be willing to offer.
+	AssetMaxAmt uint64
 
 	// Expiry is the unix timestamp at which the buy order expires.
 	Expiry uint64
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
-	Peer *route.Vertex
+	//
+	// TODO(ffranr): Currently, this field must be specified. In the future,
+	//  the negotiator should be able to determine the optimal peer.
+	Peer fn.Option[route.Vertex]
 }
 
 // UpsertAssetBuyOrder upserts an asset buy order for management.
@@ -718,7 +732,7 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	//
 	// TODO(ffranr): Add support for peerless buy orders. The negotiator
 	//  should be able to determine the optimal peer.
-	if order.Peer == nil {
+	if order.Peer.IsNone() {
 		return fmt.Errorf("buy order peer must be specified")
 	}
 

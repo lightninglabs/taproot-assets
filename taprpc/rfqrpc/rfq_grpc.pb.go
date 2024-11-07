@@ -21,6 +21,26 @@ type RfqClient interface {
 	// tapcli: `rfq buyorder`
 	// AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
 	// order already exists for the asset, it will be updated.
+	//
+	// A buy order instructs the RFQ (Request For Quote) system to request a quote
+	// from a peer for the acquisition of an asset.
+	//
+	// The normal use of a buy order is as follows:
+	// 1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+	// by issuing a Lightning invoice.
+	// 2. Alice has an asset channel established with Bob's edge node.
+	// 3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+	// Bob, who will facilitate the asset transfer.
+	// 4. To obtain the best exchange rate, Alice creates a buy order specifying
+	// the desired asset.
+	// 5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+	// relevant peers to find the best rate. In this example, Bob is the only
+	// available peer.
+	// 6. Once Bob provides a satisfactory quote, Alice accepts it.
+	// 7. Alice issues the Lightning invoice, which Charlie will pay.
+	// 8. Instead of paying Alice directly, Charlie pays Bob.
+	// 9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+	// asset channel.
 	AddAssetBuyOrder(ctx context.Context, in *AddAssetBuyOrderRequest, opts ...grpc.CallOption) (*AddAssetBuyOrderResponse, error)
 	// tapcli: `rfq sellorder`
 	// AddAssetSellOrder is used to add a sell order for a specific asset. If a
@@ -137,6 +157,26 @@ type RfqServer interface {
 	// tapcli: `rfq buyorder`
 	// AddAssetBuyOrder is used to add a buy order for a specific asset. If a buy
 	// order already exists for the asset, it will be updated.
+	//
+	// A buy order instructs the RFQ (Request For Quote) system to request a quote
+	// from a peer for the acquisition of an asset.
+	//
+	// The normal use of a buy order is as follows:
+	// 1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+	// by issuing a Lightning invoice.
+	// 2. Alice has an asset channel established with Bob's edge node.
+	// 3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+	// Bob, who will facilitate the asset transfer.
+	// 4. To obtain the best exchange rate, Alice creates a buy order specifying
+	// the desired asset.
+	// 5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+	// relevant peers to find the best rate. In this example, Bob is the only
+	// available peer.
+	// 6. Once Bob provides a satisfactory quote, Alice accepts it.
+	// 7. Alice issues the Lightning invoice, which Charlie will pay.
+	// 8. Instead of paying Alice directly, Charlie pays Bob.
+	// 9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+	// asset channel.
 	AddAssetBuyOrder(context.Context, *AddAssetBuyOrderRequest) (*AddAssetBuyOrderResponse, error)
 	// tapcli: `rfq sellorder`
 	// AddAssetSellOrder is used to add a sell order for a specific asset. If a
