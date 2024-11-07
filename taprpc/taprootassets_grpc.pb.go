@@ -85,6 +85,11 @@ type TaprootAssetsClient interface {
 	// burning is such a destructive and non-reversible operation, some specific
 	// values need to be set in the request to avoid accidental burns.
 	BurnAsset(ctx context.Context, in *BurnAssetRequest, opts ...grpc.CallOption) (*BurnAssetResponse, error)
+	// tapcli: `assets listburns`
+	// ListBurns lists the asset burns that this wallet has performed. These assets
+	// are not recoverable in any way. Filters may be applied to return more
+	// specific results.
+	ListBurns(ctx context.Context, in *ListBurnsRequest, opts ...grpc.CallOption) (*ListBurnsResponse, error)
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error)
@@ -254,6 +259,15 @@ func (c *taprootAssetsClient) BurnAsset(ctx context.Context, in *BurnAssetReques
 	return out, nil
 }
 
+func (c *taprootAssetsClient) ListBurns(ctx context.Context, in *ListBurnsRequest, opts ...grpc.CallOption) (*ListBurnsResponse, error) {
+	out := new(ListBurnsResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ListBurns", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taprootAssetsClient) GetInfo(ctx context.Context, in *GetInfoRequest, opts ...grpc.CallOption) (*GetInfoResponse, error) {
 	out := new(GetInfoResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/GetInfo", in, out, opts...)
@@ -407,6 +421,11 @@ type TaprootAssetsServer interface {
 	// burning is such a destructive and non-reversible operation, some specific
 	// values need to be set in the request to avoid accidental burns.
 	BurnAsset(context.Context, *BurnAssetRequest) (*BurnAssetResponse, error)
+	// tapcli: `assets listburns`
+	// ListBurns lists the asset burns that this wallet has performed. These assets
+	// are not recoverable in any way. Filters may be applied to return more
+	// specific results.
+	ListBurns(context.Context, *ListBurnsRequest) (*ListBurnsResponse, error)
 	// tapcli: `getinfo`
 	// GetInfo returns the information for the node.
 	GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error)
@@ -476,6 +495,9 @@ func (UnimplementedTaprootAssetsServer) SendAsset(context.Context, *SendAssetReq
 }
 func (UnimplementedTaprootAssetsServer) BurnAsset(context.Context, *BurnAssetRequest) (*BurnAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method BurnAsset not implemented")
+}
+func (UnimplementedTaprootAssetsServer) ListBurns(context.Context, *ListBurnsRequest) (*ListBurnsResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ListBurns not implemented")
 }
 func (UnimplementedTaprootAssetsServer) GetInfo(context.Context, *GetInfoRequest) (*GetInfoResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method GetInfo not implemented")
@@ -790,6 +812,24 @@ func _TaprootAssets_BurnAsset_Handler(srv interface{}, ctx context.Context, dec 
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_ListBurns_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListBurnsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).ListBurns(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/ListBurns",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).ListBurns(ctx, req.(*ListBurnsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_GetInfo_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(GetInfoRequest)
 	if err := dec(in); err != nil {
@@ -938,6 +978,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "BurnAsset",
 			Handler:    _TaprootAssets_BurnAsset_Handler,
+		},
+		{
+			MethodName: "ListBurns",
+			Handler:    _TaprootAssets_ListBurns_Handler,
 		},
 		{
 			MethodName: "GetInfo",

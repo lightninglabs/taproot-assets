@@ -37,6 +37,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
+	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -3290,7 +3291,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
 			[]*tappsbt.VPacket{fundResp.VPacket},
-			fundResp.InputCommitments, "",
+			fundResp.InputCommitments, in.Note,
 		),
 	)
 	if err != nil {
@@ -3326,6 +3327,40 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		BurnTransfer: parcel,
 		BurnProof:    burnProof,
 	}, nil
+}
+
+// ListBurns returns a list of burnt assets. Some filters may be defined in the
+// request to return more specific results.
+func (r *rpcServer) ListBurns(ctx context.Context,
+	in *taprpc.ListBurnsRequest) (*taprpc.ListBurnsResponse, error) {
+
+	burns, err := r.cfg.AssetStore.QueryBurns(
+		ctx, tapdb.QueryBurnsFilters{
+			AssetID:    in.AssetId,
+			GroupKey:   in.TweakedGroupKey,
+			AnchorTxid: in.AnchorTxid,
+		},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	rpcBurns := fn.Map(burns, marshalRpcBurn)
+
+	return &taprpc.ListBurnsResponse{
+		Burns: rpcBurns,
+	}, nil
+}
+
+// marshalRpcBurn creates an instance of *taprpc.AssetBurn from the tapdb model.
+func marshalRpcBurn(b *tapdb.AssetBurn) *taprpc.AssetBurn {
+	return &taprpc.AssetBurn{
+		Note:            b.Note,
+		AssetId:         b.AssetID,
+		TweakedGroupKey: b.GroupKey,
+		Amount:          b.Amount,
+		AnchorTxid:      b.AnchorTxid[:],
+	}
 }
 
 // marshalOutboundParcel turns a pending parcel into its RPC counterpart.

@@ -61,6 +61,9 @@ http:
       post: "/v1/taproot-assets/burn"
       body: "*"
 
+    - selector: taprpc.TaprootAssets.ListBurns
+      get: "/v1/taproot-assets/burns"
+
     - selector: taprpc.TaprootAssets.ListTransfers
       get: "/v1/taproot-assets/assets/transfers"
       additional_bindings:
