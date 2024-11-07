@@ -2146,10 +2146,47 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 	case req.GetRaw() != nil:
-		raw := req.GetRaw()
-		if len(raw.Inputs) > 0 {
-			return nil, fmt.Errorf("template inputs not yet " +
-				"supported")
+		var (
+			raw     = req.GetRaw()
+			prevIDs []asset.PrevID
+		)
+		for i, input := range raw.Inputs {
+			if input.Outpoint == nil {
+				return nil, fmt.Errorf("input at index %d has "+
+					"a nil Outpoint", i)
+			}
+
+			hash, err := chainhash.NewHash(input.Outpoint.Txid)
+			if err != nil {
+				return nil, fmt.Errorf("input at index %d has "+
+					"invalid Txid: %w", i, err)
+			}
+
+			scriptKey, err := parseUserKey(input.ScriptKey)
+			if err != nil {
+				return nil, fmt.Errorf("input at index %d has "+
+					"invalid script key: %w", i, err)
+			}
+
+			if len(input.Id) != 32 {
+				return nil, fmt.Errorf("input at index %d has "+
+					"invalid asset ID of %d bytes, must "+
+					"be 32 bytes", i, len(input.Id))
+			}
+
+			// Decode the input into an asset.PrevID.
+			outpoint := wire.OutPoint{
+				Hash:  *hash,
+				Index: input.Outpoint.OutputIndex,
+			}
+			prevID := asset.PrevID{
+				OutPoint: outpoint,
+				ID:       asset.ID(input.Id),
+				ScriptKey: asset.ToSerialized(
+					scriptKey,
+				),
+			}
+			prevIDs = append(prevIDs, prevID)
 		}
 		if len(raw.Recipients) > 1 {
 			return nil, fmt.Errorf("only one recipient supported")
@@ -2172,7 +2209,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
-			ctx, coinSelectType, addr,
+			ctx, coinSelectType, prevIDs, addr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
