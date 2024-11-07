@@ -130,6 +130,10 @@ const (
 	// waits having identified an asset transfer on-chain and before
 	// retrieving the corresponding proof via the proof courier service.
 	defaultProofRetrievalDelay = 5 * time.Second
+
+	// defaultLndRPCTimeout is the default timeout we'll use for RPC
+	// requests to lnd.
+	defaultLndRPCTimeout = 1 * time.Minute
 )
 
 var (
@@ -258,6 +262,9 @@ type LndConfig struct {
 	MacaroonPath string `long:"macaroonpath" description:"The full path to the single macaroon to use, either the admin.macaroon or a custom baked one. Cannot be specified at the same time as macaroondir. A custom macaroon must contain ALL permissions required for all subservers to work, otherwise permission errors will occur."`
 
 	TLSPath string `long:"tlspath" description:"Path to lnd tls certificate"`
+
+	// RPCTimeout is the timeout we'll use for RPC requests to lnd.
+	RPCTimeout time.Duration `long:"rpctimeout" description:"The timeout to use for RPC requests to lnd; a sufficiently long duration should be chosen to avoid issues with slow responses"`
 }
 
 // UniverseConfig is the config that houses any Universe related config
@@ -385,6 +392,7 @@ func DefaultConfig() Config {
 		Lnd: &LndConfig{
 			Host:         "localhost:10009",
 			MacaroonPath: defaultLndMacaroonPath,
+			RPCTimeout:   defaultLndRPCTimeout,
 		},
 		DatabaseBackend: DatabaseBackendSqlite,
 		Sqlite: &tapdb.SqliteConfig{
@@ -1150,5 +1158,6 @@ func getLnd(network string, cfg *LndConfig,
 		BlockUntilChainSynced: true,
 		BlockUntilUnlocked:    true,
 		CallerCtx:             ctxc,
+		RPCTimeout:            cfg.RPCTimeout,
 	})
 }
