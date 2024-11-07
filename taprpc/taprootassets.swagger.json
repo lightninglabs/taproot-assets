@@ -543,6 +543,55 @@
         ]
       }
     },
+    "/v1/taproot-assets/burns": {
+      "get": {
+        "summary": "tapcli: `assets listburns`\nListBurns lists the asset burns that this wallet has performed. These assets\nare not recoverable in any way. Filters may be applied to return more\nspecific results.",
+        "operationId": "TaprootAssets_ListBurns",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcListBurnsResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "asset_id",
+            "description": "The asset id of the burnt asset.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "tweaked_group_key",
+            "description": "The tweaked group key of the group this asset belongs to.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "anchor_txid",
+            "description": "The txid of the transaction that the burn was anchored to.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/debuglevel": {
       "post": {
         "summary": "tapcli: `debuglevel`\nDebugLevel allows a caller to programmatically set the logging verbosity of\ntapd. The logging can be targeted according to a coarse daemon-wide logging\nlevel, or in a granular fashion to specify the logging for a target\nsub-system.",
@@ -1202,6 +1251,35 @@
         }
       }
     },
+    "taprpcAssetBurn": {
+      "type": "object",
+      "properties": {
+        "note": {
+          "type": "string",
+          "description": "A note that may contain user defined metadata related to this burn."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset id of the burnt asset."
+        },
+        "tweaked_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked group key of the group this asset belongs to."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The amount of burnt assets."
+        },
+        "anchor_txid": {
+          "type": "string",
+          "format": "byte",
+          "description": "The txid of the transaction that the burn was anchored to."
+        }
+      }
+    },
     "taprpcAssetGroup": {
       "type": "object",
       "properties": {
@@ -1391,6 +1469,10 @@
         "confirmation_text": {
           "type": "string",
           "description": "A safety check to ensure the user is aware of the destructive nature of\nthe burn. This needs to be set to the value \"assets will be destroyed\"\nfor the burn to succeed."
+        },
+        "note": {
+          "type": "string",
+          "description": "A note that may contain user defined metadata related to this burn."
         }
       }
     },
@@ -1741,6 +1823,18 @@
           "type": "object",
           "additionalProperties": {
             "$ref": "#/definitions/taprpcAssetGroupBalance"
+          }
+        }
+      }
+    },
+    "taprpcListBurnsResponse": {
+      "type": "object",
+      "properties": {
+        "burns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/taprpcAssetBurn"
           }
         }
       }
