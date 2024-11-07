@@ -179,6 +179,10 @@ type (
 	// when fetching a tapscript tree, which includes the serialized node
 	// and the node index in the tree.
 	TapscriptTreeNode = sqlc.FetchTapscriptTreeRow
+
+	// QueryBurnsFilters is a set of filters that is applied on the set of
+	// the returned burns.
+	QueryBurnsFilters = sqlc.QueryBurnsParams
 )
 
 // ActiveAssetsStore is a sub-set of the main sqlc.Querier interface that
@@ -358,6 +362,15 @@ type ActiveAssetsStore interface {
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
+
+	// InsertBurn inserts a new row to the asset burns table which
+	// includes all important data related to the burn.
+	InsertBurn(ctx context.Context, arg sqlc.InsertBurnParams) (int64,
+		error)
+
+	// QueryBurns returns all burn entries that match the passed filters.
+	QueryBurns(ctx context.Context,
+		arg sqlc.QueryBurnsParams) ([]sqlc.QueryBurnsRow, error)
 }
 
 // MetaStore is a sub-set of the main sqlc.Querier interface that contains
@@ -400,6 +413,15 @@ type cacheableBlockHeight uint32
 // here to count each timestamp as 1 item.
 func (c cacheableBlockHeight) Size() (uint64, error) {
 	return 1, nil
+}
+
+// AssetBurn holds data related to a burn of an asset.
+type AssetBurn struct {
+	Note       string
+	AssetID    []byte
+	GroupKey   []byte
+	Amount     uint64
+	AnchorTxid chainhash.Hash
 }
 
 // BatchedAssetStore combines the AssetStore interface with the BatchedTx
@@ -2951,7 +2973,8 @@ func (a *AssetStore) ConfirmProofDelivery(ctx context.Context,
 // confirmation of the anchor transaction, ensuring the on-chain reference
 // information is up to date.
 func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
-	conf *tapfreighter.AssetConfirmEvent) error {
+	conf *tapfreighter.AssetConfirmEvent,
+	burns []*tapfreighter.AssetBurn) error {
 
 	var (
 		writeTxOpts    AssetStoreTxOptions
@@ -3151,6 +3174,25 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 		// At this point we could delete the managed UTXO since it's no
 		// longer an unspent output, however we'll keep it in order to
 		// be able to reconstruct transfer history.
+
+		// We now insert in the DB any burns that may have been present
+		// in the transfer.
+		for _, b := range burns {
+			_, err = q.InsertBurn(ctx, sqlc.InsertBurnParams{
+				TransferID: int32(assetTransfer.ID),
+				Note: sql.NullString{
+					String: b.Note,
+					Valid:  b.Note != "",
+				},
+				AssetID:  b.AssetID,
+				GroupKey: b.GroupKey,
+				Amount:   int64(b.Amount),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to insert burn in "+
+					"db: %v", err)
+			}
+		}
 
 		return nil
 	})
@@ -3524,6 +3566,94 @@ func (a *AssetStore) TxHeight(ctx context.Context, txid chainhash.Hash) (uint32,
 	}
 
 	return uint32(dbBlockHeight), nil
+}
+
+// InsertBurn inserts a burnt asset to the db which includes all related
+// metadata.
+func (a *AssetStore) InsertBurn(ctx context.Context, txid []byte, note string,
+	assetID, groupKey []byte, amount uint64) error {
+
+	var writeTxOpts AssetStoreTxOptions
+	return a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
+		// Look up the transfer that relates to this txid.
+		assetTransfers, err := q.QueryAssetTransfers(ctx, TransferQuery{
+			AnchorTxHash: txid,
+		})
+		if err != nil {
+			return fmt.Errorf("unable to query asset transfers: %w",
+				err)
+		}
+
+		if len(assetTransfers) != 1 {
+			return fmt.Errorf("%v transfers found for "+
+				"anchor_txhash=%x, expected 1",
+				len(assetTransfers), txid)
+		}
+
+		assetTransfer := assetTransfers[0]
+
+		id, err := q.InsertBurn(ctx, sqlc.InsertBurnParams{
+			TransferID: int32(assetTransfer.ID),
+			Note: sql.NullString{
+				String: note,
+				Valid:  note != "",
+			},
+			AssetID:  assetID,
+			GroupKey: groupKey,
+			Amount:   int64(amount),
+		})
+		if err != nil {
+			return err
+		}
+
+		log.Debugf("Inserted burn (id=%v) for asset_id=%x, amount=%v",
+			id, assetID, amount)
+
+		return nil
+	})
+}
+
+// QueryBurns queries burnt assets based on the passed filters.
+func (a *AssetStore) QueryBurns(ctx context.Context,
+	filters QueryBurnsFilters) ([]*AssetBurn, error) {
+
+	var res []*AssetBurn
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
+		burns, err := q.QueryBurns(ctx, sqlc.QueryBurnsParams{
+			AssetID:    filters.AssetID,
+			GroupKey:   filters.GroupKey,
+			AnchorTxid: filters.AnchorTxid,
+		})
+		if err != nil {
+			return err
+		}
+
+		for _, b := range burns {
+			burn := marshalAssetBurnTransfer(b)
+
+			res = append(res, burn)
+		}
+
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return res, nil
+}
+
+// marshalAssetBurnTransfer converts the db row of a burn to a tapdb.AssetBurn.
+func marshalAssetBurnTransfer(row sqlc.QueryBurnsRow) *AssetBurn {
+	return &AssetBurn{
+		Note:       row.Note.String,
+		AssetID:    row.AssetID,
+		GroupKey:   row.GroupKey,
+		Amount:     uint64(row.Amount),
+		AnchorTxid: chainhash.Hash(row.AnchorTxid),
+	}
 }
 
 // A compile-time constraint to ensure that AssetStore meets the

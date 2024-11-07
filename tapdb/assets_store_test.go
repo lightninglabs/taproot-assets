@@ -21,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
@@ -1532,7 +1533,7 @@ func TestAssetExportLog(t *testing.T) {
 			BlockHeight: blockHeight,
 			BlockHash:   fakeBlockHash,
 			FinalProofs: proofs,
-		},
+		}, nil,
 	)
 	require.NoError(t, err)
 
@@ -2204,6 +2205,265 @@ func TestTransferOutputProofDeliveryStatus(t *testing.T) {
 	require.Equal(
 		t, randBlockHash[:], assetTransfers[0].AnchorTxBlockHash,
 	)
+}
+
+func TestQueryAssetBurns(t *testing.T) {
+	t.Parallel()
+
+	// First, we'll create a new assets store. We'll use this to store the
+	// asset and the outbound parcel in the database.
+	_, assetsStore, db := newAssetStore(t)
+	ctx := context.Background()
+
+	// Generate a single asset.
+	targetScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Family: test.RandInt[keychain.KeyFamily](),
+			Index:  uint32(test.RandInt[int32]()),
+		},
+	})
+
+	assetVersionV0 := asset.V0
+
+	const numAssets = 1
+	assetGen := newAssetGenerator(t, numAssets, 1)
+	assetGen.genAssets(t, assetsStore, []assetDesc{
+		{
+			assetGen:    assetGen.assetGens[0],
+			anchorPoint: assetGen.anchorPoints[0],
+
+			// This is the script key of the asset we'll be
+			// modifying.
+			scriptKey: &targetScriptKey,
+
+			amt:          16,
+			assetVersion: &assetVersionV0,
+		},
+	})
+
+	// Formulate a spend delta outbound parcel. This parcel will be stored
+	// in the database. We will then manipulate the proof delivery status
+	// of the first transfer output.
+	//
+	// First, we'll generate a new anchor transaction for use in the parcel.
+	newAnchorTx := wire.NewMsgTx(2)
+	newAnchorTx.AddTxIn(&wire.TxIn{})
+	newAnchorTx.TxIn[0].SignatureScript = []byte{}
+	newAnchorTx.AddTxOut(&wire.TxOut{
+		PkScript: bytes.Repeat([]byte{0x01}, 34),
+		Value:    1000,
+	})
+	anchorTxHash := newAnchorTx.TxHash()
+
+	// Next, we'll generate script keys for the two transfer outputs.
+	newScriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	})
+
+	newScriptKey2 := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		PubKey: test.RandPubKey(t),
+		KeyLocator: keychain.KeyLocator{
+			Index:  uint32(rand.Int31()),
+			Family: keychain.KeyFamily(rand.Int31()),
+		},
+	})
+
+	// The outbound parcel will split the asset into two outputs. The first
+	// will have an amount of 9, and the second will have the remainder of
+	// the asset amount.
+	newAmt := 9
+
+	senderBlob := bytes.Repeat([]byte{0x01}, 100)
+	receiverBlob := bytes.Repeat([]byte{0x02}, 100)
+
+	newWitness := asset.Witness{
+		PrevID:          &asset.PrevID{},
+		TxWitness:       [][]byte{{0x01}, {0x02}},
+		SplitCommitment: nil,
+	}
+
+	// Mock proof courier address.
+	proofCourierAddrBytes := []byte("universerpc://localhost:10009")
+
+	// Fetch the asset that was previously generated.
+	allAssets, err := assetsStore.FetchAllAssets(ctx, true, false, nil)
+	require.NoError(t, err)
+	require.Len(t, allAssets, numAssets)
+
+	inputAsset := allAssets[0]
+
+	// Construct the outbound parcel that will be stored in the database.
+	spendDelta := &tapfreighter.OutboundParcel{
+		AnchorTx:           newAnchorTx,
+		AnchorTxHeightHint: 1450,
+		ChainFees:          int64(100),
+		Inputs: []tapfreighter.TransferInput{{
+			PrevID: asset.PrevID{
+				OutPoint: wire.OutPoint{
+					Hash:  assetGen.anchorTxs[0].TxHash(),
+					Index: 0,
+				},
+				ID: inputAsset.ID(),
+				ScriptKey: asset.ToSerialized(
+					inputAsset.ScriptKey.PubKey,
+				),
+			},
+			Amount: inputAsset.Amount,
+		}},
+		Outputs: []tapfreighter.TransferOutput{{
+			Anchor: tapfreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash:  anchorTxHash,
+					Index: 0,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
+				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
+			},
+			ScriptKey:             newScriptKey,
+			ScriptKeyLocal:        false,
+			Amount:                uint64(newAmt),
+			LockTime:              1337,
+			RelativeLockTime:      31337,
+			WitnessData:           []asset.Witness{newWitness},
+			SplitCommitmentRoot:   nil,
+			AssetVersion:          asset.V0,
+			ProofSuffix:           receiverBlob,
+			ProofCourierAddr:      proofCourierAddrBytes,
+			ProofDeliveryComplete: fn.Some[bool](false),
+			Position:              0,
+		}, {
+			Anchor: tapfreighter.Anchor{
+				Value: 1000,
+				OutPoint: wire.OutPoint{
+					Hash:  anchorTxHash,
+					Index: 1,
+				},
+				InternalKey: keychain.KeyDescriptor{
+					PubKey: test.RandPubKey(t),
+					KeyLocator: keychain.KeyLocator{
+						Family: keychain.KeyFamily(
+							rand.Int31(),
+						),
+						Index: uint32(
+							test.RandInt[int32](),
+						),
+					},
+				},
+				TaprootAssetRoot: bytes.Repeat([]byte{0x1}, 32),
+				MerkleRoot:       bytes.Repeat([]byte{0x1}, 32),
+			},
+			ScriptKey:           newScriptKey2,
+			ScriptKeyLocal:      true,
+			Amount:              inputAsset.Amount - uint64(newAmt),
+			WitnessData:         []asset.Witness{newWitness},
+			SplitCommitmentRoot: nil,
+			AssetVersion:        asset.V1,
+			ProofSuffix:         senderBlob,
+			Position:            1,
+		}},
+	}
+
+	// Store the outbound parcel in the database.
+	leaseOwner := fn.ToArray[[32]byte](test.RandBytes(32))
+	leaseExpiry := time.Now().Add(time.Hour)
+	require.NoError(t, assetsStore.LogPendingParcel(
+		ctx, spendDelta, leaseOwner, leaseExpiry,
+	))
+
+	// At this point, we should be able to query for the log parcel, by
+	// looking for all unconfirmed transfers.
+	assetTransfers, err := db.QueryAssetTransfers(ctx, TransferQuery{
+		PendingTransfersOnly: sqlBool(true),
+	})
+	require.NoError(t, err)
+	require.Len(t, assetTransfers, 1)
+
+	// This transfer's anchor transaction is unconfirmed. Therefore, the
+	// anchor transaction block hash field of the transfer should be unset.
+	require.Empty(t, assetTransfers[0].AnchorTxBlockHash)
+
+	// At this point we will confirm the anchor tx on-chain.
+	assetTransfer := assetTransfers[0]
+	randBlockHash := test.RandHash()
+
+	err = db.ConfirmChainAnchorTx(ctx, AnchorTxConf{
+		Txid:        assetTransfer.Txid,
+		BlockHash:   randBlockHash[:],
+		BlockHeight: sqlInt32(441),
+		TxIndex:     sqlInt32(1),
+	})
+	require.NoError(t, err)
+
+	// We should also be able to find the transfer outputs.
+	transferOutputs, err := db.FetchTransferOutputs(
+		ctx, assetTransfers[0].ID,
+	)
+	require.NoError(t, err)
+	require.Len(t, transferOutputs, 2)
+
+	// We will now set the status of the transfer output proof to
+	// "delivered".
+	//
+	// nolint: lll
+	err = db.SetTransferOutputProofDeliveryStatus(
+		ctx, OutputProofDeliveryStatus{
+			DeliveryComplete:         sqlBool(true),
+			SerializedAnchorOutpoint: transferOutputs[0].AnchorOutpoint,
+			Position:                 transferOutputs[0].Position,
+		},
+	)
+	require.NoError(t, err)
+
+	// Given that the asset transfer is completely finalised, we should be
+	// able to find it among the confirmed transfers. We will test this by
+	// retrieving the transfer by not specifying the pending transfers only
+	// flag and, in another attempt, by setting the flag to false.
+	assetTransfers, err = db.QueryAssetTransfers(ctx, TransferQuery{})
+	require.NoError(t, err)
+	require.Len(t, assetTransfers, 1)
+
+	// Let's insert a burn.
+	assetID := inputAsset.ID()
+
+	err = assetsStore.InsertBurn(
+		ctx, assetTransfers[0].Txid, "burn", assetID[:], nil, 424242,
+	)
+	require.NoError(t, err)
+
+	burns, err := assetsStore.QueryBurns(ctx, sqlc.QueryBurnsParams{})
+
+	// We should have one burn.
+	require.NoError(t, err)
+	require.Len(t, burns, 1)
+
+	err = assetsStore.InsertBurn(
+		ctx, assetTransfers[0].Txid, "burn", assetID[:], nil, 424242,
+	)
+	require.NoError(t, err)
+
+	// If we filter burns by the asset ID we should have 2 burns.
+	burns, err = assetsStore.QueryBurns(ctx, sqlc.QueryBurnsParams{
+		AssetID: assetID[:],
+	})
+	require.NoError(t, err)
+	require.Len(t, burns, 2)
 }
 
 func TestQueryAssetBalances(t *testing.T) {

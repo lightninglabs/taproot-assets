@@ -356,6 +356,37 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 	return err
 }
 
+const insertBurn = `-- name: InsertBurn :one
+INSERT INTO asset_burn_transfers (
+    transfer_id, note, asset_id, group_key, amount
+)
+VALUES (
+    $1, $2, $3, $4, $5
+)
+RETURNING burn_id
+`
+
+type InsertBurnParams struct {
+	TransferID int32
+	Note       sql.NullString
+	AssetID    []byte
+	GroupKey   []byte
+	Amount     int64
+}
+
+func (q *Queries) InsertBurn(ctx context.Context, arg InsertBurnParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, insertBurn,
+		arg.TransferID,
+		arg.Note,
+		arg.AssetID,
+		arg.GroupKey,
+		arg.Amount,
+	)
+	var burn_id int64
+	err := row.Scan(&burn_id)
+	return burn_id, err
+}
+
 const insertPassiveAsset = `-- name: InsertPassiveAsset :exec
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
@@ -480,6 +511,71 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 			&i.Txid,
 			&i.AnchorTxBlockHash,
 			&i.TransferTimeUnix,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const queryBurns = `-- name: QueryBurns :many
+SELECT
+    abt.note,
+    abt.asset_id,
+    abt.group_key,
+    abt.amount,
+    ct.txid AS anchor_txid -- Retrieving the txid from chain_txns.
+FROM asset_burn_transfers abt
+JOIN asset_transfers at ON abt.transfer_id = at.id
+JOIN chain_txns ct ON at.anchor_txn_id = ct.txn_id
+WHERE
+    -- Optionally filter by asset_id.
+    (abt.asset_id = $1 OR $1 IS NULL)
+
+    -- Optionally filter by group_key.
+    AND (abt.group_key = $2 OR $2 IS NULL)
+
+    -- Optionally filter by anchor_txid in chain_txns.txid.
+    AND (ct.txid = $3 OR $3 IS NULL)
+ORDER BY abt.burn_id
+`
+
+type QueryBurnsParams struct {
+	AssetID    []byte
+	GroupKey   []byte
+	AnchorTxid []byte
+}
+
+type QueryBurnsRow struct {
+	Note       sql.NullString
+	AssetID    []byte
+	GroupKey   []byte
+	Amount     int64
+	AnchorTxid []byte
+}
+
+func (q *Queries) QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error) {
+	rows, err := q.db.QueryContext(ctx, queryBurns, arg.AssetID, arg.GroupKey, arg.AnchorTxid)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []QueryBurnsRow
+	for rows.Next() {
+		var i QueryBurnsRow
+		if err := rows.Scan(
+			&i.Note,
+			&i.AssetID,
+			&i.GroupKey,
+			&i.Amount,
+			&i.AnchorTxid,
 		); err != nil {
 			return nil, err
 		}
