@@ -309,6 +309,12 @@ type Proof struct {
 	// require only a valid signature for the previously revealed group key.
 	GroupKeyReveal asset.GroupKeyReveal
 
+	// AltLeaves represent data used to construct an Asset commitment, that
+	// was inserted in the output anchor Tap commitment. These data-carrying
+	// leaves are used for a purpose distinct from representing individual
+	// Taproot Assets.
+	AltLeaves []asset.AltLeafAsset
+
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
 	// don't know of yet, so we can still encode them back when serializing.
@@ -329,7 +335,7 @@ func (p *Proof) OutPoint() wire.OutPoint {
 
 // EncodeRecords returns the set of known TLV records to encode a Proof.
 func (p *Proof) EncodeRecords() []tlv.Record {
-	records := make([]tlv.Record, 0, 15)
+	records := make([]tlv.Record, 0, 16)
 	records = append(records, VersionRecord(&p.Version))
 	records = append(records, PrevOutRecord(&p.PrevOut))
 	records = append(records, BlockHeaderRecord(&p.BlockHeader))
@@ -369,6 +375,9 @@ func (p *Proof) EncodeRecords() []tlv.Record {
 			&p.GroupKeyReveal,
 		))
 	}
+	if len(p.AltLeaves) > 0 {
+		records = append(records, AltLeavesRecord(&p.AltLeaves))
+	}
 
 	// Add any unknown odd types that were encountered during decoding.
 	return asset.CombineRecords(records, p.UnknownOddTypes)
@@ -392,6 +401,7 @@ func (p *Proof) DecodeRecords() []tlv.Record {
 		BlockHeightRecord(&p.BlockHeight),
 		GenesisRevealRecord(&p.GenesisReveal),
 		GroupKeyRevealRecord(&p.GroupKeyReveal),
+		AltLeavesRecord(&p.AltLeaves),
 	}
 }
 
