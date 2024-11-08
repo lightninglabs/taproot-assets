@@ -117,6 +117,7 @@ type Querier interface {
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetBalancesByAssetParams) ([]QueryAssetBalancesByAssetRow, error)
 	QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetBalancesByGroupParams) ([]QueryAssetBalancesByGroupRow, error)
+	// BETWEEN is inclusive for both start and end values.
 	QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error)
 	QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAssetStatsPerDaySqliteParams) ([]QueryAssetStatsPerDaySqliteRow, error)
 	QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error)

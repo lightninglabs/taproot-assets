@@ -71,7 +71,7 @@ WITH root_id AS (
     WHERE namespace_root = $1
 )
 DELETE FROM universe_events
-WHERE universe_root_id = (SELECT id from root_id)
+WHERE universe_root_id = (SELECT id FROM root_id)
 `
 
 func (q *Queries) DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error {
@@ -140,7 +140,7 @@ func (q *Queries) FetchMultiverseRoot(ctx context.Context, namespaceRoot string)
 
 const fetchUniverseKeys = `-- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes
-FROM universe_leaves leaves
+FROM universe_leaves AS leaves
 WHERE leaves.leaf_node_namespace = $1
 ORDER BY 
     CASE WHEN $2 = 0 THEN leaves.id END ASC,
@@ -196,10 +196,10 @@ FROM universe_roots
 JOIN mssmt_roots 
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes 
-    ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
-       mssmt_nodes.namespace = mssmt_roots.namespace
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash 
+       AND mssmt_nodes.namespace = mssmt_roots.namespace
 JOIN genesis_assets
-     ON genesis_assets.asset_id = universe_roots.asset_id
+    ON genesis_assets.asset_id = universe_roots.asset_id
 WHERE mssmt_nodes.namespace = $1
 `
 
@@ -364,8 +364,8 @@ SELECT
     SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
     SUM(CASE WHEN event_type = 'NEW_PROOF' THEN 1 ELSE 0 END) AS new_proof_events
 FROM universe_events
-WHERE event_type IN ('SYNC', 'NEW_PROOF') AND
-      event_timestamp >= $1 AND event_timestamp <= $2
+WHERE event_type IN ('SYNC', 'NEW_PROOF') 
+      AND event_timestamp BETWEEN $1 AND $2
 GROUP BY day
 ORDER BY day
 `
@@ -381,6 +381,7 @@ type QueryAssetStatsPerDayPostgresRow struct {
 	NewProofEvents int64
 }
 
+// BETWEEN is inclusive for both start and end values.
 func (q *Queries) QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error) {
 	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDayPostgres, arg.StartTime, arg.EndTime)
 	if err != nil {
@@ -482,56 +483,37 @@ func (q *Queries) QueryFederationGlobalSyncConfigs(ctx context.Context) ([]Feder
 const queryFederationProofSyncLog = `-- name: QueryFederationProofSyncLog :many
 SELECT
     log.id, status, timestamp, sync_direction, attempt_counter,
-
     -- Select fields from the universe_servers table.
-    server.id as server_id,
+    server.id AS server_id,
     server.server_host,
-
     -- Select universe leaf related fields.
-    leaf.minting_point as leaf_minting_point_bytes,
-    leaf.script_key_bytes as leaf_script_key_bytes,
-    mssmt_node.value as leaf_genesis_proof,
-    genesis.gen_asset_id as leaf_gen_asset_id,
-    genesis.asset_id as leaf_asset_id,
-
+    leaf.minting_point AS leaf_minting_point_bytes,
+    leaf.script_key_bytes AS leaf_script_key_bytes,
+    mssmt_node.value AS leaf_genesis_proof,
+    genesis.gen_asset_id AS leaf_gen_asset_id,
+    genesis.asset_id AS leaf_asset_id,
     -- Select fields from the universe_roots table.
-    root.asset_id as uni_asset_id,
-    root.group_key as uni_group_key,
-    root.proof_type as uni_proof_type
-
-FROM federation_proof_sync_log as log
-
-JOIN universe_leaves as leaf
+    root.asset_id AS uni_asset_id,
+    root.group_key AS uni_group_key,
+    root.proof_type AS uni_proof_type
+FROM federation_proof_sync_log AS log
+JOIN universe_leaves AS leaf
     ON leaf.id = log.proof_leaf_id
-
-JOIN mssmt_nodes mssmt_node
-     ON leaf.leaf_node_key = mssmt_node.key AND
-        leaf.leaf_node_namespace = mssmt_node.namespace
-
-JOIN genesis_info_view genesis
+JOIN mssmt_nodes AS mssmt_node
+     ON leaf.leaf_node_key = mssmt_node.key 
+        AND leaf.leaf_node_namespace = mssmt_node.namespace
+JOIN genesis_info_view AS genesis
      ON leaf.asset_genesis_id = genesis.gen_asset_id
-
-JOIN universe_servers as server
+JOIN universe_servers AS server
     ON server.id = log.servers_id
-
-JOIN universe_roots as root
+JOIN universe_roots AS root
     ON root.id = log.universe_root_id
-
-WHERE (log.sync_direction = $1
-           OR $1 IS NULL)
-        AND
-      (log.status = $2 OR $2 IS NULL)
-        AND
-
+WHERE (log.sync_direction = $1 OR $1 IS NULL)
+      AND (log.status = $2 OR $2 IS NULL)
       -- Universe leaves WHERE clauses.
-      (leaf.leaf_node_namespace = $3
-           OR $3 IS NULL)
-        AND
-      (leaf.minting_point = $4
-           OR $4 IS NULL)
-        AND
-      (leaf.script_key_bytes = $5
-           OR $5 IS NULL)
+      AND (leaf.leaf_node_namespace = $3 OR $3 IS NULL)
+      AND (leaf.minting_point = $4 OR $4 IS NULL)
+      AND (leaf.script_key_bytes = $5 OR $5 IS NULL)
 `
 
 type QueryFederationProofSyncLogParams struct {
@@ -865,21 +847,19 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 }
 
 const queryUniverseLeaves = `-- name: QueryUniverseLeaves :many
-SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value genesis_proof, 
-       nodes.sum sum_amt, gen.asset_id
-FROM universe_leaves leaves
-JOIN mssmt_nodes nodes
-    ON leaves.leaf_node_key = nodes.key AND
-        leaves.leaf_node_namespace = nodes.namespace
-JOIN genesis_info_view gen
+SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value AS genesis_proof, 
+       nodes.sum AS sum_amt, gen.asset_id
+FROM universe_leaves AS leaves
+JOIN mssmt_nodes AS nodes
+    ON leaves.leaf_node_key = nodes.key 
+       AND leaves.leaf_node_namespace = nodes.namespace
+JOIN genesis_info_view AS gen
     ON leaves.asset_genesis_id = gen.gen_asset_id
 WHERE leaves.leaf_node_namespace = $1 
-        AND 
-    (leaves.minting_point = $2 OR 
-        $2 IS NULL) 
-        AND
-    (leaves.script_key_bytes = $3 OR 
-        $3 IS NULL)
+      AND (leaves.minting_point = $2 OR 
+           $2 IS NULL) 
+      AND (leaves.script_key_bytes = $3 OR 
+           $3 IS NULL)
 `
 
 type QueryUniverseLeavesParams struct {
@@ -1058,14 +1038,14 @@ func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
 
 const universeRoots = `-- name: UniverseRoots :many
 SELECT universe_roots.asset_id, group_key, proof_type,
-       mssmt_roots.root_hash root_hash, mssmt_nodes.sum root_sum,
-       genesis_assets.asset_tag asset_name
+       mssmt_roots.root_hash AS root_hash, mssmt_nodes.sum AS root_sum,
+       genesis_assets.asset_tag AS asset_name
 FROM universe_roots
 JOIN mssmt_roots
     ON universe_roots.namespace_root = mssmt_roots.namespace
 JOIN mssmt_nodes
-    ON mssmt_nodes.hash_key = mssmt_roots.root_hash AND
-       mssmt_nodes.namespace = mssmt_roots.namespace
+    ON mssmt_nodes.hash_key = mssmt_roots.root_hash 
+       AND mssmt_nodes.namespace = mssmt_roots.namespace
 JOIN genesis_assets
     ON genesis_assets.asset_id = universe_roots.asset_id
 ORDER BY 
@@ -1142,7 +1122,7 @@ func (q *Queries) UpsertFederationGlobalSyncConfig(ctx context.Context, arg Upse
 }
 
 const upsertFederationProofSyncLog = `-- name: UpsertFederationProofSyncLog :one
-INSERT INTO federation_proof_sync_log as log (
+INSERT INTO federation_proof_sync_log AS log (
     status, timestamp, sync_direction, proof_leaf_id, universe_root_id,
     servers_id
 ) VALUES (
@@ -1176,7 +1156,7 @@ DO UPDATE SET
     timestamp = EXCLUDED.timestamp,
     -- Increment the attempt counter.
     attempt_counter = CASE
-       WHEN $9 = true THEN log.attempt_counter + 1
+       WHEN $9 = TRUE THEN log.attempt_counter + 1
        ELSE log.attempt_counter
     END
 RETURNING id
