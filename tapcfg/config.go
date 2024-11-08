@@ -186,7 +186,7 @@ var (
 	// required in lnd to run tapd.
 	minimalCompatibleVersion = &verrpc.Version{
 		AppMajor: 0,
-		AppMinor: 18,
+		AppMinor: 17,
 		AppPatch: 4,
 
 		// We don't actually require the invoicesrpc calls. But if we
