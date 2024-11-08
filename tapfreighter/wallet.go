@@ -255,6 +255,11 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 		return nil, fmt.Errorf("unable to describe recipients: %w", err)
 	}
 
+	// We need to constrain the prevIDs if they are provided.
+	if len(prevIDs) > 0 {
+		fundDesc.PrevIDs = prevIDs
+	}
+
 	fundDesc.CoinSelectType = coinSelectType
 	fundedVPkt, err := f.FundPacket(ctx, fundDesc, vPkt)
 	if err != nil {
@@ -373,6 +378,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		AssetSpecifier: fundDesc.AssetSpecifier,
 		MinAmt:         fundDesc.Amount,
 		CoinSelectType: fundDesc.CoinSelectType,
+		PrevIDs:        fundDesc.PrevIDs,
 	}
 
 	anchorVersion, err := tappsbt.CommitmentVersion(vPkt.Version)

@@ -35,6 +35,9 @@ type CommitmentConstraints struct {
 	// to satisfy the constraints.
 	MinAmt uint64
 
+	// PrevIDs are the set of inputs allowed to be used
+	PrevIDs []asset.PrevID
+
 	// CoinSelectType is the type of coins that should be selected.
 	CoinSelectType tapsend.CoinSelectType
 }

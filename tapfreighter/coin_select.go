@@ -55,6 +55,7 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		AssetSpecifier: constraints.AssetSpecifier,
 		MinAmt:         1,
 		CoinSelectType: constraints.CoinSelectType,
+		PrevIDs:        constraints.PrevIDs,
 	}
 	eligibleCommitments, err := s.coinLister.ListEligibleCoins(
 		ctx, listConstraints,

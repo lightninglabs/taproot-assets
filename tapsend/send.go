@@ -193,6 +193,9 @@ type FundingDescriptor struct {
 	// Amount is the amount of the asset to transfer.
 	Amount uint64
 
+	// PrevIDs is the set of inputs that can be used to fund the transfer.
+	PrevIDs []asset.PrevID
+
 	// CoinSelectType specifies the type of coins that should be selected.
 	CoinSelectType CoinSelectType
 }

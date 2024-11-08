@@ -1991,7 +1991,48 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 	// have a block height of 0, so we set the minimum block height to 1.
 	assetFilter.MinAnchorHeight = sqlInt32(1)
 
-	return a.queryCommitments(ctx, assetFilter)
+	selectedCommitments, err := a.queryCommitments(ctx, assetFilter)
+	if err != nil {
+		return nil, fmt.Errorf("unable to query commitments: %w", err)
+	}
+
+	// If we want to restrict on specific inputs, we do the filtering now.
+	if len(constraints.PrevIDs) > 0 {
+		selectedCommitments = filterCommitmentsByPrevIDs(
+			selectedCommitments, constraints.PrevIDs,
+		)
+
+		// If this results in an empty list, we return the same error we
+		// would if there were no coins found without the filter.
+		if len(selectedCommitments) == 0 {
+			return nil, tapfreighter.ErrMatchingAssetsNotFound
+		}
+	}
+
+	return selectedCommitments, nil
+}
+
+// filterCommitmentsByPrevIDs filters the given commitments by the previous IDs
+// given.
+func filterCommitmentsByPrevIDs(commitments []*tapfreighter.AnchoredCommitment,
+	prevIDs []asset.PrevID) []*tapfreighter.AnchoredCommitment {
+
+	prevIDMatches := func(p asset.PrevID,
+		c *tapfreighter.AnchoredCommitment) bool {
+
+		return p.OutPoint == c.AnchorPoint && p.ID == c.Asset.ID() &&
+			p.ScriptKey == asset.ToSerialized(
+				c.Asset.ScriptKey.PubKey,
+			)
+	}
+
+	commitmentInList := func(c *tapfreighter.AnchoredCommitment) bool {
+		return fn.Any(prevIDs, func(p asset.PrevID) bool {
+			return prevIDMatches(p, c)
+		})
+	}
+
+	return fn.Filter(commitments, commitmentInList)
 }
 
 // LeaseCoins leases/locks/reserves coins for the given lease owner until the
