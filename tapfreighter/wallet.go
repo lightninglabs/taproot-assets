@@ -129,6 +129,10 @@ type Wallet interface {
 	// address.ErrInternalKeyNotFound is returned.
 	FetchInternalKeyLocator(ctx context.Context,
 		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
+
+	// ReleaseCoins releases/unlocks coins that were previously leased and
+	// makes them available for coin selection again.
+	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
 }
 
 // AddrBook is an interface that provides access to the address book.
@@ -1460,6 +1464,14 @@ func (f *AssetWallet) FetchInternalKeyLocator(ctx context.Context,
 	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
 
 	return f.cfg.AddrBook.FetchInternalKeyLocator(ctx, rawKey)
+}
+
+// ReleaseCoins releases/unlocks coins that were previously leased and makes
+// them available for coin selection again.
+func (f *AssetWallet) ReleaseCoins(ctx context.Context,
+	utxoOutpoints ...wire.OutPoint) error {
+
+	return f.cfg.CoinSelector.ReleaseCoins(ctx, utxoOutpoints...)
 }
 
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT
