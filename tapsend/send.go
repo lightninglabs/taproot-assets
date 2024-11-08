@@ -130,6 +130,14 @@ var (
 	ErrNoRootLocator = errors.New(
 		"cannot create split commitment without split root output",
 	)
+
+	// ErrDuplicateScriptKeys is an error that is returned when the outputs
+	// of a virtual packet contain duplicate script keys.
+	ErrDuplicateScriptKeys = errors.New(
+		"send: duplicate script keys in outputs - cannot re-use same " +
+			"script key in same transaction (e.g. cannot send to " +
+			"same address more than once)",
+	)
 )
 
 var (
@@ -362,6 +370,60 @@ func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 	}
 
 	return isFullValueSpend, nil
+}
+
+// ValidateCommitmentKeysUnique makes sure the outputs of a set of virtual
+// packets don't lead to collisions in and of the trees (e.g. two asset outputs
+// with the same asset ID and script key in the same anchor output) or with
+// exclusion proofs (e.g. two asset outputs with the same asset ID and script
+// key in different anchor outputs).
+func ValidateCommitmentKeysUnique(packets []*tappsbt.VPacket) error {
+	// We'll keep track of all asset-level commitment keys (per top-level
+	// commitment key) that we've seen so far. The lower level commitment
+	// keys must be unique per top-level commitment key, otherwise
+	// collisions or problems with exclusion proofs can occur. For grouped
+	// assets, the asset ID is part of the asset-level commitment key, so
+	// it's okay to re-use the same script key (e.g. a zero amount tombstone
+	// change output) across different asset IDs.
+	commitmentKeys := make(map[[32]byte]map[[32]byte]struct{})
+
+	for _, vPkt := range packets {
+		specifier, err := vPkt.AssetSpecifier()
+		if err != nil {
+			return fmt.Errorf("unable to determine tap commitment "+
+				"key: %w", err)
+		}
+
+		tapCommitmentKey := asset.TapCommitmentKey(specifier)
+		perAssetMap, ok := commitmentKeys[tapCommitmentKey]
+		if !ok {
+			perAssetMap = make(map[[32]byte]struct{})
+			commitmentKeys[tapCommitmentKey] = perAssetMap
+		}
+
+		id, err := specifier.UnwrapIdOrErr()
+		if err != nil {
+			return fmt.Errorf("unable to unwrap asset ID: %w", err)
+		}
+
+		hasGroupKey := specifier.HasGroupPubKey()
+		for idx := range vPkt.Outputs {
+			vOut := vPkt.Outputs[idx]
+
+			// Check if the asset-level commitment key has already
+			// been used in this transaction.
+			assetCommitmentKey := asset.AssetCommitmentKey(
+				id, vOut.ScriptKey.PubKey, !hasGroupKey,
+			)
+			if _, ok := perAssetMap[assetCommitmentKey]; ok {
+				return ErrDuplicateScriptKeys
+			}
+
+			perAssetMap[assetCommitmentKey] = struct{}{}
+		}
+	}
+
+	return nil
 }
 
 // PrepareOutputAssets prepares the assets of the given outputs depending on
@@ -974,6 +1036,15 @@ func CreateOutputCommitments(
 		return nil, err
 	}
 	if err := AssertOutputAnchorsEqual(packets); err != nil {
+		return nil, err
+	}
+
+	// We need to make sure this transaction doesn't lead to collisions in
+	// any of the trees (e.g. two asset outputs with the same script key in
+	// the same anchor output) or with exclusion proofs (e.g. two asset
+	// outputs with the same script key in different anchor outputs).
+	err := ValidateCommitmentKeysUnique(packets)
+	if err != nil {
 		return nil, err
 	}
 
