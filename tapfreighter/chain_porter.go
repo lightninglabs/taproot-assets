@@ -1075,9 +1075,14 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	// At this point, we have everything we need to sign our _virtual_
 	// transaction on the Taproot Asset layer.
 	case SendStateVirtualSign:
+		ctx, cancel := p.WithCtxQuitNoTimeout()
+		defer cancel()
+
 		vPackets := currentPkg.VirtualPackets
 		err := tapsend.ValidateVPacketVersions(vPackets)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, err
 		}
 
@@ -1091,6 +1096,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 			_, err := p.cfg.AssetWallet.SignVirtualPacket(vPkt)
 			if err != nil {
+				p.unlockInputs(ctx, &currentPkg)
+
 				return nil, fmt.Errorf("unable to sign and "+
 					"commit virtual packet: %w", err)
 			}
@@ -1125,6 +1132,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				ctx, tapsend.SendConfTarget,
 			)
 			if err != nil {
+				p.unlockInputs(ctx, &currentPkg)
+
 				return nil, fmt.Errorf("unable to estimate "+
 					"fee: %w", err)
 			}
@@ -1148,6 +1157,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			currentPkg.InputCommitments,
 		)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to create passive "+
 				"assets: %w", err)
 		}
@@ -1156,6 +1167,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			len(currentPkg.PassiveAssets))
 		err = wallet.SignPassiveAssets(currentPkg.PassiveAssets)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to sign passive "+
 				"assets: %w", err)
 		}
@@ -1168,6 +1181,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			},
 		)
 		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
 			return nil, fmt.Errorf("unable to anchor virtual "+
 				"transactions: %w", err)
 		}
@@ -1382,10 +1397,44 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 // unlockInputs unlocks the inputs that were locked for the given package.
 func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
-	if pkg == nil || pkg.AnchorTx == nil || pkg.AnchorTx.FundedPsbt == nil {
+	// Impossible state, but catch it anyway.
+	if pkg == nil {
 		return
 	}
 
+	// If we haven't even attempted to broadcast yet, we're still in a state
+	// where we give feedback to the user synchronously, as we haven't
+	// created an on-chain transaction that we need to await confirmation.
+	// We also haven't written the transfer to disk yet, so we can just
+	// release/unlock the _asset_ level UTXOs so the user can try again. We
+	// sanity-check that we have known input commitments to unlock, since
+	// that might not always be the case (for example if another party
+	// contributes inputs).
+	if pkg.SendState < SendStateStorePreBroadcast &&
+		len(pkg.InputCommitments) > 0 {
+
+		for prevID := range pkg.InputCommitments {
+			log.Debugf("Unlocking input %v", prevID.OutPoint)
+
+			err := p.cfg.AssetWallet.ReleaseCoins(
+				ctx, prevID.OutPoint,
+			)
+			if err != nil {
+				log.Warnf("Unable to unlock input %v: %v",
+					prevID.OutPoint, err)
+			}
+		}
+	}
+
+	// If we're in another state, the anchor transaction has been created,
+	// and we can't simply unlock the asset level inputs. This will likely
+	// require manual intervention.
+	if pkg.AnchorTx == nil || pkg.AnchorTx.FundedPsbt == nil {
+		return
+	}
+
+	// We need to unlock any _BTC_ level inputs we locked for the anchor
+	// transaction.
 	for _, op := range pkg.AnchorTx.FundedPsbt.LockedUTXOs {
 		err := p.cfg.Wallet.UnlockInput(ctx, op)
 		if err != nil {
