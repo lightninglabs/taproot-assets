@@ -67,8 +67,14 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		return nil, ErrMatchingAssetsNotFound
 	}
 
-	log.Infof("Identified %v eligible asset inputs for send of %d to %v",
-		len(eligibleCommitments), constraints.MinAmt, constraints)
+	anchorInputs := fn.Map(
+		eligibleCommitments, func(c *AnchoredCommitment) string {
+			return c.AnchorPoint.String()
+		},
+	)
+	log.Infof("Identified %v eligible asset inputs for send of %d to %v: "+
+		"%v", len(anchorInputs), constraints.MinAmt,
+		constraints.String(), anchorInputs)
 
 	// Only select coins anchored in a compatible commitment.
 	compatibleCommitments := fn.Filter(
