@@ -2026,7 +2026,7 @@ func filterCommitmentsByPrevIDs(commitments []*tapfreighter.AnchoredCommitment,
 		fmt.Printf("Comparing PrevID ScriptKey: %v with Commitment ScriptKey: %v",
 			p.ScriptKey, asset.ToSerialized(c.Asset.ScriptKey.PubKey))
 
-		return p.OutPoint == c.AnchorPoint && p.ID == c.Asset.ID() &&
+		return p.ID == c.Asset.ID() &&
 			p.ScriptKey == asset.ToSerialized(
 				c.Asset.ScriptKey.PubKey,
 			)
