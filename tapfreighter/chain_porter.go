@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -23,6 +24,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/chainntnfs"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
@@ -1068,8 +1070,19 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			}
 		}
 
-		readableFeeRate := feeRate.FeePerKVByte().String()
-		log.Infof("Sending with fee rate: %v", readableFeeRate)
+		//readableFeeRate := feeRate.FeePerKVByte().String()
+		//log.Infof("Sending with fee rate: %v", readableFeeRate)
+		const MinFeePerKVByte = 500 // Minimum fee rate of 2 sat/vB
+		minFeeRate := chainfee.NewSatPerKWeight(btcutil.Amount(MinFeePerKVByte), lntypes.WeightUnit(1000))
+
+		log.Infof("Sending with fee rate: %v and minimum fee rate: %v", feeRate.FeePerKVByte().String(), minFeeRate.FeePerKVByte().String())
+
+		if feeRate < minFeeRate {
+			feeRate = minFeeRate
+			log.Infof("Adjusted fee rate to minimum threshold: %v sat/kvB", MinFeePerKVByte)
+		} else {
+			log.Infof("Sending with fee rate: %v", feeRate.FeePerKVByte().String())
+		}
 
 		for idx := range currentPkg.VirtualPackets {
 			vPkt := currentPkg.VirtualPackets[idx]
