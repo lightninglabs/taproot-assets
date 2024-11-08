@@ -2020,6 +2020,12 @@ func filterCommitmentsByPrevIDs(commitments []*tapfreighter.AnchoredCommitment,
 	prevIDMatches := func(p asset.PrevID,
 		c *tapfreighter.AnchoredCommitment) bool {
 
+		// Debugging: Log the values being compared
+		fmt.Printf("Comparing PrevID OutPoint: %v with Commitment AnchorPoint: %v", p.OutPoint, c.AnchorPoint)
+		fmt.Printf("Comparing PrevID ID: %v with Commitment Asset ID: %v", p.ID, c.Asset.ID())
+		fmt.Printf("Comparing PrevID ScriptKey: %v with Commitment ScriptKey: %v",
+			p.ScriptKey, asset.ToSerialized(c.Asset.ScriptKey.PubKey))
+
 		return p.OutPoint == c.AnchorPoint && p.ID == c.Asset.ID() &&
 			p.ScriptKey == asset.ToSerialized(
 				c.Asset.ScriptKey.PubKey,
