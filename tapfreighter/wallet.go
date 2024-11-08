@@ -752,7 +752,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 	}
 
 	if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
-		return nil, fmt.Errorf("unable to create split commit: %w", err)
+		return nil, fmt.Errorf("unable to prepare outputs: %w", err)
 	}
 
 	return &FundedVPacket{

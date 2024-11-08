@@ -735,8 +735,8 @@ func SignVirtualTransaction(vPkt *tappsbt.VPacket, signer tapscript.Signer,
 	// Construct input set from all input assets.
 	prevAssets := make(commitment.InputSet, len(inputs))
 	for idx := range vPkt.Inputs {
-		input := vPkt.Inputs[idx]
-		prevAssets[input.PrevID] = input.Asset()
+		vIn := vPkt.Inputs[idx]
+		prevAssets[vIn.PrevID] = vIn.Asset()
 	}
 
 	// Create a Taproot Asset virtual transaction representing the asset
