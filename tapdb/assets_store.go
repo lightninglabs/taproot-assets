@@ -2992,9 +2992,11 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to set asset spent: "+
-					"%w, script_key=%v, asset_id=%v", err,
+					"%w, script_key=%v, asset_id=%v, "+
+					"anchor_point=%v", err,
 					spew.Sdump(inputs[idx].ScriptKey),
-					spew.Sdump(inputs[idx].AssetID))
+					spew.Sdump(inputs[idx].AssetID),
+					spew.Sdump(inputs[idx].AnchorPoint))
 			}
 		}
 
