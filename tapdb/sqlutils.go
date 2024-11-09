@@ -103,6 +103,13 @@ func extractSqlInt16[T constraints.Integer](num sql.NullInt16) T {
 	return T(num.Int16)
 }
 
+// extractBool turns a NullBool into a boolean. This can be useful when reading
+// directly from the database, as this function handles extracting the inner
+// value from the "option"-like struct.
+func extractBool(b sql.NullBool) bool {
+	return b.Bool
+}
+
 // readOutPoint reads the next sequence of bytes from r as an OutPoint.
 //
 // NOTE: This function is intended to be used along with the wire.WriteOutPoint
