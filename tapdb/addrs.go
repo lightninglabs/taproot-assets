@@ -689,6 +689,7 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 			return fmt.Errorf("error inserting internal key: %w",
 				err)
 		}
+
 		_, err = q.UpsertScriptKey(ctx, NewScriptKey{
 			InternalKeyID:    internalKeyID,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),

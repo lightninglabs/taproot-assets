@@ -3,6 +3,7 @@ package tapdb
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -11,9 +12,11 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -643,4 +646,114 @@ func TestAddressEventQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+// randScriptKey makes a random script key with a tweak.
+func randScriptKey(t *testing.T) asset.ScriptKey {
+	scriptKey := asset.RandScriptKey(t)
+	scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
+		RawKey: keychain.KeyDescriptor{
+			PubKey: asset.RandScriptKey(t).PubKey,
+		},
+	}
+
+	return scriptKey
+}
+
+// insertScriptKeyWithNull is a helper function that inserts a script key with a
+// a NULL value for declared known. We use this so we can insert a NULL vs an
+// actual value. It is identical to the InsertScriptKey.
+func insertScriptKeyWithNull(ctx context.Context, key asset.ScriptKey,
+) func(AddrBook) error {
+
+	return func(q AddrBook) error {
+		internalKeyID, err := insertInternalKey(
+			ctx, q, key.RawKey,
+		)
+		if err != nil {
+			return fmt.Errorf("error inserting internal key: %w",
+				err)
+		}
+
+		_, err = q.UpsertScriptKey(ctx, NewScriptKey{
+			InternalKeyID:    internalKeyID,
+			TweakedScriptKey: key.PubKey.SerializeCompressed(),
+			Tweak:            key.Tweak,
+			DeclaredKnown: sql.NullBool{
+				Valid: false,
+			},
+		})
+		return err
+	}
+}
+
+func assertKeyKnowledge(t *testing.T, ctx context.Context,
+	addrBook *TapAddressBook, scriptKey asset.ScriptKey, known bool) {
+
+	dbScriptKey, err := addrBook.FetchScriptKey(ctx, scriptKey.PubKey)
+	require.NoError(t, err)
+	require.Equal(t, known, dbScriptKey.DeclaredKnown)
+}
+
+// TestScriptKeyKnownUpsert tests that we can insert a script key, then insert
+// it again declared as known.
+func TestScriptKeyKnownUpsert(t *testing.T) {
+	t.Parallel()
+
+	// First, make a new addr book instance we'll use in the test below.
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
+
+	ctx := context.Background()
+
+	// In this test, we insert the known field as false, and make sure we
+	// can flip it back to true.
+	t.Run("false_to_true", func(t *testing.T) {
+		known := false
+		scriptKey := randScriptKey(t)
+
+		// We'll insert a random script key into the database. We won't
+		// declare it as known though.
+		err := addrBook.InsertScriptKey(ctx, scriptKey, known)
+		require.NoError(t, err)
+
+		// We'll fetch the script key and confirm that it's not known.
+		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+
+		known = true
+
+		// We'll now insert it again, but this time declare it as known.
+		err = addrBook.InsertScriptKey(ctx, scriptKey, known)
+		require.NoError(t, err)
+
+		// We'll fetch the script key and confirm that it's known.
+		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+	})
+
+	// In this test, we insert a NULL value, and make sure that it can still
+	// be set to true.
+	t.Run("null_to_true", func(t *testing.T) {
+		known := false
+		scriptKey := randScriptKey(t)
+
+		// We'll lift the internal routine of InsertScriptKey so we can
+		// insert an actual NULL here.
+		err := addrBook.db.ExecTx(
+			ctx, &AddrBookTxOptions{},
+			insertScriptKeyWithNull(ctx, scriptKey),
+		)
+		require.NoError(t, err)
+
+		// We'll fetch the script key and confirm that it's not known.
+		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+
+		known = true
+
+		// We'll now insert it again, but this time declare it as known.
+		err = addrBook.InsertScriptKey(ctx, scriptKey, known)
+		require.NoError(t, err)
+
+		// We'll fetch the script key and confirm that it's known.
+		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+	})
 }

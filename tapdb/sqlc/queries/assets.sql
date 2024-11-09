@@ -854,7 +854,15 @@ INSERT INTO script_keys (
 )  ON CONFLICT (tweaked_script_key)
     -- As a NOP, we just set the script key to the one that triggered the
     -- conflict.
-    DO UPDATE SET tweaked_script_key = EXCLUDED.tweaked_script_key
+    DO UPDATE SET 
+      tweaked_script_key = EXCLUDED.tweaked_script_key,
+      -- If the script key was previously unknown, we'll update to the new
+      -- value.
+      declared_known = CASE
+                         WHEN script_keys.declared_known IS NULL OR script_keys.declared_known = FALSE
+                         THEN COALESCE(EXCLUDED.declared_known, script_keys.declared_known)
+                         ELSE script_keys.declared_known
+                       END
 RETURNING script_key_id;
 
 -- name: FetchScriptKeyIDByTweakedKey :one
