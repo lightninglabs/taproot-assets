@@ -1169,5 +1169,5 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 		return err
 	}
 
-	return s.cfg.AuxSweeper.NotifyBroadcast(req, tx, fee)
+	return s.cfg.AuxSweeper.NotifyBroadcast(req, tx, fee, outpointToTxIndex)
 }
