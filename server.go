@@ -771,7 +771,7 @@ func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
 	return tapchannel.FetchLeavesFromCommit(
-		s.chainParams, chanState, com, keys,
+		s.chainParams, chanState, com, keys, whoseCommit,
 	)
 }
 

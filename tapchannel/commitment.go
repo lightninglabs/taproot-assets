@@ -1226,7 +1226,7 @@ func collectOutputs(a *Allocation,
 func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 	initiator bool, htlcOutputs []*cmsg.AssetOutput, htlcAmt btcutil.Amount,
 	commitCsvDelay uint32, keys lnwallet.CommitmentKeyRing,
-	outputIndex fn.Option[uint32],
+	outputIndex fn.Option[uint32], htlcTimeout fn.Option[uint32],
 ) ([]*Allocation, error) {
 
 	// TODO(roasbeef): thaw height not implemented for taproot chans rn
@@ -1267,6 +1267,8 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		SortTaprootKeyBytes: schnorr.SerializePubKey(
 			htlcTree.TaprootKey,
 		),
+		// TODO(roasbeef): don't need it here?
+		CLTV: htlcTimeout.UnwrapOr(0),
 	}}
 
 	return allocations, nil
@@ -1277,14 +1279,13 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
-	htlcOutputs []*cmsg.AssetOutput) ([]*tappsbt.VPacket, []*Allocation,
-	error) {
+	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
+) ([]*tappsbt.VPacket, []*Allocation, error) {
 
 	allocations, err := createSecondLevelHtlcAllocations(
 		chanState.ChanType, chanState.IsInitiator,
-		htlcOutputs, htlcAmt,
-		uint32(chanState.LocalChanCfg.CsvDelay), keys,
-		fn.None[uint32](),
+		htlcOutputs, htlcAmt, uint32(chanState.LocalChanCfg.CsvDelay),
+		keys, fn.None[uint32](), htlcTimeout,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1301,6 +1302,15 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 	vPackets, err := DistributeCoins(inputProofs, allocations, chainParams)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error distributing coins: %w", err)
+	}
+
+	// If the HTLC timeout was present, then we'll also manually add it as a
+	// param to the vOut here, as it's just used for sorting with
+	// allocations.
+	for _, vPkt := range vPackets {
+		for _, o := range vPkt.Outputs {
+			o.LockTime = uint64(htlcTimeout.UnwrapOr(0))
+		}
 	}
 
 	ctx := context.Background()
@@ -1320,12 +1330,14 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
-	htlcOutputs []*cmsg.AssetOutput) (input.AuxTapLeaf, error) {
+	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
+) (input.AuxTapLeaf, error) {
 
 	none := input.NoneTapLeaf()
 
 	vPackets, allocations, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, htlcAmt, keys, chainParams, htlcOutputs,
+		htlcTimeout,
 	)
 	if err != nil {
 		return none, fmt.Errorf("error creating second level HTLC "+
@@ -1353,6 +1365,7 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	if err != nil {
 		return none, fmt.Errorf("error creating aux leaf: %w", err)
 	}
+
 	return lfn.Some(auxLeaf), nil
 }
 
