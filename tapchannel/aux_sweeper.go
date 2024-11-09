@@ -38,6 +38,14 @@ import (
 	"golang.org/x/exp/maps"
 )
 
+const (
+	// sweeperBudgetMultiplier is the multiplier used to determine the
+	// budget expressed in sats, report to lnd's sweeper. As we have small
+	// outputs on chain, we'll need an increased budget (the amount we
+	// should spend on fees) to make sure the outputs are always swept.
+	sweeperBudgetMultiplier = 20
+)
+
 // resolutionReq carries a request to resolve a contract output along with a
 // response channel of the result.
 type resolutionReq struct {
@@ -2445,13 +2453,22 @@ func (a *AuxSweeper) DeriveSweepAddr(inputs []input.Input,
 func (a *AuxSweeper) ExtraBudgetForInputs(
 	inputs []input.Input) lfn.Result[btcutil.Amount] {
 
-	hasResolutionBlob := fn.Any(inputs, func(i input.Input) bool {
+	inputsWithBlobs := fn.Filter(inputs, func(i input.Input) bool {
 		return i.ResolutionBlob().IsSome()
 	})
 
 	var extraBudget btcutil.Amount
-	if hasResolutionBlob {
-		extraBudget = tapsend.DummyAmtSats
+	if len(inputsWithBlobs) != 0 {
+		// In this case, just 1k sats (tapsend.DummyAmtSats) may not be
+		// enough budget to pay for sweeping. So instead, we'll use a
+		// multiple of this to ensure that any time we care about an
+		// output, we're pretty much always able to sweep it.
+		//
+		// TODO(roasbeef): return the sats equiv budget of the asset
+		// amount
+		extraBudget = tapsend.DummyAmtSats * btcutil.Amount(
+			sweeperBudgetMultiplier*len(inputsWithBlobs),
+		)
 	}
 
 	return lfn.Ok(extraBudget)
