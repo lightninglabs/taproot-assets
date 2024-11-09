@@ -727,7 +727,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		if err != nil {
 			return nil, err
 		}
-		declaredKnown := sprout.ScriptKeyDeclaredKnown.Valid
+		declaredKnown := extractBool(sprout.ScriptKeyDeclaredKnown)
 		scriptKey := asset.ScriptKey{
 			PubKey: scriptKeyPub,
 			TweakedScriptKey: &asset.TweakedScriptKey{
@@ -2686,7 +2686,7 @@ func fetchAssetTransferOutputs(ctx context.Context, q ActiveAssetsStore,
 				err)
 		}
 
-		declaredKnown := dbOut.ScriptKeyDeclaredKnown.Valid
+		declaredKnown := extractBool(dbOut.ScriptKeyDeclaredKnown)
 		outputAnchor := tapfreighter.Anchor{
 			Value: btcutil.Amount(
 				dbOut.AnchorValue,
@@ -3035,7 +3035,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 				out.OutputType == int16(tappsbt.TypeSplitRoot)
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
-			isKnown := out.ScriptKeyDeclaredKnown.Valid
+			isKnown := extractBool(out.ScriptKeyDeclaredKnown)
 			skipAssetCreation := !isTombstone && !isBurn &&
 				!out.ScriptKeyLocal && !isKnown
 
