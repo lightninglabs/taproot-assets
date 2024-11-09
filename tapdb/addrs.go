@@ -681,7 +681,7 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 	scriptKey asset.ScriptKey, declaredKnown bool) error {
 
 	var writeTxOpts AddrBookTxOptions
-	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
+	err := t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
 		internalKeyID, err := insertInternalKey(
 			ctx, q, scriptKey.RawKey,
 		)
@@ -689,6 +689,7 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 			return fmt.Errorf("error inserting internal key: %w",
 				err)
 		}
+
 		_, err = q.UpsertScriptKey(ctx, NewScriptKey{
 			InternalKeyID:    internalKeyID,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
@@ -697,6 +698,11 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 		})
 		return err
 	})
+	if err != nil {
+		return fmt.Errorf("error inserting script key: %w", err)
+	}
+
+	return nil
 }
 
 // GetOrCreateEvent creates a new address event for the given status, address

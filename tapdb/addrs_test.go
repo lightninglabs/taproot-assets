@@ -11,9 +11,11 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/clock"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/stretchr/testify/require"
 )
@@ -643,4 +645,46 @@ func TestAddressEventQuery(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestScriptKeyKnownUpsert tests that we can insert a script key, then insert
+// it again declared as known.
+func TestScriptKeyKnownUpsert(t *testing.T) {
+	t.Parallel()
+
+	// First, make a new addr book instance we'll use in the test below.
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
+
+	ctx := context.Background()
+
+	// Make a random script key that we'll use to insert into the database.
+	scriptKey := asset.RandScriptKey(t)
+	scriptKey.TweakedScriptKey = &asset.TweakedScriptKey{
+		RawKey: keychain.KeyDescriptor{
+			PubKey: asset.RandScriptKey(t).PubKey,
+		},
+	}
+
+	// We'll insert a random script key into the database. We won't declare
+	// it as known though.
+	known := false
+	err := addrBook.InsertScriptKey(ctx, scriptKey, known)
+	require.NoError(t, err)
+
+	// We'll fetch the script key and confirm that it's not known.
+	dbScriptKey, err := addrBook.FetchScriptKey(ctx, scriptKey.PubKey)
+	require.NoError(t, err)
+	require.False(t, dbScriptKey.DeclaredKnown)
+
+	known = true
+
+	// We'll now insert it again, but this time declare it as known.
+	err = addrBook.InsertScriptKey(ctx, scriptKey, known)
+	require.NoError(t, err)
+
+	// We'll fetch the script key and confirm that it's known.
+	dbScriptKey, err = addrBook.FetchScriptKey(ctx, scriptKey.PubKey)
+	require.NoError(t, err)
+	require.True(t, dbScriptKey.DeclaredKnown)
 }
