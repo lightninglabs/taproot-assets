@@ -358,9 +358,17 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 	keyRing lnwallet.CommitmentKeyRing, sigs []*cmsg.AssetSig,
 	htlcOutputs []*cmsg.AssetOutput, baseJob lnwallet.BaseAuxJob) error {
 
+	// If we're validating a signature for an outgoing HTLC, then it's an
+	// outgoing HTLC for the remote party, so we'll need to sign it with the
+	// proper lock time.
+	var htlcTimeout fn.Option[uint32]
+	if !baseJob.Incoming {
+		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
+	}
+
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		chainParams, chanState, commitTx, baseJob.KeyRing, htlcOutputs,
-		baseJob,
+		baseJob, htlcTimeout,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating second level packets: %w",
@@ -494,9 +502,17 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 	signDesc input.SignDescriptor,
 	baseJob lnwallet.BaseAuxJob) (lnwallet.AuxSigJobResp, error) {
 
+	// If we're generating a signature for an incoming HTLC, then it's an
+	// outgoing HTLC for the remote party, so we'll need to sign it with the
+	// proper lock time.
+	var htlcTimeout fn.Option[uint32]
+	if baseJob.Incoming {
+		htlcTimeout = fn.Some(baseJob.HTLC.Timeout)
+	}
+
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		s.cfg.ChainParams, chanState, commitTx, baseJob.KeyRing,
-		htlcOutputs, baseJob,
+		htlcOutputs, baseJob, htlcTimeout,
 	)
 	if err != nil {
 		return lnwallet.AuxSigJobResp{}, fmt.Errorf("error generating "+
@@ -584,11 +600,12 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
-	baseJob lnwallet.BaseAuxJob) ([]*tappsbt.VPacket, error) {
+	baseJob lnwallet.BaseAuxJob,
+	htlcTimeout fn.Option[uint32]) ([]*tappsbt.VPacket, error) {
 
 	packets, _, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, baseJob.HTLC.Amount.ToSatoshis(),
-		keyRing, chainParams, htlcOutputs,
+		keyRing, chainParams, htlcOutputs, htlcTimeout,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating second level HTLC "+

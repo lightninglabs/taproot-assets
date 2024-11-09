@@ -201,10 +201,15 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	// the output information locked in, as this was a pre-signed
 	// transaction.
 	if sweepDesc.auxSigInfo.IsSome() {
+		var cltvTimeout fn.Option[uint32]
+		sweepDesc.absoluteDelay.WhenSome(func(delay uint64) {
+			cltvTimeout = fn.Some(uint32(delay))
+		})
+
 		alloc, err := createSecondLevelHtlcAllocations(
 			resReq.ChanType, resReq.Initiator, sweepInputs,
 			resReq.HtlcAmt, resReq.CommitCsvDelay, *resReq.KeyRing,
-			fn.Some(resReq.ContractPoint.Index),
+			fn.Some(resReq.ContractPoint.Index), cltvTimeout,
 		)
 		if err != nil {
 			return lfn.Err[returnType](err)
@@ -1962,6 +1967,7 @@ func newBlobWithWitnessInfo(i input.Input) lfn.Result[blobWithWitnessInfo] {
 }
 
 // prepVpkts decodes the set of vPkts, supplementing them as needed to ensure
+
 // all inputs can be swept properly.
 func prepVpkts(bRes lfn.Result[blobWithWitnessInfo],
 	secondLevel bool) (*vPktsWithInput, error) {
