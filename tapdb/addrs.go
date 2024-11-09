@@ -467,7 +467,9 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
 
-			declaredKnown := addr.ScriptKeyDeclaredKnown.Valid
+			declaredKnown := extractBool(
+				addr.ScriptKeyDeclaredKnown,
+			)
 			addrs = append(addrs, address.AddrWithKeyInfo{
 				Tap: tapAddr,
 				ScriptKeyTweak: asset.TweakedScriptKey{
@@ -620,9 +622,11 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	return &address.AddrWithKeyInfo{
 		Tap: tapAddr,
 		ScriptKeyTweak: asset.TweakedScriptKey{
-			RawKey:        scriptKeyDesc,
-			Tweak:         dbAddr.ScriptKeyTweak,
-			DeclaredKnown: dbAddr.ScriptKeyDeclaredKnown.Valid,
+			RawKey: scriptKeyDesc,
+			Tweak:  dbAddr.ScriptKeyTweak,
+			DeclaredKnown: extractBool(
+				dbAddr.ScriptKeyDeclaredKnown,
+			),
 		},
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,
