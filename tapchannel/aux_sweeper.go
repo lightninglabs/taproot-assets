@@ -2463,13 +2463,22 @@ func (a *AuxSweeper) DeriveSweepAddr(inputs []input.Input,
 func (a *AuxSweeper) ExtraBudgetForInputs(
 	inputs []input.Input) lfn.Result[btcutil.Amount] {
 
-	hasResolutionBlob := fn.Any(inputs, func(i input.Input) bool {
+	inputsWithBlobs := fn.Filter(inputs, func(i input.Input) bool {
 		return i.ResolutionBlob().IsSome()
 	})
 
 	var extraBudget btcutil.Amount
-	if hasResolutionBlob {
-		extraBudget = tapsend.DummyAmtSats
+	if len(inputsWithBlobs) != 0 {
+		// In this case, just 1k sats (tapsend.DummyAmtSats) may not be
+		// enough budget to pay for sweeping. So instead, we'll use a
+		// multiple of this to ensure that any time we care about an
+		// output, we're pretty much always able to sweep it.
+		//
+		// TODO(roasbeef): return the sats equiv budget of the asset
+		// amount
+		extraBudget = tapsend.DummyAmtSats * btcutil.Amount(
+			20*len(inputsWithBlobs),
+		)
 	}
 
 	return lfn.Ok(extraBudget)
