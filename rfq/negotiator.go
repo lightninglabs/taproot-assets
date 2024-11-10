@@ -472,21 +472,10 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		// skip this step.
 		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-		// Construct an asset specifier from the order.
-		// TODO(ffranr): The order should have an asset specifier.
-		assetSpecifier, err := asset.NewSpecifier(
-			order.AssetID, order.AssetGroupKey, nil,
-			true,
-		)
-		if err != nil {
-			log.Warnf("failed to construct asset "+
-				"specifier from buy order: %v", err)
-		}
-
-		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
+		if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
 			assetRate, err := n.queryAskFromPriceOracle(
-				order.Peer, assetSpecifier,
+				order.Peer, order.AssetSpecifier,
 				fn.None[uint64](),
 				fn.Some(order.PaymentMaxAmt),
 				fn.None[rfqmsg.AssetRate](),
@@ -502,8 +491,8 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		}
 
 		request, err := rfqmsg.NewSellRequest(
-			*order.Peer, order.AssetID, order.AssetGroupKey,
-			order.PaymentMaxAmt, assetRateHint,
+			*order.Peer, order.AssetSpecifier, order.PaymentMaxAmt,
+			assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+

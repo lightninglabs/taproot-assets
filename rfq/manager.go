@@ -747,11 +747,8 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 
 // SellOrder is a struct that represents an asset sell order.
 type SellOrder struct {
-	// AssetID is the ID of the asset to sell.
-	AssetID *asset.ID
-
-	// AssetGroupKey is the public key of the asset group to sell.
-	AssetGroupKey *btcec.PublicKey
+	// AssetSpecifier is the asset that the seller is interested in.
+	AssetSpecifier asset.Specifier
 
 	// PaymentMaxAmt is the maximum msat amount that the responding peer
 	// must agree to pay.

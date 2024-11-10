@@ -45,21 +45,13 @@ type SellRequest struct {
 }
 
 // NewSellRequest creates a new asset sell quote request.
-func NewSellRequest(peer route.Vertex, assetID *asset.ID,
-	assetGroupKey *btcec.PublicKey, paymentMaxAmt lnwire.MilliSatoshi,
+func NewSellRequest(peer route.Vertex, assetSpecifier asset.Specifier,
+	paymentMaxAmt lnwire.MilliSatoshi,
 	assetRateHint fn.Option[AssetRate]) (*SellRequest, error) {
 
 	id, err := NewID()
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate random id: %w", err)
-	}
-
-	assetSpecifier, err := asset.NewSpecifier(
-		assetID, assetGroupKey, nil, true,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create asset specifier: %w",
-			err)
 	}
 
 	return &SellRequest{
