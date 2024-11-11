@@ -439,16 +439,19 @@ func (h *HashMailBox) RecvAck(ctx context.Context, sid streamID) error {
 		return fmt.Errorf("unable to create read stream: %w", err)
 	}
 
+	log.Debugf("Exec stream Recv for receiver ACK (sid=%x)", sid[:])
 	msg, err := readStream.Recv()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed on stream Recv (sid=%x): %w", sid[:],
+			err)
 	}
 
 	if bytes.Equal(msg.Msg, ackMsg) {
+		log.Debugf("Received ACK from sender (sid=%x)", sid[:])
 		return nil
 	}
 
-	return fmt.Errorf("expected ack, got %x", msg.Msg)
+	return fmt.Errorf("expected ACK from hashmail service, got %x", msg.Msg)
 }
 
 // CleanUp attempts to tear down the mailbox as specified by the passed sid.
@@ -867,12 +870,19 @@ func (h *HashMailCourier) ensureConnect(ctx context.Context) error {
 func (h *HashMailCourier) DeliverProof(ctx context.Context,
 	recipient Recipient, proof *AnnotatedProof) error {
 
-	log.Infof("Attempting to deliver receiver proof for send of "+
-		"asset_id=%v, amt=%v", recipient.AssetID, recipient.Amount)
-
-	// Compute the stream IDs for the sender and receiver.
+	// Compute the stream IDs for the sender and receiver. Note that these
+	// stream IDs are derived from the recipient's script key only. Which
+	// means that stream IDs will be identical for multiple proofs sent to
+	// the same recipient.
 	senderStreamID := deriveSenderStreamID(recipient)
 	receiverStreamID := deriveReceiverStreamID(recipient)
+
+	log.Infof("Delivering proof to asset transfer receiver "+
+		"(amt=%v, asset_id=%v, script_pub_key=%x, "+
+		"sender_sid=%x, receiver_sid=%x)",
+		recipient.Amount, recipient.AssetID,
+		recipient.ScriptKey.SerializeCompressed(), senderStreamID,
+		receiverStreamID)
 
 	// Interact with the hashmail service using a backoff procedure to
 	// ensure that we don't overwhelm the service with delivery attempts.
@@ -901,8 +911,7 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 		// TODO(roasbeef): do ecies here
 		// (this ^ TODO relates to encrypting proofs for the receiver
 		// before uploading to the courier)
-		log.Infof("Sending receiver proof via sid=%x",
-			senderStreamID)
+		log.Infof("Writing proof to mailbox (sid=%x)", senderStreamID)
 		err = h.mailbox.WriteProof(
 			ctx, senderStreamID, proof.Blob,
 		)
@@ -911,10 +920,11 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 				"transfer receiver: %w", err)
 		}
 
-		// Wait to receive the ACK from the remote party over
-		// their stream.
-		log.Infof("Waiting (%v) for receiver ACK via sid=%x",
-			h.cfg.ReceiverAckTimeout, receiverStreamID)
+		// Wait to receive ACK from proof transfer receiving peer over
+		// hashmail service.
+		log.Infof("Waiting for receiver ACK from hashmail service "+
+			"(timeout=%v, sid=%x)", h.cfg.ReceiverAckTimeout,
+			receiverStreamID)
 
 		ctxTimeout, cancel := context.WithTimeout(
 			ctx, h.cfg.ReceiverAckTimeout,
@@ -922,9 +932,14 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 		defer cancel()
 		err = h.mailbox.RecvAck(ctxTimeout, receiverStreamID)
 		if err != nil {
-			return fmt.Errorf("failed to receive ACK from "+
-				"receiver within timeout: %w", err)
+			return fmt.Errorf("failed to retrieve proof transfer "+
+				"receiver ACK within timeout (sid=%x): %w",
+				receiverStreamID, err)
 		}
+
+		log.Infof("Retrieved proof transfer receiver ACK from "+
+			"hashmail service (timeout=%v, sid=%x)",
+			h.cfg.ReceiverAckTimeout, receiverStreamID)
 
 		return nil
 	}
@@ -937,12 +952,12 @@ func (h *HashMailCourier) DeliverProof(ctx context.Context,
 			"failed: %w", err)
 	}
 
-	log.Infof("Received ACK from receiver! Cleaning up mailboxes...")
-
 	defer h.Close()
 
-	// Once we receive this ACK, we can clean up our mailbox and also the
-	// receiver's mailbox.
+	// If the backoff handler's exec routine completes successfully, we can
+	// remove our mailbox and the receiver's mailbox.
+	log.Infof("Removing sender and recipient mailboxes from hashmail " +
+		"service")
 	if err := h.mailbox.CleanUp(ctx, senderStreamID); err != nil {
 		return fmt.Errorf("failed to cleanup sender mailbox: %w", err)
 	}
