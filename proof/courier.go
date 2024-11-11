@@ -550,7 +550,7 @@ type BackoffCfg struct {
 
 	// BackoffResetWait is the amount of time we'll wait before
 	// resetting the backoff counter to its initial state.
-	BackoffResetWait time.Duration `long:"backoffresetwait" description:"The amount of time to wait before resetting the backoff counter."`
+	BackoffResetWait time.Duration `long:"backoffresetwait" description:"The amount of time to wait before resetting the backoff counter. Valid time units are {s, m, h}."`
 
 	// NumTries is the number of times we'll try to deliver the proof to the
 	// receiver before the BackoffResetWait delay is enforced.
@@ -558,11 +558,11 @@ type BackoffCfg struct {
 
 	// InitialBackoff is the initial backoff time we'll use to wait before
 	// retrying to deliver the proof to the receiver.
-	InitialBackoff time.Duration `long:"initialbackoff" description:"The initial backoff time to wait before retrying to deliver the proof to the receiver."`
+	InitialBackoff time.Duration `long:"initialbackoff" description:"The initial backoff time to wait before retrying to deliver the proof to the receiver. Valid time units are {s, m, h}."`
 
 	// MaxBackoff is the maximum backoff time we'll use to wait before
 	// retrying to deliver the proof to the receiver.
-	MaxBackoff time.Duration `long:"maxbackoff" description:"The maximum backoff time to wait before retrying to deliver the proof to the receiver."`
+	MaxBackoff time.Duration `long:"maxbackoff" description:"The maximum backoff time to wait before retrying to deliver the proof to the receiver. Valid time units are {s, m, h}."`
 }
 
 // BackoffHandler is a handler for the backoff procedure.
@@ -755,7 +755,7 @@ func NewBackoffHandler(cfg *BackoffCfg,
 type HashMailCourierCfg struct {
 	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
 	// acknowledge the proof.
-	ReceiverAckTimeout time.Duration `long:"receiveracktimeout" description:"The maximum time to wait for the receiver to acknowledge the proof."`
+	ReceiverAckTimeout time.Duration `long:"receiveracktimeout" description:"The maximum time to wait for the receiver to acknowledge the proof. Valid time units are {s, m, h}."`
 
 	// BackoffCfg configures the behaviour of the proof delivery
 	// functionality.
