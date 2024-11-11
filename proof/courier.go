@@ -542,6 +542,8 @@ func (e *BackoffExecError) Error() string {
 }
 
 // BackoffCfg configures the behaviour of the proof delivery backoff procedure.
+//
+// nolint:lll
 type BackoffCfg struct {
 	// SkipInitDelay is a flag that indicates whether we should skip the
 	// initial delay before attempting to deliver the proof to the receiver
@@ -752,6 +754,8 @@ func NewBackoffHandler(cfg *BackoffCfg,
 }
 
 // HashMailCourierCfg is the config for the hashmail proof courier.
+//
+// nolint:lll
 type HashMailCourierCfg struct {
 	// ReceiverAckTimeout is the maximum time we'll wait for the receiver to
 	// acknowledge the proof.

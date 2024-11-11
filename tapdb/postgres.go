@@ -43,6 +43,8 @@ var (
 )
 
 // PostgresConfig holds the postgres database configuration.
+//
+// nolint:lll
 type PostgresConfig struct {
 	SkipMigrations     bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 	Host               string        `long:"host" description:"Database server hostname."`

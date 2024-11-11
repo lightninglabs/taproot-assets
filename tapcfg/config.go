@@ -1,3 +1,4 @@
+// nolint:lll
 package tapcfg
 
 import (
@@ -269,8 +270,6 @@ type LndConfig struct {
 
 // UniverseConfig is the config that houses any Universe related config
 // values.
-//
-// nolint: lll
 type UniverseConfig struct {
 	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs. Valid time units are {s, m, h}."`
 
@@ -304,8 +303,6 @@ func (c *ExperimentalConfig) Validate() error {
 }
 
 // Config is the main config for the tapd cli command.
-//
-// nolint: lll
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
 
@@ -436,7 +433,6 @@ func DefaultConfig() Config {
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
 		},
-		// nolint: lll
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{
 				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
