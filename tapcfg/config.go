@@ -1,3 +1,4 @@
+// nolint:lll
 package tapcfg
 
 import (
@@ -130,6 +131,10 @@ const (
 	// waits having identified an asset transfer on-chain and before
 	// retrieving the corresponding proof via the proof courier service.
 	defaultProofRetrievalDelay = 5 * time.Second
+
+	// defaultLndRPCTimeout is the default timeout we'll use for RPC
+	// requests to lnd.
+	defaultLndRPCTimeout = 1 * time.Minute
 )
 
 var (
@@ -220,12 +225,12 @@ type RpcConfig struct {
 	TLSExtraDomains    []string      `long:"tlsextradomain" description:"Adds an extra domain to the generated certificate"`
 	TLSAutoRefresh     bool          `long:"tlsautorefresh" description:"Re-generate TLS certificate and key if the IPs or domains are changed"`
 	TLSDisableAutofill bool          `long:"tlsdisableautofill" description:"Do not include the interface IPs or the system hostname in TLS certificate, use first --tlsextradomain as Common Name instead, if set"`
-	TLSCertDuration    time.Duration `long:"tlscertduration" description:"The duration for which the auto-generated TLS certificate will be valid for"`
+	TLSCertDuration    time.Duration `long:"tlscertduration" description:"The duration for which the auto-generated TLS certificate will be valid for. Valid time units are {s, m, h}."`
 
 	DisableRest    bool          `long:"norest" description:"Disable REST API"`
 	DisableRestTLS bool          `long:"no-rest-tls" description:"Disable TLS for REST connections"`
-	WSPingInterval time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side"`
-	WSPongWait     time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive"`
+	WSPingInterval time.Duration `long:"ws-ping-interval" description:"The ping interval for REST based WebSocket connections, set to 0 to disable sending ping messages from the server side. Valid time units are {s, m, h}."`
+	WSPongWait     time.Duration `long:"ws-pong-wait" description:"The time we wait for a pong response message on REST based WebSocket connections before the connection is closed as inactive. Valid time units are {s, m, h}."`
 
 	MacaroonPath string `long:"macaroonpath" description:"Path to write the admin macaroon for tapd's RPC and REST services if it doesn't exist"`
 	NoMacaroons  bool   `long:"no-macaroons" description:"Disable macaroon authentication, can only be used if server is not listening on a public interface."`
@@ -258,14 +263,15 @@ type LndConfig struct {
 	MacaroonPath string `long:"macaroonpath" description:"The full path to the single macaroon to use, either the admin.macaroon or a custom baked one. Cannot be specified at the same time as macaroondir. A custom macaroon must contain ALL permissions required for all subservers to work, otherwise permission errors will occur."`
 
 	TLSPath string `long:"tlspath" description:"Path to lnd tls certificate"`
+
+	// RPCTimeout is the timeout we'll use for RPC requests to lnd.
+	RPCTimeout time.Duration `long:"rpctimeout" description:"The timeout to use for RPC requests to lnd; a sufficiently long duration should be chosen to avoid issues with slow responses. Valid time units are {s, m, h}."`
 }
 
 // UniverseConfig is the config that houses any Universe related config
 // values.
-//
-// nolint: lll
 type UniverseConfig struct {
-	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs"`
+	SyncInterval time.Duration `long:"syncinterval" description:"Amount of time to wait between universe syncs. Valid time units are {s, m, h}."`
 
 	FederationServers []string `long:"federationserver" description:"The host:port of a Universe server peer with. These servers will be added as the default set of federation servers. Can be specified multiple times."`
 
@@ -273,7 +279,7 @@ type UniverseConfig struct {
 
 	PublicAccess string `long:"public-access" description:"The public access mode for the universe server, controlling whether remote parties can read from and/or write to this universe server over RPC if exposed to a public network interface. This can be unset, 'r', 'w', or 'rw'. If unset, public access is not enabled for the universe server. If 'r' is included, public access is allowed for read-only endpoints. If 'w' is included, public access is allowed for write endpoints."`
 
-	StatsCacheDuration time.Duration `long:"stats-cache-duration" description:"The amount of time to cache stats for before refreshing them."`
+	StatsCacheDuration time.Duration `long:"stats-cache-duration" description:"The amount of time to cache stats for before refreshing them. Valid time units are {s, m, h}."`
 
 	UniverseQueriesPerSecond rate.Limit `long:"max-qps" description:"The maximum number of queries per second across the set of active universe queries that is permitted. Anything above this starts to get rate limited."`
 
@@ -297,8 +303,6 @@ func (c *ExperimentalConfig) Validate() error {
 }
 
 // Config is the main config for the tapd cli command.
-//
-// nolint: lll
 type Config struct {
 	ShowVersion bool `long:"version" description:"Display version information and exit"`
 
@@ -322,7 +326,7 @@ type Config struct {
 	HashMailCourier         *proof.HashMailCourierCfg    `group:"hashmailcourier" namespace:"hashmailcourier"`
 	UniverseRpcCourier      *proof.UniverseRpcCourierCfg `group:"universerpccourier" namespace:"universerpccourier"`
 
-	CustodianProofRetrievalDelay time.Duration `long:"custodianproofretrievaldelay" description:"The number of seconds the custodian waits after identifying an asset transfer on-chain and before retrieving the corresponding proof."`
+	CustodianProofRetrievalDelay time.Duration `long:"custodianproofretrievaldelay" description:"The number of seconds the custodian waits after identifying an asset transfer on-chain and before retrieving the corresponding proof. Valid time units are {s, m, h}."`
 
 	ChainConf *ChainConfig
 	RpcConf   *RpcConfig
@@ -385,6 +389,7 @@ func DefaultConfig() Config {
 		Lnd: &LndConfig{
 			Host:         "localhost:10009",
 			MacaroonPath: defaultLndMacaroonPath,
+			RPCTimeout:   defaultLndRPCTimeout,
 		},
 		DatabaseBackend: DatabaseBackendSqlite,
 		Sqlite: &tapdb.SqliteConfig{
@@ -428,7 +433,6 @@ func DefaultConfig() Config {
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
 		},
-		// nolint: lll
 		Experimental: &ExperimentalConfig{
 			Rfq: rfq.CliConfig{
 				AcceptPriceDeviationPpm: rfq.DefaultAcceptPriceDeviationPpm,
@@ -1150,5 +1154,6 @@ func getLnd(network string, cfg *LndConfig,
 		BlockUntilChainSynced: true,
 		BlockUntilUnlocked:    true,
 		CallerCtx:             ctxc,
+		RPCTimeout:            cfg.RPCTimeout,
 	})
 }

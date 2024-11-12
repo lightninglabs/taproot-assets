@@ -43,6 +43,8 @@ var (
 )
 
 // PostgresConfig holds the postgres database configuration.
+//
+// nolint:lll
 type PostgresConfig struct {
 	SkipMigrations     bool          `long:"skipmigrations" description:"Skip applying migrations on startup."`
 	Host               string        `long:"host" description:"Database server hostname."`
@@ -52,8 +54,8 @@ type PostgresConfig struct {
 	DBName             string        `long:"dbname" description:"Database name to use."`
 	MaxOpenConnections int           `long:"maxconnections" description:"Max open connections to keep alive to the database server."`
 	MaxIdleConnections int           `long:"maxidleconnections" description:"Max number of idle connections to keep in the connection pool."`
-	ConnMaxLifetime    time.Duration `long:"connmaxlifetime" description:"Max amount of time a connection can be reused for before it is closed."`
-	ConnMaxIdleTime    time.Duration `long:"connmaxidletime" description:"Max amount of time a connection can be idle for before it is closed."`
+	ConnMaxLifetime    time.Duration `long:"connmaxlifetime" description:"Max amount of time a connection can be reused for before it is closed. Valid time units are {s, m, h}."`
+	ConnMaxIdleTime    time.Duration `long:"connmaxidletime" description:"Max amount of time a connection can be idle for before it is closed. Valid time units are {s, m, h}."`
 	RequireSSL         bool          `long:"requiressl" description:"Whether to require using SSL (mode: require) when connecting to the server."`
 }
 
