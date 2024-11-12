@@ -2,11 +2,23 @@
 
 set -e
 
+# restore_files is a function to restore original schema files.
+restore_files() {
+	echo "Restoring SQLite bigint patch..."
+	for file in tapdb/sqlc/migrations/*.up.sql.bak; do
+		mv "$file" "${file%.bak}"
+	done
+}
+
+# Set trap to call restore_files on script exit. This makes sure the old files
+# are always restored.
+trap restore_files EXIT
+
 # Directory of the script file, independent of where it's called from.
-DIR="$(cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd)"
+DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Use the user's cache directories
-GOCACHE=`go env GOCACHE`
-GOMODCACHE=`go env GOMODCACHE`
+GOCACHE=$(go env GOCACHE)
+GOMODCACHE=$(go env GOMODCACHE)
 
 # SQLite doesn't support "BIGINT PRIMARY KEY" for auto-incrementing primary
 # keys, only "INTEGER PRIMARY KEY". Internally it uses 64-bit integers for
@@ -19,23 +31,18 @@ GOMODCACHE=`go env GOMODCACHE`
 # PRIMARY KEY".
 echo "Applying SQLite bigint patch..."
 for file in tapdb/sqlc/migrations/*.up.sql; do
-  echo "Patching $file"
-  sed -i.bak -E 's/INTEGER PRIMARY KEY/BIGINT PRIMARY KEY/g' "$file"
+	echo "Patching $file"
+	sed -i.bak -E 's/INTEGER PRIMARY KEY/BIGINT PRIMARY KEY/g' "$file"
 done
-
 
 echo "Generating sql models and queries in go..."
 
+# Run the script to generate the new generated code. Once the script exits, we
+# use `trap` to make sure all files are restored.
 docker run \
-  --rm \
-  --user "$UID:$(id -g)" \
-  -e UID=$UID \
-  -v "$DIR/../:/build" \
-  -w /build \
-  sqlc/sqlc:1.25.0 generate
-
-# Restore the original schema files.
-echo "Restoring SQLite bigint patch..."
-for file in tapdb/sqlc/migrations/*.up.sql.bak; do
-  mv "$file" "${file%.bak}"
-done
+	--rm \
+	--user "$UID:$(id -g)" \
+	-e UID=$UID \
+	-v "$DIR/../:/build" \
+	-w /build \
+	sqlc/sqlc:1.25.0 generate
