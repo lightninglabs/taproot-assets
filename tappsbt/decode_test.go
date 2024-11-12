@@ -241,8 +241,8 @@ func TestEncodingDecoding(t *testing.T) {
 		name: "random packet with colliding alt leaves",
 		pkg: func(t *testing.T) *VPacket {
 			pkt := RandPacket(t, true, true)
-			firstLeaf := RandAltLeaf(t)
-			secondLeaf := RandAltLeaf(t)
+			firstLeaf := asset.RandAltLeaf(t)
+			secondLeaf := asset.RandAltLeaf(t)
 
 			firstLeafKey := asset.ToSerialized(
 				firstLeaf.ScriptKey.PubKey,
@@ -251,7 +251,7 @@ func TestEncodingDecoding(t *testing.T) {
 			require.NoError(t, err)
 
 			secondLeaf.ScriptKey = asset.NewScriptKey(leafKeyCopy)
-			altLeaves := []AltLeafAsset{firstLeaf, secondLeaf}
+			altLeaves := []asset.AltLeafAsset{firstLeaf, secondLeaf}
 
 			pkt.Inputs[0].AltLeaves = asset.CopyAltLeaves(altLeaves)
 			pkt.Outputs[0].AltLeaves = asset.CopyAltLeaves(
@@ -270,9 +270,9 @@ func TestEncodingDecoding(t *testing.T) {
 			pkt := RandPacket(t, true, true)
 
 			numLeaves := 2000
-			altLeaves := make([]AltLeafAsset, 0, numLeaves)
-			for range numLeaves {
-				altLeaves = append(altLeaves, RandAltLeaf(t))
+			altLeaves := make([]asset.AltLeafAsset, numLeaves)
+			for idx := range numLeaves {
+				altLeaves[idx] = asset.RandAltLeaf(t)
 			}
 
 			pkt.Inputs[0].AltLeaves = altLeaves

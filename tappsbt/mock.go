@@ -37,38 +37,6 @@ var (
 	)
 )
 
-// RandAltLeaf generates a random Asset that is a valid AltLeaf.
-func RandAltLeaf(t testing.TB) *asset.Asset {
-	randWitness := []asset.Witness{
-		{TxWitness: test.RandTxWitnesses(t)},
-	}
-	randKey := asset.RandScriptKey(t)
-	randVersion := asset.ScriptVersion(test.RandInt[uint16]())
-	randLeaf, err := asset.NewAltLeaf(randKey, randVersion, randWitness)
-	require.NoError(t, err)
-
-	require.NoError(t, randLeaf.ValidateAltLeaf())
-
-	return randLeaf
-}
-
-// RandAltLeaves generates a set of random number of random alt leaves.
-func RandAltLeaves(t testing.TB) []AltLeafAsset {
-	// Limit the number of leaves to keep the test vectors small.
-	maxLeaves := int32(4)
-	numLeaves := test.RandInt31n(maxLeaves)
-	if numLeaves == 0 {
-		return nil
-	}
-
-	altLeaves := make([]AltLeafAsset, 0, numLeaves)
-	for range numLeaves {
-		altLeaves = append(altLeaves, AltLeafAsset(RandAltLeaf(t)))
-	}
-
-	return altLeaves
-}
-
 func RandAssetForPacket(t testing.TB, assetType asset.Type,
 	desc keychain.KeyDescriptor) *asset.Asset {
 
@@ -205,9 +173,12 @@ func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 	}
 
 	if altLeaves {
-		randVInput.AltLeaves = RandAltLeaves(t)
-		randVOutput1.AltLeaves = RandAltLeaves(t)
-		randVOutput2.AltLeaves = RandAltLeaves(t)
+		inputLeaves := asset.RandAltLeaves(t, true)
+		output1Leaves := asset.RandAltLeaves(t, true)
+		output2Leaves := asset.RandAltLeaves(t, true)
+		randVInput.AltLeaves = asset.ToAltLeaves(inputLeaves)
+		randVOutput1.AltLeaves = asset.ToAltLeaves(output1Leaves)
+		randVOutput2.AltLeaves = asset.ToAltLeaves(output2Leaves)
 	}
 
 	vPacket := &VPacket{
@@ -346,15 +317,9 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 
 		ti.AltLeaves = make([]*asset.TestAsset, 0, len(i.AltLeaves))
 		for idx := range i.AltLeaves {
-			// We also need a type assertion on each leaf.
-			leaf, ok := i.AltLeaves[idx].(*asset.Asset)
-			if !ok {
-				t.Errorf("AltLeaf must be of type *asset.Asset")
-			}
-
+			leaf := asset.InnerAltLeaf(i.AltLeaves[idx])
 			ti.AltLeaves = append(
-				ti.AltLeaves,
-				asset.NewTestFromAsset(t, leaf),
+				ti.AltLeaves, asset.NewTestFromAsset(t, leaf),
 			)
 		}
 	}
@@ -415,7 +380,7 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 	}
 
 	if len(ti.AltLeaves) > 0 {
-		vi.AltLeaves = make([]AltLeafAsset, len(ti.AltLeaves))
+		vi.AltLeaves = make([]asset.AltLeafAsset, len(ti.AltLeaves))
 		for idx, leaf := range ti.AltLeaves {
 			vi.AltLeaves[idx] = leaf.ToAsset(t)
 		}
@@ -669,15 +634,9 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 
 		vo.AltLeaves = make([]*asset.TestAsset, 0, len(vo.AltLeaves))
 		for idx := range v.AltLeaves {
-			// We also need a type assertion on each leaf.
-			leaf, ok := v.AltLeaves[idx].(*asset.Asset)
-			if !ok {
-				t.Errorf("AltLeaf must be of type *asset.Asset")
-			}
-
+			leaf := asset.InnerAltLeaf(v.AltLeaves[idx])
 			vo.AltLeaves = append(
-				vo.AltLeaves,
-				asset.NewTestFromAsset(t, leaf),
+				vo.AltLeaves, asset.NewTestFromAsset(t, leaf),
 			)
 		}
 	}
@@ -800,7 +759,7 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 	}
 
 	if len(to.AltLeaves) > 0 {
-		v.AltLeaves = make([]AltLeafAsset, len(to.AltLeaves))
+		v.AltLeaves = make([]asset.AltLeafAsset, len(to.AltLeaves))
 		for idx, leaf := range to.AltLeaves {
 			v.AltLeaves[idx] = leaf.ToAsset(t)
 		}

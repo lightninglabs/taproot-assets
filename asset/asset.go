@@ -2336,6 +2336,11 @@ func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
 	}, nil
 }
 
+// InnerAltLeaf returns the inner value of an AltLeaf, as its concrete type.
+func InnerAltLeaf[T AltLeaf[T]](a AltLeaf[T]) T {
+	return a.(T)
+}
+
 // CopyAltLeaf performs a deep copy of an AltLeaf.
 func CopyAltLeaf[T AltLeaf[T]](a AltLeaf[T]) AltLeaf[T] {
 	return a.Copy()
@@ -2343,6 +2348,10 @@ func CopyAltLeaf[T AltLeaf[T]](a AltLeaf[T]) AltLeaf[T] {
 
 // CopyAltLeaves performs a deep copy of an AltLeaf slice.
 func CopyAltLeaves[T AltLeaf[T]](a []AltLeaf[T]) []AltLeaf[T] {
+	if len(a) == 0 {
+		return nil
+	}
+
 	return fn.Map(a, CopyAltLeaf[T])
 }
 
@@ -2426,6 +2435,9 @@ func (a *Asset) EncodeAltLeaf(w io.Writer) error {
 func (a *Asset) DecodeAltLeaf(r io.Reader) error {
 	return a.Decode(r)
 }
+
+// AltLeafAsset is an AltLeaf backed by an Asset object.
+type AltLeafAsset = AltLeaf[*Asset]
 
 // Ensure Asset implements the AltLeaf interface.
 var _ AltLeaf[*Asset] = (*Asset)(nil)

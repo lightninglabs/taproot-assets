@@ -384,9 +384,9 @@ func proofEncoder(p *proof.Proof) encoderFunc {
 }
 
 // altLeavesEncoder is an encoder that does nothing if the given alt leaf slice
-// is nil.
-func altLeavesEncoder(a []AltLeafAsset) encoderFunc {
-	if a == nil {
+// is nil or empty.
+func altLeavesEncoder(a []asset.AltLeafAsset) encoderFunc {
+	if len(a) == 0 {
 		return func([]byte) ([]*customPsbtField, error) {
 			return nil, nil
 		}
