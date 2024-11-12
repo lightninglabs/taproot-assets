@@ -106,9 +106,6 @@ type bip32DerivationPredicate func(*psbt.Bip32Derivation) bool
 // BIP-0032 derivation paths.
 type taprootBip32DerivationPredicate func(*psbt.TaprootBip32Derivation) bool
 
-// AltLeafAsset is an AltLeaf backed by an Asset object.
-type AltLeafAsset = asset.AltLeaf[*asset.Asset]
-
 var (
 	// VOutIsSplitRoot is a predicate that returns true if the virtual
 	// output is a split root output.
@@ -399,7 +396,7 @@ type VInput struct {
 	// will be inserted in the input anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
-	AltLeaves []AltLeafAsset
+	AltLeaves []asset.AltLeafAsset
 }
 
 // Copy creates a deep copy of the VInput.
@@ -599,7 +596,7 @@ type VOutput struct {
 	// will be inserted in the output anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
-	AltLeaves []AltLeafAsset
+	AltLeaves []asset.AltLeafAsset
 }
 
 // Copy creates a deep copy of the VOutput.

@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
@@ -149,6 +150,14 @@ func CheckAssetAsserts(a *Asset, checks ...AssetAssert) error {
 	}
 
 	return nil
+}
+
+// AssetSortFunc is used to sort assets lexocographically by their script keys.
+func AssetSortFunc(a, b *Asset) int {
+	return bytes.Compare(
+		a.ScriptKey.PubKey.SerializeCompressed(),
+		b.ScriptKey.PubKey.SerializeCompressed(),
+	)
 }
 
 // RandGenesis creates a random genesis for testing.
@@ -658,6 +667,54 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 		t, genesis, uint64(units), 0, 0, scriptKey, groupKey,
 		WithAssetVersion(assetVersion),
 	)
+}
+
+// RandAltLeaf generates a random Asset that is a valid AltLeaf.
+func RandAltLeaf(t testing.TB) *Asset {
+	randWitness := []Witness{
+		{TxWitness: test.RandTxWitnesses(t)},
+	}
+	randKey := RandScriptKey(t)
+	randVersion := ScriptVersion(test.RandInt[uint16]())
+	randLeaf, err := NewAltLeaf(randKey, randVersion, randWitness)
+	require.NoError(t, err)
+	require.NoError(t, randLeaf.ValidateAltLeaf())
+
+	return randLeaf
+}
+
+// RandAltLeaves generates a random number of random alt leaves.
+func RandAltLeaves(t testing.TB, nonZero bool) []*Asset {
+	// Limit the number of leaves to keep test vectors small.
+	maxLeaves := 4
+	numLeaves := test.RandIntn(maxLeaves)
+	if nonZero {
+		numLeaves += 1
+	}
+
+	if numLeaves == 0 {
+		return nil
+	}
+
+	altLeaves := make([]*Asset, numLeaves)
+	for idx := range numLeaves {
+		altLeaves[idx] = RandAltLeaf(t)
+	}
+
+	return altLeaves
+}
+
+// ToAltLeaves casts []Asset to []AltLeafAsset, without checking that the assets
+// are valid AltLeaves.
+func ToAltLeaves(leaves []*Asset) []AltLeafAsset {
+	return fn.Map(leaves, func(l *Asset) AltLeafAsset {
+		return AltLeafAsset(l)
+	})
+}
+
+// FromAltLeaves casts []AltLeafAsset to []Asset, which is always safe.
+func FromAltLeaves(leaves []AltLeafAsset) []*Asset {
+	return fn.Map(leaves, InnerAltLeaf[*Asset])
 }
 
 type ValidTestCase struct {

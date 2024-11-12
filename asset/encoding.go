@@ -810,6 +810,9 @@ func DecodeTapLeaf(leafData []byte) (*txscript.TapLeaf, error) {
 
 func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
 	if t, ok := val.(*[]AltLeaf[*Asset]); ok {
+		// If the AltLeaves slice is empty, we will still encode its
+		// length here (as 0). Callers should avoid encoding empty
+		// AltLeaves slices.
 		if err := tlv.WriteVarInt(w, uint64(len(*t)), buf); err != nil {
 			return err
 		}
