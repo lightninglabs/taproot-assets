@@ -52,7 +52,9 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/record"
@@ -7218,6 +7220,65 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			"for channel with ID %d: %w", channelID, err)
 	}
 
+	// If this is a hodl invoice, then we'll copy over the relevant fields,
+	// then route this through the invoicerpc instead.
+	if req.HodlInvoice != nil {
+		payHash, err := lntypes.MakeHash(req.HodlInvoice.PaymentHash)
+		if err != nil {
+			return nil, fmt.Errorf("error creating payment "+
+				"hash: %w", err)
+		}
+
+		peerPub, err := btcec.ParsePubKey(peerPubKey[:])
+		if err != nil {
+			return nil, fmt.Errorf("error parsing peer "+
+				"pubkey: %w", err)
+		}
+
+		hopHint := []zpay32.HopHint{
+			{
+				NodeID:      peerPub,
+				ChannelID:   acceptedQuote.Scid,
+				FeeBaseMSat: uint32(inboundPolicy.FeeBaseMsat),
+				FeeProportionalMillionths: uint32(
+					inboundPolicy.FeeRateMilliMsat,
+				),
+				CLTVExpiryDelta: uint16(
+					inboundPolicy.TimeLockDelta,
+				),
+			},
+		}
+
+		payReq, err := r.cfg.Lnd.Invoices.AddHoldInvoice(
+			ctx, &invoicesrpc.AddInvoiceData{
+				Memo: iReq.Memo,
+				Value: lnwire.MilliSatoshi(
+					iReq.ValueMsat,
+				),
+				Hash:            &payHash,
+				DescriptionHash: iReq.DescriptionHash,
+				Expiry:          iReq.Expiry,
+				// We set private to false as we don't want to
+				// add any hop hints other than this one.
+				Private:     false,
+				HodlInvoice: true,
+				RouteHints:  [][]zpay32.HopHint{hopHint},
+			},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error creating hodl invoice: "+
+				"%w", err)
+		}
+
+		return &tchrpc.AddInvoiceResponse{
+			AcceptedBuyQuote: acceptedQuote,
+			InvoiceResult: &lnrpc.AddInvoiceResponse{
+				PaymentRequest: payReq,
+			},
+		}, nil
+	}
+
+	// Otherwise, we'll make this into a normal invoice.
 	hopHint := &lnrpc.HopHint{
 		NodeId:      peerPubKey.String(),
 		ChanId:      acceptedQuote.Scid,

@@ -138,6 +138,10 @@ message SendPaymentResponse {
     }
 }
 
+message HodlInvoice {
+    bytes payment_hash = 1;
+}
+
 message AddInvoiceRequest {
     // The asset ID to use for the invoice.
     bytes asset_id = 1;
@@ -158,6 +162,11 @@ message AddInvoiceRequest {
     // satoshi (or milli-satoshi) equivalent of the asset amount, after
     // negotiating a quote with a peer that supports the given asset ID.
     lnrpc.Invoice invoice_request = 4;
+
+    // If set, then this will make the invoice created a hodl invoice, which
+    // won't be settled automatically. Instead, users will need to use the
+    // invoicesrpc.SettleInvoice call to manually settle the invoice.
+    HodlInvoice hodl_invoice = 5;
 }
 
 message AddInvoiceResponse {
