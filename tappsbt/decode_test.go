@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 )
 
@@ -168,6 +169,51 @@ func TestEncodingDecoding(t *testing.T) {
 			return pkt
 		},
 		decodeErr: ErrInvalidVPacketVersion,
+	}, {
+		name: "random packet with colliding alt leaves",
+		pkg: func(t *testing.T) *VPacket {
+			pkt := RandPacket(t, true, true)
+			firstLeaf := RandAltLeaf(t)
+			secondLeaf := RandAltLeaf(t)
+
+			firstLeafKey := asset.ToSerialized(
+				firstLeaf.ScriptKey.PubKey,
+			)
+			leafKeyCopy, err := firstLeafKey.ToPubKey()
+			require.NoError(t, err)
+
+			secondLeaf.ScriptKey = asset.NewScriptKey(leafKeyCopy)
+			altLeaves := []AltLeafAsset{firstLeaf, secondLeaf}
+
+			pkt.Inputs[0].AltLeaves = asset.CopyAltLeaves(altLeaves)
+			pkt.Outputs[0].AltLeaves = asset.CopyAltLeaves(
+				altLeaves,
+			)
+			pkt.Outputs[1].AltLeaves = asset.CopyAltLeaves(
+				altLeaves,
+			)
+
+			return pkt
+		},
+		encodeErr: asset.ErrDuplicateScriptKeys,
+	}, {
+		name: "random packet with excessive alt leaves",
+		pkg: func(t *testing.T) *VPacket {
+			pkt := RandPacket(t, true, true)
+
+			numLeaves := 2000
+			altLeaves := make([]AltLeafAsset, 0, numLeaves)
+			for range numLeaves {
+				altLeaves = append(altLeaves, RandAltLeaf(t))
+			}
+
+			pkt.Inputs[0].AltLeaves = altLeaves
+			pkt.Outputs[0].AltLeaves = altLeaves
+			pkt.Outputs[1].AltLeaves = altLeaves
+
+			return pkt
+		},
+		decodeErr: tlv.ErrRecordTooLarge,
 	}}
 
 	for _, testCase := range testCases {
