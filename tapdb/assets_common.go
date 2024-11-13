@@ -459,7 +459,7 @@ func fetchScriptKey(ctx context.Context, q FetchScriptKeyStore,
 				Index: uint32(dbKey.KeyIndex),
 			},
 		},
-		DeclaredKnown: dbKey.DeclaredKnown.Valid,
+		DeclaredKnown: extractBool(dbKey.DeclaredKnown),
 	}
 
 	return scriptKey, nil

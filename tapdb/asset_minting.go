@@ -666,7 +666,9 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				PubKey:     scriptKeyInternalPub,
 			}
 			scriptKeyTweak := dbSeedling.ScriptKeyTweak
-			declaredKnown := dbSeedling.ScriptKeyDeclaredKnown.Valid
+			declaredKnown := extractBool(
+				dbSeedling.ScriptKeyDeclaredKnown,
+			)
 			seedling.ScriptKey = asset.ScriptKey{
 				PubKey: tweakedScriptKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
@@ -800,7 +802,7 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 				Family: keychain.KeyFamily(sprout.ScriptKeyFam),
 			},
 		}
-		declaredKnown := sprout.ScriptKeyDeclaredKnown.Valid
+		declaredKnown := extractBool(sprout.ScriptKeyDeclaredKnown)
 		scriptKey := asset.ScriptKey{
 			PubKey: tweakedScriptKey,
 			TweakedScriptKey: &asset.TweakedScriptKey{
