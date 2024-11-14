@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcutil"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
@@ -18,7 +20,9 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/tapsend"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/wait"
+	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/stretchr/testify/require"
 )
 
@@ -138,6 +142,144 @@ func testBasicSendUnidirectional(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	wg.Wait()
+}
+
+// testMinRelayFeeBump tests that if the fee estimation is below the min relay
+// fee the feerate is bumped to the min relay fee for both the minting
+// transaction and a basic asset send.
+func testMinRelayFeeBump(t *harnessTest) {
+	var ctxb = context.Background()
+
+	const numUnits = 10
+
+	// Subscribe to receive assent send events from primary tapd node.
+	events := SubscribeSendEvents(t.t, t.tapd)
+
+	// We will mint assets using the first output and then use the second
+	// output for the transfer. This ensures a valid fee calculation.
+	initialUTXOs := []*UTXORequest{
+		{
+			Type:   lnrpc.AddressType_NESTED_PUBKEY_HASH,
+			Amount: 1_000_000,
+		},
+		{
+			Type:   lnrpc.AddressType_NESTED_PUBKEY_HASH,
+			Amount: 999_990,
+		},
+	}
+
+	// Set the initial state of the wallet of the first node. The wallet
+	// state will reset at the end of this test.
+	SetNodeUTXOs(t, t.lndHarness.Alice, btcutil.Amount(1), initialUTXOs)
+	defer ResetNodeWallet(t, t.lndHarness.Alice)
+
+	// Set the min relay fee to a higher value than the fee rate that will
+	// be returned by the fee estimation.
+	lowFeeRate := chainfee.SatPerVByte(1).FeePerKWeight()
+	highMinRelayFeeRate := chainfee.SatPerVByte(2).FeePerKVByte()
+	defaultMinRelayFeeRate := chainfee.SatPerVByte(1).FeePerKVByte()
+	defaultFeeRate := chainfee.SatPerKWeight(3125)
+	t.lndHarness.SetFeeEstimateWithConf(lowFeeRate, 6)
+	t.lndHarness.SetMinRelayFeerate(highMinRelayFeeRate)
+
+	// Reset all fee rates to their default value at the end of this test.
+	defer t.lndHarness.SetMinRelayFeerate(defaultMinRelayFeeRate)
+	defer t.lndHarness.SetFeeEstimateWithConf(defaultFeeRate, 6)
+
+	// First, we'll make a normal assets with enough units to allow us to
+	// send it around a few times.
+	MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+		WithFeeRate(uint32(lowFeeRate)),
+		WithError("manual fee rate below floor"),
+	)
+
+	MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+		WithFeeRate(uint32(lowFeeRate)+10),
+		WithError("feerate does not meet minrelayfee"),
+	)
+
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+
+	genInfo := rpcAssets[0].AssetGenesis
+
+	// Check the final fee rate of the mint TX.
+	rpcMintOutpoint := rpcAssets[0].ChainAnchor.AnchorOutpoint
+	mintOutpoint, err := wire.NewOutPointFromString(rpcMintOutpoint)
+	require.NoError(t.t, err)
+
+	// We check whether the minting TX is bumped to the min relay fee.
+	AssertFeeRate(
+		t.t, t.lndHarness.Miner().Client, initialUTXOs[0].Amount,
+		&mintOutpoint.Hash, highMinRelayFeeRate.FeePerKWeight(),
+	)
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets. The existing tapd
+	// node will be used to synchronize universe state.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	// Next, we'll attempt to complete two transfers with distinct
+	// addresses from our main node to Bob.
+	currentUnits := issuableAssets[0].Asset.Amount
+
+	// Issue a single address which will be reused for each send.
+	bobAddr, err := secondTapd.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId:      genInfo.AssetId,
+		Amt:          numUnits,
+		AssetVersion: rpcAssets[0].Version,
+	})
+	require.NoError(t.t, err)
+
+	// Deduct what we sent from the expected current number of
+	// units.
+	currentUnits -= numUnits
+
+	AssertAddrCreated(t.t, secondTapd, rpcAssets[0], bobAddr)
+
+	sendAsset(
+		t, t.tapd, withReceiverAddresses(bobAddr),
+		withFeeRate(uint32(lowFeeRate)),
+		withError("manual fee rate below floor"),
+	)
+
+	sendAsset(
+		t, t.tapd, withReceiverAddresses(bobAddr),
+		withFeeRate(uint32(lowFeeRate)+10),
+		withError("feerate does not meet minrelayfee"),
+	)
+
+	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, bobAddr)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
+		genInfo.AssetId,
+		[]uint64{currentUnits, numUnits}, 0, 1,
+	)
+
+	sendInputAmt := initialUTXOs[1].Amount + 1000
+	AssertTransferFeeRate(
+		t.t, t.lndHarness.Miner().Client, sendResp, sendInputAmt,
+		highMinRelayFeeRate.FeePerKWeight(),
+	)
+
+	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)
+	AssertSendEventsComplete(t.t, bobAddr.ScriptKey, sendEvents)
+
+	// Close event stream.
+	err = events.CloseSend()
+	require.NoError(t.t, err)
 }
 
 // testRestartReceiver tests that the receiver node's asset balance after a

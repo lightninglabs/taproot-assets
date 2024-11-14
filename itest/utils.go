@@ -266,6 +266,8 @@ type MintOptions struct {
 	mintingTimeout  time.Duration
 	siblingBranch   *mintrpc.FinalizeBatchRequest_Branch
 	siblingFullTree *mintrpc.FinalizeBatchRequest_FullTree
+	feeRate         uint32
+	errText         string
 }
 
 func DefaultMintOptions() *MintOptions {
@@ -289,6 +291,20 @@ func WithSiblingBranch(branch mintrpc.FinalizeBatchRequest_Branch) MintOption {
 func WithSiblingTree(tree mintrpc.FinalizeBatchRequest_FullTree) MintOption {
 	return func(options *MintOptions) {
 		options.siblingFullTree = &tree
+	}
+}
+
+func WithFeeRate(feeRate uint32) MintOption {
+	return func(options *MintOptions) {
+		options.feeRate = feeRate
+	}
+}
+
+// WithError is an option to specify the string that is expected in the error
+// returned by the FinalizeBatch call.
+func WithError(errorText string) MintOption {
+	return func(options *MintOptions) {
+		options.errText = errorText
 	}
 }
 
@@ -334,9 +350,27 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 	if options.siblingFullTree != nil {
 		finalizeReq.BatchSibling = options.siblingFullTree
 	}
+	if options.feeRate > 0 {
+		finalizeReq.FeeRate = options.feeRate
+	}
 
 	// Instruct the daemon to finalize the batch.
 	batchResp, err := tapClient.FinalizeBatch(ctxt, finalizeReq)
+
+	// If we expect an error, check for it and cancel the batch if it's
+	// found.
+	if options.errText != "" {
+		require.ErrorContains(t, err, options.errText)
+		cancelBatchKey, err := tapClient.CancelBatch(
+			ctxt, &mintrpc.CancelBatchRequest{},
+		)
+		require.NoError(t, err)
+		require.NotEmpty(t, cancelBatchKey.BatchKey)
+		return chainhash.Hash{}, nil
+	}
+
+	// If we don't expect an error, we confirm that the batch has been
+	// broadcast.
 	require.NoError(t, err)
 	require.NotEmpty(t, batchResp.Batch)
 	require.Len(t, batchResp.Batch.Assets, len(assetRequests))
@@ -443,6 +477,11 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) []*taprpc.Asset {
 
+	options := DefaultMintOptions()
+	for _, opt := range opts {
+		opt(options)
+	}
+
 	ctxc, streamCancel := context.WithCancel(context.Background())
 	stream, err := tapClient.SubscribeMintEvents(
 		ctxc, &mintrpc.SubscribeMintEventsRequest{},
@@ -456,6 +495,13 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 	mintTXID, batchKey := MintAssetUnconfirmed(
 		t, minerClient, tapClient, assetRequests, opts...,
 	)
+
+	// If we expect an error, we know that the error has successfully
+	// occurred during MintAssetUnconfirmed so we don't need to confirm the
+	// batch and can return here.
+	if options.errText != "" {
+		return nil
+	}
 
 	return ConfirmBatch(
 		t, minerClient, tapClient, assetRequests, sub, mintTXID,
