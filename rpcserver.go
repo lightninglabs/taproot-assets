@@ -6403,7 +6403,7 @@ func unmarshalAssetSellOrder(
 	}
 
 	// Unmarshal the peer if specified.
-	var peer *route.Vertex
+	var peer fn.Option[route.Vertex]
 	if len(req.PeerPubKey) > 0 {
 		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
 		if err != nil {
@@ -6411,7 +6411,7 @@ func unmarshalAssetSellOrder(
 				"route vertex: %w", err)
 		}
 
-		peer = &pv
+		peer = fn.Some(pv)
 	}
 
 	// Construct an asset specifier from the asset ID and/or group key.
@@ -6447,12 +6447,13 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 			err)
 	}
 
-	var peer string
-	if sellOrder.Peer != nil {
-		peer = sellOrder.Peer.String()
-	}
+	// Extract peer identifier as a string for logging.
+	peerStr := fn.MapOptionZ(sellOrder.Peer, func(p route.Vertex) string {
+		return p.String()
+	})
+
 	rpcsLog.Debugf("[AddAssetSellOrder]: upserting sell order "+
-		"(dest_peer=%s)", peer)
+		"(dest_peer=%s)", peerStr)
 
 	// Register an event listener before actually inserting the order, so we
 	// definitely don't miss any responses.
@@ -6494,7 +6495,7 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 
 		case <-timeout:
 			return nil, fmt.Errorf("timeout waiting for response "+
-				"from peer %x", sellOrder.Peer[:])
+				"from peer %s", peerStr)
 		}
 	}
 }

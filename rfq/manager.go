@@ -763,7 +763,7 @@ type SellOrder struct {
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
-	Peer *route.Vertex
+	Peer fn.Option[route.Vertex]
 }
 
 // UpsertAssetSellOrder upserts an asset sell order for management.
@@ -772,7 +772,7 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
 	//
 	// TODO(ffranr): Add support for peerless sell orders. The negotiator
 	//  should be able to determine the optimal peer.
-	if order.Peer == nil {
+	if order.Peer.IsNone() {
 		return fmt.Errorf("sell order peer must be specified")
 	}
 
