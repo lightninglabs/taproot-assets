@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -1210,7 +1211,7 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 	}
 
 	// Gather passive assets found in each input Taproot Asset commitment.
-	var passivePackets []*tappsbt.VPacket
+	passivePackets := make(map[asset.PrevID]*tappsbt.VPacket)
 	for prevID := range inputCommitments {
 		tapCommitment := inputCommitments[prevID]
 
@@ -1248,6 +1249,16 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 					"proof: %w", err)
 			}
 
+			scriptKey := passiveAsset.ScriptKey.PubKey
+			passivePrevID := asset.PrevID{
+				OutPoint:  prevID.OutPoint,
+				ID:        passiveAsset.ID(),
+				ScriptKey: asset.ToSerialized(scriptKey),
+			}
+			log.Tracef("Adding passive packet for asset_id=%v, "+
+				"script_key=%x", passiveAsset.ID().String(),
+				scriptKey.SerializeCompressed())
+
 			passivePacket, err := createPassivePacket(
 				f.cfg.ChainParams, passiveAsset, activePackets,
 				anchorOutIdx, *anchorOutDesc, prevID.OutPoint,
@@ -1258,11 +1269,11 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 					"passive packet: %w", err)
 			}
 
-			passivePackets = append(passivePackets, passivePacket)
+			passivePackets[passivePrevID] = passivePacket
 		}
 	}
 
-	return passivePackets, nil
+	return maps.Values(passivePackets), nil
 }
 
 // SignPassiveAssets signs the given passive asset packets.
