@@ -12,7 +12,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
@@ -105,8 +104,8 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 
 // queryBidFromPriceOracle queries the price oracle for a bid price. It returns
 // an appropriate outgoing response message which should be sent to the peer.
-func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
-	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
+func (n *Negotiator) queryBidFromPriceOracle(assetSpecifier asset.Specifier,
+	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -178,7 +177,7 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 
 			// Query the price oracle for a bid price.
 			assetRate, err := n.queryBidFromPriceOracle(
-				peer, buyOrder.AssetSpecifier,
+				buyOrder.AssetSpecifier,
 				fn.Some(buyOrder.AssetMaxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
@@ -227,8 +226,8 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // queryAskFromPriceOracle queries the price oracle for an asking price. It
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
-func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
-	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
+func (n *Negotiator) queryAskFromPriceOracle(assetSpecifier asset.Specifier,
+	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -326,7 +325,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 
 		// Query the price oracle for an asking price.
 		assetRate, err := n.queryAskFromPriceOracle(
-			nil, request.AssetSpecifier,
+			request.AssetSpecifier,
 			fn.Some(request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
 			request.AssetRateHint,
@@ -426,9 +425,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
 		assetRate, err := n.queryBidFromPriceOracle(
-			request.Peer, request.AssetSpecifier,
-			fn.None[uint64](), fn.Some(request.PaymentMaxAmt),
-			request.AssetRateHint,
+			request.AssetSpecifier, fn.None[uint64](),
+			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -484,7 +482,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 		if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
 			assetRate, err := n.queryAskFromPriceOracle(
-				&peer, order.AssetSpecifier,
+				order.AssetSpecifier,
 				fn.None[uint64](),
 				fn.Some(order.PaymentMaxAmt),
 				fn.None[rfqmsg.AssetRate](),
@@ -599,7 +597,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// for an ask price. We will then compare the ask price returned
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, err := n.queryAskFromPriceOracle(
-			&msg.Peer, msg.Request.AssetSpecifier,
+			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
 			fn.None[rfqmsg.AssetRate](),
@@ -725,8 +723,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// for a bid price. We will then compare the bid price returned
 		// by the price oracle with the bid price provided by the peer.
 		assetRate, err := n.queryBidFromPriceOracle(
-			msg.Peer, msg.Request.AssetSpecifier,
-			fn.None[uint64](),
+			msg.Request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(msg.Request.PaymentMaxAmt),
 			msg.Request.AssetRateHint,
 		)
