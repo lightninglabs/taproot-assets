@@ -2,10 +2,13 @@ package tapdb
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/stretchr/testify/require"
 )
@@ -182,6 +185,48 @@ func genRandomAsset(t *testing.T) *universe.Item {
 		Key:          targetKey,
 		Leaf:         &leaf,
 		LogProofSync: false,
+	}
+}
+
+// TestSyncerCacheMemoryUsage tests the memory usage of the syncer cache.
+func TestSyncerCacheMemoryUsage(t *testing.T) {
+	for _, numRoots := range []uint64{500, 5_000, 50_000} {
+		allRoots := make([]universe.Root, numRoots)
+		start := time.Now()
+		for i := uint64(0); i < numRoots; i++ {
+			proofType := universe.ProofTypeIssuance
+			if test.RandBool() {
+				proofType = universe.ProofTypeTransfer
+			}
+
+			assetGen := asset.RandGenesis(t, asset.Normal)
+			id := randUniverseID(
+				t, test.RandBool(), withProofType(proofType),
+			)
+			allRoots[i] = universe.Root{
+				ID:        id,
+				AssetName: assetGen.Tag,
+				Node: mssmt.NewComputedBranch(
+					id.Bytes(), 1,
+				),
+			}
+		}
+		t.Logf("Generated %d roots in %v", numRoots, time.Since(start))
+
+		t.Run(fmt.Sprintf("%d roots", numRoots), func(t *testing.T) {
+			res := testing.Benchmark(func(b *testing.B) {
+				b.ReportAllocs()
+
+				cache := newSyncerRootNodeCache(true, numRoots)
+				cache.replaceCache(allRoots)
+			})
+
+			t.Logf("Memory usage for %d roots: %d bytes",
+				numRoots, res.MemBytes)
+			t.Logf("Memory usage per root: %d bytes",
+				res.MemBytes/numRoots)
+			t.Logf("Benchmark took %v", res.T)
+		})
 	}
 }
 

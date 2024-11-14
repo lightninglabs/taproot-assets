@@ -40,7 +40,7 @@ func withProofType(proofType universe.ProofType) universeIDOptFunc {
 	}
 }
 
-func randUniverseID(t *testing.T, forceGroup bool,
+func randUniverseID(t testing.TB, forceGroup bool,
 	optFunctions ...universeIDOptFunc) universe.Identifier {
 
 	opts := defaultUniverseIdOptions()
