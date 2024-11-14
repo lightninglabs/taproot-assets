@@ -275,6 +275,8 @@ type UniverseConfig struct {
 
 	FederationServers []string `long:"federationserver" description:"The host:port of a Universe server peer with. These servers will be added as the default set of federation servers. Can be specified multiple times."`
 
+	NoDefaultFederation bool `long:"no-default-federation" description:"If set, the default Universe server (available for testnet and mainnet) will not be added to the list of universe servers on startup."`
+
 	SyncAllAssets bool `long:"sync-all-assets" description:"If set, the federation syncer will default to syncing all assets."`
 
 	PublicAccess string `long:"public-access" description:"The public access mode for the universe server, controlling whether remote parties can read from and/or write to this universe server over RPC if exposed to a public network interface. This can be unset, 'r', 'w', or 'rw'. If unset, public access is not enabled for the universe server. If 'r' is included, public access is allowed for read-only endpoints. If 'w' is included, public access is allowed for write endpoints."`

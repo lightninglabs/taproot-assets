@@ -187,12 +187,19 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	federationMembers := cfg.Universe.FederationServers
 	switch cfg.ChainConf.Network {
 	case "mainnet":
-		cfgLogger.Infof("Configuring %v as initial Universe "+
-			"federation server", defaultMainnetFederationServer)
+		// Add our default mainnet federation server to the list of
+		// federation servers if not disabled by the user for privacy
+		// reasons.
+		if !cfg.Universe.NoDefaultFederation {
+			cfgLogger.Infof("Configuring %v as initial Universe "+
+				"federation server",
+				defaultMainnetFederationServer)
 
-		federationMembers = append(
-			federationMembers, defaultMainnetFederationServer,
-		)
+			federationMembers = append(
+				federationMembers,
+				defaultMainnetFederationServer,
+			)
+		}
 
 		// For mainnet, we need to overwrite the default universe proof
 		// courier address to use the mainnet server.
@@ -204,12 +211,19 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		}
 
 	case "testnet":
-		cfgLogger.Infof("Configuring %v as initial Universe "+
-			"federation server", defaultTestnetFederationServer)
+		// Add our default testnet federation server to the list of
+		// federation servers if not disabled by the user for privacy
+		// reasons.
+		if !cfg.Universe.NoDefaultFederation {
+			cfgLogger.Infof("Configuring %v as initial Universe "+
+				"federation server",
+				defaultTestnetFederationServer)
 
-		federationMembers = append(
-			federationMembers, defaultTestnetFederationServer,
-		)
+			federationMembers = append(
+				federationMembers,
+				defaultTestnetFederationServer,
+			)
+		}
 
 	default:
 		// For any other network, such as regtest, we can't use a
