@@ -11,7 +11,7 @@ import (
 func TestEncodeAsPsbt(t *testing.T) {
 	t.Parallel()
 
-	pkg := RandPacket(t, test.RandBool())
+	pkg := RandPacket(t, test.RandBool(), test.RandBool())
 	packet, err := pkg.EncodeAsPsbt()
 	require.NoError(t, err)
 

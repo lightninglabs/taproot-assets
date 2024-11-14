@@ -37,8 +37,55 @@ var (
 	)
 )
 
+// RandAltLeaf generates a random Asset that is a valid AltLeaf.
+func RandAltLeaf(t testing.TB) *asset.Asset {
+	randWitness := []asset.Witness{
+		{TxWitness: test.RandTxWitnesses(t)},
+	}
+	randKey := asset.RandScriptKey(t)
+	randVersion := asset.ScriptVersion(test.RandInt[uint16]())
+	randLeaf, err := asset.NewAltLeaf(randKey, randVersion, randWitness)
+	require.NoError(t, err)
+
+	require.NoError(t, randLeaf.ValidateAltLeaf())
+
+	return randLeaf
+}
+
+// RandAltLeaves generates a set of random number of random alt leaves.
+func RandAltLeaves(t testing.TB) []AltLeafAsset {
+	// Limit the number of leaves to keep the test vectors small.
+	maxLeaves := int32(4)
+	numLeaves := test.RandInt31n(maxLeaves)
+	if numLeaves == 0 {
+		return nil
+	}
+
+	altLeaves := make([]AltLeafAsset, 0, numLeaves)
+	for range numLeaves {
+		altLeaves = append(altLeaves, AltLeafAsset(RandAltLeaf(t)))
+	}
+
+	return altLeaves
+}
+
+func RandAssetForPacket(t testing.TB, assetType asset.Type,
+	desc keychain.KeyDescriptor) *asset.Asset {
+
+	randAsset := asset.RandAsset(t, assetType)
+	randAsset.ScriptKey = asset.NewScriptKeyBip86(desc)
+
+	// The raw key won't be serialized within the asset, so let's blank it
+	// out here to get a fully, byte-by-byte comparable PSBT.
+	randAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
+	randAsset.GroupKey.Witness = nil
+	randAsset.ScriptKey.TweakedScriptKey = nil
+
+	return randAsset
+}
+
 // RandPacket generates a random virtual packet for testing purposes.
-func RandPacket(t testing.TB, setVersion bool) *VPacket {
+func RandPacket(t testing.TB, setVersion, altLeaves bool) *VPacket {
 	testPubKey := test.RandPubKey(t)
 	op := test.RandOp(t)
 	keyDesc := keychain.KeyDescriptor{
@@ -66,16 +113,12 @@ func RandPacket(t testing.TB, setVersion bool) *VPacket {
 	testAsset := asset.RandAsset(t, asset.Normal)
 	testAsset.ScriptKey = inputScriptKey
 
-	testOutputAsset := asset.RandAsset(t, asset.Normal)
-	testOutputAsset.ScriptKey = asset.NewScriptKeyBip86(keyDesc)
-
 	// The raw key won't be serialized within the asset, so let's blank it
 	// out here to get a fully, byte-by-byte comparable PSBT.
 	testAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
 	testAsset.GroupKey.Witness = nil
-	testOutputAsset.GroupKey.RawKey = keychain.KeyDescriptor{}
-	testOutputAsset.GroupKey.Witness = nil
-	testOutputAsset.ScriptKey.TweakedScriptKey = nil
+
+	testOutputAsset := RandAssetForPacket(t, asset.Normal, keyDesc)
 	leaf1 := txscript.TapLeaf{
 		LeafVersion: txscript.BaseLeafVersion,
 		Script:      []byte("not a valid script"),
@@ -105,61 +148,72 @@ func RandPacket(t testing.TB, setVersion bool) *VPacket {
 	courierAddress, err := url.Parse("https://example.com")
 	require.NoError(t, err)
 
+	randVInput := VInput{
+		PrevID: asset.PrevID{
+			OutPoint:  op,
+			ID:        asset.RandID(t),
+			ScriptKey: asset.RandSerializedKey(t),
+		},
+		Anchor: Anchor{
+			Value:             777,
+			PkScript:          []byte("anchor pkscript"),
+			SigHashType:       txscript.SigHashSingle,
+			InternalKey:       testPubKey,
+			MerkleRoot:        []byte("merkle root"),
+			TapscriptSibling:  []byte("sibling"),
+			Bip32Derivation:   bip32Derivations,
+			TrBip32Derivation: trBip32Derivations,
+		},
+		Proof: &inputProof,
+	}
+
+	randVOutput1 := VOutput{
+		Amount: 123,
+		AssetVersion: asset.Version(
+			test.RandIntn(2),
+		),
+		Type:                               TypeSplitRoot,
+		Interactive:                        true,
+		AnchorOutputIndex:                  0,
+		AnchorOutputInternalKey:            testPubKey,
+		AnchorOutputBip32Derivation:        bip32Derivations,
+		AnchorOutputTaprootBip32Derivation: trBip32Derivations,
+		Asset:                              testOutputAsset,
+		ScriptKey:                          testOutputAsset.ScriptKey,
+		SplitAsset:                         testOutputAsset,
+		AnchorOutputTapscriptSibling:       testPreimage1,
+		ProofDeliveryAddress:               courierAddress,
+		ProofSuffix:                        &inputProof,
+		RelativeLockTime:                   345,
+		LockTime:                           456,
+	}
+
+	randVOutput2 := VOutput{
+		Amount: 345,
+		AssetVersion: asset.Version(
+			test.RandIntn(2),
+		),
+		Type:                               TypeSplitRoot,
+		Interactive:                        false,
+		AnchorOutputIndex:                  1,
+		AnchorOutputInternalKey:            testPubKey,
+		AnchorOutputBip32Derivation:        bip32Derivations,
+		AnchorOutputTaprootBip32Derivation: trBip32Derivations,
+		Asset:                              testOutputAsset,
+		ScriptKey:                          testOutputAsset.ScriptKey,
+		AnchorOutputTapscriptSibling:       &testPreimage2,
+	}
+
+	if altLeaves {
+		randVInput.AltLeaves = RandAltLeaves(t)
+		randVOutput1.AltLeaves = RandAltLeaves(t)
+		randVOutput2.AltLeaves = RandAltLeaves(t)
+	}
+
 	vPacket := &VPacket{
-		Inputs: []*VInput{{
-			PrevID: asset.PrevID{
-				OutPoint:  op,
-				ID:        asset.RandID(t),
-				ScriptKey: asset.RandSerializedKey(t),
-			},
-			Anchor: Anchor{
-				Value:             777,
-				PkScript:          []byte("anchor pkscript"),
-				SigHashType:       txscript.SigHashSingle,
-				InternalKey:       testPubKey,
-				MerkleRoot:        []byte("merkle root"),
-				TapscriptSibling:  []byte("sibling"),
-				Bip32Derivation:   bip32Derivations,
-				TrBip32Derivation: trBip32Derivations,
-			},
-			Proof: &inputProof,
-		}, {
-			// Empty input.
-		}},
-		Outputs: []*VOutput{{
-			Amount: 123,
-			AssetVersion: asset.Version(
-				test.RandIntn(2),
-			),
-			Type:                               TypeSplitRoot,
-			Interactive:                        true,
-			AnchorOutputIndex:                  0,
-			AnchorOutputInternalKey:            testPubKey,
-			AnchorOutputBip32Derivation:        bip32Derivations,
-			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
-			Asset:                              testOutputAsset,
-			ScriptKey:                          testOutputAsset.ScriptKey,
-			SplitAsset:                         testOutputAsset,
-			AnchorOutputTapscriptSibling:       testPreimage1,
-			ProofDeliveryAddress:               courierAddress,
-			ProofSuffix:                        &inputProof,
-			RelativeLockTime:                   345,
-			LockTime:                           456,
-		}, {
-			Amount: 345,
-			AssetVersion: asset.Version(
-				test.RandIntn(2),
-			),
-			Type:                               TypeSplitRoot,
-			Interactive:                        false,
-			AnchorOutputIndex:                  1,
-			AnchorOutputInternalKey:            testPubKey,
-			AnchorOutputBip32Derivation:        bip32Derivations,
-			AnchorOutputTaprootBip32Derivation: trBip32Derivations,
-			Asset:                              testOutputAsset,
-			ScriptKey:                          testOutputAsset.ScriptKey,
-			AnchorOutputTapscriptSibling:       &testPreimage2,
-		}},
+		// Empty input.
+		Inputs:      []*VInput{&randVInput, {}},
+		Outputs:     []*VOutput{&randVOutput1, &randVOutput2},
 		ChainParams: testParams,
 	}
 	vPacket.SetInputAsset(0, testAsset)
@@ -283,6 +337,28 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 		ti.Proof = proof.NewTestFromProof(t, i.Proof)
 	}
 
+	if len(i.AltLeaves) > 0 {
+		// Assert that the concrete type of AltLeaf is supported.
+		require.IsTypef(
+			t, &asset.Asset{}, i.AltLeaves[0],
+			"AltLeaves must be of type *asset.Asset",
+		)
+
+		ti.AltLeaves = make([]*asset.TestAsset, 0, len(i.AltLeaves))
+		for idx := range i.AltLeaves {
+			// We also need a type assertion on each leaf.
+			leaf, ok := i.AltLeaves[idx].(*asset.Asset)
+			if !ok {
+				t.Errorf("AltLeaf must be of type *asset.Asset")
+			}
+
+			ti.AltLeaves = append(
+				ti.AltLeaves,
+				asset.NewTestFromAsset(t, leaf),
+			)
+		}
+	}
+
 	return ti
 }
 
@@ -295,6 +371,7 @@ type TestVInput struct {
 	Anchor            *TestAnchor              `json:"anchor"`
 	Asset             *asset.TestAsset         `json:"asset"`
 	Proof             *proof.TestProof         `json:"proof"`
+	AltLeaves         []*asset.TestAsset       `json:"alt_leaves"`
 }
 
 func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
@@ -335,6 +412,13 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 
 	if ti.Proof != nil {
 		vi.Proof = ti.Proof.ToProof(t)
+	}
+
+	if len(ti.AltLeaves) > 0 {
+		vi.AltLeaves = make([]AltLeafAsset, len(ti.AltLeaves))
+		for idx, leaf := range ti.AltLeaves {
+			vi.AltLeaves[idx] = leaf.ToAsset(t)
+		}
 	}
 
 	return vi
@@ -575,6 +659,28 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 		vo.SplitAsset = asset.NewTestFromAsset(t, v.SplitAsset)
 	}
 
+	if len(v.AltLeaves) > 0 {
+		// Assert that the concrete type of AltLeaf is supported.
+		switch v.AltLeaves[0].(type) {
+		case *asset.Asset:
+		default:
+			t.Errorf("AltLeaves must be of type *asset.Asset")
+		}
+
+		vo.AltLeaves = make([]*asset.TestAsset, 0, len(vo.AltLeaves))
+		for idx := range v.AltLeaves {
+			// We also need a type assertion on each leaf.
+			leaf, ok := v.AltLeaves[idx].(*asset.Asset)
+			if !ok {
+				t.Errorf("AltLeaf must be of type *asset.Asset")
+			}
+
+			vo.AltLeaves = append(
+				vo.AltLeaves,
+				asset.NewTestFromAsset(t, leaf),
+			)
+		}
+	}
 	return vo
 }
 
@@ -600,6 +706,7 @@ type TestVOutput struct {
 	ProofSuffix                   *proof.TestProof         `json:"proof_suffix"`
 	RelativeLockTime              uint64                   `json:"relative_lock_time"`
 	LockTime                      uint64                   `json:"lock_time"`
+	AltLeaves                     []*asset.TestAsset       `json:"alt_leaves"`
 }
 
 func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
@@ -690,6 +797,13 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 			v.AnchorOutputTaprootBip32Derivation,
 			derivation.ToTrBip32Derivation(t),
 		)
+	}
+
+	if len(to.AltLeaves) > 0 {
+		v.AltLeaves = make([]AltLeafAsset, len(to.AltLeaves))
+		for idx, leaf := range to.AltLeaves {
+			v.AltLeaves[idx] = leaf.ToAsset(t)
+		}
 	}
 
 	return v

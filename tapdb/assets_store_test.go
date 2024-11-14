@@ -57,7 +57,7 @@ func defaultAssetGenOpts(t *testing.T) *assetGenOptions {
 	return &assetGenOptions{
 		version:      asset.Version(rand.Int31n(2)),
 		assetGen:     gen,
-		groupKeyPriv: test.RandPrivKey(t),
+		groupKeyPriv: test.RandPrivKey(),
 		amt:          uint64(test.RandInt[uint32]()),
 		genesisPoint: test.RandOp(t),
 		scriptKey: asset.NewScriptKeyBip86(keychain.KeyDescriptor{
@@ -520,7 +520,7 @@ func newAssetGenerator(t *testing.T,
 
 	groupKeys := make([]*btcec.PrivateKey, numGroupKeys)
 	for i := 0; i < numGroupKeys; i++ {
-		groupKeys[i] = test.RandPrivKey(t)
+		groupKeys[i] = test.RandPrivKey()
 	}
 
 	return &assetGenerator{

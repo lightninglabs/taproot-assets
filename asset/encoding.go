@@ -32,6 +32,10 @@ var (
 	// ErrByteSliceTooLarge is returned when an encoded byte slice is too
 	// large.
 	ErrByteSliceTooLarge = errors.New("bytes: too large")
+
+	// ErrDuplicateScriptKeys is returned when two alt leaves have the same
+	// script key.
+	ErrDuplicateScriptKeys = errors.New("alt leaf: duplicate script keys")
 )
 
 func VarIntEncoder(w io.Writer, val any, buf *[8]byte) error {
@@ -802,4 +806,92 @@ func DecodeTapLeaf(leafData []byte) (*txscript.TapLeaf, error) {
 	}
 
 	return &leaf, nil
+}
+
+func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*[]AltLeaf[*Asset]); ok {
+		if err := tlv.WriteVarInt(w, uint64(len(*t)), buf); err != nil {
+			return err
+		}
+
+		var streamBuf bytes.Buffer
+		leafKeys := make(map[SerializedKey]struct{})
+		for _, leaf := range *t {
+			// Check that this leaf has a unique script key compared
+			// to all previous leaves. This type assertion is safe
+			// as we've made an equivalent assertion above.
+			leafKey := ToSerialized(leaf.(*Asset).ScriptKey.PubKey)
+			_, ok := leafKeys[leafKey]
+			if ok {
+				return fmt.Errorf("%w: %x",
+					ErrDuplicateScriptKeys, leafKey)
+			}
+
+			leafKeys[leafKey] = struct{}{}
+			err := leaf.EncodeAltLeaf(&streamBuf)
+			if err != nil {
+				return err
+			}
+			streamBytes := streamBuf.Bytes()
+			err = InlineVarBytesEncoder(w, &streamBytes, buf)
+			if err != nil {
+				return err
+			}
+
+			streamBuf.Reset()
+		}
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "[]AltLeaf")
+}
+
+func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	// There is no limit on the number of alt leaves, but the total size of
+	// all alt leaves must be below 64 KiB.
+	if l > math.MaxUint16 {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if typ, ok := val.(*[]AltLeaf[*Asset]); ok {
+		// Each alt leaf is at least 42 bytes, which limits the total
+		// number of aux leaves. So we don't need to enforce a strict
+		// limit here.
+		numItems, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		leaves := make([]AltLeaf[*Asset], 0, numItems)
+		leafKeys := make(map[SerializedKey]struct{})
+		for i := uint64(0); i < numItems; i++ {
+			var streamBytes []byte
+			err = InlineVarBytesDecoder(
+				r, &streamBytes, buf, math.MaxUint16,
+			)
+			if err != nil {
+				return err
+			}
+
+			var leaf Asset
+			err = leaf.DecodeAltLeaf(bytes.NewReader(streamBytes))
+			if err != nil {
+				return err
+			}
+
+			// Check that each alt leaf has a unique script key.
+			leafKey := ToSerialized(leaf.ScriptKey.PubKey)
+			_, ok := leafKeys[leafKey]
+			if ok {
+				return fmt.Errorf("%w: %x",
+					ErrDuplicateScriptKeys, leafKey)
+			}
+
+			leafKeys[leafKey] = struct{}{}
+			leaves = append(leaves, AltLeaf[*Asset](&leaf))
+		}
+
+		*typ = leaves
+		return nil
+	}
+	return tlv.NewTypeForEncodingErr(val, "[]*AltLeaf")
 }

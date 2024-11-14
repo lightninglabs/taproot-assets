@@ -2020,11 +2020,11 @@ func TestPayToAddrScript(t *testing.T) {
 		sendAmt    = 2
 	)
 	gen := asset.RandGenesis(t, asset.Normal)
-	ownerDescriptor := test.PubToKeyDesc(test.RandPrivKey(t).PubKey())
+	ownerDescriptor := test.PubToKeyDesc(test.RandPrivKey().PubKey())
 
-	internalKey := test.RandPrivKey(t).PubKey()
+	internalKey := test.RandPrivKey().PubKey()
 	recipientScriptKey := asset.NewScriptKeyBip86(test.PubToKeyDesc(
-		test.RandPrivKey(t).PubKey(),
+		test.RandPrivKey().PubKey(),
 	))
 
 	// Create an asset and derive a commitment for sending 2 of the 5 asset

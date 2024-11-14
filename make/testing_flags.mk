@@ -20,6 +20,7 @@ endif
 # subpackage.
 ifneq ($(pkg),)
 UNITPKG := $(PKG)/$(pkg)
+COVER_PKG := $(PKG)/$(pkg)
 UNIT_TARGETED = yes
 GOLIST = echo '$(PKG)/$(pkg)'
 endif

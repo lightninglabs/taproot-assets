@@ -42,6 +42,7 @@ var (
 	PsbtKeyTypeInputTapAnchorTapscriptSibling             = []byte{0x78}
 	PsbtKeyTypeInputTapAsset                              = []byte{0x79}
 	PsbtKeyTypeInputTapAssetProof                         = []byte{0x7a}
+	PsbtKeyTypeInputAltLeaves                             = []byte{0x7b}
 
 	PsbtKeyTypeOutputTapType                               = []byte{0x70}
 	PsbtKeyTypeOutputTapIsInteractive                      = []byte{0x71}
@@ -57,6 +58,7 @@ var (
 	PsbtKeyTypeOutputTapAssetProofSuffix                   = []byte{0x7b}
 	PsbtKeyTypeOutputTapAssetLockTime                      = []byte{0x7c}
 	PsbtKeyTypeOutputTapAssetRelativeLockTime              = []byte{0x7d}
+	PsbtKeyTypeOutputTapAltLeaves                          = []byte{0x7e}
 )
 
 // The following keys are used as custom fields on the BTC level anchor
@@ -103,6 +105,9 @@ type bip32DerivationPredicate func(*psbt.Bip32Derivation) bool
 // bip32DerivationPredicate is a function that can be used to filter Taproot
 // BIP-0032 derivation paths.
 type taprootBip32DerivationPredicate func(*psbt.TaprootBip32Derivation) bool
+
+// AltLeafAsset is an AltLeaf backed by an Asset object.
+type AltLeafAsset = asset.AltLeaf[*asset.Asset]
 
 var (
 	// VOutIsSplitRoot is a predicate that returns true if the virtual
@@ -370,6 +375,12 @@ type VInput struct {
 	// Proof is a transition proof that proves the asset being spent was
 	// committed to in the anchor transaction above.
 	Proof *proof.Proof
+
+	// AltLeaves represent data used to construct an Asset commitment, that
+	// will be inserted in the input anchor Tap commitment. These
+	// data-carrying leaves are used for a purpose distinct from
+	// representing individual Taproot Assets.
+	AltLeaves []AltLeafAsset
 }
 
 // Copy creates a deep copy of the VInput.
@@ -382,7 +393,8 @@ func (i *VInput) Copy() *VInput {
 		// We never expect the individual fields of the proof to change
 		// while it is assigned to a virtual input. So not deep copying
 		// it here is fine.
-		Proof: i.Proof,
+		Proof:     i.Proof,
+		AltLeaves: asset.CopyAltLeaves(i.AltLeaves),
 	}
 }
 
@@ -563,6 +575,12 @@ type VOutput struct {
 	// since the header information needs to be added once the anchor
 	// transaction was confirmed in a block.
 	ProofSuffix *proof.Proof
+
+	// AltLeaves represent data used to construct an Asset commitment, that
+	// will be inserted in the output anchor Tap commitment. These
+	// data-carrying leaves are used for a purpose distinct from
+	// representing individual Taproot Assets.
+	AltLeaves []AltLeafAsset
 }
 
 // Copy creates a deep copy of the VOutput.
@@ -590,6 +608,7 @@ func (o *VOutput) Copy() *VOutput {
 		ScriptKey:                    o.ScriptKey,
 		ProofDeliveryAddress:         o.ProofDeliveryAddress,
 		ProofSuffix:                  o.ProofSuffix,
+		AltLeaves:                    asset.CopyAltLeaves(o.AltLeaves),
 	}
 }
 

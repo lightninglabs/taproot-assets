@@ -33,7 +33,7 @@ func RandAddr(t testing.TB, params *ChainParams,
 	proofCourierAddr url.URL) (*AddrWithKeyInfo,
 	*asset.Genesis, *asset.GroupKey) {
 
-	scriptKeyPriv := test.RandPrivKey(t)
+	scriptKeyPriv := test.RandPrivKey()
 	scriptKey := asset.NewScriptKeyBip86(keychain.KeyDescriptor{
 		PubKey: scriptKeyPriv.PubKey(),
 		KeyLocator: keychain.KeyLocator{
@@ -42,7 +42,7 @@ func RandAddr(t testing.TB, params *ChainParams,
 		},
 	})
 
-	internalKey := test.RandPrivKey(t)
+	internalKey := test.RandPrivKey()
 
 	genesis := asset.RandGenesis(t, asset.Type(test.RandInt31n(2)))
 	amount := test.RandInt[uint64]()

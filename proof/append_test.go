@@ -118,7 +118,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 
 	// Transfer the asset to a new owner.
-	recipientPrivKey := test.RandPrivKey(t)
+	recipientPrivKey := test.RandPrivKey()
 	newAsset := *genesisProof.Asset.Copy()
 	newAsset.ScriptKey = asset.NewScriptKeyBip86(
 		test.PubToKeyDesc(recipientPrivKey.PubKey()),
@@ -156,7 +156,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// Add a P2TR change output to test the exclusion proof.
 	var changeInternalKey *btcec.PublicKey
 	if withBip86Change {
-		changeInternalKey = test.RandPrivKey(t).PubKey()
+		changeInternalKey = test.RandPrivKey().PubKey()
 		changeTaprootKey := txscript.ComputeTaprootKeyNoScript(
 			changeInternalKey,
 		)
@@ -221,9 +221,9 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	}
 
 	// If we want to test splitting, we do that now, as a second transfer.
-	split1PrivKey := test.RandPrivKey(t)
-	split2PrivKey := test.RandPrivKey(t)
-	split3PrivKey := test.RandPrivKey(t)
+	split1PrivKey := test.RandPrivKey()
+	split2PrivKey := test.RandPrivKey()
+	split3PrivKey := test.RandPrivKey()
 	transitionOutpoint := wire.OutPoint{
 		Hash:  transitionProof.AnchorTx.TxHash(),
 		Index: transitionProof.InclusionProof.OutputIndex,
