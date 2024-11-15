@@ -544,8 +544,9 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	// Ensure that the quote expiry time is within acceptable bounds.
 	//
 	// TODO(ffranr): Sanity check the buy accept quote expiry
-	//  timestamp given the expiry timestamp provided by the price
-	//  oracle.
+	//  timestamp given the expiry timestamp in our outgoing buy request.
+	//  The expiry timestamp in the outgoing request relates to the lifetime
+	//  of the lightning invoice.
 	expiry := uint64(msg.AssetRate.Expiry.Unix())
 	if !expiryWithinBounds(expiry, minAssetRatesExpiryLifetime) {
 		// The expiry time is not within the acceptable bounds.
@@ -600,8 +601,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		assetRate, err := n.queryAskFromPriceOracle(
 			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
-			fn.None[lnwire.MilliSatoshi](),
-			fn.None[rfqmsg.AssetRate](),
+			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
