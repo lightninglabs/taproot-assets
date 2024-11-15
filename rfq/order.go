@@ -262,9 +262,9 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 		scid:            quote.ShortChannelId(),
 		AssetSpecifier:  quote.Request.AssetSpecifier,
 		AcceptedQuoteId: quote.ID,
-		BidAssetRate:    quote.AssetRate,
+		BidAssetRate:    quote.AssetRate.Rate,
 		PaymentMaxAmt:   quote.Request.PaymentMaxAmt,
-		expiry:          quote.Expiry,
+		expiry:          uint64(quote.AssetRate.Expiry.Unix()),
 	}
 }
 

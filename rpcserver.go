@@ -6630,8 +6630,8 @@ func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAcce
 	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
 	for scid, quote := range quotes {
 		rpcAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: quote.AssetRate.Coefficient.String(),
-			Scale:       uint32(quote.AssetRate.Scale),
+			Coefficient: quote.AssetRate.Rate.Coefficient.String(),
+			Scale:       uint32(quote.AssetRate.Rate.Scale),
 		}
 
 		// TODO(ffranr): Add SellRequest payment max amount to
@@ -6641,7 +6641,7 @@ func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAcce
 			Id:           quote.ID[:],
 			Scid:         uint64(scid),
 			BidAssetRate: rpcAssetRate,
-			Expiry:       quote.Expiry,
+			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}

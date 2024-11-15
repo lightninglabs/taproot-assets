@@ -567,8 +567,8 @@ func MarshalAcceptedSellQuoteEvent(
 	error) {
 
 	rpcAssetRate := &rfqrpc.FixedPoint{
-		Coefficient: event.AssetRate.Coefficient.String(),
-		Scale:       uint32(event.AssetRate.Scale),
+		Coefficient: event.AssetRate.Rate.Coefficient.String(),
+		Scale:       uint32(event.AssetRate.Rate.Scale),
 	}
 
 	// TODO(ffranr): Add SellRequest payment max amount to
@@ -578,7 +578,7 @@ func MarshalAcceptedSellQuoteEvent(
 		Id:           event.ID[:],
 		Scid:         uint64(event.ShortChannelId()),
 		BidAssetRate: rpcAssetRate,
-		Expiry:       event.Expiry,
+		Expiry:       uint64(event.AssetRate.Expiry.Unix()),
 	}, nil
 }
 

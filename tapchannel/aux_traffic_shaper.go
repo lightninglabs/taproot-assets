@@ -224,7 +224,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// expressed in milli-satoshis.
 	localBalanceFp := rfqmath.NewBigIntFixedPoint(localBalance, 0)
 	availableBalanceMsat := rfqmath.UnitsToMilliSatoshi(
-		localBalanceFp, quote.AssetRate,
+		localBalanceFp, quote.AssetRate.Rate,
 	)
 
 	// At this point we have acquired what we need to express the asset
@@ -283,7 +283,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// corresponding number of assets, then reduce the number of satoshis of
 	// the HTLC to the bare minimum that can be materialized on chain.
 	numAssetUnitsFp := rfqmath.MilliSatoshiToUnits(
-		totalAmount, quote.AssetRate,
+		totalAmount, quote.AssetRate.Rate,
 	)
 	numAssetUnits := numAssetUnitsFp.ScaleTo(0).ToUint64()
 

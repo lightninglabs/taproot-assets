@@ -826,7 +826,7 @@ func (m *Manager) PeerAcceptedSellQuotes() SellAcceptMap {
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
 	m.peerAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if time.Now().After(accept.AssetRate.Expiry) {
 				m.peerAcceptedSellQuotes.Delete(scid)
 				return nil
 			}
@@ -870,7 +870,7 @@ func (m *Manager) LocalAcceptedSellQuotes() SellAcceptMap {
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
 	m.localAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if time.Now().After(accept.AssetRate.Expiry) {
 				m.localAcceptedSellQuotes.Delete(scid)
 				return nil
 			}

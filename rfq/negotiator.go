@@ -444,10 +444,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		}
 
 		// Construct and send a sell accept message.
-		expiry := uint64(assetRate.Expiry.Unix())
-		msg := rfqmsg.NewSellAcceptFromRequest(
-			request, assetRate.Rate, expiry,
-		)
+		msg := rfqmsg.NewSellAcceptFromRequest(request, *assetRate)
 		sendOutgoingMsg(msg)
 	}()
 
@@ -677,10 +674,12 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	//
 	// TODO(ffranr): Sanity check the quote expiry timestamp given
 	//  the expiry timestamp provided by the price oracle.
-	if !expiryWithinBounds(msg.Expiry, minAssetRatesExpiryLifetime) {
+	expiry := uint64(msg.AssetRate.Expiry.Unix())
+	if !expiryWithinBounds(expiry, minAssetRatesExpiryLifetime) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Sell accept quote expiry time is not within "+
-			"acceptable bounds (expiry=%d)", msg.Expiry)
+			"acceptable bounds (asset_rate=%s)",
+			msg.AssetRate.String())
 
 		// Construct an invalid quote response event so that we can
 		// inform the peer that the quote response has not validated
@@ -760,7 +759,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
-		acceptablePrice := msg.AssetRate.WithinTolerance(
+		acceptablePrice := msg.AssetRate.Rate.WithinTolerance(
 			assetRate.Rate, tolerance,
 		)
 		if !acceptablePrice {
