@@ -297,6 +297,12 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 		return fmt.Errorf("error summing asset balance: %w", err)
 	}
 
+	// Due to rounding errors, we may slightly underreport the incoming
+	// value of the asset. So we increase it by exactly one asset unit to
+	// ensure that the fee logic in lnd does not reject the HTLC.
+	roundingCorrection := rfqmath.NewBigIntFromUint64(1)
+	assetAmt = assetAmt.Add(roundingCorrection)
+
 	// Convert the inbound asset amount to millisatoshis and ensure that the
 	// outgoing HTLC amount is not more than the inbound asset amount.
 	assetAmtFp := new(rfqmath.BigIntFixedPoint).SetIntValue(assetAmt)
