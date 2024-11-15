@@ -64,7 +64,9 @@ type requestWireMsgData struct {
 	// ID is the unique identifier of the quote request.
 	ID tlv.RecordT[tlv.TlvType2, ID]
 
-	// TODO(ffranr): Add transfer type field with TLV type 4.
+	// TransferType defines the type of transaction which will be performed
+	// if the quote request leads to an accepted agreement.
+	TransferType tlv.RecordT[tlv.TlvType4, TransferType]
 
 	// Expiry is the Unix timestamp (in seconds) when the quote expires.
 	// The quote becomes invalid after this time.
@@ -129,6 +131,7 @@ type requestWireMsgData struct {
 func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	version := tlv.NewRecordT[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
+	transferType := tlv.NewRecordT[tlv.TlvType4](RecvPaymentTransferType)
 
 	// Set the expiry to the default request lifetime unless an asset rate
 	// hint is provided.
@@ -179,6 +182,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 	return requestWireMsgData{
 		Version:          version,
 		ID:               id,
+		TransferType:     transferType,
 		Expiry:           expiryTlv,
 		InAssetID:        inAssetID,
 		InAssetGroupKey:  inAssetGroupKey,
@@ -194,6 +198,7 @@ func newRequestWireMsgDataFromBuy(q BuyRequest) (requestWireMsgData, error) {
 func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
+	transferType := tlv.NewRecordT[tlv.TlvType4](PayInvoiceTransferType)
 
 	// Set the expiry to the default request lifetime unless an asset rate
 	// hint is provided.
@@ -247,6 +252,7 @@ func newRequestWireMsgDataFromSell(q SellRequest) (requestWireMsgData, error) {
 	return requestWireMsgData{
 		Version:          version,
 		ID:               id,
+		TransferType:     transferType,
 		Expiry:           expiryTlv,
 		InAssetID:        inAssetID,
 		OutAssetID:       outAssetID,
@@ -328,6 +334,7 @@ func (m *requestWireMsgData) Encode(w io.Writer) error {
 	records := []tlv.Record{
 		m.Version.Record(),
 		m.ID.Record(),
+		m.TransferType.Record(),
 		m.Expiry.Record(),
 		m.MaxInAsset.Record(),
 	}
@@ -408,6 +415,7 @@ func (m *requestWireMsgData) Decode(r io.Reader) error {
 	tlvStream, err := tlv.NewStream(
 		m.Version.Record(),
 		m.ID.Record(),
+		m.TransferType.Record(),
 		m.Expiry.Record(),
 
 		inAssetID.Record(),

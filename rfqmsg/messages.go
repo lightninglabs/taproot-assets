@@ -90,6 +90,63 @@ func (id *ID) Record() tlv.Record {
 	return tlv.MakeStaticRecord(0, id, recordSize, IdEncoder, IdDecoder)
 }
 
+// TransferType defines the type of transaction which will be performed if the
+// quote request leads to an accepted agreement.
+type TransferType uint8
+
+const (
+	// UnspecifiedTransferType represents an undefined or transfer type.
+	UnspecifiedTransferType TransferType = 0
+
+	// PayInvoiceTransferType indicates that the requesting peer wants to
+	// pay a Lightning Network invoice using a taproot asset.
+	PayInvoiceTransferType TransferType = 1
+
+	// RecvPaymentTransferType indicates that the requesting peer wants
+	// to receive taproot asset funds linked to a Lightning Network invoice.
+	RecvPaymentTransferType TransferType = 2
+)
+
+// Record returns a TLV record that can be used to encode/decode a transfer type
+// to/from a TLV stream.
+//
+// NOTE: This is part of the tlv.RecordProducer interface.
+func (t *TransferType) Record() tlv.Record {
+	// Note that we set the type here as zero, as when used with a
+	// tlv.RecordT, the type param will be used as the type.
+	return tlv.MakeStaticRecord(
+		0, t, 1, TransferTypeEncoder, TransferTypeDecoder,
+	)
+}
+
+// TransferTypeEncoder is a function that can be used to encode a TransferType
+// to a writer.
+func TransferTypeEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if transferType, ok := val.(*TransferType); ok {
+		transferTypeInt := uint8(*transferType)
+		return tlv.EUint8(w, &transferTypeInt, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "TransferType")
+}
+
+// TransferTypeDecoder is a function that can be used to decode a TransferType
+// from a reader.
+func TransferTypeDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if transferType, ok := val.(*TransferType); ok {
+		var transferTypeInt uint8
+		err := tlv.DUint8(r, &transferTypeInt, buf, l)
+		if err != nil {
+			return err
+		}
+
+		*transferType = TransferType(transferTypeInt)
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "TransferType", l, 8)
+}
+
 // AssetRate represents the exchange rate of an asset to BTC, encapsulating
 // both the rate in fixed-point format and an expiration timestamp.
 //
