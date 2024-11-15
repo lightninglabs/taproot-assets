@@ -745,7 +745,23 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	return nil
 }
 
-// SellOrder is a struct that represents an asset sell order.
+// SellOrder instructs the RFQ (Request For Quote) system to request a quote
+// from one or more peers for the disposition of an asset.
+//
+// Normal usage of a sell order:
+//  1. Alice creates a Lightning invoice for Bob to pay.
+//  2. Bob wants to pay the invoice using a Tap asset. To do so, Bob pays an
+//     edge node with a Tap asset, and the edge node forwards the payment to the
+//     network to settle Alice's invoice. Bob submits a SellOrder to his local
+//     RFQ service.
+//  3. The RFQ service converts the SellOrder into one or more SellRequests.
+//     These requests are sent to Charlie (the edge node), who shares a relevant
+//     Tap asset channel with Bob and can forward payments to settle Alice's
+//     invoice.
+//  4. Charlie responds with a quote that satisfies Bob.
+//  5. Bob transfers the appropriate Tap asset amount to Charlie via their
+//     shared Tap asset channel, and Charlie forwards the corresponding amount
+//     to Alice to settle the Lightning invoice.
 type SellOrder struct {
 	// AssetSpecifier is the asset that the seller is interested in.
 	AssetSpecifier asset.Specifier
