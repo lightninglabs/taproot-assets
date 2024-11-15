@@ -525,12 +525,8 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 // expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
 // within acceptable bounds. This check ensures that the expiry timestamp is far
 // enough in the future for the quote to be useful.
-func expiryWithinBounds(expiryUnixTimestamp uint64,
-	minExpiryLifetime uint64) bool {
-
-	// Convert the expiry timestamp into a time.Time.
-	actualExpiry := time.Unix(int64(expiryUnixTimestamp), 0)
-	diff := actualExpiry.Unix() - time.Now().Unix()
+func expiryWithinBounds(expiry time.Time, minExpiryLifetime uint64) bool {
+	diff := expiry.Unix() - time.Now().Unix()
 	return diff >= int64(minExpiryLifetime)
 }
 
@@ -547,8 +543,9 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	//  timestamp given the expiry timestamp in our outgoing buy request.
 	//  The expiry timestamp in the outgoing request relates to the lifetime
 	//  of the lightning invoice.
-	expiry := uint64(msg.AssetRate.Expiry.Unix())
-	if !expiryWithinBounds(expiry, minAssetRatesExpiryLifetime) {
+	if !expiryWithinBounds(
+		msg.AssetRate.Expiry, minAssetRatesExpiryLifetime,
+	) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Buy accept quote expiry time is not within "+
 			"acceptable bounds (asset_rate=%s)",
@@ -674,8 +671,9 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	//
 	// TODO(ffranr): Sanity check the quote expiry timestamp given
 	//  the expiry timestamp provided by the price oracle.
-	expiry := uint64(msg.AssetRate.Expiry.Unix())
-	if !expiryWithinBounds(expiry, minAssetRatesExpiryLifetime) {
+	if !expiryWithinBounds(
+		msg.AssetRate.Expiry, minAssetRatesExpiryLifetime,
+	) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Sell accept quote expiry time is not within "+
 			"acceptable bounds (asset_rate=%s)",
