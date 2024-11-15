@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -254,7 +253,8 @@ func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
 	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
 
 	log.Tracef("Currently available quotes: buy %v, sell %v",
-		spew.Sdump(acceptedBuyQuotes), spew.Sdump(acceptedSellQuotes))
+		limitSpewer.Sdump(acceptedBuyQuotes),
+		limitSpewer.Sdump(acceptedSellQuotes))
 
 	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
 	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]

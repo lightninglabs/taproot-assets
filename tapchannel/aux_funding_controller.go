@@ -19,7 +19,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -522,7 +521,7 @@ func (p *pendingAssetFunding) unlockAssetInputs(ctx context.Context,
 	coinSelect tapfreighter.CoinSelector) error {
 
 	log.Debugf("unlocking asset inputs: %v",
-		spew.Sdump(p.lockedAssetInputs))
+		limitSpewer.Sdump(p.lockedAssetInputs))
 
 	err := coinSelect.ReleaseCoins(ctx, p.lockedAssetInputs...)
 	if err != nil {
@@ -936,7 +935,8 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 func (f *FundingController) signAndFinalizePsbt(ctx context.Context,
 	pkt *psbt.Packet) (*wire.MsgTx, error) {
 
-	log.Debugf("Signing and finalizing PSBT w/ lnd: %v", spew.Sdump(pkt))
+	log.Debugf("Signing and finalizing PSBT w/ lnd: %v",
+		limitSpewer.Sdump(pkt))
 
 	// By default, the wallet won't try to finalize output it sees are watch
 	// only (like the asset input), so we'll have it sign ourselves first.
@@ -945,7 +945,7 @@ func (f *FundingController) signAndFinalizePsbt(ctx context.Context,
 		return nil, fmt.Errorf("unable to sign PSBT: %w", err)
 	}
 
-	log.Debugf("Signed PSBT: %v", spew.Sdump(signedPkt))
+	log.Debugf("Signed PSBT: %v", limitSpewer.Sdump(signedPkt))
 
 	finalizedPkt, err := f.cfg.ChainWallet.SignAndFinalizePsbt(
 		ctx, signedPkt,
@@ -954,7 +954,7 @@ func (f *FundingController) signAndFinalizePsbt(ctx context.Context,
 		return nil, fmt.Errorf("unable to finalize PSBT: %w", err)
 	}
 
-	log.Debugf("Finalized PSBT: %v", spew.Sdump(signedPkt))
+	log.Debugf("Finalized PSBT: %v", limitSpewer.Sdump(signedPkt))
 
 	// Extra the tx manually, then perform some manual sanity checks to
 	// make sure things are ready for broadcast.
@@ -1056,7 +1056,8 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// with lnd that we arrived at the proper TxOut.
 	fundingPsbt.UnsignedTx.TxOut[0].Value = int64(fundingReq.ChanAmt)
 
-	log.Debugf("Funding PSBT pre funding: %s", spew.Sdump(fundingPsbt))
+	log.Debugf("Funding PSBT pre funding: %s",
+		limitSpewer.Sdump(fundingPsbt))
 
 	// With the PSBT template created, we'll now ask lnd to fund the PSBT.
 	// This'll add yet another output (lnd's change output) to the
@@ -1068,7 +1069,8 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 		return nil, fmt.Errorf("unable to fund PSBT: %w", err)
 	}
 
-	log.Infof("Funding PSBT post funding: %s", spew.Sdump(finalFundedPsbt))
+	log.Infof("Funding PSBT post funding: %s",
+		limitSpewer.Sdump(finalFundedPsbt))
 
 	// If we fail at any step in the process, we want to make sure we
 	// unlock the inputs, so we'll add them to funding state now.
@@ -1111,7 +1113,7 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	}
 
 	log.Debugf("Submitting finalized PSBT to lnd for verification: %s",
-		spew.Sdump(finalFundedPsbt.Pkt))
+		limitSpewer.Sdump(finalFundedPsbt.Pkt))
 
 	// At this point, we're nearly done, we'll now present the final PSBT
 	// to lnd to verification. If this passes, then we're clear to
@@ -1650,7 +1652,7 @@ func (f *FundingController) chanFunder() {
 			}
 
 			log.Infof("Returning funding desc: %v",
-				spew.Sdump(fundingDesc))
+				limitSpewer.Sdump(fundingDesc))
 
 			req.resp <- lfn.Some(*fundingDesc)
 

@@ -15,7 +15,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -375,7 +374,7 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		vIn.TaprootLeafScript[0].ControlBlock = ctrlBlock
 
 		log.Debugf("signing vPacket for input=%v",
-			spew.Sdump(vIn.PrevID))
+			limitSpewer.Sdump(vIn.PrevID))
 
 		// With everything set, we can now sign the new leaf we'll
 		// sweep into.
@@ -1235,7 +1234,7 @@ func (a *AuxSweeper) importCommitScriptKeys(req lnwallet.ResolutionReq) error {
 		return fmt.Errorf("unknown close type: %v", req.CloseType)
 	}
 
-	log.Debugf("Importing script_keys=%v", spew.Sdump(keysToImport))
+	log.Debugf("Importing script_keys=%v", limitSpewer.Sdump(keysToImport))
 
 	ctxb := context.Background()
 	for _, key := range keysToImport {
@@ -1268,7 +1267,8 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 			},
 		}
 
-		log.Debugf("Importing script_keys=%v", spew.Sdump(scriptKey))
+		log.Debugf("Importing script_keys=%v",
+			limitSpewer.Sdump(scriptKey))
 
 		return a.cfg.AddrBook.InsertScriptKey(ctxb, scriptKey, true)
 	}
@@ -1327,7 +1327,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		}
 
 		log.Infof("Fetching funding input proof, locator=%v",
-			spew.Sdump(inputProofLocator))
+			limitSpewer.Sdump(inputProofLocator))
 
 		// First, we'll make a courier to use in fetching the proofs we
 		// need.
@@ -1360,7 +1360,7 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 		}
 
 		log.Infof("All proofs fetched, importing locator=%v",
-			spew.Sdump(inputProofLocator))
+			limitSpewer.Sdump(inputProofLocator))
 
 		// Before we combine the proofs below, we'll be sure to update
 		// the transition proof to include the proper block+merkle proof
@@ -1832,7 +1832,8 @@ func (a *AuxSweeper) resolveContract(
 	}
 
 	log.Infof("Sweeping %v asset outputs (second_level=%v): %v",
-		len(assetOutputs), needsSecondLevel, spew.Sdump(assetOutputs))
+		len(assetOutputs), needsSecondLevel,
+		limitSpewer.Sdump(assetOutputs))
 
 	// With the sweep desc constructed above, we'll create vPackets for each
 	// of the local assets, then sign them all.
@@ -2270,7 +2271,8 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	// TODO(roasbeef): need to handle replacement -- will porter just
 	// upsert in place?
 
-	log.Infof("Register broadcast of sweep_tx=%v", spew.Sdump(sweepTx))
+	log.Infof("Register broadcast of sweep_tx=%v",
+		limitSpewer.Sdump(sweepTx))
 
 	// In order to properly register the sweep, we'll need to first extra a
 	// unified set of vPackets from the specified inputs.
@@ -2431,7 +2433,8 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 		}
 	}
 
-	log.Infof("Proofs generated for sweep_tx=%v", spew.Sdump(sweepTx))
+	log.Infof("Proofs generated for sweep_tx=%v",
+		limitSpewer.Sdump(sweepTx))
 
 	// With the output commitments re-created, we have all we need to log
 	// and ship the transaction.
