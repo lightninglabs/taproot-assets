@@ -10,7 +10,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -250,7 +249,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	}
 
 	log.Tracef("Decoded local_shutdown=%v, remote_shutdown=%v",
-		spew.Sdump(localShutdown), spew.Sdump(remoteShutdown))
+		limitSpewer.Sdump(localShutdown),
+		limitSpewer.Sdump(remoteShutdown))
 
 	// To start with, we'll now create the allocations for the asset
 	// outputs. We track the amount that'll go to the anchor assets, so we
@@ -570,7 +570,7 @@ func (a *AuxChanCloser) ShutdownBlob(
 		return none, err
 	}
 
-	log.Infof("Constructed shutdown record: %v", spew.Sdump(records))
+	log.Infof("Constructed shutdown record: %v", limitSpewer.Sdump(records))
 
 	return lfn.Some[lnwire.CustomRecords](records), nil
 }
