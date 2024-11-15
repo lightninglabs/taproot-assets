@@ -481,9 +481,11 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 
 		if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
+			//
+			// TODO(ffranr): Pass the SellOrder expiry to the
+			//  price oracle at this point.
 			assetRate, err := n.queryAskFromPriceOracle(
-				order.AssetSpecifier,
-				fn.None[uint64](),
+				order.AssetSpecifier, fn.None[uint64](),
 				fn.Some(order.PaymentMaxAmt),
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -494,7 +496,7 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 				return
 			}
 
-			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
+			assetRateHint = fn.MaybeSome(assetRate)
 		}
 
 		request, err := rfqmsg.NewSellRequest(

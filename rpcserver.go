@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -6423,9 +6424,17 @@ func unmarshalAssetSellOrder(
 			err)
 	}
 
+	// Convert expiry unix timestamp in seconds to time.Time.
+	if req.Expiry > math.MaxInt64 {
+		return nil, fmt.Errorf("expiry must be less than or equal to "+
+			"math.MaxInt64 (expiry=%d)", req.Expiry)
+	}
+	expiry := time.Unix(int64(req.Expiry), 0).UTC()
+
 	return &rfq.SellOrder{
 		AssetSpecifier: assetSpecifier,
 		PaymentMaxAmt:  lnwire.MilliSatoshi(req.PaymentMaxAmt),
+		Expiry:         expiry,
 		Peer:           peer,
 	}, nil
 }

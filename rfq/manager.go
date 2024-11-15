@@ -754,12 +754,8 @@ type SellOrder struct {
 	// must agree to pay.
 	PaymentMaxAmt lnwire.MilliSatoshi
 
-	// Expiry is the unix timestamp at which the order expires.
-	//
-	// TODO(ffranr): This is the invoice expiry unix timestamp in seconds.
-	//  We should make use of this field to ensure quotes are valid for the
-	//  duration of the invoice.
-	Expiry uint64
+	// Expiry is the time at which the order expires.
+	Expiry time.Time
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
