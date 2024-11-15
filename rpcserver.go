@@ -6314,10 +6314,17 @@ func unmarshalAssetBuyOrder(
 			err)
 	}
 
+	// Convert expiry unix timestamp in seconds to time.Time.
+	if req.Expiry > math.MaxInt64 {
+		return nil, fmt.Errorf("expiry must be less than or equal to "+
+			"math.MaxInt64 (expiry=%d)", req.Expiry)
+	}
+	expiry := time.Unix(int64(req.Expiry), 0).UTC()
+
 	return &rfq.BuyOrder{
 		AssetSpecifier: assetSpecifier,
 		AssetMaxAmt:    req.AssetMaxAmt,
-		Expiry:         req.Expiry,
+		Expiry:         expiry,
 		Peer:           fn.MaybeSome(peer),
 	}, nil
 }

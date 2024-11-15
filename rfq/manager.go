@@ -689,7 +689,7 @@ func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
 }
 
 // BuyOrder instructs the RFQ (Request For Quote) system to request a quote from
-// a peer for the acquisition of an asset.
+// one or more peers for the acquisition of an asset.
 //
 // The normal use of a buy order is as follows:
 //  1. Alice, operating a wallet node, wants to receive a Tap asset as payment
@@ -715,8 +715,8 @@ type BuyOrder struct {
 	// be willing to offer.
 	AssetMaxAmt uint64
 
-	// Expiry is the unix timestamp at which the buy order expires.
-	Expiry uint64
+	// Expiry is the time at which the order expires.
+	Expiry time.Time
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.

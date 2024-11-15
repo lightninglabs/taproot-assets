@@ -176,6 +176,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			buyOrder.AssetSpecifier.IsSome() {
 
 			// Query the price oracle for a bid price.
+			//
+			// TODO(ffranr): Pass the BuyOrder expiry to the price
+			//  oracle at this point.
 			assetRate, err := n.queryBidFromPriceOracle(
 				buyOrder.AssetSpecifier,
 				fn.Some(buyOrder.AssetMaxAmt),
