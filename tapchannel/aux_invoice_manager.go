@@ -266,7 +266,7 @@ func (s *AuxInvoiceManager) priceFromQuote(rfqID rfqmsg.ID) (
 		log.Debugf("Found buy quote for ID %x / SCID %d: %#v", rfqID[:],
 			rfqID.Scid(), buyQuote)
 
-		return &buyQuote.AssetRate, nil
+		return &buyQuote.AssetRate.Rate, nil
 
 	// This is a direct peer payment, so we expect to find a sell quote.
 	case isSell:

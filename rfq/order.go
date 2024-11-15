@@ -108,8 +108,8 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 		AssetSpecifier:         quote.Request.AssetSpecifier,
 		AcceptedQuoteId:        quote.ID,
 		MaxOutboundAssetAmount: quote.Request.AssetMaxAmt,
-		AskAssetRate:           quote.AssetRate,
-		expiry:                 quote.Expiry,
+		AskAssetRate:           quote.AssetRate.Rate,
+		expiry:                 uint64(quote.AssetRate.Expiry.Unix()),
 	}
 }
 

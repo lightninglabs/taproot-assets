@@ -594,10 +594,10 @@ func MarshalAcceptedBuyQuoteEvent(
 		Scid:        uint64(event.ShortChannelId()),
 		AssetAmount: event.Request.AssetMaxAmt,
 		AskAssetRate: &rfqrpc.FixedPoint{
-			Coefficient: event.AssetRate.Coefficient.String(),
-			Scale:       uint32(event.AssetRate.Scale),
+			Coefficient: event.AssetRate.Rate.Coefficient.String(),
+			Scale:       uint32(event.AssetRate.Rate.Scale),
 		},
-		Expiry: event.Expiry,
+		Expiry: uint64(event.AssetRate.Expiry.Unix()),
 	}, nil
 }
 

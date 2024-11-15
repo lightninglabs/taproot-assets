@@ -2,8 +2,8 @@ package rfqmsg
 
 import (
 	"fmt"
+	"time"
 
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -30,10 +30,7 @@ type BuyAccept struct {
 	ID ID
 
 	// AssetRate is the accepted asset to BTC rate.
-	AssetRate rfqmath.BigIntFixedPoint
-
-	// Expiry is the asking price expiry lifetime unix timestamp.
-	Expiry uint64
+	AssetRate AssetRate
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
@@ -41,10 +38,8 @@ type BuyAccept struct {
 
 // NewBuyAcceptFromRequest creates a new instance of a quote accept message
 // given a quote request message.
-//
-// TODO(ffranr): Use new AssetRate type for assetRate arg.
 func NewBuyAcceptFromRequest(request BuyRequest,
-	assetRate rfqmath.BigIntFixedPoint, expiry uint64) *BuyAccept {
+	assetRate AssetRate) *BuyAccept {
 
 	return &BuyAccept{
 		Peer:      request.Peer,
@@ -52,7 +47,6 @@ func NewBuyAcceptFromRequest(request BuyRequest,
 		Version:   latestBuyAcceptVersion,
 		ID:        request.ID,
 		AssetRate: assetRate,
-		Expiry:    expiry,
 	}
 }
 
@@ -70,14 +64,16 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 	// currently assume that the out-asset is BTC.
 	assetRate := msgData.InAssetRate.Val.IntoBigIntFixedPoint()
 
+	// Convert the unix timestamp in seconds to a time.Time.
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0)
+
 	return &BuyAccept{
 		Peer:      wireMsg.Peer,
 		Request:   request,
 		Version:   msgData.Version.Val,
 		ID:        msgData.ID.Val,
-		Expiry:    msgData.Expiry.Val,
+		AssetRate: NewAssetRate(assetRate, expiry),
 		sig:       msgData.Sig.Val,
-		AssetRate: assetRate,
 	}, nil
 }
 
@@ -128,9 +124,8 @@ func (q *BuyAccept) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *BuyAccept) String() string {
-	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, ask_price=%d, "+
-		"expiry=%d, scid=%d)",
-		q.Peer[:], q.ID[:], q.AssetRate, q.Expiry, q.ShortChannelId())
+	return fmt.Sprintf("BuyAccept(peer=%x, id=%x, asset_rate=%s, scid=%d)",
+		q.Peer[:], q.ID[:], q.AssetRate.String(), q.ShortChannelId())
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.

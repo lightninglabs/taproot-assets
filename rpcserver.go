@@ -6591,10 +6591,10 @@ func marshalPeerAcceptedBuyQuotes(
 		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
 	for scid, quote := range quotes {
-		coefficient := quote.AssetRate.Coefficient.String()
+		coefficient := quote.AssetRate.Rate.Coefficient.String()
 		rpcAskAssetRate := &rfqrpc.FixedPoint{
 			Coefficient: coefficient,
-			Scale:       uint32(quote.AssetRate.Scale),
+			Scale:       uint32(quote.AssetRate.Rate.Scale),
 		}
 
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
@@ -6603,7 +6603,7 @@ func marshalPeerAcceptedBuyQuotes(
 			Scid:         uint64(scid),
 			AssetAmount:  quote.Request.AssetMaxAmt,
 			AskAssetRate: rpcAskAssetRate,
-			Expiry:       quote.Expiry,
+			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
