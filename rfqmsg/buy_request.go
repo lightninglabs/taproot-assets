@@ -19,6 +19,23 @@ const (
 )
 
 // BuyRequest is a struct that represents an asset buy quote request.
+//
+// Normal usage of a buy request:
+//  1. Alice, operating a wallet node, wants to receive a Tap asset as payment
+//     by issuing a Lightning invoice.
+//  2. Alice has an asset channel established with Bob's edge node.
+//  3. Before issuing the invoice, Alice needs to agree on an exchange rate with
+//     Bob, who will facilitate the asset transfer.
+//  4. To obtain the best exchange rate, Alice creates a buy order specifying
+//     the desired asset.
+//  5. Alice's RFQ subsystem processes the buy order and sends buy requests to
+//     relevant peers to find the best rate. In this example, Bob is the only
+//     available peer.
+//  6. Once Bob provides a satisfactory quote, Alice accepts it.
+//  7. Alice issues the Lightning invoice, which Charlie will pay.
+//  8. Instead of paying Alice directly, Charlie pays Bob.
+//  9. Bob then forwards the agreed amount of the Tap asset to Alice over their
+//     asset channel.
 type BuyRequest struct {
 	// Peer is the peer that sent the quote request.
 	Peer route.Vertex
