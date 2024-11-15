@@ -121,7 +121,7 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 			"request")
 	}
 
-	expiry := time.Unix(int64(msgData.Expiry.Val), 0)
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0).UTC()
 
 	// Extract the suggested asset to BTC rate if provided.
 	var assetRateHint fn.Option[AssetRate]

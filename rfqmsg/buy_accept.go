@@ -65,7 +65,7 @@ func newBuyAcceptFromWireMsg(wireMsg WireMessage,
 	assetRate := msgData.InAssetRate.Val.IntoBigIntFixedPoint()
 
 	// Convert the unix timestamp in seconds to a time.Time.
-	expiry := time.Unix(int64(msgData.Expiry.Val), 0)
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0).UTC()
 
 	return &BuyAccept{
 		Peer:      wireMsg.Peer,

@@ -127,7 +127,7 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 		return nil, fmt.Errorf("expiry time exceeds maximum int64")
 	}
 
-	expiry := time.Unix(int64(msgData.Expiry.Val), 0)
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0).UTC()
 
 	// Extract the suggested asset to BTC rate if provided.
 	var assetRateHint fn.Option[AssetRate]
