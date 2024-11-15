@@ -317,7 +317,7 @@ jobs:
       - name: Update go.mod to use the local Tap repository
         working-directory: ./lightning-terminal
         run: |
-          go mod edit -replace=github.com/lightning-labs/taproot-assets=../
+          go mod edit -replace=github.com/lightninglabs/taproot-assets=../
           go mod tidy
 
       - name: Install yarn
