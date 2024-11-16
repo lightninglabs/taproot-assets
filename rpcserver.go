@@ -1059,9 +1059,57 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 			"and include_leased")
 	}
 
+	constraints := tapfreighter.CommitmentConstraints{
+		MinAmt:         req.MinAmount,
+		MaxAmt:         req.MaxAmount,
+		CoinSelectType: tapsend.DefaultCoinSelectType,
+	}
+
+	if len(req.GroupKey) > 0 {
+		groupKey, err := btcec.ParsePubKey(req.GroupKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group key: %w",
+				err)
+		}
+
+		constraints.AssetSpecifier = asset.NewSpecifierFromGroupKey(
+			*groupKey,
+		)
+	}
+
+	filters := &tapdb.AssetQueryFilters{
+		CommitmentConstraints: constraints,
+	}
+
+	if req.ScriptKey != nil {
+		scriptKey, err := taprpc.UnmarshalScriptKey(req.ScriptKey)
+		if err != nil {
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
+		}
+
+		filters.ScriptKey = scriptKey
+	}
+
+	if req.AnchorOutpoint != nil {
+		txid, err := chainhash.NewHash(req.AnchorOutpoint.Txid)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing outpoint: %w",
+				err)
+		}
+		outPoint := &wire.OutPoint{
+			Hash:  *txid,
+			Index: req.AnchorOutpoint.OutputIndex,
+		}
+
+		filters.AnchorPoint = outPoint
+	}
+
 	rpcAssets, err := r.fetchRpcAssets(
 		ctx, req.WithWitness, req.IncludeSpent, req.IncludeLeased,
+		filters,
 	)
+
 	if err != nil {
 		return nil, err
 	}
@@ -1114,10 +1162,11 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 }
 
 func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
-	includeSpent, includeLeased bool) ([]*taprpc.Asset, error) {
+	includeSpent, includeLeased bool,
+	queryFilters *tapdb.AssetQueryFilters) ([]*taprpc.Asset, error) {
 
 	assets, err := r.cfg.AssetStore.FetchAllAssets(
-		ctx, includeSpent, includeLeased, nil,
+		ctx, includeSpent, includeLeased, queryFilters,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to read chain assets: %w", err)
@@ -1243,7 +1292,9 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	req *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
-	rpcAssets, err := r.fetchRpcAssets(ctx, false, false, req.IncludeLeased)
+	rpcAssets, err := r.fetchRpcAssets(
+		ctx, false, false, req.IncludeLeased, nil,
+	)
 	if err != nil {
 		return nil, err
 	}
