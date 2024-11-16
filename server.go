@@ -1162,8 +1162,9 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount,
 	outpointToTxIndex map[wire.OutPoint]int) error {
 
-	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v",
-		spew.Sdump(req), spew.Sdump(tx), fee)
+	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v, "+
+		"out_index=%v", spew.Sdump(req), spew.Sdump(tx), fee,
+		spew.Sdump(outpointToTxIndex))
 
 	if err := s.waitForReady(); err != nil {
 		return err
