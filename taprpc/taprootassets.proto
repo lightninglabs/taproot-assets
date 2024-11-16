@@ -196,6 +196,21 @@ message ListAssetRequest {
     // confirmed (check either transfers or receives for unconfirmed outbound or
     // inbound assets).
     bool include_unconfirmed_mints = 4;
+
+    // Only return assets with amount greater or equal to this value.
+    uint64 min_amount = 5;
+
+    // Only return assets with amount less or equal to this value.
+    uint64 max_amount = 6;
+
+    // Only return assets that belong to the group with this key.
+    bytes group_key = 7;
+
+    // Return all assets that use this script key.
+    ScriptKey script_key = 8;
+
+    // Return all assets that are currently anchored on this outpoint.
+    OutPoint anchor_outpoint = 9;
 }
 
 message AnchorInfo {
