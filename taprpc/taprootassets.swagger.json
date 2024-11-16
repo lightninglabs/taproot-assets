@@ -213,6 +213,86 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "min_amount",
+            "description": "Only return assets with amount greater or equal to this value.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "max_amount",
+            "description": "Only return assets with amount less or equal to this value.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "group_key",
+            "description": "Only return assets that belong to the group with this key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "script_key.pub_key",
+            "description": "The full Taproot output key the asset is locked to. This is either a BIP-86\nkey if the tap_tweak below is empty, or a key with the tap tweak applied to\nit.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "script_key.key_desc.raw_key_bytes",
+            "description": "The raw bytes of the key being identified.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "script_key.key_desc.key_loc.key_family",
+            "description": "The family of key being identified.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "script_key.key_desc.key_loc.key_index",
+            "description": "The precise index of the key being identified.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int32"
+          },
+          {
+            "name": "script_key.tap_tweak",
+            "description": "The optional Taproot tweak to apply to the above internal key. If this is\nempty then a BIP-86 style tweak is applied to the internal key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "anchor_outpoint.txid",
+            "description": "Raw bytes representing the transaction id.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "anchor_outpoint.output_index",
+            "description": "The index of the output on the transaction.",
+            "in": "query",
+            "required": false,
+            "type": "integer",
+            "format": "int64"
           }
         ],
         "tags": [
