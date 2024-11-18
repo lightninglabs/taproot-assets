@@ -107,7 +107,8 @@ var (
 	ZeroPrevID PrevID
 
 	// EmptyGenesis is the empty Genesis struct used for alt leaves.
-	EmptyGenesis Genesis
+	EmptyGenesis   Genesis
+	EmptyGenesisID = EmptyGenesis.ID()
 
 	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
@@ -127,6 +128,14 @@ var (
 	// ErrUnknownVersion is returned when an asset with an unknown asset
 	// version is being used.
 	ErrUnknownVersion = errors.New("asset: unknown asset version")
+
+	// ErrUnwrapAssetID is returned when an asset ID cannot be unwrapped
+	// from a Specifier.
+	ErrUnwrapAssetID = errors.New("unable to unwrap asset ID")
+
+	// ErrDuplicateAltLeafKey is returned when a slice of AltLeaves contains
+	// 2 or more AltLeaves with the same AssetCommitmentKey.
+	ErrDuplicateAltLeafKey = errors.New("duplicate alt leaf key")
 )
 
 const (
@@ -249,12 +258,6 @@ func DecodeGenesis(r io.Reader) (Genesis, error) {
 	err := GenesisDecoder(r, &gen, &buf, 0)
 	return gen, err
 }
-
-var (
-	// ErrUnwrapAssetID is an error type which is returned when an asset ID
-	// cannot be unwrapped from a specifier.
-	ErrUnwrapAssetID = errors.New("unable to unwrap asset ID")
-)
 
 // Specifier is a type that can be used to specify an asset by its ID, its asset
 // group public key, or both.
@@ -2304,6 +2307,10 @@ type AltLeaf[T any] interface {
 	// the Copyable interface.
 	fn.Copyable[T]
 
+	// AssetCommitmentKey is the key for an AltLeaf within an
+	// AssetCommitment.
+	AssetCommitmentKey() [32]byte
+
 	// ValidateAltLeaf ensures that an AltLeaf is valid.
 	ValidateAltLeaf() error
 
@@ -2394,6 +2401,35 @@ func (a *Asset) ValidateAltLeaf() error {
 	}
 
 	return nil
+}
+
+// ValidAltLeaves checks that a set of Assets are valid AltLeaves, and can be
+// used to construct an AltCommitment. This requires that each AltLeaf has a
+// unique AssetCommitmentKey.
+func ValidAltLeaves(leaves []*Asset) error {
+	leafKeys := fn.NewSet[[32]byte]()
+	for _, leaf := range leaves {
+		err := leaf.ValidateAltLeaf()
+		if err != nil {
+			return err
+		}
+
+		leafKey := leaf.AssetCommitmentKey()
+		if leafKeys.Contains(leafKey) {
+			return fmt.Errorf("%w: %x", ErrDuplicateAltLeafKey,
+				leafKey)
+		}
+
+		leafKeys.Add(leafKey)
+	}
+
+	return nil
+}
+
+// IsAltLeaf returns true if an Asset would be stored in the AltCommmitment of
+// a TapCommitment. It does not check if the Asset is a valid AltLeaf.
+func (a *Asset) IsAltLeaf() bool {
+	return a.GroupKey == nil && a.Genesis == EmptyGenesis
 }
 
 // encodeAltLeafRecords determines the set of non-nil records to include when
