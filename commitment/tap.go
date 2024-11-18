@@ -662,3 +662,114 @@ func TrimSplitWitnesses(version *TapCommitmentVersion,
 
 	return tapCommitment, nil
 }
+
+// TrimAltLeaves creates a new TapCommitment with any AltLeaves removed, if
+// present. The removed AltLeaves are returned separately.
+func TrimAltLeaves(c *TapCommitment) (*TapCommitment, []*asset.Asset, error) {
+	if c.assetCommitments == nil {
+		return nil, nil, fmt.Errorf("tap commitment has no leaves, " +
+			"cannot trim")
+	}
+
+	// If no AltCommitment is present, we have nothing to trim.
+	altCommit := c.assetCommitments[asset.EmptyGenesisID]
+	if altCommit == nil {
+		return c, nil, nil
+	}
+
+	// Remove the AltCommitment and reconstruct the Tap commitment.
+	allCommitments := c.Commitments()
+	delete(allCommitments, asset.EmptyGenesisID)
+
+	tapCommitment, err := NewTapCommitment(
+		&c.Version, maps.Values(allCommitments)...,
+	)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return tapCommitment, maps.Values(altCommit.Assets()), nil
+}
+
+// FetchAltLeaves returns a copy of any AltLeaves present in the TapCommitment.
+func (c *TapCommitment) FetchAltLeaves() ([]*asset.Asset, error) {
+	if c.assetCommitments == nil {
+		return nil, errors.New("tap commitment has no leaves")
+	}
+
+	altCommit := c.assetCommitments[asset.EmptyGenesisID]
+	if altCommit == nil {
+		return nil, nil
+	}
+
+	return maps.Values(altCommit.Assets()), nil
+}
+
+// MergeAltLeaves adds a set of AltLeaves to an existing TapCommitment. Merging
+// fails if the new AltLeaves collide with any existing AltLeaves.
+func (c *TapCommitment) MergeAltLeaves(altLeaves []asset.AltLeafAsset) error {
+	if len(altLeaves) == 0 {
+		return nil
+	}
+
+	// First, check that the given alt leaves have unique
+	// AssetCommitmentKeys.
+	newLeafKeys := fn.NewSet[[32]byte]()
+	for _, leaf := range altLeaves {
+		leafKey := leaf.AssetCommitmentKey()
+		if newLeafKeys.Contains(leafKey) {
+			return fmt.Errorf("%w: new alt leaf: %x",
+				asset.ErrDuplicateAltLeafKey, leafKey)
+		}
+
+		newLeafKeys.Add(leafKey)
+	}
+
+	var (
+		currentLeaves    CommittedAssets
+		currentAltCommit *AssetCommitment
+		err              error
+	)
+
+	// Check if any alt leaves are already present.
+	if c.assetCommitments != nil {
+		currentAltCommit = c.assetCommitments[asset.EmptyGenesisID]
+		if currentAltCommit != nil {
+			currentLeaves = currentAltCommit.Assets()
+		}
+	}
+
+	// If any alt leaves are already committed, new alt leaves must not
+	// collide with existing alt leaves.
+	for leafKey := range currentLeaves {
+		if newLeafKeys.Contains(leafKey) {
+			return fmt.Errorf("%w: existing alt leaf: %x",
+				asset.ErrDuplicateAltLeafKey, leafKey)
+		}
+	}
+
+	// None of the new or existing alt leaves collide; we can now update
+	// the AltCommitment and Tap commitment.
+	if currentAltCommit == nil {
+		currentAltCommit, err = NewAssetCommitment(
+			asset.InnerAltLeaf(altLeaves[0]),
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	for _, newLeaf := range altLeaves {
+		err := currentAltCommit.Upsert(asset.InnerAltLeaf(newLeaf))
+		if err != nil {
+			return err
+		}
+	}
+
+	err = c.Upsert(currentAltCommit)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
