@@ -139,6 +139,10 @@ var (
 			"script key in same transaction (e.g. cannot send to " +
 			"same address more than once)",
 	)
+
+	// ErrInvalidAltLeaves is an error that is returned when the alt leaves
+	// of a vInput or vOutput are invalid.
+	ErrInvalidAltLeaves = errors.New("send: invalid alt leaves")
 )
 
 var (
@@ -1042,6 +1046,9 @@ func CreateOutputCommitments(
 	if err := AssertOutputAnchorsEqual(packets); err != nil {
 		return nil, err
 	}
+	if err := AssertOutputAltLeavesValid(packets); err != nil {
+		return nil, err
+	}
 
 	// We need to make sure this transaction doesn't lead to collisions in
 	// any of the trees (e.g. two asset outputs with the same script key in
@@ -1117,6 +1124,14 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
 				err)
+		}
+
+		// If the vOutput contains any AltLeaves, merge them into the
+		// tap commitment.
+		err = sendTapCommitment.MergeAltLeaves(vOut.AltLeaves)
+		if err != nil {
+			return fmt.Errorf("error merging alt leaves: "+
+				"%w", err)
 		}
 
 		// Merge the finished TAP level commitment with the existing
@@ -1537,6 +1552,41 @@ func AssertInputAnchorsEqual(packets []*tappsbt.VPacket) error {
 					"identical to previous with same "+
 					"anchor outpoint",
 					ErrInvalidAnchorInputInfo, op)
+			}
+		}
+	}
+
+	return nil
+}
+
+// AssertOutputAltLeavesValid checks that, for each anchor output, the Altleaves
+// carried by all packets assigned to that output can be used to construct an
+// AltCommitment.
+func AssertOutputAltLeavesValid(pkts []*tappsbt.VPacket) error {
+	anchorLeaves := make(map[uint32]fn.Set[[32]byte])
+
+	for _, pkt := range pkts {
+		for _, vOut := range pkt.Outputs {
+			if len(vOut.AltLeaves) == 0 {
+				continue
+			}
+
+			// Build a set of AltLeaf keys for each anchor output.
+			outIndex := vOut.AnchorOutputIndex
+			if _, ok := anchorLeaves[outIndex]; !ok {
+				anchorLeaves[outIndex] = fn.NewSet[[32]byte]()
+			}
+
+			for _, leaf := range vOut.AltLeaves {
+				leafKey := leaf.AssetCommitmentKey()
+				if anchorLeaves[outIndex].Contains(leafKey) {
+					return fmt.Errorf("%w: %w: output alt "+
+						"leaf: %x", ErrInvalidAltLeaves,
+						asset.ErrDuplicateAltLeafKey,
+						leafKey)
+				}
+
+				anchorLeaves[outIndex].Add(leafKey)
 			}
 		}
 	}
