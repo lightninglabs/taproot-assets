@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"math/rand"
+	"slices"
 	"testing"
 	"testing/quick"
 
@@ -1164,7 +1165,7 @@ func TestUpdateTapCommitment(t *testing.T) {
 	groupKey1 := asset.RandGroupKey(t, genesis1, protoAsset1)
 	groupKey2 := asset.RandGroupKey(t, genesis2, protoAsset2)
 
-	// We also create a thirds asset which is in the same group as the first
+	// We also create a third asset which is in the same group as the first
 	// one, to ensure that we can properly create Taproot Asset commitments
 	// from asset commitments of the same group.
 	genesis3 := asset.RandGenesis(t, asset.Normal)
@@ -1314,6 +1315,96 @@ func TestUpdateTapCommitment(t *testing.T) {
 		t, mssmt.EmptyTreeRootHash,
 		copyOfCommitment.TreeRoot.NodeHash(),
 	)
+}
+
+// TestTapCommitmentAltLeaves asserts that we can properly fetch, trim, and
+// merge alt leaves to and from a TapCommitment.
+func TestTapCommitmentAltLeaves(t *testing.T) {
+	t.Parallel()
+
+	// Create two random assets, to populate our Tap commitment.
+	asset1 := asset.RandAsset(t, asset.Normal)
+	asset2 := asset.RandAsset(t, asset.Collectible)
+
+	// We'll create three AltLeaves. Leaves 1 and 2 are valid, and leaf 3
+	// will collide with leaf 1.
+	leaf1 := asset.RandAltLeaf(t)
+	leaf2 := asset.RandAltLeaf(t)
+	leaf3 := asset.RandAltLeaf(t)
+	leaf3.ScriptKey.PubKey = leaf1.ScriptKey.PubKey
+	leaf4 := asset.RandAltLeaf(t)
+
+	// Create our initial, asset-only, Tap commitment.
+	commitment, err := FromAssets(nil, asset1, asset2)
+	require.NoError(t, err)
+	assetOnlyTapLeaf := commitment.TapLeaf()
+
+	// If we try to trim any alt leaves, we should get none back.
+	_, altLeaves, err := TrimAltLeaves(commitment)
+	require.NoError(t, err)
+	require.Empty(t, altLeaves)
+
+	// Trying to merge colliding alt leaves should fail.
+	err = commitment.MergeAltLeaves([]asset.AltLeafAsset{leaf1, leaf3})
+	require.ErrorIs(t, err, asset.ErrDuplicateAltLeafKey)
+
+	// Merging non-colliding, valid alt leaves should succeed. The new
+	// commitment should contain three AssetCommitments, since we've created
+	// an AltCommitment.
+	err = commitment.MergeAltLeaves([]asset.AltLeafAsset{leaf1, leaf2})
+	require.NoError(t, err)
+	require.Len(t, commitment.assetCommitments, 3)
+
+	// Trying to merge an alt leaf that will collide with an existing leaf
+	// should also fail.
+	err = commitment.MergeAltLeaves([]asset.AltLeafAsset{leaf3})
+	require.ErrorIs(t, err, asset.ErrDuplicateAltLeafKey)
+
+	// Merging a valid, non-colliding, new alt leaf into an existing
+	// AltCommitment should succeed.
+	err = commitment.MergeAltLeaves([]asset.AltLeafAsset{leaf4})
+	require.NoError(t, err)
+
+	// If we fetch the alt leaves, they should not be removed from the
+	// commitment.
+	finalTapLeaf := commitment.TapLeaf()
+	fetchedAltLeaves, err := commitment.FetchAltLeaves()
+	require.NoError(t, err)
+	require.Equal(t, finalTapLeaf, commitment.TapLeaf())
+	insertedAltLeaves := []*asset.Asset{leaf1, leaf2, leaf4}
+
+	// The fetched leaves must be equal to the three leaves we successfully
+	// inserted.
+	compareAltLeaves := func(a, b []*asset.Asset) bool {
+		if len(a) != len(b) {
+			return false
+		}
+
+		slices.SortStableFunc(a, asset.AssetSortFunc)
+		slices.SortStableFunc(b, asset.AssetSortFunc)
+		for idx := range a {
+			if !a[idx].DeepEqual(b[idx]) {
+				return false
+			}
+		}
+
+		return true
+	}
+
+	require.True(t, compareAltLeaves(insertedAltLeaves, fetchedAltLeaves))
+
+	// Now, if we trim out the alt leaves, the AltCommitment should be fully
+	// removed.
+	originalCommitment, altLeaves, err := TrimAltLeaves(commitment)
+	require.NoError(t, err)
+
+	trimmedTapLeaf := originalCommitment.TapLeaf()
+	require.NotEqual(t, finalTapLeaf, trimmedTapLeaf)
+	require.Equal(t, assetOnlyTapLeaf, trimmedTapLeaf)
+
+	// The trimmed leaves should match the leaves we successfully merged
+	// into the commitment.
+	require.True(t, compareAltLeaves(fetchedAltLeaves, altLeaves))
 }
 
 // TestAssetCommitmentDeepCopy tests that we're able to properly perform a deep
