@@ -167,7 +167,7 @@ func (q *BuyRequest) Validate() error {
 	}
 
 	// Ensure that the message version is supported.
-	if q.Version > latestBuyRequestVersion {
+	if q.Version != latestBuyRequestVersion {
 		return fmt.Errorf("unsupported buy request message version: %d",
 			q.Version)
 	}

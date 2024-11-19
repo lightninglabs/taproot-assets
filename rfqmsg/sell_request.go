@@ -161,7 +161,7 @@ func (q *SellRequest) Validate() error {
 	}
 
 	// Ensure that the message version is supported.
-	if q.Version > latestSellRequestVersion {
+	if q.Version != latestSellRequestVersion {
 		return fmt.Errorf("unsupported sell request message version: "+
 			"%d", q.Version)
 	}
