@@ -38,7 +38,7 @@ var (
 const (
 	// MaxPageSize is the maximum page size that can be used when querying
 	// for asset roots and leaves.
-	MaxPageSize = 512
+	MaxPageSize = 16384
 )
 
 // IdentifierKey is the compact representation of a universe identifier that can
