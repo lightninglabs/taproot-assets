@@ -4951,7 +4951,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	}
 
 	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
-		return nil, fmt.Errorf("invalid request limit")
+		return nil, fmt.Errorf("invalid request limit: %d", req.Limit)
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then

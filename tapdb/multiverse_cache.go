@@ -692,7 +692,7 @@ func (u *universeLeafPageCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
 
 // wipeCache wipes the cache of leaf keys for a given universe ID.
 func (u *universeLeafPageCache) wipeCache(id universeIDKey) {
-	log.Debugf("wiping leaf keys for %x in cache", id)
+	log.Debugf("wiping leaf keys for %s in cache", id)
 
 	u.leafCache.Delete(id)
 }
