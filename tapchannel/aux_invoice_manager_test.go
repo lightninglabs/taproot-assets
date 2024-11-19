@@ -209,7 +209,9 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			m.t.Errorf("no rfq quote found")
 		}
 
-		assetRate := lnwire.MilliSatoshi(quote.AssetRate.ToUint64())
+		assetRate := lnwire.MilliSatoshi(
+			quote.AssetRate.Rate.ToUint64(),
+		)
 		msatPerBtc := float64(btcutil.SatoshiPerBitcoin * 1000)
 		unitValue := msatPerBtc / float64(assetRate)
 		assetUnits := lnwire.MilliSatoshi(htlc.Amounts.Val.Sum())
@@ -344,8 +346,10 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 			buyQuotes: rfq.BuyAcceptMap{
 				fn.Ptr(dummyRfqID(31)).Scid(): {
-					Peer:      testNodeID,
-					AssetRate: testAssetRate,
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
 				},
 			},
 		},
@@ -376,8 +380,10 @@ func TestAuxInvoiceManager(t *testing.T) {
 			},
 			buyQuotes: rfq.BuyAcceptMap{
 				fn.Ptr(dummyRfqID(31)).Scid(): {
-					Peer:      testNodeID,
-					AssetRate: testAssetRate,
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
 				},
 			},
 		},
@@ -664,12 +670,14 @@ func genBuyQuotes(t *rapid.T, rfqMap rfq.BuyAcceptMap, units, amtMsat uint64,
 		)
 	}
 
+	rateFp := rfqmath.FixedPoint[rfqmath.BigInt]{
+		Coefficient: rfqmath.NewBigInt(assetRate),
+		Scale:       0,
+	}
+
 	rfqMap[rfqScid.Scid()] = rfqmsg.BuyAccept{
-		Peer: peer,
-		AssetRate: rfqmath.FixedPoint[rfqmath.BigInt]{
-			Coefficient: rfqmath.NewBigInt(assetRate),
-			Scale:       0,
-		},
+		Peer:      peer,
+		AssetRate: rfqmsg.NewAssetRate(rateFp, time.Now()),
 	}
 }
 

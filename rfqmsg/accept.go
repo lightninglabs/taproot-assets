@@ -43,12 +43,15 @@ type acceptWireMsgData struct {
 func newAcceptWireMsgDataFromBuy(q BuyAccept) (acceptWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](q.Expiry)
+
+	expiryUnix := q.AssetRate.Expiry.Unix()
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](uint64(expiryUnix))
+
 	sig := tlv.NewPrimitiveRecord[tlv.TlvType6](q.sig)
 
 	// The rate provided in the buy acceptance message represents the
 	// exchange rate from the incoming asset to BTC.
-	rate := NewTlvFixedPointFromBigInt(q.AssetRate)
+	rate := NewTlvFixedPointFromBigInt(q.AssetRate.Rate)
 	inAssetRate := tlv.NewRecordT[tlv.TlvType8](rate)
 
 	// Currently, only BTC is supported as the outgoing asset in buy
@@ -73,7 +76,10 @@ func newAcceptWireMsgDataFromBuy(q BuyAccept) (acceptWireMsgData, error) {
 func newAcceptWireMsgDataFromSell(q SellAccept) (acceptWireMsgData, error) {
 	version := tlv.NewPrimitiveRecord[tlv.TlvType0](q.Version)
 	id := tlv.NewRecordT[tlv.TlvType2](q.ID)
-	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](q.Expiry)
+
+	expiryUnix := q.AssetRate.Expiry.Unix()
+	expiry := tlv.NewPrimitiveRecord[tlv.TlvType4](uint64(expiryUnix))
+
 	sig := tlv.NewPrimitiveRecord[tlv.TlvType6](q.sig)
 
 	// Currently, only BTC is supported as the incoming asset in sell
@@ -84,7 +90,7 @@ func newAcceptWireMsgDataFromSell(q SellAccept) (acceptWireMsgData, error) {
 
 	// The rate provided in the sell acceptance message represents the
 	// exchange rate from the outgoing asset to BTC.
-	rate := NewTlvFixedPointFromBigInt(q.AssetRate)
+	rate := NewTlvFixedPointFromBigInt(q.AssetRate.Rate)
 	outAssetRate := tlv.NewRecordT[tlv.TlvType10](rate)
 
 	// Encode message data component as TLV bytes.

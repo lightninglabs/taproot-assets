@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
 	"sync"
@@ -6313,10 +6314,17 @@ func unmarshalAssetBuyOrder(
 			err)
 	}
 
+	// Convert expiry unix timestamp in seconds to time.Time.
+	if req.Expiry > math.MaxInt64 {
+		return nil, fmt.Errorf("expiry must be less than or equal to "+
+			"math.MaxInt64 (expiry=%d)", req.Expiry)
+	}
+	expiry := time.Unix(int64(req.Expiry), 0).UTC()
+
 	return &rfq.BuyOrder{
 		AssetSpecifier: assetSpecifier,
 		AssetMaxAmt:    req.AssetMaxAmt,
-		Expiry:         req.Expiry,
+		Expiry:         expiry,
 		Peer:           fn.MaybeSome(peer),
 	}, nil
 }
@@ -6403,7 +6411,7 @@ func unmarshalAssetSellOrder(
 	}
 
 	// Unmarshal the peer if specified.
-	var peer *route.Vertex
+	var peer fn.Option[route.Vertex]
 	if len(req.PeerPubKey) > 0 {
 		pv, err := route.NewVertexFromBytes(req.PeerPubKey)
 		if err != nil {
@@ -6411,14 +6419,30 @@ func unmarshalAssetSellOrder(
 				"route vertex: %w", err)
 		}
 
-		peer = &pv
+		peer = fn.Some(pv)
 	}
 
+	// Construct an asset specifier from the asset ID and/or group key.
+	assetSpecifier, err := asset.NewSpecifier(
+		assetId, assetGroupKey, nil, true,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error creating asset specifier: %w",
+			err)
+	}
+
+	// Convert expiry unix timestamp in seconds to time.Time.
+	if req.Expiry > math.MaxInt64 {
+		return nil, fmt.Errorf("expiry must be less than or equal to "+
+			"math.MaxInt64 (expiry=%d)", req.Expiry)
+	}
+	expiry := time.Unix(int64(req.Expiry), 0).UTC()
+
 	return &rfq.SellOrder{
-		AssetID:       assetId,
-		AssetGroupKey: assetGroupKey,
-		PaymentMaxAmt: lnwire.MilliSatoshi(req.PaymentMaxAmt),
-		Peer:          peer,
+		AssetSpecifier: assetSpecifier,
+		PaymentMaxAmt:  lnwire.MilliSatoshi(req.PaymentMaxAmt),
+		Expiry:         expiry,
+		Peer:           peer,
 	}, nil
 }
 
@@ -6439,12 +6463,13 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 			err)
 	}
 
-	var peer string
-	if sellOrder.Peer != nil {
-		peer = sellOrder.Peer.String()
-	}
+	// Extract peer identifier as a string for logging.
+	peerStr := fn.MapOptionZ(sellOrder.Peer, func(p route.Vertex) string {
+		return p.String()
+	})
+
 	rpcsLog.Debugf("[AddAssetSellOrder]: upserting sell order "+
-		"(dest_peer=%s)", peer)
+		"(dest_peer=%s)", peerStr)
 
 	// Register an event listener before actually inserting the order, so we
 	// definitely don't miss any responses.
@@ -6486,7 +6511,7 @@ func (r *rpcServer) AddAssetSellOrder(_ context.Context,
 
 		case <-timeout:
 			return nil, fmt.Errorf("timeout waiting for response "+
-				"from peer %x", sellOrder.Peer[:])
+				"from peer %s", peerStr)
 		}
 	}
 }
@@ -6573,10 +6598,10 @@ func marshalPeerAcceptedBuyQuotes(
 		[]*rfqrpc.PeerAcceptedBuyQuote, 0, len(quotes),
 	)
 	for scid, quote := range quotes {
-		coefficient := quote.AssetRate.Coefficient.String()
+		coefficient := quote.AssetRate.Rate.Coefficient.String()
 		rpcAskAssetRate := &rfqrpc.FixedPoint{
 			Coefficient: coefficient,
-			Scale:       uint32(quote.AssetRate.Scale),
+			Scale:       uint32(quote.AssetRate.Rate.Scale),
 		}
 
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
@@ -6585,7 +6610,7 @@ func marshalPeerAcceptedBuyQuotes(
 			Scid:         uint64(scid),
 			AssetAmount:  quote.Request.AssetMaxAmt,
 			AskAssetRate: rpcAskAssetRate,
-			Expiry:       quote.Expiry,
+			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
@@ -6605,8 +6630,8 @@ func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAcce
 	rpcQuotes := make([]*rfqrpc.PeerAcceptedSellQuote, 0, len(quotes))
 	for scid, quote := range quotes {
 		rpcAssetRate := &rfqrpc.FixedPoint{
-			Coefficient: quote.AssetRate.Coefficient.String(),
-			Scale:       uint32(quote.AssetRate.Scale),
+			Coefficient: quote.AssetRate.Rate.Coefficient.String(),
+			Scale:       uint32(quote.AssetRate.Rate.Scale),
 		}
 
 		// TODO(ffranr): Add SellRequest payment max amount to
@@ -6616,7 +6641,7 @@ func marshalPeerAcceptedSellQuotes(quotes map[rfq.SerialisedScid]rfqmsg.SellAcce
 			Id:           quote.ID[:],
 			Scid:         uint64(scid),
 			BidAssetRate: rpcAssetRate,
-			Expiry:       quote.Expiry,
+			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}

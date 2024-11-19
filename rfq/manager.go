@@ -689,7 +689,7 @@ func (m *Manager) UpsertAssetBuyOffer(offer BuyOffer) error {
 }
 
 // BuyOrder instructs the RFQ (Request For Quote) system to request a quote from
-// a peer for the acquisition of an asset.
+// one or more peers for the acquisition of an asset.
 //
 // The normal use of a buy order is as follows:
 //  1. Alice, operating a wallet node, wants to receive a Tap asset as payment
@@ -715,8 +715,8 @@ type BuyOrder struct {
 	// be willing to offer.
 	AssetMaxAmt uint64
 
-	// Expiry is the unix timestamp at which the buy order expires.
-	Expiry uint64
+	// Expiry is the time at which the order expires.
+	Expiry time.Time
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
@@ -745,28 +745,37 @@ func (m *Manager) UpsertAssetBuyOrder(order BuyOrder) error {
 	return nil
 }
 
-// SellOrder is a struct that represents an asset sell order.
+// SellOrder instructs the RFQ (Request For Quote) system to request a quote
+// from one or more peers for the disposition of an asset.
+//
+// Normal usage of a sell order:
+//  1. Alice creates a Lightning invoice for Bob to pay.
+//  2. Bob wants to pay the invoice using a Tap asset. To do so, Bob pays an
+//     edge node with a Tap asset, and the edge node forwards the payment to the
+//     network to settle Alice's invoice. Bob submits a SellOrder to his local
+//     RFQ service.
+//  3. The RFQ service converts the SellOrder into one or more SellRequests.
+//     These requests are sent to Charlie (the edge node), who shares a relevant
+//     Tap asset channel with Bob and can forward payments to settle Alice's
+//     invoice.
+//  4. Charlie responds with a quote that satisfies Bob.
+//  5. Bob transfers the appropriate Tap asset amount to Charlie via their
+//     shared Tap asset channel, and Charlie forwards the corresponding amount
+//     to Alice to settle the Lightning invoice.
 type SellOrder struct {
-	// AssetID is the ID of the asset to sell.
-	AssetID *asset.ID
-
-	// AssetGroupKey is the public key of the asset group to sell.
-	AssetGroupKey *btcec.PublicKey
+	// AssetSpecifier is the asset that the seller is interested in.
+	AssetSpecifier asset.Specifier
 
 	// PaymentMaxAmt is the maximum msat amount that the responding peer
 	// must agree to pay.
 	PaymentMaxAmt lnwire.MilliSatoshi
 
-	// Expiry is the unix timestamp at which the order expires.
-	//
-	// TODO(ffranr): This is the invoice expiry unix timestamp in seconds.
-	//  We should make use of this field to ensure quotes are valid for the
-	//  duration of the invoice.
-	Expiry uint64
+	// Expiry is the time at which the order expires.
+	Expiry time.Time
 
 	// Peer is the peer that the buy order is intended for. This field is
 	// optional.
-	Peer *route.Vertex
+	Peer fn.Option[route.Vertex]
 }
 
 // UpsertAssetSellOrder upserts an asset sell order for management.
@@ -775,7 +784,7 @@ func (m *Manager) UpsertAssetSellOrder(order SellOrder) error {
 	//
 	// TODO(ffranr): Add support for peerless sell orders. The negotiator
 	//  should be able to determine the optimal peer.
-	if order.Peer == nil {
+	if order.Peer.IsNone() {
 		return fmt.Errorf("sell order peer must be specified")
 	}
 
@@ -795,7 +804,7 @@ func (m *Manager) PeerAcceptedBuyQuotes() BuyAcceptMap {
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 	m.peerAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if time.Now().After(accept.AssetRate.Expiry) {
 				m.peerAcceptedBuyQuotes.Delete(scid)
 				return nil
 			}
@@ -817,7 +826,7 @@ func (m *Manager) PeerAcceptedSellQuotes() SellAcceptMap {
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
 	m.peerAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if time.Now().After(accept.AssetRate.Expiry) {
 				m.peerAcceptedSellQuotes.Delete(scid)
 				return nil
 			}
@@ -839,7 +848,7 @@ func (m *Manager) LocalAcceptedBuyQuotes() BuyAcceptMap {
 	buyQuotesCopy := make(map[SerialisedScid]rfqmsg.BuyAccept)
 	m.localAcceptedBuyQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.BuyAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if time.Now().After(accept.AssetRate.Expiry) {
 				m.localAcceptedBuyQuotes.Delete(scid)
 				return nil
 			}
@@ -861,7 +870,7 @@ func (m *Manager) LocalAcceptedSellQuotes() SellAcceptMap {
 	sellQuotesCopy := make(map[SerialisedScid]rfqmsg.SellAccept)
 	m.localAcceptedSellQuotes.ForEach(
 		func(scid SerialisedScid, accept rfqmsg.SellAccept) error {
-			if time.Now().Unix() > int64(accept.Expiry) {
+			if time.Now().After(accept.AssetRate.Expiry) {
 				m.localAcceptedSellQuotes.Delete(scid)
 				return nil
 			}

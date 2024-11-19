@@ -12,7 +12,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing/route"
 )
 
 const (
@@ -105,8 +104,8 @@ func NewNegotiator(cfg NegotiatorCfg) (*Negotiator, error) {
 
 // queryBidFromPriceOracle queries the price oracle for a bid price. It returns
 // an appropriate outgoing response message which should be sent to the peer.
-func (n *Negotiator) queryBidFromPriceOracle(peer route.Vertex,
-	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
+func (n *Negotiator) queryBidFromPriceOracle(assetSpecifier asset.Specifier,
+	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -177,8 +176,11 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 			buyOrder.AssetSpecifier.IsSome() {
 
 			// Query the price oracle for a bid price.
+			//
+			// TODO(ffranr): Pass the BuyOrder expiry to the price
+			//  oracle at this point.
 			assetRate, err := n.queryBidFromPriceOracle(
-				peer, buyOrder.AssetSpecifier,
+				buyOrder.AssetSpecifier,
 				fn.Some(buyOrder.AssetMaxAmt),
 				fn.None[lnwire.MilliSatoshi](),
 				fn.None[rfqmsg.AssetRate](),
@@ -227,8 +229,8 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 // queryAskFromPriceOracle queries the price oracle for an asking price. It
 // returns an appropriate outgoing response message which should be sent to the
 // peer.
-func (n *Negotiator) queryAskFromPriceOracle(peer *route.Vertex,
-	assetSpecifier asset.Specifier, assetMaxAmt fn.Option[uint64],
+func (n *Negotiator) queryAskFromPriceOracle(assetSpecifier asset.Specifier,
+	assetMaxAmt fn.Option[uint64],
 	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*rfqmsg.AssetRate, error) {
 
@@ -326,7 +328,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 
 		// Query the price oracle for an asking price.
 		assetRate, err := n.queryAskFromPriceOracle(
-			nil, request.AssetSpecifier,
+			request.AssetSpecifier,
 			fn.Some(request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](),
 			request.AssetRateHint,
@@ -347,10 +349,7 @@ func (n *Negotiator) HandleIncomingBuyRequest(
 		}
 
 		// Construct and send a buy accept message.
-		expiry := uint64(assetRate.Expiry.Unix())
-		msg := rfqmsg.NewBuyAcceptFromRequest(
-			request, assetRate.Rate, expiry,
-		)
+		msg := rfqmsg.NewBuyAcceptFromRequest(request, *assetRate)
 		sendOutgoingMsg(msg)
 	}()
 
@@ -426,9 +425,8 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		// are willing to pay for the asset that our peer is trying to
 		// sell to us.
 		assetRate, err := n.queryBidFromPriceOracle(
-			request.Peer, request.AssetSpecifier,
-			fn.None[uint64](), fn.Some(request.PaymentMaxAmt),
-			request.AssetRateHint,
+			request.AssetSpecifier, fn.None[uint64](),
+			fn.Some(request.PaymentMaxAmt), request.AssetRateHint,
 		)
 		if err != nil {
 			// Send a reject message to the peer.
@@ -446,10 +444,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 		}
 
 		// Construct and send a sell accept message.
-		expiry := uint64(assetRate.Expiry.Unix())
-		msg := rfqmsg.NewSellAcceptFromRequest(
-			request, assetRate.Rate, expiry,
-		)
+		msg := rfqmsg.NewSellAcceptFromRequest(request, *assetRate)
 		sendOutgoingMsg(msg)
 	}()
 
@@ -467,27 +462,27 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 	go func() {
 		defer n.Wg.Done()
 
+		// Unwrap the peer from the order. For now, we can assume that
+		// the peer is always specified.
+		peer, err := order.Peer.UnwrapOrErr(
+			fmt.Errorf("buy order peer must be specified"),
+		)
+		if err != nil {
+			n.cfg.ErrChan <- err
+		}
+
 		// We calculate a proposed ask price for our peer's
 		// consideration. If a price oracle is not specified we will
 		// skip this step.
 		var assetRateHint fn.Option[rfqmsg.AssetRate]
 
-		// Construct an asset specifier from the order.
-		// TODO(ffranr): The order should have an asset specifier.
-		assetSpecifier, err := asset.NewSpecifier(
-			order.AssetID, order.AssetGroupKey, nil,
-			true,
-		)
-		if err != nil {
-			log.Warnf("failed to construct asset "+
-				"specifier from buy order: %v", err)
-		}
-
-		if n.cfg.PriceOracle != nil && assetSpecifier.IsSome() {
+		if n.cfg.PriceOracle != nil && order.AssetSpecifier.IsSome() {
 			// Query the price oracle for an asking price.
+			//
+			// TODO(ffranr): Pass the SellOrder expiry to the
+			//  price oracle at this point.
 			assetRate, err := n.queryAskFromPriceOracle(
-				order.Peer, assetSpecifier,
-				fn.None[uint64](),
+				order.AssetSpecifier, fn.None[uint64](),
 				fn.Some(order.PaymentMaxAmt),
 				fn.None[rfqmsg.AssetRate](),
 			)
@@ -498,12 +493,12 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 				return
 			}
 
-			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
+			assetRateHint = fn.MaybeSome(assetRate)
 		}
 
 		request, err := rfqmsg.NewSellRequest(
-			*order.Peer, order.AssetID, order.AssetGroupKey,
-			order.PaymentMaxAmt, assetRateHint,
+			peer, order.AssetSpecifier, order.PaymentMaxAmt,
+			assetRateHint,
 		)
 		if err != nil {
 			err := fmt.Errorf("unable to create sell request "+
@@ -530,12 +525,8 @@ func (n *Negotiator) HandleOutgoingSellOrder(order SellOrder) {
 // expiryWithinBounds checks if a quote expiry unix timestamp (in seconds) is
 // within acceptable bounds. This check ensures that the expiry timestamp is far
 // enough in the future for the quote to be useful.
-func expiryWithinBounds(expiryUnixTimestamp uint64,
-	minExpiryLifetime uint64) bool {
-
-	// Convert the expiry timestamp into a time.Time.
-	actualExpiry := time.Unix(int64(expiryUnixTimestamp), 0)
-	diff := actualExpiry.Unix() - time.Now().Unix()
+func expiryWithinBounds(expiry time.Time, minExpiryLifetime uint64) bool {
+	diff := expiry.Unix() - time.Now().Unix()
 	return diff >= int64(minExpiryLifetime)
 }
 
@@ -549,12 +540,16 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	// Ensure that the quote expiry time is within acceptable bounds.
 	//
 	// TODO(ffranr): Sanity check the buy accept quote expiry
-	//  timestamp given the expiry timestamp provided by the price
-	//  oracle.
-	if !expiryWithinBounds(msg.Expiry, minAssetRatesExpiryLifetime) {
+	//  timestamp given the expiry timestamp in our outgoing buy request.
+	//  The expiry timestamp in the outgoing request relates to the lifetime
+	//  of the lightning invoice.
+	if !expiryWithinBounds(
+		msg.AssetRate.Expiry, minAssetRatesExpiryLifetime,
+	) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Buy accept quote expiry time is not within "+
-			"acceptable bounds (expiry=%d)", msg.Expiry)
+			"acceptable bounds (asset_rate=%s)",
+			msg.AssetRate.String())
 
 		// Construct an invalid quote response event so that we can
 		// inform the peer that the quote response has not validated
@@ -601,10 +596,9 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		// for an ask price. We will then compare the ask price returned
 		// by the price oracle with the ask price provided by the peer.
 		assetRate, err := n.queryAskFromPriceOracle(
-			&msg.Peer, msg.Request.AssetSpecifier,
+			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
-			fn.None[lnwire.MilliSatoshi](),
-			fn.None[rfqmsg.AssetRate](),
+			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -635,7 +629,7 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
-		acceptablePrice := msg.AssetRate.WithinTolerance(
+		acceptablePrice := msg.AssetRate.Rate.WithinTolerance(
 			assetRate.Rate, tolerance,
 		)
 		if !acceptablePrice {
@@ -643,9 +637,9 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			// We will return without calling the quote accept
 			// callback.
 			log.Debugf("Buy accept price is not within "+
-				"acceptable bounds (ask_asset_rate=%v, "+
-				"oracle_asset_rate=%v)", msg.AssetRate,
-				assetRate)
+				"acceptable bounds (peer_asset_rate=%s, "+
+				"oracle_asset_rate=%s)", msg.AssetRate.String(),
+				assetRate.String())
 
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not
@@ -677,10 +671,13 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	//
 	// TODO(ffranr): Sanity check the quote expiry timestamp given
 	//  the expiry timestamp provided by the price oracle.
-	if !expiryWithinBounds(msg.Expiry, minAssetRatesExpiryLifetime) {
+	if !expiryWithinBounds(
+		msg.AssetRate.Expiry, minAssetRatesExpiryLifetime,
+	) {
 		// The expiry time is not within the acceptable bounds.
 		log.Debugf("Sell accept quote expiry time is not within "+
-			"acceptable bounds (expiry=%d)", msg.Expiry)
+			"acceptable bounds (asset_rate=%s)",
+			msg.AssetRate.String())
 
 		// Construct an invalid quote response event so that we can
 		// inform the peer that the quote response has not validated
@@ -727,8 +724,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		// for a bid price. We will then compare the bid price returned
 		// by the price oracle with the bid price provided by the peer.
 		assetRate, err := n.queryBidFromPriceOracle(
-			msg.Peer, msg.Request.AssetSpecifier,
-			fn.None[uint64](),
+			msg.Request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(msg.Request.PaymentMaxAmt),
 			msg.Request.AssetRateHint,
 		)
@@ -761,7 +757,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
-		acceptablePrice := msg.AssetRate.WithinTolerance(
+		acceptablePrice := msg.AssetRate.Rate.WithinTolerance(
 			assetRate.Rate, tolerance,
 		)
 		if !acceptablePrice {

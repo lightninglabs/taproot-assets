@@ -2,8 +2,8 @@ package rfqmsg
 
 import (
 	"fmt"
+	"time"
 
-	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightningnetwork/lnd/routing/route"
 )
 
@@ -30,10 +30,7 @@ type SellAccept struct {
 	ID ID
 
 	// AssetRate is the accepted asset to BTC rate.
-	AssetRate rfqmath.BigIntFixedPoint
-
-	// Expiry is the bid price expiry lifetime unix timestamp.
-	Expiry uint64
+	AssetRate AssetRate
 
 	// sig is a signature over the serialized contents of the message.
 	sig [64]byte
@@ -41,10 +38,8 @@ type SellAccept struct {
 
 // NewSellAcceptFromRequest creates a new instance of an asset sell quote accept
 // message given an asset sell quote request message.
-//
-// // TODO(ffranr): Use new AssetRate type for assetRate arg.
 func NewSellAcceptFromRequest(request SellRequest,
-	assetRate rfqmath.BigIntFixedPoint, expiry uint64) *SellAccept {
+	assetRate AssetRate) *SellAccept {
 
 	return &SellAccept{
 		Peer:      request.Peer,
@@ -52,7 +47,6 @@ func NewSellAcceptFromRequest(request SellRequest,
 		Version:   latestSellAcceptVersion,
 		ID:        request.ID,
 		AssetRate: assetRate,
-		Expiry:    expiry,
 	}
 }
 
@@ -72,6 +66,9 @@ func newSellAcceptFromWireMsg(wireMsg WireMessage,
 	// currently assume that the in-asset is BTC.
 	assetRate := msgData.OutAssetRate.Val.IntoBigIntFixedPoint()
 
+	// Convert the unix timestamp in seconds to a time.Time.
+	expiry := time.Unix(int64(msgData.Expiry.Val), 0).UTC()
+
 	// Note that the `Request` field is populated later in the RFQ stream
 	// service.
 	return &SellAccept{
@@ -79,8 +76,7 @@ func newSellAcceptFromWireMsg(wireMsg WireMessage,
 		Request:   request,
 		Version:   msgData.Version.Val,
 		ID:        msgData.ID.Val,
-		AssetRate: assetRate,
-		Expiry:    msgData.Expiry.Val,
+		AssetRate: NewAssetRate(assetRate, expiry),
 		sig:       msgData.Sig.Val,
 	}, nil
 }
@@ -133,9 +129,9 @@ func (q *SellAccept) MsgID() ID {
 
 // String returns a human-readable string representation of the message.
 func (q *SellAccept) String() string {
-	return fmt.Sprintf("SellAccept(peer=%x, id=%x, bid_asset_rate=%v, "+
-		"expiry=%d, scid=%d)", q.Peer[:], q.ID[:], q.AssetRate,
-		q.Expiry, q.ShortChannelId())
+	return fmt.Sprintf("SellAccept(peer=%x, id=%x, asset_rate=%s, "+
+		"scid=%d)", q.Peer[:], q.ID[:], q.AssetRate.String(),
+		q.ShortChannelId())
 }
 
 // Ensure that the message type implements the OutgoingMsg interface.
