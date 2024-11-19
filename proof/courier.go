@@ -1154,10 +1154,17 @@ func (h *HashMailCourier) SetSubscribers(
 var _ Courier = (*HashMailCourier)(nil)
 
 // UniverseRpcCourierCfg is the config for the universe RPC proof courier.
+//
+// nolint:lll
 type UniverseRpcCourierCfg struct {
 	// BackoffCfg configures the behaviour of the proof delivery
 	// functionality.
 	BackoffCfg *BackoffCfg
+
+	// ServiceRequestTimeout defines the maximum duration we'll wait for
+	// a courier service to handle our outgoing request during a connection
+	// attempt, or when delivering or retrieving a proof.
+	ServiceRequestTimeout time.Duration `long:"servicerequestimeout" description:"The maximum duration we'll wait for a courier service to handle our outgoing request during a connection attempt, or when delivering or retrieving a proof."`
 }
 
 // UniverseRpcCourier is a universe RPC proof courier service handle. It
@@ -1356,7 +1363,12 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 		deliverFunc := func() error {
 			// Connect to the courier service if a connection hasn't
 			// been established yet.
-			err := c.ensureConnect(ctx)
+			subCtx, subCtxCancel := context.WithTimeout(
+				ctx, c.cfg.ServiceRequestTimeout,
+			)
+			defer subCtxCancel()
+
+			err := c.ensureConnect(subCtx)
 			if err != nil {
 				return fmt.Errorf("unable to connect to "+
 					"courier service during delivery "+
@@ -1364,10 +1376,16 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			}
 
 			// Submit proof to courier.
-			_, err = c.client.InsertProof(ctx, &unirpc.AssetProof{
+			subCtx, subCtxCancel = context.WithTimeout(
+				ctx, c.cfg.ServiceRequestTimeout,
+			)
+			defer subCtxCancel()
+
+			assetProof := unirpc.AssetProof{
 				Key:       &universeKey,
 				AssetLeaf: &assetLeaf,
-			})
+			}
+			_, err = c.client.InsertProof(subCtx, &assetProof)
 			if err != nil {
 				return fmt.Errorf("error inserting proof "+
 					"into universe courier service: %w",
@@ -1420,7 +1438,12 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 		receiveFunc := func() error {
 			// Connect to the courier service if a connection hasn't
 			// been established yet.
-			err := c.ensureConnect(ctx)
+			subCtx, subCtxCancel := context.WithTimeout(
+				ctx, c.cfg.ServiceRequestTimeout,
+			)
+			defer subCtxCancel()
+
+			err := c.ensureConnect(subCtx)
 			if err != nil {
 				return fmt.Errorf("unable to connect to "+
 					"universe RPC courier service during "+
@@ -1428,7 +1451,12 @@ func (c *UniverseRpcCourier) ReceiveProof(ctx context.Context,
 			}
 
 			// Retrieve proof from courier.
-			resp, err := c.client.QueryProof(ctx, &universeKey)
+			subCtx, subCtxCancel = context.WithTimeout(
+				ctx, c.cfg.ServiceRequestTimeout,
+			)
+			defer subCtxCancel()
+
+			resp, err := c.client.QueryProof(subCtx, &universeKey)
 			if err != nil {
 				return fmt.Errorf("error retrieving proof "+
 					"from universe courier service: %w",
