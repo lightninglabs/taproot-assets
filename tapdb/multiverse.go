@@ -3,24 +3,19 @@ package tapdb
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
-	"github.com/lightninglabs/neutrino/cache/lru"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
-	"github.com/lightningnetwork/lnd/lnutils"
 )
 
 const (
@@ -40,8 +35,10 @@ var (
 )
 
 type (
+	// BaseUniverseRoot is the type returned from the UniverseRoots query.
 	BaseUniverseRoot = sqlc.UniverseRootsRow
 
+	// UniverseRootsParams are the parameters for the UniverseRoots query.
 	UniverseRootsParams = sqlc.UniverseRootsParams
 
 	// MultiverseRoot is the root of a multiverse tree. Two trees exist:
@@ -104,409 +101,19 @@ type BatchedMultiverse interface {
 	BatchedTx[BaseMultiverseStore]
 }
 
-// ProofKey is used to uniquely identify a proof within a universe. This is
-// used for the LRU cache for the proofs themselves, which are considered to be
-// immutable.
-type ProofKey [32]byte
-
-// NewProofKey takes a universe identifier and leaf key, and returns a proof
-// key.
-func NewProofKey(id universe.Identifier, key universe.LeafKey) ProofKey {
-	idBytes := id.Bytes()
-	leafKeyBytes := key.UniverseKey()
-
-	// The proof key maps down the ID and the leaf key into a single
-	// 32-byte value: sha256(id || leaf_key)..
-	h := sha256.New()
-	h.Write(idBytes[:])
-	h.Write(leafKeyBytes[:])
-
-	return fn.ToArray[ProofKey](h.Sum(nil))
+// MultiverseStoreConfig is the set of configuration options for the multiverse
+// store.
+type MultiverseStoreConfig struct {
+	// Caches is the set of cache configurations for the multiverse store.
+	Caches MultiverseCacheConfig
 }
 
-// numCachedProofs is the number of universe proofs we'll cache.
-const numCachedProofs = 50_000
-
-// cachedProof is a single cached proof.
-type cachedProof []*universe.Proof
-
-// Size just returns 1 as we're limiting based on the total number of proofs.
-func (c *cachedProof) Size() (uint64, error) {
-	return 1, nil
-}
-
-// leafProofCache is used to cache proofs for issuance leaves for assets w/o a
-// group key.
-type leafProofCache = *lru.Cache[ProofKey, *cachedProof]
-
-// newLeafCache creates a new leaf proof cache.
-func newLeafCache() leafProofCache {
-	return lru.NewCache[ProofKey, *cachedProof](
-		numCachedProofs,
-	)
-}
-
-// treeID is used to uniquely identify a multiverse tree.
-type treeID string
-
-// proofCache a map of proof caches for each proof type.
-type proofCache struct {
-	lnutils.SyncMap[treeID, leafProofCache]
-
-	*cacheLogger
-}
-
-// newProofCache creates a new proof cache.
-func newProofCache() *proofCache {
-	return &proofCache{
-		SyncMap:     lnutils.SyncMap[treeID, leafProofCache]{},
-		cacheLogger: newCacheLogger("universe_proofs"),
+// DefaultMultiverseStoreConfig returns the default configuration for the
+// multiverse store.
+func DefaultMultiverseStoreConfig() *MultiverseStoreConfig {
+	return &MultiverseStoreConfig{
+		Caches: DefaultMultiverseCacheConfig(),
 	}
-}
-
-// fetchProof reads the cached proof for the given ID and leaf key.
-func (p *proofCache) fetchProof(id universe.Identifier,
-	leafKey universe.LeafKey) []*universe.Proof {
-
-	// First, get the sub-cache for this universe ID from the map of
-	// caches.
-	idStr := treeID(id.String())
-	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
-
-	// With that lower level cache obtained, we can check to see if we have
-	// a hit or not.
-	proofKey := NewProofKey(id, leafKey)
-	proof, err := assetProofCache.Get(proofKey)
-	if err == nil {
-		p.Hit()
-		return *proof
-	}
-
-	p.Miss()
-
-	return nil
-}
-
-// insertProof inserts the given proof into the cache.
-func (p *proofCache) insertProof(id universe.Identifier,
-	leafKey universe.LeafKey, proof []*universe.Proof) {
-
-	idStr := treeID(id.String())
-
-	assetProofCache, _ := p.LoadOrStore(idStr, newLeafCache())
-
-	proofKey := NewProofKey(id, leafKey)
-
-	log.Debugf("storing proof for %v+%v in cache, key=%x",
-		id.StringForLog(), leafKey, proofKey[:])
-
-	proofVal := cachedProof(proof)
-	if _, err := assetProofCache.Put(proofKey, &proofVal); err != nil {
-		log.Errorf("unable to insert into proof cache: %v", err)
-	}
-}
-
-// delProofsForAsset deletes all the proofs for the given asset.
-func (p *proofCache) delProofsForAsset(id universe.Identifier) {
-	log.Debugf("wiping proofs for %v from cache", id)
-
-	idStr := treeID(id.String())
-	p.Delete(idStr)
-}
-
-// rootPageQuery is a wrapper around a query to fetch all the roots, but with
-// pagination parameters.
-type rootPageQuery struct {
-	withAmountsById bool
-	leafQuery
-}
-
-// newRootPageQuery creates a new root page query.
-func newRootPageQuery(q universe.RootNodesQuery) rootPageQuery {
-	return rootPageQuery{
-		withAmountsById: q.WithAmountsById,
-		leafQuery: leafQuery{
-			sortDirection: q.SortDirection,
-			offset:        q.Offset,
-			limit:         q.Limit,
-		},
-	}
-}
-
-// universeRootPage is a single page of roots.
-type universeRootPage []universe.Root
-
-// Size is the amount of roots in the page.
-func (u universeRootPage) Size() (uint64, error) {
-	return uint64(len(u)), nil
-}
-
-// rootPageCache is used to store the latest root pages for a given treeID.
-type rootPageCache = lru.Cache[rootPageQuery, universeRootPage]
-
-// atomicRootCache is an atomic pointer to a root cache.
-type atomicRootCache = atomic.Pointer[rootPageCache]
-
-// newAtomicRootCache creates a new atomic root cache.
-func newAtomicRootCache() *atomicRootCache {
-	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
-		numCachedProofs,
-	)
-
-	var a atomicRootCache
-	a.Store(rootCache)
-
-	return &a
-}
-
-// rootIndex maps a tree ID to a universe root.
-type rootIndex = lnutils.SyncMap[treeID, *universe.Root]
-
-// atomicRootIndex is an atomic pointer to a root index.
-type atomicRootIndex = atomic.Pointer[rootIndex]
-
-// newAtomicRootIndex creates a new atomic root index.
-func newAtomicRootIndex() *atomicRootIndex {
-	var a atomicRootIndex
-	a.Store(&rootIndex{})
-
-	return &a
-}
-
-// rootNodeCache is used to cache the set of active root nodes for the
-// multiverse tree.
-type rootNodeCache struct {
-	sync.RWMutex
-
-	rootIndex *atomicRootIndex
-
-	allRoots *atomicRootCache
-
-	*cacheLogger
-
-	// TODO(roasbeef): cache for issuance vs transfer roots?
-}
-
-// newRootNodeCache creates a new root node cache.
-func newRootNodeCache() *rootNodeCache {
-	return &rootNodeCache{
-		rootIndex:   newAtomicRootIndex(),
-		allRoots:    newAtomicRootCache(),
-		cacheLogger: newCacheLogger("universe_roots"),
-	}
-}
-
-// fetchRoots reads the cached roots for the given proof type. If the amounts
-// are needed, then we return nothing so we go to the database to fetch the
-// information.
-func (r *rootNodeCache) fetchRoots(q universe.RootNodesQuery,
-	haveWriteLock bool) []universe.Root {
-
-	// If we have the write lock already, no need to fetch it.
-	if !haveWriteLock {
-		r.RLock()
-		defer r.RUnlock()
-	}
-
-	// Attempt to read directly from the root node cache.
-	rootNodeCache := r.allRoots.Load()
-	rootNodes, _ := rootNodeCache.Get(newRootPageQuery(q))
-
-	if len(rootNodes) > 0 {
-		r.Hit()
-	} else {
-		r.Miss()
-	}
-
-	return rootNodes
-}
-
-// fetchRoot reads the cached root for the given ID.
-func (r *rootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
-	rootIndex := r.rootIndex.Load()
-
-	root, ok := rootIndex.Load(treeID(id.String()))
-	if ok {
-		r.Hit()
-		return root
-	}
-
-	r.Miss()
-
-	return nil
-}
-
-// cacheRoot stores the given root in the cache.
-func (r *rootNodeCache) cacheRoot(id universe.Identifier,
-	root universe.Root) {
-
-	rootIndex := r.rootIndex.Load()
-	rootIndex.Store(treeID(id.String()), &root)
-}
-
-// cacheRoots stores the given roots in the cache.
-func (r *rootNodeCache) cacheRoots(q universe.RootNodesQuery,
-	rootNodes []universe.Root) {
-
-	log.Debugf("caching num_roots=%v", len(rootNodes))
-
-	// Store the main root pointer, then update the root index.
-	rootPageCache := r.allRoots.Load()
-	_, err := rootPageCache.Put(newRootPageQuery(q), rootNodes)
-	if err != nil {
-		log.Errorf("unable to insert into root cache: %v", err)
-	}
-
-	rootIndex := r.rootIndex.Load()
-	for _, rootNode := range rootNodes {
-		rootNode := rootNode
-
-		idStr := treeID(rootNode.ID.String())
-		rootIndex.Store(idStr, &rootNode)
-	}
-}
-
-// wipeCache wipes all the cached roots.
-func (r *rootNodeCache) wipeCache() {
-	log.Debugf("wiping universe cache")
-
-	rootCache := lru.NewCache[rootPageQuery, universeRootPage](
-		numCachedProofs,
-	)
-	r.allRoots.Store(rootCache)
-
-	r.rootIndex.Store(&rootIndex{})
-}
-
-// cachedLeafKeys is used to cache the set of leaf keys for a given universe.
-//
-// TODO(roasbeef); cacheable[T]
-type cachedLeafKeys []universe.LeafKey
-
-// Size just returns 1, as we cache based on the total number of assets, but
-// not the sum of their leaves.
-func (c cachedLeafKeys) Size() (uint64, error) {
-	return uint64(1), nil
-}
-
-// numMaxCachedPages is the maximum number of pages we'll cache for a given
-// page cache. Each page is 512 items, so we'll cache 10 of them, up to 5,120
-// for a given namespace.
-const numMaxCachedPages = 1000
-
-// leafQuery is a wrapper around the existing UniverseLeafKeysQuery struct that
-// doesn't include a pointer so it can be safely used as a map key.
-type leafQuery struct {
-	sortDirection universe.SortDirection
-	offset        int32
-	limit         int32
-}
-
-// newLeafQuery creates a new leaf query.
-func newLeafQuery(q universe.UniverseLeafKeysQuery) leafQuery {
-	return leafQuery{
-		sortDirection: q.SortDirection,
-		offset:        q.Offset,
-		limit:         q.Limit,
-	}
-}
-
-// leafPageCache caches the various paginated responses for a given treeID.
-type leafPageCache struct {
-	*lru.Cache[leafQuery, *cachedLeafKeys]
-}
-
-// Size returns the number of elements in the leaf page cache.
-func (l *leafPageCache) Size() (uint64, error) {
-	return uint64(l.Len()), nil
-}
-
-// leafKeysCache is used to cache the set of leaf keys for a given universe.
-// For each treeID we store an inner cache for the paginated responses.
-type leafKeysCache = lru.Cache[treeID, *leafPageCache]
-
-// universeLeafCaches is used to cache the set of leaf keys for a given
-// universe.
-type universeLeafCache struct {
-	sync.Mutex
-
-	leafCache *leafKeysCache
-
-	*cacheLogger
-}
-
-// newUniverseLeafCache creates a new universe leaf cache.
-func newUniverseLeafCache() *universeLeafCache {
-	return &universeLeafCache{
-		leafCache: lru.NewCache[treeID, *leafPageCache](
-			numCachedProofs,
-		),
-		cacheLogger: newCacheLogger("universe_leaf_keys"),
-	}
-}
-
-// fetchLeafKeys reads the cached leaf keys for the given ID.
-func (u *universeLeafCache) fetchLeafKeys(q universe.UniverseLeafKeysQuery,
-) []universe.LeafKey {
-
-	idStr := treeID(q.Id.String())
-
-	leafPageCache, err := u.leafCache.Get(idStr)
-	if err == nil {
-		leafKeys, err := leafPageCache.Get(newLeafQuery(q))
-		if err == nil {
-			u.Hit()
-			log.Tracef("read leaf keys for %v from cache",
-				q.Id.StringForLog())
-			return *leafKeys
-		}
-	}
-
-	u.Miss()
-
-	return nil
-}
-
-// cacheLeafKeys stores the given leaf keys in the cache.
-func (u *universeLeafCache) cacheLeafKeys(q universe.UniverseLeafKeysQuery,
-	keys []universe.LeafKey) {
-
-	cachedKeys := cachedLeafKeys(keys)
-
-	idStr := treeID(q.Id.String())
-
-	log.Debugf("storing leaf keys for %v in cache", q.Id.StringForLog())
-
-	pageCache, err := u.leafCache.Get(idStr)
-	if err != nil {
-		// No page cache yet, so we'll create one now.
-		pageCache = &leafPageCache{
-			Cache: lru.NewCache[leafQuery, *cachedLeafKeys](
-				numMaxCachedPages,
-			),
-		}
-
-		// Store the cache in the top level cache.
-		if _, err := u.leafCache.Put(idStr, pageCache); err != nil {
-			// If we encounter an error here, we'll exit to avoid a
-			// panic below.
-			log.Errorf("unable to store entry in page cache: %v",
-				err)
-			return
-		}
-	}
-
-	// Add the to the page cache.
-	if _, err := pageCache.Put(newLeafQuery(q), &cachedKeys); err != nil {
-		log.Errorf("unable to store leaf resp: %v", err)
-	}
-}
-
-// wipeCache wipes the cache of leaf keys for a given universe ID.
-func (u *universeLeafCache) wipeCache(id treeID) {
-	log.Debugf("wiping leaf keys for %x in cache", id)
-
-	u.leafCache.Delete(id)
 }
 
 // MultiverseStore implements the persistent storage for a multiverse.
@@ -515,11 +122,15 @@ func (u *universeLeafCache) wipeCache(id treeID) {
 type MultiverseStore struct {
 	db BatchedMultiverse
 
+	cfg *MultiverseStoreConfig
+
+	syncerCache *syncerRootNodeCache
+
 	rootNodeCache *rootNodeCache
 
-	proofCache *proofCache
+	proofCache *universeProofCache
 
-	leafKeysCache *universeLeafCache
+	leafKeysCache *universeLeafPageCache
 
 	// transferProofDistributor is an event distributor that will be used to
 	// notify subscribers about new proof leaves that are added to the
@@ -530,12 +141,26 @@ type MultiverseStore struct {
 }
 
 // NewMultiverseStore creates a new multiverse DB store handle.
-func NewMultiverseStore(db BatchedMultiverse) *MultiverseStore {
+func NewMultiverseStore(db BatchedMultiverse,
+	cfg *MultiverseStoreConfig) *MultiverseStore {
+
 	return &MultiverseStore{
-		db:                       db,
-		rootNodeCache:            newRootNodeCache(),
-		proofCache:               newProofCache(),
-		leafKeysCache:            newUniverseLeafCache(),
+		db:  db,
+		cfg: cfg,
+		syncerCache: newSyncerRootNodeCache(
+			cfg.Caches.SyncerCacheEnabled,
+			cfg.Caches.SyncerCachePreAllocSize,
+		),
+		rootNodeCache: newRootNodeCache(
+			cfg.Caches.RootNodePageCacheSize,
+		),
+		proofCache: newUniverseProofCache(
+			cfg.Caches.ProofsPerUniverse,
+		),
+		leafKeysCache: newUniverseLeafPageCache(
+			cfg.Caches.LeavesNumCachedUniverses,
+			cfg.Caches.LeavesPerUniverse,
+		),
 		transferProofDistributor: fn.NewEventDistributor[proof.Blob](),
 	}
 }
@@ -608,20 +233,52 @@ func (b *MultiverseStore) MultiverseRootNode(ctx context.Context,
 func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 	id universe.Identifier) (universe.Root, error) {
 
-	// First, we'll check the root node cache to see if we already have it.
-	rootNode := b.rootNodeCache.fetchRoot(id)
+	// For an individual universe root node, we always fetch it from the
+	// syncer cache, as that should have all root nodes that are currently
+	// known. We never update the syncer cache on a cache miss of a single
+	// root node, as that shouldn't happen (unless the cache is empty).
+	// This will always return nil if the cache is disabled, so we don't
+	// need an extra indentation for that check here.
+	rootNode := b.syncerCache.fetchRoot(id)
 	if rootNode != nil {
 		return *rootNode, nil
 	}
 
-	b.rootNodeCache.Lock()
-	defer b.rootNodeCache.Unlock()
+	// If the cache is still empty, we'll populate it now, given it is
+	// enabled.
+	if b.syncerCache.isEmpty() && b.cfg.Caches.SyncerCacheEnabled {
+		// We attempt to acquire the write lock to fill the cache. If
+		// another goroutine is already filling the cache, we'll wait
+		// for it to finish that way.
+		b.syncerCache.Lock()
+		defer b.syncerCache.Unlock()
 
-	// Check to see if the cache was populated while we were waiting for
-	// the lock.
-	rootNode = b.rootNodeCache.fetchRoot(id)
-	if rootNode != nil {
-		return *rootNode, nil
+		// Because another goroutine might have filled the cache while
+		// we were waiting for the lock, we'll check again if the item
+		// is now in the cache.
+		rootNode = b.syncerCache.fetchRoot(id)
+		if rootNode != nil {
+			return *rootNode, nil
+		}
+
+		// Populate the cache with all the root nodes.
+		err := b.fillSyncerCache(ctx)
+		if err != nil {
+			return universe.Root{}, fmt.Errorf("error filling "+
+				"syncer cache: %w", err)
+		}
+
+		// We now try again to fetch the root node from the cache.
+		rootNode = b.syncerCache.fetchRoot(id)
+		if rootNode != nil {
+			return *rootNode, nil
+		}
+
+		// Still no luck with the cache (this should really never
+		// happen), so we'll go to the secondary cache or the disk to
+		// fetch it.
+		log.Warnf("Fetching root node from disk for id %v, cache miss "+
+			"even after filling the cache", id)
 	}
 
 	var universeRoot UniverseRoot
@@ -658,8 +315,6 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		AssetName: universeRoot.AssetName,
 	}
 
-	b.rootNodeCache.cacheRoot(id, dbRoot)
-
 	return dbRoot, nil
 }
 
@@ -673,7 +328,7 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 		return leafKeys, nil
 	}
 
-	// The leaves wasn't populated, so we'll go to disk to fetch it.
+	// The leaves weren't populated, so we'll go to disk to fetch it.
 	b.leafKeysCache.Lock()
 	defer b.leafKeysCache.Unlock()
 
@@ -710,7 +365,62 @@ func (b *MultiverseStore) UniverseLeafKeys(ctx context.Context,
 func (b *MultiverseStore) RootNodes(ctx context.Context,
 	q universe.RootNodesQuery) ([]universe.Root, error) {
 
-	// Attempt to read directly from the root node cache.
+	// Is this a query for the syncer cache (ascending and
+	// WithAmountsById=false)? This cache is complete (all root nodes) and
+	// can be directly sliced into, but it doesn't have any amounts by ID
+	// and doesn't support descending order.
+	if isQueryForSyncerCache(q) && b.cfg.Caches.SyncerCacheEnabled {
+		// First, check to see if we have the root nodes cached in the
+		// syncer cache.
+		rootNodes, emptyPage := b.syncerCache.fetchRoots(q, false)
+		if len(rootNodes) > 0 || emptyPage {
+			return rootNodes, nil
+		}
+
+		// If the cache is still empty, we'll populate it now.
+		if b.syncerCache.isEmpty() {
+			// We attempt to acquire the write lock to fill the
+			// cache. If another goroutine is already filling the
+			// cache, we'll wait for it to finish that way.
+			b.syncerCache.Lock()
+			defer b.syncerCache.Unlock()
+
+			// Because another goroutine might have filled the cache
+			// while we were waiting for the lock, we'll check again
+			// if the item is now in the cache.
+			rootNodes, emptyPage = b.syncerCache.fetchRoots(q, true)
+			if len(rootNodes) > 0 || emptyPage {
+				return rootNodes, nil
+			}
+
+			// Populate the cache with all the root nodes.
+			err := b.fillSyncerCache(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("error filling syncer "+
+					"cache: %w", err)
+			}
+
+			// We now try again to fetch the root nodes page from
+			// the cache.
+			rootNodes, emptyPage = b.syncerCache.fetchRoots(q, true)
+			if len(rootNodes) > 0 || emptyPage {
+				return rootNodes, nil
+			}
+
+			// Still no luck with the cache (this should really
+			// never happen), so we'll go to the secondary cache or
+			// disk to fetch it.
+			log.Warnf("Fetching root nodes page from disk for "+
+				"query %v, cache miss even after filling the "+
+				"cache", q)
+		}
+	}
+
+	// Attempt to read directly from the root node cache next. This
+	// secondary cache only contains the last few pages of root nodes that
+	// were queried with parameters the syncer doesn't use. This might serve
+	// some UI requests where the first few pages are queried multiple
+	// times, so an LRU based cache that's smaller makes sense..
 	rootNodes := b.rootNodeCache.fetchRoots(q, false)
 	if len(rootNodes) > 0 {
 		log.Tracef("read %d root nodes from cache", len(rootNodes))
@@ -731,11 +441,6 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 	now := time.Now()
 	log.Infof("populating root cache...")
 
-	var (
-		uniRoots []universe.Root
-		readTx   = NewBaseMultiverseReadTx()
-	)
-
 	params := sqlc.UniverseRootsParams{
 		SortDirection: sqlInt16(q.SortDirection),
 		NumOffset:     q.Offset,
@@ -747,7 +452,29 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			return q.Limit
 		}(),
 	}
+	uniRoots, err := b.queryRootNodes(ctx, params, q.WithAmountsById)
+	if err != nil {
+		return nil, err
+	}
 
+	log.Debugf("Populating %v root nodes into cache, took=%v",
+		len(uniRoots), time.Since(now))
+
+	// Cache all the root nodes we just read from the database.
+	b.rootNodeCache.cacheRoots(q, uniRoots)
+
+	return uniRoots, nil
+}
+
+// queryRootNodes returns the set of root nodes for the given query parameters.
+func (b *MultiverseStore) queryRootNodes(ctx context.Context,
+	params sqlc.UniverseRootsParams,
+	withAmountsByID bool) ([]universe.Root, error) {
+
+	var (
+		uniRoots []universe.Root
+		readTx   = NewBaseMultiverseReadTx()
+	)
 	dbErr := b.db.ExecTx(ctx, &readTx, func(db BaseMultiverseStore) error {
 		dbRoots, err := db.UniverseRoots(ctx, params)
 		if err != nil {
@@ -785,7 +512,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 			// We skip the grouped assets if that wasn't explicitly
 			// requested by the user, saves us some calls for
 			// grouped assets.
-			if dbRoot.GroupKey != nil && q.WithAmountsById {
+			if dbRoot.GroupKey != nil && withAmountsByID {
 				groupLeaves, err := db.QueryUniverseLeaves(
 					ctx, UniverseLeafQuery{
 						Namespace: id.String(),
@@ -803,7 +530,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 					copy(id[:], leaf.AssetID)
 					groupedAssets[id] = uint64(leaf.SumAmt)
 				}
-			} else if q.WithAmountsById {
+			} else if withAmountsByID {
 				// For non-grouped assets, there's exactly one
 				// member, the asset itself.
 				groupedAssets = map[asset.ID]uint64{
@@ -831,13 +558,47 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 		return nil, dbErr
 	}
 
-	log.Debugf("Populating %v root nodes into cache, took=%v",
-		len(uniRoots), time.Since(now))
-
-	// Cache all the root nodes we just read from the database.
-	b.rootNodeCache.cacheRoots(q, uniRoots)
-
 	return uniRoots, nil
+}
+
+// fillSyncerCache populates the syncer cache with all the root nodes that are
+// currently known. This is used to quickly serve the syncer with the root nodes
+// it needs to sync the multiverse.
+//
+// NOTE: This method must be called while holding the syncer cache lock.
+func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
+	now := time.Now()
+	log.Infof("Populating syncer root cache...")
+
+	params := sqlc.UniverseRootsParams{
+		SortDirection: sqlInt16(universe.SortAscending),
+		NumOffset:     0,
+		NumLimit:      universe.MaxPageSize,
+	}
+
+	allRoots := make(
+		[]universe.Root, 0, b.cfg.Caches.SyncerCachePreAllocSize,
+	)
+	for {
+		newRoots, err := b.queryRootNodes(ctx, params, false)
+		if err != nil {
+			return err
+		}
+
+		allRoots = append(allRoots, newRoots...)
+		params.NumOffset += universe.MaxPageSize
+
+		if len(newRoots) < universe.MaxPageSize {
+			break
+		}
+	}
+
+	log.Debugf("Populating %v root nodes into syncer cache, took=%v",
+		len(allRoots), time.Since(now))
+
+	b.syncerCache.replaceCache(allRoots)
+
+	return nil
 }
 
 // FetchProofLeaf returns a proof leaf for the target key. If the key doesn't
@@ -849,9 +610,9 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 	universeKey universe.LeafKey) ([]*universe.Proof, error) {
 
 	// First, check the cached to see if we already have this proof.
-	proof := b.proofCache.fetchProof(id, universeKey)
-	if len(proof) > 0 {
-		return proof, nil
+	proofsFromCache := b.proofCache.fetchProof(id, universeKey)
+	if len(proofsFromCache) > 0 {
+		return proofsFromCache, nil
 	}
 
 	var (
@@ -864,11 +625,9 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		return nil, err
 	}
 
-	dbErr := b.db.ExecTx(ctx, &readTx, func(dbTx BaseMultiverseStore) error {
+	dbErr := b.db.ExecTx(ctx, &readTx, func(tx BaseMultiverseStore) error {
 		var err error
-		proofs, err = universeFetchProofLeaf(
-			ctx, id, universeKey, dbTx,
-		)
+		proofs, err = universeFetchProofLeaf(ctx, id, universeKey, tx)
 		if err != nil {
 			return err
 		}
@@ -877,7 +636,7 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		//
 		// Retrieve a handle to the multiverse MS-SMT tree.
 		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(dbTx, multiverseNS),
+			newTreeStoreWrapperTx(tx, multiverseNS),
 		)
 
 		multiverseRoot, err := multiverseTree.Root(ctx)
@@ -900,6 +659,8 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 
 		for i := range proofs {
 			proofs[i].MultiverseRoot = multiverseRoot
+
+			//nolint:lll
 			proofs[i].MultiverseInclusionProof = multiverseInclusionProof
 		}
 
@@ -909,8 +670,8 @@ func (b *MultiverseStore) FetchProofLeaf(ctx context.Context,
 		return nil, dbErr
 	}
 
-	// Insert the proof we just read up into the main cache.
-	b.proofCache.insertProof(id, universeKey, proofs)
+	// Insert the proofs we just read up into the main cache.
+	b.proofCache.insertProofs(id, universeKey, proofs)
 
 	return proofs, nil
 }
@@ -992,8 +753,7 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 // UpsertProofLeaf upserts a proof leaf within the multiverse tree and the
 // universe tree that corresponds to the given key.
 func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
-	id universe.Identifier, key universe.LeafKey,
-	leaf *universe.Leaf,
+	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
 	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
 
 	var (
@@ -1019,12 +779,15 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		return nil, dbErr
 	}
 
-	idStr := treeID(id.String())
-
 	// Invalidate the cache since we just updated the root.
 	b.rootNodeCache.wipeCache()
 	b.proofCache.delProofsForAsset(id)
-	b.leafKeysCache.wipeCache(idStr)
+	b.leafKeysCache.wipeCache(id.String())
+	b.syncerCache.addOrReplace(universe.Root{
+		ID:        id,
+		AssetName: leaf.Asset.Tag,
+		Node:      issuanceProof.MultiverseRoot,
+	})
 
 	// Notify subscribers about the new proof leaf, now that we're sure we
 	// have written it to the database. But we only care about transfer
@@ -1043,30 +806,31 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 	items []*universe.Item) error {
 
 	insertProof := func(item *universe.Item,
-		dbTx BaseMultiverseStore) error {
+		dbTx BaseMultiverseStore) (*universe.Proof, error) {
 
 		// Upsert proof leaf into the asset (group) specific universe
 		// tree.
-		_, err := universeUpsertProofLeaf(
+		return universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
 			item.MetaReveal,
 		)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	}
 
-	var writeTx BaseMultiverseOptions
+	var (
+		writeTx   BaseMultiverseOptions
+		uniProofs []*universe.Proof
+	)
 	dbErr := b.db.ExecTx(
 		ctx, &writeTx, func(store BaseMultiverseStore) error {
+			uniProofs = make([]*universe.Proof, len(items))
 			for idx := range items {
 				item := items[idx]
-				err := insertProof(item, store)
+				uniProof, err := insertProof(item, store)
 				if err != nil {
 					return err
 				}
+
+				uniProofs[idx] = uniProof
 			}
 
 			return nil
@@ -1090,12 +854,21 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 				items[idx].Leaf.RawProof,
 			)
 		}
+
+		// Update the syncer cache with the new root node.
+		b.syncerCache.addOrReplace(universe.Root{
+			ID:        items[idx].ID,
+			AssetName: items[idx].Leaf.Asset.Tag,
+			Node:      uniProofs[idx].UniverseRoot,
+		})
 	}
 
 	// Invalidate the root node cache for all the assets we just inserted.
-	idsToDelete := fn.NewSet(fn.Map(items, func(item *universe.Item) treeID {
-		return treeID(item.ID.String())
-	})...)
+	idsToDelete := fn.NewSet(
+		fn.Map(items, func(item *universe.Item) universeIDKey {
+			return item.ID.String()
+		})...,
+	)
 
 	for id := range idsToDelete {
 		b.proofCache.Delete(id)
@@ -1111,14 +884,14 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 
 	var writeTx BaseUniverseStoreOptions
 
-	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseMultiverseStore) error {
+	dbErr := b.db.ExecTx(ctx, &writeTx, func(tx BaseMultiverseStore) error {
 		multiverseNS, err := namespaceForProof(id.ProofType)
 		if err != nil {
 			return err
 		}
 
 		multiverseTree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(dbTx, multiverseNS),
+			newTreeStoreWrapperTx(tx, multiverseNS),
 		)
 
 		multiverseLeafKey := id.Bytes()
@@ -1127,7 +900,7 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 			return err
 		}
 
-		return deleteUniverseTree(ctx, dbTx, id)
+		return deleteUniverseTree(ctx, tx, id)
 	})
 	if dbErr != nil {
 		return "", dbErr
@@ -1136,9 +909,9 @@ func (b *MultiverseStore) DeleteUniverse(ctx context.Context,
 	// Wipe the cache items from this node.
 	b.rootNodeCache.wipeCache()
 
-	idStr := treeID(id.String())
-	b.proofCache.Delete(idStr)
-	b.leafKeysCache.wipeCache(idStr)
+	b.proofCache.Delete(id.String())
+	b.leafKeysCache.wipeCache(id.String())
+	b.syncerCache.remove(id.Key())
 
 	return id.String(), dbErr
 }

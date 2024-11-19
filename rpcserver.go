@@ -100,10 +100,6 @@ const (
 )
 
 type (
-	// cacheableTimestamp is a wrapper around a uint32 that can be used as a
-	// value in an LRU cache.
-	cacheableTimestamp uint32
-
 	// devSendEventStream is a type alias for the asset send event
 	// notification stream.
 	devSendEventStream = tapdevrpc.TapDev_SubscribeSendAssetEventNtfnsServer
@@ -147,13 +143,6 @@ type (
 		grpc.ServerStream
 	}
 )
-
-// Size returns the size of the cacheable timestamp. Since we scale the cache by
-// the number of items and not the total memory size, we can simply return 1
-// here to count each timestamp as 1 item.
-func (c cacheableTimestamp) Size() (uint64, error) {
-	return 1, nil
-}
 
 // rpcServer is the main RPC server for the Taproot Assets daemon that handles
 // gRPC/REST/Websockets incoming requests.
@@ -4592,7 +4581,9 @@ func (r *rpcServer) AssetRoots(ctx context.Context,
 	}
 
 	resp := &unirpc.AssetRootResponse{
-		UniverseRoots: make(map[string]*unirpc.UniverseRoot),
+		UniverseRoots: make(
+			map[string]*unirpc.UniverseRoot, len(assetRoots),
+		),
 	}
 
 	// Retrieve config for use in filtering asset roots based on sync export
@@ -4770,7 +4761,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		return nil, err
 	}
 
-	// Query for both a issaunce and transfer universe root.
+	// Query for both an issuance and transfer universe root.
 	assetRoots, err := r.queryAssetProofRoots(ctx, universeID)
 	if err != nil {
 		return nil, err
@@ -4960,7 +4951,7 @@ func (r *rpcServer) AssetLeafKeys(ctx context.Context,
 	}
 
 	if req.Limit > universe.MaxPageSize || req.Limit < 0 {
-		return nil, fmt.Errorf("invalid request limit")
+		return nil, fmt.Errorf("invalid request limit: %d", req.Limit)
 	}
 
 	// Check the rate limiter to see if we need to wait at all. If not then

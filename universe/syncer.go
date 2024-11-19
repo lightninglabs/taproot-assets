@@ -525,7 +525,9 @@ func (s *SimpleSyncer) SyncUniverse(ctx context.Context, host ServerAddr,
 // fetchAllRoots fetches all the roots from the remote Universe. This function
 // is used in order to isolate any logic related to the specifics of how we
 // fetch the data from the universe server.
-func (s *SimpleSyncer) fetchAllRoots(ctx context.Context, diffEngine DiffEngine) ([]Root, error) {
+func (s *SimpleSyncer) fetchAllRoots(ctx context.Context,
+	diffEngine DiffEngine) ([]Root, error) {
+
 	offset := int32(0)
 	pageSize := defaultPageSize
 	roots := make([]Root, 0)
@@ -533,6 +535,7 @@ func (s *SimpleSyncer) fetchAllRoots(ctx context.Context, diffEngine DiffEngine)
 	for {
 		log.Debugf("Fetching roots in range: %v to %v", offset,
 			offset+pageSize)
+
 		tempRoots, err := diffEngine.RootNodes(
 			ctx, RootNodesQuery{
 				WithAmountsById: false,
@@ -541,16 +544,17 @@ func (s *SimpleSyncer) fetchAllRoots(ctx context.Context, diffEngine DiffEngine)
 				Limit:           pageSize,
 			},
 		)
-
 		if err != nil {
 			return nil, err
 		}
 
-		if len(tempRoots) == 0 {
+		roots = append(roots, tempRoots...)
+
+		// If we're getting a partial page, then we know we're done.
+		if len(tempRoots) < int(pageSize) {
 			break
 		}
 
-		roots = append(roots, tempRoots...)
 		offset += pageSize
 	}
 

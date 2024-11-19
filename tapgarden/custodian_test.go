@@ -134,7 +134,9 @@ func newProofArchiveForDB(t *testing.T, db *tapdb.BaseDB) (*proof.MultiArchiver,
 			return db.WithTx(tx)
 		},
 	)
-	multiverse := tapdb.NewMultiverseStore(multiverseDB)
+	multiverse := tapdb.NewMultiverseStore(
+		multiverseDB, tapdb.DefaultMultiverseStoreConfig(),
+	)
 
 	return proofArchive, assetStore, multiverse
 }

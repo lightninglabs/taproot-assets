@@ -21,6 +21,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
@@ -286,6 +287,8 @@ type UniverseConfig struct {
 	UniverseQueriesPerSecond rate.Limit `long:"max-qps" description:"The maximum number of queries per second across the set of active universe queries that is permitted. Anything above this starts to get rate limited."`
 
 	UniverseQueriesBurst int `long:"req-burst-budget" description:"The burst budget for the universe query rate limiting."`
+
+	MultiverseCaches *tapdb.MultiverseCacheConfig `group:"multiverse-caches" namespace:"multiverse-caches"`
 }
 
 // AddrBookConfig is the config that houses any address Book related config
@@ -431,6 +434,9 @@ func DefaultConfig() Config {
 				defaultUniverseMaxQps,
 			),
 			UniverseQueriesBurst: defaultUniverseQueriesBurst,
+			MultiverseCaches: fn.Ptr(
+				tapdb.DefaultMultiverseCacheConfig(),
+			),
 		},
 		AddrBook: &AddrBookConfig{
 			DisableSyncer: false,
