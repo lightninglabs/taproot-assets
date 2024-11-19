@@ -509,44 +509,20 @@ func NewIncomingRequestFromWire(wireMsg WireMessage) (IncomingMsg, error) {
 			"request: %w", err)
 	}
 
-	// We will now determine whether this is a buy or sell request. We
-	// currently only support exchanging a taproot asset for BTC. Therefore,
-	// we can distinguish between buy/sell requests by identifying the all
-	// zero in/out asset ID which designates BTC.
-	isBuyRequest := false
-
-	// Check the outgoing asset ID to determine if this is a buy request.
-	msgData.OutAssetID.WhenSome(
-		func(outAssetID tlv.RecordT[tlv.TlvType13, asset.ID]) {
-			var zeroAssetID [32]byte
-
-			// If the outgoing asset ID is all zeros (signifying
-			// BTC), then this is a buy request. In other words, the
-			// incoming asset is the taproot asset, and the outgoing
-			// asset is BTC.
-			isBuyRequest = outAssetID.Val == zeroAssetID
-		},
-	)
-
-	// The outgoing asset ID may not be set, but the outgoing asset group
-	// key may be set. If the outbound asset group key is not specified
-	// (and the outbound asset ID is not set), then this is a buy request.
-	// In other words, only the inbound asset is specified, and the outbound
-	// asset is BTC.
-	msgData.OutAssetGroupKey.WhenSome(
-		func(gk tlv.RecordT[tlv.TlvType15, *btcec.PublicKey]) {
-			// Here we carry through any ture value of isBuyRequest
-			// from the previous check.
-			isBuyRequest = isBuyRequest || (gk.Val != nil)
-		},
-	)
-
-	// If this is a buy request, then we will create a new buy request
-	// message.
-	if isBuyRequest {
+	// Classify the incoming request as a buy or sell.
+	//
+	// When the requesting peer attempts to pay an invoice using a Tap
+	// asset, they are "selling" the Tap asset to the edge node. Conversely,
+	// when the requesting peer attempts to receive a Tap asset as payment
+	// to settle an invoice, they are "buying" the Tap asset from the edge
+	// node.
+	switch msgData.TransferType.Val {
+	case PayInvoiceTransferType:
+		return NewSellRequestFromWire(wireMsg, msgData)
+	case RecvPaymentTransferType:
 		return NewBuyRequestFromWire(wireMsg, msgData)
+	default:
+		return nil, fmt.Errorf("unknown incoming request message "+
+			"transfer type: %d", msgData.TransferType.Val)
 	}
-
-	// Otherwise, this is a sell request.
-	return NewSellRequestFromWire(wireMsg, msgData)
 }
