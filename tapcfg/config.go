@@ -98,6 +98,10 @@ const (
 	// use for waiting for a receiver to acknowledge a proof transfer.
 	defaultProofTransferReceiverAckTimeout = time.Hour * 6
 
+	// defaultProofCourierServiceResponseTimeout is the default timeout
+	// we'll use for waiting for a response from the proof courier service.
+	defaultProofCourierServiceResponseTimeout = time.Second * 5
+
 	// defaultUniverseSyncInterval is the default interval that we'll use
 	// to sync Universe state with the federation.
 	defaultUniverseSyncInterval = time.Minute * 10
@@ -435,6 +439,7 @@ func DefaultConfig() Config {
 				InitialBackoff:   defaultProofTransferInitialBackoff,
 				MaxBackoff:       defaultProofTransferMaxBackoff,
 			},
+			ServiceRequestTimeout: defaultProofCourierServiceResponseTimeout,
 		},
 		CustodianProofRetrievalDelay: defaultProofRetrievalDelay,
 		Universe: &UniverseConfig{
