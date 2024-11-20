@@ -760,8 +760,8 @@ func (s *Server) FetchLeavesFromView(
 // NOTE: This method is part of the lnwallet.AuxLeafStore interface.
 // nolint:lll
 func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
-	com channeldb.ChannelCommitment,
-	keys lnwl.CommitmentKeyRing) lfn.Result[lnwl.CommitDiffAuxResult] {
+	com channeldb.ChannelCommitment, keys lnwl.CommitmentKeyRing,
+	whoseCommit lntypes.ChannelParty) lfn.Result[lnwl.CommitDiffAuxResult] {
 
 	srvrLog.Debugf("FetchLeavesFromCommit called, ourBalance=%v, "+
 		"theirBalance=%v, numHtlcs=%d", com.LocalBalance,
@@ -1159,7 +1159,8 @@ func (s *Server) ExtraBudgetForInputs(
 //
 // NOTE: This method is part of the sweep.AuxSweeper interface.
 func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
-	tx *wire.MsgTx, fee btcutil.Amount) error {
+	tx *wire.MsgTx, fee btcutil.Amount,
+	outpointToTxIndex map[wire.OutPoint]int) error {
 
 	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v",
 		spew.Sdump(req), spew.Sdump(tx), fee)

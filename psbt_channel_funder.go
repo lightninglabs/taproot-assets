@@ -97,9 +97,8 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 	// We'll map our high level params into a request for a: private,
 	// taproot channel, that uses the PSBT funding flow.
 	taprootCommitType := lnrpc.CommitmentType_SIMPLE_TAPROOT_OVERLAY
-	openChanStream, errChan, err := l.lnd.Client.OpenChannelStream(
-		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt, req.PushAmt,
-		true, lndclient.WithCommitmentType(&taprootCommitType),
+	channelOpenOptions := []lndclient.OpenChannelOption{
+		lndclient.WithCommitmentType(&taprootCommitType),
 		lndclient.WithFundingShim(&lnrpc.FundingShim{
 			Shim: &lnrpc.FundingShim_PsbtShim{
 				PsbtShim: &lnrpc.PsbtShim{
@@ -110,6 +109,20 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 			},
 		}),
 		lndclient.WithRemoteReserve(CustomChannelRemoteReserve),
+	}
+
+	// Limit the number of HTLCs that can be added to the channel by the
+	// remote party.
+	if req.RemoteMaxHtlc > 0 {
+		channelOpenOptions = append(
+			channelOpenOptions,
+			lndclient.WithRemoteMaxHtlc(req.RemoteMaxHtlc),
+		)
+	}
+
+	openChanStream, errChan, err := l.lnd.Client.OpenChannelStream(
+		ctx, route.NewVertex(&req.PeerPub), req.ChanAmt, req.PushAmt,
+		true, channelOpenOptions...,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to open channel with "+
@@ -141,6 +154,16 @@ func (l *LndPbstChannelFunder) OpenChannel(ctx context.Context,
 	case err := <-errChan:
 		return nil, err
 	}
+}
+
+// ChannelAcceptor is used to accept and potentially influence parameters of
+// incoming channels.
+func (l *LndPbstChannelFunder) ChannelAcceptor(ctx context.Context,
+	acceptor lndclient.AcceptorFunction) (chan error, error) {
+
+	return l.lnd.Client.ChannelAcceptor(
+		ctx, tapchannel.DefaultTimeout/2, acceptor,
+	)
 }
 
 // A compile-time check to ensure that LndPbstChannelFunder fully implements
