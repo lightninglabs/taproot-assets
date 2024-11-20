@@ -96,7 +96,7 @@ require (
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
-	github.com/lightningnetwork/lnd v0.18.3-beta.rc3.0.20241115120956-4c9d25cbe700 // indirect
+	github.com/lightningnetwork/lnd v0.18.3-beta.rc3.0.20241116012851-fa1694de46fa // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
 	github.com/lightningnetwork/lnd/fn v1.2.3 // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.5 // indirect
