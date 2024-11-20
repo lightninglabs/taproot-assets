@@ -19,6 +19,8 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type AssetWalletClient interface {
+	// Creates a virtual PSBT template for an interactive asset send.
+	CreateInteractiveSendTemplate(ctx context.Context, in *CreateInteractiveSendTemplateRequest, opts ...grpc.CallOption) (*CreateInteractiveSendTemplateResponse, error)
 	// FundVirtualPsbt selects inputs from the available asset commitments to fund
 	// a virtual transaction matching the template.
 	FundVirtualPsbt(ctx context.Context, in *FundVirtualPsbtRequest, opts ...grpc.CallOption) (*FundVirtualPsbtResponse, error)
@@ -85,6 +87,15 @@ type assetWalletClient struct {
 
 func NewAssetWalletClient(cc grpc.ClientConnInterface) AssetWalletClient {
 	return &assetWalletClient{cc}
+}
+
+func (c *assetWalletClient) CreateInteractiveSendTemplate(ctx context.Context, in *CreateInteractiveSendTemplateRequest, opts ...grpc.CallOption) (*CreateInteractiveSendTemplateResponse, error) {
+	out := new(CreateInteractiveSendTemplateResponse)
+	err := c.cc.Invoke(ctx, "/assetwalletrpc.AssetWallet/CreateInteractiveSendTemplate", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *assetWalletClient) FundVirtualPsbt(ctx context.Context, in *FundVirtualPsbtRequest, opts ...grpc.CallOption) (*FundVirtualPsbtResponse, error) {
@@ -208,6 +219,8 @@ func (c *assetWalletClient) DeclareScriptKey(ctx context.Context, in *DeclareScr
 // All implementations must embed UnimplementedAssetWalletServer
 // for forward compatibility
 type AssetWalletServer interface {
+	// Creates a virtual PSBT template for an interactive asset send.
+	CreateInteractiveSendTemplate(context.Context, *CreateInteractiveSendTemplateRequest) (*CreateInteractiveSendTemplateResponse, error)
 	// FundVirtualPsbt selects inputs from the available asset commitments to fund
 	// a virtual transaction matching the template.
 	FundVirtualPsbt(context.Context, *FundVirtualPsbtRequest) (*FundVirtualPsbtResponse, error)
@@ -273,6 +286,9 @@ type AssetWalletServer interface {
 type UnimplementedAssetWalletServer struct {
 }
 
+func (UnimplementedAssetWalletServer) CreateInteractiveSendTemplate(context.Context, *CreateInteractiveSendTemplateRequest) (*CreateInteractiveSendTemplateResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method CreateInteractiveSendTemplate not implemented")
+}
 func (UnimplementedAssetWalletServer) FundVirtualPsbt(context.Context, *FundVirtualPsbtRequest) (*FundVirtualPsbtResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method FundVirtualPsbt not implemented")
 }
@@ -323,6 +339,24 @@ type UnsafeAssetWalletServer interface {
 
 func RegisterAssetWalletServer(s grpc.ServiceRegistrar, srv AssetWalletServer) {
 	s.RegisterService(&AssetWallet_ServiceDesc, srv)
+}
+
+func _AssetWallet_CreateInteractiveSendTemplate_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(CreateInteractiveSendTemplateRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AssetWalletServer).CreateInteractiveSendTemplate(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/assetwalletrpc.AssetWallet/CreateInteractiveSendTemplate",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AssetWalletServer).CreateInteractiveSendTemplate(ctx, req.(*CreateInteractiveSendTemplateRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _AssetWallet_FundVirtualPsbt_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -566,6 +600,10 @@ var AssetWallet_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "assetwalletrpc.AssetWallet",
 	HandlerType: (*AssetWalletServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "CreateInteractiveSendTemplate",
+			Handler:    _AssetWallet_CreateInteractiveSendTemplate_Handler,
+		},
 		{
 			MethodName: "FundVirtualPsbt",
 			Handler:    _AssetWallet_FundVirtualPsbt_Handler,

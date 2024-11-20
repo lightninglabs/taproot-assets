@@ -2008,6 +2008,75 @@ func (r *rpcServer) AddrReceives(ctx context.Context,
 	return resp, nil
 }
 
+func (r *rpcServer) CreateInteractiveSendTemplate(
+	ctx context.Context,
+	in *wrpc.CreateInteractiveSendTemplateRequest,
+) (*wrpc.CreateInteractiveSendTemplateResponse, error) {
+
+	// 1. Parse and validate inputs
+	if in.Amount == 0 || len(in.ScriptKey) == 0 || len(in.AnchorInternalKey) == 0 {
+		return nil, fmt.Errorf("invalid input parameters")
+	}
+
+	var assetID asset.ID
+	switch {
+	case len(in.GetAssetId()) > 0:
+		copy(assetID[:], in.GetAssetId())
+
+	case len(in.GetAssetIdStr()) > 0:
+		assetIDBytes, err := hex.DecodeString(in.GetAssetIdStr())
+		if err != nil {
+			return nil, fmt.Errorf("error decoding asset ID: %w",
+				err)
+		}
+
+		copy(assetID[:], assetIDBytes)
+
+	default:
+		return nil, fmt.Errorf("asset ID must be specified")
+	}
+
+	// Parse the script key
+	scriptPubKey, err := parseUserKey(in.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid script key: %w", err)
+	}
+	scriptKey := asset.ScriptKey{
+		PubKey: scriptPubKey,
+	}
+
+	// Parse the anchor internal key
+	anchorInternalKey, err := btcec.ParsePubKey(in.AnchorInternalKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid anchor internal key: %w", err)
+	}
+
+	// 2. Create the virtual PSBT template
+	vPkt := tappsbt.ForInteractiveSend(
+		assetID,
+		in.Amount,
+		scriptKey,
+		in.LockTime,
+		in.RelativeLockTime,
+		in.OutputIndex,
+		keychain.KeyDescriptor{
+			PubKey: anchorInternalKey,
+		},
+		asset.V0,
+		&r.cfg.ChainParams,
+	)
+
+	// 3. Serialize the virtual PSBT template
+	psbtBytes, err := tappsbt.Encode(vPkt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize virtual PSBT: %w", err)
+	}
+
+	return &wrpc.CreateInteractiveSendTemplateResponse{
+		Psbt: psbtBytes,
+	}, nil
+}
+
 // FundVirtualPsbt selects inputs from the available asset commitments to fund
 // a virtual transaction matching the template.
 func (r *rpcServer) FundVirtualPsbt(ctx context.Context,

@@ -8,6 +8,12 @@ option go_package = "github.com/lightninglabs/taproot-assets/taprpc/assetwalletr
 
 service AssetWallet {
     /*
+    Creates a virtual PSBT template for an interactive asset send.
+    */
+    rpc CreateInteractiveSendTemplate (CreateInteractiveSendTemplateRequest)
+        returns (CreateInteractiveSendTemplateResponse);
+
+    /*
     FundVirtualPsbt selects inputs from the available asset commitments to fund
     a virtual transaction matching the template.
     */
@@ -178,6 +184,57 @@ message FundVirtualPsbtResponse {
     action.
     */
     repeated bytes passive_asset_psbts = 3;
+}
+
+message CreateInteractiveSendTemplateRequest {
+    oneof asset {
+        /*
+        The raw bytes of the asset ID being sent.
+        */
+        bytes asset_id = 1;
+
+        /*
+        The hex-encoded asset ID of the asset being sent.
+        */
+        string asset_id_str = 2;
+    }
+
+    /*
+    Amount of the asset to send.
+    */
+    uint64 amount = 3;
+
+    /*
+    Lock time (optional).
+    */
+    uint64 lock_time = 4;
+
+    /*
+    Relative lock time (optional).
+    */
+    uint64 relative_lock_time = 5;
+
+    /*
+    Output index for the anchor.
+    */
+    uint32 output_index = 6;
+
+    /*
+    Script key for the receiving address.
+    */
+    bytes script_key = 7;
+
+    /*
+    Anchor internal key for the transaction.
+    */
+    bytes anchor_internal_key = 8;
+}
+
+message CreateInteractiveSendTemplateResponse {
+    /*
+    The serialized virtual PSBT template.
+    */
+    bytes psbt = 1;
 }
 
 message TxTemplate {

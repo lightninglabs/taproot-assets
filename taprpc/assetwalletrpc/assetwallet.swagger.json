@@ -554,6 +554,16 @@
         }
       }
     },
+    "assetwalletrpcCreateInteractiveSendTemplateResponse": {
+      "type": "object",
+      "properties": {
+        "psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The serialized virtual PSBT template."
+        }
+      }
+    },
     "assetwalletrpcDeclareScriptKeyRequest": {
       "type": "object",
       "properties": {
