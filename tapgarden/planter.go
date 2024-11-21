@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -1527,30 +1528,17 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	return nil
 }
 
-// sealBatch will verify that each grouped asset in the pending batch has an
-// asset group witness, and will attempt to create asset group witnesses when
-// possible if they are not provided. After all asset group witnesses have been
-// validated, they are saved to disk to be used by the caretaker during batch
-// finalization.
-func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
-	workingBatch *MintingBatch) (*MintingBatch, error) {
-
-	// A batch should exist with 1+ seedlings and be funded before being
-	// sealed.
-	if !workingBatch.HasSeedlings() {
-		return nil, fmt.Errorf("no seedlings in batch")
-	}
-
-	if !workingBatch.IsFunded() {
-		return nil, fmt.Errorf("batch is not funded")
-	}
+// isBatchSealed returns true if the minting batch has been sealed; otherwise,
+// it returns false.
+func (c *ChainPlanter) isBatchSealed(ctx context.Context,
+	workingBatch *MintingBatch) lfn.Result[bool] {
 
 	// Filter the batch seedlings to only consider those that will become
 	// grouped assets. If there are no such seedlings, then there is nothing
 	// to seal and no action is needed.
 	groupSeedlings, _ := filterSeedlingsWithGroup(workingBatch.Seedlings)
 	if len(groupSeedlings) == 0 {
-		return workingBatch, nil
+		return lfn.Ok[bool](true)
 	}
 
 	// Before we can build the group key requests for each seedling, we must
@@ -1575,16 +1563,58 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	existingGroups, err := c.cfg.Log.FetchSeedlingGroups(
 		ctx, genesisPoint, anchorOutputIndex, singleSeedling,
 	)
-
-	switch {
-	case len(existingGroups) != 0:
-		return nil, ErrBatchAlreadySealed
-	case err != nil:
+	if err != nil {
 		// The only expected error is for a missing asset genesis.
 		if !errors.Is(err, ErrNoGenesis) {
-			return nil, err
+			return lfn.Err[bool](err)
 		}
 	}
+
+	if len(existingGroups) != 0 {
+		// Asset genesis already stored on disk therefore the batch is
+		// already sealed.
+		return lfn.Ok[bool](true)
+	}
+
+	// If we reach this point then the batch hasn't been sealed.
+	return lfn.Ok[bool](false)
+}
+
+// sealBatch will verify that each grouped asset in the pending batch has an
+// asset group witness, and will attempt to create asset group witnesses when
+// possible if they are not provided. After all asset group witnesses have been
+// validated, they are saved to disk to be used by the caretaker during batch
+// finalization.
+func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
+	workingBatch *MintingBatch) (*MintingBatch, error) {
+
+	// Check if the batch meets the requirements for sealing.
+	if !workingBatch.HasSeedlings() {
+		return nil, fmt.Errorf("no seedlings in batch")
+	}
+
+	if !workingBatch.IsFunded() {
+		return nil, fmt.Errorf("batch is not funded")
+	}
+
+	// Return early if the batch is already sealed.
+	isSealed, err := c.isBatchSealed(ctx, workingBatch).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect batch seal status: "+
+			"%w", err)
+	}
+
+	if isSealed {
+		return nil, ErrBatchAlreadySealed
+	}
+
+	genesisPoint := extractGenesisOutpoint(
+		workingBatch.GenesisPacket.Pkt.UnsignedTx,
+	)
+	anchorOutputIndex := extractAnchorOutputIndex(
+		workingBatch.GenesisPacket,
+	)
+	groupSeedlings, _ := filterSeedlingsWithGroup(workingBatch.Seedlings)
 
 	// Construct the group key requests and group virtual TXs for each
 	// seedling. With these we can verify provided asset group witnesses,
