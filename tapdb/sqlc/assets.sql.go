@@ -2262,14 +2262,15 @@ JOIN chain_txns txns
       COALESCE(txns.block_height, 0) >= COALESCE($6, txns.block_height, 0)
 WHERE (
     assets.amount >= COALESCE($7, assets.amount) AND
-    assets.spent = COALESCE($8, assets.spent) AND
-    (key_group_info_view.tweaked_group_key = $9 OR
-      $9 IS NULL) AND
-    assets.anchor_utxo_id = COALESCE($10, assets.anchor_utxo_id) AND
-    assets.genesis_id = COALESCE($11, assets.genesis_id) AND
-    assets.script_key_id = COALESCE($12, assets.script_key_id) AND
+    assets.amount <= COALESCE($8, assets.amount) AND
+    assets.spent = COALESCE($9, assets.spent) AND
+    (key_group_info_view.tweaked_group_key = $10 OR
+      $10 IS NULL) AND
+    assets.anchor_utxo_id = COALESCE($11, assets.anchor_utxo_id) AND
+    assets.genesis_id = COALESCE($12, assets.genesis_id) AND
+    assets.script_key_id = COALESCE($13, assets.script_key_id) AND
     COALESCE(length(script_keys.tweak), 0) = (CASE
-        WHEN cast($13 as bool) = TRUE
+        WHEN cast($14 as bool) = TRUE
         THEN 0 
         ELSE COALESCE(length(script_keys.tweak), 0)
     END)
@@ -2284,6 +2285,7 @@ type QueryAssetsParams struct {
 	Now                 sql.NullTime
 	MinAnchorHeight     sql.NullInt32
 	MinAmt              sql.NullInt64
+	MaxAmt              sql.NullInt64
 	Spent               sql.NullBool
 	KeyGroupFilter      []byte
 	AnchorUtxoID        sql.NullInt64
@@ -2352,6 +2354,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.Now,
 		arg.MinAnchorHeight,
 		arg.MinAmt,
+		arg.MaxAmt,
 		arg.Spent,
 		arg.KeyGroupFilter,
 		arg.AnchorUtxoID,
