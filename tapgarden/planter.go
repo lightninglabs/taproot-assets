@@ -571,6 +571,32 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 			batchKey[:], feeRate.FeePerKVByte().String())
 	}
 
+	minRelayFee, err := c.cfg.Wallet.MinRelayFee(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("unable to obtain minrelayfee: %w", err)
+	}
+
+	// If the fee rate is below the minimum relay fee, we'll
+	// bump it up.
+	if feeRate < minRelayFee {
+		switch {
+		// If a fee rate was manually assigned for this batch, we err
+		// out, otherwise we silently bump the feerate.
+		case manualFeeRate != nil:
+			// This case should already have been handled by the
+			// `checkFeeRateSanity` of `rpcserver.go`. We check here
+			// again to be safe.
+			return nil, fmt.Errorf("feerate does not meet "+
+				"minrelayfee: (fee_rate=%s, minrelayfee=%s)",
+				feeRate.String(), minRelayFee.String())
+		default:
+			log.Infof("Bump fee rate for batch %x to meet "+
+				"minrelayfee from %s to %s", batchKey[:],
+				feeRate.String(), minRelayFee.String())
+			feeRate = minRelayFee
+		}
+	}
+
 	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
 		ctx, genesisPkt, 1, feeRate, -1,
 	)

@@ -1078,23 +1078,69 @@ func sendProofUniRPC(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	return importResp
 }
 
-// sendAssetsToAddr spends the given input asset and sends the amount specified
+// sendOptions is a struct that holds a SendAssetRequest and an
+// optional error string that should be tested against.
+type sendOptions struct {
+	sendAssetRequest taprpc.SendAssetRequest
+	errText          string
+}
+
+// sendOption is a functional option for configuring the sendAssets call.
+type sendOption func(*sendOptions)
+
+// withReceiverAddresses is an option to specify the receiver addresses for the
+// send.
+func withReceiverAddresses(addrs ...*taprpc.Addr) sendOption {
+	return func(options *sendOptions) {
+		encodedAddrs := make([]string, len(addrs))
+		for i, addr := range addrs {
+			encodedAddrs[i] = addr.Encoded
+		}
+		options.sendAssetRequest.TapAddrs = encodedAddrs
+	}
+}
+
+// withFeeRate is an option to specify the fee rate for the send.
+func withFeeRate(feeRate uint32) sendOption {
+	return func(options *sendOptions) {
+		options.sendAssetRequest.FeeRate = feeRate
+	}
+}
+
+// withError is an option to specify the string that is expected in the error
+// returned by the SendAsset call.
+func withError(errorText string) sendOption {
+	return func(options *sendOptions) {
+		options.errText = errorText
+	}
+}
+
+// sendAsset spends the given input asset and sends the amount specified
 // in the address to the Taproot output derived from the address.
-func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
-	receiverAddrs ...*taprpc.Addr) (*taprpc.SendAssetResponse,
+func sendAsset(t *harnessTest, sender *tapdHarness,
+	opts ...sendOption) (*taprpc.SendAssetResponse,
 	*EventSubscription[*taprpc.SendEvent]) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	require.NotEmpty(t.t, receiverAddrs)
-	scriptKey := receiverAddrs[0].ScriptKey
+	// Create base request that will be modified by options.
+	options := &sendOptions{}
 
-	encodedAddrs := make([]string, len(receiverAddrs))
-	for i, addr := range receiverAddrs {
-		encodedAddrs[i] = addr.Encoded
+	// Apply all the functional options.
+	for _, opt := range opts {
+		opt(options)
 	}
+
+	require.NotEmpty(t.t, options.sendAssetRequest.TapAddrs)
+
+	// We need the first address's scriptkey to subscribe to events.
+	firstAddr, err := address.DecodeAddress(
+		options.sendAssetRequest.TapAddrs[0], &address.RegressionNetTap,
+	)
+	require.NoError(t.t, err)
+	scriptKey := firstAddr.ScriptKey.SerializeCompressed()
 
 	ctxc, streamCancel := context.WithCancel(ctxb)
 	stream, err := sender.SubscribeSendEvents(
@@ -1108,9 +1154,12 @@ func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
 		Cancel:            streamCancel,
 	}
 
-	resp, err := sender.SendAsset(ctxt, &taprpc.SendAssetRequest{
-		TapAddrs: encodedAddrs,
-	})
+	resp, err := sender.SendAsset(ctxt, &options.sendAssetRequest)
+	if options.errText != "" {
+		require.ErrorContains(t.t, err, options.errText)
+		return nil, nil
+	}
+
 	require.NoError(t.t, err)
 
 	// We'll get events up to the point where we broadcast the transaction.
@@ -1121,6 +1170,15 @@ func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
 	)
 
 	return resp, sub
+}
+
+// sendAssetsToAddr is a variadic wrapper around sendAsset that enables passsing
+// a multitude of addresses.
+func sendAssetsToAddr(t *harnessTest, sender *tapdHarness,
+	receiverAddrs ...*taprpc.Addr) (*taprpc.SendAssetResponse,
+	*EventSubscription[*taprpc.SendEvent]) {
+
+	return sendAsset(t, sender, withReceiverAddresses(receiverAddrs...))
 }
 
 // fundAddressSendPacket asks the wallet to fund a new virtual packet with the

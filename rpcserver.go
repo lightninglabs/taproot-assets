@@ -664,17 +664,29 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 // checkFeeRateSanity ensures that the provided fee rate, in sat/kw, is above
 // the same minimum fee used as a floor in the fee estimator.
-func checkFeeRateSanity(rpcFeeRate uint32) (*chainfee.SatPerKWeight, error) {
-	feeFloor := uint32(chainfee.FeePerKwFloor)
+func checkFeeRateSanity(ctx context.Context, rpcFeeRate chainfee.SatPerKWeight,
+	lndWallet lndclient.WalletKitClient) (*chainfee.SatPerKWeight, error) {
+
+	feeFloor := chainfee.FeePerKwFloor
+	minRelayFee, err := lndWallet.MinRelayFee(ctx)
+	if err != nil {
+		return nil, err
+	}
 	switch {
 	// No manual fee rate was set, which is the default.
-	case rpcFeeRate == 0:
+	case rpcFeeRate == chainfee.SatPerKWeight(0):
 		return nil, nil
 
-	// A manual fee was set but is below a reasonable floor.
-	case rpcFeeRate < feeFloor:
-		return nil, fmt.Errorf("manual fee rate below floor: "+
-			"(fee_rate=%d, floor=%d sat/kw)", rpcFeeRate, feeFloor)
+	// A manual fee was set but is below a reasonable floor or minRelayFee.
+	case rpcFeeRate < feeFloor || rpcFeeRate < minRelayFee:
+		if rpcFeeRate < feeFloor {
+			return nil, fmt.Errorf("manual fee rate below floor: "+
+				"(fee_rate=%s, floor=%s)", rpcFeeRate.String(),
+				feeFloor.String())
+		}
+		return nil, fmt.Errorf("feerate does not meet minrelayfee: "+
+			"(fee_rate=%s, minrelayfee=%s)", rpcFeeRate.String(),
+			minRelayFee.String())
 
 	// Set the fee rate for this transaction.
 	default:
@@ -683,10 +695,12 @@ func checkFeeRateSanity(rpcFeeRate uint32) (*chainfee.SatPerKWeight, error) {
 }
 
 // FundBatch attempts to fund the current pending batch.
-func (r *rpcServer) FundBatch(_ context.Context,
+func (r *rpcServer) FundBatch(ctx context.Context,
 	req *mintrpc.FundBatchRequest) (*mintrpc.FundBatchResponse, error) {
 
-	feeRate, err := checkFeeRateSanity(req.FeeRate)
+	feeRate, err := checkFeeRateSanity(
+		ctx, chainfee.SatPerKWeight(req.FeeRate), r.cfg.Lnd.WalletKit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -759,11 +773,13 @@ func (r *rpcServer) SealBatch(ctx context.Context,
 }
 
 // FinalizeBatch attempts to finalize the current pending batch.
-func (r *rpcServer) FinalizeBatch(_ context.Context,
+func (r *rpcServer) FinalizeBatch(ctx context.Context,
 	req *mintrpc.FinalizeBatchRequest) (*mintrpc.FinalizeBatchResponse,
 	error) {
 
-	feeRate, err := checkFeeRateSanity(req.FeeRate)
+	feeRate, err := checkFeeRateSanity(
+		ctx, chainfee.SatPerKWeight(req.FeeRate), r.cfg.Lnd.WalletKit,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -3117,7 +3133,7 @@ func marshalAddrEventStatus(status address.Status) (taprpc.AddrEventStatus,
 // complete an asset send. The method returns information w.r.t the on chain
 // send, as well as the proof file information the receiver needs to fully
 // receive the asset.
-func (r *rpcServer) SendAsset(_ context.Context,
+func (r *rpcServer) SendAsset(ctx context.Context,
 	req *taprpc.SendAssetRequest) (*taprpc.SendAssetResponse, error) {
 
 	if len(req.TapAddrs) == 0 {
@@ -3164,7 +3180,9 @@ func (r *rpcServer) SendAsset(_ context.Context,
 		}
 	}
 
-	feeRate, err := checkFeeRateSanity(req.FeeRate)
+	feeRate, err := checkFeeRateSanity(
+		ctx, chainfee.SatPerKWeight(req.FeeRate), r.cfg.Lnd.WalletKit,
+	)
 	if err != nil {
 		return nil, err
 	}

@@ -1137,6 +1137,42 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				return nil, fmt.Errorf("unable to estimate "+
 					"fee: %w", err)
 			}
+
+			log.Infof("estimated fee rate for parcel:, %s",
+				feeRate.FeePerKVByte().String())
+		}
+
+		minRelayFee, err := p.cfg.Wallet.MinRelayFee(ctx)
+		if err != nil {
+			p.unlockInputs(ctx, &currentPkg)
+
+			return nil, fmt.Errorf("unable to obtain "+
+				"minimum relay fee: %w", err)
+		}
+
+		// If the fee rate is below the minimum relay fee, we'll
+		// bump it up.
+		if feeRate < minRelayFee {
+			switch {
+			// If a fee rate was manually assigned for this parcel,
+			// we err out, otherwise we silently bump the feerate.
+			case addrParcel.transferFeeRate != nil:
+				// This case should already have been handled by
+				// the `checkFeeRateSanity` of `rpcserver.go`.
+				// We check here again to be safe.
+				p.unlockInputs(ctx, &currentPkg)
+
+				return nil, fmt.Errorf("feerate does not "+
+					"meet minrelayfee: (fee_rate=%s, "+
+					"minrelayfee=%s)", feeRate.String(),
+					minRelayFee.String())
+			default:
+				log.Infof("bump fee rate for parcel to meet "+
+					"minrelayfee from %s to %s",
+					feeRate.FeePerKVByte().String(),
+					minRelayFee.FeePerKVByte().String())
+				feeRate = minRelayFee
+			}
 		}
 
 		readableFeeRate := feeRate.FeePerKVByte().String()

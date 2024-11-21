@@ -82,6 +82,10 @@ var testCases = []*testCase{
 		test: testBasicSendUnidirectional,
 	},
 	{
+		name: "min relay fee bump",
+		test: testMinRelayFeeBump,
+	},
+	{
 		name: "restart receiver check balance",
 		test: testRestartReceiverCheckBalance,
 	},
