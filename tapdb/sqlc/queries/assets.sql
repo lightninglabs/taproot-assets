@@ -490,6 +490,7 @@ JOIN chain_txns txns
 -- specified.
 WHERE (
     assets.amount >= COALESCE(sqlc.narg('min_amt'), assets.amount) AND
+    assets.amount <= COALESCE(sqlc.narg('max_amt'), assets.amount) AND
     assets.spent = COALESCE(sqlc.narg('spent'), assets.spent) AND
     (key_group_info_view.tweaked_group_key = sqlc.narg('key_group_filter') OR
       sqlc.narg('key_group_filter') IS NULL) AND
