@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/stretchr/testify/require"
 )
@@ -101,6 +102,16 @@ func testBasicSendUnidirectional(t *harnessTest) {
 		AssetVersion: rpcAssets[0].Version,
 	})
 	require.NoError(t.t, err)
+
+	// Before we start sending, we test that we aren't allowed to send to
+	// the same address more than once within the same transfer.
+	_, err = t.tapd.SendAsset(ctxb, &taprpc.SendAssetRequest{
+		TapAddrs: []string{
+			bobAddr.Encoded,
+			bobAddr.Encoded,
+		},
+	})
+	require.ErrorContains(t.t, err, tapsend.ErrDuplicateScriptKeys.Error())
 
 	for i := 0; i < numSends; i++ {
 		t.t.Logf("Performing send procedure: %d", i)

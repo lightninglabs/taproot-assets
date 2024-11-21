@@ -1108,7 +1108,10 @@ func AssertAssetOutboundTransferWithOutputs(t *testing.T,
 			out := transfer.Outputs[idx]
 			require.Contains(t, outpoints, out.Anchor.Outpoint)
 			require.Contains(t, scripts, string(out.ScriptKey))
-			require.Equal(t, expectedAmounts[idx], out.Amount)
+			require.Equalf(
+				t, expectedAmounts[idx], out.Amount,
+				"expected amounts: %v, transfer: %v",
+				expectedAmounts, toJSON(t, transfer))
 		}
 
 		firstIn := transfer.Inputs[0]

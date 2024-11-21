@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -129,6 +130,10 @@ type Wallet interface {
 	// address.ErrInternalKeyNotFound is returned.
 	FetchInternalKeyLocator(ctx context.Context,
 		rawKey *btcec.PublicKey) (keychain.KeyLocator, error)
+
+	// ReleaseCoins releases/unlocks coins that were previously leased and
+	// makes them available for coin selection again.
+	ReleaseCoins(ctx context.Context, utxoOutpoints ...wire.OutPoint) error
 }
 
 // AddrBook is an interface that provides access to the address book.
@@ -752,7 +757,7 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 	}
 
 	if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
-		return nil, fmt.Errorf("unable to create split commit: %w", err)
+		return nil, fmt.Errorf("unable to prepare outputs: %w", err)
 	}
 
 	return &FundedVPacket{
@@ -1206,7 +1211,7 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 	}
 
 	// Gather passive assets found in each input Taproot Asset commitment.
-	var passivePackets []*tappsbt.VPacket
+	passivePackets := make(map[asset.PrevID]*tappsbt.VPacket)
 	for prevID := range inputCommitments {
 		tapCommitment := inputCommitments[prevID]
 
@@ -1244,6 +1249,16 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 					"proof: %w", err)
 			}
 
+			scriptKey := passiveAsset.ScriptKey.PubKey
+			passivePrevID := asset.PrevID{
+				OutPoint:  prevID.OutPoint,
+				ID:        passiveAsset.ID(),
+				ScriptKey: asset.ToSerialized(scriptKey),
+			}
+			log.Tracef("Adding passive packet for asset_id=%v, "+
+				"script_key=%x", passiveAsset.ID().String(),
+				scriptKey.SerializeCompressed())
+
 			passivePacket, err := createPassivePacket(
 				f.cfg.ChainParams, passiveAsset, activePackets,
 				anchorOutIdx, *anchorOutDesc, prevID.OutPoint,
@@ -1254,11 +1269,11 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 					"passive packet: %w", err)
 			}
 
-			passivePackets = append(passivePackets, passivePacket)
+			passivePackets[passivePrevID] = passivePacket
 		}
 	}
 
-	return passivePackets, nil
+	return maps.Values(passivePackets), nil
 }
 
 // SignPassiveAssets signs the given passive asset packets.
@@ -1460,6 +1475,14 @@ func (f *AssetWallet) FetchInternalKeyLocator(ctx context.Context,
 	rawKey *btcec.PublicKey) (keychain.KeyLocator, error) {
 
 	return f.cfg.AddrBook.FetchInternalKeyLocator(ctx, rawKey)
+}
+
+// ReleaseCoins releases/unlocks coins that were previously leased and makes
+// them available for coin selection again.
+func (f *AssetWallet) ReleaseCoins(ctx context.Context,
+	utxoOutpoints ...wire.OutPoint) error {
+
+	return f.cfg.CoinSelector.ReleaseCoins(ctx, utxoOutpoints...)
 }
 
 // addAnchorPsbtInputs adds anchor information from all inputs to the PSBT

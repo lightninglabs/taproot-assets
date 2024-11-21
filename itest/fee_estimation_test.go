@@ -66,9 +66,11 @@ func testFeeEstimation(t *harnessTest) {
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
 	)
+	normalAsset := rpcAssets[0]
+	normalAssetId := normalAsset.AssetGenesis.AssetId
 
 	// Check the final fee rate of the mint TX.
-	rpcMintOutpoint := rpcAssets[0].ChainAnchor.AnchorOutpoint
+	rpcMintOutpoint := normalAsset.ChainAnchor.AnchorOutpoint
 	mintOutpoint, err := wire.NewOutPointFromString(rpcMintOutpoint)
 	require.NoError(t.t, err)
 
@@ -81,8 +83,7 @@ func testFeeEstimation(t *harnessTest) {
 	)
 
 	// Split the normal asset to create a transfer with two anchor outputs.
-	normalAssetId := rpcAssets[0].AssetGenesis.AssetId
-	splitAmount := rpcAssets[0].Amount / 2
+	splitAmount := normalAsset.Amount / 2
 	addr, stream := NewAddrWithEventStream(
 		t.t, t.tapd, &taprpc.NewAddrRequest{
 			AssetId: normalAssetId,
@@ -90,7 +91,7 @@ func testFeeEstimation(t *harnessTest) {
 		},
 	)
 
-	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], addr)
+	AssertAddrCreated(t.t, t.tapd, normalAsset, addr)
 	sendResp, sendEvents := sendAssetsToAddr(t, t.tapd, addr)
 
 	transferIdx := 0
@@ -121,7 +122,7 @@ func testFeeEstimation(t *harnessTest) {
 		},
 	)
 
-	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], addr2)
+	AssertAddrCreated(t.t, t.tapd, normalAsset, addr2)
 	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr2)
 
 	ConfirmAndAssertOutboundTransfer(
@@ -157,7 +158,7 @@ func testFeeEstimation(t *harnessTest) {
 		[]*UTXORequest{initialUTXOs[3]},
 	)
 
-	AssertAddrCreated(t.t, t.tapd, rpcAssets[0], addr3)
+	AssertAddrCreated(t.t, t.tapd, normalAsset, addr3)
 	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
 		TapAddrs: []string{addr3.Encoded},
 	})
@@ -166,7 +167,7 @@ func testFeeEstimation(t *harnessTest) {
 	)
 
 	// The transfer should also be rejected if the manually-specified
-	// feerate fails the sanity check against the fee estimator's fee floor
+	// fee rate fails the sanity check against the fee estimator's fee floor
 	// of 253 sat/kw, or 1.012 sat/vB.
 	_, err = t.tapd.SendAsset(ctxt, &taprpc.SendAssetRequest{
 		TapAddrs: []string{addr3.Encoded},
@@ -174,15 +175,16 @@ func testFeeEstimation(t *harnessTest) {
 	})
 	require.ErrorContains(t.t, err, "manual fee rate below floor")
 
-	// After failure at the high feerate, we should still be able to make a
-	// transfer at a very low feerate.
+	// After failure at the high fee rate, we should still be able to make a
+	// transfer at a very low fee rate.
 	t.lndHarness.SetFeeEstimateWithConf(lowFeeRate, 6)
 	sendResp, sendEvents = sendAssetsToAddr(t, t.tapd, addr3)
 
 	ConfirmAndAssertOutboundTransfer(
 		t.t, t.lndHarness.Miner().Client, t.tapd, sendResp,
-		normalAssetId, []uint64{thirdSplitAmount, thirdSplitAmount},
-		transferIdx, transferIdx+1,
+		normalAssetId, []uint64{
+			splitAmount - thirdSplitAmount, thirdSplitAmount,
+		}, transferIdx, transferIdx+1,
 	)
 	transferIdx += 1
 	AssertNonInteractiveRecvComplete(t.t, t.tapd, transferIdx)

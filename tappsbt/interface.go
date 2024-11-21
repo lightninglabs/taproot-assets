@@ -321,6 +321,25 @@ func (p *VPacket) AssetID() (asset.ID, error) {
 	return firstID, nil
 }
 
+// AssetSpecifier returns the asset specifier for the asset being spent by the
+// first input of the virtual transaction. It returns an error if the asset ID
+// of the virtual transaction is not set or if the asset of the first input is
+// not set.
+func (p *VPacket) AssetSpecifier() (asset.Specifier, error) {
+	assetID, err := p.AssetID()
+	if err != nil {
+		return asset.Specifier{}, err
+	}
+
+	if p.Inputs[0].Asset() == nil {
+		return asset.Specifier{}, fmt.Errorf("no asset set for input 0")
+	}
+
+	return asset.NewSpecifier(
+		&assetID, nil, p.Inputs[0].Asset().GroupKey, true,
+	)
+}
+
 // Anchor is a struct that contains all the information about an anchor output.
 type Anchor struct {
 	// Value is output value of the anchor output.

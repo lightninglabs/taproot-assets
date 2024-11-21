@@ -2952,3 +2952,186 @@ func TestValidateAnchorInputs(t *testing.T) {
 		})
 	}
 }
+
+// TestValidateCommitmentKeysUnique tests that the commitment keys in a set of
+// virtual packets are unique per TAP commitment key.
+func TestValidateCommitmentKeysUnique(t *testing.T) {
+	groupPubKey1 := test.RandPubKey(t)
+	groupPubKey2 := test.RandPubKey(t)
+	groupKey1 := &asset.GroupKey{
+		GroupPubKey: *groupPubKey1,
+	}
+	groupKey2 := &asset.GroupKey{
+		GroupPubKey: *groupPubKey2,
+	}
+	assetID1 := asset.ID{1, 2, 3}
+	assetID2 := asset.ID{2, 3, 4}
+
+	scriptKey1 := asset.NewScriptKey(test.RandPubKey(t))
+	scriptKey2 := asset.NewScriptKey(test.RandPubKey(t))
+	scriptKey3 := asset.NewScriptKey(test.RandPubKey(t))
+
+	makeVPacket := func(assetID asset.ID, groupKey *asset.GroupKey,
+		outputKeys []asset.ScriptKey) *tappsbt.VPacket {
+
+		vPkt := &tappsbt.VPacket{
+			ChainParams: &address.RegressionNetTap,
+			Inputs: []*tappsbt.VInput{
+				{
+					PrevID: asset.PrevID{
+						ID: assetID,
+					},
+				},
+			},
+			Outputs: make([]*tappsbt.VOutput, len(outputKeys)),
+		}
+		var a asset.Asset
+		if groupKey != nil {
+			a.GroupKey = groupKey
+		}
+		vPkt.SetInputAsset(0, &a)
+
+		for i, outputKey := range outputKeys {
+			vPkt.Outputs[i] = &tappsbt.VOutput{
+				ScriptKey: outputKey,
+			}
+		}
+
+		return vPkt
+	}
+
+	tests := []struct {
+		name      string
+		vPackets  []*tappsbt.VPacket
+		expectErr bool
+	}{
+		{
+			name: "no collision, single packet, unique keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+			},
+		},
+		{
+			name: "no collision, multi group packets, same keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+				makeVPacket(
+					assetID1, nil,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+			},
+		},
+		{
+			name: "no collision, multi group packets 2, same keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+				makeVPacket(
+					assetID1, groupKey2,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+			},
+		},
+		{
+			name: "no collision, same group packets, unique keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+				makeVPacket(
+					assetID2, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey3,
+					},
+				),
+			},
+		},
+		{
+			name: "no collision, different asset packets, same " +
+				"keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+				makeVPacket(
+					assetID2, groupKey1,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+			},
+		},
+		{
+			name: "collision, same asset packets, same keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, nil,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+				makeVPacket(
+					assetID1, nil,
+					[]asset.ScriptKey{
+						scriptKey1, scriptKey2,
+					},
+				),
+			},
+			expectErr: true,
+		},
+		{
+			name: "no collision, multi asset packets, same keys",
+			vPackets: []*tappsbt.VPacket{
+				makeVPacket(
+					assetID1, nil,
+					[]asset.ScriptKey{
+						scriptKey1,
+					},
+				),
+				makeVPacket(
+					assetID2, nil,
+					[]asset.ScriptKey{
+						scriptKey1,
+					},
+				),
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tapsend.ValidateCommitmentKeysUnique(tt.vPackets)
+			if tt.expectErr {
+				require.ErrorIs(
+					t, err, tapsend.ErrDuplicateScriptKeys,
+				)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}

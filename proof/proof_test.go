@@ -758,6 +758,8 @@ func TestProofVerification(t *testing.T) {
 
 	t.Logf("Proof asset JSON: %s", assetJSON)
 
+	// If we have a challenge witness, we can verify that without having the
+	// previous proof.
 	if len(p.ChallengeWitness) > 0 {
 		_, err = p.Verify(
 			context.Background(), nil, MockHeaderVerifier,
@@ -765,6 +767,11 @@ func TestProofVerification(t *testing.T) {
 		)
 		require.NoError(t, err)
 	}
+
+	// Verifying the inclusion and exclusion proofs can also be done without
+	// the previous proof.
+	_, err = p.VerifyProofs()
+	require.NoError(t, err)
 
 	// Ensure that verification of a proof of unknown version fails.
 	p.Version = TransitionVersion(212)
