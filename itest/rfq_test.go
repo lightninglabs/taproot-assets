@@ -87,25 +87,35 @@ func testRfqAssetBuyHtlcIntercept(t *harnessTest) {
 	bidAmt := uint64(90000)
 	buyOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
 
-	_, err = ts.CarolTapd.AddAssetBuyOrder(
-		ctxt, &rfqrpc.AddAssetBuyOrderRequest{
-			AssetSpecifier: &rfqrpc.AssetSpecifier{
-				Id: &rfqrpc.AssetSpecifier_AssetId{
-					AssetId: mintedAssetId,
-				},
+	// We first try to add a buy order without specifying the asset skip
+	// flag. That should result in an error, since we only have a normal
+	// channel and not an asset channel.
+	buyReq := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetId,
 			},
-			AssetMaxAmt: purchaseAssetAmt,
-			Expiry:      buyOrderExpiry,
-
-			// Here we explicitly specify Bob as the destination
-			// peer for the buy order. This will prompt Carol's tapd
-			// node to send a request for quote message to Bob's
-			// node.
-			PeerPubKey: ts.BobLnd.PubKey[:],
-
-			TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 		},
+		AssetMaxAmt: purchaseAssetAmt,
+		Expiry:      buyOrderExpiry,
+
+		// Here we explicitly specify Bob as the destination
+		// peer for the buy order. This will prompt Carol's tapd
+		// node to send a request for quote message to Bob's
+		// node.
+		PeerPubKey: ts.BobLnd.PubKey[:],
+
+		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
+	}
+	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
+	require.ErrorContains(
+		t.t, err, "error checking peer channel: error checking asset "+
+			"channel",
 	)
+
+	// Now we set the skip flag and we shouldn't get an error anymore.
+	buyReq.SkipAssetChannelCheck = true
+	_, err = ts.CarolTapd.AddAssetBuyOrder(ctxt, buyReq)
 	require.NoError(t.t, err, "unable to upsert asset buy order")
 
 	// Wait until Carol receives an incoming quote accept message (sent from
@@ -266,25 +276,35 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	askAmt := uint64(42000)
 	sellOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
 
-	_, err = ts.AliceTapd.AddAssetSellOrder(
-		ctxt, &rfqrpc.AddAssetSellOrderRequest{
-			AssetSpecifier: &rfqrpc.AssetSpecifier{
-				Id: &rfqrpc.AssetSpecifier_AssetId{
-					AssetId: mintedAssetIdBytes,
-				},
+	// We first try to add a sell order without specifying the asset skip
+	// flag. That should result in an error, since we only have a normal
+	// channel and not an asset channel.
+	sellReq := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: mintedAssetIdBytes,
 			},
-			PaymentMaxAmt: askAmt,
-			Expiry:        sellOrderExpiry,
-
-			// Here we explicitly specify Bob as the destination
-			// peer for the sell order. This will prompt Alice's
-			// tapd node to send a request for quote message to
-			// Bob's node.
-			PeerPubKey: ts.BobLnd.PubKey[:],
-
-			TimeoutSeconds: uint32(rfqTimeout.Seconds()),
 		},
+		PaymentMaxAmt: askAmt,
+		Expiry:        sellOrderExpiry,
+
+		// Here we explicitly specify Bob as the destination
+		// peer for the sell order. This will prompt Alice's
+		// tapd node to send a request for quote message to
+		// Bob's node.
+		PeerPubKey: ts.BobLnd.PubKey[:],
+
+		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	require.ErrorContains(
+		t.t, err, "error checking peer channel: error checking asset "+
+			"channel",
 	)
+
+	// Now we set the skip flag and we shouldn't get an error anymore.
+	sellReq.SkipAssetChannelCheck = true
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
 	require.NoError(t.t, err, "unable to upsert asset sell order")
 
 	// Wait until Alice receives an incoming sell quote accept message (sent

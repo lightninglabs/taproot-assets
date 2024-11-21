@@ -228,6 +228,10 @@
                   "type": "integer",
                   "format": "int64",
                   "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
+                },
+                "skip_asset_channel_check": {
+                  "type": "boolean",
+                  "description": "If set, the check if a channel with the given asset exists with the peer\nwill be skipped. An active channel with the peer is still required for\nthe RFQ negotiation to work. This flag shouldn't be set outside of test\nscenarios."
                 }
               }
             }
@@ -312,6 +316,10 @@
                   "type": "integer",
                   "format": "int64",
                   "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
+                },
+                "skip_asset_channel_check": {
+                  "type": "boolean",
+                  "description": "If set, the check if a channel with the given asset exists with the peer\nwill be skipped. An active channel with the peer is still required for\nthe RFQ negotiation to work. This flag shouldn't be set outside of test\nscenarios."
                 }
               }
             }
@@ -596,6 +604,10 @@
                   "type": "integer",
                   "format": "int64",
                   "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
+                },
+                "skip_asset_channel_check": {
+                  "type": "boolean",
+                  "description": "If set, the check if a channel with the given asset exists with the peer\nwill be skipped. An active channel with the peer is still required for\nthe RFQ negotiation to work. This flag shouldn't be set outside of test\nscenarios."
                 }
               }
             }
@@ -679,6 +691,10 @@
                   "type": "integer",
                   "format": "int64",
                   "description": "timeout_seconds is the number of seconds to wait for the peer to respond\nwith an accepted quote (or a rejection)."
+                },
+                "skip_asset_channel_check": {
+                  "type": "boolean",
+                  "description": "If set, the check if a channel with the given asset exists with the peer\nwill be skipped. An active channel with the peer is still required for\nthe RFQ negotiation to work. This flag shouldn't be set outside of test\nscenarios."
                 }
               }
             }

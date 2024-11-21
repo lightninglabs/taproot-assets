@@ -138,6 +138,12 @@ message AddAssetBuyOrderRequest {
     // timeout_seconds is the number of seconds to wait for the peer to respond
     // with an accepted quote (or a rejection).
     uint32 timeout_seconds = 5;
+
+    // If set, the check if a channel with the given asset exists with the peer
+    // will be skipped. An active channel with the peer is still required for
+    // the RFQ negotiation to work. This flag shouldn't be set outside of test
+    // scenarios.
+    bool skip_asset_channel_check = 6;
 }
 
 message AddAssetBuyOrderResponse {
@@ -174,6 +180,12 @@ message AddAssetSellOrderRequest {
     // timeout_seconds is the number of seconds to wait for the peer to respond
     // with an accepted quote (or a rejection).
     uint32 timeout_seconds = 5;
+
+    // If set, the check if a channel with the given asset exists with the peer
+    // will be skipped. An active channel with the peer is still required for
+    // the RFQ negotiation to work. This flag shouldn't be set outside of test
+    // scenarios.
+    bool skip_asset_channel_check = 6;
 }
 
 message AddAssetSellOrderResponse {
