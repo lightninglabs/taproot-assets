@@ -14,6 +14,20 @@ service AssetWallet {
         returns (CreateInteractiveSendTemplateResponse);
 
     /*
+    PrepareAnchoringTemplate prepares a Bitcoin PSBT for anchoring the given
+    signed virtual PSBT.
+    */
+    rpc PrepareAnchoringTemplate (PrepareAnchoringTemplateRequest)
+        returns (PrepareAnchoringTemplateResponse);
+
+    /*
+    UpdateVirtualPSBT updates the script key of the output in the given virtual
+    PSBT and optionally the linked Bitcoin PSBT.
+    */
+    rpc UpdateVirtualPsbt (UpdateVirtualPsbtRequest)
+        returns (UpdateVirtualPsbtResponse);
+
+    /*
     FundVirtualPsbt selects inputs from the available asset commitments to fund
     a virtual transaction matching the template.
     */
@@ -235,6 +249,31 @@ message CreateInteractiveSendTemplateResponse {
     The serialized virtual PSBT template.
     */
     bytes psbt = 1;
+}
+
+message PrepareAnchoringTemplateRequest {
+    // The signed virtual PSBT.
+    bytes virtual_psbt = 1;
+
+    // The amount (in satoshis) to send to the output address.
+    int64 output_amt = 2;
+}
+
+message PrepareAnchoringTemplateResponse {
+    // The serialized Bitcoin PSBT for anchoring.
+    bytes anchor_psbt = 1;
+}
+
+message UpdateVirtualPsbtRequest {
+    bytes virtual_psbt = 1;  // The serialized virtual PSBT to update.
+    bytes script_key = 2;    // The new script key for the output.
+    bytes anchor_psbt = 3;   // Optional: The linked Bitcoin PSBT.
+}
+
+message UpdateVirtualPsbtResponse {
+    bytes updated_virtual_psbt = 1;  // The updated serialized virtual PSBT.
+    bytes updated_anchor_psbt =
+        2;  // Optional: The updated Bitcoin PSBT, if provided.
 }
 
 message TxTemplate {

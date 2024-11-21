@@ -346,6 +346,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/wallet/virtual-psbt/create-interactive-send-template": {
+      "post": {
+        "summary": "Creates a virtual PSBT template for an interactive asset send.",
+        "operationId": "AssetWallet_CreateInteractiveSendTemplate",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcCreateInteractiveSendTemplateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcCreateInteractiveSendTemplateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/virtual-psbt/fund": {
       "post": {
         "summary": "FundVirtualPsbt selects inputs from the available asset commitments to fund\na virtual transaction matching the template.",
@@ -412,6 +445,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/wallet/virtual-psbt/prepare-anchoring-template": {
+      "post": {
+        "summary": "PrepareAnchoringTemplate prepares a Bitcoin PSBT for anchoring the given\nsigned virtual PSBT.",
+        "operationId": "AssetWallet_PrepareAnchoringTemplate",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcPrepareAnchoringTemplateResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcPrepareAnchoringTemplateRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
     "/v1/taproot-assets/wallet/virtual-psbt/sign": {
       "post": {
         "summary": "SignVirtualPsbt signs the inputs of a virtual transaction and prepares the\ncommitments of the inputs and outputs.",
@@ -437,6 +503,39 @@
             "required": true,
             "schema": {
               "$ref": "#/definitions/assetwalletrpcSignVirtualPsbtRequest"
+            }
+          }
+        ],
+        "tags": [
+          "AssetWallet"
+        ]
+      }
+    },
+    "/v1/taproot-assets/wallet/virtual-psbt/update": {
+      "post": {
+        "summary": "UpdateVirtualPSBT updates the script key of the output in the given virtual\nPSBT and optionally the linked Bitcoin PSBT.",
+        "operationId": "AssetWallet_UpdateVirtualPsbt",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcUpdateVirtualPsbtResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/assetwalletrpcUpdateVirtualPsbtRequest"
             }
           }
         ],
@@ -554,6 +653,50 @@
         }
       }
     },
+    "assetwalletrpcCreateInteractiveSendTemplateRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw bytes of the asset ID being sent."
+        },
+        "asset_id_str": {
+          "type": "string",
+          "description": "The hex-encoded asset ID of the asset being sent."
+        },
+        "amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Amount of the asset to send."
+        },
+        "lock_time": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Lock time (optional)."
+        },
+        "relative_lock_time": {
+          "type": "string",
+          "format": "uint64",
+          "description": "Relative lock time (optional)."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Output index for the anchor."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "Script key for the receiving address."
+        },
+        "anchor_internal_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "Anchor internal key for the transaction."
+        }
+      }
+    },
     "assetwalletrpcCreateInteractiveSendTemplateResponse": {
       "type": "object",
       "properties": {
@@ -652,6 +795,31 @@
       "properties": {
         "script_key": {
           "$ref": "#/definitions/taprpcScriptKey"
+        }
+      }
+    },
+    "assetwalletrpcPrepareAnchoringTemplateRequest": {
+      "type": "object",
+      "properties": {
+        "virtual_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The signed virtual PSBT."
+        },
+        "output_amt": {
+          "type": "string",
+          "format": "int64",
+          "description": "The amount (in satoshis) to send to the output address."
+        }
+      }
+    },
+    "assetwalletrpcPrepareAnchoringTemplateResponse": {
+      "type": "object",
+      "properties": {
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The serialized Bitcoin PSBT for anchoring."
         }
       }
     },
@@ -817,6 +985,41 @@
             "format": "uint64"
           },
           "description": "A map of all Taproot Asset addresses mapped to the anchor transaction's\noutput index that should be sent to."
+        }
+      }
+    },
+    "assetwalletrpcUpdateVirtualPsbtRequest": {
+      "type": "object",
+      "properties": {
+        "virtual_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The serialized virtual PSBT to update."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The new script key for the output."
+        },
+        "anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "Optional: The linked Bitcoin PSBT."
+        }
+      }
+    },
+    "assetwalletrpcUpdateVirtualPsbtResponse": {
+      "type": "object",
+      "properties": {
+        "updated_virtual_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "The updated serialized virtual PSBT."
+        },
+        "updated_anchor_psbt": {
+          "type": "string",
+          "format": "byte",
+          "description": "Optional: The updated Bitcoin PSBT, if provided."
         }
       }
     },

@@ -3,6 +3,18 @@ config_version: 3
 
 http:
   rules:
+    - selector: assetwalletrpc.AssetWallet.CreateInteractiveSendTemplate
+      post: "/v1/taproot-assets/wallet/virtual-psbt/create-interactive-send-template"
+      body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.PrepareAnchoringTemplate
+      post: "/v1/taproot-assets/wallet/virtual-psbt/prepare-anchoring-template"
+      body: "*"
+
+    - selector: assetwalletrpc.AssetWallet.UpdateVirtualPsbt
+      post: "/v1/taproot-assets/wallet/virtual-psbt/update"
+      body: "*"
+
     - selector: assetwalletrpc.AssetWallet.FundVirtualPsbt
       post: "/v1/taproot-assets/wallet/virtual-psbt/fund"
       body: "*"

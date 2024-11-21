@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
 	"github.com/davecgh/go-spew/spew"
@@ -2066,6 +2068,10 @@ func (r *rpcServer) CreateInteractiveSendTemplate(
 		&r.cfg.ChainParams,
 	)
 
+	// 2.5 Update the sighash flag
+	// TODO: Add support for sighash flags in the RPC request.
+	vPkt.Inputs[0].SighashType = txscript.SigHashNone
+
 	// 3. Serialize the virtual PSBT template
 	psbtBytes, err := tappsbt.Encode(vPkt)
 	if err != nil {
@@ -2074,6 +2080,84 @@ func (r *rpcServer) CreateInteractiveSendTemplate(
 
 	return &wrpc.CreateInteractiveSendTemplateResponse{
 		Psbt: psbtBytes,
+	}, nil
+}
+
+func (r *rpcServer) UpdateVirtualPsbt(ctx context.Context, req *wrpc.UpdateVirtualPsbtRequest) (*wrpc.UpdateVirtualPsbtResponse, error) {
+	// Step 1: Decode the provided virtual PSBT.
+	vPsbt, err := tappsbt.Decode(req.VirtualPsbt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode virtual PSBT: %w", err)
+	}
+
+	if len(vPsbt.Outputs) != 1 {
+		return nil, fmt.Errorf("unexpected number of outputs in virtual PSBT: %d", len(vPsbt.Outputs))
+	}
+
+	// Step 2: Parse the provided script key.
+	scriptPubKey, err := btcec.ParsePubKey(req.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid script key: %w", err)
+	}
+	scriptKey := asset.ScriptKey{
+		PubKey: scriptPubKey,
+	}
+
+	// Step 3: Derive a new anchor internal key using LND's keychain service.
+	keyDesc, err := r.cfg.AddrBook.NextInternalKey(ctx, keychain.KeyFamily(
+		212,
+	))
+	if err != nil {
+		return nil, fmt.Errorf("failed to derive anchor internal key: %w", err)
+	}
+
+	// Step 4: Update the vPSBT output with the new script key and internal key.
+	vOut := vPsbt.Outputs[0]
+	vOut.ScriptKey = scriptKey
+	vOut.AnchorOutputBip32Derivation = nil
+	vOut.AnchorOutputTaprootBip32Derivation = nil
+	vOut.SetAnchorInternalKey(keyDesc, r.cfg.ChainParams.HDCoinType)
+
+	// Step 5: Update Bitcoin PSBT with Bob's derived internal key.
+	// This section assumes the Bitcoin PSBT is linked and accessible for modification.
+	// Adjust as needed if the Bitcoin PSBT is passed separately.
+	if req.AnchorPsbt != nil {
+		btcPsbt, err := psbt.NewFromRawBytes(bytes.NewReader(req.AnchorPsbt), false)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode Bitcoin PSBT: %w", err)
+		}
+
+		if len(btcPsbt.Outputs) < 2 {
+			return nil, fmt.Errorf("Bitcoin PSBT must have at least 2 outputs")
+		}
+
+		btcPsbt.Outputs[1].TaprootInternalKey = vOut.AnchorOutputInternalKey.SerializeCompressed()
+		btcPsbt.Outputs[1].Bip32Derivation = vOut.AnchorOutputBip32Derivation
+		btcPsbt.Outputs[1].TaprootBip32Derivation = vOut.AnchorOutputTaprootBip32Derivation
+
+		var btcPsbtBuf bytes.Buffer
+		if err := btcPsbt.Serialize(&btcPsbtBuf); err != nil {
+			return nil, fmt.Errorf("failed to serialize Bitcoin PSBT: %w", err)
+		}
+		req.AnchorPsbt = btcPsbtBuf.Bytes()
+	}
+
+	// Step 6: Prepare output assets and restore previous witnesses.
+	prevWitnessBackup := vOut.Asset.PrevWitnesses
+	if err := tapsend.PrepareOutputAssets(ctx, vPsbt); err != nil {
+		return nil, fmt.Errorf("failed to prepare output assets: %w", err)
+	}
+	vOut.Asset.PrevWitnesses = prevWitnessBackup
+
+	// Step 7: Serialize the updated virtual PSBT.
+	updatedVPsbtBytes, err := tappsbt.Encode(vPsbt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to serialize updated virtual PSBT: %w", err)
+	}
+
+	return &wrpc.UpdateVirtualPsbtResponse{
+		UpdatedVirtualPsbt: updatedVPsbtBytes,
+		UpdatedAnchorPsbt:  req.AnchorPsbt,
 	}, nil
 }
 
@@ -2580,6 +2664,62 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 	success = true
 
 	return response, nil
+}
+
+func (r *rpcServer) PrepareAnchoringTemplate(
+	ctx context.Context,
+	req *wrpc.PrepareAnchoringTemplateRequest,
+) (*wrpc.PrepareAnchoringTemplateResponse, error) {
+	// Step 1: Decode the signed virtual PSBT.
+	vPkt, err := tappsbt.Decode(req.VirtualPsbt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode virtual PSBT: %w", err)
+	}
+
+	// Step 2: Create the Bitcoin PSBT template for anchoring.
+	btcPsbt, err := tapsend.PrepareAnchoringTemplate([]*tappsbt.VPacket{vPkt})
+	if err != nil {
+		return nil, fmt.Errorf("failed to prepare anchoring template: %w", err)
+	}
+
+	if len(vPkt.Outputs) == 0 {
+		return nil, fmt.Errorf("virtual PSBT has no inputs")
+	}
+
+	// Step 3: Assume the first input can custody the BTC from the swap in the output.
+	// At this point, the vPkt has the same scriptKey for the input and output.
+	firstInput := vPkt.Inputs[0]
+	previousPubKey := vPkt.Outputs[0].ScriptKey.PubKey.SerializeCompressed()
+	pkScript, err := txscript.NewScriptBuilder().
+		AddOp(txscript.OP_1).        // Taproot version byte
+		AddData(previousPubKey[1:]). // x-only public key (strip the prefix byte)
+		Script()
+	if err != nil {
+		log.Fatalf("Failed to create PkScript: %v", err)
+	}
+
+	// Step 4: Set the anchor output terms (amount and address).
+	btcPsbt.UnsignedTx.TxOut[0].PkScript = pkScript
+	btcPsbt.UnsignedTx.TxOut[0].Value = req.OutputAmt
+
+	// Copy derivation info from the first vPkt input to the first output.
+	if firstInput.Bip32Derivation == nil || firstInput.TaprootBip32Derivation == nil {
+		return nil, fmt.Errorf("missing derivation info in vPkt input")
+	}
+
+	btcPsbt.Outputs[0].Bip32Derivation = firstInput.Bip32Derivation
+	btcPsbt.Outputs[0].TaprootBip32Derivation = firstInput.TaprootBip32Derivation
+	btcPsbt.Outputs[0].TaprootInternalKey = firstInput.TaprootInternalKey
+
+	// Step 7: Serialize the prepared Bitcoin PSBT.
+	var buf bytes.Buffer
+	if err := btcPsbt.Serialize(&buf); err != nil {
+		return nil, fmt.Errorf("failed to serialize Bitcoin PSBT: %w", err)
+	}
+
+	return &wrpc.PrepareAnchoringTemplateResponse{
+		AnchorPsbt: buf.Bytes(),
+	}, nil
 }
 
 // validateInputAssets makes sure that the input assets are correct and their
