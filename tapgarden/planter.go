@@ -1582,6 +1582,74 @@ func (c *ChainPlanter) isBatchSealed(ctx context.Context,
 	return lfn.Ok[bool](false)
 }
 
+type SeedlingExternalSealPkg struct {
+	Psbt psbt.Packet
+
+	AssetGroupPubKey btcec.PublicKey
+}
+
+func (c *ChainPlanter) querySealBatchPsbts(ctx context.Context,
+	workingBatch *MintingBatch) ([]SeedlingExternalSealPkg, error) {
+
+	// Check if the batch meets the requirements for sealing.
+	if !workingBatch.HasSeedlings() {
+		return nil, fmt.Errorf("no seedlings in batch")
+	}
+
+	if !workingBatch.IsFunded() {
+		return nil, fmt.Errorf("batch is not funded")
+	}
+
+	// Return early if the batch is already sealed.
+	isSealed, err := c.isBatchSealed(ctx, workingBatch).Unpack()
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect batch seal status: "+
+			"%w", err)
+	}
+
+	if isSealed {
+		return nil, ErrBatchAlreadySealed
+	}
+
+	genesisPoint := extractGenesisOutpoint(
+		workingBatch.GenesisPacket.Pkt.UnsignedTx,
+	)
+	anchorOutputIndex := extractAnchorOutputIndex(
+		workingBatch.GenesisPacket,
+	)
+	groupSeedlings, _ := filterSeedlingsWithGroup(workingBatch.Seedlings)
+
+	// Construct the group key requests and group virtual TXs for each
+	// seedling. With these we can verify provided asset group witnesses,
+	// or attempt to derive asset group witnesses if needed.
+	_, genTXs, err := buildGroupReqs(
+		genesisPoint, anchorOutputIndex, c.cfg.GenTxBuilder,
+		groupSeedlings,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to build group requests: "+
+			"%w", err)
+	}
+
+	var res []SeedlingExternalSealPkg
+	for idx := range genTXs {
+		genTX := genTXs[idx]
+
+		psbtPkg, err := psbt.NewFromUnsignedTx(&genTX.Tx)
+		if err != nil {
+			return nil, fmt.Errorf("unable to create psbt from "+
+				"unsigned group witness VM tx: %w", err)
+		}
+
+		res = append(res, SeedlingExternalSealPkg{
+			Psbt:             *psbtPkg,
+			AssetGroupPubKey: genTX.TweakedKey,
+		})
+	}
+
+	return res, nil
+}
+
 // sealBatch will verify that each grouped asset in the pending batch has an
 // asset group witness, and will attempt to create asset group witnesses when
 // possible if they are not provided. After all asset group witnesses have been
