@@ -766,6 +766,13 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		}
 	}
 
+	// Verify consistency: ensure the number of group key requests matches
+	// the number of group VM transactions.
+	if len(groupReqs) != len(genTXs) {
+		return nil, nil, fmt.Errorf("mismatched number of group " +
+			"requests and virtual TXs")
+	}
+
 	return groupReqs, genTXs, nil
 }
 
@@ -1051,11 +1058,6 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		if err != nil {
 			return nil, fmt.Errorf("unable to build group "+
 				"requests: %w", err)
-		}
-
-		if len(groupReqs) != len(genTXs) {
-			return nil, fmt.Errorf("mismatched number of group " +
-				"requests and virtual TXs")
 		}
 
 		// Copy existing seedlngs into the unsealed seedling map; we'll
@@ -1626,10 +1628,6 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 	if err != nil {
 		return nil, fmt.Errorf("unable to build group requests: "+
 			"%w", err)
-	}
-	if len(groupReqs) != len(genTXs) {
-		return nil, fmt.Errorf("mismatched number of group requests " +
-			"and virtual TXs")
 	}
 
 	// Each provided group witness must have a corresponding seedling in the
