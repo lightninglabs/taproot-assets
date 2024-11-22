@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"math"
 	"testing"
@@ -618,6 +619,22 @@ func unmarshalPendingAssetGroup(t *testing.T,
 	virtualTx, err := taprpc.UnmarshalGroupVirtualTx(a.GroupVirtualTx)
 	require.NoError(t, err)
 
+	// Ensure that the group virtual tx is the same as the grouped virtual
+	// PSBT.
+	groupVirtualPsbt, err := base64.StdEncoding.DecodeString(
+		a.GroupVirtualPsbt,
+	)
+	require.NoError(t, err)
+
+	groupVmPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(groupVirtualPsbt), false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, groupVmPsbt)
+
+	require.Equal(t, *groupVmPsbt.UnsignedTx, virtualTx.Tx)
+
+	// Unmarshal group key request.
 	require.NotNil(t, a.GroupKeyRequest)
 	keyReq, err := taprpc.UnmarshalGroupKeyRequest(a.GroupKeyRequest)
 	require.NoError(t, err)
