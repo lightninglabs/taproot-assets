@@ -2033,10 +2033,15 @@ func testRestoreLndFromSeed(t *harnessTest) {
 
 	AssertAddrCreated(t.t, alice, rpcAsset, aliceAddr)
 
-	sendAsset(
-		t, bob, withReceiverAddresses(aliceAddr),
-		withError("invalid transfer asset witness"),
+	sendResp, sendEvents = sendAssetsToAddr(t, bob, aliceAddr)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		genInfo.AssetId,
+		[]uint64{rpcAsset.Amount - sendAmount*2, sendAmount}, 1, 2,
 	)
+	AssertNonInteractiveRecvComplete(t.t, alice, 2)
+	AssertSendEventsComplete(t.t, aliceAddr.ScriptKey, sendEvents)
 }
 
 // addProofTestVectorFromFile adds a proof test vector by extracting it from the
