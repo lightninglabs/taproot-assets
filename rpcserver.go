@@ -4194,9 +4194,10 @@ func marshalUnsealedSeedling(verbose bool,
 	seedling *tapgarden.UnsealedSeedling) (*mintrpc.UnsealedAsset, error) {
 
 	var (
-		groupVirtualTx *taprpc.GroupVirtualTx
-		groupReq       *taprpc.GroupKeyRequest
-		err            error
+		groupVirtualTx        *taprpc.GroupVirtualTx
+		groupReq              *taprpc.GroupKeyRequest
+		groupVirtualPsbtBytes []byte
+		err                   error
 	)
 
 	rpcSeedling, err := marshalSeedling(seedling.Seedling)
@@ -4218,12 +4219,32 @@ func marshalUnsealedSeedling(verbose bool,
 		if err != nil {
 			return nil, err
 		}
+
+		// Generate PSBT equivalent of the group virtual tx.
+		groupVirtualPsbt, err := psbt.NewFromUnsignedTx(
+			&seedling.PendingAssetGroup.GroupVirtualTx.Tx,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error producing group "+
+				"virtual PSBT from tx: %w", err)
+		}
+
+		// Serialize PSBT to bytes.
+		var psbtBuf bytes.Buffer
+		err = groupVirtualPsbt.Serialize(&psbtBuf)
+		if err != nil {
+			return nil, fmt.Errorf("error serializing group "+
+				"virtual PSBT for unsealed seedling: %w", err)
+		}
+
+		groupVirtualPsbtBytes = psbtBuf.Bytes()
 	}
 
 	return &mintrpc.UnsealedAsset{
-		Asset:           rpcSeedling,
-		GroupVirtualTx:  groupVirtualTx,
-		GroupKeyRequest: groupReq,
+		Asset:            rpcSeedling,
+		GroupVirtualTx:   groupVirtualTx,
+		GroupVirtualPsbt: groupVirtualPsbtBytes,
+		GroupKeyRequest:  groupReq,
 	}, nil
 }
 

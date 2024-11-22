@@ -124,6 +124,9 @@ message UnsealedAsset {
 
     // The group virtual transaction for the asset.
     taprpc.GroupVirtualTx group_virtual_tx = 3;
+
+    // The byte serialized PSBT equivalent of the group virtual transaction.
+    bytes group_virtual_psbt = 4;
 }
 
 message MintAsset {
