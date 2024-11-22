@@ -646,6 +646,34 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		)
 	}
 
+	// Now we scan through the VPacket for any burns.
+	var burns []*AssetBurn
+
+	for _, v := range pkg.VirtualPackets {
+		for _, o := range v.Outputs {
+			if !o.Asset.IsBurn() {
+				continue
+			}
+
+			assetID := o.Asset.ID()
+
+			// We prepare the burn and add it to the list.
+			b := &AssetBurn{
+				AssetID:    assetID[:],
+				Amount:     o.Amount,
+				AnchorTxid: pkg.OutboundPkg.AnchorTx.TxHash(),
+				Note:       pkg.Note,
+			}
+
+			if o.Asset.GroupKey != nil {
+				groupKey := o.Asset.GroupKey.GroupPubKey
+				b.GroupKey = groupKey.SerializeCompressed()
+			}
+
+			burns = append(burns, b)
+		}
+	}
+
 	// At this point we have the confirmation signal, so we can mark the
 	// parcel delivery as completed in the database.
 	anchorTXID := pkg.OutboundPkg.AnchorTx.TxHash()
@@ -657,7 +685,7 @@ func (p *ChainPorter) storePackageAnchorTxConf(pkg *sendPackage) error {
 		TxIndex:                int32(pkg.TransferTxConfEvent.TxIndex),
 		FinalProofs:            pkg.FinalProofs,
 		PassiveAssetProofFiles: passiveAssetProofFiles,
-	}, nil)
+	}, burns)
 	if err != nil {
 		return fmt.Errorf("unable to log parcel delivery "+
 			"confirmation: %w", err)

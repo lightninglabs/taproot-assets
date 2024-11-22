@@ -2275,7 +2275,7 @@ func (r *rpcServer) AnchorVirtualPsbts(ctx context.Context,
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewPreSignedParcel(vPackets, inputCommitments),
+		tapfreighter.NewPreSignedParcel(vPackets, inputCommitments, ""),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error requesting delivery: %w", err)
@@ -3290,7 +3290,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
 			[]*tappsbt.VPacket{fundResp.VPacket},
-			fundResp.InputCommitments,
+			fundResp.InputCommitments, "",
 		),
 	)
 	if err != nil {
