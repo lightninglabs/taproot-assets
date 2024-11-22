@@ -625,6 +625,10 @@
         "group_virtual_tx": {
           "$ref": "#/definitions/taprpcGroupVirtualTx",
           "description": "The group virtual transaction for the asset."
+        },
+        "group_virtual_psbt": {
+          "type": "string",
+          "description": "The byte serialized PSBT equivalent of the group virtual transaction."
         }
       }
     },
