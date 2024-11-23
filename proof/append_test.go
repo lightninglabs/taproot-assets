@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/btcsuite/btcd/blockchain"
@@ -13,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/stretchr/testify/require"
@@ -38,6 +40,19 @@ func genTaprootKeySpend(t testing.TB, privKey btcec.PrivateKey,
 	require.NoError(t, err)
 
 	return wire.TxWitness{sig.Serialize()}
+}
+
+func compareAltLeaves(t *testing.T, a, b []asset.AltLeafAsset) {
+	require.Equal(t, len(a), len(b))
+
+	aInner := fn.Map(a, asset.InnerAltLeaf[*asset.Asset])
+	bInner := fn.Map(b, asset.InnerAltLeaf[*asset.Asset])
+
+	slices.SortStableFunc(aInner, asset.AssetSortFunc)
+	slices.SortStableFunc(bInner, asset.AssetSortFunc)
+	for idx := range aInner {
+		require.True(t, aInner[idx].DeepEqual(bInner[idx]))
+	}
 }
 
 // TestAppendTransition tests that a proof can be appended to an existing proof
@@ -133,6 +148,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
 	require.NoError(t, err)
 
+	// Add some alt leaves to the commitment anchoring the asset transfer.
+	altLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	err = tapCommitment.MergeAltLeaves(altLeaves)
+	require.NoError(t, err)
+
 	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		recipientTaprootInternalKey, tapscriptRoot[:],
@@ -213,6 +233,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
 	require.Equal(t, txMerkleProof, &transitionProof.TxMerkleProof)
+	compareAltLeaves(t, altLeaves, transitionProof.AltLeaves)
 	verifyBlob(t, transitionBlob)
 
 	// Stop here if we don't test asset splitting.
@@ -281,17 +302,26 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split3AssetNoSplitProof,
 	)
 	require.NoError(t, err)
+	split1AltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	split2AltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	split3AltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 	tap1Commitment, err := commitment.NewTapCommitment(
 		nil, split1Commitment,
 	)
+	require.NoError(t, err)
+	err = tap1Commitment.MergeAltLeaves(split1AltLeaves)
 	require.NoError(t, err)
 	tap2Commitment, err := commitment.NewTapCommitment(
 		nil, split2Commitment,
 	)
 	require.NoError(t, err)
+	err = tap2Commitment.MergeAltLeaves(split2AltLeaves)
+	require.NoError(t, err)
 	tap3Commitment, err := commitment.NewTapCommitment(
 		nil, split3Commitment,
 	)
+	require.NoError(t, err)
+	err = tap3Commitment.MergeAltLeaves(split3AltLeaves)
 	require.NoError(t, err)
 
 	tapscript1Root := tap1Commitment.TapscriptRoot(nil)
@@ -412,6 +442,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
 	require.Equal(t, splitTxMerkleProof, &split1Proof.TxMerkleProof)
+	compareAltLeaves(t, split1AltLeaves, split1Proof.AltLeaves)
 	split1Snapshot := verifyBlob(t, split1Blob)
 	require.False(t, split1Snapshot.SplitAsset)
 
@@ -454,6 +485,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
 	require.Equal(t, splitTxMerkleProof, &split2Proof.TxMerkleProof)
+	compareAltLeaves(t, split2AltLeaves, split2Proof.AltLeaves)
 	split2Snapshot := verifyBlob(t, split2Blob)
 
 	require.True(t, split2Snapshot.SplitAsset)
@@ -497,6 +529,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))
 	require.Equal(t, splitTxMerkleProof, &split3Proof.TxMerkleProof)
+	compareAltLeaves(t, split3AltLeaves, split3Proof.AltLeaves)
 	split3Snapshot := verifyBlob(t, split3Blob)
 
 	require.True(t, split3Snapshot.SplitAsset)
