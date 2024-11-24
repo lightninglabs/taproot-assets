@@ -399,7 +399,8 @@ func createPacket(t *testing.T, addr address.Tap, prevInput asset.PrevID,
 	}
 
 	for outputIdx := range len(vPacket.Outputs) {
-		vPacket.Outputs[outputIdx].SetAltLeaves(makeAltLeaves())
+		err := vPacket.Outputs[outputIdx].SetAltLeaves(makeAltLeaves())
+		require.NoError(t, err)
 	}
 
 	return vPacket
@@ -614,11 +615,11 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 			require.NoError(t, err)
 			require.NotNil(t, altLeaf)
 
-			leaf := a.(*asset.Asset)
+			leaf := asset.InnerAltLeaf(a)
 			return leaf.DeepEqual(altLeaf)
 		}
 
-		fn.All(vOut.AltLeaves, matchingAltLeaf)
+		require.True(t, fn.All(vOut.AltLeaves, matchingAltLeaf))
 	}
 
 	inputMatchingAsset := !isSplit
@@ -1206,7 +1207,9 @@ var createOutputCommitmentsTestCases = []testCase{{
 		pkt.Outputs = append(pkt.Outputs, &tappsbt.VOutput{
 			AnchorOutputIndex:       tpl.AnchorOutputIndex,
 			AnchorOutputInternalKey: tpl.AnchorOutputInternalKey,
-			AltLeaves:               []asset.AltLeafAsset{newAltLeaf},
+			AltLeaves: []asset.AltLeafAsset{
+				newAltLeaf,
+			},
 		})
 
 		_, err = tapsend.CreateOutputCommitments(
@@ -2496,6 +2499,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 		key1        = test.RandPubKey(t)
 		key2        = test.RandPubKey(t)
 		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		altLeaves   = asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 		emptyProof  = &proof.CommitmentProof{}
 		vOutSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:            0,
@@ -2507,6 +2511,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 					CommitmentProof: emptyProof,
 				},
 			},
+			AltLeaves: altLeaves,
 		}
 		vOutNoSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:       0,
@@ -2517,10 +2522,14 @@ func TestValidateAnchorOutputs(t *testing.T) {
 					CommitmentProof: emptyProof,
 				},
 			},
+			AltLeaves: altLeaves,
 		}
 		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
 	)
 	asset1Commitment, err := commitment.FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	err = asset1Commitment.MergeAltLeaves(altLeaves)
 	require.NoError(t, err)
 
 	vOutCommitmentProof := proof.CommitmentProof{

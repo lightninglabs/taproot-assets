@@ -1708,6 +1708,7 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 		outputSiblings   = make(
 			map[uint32]*commitment.TapscriptPreimage,
 		)
+		outputAltLeaves      = make(map[uint32][]asset.AltLeafAsset)
 		outputCommitVersions = make(
 			map[uint32]*commitment.TapCommitmentVersion,
 		)
@@ -1806,6 +1807,10 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 				vOut.Asset,
 			)
 			outputSiblings[vOut.AnchorOutputIndex] = siblingPreimage
+			outputAltLeaves[vOut.AnchorOutputIndex] = append(
+				outputAltLeaves[vOut.AnchorOutputIndex],
+				asset.CopyAltLeaves(vOut.AltLeaves)...,
+			)
 
 			// Fetch the tap commitment version from the proof of
 			// inclusion for the vOutput.
@@ -1868,6 +1873,18 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 		}
 	}
 
+	// Each output must have a valid set of AltLeaves at this point.
+	for anchorIdx, leaves := range outputAltLeaves {
+		innerLeaves := asset.FromAltLeaves(leaves)
+		err := asset.ValidAltLeaves(innerLeaves)
+		if err != nil {
+			finalErr := fmt.Errorf("output %d invalid alt "+
+				"leaves: %w", anchorIdx, err)
+			log.Tracef(finalErr.Error())
+			return finalErr
+		}
+	}
+
 	// We can now go through each anchor output that will carry assets and
 	// check that we arrive at the correct script.
 	for anchorIdx, assets := range outputAssets {
@@ -1877,6 +1894,14 @@ func ValidateAnchorOutputs(anchorPacket *psbt.Packet,
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
+		}
+
+		err = anchorCommitment.MergeAltLeaves(
+			outputAltLeaves[anchorIdx],
+		)
+		if err != nil {
+			return fmt.Errorf("unable to merge output alt leaves: "+
+				"%w", err)
 		}
 
 		anchorOut := &anchorPacket.Outputs[anchorIdx]
@@ -1967,6 +1992,7 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		inputSiblings = make(
 			map[wire.OutPoint]*commitment.TapscriptPreimage,
 		)
+		inputAltLeaves   = make(map[wire.OutPoint][]asset.AltLeafAsset)
 		inputAnchorIndex = make(map[wire.OutPoint]uint32)
 	)
 	for _, vPkt := range packets {
@@ -2056,6 +2082,10 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 				inputAssets[outpoint], vIn.Asset(),
 			)
 			inputSiblings[outpoint] = sibling
+			inputAltLeaves[outpoint] = append(
+				inputAltLeaves[outpoint],
+				asset.CopyAltLeaves(vIn.AltLeaves)...,
+			)
 			inputScripts[outpoint] = anchorIn.WitnessUtxo.PkScript
 			inputAnchors[outpoint] = vIn.Anchor
 		}
@@ -2069,6 +2099,16 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		)
 	}
 
+	// Each input must have a valid set of AltLeaves at this point.
+	for outpoint, leaves := range inputAltLeaves {
+		innerLeaves := asset.FromAltLeaves(leaves)
+		err := asset.ValidAltLeaves(innerLeaves)
+		if err != nil {
+			return fmt.Errorf("input %v invalid alt leaves: %w",
+				outpoint.String(), err)
+		}
+	}
+
 	// We can now go through each anchor input that contains assets being
 	// spent and check that we arrive at the correct script.
 	for anchorOutpoint, assets := range inputAssets {
@@ -2078,6 +2118,14 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		if err != nil {
 			return fmt.Errorf("unable to create commitment from "+
 				"output assets: %w", err)
+		}
+
+		err = anchorCommitment.MergeAltLeaves(
+			inputAltLeaves[anchorOutpoint],
+		)
+		if err != nil {
+			return fmt.Errorf("unable to merge input alt leaves: "+
+				"%w", err)
 		}
 
 		anchorIdx := inputAnchorIndex[anchorOutpoint]
