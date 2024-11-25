@@ -770,7 +770,7 @@ func (s *Server) FetchLeavesFromCommit(chanState lnwl.AuxChanState,
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
 	return tapchannel.FetchLeavesFromCommit(
-		s.chainParams, chanState, com, keys,
+		s.chainParams, chanState, com, keys, whoseCommit,
 	)
 }
 
@@ -1162,12 +1162,13 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	tx *wire.MsgTx, fee btcutil.Amount,
 	outpointToTxIndex map[wire.OutPoint]int) error {
 
-	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v",
-		spew.Sdump(req), spew.Sdump(tx), fee)
+	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v, "+
+		"out_index=%v", spew.Sdump(req), spew.Sdump(tx), fee,
+		spew.Sdump(outpointToTxIndex))
 
 	if err := s.waitForReady(); err != nil {
 		return err
 	}
 
-	return s.cfg.AuxSweeper.NotifyBroadcast(req, tx, fee)
+	return s.cfg.AuxSweeper.NotifyBroadcast(req, tx, fee, outpointToTxIndex)
 }

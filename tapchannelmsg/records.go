@@ -1333,6 +1333,20 @@ func NewHtlcAssetOutput(
 	}
 }
 
+// FilterByHtlcIndex returns a slice of AssetOutputs that are associated with
+// the given htlc index.
+func (h *HtlcAssetOutput) FilterByHtlcIndex(id input.HtlcIndex) []*AssetOutput {
+	if h.HtlcOutputs == nil {
+		return nil
+	}
+
+	if outputs, ok := h.HtlcOutputs[id]; ok {
+		return outputs.Outputs
+	}
+
+	return nil
+}
+
 // Record creates a Record out of a HtlcAssetOutput using the
 // eHtlcAssetOutput and dHtlcAssetOutput functions.
 //
@@ -1994,30 +2008,158 @@ func dVpktList(r io.Reader, val interface{}, buf *[8]byte, _ uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "*VpktList")
 }
 
+// TapscriptSigDesc contains the information needed to re-sign for a given set
+// of vPkts. For normal tapscript outputs, this is the taptweak and also the
+// serialized control block. These are needed for second level HTLC outputs, as
+// we can't sign the vPkts until we know the sweeping transaction.
+type TapscriptSigDesc struct {
+	TapTweak tlv.RecordT[tlv.TlvType0, []byte]
+
+	CtrlBlock tlv.RecordT[tlv.TlvType1, []byte]
+}
+
+// NewTapscriptSigDesc creates a new tapscriptSigDesc with the given tap tweak
+// and ctrlBlock.
+func NewTapscriptSigDesc(tapTweak, ctrlBlock []byte) TapscriptSigDesc {
+	return TapscriptSigDesc{
+		TapTweak:  tlv.NewPrimitiveRecord[tlv.TlvType0](tapTweak),
+		CtrlBlock: tlv.NewPrimitiveRecord[tlv.TlvType1](ctrlBlock),
+	}
+}
+
+// Encode attempts to encode the target tapscriptSigDesc into the passed
+// io.Writer.
+func (t *TapscriptSigDesc) Encode(w io.Writer) error {
+	tlvStream, err := tlv.NewStream(
+		t.TapTweak.Record(), t.CtrlBlock.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Encode(w)
+}
+
+// Decode attempts to decode the target tapscriptSigDesc from the passed
+// io.Reader.
+func (t *TapscriptSigDesc) Decode(r io.Reader) error {
+	tlvStream, err := tlv.NewStream(
+		t.TapTweak.Record(), t.CtrlBlock.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	return tlvStream.Decode(r)
+}
+
+// eTapscriptSigDesc is an encoder for tapscriptSigDesc.
+func eTapscriptSigDesc(w io.Writer, val interface{}, _ *[8]byte) error {
+	if v, ok := val.(*TapscriptSigDesc); ok {
+		return v.Encode(w)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*tapscriptSigDesc")
+}
+
+// dTapscriptSigDesc is a decoder for tapscriptSigDesc.
+func dTapscriptSigDesc(r io.Reader, val interface{},
+	_ *[8]byte, _ uint64) error {
+
+	if typ, ok := val.(*TapscriptSigDesc); ok {
+		return typ.Decode(r)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*tapscriptSigDesc")
+}
+
+// Record returns a tlv.Record that represents the tapscriptSigDesc.
+func (t *TapscriptSigDesc) Record() tlv.Record {
+	size := func() uint64 {
+		var (
+			buf     bytes.Buffer
+			scratch [8]byte
+		)
+		err := eTapscriptSigDesc(&buf, t, &scratch)
+		if err != nil {
+			panic(err)
+		}
+
+		return uint64(buf.Len())
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, t, size, eTapscriptSigDesc, dTapscriptSigDesc,
+	)
+}
+
 // ContractResolution houses all the information we need to resolve a contract
 // on chain. This includes a series of pre-populated and pre-signed vPackets.
 // The internal key, and other on-chain anchor information may be missing from
 // these packets.
 type ContractResolution struct {
-	// SweepVpkts is a list of pre-signed vPackets that can be anchored
-	// into an output in a transaction where the refrnced previous inputs
-	// are spent to sweep an asset.
-	SweepVpkts tlv.RecordT[tlv.TlvType0, VpktList]
+	// firstLevelSweepVpkts is a list of pre-signed vPackets that can be
+	// anchored into an output in a transaction where the referenced
+	// previous inputs are spent to sweep an asset.
+	firstLevelSweepVpkts tlv.RecordT[tlv.TlvType0, VpktList]
+
+	// secondLevelSweepVpkts is a list of pre-signed vPackets that can be
+	// anchored into an output in a transaction where the referenced
+	// previous inputs are spent to sweep an asset.
+	secondLevelSweepVpkts tlv.OptionalRecordT[tlv.TlvType1, VpktList]
+
+	// secondLevelSigDescs is a list of tapscriptSigDescs that contain the
+	// information we need to sign for each second level vPkt once the
+	// sweeping transaction is known.
+	secondLevelSigDescs tlv.OptionalRecordT[tlv.TlvType2, TapscriptSigDesc]
 }
 
 // NewContractResolution creates a new ContractResolution with the given list
 // of vpkts.
-func NewContractResolution(pkts []*tappsbt.VPacket) ContractResolution {
-	return ContractResolution{
-		SweepVpkts: tlv.NewRecordT[tlv.TlvType0](NewVpktList(pkts)),
+func NewContractResolution(firstLevelPkts, secondLevelPkts []*tappsbt.VPacket,
+	secondLevelSweepDesc lfn.Option[TapscriptSigDesc]) ContractResolution {
+
+	c := ContractResolution{
+		firstLevelSweepVpkts: tlv.NewRecordT[tlv.TlvType0](
+			NewVpktList(firstLevelPkts),
+		),
 	}
+
+	if len(secondLevelPkts) != 0 {
+		c.secondLevelSweepVpkts = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType1](
+				NewVpktList(secondLevelPkts),
+			),
+		)
+	}
+
+	secondLevelSweepDesc.WhenSome(func(sigDesc TapscriptSigDesc) {
+		c.secondLevelSigDescs = tlv.SomeRecordT(
+			tlv.NewRecordT[tlv.TlvType2](sigDesc),
+		)
+	})
+
+	return c
 }
 
 // Records returns the records that make up the ContractResolution.
 func (c *ContractResolution) Records() []tlv.Record {
-	return []tlv.Record{
-		c.SweepVpkts.Record(),
+	records := []tlv.Record{
+		c.firstLevelSweepVpkts.Record(),
 	}
+
+	c.secondLevelSweepVpkts.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType1, VpktList]) {
+			records = append(records, r.Record())
+		},
+	)
+	c.secondLevelSigDescs.WhenSome(
+		func(r tlv.RecordT[tlv.TlvType2, TapscriptSigDesc]) {
+			records = append(records, r.Record())
+		},
+	)
+
+	return records
 }
 
 // Encode serializes the ContractResolution to the given io.Writer.
@@ -2032,15 +2174,49 @@ func (c *ContractResolution) Encode(w io.Writer) error {
 
 // Decode deserializes the ContractResolution from the given io.Reader.
 func (c *ContractResolution) Decode(r io.Reader) error {
-	tlvStream, err := tlv.NewStream(c.Records()...)
+	sweepZero := c.secondLevelSweepVpkts.Zero()
+	sigZero := c.secondLevelSigDescs.Zero()
+
+	tlvStream, err := tlv.NewStream(
+		c.firstLevelSweepVpkts.Record(),
+		sweepZero.Record(),
+		sigZero.Record(),
+	)
 	if err != nil {
 		return err
 	}
 
-	return tlvStream.Decode(r)
+	tlvs, err := tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	if _, ok := tlvs[sweepZero.TlvType()]; ok {
+		c.secondLevelSweepVpkts = tlv.SomeRecordT(sweepZero)
+	}
+	if _, ok := tlvs[sigZero.TlvType()]; ok {
+		c.secondLevelSigDescs = tlv.SomeRecordT(sigZero)
+	}
+
+	return nil
 }
 
-// VPkts returns the list of vPkts in the ContractResolution.
-func (c *ContractResolution) VPkts() []*tappsbt.VPacket {
-	return c.SweepVpkts.Val.Pkts
+// SigDescs returns the list of tapscriptSigDescs.
+func (c *ContractResolution) SigDescs() lfn.Option[TapscriptSigDesc] {
+	return c.secondLevelSigDescs.ValOpt()
+}
+
+// Vpkts1 returns the set of first level Vpkts.
+func (c *ContractResolution) Vpkts1() []*tappsbt.VPacket {
+	return c.firstLevelSweepVpkts.Val.Pkts
+}
+
+// Vpkts2 returns the set of first level Vpkts.
+func (c *ContractResolution) Vpkts2() []*tappsbt.VPacket {
+	var vPkts []*tappsbt.VPacket
+	c.secondLevelSweepVpkts.WhenSomeV(func(v VpktList) {
+		vPkts = v.Pkts
+	})
+
+	return vPkts
 }
