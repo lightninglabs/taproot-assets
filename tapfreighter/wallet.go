@@ -271,7 +271,8 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 	activePackets []*tappsbt.VPacket, anchorOutputIndex uint32,
 	anchorOutputInternalKey keychain.KeyDescriptor, prevOut wire.OutPoint,
-	inputProof *proof.Proof) (*tappsbt.VPacket, error) {
+	inputProof *proof.Proof,
+	inputAltLeaves []*asset.Asset) (*tappsbt.VPacket, error) {
 
 	// Specify virtual input.
 	inputAsset := passiveAsset.Copy()
@@ -281,8 +282,12 @@ func createPassivePacket(params *address.ChainParams, passiveAsset *asset.Asset,
 			SighashType: txscript.SigHashDefault,
 		},
 	}
+	err := vInput.SetAltLeaves(inputAltLeaves)
+	if err != nil {
+		return nil, err
+	}
 
-	err := tapsend.ValidateVPacketVersions(activePackets)
+	err = tapsend.ValidateVPacketVersions(activePackets)
 	if err != nil {
 		return nil, err
 	}
@@ -598,7 +603,14 @@ func (f *AssetWallet) hasOtherAssets(inputCommitments tappsbt.InputCommitments,
 			return false, err
 		}
 
-		if len(passiveCommitments.CommittedAssets()) > 0 {
+		trimmedPassiveCommitments, _, err := commitment.TrimAltLeaves(
+			passiveCommitments,
+		)
+		if err != nil {
+			return false, err
+		}
+
+		if len(trimmedPassiveCommitments.CommittedAssets()) > 0 {
 			return true, nil
 		}
 	}
@@ -1261,7 +1273,14 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 			return nil, err
 		}
 
-		passiveAssets := passiveCommitments.CommittedAssets()
+		trimmedPassives, altLeaves, err := commitment.TrimAltLeaves(
+			passiveCommitments,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		passiveAssets := trimmedPassives.CommittedAssets()
 		if len(passiveAssets) == 0 {
 			continue
 		}
@@ -1290,7 +1309,7 @@ func (f *AssetWallet) CreatePassiveAssets(ctx context.Context,
 			passivePacket, err := createPassivePacket(
 				f.cfg.ChainParams, passiveAsset, activePackets,
 				anchorOutIdx, *anchorOutDesc, prevID.OutPoint,
-				inputProof,
+				inputProof, altLeaves,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+
