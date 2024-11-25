@@ -521,6 +521,59 @@ func AssertAssetProofs(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	return exportResp.RawProofFile
 }
 
+// AssertProofAltLeaves makes sure that, for a given asset, the latest proof
+// commits to an expected set of altLeaves.
+func AssertProofAltLeaves(t *testing.T, tapClient taprpc.TaprootAssetsClient,
+	a *taprpc.Asset, leafMap map[string][]*asset.Asset) {
+
+	t.Helper()
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Fetch the latest proof for the given asset.
+	scriptKey := a.ScriptKey
+	proofReq := taprpc.ExportProofRequest{
+		AssetId:   a.AssetGenesis.AssetId,
+		ScriptKey: scriptKey,
+	}
+	exportResp, err := tapClient.ExportProof(ctxt, &proofReq)
+	require.NoError(t, err)
+
+	decodeReq := taprpc.DecodeProofRequest{
+		RawProof: exportResp.RawProofFile,
+	}
+	decodeResp, err := tapClient.DecodeProof(ctxt, &decodeReq)
+	require.NoError(t, err)
+
+	// Check if we expect the asset to be anchored alongside alt leaves or
+	// not. E.x. a passive asset created inside the freighter will not be
+	// anchored with any alt leaves.
+	altLeavesBytes := decodeResp.DecodedProof.AltLeaves
+	expectedAltLeaves, ok := leafMap[string(scriptKey)]
+	emptyAltLeaves := len(altLeavesBytes) == 0
+
+	require.Equal(t, ok, !emptyAltLeaves)
+	if emptyAltLeaves {
+		return
+	}
+
+	// If we have altLeaves, decode them and check that they match the
+	// expected leaves.
+	var (
+		r       = bytes.NewReader(altLeavesBytes)
+		l       = uint64(len(altLeavesBytes))
+		scratch [8]byte
+		val     []asset.AltLeafAsset
+	)
+
+	require.NoError(t, asset.AltLeavesDecoder(r, &val, &scratch, l))
+	asset.CompareAltLeaves(t, asset.ToAltLeaves(expectedAltLeaves), val)
+	t.Logf("matching alt leaves for: %v, %x, %x: %d leaves",
+		a.ChainAnchor.AnchorOutpoint, a.AssetGenesis.AssetId,
+		a.ScriptKey, len(val))
+}
+
 // AssertMintingProofs make sure the asset minting proofs contain all the
 // correct reveal information.
 func AssertMintingProofs(t *testing.T, tapd *tapdHarness,

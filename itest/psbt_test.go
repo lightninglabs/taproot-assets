@@ -608,12 +608,19 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		receiverScriptKey, receiverAnchorIntKeyDesc := DeriveKeys(
 			t.t, receiver,
 		)
+		receiverScriptKeyBytes := receiverScriptKey.PubKey.
+			SerializeCompressed()
 
 		vPkt := tappsbt.ForInteractiveSend(
 			id, fullAmt, receiverScriptKey, 0, 0, 0,
-			receiverAnchorIntKeyDesc, asset.V0,
-			chainParams,
+			receiverAnchorIntKeyDesc, asset.V0, chainParams,
 		)
+		altLeaves := asset.RandAltLeaves(t.t, true)
+		leafMap := map[string][]*asset.Asset{
+			string(receiverScriptKeyBytes): altLeaves,
+		}
+		err := vPkt.Outputs[0].SetAltLeaves(altLeaves)
+		require.NoError(t.t, err)
 
 		// Next, we'll attempt to complete a transfer with PSBTs from
 		// our sender node to our receiver, using the full amount.
@@ -644,8 +651,8 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 		// This is an interactive transfer, so we do need to manually
 		// send the proof from the sender to the receiver.
 		_ = sendProof(
-			t, sender, receiver, sendResp,
-			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
+			t, sender, receiver, sendResp, receiverScriptKeyBytes,
+			genInfo,
 		)
 
 		senderAssets, err := sender.ListAssets(
@@ -674,6 +681,12 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 			t.t, receivedAssets, genInfo.Name, genInfo.MetaHash,
 			AssetAmountCheck(fullAmt),
 		)
+
+		// Check that the altLeaves from the receiver's vPacket were set
+		// by the sender correctly.
+		for _, asset := range receiverAssets.Assets {
+			AssertProofAltLeaves(t.t, receiver, asset, leafMap)
+		}
 	}
 
 	// Finally, make sure we can still send out the passive asset.
@@ -822,11 +835,19 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		receiverScriptKey, receiverAnchorIntKeyDesc := DeriveKeys(
 			t.t, receiver,
 		)
+		receiverScriptKeyBytes := receiverScriptKey.PubKey.
+			SerializeCompressed()
 
 		vPkt := tappsbt.ForInteractiveSend(
 			id, sendAmt, receiverScriptKey, 0, 0, 0,
 			receiverAnchorIntKeyDesc, asset.V0, chainParams,
 		)
+		altLeaves := asset.RandAltLeaves(t.t, true)
+		leafMap := map[string][]*asset.Asset{
+			string(receiverScriptKeyBytes): altLeaves,
+		}
+		err := vPkt.Outputs[0].SetAltLeaves(altLeaves)
+		require.NoError(t.t, err)
 
 		// Next, we'll attempt to complete a transfer with PSBTs from
 		// our sender node to our receiver, using the partial amount.
@@ -857,8 +878,8 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		// This is an interactive transfer, so we do need to manually
 		// send the proof from the sender to the receiver.
 		_ = sendProof(
-			t, sender, receiver, sendResp,
-			receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
+			t, sender, receiver, sendResp, receiverScriptKeyBytes,
+			genInfo,
 		)
 
 		senderAssets, err := sender.ListAssets(
@@ -890,6 +911,12 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		)
 		require.NoError(t.t, err)
 		require.Len(t.t, receiverAssets.Assets, numReceiverAssets)
+
+		// Check that the altLeaves from the receiver's vPacket were set
+		// by the sender correctly.
+		for _, asset := range receiverAssets.Assets {
+			AssertProofAltLeaves(t.t, receiver, asset, leafMap)
+		}
 	}
 
 	// Finally, make sure we can still send out the passive asset.
