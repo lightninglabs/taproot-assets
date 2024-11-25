@@ -611,9 +611,11 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 		vPkt := tappsbt.ForInteractiveSend(
 			id, fullAmt, receiverScriptKey, 0, 0, 0,
-			receiverAnchorIntKeyDesc, asset.V0,
-			chainParams,
+			receiverAnchorIntKeyDesc, asset.V0, chainParams,
 		)
+		altLeaves := asset.RandAltLeaves(t.t, true)
+		err := vPkt.Outputs[0].SetAltLeaves(altLeaves)
+		require.NoError(t.t, err)
 
 		// Next, we'll attempt to complete a transfer with PSBTs from
 		// our sender node to our receiver, using the full amount.
