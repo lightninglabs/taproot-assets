@@ -290,11 +290,11 @@ type UniverseStats struct {
 	statsCacheLogger *cacheLogger
 	statsRefresh     *time.Timer
 
-	eventsMtx         sync.Mutex
+	eventsMtx         sync.RWMutex
 	assetEventsCache  assetEventsCache
 	eventsCacheLogger *cacheLogger
 
-	syncStatsMtx     sync.Mutex
+	syncStatsMtx     sync.RWMutex
 	syncStatsCache   *atomicSyncStatsCache
 	syncStatsRefresh *time.Timer
 }
@@ -635,7 +635,9 @@ func (u *UniverseStats) QueryAssetStatsPerDay(ctx context.Context,
 	// First, we'll check to see if we already have a cached result for
 	// this query.
 	query := newEventQuery(q)
+	u.eventsMtx.RLock()
 	cachedResult, err := u.assetEventsCache.Get(query)
+	u.eventsMtx.RUnlock()
 	if err == nil {
 		u.eventsCacheLogger.Hit()
 		return cachedResult, nil
@@ -750,13 +752,16 @@ func (u *UniverseStats) QuerySyncStats(ctx context.Context,
 
 	// First, check the cache to see if we already have a cached result for
 	// this query.
+	u.syncStatsMtx.RLock()
 	syncSnapshots := u.syncStatsCache.fetchQuery(q)
+	u.syncStatsMtx.RUnlock()
+
 	if syncSnapshots != nil {
 		resp.SyncStats = syncSnapshots
 		return resp, nil
 	}
 
-	// Otherwise, we'll grab the main mutex so we can qury the db then
+	// Otherwise, we'll grab the main mutex so we can query the db then
 	// cache the result.
 	u.syncStatsMtx.Lock()
 	defer u.syncStatsMtx.Unlock()
