@@ -104,6 +104,13 @@ service TaprootAssets {
     */
     rpc BurnAsset (BurnAssetRequest) returns (BurnAssetResponse);
 
+    /* tapcli: `assets listburns`
+    ListBurns lists the asset burns that this wallet has performed. These assets
+    are not recoverable in any way. Filters may be applied to return more
+    specific results.
+    */
+    rpc ListBurns (ListBurnsRequest) returns (ListBurnsResponse);
+
     /* tapcli: `getinfo`
     GetInfo returns the information for the node.
     */
@@ -1202,6 +1209,9 @@ message BurnAssetRequest {
     // the burn. This needs to be set to the value "assets will be destroyed"
     // for the burn to succeed.
     string confirmation_text = 4;
+
+    // A note that may contain user defined metadata related to this burn.
+    string note = 5;
 }
 
 message BurnAssetResponse {
@@ -1210,6 +1220,38 @@ message BurnAssetResponse {
 
     // The burn transition proof for the asset burn output.
     DecodedProof burn_proof = 2;
+}
+
+message ListBurnsRequest {
+    // The asset id of the burnt asset.
+    bytes asset_id = 1;
+
+    // The tweaked group key of the group this asset belongs to.
+    bytes tweaked_group_key = 3;
+
+    // The txid of the transaction that the burn was anchored to.
+    bytes anchor_txid = 4;
+}
+
+message AssetBurn {
+    // A note that may contain user defined metadata related to this burn.
+    string note = 1;
+
+    // The asset id of the burnt asset.
+    bytes asset_id = 2;
+
+    // The tweaked group key of the group this asset belongs to.
+    bytes tweaked_group_key = 3;
+
+    // The amount of burnt assets.
+    uint64 amount = 4;
+
+    // The txid of the transaction that the burn was anchored to.
+    bytes anchor_txid = 5;
+}
+
+message ListBurnsResponse {
+    repeated AssetBurn burns = 1;
 }
 
 message OutPoint {

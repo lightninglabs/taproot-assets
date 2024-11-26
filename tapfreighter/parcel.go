@@ -258,6 +258,10 @@ type PreSignedParcel struct {
 	// inputCommitments are the commitments for the input that are being
 	// spent in the virtual transaction.
 	inputCommitments tappsbt.InputCommitments
+
+	// note is a string that provides any user defined description for this
+	// transfer.
+	note string
 }
 
 // A compile-time assertion to ensure PreSignedParcel implements the parcel
@@ -266,7 +270,8 @@ var _ Parcel = (*PreSignedParcel)(nil)
 
 // NewPreSignedParcel creates a new PreSignedParcel.
 func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
-	inputCommitments tappsbt.InputCommitments) *PreSignedParcel {
+	inputCommitments tappsbt.InputCommitments,
+	note string) *PreSignedParcel {
 
 	return &PreSignedParcel{
 		parcelKit: &parcelKit{
@@ -275,6 +280,7 @@ func NewPreSignedParcel(vPackets []*tappsbt.VPacket,
 		},
 		vPackets:         vPackets,
 		inputCommitments: inputCommitments,
+		note:             note,
 	}
 }
 
@@ -290,6 +296,7 @@ func (p *PreSignedParcel) pkg() *sendPackage {
 		SendState:        SendStateAnchorSign,
 		VirtualPackets:   p.vPackets,
 		InputCommitments: p.inputCommitments,
+		Note:             p.note,
 	}
 }
 
@@ -464,6 +471,10 @@ type sendPackage struct {
 	// TransferTxConfEvent contains transfer transaction on-chain
 	// confirmation data.
 	TransferTxConfEvent *chainntnfs.TxConfirmation
+
+	// Note is a user provided description for this transfer. This is
+	// currently only used by asset burn transfers.
+	Note string
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database

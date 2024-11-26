@@ -194,3 +194,33 @@ FROM passive_assets as passive
     JOIN managed_utxos utxos
         ON passive.new_anchor_utxo = utxos.utxo_id
 WHERE passive.transfer_id = @transfer_id;
+
+-- name: InsertBurn :one
+INSERT INTO asset_burn_transfers (
+    transfer_id, note, asset_id, group_key, amount
+)
+VALUES (
+    @transfer_id, @note, @asset_id, @group_key, @amount
+)
+RETURNING burn_id;
+
+-- name: QueryBurns :many
+SELECT
+    abt.note,
+    abt.asset_id,
+    abt.group_key,
+    abt.amount,
+    ct.txid AS anchor_txid -- Retrieving the txid from chain_txns.
+FROM asset_burn_transfers abt
+JOIN asset_transfers at ON abt.transfer_id = at.id
+JOIN chain_txns ct ON at.anchor_txn_id = ct.txn_id
+WHERE
+    -- Optionally filter by asset_id.
+    (abt.asset_id = @asset_id OR @asset_id IS NULL)
+
+    -- Optionally filter by group_key.
+    AND (abt.group_key = @group_key OR @group_key IS NULL)
+
+    -- Optionally filter by anchor_txid in chain_txns.txid.
+    AND (ct.txid = @anchor_txid OR @anchor_txid IS NULL)
+ORDER BY abt.burn_id;

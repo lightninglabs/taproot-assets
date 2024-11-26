@@ -1,6 +1,7 @@
 package itest
 
 import (
+	"bytes"
 	"context"
 	"encoding/hex"
 
@@ -129,12 +130,17 @@ func testBurnAssets(t *harnessTest) {
 	// Test case 2: We'll now try to burn a small amount of assets, which
 	// should select the largest output, which is located alone in an anchor
 	// output.
-	const burnAmt = 100
+	const (
+		burnAmt  = 100
+		burnNote = "blazeit"
+	)
+
 	burnResp, err := t.tapd.BurnAsset(ctxt, &taprpc.BurnAssetRequest{
 		Asset: &taprpc.BurnAssetRequest_AssetId{
 			AssetId: simpleAssetID[:],
 		},
 		AmountToBurn:     burnAmt,
+		Note:             burnNote,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
@@ -168,6 +174,16 @@ func testBurnAssets(t *harnessTest) {
 	AssertBalanceByID(
 		t.t, t.tapd, simpleAssetGen.AssetId, simpleAsset.Amount-burnAmt,
 	)
+
+	burns, err := t.tapd.ListBurns(ctxt, &taprpc.ListBurnsRequest{})
+	require.NoError(t.t, err)
+
+	require.Len(t.t, burns.Burns, 1)
+	burn := burns.Burns[0]
+	require.Equal(t.t, uint64(burnAmt), burn.Amount)
+	require.Equal(t.t, burnResp.BurnTransfer.AnchorTxHash, burn.AnchorTxid)
+	require.Equal(t.t, burn.AssetId, simpleAssetID[:])
+	require.Equal(t.t, burn.Note, burnNote)
 
 	// The burned asset should be pruned from the tree when we next spend
 	// the anchor output it was in (together with the change). So let's test
@@ -280,6 +296,35 @@ func testBurnAssets(t *harnessTest) {
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount-burnAmt,
 	)
 
+	burns, err = t.tapd.ListBurns(ctxt, &taprpc.ListBurnsRequest{})
+	require.NoError(t.t, err)
+
+	require.Len(t.t, burns.Burns, 4)
+	var groupBurn *taprpc.AssetBurn
+	for _, b := range burns.Burns {
+		if bytes.Equal(b.AssetId, simpleGroupGen.AssetId) {
+			groupBurn = b
+		}
+	}
+
+	// Keep track of the txhash of the anchor transaction that completed
+	// this transfer. This will be used later to query burns with a txhash
+	// filter.
+	groupBurnTxHash := burnResp.BurnTransfer.AnchorTxHash
+
+	require.Equal(t.t, uint64(burnAmt), groupBurn.Amount)
+	require.Equal(
+		t.t, burnResp.BurnTransfer.AnchorTxHash, groupBurn.AnchorTxid,
+	)
+
+	require.Equal(t.t, groupBurn.AssetId, simpleGroupGen.AssetId[:])
+	require.Equal(
+		t.t, groupBurn.TweakedGroupKey,
+		simpleGroup.AssetGroup.TweakedGroupKey,
+	)
+
+	require.Equal(t.t, groupBurn.Note, "")
+
 	// Test case 6: Burn the single unit of a grouped collectible. We start
 	// by making sure we still have the full balance before burning.
 	AssertBalanceByID(
@@ -305,6 +350,36 @@ func testBurnAssets(t *harnessTest) {
 		simpleGroupCollectGen.AssetId, []uint64{1}, 6, 7, 1, true,
 	)
 	AssertBalanceByID(t.t, t.tapd, simpleGroupCollectGen.AssetId, 0)
+
+	// We now perform some queries to test the filters of the ListBurns
+	// call.
+
+	// Fetch the burns related to the simple asset id, which should have a
+	// total of 2 burns (tc1 & tc4).
+	burns, err = t.tapd.ListBurns(ctxt, &taprpc.ListBurnsRequest{
+		AssetId: simpleAssetGen.AssetId,
+	})
+	require.NoError(t.t, err)
+
+	require.Len(t.t, burns.Burns, 2)
+
+	// Fetch the burns related to the group key of the grouped asset in tc5.
+	// There should be 1 burn.
+	burns, err = t.tapd.ListBurns(ctxt, &taprpc.ListBurnsRequest{
+		TweakedGroupKey: simpleGroup.AssetGroup.TweakedGroupKey,
+	})
+	require.NoError(t.t, err)
+
+	require.Len(t.t, burns.Burns, 1)
+
+	// Fetch the burns associated with the txhash of the burn in tc5. There
+	// should be 1 burn returned.
+	burns, err = t.tapd.ListBurns(ctxt, &taprpc.ListBurnsRequest{
+		AnchorTxid: groupBurnTxHash,
+	})
+	require.NoError(t.t, err)
+
+	require.Len(t.t, burns.Burns, 1)
 }
 
 // testBurnGroupedAssets tests that some amount of an asset from an asset group
@@ -315,6 +390,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 		miner = t.lndHarness.Miner().Client
 
 		firstMintReq = issuableAssets[0]
+		burnNote     = "blazeit"
 	)
 
 	// We start off without any asset groups.
@@ -376,6 +452,7 @@ func testBurnGroupedAssets(t *harnessTest) {
 			AssetId: burnAssetID,
 		},
 		AmountToBurn:     burnAmt,
+		Note:             burnNote,
 		ConfirmationText: taprootassets.AssetBurnConfirmationText,
 	})
 	require.NoError(t.t, err)
@@ -414,4 +491,16 @@ func testBurnGroupedAssets(t *harnessTest) {
 	encodedGroupKey = hex.EncodeToString(assetGroupKey)
 	assetGroup = assetGroups.Groups[encodedGroupKey]
 	require.Len(t.t, assetGroup.Assets, 2)
+
+	burns, err := t.tapd.ListBurns(ctxb, &taprpc.ListBurnsRequest{
+		TweakedGroupKey: assetGroupKey,
+	})
+	require.NoError(t.t, err)
+	require.Len(t.t, burns.Burns, 1)
+
+	burn := burns.Burns[0]
+
+	require.Equal(t.t, burnAmt, burn.Amount)
+	require.Equal(t.t, burnNote, burn.Note)
+	require.Equal(t.t, assetGroupKey, burn.TweakedGroupKey)
 }

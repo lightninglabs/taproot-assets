@@ -39,6 +39,24 @@ type CommitmentConstraints struct {
 	CoinSelectType tapsend.CoinSelectType
 }
 
+// AssetBurn holds data related to a burn of an asset.
+type AssetBurn struct {
+	// Note is a user provided description for the transfer.
+	Note string
+
+	// AssetID is the ID of the burnt asset.
+	AssetID []byte
+
+	// GroupKey is the group key of the group the burnt asset belongs to.
+	GroupKey []byte
+
+	// Amount is the amount of the asset that got burnt.
+	Amount uint64
+
+	// AnchorTxid is the txid of the transaction this burn is anchored to.
+	AnchorTxid chainhash.Hash
+}
+
 // String returns the string representation of the commitment constraints.
 func (c *CommitmentConstraints) String() string {
 	assetIDBytes, groupKeyBytes := c.AssetSpecifier.AsBytes()
@@ -423,7 +441,8 @@ type ExportLog interface {
 	// LogAnchorTxConfirm updates the send package state on disk to reflect
 	// the confirmation of the anchor transaction, ensuring the on-chain
 	// reference information is up to date.
-	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent) error
+	LogAnchorTxConfirm(context.Context, *AssetConfirmEvent,
+		[]*AssetBurn) error
 
 	// QueryParcels returns the set of confirmed or unconfirmed parcels.
 	QueryParcels(ctx context.Context, anchorTxHash *chainhash.Hash,

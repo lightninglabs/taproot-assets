@@ -5206,6 +5206,8 @@ type BurnAssetRequest struct {
 	// the burn. This needs to be set to the value "assets will be destroyed"
 	// for the burn to succeed.
 	ConfirmationText string `protobuf:"bytes,4,opt,name=confirmation_text,json=confirmationText,proto3" json:"confirmation_text,omitempty"`
+	// A note that may contain user defined metadata related to this burn.
+	Note string `protobuf:"bytes,5,opt,name=note,proto3" json:"note,omitempty"`
 }
 
 func (x *BurnAssetRequest) Reset() {
@@ -5271,6 +5273,13 @@ func (x *BurnAssetRequest) GetAmountToBurn() uint64 {
 func (x *BurnAssetRequest) GetConfirmationText() string {
 	if x != nil {
 		return x.ConfirmationText
+	}
+	return ""
+}
+
+func (x *BurnAssetRequest) GetNote() string {
+	if x != nil {
+		return x.Note
 	}
 	return ""
 }
@@ -5350,6 +5359,203 @@ func (x *BurnAssetResponse) GetBurnProof() *DecodedProof {
 	return nil
 }
 
+type ListBurnsRequest struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// The asset id of the burnt asset.
+	AssetId []byte `protobuf:"bytes,1,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The tweaked group key of the group this asset belongs to.
+	TweakedGroupKey []byte `protobuf:"bytes,3,opt,name=tweaked_group_key,json=tweakedGroupKey,proto3" json:"tweaked_group_key,omitempty"`
+	// The txid of the transaction that the burn was anchored to.
+	AnchorTxid []byte `protobuf:"bytes,4,opt,name=anchor_txid,json=anchorTxid,proto3" json:"anchor_txid,omitempty"`
+}
+
+func (x *ListBurnsRequest) Reset() {
+	*x = ListBurnsRequest{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taprootassets_proto_msgTypes[66]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ListBurnsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBurnsRequest) ProtoMessage() {}
+
+func (x *ListBurnsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[66]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBurnsRequest.ProtoReflect.Descriptor instead.
+func (*ListBurnsRequest) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{66}
+}
+
+func (x *ListBurnsRequest) GetAssetId() []byte {
+	if x != nil {
+		return x.AssetId
+	}
+	return nil
+}
+
+func (x *ListBurnsRequest) GetTweakedGroupKey() []byte {
+	if x != nil {
+		return x.TweakedGroupKey
+	}
+	return nil
+}
+
+func (x *ListBurnsRequest) GetAnchorTxid() []byte {
+	if x != nil {
+		return x.AnchorTxid
+	}
+	return nil
+}
+
+type AssetBurn struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	// A note that may contain user defined metadata related to this burn.
+	Note string `protobuf:"bytes,1,opt,name=note,proto3" json:"note,omitempty"`
+	// The asset id of the burnt asset.
+	AssetId []byte `protobuf:"bytes,2,opt,name=asset_id,json=assetId,proto3" json:"asset_id,omitempty"`
+	// The tweaked group key of the group this asset belongs to.
+	TweakedGroupKey []byte `protobuf:"bytes,3,opt,name=tweaked_group_key,json=tweakedGroupKey,proto3" json:"tweaked_group_key,omitempty"`
+	// The amount of burnt assets.
+	Amount uint64 `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
+	// The txid of the transaction that the burn was anchored to.
+	AnchorTxid []byte `protobuf:"bytes,5,opt,name=anchor_txid,json=anchorTxid,proto3" json:"anchor_txid,omitempty"`
+}
+
+func (x *AssetBurn) Reset() {
+	*x = AssetBurn{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taprootassets_proto_msgTypes[67]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *AssetBurn) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AssetBurn) ProtoMessage() {}
+
+func (x *AssetBurn) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[67]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AssetBurn.ProtoReflect.Descriptor instead.
+func (*AssetBurn) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{67}
+}
+
+func (x *AssetBurn) GetNote() string {
+	if x != nil {
+		return x.Note
+	}
+	return ""
+}
+
+func (x *AssetBurn) GetAssetId() []byte {
+	if x != nil {
+		return x.AssetId
+	}
+	return nil
+}
+
+func (x *AssetBurn) GetTweakedGroupKey() []byte {
+	if x != nil {
+		return x.TweakedGroupKey
+	}
+	return nil
+}
+
+func (x *AssetBurn) GetAmount() uint64 {
+	if x != nil {
+		return x.Amount
+	}
+	return 0
+}
+
+func (x *AssetBurn) GetAnchorTxid() []byte {
+	if x != nil {
+		return x.AnchorTxid
+	}
+	return nil
+}
+
+type ListBurnsResponse struct {
+	state         protoimpl.MessageState
+	sizeCache     protoimpl.SizeCache
+	unknownFields protoimpl.UnknownFields
+
+	Burns []*AssetBurn `protobuf:"bytes,1,rep,name=burns,proto3" json:"burns,omitempty"`
+}
+
+func (x *ListBurnsResponse) Reset() {
+	*x = ListBurnsResponse{}
+	if protoimpl.UnsafeEnabled {
+		mi := &file_taprootassets_proto_msgTypes[68]
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		ms.StoreMessageInfo(mi)
+	}
+}
+
+func (x *ListBurnsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ListBurnsResponse) ProtoMessage() {}
+
+func (x *ListBurnsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_taprootassets_proto_msgTypes[68]
+	if protoimpl.UnsafeEnabled && x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ListBurnsResponse.ProtoReflect.Descriptor instead.
+func (*ListBurnsResponse) Descriptor() ([]byte, []int) {
+	return file_taprootassets_proto_rawDescGZIP(), []int{68}
+}
+
+func (x *ListBurnsResponse) GetBurns() []*AssetBurn {
+	if x != nil {
+		return x.Burns
+	}
+	return nil
+}
+
 type OutPoint struct {
 	state         protoimpl.MessageState
 	sizeCache     protoimpl.SizeCache
@@ -5364,7 +5570,7 @@ type OutPoint struct {
 func (x *OutPoint) Reset() {
 	*x = OutPoint{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[66]
+		mi := &file_taprootassets_proto_msgTypes[69]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -5377,7 +5583,7 @@ func (x *OutPoint) String() string {
 func (*OutPoint) ProtoMessage() {}
 
 func (x *OutPoint) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[66]
+	mi := &file_taprootassets_proto_msgTypes[69]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5390,7 +5596,7 @@ func (x *OutPoint) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OutPoint.ProtoReflect.Descriptor instead.
 func (*OutPoint) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{66}
+	return file_taprootassets_proto_rawDescGZIP(), []int{69}
 }
 
 func (x *OutPoint) GetTxid() []byte {
@@ -5423,7 +5629,7 @@ type SubscribeReceiveEventsRequest struct {
 func (x *SubscribeReceiveEventsRequest) Reset() {
 	*x = SubscribeReceiveEventsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[67]
+		mi := &file_taprootassets_proto_msgTypes[70]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -5436,7 +5642,7 @@ func (x *SubscribeReceiveEventsRequest) String() string {
 func (*SubscribeReceiveEventsRequest) ProtoMessage() {}
 
 func (x *SubscribeReceiveEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[67]
+	mi := &file_taprootassets_proto_msgTypes[70]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5449,7 +5655,7 @@ func (x *SubscribeReceiveEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeReceiveEventsRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeReceiveEventsRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{67}
+	return file_taprootassets_proto_rawDescGZIP(), []int{70}
 }
 
 func (x *SubscribeReceiveEventsRequest) GetFilterAddr() string {
@@ -5491,7 +5697,7 @@ type ReceiveEvent struct {
 func (x *ReceiveEvent) Reset() {
 	*x = ReceiveEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[68]
+		mi := &file_taprootassets_proto_msgTypes[71]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -5504,7 +5710,7 @@ func (x *ReceiveEvent) String() string {
 func (*ReceiveEvent) ProtoMessage() {}
 
 func (x *ReceiveEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[68]
+	mi := &file_taprootassets_proto_msgTypes[71]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5517,7 +5723,7 @@ func (x *ReceiveEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReceiveEvent.ProtoReflect.Descriptor instead.
 func (*ReceiveEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{68}
+	return file_taprootassets_proto_rawDescGZIP(), []int{71}
 }
 
 func (x *ReceiveEvent) GetTimestamp() int64 {
@@ -5575,7 +5781,7 @@ type SubscribeSendEventsRequest struct {
 func (x *SubscribeSendEventsRequest) Reset() {
 	*x = SubscribeSendEventsRequest{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[69]
+		mi := &file_taprootassets_proto_msgTypes[72]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -5588,7 +5794,7 @@ func (x *SubscribeSendEventsRequest) String() string {
 func (*SubscribeSendEventsRequest) ProtoMessage() {}
 
 func (x *SubscribeSendEventsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[69]
+	mi := &file_taprootassets_proto_msgTypes[72]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5601,7 +5807,7 @@ func (x *SubscribeSendEventsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SubscribeSendEventsRequest.ProtoReflect.Descriptor instead.
 func (*SubscribeSendEventsRequest) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{69}
+	return file_taprootassets_proto_rawDescGZIP(), []int{72}
 }
 
 func (x *SubscribeSendEventsRequest) GetFilterScriptKey() []byte {
@@ -5647,7 +5853,7 @@ type SendEvent struct {
 func (x *SendEvent) Reset() {
 	*x = SendEvent{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[70]
+		mi := &file_taprootassets_proto_msgTypes[73]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -5660,7 +5866,7 @@ func (x *SendEvent) String() string {
 func (*SendEvent) ProtoMessage() {}
 
 func (x *SendEvent) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[70]
+	mi := &file_taprootassets_proto_msgTypes[73]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5673,7 +5879,7 @@ func (x *SendEvent) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SendEvent.ProtoReflect.Descriptor instead.
 func (*SendEvent) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{70}
+	return file_taprootassets_proto_rawDescGZIP(), []int{73}
 }
 
 func (x *SendEvent) GetTimestamp() int64 {
@@ -5763,7 +5969,7 @@ type AnchorTransaction struct {
 func (x *AnchorTransaction) Reset() {
 	*x = AnchorTransaction{}
 	if protoimpl.UnsafeEnabled {
-		mi := &file_taprootassets_proto_msgTypes[71]
+		mi := &file_taprootassets_proto_msgTypes[74]
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		ms.StoreMessageInfo(mi)
 	}
@@ -5776,7 +5982,7 @@ func (x *AnchorTransaction) String() string {
 func (*AnchorTransaction) ProtoMessage() {}
 
 func (x *AnchorTransaction) ProtoReflect() protoreflect.Message {
-	mi := &file_taprootassets_proto_msgTypes[71]
+	mi := &file_taprootassets_proto_msgTypes[74]
 	if protoimpl.UnsafeEnabled && x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5789,7 +5995,7 @@ func (x *AnchorTransaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AnchorTransaction.ProtoReflect.Descriptor instead.
 func (*AnchorTransaction) Descriptor() ([]byte, []int) {
-	return file_taprootassets_proto_rawDescGZIP(), []int{71}
+	return file_taprootassets_proto_rawDescGZIP(), []int{74}
 }
 
 func (x *AnchorTransaction) GetAnchorPsbt() []byte {
@@ -6493,7 +6699,7 @@ var file_taprootassets_proto_rawDesc = []byte{
 	0x65, 0x74, 0x49, 0x64, 0x53, 0x74, 0x72, 0x12, 0x24, 0x0a, 0x0d, 0x6d, 0x65, 0x74, 0x61, 0x5f,
 	0x68, 0x61, 0x73, 0x68, 0x5f, 0x73, 0x74, 0x72, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x48, 0x00,
 	0x52, 0x0b, 0x6d, 0x65, 0x74, 0x61, 0x48, 0x61, 0x73, 0x68, 0x53, 0x74, 0x72, 0x42, 0x07, 0x0a,
-	0x05, 0x61, 0x73, 0x73, 0x65, 0x74, 0x22, 0xaf, 0x01, 0x0a, 0x10, 0x42, 0x75, 0x72, 0x6e, 0x41,
+	0x05, 0x61, 0x73, 0x73, 0x65, 0x74, 0x22, 0xc3, 0x01, 0x0a, 0x10, 0x42, 0x75, 0x72, 0x6e, 0x41,
 	0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x1b, 0x0a, 0x08, 0x61,
 	0x73, 0x73, 0x65, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x48, 0x00, 0x52,
 	0x07, 0x61, 0x73, 0x73, 0x65, 0x74, 0x49, 0x64, 0x12, 0x22, 0x0a, 0x0c, 0x61, 0x73, 0x73, 0x65,
@@ -6503,16 +6709,39 @@ var file_taprootassets_proto_rawDesc = []byte{
 	0x20, 0x01, 0x28, 0x04, 0x52, 0x0c, 0x61, 0x6d, 0x6f, 0x75, 0x6e, 0x74, 0x54, 0x6f, 0x42, 0x75,
 	0x72, 0x6e, 0x12, 0x2b, 0x0a, 0x11, 0x63, 0x6f, 0x6e, 0x66, 0x69, 0x72, 0x6d, 0x61, 0x74, 0x69,
 	0x6f, 0x6e, 0x5f, 0x74, 0x65, 0x78, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x09, 0x52, 0x10, 0x63,
-	0x6f, 0x6e, 0x66, 0x69, 0x72, 0x6d, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x65, 0x78, 0x74, 0x42,
-	0x07, 0x0a, 0x05, 0x61, 0x73, 0x73, 0x65, 0x74, 0x22, 0x84, 0x01, 0x0a, 0x11, 0x42, 0x75, 0x72,
-	0x6e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3a,
-	0x0a, 0x0d, 0x62, 0x75, 0x72, 0x6e, 0x5f, 0x74, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72, 0x18,
-	0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x41,
-	0x73, 0x73, 0x65, 0x74, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72, 0x52, 0x0c, 0x62, 0x75,
-	0x72, 0x6e, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72, 0x12, 0x33, 0x0a, 0x0a, 0x62, 0x75,
-	0x72, 0x6e, 0x5f, 0x70, 0x72, 0x6f, 0x6f, 0x66, 0x18, 0x02, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x14,
-	0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x63, 0x6f, 0x64, 0x65, 0x64, 0x50,
-	0x72, 0x6f, 0x6f, 0x66, 0x52, 0x09, 0x62, 0x75, 0x72, 0x6e, 0x50, 0x72, 0x6f, 0x6f, 0x66, 0x22,
+	0x6f, 0x6e, 0x66, 0x69, 0x72, 0x6d, 0x61, 0x74, 0x69, 0x6f, 0x6e, 0x54, 0x65, 0x78, 0x74, 0x12,
+	0x12, 0x0a, 0x04, 0x6e, 0x6f, 0x74, 0x65, 0x18, 0x05, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e,
+	0x6f, 0x74, 0x65, 0x42, 0x07, 0x0a, 0x05, 0x61, 0x73, 0x73, 0x65, 0x74, 0x22, 0x84, 0x01, 0x0a,
+	0x11, 0x42, 0x75, 0x72, 0x6e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e,
+	0x73, 0x65, 0x12, 0x3a, 0x0a, 0x0d, 0x62, 0x75, 0x72, 0x6e, 0x5f, 0x74, 0x72, 0x61, 0x6e, 0x73,
+	0x66, 0x65, 0x72, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0b, 0x32, 0x15, 0x2e, 0x74, 0x61, 0x70, 0x72,
+	0x70, 0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72,
+	0x52, 0x0c, 0x62, 0x75, 0x72, 0x6e, 0x54, 0x72, 0x61, 0x6e, 0x73, 0x66, 0x65, 0x72, 0x12, 0x33,
+	0x0a, 0x0a, 0x62, 0x75, 0x72, 0x6e, 0x5f, 0x70, 0x72, 0x6f, 0x6f, 0x66, 0x18, 0x02, 0x20, 0x01,
+	0x28, 0x0b, 0x32, 0x14, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x44, 0x65, 0x63, 0x6f,
+	0x64, 0x65, 0x64, 0x50, 0x72, 0x6f, 0x6f, 0x66, 0x52, 0x09, 0x62, 0x75, 0x72, 0x6e, 0x50, 0x72,
+	0x6f, 0x6f, 0x66, 0x22, 0x7a, 0x0a, 0x10, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x73,
+	0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x19, 0x0a, 0x08, 0x61, 0x73, 0x73, 0x65, 0x74,
+	0x5f, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x07, 0x61, 0x73, 0x73, 0x65, 0x74,
+	0x49, 0x64, 0x12, 0x2a, 0x0a, 0x11, 0x74, 0x77, 0x65, 0x61, 0x6b, 0x65, 0x64, 0x5f, 0x67, 0x72,
+	0x6f, 0x75, 0x70, 0x5f, 0x6b, 0x65, 0x79, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0f, 0x74,
+	0x77, 0x65, 0x61, 0x6b, 0x65, 0x64, 0x47, 0x72, 0x6f, 0x75, 0x70, 0x4b, 0x65, 0x79, 0x12, 0x1f,
+	0x0a, 0x0b, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x5f, 0x74, 0x78, 0x69, 0x64, 0x18, 0x04, 0x20,
+	0x01, 0x28, 0x0c, 0x52, 0x0a, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x54, 0x78, 0x69, 0x64, 0x22,
+	0x9f, 0x01, 0x0a, 0x09, 0x41, 0x73, 0x73, 0x65, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x12, 0x12, 0x0a,
+	0x04, 0x6e, 0x6f, 0x74, 0x65, 0x18, 0x01, 0x20, 0x01, 0x28, 0x09, 0x52, 0x04, 0x6e, 0x6f, 0x74,
+	0x65, 0x12, 0x19, 0x0a, 0x08, 0x61, 0x73, 0x73, 0x65, 0x74, 0x5f, 0x69, 0x64, 0x18, 0x02, 0x20,
+	0x01, 0x28, 0x0c, 0x52, 0x07, 0x61, 0x73, 0x73, 0x65, 0x74, 0x49, 0x64, 0x12, 0x2a, 0x0a, 0x11,
+	0x74, 0x77, 0x65, 0x61, 0x6b, 0x65, 0x64, 0x5f, 0x67, 0x72, 0x6f, 0x75, 0x70, 0x5f, 0x6b, 0x65,
+	0x79, 0x18, 0x03, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0f, 0x74, 0x77, 0x65, 0x61, 0x6b, 0x65, 0x64,
+	0x47, 0x72, 0x6f, 0x75, 0x70, 0x4b, 0x65, 0x79, 0x12, 0x16, 0x0a, 0x06, 0x61, 0x6d, 0x6f, 0x75,
+	0x6e, 0x74, 0x18, 0x04, 0x20, 0x01, 0x28, 0x04, 0x52, 0x06, 0x61, 0x6d, 0x6f, 0x75, 0x6e, 0x74,
+	0x12, 0x1f, 0x0a, 0x0b, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x5f, 0x74, 0x78, 0x69, 0x64, 0x18,
+	0x05, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0a, 0x61, 0x6e, 0x63, 0x68, 0x6f, 0x72, 0x54, 0x78, 0x69,
+	0x64, 0x22, 0x3c, 0x0a, 0x11, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x73, 0x52, 0x65,
+	0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x27, 0x0a, 0x05, 0x62, 0x75, 0x72, 0x6e, 0x73, 0x18,
+	0x01, 0x20, 0x03, 0x28, 0x0b, 0x32, 0x11, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x41,
+	0x73, 0x73, 0x65, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x52, 0x05, 0x62, 0x75, 0x72, 0x6e, 0x73, 0x22,
 	0x41, 0x0a, 0x08, 0x4f, 0x75, 0x74, 0x50, 0x6f, 0x69, 0x6e, 0x74, 0x12, 0x12, 0x0a, 0x04, 0x74,
 	0x78, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x04, 0x74, 0x78, 0x69, 0x64, 0x12,
 	0x21, 0x0a, 0x0c, 0x6f, 0x75, 0x74, 0x70, 0x75, 0x74, 0x5f, 0x69, 0x6e, 0x64, 0x65, 0x78, 0x18,
@@ -6654,7 +6883,7 @@ var file_taprootassets_proto_rawDesc = []byte{
 	0x4e, 0x45, 0x44, 0x10, 0x01, 0x12, 0x17, 0x0a, 0x13, 0x50, 0x41, 0x52, 0x43, 0x45, 0x4c, 0x5f,
 	0x54, 0x59, 0x50, 0x45, 0x5f, 0x50, 0x45, 0x4e, 0x44, 0x49, 0x4e, 0x47, 0x10, 0x02, 0x12, 0x1c,
 	0x0a, 0x18, 0x50, 0x41, 0x52, 0x43, 0x45, 0x4c, 0x5f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x50, 0x52,
-	0x45, 0x5f, 0x41, 0x4e, 0x43, 0x48, 0x4f, 0x52, 0x45, 0x44, 0x10, 0x03, 0x32, 0xd8, 0x0a, 0x0a,
+	0x45, 0x5f, 0x41, 0x4e, 0x43, 0x48, 0x4f, 0x52, 0x45, 0x44, 0x10, 0x03, 0x32, 0x9a, 0x0b, 0x0a,
 	0x0d, 0x54, 0x61, 0x70, 0x72, 0x6f, 0x6f, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x73, 0x12, 0x41,
 	0x0a, 0x0a, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x73, 0x12, 0x18, 0x2e, 0x74,
 	0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52,
@@ -6721,30 +6950,34 @@ var file_taprootassets_proto_rawDesc = []byte{
 	0x42, 0x75, 0x72, 0x6e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x12, 0x18, 0x2e, 0x74, 0x61, 0x70, 0x72,
 	0x70, 0x63, 0x2e, 0x42, 0x75, 0x72, 0x6e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x71, 0x75,
 	0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x42, 0x75, 0x72,
-	0x6e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x3a,
-	0x0a, 0x07, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x16, 0x2e, 0x74, 0x61, 0x70, 0x72,
-	0x70, 0x63, 0x2e, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
-	0x74, 0x1a, 0x17, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x47, 0x65, 0x74, 0x49, 0x6e,
-	0x66, 0x6f, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x42, 0x0a, 0x0e, 0x46, 0x65,
-	0x74, 0x63, 0x68, 0x41, 0x73, 0x73, 0x65, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x12, 0x1d, 0x2e, 0x74,
-	0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x41, 0x73, 0x73, 0x65, 0x74,
-	0x4d, 0x65, 0x74, 0x61, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x11, 0x2e, 0x74, 0x61,
-	0x70, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x12, 0x57,
-	0x0a, 0x16, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x52, 0x65, 0x63, 0x65, 0x69,
-	0x76, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x12, 0x25, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70,
-	0x63, 0x2e, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x52, 0x65, 0x63, 0x65, 0x69,
-	0x76, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a,
-	0x14, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x63, 0x65, 0x69, 0x76, 0x65,
-	0x45, 0x76, 0x65, 0x6e, 0x74, 0x30, 0x01, 0x12, 0x4e, 0x0a, 0x13, 0x53, 0x75, 0x62, 0x73, 0x63,
-	0x72, 0x69, 0x62, 0x65, 0x53, 0x65, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x12, 0x22,
-	0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62,
-	0x65, 0x53, 0x65, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65,
-	0x73, 0x74, 0x1a, 0x11, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x65, 0x6e, 0x64,
-	0x45, 0x76, 0x65, 0x6e, 0x74, 0x30, 0x01, 0x42, 0x30, 0x5a, 0x2e, 0x67, 0x69, 0x74, 0x68, 0x75,
-	0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e, 0x67, 0x6c,
-	0x61, 0x62, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x6f, 0x6f, 0x74, 0x2d, 0x61, 0x73, 0x73, 0x65,
-	0x74, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f, 0x74, 0x6f,
-	0x33,
+	0x6e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x40,
+	0x0a, 0x09, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x73, 0x12, 0x18, 0x2e, 0x74, 0x61,
+	0x70, 0x72, 0x70, 0x63, 0x2e, 0x4c, 0x69, 0x73, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x73, 0x52, 0x65,
+	0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x19, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x4c,
+	0x69, 0x73, 0x74, 0x42, 0x75, 0x72, 0x6e, 0x73, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65,
+	0x12, 0x3a, 0x0a, 0x07, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x12, 0x16, 0x2e, 0x74, 0x61,
+	0x70, 0x72, 0x70, 0x63, 0x2e, 0x47, 0x65, 0x74, 0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x71, 0x75,
+	0x65, 0x73, 0x74, 0x1a, 0x17, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x47, 0x65, 0x74,
+	0x49, 0x6e, 0x66, 0x6f, 0x52, 0x65, 0x73, 0x70, 0x6f, 0x6e, 0x73, 0x65, 0x12, 0x42, 0x0a, 0x0e,
+	0x46, 0x65, 0x74, 0x63, 0x68, 0x41, 0x73, 0x73, 0x65, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x12, 0x1d,
+	0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x46, 0x65, 0x74, 0x63, 0x68, 0x41, 0x73, 0x73,
+	0x65, 0x74, 0x4d, 0x65, 0x74, 0x61, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x1a, 0x11, 0x2e,
+	0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x41, 0x73, 0x73, 0x65, 0x74, 0x4d, 0x65, 0x74, 0x61,
+	0x12, 0x57, 0x0a, 0x16, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x52, 0x65, 0x63,
+	0x65, 0x69, 0x76, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x12, 0x25, 0x2e, 0x74, 0x61, 0x70,
+	0x72, 0x70, 0x63, 0x2e, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x52, 0x65, 0x63,
+	0x65, 0x69, 0x76, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71, 0x75, 0x65, 0x73,
+	0x74, 0x1a, 0x14, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x52, 0x65, 0x63, 0x65, 0x69,
+	0x76, 0x65, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x30, 0x01, 0x12, 0x4e, 0x0a, 0x13, 0x53, 0x75, 0x62,
+	0x73, 0x63, 0x72, 0x69, 0x62, 0x65, 0x53, 0x65, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73,
+	0x12, 0x22, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x75, 0x62, 0x73, 0x63, 0x72,
+	0x69, 0x62, 0x65, 0x53, 0x65, 0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x73, 0x52, 0x65, 0x71,
+	0x75, 0x65, 0x73, 0x74, 0x1a, 0x11, 0x2e, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x2e, 0x53, 0x65,
+	0x6e, 0x64, 0x45, 0x76, 0x65, 0x6e, 0x74, 0x30, 0x01, 0x42, 0x30, 0x5a, 0x2e, 0x67, 0x69, 0x74,
+	0x68, 0x75, 0x62, 0x2e, 0x63, 0x6f, 0x6d, 0x2f, 0x6c, 0x69, 0x67, 0x68, 0x74, 0x6e, 0x69, 0x6e,
+	0x67, 0x6c, 0x61, 0x62, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x6f, 0x6f, 0x74, 0x2d, 0x61, 0x73,
+	0x73, 0x65, 0x74, 0x73, 0x2f, 0x74, 0x61, 0x70, 0x72, 0x70, 0x63, 0x62, 0x06, 0x70, 0x72, 0x6f,
+	0x74, 0x6f, 0x33,
 }
 
 var (
@@ -6760,7 +6993,7 @@ func file_taprootassets_proto_rawDescGZIP() []byte {
 }
 
 var file_taprootassets_proto_enumTypes = make([]protoimpl.EnumInfo, 9)
-var file_taprootassets_proto_msgTypes = make([]protoimpl.MessageInfo, 76)
+var file_taprootassets_proto_msgTypes = make([]protoimpl.MessageInfo, 79)
 var file_taprootassets_proto_goTypes = []interface{}{
 	(AssetType)(0),                        // 0: taprpc.AssetType
 	(AssetMetaType)(0),                    // 1: taprpc.AssetMetaType
@@ -6837,16 +7070,19 @@ var file_taprootassets_proto_goTypes = []interface{}{
 	(*FetchAssetMetaRequest)(nil),         // 72: taprpc.FetchAssetMetaRequest
 	(*BurnAssetRequest)(nil),              // 73: taprpc.BurnAssetRequest
 	(*BurnAssetResponse)(nil),             // 74: taprpc.BurnAssetResponse
-	(*OutPoint)(nil),                      // 75: taprpc.OutPoint
-	(*SubscribeReceiveEventsRequest)(nil), // 76: taprpc.SubscribeReceiveEventsRequest
-	(*ReceiveEvent)(nil),                  // 77: taprpc.ReceiveEvent
-	(*SubscribeSendEventsRequest)(nil),    // 78: taprpc.SubscribeSendEventsRequest
-	(*SendEvent)(nil),                     // 79: taprpc.SendEvent
-	(*AnchorTransaction)(nil),             // 80: taprpc.AnchorTransaction
-	nil,                                   // 81: taprpc.ListUtxosResponse.ManagedUtxosEntry
-	nil,                                   // 82: taprpc.ListGroupsResponse.GroupsEntry
-	nil,                                   // 83: taprpc.ListBalancesResponse.AssetBalancesEntry
-	nil,                                   // 84: taprpc.ListBalancesResponse.AssetGroupBalancesEntry
+	(*ListBurnsRequest)(nil),              // 75: taprpc.ListBurnsRequest
+	(*AssetBurn)(nil),                     // 76: taprpc.AssetBurn
+	(*ListBurnsResponse)(nil),             // 77: taprpc.ListBurnsResponse
+	(*OutPoint)(nil),                      // 78: taprpc.OutPoint
+	(*SubscribeReceiveEventsRequest)(nil), // 79: taprpc.SubscribeReceiveEventsRequest
+	(*ReceiveEvent)(nil),                  // 80: taprpc.ReceiveEvent
+	(*SubscribeSendEventsRequest)(nil),    // 81: taprpc.SubscribeSendEventsRequest
+	(*SendEvent)(nil),                     // 82: taprpc.SendEvent
+	(*AnchorTransaction)(nil),             // 83: taprpc.AnchorTransaction
+	nil,                                   // 84: taprpc.ListUtxosResponse.ManagedUtxosEntry
+	nil,                                   // 85: taprpc.ListGroupsResponse.GroupsEntry
+	nil,                                   // 86: taprpc.ListBalancesResponse.AssetBalancesEntry
+	nil,                                   // 87: taprpc.ListBalancesResponse.AssetGroupBalancesEntry
 }
 var file_taprootassets_proto_depIdxs = []int32{
 	1,  // 0: taprpc.AssetMeta.type:type_name -> taprpc.AssetMetaType
@@ -6866,14 +7102,14 @@ var file_taprootassets_proto_depIdxs = []int32{
 	21, // 14: taprpc.SplitCommitment.root_asset:type_name -> taprpc.Asset
 	21, // 15: taprpc.ListAssetResponse.assets:type_name -> taprpc.Asset
 	21, // 16: taprpc.ManagedUtxo.assets:type_name -> taprpc.Asset
-	81, // 17: taprpc.ListUtxosResponse.managed_utxos:type_name -> taprpc.ListUtxosResponse.ManagedUtxosEntry
+	84, // 17: taprpc.ListUtxosResponse.managed_utxos:type_name -> taprpc.ListUtxosResponse.ManagedUtxosEntry
 	0,  // 18: taprpc.AssetHumanReadable.type:type_name -> taprpc.AssetType
 	2,  // 19: taprpc.AssetHumanReadable.version:type_name -> taprpc.AssetVersion
 	29, // 20: taprpc.GroupedAssets.assets:type_name -> taprpc.AssetHumanReadable
-	82, // 21: taprpc.ListGroupsResponse.groups:type_name -> taprpc.ListGroupsResponse.GroupsEntry
+	85, // 21: taprpc.ListGroupsResponse.groups:type_name -> taprpc.ListGroupsResponse.GroupsEntry
 	12, // 22: taprpc.AssetBalance.asset_genesis:type_name -> taprpc.GenesisInfo
-	83, // 23: taprpc.ListBalancesResponse.asset_balances:type_name -> taprpc.ListBalancesResponse.AssetBalancesEntry
-	84, // 24: taprpc.ListBalancesResponse.asset_group_balances:type_name -> taprpc.ListBalancesResponse.AssetGroupBalancesEntry
+	86, // 23: taprpc.ListBalancesResponse.asset_balances:type_name -> taprpc.ListBalancesResponse.AssetBalancesEntry
+	87, // 24: taprpc.ListBalancesResponse.asset_group_balances:type_name -> taprpc.ListBalancesResponse.AssetGroupBalancesEntry
 	39, // 25: taprpc.ListTransfersResponse.transfers:type_name -> taprpc.AssetTransfer
 	40, // 26: taprpc.AssetTransfer.inputs:type_name -> taprpc.TransferInput
 	42, // 27: taprpc.AssetTransfer.outputs:type_name -> taprpc.TransferOutput
@@ -6899,7 +7135,7 @@ var file_taprootassets_proto_depIdxs = []int32{
 	18, // 47: taprpc.DecodedProof.group_key_reveal:type_name -> taprpc.GroupKeyReveal
 	59, // 48: taprpc.VerifyProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
 	59, // 49: taprpc.DecodeProofResponse.decoded_proof:type_name -> taprpc.DecodedProof
-	75, // 50: taprpc.ExportProofRequest.outpoint:type_name -> taprpc.OutPoint
+	78, // 50: taprpc.ExportProofRequest.outpoint:type_name -> taprpc.OutPoint
 	47, // 51: taprpc.AddrEvent.addr:type_name -> taprpc.Addr
 	6,  // 52: taprpc.AddrEvent.status:type_name -> taprpc.AddrEventStatus
 	6,  // 53: taprpc.AddrReceivesRequest.filter_status:type_name -> taprpc.AddrEventStatus
@@ -6907,62 +7143,65 @@ var file_taprootassets_proto_depIdxs = []int32{
 	39, // 55: taprpc.SendAssetResponse.transfer:type_name -> taprpc.AssetTransfer
 	39, // 56: taprpc.BurnAssetResponse.burn_transfer:type_name -> taprpc.AssetTransfer
 	59, // 57: taprpc.BurnAssetResponse.burn_proof:type_name -> taprpc.DecodedProof
-	47, // 58: taprpc.ReceiveEvent.address:type_name -> taprpc.Addr
-	6,  // 59: taprpc.ReceiveEvent.status:type_name -> taprpc.AddrEventStatus
-	8,  // 60: taprpc.SendEvent.parcel_type:type_name -> taprpc.ParcelType
-	47, // 61: taprpc.SendEvent.addresses:type_name -> taprpc.Addr
-	80, // 62: taprpc.SendEvent.anchor_transaction:type_name -> taprpc.AnchorTransaction
-	39, // 63: taprpc.SendEvent.transfer:type_name -> taprpc.AssetTransfer
-	75, // 64: taprpc.AnchorTransaction.lnd_locked_utxos:type_name -> taprpc.OutPoint
-	26, // 65: taprpc.ListUtxosResponse.ManagedUtxosEntry.value:type_name -> taprpc.ManagedUtxo
-	30, // 66: taprpc.ListGroupsResponse.GroupsEntry.value:type_name -> taprpc.GroupedAssets
-	33, // 67: taprpc.ListBalancesResponse.AssetBalancesEntry.value:type_name -> taprpc.AssetBalance
-	34, // 68: taprpc.ListBalancesResponse.AssetGroupBalancesEntry.value:type_name -> taprpc.AssetGroupBalance
-	10, // 69: taprpc.TaprootAssets.ListAssets:input_type -> taprpc.ListAssetRequest
-	25, // 70: taprpc.TaprootAssets.ListUtxos:input_type -> taprpc.ListUtxosRequest
-	28, // 71: taprpc.TaprootAssets.ListGroups:input_type -> taprpc.ListGroupsRequest
-	32, // 72: taprpc.TaprootAssets.ListBalances:input_type -> taprpc.ListBalancesRequest
-	36, // 73: taprpc.TaprootAssets.ListTransfers:input_type -> taprpc.ListTransfersRequest
-	43, // 74: taprpc.TaprootAssets.StopDaemon:input_type -> taprpc.StopRequest
-	45, // 75: taprpc.TaprootAssets.DebugLevel:input_type -> taprpc.DebugLevelRequest
-	48, // 76: taprpc.TaprootAssets.QueryAddrs:input_type -> taprpc.QueryAddrRequest
-	50, // 77: taprpc.TaprootAssets.NewAddr:input_type -> taprpc.NewAddrRequest
-	57, // 78: taprpc.TaprootAssets.DecodeAddr:input_type -> taprpc.DecodeAddrRequest
-	65, // 79: taprpc.TaprootAssets.AddrReceives:input_type -> taprpc.AddrReceivesRequest
-	58, // 80: taprpc.TaprootAssets.VerifyProof:input_type -> taprpc.ProofFile
-	61, // 81: taprpc.TaprootAssets.DecodeProof:input_type -> taprpc.DecodeProofRequest
-	63, // 82: taprpc.TaprootAssets.ExportProof:input_type -> taprpc.ExportProofRequest
-	67, // 83: taprpc.TaprootAssets.SendAsset:input_type -> taprpc.SendAssetRequest
-	73, // 84: taprpc.TaprootAssets.BurnAsset:input_type -> taprpc.BurnAssetRequest
-	70, // 85: taprpc.TaprootAssets.GetInfo:input_type -> taprpc.GetInfoRequest
-	72, // 86: taprpc.TaprootAssets.FetchAssetMeta:input_type -> taprpc.FetchAssetMetaRequest
-	76, // 87: taprpc.TaprootAssets.SubscribeReceiveEvents:input_type -> taprpc.SubscribeReceiveEventsRequest
-	78, // 88: taprpc.TaprootAssets.SubscribeSendEvents:input_type -> taprpc.SubscribeSendEventsRequest
-	24, // 89: taprpc.TaprootAssets.ListAssets:output_type -> taprpc.ListAssetResponse
-	27, // 90: taprpc.TaprootAssets.ListUtxos:output_type -> taprpc.ListUtxosResponse
-	31, // 91: taprpc.TaprootAssets.ListGroups:output_type -> taprpc.ListGroupsResponse
-	35, // 92: taprpc.TaprootAssets.ListBalances:output_type -> taprpc.ListBalancesResponse
-	37, // 93: taprpc.TaprootAssets.ListTransfers:output_type -> taprpc.ListTransfersResponse
-	44, // 94: taprpc.TaprootAssets.StopDaemon:output_type -> taprpc.StopResponse
-	46, // 95: taprpc.TaprootAssets.DebugLevel:output_type -> taprpc.DebugLevelResponse
-	49, // 96: taprpc.TaprootAssets.QueryAddrs:output_type -> taprpc.QueryAddrResponse
-	47, // 97: taprpc.TaprootAssets.NewAddr:output_type -> taprpc.Addr
-	47, // 98: taprpc.TaprootAssets.DecodeAddr:output_type -> taprpc.Addr
-	66, // 99: taprpc.TaprootAssets.AddrReceives:output_type -> taprpc.AddrReceivesResponse
-	60, // 100: taprpc.TaprootAssets.VerifyProof:output_type -> taprpc.VerifyProofResponse
-	62, // 101: taprpc.TaprootAssets.DecodeProof:output_type -> taprpc.DecodeProofResponse
-	58, // 102: taprpc.TaprootAssets.ExportProof:output_type -> taprpc.ProofFile
-	69, // 103: taprpc.TaprootAssets.SendAsset:output_type -> taprpc.SendAssetResponse
-	74, // 104: taprpc.TaprootAssets.BurnAsset:output_type -> taprpc.BurnAssetResponse
-	71, // 105: taprpc.TaprootAssets.GetInfo:output_type -> taprpc.GetInfoResponse
-	9,  // 106: taprpc.TaprootAssets.FetchAssetMeta:output_type -> taprpc.AssetMeta
-	77, // 107: taprpc.TaprootAssets.SubscribeReceiveEvents:output_type -> taprpc.ReceiveEvent
-	79, // 108: taprpc.TaprootAssets.SubscribeSendEvents:output_type -> taprpc.SendEvent
-	89, // [89:109] is the sub-list for method output_type
-	69, // [69:89] is the sub-list for method input_type
-	69, // [69:69] is the sub-list for extension type_name
-	69, // [69:69] is the sub-list for extension extendee
-	0,  // [0:69] is the sub-list for field type_name
+	76, // 58: taprpc.ListBurnsResponse.burns:type_name -> taprpc.AssetBurn
+	47, // 59: taprpc.ReceiveEvent.address:type_name -> taprpc.Addr
+	6,  // 60: taprpc.ReceiveEvent.status:type_name -> taprpc.AddrEventStatus
+	8,  // 61: taprpc.SendEvent.parcel_type:type_name -> taprpc.ParcelType
+	47, // 62: taprpc.SendEvent.addresses:type_name -> taprpc.Addr
+	83, // 63: taprpc.SendEvent.anchor_transaction:type_name -> taprpc.AnchorTransaction
+	39, // 64: taprpc.SendEvent.transfer:type_name -> taprpc.AssetTransfer
+	78, // 65: taprpc.AnchorTransaction.lnd_locked_utxos:type_name -> taprpc.OutPoint
+	26, // 66: taprpc.ListUtxosResponse.ManagedUtxosEntry.value:type_name -> taprpc.ManagedUtxo
+	30, // 67: taprpc.ListGroupsResponse.GroupsEntry.value:type_name -> taprpc.GroupedAssets
+	33, // 68: taprpc.ListBalancesResponse.AssetBalancesEntry.value:type_name -> taprpc.AssetBalance
+	34, // 69: taprpc.ListBalancesResponse.AssetGroupBalancesEntry.value:type_name -> taprpc.AssetGroupBalance
+	10, // 70: taprpc.TaprootAssets.ListAssets:input_type -> taprpc.ListAssetRequest
+	25, // 71: taprpc.TaprootAssets.ListUtxos:input_type -> taprpc.ListUtxosRequest
+	28, // 72: taprpc.TaprootAssets.ListGroups:input_type -> taprpc.ListGroupsRequest
+	32, // 73: taprpc.TaprootAssets.ListBalances:input_type -> taprpc.ListBalancesRequest
+	36, // 74: taprpc.TaprootAssets.ListTransfers:input_type -> taprpc.ListTransfersRequest
+	43, // 75: taprpc.TaprootAssets.StopDaemon:input_type -> taprpc.StopRequest
+	45, // 76: taprpc.TaprootAssets.DebugLevel:input_type -> taprpc.DebugLevelRequest
+	48, // 77: taprpc.TaprootAssets.QueryAddrs:input_type -> taprpc.QueryAddrRequest
+	50, // 78: taprpc.TaprootAssets.NewAddr:input_type -> taprpc.NewAddrRequest
+	57, // 79: taprpc.TaprootAssets.DecodeAddr:input_type -> taprpc.DecodeAddrRequest
+	65, // 80: taprpc.TaprootAssets.AddrReceives:input_type -> taprpc.AddrReceivesRequest
+	58, // 81: taprpc.TaprootAssets.VerifyProof:input_type -> taprpc.ProofFile
+	61, // 82: taprpc.TaprootAssets.DecodeProof:input_type -> taprpc.DecodeProofRequest
+	63, // 83: taprpc.TaprootAssets.ExportProof:input_type -> taprpc.ExportProofRequest
+	67, // 84: taprpc.TaprootAssets.SendAsset:input_type -> taprpc.SendAssetRequest
+	73, // 85: taprpc.TaprootAssets.BurnAsset:input_type -> taprpc.BurnAssetRequest
+	75, // 86: taprpc.TaprootAssets.ListBurns:input_type -> taprpc.ListBurnsRequest
+	70, // 87: taprpc.TaprootAssets.GetInfo:input_type -> taprpc.GetInfoRequest
+	72, // 88: taprpc.TaprootAssets.FetchAssetMeta:input_type -> taprpc.FetchAssetMetaRequest
+	79, // 89: taprpc.TaprootAssets.SubscribeReceiveEvents:input_type -> taprpc.SubscribeReceiveEventsRequest
+	81, // 90: taprpc.TaprootAssets.SubscribeSendEvents:input_type -> taprpc.SubscribeSendEventsRequest
+	24, // 91: taprpc.TaprootAssets.ListAssets:output_type -> taprpc.ListAssetResponse
+	27, // 92: taprpc.TaprootAssets.ListUtxos:output_type -> taprpc.ListUtxosResponse
+	31, // 93: taprpc.TaprootAssets.ListGroups:output_type -> taprpc.ListGroupsResponse
+	35, // 94: taprpc.TaprootAssets.ListBalances:output_type -> taprpc.ListBalancesResponse
+	37, // 95: taprpc.TaprootAssets.ListTransfers:output_type -> taprpc.ListTransfersResponse
+	44, // 96: taprpc.TaprootAssets.StopDaemon:output_type -> taprpc.StopResponse
+	46, // 97: taprpc.TaprootAssets.DebugLevel:output_type -> taprpc.DebugLevelResponse
+	49, // 98: taprpc.TaprootAssets.QueryAddrs:output_type -> taprpc.QueryAddrResponse
+	47, // 99: taprpc.TaprootAssets.NewAddr:output_type -> taprpc.Addr
+	47, // 100: taprpc.TaprootAssets.DecodeAddr:output_type -> taprpc.Addr
+	66, // 101: taprpc.TaprootAssets.AddrReceives:output_type -> taprpc.AddrReceivesResponse
+	60, // 102: taprpc.TaprootAssets.VerifyProof:output_type -> taprpc.VerifyProofResponse
+	62, // 103: taprpc.TaprootAssets.DecodeProof:output_type -> taprpc.DecodeProofResponse
+	58, // 104: taprpc.TaprootAssets.ExportProof:output_type -> taprpc.ProofFile
+	69, // 105: taprpc.TaprootAssets.SendAsset:output_type -> taprpc.SendAssetResponse
+	74, // 106: taprpc.TaprootAssets.BurnAsset:output_type -> taprpc.BurnAssetResponse
+	77, // 107: taprpc.TaprootAssets.ListBurns:output_type -> taprpc.ListBurnsResponse
+	71, // 108: taprpc.TaprootAssets.GetInfo:output_type -> taprpc.GetInfoResponse
+	9,  // 109: taprpc.TaprootAssets.FetchAssetMeta:output_type -> taprpc.AssetMeta
+	80, // 110: taprpc.TaprootAssets.SubscribeReceiveEvents:output_type -> taprpc.ReceiveEvent
+	82, // 111: taprpc.TaprootAssets.SubscribeSendEvents:output_type -> taprpc.SendEvent
+	91, // [91:112] is the sub-list for method output_type
+	70, // [70:91] is the sub-list for method input_type
+	70, // [70:70] is the sub-list for extension type_name
+	70, // [70:70] is the sub-list for extension extendee
+	0,  // [0:70] is the sub-list for field type_name
 }
 
 func init() { file_taprootassets_proto_init() }
@@ -7764,7 +8003,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[66].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*OutPoint); i {
+			switch v := v.(*ListBurnsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -7776,7 +8015,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[67].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SubscribeReceiveEventsRequest); i {
+			switch v := v.(*AssetBurn); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -7788,7 +8027,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[68].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*ReceiveEvent); i {
+			switch v := v.(*ListBurnsResponse); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -7800,7 +8039,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[69].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SubscribeSendEventsRequest); i {
+			switch v := v.(*OutPoint); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -7812,7 +8051,7 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[70].Exporter = func(v interface{}, i int) interface{} {
-			switch v := v.(*SendEvent); i {
+			switch v := v.(*SubscribeReceiveEventsRequest); i {
 			case 0:
 				return &v.state
 			case 1:
@@ -7824,6 +8063,42 @@ func file_taprootassets_proto_init() {
 			}
 		}
 		file_taprootassets_proto_msgTypes[71].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*ReceiveEvent); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taprootassets_proto_msgTypes[72].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SubscribeSendEventsRequest); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taprootassets_proto_msgTypes[73].Exporter = func(v interface{}, i int) interface{} {
+			switch v := v.(*SendEvent); i {
+			case 0:
+				return &v.state
+			case 1:
+				return &v.sizeCache
+			case 2:
+				return &v.unknownFields
+			default:
+				return nil
+			}
+		}
+		file_taprootassets_proto_msgTypes[74].Exporter = func(v interface{}, i int) interface{} {
 			switch v := v.(*AnchorTransaction); i {
 			case 0:
 				return &v.state
@@ -7856,7 +8131,7 @@ func file_taprootassets_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: file_taprootassets_proto_rawDesc,
 			NumEnums:      9,
-			NumMessages:   76,
+			NumMessages:   79,
 			NumExtensions: 0,
 			NumServices:   1,
 		},
