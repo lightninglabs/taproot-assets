@@ -763,6 +763,13 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		// asset level, NOT for the BTC level.
 		tweakedTree := TweakHtlcTree(htlcTree, htlc.HtlcIndex)
 
+		log.Tracef("Tweaking HTLC script key with index %d: internal "+
+			"key %x -> %x, script key %x -> %x", htlc.HtlcIndex,
+			htlcTree.InternalKey.SerializeCompressed(),
+			tweakedTree.InternalKey.SerializeCompressed(),
+			schnorr.SerializePubKey(htlcTree.TaprootKey),
+			schnorr.SerializePubKey(tweakedTree.TaprootKey))
+
 		allocations = append(allocations, &Allocation{
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
@@ -1290,6 +1297,13 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 	// with the HTLC index. We'll ONLY use this for the asset level, NOT for
 	// the BTC level.
 	tweakedTree := TweakHtlcTree(htlcTree, htlcIndex)
+
+	log.Tracef("Tweaking second level HTLC script key with index %d: "+
+		"internal key %x -> %x, script key %x -> %x", htlcIndex,
+		htlcTree.InternalKey.SerializeCompressed(),
+		tweakedTree.InternalKey.SerializeCompressed(),
+		schnorr.SerializePubKey(htlcTree.TaprootKey),
+		schnorr.SerializePubKey(tweakedTree.TaprootKey))
 
 	allocations := []*Allocation{{
 		Type: SecondLevelHtlcAllocation,
