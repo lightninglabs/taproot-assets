@@ -369,7 +369,7 @@ func verifyHtlcSignature(chainParams *address.ChainParams,
 
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		chainParams, chanState, commitTx, baseJob.KeyRing, htlcOutputs,
-		baseJob, htlcTimeout,
+		baseJob, htlcTimeout, baseJob.HTLC.HtlcIndex,
 	)
 	if err != nil {
 		return fmt.Errorf("error generating second level packets: %w",
@@ -513,7 +513,7 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 
 	vPackets, err := htlcSecondLevelPacketsFromCommit(
 		s.cfg.ChainParams, chanState, commitTx, baseJob.KeyRing,
-		htlcOutputs, baseJob, htlcTimeout,
+		htlcOutputs, baseJob, htlcTimeout, baseJob.HTLC.HtlcIndex,
 	)
 	if err != nil {
 		return lnwallet.AuxSigJobResp{}, fmt.Errorf("error generating "+
@@ -601,12 +601,12 @@ func (s *AuxLeafSigner) generateHtlcSignature(chanState lnwallet.AuxChanState,
 func htlcSecondLevelPacketsFromCommit(chainParams *address.ChainParams,
 	chanState lnwallet.AuxChanState, commitTx *wire.MsgTx,
 	keyRing lnwallet.CommitmentKeyRing, htlcOutputs []*cmsg.AssetOutput,
-	baseJob lnwallet.BaseAuxJob,
-	htlcTimeout fn.Option[uint32]) ([]*tappsbt.VPacket, error) {
+	baseJob lnwallet.BaseAuxJob, htlcTimeout fn.Option[uint32],
+	htlcIndex uint64) ([]*tappsbt.VPacket, error) {
 
 	packets, _, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, baseJob.HTLC.Amount.ToSatoshis(),
-		keyRing, chainParams, htlcOutputs, htlcTimeout,
+		keyRing, chainParams, htlcOutputs, htlcTimeout, htlcIndex,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating second level HTLC "+

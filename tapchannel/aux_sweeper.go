@@ -217,10 +217,12 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 			cltvTimeout = fn.Some(uint32(delay))
 		})
 
+		htlcIndex := resReq.HtlcID.UnwrapOr(math.MaxUint64)
 		alloc, err := createSecondLevelHtlcAllocations(
 			resReq.ChanType, resReq.Initiator, sweepInputs,
 			resReq.HtlcAmt, resReq.CommitCsvDelay, *resReq.KeyRing,
 			fn.Some(resReq.ContractPoint.Index), cltvTimeout,
+			htlcIndex,
 		)
 		if err != nil {
 			return lfn.Err[returnType](err)
@@ -364,8 +366,7 @@ func (a *AuxSweeper) signSweepVpackets(vPackets []*tappsbt.VPacket,
 		// tweaks to generate the key we'll use to verify the
 		// signature.
 		signingKey, leafToSign := applySignDescToVIn(
-			signDesc, vIn, &a.cfg.ChainParams,
-			tapTweak,
+			signDesc, vIn, &a.cfg.ChainParams, tapTweak,
 		)
 
 		// In this case, the witness isn't special, so we'll set the
@@ -876,7 +877,7 @@ func localHtlcTimeoutSweepDesc(req lnwallet.ResolutionReq,
 	// As this is an HTLC on our local commitment transaction, we'll also
 	// need to generate a sweep desc for second level HTLC.
 	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
-		req.KeyRing.RevocationKey, req.KeyRing.ToLocalKey,
+		tweakedKeyRing.RevocationKey, req.KeyRing.ToLocalKey,
 		req.CommitCsvDelay, lfn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
@@ -978,7 +979,7 @@ func localHtlcSuccessSweepDesc(req lnwallet.ResolutionReq,
 	// As this is an HTLC on our local commitment transaction, we'll also
 	// need to generate a sweep desc for second level HTLC.
 	secondLevelScriptTree, err := input.TaprootSecondLevelScriptTree(
-		req.KeyRing.RevocationKey, req.KeyRing.ToLocalKey,
+		tweakedKeyRing.RevocationKey, req.KeyRing.ToLocalKey,
 		req.CommitCsvDelay, lfn.None[txscript.TapLeaf](),
 	)
 	if err != nil {
@@ -2408,9 +2409,7 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	}
 
 	// Now that we have our vPkts, we'll re-create the output commitments.
-	outCommitments, err := tapsend.CreateOutputCommitments(
-		vPkts.allPkts(),
-	)
+	outCommitments, err := tapsend.CreateOutputCommitments(vPkts.allPkts())
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
