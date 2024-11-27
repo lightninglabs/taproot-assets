@@ -1954,6 +1954,96 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 	AssertSendEventsComplete(t.t, receiveAddr.ScriptKey, sendEvents)
 }
 
+// testRestoreLndFromSeed tests that we can restore an LND node from a seed and
+// then continue to interact with assets previously minted on the node.
+func testRestoreLndFromSeed(t *harnessTest) {
+	// We create a new lnd node from a seed, so we can restore it with the
+	// same seed later.
+	password := []byte("somepassword")
+	seedLnd, mnemonic, _ := t.lndHarness.NewNodeWithSeed(
+		"seed-lnd", lndDefaultArgs, password, false,
+	)
+	t.lndHarness.FundCoins(btcutil.SatoshiPerBitcoin, seedLnd)
+
+	// We're going to restart Bob at some point, so we don't do a deferred
+	// shutdown here.
+	bob := setupTapdHarness(t.t, t, seedLnd, t.universeServer)
+
+	// We mint a batch of normal assets with enough units to allow us to
+	// send it around a few times.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, bob,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+
+	var (
+		alice    = t.tapd
+		ctxb     = context.Background()
+		rpcAsset = rpcAssets[0]
+		genInfo  = rpcAsset.AssetGenesis
+	)
+
+	// We send some of the minted assets to our default tapd node.
+	const sendAmount = 123
+	aliceAddr, err := alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmount,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, alice, rpcAsset, aliceAddr)
+
+	sendResp, sendEvents := sendAssetsToAddr(t, bob, aliceAddr)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		genInfo.AssetId,
+		[]uint64{rpcAsset.Amount - sendAmount, sendAmount}, 0, 1,
+	)
+	AssertNonInteractiveRecvComplete(t.t, alice, 1)
+	AssertSendEventsComplete(t.t, aliceAddr.ScriptKey, sendEvents)
+
+	// We now restore Bob's lnd node from the seed.
+	require.NoError(t.t, bob.stop(false))
+	require.NoError(t.t, seedLnd.Shutdown())
+
+	// Starting the node again should restore it to the same state as
+	// before. This takes a couple of seconds, so let's log that we're
+	// waiting for the node to start.
+	t.Logf("Restoring node from seed, this may take a few seconds...")
+	seedLnd = t.lndHarness.RestoreNodeWithSeed(
+		"lnd-seed-restored", lndDefaultArgs, password, mnemonic, "",
+		2500, nil,
+	)
+	require.NoError(t.t, updateConfigWithNode(bob.clientCfg, seedLnd))
+
+	require.NoError(t.t, bob.start(false))
+
+	// Let's make sure we properly clean up the node at the end of the test.
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	// Send more assets after restoring the node.
+	aliceAddr, err = alice.NewAddr(ctxb, &taprpc.NewAddrRequest{
+		AssetId: genInfo.AssetId,
+		Amt:     sendAmount,
+	})
+	require.NoError(t.t, err)
+
+	AssertAddrCreated(t.t, alice, rpcAsset, aliceAddr)
+
+	sendResp, sendEvents = sendAssetsToAddr(t, bob, aliceAddr)
+
+	ConfirmAndAssertOutboundTransfer(
+		t.t, t.lndHarness.Miner().Client, bob, sendResp,
+		genInfo.AssetId,
+		[]uint64{rpcAsset.Amount - sendAmount*2, sendAmount}, 1, 2,
+	)
+	AssertNonInteractiveRecvComplete(t.t, alice, 2)
+	AssertSendEventsComplete(t.t, aliceAddr.ScriptKey, sendEvents)
+}
+
 // addProofTestVectorFromFile adds a proof test vector by extracting it from the
 // proof file found at the given asset ID and script key.
 func addProofTestVectorFromFile(t *testing.T, testName string,

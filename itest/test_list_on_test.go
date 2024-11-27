@@ -324,6 +324,10 @@ var testCases = []*testCase{
 		name: "ownership verification",
 		test: testOwnershipVerification,
 	},
+	{
+		name: "asset signing after lnd restore from seed",
+		test: testRestoreLndFromSeed,
+	},
 }
 
 var optionalTestCases = []*testCase{

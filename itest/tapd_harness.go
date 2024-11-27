@@ -150,14 +150,6 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		}
 	}
 
-	if cfg.LndNode == nil || cfg.LndNode.Cfg == nil {
-		return nil, fmt.Errorf("lnd node configuration cannot be nil")
-	}
-	lndMacPath := filepath.Join(
-		cfg.LndNode.Cfg.DataDir, "chain", "bitcoin", cfg.NetParams.Name,
-		"admin.macaroon",
-	)
-
 	tapCfg := tapcfg.DefaultConfig()
 	tapCfg.LogDir = "."
 	tapCfg.MaxLogFiles = 99
@@ -196,10 +188,9 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		fmt.Sprintf("127.0.0.1:%d", nextAvailablePort()),
 	}
 
-	tapCfg.Lnd = &tapcfg.LndConfig{
-		Host:         cfg.LndNode.Cfg.RPCAddr(),
-		MacaroonPath: lndMacPath,
-		TLSPath:      cfg.LndNode.Cfg.TLSCertPath,
+	// Update the config with the lnd node's connection info.
+	if err := updateConfigWithNode(&tapCfg, cfg.LndNode); err != nil {
+		return nil, err
 	}
 
 	// Configure the universe server to ensure that valid proofs from tapd
@@ -295,6 +286,26 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		clientCfg: finalCfg,
 		ht:        ht,
 	}, nil
+}
+
+// updateConfigWithNode updates the tapd configuration with the connection
+// information of the given lnd node.
+func updateConfigWithNode(cfg *tapcfg.Config, lnd *node.HarnessNode) error {
+	if lnd == nil || lnd.Cfg == nil {
+		return fmt.Errorf("lnd node configuration cannot be nil")
+	}
+	lndMacPath := filepath.Join(
+		lnd.Cfg.DataDir, "chain", "bitcoin", cfg.ChainConf.Network,
+		"admin.macaroon",
+	)
+
+	cfg.Lnd = &tapcfg.LndConfig{
+		Host:         lnd.Cfg.RPCAddr(),
+		MacaroonPath: lndMacPath,
+		TLSPath:      lnd.Cfg.TLSCertPath,
+	}
+
+	return nil
 }
 
 // rpcHost returns the RPC host for the tapd server.

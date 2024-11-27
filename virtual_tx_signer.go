@@ -29,7 +29,7 @@ func NewLndRpcVirtualTxSigner(lnd *lndclient.LndServices) *LndRpcVirtualTxSigner
 func (l *LndRpcVirtualTxSigner) SignVirtualTx(signDesc *lndclient.SignDescriptor,
 	tx *wire.MsgTx, prevOut *wire.TxOut) (*schnorr.Signature, error) {
 
-	sigs, err := l.lnd.Signer.SignOutputRaw(
+	sigs, err := l.lnd.Signer.SignOutputRawKeyLocator(
 		context.Background(), tx, []*lndclient.SignDescriptor{signDesc},
 		[]*wire.TxOut{prevOut},
 	)
