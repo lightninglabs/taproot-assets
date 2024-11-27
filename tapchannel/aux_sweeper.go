@@ -2256,26 +2256,20 @@ func (a *AuxSweeper) sweepContracts(inputs []input.Input,
 // sweepExclusionProofGen is a helper function that generates an exclusion
 // proof for the internal key of the change output.
 func sweepExclusionProofGen(sweepInternalKey keychain.KeyDescriptor,
-) tapsend.ExclusionProofGenerator {
+	changeOutputIndex uint32) tapsend.ExclusionProofGenerator {
 
 	return func(target *proof.BaseProofParams,
 		isAnchor tapsend.IsAnchor) error {
 
-		tsProof, err := proof.CreateTapscriptProof(nil)
-		if err != nil {
-			return fmt.Errorf("error creating tapscript proof: %w",
-				err)
-		}
-
 		// We only need to generate an exclusion proof for the second
 		// output in the commitment transaction.
-		//
-		// TODO(roasbeef): case of no change?
 		target.ExclusionProofs = append(
 			target.ExclusionProofs, proof.TaprootProof{
-				OutputIndex:    1,
-				InternalKey:    sweepInternalKey.PubKey,
-				TapscriptProof: tsProof,
+				OutputIndex: changeOutputIndex,
+				InternalKey: sweepInternalKey.PubKey,
+				TapscriptProof: &proof.TapscriptProof{
+					Bip86: true,
+				},
 			},
 		)
 
@@ -2415,6 +2409,15 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 			"commitments: %w", err)
 	}
 
+	// We need to find out what the highest output index of any asset output
+	// commitments is, so we know the change output will be one higher.
+	highestOutputIndex := uint32(0)
+	for outIdx := range outCommitments {
+		if outIdx > highestOutputIndex {
+			highestOutputIndex = outIdx
+		}
+	}
+
 	changeInternalKey, err := req.DeliveryAddress.InternalKey.UnwrapOrErr(
 		fmt.Errorf("change internal key not populated"),
 	)
@@ -2435,8 +2438,11 @@ func (a *AuxSweeper) registerAndBroadcastSweep(req *sweep.BumpRequest,
 	for idx := range allVpkts {
 		vPkt := allVpkts[idx]
 		for outIdx := range vPkt.Outputs {
+			// The change output is always the last output in the
+			// commitment transaction, one index higher than the
+			// highest asset commitment output index.
 			exclusionCreator := sweepExclusionProofGen(
-				changeInternalKey,
+				changeInternalKey, highestOutputIndex+1,
 			)
 
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
