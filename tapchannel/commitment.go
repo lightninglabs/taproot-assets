@@ -756,6 +756,13 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 				"allocation, HTLC is dust")
 		}
 
+		// To ensure uniqueness of the script key across HTLCs with the
+		// same payment hash and timeout (which would be equal
+		// otherwise), we tweak the asset level internal key of the
+		// script key with the HTLC index. We'll ONLY use this for the
+		// asset level, NOT for the BTC level.
+		tweakedTree := TweakHtlcTree(htlcTree, htlc.HtlcIndex)
+
 		allocations = append(allocations, &Allocation{
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
@@ -766,13 +773,13 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			NonAssetLeaves: sibling,
 			ScriptKey: asset.ScriptKey{
 				PubKey: asset.NewScriptKey(
-					htlcTree.TaprootKey,
+					tweakedTree.TaprootKey,
 				).PubKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
 					RawKey: keychain.KeyDescriptor{
-						PubKey: htlcTree.InternalKey,
+						PubKey: tweakedTree.InternalKey,
 					},
-					Tweak: htlcTree.TapscriptRoot,
+					Tweak: tweakedTree.TapscriptRoot,
 				},
 			},
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
