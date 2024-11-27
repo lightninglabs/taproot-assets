@@ -40,6 +40,24 @@ func TestInPlaceAllocationSort(t *testing.T) {
 				},
 				{
 					BtcAmount:           1000,
+					SortTaprootKeyBytes: []byte("b"),
+					CLTV:                100,
+					HtlcIndex:           1,
+				},
+				{
+					BtcAmount:           1000,
+					SortTaprootKeyBytes: []byte("b"),
+					CLTV:                100,
+					HtlcIndex:           9,
+				},
+				{
+					BtcAmount:           1000,
+					SortTaprootKeyBytes: []byte("b"),
+					CLTV:                100,
+					HtlcIndex:           3,
+				},
+				{
+					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("a"),
 					CLTV:                100,
 				},
@@ -59,6 +77,24 @@ func TestInPlaceAllocationSort(t *testing.T) {
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
 					CLTV:                100,
+				},
+				{
+					BtcAmount:           1000,
+					SortTaprootKeyBytes: []byte("b"),
+					CLTV:                100,
+					HtlcIndex:           1,
+				},
+				{
+					BtcAmount:           1000,
+					SortTaprootKeyBytes: []byte("b"),
+					CLTV:                100,
+					HtlcIndex:           3,
+				},
+				{
+					BtcAmount:           1000,
+					SortTaprootKeyBytes: []byte("b"),
+					CLTV:                100,
+					HtlcIndex:           9,
 				},
 				{
 					BtcAmount:           2000,
