@@ -4,7 +4,8 @@ config_version: 3
 http:
   rules:
     - selector: tapchannelrpc.TaprootAssetChannels.FundChannel
-      get: "/v1/taproot-assets/channels/fund"
+      post: "/v1/taproot-assets/channels/fund"
+      body: "*"
     - selector: tapchannelrpc.TaprootAssetChannels.EncodeCustomRecords
       post: "/v1/taproot-assets/channels/encode-custom-data"
       body: "*"
