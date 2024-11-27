@@ -129,6 +129,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
+				htlc.HtlcIndex,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+
@@ -169,6 +170,7 @@ func FetchLeavesFromCommit(chainParams *address.ChainParams,
 			leaf, err := CreateSecondLevelHtlcTx(
 				chanState, com.CommitTx, htlc.Amt.ToSatoshis(),
 				keys, chainParams, htlcOutputs, cltvTimeout,
+				htlc.HtlcIndex,
 			)
 			if err != nil {
 				return lfn.Err[returnType](fmt.Errorf("unable "+

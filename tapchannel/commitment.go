@@ -1263,7 +1263,7 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 	initiator bool, htlcOutputs []*cmsg.AssetOutput, htlcAmt btcutil.Amount,
 	commitCsvDelay uint32, keys lnwallet.CommitmentKeyRing,
 	outputIndex fn.Option[uint32], htlcTimeout fn.Option[uint32],
-) ([]*Allocation, error) {
+	htlcIndex uint64) ([]*Allocation, error) {
 
 	// TODO(roasbeef): thaw height not implemented for taproot chans rn
 	// (lease expiry)
@@ -1284,6 +1284,13 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 			"script sibling: %w", err)
 	}
 
+	// To ensure uniqueness of the script key across HTLCs with the same
+	// payment hash and timeout (which would be equal otherwise), we tweak
+	// the asset level internal key of the second-level script key as well
+	// with the HTLC index. We'll ONLY use this for the asset level, NOT for
+	// the BTC level.
+	tweakedTree := TweakHtlcTree(htlcTree, htlcIndex)
+
 	allocations := []*Allocation{{
 		Type: SecondLevelHtlcAllocation,
 		// If we're making the second-level transaction just to sign,
@@ -1299,12 +1306,14 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		),
 		InternalKey:    htlcTree.InternalKey,
 		NonAssetLeaves: sibling,
-		ScriptKey:      asset.NewScriptKey(htlcTree.TaprootKey),
+		ScriptKey:      asset.NewScriptKey(tweakedTree.TaprootKey),
 		SortTaprootKeyBytes: schnorr.SerializePubKey(
+			// This _must_ remain the non-tweaked key, since this is
+			// used for sorting _before_ applying any TAP tweaks.
 			htlcTree.TaprootKey,
 		),
-		// TODO(roasbeef): don't need it here?
-		CLTV: htlcTimeout.UnwrapOr(0),
+		CLTV:      htlcTimeout.UnwrapOr(0),
+		HtlcIndex: htlcIndex,
 	}}
 
 	return allocations, nil
@@ -1316,12 +1325,12 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-) ([]*tappsbt.VPacket, []*Allocation, error) {
+	htlcIndex uint64) ([]*tappsbt.VPacket, []*Allocation, error) {
 
 	allocations, err := createSecondLevelHtlcAllocations(
 		chanState.ChanType, chanState.IsInitiator,
 		htlcOutputs, htlcAmt, uint32(chanState.LocalChanCfg.CsvDelay),
-		keys, fn.None[uint32](), htlcTimeout,
+		keys, fn.None[uint32](), htlcTimeout, htlcIndex,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -1367,13 +1376,13 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-) (input.AuxTapLeaf, error) {
+	htlcIndex uint64) (input.AuxTapLeaf, error) {
 
 	none := input.NoneTapLeaf()
 
 	vPackets, allocations, err := CreateSecondLevelHtlcPackets(
 		chanState, commitTx, htlcAmt, keys, chainParams, htlcOutputs,
-		htlcTimeout,
+		htlcTimeout, htlcIndex,
 	)
 	if err != nil {
 		return none, fmt.Errorf("error creating second level HTLC "+
