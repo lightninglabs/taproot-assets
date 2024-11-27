@@ -43,7 +43,7 @@ func (s sortableAllocationSlice) Swap(i, j int) {
 }
 
 // Less is a modified BIP69 output comparison, that sorts based on value, then
-// pkScript, then CLTV value.
+// pkScript, then CLTV value and finally HtlcIndex.
 //
 // NOTE: Part of the sort.Interface interface.
 func (s sortableAllocationSlice) Less(i, j int) bool {
@@ -60,5 +60,9 @@ func (s sortableAllocationSlice) Less(i, j int) bool {
 		return pkScriptCmp < 0
 	}
 
-	return allocI.CLTV < allocJ.CLTV
+	if allocI.CLTV < allocJ.CLTV {
+		return true
+	}
+
+	return allocI.HtlcIndex < allocJ.HtlcIndex
 }
