@@ -3,12 +3,15 @@ package tapchannel
 import (
 	"bytes"
 	"fmt"
+	"math"
+	"math/big"
 	"sync"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -750,4 +753,109 @@ func (v *schnorrSigValidator) validateSchnorrSig(virtualTx *wire.MsgTx,
 	}
 
 	return nil
+}
+
+// ScriptKeyTweakFromHtlcIndex converts the given HTLC index into a modulo N
+// scalar that can be used to tweak the internal key of the HTLC script key on
+// the asset level. The value of 1 is always added to the index to make sure
+// this value is always non-zero.
+func ScriptKeyTweakFromHtlcIndex(index input.HtlcIndex) *secp256k1.ModNScalar {
+	// If we're at math.MaxUint64, we'd wrap around to 0 if we incremented
+	// by 1, but we need to make sure the tweak is 1 to not cause a
+	// multiplication by zero. This should never happen, as it would mean we
+	// have more than math.MaxUint64 updates in a channel, which exceeds the
+	// protocol's maximum.
+	if index == math.MaxUint64 {
+		return new(secp256k1.ModNScalar).SetInt(1)
+	}
+
+	// We need to avoid the tweak being zero, so we always add 1 to the
+	// index. Otherwise, we'd multiply G by zero.
+	index++
+
+	indexAsBytes := new(big.Int).SetUint64(index).Bytes()
+	indexAsScalar := new(secp256k1.ModNScalar)
+	_ = indexAsScalar.SetByteSlice(indexAsBytes)
+
+	return indexAsScalar
+}
+
+// TweakPubKeyWithIndex tweaks the given internal public key with the given
+// HTLC index. The tweak is derived from the index in a way that never results
+// in a zero tweak. The value of 1 is always added to the index to make sure
+// this value is always non-zero. The public key is tweaked like this:
+//
+//	tweakedKey = key + (index+1) * G
+func TweakPubKeyWithIndex(pubKey *btcec.PublicKey,
+	index input.HtlcIndex) *btcec.PublicKey {
+
+	// Avoid panic if input is nil.
+	if pubKey == nil {
+		return nil
+	}
+
+	// We need to operate on Jacobian points, which is just a different
+	// representation of the public key that allows us to do scalar
+	// multiplication.
+	var (
+		pubKeyJacobian, tweakTimesG, tweakedKey btcec.JacobianPoint
+	)
+	pubKey.AsJacobian(&pubKeyJacobian)
+
+	// Derive the tweak from the HTLC index in a way that never results in
+	// a zero tweak. Then we multiply G by the tweak.
+	tweak := ScriptKeyTweakFromHtlcIndex(index)
+	secp256k1.ScalarBaseMultNonConst(tweak, &tweakTimesG)
+
+	// And finally we add the result to the key to get the tweaked key.
+	secp256k1.AddNonConst(&pubKeyJacobian, &tweakTimesG, &tweakedKey)
+
+	// Convert the tweaked key back to an affine point and create a new
+	// taproot key from it.
+	tweakedKey.ToAffine()
+	return btcec.NewPublicKey(&tweakedKey.X, &tweakedKey.Y)
+}
+
+// TweakHtlcTree tweaks the internal key of the given HTLC script tree with the
+// given index, then returns the tweaked tree with the updated taproot key.
+// The tapscript tree and tapscript root are not modified.
+// The internal key is tweaked like this:
+//
+//	tweakedInternalKey = internalKey + (index+1) * G
+func TweakHtlcTree(tree input.ScriptTree,
+	index input.HtlcIndex) input.ScriptTree {
+
+	// The tapscript tree and root are not modified, only the internal key
+	// is tweaked, which inherently modifies the taproot key.
+	tweakedInternalPubKey := TweakPubKeyWithIndex(tree.InternalKey, index)
+	newTaprootKey := txscript.ComputeTaprootOutputKey(
+		tweakedInternalPubKey, tree.TapscriptRoot,
+	)
+
+	return input.ScriptTree{
+		InternalKey:   tweakedInternalPubKey,
+		TaprootKey:    newTaprootKey,
+		TapscriptTree: tree.TapscriptTree,
+		TapscriptRoot: tree.TapscriptRoot,
+	}
+}
+
+// AddTweakWithIndex adds the given index to the given tweak. If the tweak is
+// empty, the index is used as the tweak directly. The value of 1 is always
+// added to the index to make sure this value is always non-zero.
+func AddTweakWithIndex(maybeTweak []byte, index input.HtlcIndex) []byte {
+	indexTweak := ScriptKeyTweakFromHtlcIndex(index)
+
+	// If we don't already have a tweak, we just use the index as the tweak.
+	if len(maybeTweak) == 0 {
+		return fn.ByteSlice(indexTweak.Bytes())
+	}
+
+	// If we have a tweak, we need to parse/decode it as a scalar, then add
+	// the index as a scalar, and encode it back to a byte slice.
+	tweak := new(secp256k1.ModNScalar)
+	_ = tweak.SetByteSlice(maybeTweak)
+	newTweak := tweak.Add(indexTweak)
+
+	return fn.ByteSlice(newTweak.Bytes())
 }
