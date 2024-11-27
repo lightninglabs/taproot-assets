@@ -695,6 +695,14 @@ func assertKeyKnowledge(t *testing.T, ctx context.Context,
 	require.Equal(t, known, dbScriptKey.DeclaredKnown)
 }
 
+func assertTweak(t *testing.T, ctx context.Context, addrBook *TapAddressBook,
+	scriptKey asset.ScriptKey, tweak []byte) {
+
+	dbScriptKey, err := addrBook.FetchScriptKey(ctx, scriptKey.PubKey)
+	require.NoError(t, err)
+	require.Equal(t, tweak, dbScriptKey.Tweak)
+}
+
 // TestScriptKeyKnownUpsert tests that we can insert a script key, then insert
 // it again declared as known.
 func TestScriptKeyKnownUpsert(t *testing.T) {
@@ -755,5 +763,47 @@ func TestScriptKeyKnownUpsert(t *testing.T) {
 
 		// We'll fetch the script key and confirm that it's known.
 		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+	})
+}
+
+// TestScriptKeyTweakUpsert tests that we can insert a script key, then insert
+// it again when we know the tweak for it.
+func TestScriptKeyTweakUpsert(t *testing.T) {
+	t.Parallel()
+
+	// First, make a new addr book instance we'll use in the test below.
+	testClock := clock.NewTestClock(time.Now())
+	addrBook, _ := newAddrBook(t, testClock)
+
+	ctx := context.Background()
+
+	// In this test, we insert the tweak as NULL, and make sure we overwrite
+	// it with an actual value again later.
+	t.Run("null_to_value", func(t *testing.T) {
+		known := false
+		scriptKey := randScriptKey(t)
+		scriptKey.Tweak = nil
+
+		// We'll insert a random script key into the database. We won't
+		// declare it as known though, and it doesn't have the tweak.
+		err := addrBook.InsertScriptKey(ctx, scriptKey, known)
+		require.NoError(t, err)
+
+		// We'll fetch the script key and confirm that it's not known.
+		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+		assertTweak(t, ctx, addrBook, scriptKey, nil)
+
+		known = true
+		randTweak := test.RandBytes(32)
+		scriptKey.Tweak = randTweak
+
+		// We'll now insert it again, but this time declare it as known
+		// and also know the tweak.
+		err = addrBook.InsertScriptKey(ctx, scriptKey, known)
+		require.NoError(t, err)
+
+		// We'll fetch the script key and confirm that it's known.
+		assertKeyKnowledge(t, ctx, addrBook, scriptKey, known)
+		assertTweak(t, ctx, addrBook, scriptKey, randTweak)
 	})
 }

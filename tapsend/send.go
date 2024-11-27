@@ -19,6 +19,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btclog"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -973,6 +974,9 @@ func CreateTaprootSignature(vIn *tappsbt.VInput, virtualTx *wire.MsgTx,
 		return nil, fmt.Errorf("unable to determine signing method " +
 			"from virtual transaction packet")
 	}
+
+	log.Tracef("Signing virtual TX with descriptor %v",
+		spew.Sdump(spendDesc))
 
 	sig, err := txSigner.SignVirtualTx(&spendDesc, virtualTx, prevOut)
 	if err != nil {

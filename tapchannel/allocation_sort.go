@@ -2,7 +2,8 @@ package tapchannel
 
 import (
 	"bytes"
-	"sort"
+	"cmp"
+	"slices"
 )
 
 // InPlaceAllocationSort performs an in-place sort of output allocations.
@@ -14,51 +15,21 @@ import (
 // transactions, the script does not directly commit to them. Instead, the CLTVs
 // must be supplied separately to act as a tie-breaker, otherwise we may produce
 // invalid HTLC signatures if the receiver produces an alternative ordering
-// during verification.
+// during verification. Because multiple shards of the same MPP payment can be
+// identical in all other fields, we also use the HtlcIndex as a final
+// tie-breaker.
 //
-// NOTE: Commitment and commitment anchor outputs should have a 0 CLTV value.
+// NOTE: Commitment and commitment anchor outputs should have a 0 CLTV and
+// HtlcIndex value.
 func InPlaceAllocationSort(allocations []*Allocation) {
-	sort.Sort(sortableAllocationSlice{allocations})
-}
-
-// sortableAllocationSlice is a slice of allocations and the corresponding CLTV
-// values of any HTLCs. Commitment and commitment anchor outputs should have a
-// CLTV of 0.
-type sortableAllocationSlice struct {
-	allocations []*Allocation
-}
-
-// Len returns the length of the sortableAllocationSlice.
-//
-// NOTE: Part of the sort.Interface interface.
-func (s sortableAllocationSlice) Len() int {
-	return len(s.allocations)
-}
-
-// Swap exchanges the position of outputs i and j.
-//
-// NOTE: Part of the sort.Interface interface.
-func (s sortableAllocationSlice) Swap(i, j int) {
-	s.allocations[i], s.allocations[j] = s.allocations[j], s.allocations[i]
-}
-
-// Less is a modified BIP69 output comparison, that sorts based on value, then
-// pkScript, then CLTV value.
-//
-// NOTE: Part of the sort.Interface interface.
-func (s sortableAllocationSlice) Less(i, j int) bool {
-	allocI, allocJ := s.allocations[i], s.allocations[j]
-
-	if allocI.BtcAmount != allocJ.BtcAmount {
-		return allocI.BtcAmount < allocJ.BtcAmount
-	}
-
-	pkScriptCmp := bytes.Compare(
-		allocI.SortTaprootKeyBytes, allocJ.SortTaprootKeyBytes,
-	)
-	if pkScriptCmp != 0 {
-		return pkScriptCmp < 0
-	}
-
-	return allocI.CLTV < allocJ.CLTV
+	slices.SortFunc(allocations, func(i, j *Allocation) int {
+		return cmp.Or(
+			cmp.Compare(i.BtcAmount, j.BtcAmount),
+			bytes.Compare(
+				i.SortTaprootKeyBytes, j.SortTaprootKeyBytes,
+			),
+			cmp.Compare(i.CLTV, j.CLTV),
+			cmp.Compare(i.HtlcIndex, j.HtlcIndex),
+		)
+	})
 }
