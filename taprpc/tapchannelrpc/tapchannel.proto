@@ -121,6 +121,11 @@ message SendPaymentRequest {
     // contain a valid keysend record (key 5482373484 and a 32-byte preimage
     // that corresponds to the payment hash).
     routerrpc.SendPaymentRequest payment_request = 4;
+
+    // The rfq id to use for this payment. If the user sets this value then the
+    // payment will immediately be dispatched, skipping the rfq negotiation
+    // phase, and using the following rfq id instead.
+    bytes rfq_id = 5;
 }
 
 message SendPaymentResponse {
