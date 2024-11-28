@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -842,4 +843,13 @@ type HtlcInterceptor interface {
 	// InterceptHtlcs intercepts HTLCs, using the handling function provided
 	// to respond to HTLCs.
 	InterceptHtlcs(context.Context, lndclient.HtlcInterceptHandler) error
+}
+
+// HtlcSubscriber is an interface that contains the function necessary for
+// retrieving live HTLC event updates.
+type HtlcSubscriber interface {
+	// SubscribeHtlcEvents subscribes to a stream of events related to
+	// HTLC updates.
+	SubscribeHtlcEvents(ctx context.Context) (<-chan *routerrpc.HtlcEvent,
+		<-chan error, error)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -376,9 +377,19 @@ func (l *LndRouterClient) DeleteLocalAlias(ctx context.Context, alias,
 	return l.lnd.Router.XDeleteLocalChanAlias(ctx, alias, baseScid)
 }
 
+// SubscribeHtlcEvents subscribes to a stream of events related to
+// HTLC updates.
+func (l *LndRouterClient) SubscribeHtlcEvents(
+	ctx context.Context) (<-chan *routerrpc.HtlcEvent,
+	<-chan error, error) {
+
+	return l.lnd.Router.SubscribeHtlcEvents(ctx)
+}
+
 // Ensure LndRouterClient implements the rfq.HtlcInterceptor interface.
 var _ rfq.HtlcInterceptor = (*LndRouterClient)(nil)
 var _ rfq.ScidAliasManager = (*LndRouterClient)(nil)
+var _ rfq.HtlcSubscriber = (*LndRouterClient)(nil)
 
 // LndInvoicesClient is an LND invoices RPC client.
 type LndInvoicesClient struct {

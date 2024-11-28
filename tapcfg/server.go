@@ -395,6 +395,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		rfq.ManagerCfg{
 			PeerMessenger:   msgTransportClient,
 			HtlcInterceptor: lndRouterClient,
+			HtlcSubscriber:  lndRouterClient,
 			PriceOracle:     priceOracle,
 			ChannelLister:   walletAnchor,
 			AliasManager:    lndRouterClient,

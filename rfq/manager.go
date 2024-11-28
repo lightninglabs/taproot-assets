@@ -72,6 +72,10 @@ type ManagerCfg struct {
 	// intercept and accept/reject HTLCs.
 	HtlcInterceptor HtlcInterceptor
 
+	// HtlcSubscriber is a subscriber that is used to retrieve live HTLC
+	// event updates.
+	HtlcSubscriber HtlcSubscriber
+
 	// PriceOracle is the price oracle that the RFQ manager will use to
 	// determine whether a quote is accepted or rejected.
 	PriceOracle PriceOracle
@@ -207,6 +211,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
 		CleanupInterval:  CacheCleanupInterval,
 		HtlcInterceptor:  m.cfg.HtlcInterceptor,
+		HtlcSubscriber:   m.cfg.HtlcSubscriber,
 		AcceptHtlcEvents: m.acceptHtlcEvents,
 	})
 	if err != nil {
