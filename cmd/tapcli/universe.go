@@ -321,7 +321,7 @@ func universeKeys(ctx *cli.Context) error {
 			ctxc, &unirpc.AssetLeafKeysRequest{
 				Id:     universeID,
 				Offset: int32(offset),
-				Limit:  universe.MaxPageSize,
+				Limit:  universe.RequestPageSize,
 			},
 		)
 
@@ -336,7 +336,7 @@ func universeKeys(ctx *cli.Context) error {
 		assetKeys.AssetKeys = append(
 			assetKeys.AssetKeys, tempKeys.AssetKeys...,
 		)
-		offset += universe.MaxPageSize
+		offset += universe.RequestPageSize
 	}
 
 	printRespJSON(assetKeys)

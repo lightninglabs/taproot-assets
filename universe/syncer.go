@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	defaultPageSize = int32(MaxPageSize)
+	defaultPageSize = int32(RequestPageSize)
 )
 
 var (

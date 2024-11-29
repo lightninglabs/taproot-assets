@@ -63,7 +63,7 @@ func DefaultMultiverseCacheConfig() MultiverseCacheConfig {
 		LeavesPerUniverse:        50,
 		SyncerCacheEnabled:       false,
 		SyncerCachePreAllocSize:  100_000,
-		RootNodePageCacheSize:    20 * universe.MaxPageSize,
+		RootNodePageCacheSize:    20 * universe.RequestPageSize,
 	}
 }
 
