@@ -446,7 +446,7 @@ func (b *MultiverseStore) RootNodes(ctx context.Context,
 		NumOffset:     q.Offset,
 		NumLimit: func() int32 {
 			if q.Limit == 0 {
-				return universe.MaxPageSize
+				return universe.RequestPageSize
 			}
 
 			return q.Limit
@@ -573,7 +573,7 @@ func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
 	params := sqlc.UniverseRootsParams{
 		SortDirection: sqlInt16(universe.SortAscending),
 		NumOffset:     0,
-		NumLimit:      universe.MaxPageSize,
+		NumLimit:      universe.RequestPageSize,
 	}
 
 	allRoots := make(
@@ -586,9 +586,9 @@ func (b *MultiverseStore) fillSyncerCache(ctx context.Context) error {
 		}
 
 		allRoots = append(allRoots, newRoots...)
-		params.NumOffset += universe.MaxPageSize
+		params.NumOffset += universe.RequestPageSize
 
-		if len(newRoots) < universe.MaxPageSize {
+		if len(newRoots) < universe.RequestPageSize {
 			break
 		}
 	}

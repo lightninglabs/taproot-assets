@@ -1598,10 +1598,10 @@ func AssertUniverseRootsEqual(a, b *unirpc.AssetRootResponse) bool {
 func AssertUniverseStateEqual(t *testing.T, a, b unirpc.UniverseClient) bool {
 	ctxb := context.Background()
 
-	rootsA, err := assetRoots(ctxb, a, universe.MaxPageSize/100)
+	rootsA, err := assetRoots(ctxb, a, universe.RequestPageSize/100)
 	require.NoError(t, err)
 
-	rootsB, err := assetRoots(ctxb, b, universe.MaxPageSize/100)
+	rootsB, err := assetRoots(ctxb, b, universe.RequestPageSize/100)
 	require.NoError(t, err)
 
 	return AssertUniverseRootsEqual(rootsA, rootsB)

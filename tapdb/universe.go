@@ -723,7 +723,7 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 			NumOffset:     q.Offset,
 			NumLimit: func() int32 {
 				if q.Limit == 0 {
-					return universe.MaxPageSize
+					return universe.RequestPageSize
 				}
 
 				return q.Limit

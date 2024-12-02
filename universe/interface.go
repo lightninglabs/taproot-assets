@@ -39,6 +39,13 @@ const (
 	// MaxPageSize is the maximum page size that can be used when querying
 	// for asset roots and leaves.
 	MaxPageSize = 16384
+
+	// RequestPageSize is the default page size that should be used when
+	// querying for asset roots and leaves.
+	//
+	// TODO(guggero): Bump this to the value of MaxPageSize once the
+	// universe servers have been updated to v0.5.0-rc1 or later.
+	RequestPageSize = 512
 )
 
 // IdentifierKey is the compact representation of a universe identifier that can
