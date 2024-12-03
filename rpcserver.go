@@ -7034,6 +7034,87 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	case len(firstHopRecords) > 0:
 		// Continue below.
 
+	case req.RfqId != nil:
+		// Check if the provided rfq ID matches the expected length.
+		if len(req.RfqId) != 32 {
+			return fmt.Errorf("rfq must be 32 bytes in length")
+		}
+
+		// Now let's try to perform an internal lookup to see if there's
+		// an actual quote on this ID.
+		var rfqID rfqmsg.ID
+		copy(rfqID[:], req.RfqId)
+
+		var quote *rfqmsg.SellAccept
+		for _, q := range r.cfg.RfqManager.PeerAcceptedSellQuotes() {
+			if q.ID == rfqID {
+				qCopy := q
+				quote = &qCopy
+				break
+			}
+		}
+
+		// This quote ID did not match anything.
+		if quote == nil {
+			return fmt.Errorf("quote ID did not match an " +
+				"accepted quote")
+		}
+
+		invoice, err := zpay32.Decode(
+			pReq.PaymentRequest, r.cfg.Lnd.ChainParams,
+		)
+		if err != nil {
+			return fmt.Errorf("error decoding payment request: %w",
+				err)
+		}
+
+		rate := quote.AssetRate.Rate
+
+		// Calculate the equivalent asset units for the given invoice
+		// amount based on the asset-to-BTC conversion rate.
+		numAssetUnits := rfqmath.MilliSatoshiToUnits(
+			*invoice.MilliSat, rate,
+		)
+
+		sellOrder := &rfqrpc.PeerAcceptedSellQuote{
+			Peer: quote.Peer.String(),
+			Id:   quote.ID[:],
+			Scid: uint64(quote.ID.Scid()),
+			BidAssetRate: &rfqrpc.FixedPoint{
+				Coefficient: rate.Coefficient.String(),
+				Scale:       uint32(rate.Scale),
+			},
+			AssetAmount: numAssetUnits.ToUint64(),
+			Expiry:      uint64(quote.AssetRate.Expiry.Unix()),
+		}
+
+		// Send out the information about the quote on the stream.
+		err = stream.Send(&tchrpc.SendPaymentResponse{
+			Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
+				AcceptedSellOrder: sellOrder,
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("payment failed to send accepted "+
+				"sell order over stream: %v", err)
+		}
+
+		rpcsLog.Infof("Using quote for %v asset units at %v asset/BTC "+
+			"from peer %x with SCID %d", numAssetUnits,
+			rate.String(), quote.Peer, quote.ID.Scid())
+
+		htlc := rfqmsg.NewHtlc(nil, fn.Some(quote.ID))
+
+		// We'll now map the HTLC struct into a set of TLV records,
+		// which we can then encode into the expected map format.
+		htlcMapRecords, err := tlv.RecordsToMap(htlc.Records())
+		if err != nil {
+			return fmt.Errorf("unable to encode records as map: %w",
+				err)
+		}
+
+		pReq.FirstHopCustomRecords = htlcMapRecords
+
 	// The request wants to pay a specific invoice.
 	case pReq.PaymentRequest != "":
 		invoice, err := zpay32.Decode(
