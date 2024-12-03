@@ -194,7 +194,9 @@ func (n *Negotiator) HandleOutgoingBuyOrder(buyOrder BuyOrder) error {
 					"request: %v", err)
 			}
 
-			assetRateHint = fn.Some[rfqmsg.AssetRate](*assetRate)
+			assetRateHint = fn.MaybeSome[rfqmsg.AssetRate](
+				assetRate,
+			)
 		}
 
 		// Construct a new buy request to send to the peer.
