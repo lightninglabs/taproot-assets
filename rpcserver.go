@@ -7309,7 +7309,12 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		update, err := updateStream.Recv()
 		if err != nil {
-			return err
+			// Stream is closed; no more updates.
+			if err == io.EOF {
+				return nil
+			}
+			return fmt.Errorf("failed to receive payment "+
+				"update: %w", err)
 		}
 
 		err = stream.Send(&tchrpc.SendPaymentResponse{
