@@ -918,22 +918,75 @@ type GroupVirtualTx struct {
 	TweakedKey btcec.PublicKey
 }
 
-// GroupKeyReveal is a type for representing the data used to derive the tweaked
-// key used to identify an asset group. The final tweaked key is the result of:
-// TapTweak(groupInternalKey, tapscriptRoot)
-type GroupKeyReveal struct {
+// GroupKeyReveal represents the data used to derive the adjusted key that
+// uniquely identifies an asset group.
+type GroupKeyReveal interface {
+	// RawKey returns the raw key of the group key reveal.
+	RawKey() SerializedKey
+
+	// SetRawKey sets the raw key of the group key reveal.
+	SetRawKey(SerializedKey)
+
+	// TapscriptRoot returns the tapscript root of the group key reveal.
+	TapscriptRoot() []byte
+
+	// SetTapscriptRoot sets the tapscript root of the group key reveal.
+	SetTapscriptRoot([]byte)
+
+	// GroupPubKey returns the group public key derived from the group key
+	// reveal.
+	GroupPubKey(assetID ID) (*btcec.PublicKey, error)
+}
+
+// GroupKeyRevealV0 is a version 0 group key reveal type for representing the
+// data used to derive the tweaked key used to identify an asset group. The
+// final tweaked key is the result of: TapTweak(groupInternalKey, tapscriptRoot)
+type GroupKeyRevealV0 struct {
 	// RawKey is the public key that is tweaked twice to derive the final
 	// tweaked group key. The final tweaked key is the result of:
 	// internalKey = rawKey + singleTweak * G
 	// tweakedGroupKey = TapTweak(internalKey, tapTweak)
-	RawKey SerializedKey
+	rawKey SerializedKey
 
 	// TapscriptRoot is the root of the Tapscript tree that commits to all
 	// script spend conditions for the group key. Instead of spending an
 	// asset, these scripts are used to define witnesses more complex than
 	// a Schnorr signature for reissuing assets. This is either empty/nil or
 	// a 32-byte hash.
-	TapscriptRoot []byte
+	tapscriptRoot []byte
+}
+
+// Ensure that GroupKeyRevealV0 implements the GroupKeyReveal interface.
+var _ GroupKeyReveal = (*GroupKeyRevealV0)(nil)
+
+// NewGroupKeyRevealV0 creates a new version 0 group key reveal instance.
+func NewGroupKeyRevealV0(rawKey SerializedKey,
+	tapscriptRoot []byte) GroupKeyReveal {
+
+	return &GroupKeyRevealV0{
+		rawKey:        rawKey,
+		tapscriptRoot: tapscriptRoot,
+	}
+}
+
+// RawKey returns the raw key of the group key reveal.
+func (g *GroupKeyRevealV0) RawKey() SerializedKey {
+	return g.rawKey
+}
+
+// SetRawKey sets the raw key of the group key reveal.
+func (g *GroupKeyRevealV0) SetRawKey(rawKey SerializedKey) {
+	g.rawKey = rawKey
+}
+
+// TapscriptRoot returns the tapscript root of the group key reveal.
+func (g *GroupKeyRevealV0) TapscriptRoot() []byte {
+	return g.tapscriptRoot
+}
+
+// SetTapscriptRoot sets the tapscript root of the group key reveal.
+func (g *GroupKeyRevealV0) SetTapscriptRoot(tapscriptRoot []byte) {
+	g.tapscriptRoot = tapscriptRoot
 }
 
 // PendingGroupWitness specifies the asset group witness for an asset seedling
@@ -944,13 +997,13 @@ type PendingGroupWitness struct {
 }
 
 // GroupPubKey returns the group public key derived from the group key reveal.
-func (g *GroupKeyReveal) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
-	rawKey, err := g.RawKey.ToPubKey()
+func (g *GroupKeyRevealV0) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
+	rawKey, err := g.RawKey().ToPubKey()
 	if err != nil {
 		return nil, fmt.Errorf("group reveal raw key invalid: %w", err)
 	}
 
-	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot)
+	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot())
 }
 
 // GroupPubKey derives a tweaked group key from a public key and two tweaks;

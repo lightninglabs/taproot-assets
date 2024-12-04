@@ -273,7 +273,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 		// key.
 		if genesisProof.GroupKeyReveal != nil {
 			reveal := genesisProof.GroupKeyReveal
-			rawKey, err := reveal.RawKey.ToPubKey()
+			rawKey, err := reveal.RawKey().ToPubKey()
 			if err != nil {
 				return 0, err
 			}
@@ -281,7 +281,7 @@ func upsertAssetGen(ctx context.Context, db UpsertAssetStore,
 			fullGroupKey.RawKey = keychain.KeyDescriptor{
 				PubKey: rawKey,
 			}
-			fullGroupKey.TapscriptRoot = reveal.TapscriptRoot
+			fullGroupKey.TapscriptRoot = reveal.TapscriptRoot()
 		}
 		_, err = upsertGroupKey(
 			ctx, fullGroupKey, db, genPointID, genAssetID,

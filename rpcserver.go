@@ -1817,9 +1817,10 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var GroupKeyReveal taprpc.GroupKeyReveal
 	if rpcGroupKey != nil {
+		rawKey := rpcGroupKey.RawKey()
 		GroupKeyReveal = taprpc.GroupKeyReveal{
-			RawGroupKey:   rpcGroupKey.RawKey[:],
-			TapscriptRoot: rpcGroupKey.TapscriptRoot,
+			RawGroupKey:   rawKey[:],
+			TapscriptRoot: rpcGroupKey.TapscriptRoot(),
 		}
 	}
 

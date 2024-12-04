@@ -388,12 +388,11 @@ func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
 
 			err := groupAnchorVerifier(&newAsset.Genesis, groupKey)
 			if err == nil {
-				groupReveal := &asset.GroupKeyReveal{
-					RawKey: asset.ToSerialized(
-						groupKey.RawKey.PubKey,
-					),
-					TapscriptRoot: groupKey.TapscriptRoot,
-				}
+				rawKey := asset.ToSerialized(
+					groupKey.RawKey.PubKey,
+				)
+				groupReveal := asset.NewGroupKeyRevealV0(
+					rawKey, groupKey.TapscriptRoot)
 				assetProof.GroupKeyReveal = groupReveal
 			}
 		}

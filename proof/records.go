@@ -378,14 +378,14 @@ func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {
 	)
 }
 
-func GroupKeyRevealRecord(reveal **asset.GroupKeyReveal) tlv.Record {
+func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
 	recordSize := func() uint64 {
 		if reveal == nil || *reveal == nil {
 			return 0
 		}
 		r := *reveal
 		return uint64(
-			btcec.PubKeyBytesLenCompressed + len(r.TapscriptRoot),
+			btcec.PubKeyBytesLenCompressed + len(r.TapscriptRoot()),
 		)
 	}
 	return tlv.MakeDynamicRecord(
