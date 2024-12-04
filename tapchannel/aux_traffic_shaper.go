@@ -213,9 +213,21 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// up the accepted quote and determine the outgoing bandwidth in
 	// satoshis based on the local asset balance.
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
-	acceptedQuotes := s.cfg.RfqManager.PeerAcceptedSellQuotes()
-	quote, ok := acceptedQuotes[rfqID.Scid()]
-	if !ok {
+	acceptedSellQuotes := s.cfg.RfqManager.PeerAcceptedSellQuotes()
+	acceptedBuyQuotes := s.cfg.RfqManager.LocalAcceptedBuyQuotes()
+
+	sellQuote, isSellQuote := acceptedSellQuotes[rfqID.Scid()]
+	buyQuote, isBuyQuote := acceptedBuyQuotes[rfqID.Scid()]
+
+	var rate rfqmsg.AssetRate
+	switch {
+	case isSellQuote:
+		rate = sellQuote.AssetRate
+
+	case isBuyQuote:
+		rate = buyQuote.AssetRate
+
+	default:
 		return 0, fmt.Errorf("no accepted quote found for RFQ ID "+
 			"%x (SCID %d)", rfqID[:], rfqID.Scid())
 	}
@@ -224,7 +236,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// expressed in milli-satoshis.
 	localBalanceFp := rfqmath.NewBigIntFixedPoint(localBalance, 0)
 	availableBalanceMsat := rfqmath.UnitsToMilliSatoshi(
-		localBalanceFp, quote.AssetRate.Rate,
+		localBalanceFp, rate.Rate,
 	)
 
 	// At this point we have acquired what we need to express the asset
