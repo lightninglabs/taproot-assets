@@ -7036,9 +7036,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// Continue below.
 
 	case req.RfqId != nil:
-		// Check if the provided rfq ID matches the expected length.
+		// Check if the provided RFQ ID matches the expected length.
 		if len(req.RfqId) != 32 {
-			return fmt.Errorf("rfq must be 32 bytes in length")
+			return fmt.Errorf("RFQ ID must be 32 bytes in length")
 		}
 
 		// Now let's try to perform an internal lookup to see if there's
