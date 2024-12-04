@@ -28,6 +28,7 @@ import (
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/funding"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -37,7 +38,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/msgmux"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/sweep"
 	"github.com/lightningnetwork/lnd/tlv"
 	"google.golang.org/grpc"
@@ -696,14 +696,14 @@ func (s *Server) Stop() error {
 
 // A compile-time check to ensure that Server fully implements the
 // lnwallet.AuxLeafStore, lnd.AuxDataParser, lnwallet.AuxSigner,
-// msgmux.Endpoint, funding.AuxFundingController, routing.TlvTrafficShaper
+// msgmux.Endpoint, funding.AuxFundingController, htlcswitch.AuxTrafficShaper
 // and chancloser.AuxChanCloser interfaces.
 var _ lnwl.AuxLeafStore = (*Server)(nil)
 var _ lnd.AuxDataParser = (*Server)(nil)
 var _ lnwl.AuxSigner = (*Server)(nil)
 var _ msgmux.Endpoint = (*Server)(nil)
 var _ funding.AuxFundingController = (*Server)(nil)
-var _ routing.TlvTrafficShaper = (*Server)(nil)
+var _ htlcswitch.AuxTrafficShaper = (*Server)(nil)
 var _ chancloser.AuxChanCloser = (*Server)(nil)
 var _ lnwl.AuxContractResolver = (*Server)(nil)
 var _ sweep.AuxSweeper = (*Server)(nil)
