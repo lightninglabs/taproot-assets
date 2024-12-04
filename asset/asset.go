@@ -989,13 +989,6 @@ func (g *GroupKeyRevealV0) SetTapscriptRoot(tapscriptRoot []byte) {
 	g.tapscriptRoot = tapscriptRoot
 }
 
-// PendingGroupWitness specifies the asset group witness for an asset seedling
-// in an unsealed minting batch.
-type PendingGroupWitness struct {
-	GenID   ID
-	Witness wire.TxWitness
-}
-
 // GroupPubKey returns the group public key derived from the group key reveal.
 func (g *GroupKeyRevealV0) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 	rawKey, err := g.RawKey().ToPubKey()
@@ -1542,6 +1535,13 @@ func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 		TapscriptRoot: signDesc.TapTweak,
 		Witness:       witness,
 	}, nil
+}
+
+// PendingGroupWitness specifies the asset group witness for an asset seedling
+// in an unsealed minting batch.
+type PendingGroupWitness struct {
+	GenID   ID
+	Witness wire.TxWitness
 }
 
 // Asset represents a Taproot asset.
