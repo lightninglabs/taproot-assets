@@ -1403,7 +1403,7 @@ func AssertGroupAnchor(t *testing.T, anchorGen *asset.Genesis,
 
 	// TODO(jhb): add tapscript root support
 	anchorTweak := anchorGen.ID()
-	computedGroupPubKey, err := asset.GroupPubKey(
+	computedGroupPubKey, err := asset.GroupPubKeyV0(
 		internalPubKey, anchorTweak[:], nil,
 	)
 	require.NoError(t, err)

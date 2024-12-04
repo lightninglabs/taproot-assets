@@ -920,10 +920,10 @@ func TestAssetGroupKey(t *testing.T) {
 
 	// Group key tweaking should fail when given invalid tweaks.
 	badTweak := test.RandBytes(33)
-	_, err = GroupPubKey(groupPub, badTweak, badTweak)
+	_, err = GroupPubKeyV0(groupPub, badTweak, badTweak)
 	require.Error(t, err)
 
-	_, err = GroupPubKey(groupPub, groupTweak[:], badTweak)
+	_, err = GroupPubKeyV0(groupPub, groupTweak[:], badTweak)
 	require.Error(t, err)
 }
 

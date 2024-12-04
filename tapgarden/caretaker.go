@@ -1562,7 +1562,7 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 		groupAnchor, err := groupAnchors.Get(assetGroupKey)
 		if err != nil {
 			singleTweak := gen.ID()
-			tweakedGroupKey, err := asset.GroupPubKey(
+			tweakedGroupKey, err := asset.GroupPubKeyV0(
 				groupKey.RawKey.PubKey, singleTweak[:],
 				groupKey.TapscriptRoot,
 			)

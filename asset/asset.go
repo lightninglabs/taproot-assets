@@ -996,17 +996,18 @@ func (g *GroupKeyRevealV0) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 		return nil, fmt.Errorf("group reveal raw key invalid: %w", err)
 	}
 
-	return GroupPubKey(rawKey, assetID[:], g.TapscriptRoot())
+	return GroupPubKeyV0(rawKey, assetID[:], g.TapscriptRoot())
 }
 
-// GroupPubKey derives a tweaked group key from a public key and two tweaks;
-// the single tweak is the asset ID of the group anchor asset, and the tapTweak
-// is the root of a tapscript tree that commits to script-based conditions for
-// reissuing assets as part of this asset group. The tweaked key is defined by:
+// GroupPubKeyV0 derives a version 0 tweaked group key from a public key and two
+// tweaks; the single tweak is the asset ID of the group anchor asset, and the
+// tapTweak is the root of a tapscript tree that commits to script-based
+// conditions for reissuing assets as part of this asset group. The tweaked key
+// is defined by:
 //
 //	internalKey = rawKey + singleTweak * G
 //	tweakedGroupKey = TapTweak(internalKey, tapTweak)
-func GroupPubKey(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
+func GroupPubKeyV0(rawKey *btcec.PublicKey, singleTweak, tapTweak []byte) (
 	*btcec.PublicKey, error) {
 
 	if len(singleTweak) != sha256.Size {
@@ -1417,7 +1418,7 @@ func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 	// Compute the tweaked group key and set it in the asset before
 	// creating the virtual minting transaction.
 	genesisTweak := req.AnchorGen.ID()
-	tweakedGroupKey, err := GroupPubKey(
+	tweakedGroupKey, err := GroupPubKeyV0(
 		req.RawKey.PubKey, genesisTweak[:], req.TapscriptRoot,
 	)
 	if err != nil {
