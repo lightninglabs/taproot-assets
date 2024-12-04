@@ -1455,6 +1455,11 @@
         "payment_request": {
           "$ref": "#/definitions/routerrpcSendPaymentRequest",
           "description": "The full lnd payment request to send. All fields behave the same way as\nthey do for lnd's routerrpc.SendPaymentV2 RPC method (see the API docs\nat https://lightning.engineering/api-docs/api/lnd/router/send-payment-v2\nfor more details).\nTo send a keysend payment, the payment_request.dest_custom_records must\ncontain a valid keysend record (key 5482373484 and a 32-byte preimage\nthat corresponds to the payment hash)."
+        },
+        "rfq_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The rfq id to use for this payment. If the user sets this value then the\npayment will immediately be dispatched, skipping the rfq negotiation\nphase, and using the following rfq id instead."
         }
       }
     },
