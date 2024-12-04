@@ -15,6 +15,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -522,25 +524,37 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 }
 
 // MarshalAcceptedSellQuoteEvent marshals a peer accepted sell quote event to
-// its rpc representation.
+// its RPC representation.
 func MarshalAcceptedSellQuoteEvent(
-	event *rfq.PeerAcceptedSellQuoteEvent) (*rfqrpc.PeerAcceptedSellQuote,
-	error) {
+	event *rfq.PeerAcceptedSellQuoteEvent) *rfqrpc.PeerAcceptedSellQuote {
+
+	return MarshalAcceptedSellQuote(event.SellAccept)
+}
+
+// MarshalAcceptedSellQuote marshals a peer accepted sell quote to its RPC
+// representation.
+func MarshalAcceptedSellQuote(
+	accept rfqmsg.SellAccept) *rfqrpc.PeerAcceptedSellQuote {
 
 	rpcAssetRate := &rfqrpc.FixedPoint{
-		Coefficient: event.AssetRate.Rate.Coefficient.String(),
-		Scale:       uint32(event.AssetRate.Rate.Scale),
+		Coefficient: accept.AssetRate.Rate.Coefficient.String(),
+		Scale:       uint32(accept.AssetRate.Rate.Scale),
 	}
 
-	// TODO(ffranr): Add SellRequest payment max amount to
-	//  PeerAcceptedSellQuote.
+	// Calculate the equivalent asset units for the given total BTC amount
+	// based on the asset-to-BTC conversion rate.
+	numAssetUnits := rfqmath.MilliSatoshiToUnits(
+		accept.Request.PaymentMaxAmt, accept.AssetRate.Rate,
+	)
+
 	return &rfqrpc.PeerAcceptedSellQuote{
-		Peer:         event.Peer.String(),
-		Id:           event.ID[:],
-		Scid:         uint64(event.ShortChannelId()),
+		Peer:         accept.Peer.String(),
+		Id:           accept.ID[:],
+		Scid:         uint64(accept.ShortChannelId()),
 		BidAssetRate: rpcAssetRate,
-		Expiry:       uint64(event.AssetRate.Expiry.Unix()),
-	}, nil
+		Expiry:       uint64(accept.AssetRate.Expiry.Unix()),
+		AssetAmount:  numAssetUnits.ScaleTo(0).ToUint64(),
+	}
 }
 
 // MarshalAcceptedBuyQuoteEvent marshals a peer accepted buy quote event to
@@ -636,14 +650,8 @@ func NewAddAssetSellOrderResponse(
 
 	switch e := event.(type) {
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		rpcAcceptedQuote, err := MarshalAcceptedSellQuoteEvent(e)
-		if err != nil {
-			return nil, fmt.Errorf("unable to marshal accepted "+
-				"sell quote event to RPC: %w", err)
-		}
-
 		resp.Response = &rfqrpc.AddAssetSellOrderResponse_AcceptedQuote{
-			AcceptedQuote: rpcAcceptedQuote,
+			AcceptedQuote: MarshalAcceptedSellQuoteEvent(e),
 		}
 		return resp, nil
 
