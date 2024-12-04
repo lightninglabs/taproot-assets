@@ -187,8 +187,8 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	if htlcAssetAmount != 0 && htlcAssetAmount <= localBalance {
 		// Check if the current link bandwidth can afford sending out
 		// the htlc amount without dipping into the channel reserve. If
-		// it goes below the reserve, we report zero bandwdith as we
-		// cannot push the htlc amount.
+		// it goes below the reserve, we report zero bandwidth as we
+		// cannot push the HTLC amount.
 		if linkBandwidth < htlcAmt {
 			return 0, nil
 		}
