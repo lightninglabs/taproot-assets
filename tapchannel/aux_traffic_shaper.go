@@ -12,10 +12,10 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
-	"github.com/lightningnetwork/lnd/routing"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -84,8 +84,8 @@ func (s *AuxTrafficShaper) Stop() error {
 }
 
 // A compile-time check to ensure that AuxTrafficShaper fully implements the
-// routing.TlvTrafficShaper interface.
-var _ routing.TlvTrafficShaper = (*AuxTrafficShaper)(nil)
+// htlcswitch.AuxTrafficShaper interface.
+var _ htlcswitch.AuxTrafficShaper = (*AuxTrafficShaper)(nil)
 
 // ShouldHandleTraffic is called in order to check if the channel identified by
 // the provided channel ID is handled by the traffic shaper implementation. If
