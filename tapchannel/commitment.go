@@ -363,9 +363,10 @@ func processAddEntry(htlc *DecodedDescriptor, ourBalance, theirBalance uint64,
 // non-dust satoshi balance. It also checks and returns whether we need a local
 // and/or remote anchor output.
 func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
-	ourAssetBalance, theirAssetBalance uint64, view *DecodedView,
-	chanType channeldb.ChannelType, whoseCommit lntypes.ChannelParty,
-	dustLimit btcutil.Amount) (bool, bool, error) {
+	ourAssetBalance, theirAssetBalance uint64, assetView,
+	nonAssetView *DecodedView, chanType channeldb.ChannelType,
+	whoseCommit lntypes.ChannelParty, dustLimit btcutil.Amount) (bool, bool,
+	error) {
 
 	log.Tracef("Sanity checking amounts, whoseCommit=%v, ourBalance=%d, "+
 		"theirBalance=%d, ourAssetBalance=%d, theirAssetBalance=%d",
@@ -373,10 +374,36 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 		theirAssetBalance)
 
 	var (
-		numHTLCs int64
-		feePerKw = view.FeePerKw
+		numHTLCs uint64
+		feePerKw = assetView.FeePerKw
 	)
-	for _, entry := range view.OurUpdates {
+
+	// We need to count any non-dust BTC-only HTLCs too for determining
+	// whether we need a commitment anchor output. The assetView and
+	// nonAssetView are non-overlapping, so we can just sum the number of
+	// non-dust HTLCs in both.
+	for _, entry := range nonAssetView.OurUpdates {
+		if !lnwallet.HtlcIsDust(
+			chanType, false, whoseCommit, feePerKw,
+			entry.Amount.ToSatoshis(), dustLimit,
+		) {
+
+			numHTLCs++
+		}
+	}
+	for _, entry := range nonAssetView.TheirUpdates {
+		if !lnwallet.HtlcIsDust(
+			chanType, true, whoseCommit, feePerKw,
+			entry.Amount.ToSatoshis(), dustLimit,
+		) {
+
+			numHTLCs++
+		}
+	}
+
+	// And finally we check the asset HTLCs. Here we also enforce that an
+	// HTLC that's carrying an asset must be above dust.
+	for _, entry := range assetView.OurUpdates {
 		isDust := lnwallet.HtlcIsDust(
 			chanType, false, whoseCommit, feePerKw,
 			entry.Amount.ToSatoshis(), dustLimit,
@@ -391,7 +418,7 @@ func SanityCheckAmounts(ourBalance, theirBalance btcutil.Amount,
 
 		numHTLCs++
 	}
-	for _, entry := range view.TheirUpdates {
+	for _, entry := range assetView.TheirUpdates {
 		isDust := lnwallet.HtlcIsDust(
 			chanType, true, whoseCommit, feePerKw,
 			entry.Amount.ToSatoshis(), dustLimit,
@@ -488,7 +515,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// corresponding non-dust BTC output.
 	wantLocalAnchor, wantRemoteAnchor, err := SanityCheckAmounts(
 		ourBalance.ToSatoshis(), theirBalance.ToSatoshis(),
-		ourAssetBalance, theirAssetBalance, filteredView,
+		ourAssetBalance, theirAssetBalance, filteredView, nonAssetView,
 		chanState.ChanType, whoseCommit, dustLimit,
 	)
 	if err != nil {
