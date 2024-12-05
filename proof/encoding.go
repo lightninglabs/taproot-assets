@@ -467,13 +467,13 @@ func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(**asset.GroupKeyReveal); ok {
-		key := &(*t).RawKey
-		if err := asset.SerializedKeyEncoder(w, key, buf); err != nil {
+	if t, ok := val.(*asset.GroupKeyReveal); ok {
+		key := (*t).RawKey()
+		if err := asset.SerializedKeyEncoder(w, &key, buf); err != nil {
 			return err
 		}
-		root := &(*t).TapscriptRoot
-		return tlv.EVarBytes(w, root, buf)
+		root := (*t).TapscriptRoot()
+		return tlv.EVarBytes(w, &root, buf)
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
@@ -489,20 +489,22 @@ func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			ErrProofInvalid)
 	}
 
-	if typ, ok := val.(**asset.GroupKeyReveal); ok {
-		var reveal asset.GroupKeyReveal
+	if typ, ok := val.(*asset.GroupKeyReveal); ok {
+		var rawKey asset.SerializedKey
 		err := asset.SerializedKeyDecoder(
-			r, &reveal.RawKey, buf, btcec.PubKeyBytesLenCompressed,
+			r, &rawKey, buf, btcec.PubKeyBytesLenCompressed,
 		)
 		if err != nil {
 			return err
 		}
 		remaining := l - btcec.PubKeyBytesLenCompressed
-		err = tlv.DVarBytes(r, &reveal.TapscriptRoot, buf, remaining)
+		var tapscriptRoot []byte
+		err = tlv.DVarBytes(r, &tapscriptRoot, buf, remaining)
 		if err != nil {
 			return err
 		}
-		*typ = &reveal
+
+		*typ = asset.NewGroupKeyRevealV0(rawKey, tapscriptRoot)
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")

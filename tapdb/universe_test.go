@@ -212,9 +212,9 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 
 		leaf.GroupKey = assetGroupKey
 		randProof.Asset.GroupKey = assetGroupKey
-		randProof.GroupKeyReveal = &asset.GroupKeyReveal{
-			RawKey: asset.ToSerialized(groupKey),
-		}
+		randProof.GroupKeyReveal = asset.NewGroupKeyRevealV0(
+			asset.ToSerialized(groupKey), nil,
+		)
 	}
 
 	leaf.Asset = &randProof.Asset

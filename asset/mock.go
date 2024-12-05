@@ -971,13 +971,14 @@ func (tgr *TestGenesisReveal) ToGenesisReveal(t testing.TB) *Genesis {
 }
 
 func NewTestFromGroupKeyReveal(t testing.TB,
-	gkr *GroupKeyReveal) *TestGroupKeyReveal {
+	gkr GroupKeyReveal) *TestGroupKeyReveal {
 
 	t.Helper()
 
+	rawKey := gkr.RawKey()
 	return &TestGroupKeyReveal{
-		RawKey:        hex.EncodeToString(gkr.RawKey[:]),
-		TapscriptRoot: hex.EncodeToString(gkr.TapscriptRoot),
+		RawKey:        hex.EncodeToString(rawKey[:]),
+		TapscriptRoot: hex.EncodeToString(gkr.TapscriptRoot()),
 	}
 }
 
@@ -986,15 +987,12 @@ type TestGroupKeyReveal struct {
 	TapscriptRoot string `json:"tapscript_root"`
 }
 
-func (tgkr *TestGroupKeyReveal) ToGroupKeyReveal(t testing.TB) *GroupKeyReveal {
+func (tgkr *TestGroupKeyReveal) ToGroupKeyReveal(t testing.TB) GroupKeyReveal {
 	t.Helper()
 
 	rawKey := test.ParsePubKey(t, tgkr.RawKey)
 	tapscriptRoot, err := hex.DecodeString(tgkr.TapscriptRoot)
 	require.NoError(t, err)
 
-	return &GroupKeyReveal{
-		RawKey:        ToSerialized(rawKey),
-		TapscriptRoot: tapscriptRoot,
-	}
+	return NewGroupKeyRevealV0(ToSerialized(rawKey), tapscriptRoot)
 }

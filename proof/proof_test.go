@@ -186,7 +186,7 @@ func TestProofEncoding(t *testing.T) {
 	require.False(t, IsSingleProof(nil))
 
 	// Test with a nil tapscript root in the group reveal.
-	proof.GroupKeyReveal.TapscriptRoot = nil
+	proof.GroupKeyReveal.SetTapscriptRoot(nil)
 	file, err = NewFile(V0, proof, proof)
 	require.NoError(t, err)
 	proof.AdditionalInputs = []File{*file, *file}
@@ -262,12 +262,10 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		asset.WithAssetVersion(assetVersion),
 	)
 	assetGroupKey := asset.RandGroupKey(t, assetGenesis, protoAsset)
-	groupKeyReveal := &asset.GroupKeyReveal{
-		RawKey: asset.ToSerialized(
-			assetGroupKey.RawKey.PubKey,
-		),
-		TapscriptRoot: assetGroupKey.TapscriptRoot,
-	}
+	groupKeyReveal := asset.NewGroupKeyRevealV0(
+		asset.ToSerialized(assetGroupKey.RawKey.PubKey),
+		assetGroupKey.TapscriptRoot,
+	)
 
 	if groupRevealMutator != nil {
 		groupRevealMutator(groupKeyReveal)
@@ -362,7 +360,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 
 type genMutator func(*asset.Genesis)
 
-type groupRevealMutator func(*asset.GroupKeyReveal)
+type groupRevealMutator func(asset.GroupKeyReveal)
 
 type genRevealMutator func(*asset.Genesis) *asset.Genesis
 
@@ -557,8 +555,10 @@ func TestGenesisProofVerification(t *testing.T) {
 			name:       "group key reveal invalid key",
 			assetType:  asset.Collectible,
 			noMetaHash: true,
-			groupRevealMutator: func(gkr *asset.GroupKeyReveal) {
-				gkr.RawKey[0] = 0x01
+			groupRevealMutator: func(gkr asset.GroupKeyReveal) {
+				rawKey := gkr.RawKey()
+				rawKey[0] = 0x01
+				gkr.SetRawKey(rawKey)
 			},
 			expectedErr: secp256k1.ErrPubKeyInvalidFormat,
 		},
@@ -567,8 +567,8 @@ func TestGenesisProofVerification(t *testing.T) {
 			assetType:  asset.Normal,
 			amount:     &amount,
 			noMetaHash: true,
-			groupRevealMutator: func(gkr *asset.GroupKeyReveal) {
-				gkr.TapscriptRoot = test.RandBytes(32)
+			groupRevealMutator: func(gkr asset.GroupKeyReveal) {
+				gkr.SetTapscriptRoot(test.RandBytes(32))
 			},
 			expectedErr: ErrGroupKeyRevealMismatch,
 		},

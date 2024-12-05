@@ -39,10 +39,10 @@ func RandProof(t testing.TB, genesis asset.Genesis,
 		t, genesis, 1, 0, 0, tweakedScriptKey, nil,
 	)
 	groupKey := asset.RandGroupKey(t, genesis, protoAsset)
-	groupReveal := asset.GroupKeyReveal{
-		RawKey:        asset.ToSerialized(&groupKey.GroupPubKey),
-		TapscriptRoot: test.RandBytes(32),
-	}
+	groupReveal := asset.NewGroupKeyRevealV0(
+		asset.ToSerialized(&groupKey.GroupPubKey),
+		test.RandBytes(32),
+	)
 
 	amount := uint64(1)
 	mintCommitment, assets, err := commitment.Mint(
@@ -146,7 +146,7 @@ func RandProof(t testing.TB, genesis asset.Genesis,
 		},
 		ChallengeWitness: wire.TxWitness{[]byte("foo"), []byte("bar")},
 		GenesisReveal:    &genesis,
-		GroupKeyReveal:   &groupReveal,
+		GroupKeyReveal:   groupReveal,
 	}
 }
 

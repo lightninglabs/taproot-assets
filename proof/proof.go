@@ -301,11 +301,13 @@ type Proof struct {
 	// re-derivation of the asset group key.
 	GenesisReveal *asset.Genesis
 
-	// GroupKeyReveal is an optional set of bytes that represent the public
-	// key and Tapscript root used to derive the final tweaked group key for
-	// the asset group. This field must be provided for issuance proofs of
-	// grouped assets.
-	GroupKeyReveal *asset.GroupKeyReveal
+	// GroupKeyReveal contains the data required to derive the final tweaked
+	// group key for an asset group.
+	//
+	// NOTE: This field is mandatory for the group anchor (i.e., the initial
+	// minting tranche of an asset group). Subsequent minting tranches
+	// require only a valid signature for the previously revealed group key.
+	GroupKeyReveal asset.GroupKeyReveal
 
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
