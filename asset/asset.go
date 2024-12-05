@@ -918,6 +918,25 @@ type GroupVirtualTx struct {
 	TweakedKey btcec.PublicKey
 }
 
+// GroupKeyRevealVersion specifies the version of the group key reveal data.
+type GroupKeyRevealVersion uint8
+
+const (
+	// GroupKeyRevealVersion0 specifies version number 0 for a group key
+	// reveal data structure.
+	GroupKeyRevealVersion0 GroupKeyRevealVersion = 0
+
+	// GroupKeyRevealVersion1 specifies version number 1 for a group key
+	// reveal data structure.
+	GroupKeyRevealVersion1 GroupKeyRevealVersion = 1
+)
+
+const (
+	// LatestGroupKeyRevealVersion is the latest supported group key reveal
+	// version.
+	LatestGroupKeyRevealVersion = GroupKeyRevealVersion1
+)
+
 // GroupKeyReveal represents the data used to derive the adjusted key that
 // uniquely identifies an asset group.
 type GroupKeyReveal interface {
