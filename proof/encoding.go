@@ -2,7 +2,6 @@ package proof
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
@@ -480,10 +479,6 @@ func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if l > btcec.PubKeyBytesLenCompressed+sha256.Size {
-		return tlv.ErrRecordTooLarge
-	}
-
 	if l < btcec.PubKeyBytesLenCompressed {
 		return fmt.Errorf("%w: group key reveal too short",
 			ErrProofInvalid)
