@@ -1701,6 +1701,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		txMerkleProof  = p.TxMerkleProof
 		inclusionProof = p.InclusionProof
 		splitRootProof = p.SplitRootProof
+		altLeaves      = p.AltLeaves
 	)
 
 	var txMerkleProofBuf bytes.Buffer
@@ -1755,6 +1756,19 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode split root "+
 				"proof: %w", err)
+		}
+	}
+
+	var altLeavesBuf bytes.Buffer
+	if altLeaves != nil {
+		var scratch [8]byte
+
+		err := asset.AltLeavesEncoder(
+			&altLeavesBuf, &altLeaves, &scratch,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to encode alt leaves: "+
+				"%w", err)
 		}
 	}
 
@@ -1837,6 +1851,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		IsBurn:              p.Asset.IsBurn(),
 		GenesisReveal:       genesisReveal,
 		GroupKeyReveal:      &GroupKeyReveal,
+		AltLeaves:           altLeavesBuf.Bytes(),
 	}, nil
 }
 

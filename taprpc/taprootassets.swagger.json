@@ -1641,6 +1641,11 @@
         "group_key_reveal": {
           "$ref": "#/definitions/taprpcGroupKeyReveal",
           "description": "GroupKeyReveal is an optional field that includes the information needed\nto derive the tweaked group key."
+        },
+        "alt_leaves": {
+          "type": "string",
+          "format": "byte",
+          "description": "AltLeaves represent data used to construct an Asset commitment, that\nwill be inserted in the input anchor Tap commitment. These data-carrying\nleaves are used for a purpose distinct from representing individual\nindividual Taproot Assets."
         }
       }
     },

@@ -366,7 +366,7 @@ func proofDecoder(p **proof.Proof) decoderFunc {
 }
 
 // altLeavesDecoder returns a decoder function that can handle nil alt leaves.
-func altLeavesDecoder(a *[]AltLeafAsset) decoderFunc {
+func altLeavesDecoder(a *[]asset.AltLeafAsset) decoderFunc {
 	return func(key, byteVal []byte) error {
 		if len(byteVal) == 0 {
 			return nil
