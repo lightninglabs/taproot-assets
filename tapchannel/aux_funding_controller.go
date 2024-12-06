@@ -532,8 +532,8 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 // desc. This is the final step in the modified funding process, as after this,
 // both sides are able to construct the funding output, and will be able to
 // store the appropriate funding blobs.
-func (p *pendingAssetFunding) toAuxFundingDesc(
-	req *bindFundingReq) (*lnwallet.AuxFundingDesc, error) {
+func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
+	decimalDisplay uint8) (*lnwallet.AuxFundingDesc, error) {
 
 	// First, we'll map all the assets into asset outputs that'll be stored
 	// in the open channel struct on the lnd side.
@@ -1732,13 +1732,28 @@ func (f *FundingController) chanFunder() {
 				continue
 			}
 
-			fundingDesc, err := fundingFlow.toAuxFundingDesc(req)
+			// We'll want to store the decimal display of the asset
+			// in the funding blob, so let's determine it now.
+			decimalDisplay, err := f.fundingAssetDecimalDisplay(
+				ctxc, fundingFlow.assetOutputs(),
+			)
+			if err != nil {
+				fErr := fmt.Errorf("unable to determine "+
+					"decimal display: %w", err)
+				f.cfg.ErrReporter.ReportError(
+					ctxc, fundingFlow.peerPub, pid, fErr,
+				)
+				continue
+			}
+
+			fundingDesc, err := fundingFlow.toAuxFundingDesc(
+				req, decimalDisplay,
+			)
 			if err != nil {
 				fErr := fmt.Errorf("unable to create aux "+
 					"funding desc: %w", err)
 				f.cfg.ErrReporter.ReportError(
-					ctxc, fundingFlow.peerPub, pid,
-					fErr,
+					ctxc, fundingFlow.peerPub, pid, fErr,
 				)
 				continue
 			}
@@ -1769,6 +1784,62 @@ func (f *FundingController) chanFunder() {
 			return
 		}
 	}
+}
+
+// fundingAssetDecimalDisplay determines the decimal display of the funding
+// asset(s). If no specific decimal display value was chosen for the asset, then
+// the default value of 0 is returned.
+func (f *FundingController) fundingAssetDecimalDisplay(ctx context.Context,
+	assetOutputs []*cmsg.AssetOutput) (uint8, error) {
+
+	// We now check the decimal display of each funding asset, to make sure
+	// we know the meta information for each asset. And we also verify that
+	// each asset tranche has the same decimal display (which should've been
+	// verified during the minting process already).
+	var decimalDisplay uint8
+	for idx, a := range assetOutputs {
+		meta, err := f.cfg.AssetSyncer.FetchAssetMetaForAsset(
+			ctx, a.AssetID.Val,
+		)
+		if err != nil {
+			return 0, fmt.Errorf("unable to fetch asset meta: %w",
+				err)
+		}
+
+		decDisplayOpt, err := meta.DecDisplayOption()
+		if err != nil {
+			return 0, fmt.Errorf("unable to get decimal display "+
+				"option: %w", err)
+		}
+
+		var thisAssetDecDisplay uint8
+		decDisplayOpt.WhenSome(func(decDisplay uint32) {
+			// We limit the decimal display value to a maximum of
+			// 12, so it should easily fit into an uint8.
+			thisAssetDecDisplay = uint8(decDisplay)
+		})
+
+		// If this is the first asset we're looking at, we just use the
+		// decimal display. Every other asset should have the same
+		// decimal display. The value of 0 is a valid decimal display,
+		// and we use that if the meta information didn't contain a
+		// specific decimal display value, assuming it's either a
+		// non-JSON meta information or the value just wasn't set.
+		if idx == 0 {
+			decimalDisplay = thisAssetDecDisplay
+			continue
+		}
+
+		// Make sure every subsequent asset has the same decimal display
+		// as the first asset.
+		if decimalDisplay != thisAssetDecDisplay {
+			return 0, fmt.Errorf("decimal display mismatch: "+
+				"expected %v, got %v", decimalDisplay,
+				thisAssetDecDisplay)
+		}
+	}
+
+	return decimalDisplay, nil
 }
 
 // channelAcceptor is a callback that's called by the lnd client when a new
