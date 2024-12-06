@@ -6819,13 +6819,9 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		rpcAcceptedQuote, err := taprpc.MarshalAcceptedSellQuoteEvent(
+		rpcAcceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(
 			event,
 		)
-		if err != nil {
-			return nil, fmt.Errorf("error marshalling accepted "+
-				"sell quote event: %w", err)
-		}
 
 		eventRpc := &rfqrpc.RfqEvent_PeerAcceptedSellQuote{
 			PeerAcceptedSellQuote: &rfqrpc.PeerAcceptedSellQuoteEvent{
@@ -7036,9 +7032,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// Continue below.
 
 	case req.RfqId != nil:
-		// Check if the provided rfq ID matches the expected length.
+		// Check if the provided RFQ ID matches the expected length.
 		if len(req.RfqId) != 32 {
-			return fmt.Errorf("rfq must be 32 bytes in length")
+			return fmt.Errorf("RFQ ID must be 32 bytes in length")
 		}
 
 		// Now let's try to perform an internal lookup to see if there's
@@ -7061,36 +7057,12 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"accepted quote")
 		}
 
-		invoice, err := zpay32.Decode(
-			pReq.PaymentRequest, r.cfg.Lnd.ChainParams,
-		)
-		if err != nil {
-			return fmt.Errorf("error decoding payment request: %w",
-				err)
-		}
-
-		rate := quote.AssetRate.Rate
-
 		// Calculate the equivalent asset units for the given invoice
 		// amount based on the asset-to-BTC conversion rate.
-		numAssetUnits := rfqmath.MilliSatoshiToUnits(
-			*invoice.MilliSat, rate,
-		)
-
-		sellOrder := &rfqrpc.PeerAcceptedSellQuote{
-			Peer: quote.Peer.String(),
-			Id:   quote.ID[:],
-			Scid: uint64(quote.ID.Scid()),
-			BidAssetRate: &rfqrpc.FixedPoint{
-				Coefficient: rate.Coefficient.String(),
-				Scale:       uint32(rate.Scale),
-			},
-			AssetAmount: numAssetUnits.ToUint64(),
-			Expiry:      uint64(quote.AssetRate.Expiry.Unix()),
-		}
+		sellOrder := taprpc.MarshalAcceptedSellQuote(*quote)
 
 		// Send out the information about the quote on the stream.
-		err = stream.Send(&tchrpc.SendPaymentResponse{
+		err := stream.Send(&tchrpc.SendPaymentResponse{
 			Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
 				AcceptedSellOrder: sellOrder,
 			},
@@ -7101,8 +7073,8 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		}
 
 		rpcsLog.Infof("Using quote for %v asset units at %v asset/BTC "+
-			"from peer %x with SCID %d", numAssetUnits,
-			rate.String(), quote.Peer, quote.ID.Scid())
+			"from peer %x with SCID %d", sellOrder.AssetAmount,
+			quote.AssetRate.String(), quote.Peer, quote.ID.Scid())
 
 		htlc := rfqmsg.NewHtlc(nil, fn.Some(quote.ID))
 
@@ -7243,15 +7215,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				err)
 		}
 
-		// Calculate the equivalent asset units for the given invoice
-		// amount based on the asset-to-BTC conversion rate.
-		numAssetUnits := rfqmath.MilliSatoshiToUnits(
-			*invoice.MilliSat, *assetRate,
-		)
-
 		rpcsLog.Infof("Got quote for %v asset units at %v asset/BTC "+
-			"from peer %x with SCID %d", numAssetUnits, assetRate,
-			peerPubKey, acceptedQuote.Scid)
+			"from peer %x with SCID %d", acceptedQuote.AssetAmount,
+			assetRate, peerPubKey, acceptedQuote.Scid)
 
 		var rfqID rfqmsg.ID
 		copy(rfqID[:], acceptedQuote.Id)
