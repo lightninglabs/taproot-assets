@@ -86,15 +86,27 @@ type OpenChannel struct {
 	// FundedAssets is a list of asset outputs that was committed to the
 	// funding output of a commitment.
 	FundedAssets tlv.RecordT[tlv.TlvType0, AssetOutputListRecord]
+
+	// DecimalDisplay is the asset's unit precision. We place this value on
+	// the channel directly and not into each funding asset balance struct
+	// since even for a channel with multiple tranches of fungible assets,
+	// this value needs to be the same for all assets. Otherwise, they would
+	// not be fungible.
+	DecimalDisplay tlv.RecordT[tlv.TlvType1, uint8]
 }
 
 // NewOpenChannel creates a new OpenChannel record with the given funded assets.
-func NewOpenChannel(fundedAssets []*AssetOutput) *OpenChannel {
+func NewOpenChannel(fundedAssets []*AssetOutput,
+	decimalDisplay uint8) *OpenChannel {
+
 	return &OpenChannel{
 		FundedAssets: tlv.NewRecordT[tlv.TlvType0](
 			AssetOutputListRecord{
 				Outputs: fundedAssets,
 			},
+		),
+		DecimalDisplay: tlv.NewPrimitiveRecord[tlv.TlvType1](
+			decimalDisplay,
 		),
 	}
 }
@@ -109,6 +121,7 @@ func (o *OpenChannel) Assets() []*AssetOutput {
 func (o *OpenChannel) records() []tlv.Record {
 	return []tlv.Record{
 		o.FundedAssets.Record(),
+		o.DecimalDisplay.Record(),
 	}
 }
 

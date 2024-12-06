@@ -541,7 +541,7 @@ func (p *pendingAssetFunding) toAuxFundingDesc(req *bindFundingReq,
 
 	// With all the outputs assembled, we'll now map that to the open
 	// channel wrapper that'll go in the set of TLV blobs.
-	openChanDesc := cmsg.NewOpenChannel(assetOutputs)
+	openChanDesc := cmsg.NewOpenChannel(assetOutputs, decimalDisplay)
 
 	// Now we'll encode the 3 TLV blobs that lnd will store: the main one
 	// for the funding details, and then the blobs for the local and remote

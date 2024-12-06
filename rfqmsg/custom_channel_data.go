@@ -21,10 +21,11 @@ type JsonAssetGenesis struct {
 // JsonAssetUtxo is a struct that represents the UTXO information of an asset
 // within a channel.
 type JsonAssetUtxo struct {
-	Version      int64            `json:"version"`
-	AssetGenesis JsonAssetGenesis `json:"asset_genesis"`
-	Amount       uint64           `json:"amount"`
-	ScriptKey    string           `json:"script_key"`
+	Version        int64            `json:"version"`
+	AssetGenesis   JsonAssetGenesis `json:"asset_genesis"`
+	Amount         uint64           `json:"amount"`
+	ScriptKey      string           `json:"script_key"`
+	DecimalDisplay uint8            `json:"decimal_display"`
 }
 
 // JsonAssetChanInfo is a struct that represents the channel information of a
