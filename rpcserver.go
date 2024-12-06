@@ -1061,7 +1061,7 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 	// the database when decoding a decimal display value.
 	switch {
 	case meta != nil:
-		decDisplay, err = getDecimalDisplayNonStrict(meta)
+		decDisplay, err = meta.DecDisplayOption()
 	default:
 		decDisplay, err = r.DecDisplayForAssetID(ctx, a.ID())
 	}
@@ -7603,43 +7603,13 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 	id asset.ID) (fn.Option[uint32], error) {
 
-	meta, err := r.cfg.AssetStore.FetchAssetMetaForAsset(
-		ctx, id,
-	)
+	meta, err := r.cfg.AssetStore.FetchAssetMetaForAsset(ctx, id)
 	if err != nil {
 		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
 			"meta for asset_id=%v :%v", id, err)
 	}
 
-	return getDecimalDisplayNonStrict(meta)
-}
-
-// getDecimalDisplayNonStrict attempts to decode a decimal display value from
-// metadata. If no custom decimal display value is decoded, the default value of
-// 0 is returned without error.
-func getDecimalDisplayNonStrict(
-	meta *proof.MetaReveal) (fn.Option[uint32], error) {
-
-	_, decDisplay, err := meta.GetDecDisplay()
-	switch {
-	// If it isn't JSON, or doesn't have a dec display, we'll just return 0
-	// below.
-	case errors.Is(err, proof.ErrNotJSON):
-		fallthrough
-	case errors.Is(err, proof.ErrInvalidJSON):
-		fallthrough
-	case errors.Is(err, proof.ErrDecDisplayMissing):
-		fallthrough
-	case errors.Is(err, proof.ErrDecDisplayInvalidType):
-		// We can't determine if there is a decimal display value set.
-		return fn.None[uint32](), nil
-
-	case err != nil:
-		return fn.None[uint32](), fmt.Errorf("unable to extract "+
-			"decimal display: %v", err)
-	}
-
-	return fn.Some(decDisplay), nil
+	return meta.DecDisplayOption()
 }
 
 // rfqChannel returns the channel to use for RFQ operations. If a peer public
