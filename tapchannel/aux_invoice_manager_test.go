@@ -189,6 +189,11 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			if r.ExitHtlcAmt != res.AmtPaid {
 				m.t.Errorf("AmtPaid != ExitHtlcAmt")
 			}
+		} else if !isAssetInvoice(r.Invoice, m) {
+			if !res.CancelSet {
+				m.t.Errorf("expected cancel set flag")
+			}
+			continue
 		}
 
 		htlcBlob, err := r.WireCustomRecords.Serialize()
