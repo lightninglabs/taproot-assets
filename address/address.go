@@ -14,10 +14,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -538,47 +538,39 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	return &a, nil
 }
 
-// GenChallengeNUMS generates a variant of the NUMS script key that is modified
-// by the provided challenge.
-//
-//	The resulting scriptkey is:
-//	res := NUMS + challenge*G
-func GenChallengeNUMS(challengeBytesOpt fn.Option[[32]byte]) asset.ScriptKey {
-	var (
-		nums, g, res btcec.JacobianPoint
-		challenge    secp256k1.ModNScalar
-	)
+// UnmarshalVersion parses an address version from the RPC variant.
+func UnmarshalVersion(version taprpc.AddrVersion) (Version, error) {
+	// For now, we'll only support two address versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case taprpc.AddrVersion_ADDR_VERSION_UNSPECIFIED:
+		return V1, nil
 
-	if challengeBytesOpt.IsNone() {
-		return asset.NUMSScriptKey
+	case taprpc.AddrVersion_ADDR_VERSION_V0:
+		return V0, nil
+
+	case taprpc.AddrVersion_ADDR_VERSION_V1:
+		return V1, nil
+
+	default:
+		return 0, fmt.Errorf("unknown address version: %v", version)
 	}
+}
 
-	var challengeBytes [32]byte
+// MarshalVersion marshals the native address version into the RPC variant.
+func MarshalVersion(version Version) (taprpc.AddrVersion, error) {
+	// For now, we'll only support two address versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case V0:
+		return taprpc.AddrVersion_ADDR_VERSION_V0, nil
 
-	challengeBytesOpt.WhenSome(func(b [32]byte) {
-		challengeBytes = b
-	})
+	case V1:
+		return taprpc.AddrVersion_ADDR_VERSION_V1, nil
 
-	// Convert the NUMS key to a Jacobian point.
-	asset.NUMSPubKey.AsJacobian(&nums)
-
-	// Multiply G by 1 to get G as a Jacobian point.
-	secp256k1.ScalarBaseMultNonConst(
-		new(secp256k1.ModNScalar).SetInt(1), &g,
-	)
-
-	// Convert the challenge to a scalar.
-	challenge.SetByteSlice(challengeBytes[:])
-
-	// Calculate res = challenge * G.
-	secp256k1.ScalarMultNonConst(&challenge, &g, &res)
-
-	// Calculate res = nums + res.
-	secp256k1.AddNonConst(&nums, &res, &res)
-
-	res.ToAffine()
-
-	resultPubKey := btcec.NewPublicKey(&res.X, &res.Y)
-
-	return asset.NewScriptKey(resultPubKey)
+	default:
+		return 0, fmt.Errorf("unknown address version: %v", version)
+	}
 }

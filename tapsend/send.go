@@ -27,6 +27,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"golang.org/x/exp/maps"
@@ -1030,9 +1031,10 @@ func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
 func CreateOutputCommitments(
 	packets []*tappsbt.VPacket) (tappsbt.OutputCommitments, error) {
 
-	// We create an empty output commitment map, keyed by the anchor output
-	// index.
-	outputCommitments := make(tappsbt.OutputCommitments)
+	// Inputs must be unique.
+	if err := AssertInputsUnique(packets); err != nil {
+		return nil, err
+	}
 
 	// We require all outputs that reference the same anchor output to be
 	// identical, otherwise some assumptions in the code below don't hold.
@@ -1051,6 +1053,10 @@ func CreateOutputCommitments(
 	if err != nil {
 		return nil, err
 	}
+
+	// We create an empty output commitment map, keyed by the anchor output
+	// index.
+	outputCommitments := make(tappsbt.OutputCommitments)
 
 	// And now we commit each packet to the respective anchor output
 	// commitments.
@@ -1538,6 +1544,26 @@ func AssertInputAnchorsEqual(packets []*tappsbt.VPacket) error {
 					"anchor outpoint",
 					ErrInvalidAnchorInputInfo, op)
 			}
+		}
+	}
+
+	return nil
+}
+
+// AssertInputsUnique makes sure that every input across all virtual packets is
+// referencing a unique input asset, which is identified by the input PrevID.
+func AssertInputsUnique(packets []*tappsbt.VPacket) error {
+	// PrevIDs are comparable enough to serve as a map key without hashing.
+	inputs := make(lfn.Set[asset.PrevID])
+
+	for _, vPkt := range packets {
+		for _, vIn := range vPkt.Inputs {
+			if inputs.Contains(vIn.PrevID) {
+				return fmt.Errorf("input %v is duplicated",
+					vIn.PrevID)
+			}
+
+			inputs.Add(vIn.PrevID)
 		}
 	}
 

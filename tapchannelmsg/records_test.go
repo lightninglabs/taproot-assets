@@ -76,14 +76,14 @@ func TestOpenChannel(t *testing.T) {
 			name: "channel with funded asset",
 			channel: NewOpenChannel([]*AssetOutput{
 				NewAssetOutput([32]byte{1}, 1000, *randProof),
-			}),
+			}, 0),
 		},
 		{
 			name: "channel with multiple funded assets",
 			channel: NewOpenChannel([]*AssetOutput{
 				NewAssetOutput([32]byte{1}, 1000, *randProof),
 				NewAssetOutput([32]byte{2}, 2000, *randProof),
-			}),
+			}, 11),
 		},
 	}
 

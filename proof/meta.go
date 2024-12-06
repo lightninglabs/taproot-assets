@@ -11,6 +11,7 @@ import (
 	"math"
 
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 	"golang.org/x/exp/constraints"
 )
@@ -275,6 +276,32 @@ func (m *MetaReveal) GetDecDisplay() (map[string]interface{}, uint32, error) {
 	default:
 		return nil, 0, ErrDecDisplayInvalidType
 	}
+}
+
+// DecDisplayOption attempts to decode a decimal display value from metadata. If
+// no custom decimal display value is decoded, an empty option is returned
+// without error.
+func (m *MetaReveal) DecDisplayOption() (fn.Option[uint32], error) {
+	_, decDisplay, err := m.GetDecDisplay()
+	switch {
+	// If it isn't JSON, or doesn't have a dec display, we'll just return 0
+	// below.
+	case errors.Is(err, ErrNotJSON):
+		fallthrough
+	case errors.Is(err, ErrInvalidJSON):
+		fallthrough
+	case errors.Is(err, ErrDecDisplayMissing):
+		fallthrough
+	case errors.Is(err, ErrDecDisplayInvalidType):
+		// We can't determine if there is a decimal display value set.
+		return fn.None[uint32](), nil
+
+	case err != nil:
+		return fn.None[uint32](), fmt.Errorf("unable to extract "+
+			"decimal display: %v", err)
+	}
+
+	return fn.Some(decDisplay), nil
 }
 
 // SetDecDisplay attempts to set the decimal display value in existing JSON
