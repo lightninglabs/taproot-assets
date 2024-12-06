@@ -11,7 +11,6 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -162,44 +161,6 @@ func MarshalAssetVersion(version asset.Version) (AssetVersion, error) {
 
 	default:
 		return 0, fmt.Errorf("unknown asset version: %v", version)
-	}
-}
-
-// UnmarshalAddressVerion parses an address version from the RPC variant.
-func UnmarshalAddressVersion(version AddrVersion) (address.Version, error) {
-	// For now we'll only support two address versions. The ones in the
-	// future should be reserved for future use, so we disallow unknown
-	// versions.
-	switch version {
-	case AddrVersion_ADDR_VERSION_UNSPECIFIED:
-		return address.V1, nil
-
-	case AddrVersion_ADDR_VERSION_V0:
-		return address.V0, nil
-
-	case AddrVersion_ADDR_VERSION_V1:
-		return address.V1, nil
-
-	default:
-		return 0, fmt.Errorf("unknown address version: %v", version)
-	}
-}
-
-// MarshalAddressVerion marshals the native address version into the RPC
-// variant.
-func MarshalAddressVersion(version address.Version) (AddrVersion, error) {
-	// For now we'll only support two address versions. The ones in the
-	// future should be reserved for future use, so we disallow unknown
-	// versions.
-	switch version {
-	case address.V0:
-		return AddrVersion_ADDR_VERSION_V0, nil
-
-	case address.V1:
-		return AddrVersion_ADDR_VERSION_V1, nil
-
-	default:
-		return 0, fmt.Errorf("unknown address version: %v", version)
 	}
 }
 

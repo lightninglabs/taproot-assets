@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -535,4 +536,41 @@ func DecodeAddress(addr string, net *ChainParams) (*Tap, error) {
 	}
 
 	return &a, nil
+}
+
+// UnmarshalVersion parses an address version from the RPC variant.
+func UnmarshalVersion(version taprpc.AddrVersion) (Version, error) {
+	// For now, we'll only support two address versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case taprpc.AddrVersion_ADDR_VERSION_UNSPECIFIED:
+		return V1, nil
+
+	case taprpc.AddrVersion_ADDR_VERSION_V0:
+		return V0, nil
+
+	case taprpc.AddrVersion_ADDR_VERSION_V1:
+		return V1, nil
+
+	default:
+		return 0, fmt.Errorf("unknown address version: %v", version)
+	}
+}
+
+// MarshalVersion marshals the native address version into the RPC variant.
+func MarshalVersion(version Version) (taprpc.AddrVersion, error) {
+	// For now, we'll only support two address versions. The ones in the
+	// future should be reserved for future use, so we disallow unknown
+	// versions.
+	switch version {
+	case V0:
+		return taprpc.AddrVersion_ADDR_VERSION_V0, nil
+
+	case V1:
+		return taprpc.AddrVersion_ADDR_VERSION_V1, nil
+
+	default:
+		return 0, fmt.Errorf("unknown address version: %v", version)
+	}
 }

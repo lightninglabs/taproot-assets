@@ -1461,7 +1461,7 @@ func (r *rpcServer) NewAddr(ctx context.Context,
 		return nil, err
 	}
 
-	addrVersion, err := taprpc.UnmarshalAddressVersion(req.AddressVersion)
+	addrVersion, err := address.UnmarshalVersion(req.AddressVersion)
 	if err != nil {
 		return nil, err
 	}
@@ -3027,7 +3027,7 @@ func marshalAddr(addr *address.Tap,
 		return nil, err
 	}
 
-	addrVersion, err := taprpc.MarshalAddressVersion(addr.Version)
+	addrVersion, err := address.MarshalVersion(addr.Version)
 	if err != nil {
 		return nil, err
 	}
