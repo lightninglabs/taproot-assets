@@ -183,6 +183,11 @@ type AssetSyncer interface {
 	// for issuance proofs.
 	QueryAssetInfo(ctx context.Context,
 		id asset.ID) (*asset.AssetGroup, error)
+
+	// FetchAssetMetaForAsset attempts to fetch an asset meta based on an
+	// asset ID.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID asset.ID) (*proof.MetaReveal, error)
 }
 
 // FundingControllerCfg is a configuration struct that houses the necessary
