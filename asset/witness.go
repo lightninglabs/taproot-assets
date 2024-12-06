@@ -1,6 +1,10 @@
 package asset
 
-import "github.com/btcsuite/btcd/btcec/v2"
+import (
+	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/decred/dcrd/dcrec/secp256k1/v4"
+	"github.com/lightninglabs/taproot-assets/fn"
+)
 
 // IsSplitCommitWitness returns true if the witness is a split-commitment
 // witness.
@@ -33,4 +37,49 @@ func IsBurnKey(scriptKey *btcec.PublicKey, witness Witness) bool {
 	}
 
 	return scriptKey.IsEqual(DeriveBurnKey(prevID))
+}
+
+// GenChallengeNUMS generates a variant of the NUMS script key that is modified
+// by the provided challenge.
+//
+//	The resulting scriptkey is:
+//	res := NUMS + challenge*G
+func GenChallengeNUMS(challengeBytesOpt fn.Option[[32]byte]) ScriptKey {
+	var (
+		nums, g, res btcec.JacobianPoint
+		challenge    secp256k1.ModNScalar
+	)
+
+	if challengeBytesOpt.IsNone() {
+		return NUMSScriptKey
+	}
+
+	var challengeBytes [32]byte
+
+	challengeBytesOpt.WhenSome(func(b [32]byte) {
+		challengeBytes = b
+	})
+
+	// Convert the NUMS key to a Jacobian point.
+	NUMSPubKey.AsJacobian(&nums)
+
+	// Multiply G by 1 to get G as a Jacobian point.
+	secp256k1.ScalarBaseMultNonConst(
+		new(secp256k1.ModNScalar).SetInt(1), &g,
+	)
+
+	// Convert the challenge to a scalar.
+	challenge.SetByteSlice(challengeBytes[:])
+
+	// Calculate res = challenge * G.
+	secp256k1.ScalarMultNonConst(&challenge, &g, &res)
+
+	// Calculate res = nums + res.
+	secp256k1.AddNonConst(&nums, &res, &res)
+
+	res.ToAffine()
+
+	resultPubKey := btcec.NewPublicKey(&res.X, &res.Y)
+
+	return NewScriptKey(resultPubKey)
 }

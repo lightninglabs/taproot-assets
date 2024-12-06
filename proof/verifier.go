@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
-	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -385,7 +384,7 @@ func CreateOwnershipProofAsset(ownedAsset *asset.Asset,
 	// This is handled by CopySpendTemplate.
 	outputAsset := ownedAsset.CopySpendTemplate()
 
-	outputAsset.ScriptKey = address.GenChallengeNUMS(challengeBytes)
+	outputAsset.ScriptKey = asset.GenChallengeNUMS(challengeBytes)
 	outputAsset.PrevWitnesses = []asset.Witness{{
 		PrevID: &prevId,
 	}}
