@@ -77,6 +77,9 @@ type (
 	// KeyLocator is a type alias for fetching the key locator information
 	// for an internal key.
 	KeyLocator = sqlc.FetchInternalKeyLocatorRow
+
+	// AssetMeta is the metadata record for an asset.
+	AssetMeta = sqlc.FetchAssetMetaForAssetRow
 )
 
 // AddrBook is an interface that represents the storage backed needed to create
@@ -160,6 +163,14 @@ type AddrBook interface {
 	// FetchInternalKeyLocator fetches the key locator for an internal key.
 	FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (KeyLocator,
 		error)
+
+	// FetchAssetMetaByHash fetches the asset meta for a given meta hash.
+	FetchAssetMetaByHash(ctx context.Context,
+		metaDataHash []byte) (sqlc.FetchAssetMetaByHashRow, error)
+
+	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID []byte) (AssetMeta, error)
 }
 
 // AddrBookTxOptions defines the set of db txn options the AddrBook
@@ -1104,8 +1115,68 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 	return &assetGroup, nil
 }
 
+// FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
+func (t *TapAddressBook) FetchAssetMetaByHash(ctx context.Context,
+	metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := t.db.ExecTx(ctx, &readOpts, func(q AddrBook) error {
+		dbMeta, err := q.FetchAssetMetaByHash(ctx, metaHash[:])
+		if err != nil {
+			return err
+		}
+
+		assetMeta = &proof.MetaReveal{
+			Data: dbMeta.MetaDataBlob,
+			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, address.ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
+}
+
+// FetchAssetMetaForAsset attempts to fetch an asset meta based on an asset ID.
+func (t *TapAddressBook) FetchAssetMetaForAsset(ctx context.Context,
+	assetID asset.ID) (*proof.MetaReveal, error) {
+
+	var assetMeta *proof.MetaReveal
+
+	readOpts := NewAssetStoreReadTx()
+	dbErr := t.db.ExecTx(ctx, &readOpts, func(q AddrBook) error {
+		dbMeta, err := q.FetchAssetMetaForAsset(ctx, assetID[:])
+		if err != nil {
+			return err
+		}
+
+		assetMeta = &proof.MetaReveal{
+			Data: dbMeta.MetaDataBlob,
+			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
+		}
+
+		return nil
+	})
+	switch {
+	case errors.Is(dbErr, sql.ErrNoRows):
+		return nil, address.ErrAssetMetaNotFound
+	case dbErr != nil:
+		return nil, dbErr
+	}
+
+	return assetMeta, nil
+}
+
 // insertFullAssetGen inserts a new asset genesis and optional asset group
-// into the database. A place holder for the asset meta inserted as well.
+// into the database. A placeholder for the asset meta inserted as well.
 func insertFullAssetGen(ctx context.Context,
 	gen *asset.Genesis, group *asset.GroupKey) func(AddrBook) error {
 

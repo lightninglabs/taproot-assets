@@ -4407,7 +4407,7 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 		var assetID asset.ID
 		copy(assetID[:], req.GetAssetId())
 
-		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaForAsset(
+		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaForAsset(
 			ctx, assetID,
 		)
 
@@ -4426,7 +4426,7 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 		var assetID asset.ID
 		copy(assetID[:], assetIDBytes)
 
-		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaForAsset(
+		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaForAsset(
 			ctx, assetID,
 		)
 
@@ -4438,7 +4438,7 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 		var metaHash [asset.MetaHashLen]byte
 		copy(metaHash[:], req.GetMetaHash())
 
-		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaByHash(
+		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaByHash(
 			ctx, metaHash,
 		)
 
@@ -4457,7 +4457,7 @@ func (r *rpcServer) FetchAssetMeta(ctx context.Context,
 		var metaHash [asset.MetaHashLen]byte
 		copy(metaHash[:], metaHashBytes)
 
-		assetMeta, err = r.cfg.AssetStore.FetchAssetMetaByHash(
+		assetMeta, err = r.cfg.AddrBook.FetchAssetMetaByHash(
 			ctx, metaHash,
 		)
 
@@ -7603,7 +7603,7 @@ func encodeVirtualPackets(packets []*tappsbt.VPacket) ([][]byte, error) {
 func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 	id asset.ID) (fn.Option[uint32], error) {
 
-	meta, err := r.cfg.AssetStore.FetchAssetMetaForAsset(ctx, id)
+	meta, err := r.cfg.AddrBook.FetchAssetMetaForAsset(ctx, id)
 	if err != nil {
 		return fn.None[uint32](), fmt.Errorf("unable to fetch asset "+
 			"meta for asset_id=%v :%v", id, err)

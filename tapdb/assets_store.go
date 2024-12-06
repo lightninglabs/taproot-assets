@@ -216,7 +216,7 @@ type ActiveAssetsStore interface {
 	// disk.
 	FetchAssetProofs(ctx context.Context) ([]AssetProof, error)
 
-	// FetchAssetsProofsSizes fetches all the asset proofs lengths that are
+	// FetchAssetProofsSizes fetches all the asset proofs lengths that are
 	// stored on disk.
 	FetchAssetProofsSizes(ctx context.Context) ([]AssetProofSize, error)
 
@@ -353,16 +353,6 @@ type ActiveAssetsStore interface {
 	// the passed params.
 	ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorParams) error
 
-	// FetchAssetMetaByHash fetches the asset meta for a given meta hash.
-	//
-	// TODO(roasbeef): split into MetaStore?
-	FetchAssetMetaByHash(ctx context.Context,
-		metaDataHash []byte) (sqlc.FetchAssetMetaByHashRow, error)
-
-	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
-	FetchAssetMetaForAsset(ctx context.Context,
-		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
-
 	// InsertBurn inserts a new row to the asset burns table which
 	// includes all important data related to the burn.
 	InsertBurn(ctx context.Context, arg sqlc.InsertBurnParams) (int64,
@@ -376,12 +366,12 @@ type ActiveAssetsStore interface {
 // MetaStore is a sub-set of the main sqlc.Querier interface that contains
 // methods related to metadata of the daemon.
 type MetaStore interface {
-	// AssetsDBSize returns the total size of the taproot assets sqlite
-	// database.
+	// AssetsDBSizeSqlite returns the total size of the taproot assets
+	// sqlite database.
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
 
-	// AssetsDBSize returns the total size of the taproot assets postgres
-	// database.
+	// AssetsDBSizePostgres returns the total size of the taproot assets
+	// postgres database.
 	AssetsDBSizePostgres(ctx context.Context) (int64, error)
 }
 
@@ -3419,40 +3409,6 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 	return outboundParcels, nil
 }
 
-// ErrAssetMetaNotFound is returned when an asset meta is not found in the
-// database.
-var ErrAssetMetaNotFound = fmt.Errorf("asset meta not found")
-
-// FetchAssetMetaForAsset attempts to fetch an asset meta based on an asset ID.
-func (a *AssetStore) FetchAssetMetaForAsset(ctx context.Context,
-	assetID asset.ID) (*proof.MetaReveal, error) {
-
-	var assetMeta *proof.MetaReveal
-
-	readOpts := NewAssetStoreReadTx()
-	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		dbMeta, err := q.FetchAssetMetaForAsset(ctx, assetID[:])
-		if err != nil {
-			return err
-		}
-
-		assetMeta = &proof.MetaReveal{
-			Data: dbMeta.MetaDataBlob,
-			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
-		}
-
-		return nil
-	})
-	switch {
-	case errors.Is(dbErr, sql.ErrNoRows):
-		return nil, ErrAssetMetaNotFound
-	case dbErr != nil:
-		return nil, dbErr
-	}
-
-	return assetMeta, nil
-}
-
 // AssetsDBSize returns the total size of the taproot assets database.
 func (a *AssetStore) AssetsDBSize(ctx context.Context) (int64, error) {
 	var totalSize int64
@@ -3490,36 +3446,6 @@ func (a *AssetStore) AssetsDBSize(ctx context.Context) (int64, error) {
 	}
 
 	return totalSize, nil
-}
-
-// FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
-func (a *AssetStore) FetchAssetMetaByHash(ctx context.Context,
-	metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error) {
-
-	var assetMeta *proof.MetaReveal
-
-	readOpts := NewAssetStoreReadTx()
-	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		dbMeta, err := q.FetchAssetMetaByHash(ctx, metaHash[:])
-		if err != nil {
-			return err
-		}
-
-		assetMeta = &proof.MetaReveal{
-			Data: dbMeta.MetaDataBlob,
-			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
-		}
-
-		return nil
-	})
-	switch {
-	case errors.Is(dbErr, sql.ErrNoRows):
-		return nil, ErrAssetMetaNotFound
-	case dbErr != nil:
-		return nil, dbErr
-	}
-
-	return assetMeta, nil
 }
 
 // TxHeight returns the block height of a given transaction. This will only

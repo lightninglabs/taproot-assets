@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -23,6 +24,10 @@ var (
 	// This means an address can't be created until a Universe bootstrap or
 	// manual issuance proof insertion.
 	ErrAssetGroupUnknown = fmt.Errorf("asset group is unknown")
+
+	// ErrAssetMetaNotFound is returned when an asset meta is not found in
+	// the database.
+	ErrAssetMetaNotFound = fmt.Errorf("asset meta not found")
 )
 
 // AddrWithKeyInfo wraps a normal Taproot Asset struct with key descriptor
@@ -99,6 +104,16 @@ type Storage interface {
 	// QueryAssetGroup attempts to locate the asset group information
 	// (genesis + group key) associated with a given asset.
 	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+
+	// FetchAssetMetaByHash attempts to fetch an asset meta based on an
+	// asset hash.
+	FetchAssetMetaByHash(ctx context.Context,
+		metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error)
+
+	// FetchAssetMetaForAsset attempts to fetch an asset meta based on an
+	// asset ID.
+	FetchAssetMetaForAsset(ctx context.Context,
+		assetID asset.ID) (*proof.MetaReveal, error)
 
 	// AddrByTaprootOutput returns a single address based on its Taproot
 	// output key or a sql.ErrNoRows error if no such address exists.
@@ -218,7 +233,7 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 		return nil, err
 	}
 
-	log.Debugf("asset %v is unknown, attempting to bootstrap", id.String())
+	log.Debugf("Asset %v is unknown, attempting to bootstrap", id.String())
 
 	// Use the AssetSyncer to query our universe federation for the asset.
 	err = b.cfg.Syncer.SyncAssetInfo(ctx, &id)
@@ -233,7 +248,7 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 		return nil, err
 	}
 
-	log.Debugf("bootstrap succeeded for asset %v", id.String())
+	log.Debugf("Bootstrap succeeded for asset %v", id.String())
 
 	// If the asset was found after sync, and has an asset group, update our
 	// universe sync config to ensure that we sync future issuance proofs.
@@ -251,6 +266,55 @@ func (b *Book) QueryAssetInfo(ctx context.Context,
 	}
 
 	return assetGroup, nil
+}
+
+// FetchAssetMetaByHash attempts to fetch an asset meta based on an asset hash.
+func (b *Book) FetchAssetMetaByHash(ctx context.Context,
+	metaHash [asset.MetaHashLen]byte) (*proof.MetaReveal, error) {
+
+	return b.cfg.Store.FetchAssetMetaByHash(ctx, metaHash)
+}
+
+// FetchAssetMetaForAsset attempts to fetch an asset meta based on an asset ID.
+func (b *Book) FetchAssetMetaForAsset(ctx context.Context,
+	assetID asset.ID) (*proof.MetaReveal, error) {
+
+	// Check if we know of this meta hash already.
+	meta, err := b.cfg.Store.FetchAssetMetaForAsset(ctx, assetID)
+	switch {
+	case meta != nil:
+		return meta, nil
+
+	// Asset lookup failed gracefully; continue to asset lookup using the
+	// AssetSyncer if enabled.
+	case errors.Is(err, ErrAssetMetaNotFound):
+		if b.cfg.Syncer == nil {
+			return nil, ErrAssetMetaNotFound
+		}
+
+	case err != nil:
+		return nil, err
+	}
+
+	log.Debugf("Asset %v is unknown, attempting to bootstrap",
+		assetID.String())
+
+	// Use the AssetSyncer to query our universe federation for the asset.
+	err = b.cfg.Syncer.SyncAssetInfo(ctx, &assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	// The asset meta info may have been synced from a universe server;
+	// query for the asset ID again.
+	meta, err = b.cfg.Store.FetchAssetMetaForAsset(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	log.Debugf("Bootstrap succeeded for asset %v", assetID.String())
+
+	return meta, nil
 }
 
 // NewAddress creates a new Taproot Asset address based on the input parameters.
