@@ -927,6 +927,220 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 	)
 }
 
+// testPsbtInteractiveAltLeafAnchoring tests that the tapfreighter and PSBT flow
+// RPC calls will reject a vPkt with invalid AltLeaves. It also tests that
+// AltLeaves from multiple vOutputs are merged into one anchor output correctly.
+func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units. We're also
+	// minting a passive asset that should remain where it is.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			issuableAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	mintedAsset := rpcAssets[0]
+	genInfo := rpcAssets[0].AssetGenesis
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	secondTapd := setupTapdHarness(
+		t.t, t, t.lndHarness.Bob, t.universeServer,
+	)
+	defer func() {
+		require.NoError(t.t, secondTapd.stop(!*noDelete))
+	}()
+
+	var (
+		sender      = t.tapd
+		senderLnd   = t.lndHarness.Alice
+		receiver    = secondTapd
+		id          = fn.ToArray[[32]byte](genInfo.AssetId)
+		partialAmt  = mintedAsset.Amount / 4
+		chainParams = &address.RegressionNetTap
+	)
+
+	// Now, let's create a vPkt for receiving the active asset. We'll use
+	// two outputs with  different script keys and different altLeaves.
+	receiverScriptKey1, receiverAnchorIntKeyDesc := DeriveKeys(
+		t.t, receiver,
+	)
+	receiverScriptKey1Bytes := receiverScriptKey1.PubKey.
+		SerializeCompressed()
+	receiverScriptKey2, _ := DeriveKeys(t.t, receiver)
+	receiverScriptKey2Bytes := receiverScriptKey2.PubKey.
+		SerializeCompressed()
+
+	vPkt := tappsbt.ForInteractiveSend(
+		id, partialAmt, receiverScriptKey1, 0, 0, 0,
+		receiverAnchorIntKeyDesc, asset.V0, chainParams,
+	)
+	tappsbt.AddOutput(
+		vPkt, partialAmt*2, receiverScriptKey2, 0,
+		receiverAnchorIntKeyDesc, asset.V0,
+	)
+
+	// Let's make multiple sets of altLeaves. Set 1 and 2 should be valid
+	// if they were combined, but set 3 is a subset of set 1. If we submit
+	// two vPkts with sets 1 and 3, they should be rejected.
+	altLeaves1 := asset.RandAltLeaves(t.t, true)
+	altLeaves2 := asset.RandAltLeaves(t.t, true)
+	altLeaves3 := []*asset.Asset{altLeaves1[0].Copy()}
+
+	require.NoError(t.t, vPkt.Outputs[0].SetAltLeaves(altLeaves1))
+	require.NoError(t.t, vPkt.Outputs[1].SetAltLeaves(altLeaves3))
+
+	// Packet funding with conflicting altLeaves should fail.
+	_, err := maybeFundPacket(t, sender, vPkt)
+	require.ErrorContains(t.t, err, asset.ErrDuplicateAltLeafKey.Error())
+
+	// Let's unset the conflicting altLeaf, sign the vPkt, re-add the
+	// conflicting altLeaf, and try to anchor the vPkt.
+	vPkt.Outputs[1].AltLeaves = nil
+
+	fundResp := fundPacket(t, sender, vPkt)
+	signActiveResp, err := sender.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, fundResp.PassiveAssetPsbts, 1)
+
+	signPassiveResp, err := sender.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.PassiveAssetPsbts[0],
+		},
+	)
+	require.NoError(t.t, err)
+
+	passivevPkt, err := tappsbt.Decode(signPassiveResp.SignedPsbt)
+	require.NoError(t.t, err)
+
+	signedvPkt, err := tappsbt.Decode(signActiveResp.SignedPsbt)
+	require.NoError(t.t, err)
+
+	signedvPktCopy := signedvPkt.Copy()
+	require.NoError(t.t, signedvPkt.Outputs[1].SetAltLeaves(altLeaves3))
+	signedvPktBytes, err := tappsbt.Encode(signedvPkt)
+	require.NoError(t.t, err)
+
+	// Anchoring this vPkt should fail when creating the Tap commitments for
+	// each anchor output.
+	_, err = sender.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signedvPktBytes},
+		},
+	)
+	require.ErrorContains(t.t, err, asset.ErrDuplicateAltLeafKey.Error())
+
+	// Trying to anchor the vPkt via the PSBT flow should also fail, for the
+	// same reason.
+	allPackets := []*tappsbt.VPacket{signedvPkt, passivevPkt}
+	btcPacket, err := tapsend.PrepareAnchoringTemplate(allPackets)
+	require.NoError(t.t, err)
+
+	var btcPacketBuf bytes.Buffer
+	require.NoError(t.t, btcPacket.Serialize(&btcPacketBuf))
+
+	commitReq := &wrpc.CommitVirtualPsbtsRequest{
+		VirtualPsbts:      [][]byte{signedvPktBytes},
+		PassiveAssetPsbts: [][]byte{signPassiveResp.SignedPsbt},
+		AnchorPsbt:        btcPacketBuf.Bytes(),
+		Fees: &wrpc.CommitVirtualPsbtsRequest_SatPerVbyte{
+			SatPerVbyte: uint64(feeRateSatPerKVByte / 1000),
+		},
+		AnchorChangeOutput: &wrpc.CommitVirtualPsbtsRequest_Add{
+			Add: true,
+		},
+	}
+	_, err = sender.CommitVirtualPsbts(ctxt, commitReq)
+	require.ErrorContains(t.t, err, asset.ErrDuplicateAltLeafKey.Error())
+
+	// Now, let's set non-conflicting altLeaves for the second vOutput, and
+	// complete the transfer via the PSBT flow. This should succeed.
+	require.NoError(t.t, signedvPktCopy.Outputs[1].SetAltLeaves(altLeaves2))
+	signedvPktBytes, err = tappsbt.Encode(signedvPktCopy)
+
+	require.NoError(t.t, err)
+
+	commitReq.VirtualPsbts = [][]byte{signedvPktBytes}
+	commitResp, err := sender.CommitVirtualPsbts(ctxt, commitReq)
+	require.NoError(t.t, err)
+
+	commitPacket, err := psbt.NewFromRawBytes(
+		bytes.NewReader(commitResp.AnchorPsbt), false,
+	)
+	require.NoError(t.t, err)
+	require.Len(t.t, commitResp.VirtualPsbts, 1)
+	require.Len(t.t, commitResp.PassiveAssetPsbts, 1)
+
+	activePacket, err := tappsbt.Decode(commitResp.VirtualPsbts[0])
+	require.NoError(t.t, err)
+
+	passivePacket, err := tappsbt.Decode(commitResp.PassiveAssetPsbts[0])
+	require.NoError(t.t, err)
+
+	commitPacket = signPacket(t.t, senderLnd, commitPacket)
+	commitPacket = FinalizePacket(t.t, senderLnd.RPC, commitPacket)
+	publishResp := LogAndPublish(
+		t.t, sender, commitPacket, []*tappsbt.VPacket{activePacket},
+		[]*tappsbt.VPacket{passivePacket}, commitResp,
+	)
+
+	expectedAmounts := []uint64{
+		partialAmt, partialAmt * 2, partialAmt,
+	}
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, sender, publishResp,
+		genInfo.AssetId, expectedAmounts, 0, 1, len(expectedAmounts),
+	)
+
+	// This is an interactive transfer, so we do need to manually send the
+	// proofs from the sender to the receiver.
+	_ = sendProof(
+		t, sender, receiver, publishResp, receiverScriptKey1Bytes,
+		genInfo,
+	)
+	_ = sendProof(
+		t, sender, receiver, publishResp, receiverScriptKey2Bytes,
+		genInfo,
+	)
+
+	// Now, both output proofs should contain altLeaf sets 1 and 2, since
+	// our two vOutputs should be committed in the same anchor output.
+	receiverAssets, err := receiver.ListAssets(
+		ctxt, &taprpc.ListAssetRequest{},
+	)
+	require.NoError(t.t, err)
+
+	allAltLeaves := append(altLeaves1, altLeaves2...)
+	leafMap := map[string][]*asset.Asset{
+		string(receiverScriptKey1Bytes): allAltLeaves,
+		string(receiverScriptKey2Bytes): allAltLeaves,
+	}
+
+	for _, asset := range receiverAssets.Assets {
+		AssertProofAltLeaves(t.t, receiver, asset, leafMap)
+	}
+}
+
 // testPsbtInteractiveTapscriptSibling tests that we can send assets to an
 // anchor output that also commits to a tapscript sibling.
 func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
