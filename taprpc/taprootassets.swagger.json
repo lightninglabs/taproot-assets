@@ -213,6 +213,46 @@
             "in": "query",
             "required": false,
             "type": "boolean"
+          },
+          {
+            "name": "min_amount",
+            "description": "Only return assets with amount greater or equal to this value.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "max_amount",
+            "description": "Only return assets with amount less or equal to this value.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "uint64"
+          },
+          {
+            "name": "group_key",
+            "description": "Only return assets that belong to the group with this key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "byte"
+          },
+          {
+            "name": "script_key_id",
+            "description": "Return all assets that use this script key.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
+          },
+          {
+            "name": "anchor_outpoint_id",
+            "description": "Return all assets that are currently anchored on this outpoint.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "format": "int64"
           }
         ],
         "tags": [
