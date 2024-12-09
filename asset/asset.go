@@ -957,6 +957,193 @@ type GroupKeyReveal interface {
 	GroupPubKey(assetID ID) (*btcec.PublicKey, error)
 }
 
+// GroupKeyRevealTapscript represents the data structure used to derive the
+// tweaked tapscript root, which is subsequently used to compute the asset
+// group key.
+//
+// The tapscript tree ensures that the derived asset group key is unique
+// to a specific genesis asset ID. This design prevents asset group keys from
+// being reused across different genesis assets or non-compliant asset minting
+// tranches (e.g., tranches of a different asset type).
+//
+// The uniqueness of the asset group key to a specific genesis asset ID is
+// guaranteed by including the genesis asset ID as a leaf in the tapscript tree.
+// Additionally, we ensure that the tapscript tree cannot include multiple
+// recognizable genesis asset IDs. To achieve this, we enforce that the genesis
+// asset ID must appear in the first leaf layer of the tapscript tree. At this
+// tree level, there are exactly two leaf positions. We use the remaining
+// revealed structure of the tree to prove that the genesis asset ID is
+// correctly committed and that no conflicting or duplicate genesis asset IDs
+// are committed.
+//
+// The tapscript tree can include a custom tapscript subtree, enabling users
+// to incorporate custom script spend paths. However, in the simplest case,
+// if a custom tapscript tree is not included, the tapscript tree adopts the
+// following structure:
+//
+//	           [tapscript root]
+//	               /       \
+//	[genesis asset ID]   [internal key hash]
+//
+// Here, the tapscript tree consists of two leaf nodes: the genesis asset ID
+// and the hash of the taproot internal key. In this case, we can prove that
+// the genesis asset ID is committed to the tree root by deriving the tapscript
+// root hash using the hash of the internal key. Further, the internal key hash
+// is not a valid asset ID because its pre-image is 33 bytes long (the
+// serialized compressed public key), making it cryptographically improbable
+// to serve as a valid pre-image for an asset ID (which requires a longer
+// pre-image).
+//
+// When a custom tapscript tree is provided, the tapscript tree adopts the
+// following structure:
+//
+//	           [tapscript root]
+//	               /       \
+//	[genesis asset ID]   [tweaked custom tree root]
+//	                            /        \
+//	             [internal key hash]   [custom tree root]
+//
+// In this scenario, we can prove that the root hash commits to the genesis
+// asset ID by deriving the tapscript root from the tweaked custom tree root
+// and the genesis asset ID. Specifically, the tapscript root hash is
+// reconstructed by concatenating the genesis asset ID and the tweaked custom
+// tree root, and then hashing them.
+//
+// Additionally, we can prove that the tweaked custom tree root is not a valid
+// asset ID because it is derived from the internal key hash and the custom
+// tree root. By including the internal key hash as a leaf, the structure
+// ensures that the tweaked custom tree root cannot be misinterpreted as a
+// valid genesis asset ID.
+//
+// Note that the scripts in the tapscript tree will be made non-executable using
+// OP_RETURN, except for the custom tree root.
+type GroupKeyRevealTapscript struct {
+	// finalRoot is the final tapscript root after all tapscript tweaks have
+	// been applied. The asset group key is derived from this root and the
+	// internal key.
+	finalRoot chainhash.Hash
+
+	// customTapscriptRoot is the optional root of a custom tapscript tree
+	// that includes script spend conditions for the group key.
+	customTapscriptRoot fn.Option[chainhash.Hash]
+}
+
+// Validate checks that the group key reveal tapscript is well-formed and
+// compliant.
+func (g *GroupKeyRevealTapscript) Validate(assetID ID,
+	internalKey btcec.PublicKey) error {
+
+	var emptyHash chainhash.Hash
+
+	// Ensure that the final root is not empty.
+	if g.finalRoot == emptyHash {
+		return fmt.Errorf("group key reveal final tapscript root is " +
+			"empty")
+	}
+
+	// If an exclusion proof is specified, ensure that it is not empty.
+	err := fn.MapOptionZ(
+		g.customTapscriptRoot,
+		func(root chainhash.Hash) error {
+			if root == emptyHash {
+				return fmt.Errorf("group key reveal " +
+					"tapscript root asset ID exclusion " +
+					"proof is specified but empty")
+			}
+			return nil
+		},
+	)
+	if err != nil {
+		return err
+	}
+
+	// TODO(ffranr): Verify that the inclusion and exclusion proofs are
+	//  valid using the internal key and asset ID.
+
+	return nil
+}
+
+// GroupKeyRevealV1 is a version 1 group key reveal type for representing the
+// data used to derive and verify the tweaked key used to identify an asset
+// group.
+type GroupKeyRevealV1 struct {
+	// tapInternalKey refers to the internal key used to derive the asset
+	// group key. Typically, this internal key is the user's signing public
+	// key.
+	tapInternalKey SerializedKey
+
+	// tapscriptTree is the tapscript tree that commits to the genesis asset
+	// ID and any script spend conditions for the group key.
+	tapscriptTree GroupKeyRevealTapscript
+}
+
+// Ensure that GroupKeyRevealV1 implements the GroupKeyReveal interface.
+var _ GroupKeyReveal = (*GroupKeyRevealV1)(nil)
+
+// NewGroupKeyRevealV1 creates a new version 1 group key reveal instance.
+func NewGroupKeyRevealV1(tapInternalKey SerializedKey,
+	finalRoot chainhash.Hash,
+	customTapscriptRoot fn.Option[chainhash.Hash]) GroupKeyReveal {
+
+	return &GroupKeyRevealV1{
+		tapInternalKey: tapInternalKey,
+		tapscriptTree: GroupKeyRevealTapscript{
+			finalRoot:           finalRoot,
+			customTapscriptRoot: customTapscriptRoot,
+		},
+	}
+}
+
+// RawKey returns the raw key of the group key reveal.
+func (g *GroupKeyRevealV1) RawKey() SerializedKey {
+	return g.tapInternalKey
+}
+
+// SetRawKey sets the raw key of the group key reveal.
+func (g *GroupKeyRevealV1) SetRawKey(rawKey SerializedKey) {
+	g.tapInternalKey = rawKey
+}
+
+// TapscriptRoot returns the tapscript root of the group key reveal.
+func (g *GroupKeyRevealV1) TapscriptRoot() []byte {
+	return g.tapscriptTree.finalRoot[:]
+}
+
+// SetTapscriptRoot sets the tapscript root of the group key reveal.
+func (g *GroupKeyRevealV1) SetTapscriptRoot(tapscriptRootBytes []byte) {
+	var tapscriptRoot chainhash.Hash
+	copy(tapscriptRoot[:], tapscriptRootBytes)
+
+	g.tapscriptTree.finalRoot = tapscriptRoot
+}
+
+// GroupPubKey returns the group public key derived from the group key reveal.
+func (g *GroupKeyRevealV1) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
+	internalKey, err := g.RawKey().ToPubKey()
+	if err != nil {
+		return nil, fmt.Errorf("group reveal raw key invalid: %w", err)
+	}
+
+	return GroupPubKeyV1(internalKey, assetID, g.tapscriptTree)
+}
+
+// GroupPubKeyV1 derives a version 1 asset group key from a signing public key
+// and a tapscript tree.
+func GroupPubKeyV1(internalKey *btcec.PublicKey, assetID ID,
+	tapscriptTree GroupKeyRevealTapscript) (*btcec.PublicKey, error) {
+
+	err := tapscriptTree.Validate(assetID, *internalKey)
+	if err != nil {
+		return nil, fmt.Errorf("group key reveal tapscript tree "+
+			"invalid: %w", err)
+	}
+
+	tapOutputKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptTree.finalRoot[:],
+	)
+	return tapOutputKey, nil
+}
+
 // GroupKeyRevealV0 is a version 0 group key reveal type for representing the
 // data used to derive the tweaked key used to identify an asset group. The
 // final tweaked key is the result of: TapTweak(groupInternalKey, tapscriptRoot)
