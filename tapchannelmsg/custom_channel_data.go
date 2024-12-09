@@ -81,6 +81,7 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 			ScriptKey: hex.EncodeToString(
 				a.ScriptKey.PubKey.SerializeCompressed(),
 			),
+			DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
 		}
 		resp.Assets = append(resp.Assets, rfqmsg.JsonAssetChanInfo{
 			AssetInfo:     utxo,
