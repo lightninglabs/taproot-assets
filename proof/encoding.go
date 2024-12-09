@@ -2,15 +2,16 @@ package proof
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -467,6 +468,11 @@ func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 }
 
 func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
+	// TODO(ffranr): When encoding V1 and onwards, we must fill rawKey,
+	//  tapscriptRoot, and version. Ensuring these fields are populated will
+	//  mean that older tapd nodes will reject the group key reveal cleanly
+	//  (and not try to erroneously parse an unsupported group key reveal).
+
 	if t, ok := val.(*asset.GroupKeyReveal); ok {
 		key := (*t).RawKey()
 		if err := asset.SerializedKeyEncoder(w, &key, buf); err != nil {
@@ -480,10 +486,6 @@ func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
 }
 
 func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if l > btcec.PubKeyBytesLenCompressed+sha256.Size {
-		return tlv.ErrRecordTooLarge
-	}
-
 	if l < btcec.PubKeyBytesLenCompressed {
 		return fmt.Errorf("%w: group key reveal too short",
 			ErrProofInvalid)
@@ -497,14 +499,108 @@ func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		if err != nil {
 			return err
 		}
+
+		// Compute remaining bytes. This calculation will not underflow
+		// because we have already verified that the length is at least
+		// the size of the compressed public key.
 		remaining := l - btcec.PubKeyBytesLenCompressed
-		var tapscriptRoot []byte
-		err = tlv.DVarBytes(r, &tapscriptRoot, buf, remaining)
-		if err != nil {
-			return err
+
+		// Attempt to read the tapscript root bytes if they are present.
+		var tapscriptRootBytes []byte
+		if remaining >= 32 {
+			// At this point, there are at least 32 bytes remaining
+			// which means that there is a tapscript root present.
+			// Read the tapscript root bytes.
+			err = tlv.DVarBytes(r, &tapscriptRootBytes, buf, 32)
+			if err != nil {
+				return err
+			}
+
+			// Update the remaining bytes length counter.
+			remaining -= 32
 		}
 
-		*typ = asset.NewGroupKeyRevealV0(rawKey, tapscriptRoot)
+		// Set a nil taproot root to an empty slice. This ensures that
+		// the encoding/decoding round trip is consistent.
+		if tapscriptRootBytes == nil {
+			tapscriptRootBytes = []byte{}
+		}
+
+		// If there are still bytes remaining, then the next byte should
+		// be the group key reveal version.
+		var version asset.GroupKeyRevealVersion
+		if remaining > 0 {
+			var v uint64
+			err = tlv.DUint8(r, &v, buf, 1)
+			if err != nil {
+				return err
+			}
+
+			version = asset.GroupKeyRevealVersion(v)
+
+			// Update the remaining bytes length counter.
+			remaining -= 1
+		}
+
+		// If the parsed version is greater the latest group key reveal
+		// version, then we reject the group key reveal.
+		//
+		// It is important to cleanly reject future versions of group
+		// key reveals that are not supported by this version of tapd.
+		// This safeguards compatibility for future upgrades to the
+		// group key reveal format.
+		if version > asset.LatestGroupKeyRevealVersion {
+			return fmt.Errorf("unsupported group key reveal "+
+				"version %d", version)
+		}
+
+		// If this is a version 0 group key reveal, then we can return
+		// the group key reveal now.
+		if version == asset.GroupKeyRevealVersion0 {
+			*typ = asset.NewGroupKeyRevealV0(
+				rawKey, tapscriptRootBytes,
+			)
+			return nil
+		}
+
+		// At this point, we know this is a version 1 group key reveal.
+		// Future versions could parse different fields from this point
+		// on.
+		//
+		// For clarity and robustness, we explicitly check for version
+		// 1.
+		if version != asset.GroupKeyRevealVersion1 {
+			return fmt.Errorf("code error: expected group reveal "+
+				"version 1, got %d", version)
+		}
+
+		// We can now cast the tapscript root bytes to a hash.
+		var tapscriptRoot chainhash.Hash
+		copy(tapscriptRoot[:], tapscriptRootBytes)
+
+		// The remaining bytes should constitute the custom tapscript
+		// tree root.
+		var customTapscriptRoot fn.Option[chainhash.Hash]
+		if remaining >= chainhash.HashSize {
+			var rootBytes [32]byte
+			err = tlv.DBytes32(
+				r, &rootBytes, buf,
+				chainhash.HashSize,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to read custom "+
+					"tapscript tree root: %w", err)
+			}
+
+			var root chainhash.Hash
+			copy(root[:], rootBytes[:])
+			customTapscriptRoot = fn.Some(root)
+		}
+
+		*typ = asset.NewGroupKeyRevealV1(
+			rawKey, tapscriptRoot, customTapscriptRoot,
+		)
+
 		return nil
 	}
 	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
