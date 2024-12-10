@@ -2,13 +2,11 @@ package proof
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -480,32 +478,19 @@ func GroupKeyRevealEncoder(w io.Writer, val any, _ *[8]byte) error {
 }
 
 func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if l > btcec.PubKeyBytesLenCompressed+sha256.Size {
-		return tlv.ErrRecordTooLarge
+	typ, ok := val.(*asset.GroupKeyReveal)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
 	}
 
-	if l < btcec.PubKeyBytesLenCompressed {
-		return fmt.Errorf("%w: group key reveal too short",
-			ErrProofInvalid)
+	// Attempt decoding with GroupKeyRevealV0.
+	var gkrV0 asset.GroupKeyRevealV0
+	err := gkrV0.Decode(r, buf, l)
+	if err != nil {
+		return fmt.Errorf("group key reveal V0 decode error: %w", err)
 	}
 
-	if typ, ok := val.(*asset.GroupKeyReveal); ok {
-		var rawKey asset.SerializedKey
-		err := asset.SerializedKeyDecoder(
-			r, &rawKey, buf, btcec.PubKeyBytesLenCompressed,
-		)
-		if err != nil {
-			return err
-		}
-		remaining := l - btcec.PubKeyBytesLenCompressed
-		var tapscriptRoot []byte
-		err = tlv.DVarBytes(r, &tapscriptRoot, buf, remaining)
-		if err != nil {
-			return err
-		}
-
-		*typ = asset.NewGroupKeyRevealV0(rawKey, tapscriptRoot)
-		return nil
-	}
-	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
+	// If the decoding was successful, set the value and return.
+	*typ = &gkrV0
+	return nil
 }
