@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -483,14 +484,52 @@ func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
 	}
 
+	// Use a TeeReader to capture the read bytes, enabling the construction
+	// of a new reader for subsequent decoding attempts.
+	var readBuf bytes.Buffer
+	teeReader := io.TeeReader(r, &readBuf)
+
 	// Attempt decoding with GroupKeyRevealV0.
-	var gkrV0 asset.GroupKeyRevealV0
-	err := gkrV0.Decode(r, buf, l)
+	var (
+		gkrV0        asset.GroupKeyRevealV0
+		scratchBufV0 [8]byte
+	)
+
+	err := gkrV0.Decode(teeReader, &scratchBufV0, l)
 	if err != nil {
-		return fmt.Errorf("group key reveal V0 decode error: %w", err)
+		// If the error is not related to versioning, return the error.
+		errIsVersionRelated := errors.Is(
+			err, asset.ErrGroupKeyRevealDecodeVersion,
+		)
+		if !errIsVersionRelated {
+			return fmt.Errorf("group key reveal V0 decode "+
+				"error: %w", err)
+		}
 	}
 
-	// If the decoding was successful, set the value and return.
-	*typ = &gkrV0
+	// If the decoding was successful, set the value, the scratch buffer,
+	// and return.
+	if err == nil {
+		*typ = &gkrV0
+		*buf = scratchBufV0
+		return nil
+	}
+
+	// Attempt decoding with GroupKeyRevealV1.
+	var (
+		gkrV1        asset.GroupKeyRevealV1
+		scratchBufV1 [8]byte
+		newReader    = bytes.NewReader(readBuf.Bytes())
+	)
+
+	err = gkrV1.Decode(newReader, &scratchBufV1, l)
+	if err != nil {
+		return fmt.Errorf("group key reveal V1 decode error: %w", err)
+	}
+
+	// If the decoding was successful, set the value, the scratch buffer,
+	// and return.
+	*typ = &gkrV1
+	*buf = scratchBufV1
 	return nil
 }

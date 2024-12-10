@@ -918,6 +918,13 @@ type GroupVirtualTx struct {
 	TweakedKey btcec.PublicKey
 }
 
+var (
+	// ErrGroupKeyRevealDecodeVersion is returned when the group key reveal
+	// version does not
+	ErrGroupKeyRevealDecodeVersion = errors.New("invalid decode version " +
+		"for group key reveal")
+)
+
 // GroupKeyReveal represents the data used to derive the adjusted key that
 // uniquely identifies an asset group.
 type GroupKeyReveal interface {
@@ -1323,7 +1330,7 @@ func (g *GroupKeyRevealV0) Decode(r io.Reader, buf *[8]byte, l uint64) error {
 	// is essential to prevent misinterpreting V1 and later group key
 	// reveals as V0.
 	if l > btcec.PubKeyBytesLenCompressed+sha256.Size {
-		return tlv.ErrRecordTooLarge
+		return ErrGroupKeyRevealDecodeVersion
 	}
 
 	if l < btcec.PubKeyBytesLenCompressed {
