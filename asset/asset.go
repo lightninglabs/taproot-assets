@@ -25,6 +25,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -941,6 +942,447 @@ type GroupKeyReveal interface {
 	// GroupPubKey returns the group public key derived from the group key
 	// reveal.
 	GroupPubKey(assetID ID) (*btcec.PublicKey, error)
+}
+
+// NewNonSpendableScriptLeaf creates a new non-spendable tapscript script leaf
+// that includes the specified data. If the data is nil, the leaf will not
+// contain any data but will still be a valid non-spendable script leaf.
+//
+// The script leaf is made non-spendable by including an OP_RETURN opcode at the
+// start of the script. While the script can still be executed, it will always
+// fail and cannot be used to spend funds.
+func NewNonSpendableScriptLeaf(data []byte) lfn.Result[txscript.TapLeaf] {
+	// Construct a script builder and add the OP_RETURN opcode to the start
+	// of the script to ensure that the script is non-executable.
+	scriptBuilder := txscript.NewScriptBuilder().AddOp(txscript.OP_RETURN)
+
+	// Add the data to the script if it is provided.
+	if data != nil {
+		scriptBuilder.AddData(data)
+	}
+
+	// Construct script from the script builder.
+	script, err := scriptBuilder.Script()
+	if err != nil {
+		return lfn.Errf[txscript.TapLeaf]("failed to construct "+
+			"non-spendable script: %w", err)
+	}
+
+	// Create a new tapscript leaf from the script.
+	leaf := txscript.NewBaseTapLeaf(script)
+	return lfn.Ok(leaf)
+}
+
+// TLV types for GroupKeyReveal.
+var (
+	GKRVersion           = new(tlv.TlvType0)
+	GKRInternalKey       = new(tlv.TlvType2)
+	GKRTapsciptRoot      = new(tlv.TlvType4)
+	GKRCustomSubtreeRoot = new(tlv.TlvType7)
+)
+
+func NewGKRVersionRecord(
+	version *uint8) tlv.Record {
+
+	return tlv.MakePrimitiveRecord((*GKRVersion).TypeVal(), version)
+}
+
+func NewGKRInternalKeyRecord(internalKey *SerializedKey) tlv.Record {
+	return tlv.MakePrimitiveRecord(
+		(*GKRInternalKey).TypeVal(), (*[33]byte)(internalKey),
+	)
+}
+
+func NewGKRTapsciptRootRecord(root *chainhash.Hash) tlv.Record {
+	return tlv.MakePrimitiveRecord(
+		(*GKRTapsciptRoot).TypeVal(), (*[32]byte)(root),
+	)
+}
+
+func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
+	return tlv.MakePrimitiveRecord(
+		(*GKRCustomSubtreeRoot).TypeVal(), (*[32]byte)(root),
+	)
+}
+
+// GroupKeyRevealTapscript holds data used to derive the tapscript root, which
+// is then used to calculate the asset group key.
+//
+// More broadly, the asset group key is the Taproot output key, derived using
+// the standard formula:
+//
+//	outputKey = internalKey + TapTweak(internalKey || tapscriptRoot) * G
+//
+// This formula demonstrates that the asset group key (Taproot output key)
+// commits to both the internal key and the tapscript tree root hash.
+//
+// By design, the tapscript root commits to a single genesis asset ID, which
+// ensures that the asset group key also commits to the same unique genesis
+// asset ID. This prevents asset group keys from being reused across different
+// genesis assets or non-compliant asset minting tranches (e.g., tranches of
+// a different asset type).
+//
+// The tapscript tree is formulated to guarantee that only one recognizable
+// genesis asset ID can exist in the tree. The ID is uniquely placed in the
+// first leaf layer, which contains exactly two nodes: the ID leaf and its
+// sibling. The sibling node is deliberately constructed to ensure it cannot be
+// mistaken for a genesis asset ID leaf.
+//
+// The sibling node, `[tweaked_custom_branch]`, of the genesis asset ID leaf is
+// a branch node by design. It serves two purposes:
+//  1. It ensures that only one genesis asset ID leaf can exist in the first
+//     layer, as it is not a valid genesis asset ID leaf.
+//  2. It optionally supports user-defined script spending leaves, enabling
+//     flexibility for custom tapscript subtrees.
+//
+// User-defined script spending leaves are nested under
+// `[tweaked_custom_branch]` as a single node hash, `custom_root_hash`. This
+// hash may represent either a single leaf or the root hash of an entire
+// subtree.
+//
+// If `custom_root_hash` is not provided, it defaults to a 32-byte zero-filled
+// array. In this case, no valid script spending path can correspond to the
+// custom subtree root hash due to the pre-image resistance of SHA-256.
+//
+// A sibling node is included alongside the `custom_root_hash` node. This
+// sibling is a non-spendable script leaf containing `[OP_RETURN]`. Its
+// presence ensures that one of the two positions in the first layer of the
+// tapscript tree is occupied by a branch node. Due to the pre-image
+// resistance of SHA-256, this prevents the existence of a second recognizable
+// genesis asset ID leaf.
+//
+// The final tapscript tree adopts the following structure:
+//
+//	                       [tapscript_root]
+//	                         /          \
+//	[OP_RETURN <genesis asset ID>]   [tweaked_custom_branch]
+//	                                      /        \
+//	                              [OP_RETURN]   <custom_root_hash>
+//
+// Where:
+//   - [tapscript_root] is the root of the final tapscript tree.
+//   - [OP_RETURN <genesis asset ID>] is a first-layer non-spendable script
+//     leaf that commits to the genesis asset ID.
+//   - [tweaked_custom_branch] is a branch node that serves two purposes:
+//     1. It cannot be misinterpreted as a genesis asset ID leaf.
+//     2. It optionally includes user-defined script spending leaves.
+//   - <custom_root_hash> is the root hash of the custom tapscript subtree.
+//     If not specified, it defaults to a 32-byte zero-filled array.
+//   - [OP_RETURN] is a non-spendable script leaf containing the script
+//     `OP_RETURN`. Its presence ensures that [tweaked_custom_branch] remains
+//     a branch node and cannot be a valid genesis asset ID leaf.
+type GroupKeyRevealTapscript struct {
+	// root is the final tapscript root after all tapscript tweaks have
+	// been applied. The asset group key is derived from this root and the
+	// internal key.
+	root chainhash.Hash
+
+	// customSubtreeRoot is an optional root hash representing a
+	// user-defined tapscript subtree that is integrated into the final
+	// tapscript tree. This subtree may define script spending conditions
+	// associated with the group key.
+	customSubtreeRoot fn.Option[chainhash.Hash]
+
+	// customSubtreeInclusionProof provides the inclusion proof for the
+	// custom tapscript subtree. It is required to spend the custom
+	// tapscript leaves within the tree.
+	//
+	// NOTE: This field should not be serialized as part of the group key
+	// reveal. It is included here to ensure it is constructed concurrently
+	// with the tapscript root, maintaining consistency and minimizing
+	// errors.
+	customSubtreeInclusionProof []byte
+}
+
+// NewGroupKeyTapscriptRoot computes the final tapscript root hash
+// which is used to derive the asset group key. The final tapscript root
+// hash is computed from the genesis asset ID and an optional custom tapscript
+// subtree root hash.
+//
+// nolint: lll
+func NewGroupKeyTapscriptRoot(genesisAssetID ID,
+	customRoot fn.Option[chainhash.Hash]) lfn.Result[GroupKeyRevealTapscript] {
+
+	// First, we compute the tweaked custom branch hash. This hash is
+	// derived by combining the hash of a non-spendable leaf and the root
+	// hash of the custom tapscript subtree.
+	//
+	// If a custom tapscript subtree root hash is provided, we use it.
+	// Otherwise, we default to an empty hash (a zero-filled byte array).
+	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(nil).Unpack()
+	if err != nil {
+		return lfn.Err[GroupKeyRevealTapscript](err)
+	}
+
+	// Compute the tweaked custom branch hash.
+	tweakedCustomBranchHash := TapBranchHash(
+		emptyNonSpendLeaf.TapHash(),
+		customRoot.UnwrapOr(chainhash.Hash{}),
+	)
+
+	// Next, we'll combine the tweaked custom branch hash with the genesis
+	// asset ID leaf hash to compute the final tapscript root hash.
+	//
+	// Construct a non-spendable tapscript leaf for the genesis asset ID.
+	assetIDLeaf, err := NewNonSpendableScriptLeaf(
+		genesisAssetID[:],
+	).Unpack()
+	if err != nil {
+		return lfn.Err[GroupKeyRevealTapscript](err)
+	}
+
+	// Compute final tapscript root hash. This is the root hash of the
+	// tapscript tree that is used to derive the asset group key.
+	rootHash := TapBranchHash(
+		assetIDLeaf.TapHash(), tweakedCustomBranchHash,
+	)
+
+	// Construct the custom subtree inclusion proof. This proof is required
+	// to spend custom tapscript leaves in the tapscript tree.
+	emptyNonSpendLeafHash := emptyNonSpendLeaf.TapHash()
+	assetIDLeafHash := assetIDLeaf.TapHash()
+
+	customSubtreeInclusionProof := bytes.Join(
+		[][]byte{
+			emptyNonSpendLeafHash[:],
+			assetIDLeafHash[:],
+		}, nil,
+	)
+
+	return lfn.Ok(GroupKeyRevealTapscript{
+		root:                        rootHash,
+		customSubtreeRoot:           customRoot,
+		customSubtreeInclusionProof: customSubtreeInclusionProof,
+	})
+}
+
+// Validate checks that the group key reveal tapscript is well-formed and
+// compliant.
+func (g *GroupKeyRevealTapscript) Validate(assetID ID) error {
+	// Compute the final tapscript root hash from the genesis asset ID and
+	// the custom tapscript subtree root hash.
+	tapscript, err := NewGroupKeyTapscriptRoot(
+		assetID, g.customSubtreeRoot,
+	).Unpack()
+	if err != nil {
+		return fmt.Errorf("failed to compute tapscript root hash: %w",
+			err)
+	}
+
+	// Ensure that the final tapscript root hash matches the computed root
+	// hash.
+	customRoot := g.customSubtreeRoot.UnwrapOr(chainhash.Hash{})
+
+	if !g.root.IsEqual(&tapscript.root) {
+		return fmt.Errorf("failed to derive tapscript root from "+
+			"internal key, genesis asset ID, and "+
+			"custom subtree root (expected_root=%s, "+
+			"computed_root=%s, custom_subtree_root=%s, "+
+			"genesis_asset_id=%x)",
+			g.root, tapscript.root, customRoot, assetID[:])
+	}
+
+	return nil
+}
+
+// GroupKeyRevealV1 is a version 1 group key reveal type for representing the
+// data used to derive and verify the tweaked key used to identify an asset
+// group.
+type GroupKeyRevealV1 struct {
+	// version is the version of the group key reveal.
+	version uint8
+
+	// internalKey refers to the internal key used to derive the asset
+	// group key. Typically, this internal key is the user's signing public
+	// key.
+	internalKey SerializedKey
+
+	// tapscript is the tapscript tree that commits to the genesis asset ID
+	// and any script spend conditions for the group key.
+	tapscript GroupKeyRevealTapscript
+}
+
+// Ensure that GroupKeyRevealV1 implements the GroupKeyReveal interface.
+var _ GroupKeyReveal = (*GroupKeyRevealV1)(nil)
+
+// NewGroupKeyRevealV1 creates a new version 1 group key reveal instance.
+func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
+	genesisAssetID ID,
+	customRoot fn.Option[chainhash.Hash]) lfn.Result[GroupKeyRevealV1] {
+
+	// Compute the final tapscript root.
+	gkrTapscript, err := NewGroupKeyTapscriptRoot(
+		genesisAssetID, customRoot,
+	).Unpack()
+	if err != nil {
+		return lfn.Err[GroupKeyRevealV1](err)
+	}
+
+	return lfn.Ok(GroupKeyRevealV1{
+		version:     1,
+		internalKey: ToSerialized(&internalKey),
+		tapscript:   gkrTapscript,
+	})
+}
+
+// ScriptSpendControlBlock returns the control block for the script spending
+// path in the custom tapscript subtree.
+//
+// nolint: lll
+func (g *GroupKeyRevealV1) ScriptSpendControlBlock(
+	genesisAssetID ID) lfn.Result[txscript.ControlBlock] {
+
+	internalKey, err := btcec.ParsePubKey(g.internalKey[:])
+	if err != nil {
+		return lfn.Errf[txscript.ControlBlock]("failed to parse "+
+			"internal key: %w", err)
+	}
+
+	outputKey := txscript.ComputeTaprootOutputKey(
+		internalKey, g.tapscript.root[:],
+	)
+	outputKeyIsOdd := outputKey.SerializeCompressed()[0] == 0x03
+
+	// If the custom subtree inclusion proof is nil, it may not have been
+	// set during decoding. Compute it, set it on the group key reveal, and
+	// validate both the computed tapscript root against the expected
+	// root.
+	if len(g.tapscript.customSubtreeInclusionProof) == 0 {
+		gkrTapscript, err := NewGroupKeyTapscriptRoot(
+			genesisAssetID, g.tapscript.customSubtreeRoot,
+		).Unpack()
+		if err != nil {
+			return lfn.Errf[txscript.ControlBlock]("failed to "+
+				"generate tapscript artifacts: %w", err)
+		}
+
+		// Ensure that the computed tapscript root matches the expected
+		// root.
+		if !gkrTapscript.root.IsEqual(&g.tapscript.root) {
+			return lfn.Errf[txscript.ControlBlock]("tapscript "+
+				"root mismatch (expected=%s, computed=%s)",
+				g.tapscript.root, gkrTapscript.root)
+		}
+
+		// Set the custom subtree inclusion proof on the group key
+		// reveal.
+		g.tapscript.customSubtreeInclusionProof =
+			gkrTapscript.customSubtreeInclusionProof
+	}
+
+	return lfn.Ok(txscript.ControlBlock{
+		InternalKey:     internalKey,
+		OutputKeyYIsOdd: outputKeyIsOdd,
+		LeafVersion:     txscript.BaseLeafVersion,
+		InclusionProof:  g.tapscript.customSubtreeInclusionProof,
+	})
+}
+
+// Encode encodes the group key reveal into a writer.
+//
+// This encoding routine must ensure the resulting serialized bytes are
+// sufficiently long to prevent the decoding routine from mistakenly using the
+// wrong group key reveal version. Specifically, the raw key, tapscript root,
+// and version fields must be properly populated.
+func (g *GroupKeyRevealV1) Encode(w io.Writer) error {
+	records := []tlv.Record{
+		NewGKRVersionRecord(&g.version),
+		NewGKRInternalKeyRecord(&g.internalKey),
+		NewGKRTapsciptRootRecord(&g.tapscript.root),
+	}
+
+	// Add encode record for the custom tapscript root, if present.
+	g.tapscript.customSubtreeRoot.WhenSome(func(hash chainhash.Hash) {
+		records = append(records, NewGKRCustomSubtreeRootRecord(&hash))
+	})
+
+	stream, err := tlv.NewStream(records...)
+	if err != nil {
+		return err
+	}
+	return stream.Encode(w)
+}
+
+// Decode decodes the group key reveal from a reader.
+func (g *GroupKeyRevealV1) Decode(r io.Reader, buf *[8]byte, l uint64) error {
+	var customSubtreeRoot chainhash.Hash
+
+	tlvStream, err := tlv.NewStream(
+		NewGKRVersionRecord(&g.version),
+		NewGKRInternalKeyRecord(&g.internalKey),
+		NewGKRTapsciptRootRecord(&g.tapscript.root),
+		NewGKRCustomSubtreeRootRecord(&customSubtreeRoot),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Decode the reader's contents into the tlv stream.
+	_, err = tlvStream.DecodeWithParsedTypes(r)
+	if err != nil {
+		return err
+	}
+
+	// If the custom subtree root is not zero, set it on the group key
+	// reveal.
+	var zeroHash chainhash.Hash
+	if customSubtreeRoot != zeroHash {
+		g.tapscript.customSubtreeRoot =
+			fn.Some[chainhash.Hash](customSubtreeRoot)
+	}
+
+	return nil
+}
+
+// RawKey returns the raw key of the group key reveal.
+func (g *GroupKeyRevealV1) RawKey() SerializedKey {
+	return g.internalKey
+}
+
+// SetRawKey sets the raw key of the group key reveal.
+func (g *GroupKeyRevealV1) SetRawKey(rawKey SerializedKey) {
+	g.internalKey = rawKey
+}
+
+// TapscriptRoot returns the tapscript root of the group key reveal.
+func (g *GroupKeyRevealV1) TapscriptRoot() []byte {
+	return g.tapscript.root[:]
+}
+
+// SetTapscriptRoot sets the tapscript root of the group key reveal.
+func (g *GroupKeyRevealV1) SetTapscriptRoot(tapscriptRootBytes []byte) {
+	var tapscriptRoot chainhash.Hash
+	copy(tapscriptRoot[:], tapscriptRootBytes)
+
+	g.tapscript.root = tapscriptRoot
+}
+
+// GroupPubKey returns the group public key derived from the group key reveal.
+func (g *GroupKeyRevealV1) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
+	internalKey, err := g.RawKey().ToPubKey()
+	if err != nil {
+		return nil, fmt.Errorf("group reveal raw key invalid: %w", err)
+	}
+
+	return GroupPubKeyV1(internalKey, g.tapscript, assetID)
+}
+
+// GroupPubKeyV1 derives a version 1 asset group key from a signing public key
+// and a tapscript tree.
+func GroupPubKeyV1(internalKey *btcec.PublicKey,
+	tapscriptTree GroupKeyRevealTapscript, assetID ID) (*btcec.PublicKey,
+	error) {
+
+	err := tapscriptTree.Validate(assetID)
+	if err != nil {
+		return nil, fmt.Errorf("group key reveal tapscript tree "+
+			"invalid: %w", err)
+	}
+
+	tapOutputKey := txscript.ComputeTaprootOutputKey(
+		internalKey, tapscriptTree.root[:],
+	)
+	return tapOutputKey, nil
 }
 
 // GroupKeyRevealV0 is a version 0 group key reveal type for representing the
