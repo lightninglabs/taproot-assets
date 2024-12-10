@@ -914,6 +914,9 @@ type GroupKeyReveal interface {
 	// Encode encodes the group key reveal into a writer.
 	Encode(w io.Writer) error
 
+	// Decode decodes the group key reveal from a reader.
+	Decode(r io.Reader, buf *[8]byte, l uint64) error
+
 	// RawKey returns the raw key of the group key reveal.
 	RawKey() SerializedKey
 
@@ -976,6 +979,41 @@ func (g *GroupKeyRevealV0) Encode(w io.Writer) error {
 	if err := tlv.EVarBytes(w, &g.tapscriptRoot, &buf); err != nil {
 		return err
 	}
+
+	return nil
+}
+
+// Decode decodes the group key reveal from the reader.
+func (g *GroupKeyRevealV0) Decode(r io.Reader, buf *[8]byte, l uint64) error {
+	// Verify that the group key reveal is not excessively long. This check
+	// is essential to prevent misinterpreting V1 and later group key
+	// reveals as V0.
+	if l > btcec.PubKeyBytesLenCompressed+sha256.Size {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if l < btcec.PubKeyBytesLenCompressed {
+		return fmt.Errorf("group key reveal too short")
+	}
+
+	var rawKey SerializedKey
+	err := SerializedKeyDecoder(
+		r, &rawKey, buf, btcec.PubKeyBytesLenCompressed,
+	)
+	if err != nil {
+		return err
+	}
+
+	remaining := l - btcec.PubKeyBytesLenCompressed
+	var tapscriptRoot []byte
+	err = tlv.DVarBytes(r, &tapscriptRoot, buf, remaining)
+	if err != nil {
+		return err
+	}
+
+	// Set fields now that decoding is complete.
+	g.rawKey = rawKey
+	g.tapscriptRoot = tapscriptRoot
 
 	return nil
 }
