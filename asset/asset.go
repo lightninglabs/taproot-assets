@@ -911,6 +911,9 @@ type GroupVirtualTx struct {
 // GroupKeyReveal represents the data used to derive the adjusted key that
 // uniquely identifies an asset group.
 type GroupKeyReveal interface {
+	// Encode encodes the group key reveal into a writer.
+	Encode(w io.Writer) error
+
 	// RawKey returns the raw key of the group key reveal.
 	RawKey() SerializedKey
 
@@ -957,6 +960,24 @@ func NewGroupKeyRevealV0(rawKey SerializedKey,
 		rawKey:        rawKey,
 		tapscriptRoot: tapscriptRoot,
 	}
+}
+
+// Encode encodes the group key reveal into the writer.
+func (g *GroupKeyRevealV0) Encode(w io.Writer) error {
+	// Define a placeholder scratch buffer which won't be used.
+	var buf [8]byte
+
+	// Encode the raw key into the writer.
+	if err := SerializedKeyEncoder(w, &g.rawKey, &buf); err != nil {
+		return err
+	}
+
+	// Encode the tapscript root into the writer.
+	if err := tlv.EVarBytes(w, &g.tapscriptRoot, &buf); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // RawKey returns the raw key of the group key reveal.

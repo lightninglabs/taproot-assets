@@ -466,14 +466,14 @@ func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "GenesisReveal")
 }
 
-func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
+func GroupKeyRevealEncoder(w io.Writer, val any, _ *[8]byte) error {
 	if t, ok := val.(*asset.GroupKeyReveal); ok {
-		key := (*t).RawKey()
-		if err := asset.SerializedKeyEncoder(w, &key, buf); err != nil {
-			return err
+		if err := (*t).Encode(w); err != nil {
+			return fmt.Errorf("unable to encode group key "+
+				"reveal: %w", err)
 		}
-		root := (*t).TapscriptRoot()
-		return tlv.EVarBytes(w, &root, buf)
+
+		return nil
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
