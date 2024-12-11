@@ -623,16 +623,27 @@ func testMintBatchAndTransfer(t *harnessTest) {
 	require.True(t.t, proto.Equal(originalBatch, afterBatch))
 }
 
-// testAssetBalances tests the balance retrieval functionality for issued
-// assets. The function mints two batches of assets and asserts if the tapcli
-// `assets balance` returns the correct balances. It then funds a vPSBT, putting
-// a lease on one of the two batches. It then asserts whether the endpoint still
-// returns the correct balances, taking into account the `include_leased` flag.
+// testAssetBalances validates the balance retrieval and virtual PSBT funding
+// functionality for issued assets. The test performs the following steps:
+//  1. Mints two batches of assets and verifies that the tapcli
+//     `assets balance` returns the correct balances.
+//  2. Tests funding a vPSBT, putting a lease on one of the two batches, with
+//     the `FundVirtualPsbt` RPC for various scenarios:
+//     - Fails if the Inputs field contains a nil Outpoint.
+//     - Fails if the Inputs field contains an invalid Outpoint.
+//     - Fails if the Inputs field contains an invalid short AssetId.
+//     - Fails if the Inputs field contains an invalid short ScriptKey.
+//     - Succeeds if a valid Outpoint is provided in the Inputs field.
+//     - Succeeds if the Inputs field is not provided at all, using asset
+//     coin selection instead.
+//  3. Ensures that leased assets are reflected correctly in the balance
+//     retrieval, with and without the `include_leased` flag.
 func testAssetBalances(t *harnessTest) {
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
+	// Mint assets for testing.
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
 	)
@@ -648,8 +659,18 @@ func testAssetBalances(t *harnessTest) {
 		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
 	)
 
+	// Check chain anchor for the target asset.
+	out, err := wire.NewOutPointFromString(
+		targetAsset.ChainAnchor.AnchorOutpoint,
+	)
+	require.NoError(t.t, err)
+
 	var (
 		targetAssetGenesis = targetAsset.AssetGenesis
+		assetId            = targetAssetGenesis.AssetId
+		scriptKey          = targetAsset.ScriptKey
+		anchorTxid         = out.Hash.CloneBytes()
+		anchorVout         = out.Index
 		aliceTapd          = t.tapd
 		bobLnd             = t.lndHarness.Bob
 	)
@@ -668,31 +689,139 @@ func testAssetBalances(t *harnessTest) {
 	})
 	require.NoError(t.t, err)
 
-	// Now we can create our virtual transaction and ask Alice's tapd to
-	// fund it.
 	recipients := map[string]uint64{
 		bobAddr.Encoded: bobAddr.Amount,
 	}
-	_, err = aliceTapd.FundVirtualPsbt(
-		ctxt, &wrpc.FundVirtualPsbtRequest{
-			Template: &wrpc.FundVirtualPsbtRequest_Raw{
-				Raw: &wrpc.TxTemplate{
-					Recipients: recipients,
+
+	subTests := []struct {
+		name           string
+		inputs         []*wrpc.PrevId
+		expectError    bool
+		expectedErrMsg string
+	}{
+		{
+			name: "Fail if Inputs are provided but Outpoint is nil",
+			inputs: []*wrpc.PrevId{
+				{
+					Outpoint:  nil,
+					Id:        assetId,
+					ScriptKey: scriptKey,
 				},
 			},
+			expectError:    true,
+			expectedErrMsg: "index 0 has a nil Outpoint",
 		},
-	)
-	require.NoError(t.t, err)
+		{
+			name: "Fail if Inputs contain an invalid Outpoint",
+			inputs: []*wrpc.PrevId{
+				{
+					Outpoint: &taprpc.OutPoint{
+						Txid: []byte(
+							"invalid_txid",
+						),
+						OutputIndex: anchorVout,
+					},
+					Id:        assetId,
+					ScriptKey: scriptKey,
+				},
+			},
+			expectError:    true,
+			expectedErrMsg: "invalid Txid",
+		},
+		{
+			name: "Fail if AssetId is too short",
+			inputs: []*wrpc.PrevId{
+				{
+					Outpoint: &taprpc.OutPoint{
+						Txid:        anchorTxid,
+						OutputIndex: anchorVout,
+					},
+					Id:        []byte{1, 2},
+					ScriptKey: scriptKey,
+				},
+			},
+			expectError:    true,
+			expectedErrMsg: "invalid asset ID",
+		},
+		{
+			name: "Fail if ScriptKey is too short",
+			inputs: []*wrpc.PrevId{
+				{
+					Outpoint: &taprpc.OutPoint{
+						Txid:        anchorTxid,
+						OutputIndex: anchorVout,
+					},
+					Id:        assetId,
+					ScriptKey: []byte{1, 2},
+				},
+			},
+			expectError:    true,
+			expectedErrMsg: "invalid script key",
+		},
+		{
+			name: "Succeed if a valid Outpoint is provided",
+			inputs: []*wrpc.PrevId{
+				{
+					Outpoint: &taprpc.OutPoint{
+						Txid:        anchorTxid,
+						OutputIndex: anchorVout,
+					},
+					Id:        assetId,
+					ScriptKey: scriptKey,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name:        "Succeed if no Inputs are provided",
+			inputs:      nil,
+			expectError: false,
+		},
+	}
 
-	// With a transaction funding should have led to a lease on the simple
-	// assets, we'll use the balance calls to ensure that we're able to
-	// retrieve the proper balances.
-	rpcEmptyAssets := []*taprpc.Asset{}
-	AssertAssetBalances(
-		t.t, t.tapd, rpcEmptyAssets, rpcIssuableAssets, false,
-	)
+	for _, tt := range subTests {
+		// Now we can create our virtual transaction and ask Alice's
+		// tapd to fund it.
+		_, err := aliceTapd.FundVirtualPsbt(
+			ctxt, &wrpc.FundVirtualPsbtRequest{
+				Template: &wrpc.FundVirtualPsbtRequest_Raw{
+					Raw: &wrpc.TxTemplate{
+						Recipients: recipients,
+						Inputs:     tt.inputs,
+					},
+				},
+			},
+		)
 
-	AssertAssetBalances(
-		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, true,
-	)
+		if tt.expectError {
+			require.ErrorContains(t.t, err, tt.expectedErrMsg)
+		} else {
+			require.NoError(t.t, err)
+
+			// With a transaction funding should have led to a
+			// lease on the simple assets, we'll use the balance
+			// calls to ensure that we're able to retrieve the
+			// proper balances.
+			rpcEmptyAssets := []*taprpc.Asset{}
+			AssertAssetBalances(
+				t.t, t.tapd, rpcEmptyAssets, rpcIssuableAssets,
+				false,
+			)
+			AssertAssetBalances(
+				t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets,
+				true,
+			)
+
+			// Unlock the input if provided so it can be reused.
+			for _, input := range tt.inputs {
+				_, err = aliceTapd.RemoveUTXOLease(
+					ctxb,
+					&wrpc.RemoveUTXOLeaseRequest{
+						Outpoint: input.Outpoint,
+					},
+				)
+				require.NoError(t.t, err)
+			}
+		}
+	}
 }
