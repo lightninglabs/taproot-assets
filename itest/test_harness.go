@@ -318,6 +318,8 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 	// If nothing is specified, we use the universe RPC proof courier by
 	// default.
 	default:
+		t.Logf("Address of universe server as proof courier: %v",
+			universeServer.service.rpcHost())
 		proofCourier = universeServer
 	}
 
