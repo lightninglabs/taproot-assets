@@ -2,13 +2,12 @@ package proof
 
 import (
 	"bytes"
-	"crypto/sha256"
+	"errors"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/blockchain"
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -466,46 +465,71 @@ func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	return tlv.NewTypeForEncodingErr(val, "GenesisReveal")
 }
 
-func GroupKeyRevealEncoder(w io.Writer, val any, buf *[8]byte) error {
+func GroupKeyRevealEncoder(w io.Writer, val any, _ *[8]byte) error {
 	if t, ok := val.(*asset.GroupKeyReveal); ok {
-		key := (*t).RawKey()
-		if err := asset.SerializedKeyEncoder(w, &key, buf); err != nil {
-			return err
+		if err := (*t).Encode(w); err != nil {
+			return fmt.Errorf("unable to encode group key "+
+				"reveal: %w", err)
 		}
-		root := (*t).TapscriptRoot()
-		return tlv.EVarBytes(w, &root, buf)
+
+		return nil
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
 }
 
 func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
-	if l > btcec.PubKeyBytesLenCompressed+sha256.Size {
-		return tlv.ErrRecordTooLarge
+	typ, ok := val.(*asset.GroupKeyReveal)
+	if !ok {
+		return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
 	}
 
-	if l < btcec.PubKeyBytesLenCompressed {
-		return fmt.Errorf("%w: group key reveal too short",
-			ErrProofInvalid)
-	}
+	// Use a TeeReader to capture the read bytes, enabling the construction
+	// of a new reader for subsequent decoding attempts.
+	var readBuf bytes.Buffer
+	teeReader := io.TeeReader(r, &readBuf)
 
-	if typ, ok := val.(*asset.GroupKeyReveal); ok {
-		var rawKey asset.SerializedKey
-		err := asset.SerializedKeyDecoder(
-			r, &rawKey, buf, btcec.PubKeyBytesLenCompressed,
+	// Attempt decoding with GroupKeyRevealV0.
+	var (
+		gkrV0        asset.GroupKeyRevealV0
+		scratchBufV0 [8]byte
+	)
+
+	err := gkrV0.Decode(teeReader, &scratchBufV0, l)
+	if err != nil {
+		// If the error is not related to versioning, return the error.
+		errIsVersionRelated := errors.Is(
+			err, asset.ErrGroupKeyRevealDecodeVersion,
 		)
-		if err != nil {
-			return err
+		if !errIsVersionRelated {
+			return fmt.Errorf("group key reveal V0 decode "+
+				"error: %w", err)
 		}
-		remaining := l - btcec.PubKeyBytesLenCompressed
-		var tapscriptRoot []byte
-		err = tlv.DVarBytes(r, &tapscriptRoot, buf, remaining)
-		if err != nil {
-			return err
-		}
+	}
 
-		*typ = asset.NewGroupKeyRevealV0(rawKey, tapscriptRoot)
+	// If the decoding was successful, set the value, the scratch buffer,
+	// and return.
+	if err == nil {
+		*typ = &gkrV0
+		*buf = scratchBufV0
 		return nil
 	}
-	return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
+
+	// Attempt decoding with GroupKeyRevealV1.
+	var (
+		gkrV1        asset.GroupKeyRevealV1
+		scratchBufV1 [8]byte
+		newReader    = bytes.NewReader(readBuf.Bytes())
+	)
+
+	err = gkrV1.Decode(newReader, &scratchBufV1, l)
+	if err != nil {
+		return fmt.Errorf("group key reveal V1 decode error: %w", err)
+	}
+
+	// If the decoding was successful, set the value, the scratch buffer,
+	// and return.
+	*typ = &gkrV1
+	*buf = scratchBufV1
+	return nil
 }
