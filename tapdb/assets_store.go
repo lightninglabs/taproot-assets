@@ -873,10 +873,38 @@ func (a *AssetStore) constraintsToDbFilter(
 				Valid: true,
 			}
 		}
+
+		if query.MaxAmt != 0 {
+			assetFilter.MaxAmt = sql.NullInt64{
+				Int64: int64(query.MaxAmt),
+				Valid: true,
+			}
+		} else {
+			// If MaxAmt is unspecified, use valid: false to ignore
+			// the amount option in the SQL query
+			assetFilter.MaxAmt = sql.NullInt64{
+				Valid: false,
+			}
+		}
+
 		if query.MinAnchorHeight != 0 {
 			assetFilter.MinAnchorHeight = sqlInt32(
 				query.MinAnchorHeight,
 			)
+		}
+
+		if query.ScriptKeyID != nil {
+			assetFilter.ScriptKeyID = sql.NullInt64{
+				Int64: *query.ScriptKeyID,
+				Valid: true,
+			}
+		}
+
+		if query.AnchorPointID != nil {
+			assetFilter.AnchorUtxoID = sql.NullInt64{
+				Int64: *query.AnchorPointID,
+				Valid: true,
+			}
 		}
 
 		// Add asset ID bytes and group key bytes to the filter. These
@@ -970,6 +998,10 @@ type AssetQueryFilters struct {
 	// MinAnchorHeight is the minimum block height the asset's anchor tx
 	// must have been confirmed at.
 	MinAnchorHeight int32
+
+	ScriptKeyID *int64
+
+	AnchorPointID *int64
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
