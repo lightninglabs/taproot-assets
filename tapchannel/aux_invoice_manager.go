@@ -165,6 +165,13 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 		}
 
 		return resp, nil
+	} else if !isAssetInvoice(req.Invoice, s) && !req.Invoice.IsKeysend {
+		// If we do have custom records, but the invoice does not
+		// correspond to an asset invoice, we do not settle the invoice.
+		// Since we requested btc we should be receiving btc.
+		resp.CancelSet = true
+
+		return resp, nil
 	}
 
 	htlcBlob, err := req.WireCustomRecords.Serialize()
