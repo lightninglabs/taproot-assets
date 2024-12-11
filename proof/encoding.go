@@ -2,11 +2,13 @@ package proof
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"fmt"
 	"io"
 	"math"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -478,19 +480,40 @@ func GroupKeyRevealEncoder(w io.Writer, val any, _ *[8]byte) error {
 }
 
 func GroupKeyRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	// Return early if the val is not a pointer to a GroupKeyReveal.
 	typ, ok := val.(*asset.GroupKeyReveal)
 	if !ok {
 		return tlv.NewTypeForEncodingErr(val, "GroupKeyReveal")
 	}
 
-	// Attempt decoding with GroupKeyRevealV0.
-	var gkrV0 asset.GroupKeyRevealV0
-	err := gkrV0.Decode(r, buf, l)
-	if err != nil {
-		return fmt.Errorf("group key reveal V0 decode error: %w", err)
+	// If the length is less than or equal to the sum of the lengths of the
+	// internal key and the tapscript root, then we'll attempt to decode it
+	// as a GroupKeyRevealV0.
+	internalKeyLen := uint64(btcec.PubKeyBytesLenCompressed)
+	tapscriptRootLen := uint64(sha256.Size)
+
+	if l <= internalKeyLen+tapscriptRootLen {
+		// Attempt decoding with GroupKeyRevealV0.
+		var gkrV0 asset.GroupKeyRevealV0
+
+		err := gkrV0.Decode(r, buf, l)
+		if err != nil {
+			return fmt.Errorf("group key reveal V0 decode "+
+				"error: %w", err)
+		}
+
+		*typ = &gkrV0
+		return nil
 	}
 
-	// If the decoding was successful, set the value and return.
-	*typ = &gkrV0
+	// Attempt decoding with GroupKeyRevealV1.
+	var gkrV1 asset.GroupKeyRevealV1
+
+	err := gkrV1.Decode(r, buf, l)
+	if err != nil {
+		return fmt.Errorf("group key reveal V1 decode error: %w", err)
+	}
+
+	*typ = &gkrV1
 	return nil
 }
