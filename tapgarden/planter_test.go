@@ -1654,6 +1654,12 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	// harness.
 	t.refreshChainPlanter()
 
+	// A pending batch should not exist yet. Therefore, `PendingBatch`
+	// should return nil and no error.
+	batch, err := t.planter.PendingBatch()
+	require.Nil(t, batch)
+	require.NoError(t, err)
+
 	var (
 		wg               sync.WaitGroup
 		respChan         = make(chan *FundBatchResp, 1)

@@ -64,6 +64,12 @@ type MintingBatch struct {
 	// reveal for that asset, if it has one.
 	AssetMetas AssetMetas
 
+	// EnableUniAnnounce is a flag that indicates whether the minting
+	// event should support universe announcements. If set to true,
+	// the batch must include only assets that share the same asset group
+	// key, which must also be set.
+	EnableUniAnnounce bool
+
 	// mintingPubKey is the top-level Taproot output key that will be used
 	// to commit to the Taproot Asset commitment above.
 	mintingPubKey *btcec.PublicKey
@@ -307,6 +313,35 @@ func (m *MintingBatch) IsFunded() bool {
 // cannot be sealed nor finalized.
 func (m *MintingBatch) HasSeedlings() bool {
 	return len(m.Seedlings) != 0
+}
+
+// ValidateSeedling checks if a seedling is valid for the batch.
+func (m *MintingBatch) ValidateSeedling(newSeedling Seedling) error {
+	// Ensure that the seedling and batch agree on the enabled universe
+	// announcements.
+	if m.EnableUniAnnounce != newSeedling.EnableUniAnnounce {
+		return fmt.Errorf("batch and seedling do not agree on " +
+			"enabled universe announcements")
+	}
+
+	// If the seedling supports universe announcements, it must have a group
+	// anchor or the same group key as all the other seedlings in the batch.
+	if newSeedling.EnableUniAnnounce {
+		if newSeedling.GroupAnchor == nil &&
+			newSeedling.GroupInfo == nil {
+
+			return fmt.Errorf("universe announcement enabled for " +
+				"seedling but group info/anchor is absent")
+		}
+
+		if newSeedling.GroupInfo != nil {
+			// TODO(ffranr): Add check to ensure that this new
+			//  seedling has the same group key as the other
+			//  seedlings in the batch.
+		}
+	}
+
+	return nil
 }
 
 // ToMintingBatch creates a new MintingBatch from a VerboseBatch.
