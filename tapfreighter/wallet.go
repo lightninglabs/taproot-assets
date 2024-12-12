@@ -369,6 +369,23 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		return nil, address.ErrMismatchedHRP
 	}
 
+	// Each anchor output must have a valid set of AltLeaves at this point.
+	outputAltLeaves := make(map[uint32][]asset.AltLeaf[asset.Asset])
+	for _, vOut := range vPkt.Outputs {
+		outputAltLeaves[vOut.AnchorOutputIndex] = append(
+			outputAltLeaves[vOut.AnchorOutputIndex],
+			asset.CopyAltLeaves(vOut.AltLeaves)...,
+		)
+	}
+
+	for anchorIdx, leaves := range outputAltLeaves {
+		err := asset.ValidAltLeaves(leaves)
+		if err != nil {
+			return nil, fmt.Errorf("anchor output %d invalid alt "+
+				"leaves: %w", anchorIdx, err)
+		}
+	}
+
 	// We need to find a commitment that has enough assets to satisfy this
 	// send request. We'll map the address to a set of constraints, so we
 	// can use that to do Taproot asset coin selection.
@@ -909,6 +926,16 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 		},
 	}
 	vPkt.SetInputAsset(idx, assetInput.Asset)
+
+	inputAltLeaves, err := assetInput.Commitment.FetchAltLeaves()
+	if err != nil {
+		return fmt.Errorf("cannot fetch alt leaves from input: %w", err)
+	}
+
+	err = vPkt.Inputs[idx].SetAltLeaves(inputAltLeaves)
+	if err != nil {
+		return fmt.Errorf("cannot set alt leaves on vInput: %w", err)
+	}
 
 	return nil
 }
