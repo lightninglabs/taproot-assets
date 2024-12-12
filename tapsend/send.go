@@ -1044,6 +1044,9 @@ func CreateOutputCommitments(
 	if err := AssertOutputAnchorsEqual(packets); err != nil {
 		return nil, err
 	}
+	if err := AssertOutputAltLeavesValid(packets); err != nil {
+		return nil, err
+	}
 
 	// We need to make sure this transaction doesn't lead to collisions in
 	// any of the trees (e.g. two asset outputs with the same script key in
@@ -1123,6 +1126,13 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		if err != nil {
 			return fmt.Errorf("error trimming split witnesses: %w",
 				err)
+		}
+
+		// If the vOutput contains any AltLeaves, merge them into the
+		// tap commitment.
+		err = sendTapCommitment.MergeAltLeaves(vOut.AltLeaves)
+		if err != nil {
+			return fmt.Errorf("error merging alt leaves: %w", err)
 		}
 
 		// Merge the finished TAP level commitment with the existing
@@ -1564,6 +1574,37 @@ func AssertInputsUnique(packets []*tappsbt.VPacket) error {
 			}
 
 			inputs.Add(vIn.PrevID)
+		}
+	}
+
+	return nil
+}
+
+// AssertOutputAltLeavesValid checks that, for each anchor output, the AltLeaves
+// carried by all packets assigned to that output can be used to construct an
+// AltCommitment.
+func AssertOutputAltLeavesValid(vPackets []*tappsbt.VPacket) error {
+	anchorLeaves := make(map[uint32]fn.Set[[32]byte])
+
+	for _, pkt := range vPackets {
+		for _, vOut := range pkt.Outputs {
+			if len(vOut.AltLeaves) == 0 {
+				continue
+			}
+
+			// Build a set of AltLeaf keys for each anchor output.
+			outIndex := vOut.AnchorOutputIndex
+			if _, ok := anchorLeaves[outIndex]; !ok {
+				anchorLeaves[outIndex] = fn.NewSet[[32]byte]()
+			}
+
+			err := asset.AddLeafKeysVerifyUnique(
+				anchorLeaves[outIndex], vOut.AltLeaves,
+			)
+			if err != nil {
+				return fmt.Errorf("anchor output %d: %w",
+					outIndex, err)
+			}
 		}
 	}
 
