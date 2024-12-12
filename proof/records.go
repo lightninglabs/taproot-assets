@@ -27,6 +27,7 @@ const (
 	BlockHeightType      tlv.Type = 22
 	GenesisRevealType    tlv.Type = 23
 	GroupKeyRevealType   tlv.Type = 25
+	AltLeavesType        tlv.Type = 27
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 2
@@ -53,7 +54,7 @@ var KnownProofTypes = fn.NewSet(
 	TxMerkleProofType, AssetLeafType, InclusionProofType,
 	ExclusionProofsType, SplitRootProofType, MetaRevealType,
 	AdditionalInputsType, ChallengeWitnessType, BlockHeightType,
-	GenesisRevealType, GroupKeyRevealType,
+	GenesisRevealType, GroupKeyRevealType, AltLeavesType,
 )
 
 // KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This
@@ -391,5 +392,20 @@ func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		GroupKeyRevealType, reveal, recordSize, GroupKeyRevealEncoder,
 		GroupKeyRevealDecoder,
+	)
+}
+
+func AltLeavesRecord(leaves *[]asset.AltLeaf[asset.Asset]) tlv.Record {
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		err := asset.AltLeavesEncoder(&buf, leaves, &[8]byte{})
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		AltLeavesType, leaves, sizeFunc, asset.AltLeavesEncoder,
+		asset.AltLeavesDecoder,
 	)
 }

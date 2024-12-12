@@ -283,6 +283,18 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		},
 	)
 	require.NoError(t, err)
+
+	// Include 1 or more alt leaves in the anchor output Tap commitment.
+	// Since this is also used for generating the test vectors, we don't
+	// actually want to have zero alt leaves.
+	innerAltLeaves := asset.RandAltLeaves(t, true)
+
+	altCommitment, err := commitment.NewAssetCommitment(innerAltLeaves...)
+	require.NoError(t, err)
+
+	err = tapCommitment.Upsert(altCommitment)
+	require.NoError(t, err)
+	altLeaves := asset.ToAltLeaves(innerAltLeaves)
 	genesisAsset := assets[0]
 	_, commitmentProof, err := tapCommitment.Proof(
 		genesisAsset.TapCommitmentKey(),
@@ -355,6 +367,7 @@ func genRandomGenesisWithProof(t testing.TB, assetType asset.Type,
 		AdditionalInputs: nil,
 		GenesisReveal:    genReveal,
 		GroupKeyReveal:   groupKeyReveal,
+		AltLeaves:        altLeaves,
 	}, genesisPrivKey
 }
 
