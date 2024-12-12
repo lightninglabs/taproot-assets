@@ -135,6 +135,16 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 
 	proof.Asset = *params.NewAsset.Copy()
 
+	// Copy any AltLeaves from the anchor commitment to the proof.
+	altLeaves, err := params.TaprootAssetRoot.FetchAltLeaves()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(altLeaves) > 0 {
+		proof.AltLeaves = asset.ToAltLeaves(altLeaves)
+	}
+
 	// With the base information contained, we'll now need to generate our
 	// series of MS-SMT inclusion proofs that prove the existence of the
 	// asset.
