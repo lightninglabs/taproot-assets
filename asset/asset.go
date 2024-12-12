@@ -719,6 +719,15 @@ func CheckTapLeafSanity(leaf *txscript.TapLeaf) error {
 	return nil
 }
 
+// TapBranchHash takes the tap hashes of the left and right nodes and hashes
+// them into a branch.
+func TapBranchHash(l, r chainhash.Hash) chainhash.Hash {
+	if bytes.Compare(l[:], r[:]) > 0 {
+		l, r = r, l
+	}
+	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
+}
+
 // TapLeafNodes represents an ordered list of TapLeaf objects, that have been
 // checked for their script version and size. These leaves can be stored to and
 // loaded from the DB.
