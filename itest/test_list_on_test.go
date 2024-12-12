@@ -254,6 +254,10 @@ var testCases = []*testCase{
 		test: testMultiInputPsbtSingleAssetID,
 	},
 	{
+		name: "psbt alt leaf anchoring",
+		test: testPsbtInteractiveAltLeafAnchoring,
+	},
+	{
 		name: "universe REST API",
 		test: testUniverseREST,
 	},
