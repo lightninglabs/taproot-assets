@@ -399,7 +399,8 @@ func createPacket(t *testing.T, addr address.Tap, prevInput asset.PrevID,
 	}
 
 	for outputIdx := range len(vPacket.Outputs) {
-		vPacket.Outputs[outputIdx].SetAltLeaves(makeAltLeaves())
+		err := vPacket.Outputs[outputIdx].SetAltLeaves(makeAltLeaves())
+		require.NoError(t, err)
 	}
 
 	return vPacket
@@ -618,7 +619,7 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 			return leaf.DeepEqual(altLeaf)
 		}
 
-		fn.All(vOut.AltLeaves, matchingAltLeaf)
+		require.True(t, fn.All(vOut.AltLeaves, matchingAltLeaf))
 	}
 
 	inputMatchingAsset := !isSplit
@@ -2498,6 +2499,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 		key1        = test.RandPubKey(t)
 		key2        = test.RandPubKey(t)
 		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		altLeaves   = asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 		emptyProof  = &proof.CommitmentProof{}
 		vOutSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:            0,
@@ -2509,6 +2511,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 					CommitmentProof: emptyProof,
 				},
 			},
+			AltLeaves: altLeaves,
 		}
 		vOutNoSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:       0,
@@ -2519,10 +2522,14 @@ func TestValidateAnchorOutputs(t *testing.T) {
 					CommitmentProof: emptyProof,
 				},
 			},
+			AltLeaves: altLeaves,
 		}
 		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
 	)
 	asset1Commitment, err := commitment.FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	err = asset1Commitment.MergeAltLeaves(altLeaves)
 	require.NoError(t, err)
 
 	vOutCommitmentProof := proof.CommitmentProof{
