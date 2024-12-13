@@ -4,7 +4,24 @@ import (
 	"math"
 
 	"github.com/btcsuite/btcd/btcutil"
+	"github.com/lightningnetwork/lnd/input"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
+)
+
+var (
+	// DefaultOnChainHtlcSat is the default amount that we consider as the
+	// smallest HTLC amount that can be sent on-chain. This needs to be
+	// greater than the dust limit for an HTLC.
+	DefaultOnChainHtlcSat = lnwallet.DustLimitForSize(
+		input.UnknownWitnessSize,
+	)
+
+	// DefaultOnChainHtlcMSat is the default amount that we consider as the
+	// smallest HTLC amount that can be sent on-chain in milli-satoshis.
+	DefaultOnChainHtlcMSat = lnwire.NewMSatFromSatoshis(
+		DefaultOnChainHtlcSat,
+	)
 )
 
 // defaultArithmeticScale is the default scale used for arithmetic operations.

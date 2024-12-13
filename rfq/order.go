@@ -14,10 +14,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/channeldb/models"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -248,9 +246,7 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 	htlc lndclient.InterceptedHtlc) (*lndclient.InterceptedHtlcResponse,
 	error) {
 
-	outgoingAmt := lnwire.NewMSatFromSatoshis(lnwallet.DustLimitForSize(
-		input.UnknownWitnessSize,
-	))
+	outgoingAmt := rfqmath.DefaultOnChainHtlcMSat
 
 	// Unpack asset ID.
 	assetID, err := c.AssetSpecifier.UnwrapIdOrErr()
