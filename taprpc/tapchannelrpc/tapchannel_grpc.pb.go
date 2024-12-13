@@ -36,6 +36,10 @@ type TaprootAssetChannelsClient interface {
 	// specific parameters. It allows RPC users to create invoices that correspond
 	// to the specified asset amount.
 	AddInvoice(ctx context.Context, in *AddInvoiceRequest, opts ...grpc.CallOption) (*AddInvoiceResponse, error)
+	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
+	// asset ID and returns the invoice amount expressed in asset units along side
+	// the normal information.
+	DecodeAssetPayReq(ctx context.Context, in *AssetPayReq, opts ...grpc.CallOption) (*AssetPayReqResponse, error)
 }
 
 type taprootAssetChannelsClient struct {
@@ -105,6 +109,15 @@ func (c *taprootAssetChannelsClient) AddInvoice(ctx context.Context, in *AddInvo
 	return out, nil
 }
 
+func (c *taprootAssetChannelsClient) DecodeAssetPayReq(ctx context.Context, in *AssetPayReq, opts ...grpc.CallOption) (*AssetPayReqResponse, error) {
+	out := new(AssetPayReqResponse)
+	err := c.cc.Invoke(ctx, "/tapchannelrpc.TaprootAssetChannels/DecodeAssetPayReq", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaprootAssetChannelsServer is the server API for TaprootAssetChannels service.
 // All implementations must embed UnimplementedTaprootAssetChannelsServer
 // for forward compatibility
@@ -127,6 +140,10 @@ type TaprootAssetChannelsServer interface {
 	// specific parameters. It allows RPC users to create invoices that correspond
 	// to the specified asset amount.
 	AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error)
+	// DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
+	// asset ID and returns the invoice amount expressed in asset units along side
+	// the normal information.
+	DecodeAssetPayReq(context.Context, *AssetPayReq) (*AssetPayReqResponse, error)
 	mustEmbedUnimplementedTaprootAssetChannelsServer()
 }
 
@@ -145,6 +162,9 @@ func (UnimplementedTaprootAssetChannelsServer) SendPayment(*SendPaymentRequest, 
 }
 func (UnimplementedTaprootAssetChannelsServer) AddInvoice(context.Context, *AddInvoiceRequest) (*AddInvoiceResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method AddInvoice not implemented")
+}
+func (UnimplementedTaprootAssetChannelsServer) DecodeAssetPayReq(context.Context, *AssetPayReq) (*AssetPayReqResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method DecodeAssetPayReq not implemented")
 }
 func (UnimplementedTaprootAssetChannelsServer) mustEmbedUnimplementedTaprootAssetChannelsServer() {}
 
@@ -234,6 +254,24 @@ func _TaprootAssetChannels_AddInvoice_Handler(srv interface{}, ctx context.Conte
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssetChannels_DecodeAssetPayReq_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AssetPayReq)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetChannelsServer).DecodeAssetPayReq(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/tapchannelrpc.TaprootAssetChannels/DecodeAssetPayReq",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetChannelsServer).DecodeAssetPayReq(ctx, req.(*AssetPayReq))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaprootAssetChannels_ServiceDesc is the grpc.ServiceDesc for TaprootAssetChannels service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -252,6 +290,10 @@ var TaprootAssetChannels_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "AddInvoice",
 			Handler:    _TaprootAssetChannels_AddInvoice_Handler,
+		},
+		{
+			MethodName: "DecodeAssetPayReq",
+			Handler:    _TaprootAssetChannels_DecodeAssetPayReq_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

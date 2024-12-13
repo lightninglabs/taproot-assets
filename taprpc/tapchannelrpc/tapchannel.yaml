@@ -15,3 +15,6 @@ http:
     - selector: tapchannelrpc.TaprootAssetChannels.AddInvoice
       post: "/v1/taproot-assets/channels/invoice"
       body: "*"
+    - selector: tapchannelrpc.TaprootAssetChannels.DecodeAssetPayReq
+      post: "/v1/taproot-assets/channels/invoice/decode"
+      body: "*"

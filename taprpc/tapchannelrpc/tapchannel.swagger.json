@@ -115,6 +115,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/channels/invoice/decode": {
+      "post": {
+        "summary": "DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an\nasset ID and returns the invoice amount expressed in asset units along side\nthe normal information.",
+        "operationId": "TaprootAssetChannels_DecodeAssetPayReq",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcAssetPayReqResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/tapchannelrpcAssetPayReq"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssetChannels"
+        ]
+      }
+    },
     "/v1/taproot-assets/channels/send-payment": {
       "post": {
         "summary": "SendPayment is a wrapper around lnd's routerrpc.SendPaymentV2 RPC method\nwith asset specific parameters. It allows RPC users to send asset keysend\npayments (direct payments) or payments to an invoice with a specified asset\namount.",
@@ -309,6 +342,44 @@
         }
       }
     },
+    "lnrpcBlindedHop": {
+      "type": "object",
+      "properties": {
+        "blinded_node": {
+          "type": "string",
+          "format": "byte",
+          "description": "The blinded public key of the node."
+        },
+        "encrypted_data": {
+          "type": "string",
+          "format": "byte",
+          "description": "An encrypted blob of data provided to the blinded node."
+        }
+      }
+    },
+    "lnrpcBlindedPath": {
+      "type": "object",
+      "properties": {
+        "introduction_node": {
+          "type": "string",
+          "format": "byte",
+          "description": "The unblinded pubkey of the introduction node for the route."
+        },
+        "blinding_point": {
+          "type": "string",
+          "format": "byte",
+          "description": "The ephemeral pubkey used by nodes in the blinded route."
+        },
+        "blinded_hops": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcBlindedHop"
+          },
+          "description": "A set of blinded node keys and data blobs for the blinded portion of the\nroute. Note that the first hop is expected to be the introduction node,\nso the route is always expected to have at least one hop."
+        }
+      }
+    },
     "lnrpcBlindedPathConfig": {
       "type": "object",
       "properties": {
@@ -334,6 +405,47 @@
             "format": "byte"
           },
           "description": "A list of node IDs of nodes that should not be used in any of our generated\nblinded paths."
+        }
+      }
+    },
+    "lnrpcBlindedPaymentPath": {
+      "type": "object",
+      "properties": {
+        "blinded_path": {
+          "$ref": "#/definitions/lnrpcBlindedPath",
+          "description": "The blinded path to send the payment to."
+        },
+        "base_fee_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The base fee for the blinded path provided, expressed in msat."
+        },
+        "proportional_fee_rate": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The proportional fee for the blinded path provided, expressed in parts\nper million."
+        },
+        "total_cltv_delta": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The total CLTV delta for the blinded path provided, including the\nfinal CLTV delta for the receiving node."
+        },
+        "htlc_min_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum hltc size that may be sent over the blinded path, expressed\nin msat."
+        },
+        "htlc_max_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The maximum htlc size that may be sent over the blinded path, expressed\nin msat."
+        },
+        "features": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/lnrpcFeatureBit"
+          },
+          "description": "The feature bits for the route."
         }
       }
     },
@@ -880,6 +992,70 @@
         }
       }
     },
+    "lnrpcPayReq": {
+      "type": "object",
+      "properties": {
+        "destination": {
+          "type": "string"
+        },
+        "payment_hash": {
+          "type": "string"
+        },
+        "num_satoshis": {
+          "type": "string",
+          "format": "int64"
+        },
+        "timestamp": {
+          "type": "string",
+          "format": "int64"
+        },
+        "expiry": {
+          "type": "string",
+          "format": "int64"
+        },
+        "description": {
+          "type": "string"
+        },
+        "description_hash": {
+          "type": "string"
+        },
+        "fallback_addr": {
+          "type": "string"
+        },
+        "cltv_expiry": {
+          "type": "string",
+          "format": "int64"
+        },
+        "route_hints": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcRouteHint"
+          }
+        },
+        "payment_addr": {
+          "type": "string",
+          "format": "byte"
+        },
+        "num_msat": {
+          "type": "string",
+          "format": "int64"
+        },
+        "features": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/definitions/lnrpcFeature"
+          }
+        },
+        "blinded_paths": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "$ref": "#/definitions/lnrpcBlindedPaymentPath"
+          }
+        }
+      }
+    },
     "lnrpcPayment": {
       "type": "object",
       "properties": {
@@ -1352,6 +1528,46 @@
         }
       }
     },
+    "tapchannelrpcAssetPayReq": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that will be used to resolve the invoice's satoshi amount."
+        },
+        "pay_req_string": {
+          "type": "string",
+          "description": "The normal LN invoice that whose amount will be mapped to units of the\nasset ID."
+        }
+      }
+    },
+    "tapchannelrpcAssetPayReqResponse": {
+      "type": "object",
+      "properties": {
+        "asset_amount": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The invoice amount, expressed in asset units."
+        },
+        "decimal_display": {
+          "$ref": "#/definitions/taprpcDecimalDisplay",
+          "description": "The decimal display corresponding to the asset_id."
+        },
+        "asset_group": {
+          "$ref": "#/definitions/taprpcAssetGroup",
+          "description": "The group the asset ID belong to, if applicable."
+        },
+        "genesis_info": {
+          "$ref": "#/definitions/taprpcGenesisInfo",
+          "description": "Genesis information for the asset ID which includes the meta hash, and\nasset ID."
+        },
+        "pay_req": {
+          "$ref": "#/definitions/lnrpcPayReq",
+          "description": "The normal decoded payment request."
+        }
+      }
+    },
     "tapchannelrpcEncodeCustomRecordsRequest": {
       "type": "object",
       "properties": {
@@ -1487,6 +1703,82 @@
         "payment_result": {
           "$ref": "#/definitions/lnrpcPayment",
           "description": "The payment result of a single payment attempt. Multiple attempts may\nbe returned per payment request until either the payment succeeds or\nthe payment times out."
+        }
+      }
+    },
+    "taprpcAssetGroup": {
+      "type": "object",
+      "properties": {
+        "raw_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw group key which is a normal public key."
+        },
+        "tweaked_group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The tweaked group key, which is derived based on the genesis point and also\nasset type."
+        },
+        "asset_witness": {
+          "type": "string",
+          "format": "byte",
+          "description": "A witness that authorizes a specific asset to be part of the asset group\nspecified by the above key."
+        },
+        "tapscript_root": {
+          "type": "string",
+          "format": "byte",
+          "description": "The root hash of a tapscript tree, which enables future issuance authorized\nwith a script witness."
+        }
+      }
+    },
+    "taprpcAssetType": {
+      "type": "string",
+      "enum": [
+        "NORMAL",
+        "COLLECTIBLE"
+      ],
+      "default": "NORMAL",
+      "description": " - NORMAL: Indicates that an asset is capable of being split/merged, with each of the\nunits being fungible, even across a key asset ID boundary (assuming the\nkey group is the same).\n - COLLECTIBLE: Indicates that an asset is a collectible, meaning that each of the other\nitems under the same key group are not fully fungible with each other.\nCollectibles also cannot be split or merged."
+    },
+    "taprpcDecimalDisplay": {
+      "type": "object",
+      "properties": {
+        "decimal_display": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Decimal display dictates the number of decimal places to shift the amount to\nthe left converting from Taproot Asset integer representation to a\nUX-recognizable fractional quantity.\n\nFor example, if the decimal_display value is 2 and there's 100 of those\nassets, then a wallet would display the amount as \"1.00\". This field is\nintended as information for wallets that display balances and has no impact\non the behavior of the daemon or any other part of the protocol. This value\nis encoded in the MetaData field as a JSON field, therefore it is only\ncompatible with assets that have a JSON MetaData field."
+        }
+      }
+    },
+    "taprpcGenesisInfo": {
+      "type": "object",
+      "properties": {
+        "genesis_point": {
+          "type": "string",
+          "description": "The first outpoint of the transaction that created the asset (txid:vout)."
+        },
+        "name": {
+          "type": "string",
+          "description": "The name of the asset."
+        },
+        "meta_hash": {
+          "type": "string",
+          "format": "byte",
+          "description": "The hash of the meta data for this genesis asset."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID that uniquely identifies the asset."
+        },
+        "asset_type": {
+          "$ref": "#/definitions/taprpcAssetType",
+          "description": "The type of the asset."
+        },
+        "output_index": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The index of the output that carries the unique Taproot Asset commitment in\nthe genesis transaction."
         }
       }
     }
