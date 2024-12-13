@@ -114,3 +114,44 @@ func UnitsToMilliSatoshi[N Int[N]](assetUnits,
 	// along the way.
 	return lnwire.MilliSatoshi(amtMsat.ScaleTo(0).ToUint64())
 }
+
+// MinTransportableUnits computes the minimum number of transportable units
+// of an asset given its asset rate and the constant HTLC dust limit. This
+// function can be used to enforce a minimum invoice amount to prevent
+// forwarding failures due to invalid fees.
+//
+// Given a wallet end user A, an edge node B, an asset rate of 100 milli-
+// satoshi per asset unit and a flat 0.1% routing fee (to simplify the
+// scenario), the following invoice based receive events can occur:
+//  1. Success case: User A creates an invoice over 5,000 units (500,000 milli-
+//     satoshis) that is paid by the network. An HTLC over 500,500 milli-
+//     satoshis arrives at B. B converts the HTLC to 5,000 units and sends
+//     354,000 milli-satoshis to A.
+//     A receives a total "worth" of 854,000 milli-satoshis, which is already
+//     more than the invoice amount. But at least the forwarding rule in `lnd`
+//     for B is not violated (outgoing amount mSat < incoming amount mSat).
+//  2. Failure case: User A creates an invoice over 3,530 units (353,000 milli-
+//     satoshis) that is paid by the network. An HTLC over 353,530 milli-
+//     satoshis arrives at B. B converts the HTLC to 3,530 units and sends
+//     354,000 milli-satoshis to A.
+//     This fails in the `lnd` forwarding logic, because the outgoing amount
+//     (354,000 milli-satoshis) is greater than the incoming amount (353,530
+//     milli-satoshis).
+func MinTransportableUnits(dustLimit lnwire.MilliSatoshi,
+	rate BigIntFixedPoint) BigIntFixedPoint {
+
+	// We can only transport an asset unit equivalent amount that's greater
+	// than the dust limit for an HTLC, since we'll always want an HTLC that
+	// carries an HTLC to be reflected in an on-chain output.
+	units := MilliSatoshiToUnits(dustLimit, rate)
+
+	// If the asset's rate is such that a single unit represents more than
+	// the dust limit in satoshi, then the above calculation will come out
+	// as 0. But we can't transport zero units, so we'll set the minimum to
+	// one unit.
+	if units.ScaleTo(0).ToUint64() == 0 {
+		units = NewBigIntFixedPoint(1, 0)
+	}
+
+	return units
+}

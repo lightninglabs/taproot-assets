@@ -373,9 +373,10 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		invoiceAmount lnwire.MilliSatoshi
-		price         FixedPoint[BigInt]
-		expectedUnits uint64
+		invoiceAmount             lnwire.MilliSatoshi
+		price                     FixedPoint[BigInt]
+		expectedUnits             uint64
+		expectedMinTransportUnits uint64
 	}{
 		{
 			// 5k USD per BTC @ decimal display 2.
@@ -384,7 +385,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(5_000_00),
 				Scale:       2,
 			},
-			expectedUnits: 1,
+			expectedUnits:             1,
+			expectedMinTransportUnits: 1,
 		},
 		{
 			// 5k USD per BTC @ decimal display 6.
@@ -393,7 +395,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(5_000_00),
 				Scale:       2,
 			}.ScaleTo(6),
-			expectedUnits: 10_000,
+			expectedUnits:             10_000,
+			expectedMinTransportUnits: 1,
 		},
 		{
 			// 50k USD per BTC @ decimal display 6.
@@ -402,7 +405,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(50_702_00),
 				Scale:       2,
 			}.ScaleTo(6),
-			expectedUnits: 1000,
+			expectedUnits:             1000,
+			expectedMinTransportUnits: 1,
 		},
 		{
 			// 50M USD per BTC @ decimal display 6.
@@ -411,7 +415,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(50_702_000_00),
 				Scale:       2,
 			}.ScaleTo(6),
-			expectedUnits: 62595061158,
+			expectedUnits:             62595061158,
+			expectedMinTransportUnits: 179,
 		},
 		{
 			// 50k USD per BTC @ decimal display 6.
@@ -420,7 +425,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(50_702_12),
 				Scale:       2,
 			}.ScaleTo(6),
-			expectedUnits: 2_570,
+			expectedUnits:             2_570,
+			expectedMinTransportUnits: 1,
 		},
 		{
 			// 7.341M JPY per BTC @ decimal display 6.
@@ -429,7 +435,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(7_341_847),
 				Scale:       0,
 			}.ScaleTo(6),
-			expectedUnits: 367_092,
+			expectedUnits:             367_092,
+			expectedMinTransportUnits: 25,
 		},
 		{
 			// 7.341M JPY per BTC @ decimal display 2.
@@ -438,7 +445,8 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 				Coefficient: newBig(7_341_847),
 				Scale:       0,
 			}.ScaleTo(4),
-			expectedUnits: 3_670,
+			expectedUnits:             3_670,
+			expectedMinTransportUnits: 25,
 		},
 	}
 
@@ -454,6 +462,12 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 
 			diff := tc.invoiceAmount - mSat
 			require.LessOrEqual(t, diff, uint64(2), "mSAT diff")
+
+			minUnitsFP := MinTransportableUnits(
+				DefaultOnChainHtlcMSat, tc.price,
+			)
+			minUnits := minUnitsFP.ScaleTo(0).ToUint64()
+			require.Equal(t, tc.expectedMinTransportUnits, minUnits)
 		})
 	}
 }
