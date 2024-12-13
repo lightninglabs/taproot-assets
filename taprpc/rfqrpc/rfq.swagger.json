@@ -910,6 +910,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The unix timestamp in seconds after which the quote is no longer valid."
+        },
+        "min_transportable_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum amount of milli-satoshis that need to be sent out in order to\ntransport a single asset unit over the Lightning Network with the given\nrate. This is the base amount of 354,000 milli-satoshi (the minimum\namount for a non-dust HTLC) plus the equivalent of one asset unit in\nmilli-satoshis."
         }
       }
     },

@@ -547,13 +547,18 @@ func MarshalAcceptedSellQuote(
 		accept.Request.PaymentMaxAmt, accept.AssetRate.Rate,
 	)
 
+	minTransportableMSat := rfqmath.MinTransportableMSat(
+		rfqmath.DefaultOnChainHtlcMSat, accept.AssetRate.Rate,
+	)
+
 	return &rfqrpc.PeerAcceptedSellQuote{
-		Peer:         accept.Peer.String(),
-		Id:           accept.ID[:],
-		Scid:         uint64(accept.ShortChannelId()),
-		BidAssetRate: rpcAssetRate,
-		Expiry:       uint64(accept.AssetRate.Expiry.Unix()),
-		AssetAmount:  numAssetUnits.ScaleTo(0).ToUint64(),
+		Peer:                 accept.Peer.String(),
+		Id:                   accept.ID[:],
+		Scid:                 uint64(accept.ShortChannelId()),
+		BidAssetRate:         rpcAssetRate,
+		Expiry:               uint64(accept.AssetRate.Expiry.Unix()),
+		AssetAmount:          numAssetUnits.ScaleTo(0).ToUint64(),
+		MinTransportableMsat: uint64(minTransportableMSat),
 	}
 }
 
