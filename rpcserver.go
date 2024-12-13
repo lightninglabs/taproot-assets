@@ -7382,6 +7382,17 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, fmt.Errorf("unexpected response type: %T", r)
 	}
 
+	// If the invoice is for an asset unit amount smaller than the minimal
+	// transportable amount, we'll return an error, as it wouldn't be
+	// payable by the network.
+	if acceptedQuote.MinTransportableUnits > req.AssetAmount {
+		return nil, fmt.Errorf("cannot create invoice over %d asset "+
+			"units, as the minimal transportable amount is %d "+
+			"units with the current rate of %v units/BTC",
+			req.AssetAmount, acceptedQuote.MinTransportableUnits,
+			acceptedQuote.AskAssetRate)
+	}
+
 	// Now that we have the accepted quote, we know the amount in Satoshi
 	// that we need to pay. We can now update the invoice with this amount.
 	//
