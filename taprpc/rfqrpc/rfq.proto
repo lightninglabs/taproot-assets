@@ -252,6 +252,12 @@ message PeerAcceptedBuyQuote {
 
     // The unix timestamp in seconds after which the quote is no longer valid.
     uint64 expiry = 6;
+
+    // The smallest amount of asset units that can be transported within a
+    // single HTLC over the Lightning Network with the given rate. This is the
+    // asset unit equivalent of 354 satoshis, which is the minimum amount for an
+    // HTLC to be above the dust limit.
+    uint64 min_transportable_units = 7;
 }
 
 message PeerAcceptedSellQuote {

@@ -563,6 +563,13 @@ func MarshalAcceptedBuyQuoteEvent(
 	event *rfq.PeerAcceptedBuyQuoteEvent) (*rfqrpc.PeerAcceptedBuyQuote,
 	error) {
 
+	// We now calculate the minimum amount of asset units that can be
+	// transported within a single HTLC for this asset at the given rate.
+	// This corresponds to the 354 satoshi minimum non-dust HTLC value.
+	minTransportableUnits := rfqmath.MinTransportableUnits(
+		rfqmath.DefaultOnChainHtlcMSat, event.AssetRate.Rate,
+	).ScaleTo(0).ToUint64()
+
 	return &rfqrpc.PeerAcceptedBuyQuote{
 		Peer:           event.Peer.String(),
 		Id:             event.ID[:],
@@ -572,7 +579,8 @@ func MarshalAcceptedBuyQuoteEvent(
 			Coefficient: event.AssetRate.Rate.Coefficient.String(),
 			Scale:       uint32(event.AssetRate.Rate.Scale),
 		},
-		Expiry: uint64(event.AssetRate.Expiry.Unix()),
+		Expiry:                uint64(event.AssetRate.Expiry.Unix()),
+		MinTransportableUnits: minTransportableUnits,
 	}, nil
 }
 

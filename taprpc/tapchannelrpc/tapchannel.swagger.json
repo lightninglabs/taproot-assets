@@ -1107,6 +1107,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The unix timestamp in seconds after which the quote is no longer valid."
+        },
+        "min_transportable_units": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The smallest amount of asset units that can be transported within a\nsingle HTLC over the Lightning Network with the given rate. This is the\nasset unit equivalent of 354 satoshis, which is the minimum amount for an\nHTLC to be above the dust limit."
         }
       }
     },
