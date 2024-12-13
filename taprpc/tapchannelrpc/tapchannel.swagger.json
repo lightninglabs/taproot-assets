@@ -1470,6 +1470,10 @@
           "type": "string",
           "format": "byte",
           "description": "The rfq id to use for this payment. If the user sets this value then the\npayment will immediately be dispatched, skipping the rfq negotiation\nphase, and using the following rfq id instead."
+        },
+        "allow_overpay": {
+          "type": "boolean",
+          "description": "If a small invoice should be paid that is below the amount that always\nneeds to be sent out to carry a single asset unit, then by default the\npayment is rejected. If this flag is set, then the payment will be\nallowed to proceed, even if it is uneconomical, meaning that more sats\nare sent out to the network than the invoice amount plus routing fees\nrequire to be paid."
         }
       }
     },

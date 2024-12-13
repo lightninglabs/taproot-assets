@@ -7074,8 +7074,24 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// amount based on the asset-to-BTC conversion rate.
 		sellOrder := taprpc.MarshalAcceptedSellQuote(*quote)
 
+		// paymentMaxAmt is the maximum amount that the counterparty is
+		// expected to pay. This is the amount that the invoice is
+		// asking for plus the fee limit in milli-satoshis.
+		paymentMaxAmt, _, err := r.parseRequest(pReq)
+		if err != nil {
+			return err
+		}
+
+		// Check if the payment requires overpayment based on the quote.
+		err = checkOverpayment(
+			sellOrder, paymentMaxAmt, req.AllowOverpay,
+		)
+		if err != nil {
+			return err
+		}
+
 		// Send out the information about the quote on the stream.
-		err := stream.Send(&tchrpc.SendPaymentResponse{
+		err = stream.Send(&tchrpc.SendPaymentResponse{
 			Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
 				AcceptedSellOrder: sellOrder,
 			},
@@ -7175,6 +7191,14 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		default:
 			return fmt.Errorf("unexpected response type: %T", r)
+		}
+
+		// Check if the payment requires overpayment based on the quote.
+		err = checkOverpayment(
+			acceptedQuote, paymentMaxAmt, req.AllowOverpay,
+		)
+		if err != nil {
+			return err
 		}
 
 		// Send out the information about the quote on the stream.
@@ -7318,6 +7342,55 @@ func (r *rpcServer) parseRequest(
 
 	expiry := invoice.Timestamp.Add(invoice.Expiry())
 	return paymentMaxAmt, expiry, nil
+}
+
+// checkOverpayment checks if paying a certain invoice amount requires
+// overpayment when using assets to pay, given the rate from the accepted quote
+// and the minimum non-dust HTLC amount dictated by the protocol.
+func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
+	paymentAmount lnwire.MilliSatoshi, allowOverpay bool) error {
+
+	rateFP, err := rfqrpc.UnmarshalFixedPoint(quote.BidAssetRate)
+	if err != nil {
+		return fmt.Errorf("cannot unmarshal asset rate: %w", err)
+	}
+
+	// If the calculated asset amount is zero, we can't pay this amount
+	// using assets, so we'll reject the payment even if the user has set
+	// the override flag.
+	if quote.AssetAmount == 0 {
+		oneUnit := rfqmath.NewBigIntFixedPoint(1, 0)
+		oneUnitAsMSat := rfqmath.UnitsToMilliSatoshi(oneUnit, *rateFP)
+		return fmt.Errorf("rejecting payment of %v (invoice amount + "+
+			"user-defined routing fee limit), smallest payable "+
+			"amount with assets is equivalent to %v",
+			paymentAmount, oneUnitAsMSat)
+	}
+
+	srvrLog.Debugf("Checking if payment is economical (min transportable "+
+		"mSat: %d, paymentAmount: %d, allowOverpay=%v)",
+		quote.MinTransportableMsat, paymentAmount, allowOverpay)
+
+	// If the override flag is set, we ignore this check and return early.
+	if allowOverpay {
+		return nil
+	}
+
+	// If the payment amount is less than the minimal transportable amount
+	// dictated by the quote, we'll return an error to inform the user. They
+	// can still override this check if they want to proceed anyway.
+	if lnwire.MilliSatoshi(quote.MinTransportableMsat) > paymentAmount {
+		return fmt.Errorf("rejecting payment of %v (invoice "+
+			"amount + user-defined routing fee limit), minimum "+
+			"amount for an asset payment is %v mSAT with the "+
+			"current rate of %v units/BTC; override this check "+
+			"by specifying the allow_overpay flag",
+			paymentAmount, quote.MinTransportableMsat,
+			rateFP.String())
+	}
+
+	// The amount checks out, we can proceed with the payment.
+	return nil
 }
 
 // AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
