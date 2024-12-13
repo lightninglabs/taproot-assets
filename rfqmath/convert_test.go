@@ -377,6 +377,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 		price                     FixedPoint[BigInt]
 		expectedUnits             uint64
 		expectedMinTransportUnits uint64
+		expectedMinTransportMSat  lnwire.MilliSatoshi
 	}{
 		{
 			// 5k USD per BTC @ decimal display 2.
@@ -387,6 +388,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			},
 			expectedUnits:             1,
 			expectedMinTransportUnits: 1,
+			expectedMinTransportMSat:  20_354_000,
 		},
 		{
 			// 5k USD per BTC @ decimal display 6.
@@ -397,6 +399,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             10_000,
 			expectedMinTransportUnits: 1,
+			expectedMinTransportMSat:  20_354_000,
 		},
 		{
 			// 50k USD per BTC @ decimal display 6.
@@ -407,6 +410,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             1000,
 			expectedMinTransportUnits: 1,
+			expectedMinTransportMSat:  2_326_308,
 		},
 		{
 			// 50M USD per BTC @ decimal display 6.
@@ -417,6 +421,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             62595061158,
 			expectedMinTransportUnits: 179,
+			expectedMinTransportMSat:  355_972,
 		},
 		{
 			// 50k USD per BTC @ decimal display 6.
@@ -427,6 +432,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             2_570,
 			expectedMinTransportUnits: 1,
+			expectedMinTransportMSat:  2_326_304,
 		},
 		{
 			// 7.341M JPY per BTC @ decimal display 6.
@@ -437,6 +443,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(6),
 			expectedUnits:             367_092,
 			expectedMinTransportUnits: 25,
+			expectedMinTransportMSat:  367_620,
 		},
 		{
 			// 7.341M JPY per BTC @ decimal display 2.
@@ -447,6 +454,7 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			}.ScaleTo(4),
 			expectedUnits:             3_670,
 			expectedMinTransportUnits: 25,
+			expectedMinTransportMSat:  367_620,
 		},
 	}
 
@@ -468,6 +476,11 @@ func TestConvertMilliSatoshiToUnits(t *testing.T) {
 			)
 			minUnits := minUnitsFP.ScaleTo(0).ToUint64()
 			require.Equal(t, tc.expectedMinTransportUnits, minUnits)
+
+			minMSat := MinTransportableMSat(
+				DefaultOnChainHtlcMSat, tc.price,
+			)
+			require.Equal(t, tc.expectedMinTransportMSat, minMSat)
 		})
 	}
 }

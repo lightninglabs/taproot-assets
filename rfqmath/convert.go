@@ -155,3 +155,20 @@ func MinTransportableUnits(dustLimit lnwire.MilliSatoshi,
 
 	return units
 }
+
+// MinTransportableMSat computes the minimum amount of milli-satoshis that can
+// be represented in a Lightning Network payment when transferring an asset,
+// given the asset rate and the constant HTLC dust limit. This function can be
+// used to enforce a minimum payable amount with assets, as any invoice amount
+// below this value would be uneconomical as the total amount sent would exceed
+// the total invoice amount.
+func MinTransportableMSat(dustLimit lnwire.MilliSatoshi,
+	rate BigIntFixedPoint) lnwire.MilliSatoshi {
+
+	// We can only transport at least one asset unit in an HTLC. And we
+	// always have to send out an HTLC with a BTC amount of 354 satoshi. So
+	// the minimum amount of milli-satoshi we can transport is 354,000 plus
+	// the milli-satoshi equivalent of a single asset unit.
+	oneAssetUnit := NewBigIntFixedPoint(1, 0)
+	return dustLimit + UnitsToMilliSatoshi(oneAssetUnit, rate)
+}
