@@ -564,10 +564,10 @@ func MarshalAcceptedBuyQuoteEvent(
 	error) {
 
 	return &rfqrpc.PeerAcceptedBuyQuote{
-		Peer:        event.Peer.String(),
-		Id:          event.ID[:],
-		Scid:        uint64(event.ShortChannelId()),
-		AssetAmount: event.Request.AssetMaxAmt,
+		Peer:           event.Peer.String(),
+		Id:             event.ID[:],
+		Scid:           uint64(event.ShortChannelId()),
+		AssetMaxAmount: event.Request.AssetMaxAmt,
 		AskAssetRate: &rfqrpc.FixedPoint{
 			Coefficient: event.AssetRate.Rate.Coefficient.String(),
 			Scale:       uint32(event.AssetRate.Rate.Scale),

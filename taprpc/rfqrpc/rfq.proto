@@ -236,12 +236,15 @@ message PeerAcceptedBuyQuote {
     // The unique identifier of the quote request.
     bytes id = 2;
 
-    // scid is the short channel ID of the channel over which the payment for
-    // the quote should be made.
+    // The short channel ID of the channel over which the payment for the quote
+    // should be made.
     uint64 scid = 3;
 
-    // asset_amount is the amount of the subject asset.
-    uint64 asset_amount = 4;
+    // The maximum exchange amount denoted in the subject asset. This includes
+    // the user-configured maximum routing fees, so the actual payment amount
+    // will be less than this. This just defines the maximum volume that the
+    // edge node has accepted to divest with the given rate.
+    uint64 asset_max_amount = 4;
 
     // ask_asset_rate is the asset to BTC conversion rate represented as a
     // fixed-point number.

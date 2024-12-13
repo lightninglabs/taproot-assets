@@ -6722,12 +6722,12 @@ func marshalPeerAcceptedBuyQuotes(
 		}
 
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:         quote.Peer.String(),
-			Id:           quote.ID[:],
-			Scid:         uint64(scid),
-			AssetAmount:  quote.Request.AssetMaxAmt,
-			AskAssetRate: rpcAskAssetRate,
-			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
+			Peer:           quote.Peer.String(),
+			Id:             quote.ID[:],
+			Scid:           uint64(scid),
+			AssetMaxAmount: quote.Request.AssetMaxAmt,
+			AskAssetRate:   rpcAskAssetRate,
+			Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}

@@ -1092,12 +1092,12 @@
         "scid": {
           "type": "string",
           "format": "uint64",
-          "description": "scid is the short channel ID of the channel over which the payment for\nthe quote should be made."
+          "description": "The short channel ID of the channel over which the payment for the quote\nshould be made."
         },
-        "asset_amount": {
+        "asset_max_amount": {
           "type": "string",
           "format": "uint64",
-          "description": "asset_amount is the amount of the subject asset."
+          "description": "The maximum exchange amount denoted in the subject asset. This includes\nthe user-configured maximum routing fees, so the actual payment amount\nwill be less than this. This just defines the maximum volume that the\nedge node has accepted to divest with the given rate."
         },
         "ask_asset_rate": {
           "$ref": "#/definitions/rfqrpcFixedPoint",
