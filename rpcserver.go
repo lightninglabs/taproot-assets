@@ -7822,3 +7822,146 @@ func (r *rpcServer) getInboundPolicy(ctx context.Context, chanID uint64,
 
 	return policy, nil
 }
+
+// assetInvoiceAmt calculates the amount of asset units to pay for an invoice
+// which is expressed in sats.
+func (r *rpcServer) assetInvoiceAmt(ctx context.Context,
+	targetAsset asset.Specifier,
+	invoiceAmt lnwire.MilliSatoshi) (uint64, error) {
+
+	oracle := r.cfg.PriceOracle
+
+	oracleResp, err := oracle.QueryAskPrice(
+		ctx, targetAsset, fn.None[uint64](), fn.Some(invoiceAmt),
+		fn.None[rfqmsg.AssetRate](),
+	)
+	if err != nil {
+		return 0, fmt.Errorf("error querying ask price: %w", err)
+	}
+	if oracleResp.Err != nil {
+		return 0, fmt.Errorf("error querying ask price: %w",
+			oracleResp.Err)
+	}
+
+	assetRate := oracleResp.AssetRate.Rate
+
+	numAssetUnits := rfqmath.MilliSatoshiToUnits(
+		invoiceAmt, assetRate,
+	).ScaleTo(0)
+
+	return numAssetUnits.ToUint64(), nil
+}
+
+// DecodeAssetPayReq decodes an incoming invoice, then uses the RFQ system to
+// map the BTC amount to the amount of asset units for the specified asset ID.
+func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
+	payReq *tchrpc.AssetPayReq) (*tchrpc.AssetPayReqResponse, error) {
+
+	if r.cfg.PriceOracle == nil {
+		return nil, fmt.Errorf("price oracle is not set")
+	}
+
+	// First, we'll perform some basic input validation.
+	switch {
+	case len(payReq.AssetId) == 0:
+		return nil, fmt.Errorf("asset ID must be specified")
+
+	case len(payReq.AssetId) != 32:
+		return nil, fmt.Errorf("asset ID must be 32 bytes, "+
+			"was %d", len(payReq.AssetId))
+
+	case len(payReq.PayReqString) == 0:
+		return nil, fmt.Errorf("payment request must be specified")
+	}
+
+	var (
+		resp    tchrpc.AssetPayReqResponse
+		assetID asset.ID
+	)
+
+	copy(assetID[:], payReq.AssetId)
+
+	// With the inputs validated, we'll first call out to lnd to decode the
+	// payment request.
+	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
+	payReqInfo, err := rawClient.DecodePayReq(rpcCtx, &lnrpc.PayReqString{
+		PayReq: payReq.PayReqString,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch channel: %w", err)
+	}
+
+	resp.PayReq = payReqInfo
+
+	// Next, we'll fetch the information for this asset ID through the addr
+	// book. This'll automatically fetch the asset if needed.
+	assetGroup, err := r.cfg.AddrBook.QueryAssetInfo(ctx, assetID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch asset info for "+
+			"asset_id=%x: %w", assetID[:], err)
+	}
+
+	resp.GenesisInfo = &taprpc.GenesisInfo{
+		GenesisPoint: assetGroup.FirstPrevOut.String(),
+		AssetType:    taprpc.AssetType(assetGroup.Type),
+		Name:         assetGroup.Tag,
+		MetaHash:     assetGroup.MetaHash[:],
+		AssetId:      assetID[:],
+	}
+
+	// If this asset ID belongs to an asset group, then we'll display thiat
+	// information as well.
+	//
+	// nolint:lll
+	if assetGroup.GroupKey != nil {
+		groupInfo := assetGroup.GroupKey
+		resp.AssetGroup = &taprpc.AssetGroup{
+			RawGroupKey:     groupInfo.RawKey.PubKey.SerializeCompressed(),
+			TweakedGroupKey: groupInfo.GroupPubKey.SerializeCompressed(),
+			TapscriptRoot:   groupInfo.TapscriptRoot,
+		}
+
+		if len(groupInfo.Witness) != 0 {
+			resp.AssetGroup.AssetWitness, err = asset.SerializeGroupWitness(
+				groupInfo.Witness,
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	// Now that we have the basic invoice information, we'll query the RFQ
+	// system to obtain a quote to send this amount of BTC. Note that this
+	// doesn't factor in the fee limit, so this attempts just to map the
+	// sats amount to an asset unit.
+	numMsat := lnwire.NewMSatFromSatoshis(
+		btcutil.Amount(payReqInfo.NumSatoshis),
+	)
+	targetAsset := asset.NewSpecifierOptionalGroupKey(
+		assetGroup.ID(), assetGroup.GroupKey,
+	)
+	invoiceAmt, err := r.assetInvoiceAmt(ctx, targetAsset, numMsat)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving asset amount: %w", err)
+	}
+
+	resp.AssetAmount = invoiceAmt
+
+	// The final piece of information we need is the decimal display
+	// information for this asset ID.
+	decDisplay, err := r.DecDisplayForAssetID(ctx, assetID)
+	if err != nil {
+		return nil, err
+	}
+
+	resp.DecimalDisplay = fn.MapOptionZ(
+		decDisplay, func(d uint32) *taprpc.DecimalDisplay {
+			return &taprpc.DecimalDisplay{
+				DecimalDisplay: d,
+			}
+		},
+	)
+
+	return &resp, nil
+}
