@@ -224,16 +224,6 @@ func (g Genesis) ID() ID {
 	return *(*ID)(h.Sum(nil))
 }
 
-// GroupKeyTweak returns the tweak bytes that commit to the previous outpoint,
-// output index and type of the genesis.
-func (g Genesis) GroupKeyTweak() []byte {
-	var keyGroupBytes bytes.Buffer
-	_ = wire.WriteOutPoint(&keyGroupBytes, 0, 0, &g.FirstPrevOut)
-	_ = binary.Write(&keyGroupBytes, binary.BigEndian, g.OutputIndex)
-	_ = binary.Write(&keyGroupBytes, binary.BigEndian, g.Type)
-	return keyGroupBytes.Bytes()
-}
-
 // Encode encodes an asset genesis.
 func (g Genesis) Encode(w io.Writer) error {
 	var buf [8]byte
