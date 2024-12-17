@@ -56,6 +56,88 @@ type AssetFundingMsg interface {
 	Amt() fn.Option[uint64]
 }
 
+// ProofChunk contains a chunk of a proof that would be too large to send as a
+// single message.
+type ProofChunk struct {
+	// ChunkSumID is a digest sum over the final proof including all chunks.
+	// This is used to identify which chunk belongs to which proofs, and can
+	// be used to verify the integrity of the final proof.
+	ChunkSumID tlv.RecordT[tlv.TlvType0, [32]byte]
+
+	// Chunk is a chunk of the proof.
+	Chunk tlv.RecordT[tlv.TlvType1, []byte]
+
+	// Last indicates whether this is the last chunk in the proof.
+	Last tlv.RecordT[tlv.TlvType2, bool]
+}
+
+// Encode writes the message using the given io.Writer.
+func (p *ProofChunk) Encode(w io.Writer) error {
+	stream, err := tlv.NewStream(
+		p.ChunkSumID.Record(), p.Chunk.Record(), p.Last.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	return stream.Encode(w)
+}
+
+// Decode reads the message using the given io.Reader.
+func (p *ProofChunk) Decode(r io.Reader) error {
+	stream, err := tlv.NewStream(
+		p.ChunkSumID.Record(), p.Chunk.Record(), p.Last.Record(),
+	)
+	if err != nil {
+		return err
+	}
+
+	return stream.Decode(r)
+}
+
+// eProofChunk is a tlv encoding function for the ProofChunk type.
+func eProofChunk(w io.Writer, val interface{}, _ *[8]byte) error {
+	if v, ok := val.(*ProofChunk); ok {
+		return v.Encode(w)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "*ProofChunk")
+}
+
+// dProofChunk is a tlv decoding function for the ProofChunk type.
+func dProofChunk(r io.Reader, val interface{}, _ *[8]byte, l uint64) error {
+	if v, ok := val.(*ProofChunk); ok {
+		return v.Decode(r)
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "*ProofChunk", l, l)
+}
+
+// Record returns the tlv record of the proof chunk.
+func (p *ProofChunk) Record() tlv.Record {
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		err := p.Encode(&buf)
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+
+	return tlv.MakeDynamicRecord(
+		0, p, sizeFunc, eProofChunk, dProofChunk,
+	)
+}
+
+// NewProofChunk creates a new ProofChunk message.
+func NewProofChunk(sum [32]byte, chunk []byte, last bool) ProofChunk {
+	return ProofChunk{
+		ChunkSumID: tlv.NewPrimitiveRecord[tlv.TlvType0](sum),
+		Chunk:      tlv.NewPrimitiveRecord[tlv.TlvType1](chunk),
+		Last:       tlv.NewPrimitiveRecord[tlv.TlvType2](last),
+	}
+}
+
 // TxAssetInputProof is sent by the initiator of a channel funding request to
 // prove to the upcoming responder that they are the owner of an asset input.
 //
@@ -237,6 +319,8 @@ type AssetFundingCreated struct {
 	// funding output to be able to create the aux funding+commitment
 	// blobs.
 	FundingOutputs tlv.RecordT[tlv.TlvType1, AssetOutputListRecord]
+
+	// TODO(roasbeef): need to chunk this??
 }
 
 // NewAssetFundingCreated creates a new AssetFundingCreated message.
