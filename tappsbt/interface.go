@@ -396,7 +396,7 @@ type VInput struct {
 	// will be inserted in the input anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
-	AltLeaves []asset.AltLeafAsset
+	AltLeaves []asset.AltLeaf[asset.Asset]
 }
 
 // Copy creates a deep copy of the VInput.
@@ -596,7 +596,7 @@ type VOutput struct {
 	// will be inserted in the output anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
-	AltLeaves []asset.AltLeafAsset
+	AltLeaves []asset.AltLeaf[asset.Asset]
 }
 
 // Copy creates a deep copy of the VOutput.

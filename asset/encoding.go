@@ -809,7 +809,7 @@ func DecodeTapLeaf(leafData []byte) (*txscript.TapLeaf, error) {
 }
 
 func AltLeavesEncoder(w io.Writer, val any, buf *[8]byte) error {
-	if t, ok := val.(*[]AltLeaf[*Asset]); ok {
+	if t, ok := val.(*[]AltLeaf[Asset]); ok {
 		// If the AltLeaves slice is empty, we will still encode its
 		// length here (as 0). Callers should avoid encoding empty
 		// AltLeaves slices.
@@ -855,7 +855,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 		return tlv.ErrRecordTooLarge
 	}
 
-	if typ, ok := val.(*[]AltLeaf[*Asset]); ok {
+	if typ, ok := val.(*[]AltLeaf[Asset]); ok {
 		// Each alt leaf is at least 42 bytes, which limits the total
 		// number of aux leaves. So we don't need to enforce a strict
 		// limit here.
@@ -864,7 +864,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			return err
 		}
 
-		leaves := make([]AltLeaf[*Asset], 0, numItems)
+		leaves := make([]AltLeaf[Asset], 0, numItems)
 		leafKeys := make(map[SerializedKey]struct{})
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
@@ -890,7 +890,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			}
 
 			leafKeys[leafKey] = struct{}{}
-			leaves = append(leaves, AltLeaf[*Asset](&leaf))
+			leaves = append(leaves, AltLeaf[Asset](&leaf))
 		}
 
 		*typ = leaves

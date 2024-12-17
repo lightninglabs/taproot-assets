@@ -317,7 +317,7 @@ func NewTestFromVInput(t testing.TB, i *VInput) *TestVInput {
 
 		ti.AltLeaves = make([]*asset.TestAsset, 0, len(i.AltLeaves))
 		for idx := range i.AltLeaves {
-			leaf := asset.InnerAltLeaf(i.AltLeaves[idx])
+			leaf := i.AltLeaves[idx].(*asset.Asset)
 			ti.AltLeaves = append(
 				ti.AltLeaves, asset.NewTestFromAsset(t, leaf),
 			)
@@ -380,7 +380,9 @@ func (ti *TestVInput) ToVInput(t testing.TB) *VInput {
 	}
 
 	if len(ti.AltLeaves) > 0 {
-		vi.AltLeaves = make([]asset.AltLeafAsset, len(ti.AltLeaves))
+		vi.AltLeaves = make(
+			[]asset.AltLeaf[asset.Asset], len(ti.AltLeaves),
+		)
 		for idx, leaf := range ti.AltLeaves {
 			vi.AltLeaves[idx] = leaf.ToAsset(t)
 		}
@@ -634,7 +636,7 @@ func NewTestFromVOutput(t testing.TB, v *VOutput,
 
 		vo.AltLeaves = make([]*asset.TestAsset, 0, len(vo.AltLeaves))
 		for idx := range v.AltLeaves {
-			leaf := asset.InnerAltLeaf(v.AltLeaves[idx])
+			leaf := v.AltLeaves[idx].(*asset.Asset)
 			vo.AltLeaves = append(
 				vo.AltLeaves, asset.NewTestFromAsset(t, leaf),
 			)
@@ -759,7 +761,9 @@ func (to *TestVOutput) ToVOutput(t testing.TB) *VOutput {
 	}
 
 	if len(to.AltLeaves) > 0 {
-		v.AltLeaves = make([]asset.AltLeafAsset, len(to.AltLeaves))
+		v.AltLeaves = make(
+			[]asset.AltLeaf[asset.Asset], len(to.AltLeaves),
+		)
 		for idx, leaf := range to.AltLeaves {
 			v.AltLeaves[idx] = leaf.ToAsset(t)
 		}

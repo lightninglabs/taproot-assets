@@ -251,7 +251,9 @@ func TestEncodingDecoding(t *testing.T) {
 			require.NoError(t, err)
 
 			secondLeaf.ScriptKey = asset.NewScriptKey(leafKeyCopy)
-			altLeaves := []asset.AltLeafAsset{firstLeaf, secondLeaf}
+			altLeaves := []asset.AltLeaf[asset.Asset]{
+				firstLeaf, secondLeaf,
+			}
 
 			pkt.Inputs[0].AltLeaves = asset.CopyAltLeaves(altLeaves)
 			pkt.Outputs[0].AltLeaves = asset.CopyAltLeaves(
@@ -270,7 +272,9 @@ func TestEncodingDecoding(t *testing.T) {
 			pkt := RandPacket(t, true, true)
 
 			numLeaves := 2000
-			altLeaves := make([]asset.AltLeafAsset, numLeaves)
+			altLeaves := make(
+				[]asset.AltLeaf[asset.Asset], numLeaves,
+			)
 			for idx := range numLeaves {
 				altLeaves[idx] = asset.RandAltLeaf(t)
 			}

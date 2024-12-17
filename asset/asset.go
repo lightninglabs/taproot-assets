@@ -2302,7 +2302,7 @@ type ChainAsset struct {
 type AltLeaf[T any] interface {
 	// Copyable asserts that the target type of this interface satisfies
 	// the Copyable interface.
-	fn.Copyable[T]
+	fn.Copyable[*T]
 
 	// ValidateAltLeaf ensures that an AltLeaf is valid.
 	ValidateAltLeaf() error
@@ -2336,23 +2336,13 @@ func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
 	}, nil
 }
 
-// InnerAltLeaf returns the inner value of an AltLeaf, as its concrete type.
-func InnerAltLeaf[T AltLeaf[T]](a AltLeaf[T]) T {
-	return a.(T)
-}
-
-// CopyAltLeaf performs a deep copy of an AltLeaf.
-func CopyAltLeaf[T AltLeaf[T]](a AltLeaf[T]) AltLeaf[T] {
-	return a.Copy()
-}
-
 // CopyAltLeaves performs a deep copy of an AltLeaf slice.
-func CopyAltLeaves[T AltLeaf[T]](a []AltLeaf[T]) []AltLeaf[T] {
+func CopyAltLeaves(a []AltLeaf[Asset]) []AltLeaf[Asset] {
 	if len(a) == 0 {
 		return nil
 	}
 
-	return fn.Map(a, CopyAltLeaf[T])
+	return ToAltLeaves(fn.CopyAll(FromAltLeaves(a)))
 }
 
 // ValidateAltLeaf checks that an Asset is a valid AltLeaf. An Asset used as an
@@ -2435,8 +2425,20 @@ func (a *Asset) DecodeAltLeaf(r io.Reader) error {
 	return a.Decode(r)
 }
 
-// AltLeafAsset is an AltLeaf backed by an Asset object.
-type AltLeafAsset = AltLeaf[*Asset]
-
 // Ensure Asset implements the AltLeaf interface.
-var _ AltLeaf[*Asset] = (*Asset)(nil)
+var _ AltLeaf[Asset] = (*Asset)(nil)
+
+// ToAltLeaves casts []Asset to []AltLeafAsset, without checking that the assets
+// are valid AltLeaves.
+func ToAltLeaves(leaves []*Asset) []AltLeaf[Asset] {
+	return fn.Map(leaves, func(l *Asset) AltLeaf[Asset] {
+		return l
+	})
+}
+
+// FromAltLeaves casts []AltLeafAsset to []Asset, which is always safe.
+func FromAltLeaves(leaves []AltLeaf[Asset]) []*Asset {
+	return fn.Map(leaves, func(l AltLeaf[Asset]) *Asset {
+		return l.(*Asset)
+	})
+}

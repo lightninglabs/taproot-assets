@@ -14,7 +14,6 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
-	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
@@ -705,25 +704,12 @@ func RandAltLeaves(t testing.TB, nonZero bool) []*Asset {
 	return altLeaves
 }
 
-// ToAltLeaves casts []Asset to []AltLeafAsset, without checking that the assets
-// are valid AltLeaves.
-func ToAltLeaves(leaves []*Asset) []AltLeafAsset {
-	return fn.Map(leaves, func(l *Asset) AltLeafAsset {
-		return AltLeafAsset(l)
-	})
-}
-
-// FromAltLeaves casts []AltLeafAsset to []Asset, which is always safe.
-func FromAltLeaves(leaves []AltLeafAsset) []*Asset {
-	return fn.Map(leaves, InnerAltLeaf[*Asset])
-}
-
 // CompareAltLeaves compares two slices of AltLeafAssets for equality.
-func CompareAltLeaves(t *testing.T, a, b []AltLeafAsset) {
+func CompareAltLeaves(t *testing.T, a, b []AltLeaf[Asset]) {
 	require.Equal(t, len(a), len(b))
 
-	aInner := fn.Map(a, InnerAltLeaf[*Asset])
-	bInner := fn.Map(b, InnerAltLeaf[*Asset])
+	aInner := FromAltLeaves(a)
+	bInner := FromAltLeaves(b)
 
 	slices.SortStableFunc(aInner, SortFunc)
 	slices.SortStableFunc(bInner, SortFunc)
