@@ -2,6 +2,8 @@ package tapchannelmsg
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"fmt"
 	"io"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -44,6 +46,26 @@ const (
 	AssetFundingAckType = TapChannelMessageTypeOffset + 3
 )
 
+var (
+	// ErrChunkSize is returned when the chunk size is invalid.
+	ErrChunkSize = fmt.Errorf("chunk size must be positive")
+
+	// ErrInvalidChunk is returned when the wrong number of chunks is
+	// created.
+	ErrImproperChunks = fmt.Errorf("improper number of chunks")
+
+	// ErrChunkDistUniformity is returned when the chunk distribution is not
+	// the same over all chunks.
+	ErrChunkDistUniformity = fmt.Errorf("chunk distribution is not uniform")
+
+	// ErrChunkDigestMismatch is returned when the chunk digest sum does not
+	// match one encoded in the message.
+	ErrChunkDigestMismatch = fmt.Errorf("chunk digest mismatch")
+
+	// ErrNoChunks is returned when no chunks are provided.
+	ErrNoChunks = fmt.Errorf("no chunks")
+)
+
 // AssetFundingMsg is an interface that represents a message that is sent
 // during the asset funding process.
 type AssetFundingMsg interface {
@@ -62,7 +84,7 @@ type ProofChunk struct {
 	// ChunkSumID is a digest sum over the final proof including all chunks.
 	// This is used to identify which chunk belongs to which proofs, and can
 	// be used to verify the integrity of the final proof.
-	ChunkSumID tlv.RecordT[tlv.TlvType0, [32]byte]
+	ChunkSumID tlv.RecordT[tlv.TlvType0, [sha256.Size]byte]
 
 	// Chunk is a chunk of the proof.
 	Chunk tlv.RecordT[tlv.TlvType1, []byte]
@@ -138,6 +160,122 @@ func NewProofChunk(sum [32]byte, chunk []byte, last bool) ProofChunk {
 	}
 }
 
+// CreateProofChunks creates a list of proof chunks from a single proof, given a
+// desired chunk size.
+func CreateProofChunks(wholeProof proof.Proof,
+	chunkSize int) ([]ProofChunk, error) {
+
+	// The chunk size must be positive.
+	if chunkSize <= 0 {
+		return nil, fmt.Errorf("%w: chunk size is %v",
+			ErrChunkSize, chunkSize)
+	}
+
+	// First, we'll encode the entire proof into a buffer so we can chunk it
+	// up.
+	var proofBuf bytes.Buffer
+	err := wholeProof.Encode(&proofBuf)
+	if err != nil {
+		return nil, err
+	}
+
+	// We'll also obtain the hash digest of the proof as well.
+	proofDigest := sha256.Sum256(proofBuf.Bytes())
+
+	// If the length of the proof is below the chunk size, then we can
+	// return just a single proof.
+	if proofBuf.Len() <= chunkSize {
+		return []ProofChunk{
+			NewProofChunk(proofDigest, proofBuf.Bytes(), true),
+		}, nil
+	}
+
+	numExpectedChunks := proofBuf.Len() / chunkSize
+	if proofBuf.Len()%chunkSize != 0 {
+		numExpectedChunks++
+	}
+
+	proofSize := proofBuf.Len()
+
+	// Otherwise, we'll need to chunk up the proof into multiple chunks.
+	var chunks []ProofChunk
+	for i := 0; i < proofSize; i += chunkSize {
+		// If this is the last chunk, then we'll set the last flag to
+		// true.
+		last := i+chunkSize >= proofBuf.Len()
+
+		// We'll slice out the next chunk of the proof.
+		chunk := proofBuf.Next(chunkSize)
+
+		// With the chunk obtained, we'll create a new proof chunk and
+		// add it to our list of chunks.
+		chunks = append(
+			chunks, NewProofChunk(proofDigest, chunk, last),
+		)
+	}
+
+	// Verify that we created the correct number of chunks.
+	if len(chunks) != numExpectedChunks {
+		return nil, fmt.Errorf("%w: expected %v chunks, got %v",
+			ErrImproperChunks, numExpectedChunks, len(chunks))
+	}
+
+	return chunks, nil
+}
+
+// AssembleProofChunks assembles a list of proof chunks into a single proof.
+func AssembleProofChunks(chunks []ProofChunk) (*proof.Proof, error) {
+	// We must have at least a single chunk.
+	if len(chunks) == 0 {
+		return nil, ErrNoChunks
+	}
+
+	// First, we'll iterate over all the chunks to ensure that they all have
+	// the same digest sum.
+	var proofDigest [sha256.Size]byte
+	for i, chunk := range chunks {
+		// If this is the first chunk, then we'll record the digest sum.
+		if i == 0 {
+			proofDigest = chunk.ChunkSumID.Val
+		}
+
+		// If the digest sum of this chunk doesn't match the one we
+		// recorded, then we'll return an error.
+		if proofDigest != chunk.ChunkSumID.Val {
+			return nil, fmt.Errorf("%w: digest sum mismatch at "+
+				"chunk %v", ErrChunkDistUniformity, i)
+		}
+	}
+
+	// With the digest sum validated, we'll now concatenate all the chunks
+	// together to obtain the full proof.
+	var proofBuf bytes.Buffer
+	for _, chunk := range chunks {
+		_, err := proofBuf.Write(chunk.Chunk.Val)
+		if err != nil {
+			return nil, fmt.Errorf("unable to write chunk: %v", err)
+		}
+	}
+
+	// Before we decode the full proof, we'll ensure that the proof digest
+	// matches up.
+	fullProofDigest := sha256.Sum256(proofBuf.Bytes())
+	if proofDigest != fullProofDigest {
+		return nil, fmt.Errorf("%w: digest sum mismatch: expected %x, "+
+			"got %x", ErrChunkDigestMismatch, proofDigest,
+			fullProofDigest)
+	}
+
+	// Finally, we'll decode the full proof from the buffer.
+	var fullProof proof.Proof
+	err := fullProof.Decode(&proofBuf)
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode full proof: %v", err)
+	}
+
+	return &fullProof, nil
+}
+
 // TxAssetInputProof is sent by the initiator of a channel funding request to
 // prove to the upcoming responder that they are the owner of an asset input.
 //
@@ -154,23 +292,21 @@ type TxAssetInputProof struct {
 	// Amount is the amount of the asset that this output represents.
 	Amount tlv.RecordT[tlv.TlvType2, uint64]
 
-	// Proof is the last transition proof that proves this output was
-	// committed to in the Bitcoin transaction that anchors this asset
-	// output.
-	Proof tlv.RecordT[tlv.TlvType3, proof.Proof]
+	// ProofChunk is a set of proof chunks for the last transition proof
+	// that proves this output was committed to in the Bitcoin transaction
+	// that anchors this asset output.
+	ProofChunk tlv.RecordT[tlv.TlvType3, ProofChunk]
 }
 
 // NewTxAssetInputProof creates a new TxAssetInputProof message.
-func NewTxAssetInputProof(pid funding.PendingChanID,
-	p proof.Proof) *TxAssetInputProof {
+func NewTxAssetInputProof(pid funding.PendingChanID, assetID asset.ID,
+	amt uint64, chunk ProofChunk) *TxAssetInputProof {
 
 	return &TxAssetInputProof{
 		PendingChanID: tlv.NewPrimitiveRecord[tlv.TlvType0](pid),
-		AssetID:       tlv.NewRecordT[tlv.TlvType1](p.Asset.ID()),
-		Amount: tlv.NewPrimitiveRecord[tlv.TlvType2](
-			p.Asset.Amount,
-		),
-		Proof: tlv.NewRecordT[tlv.TlvType3](p),
+		AssetID:       tlv.NewRecordT[tlv.TlvType1](assetID),
+		Amount:        tlv.NewPrimitiveRecord[tlv.TlvType2](amt),
+		ProofChunk:    tlv.NewRecordT[tlv.TlvType3](chunk),
 	}
 }
 
@@ -185,7 +321,7 @@ func (t *TxAssetInputProof) Decode(r io.Reader, _ uint32) error {
 		t.PendingChanID.Record(),
 		t.AssetID.Record(),
 		t.Amount.Record(),
-		t.Proof.Record(),
+		t.ProofChunk.Record(),
 	)
 	if err != nil {
 		return err
@@ -201,7 +337,7 @@ func (t *TxAssetInputProof) Encode(w *bytes.Buffer, _ uint32) error {
 		t.PendingChanID.Record(),
 		t.AssetID.Record(),
 		t.Amount.Record(),
-		t.Proof.Record(),
+		t.ProofChunk.Record(),
 	)
 	if err != nil {
 		return err
