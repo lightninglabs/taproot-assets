@@ -111,7 +111,21 @@ var (
 			ScriptKey: SerializedKeyGen.Draw(t, "script_key"),
 		}
 	})
-	GenesisGen   = rapid.Make[Genesis]()
+	GenesisGen = rapid.Custom(func(t *rapid.T) Genesis {
+		return Genesis{
+			FirstPrevOut: OutPointGen.Draw(t, "first_prev_out"),
+			Tag: rapid.StringN(
+				-1, -1, MaxAssetNameLength,
+			).Draw(t, "tag"),
+			MetaHash: rapid.Make[[32]byte]().Draw(
+				t, "meta_hash",
+			),
+			OutputIndex: rapid.Uint32().Draw(t, "output_index"),
+			Type: Type(rapid.IntRange(0, 1).Draw(
+				t, "asset_type"),
+			),
+		}
+	})
 	SplitRootGen = rapid.Custom(func(t *rapid.T) mssmt.BranchNode {
 		return *mssmt.NewComputedBranch(
 			mssmt.NodeHash(HashBytesGen.Draw(t, "split_root_hash")),
