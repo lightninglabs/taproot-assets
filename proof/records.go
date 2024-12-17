@@ -380,6 +380,9 @@ func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {
 
 func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
 	recordSize := func() uint64 {
+		// TODO(ffranr): Do we need dispatch on record size? I think
+		//  this is used for encoding only. And perhaps only to
+		//  determine whether there's anything to encode at all?
 		if reveal == nil || *reveal == nil {
 			return 0
 		}
@@ -389,7 +392,7 @@ func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
 		)
 	}
 	return tlv.MakeDynamicRecord(
-		GroupKeyRevealType, reveal, recordSize, GroupKeyRevealEncoder,
-		GroupKeyRevealDecoder,
+		GroupKeyRevealType, reveal, recordSize,
+		asset.GroupKeyRevealEncoder, asset.GroupKeyRevealDecoder,
 	)
 }
