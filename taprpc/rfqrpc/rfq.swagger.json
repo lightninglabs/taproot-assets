@@ -843,12 +843,12 @@
         "scid": {
           "type": "string",
           "format": "uint64",
-          "description": "scid is the short channel ID of the channel over which the payment for\nthe quote should be made."
+          "description": "The short channel ID of the channel over which the payment for the quote\nshould be made."
         },
-        "asset_amount": {
+        "asset_max_amount": {
           "type": "string",
           "format": "uint64",
-          "description": "asset_amount is the amount of the subject asset."
+          "description": "The maximum exchange amount denoted in the subject asset. This includes\nthe user-configured maximum routing fees, so the actual payment amount\nwill be less than this. This just defines the maximum volume that the\nedge node has accepted to divest with the given rate."
         },
         "ask_asset_rate": {
           "$ref": "#/definitions/rfqrpcFixedPoint",
@@ -858,6 +858,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The unix timestamp in seconds after which the quote is no longer valid."
+        },
+        "min_transportable_units": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The smallest amount of asset units that can be transported within a\nsingle HTLC over the Lightning Network with the given rate. This is the\nasset unit equivalent of 354 satoshis, which is the minimum amount for an\nHTLC to be above the dust limit."
         }
       }
     },
@@ -905,6 +910,11 @@
           "type": "string",
           "format": "uint64",
           "description": "The unix timestamp in seconds after which the quote is no longer valid."
+        },
+        "min_transportable_msat": {
+          "type": "string",
+          "format": "uint64",
+          "description": "The minimum amount of milli-satoshis that need to be sent out in order to\ntransport a single asset unit over the Lightning Network with the given\nrate. This is the base amount of 354,000 milli-satoshi (the minimum\namount for a non-dust HTLC) plus the equivalent of one asset unit in\nmilli-satoshis."
         }
       }
     },

@@ -13,19 +13,8 @@ import (
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/htlcswitch"
-	"github.com/lightningnetwork/lnd/input"
-	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
-)
-
-var (
-	// DefaultOnChainHtlcAmount is the default amount that we consider
-	// as the smallest HTLC amount that can be sent on-chain. This needs to
-	// be greater than the dust limit for an HTLC.
-	DefaultOnChainHtlcAmount = lnwallet.DustLimitForSize(
-		input.UnknownWitnessSize,
-	)
 )
 
 // TrafficShaperConfig defines the configuration for the auxiliary traffic
@@ -142,7 +131,7 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	}
 
 	// Get the minimum HTLC amount, which is just above dust.
-	minHtlcAmt := lnwire.NewMSatFromSatoshis(DefaultOnChainHtlcAmount)
+	minHtlcAmt := rfqmath.DefaultOnChainHtlcMSat
 
 	// LND calls this hook twice. Once to see if the overall budget of the
 	// node is enough, and then during pathfinding to actually see if
@@ -329,7 +318,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// Encode the updated HTLC TLV back into a blob and return it with the
 	// amount that should be sent on-chain, which is a value in satoshi that
 	// is just above the dust limit.
-	htlcAmountMSat := lnwire.NewMSatFromSatoshis(DefaultOnChainHtlcAmount)
+	htlcAmountMSat := rfqmath.DefaultOnChainHtlcMSat
 	updatedRecords, err := htlc.ToCustomRecords()
 	if err != nil {
 		return 0, nil, fmt.Errorf("error encoding HTLC blob: %w", err)

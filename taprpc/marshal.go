@@ -547,13 +547,18 @@ func MarshalAcceptedSellQuote(
 		accept.Request.PaymentMaxAmt, accept.AssetRate.Rate,
 	)
 
+	minTransportableMSat := rfqmath.MinTransportableMSat(
+		rfqmath.DefaultOnChainHtlcMSat, accept.AssetRate.Rate,
+	)
+
 	return &rfqrpc.PeerAcceptedSellQuote{
-		Peer:         accept.Peer.String(),
-		Id:           accept.ID[:],
-		Scid:         uint64(accept.ShortChannelId()),
-		BidAssetRate: rpcAssetRate,
-		Expiry:       uint64(accept.AssetRate.Expiry.Unix()),
-		AssetAmount:  numAssetUnits.ScaleTo(0).ToUint64(),
+		Peer:                 accept.Peer.String(),
+		Id:                   accept.ID[:],
+		Scid:                 uint64(accept.ShortChannelId()),
+		BidAssetRate:         rpcAssetRate,
+		Expiry:               uint64(accept.AssetRate.Expiry.Unix()),
+		AssetAmount:          numAssetUnits.ScaleTo(0).ToUint64(),
+		MinTransportableMsat: uint64(minTransportableMSat),
 	}
 }
 
@@ -563,16 +568,24 @@ func MarshalAcceptedBuyQuoteEvent(
 	event *rfq.PeerAcceptedBuyQuoteEvent) (*rfqrpc.PeerAcceptedBuyQuote,
 	error) {
 
+	// We now calculate the minimum amount of asset units that can be
+	// transported within a single HTLC for this asset at the given rate.
+	// This corresponds to the 354 satoshi minimum non-dust HTLC value.
+	minTransportableUnits := rfqmath.MinTransportableUnits(
+		rfqmath.DefaultOnChainHtlcMSat, event.AssetRate.Rate,
+	).ScaleTo(0).ToUint64()
+
 	return &rfqrpc.PeerAcceptedBuyQuote{
-		Peer:        event.Peer.String(),
-		Id:          event.ID[:],
-		Scid:        uint64(event.ShortChannelId()),
-		AssetAmount: event.Request.AssetMaxAmt,
+		Peer:           event.Peer.String(),
+		Id:             event.ID[:],
+		Scid:           uint64(event.ShortChannelId()),
+		AssetMaxAmount: event.Request.AssetMaxAmt,
 		AskAssetRate: &rfqrpc.FixedPoint{
 			Coefficient: event.AssetRate.Rate.Coefficient.String(),
 			Scale:       uint32(event.AssetRate.Rate.Scale),
 		},
-		Expiry: uint64(event.AssetRate.Expiry.Unix()),
+		Expiry:                uint64(event.AssetRate.Expiry.Unix()),
+		MinTransportableUnits: minTransportableUnits,
 	}, nil
 }
 

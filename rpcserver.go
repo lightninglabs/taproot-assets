@@ -55,6 +55,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/invoicesrpc"
+	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
@@ -6722,12 +6723,12 @@ func marshalPeerAcceptedBuyQuotes(
 		}
 
 		rpcQuote := &rfqrpc.PeerAcceptedBuyQuote{
-			Peer:         quote.Peer.String(),
-			Id:           quote.ID[:],
-			Scid:         uint64(scid),
-			AssetAmount:  quote.Request.AssetMaxAmt,
-			AskAssetRate: rpcAskAssetRate,
-			Expiry:       uint64(quote.AssetRate.Expiry.Unix()),
+			Peer:           quote.Peer.String(),
+			Id:             quote.ID[:],
+			Scid:           uint64(scid),
+			AssetMaxAmount: quote.Request.AssetMaxAmt,
+			AskAssetRate:   rpcAskAssetRate,
+			Expiry:         uint64(quote.AssetRate.Expiry.Unix()),
 		}
 		rpcQuotes = append(rpcQuotes, rpcQuote)
 	}
@@ -7024,6 +7025,16 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		return fmt.Errorf("payment request and keysend custom " +
 			"records cannot be set at the same time")
 
+	// RFQ ID and keysend is set, which isn't a supported combination.
+	case req.RfqId != nil && isKeysend:
+		return fmt.Errorf("RFQ ID and keysend custom records " +
+			"cannot be set at the same time")
+
+	// A payment must either be a keysend payment or pay an invoice.
+	case !isKeysend && pReq.PaymentRequest == "":
+		return fmt.Errorf("payment request or keysend custom records " +
+			"must be set")
+
 	// There are custom records for the first hop set, which means RFQ
 	// negotiation has already happened (or this is a keysend payment and
 	// the correct asset amount is already encoded). So we don't need to do
@@ -7031,6 +7042,8 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	case len(firstHopRecords) > 0:
 		// Continue below.
 
+	// The user specified a custom RFQ ID for a quote that should be used
+	// for the payment.
 	case req.RfqId != nil:
 		// Check if the provided RFQ ID matches the expected length.
 		if len(req.RfqId) != 32 {
@@ -7061,8 +7074,24 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// amount based on the asset-to-BTC conversion rate.
 		sellOrder := taprpc.MarshalAcceptedSellQuote(*quote)
 
+		// paymentMaxAmt is the maximum amount that the counterparty is
+		// expected to pay. This is the amount that the invoice is
+		// asking for plus the fee limit in milli-satoshis.
+		paymentMaxAmt, _, err := r.parseRequest(pReq)
+		if err != nil {
+			return err
+		}
+
+		// Check if the payment requires overpayment based on the quote.
+		err = checkOverpayment(
+			sellOrder, paymentMaxAmt, req.AllowOverpay,
+		)
+		if err != nil {
+			return err
+		}
+
 		// Send out the information about the quote on the stream.
-		err := stream.Send(&tchrpc.SendPaymentResponse{
+		err = stream.Send(&tchrpc.SendPaymentResponse{
 			Result: &tchrpc.SendPaymentResponse_AcceptedSellOrder{
 				AcceptedSellOrder: sellOrder,
 			},
@@ -7090,14 +7119,6 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 	// The request wants to pay a specific invoice.
 	case pReq.PaymentRequest != "":
-		invoice, err := zpay32.Decode(
-			pReq.PaymentRequest, r.cfg.Lnd.ChainParams,
-		)
-		if err != nil {
-			return fmt.Errorf("error decoding payment request: %w",
-				err)
-		}
-
 		// The peer public key is optional if there is only a single
 		// asset channel.
 		var peerPubKey *route.Vertex
@@ -7128,35 +7149,11 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		// paymentMaxAmt is the maximum amount that the counterparty is
 		// expected to pay. This is the amount that the invoice is
 		// asking for plus the fee limit in milli-satoshis.
-		var paymentMaxAmt lnwire.MilliSatoshi
-		if invoice.MilliSat == nil {
-			amt, err := lnrpc.UnmarshallAmt(pReq.Amt, pReq.AmtMsat)
-			if err != nil {
-				return fmt.Errorf("error unmarshalling "+
-					"amount: %w", err)
-			}
-			if amt == 0 {
-				return errors.New("amount must be specified " +
-					"when paying a zero amount invoice")
-			}
-
-			paymentMaxAmt = amt
-		} else {
-			paymentMaxAmt = *invoice.MilliSat
-		}
-
-		// Calculate the fee limit that should be used for this payment.
-		feeLimit, err := lnrpc.UnmarshallAmt(
-			pReq.FeeLimitSat, pReq.FeeLimitMsat,
-		)
+		paymentMaxAmt, expiry, err := r.parseRequest(pReq)
 		if err != nil {
-			return fmt.Errorf("error unmarshalling fee limit: %w",
-				err)
+			return err
 		}
 
-		paymentMaxAmt += feeLimit
-
-		expiryTimestamp := invoice.Timestamp.Add(invoice.Expiry())
 		resp, err := r.AddAssetSellOrder(
 			ctx, &rfqrpc.AddAssetSellOrderRequest{
 				AssetSpecifier: &rfqrpc.AssetSpecifier{
@@ -7165,7 +7162,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 					},
 				},
 				PaymentMaxAmt: uint64(paymentMaxAmt),
-				Expiry:        uint64(expiryTimestamp.Unix()),
+				Expiry:        uint64(expiry.Unix()),
 				PeerPubKey:    peerPubKey[:],
 				TimeoutSeconds: uint32(
 					rfq.DefaultTimeout.Seconds(),
@@ -7194,6 +7191,14 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		default:
 			return fmt.Errorf("unexpected response type: %T", r)
+		}
+
+		// Check if the payment requires overpayment based on the quote.
+		err = checkOverpayment(
+			acceptedQuote, paymentMaxAmt, req.AllowOverpay,
+		)
+		if err != nil {
+			return err
 		}
 
 		// Send out the information about the quote on the stream.
@@ -7295,6 +7300,99 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	}
 }
 
+// parseRequest parses the payment request and returns the payment maximum
+// amount and the expiry time.
+func (r *rpcServer) parseRequest(
+	req *routerrpc.SendPaymentRequest) (lnwire.MilliSatoshi, time.Time,
+	error) {
+
+	invoice, err := zpay32.Decode(req.PaymentRequest, r.cfg.Lnd.ChainParams)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("error decoding payment "+
+			"request: %w", err)
+	}
+
+	var paymentMaxAmt lnwire.MilliSatoshi
+	if invoice.MilliSat == nil {
+		amt, err := lnrpc.UnmarshallAmt(req.Amt, req.AmtMsat)
+		if err != nil {
+			return 0, time.Time{}, fmt.Errorf("error "+
+				"unmarshalling amount: %w", err)
+		}
+		if amt == 0 {
+			return 0, time.Time{}, errors.New("amount must be " +
+				"specified when paying a zero amount invoice")
+		}
+
+		paymentMaxAmt = amt
+	} else {
+		paymentMaxAmt = *invoice.MilliSat
+	}
+
+	// Calculate the fee limit that should be used for this payment.
+	feeLimit, err := lnrpc.UnmarshallAmt(
+		req.FeeLimitSat, req.FeeLimitMsat,
+	)
+	if err != nil {
+		return 0, time.Time{}, fmt.Errorf("error unmarshalling fee "+
+			"limit: %w", err)
+	}
+
+	paymentMaxAmt += feeLimit
+
+	expiry := invoice.Timestamp.Add(invoice.Expiry())
+	return paymentMaxAmt, expiry, nil
+}
+
+// checkOverpayment checks if paying a certain invoice amount requires
+// overpayment when using assets to pay, given the rate from the accepted quote
+// and the minimum non-dust HTLC amount dictated by the protocol.
+func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
+	paymentAmount lnwire.MilliSatoshi, allowOverpay bool) error {
+
+	rateFP, err := rfqrpc.UnmarshalFixedPoint(quote.BidAssetRate)
+	if err != nil {
+		return fmt.Errorf("cannot unmarshal asset rate: %w", err)
+	}
+
+	// If the calculated asset amount is zero, we can't pay this amount
+	// using assets, so we'll reject the payment even if the user has set
+	// the override flag.
+	if quote.AssetAmount == 0 {
+		oneUnit := rfqmath.NewBigIntFixedPoint(1, 0)
+		oneUnitAsMSat := rfqmath.UnitsToMilliSatoshi(oneUnit, *rateFP)
+		return fmt.Errorf("rejecting payment of %v (invoice amount + "+
+			"user-defined routing fee limit), smallest payable "+
+			"amount with assets is equivalent to %v",
+			paymentAmount, oneUnitAsMSat)
+	}
+
+	srvrLog.Debugf("Checking if payment is economical (min transportable "+
+		"mSat: %d, paymentAmount: %d, allowOverpay=%v)",
+		quote.MinTransportableMsat, paymentAmount, allowOverpay)
+
+	// If the override flag is set, we ignore this check and return early.
+	if allowOverpay {
+		return nil
+	}
+
+	// If the payment amount is less than the minimal transportable amount
+	// dictated by the quote, we'll return an error to inform the user. They
+	// can still override this check if they want to proceed anyway.
+	if lnwire.MilliSatoshi(quote.MinTransportableMsat) > paymentAmount {
+		return fmt.Errorf("rejecting payment of %v (invoice "+
+			"amount + user-defined routing fee limit), minimum "+
+			"amount for an asset payment is %v mSAT with the "+
+			"current rate of %v units/BTC; override this check "+
+			"by specifying the allow_overpay flag",
+			paymentAmount, quote.MinTransportableMsat,
+			rateFP.String())
+	}
+
+	// The amount checks out, we can proceed with the payment.
+	return nil
+}
+
 // AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset
 // specific parameters. It allows RPC users to create invoices that correspond
 // to the specified asset amount.
@@ -7380,6 +7478,17 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	default:
 		return nil, fmt.Errorf("unexpected response type: %T", r)
+	}
+
+	// If the invoice is for an asset unit amount smaller than the minimal
+	// transportable amount, we'll return an error, as it wouldn't be
+	// payable by the network.
+	if acceptedQuote.MinTransportableUnits > req.AssetAmount {
+		return nil, fmt.Errorf("cannot create invoice over %d asset "+
+			"units, as the minimal transportable amount is %d "+
+			"units with the current rate of %v units/BTC",
+			req.AssetAmount, acceptedQuote.MinTransportableUnits,
+			acceptedQuote.AskAssetRate)
 	}
 
 	// Now that we have the accepted quote, we know the amount in Satoshi

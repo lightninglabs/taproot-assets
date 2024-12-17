@@ -236,12 +236,15 @@ message PeerAcceptedBuyQuote {
     // The unique identifier of the quote request.
     bytes id = 2;
 
-    // scid is the short channel ID of the channel over which the payment for
-    // the quote should be made.
+    // The short channel ID of the channel over which the payment for the quote
+    // should be made.
     uint64 scid = 3;
 
-    // asset_amount is the amount of the subject asset.
-    uint64 asset_amount = 4;
+    // The maximum exchange amount denoted in the subject asset. This includes
+    // the user-configured maximum routing fees, so the actual payment amount
+    // will be less than this. This just defines the maximum volume that the
+    // edge node has accepted to divest with the given rate.
+    uint64 asset_max_amount = 4;
 
     // ask_asset_rate is the asset to BTC conversion rate represented as a
     // fixed-point number.
@@ -249,6 +252,12 @@ message PeerAcceptedBuyQuote {
 
     // The unix timestamp in seconds after which the quote is no longer valid.
     uint64 expiry = 6;
+
+    // The smallest amount of asset units that can be transported within a
+    // single HTLC over the Lightning Network with the given rate. This is the
+    // asset unit equivalent of 354 satoshis, which is the minimum amount for an
+    // HTLC to be above the dust limit.
+    uint64 min_transportable_units = 7;
 }
 
 message PeerAcceptedSellQuote {
@@ -271,6 +280,13 @@ message PeerAcceptedSellQuote {
 
     // The unix timestamp in seconds after which the quote is no longer valid.
     uint64 expiry = 6;
+
+    // The minimum amount of milli-satoshis that need to be sent out in order to
+    // transport a single asset unit over the Lightning Network with the given
+    // rate. This is the base amount of 354,000 milli-satoshi (the minimum
+    // amount for a non-dust HTLC) plus the equivalent of one asset unit in
+    // milli-satoshis.
+    uint64 min_transportable_msat = 7;
 }
 
 // QuoteRespStatus is an enum that represents the status of a quote response.
