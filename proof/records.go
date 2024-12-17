@@ -389,7 +389,7 @@ func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
 		)
 	}
 	return tlv.MakeDynamicRecord(
-		GroupKeyRevealType, reveal, recordSize, GroupKeyRevealEncoder,
-		GroupKeyRevealDecoder,
+		GroupKeyRevealType, reveal, recordSize,
+		asset.GroupKeyRevealEncoder, asset.GroupKeyRevealDecoder,
 	)
 }
