@@ -379,15 +379,25 @@ func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {
 }
 
 func GroupKeyRevealRecord(reveal *asset.GroupKeyReveal) tlv.Record {
+	// recordSize returns the size of the record in bytes. This is used to
+	// determine the size of the record when encoding it.
 	recordSize := func() uint64 {
 		if reveal == nil || *reveal == nil {
 			return 0
 		}
-		r := *reveal
-		return uint64(
-			btcec.PubKeyBytesLenCompressed + len(r.TapscriptRoot()),
+
+		var (
+			b   bytes.Buffer
+			buf [8]byte
 		)
+		err := asset.GroupKeyRevealEncoder(&b, reveal, &buf)
+		if err != nil {
+			panic(err)
+		}
+
+		return uint64(len(b.Bytes()))
 	}
+
 	return tlv.MakeDynamicRecord(
 		GroupKeyRevealType, reveal, recordSize,
 		asset.GroupKeyRevealEncoder, asset.GroupKeyRevealDecoder,
