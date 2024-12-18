@@ -445,6 +445,10 @@
         "short_response": {
           "type": "boolean",
           "description": "If true, then the assets currently in the batch won't be returned in the\nresponse. This is mainly to avoid a lot of data being transmitted and\npossibly printed on the command line in the case of a very large batch."
+        },
+        "enable_uni_announce": {
+          "type": "boolean",
+          "description": "Set to true to enable universe announcements for the asset(s) mint event.\nThis option restricts the minting batch to assets that are part of the\nsame universe (i.e., share the same group key)."
         }
       }
     },

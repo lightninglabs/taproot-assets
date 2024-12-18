@@ -91,6 +91,13 @@ type Seedling struct {
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
 
+	// EnableUniAnnounce indicates whether the minting event which
+	// will be associated with the seedling supports universe announcements.
+	// If set to true, the seedling can only be included in a minting batch
+	// where all assets share the same asset group key, which must be
+	// specified.
+	EnableUniAnnounce bool
+
 	// GroupAnchor is the name of another seedling in the pending batch that
 	// will anchor an asset group. This seedling will be minted with the
 	// same group key as the anchor asset.
