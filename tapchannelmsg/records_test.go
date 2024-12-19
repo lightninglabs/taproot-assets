@@ -534,3 +534,24 @@ func TestContractResolution(t *testing.T) {
 		require.Equal(t, testRes, newRes)
 	})
 }
+
+// TestProofChunk tests encoding and decoding of the ProofChunk TLV blob.
+func TestProofChunk(t *testing.T) {
+	t.Parallel()
+
+	rapid.Check(t, func(r *rapid.T) {
+		proofChunk := NewProofChunk(
+			rapid.Make[[32]byte]().Draw(r, "chunk_sum"),
+			rapid.SliceOf(rapid.Byte()).Draw(r, "chunk_data"),
+			rapid.Bool().Draw(r, "chunk_offset"),
+		)
+
+		var b bytes.Buffer
+		require.NoError(t, proofChunk.Encode(&b))
+
+		var newChunk ProofChunk
+		require.NoError(t, newChunk.Decode(&b))
+
+		require.Equal(t, proofChunk, newChunk)
+	})
+}

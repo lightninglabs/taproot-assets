@@ -74,6 +74,12 @@ const (
 	// maxNumHTLCsPerParty is the maximum number of HTLCs that can be added
 	// by a single party to a channel.
 	maxNumHTLCsPerParty = maxNumHTLCs / 2
+
+	// proofChunk size is the chunk size of proofs, in the case that a proof
+	// is too large to be sent in a single message. Since the max lnwire
+	// message is 64k bytes, we leave some breathing room for the chunk
+	// metadata.
+	proofChunkSize = 60_000
 )
 
 // ErrorReporter is used to report an error back to the caller and/or peer that
@@ -420,7 +426,9 @@ type pendingAssetFunding struct {
 	fundingAckChan chan bool
 
 	fundingFinalizedSignal chan struct{}
-	finalizedCloseOnce     sync.Once
+
+	finalizedCloseOnce sync.Once
+	inputProofChunks   map[chainhash.Hash][]cmsg.ProofChunk
 }
 
 // addInputProof adds a new proof to the set of proofs that'll be used to fund
@@ -459,6 +467,37 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
 
 	// If we've already got one, then we need to merge the two.
 	return p.fundingAssetCommitment.Merge(newCommitment)
+}
+
+// addInputProofChunk adds a new proof chunk to the set of proof chunks that'll
+// be processed. If this is the last chunk for this proof, then true is
+// returned.
+func (p *pendingAssetFunding) addInputProofChunk(chunk cmsg.ProofChunk,
+) lfn.Result[lfn.Option[proof.Proof]] {
+
+	type ret = proof.Proof
+
+	// Collect this proof chunk with the rest of the proofs.
+	chunkID := chunk.ChunkSumID.Val
+
+	proofChunks := p.inputProofChunks[chunkID]
+	proofChunks = append(proofChunks, chunk)
+	p.inputProofChunks[chunkID] = proofChunks
+
+	// If this isn't the last chunk, then we can just return None and exit.
+	if !chunk.Last.Val {
+		return lfn.Ok(lfn.None[ret]())
+	}
+
+	// Otherwise, this is the last chunk, so we'll extract all the chunks
+	// and assemble the final proof.
+	finalProof, err := cmsg.AssembleProofChunks(proofChunks)
+	if err != nil {
+		return lfn.Errf[lfn.Option[ret]]("unable to "+
+			"assemble proof chunks: %w", err)
+	}
+
+	return lfn.Ok(lfn.Some(*finalProof))
 }
 
 // newCommitBlobAndLeaves creates a new commitment blob that'll be stored in
@@ -699,6 +738,9 @@ func (f *fundingFlowIndex) fromMsg(chainParams *address.ChainParams,
 			amt:                    assetProof.Amt().UnwrapOr(0),
 			fundingAckChan:         make(chan bool, 1),
 			fundingFinalizedSignal: make(chan struct{}),
+			inputProofChunks: make(
+				map[chainhash.Hash][]cmsg.ProofChunk,
+			),
 		}
 		(*f)[pid] = assetFunding
 	}
@@ -827,15 +869,33 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 		log.Tracef("Sending input ownership proof to remote party: %x",
 			proofBytes)
 
-		inputProof := cmsg.NewTxAssetInputProof(
-			fundingState.pid, *fundingState.inputProofs[i],
-		)
+		inputProof := fundingState.inputProofs[i]
+		inputAsset := inputProof.Asset
 
-		// Finally, we'll send the proof to the remote peer.
-		err := f.cfg.PeerMessenger.SendMessage(ctx, peerPub, inputProof)
+		// For each proof, we'll chunk them up optimistically to make
+		// sure we'll never exceed the upper message limit.
+		proofChunks, err := cmsg.CreateProofChunks(
+			*inputProof, proofChunkSize,
+		)
 		if err != nil {
-			return fmt.Errorf("unable to send proof to peer: %w",
-				err)
+			return fmt.Errorf("unable to create proof "+
+				"chunks: %w", err)
+		}
+
+		for _, proofChunk := range proofChunks {
+			inputProof := cmsg.NewTxAssetInputProof(
+				fundingState.pid, inputAsset.ID(),
+				inputAsset.Amount, proofChunk,
+			)
+
+			// Finally, we'll send the proof to the remote peer.
+			err := f.cfg.PeerMessenger.SendMessage(
+				ctx, peerPub, inputProof,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to send "+
+					"proof to peer: %w", err)
+			}
 		}
 	}
 
@@ -1295,9 +1355,27 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 	// This is input proof, so we'll verify the challenge witness, then
 	// store the proof.
 	case *cmsg.TxAssetInputProof:
+		// By default, we'll get chunks of the proof sent to us. So
+		// we'll add this set to the chunks, then proceed but only if we
+		// have all the chunks.
+		finalProof, err := assetFunding.addInputProofChunk(
+			assetProof.ProofChunk.Val,
+		).Unpack()
+		if err != nil {
+			return tempPID, fmt.Errorf("unable to add input proof "+
+				"chunk: %w", err)
+		}
+
+		// If there's no final proof yet, we can just return early.
+		if finalProof.IsNone() {
+			return tempPID, nil
+		}
+
+		// Otherwise, we have all the proofs we need.
+		//
 		// Before we proceed, we'll make sure that we already know of
 		// the genesis proof for the incoming asset.
-		_, err := f.cfg.AssetSyncer.QueryAssetInfo(
+		_, err = f.cfg.AssetSyncer.QueryAssetInfo(
 			ctx, assetProof.AssetID.Val,
 		)
 		if err != nil {
@@ -1305,34 +1383,38 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 				"proof for asset_id=%v: %w",
 				assetProof.AssetID.Val, err)
 		}
+		err = lfn.MapOptionZ(finalProof, func(p proof.Proof) error {
+			log.Infof("Validating input proof, prev_out=%v",
+				p.OutPoint())
 
-		p := assetProof.Proof.Val
-		log.Infof("Validating input proof, prev_out=%v", p.OutPoint())
+			l, err := f.cfg.ChainBridge.GenProofChainLookup(&p)
+			if err != nil {
+				return fmt.Errorf("unable to create proof "+
+					"lookup: %w", err)
+			}
 
-		l, err := f.cfg.ChainBridge.GenProofChainLookup(&p)
+			// Next, we'll validate this proof to make sure that the
+			// initiator is actually able to spend these outputs in
+			// the funding transaction.
+			_, err = p.Verify(
+				ctx, nil, f.cfg.HeaderVerifier,
+				proof.DefaultMerkleVerifier,
+				f.cfg.GroupVerifier, l,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to verify "+
+					"ownership proof: %w", err)
+			}
+
+			// Now that we know the proof is valid, we'll add it to
+			// the funding state.
+			assetFunding.addInputProof(&p)
+
+			return nil
+		})
 		if err != nil {
-			return tempPID, fmt.Errorf("unable to create proof "+
-				"lookup: %w", err)
+			return tempPID, err
 		}
-
-		// Next, we'll validate this proof to make sure that the
-		// initiator is actually able to spend these outputs in the
-		// funding transaction.
-		_, err = p.Verify(
-			ctx, nil, f.cfg.HeaderVerifier,
-			proof.DefaultMerkleVerifier,
-			f.cfg.GroupVerifier, l,
-		)
-		if err != nil {
-			return tempPID, fmt.Errorf("unable to verify "+
-				"ownership proof: %w", err)
-		}
-
-		// Now that we know the proof is valid, we'll add it to the
-		// funding state.
-		assetFunding.addInputProof(
-			&assetProof.Proof.Val,
-		)
 
 	// This is an output proof, so now we should be able to verify the
 	// asset funding output with witness intact.
