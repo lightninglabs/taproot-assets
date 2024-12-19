@@ -1253,6 +1253,8 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 		return GroupKeyRevealTapscript{}, err
 	}
 
+	fmt.Printf("Leaf script: %x\n", emptyNonSpendLeaf.Script)
+
 	// Compute the tweaked custom branch hash.
 	tweakedCustomBranchHash := TapBranchHash(
 		emptyNonSpendLeaf.TapHash(),
@@ -1268,11 +1270,16 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 		return GroupKeyRevealTapscript{}, err
 	}
 
+	fmt.Printf("Asset ID leaf script: %x\n", assetIDLeaf.Script)
+
 	// Compute final tapscript root hash. This is the root hash of the
 	// tapscript tree that is used to derive the asset group key.
 	rootHash := TapBranchHash(
 		assetIDLeaf.TapHash(), tweakedCustomBranchHash,
 	)
+
+	fmt.Printf("Left hash %x, right hash %x\n",
+		fn.ByteSlice(assetIDLeaf.TapHash()), tweakedCustomBranchHash[:])
 
 	// Construct the custom subtree inclusion proof. This proof is required
 	// to spend custom tapscript leaves in the tapscript tree.
