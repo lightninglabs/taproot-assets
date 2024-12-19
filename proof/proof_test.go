@@ -86,6 +86,119 @@ func assertEqualTaprootProof(t *testing.T, expected, actual *TaprootProof) {
 	}
 }
 
+// assertEqualGroupKeyRevealV0 asserts that the expected and actual group key
+// reveal V0 are equal.
+func assertEqualGroupKeyRevealV0(t *testing.T, expected,
+	actual asset.GroupKeyRevealV0, expectedGenesisAssetID asset.ID) {
+
+	t.Helper()
+
+	require.Equal(t, expected.RawKey(), actual.RawKey())
+
+	// Compare the tapscript root. Normalize nil to empty slice for
+	// comparison.
+	expectedRoot := expected.TapscriptRoot()
+	if expectedRoot == nil {
+		expectedRoot = []byte{}
+	}
+
+	actualRoot := actual.TapscriptRoot()
+	if actualRoot == nil {
+		actualRoot = []byte{}
+	}
+
+	require.Equal(t, expectedRoot, actualRoot)
+
+	// Assert that the asset group pub key is equal for the expected genesis
+	// asset ID.
+	expectedGroupPubKey, err := expected.GroupPubKey(expectedGenesisAssetID)
+	require.NoError(t, err)
+
+	actualGroupPubKey, err := actual.GroupPubKey(expectedGenesisAssetID)
+	require.NoError(t, err)
+
+	require.Equal(t, expectedGroupPubKey, actualGroupPubKey)
+}
+
+// assertEqualGroupKeyRevealV1 asserts that the expected and actual group key
+// reveal V1 are equal.
+func assertEqualGroupKeyRevealV1(t *testing.T, expected,
+	actual asset.GroupKeyRevealV1, expectedGenesisAssetID asset.ID) {
+
+	require.Equal(t, expected.RawKey(), actual.RawKey())
+
+	// Compare the tapscript root. Normalize nil to empty slice for
+	// comparison.
+	expectedRoot := expected.TapscriptRoot()
+	if expectedRoot == nil {
+		expectedRoot = []byte{}
+	}
+
+	actualRoot := actual.TapscriptRoot()
+	if actualRoot == nil {
+		actualRoot = []byte{}
+	}
+
+	require.Equal(t, expectedRoot, actualRoot)
+
+	// Assert that the asset group pub key is equal for the expected genesis
+	// asset ID.
+	expectedGroupPubKey, err := expected.GroupPubKey(expectedGenesisAssetID)
+	require.NoError(t, err)
+
+	actualGroupPubKey, err := actual.GroupPubKey(expectedGenesisAssetID)
+	require.NoError(t, err)
+
+	require.Equal(t, expectedGroupPubKey, actualGroupPubKey)
+
+	// Compare the custom subtree root.
+	require.Equal(
+		t, expected.CustomSubtreeRoot(), actual.CustomSubtreeRoot(),
+	)
+}
+
+// assertEqualGroupKeyReveal asserts that the expected and actual group key
+// reveal are equal.
+func assertEqualGroupKeyReveal(t *testing.T, expected,
+	actual asset.GroupKeyReveal, expectedGenesisAssetID asset.ID) {
+
+	t.Helper()
+
+	// Handle nil cases.
+	if expected == nil {
+		require.Nil(t, actual)
+		return
+	}
+	require.NotNil(t, actual)
+
+	// Dispatch to group key reveal version 0 assertion.
+	if expectedV0, ok := expected.(*asset.GroupKeyRevealV0); ok {
+		// If expected is V0 then actual should be V0.
+		actualV0, actualOk := actual.(*asset.GroupKeyRevealV0)
+		require.True(t, actualOk)
+
+		assertEqualGroupKeyRevealV0(
+			t, *expectedV0, *actualV0, expectedGenesisAssetID,
+		)
+		return
+	}
+
+	// Dispatch to group key reveal version 1 assertion.
+	if expectedV1, ok := expected.(*asset.GroupKeyRevealV1); ok {
+		// If expected is V1 then actual should be V1.
+		actualV1, actualOk := actual.(*asset.GroupKeyRevealV1)
+		require.True(t, actualOk)
+
+		assertEqualGroupKeyRevealV1(
+			t, *expectedV1, *actualV1, expectedGenesisAssetID,
+		)
+		return
+	}
+
+	// Unexpected group key reveal type.
+	require.FailNow(t, "unexpected group key reveal type")
+}
+
 func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	t.Helper()
 
@@ -136,6 +249,11 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	}
 
 	require.Equal(t, expected.ChallengeWitness, actual.ChallengeWitness)
+
+	assertEqualGroupKeyReveal(
+		t, expected.GroupKeyReveal, actual.GroupKeyReveal,
+		expected.Asset.Genesis.ID(),
+	)
 }
 
 func TestProofEncoding(t *testing.T) {

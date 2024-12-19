@@ -1350,6 +1350,12 @@ func (g *GroupKeyRevealV1) SetTapscriptRoot(tapscriptRootBytes []byte) {
 	g.tapscript.root = tapscriptRoot
 }
 
+// CustomSubtreeRoot returns the custom subtree root hash of the group key
+// reveal.
+func (g *GroupKeyRevealV1) CustomSubtreeRoot() fn.Option[chainhash.Hash] {
+	return g.tapscript.customSubtreeRoot
+}
+
 // GroupPubKey returns the group public key derived from the group key reveal.
 func (g *GroupKeyRevealV1) GroupPubKey(assetID ID) (*btcec.PublicKey, error) {
 	internalKey, err := g.RawKey().ToPubKey()
