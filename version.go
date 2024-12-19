@@ -52,7 +52,7 @@ const (
 
 	// AppPreRelease defines the pre-release version of this binary.
 	// It MUST only contain characters from the semantic versioning spec.
-	AppPreRelease = "rc2"
+	AppPreRelease = ""
 
 	// GitTagIncludeStatus indicates whether the status should be included
 	// in the git tag name.
