@@ -1040,8 +1040,8 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // hash may represent either a single leaf or the root hash of an entire
 // subtree.
 //
-// If `custom_root_hash` is not provided, it defaults to a 32-byte zero-filled
-// array. In this case, no valid script spending path can correspond to the
+// If `custom_root_hash` is not provided, it defaults to a bare `[OP_RETURN` as
+// well. In this case, no valid script spending path can correspond to the
 // custom subtree root hash due to the pre-image resistance of SHA-256.
 //
 // A sibling node is included alongside the `custom_root_hash` node. This
@@ -1067,7 +1067,8 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //     1. It cannot be misinterpreted as a genesis asset ID leaf.
 //     2. It optionally includes user-defined script spending leaves.
 //   - <custom_root_hash> is the root hash of the custom tapscript subtree.
-//     If not specified, it defaults to a 32-byte zero-filled array.
+//     If not specified, it defaults to the same [OP_RETURN] that's on the left
+//     side.
 //   - [OP_RETURN] is a non-spendable script leaf containing the script
 //     `OP_RETURN`. Its presence ensures that [tweaked_custom_branch] remains
 //     a branch node and cannot be a valid genesis asset ID leaf.
@@ -1108,7 +1109,7 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 	// hash of the custom tapscript subtree.
 	//
 	// If a custom tapscript subtree root hash is provided, we use it.
-	// Otherwise, we default to an empty hash (a zero-filled byte array).
+	// Otherwise, we default to an empty non-spendable leaf hash as well.
 	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(nil)
 	if err != nil {
 		return GroupKeyRevealTapscript{}, err
@@ -1117,7 +1118,7 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 	// Compute the tweaked custom branch hash.
 	tweakedCustomBranchHash := TapBranchHash(
 		emptyNonSpendLeaf.TapHash(),
-		customRoot.UnwrapOr(chainhash.Hash{}),
+		customRoot.UnwrapOr(emptyNonSpendLeaf.TapHash()),
 	)
 
 	// Next, we'll combine the tweaked custom branch hash with the genesis
