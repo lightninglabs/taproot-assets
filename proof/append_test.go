@@ -133,6 +133,11 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	tapCommitment, err := commitment.NewTapCommitment(nil, assetCommitment)
 	require.NoError(t, err)
 
+	// Add some alt leaves to the commitment anchoring the asset transfer.
+	altLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	err = tapCommitment.MergeAltLeaves(altLeaves)
+	require.NoError(t, err)
+
 	tapscriptRoot := tapCommitment.TapscriptRoot(nil)
 	taprootKey := txscript.ComputeTaprootOutputKey(
 		recipientTaprootInternalKey, tapscriptRoot[:],
@@ -213,6 +218,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
 	require.Equal(t, txMerkleProof, &transitionProof.TxMerkleProof)
+	asset.CompareAltLeaves(t, altLeaves, transitionProof.AltLeaves)
 	verifyBlob(t, transitionBlob)
 
 	// Stop here if we don't test asset splitting.
@@ -281,17 +287,26 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split3AssetNoSplitProof,
 	)
 	require.NoError(t, err)
+	split1AltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	split2AltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+	split3AltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 	tap1Commitment, err := commitment.NewTapCommitment(
 		nil, split1Commitment,
 	)
+	require.NoError(t, err)
+	err = tap1Commitment.MergeAltLeaves(split1AltLeaves)
 	require.NoError(t, err)
 	tap2Commitment, err := commitment.NewTapCommitment(
 		nil, split2Commitment,
 	)
 	require.NoError(t, err)
+	err = tap2Commitment.MergeAltLeaves(split2AltLeaves)
+	require.NoError(t, err)
 	tap3Commitment, err := commitment.NewTapCommitment(
 		nil, split3Commitment,
 	)
+	require.NoError(t, err)
+	err = tap3Commitment.MergeAltLeaves(split3AltLeaves)
 	require.NoError(t, err)
 
 	tapscript1Root := tap1Commitment.TapscriptRoot(nil)
@@ -412,6 +427,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
 	require.Equal(t, splitTxMerkleProof, &split1Proof.TxMerkleProof)
+	asset.CompareAltLeaves(t, split1AltLeaves, split1Proof.AltLeaves)
 	split1Snapshot := verifyBlob(t, split1Blob)
 	require.False(t, split1Snapshot.SplitAsset)
 
@@ -454,6 +470,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
 	require.Equal(t, splitTxMerkleProof, &split2Proof.TxMerkleProof)
+	asset.CompareAltLeaves(t, split2AltLeaves, split2Proof.AltLeaves)
 	split2Snapshot := verifyBlob(t, split2Blob)
 
 	require.True(t, split2Snapshot.SplitAsset)
@@ -497,6 +514,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))
 	require.Equal(t, splitTxMerkleProof, &split3Proof.TxMerkleProof)
+	asset.CompareAltLeaves(t, split3AltLeaves, split3Proof.AltLeaves)
 	split3Snapshot := verifyBlob(t, split3Blob)
 
 	require.True(t, split3Snapshot.SplitAsset)

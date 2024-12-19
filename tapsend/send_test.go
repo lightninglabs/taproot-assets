@@ -335,7 +335,7 @@ func createGenesisProof(t *testing.T, state *spendData) {
 	state.asset2GenesisProof = asset2GenesisProof
 }
 
-func createPacket(addr address.Tap, prevInput asset.PrevID,
+func createPacket(t *testing.T, addr address.Tap, prevInput asset.PrevID,
 	state spendData, inputSet commitment.InputSet,
 	fullValueInteractive bool) *tappsbt.VPacket {
 
@@ -377,6 +377,31 @@ func createPacket(addr address.Tap, prevInput asset.PrevID,
 		Version:     test.RandFlip(tappsbt.V0, tappsbt.V1),
 	}
 	vPacket.SetInputAsset(0, inputAsset)
+
+	makeAltLeaves := func() []*asset.Asset {
+		numAltLeaves := (test.RandInt[uint8]() % 4)
+		if numAltLeaves == 0 {
+			return nil
+		}
+
+		innerAltLeaves := make([]*asset.Asset, 0, numAltLeaves)
+		for range numAltLeaves {
+			scriptKey := asset.NewScriptKey(test.RandPubKey(t))
+			baseLeaf, err := asset.NewAltLeaf(
+				scriptKey, asset.ScriptV0, nil,
+			)
+			require.NoError(t, err)
+
+			innerAltLeaves = append(innerAltLeaves, baseLeaf)
+		}
+
+		return innerAltLeaves
+	}
+
+	for outputIdx := range len(vPacket.Outputs) {
+		err := vPacket.Outputs[outputIdx].SetAltLeaves(makeAltLeaves())
+		require.NoError(t, err)
+	}
 
 	return vPacket
 }
@@ -565,6 +590,36 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 	_, ok := senderCommitments[inputAsset.TapCommitmentKey()]
 	if !ok {
 		includesAssetCommitment = false
+	}
+
+	// Check the state of the AltCommitment for each vOutput.
+	for _, vOut := range vPkt.Outputs {
+		hasAltLeaves := len(vOut.AltLeaves) > 0
+		anchorCommitment := outputCommitments[vOut.AnchorOutputIndex]
+		anchorAssetCommits := anchorCommitment.Commitments()
+		altCommitment, ok := anchorAssetCommits[asset.EmptyGenesisID]
+
+		// If there were any AltLeaves, there must be a non-empty
+		// AltCommitment. Otherwise, there must be no AltCommitment
+		// root.
+		require.Equal(t, hasAltLeaves, ok)
+		if !ok {
+			continue
+		}
+
+		// For each AltLeaf of a vOutput, there must be an equivalent
+		// asset leaf in the AltCommitment.
+		matchingAltLeaf := func(a asset.AltLeaf[asset.Asset]) bool {
+			leafKey := a.AssetCommitmentKey()
+			altLeaf, _, err := altCommitment.AssetProof(leafKey)
+			require.NoError(t, err)
+			require.NotNil(t, altLeaf)
+
+			leaf := a.(*asset.Asset)
+			return leaf.DeepEqual(altLeaf)
+		}
+
+		require.True(t, fn.All(vOut.AltLeaves, matchingAltLeaf))
 	}
 
 	inputMatchingAsset := !isSplit
@@ -765,7 +820,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset2PrevID,
+			t, state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -783,7 +838,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset2PrevID,
+			t, state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 
@@ -799,7 +854,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address2, state.asset2PrevID,
+			t, state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -818,7 +873,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state.address2.ScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address2, state.asset2PrevID,
+			t, state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, true,
 		)
 		return tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -830,7 +885,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address2, state.asset2PrevID,
+			t, state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, true,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -849,7 +904,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID,
 			state, state.asset1CollectGroupInputAssets, false,
 		)
@@ -869,7 +924,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address2, state.asset2PrevID,
+			t, state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		return tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -882,7 +937,7 @@ var prepareOutputAssetsTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID,
 			state, state.asset1CollectGroupInputAssets, false,
 		)
@@ -922,7 +977,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -941,7 +996,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -962,7 +1017,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
@@ -987,7 +1042,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, true,
 		)
@@ -1012,7 +1067,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, true,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1035,7 +1090,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset2PrevID,
+			t, state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1059,7 +1114,7 @@ var signVirtualTransactionTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
@@ -1103,7 +1158,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
 		tpl := pkt.Outputs[1]
@@ -1127,13 +1182,50 @@ var createOutputCommitmentsTestCases = []testCase{{
 	},
 	err: tapsend.ErrInvalidAnchorOutputInfo,
 }, {
+	name: "incompatible alt leaves",
+	f: func(t *testing.T) error {
+		state := initSpendScenario(t)
+		state.spenderScriptKey = *asset.NUMSPubKey
+
+		pkt := createPacket(
+			t, state.address1, state.asset1PrevID,
+			state, state.asset1InputAssets, false,
+		)
+		tpl := pkt.Outputs[1]
+
+		altLeafScriptKey := asset.NewScriptKey(test.RandPubKey(t))
+		newAltLeaf, err := asset.NewAltLeaf(
+			altLeafScriptKey, asset.ScriptV0, nil,
+		)
+		require.NoError(t, err)
+
+		pkt.Outputs[1].AltLeaves = append(
+			pkt.Outputs[1].AltLeaves, newAltLeaf,
+		)
+
+		require.NoError(t, err)
+		pkt.Outputs = append(pkt.Outputs, &tappsbt.VOutput{
+			AnchorOutputIndex:       tpl.AnchorOutputIndex,
+			AnchorOutputInternalKey: tpl.AnchorOutputInternalKey,
+			AltLeaves: []asset.AltLeaf[asset.Asset]{
+				newAltLeaf,
+			},
+		})
+
+		_, err = tapsend.CreateOutputCommitments(
+			[]*tappsbt.VPacket{pkt},
+		)
+		return err
+	},
+	err: asset.ErrDuplicateAltLeafKey,
+}, {
 	name: "non-interactive collectible with group key",
 	f: func(t *testing.T) error {
 		state := initSpendScenario(t)
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
@@ -1159,7 +1251,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, true,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1184,7 +1276,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset2PrevID,
+			t, state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1210,7 +1302,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address2, state.asset2PrevID,
+			t, state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1236,7 +1328,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
@@ -1281,7 +1373,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1314,7 +1406,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1346,7 +1438,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, true,
 		)
@@ -1383,7 +1475,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset1PrevID,
+			t, state.address1, state.asset1PrevID,
 			state, state.asset1InputAssets, true,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1419,7 +1511,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state := initSpendScenario(t)
 
 		pkt := createPacket(
-			state.address1, state.asset2PrevID,
+			t, state.address1, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1456,7 +1548,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address2, state.asset2PrevID,
+			t, state.address2, state.asset2PrevID,
 			state, state.asset2InputAssets, false,
 		)
 		err := tapsend.PrepareOutputAssets(context.Background(), pkt)
@@ -1493,7 +1585,7 @@ var updateTaprootOutputKeysTestCases = []testCase{{
 		state.spenderScriptKey = *asset.NUMSPubKey
 
 		pkt := createPacket(
-			state.address1CollectGroup,
+			t, state.address1CollectGroup,
 			state.asset1CollectGroupPrevID, state,
 			state.asset1CollectGroupInputAssets, false,
 		)
@@ -1537,7 +1629,7 @@ func createSpend(t *testing.T, state *spendData, inputSet commitment.InputSet,
 	}
 
 	pkt := createPacket(
-		spendAddress, state.asset2PrevID, *state, inputSet, false,
+		t, spendAddress, state.asset2PrevID, *state, inputSet, false,
 	)
 
 	// For all other tests it's okay to test external indexes that are
@@ -2407,6 +2499,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 		key1        = test.RandPubKey(t)
 		key2        = test.RandPubKey(t)
 		asset1      = asset.RandAsset(t, asset.RandAssetType(t))
+		altLeaves   = asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 		emptyProof  = &proof.CommitmentProof{}
 		vOutSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:            0,
@@ -2418,6 +2511,7 @@ func TestValidateAnchorOutputs(t *testing.T) {
 					CommitmentProof: emptyProof,
 				},
 			},
+			AltLeaves: altLeaves,
 		}
 		vOutNoSibling = &tappsbt.VOutput{
 			AnchorOutputIndex:       0,
@@ -2428,10 +2522,14 @@ func TestValidateAnchorOutputs(t *testing.T) {
 					CommitmentProof: emptyProof,
 				},
 			},
+			AltLeaves: altLeaves,
 		}
 		keyRoot = tappsbt.PsbtKeyTypeOutputTaprootMerkleRoot
 	)
 	asset1Commitment, err := commitment.FromAssets(nil, asset1)
+	require.NoError(t, err)
+
+	err = asset1Commitment.MergeAltLeaves(altLeaves)
 	require.NoError(t, err)
 
 	vOutCommitmentProof := proof.CommitmentProof{

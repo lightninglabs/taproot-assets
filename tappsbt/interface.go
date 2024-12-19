@@ -2,6 +2,7 @@ package tappsbt
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/url"
 
@@ -79,7 +80,12 @@ var (
 
 	// ErrInvalidVPacketVersion is an error returned when a VPacket version
 	// is invalid.
-	ErrInvalidVPacketVersion = fmt.Errorf("tappsbt: invalid version")
+	ErrInvalidVPacketVersion = errors.New("tappsbt: invalid version")
+
+	// ErrAltLeavesAlreadySet is returned when a VInput or VOutput already
+	// has some AltLeaves set, but a call was made to set the AltLeaves
+	// again.
+	ErrAltLeavesAlreadySet = errors.New("tappsbt: alt leaves already set")
 )
 
 // VPacketVersion is the version of the virtual transaction. This can signal
@@ -105,9 +111,6 @@ type bip32DerivationPredicate func(*psbt.Bip32Derivation) bool
 // bip32DerivationPredicate is a function that can be used to filter Taproot
 // BIP-0032 derivation paths.
 type taprootBip32DerivationPredicate func(*psbt.TaprootBip32Derivation) bool
-
-// AltLeafAsset is an AltLeaf backed by an Asset object.
-type AltLeafAsset = asset.AltLeaf[*asset.Asset]
 
 var (
 	// VOutIsSplitRoot is a predicate that returns true if the virtual
@@ -399,7 +402,7 @@ type VInput struct {
 	// will be inserted in the input anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
-	AltLeaves []AltLeafAsset
+	AltLeaves []asset.AltLeaf[asset.Asset]
 }
 
 // Copy creates a deep copy of the VInput.
@@ -420,6 +423,27 @@ func (i *VInput) Copy() *VInput {
 // Asset returns the input's asset that's being spent.
 func (i *VInput) Asset() *asset.Asset {
 	return i.asset
+}
+
+// SetAltLeaves asserts that a set of AltLeaves are valid, and updates a VInput
+// to set the AltLeaves. Setting the input's AltLeaves twice is disallowed.
+func (i *VInput) SetAltLeaves(altLeafAssets []*asset.Asset) error {
+	// AltLeaves can be set exactly once on a VInput.
+	if len(i.AltLeaves) != 0 {
+		return fmt.Errorf("%w: input", ErrAltLeavesAlreadySet)
+	}
+
+	// Each asset must be a valid AltLeaf, and the set of AltLeaves must be
+	// valid, by not having overlapping keys in the AltCommitment.
+	altLeaves := asset.ToAltLeaves(altLeafAssets)
+	err := asset.ValidAltLeaves(altLeaves)
+	if err != nil {
+		return err
+	}
+
+	i.AltLeaves = asset.CopyAltLeaves(altLeaves)
+
+	return nil
 }
 
 // serializeScriptKey serializes the input asset's script key as the PSBT
@@ -599,7 +623,7 @@ type VOutput struct {
 	// will be inserted in the output anchor Tap commitment. These
 	// data-carrying leaves are used for a purpose distinct from
 	// representing individual Taproot Assets.
-	AltLeaves []AltLeafAsset
+	AltLeaves []asset.AltLeaf[asset.Asset]
 }
 
 // Copy creates a deep copy of the VOutput.
@@ -658,6 +682,27 @@ func (o *VOutput) SetAnchorInternalKey(keyDesc keychain.KeyDescriptor,
 	o.AnchorOutputTaprootBip32Derivation = append(
 		o.AnchorOutputTaprootBip32Derivation, trBip32Derivation,
 	)
+}
+
+// SetAltLeaves asserts that a set of AltLeaves are valid, and updates a VOutput
+// to set the AltLeaves. Setting the output's AltLeaves twice is disallowed.
+func (o *VOutput) SetAltLeaves(altLeafAssets []*asset.Asset) error {
+	// AltLeaves can be set exactly once on a VOutput.
+	if len(o.AltLeaves) != 0 {
+		return fmt.Errorf("%w: output", ErrAltLeavesAlreadySet)
+	}
+
+	// Each asset must be a valid AltLeaf, and the set of AltLeaves must be
+	// valid, by not having overlapping keys in the AltCommitment.
+	altLeaves := asset.ToAltLeaves(altLeafAssets)
+	err := asset.ValidAltLeaves(altLeaves)
+	if err != nil {
+		return err
+	}
+
+	o.AltLeaves = asset.CopyAltLeaves(altLeaves)
+
+	return nil
 }
 
 // AnchorKeyToDesc attempts to extract the key descriptor of the anchor output

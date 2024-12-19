@@ -184,6 +184,7 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 		InclusionProof: proof.TaprootProof{
 			InternalKey: test.RandPubKey(t),
 		},
+		AltLeaves: asset.ToAltLeaves(asset.RandAltLeaves(t, true)),
 	}
 }
 
