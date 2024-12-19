@@ -427,15 +427,6 @@ func (c *TapCommitment) Downgrade() (*TapCommitment, error) {
 	return NewTapCommitment(nil, newAssetCommitments...)
 }
 
-// tapBranchHash takes the tap hashes of the left and right nodes and hashes
-// them into a branch.
-func tapBranchHash(l, r chainhash.Hash) chainhash.Hash {
-	if bytes.Compare(l[:], r[:]) > 0 {
-		l, r = r, l
-	}
-	return *chainhash.TaggedHash(chainhash.TagTapBranch, l[:], r[:])
-}
-
 // IsTaprootAssetCommitmentScript returns true if the passed script is a valid
 // Taproot Asset commitment script.
 func IsTaprootAssetCommitmentScript(script []byte) bool {
@@ -472,7 +463,7 @@ func (c *TapCommitment) TapscriptRoot(sibling *chainhash.Hash) chainhash.Hash {
 
 	// The ordering of `commitmentLeaf` and `sibling` doesn't matter here as
 	// TapBranch will sort them before hashing.
-	return tapBranchHash(commitmentLeaf.TapHash(), *sibling)
+	return asset.TapBranchHash(commitmentLeaf.TapHash(), *sibling)
 }
 
 // Proof computes the full TapCommitment merkle proof for the asset leaf

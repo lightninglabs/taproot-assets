@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
@@ -2056,6 +2057,259 @@ func TestBatchedAssetIssuance(t *testing.T) {
 			testCase.testFunc(mintTest)
 		})
 	}
+}
+
+// TestGroupKeyRevealV1WitnessWithCustomRoot tests the different possible spend
+// paths for a group key reveal witness if there are custom scripts.
+func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
+	var (
+		ctx              = context.Background()
+		mockKeyRing      = tapgarden.NewMockKeyRing()
+		mockSigner       = tapgarden.NewMockGenSigner(mockKeyRing)
+		txBuilder        = &tapscript.GroupTxBuilder{}
+		txValidator      = &tap.ValidatorV0{}
+		hashLockPreimage = []byte("foobar")
+	)
+
+	// We expect two keys to be derived from the mock.
+	go func() {
+		<-mockKeyRing.ReqKeys
+		<-mockKeyRing.ReqKeys
+	}()
+
+	// The internal key is for the actual internal key of the group.
+	internalKeyDesc, err := mockKeyRing.DeriveNextTaprootAssetKey(ctx)
+	require.NoError(t, err)
+
+	// The second key is used for a signature spend within a tapscript leaf
+	// of the custom tapscript tree.
+	secondKeyDesc, err := mockKeyRing.DeriveNextTaprootAssetKey(ctx)
+	require.NoError(t, err)
+
+	hashLockLeaf := test.ScriptHashLock(t, hashLockPreimage)
+	schnorrSigLeaf := test.ScriptSchnorrSig(t, secondKeyDesc.PubKey)
+
+	userRoot := txscript.AssembleTaprootScriptTree(
+		hashLockLeaf, schnorrSigLeaf,
+	).RootNode.TapHash()
+
+	spendTestCases := []struct {
+		name       string
+		genWitness func(*testing.T, *asset.Asset,
+			asset.GroupKeyRevealV1) wire.TxWitness
+	}{{
+		name: "key spend",
+		genWitness: func(t *testing.T, a *asset.Asset,
+			gkr asset.GroupKeyRevealV1) wire.TxWitness {
+
+			genTx, prevOut, err := txBuilder.BuildGenesisTx(a)
+			require.NoError(t, err)
+
+			witness, err := signGroupKeyV1(
+				internalKeyDesc, gkr, genTx, prevOut,
+				mockSigner, nil,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	}, {
+		name: "script spend with preimage",
+		genWitness: func(t *testing.T, a *asset.Asset,
+			gkr asset.GroupKeyRevealV1) wire.TxWitness {
+
+			controlBlock, err := gkr.ScriptSpendControlBlock(
+				a.ID(),
+			)
+			require.NoError(t, err)
+
+			controlBlock.InclusionProof = bytes.Join([][]byte{
+				fn.ByteSlice(schnorrSigLeaf.TapHash()),
+				controlBlock.InclusionProof,
+			}, nil)
+			controlBlockBytes, err := controlBlock.ToBytes()
+			require.NoError(t, err)
+
+			// Witness is just the preimage, the script and the
+			// control block.
+			return wire.TxWitness{
+				hashLockPreimage,
+				hashLockLeaf.Script,
+				controlBlockBytes,
+			}
+		},
+	}, {
+		name: "script spend with signature",
+		genWitness: func(t *testing.T, a *asset.Asset,
+			gkr asset.GroupKeyRevealV1) wire.TxWitness {
+
+			genTx, prevOut, err := txBuilder.BuildGenesisTx(a)
+			require.NoError(t, err)
+
+			controlBlock, err := gkr.ScriptSpendControlBlock(
+				a.ID(),
+			)
+			require.NoError(t, err)
+
+			controlBlock.InclusionProof = bytes.Join([][]byte{
+				fn.ByteSlice(hashLockLeaf.TapHash()),
+				controlBlock.InclusionProof,
+			}, nil)
+			controlBlockBytes, err := controlBlock.ToBytes()
+			require.NoError(t, err)
+
+			leafToSign := &psbt.TaprootTapLeafScript{
+				ControlBlock: controlBlockBytes,
+				Script:       schnorrSigLeaf.Script,
+				LeafVersion:  txscript.BaseLeafVersion,
+			}
+
+			witness, err := signGroupKeyV1(
+				secondKeyDesc, gkr, genTx, prevOut, mockSigner,
+				leafToSign,
+			)
+			require.NoError(t, err)
+
+			return witness
+		},
+	}}
+
+	for _, tc := range spendTestCases {
+		t.Run(tc.name, func(tt *testing.T) {
+			randAsset := asset.RandAsset(tt, asset.Normal)
+			genAssetID := randAsset.ID()
+			groupKeyReveal, err := asset.NewGroupKeyRevealV1(
+				*internalKeyDesc.PubKey, genAssetID,
+				fn.Some(userRoot),
+			)
+			require.NoError(tt, err)
+
+			// Set the group key on the asset, since it's a randomly
+			// created group key otherwise.
+			groupPubKey, err := groupKeyReveal.GroupPubKey(
+				genAssetID,
+			)
+			require.NoError(tt, err)
+			randAsset.GroupKey = &asset.GroupKey{
+				RawKey:        internalKeyDesc,
+				GroupPubKey:   *groupPubKey,
+				TapscriptRoot: groupKeyReveal.TapscriptRoot(),
+			}
+			randAsset.PrevWitnesses = []asset.Witness{
+				{
+					PrevID: &asset.PrevID{},
+				},
+			}
+
+			witness := tc.genWitness(tt, randAsset, groupKeyReveal)
+			randAsset.PrevWitnesses[0].TxWitness = witness
+
+			err = txValidator.Execute(
+				randAsset, nil, nil, proof.MockChainLookup,
+			)
+			require.NoError(tt, err)
+		})
+	}
+}
+
+// TestGroupKeyRevealV1WitnessNoScripts tests the key spend path for a group key
+// reveal witness if there are no custom scripts.
+func TestGroupKeyRevealV1WitnessNoScripts(t *testing.T) {
+	var (
+		ctx         = context.Background()
+		mockKeyRing = tapgarden.NewMockKeyRing()
+		mockSigner  = tapgarden.NewMockGenSigner(mockKeyRing)
+		txBuilder   = &tapscript.GroupTxBuilder{}
+		txValidator = &tap.ValidatorV0{}
+	)
+
+	// We expect just one key to be derived from the mock.
+	go func() {
+		<-mockKeyRing.ReqKeys
+	}()
+
+	// The internal key is for the actual internal key of the group.
+	internalKeyDesc, err := mockKeyRing.DeriveNextTaprootAssetKey(ctx)
+	require.NoError(t, err)
+
+	randAsset := asset.RandAsset(t, asset.Normal)
+	genAssetID := randAsset.ID()
+	groupKeyReveal, err := asset.NewGroupKeyRevealV1(
+		*internalKeyDesc.PubKey, genAssetID, fn.None[chainhash.Hash](),
+	)
+	require.NoError(t, err)
+
+	// Set the group key on the asset, since it's a randomly created group
+	// key otherwise.
+	groupPubKey, err := groupKeyReveal.GroupPubKey(genAssetID)
+	require.NoError(t, err)
+	randAsset.GroupKey = &asset.GroupKey{
+		RawKey:        internalKeyDesc,
+		GroupPubKey:   *groupPubKey,
+		TapscriptRoot: groupKeyReveal.TapscriptRoot(),
+	}
+	randAsset.PrevWitnesses = []asset.Witness{
+		{
+			PrevID: &asset.PrevID{},
+		},
+	}
+
+	genTx, prevOut, err := txBuilder.BuildGenesisTx(randAsset)
+	require.NoError(t, err)
+
+	witness, err := signGroupKeyV1(
+		internalKeyDesc, groupKeyReveal, genTx, prevOut, mockSigner,
+		nil,
+	)
+	require.NoError(t, err)
+
+	randAsset.PrevWitnesses[0].TxWitness = witness
+
+	err = txValidator.Execute(
+		randAsset, nil, nil, proof.MockChainLookup,
+	)
+	require.NoError(t, err)
+}
+
+// signGroupKeyV1 is the equivalent for asset.DeriveGroupKey but for a V1 key.
+func signGroupKeyV1(keyDesc keychain.KeyDescriptor, gk asset.GroupKeyRevealV1,
+	genTx *wire.MsgTx, prevOut *wire.TxOut, signer asset.GenesisSigner,
+	leafToSign *psbt.TaprootTapLeafScript) (wire.TxWitness, error) {
+
+	signDesc := &lndclient.SignDescriptor{
+		KeyDesc:    keyDesc,
+		TapTweak:   gk.TapscriptRoot(),
+		Output:     prevOut,
+		HashType:   txscript.SigHashDefault,
+		InputIndex: 0,
+		SignMethod: input.TaprootKeySpendSignMethod,
+	}
+
+	if leafToSign != nil {
+		signDesc.SignMethod = input.TaprootScriptSpendSignMethod
+		signDesc.WitnessScript = leafToSign.Script
+	}
+
+	sig, err := signer.SignVirtualTx(signDesc, genTx, prevOut)
+	if err != nil {
+		return nil, err
+	}
+
+	witness := wire.TxWitness{sig.Serialize()}
+
+	// If this was a script spend, we also have to add the script itself and
+	// the control block to the witness, otherwise the verifier will reject
+	// the generated witness.
+	if signDesc.SignMethod == input.TaprootScriptSpendSignMethod &&
+		leafToSign != nil {
+
+		witness = append(
+			witness, signDesc.WitnessScript,
+			leafToSign.ControlBlock,
+		)
+	}
+
+	return witness, nil
 }
 
 func init() {
