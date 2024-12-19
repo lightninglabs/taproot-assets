@@ -242,6 +242,10 @@ func testAddresses(t *harnessTest) {
 	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 	AssertAddrEvent(t.t, secondTapd, newAddr, 1, statusConfirmed)
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 4)
+
+	// The received asset should have a transition proof with no altLeaves.
+	emptyLeafMap := make(map[string][]*asset.Asset)
+	AssertProofAltLeaves(t.t, secondTapd, manualAsset, emptyLeafMap)
 }
 
 // testMultiAddress tests that we can send assets to multiple addresses at the

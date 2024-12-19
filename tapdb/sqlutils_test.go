@@ -56,6 +56,7 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	// Next, we'll make a new random asset that also has a few inputs with
 	// dummy witness information.
 	testAsset := randAsset(t)
+	testAltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
 
 	assetRoot, err := commitment.NewAssetCommitment(testAsset)
 	require.NoError(t, err)
@@ -64,6 +65,9 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	taprootAssetRoot, err := commitment.NewTapCommitment(
 		commitVersion, assetRoot,
 	)
+	require.NoError(t, err)
+
+	err = taprootAssetRoot.MergeAltLeaves(testAltLeaves)
 	require.NoError(t, err)
 
 	// With our asset created, we can now create the AnnotatedProof we use
@@ -87,6 +91,7 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 
 	// Generate a random proof and encode it into a proof blob.
 	testProof := randProof(t, testAsset)
+	testProof.AltLeaves = testAltLeaves
 
 	var proofBlobBuffer bytes.Buffer
 	err = testProof.Encode(&proofBlobBuffer)

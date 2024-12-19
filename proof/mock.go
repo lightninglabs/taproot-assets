@@ -621,6 +621,21 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 		)
 	}
 
+	if len(p.AltLeaves) > 0 {
+		// Assert that the concrete type of AltLeaf is supported.
+		require.IsTypef(
+			t, &asset.Asset{}, p.AltLeaves[0],
+			"AltLeaves must be of type *asset.Asset",
+		)
+
+		tp.AltLeaves = make([]*asset.TestAsset, len(p.AltLeaves))
+		for idx := range p.AltLeaves {
+			// We also need a type assertion on each leaf.
+			leaf := p.AltLeaves[idx].(*asset.Asset)
+			tp.AltLeaves[idx] = asset.NewTestFromAsset(t, leaf)
+		}
+	}
+
 	return tp
 }
 
@@ -639,6 +654,7 @@ type TestProof struct {
 	ChallengeWitness []string                  `json:"challenge_witness"`
 	GenesisReveal    *asset.TestGenesisReveal  `json:"genesis_reveal"`
 	GroupKeyReveal   *asset.TestGroupKeyReveal `json:"group_key_reveal"`
+	AltLeaves        []*asset.TestAsset        `json:"alt_leaves"`
 	UnknownOddTypes  tlv.TypeMap               `json:"unknown_odd_types"`
 }
 
@@ -695,6 +711,15 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 
 	if tp.GroupKeyReveal != nil {
 		p.GroupKeyReveal = tp.GroupKeyReveal.ToGroupKeyReveal(t)
+	}
+
+	if len(tp.AltLeaves) > 0 {
+		p.AltLeaves = make(
+			[]asset.AltLeaf[asset.Asset], len(tp.AltLeaves),
+		)
+		for idx, leaf := range tp.AltLeaves {
+			p.AltLeaves[idx] = leaf.ToAsset(t)
+		}
 	}
 
 	return p

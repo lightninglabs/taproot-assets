@@ -1409,30 +1409,9 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 
 	readOpts := NewAssetStoreReadTx()
 	dbErr := a.db.ExecTx(ctx, &readOpts, func(q ActiveAssetsStore) error {
-		assetProofs, err := q.FetchAssetProof(ctx, args)
-		if err != nil {
-			return fmt.Errorf("unable to fetch asset proof: %w",
-				err)
-		}
-
-		switch {
-		// We have no proof for this script key.
-		case len(assetProofs) == 0:
-			return proof.ErrProofNotFound
-
-		// If the query without the outpoint returns exactly one proof
-		// then we're fine. If there actually are multiple proofs, we
-		// require the user to specify the outpoint as well.
-		case len(assetProofs) == 1:
-			diskProof = assetProofs[0].ProofFile
-
-			return nil
-
-		// User needs to specify the outpoint as well, since we have
-		// multiple proofs for this script key.
-		default:
-			return proof.ErrMultipleProofs
-		}
+		var err error
+		diskProof, err = fetchProof(ctx, q, args)
+		return err
 	})
 	switch {
 	case errors.Is(dbErr, sql.ErrNoRows):
@@ -1442,6 +1421,34 @@ func (a *AssetStore) FetchProof(ctx context.Context,
 	}
 
 	return diskProof, nil
+}
+
+// fetchProof is a wrapper around the FetchAssetProof query that enforces that
+// a proof is only returned if exactly one matching proof was found.
+func fetchProof(ctx context.Context, q ActiveAssetsStore,
+	args sqlc.FetchAssetProofParams) (proof.Blob, error) {
+
+	assetProofs, err := q.FetchAssetProof(ctx, args)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fetch asset proof: %w", err)
+	}
+
+	switch {
+	// We have no proof for this script key.
+	case len(assetProofs) == 0:
+		return nil, proof.ErrProofNotFound
+
+	// If the query without the outpoint returns exactly one proof
+	// then we're fine. If there actually are multiple proofs, we
+	// require the user to specify the outpoint as well.
+	case len(assetProofs) == 1:
+		return assetProofs[0].ProofFile, nil
+
+	// User needs to specify the outpoint as well, since we have
+	// multiple proofs for this script key.
+	default:
+		return nil, proof.ErrMultipleProofs
+	}
 }
 
 // locatorToProofQuery turns a proof locator into a FetchAssetProof query
@@ -2084,8 +2091,12 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		chainAnchorToAssets = make(
 			map[wire.OutPoint][]*asset.ChainAsset,
 		)
-		anchorPoints = make(map[wire.OutPoint]AnchorPoint)
-		err          error
+		anchorPoints    = make(map[wire.OutPoint]AnchorPoint)
+		anchorAltLeaves = make(
+			map[wire.OutPoint][]asset.AltLeaf[asset.Asset],
+		)
+		matchingAssetProofs = make(map[wire.OutPoint]proof.Blob)
+		err                 error
 	)
 
 	readOpts := NewAssetStoreReadTx()
@@ -2145,12 +2156,48 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 			}
 
 			anchorPoints[anchorPoint] = anchorUTXO
+
+			// TODO(jhb): replace full proof fetch with
+			// outpoint -> alt leaf table / index
+			// We also need to fetch the input proof here, in order
+			// to fetch any committed alt leaves.
+			assetLoc := proof.Locator{
+				AssetID:   fn.Ptr(matchingAsset.ID()),
+				ScriptKey: *matchingAsset.ScriptKey.PubKey,
+				OutPoint:  &matchingAsset.AnchorOutpoint,
+			}
+			proofArgs, err := locatorToProofQuery(assetLoc)
+			if err != nil {
+				return err
+			}
+
+			var assetProof proof.Blob
+			assetProof, err = fetchProof(ctx, q, proofArgs)
+			switch {
+			case errors.Is(err, sql.ErrNoRows):
+				return proof.ErrProofNotFound
+			case err != nil:
+				return err
+			}
+
+			matchingAssetProofs[anchorPoint] = assetProof
 		}
 
 		return nil
 	})
 	if dbErr != nil {
 		return nil, dbErr
+	}
+
+	for anchorPoint, rawProof := range matchingAssetProofs {
+		lastProof, err := rawProof.AsSingleProof()
+		if err != nil {
+			return nil, err
+		}
+
+		anchorAltLeaves[anchorPoint] = append(
+			anchorAltLeaves[anchorPoint], lastProof.AltLeaves...,
+		)
 	}
 
 	// Our final query wants the complete Taproot Asset commitment for each
@@ -2164,6 +2211,7 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		anchorPoint := anchorPoint
 		anchorUTXO := anchorPoints[anchorPoint]
 		anchoredAssets := chainAnchorToAssets[anchorPoint]
+		anchoredAltLeaves := anchorAltLeaves[anchorPoint]
 
 		// Fetch the asset leaves from each chain asset, and then
 		// build a Taproot Asset commitment from this set of assets.
@@ -2195,6 +2243,13 @@ func (a *AssetStore) queryCommitments(ctx context.Context,
 		tapCommitment, err = commitment.TrimSplitWitnesses(
 			commitmentVersion, tapCommitment,
 		)
+		if err != nil {
+			return nil, err
+		}
+
+		// The reconstructed commitment must also include any alt leaves
+		// included in the original commitment.
+		err = tapCommitment.MergeAltLeaves(anchoredAltLeaves)
 		if err != nil {
 			return nil, err
 		}

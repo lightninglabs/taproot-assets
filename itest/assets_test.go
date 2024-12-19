@@ -150,6 +150,15 @@ func testMintAssets(t *harnessTest) {
 	// them, so we don't expect them to show up with script_key_is_local set
 	// to true in the list of assets.
 	transferAssetProofs(t, t.tapd, secondTapd, allAssets, false)
+
+	// Check that all the imported genesis proofs have no altLeaves.
+	emptyLeafMap := make(map[string][]*asset.Asset)
+	for _, asset := range rpcIssuableAssets {
+		AssertProofAltLeaves(t.t, secondTapd, asset, emptyLeafMap)
+	}
+	for _, asset := range rpcSimpleAssets {
+		AssertProofAltLeaves(t.t, secondTapd, asset, emptyLeafMap)
+	}
 }
 
 // testMintBatchResume tests that we're able to create a pending batch, restart

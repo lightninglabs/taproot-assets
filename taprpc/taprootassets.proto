@@ -1044,6 +1044,12 @@ message DecodedProof {
     // GroupKeyReveal is an optional field that includes the information needed
     // to derive the tweaked group key.
     GroupKeyReveal group_key_reveal = 13;
+
+    // AltLeaves represent data used to construct an Asset commitment, that
+    // will be inserted in the input anchor Tap commitment. These data-carrying
+    // leaves are used for a purpose distinct from representing individual
+    // individual Taproot Assets.
+    bytes alt_leaves = 14;
 }
 
 message VerifyProofResponse {

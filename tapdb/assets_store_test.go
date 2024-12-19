@@ -618,7 +618,28 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		height := a.anchorPointsToHeights[desc.anchorPoint]
 		tapCommitment := anchorPointsToTapCommitments[desc.anchorPoint]
 
-		err := assetStore.importAssetFromProof(
+		// Encode a minimal proof so we have a valid proof blob to
+		// store.
+		assetProof := proof.Proof{}
+		assetProof.AnchorTx = *anchorPoint
+		assetProof.BlockHeight = height
+
+		txMerkleProof, err := proof.NewTxMerkleProof(
+			[]*wire.MsgTx{anchorPoint}, 0,
+		)
+		require.NoError(t, err)
+
+		assetProof.TxMerkleProof = *txMerkleProof
+		assetProof.Asset = *newAsset
+		assetProof.InclusionProof = proof.TaprootProof{
+			OutputIndex: 0,
+			InternalKey: test.RandPubKey(t),
+		}
+
+		proofBlob, err := proof.EncodeAsProofFile(&assetProof)
+		require.NoError(t, err)
+
+		err = assetStore.importAssetFromProof(
 			ctx, assetStore.db, &proof.AnnotatedProof{
 				AssetSnapshot: &proof.AssetSnapshot{
 					AnchorTx:          anchorPoint,
@@ -627,7 +648,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 					ScriptRoot:        tapCommitment,
 					AnchorBlockHeight: height,
 				},
-				Blob: bytes.Repeat([]byte{1}, 100),
+				Blob: proofBlob,
 			},
 		)
 		require.NoError(t, err)
