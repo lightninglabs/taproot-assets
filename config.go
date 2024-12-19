@@ -195,6 +195,8 @@ type Config struct {
 
 	RfqManager *rfq.Manager
 
+	PriceOracle rfq.PriceOracle
+
 	UniverseStats universe.Telemetry
 
 	AuxLeafSigner *tapchannel.AuxLeafSigner

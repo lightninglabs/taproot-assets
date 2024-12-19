@@ -7,6 +7,7 @@ option go_package = "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrp
 import "rfqrpc/rfq.proto";
 import "lightning.proto";
 import "routerrpc/router.proto";
+import "taprootassets.proto";
 
 service TaprootAssetChannels {
     /*
@@ -39,6 +40,13 @@ service TaprootAssetChannels {
     to the specified asset amount.
     */
     rpc AddInvoice (AddInvoiceRequest) returns (AddInvoiceResponse);
+
+    /*
+    DecodeAssetPayReq is similar to lnd's lnrpc.DecodePayReq, but it accepts an
+    asset ID and returns the invoice amount expressed in asset units along side
+    the normal information.
+    */
+    rpc DecodeAssetPayReq (AssetPayReq) returns (AssetPayReqResponse);
 }
 
 message FundChannelRequest {
@@ -188,4 +196,31 @@ message AddInvoiceResponse {
 
     // The result of the invoice creation.
     lnrpc.AddInvoiceResponse invoice_result = 2;
+}
+
+message AssetPayReq {
+    // The asset ID that will be used to resolve the invoice's satoshi amount.
+    bytes asset_id = 1;
+
+    // The normal LN invoice that whose amount will be mapped to units of the
+    // asset ID.
+    string pay_req_string = 2;
+}
+
+message AssetPayReqResponse {
+    // The invoice amount, expressed in asset units.
+    uint64 asset_amount = 1;
+
+    // The decimal display corresponding to the asset_id.
+    taprpc.DecimalDisplay decimal_display = 2;
+
+    // The group the asset ID belong to, if applicable.
+    taprpc.AssetGroup asset_group = 3;
+
+    // Genesis information for the asset ID which includes the meta hash, and
+    // asset ID.
+    taprpc.GenesisInfo genesis_info = 4;
+
+    // The normal decoded payment request.
+    lnrpc.PayReq pay_req = 5;
 }
