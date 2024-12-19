@@ -256,6 +256,42 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	)
 }
 
+// TestProofEncodingGroupKeyRevealV1 tests encoding and decoding a proof with a
+// group key reveal V1.
+func TestProofEncodingGroupKeyRevealV1(t *testing.T) {
+	t.Parallel()
+
+	testBlocks := readTestData(t)
+	oddTxBlock := testBlocks[0]
+
+	genesis := asset.RandGenesis(t, asset.Normal)
+	scriptKey := test.RandPubKey(t)
+	proof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
+
+	// Override the group key reveal with a V1 reveal.
+	internalKey := test.RandPubKey(t)
+	customRoot := chainhash.Hash(test.RandBytes(32))
+	groupKeyReveal, err := asset.NewGroupKeyRevealV1(
+		*internalKey, genesis.ID(), fn.Some(customRoot),
+	)
+	require.NoError(t, err)
+
+	proof.GroupKeyReveal = &groupKeyReveal
+
+	file, err := NewFile(V0, proof, proof)
+	require.NoError(t, err)
+	proof.AdditionalInputs = []File{*file, *file}
+
+	var proofBuf bytes.Buffer
+	require.NoError(t, proof.Encode(&proofBuf))
+	proofBytes := proofBuf.Bytes()
+
+	var decodedProof Proof
+	require.NoError(t, decodedProof.Decode(bytes.NewReader(proofBytes)))
+
+	assertEqualProof(t, &proof, &decodedProof)
+}
+
 func TestProofEncoding(t *testing.T) {
 	t.Parallel()
 
