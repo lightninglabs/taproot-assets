@@ -112,8 +112,10 @@ type Seedling struct {
 	// all script spend conditions for the group key. Instead of spending an
 	// asset, these scripts are used to define witnesses more complex than
 	// a Schnorr signature for reissuing assets. A group key with an empty
-	// Tapscript root can only authorize reissuance with a signature.
+	// Tapscript root can only authorize re-issuance with a signature.
 	GroupTapscriptRoot []byte
+
+	ExternalKey *asset.ExternalKey
 }
 
 // validateFields attempts to validate the set of input fields for the passed

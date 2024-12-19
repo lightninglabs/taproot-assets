@@ -138,6 +138,15 @@ var mintAssetCommand = cli.Command{
 				"in order to avoid printing a large amount " +
 				"of data in case of large batches",
 		},
+		cli.StringFlag{
+			Name: "group_key_xpub",
+		},
+		cli.StringFlag{
+			Name: "group_key_derivation_path",
+		},
+		cli.StringFlag{
+			Name: "group_key_fingerprint",
+		},
 	},
 	Action: mintAsset,
 	Subcommands: []cli.Command{
@@ -326,6 +335,32 @@ func mintAsset(ctx *cli.Context) error {
 	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
+	gkXPub := ctx.String("group_key_xpub")
+	gkPath := ctx.String("group_key_derivation_path")
+	gkFingerprint := ctx.String("group_key_fingerprint")
+
+	var externalKey *taprpc.ExternalKey
+	switch {
+	case (gkXPub != "" || gkPath != "" || gkFingerprint != "") &&
+		(gkXPub == "" || gkPath == "" || gkFingerprint == ""):
+
+		return fmt.Errorf("group key xpub, derivation path, and " +
+			"fingerprint must all be set or all be empty")
+
+	case gkXPub != "" && gkPath != "" && gkFingerprint != "":
+		fingerPrintBytes, err := hex.DecodeString(gkFingerprint)
+		if err != nil {
+			return fmt.Errorf("cannot hex decode group key "+
+				"fingerprint: %w", err)
+		}
+
+		externalKey = &taprpc.ExternalKey{
+			Xpub:              gkXPub,
+			MasterFingerprint: fingerPrintBytes,
+			DerivationPath:    gkPath,
+		}
+	}
+
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
 			AssetType:       assetType,
@@ -340,6 +375,7 @@ func mintAsset(ctx *cli.Context) error {
 			AssetVersion: taprpc.AssetVersion(
 				ctx.Uint64(assetVersionName),
 			),
+			ExternalGroupKey: externalKey,
 		},
 		ShortResponse: ctx.Bool(shortResponseName),
 	})
@@ -511,6 +547,9 @@ var listBatchesCommand = cli.Command{
 			Name:  batchKeyName,
 			Usage: "if set, the batch key for a specific batch",
 		},
+		cli.BoolFlag{
+			Name: "verbose",
+		},
 	},
 	Action: listBatches,
 }
@@ -536,6 +575,7 @@ func listBatches(ctx *cli.Context) error {
 		Filter: &mintrpc.ListBatchRequest_BatchKey{
 			BatchKey: batchKey,
 		},
+		Verbose: ctx.Bool("verbose"),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list batches: %w", err)

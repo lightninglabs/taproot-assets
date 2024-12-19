@@ -617,7 +617,9 @@ func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
 func NewGroupKeyRequestNoErr(t testing.TB, internalKey keychain.KeyDescriptor,
 	gen Genesis, newAsset *Asset, scriptRoot []byte) *GroupKeyRequest {
 
-	req, err := NewGroupKeyRequest(internalKey, gen, newAsset, scriptRoot)
+	req, err := NewGroupKeyRequest(
+		internalKey, nil, gen, newAsset, scriptRoot, nil,
+	)
 	require.NoError(t, err)
 
 	return req
