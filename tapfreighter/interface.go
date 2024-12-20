@@ -35,6 +35,9 @@ type CommitmentConstraints struct {
 	// to satisfy the constraints.
 	MinAmt uint64
 
+	// MaxAmt specifies the maximum amount of minted assets to be selected.
+	MaxAmt uint64
+
 	// CoinSelectType is the type of coins that should be selected.
 	CoinSelectType tapsend.CoinSelectType
 }
