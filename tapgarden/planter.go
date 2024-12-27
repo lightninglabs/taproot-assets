@@ -10,13 +10,16 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -139,6 +142,65 @@ type ListBatchesParams struct {
 type PendingAssetGroup struct {
 	asset.GroupKeyRequest
 	asset.GroupVirtualTx
+}
+
+// PSBT returns a PSBT packet that can be used to create a group witness for the
+// asset group.
+func (p *PendingAssetGroup) PSBT(
+	params *chaincfg.Params) (*psbt.Packet, error) {
+
+	// Generate PSBT equivalent of the group virtual tx.
+	packet, err := psbt.NewFromUnsignedTx(&p.GroupVirtualTx.Tx)
+	if err != nil {
+		return nil, fmt.Errorf("error producing group virtual PSBT "+
+			"from tx: %w", err)
+	}
+
+	vIn := &packet.Inputs[0]
+	vIn.WitnessUtxo = &p.GroupVirtualTx.PrevOut
+	vIn.TaprootMerkleRoot = p.GroupKeyRequest.TapscriptRoot
+	vIn.TaprootInternalKey = schnorr.SerializePubKey(
+		p.GroupKeyRequest.RawKey.PubKey,
+	)
+
+	var (
+		bip32Derivation   *psbt.Bip32Derivation
+		trBip32Derivation *psbt.TaprootBip32Derivation
+	)
+	switch {
+	case p.GroupKeyRequest.ExternalKey != nil:
+		externalKey := p.GroupKeyRequest.ExternalKey
+		pubKey, err := externalKey.PubKey()
+		if err != nil {
+			return nil, fmt.Errorf("error deriving public key "+
+				"from external key: %w", err)
+		}
+
+		bip32Derivation = &psbt.Bip32Derivation{
+			PubKey:               pubKey.SerializeCompressed(),
+			MasterKeyFingerprint: externalKey.MasterFingerprint,
+			Bip32Path:            externalKey.DerivationPath,
+		}
+		trBip32Derivation = &psbt.TaprootBip32Derivation{
+			XOnlyPubKey:          bip32Derivation.PubKey[1:],
+			MasterKeyFingerprint: externalKey.MasterFingerprint,
+			Bip32Path:            externalKey.DerivationPath,
+			LeafHashes:           make([][]byte, 0),
+		}
+
+	default:
+		// nolint: lll
+		bip32Derivation, trBip32Derivation = tappsbt.Bip32DerivationFromKeyDesc(
+			p.GroupKeyRequest.RawKey, params.HDCoinType,
+		)
+	}
+
+	vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
+	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trBip32Derivation,
+	}
+
+	return packet, nil
 }
 
 // UnsealedSeedling is a previously submitted seedling and its associated
@@ -705,7 +767,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 		if groupInfo != nil {
 			groupReq, err := asset.NewGroupKeyRequest(
-				groupInfo.GroupKey.RawKey, nil,
+				groupInfo.GroupKey.RawKey, seedling.ExternalKey,
 				*groupInfo.Genesis, protoAsset,
 				groupInfo.GroupKey.TapscriptRoot, nil,
 			)
@@ -730,14 +792,34 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		// already be specified. Use that to derive the key group
 		// signature along with the tweaked key group.
 		if seedling.EnableEmission {
-			if seedling.GroupInternalKey == nil {
+			if seedling.GroupInternalKey == nil &&
+				seedling.ExternalKey == nil {
+
 				return nil, nil, fmt.Errorf("unable to " +
 					"derive group key")
 			}
 
+			var (
+				rootHash       = seedling.GroupTapscriptRoot
+				customRootHash []byte
+			)
+			if seedling.ExternalKey != nil {
+				// nolint: lll
+				_, groupRootHash, err := asset.NewGroupKeyV1FromExternal(
+					seedling.ExternalKey, assetGen.ID(),
+					rootHash,
+				)
+				if err != nil {
+					return nil, nil, err
+				}
+				customRootHash = rootHash
+				rootHash = groupRootHash[:]
+			}
+
 			groupReq, err := asset.NewGroupKeyRequest(
-				*seedling.GroupInternalKey, nil, assetGen,
-				protoAsset, seedling.GroupTapscriptRoot, nil,
+				*seedling.GroupInternalKey,
+				seedling.ExternalKey, assetGen,
+				protoAsset, rootHash, customRootHash,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+

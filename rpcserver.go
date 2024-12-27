@@ -459,22 +459,20 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	// or anchor must be specified, but not both. Neither a group tapscript
 	// root nor group internal key can be specified.
 	case req.Asset.GroupedAsset:
-		if !specificGroupKey && !specificGroupAnchor {
+		switch {
+		case !specificGroupKey && !specificGroupAnchor:
 			return nil, fmt.Errorf("must specify a group key or" +
 				"group anchor")
-		}
 
-		if specificGroupKey && specificGroupAnchor {
+		case specificGroupKey && specificGroupAnchor:
 			return nil, fmt.Errorf("cannot specify both a group " +
 				"key and a group anchor")
-		}
 
-		if groupTapscriptRootSize != 0 {
+		case groupTapscriptRootSize != 0:
 			return nil, fmt.Errorf("cannot specify a group " +
 				"tapscript root with emission disabled")
-		}
 
-		if specificGroupInternalKey {
+		case specificGroupInternalKey:
 			return nil, fmt.Errorf("cannot specify a group " +
 				"internal key with emission disabled")
 		}
@@ -583,6 +581,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		groupTapscriptRoot = bytes.Clone(req.Asset.GroupTapscriptRoot)
 	}
 
+	if req.Asset.ExternalGroupKey != nil &&
+		req.Asset.GroupInternalKey != nil {
+
+		return nil, fmt.Errorf("cannot set both external group key " +
+			"and group internal key descriptor")
+	}
+
 	seedling := &tapgarden.Seedling{
 		AssetVersion:   assetVersion,
 		AssetType:      asset.Type(req.Asset.AssetType),
@@ -606,6 +611,30 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	if groupTapscriptRootSize != 0 {
 		seedling.GroupTapscriptRoot = groupTapscriptRoot
+	}
+
+	if req.Asset.ExternalGroupKey != nil {
+		seedling.ExternalKey, err = taprpc.UnmarshalExternalKey(
+			req.Asset.ExternalGroupKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse external key: "+
+				"%w", err)
+		}
+
+		if err := seedling.ExternalKey.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid external key: %w", err)
+		}
+
+		internalKey, err := seedling.ExternalKey.PubKey()
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive internal "+
+				"group key from xpub: %w", err)
+		}
+
+		seedling.GroupInternalKey = &keychain.KeyDescriptor{
+			PubKey: internalKey,
+		}
 	}
 
 	switch {
@@ -4278,13 +4307,12 @@ func marshalUnsealedSeedling(params *chaincfg.Params, verbose bool,
 			return nil, err
 		}
 
-		// Generate PSBT equivalent of the group virtual tx.
-		groupVirtualPacket, err := psbt.NewFromUnsignedTx(
-			&seedling.PendingAssetGroup.GroupVirtualTx.Tx,
+		groupVirtualPacket, err := seedling.PendingAssetGroup.PSBT(
+			params,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("error producing group "+
-				"virtual PSBT from tx: %w", err)
+			return nil, fmt.Errorf("error getting group virtual "+
+				"PSBT for unsealed seedling: %w", err)
 		}
 
 		// Serialize PSBT to bytes.
