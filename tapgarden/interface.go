@@ -43,7 +43,7 @@ type Planter interface {
 
 	// FundBatch attempts to provide a genesis point for the current batch,
 	// or create a new funded batch.
-	FundBatch(params FundParams) (*MintingBatch, error)
+	FundBatch(params FundParams) (*VerboseBatch, error)
 
 	// SealBatch attempts to seal the current batch, by providing or
 	// deriving all witnesses necessary to create the final genesis TX.

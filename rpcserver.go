@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -730,10 +732,10 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		return &mintrpc.FundBatchResponse{}, nil
 	}
 
-	rpcBatch, err := marshalMintingBatch(batch, req.ShortResponse)
-	if err != nil {
-		return nil, err
-	}
+	rpcBatch, err := marshalVerboseBatch(
+		batch, !req.ShortResponse, r.cfg.ChainParams.Params,
+		req.ShortResponse,
+	)
 
 	return &mintrpc.FundBatchResponse{
 		Batch: rpcBatch,
@@ -887,7 +889,9 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		batches, func(b *tapgarden.VerboseBatch) (*mintrpc.VerboseBatch,
 			error) {
 
-			return marshalVerboseBatch(b, req.Verbose, false)
+			return marshalVerboseBatch(
+				b, req.Verbose, r.cfg.ChainParams.Params, false,
+			)
 		},
 	)
 	if err != nil {
@@ -4073,7 +4077,8 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 
 // marshalVerboseBatch marshals a minting batch into the RPC counterpart.
 func marshalVerboseBatch(batch *tapgarden.VerboseBatch, verbose bool,
-	skipSeedlings bool) (*mintrpc.VerboseBatch, error) {
+	params *chaincfg.Params, skipSeedlings bool) (*mintrpc.VerboseBatch,
+	error) {
 
 	rpcMintingBatch, err := marshalMintingBatch(
 		batch.MintingBatch, skipSeedlings,
@@ -4095,7 +4100,7 @@ func marshalVerboseBatch(batch *tapgarden.VerboseBatch, verbose bool,
 	// We only need to convert the seedlings to unsealed seedlings.
 	if len(batch.UnsealedSeedlings) > 0 {
 		rpcBatch.UnsealedAssets, err = marshalUnsealedSeedlings(
-			verbose, batch.UnsealedSeedlings,
+			params, verbose, batch.UnsealedSeedlings,
 		)
 		if err != nil {
 			return nil, err
@@ -4242,14 +4247,14 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 
 // marshalUnsealedSeedling marshals an unsealed seedling into the RPC
 // counterpart.
-func marshalUnsealedSeedling(verbose bool,
+func marshalUnsealedSeedling(params *chaincfg.Params, verbose bool,
 	seedling *tapgarden.UnsealedSeedling) (*mintrpc.UnsealedAsset, error) {
 
 	var (
-		groupVirtualTx        *taprpc.GroupVirtualTx
-		groupReq              *taprpc.GroupKeyRequest
-		groupVirtualPsbtBytes []byte
-		err                   error
+		groupVirtualTx   *taprpc.GroupVirtualTx
+		groupReq         *taprpc.GroupKeyRequest
+		groupVirtualPsbt string
+		err              error
 	)
 
 	rpcSeedling, err := marshalSeedling(seedling.Seedling)
@@ -4273,7 +4278,7 @@ func marshalUnsealedSeedling(verbose bool,
 		}
 
 		// Generate PSBT equivalent of the group virtual tx.
-		groupVirtualPsbt, err := psbt.NewFromUnsignedTx(
+		groupVirtualPacket, err := psbt.NewFromUnsignedTx(
 			&seedling.PendingAssetGroup.GroupVirtualTx.Tx,
 		)
 		if err != nil {
@@ -4283,19 +4288,21 @@ func marshalUnsealedSeedling(verbose bool,
 
 		// Serialize PSBT to bytes.
 		var psbtBuf bytes.Buffer
-		err = groupVirtualPsbt.Serialize(&psbtBuf)
+		err = groupVirtualPacket.Serialize(&psbtBuf)
 		if err != nil {
 			return nil, fmt.Errorf("error serializing group "+
 				"virtual PSBT for unsealed seedling: %w", err)
 		}
 
-		groupVirtualPsbtBytes = psbtBuf.Bytes()
+		groupVirtualPsbt = base64.StdEncoding.EncodeToString(
+			psbtBuf.Bytes(),
+		)
 	}
 
 	return &mintrpc.UnsealedAsset{
 		Asset:            rpcSeedling,
 		GroupVirtualTx:   groupVirtualTx,
-		GroupVirtualPsbt: groupVirtualPsbtBytes,
+		GroupVirtualPsbt: groupVirtualPsbt,
 		GroupKeyRequest:  groupReq,
 	}, nil
 }
@@ -4310,13 +4317,15 @@ func marshalSeedlings(
 
 // marshalUnsealedSeedlings marshals the unsealed seedlings into the RPC
 // counterpart.
-func marshalUnsealedSeedlings(verbose bool,
+func marshalUnsealedSeedlings(params *chaincfg.Params, verbose bool,
 	seedlings map[string]*tapgarden.UnsealedSeedling) (
 	[]*mintrpc.UnsealedAsset, error) {
 
 	rpcAssets := make([]*mintrpc.UnsealedAsset, 0, len(seedlings))
 	for _, seedling := range seedlings {
-		nextSeedling, err := marshalUnsealedSeedling(verbose, seedling)
+		nextSeedling, err := marshalUnsealedSeedling(
+			params, verbose, seedling,
+		)
 		if err != nil {
 			return nil, err
 		}

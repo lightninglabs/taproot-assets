@@ -126,7 +126,7 @@ message UnsealedAsset {
     taprpc.GroupVirtualTx group_virtual_tx = 3;
 
     // The byte serialized PSBT equivalent of the group virtual transaction.
-    bytes group_virtual_psbt = 4;
+    string group_virtual_psbt = 4;
 }
 
 message MintAsset {
@@ -306,7 +306,7 @@ message FundBatchRequest {
 
 message FundBatchResponse {
     // The funded batch.
-    MintingBatch batch = 1;
+    VerboseBatch batch = 1;
 }
 
 message SealBatchRequest {

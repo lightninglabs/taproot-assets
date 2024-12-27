@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"math"
 	"testing"
@@ -149,9 +150,9 @@ func testMintFundSealAssets(t *harnessTest) {
 	require.NotEmpty(t.t, fundResp.Batch)
 	require.Equal(
 		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
-		fundResp.Batch.State,
+		fundResp.Batch.Batch.State,
 	)
-	require.NotEmpty(t.t, fundResp.Batch.BatchPsbt)
+	require.NotEmpty(t.t, fundResp.Batch.Batch.BatchPsbt)
 
 	// Now we can add all the asset requests created above.
 	BuildMintingBatch(t.t, aliceTapd, assetReqs)
@@ -620,8 +621,13 @@ func unmarshalPendingAssetGroup(t *testing.T,
 
 	// Ensure that the group virtual tx is the same as the grouped virtual
 	// PSBT.
+	groupVirtualPsbt, err := base64.StdEncoding.DecodeString(
+		a.GroupVirtualPsbt,
+	)
+	require.NoError(t, err)
+
 	groupVmPsbt, err := psbt.NewFromRawBytes(
-		bytes.NewReader(a.GroupVirtualPsbt), false,
+		bytes.NewReader(groupVirtualPsbt), false,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, groupVmPsbt)

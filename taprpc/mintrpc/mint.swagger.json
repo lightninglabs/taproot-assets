@@ -357,7 +357,7 @@
       "type": "object",
       "properties": {
         "batch": {
-          "$ref": "#/definitions/mintrpcMintingBatch",
+          "$ref": "#/definitions/mintrpcVerboseBatch",
           "description": "The funded batch."
         }
       }
@@ -624,7 +624,6 @@
         },
         "group_virtual_psbt": {
           "type": "string",
-          "format": "byte",
           "description": "The byte serialized PSBT equivalent of the group virtual transaction."
         }
       }
