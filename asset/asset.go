@@ -18,10 +18,12 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -88,6 +90,20 @@ const (
 	// witness field when creating a TAP commitment. This is similar to
 	// segwit as found in Bitcoin land.
 	V1 Version = 1
+)
+
+// GroupKeyVersion denotes the version of the group key construction.
+type GroupKeyVersion uint8
+
+const (
+	// GroupKeyV0 is the initial version of the group key where the group
+	// internal key is tweaked with the group anchor's asset ID.
+	GroupKeyV0 GroupKeyVersion = 0
+
+	// GroupKeyV1 is the version of the group key that uses a construction
+	// that is compatible with PSBT signing where the group anchor's asset
+	// ID is appended as a sibling to any user-provided tapscript tree.
+	GroupKeyV1 GroupKeyVersion = 1
 )
 
 // EncodeType is used to denote the type of encoding used for an asset.
@@ -847,10 +863,115 @@ type AssetGroup struct {
 	*GroupKey
 }
 
+type ExternalKey struct {
+	XPub *hdkeychain.ExtendedKey
+
+	MasterFingerprint uint32
+
+	DerivationPath []uint32
+}
+
+func (e *ExternalKey) Validate() error {
+	if e.XPub == nil {
+		return fmt.Errorf("xpub is nil")
+	}
+
+	if e.XPub.IsPrivate() {
+		return fmt.Errorf("xpub must be public key only")
+	}
+
+	if e.XPub.Depth() != 3 {
+		return fmt.Errorf("xpub must be derived at depth 3")
+	}
+
+	if len(e.DerivationPath) != 5 {
+		return fmt.Errorf("derivation path must have exactly 5 " +
+			"elements")
+	}
+
+	bip86Purpose := waddrmgr.KeyScopeBIP0086.Purpose +
+		hdkeychain.HardenedKeyStart
+	if e.DerivationPath[0] != bip86Purpose {
+		return fmt.Errorf("xpub must be derived from BIP-0086 " +
+			"(Taproot) derivation path")
+	}
+
+	return nil
+}
+
+func (e *ExternalKey) PubKey() (*btcec.PublicKey, error) {
+	if len(e.DerivationPath) != 5 {
+		return nil, fmt.Errorf("derivation path must have exactly 5 " +
+			"elements")
+	}
+
+	change := e.DerivationPath[3]
+	index := e.DerivationPath[4]
+
+	changeKey, err := e.XPub.Derive(change)
+	if err != nil {
+		return nil, err
+	}
+
+	indexKey, err := changeKey.Derive(index)
+	if err != nil {
+		return nil, err
+	}
+
+	return indexKey.ECPubKey()
+}
+
+// NewGroupKeyV1FromExternal creates a new group key from an external key and
+// asset ID. The customRootHash is optional and can be used to specify a custom
+// tapscript root.
+func NewGroupKeyV1FromExternal(externalKey *ExternalKey, assetID ID,
+	customRootHash []byte) (*btcec.PublicKey, chainhash.Hash, error) {
+
+	var (
+		customRoot fn.Option[chainhash.Hash]
+		zeroHash   chainhash.Hash
+	)
+	if len(customRootHash) > 0 {
+		parsedRoot, err := chainhash.NewHash(customRootHash)
+		if err != nil {
+			return nil, zeroHash, fmt.Errorf("invalid tapscript "+
+				"root: %w", err)
+		}
+
+		if *parsedRoot != zeroHash {
+			fmt.Printf("Using custom root hash %x\n", parsedRoot[:])
+			customRoot = fn.Some(*parsedRoot)
+		}
+	}
+
+	internalKey, err := externalKey.PubKey()
+	if err != nil {
+		return nil, zeroHash, fmt.Errorf("cannot derive group "+
+			"internal key from provided xpub: %w", err)
+	}
+
+	root, err := NewGroupKeyTapscriptRoot(assetID, customRoot)
+	if err != nil {
+		return nil, zeroHash, fmt.Errorf("cannot derive group key "+
+			"reveal tapscript root: %w", err)
+	}
+
+	groupPubKey, err := GroupPubKeyV1(internalKey, root, assetID)
+	if err != nil {
+		return nil, zeroHash, fmt.Errorf("cannot derive group public "+
+			"key: %w", err)
+	}
+
+	return groupPubKey, root.root, nil
+}
+
 // GroupKey is the tweaked public key that is used to associate assets together
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
 type GroupKey struct {
+	// Version is the version of the group key construction.
+	Version GroupKeyVersion
+
 	// RawKey is the raw group key before the tweak with the genesis point
 	// has been applied.
 	RawKey keychain.KeyDescriptor
@@ -867,7 +988,12 @@ type GroupKey struct {
 	// script spend conditions for the group key. Instead of spending an
 	// asset, these scripts are used to define witnesses more complex than
 	// a Schnorr signature for reissuing assets. A group key with an empty
-	// Tapscript root can only authorize reissuance with a signature.
+	// Tapscript root can only authorize re-issuance with a signature. For a
+	// V1 group key construction, this root is never empty, as it always
+	// contains two layers of script leaves that commit to the group
+	// anchor's asset ID and force any user-provided tapscript root to be at
+	// level 2. If there are no user-provided scripts, then the custom
+	// tapscript root will be defined as an all-zero hash.
 	TapscriptRoot []byte
 
 	// Witness is a stack of witness elements that authorizes the membership
@@ -883,6 +1009,8 @@ type GroupKeyRequest struct {
 	// has been applied.
 	RawKey keychain.KeyDescriptor
 
+	ExternalKey *ExternalKey
+
 	// AnchorGen is the genesis of the group anchor, which is the asset used
 	// to derive the single tweak for the group key. For a new group key,
 	// this will be the genesis of the new asset.
@@ -890,8 +1018,12 @@ type GroupKeyRequest struct {
 
 	// TapscriptRoot is the root of a Tapscript tree that includes script
 	// spend conditions for the group key. A group key with an empty
-	// Tapscript root can only authorize reissuance with a signature.
+	// Tapscript root can only authorize re-issuance with a signature. This
+	// is the root of any user-defined scripts. For a V1 group key
+	// construction the final tapscript root will never be empty.
 	TapscriptRoot []byte
+
+	CustomTapscriptRoot []byte
 
 	// NewAsset is the asset which we are requesting group membership for.
 	// A successful request will produce a witness that authorizes this
@@ -1040,7 +1172,7 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // hash may represent either a single leaf or the root hash of an entire
 // subtree.
 //
-// If `custom_root_hash` is not provided, it defaults to a bare `[OP_RETURN` as
+// If `custom_root_hash` is not provided, it defaults to a bare `[OP_RETURN]` as
 // well. In this case, no valid script spending path can correspond to the
 // custom subtree root hash due to the pre-image resistance of SHA-256.
 //
@@ -1852,14 +1984,18 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 }
 
 // NewGroupKeyRequest constructs and validates a group key request.
-func NewGroupKeyRequest(internalKey keychain.KeyDescriptor, anchorGen Genesis,
-	newAsset *Asset, scriptRoot []byte) (*GroupKeyRequest, error) {
+func NewGroupKeyRequest(internalKey keychain.KeyDescriptor,
+	externalKey *ExternalKey, anchorGen Genesis,
+	newAsset *Asset, scriptRoot,
+	customScriptRoot []byte) (*GroupKeyRequest, error) {
 
 	req := &GroupKeyRequest{
-		RawKey:        internalKey,
-		AnchorGen:     anchorGen,
-		NewAsset:      newAsset,
-		TapscriptRoot: scriptRoot,
+		RawKey:              internalKey,
+		ExternalKey:         externalKey,
+		AnchorGen:           anchorGen,
+		NewAsset:            newAsset,
+		TapscriptRoot:       scriptRoot,
+		CustomTapscriptRoot: customScriptRoot,
 	}
 
 	err := req.Validate()
@@ -1912,6 +2048,7 @@ func (req *GroupKeyRequest) Validate() error {
 // produce an asset group witness.
 func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 	*GroupVirtualTx, error) {
+
 	// First, perform the final checks on the asset being authorized for
 	// group membership.
 	err := req.Validate()
@@ -1919,19 +2056,34 @@ func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 		return nil, err
 	}
 
-	// Compute the tweaked group key and set it in the asset before
-	// creating the virtual minting transaction.
 	genesisTweak := req.AnchorGen.ID()
-	tweakedGroupKey, err := GroupPubKeyV0(
-		req.RawKey.PubKey, genesisTweak[:], req.TapscriptRoot,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("cannot tweak group key: %w", err)
+
+	var groupPubKey *btcec.PublicKey
+	switch {
+	case req.ExternalKey != nil:
+		groupPubKey, _, err = NewGroupKeyV1FromExternal(
+			req.ExternalKey, genesisTweak, req.CustomTapscriptRoot,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot derive group key: %w",
+				err)
+		}
+
+	default:
+		// Compute the tweaked group key and set it in the asset before
+		// creating the virtual minting transaction.
+		groupPubKey, err = GroupPubKeyV0(
+			req.RawKey.PubKey, genesisTweak[:], req.TapscriptRoot,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("cannot tweak group key: %w",
+				err)
+		}
 	}
 
 	assetWithGroup := req.NewAsset.Copy()
 	assetWithGroup.GroupKey = &GroupKey{
-		GroupPubKey: *tweakedGroupKey,
+		GroupPubKey: *groupPubKey,
 	}
 
 	// Build the virtual transaction that represents the minting of the new
@@ -1945,7 +2097,7 @@ func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 		Tx:         *genesisTx,
 		PrevOut:    *prevOut,
 		GenID:      genesisTweak,
-		TweakedKey: *tweakedGroupKey,
+		TweakedKey: *groupPubKey,
 	}, nil
 }
 
@@ -1984,6 +2136,12 @@ func AssembleGroupKeyFromWitness(genTx GroupVirtualTx, req GroupKeyRequest,
 func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 	req GroupKeyRequest, tapLeaf *psbt.TaprootTapLeafScript) (*GroupKey,
 	error) {
+
+	// Cannot derive the group key witness for an external key.
+	if req.ExternalKey != nil {
+		return nil, fmt.Errorf("cannot derive group key witness for " +
+			"group key with external key")
+	}
 
 	// Populate the signing descriptor needed to sign the virtual minting
 	// transaction.

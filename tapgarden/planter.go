@@ -705,8 +705,9 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 		if groupInfo != nil {
 			groupReq, err := asset.NewGroupKeyRequest(
-				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
-				protoAsset, groupInfo.GroupKey.TapscriptRoot,
+				groupInfo.GroupKey.RawKey, nil,
+				*groupInfo.Genesis, protoAsset,
+				groupInfo.GroupKey.TapscriptRoot, nil,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
@@ -735,8 +736,8 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			}
 
 			groupReq, err := asset.NewGroupKeyRequest(
-				*seedling.GroupInternalKey, assetGen,
-				protoAsset, seedling.GroupTapscriptRoot,
+				*seedling.GroupInternalKey, nil, assetGen,
+				protoAsset, seedling.GroupTapscriptRoot, nil,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+

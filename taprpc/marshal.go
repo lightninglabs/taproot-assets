@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -19,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest"
 )
 
 // Shorthand for the asset transfer output proof delivery status enum.
@@ -292,11 +295,21 @@ func UnmarshalGroupKeyRequest(req *GroupKeyRequest) (*asset.GroupKeyRequest,
 		return nil, err
 	}
 
+	var externalKey *asset.ExternalKey
+
+	if req.ExternalKey != nil {
+		externalKey, err = UnmarshalExternalKey(req.ExternalKey)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &asset.GroupKeyRequest{
 		RawKey:        rawKey,
 		AnchorGen:     *anchorGen,
 		TapscriptRoot: req.TapscriptRoot,
 		NewAsset:      &newAsset,
+		ExternalKey:   externalKey,
 	}, nil
 }
 
@@ -316,13 +329,76 @@ func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
 		return nil, err
 	}
 
+	var externalKey *ExternalKey
+	if req.ExternalKey != nil {
+		externalKey = MarshalExternalKey(req.ExternalKey)
+	}
+
 	return &GroupKeyRequest{
-		RawKey: MarshalKeyDescriptor(req.RawKey),
+		RawKey:      MarshalKeyDescriptor(req.RawKey),
+		ExternalKey: externalKey,
 		AnchorGenesis: MarshalGenesisInfo(
 			&req.AnchorGen, req.NewAsset.Type,
 		),
 		TapscriptRoot: req.TapscriptRoot,
 		NewAsset:      assetBuf.Bytes(),
+	}, nil
+}
+
+func MarshalExternalKey(key *asset.ExternalKey) *ExternalKey {
+	var masterFingerprint [4]byte
+	binary.LittleEndian.PutUint32(
+		masterFingerprint[:], key.MasterFingerprint,
+	)
+
+	// The first three elements of the derivation path are hardened, so to
+	// format we need to subtract the hardened key offset again.
+	path := key.DerivationPath
+	purpose := path[0] - hdkeychain.HardenedKeyStart
+	coinType := path[1] - hdkeychain.HardenedKeyStart
+	account := path[2] - hdkeychain.HardenedKeyStart
+
+	return &ExternalKey{
+		Xpub:              key.XPub.String(),
+		MasterFingerprint: masterFingerprint[:],
+		DerivationPath: fmt.Sprintf("m/%d'/%d'/%d'/%d/%d", purpose,
+			coinType, account, path[3], path[4]),
+	}
+}
+
+func UnmarshalExternalKey(rpcKey *ExternalKey) (*asset.ExternalKey, error) {
+	xpub, err := hdkeychain.NewKeyFromString(rpcKey.Xpub)
+	if err != nil {
+		return nil, err
+	}
+
+	path, err := lntest.ParseDerivationPath(rpcKey.DerivationPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// We assume the first three elements of the derivation path are
+	// hardened, so we need to add the hardened key offset.
+	for i := 0; i < 3; i++ {
+		path[i] += hdkeychain.HardenedKeyStart
+	}
+
+	var masterFingerprint uint32
+	if len(rpcKey.MasterFingerprint) > 0 {
+		if len(rpcKey.MasterFingerprint) != 4 {
+			return nil, fmt.Errorf("master fingerprint must be 4 " +
+				"bytes")
+		}
+
+		masterFingerprint = binary.LittleEndian.Uint32(
+			rpcKey.MasterFingerprint,
+		)
+	}
+
+	return &asset.ExternalKey{
+		XPub:              xpub,
+		MasterFingerprint: masterFingerprint,
+		DerivationPath:    path,
 	}, nil
 }
 

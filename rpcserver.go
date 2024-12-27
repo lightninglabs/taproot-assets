@@ -630,7 +630,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			},
 		}
 
-	// If a group anchor is provided, propoate the name to the seedling.
+	// If a group anchor is provided, propagate the name to the seedling.
 	// We cannot do any name validation from outside the minter.
 	case specificGroupAnchor:
 		seedling.GroupAnchor = &req.Asset.GroupAnchor
@@ -717,12 +717,10 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		return nil, err
 	}
 
-	batch, err := r.cfg.AssetMinter.FundBatch(
-		tapgarden.FundParams{
-			FeeRate:        feeRateOpt,
-			SiblingTapTree: tapTreeOpt,
-		},
-	)
+	batch, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
+		FeeRate:        feeRateOpt,
+		SiblingTapTree: tapTreeOpt,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund batch: %w", err)
 	}
@@ -736,6 +734,9 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		batch, !req.ShortResponse, r.cfg.ChainParams.Params,
 		req.ShortResponse,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return &mintrpc.FundBatchResponse{
 		Batch: rpcBatch,

@@ -181,7 +181,12 @@ message MintAsset {
     /*
     The optional root of a tapscript tree that will be used when constructing a
     new asset group key. This enables future issuance authorized with a script
-    witness.
+    witness. If an external group key is specified, then the V1 scheme of the
+    group key script construction will be used that supports PSBT signing. In
+    that scheme the user-supplied tapscript root will be extended by two levels
+    of tapscript siblings that commit to the group anchor's asset ID. Therefore,
+    this tapscript root will become a branch in a larger tapscript tree and the
+    final tapscript root will differ from the one provided here.
     */
     bytes group_tapscript_root = 11;
 
@@ -204,6 +209,8 @@ message MintAsset {
     compatible with assets that have a JSON MetaData field.
     */
     uint32 decimal_display = 13;
+
+    taprpc.ExternalKey external_group_key = 14;
 }
 
 message MintAssetRequest {
