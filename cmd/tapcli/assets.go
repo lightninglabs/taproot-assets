@@ -6,6 +6,7 @@ import (
 	"math"
 	"os"
 	"strconv"
+	"strings"
 
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
@@ -137,6 +138,21 @@ var mintAssetCommand = cli.Command{
 				"batch will not be returned in the response " +
 				"in order to avoid printing a large amount " +
 				"of data in case of large batches",
+		},
+		cli.StringFlag{
+			Name: "group_key_xpub",
+			Usage: "the xpub of the group key to use to mint the " +
+				"asset",
+		},
+		cli.StringFlag{
+			Name: "group_key_derivation_path",
+			Usage: "the derivation path that was used to derive " +
+				"the group key xpub",
+		},
+		cli.StringFlag{
+			Name: "group_key_fingerprint",
+			Usage: "the master fingerprint of the key the xpub " +
+				"was derived from",
 		},
 	},
 	Action: mintAsset,
@@ -326,6 +342,32 @@ func mintAsset(ctx *cli.Context) error {
 	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
+	gkXPub := ctx.String("group_key_xpub")
+	gkPath := ctx.String("group_key_derivation_path")
+	gkFingerprint := ctx.String("group_key_fingerprint")
+
+	var externalKey *taprpc.ExternalKey
+	switch {
+	case (gkXPub != "" || gkPath != "" || gkFingerprint != "") &&
+		(gkXPub == "" || gkPath == "" || gkFingerprint == ""):
+
+		return fmt.Errorf("group key xpub, derivation path, and " +
+			"fingerprint must all be set or all be empty")
+
+	case gkXPub != "" && gkPath != "" && gkFingerprint != "":
+		fingerPrintBytes, err := hex.DecodeString(gkFingerprint)
+		if err != nil {
+			return fmt.Errorf("cannot hex decode group key "+
+				"fingerprint: %w", err)
+		}
+
+		externalKey = &taprpc.ExternalKey{
+			Xpub:              gkXPub,
+			MasterFingerprint: fingerPrintBytes,
+			DerivationPath:    gkPath,
+		}
+	}
+
 	resp, err := client.MintAsset(ctxc, &mintrpc.MintAssetRequest{
 		Asset: &mintrpc.MintAsset{
 			AssetType:       assetType,
@@ -340,6 +382,7 @@ func mintAsset(ctx *cli.Context) error {
 			AssetVersion: taprpc.AssetVersion(
 				ctx.Uint64(assetVersionName),
 			),
+			ExternalGroupKey: externalKey,
 		},
 		ShortResponse: ctx.Bool(shortResponseName),
 	})
@@ -415,6 +458,11 @@ var sealBatchCommand = cli.Command{
 				"in order to avoid printing a large amount " +
 				"of data in case of large batches",
 		},
+		cli.StringSliceFlag{
+			Name: "group_signatures",
+			Usage: "the asset ID and signature, separated by a " +
+				"colon",
+		},
 	},
 	Hidden: true,
 	Action: sealBatch,
@@ -425,9 +473,37 @@ func sealBatch(ctx *cli.Context) error {
 	client, cleanUp := getMintClient(ctx)
 	defer cleanUp()
 
-	resp, err := client.SealBatch(ctxc, &mintrpc.SealBatchRequest{
+	req := &mintrpc.SealBatchRequest{
 		ShortResponse: ctx.Bool(shortResponseName),
-	})
+	}
+
+	// TODO(guggero): Actually just ask for the signed PSBT back and extract
+	// the signature from there. We can query the pending batch to get the
+	// asset ID of each PSBT (can match by the unsigned transaction's input
+	// prev out).
+	sigs := ctx.StringSlice("group_signatures")
+	for _, witness := range sigs {
+		parts := strings.Split(witness, ":")
+		assetIDHex, sigHex := parts[0], parts[1]
+		assetIDBytes, err := hex.DecodeString(assetIDHex)
+		if err != nil {
+			return fmt.Errorf("invalid asset ID")
+		}
+
+		sigBytes, err := hex.DecodeString(sigHex)
+		if err != nil {
+			return fmt.Errorf("invalid signature")
+		}
+
+		req.GroupWitnesses = append(
+			req.GroupWitnesses, &taprpc.GroupWitness{
+				GenesisId: assetIDBytes,
+				Witness:   [][]byte{sigBytes},
+			},
+		)
+	}
+
+	resp, err := client.SealBatch(ctxc, req)
 	if err != nil {
 		return fmt.Errorf("unable to seal batch: %w", err)
 	}
@@ -511,6 +587,9 @@ var listBatchesCommand = cli.Command{
 			Name:  batchKeyName,
 			Usage: "if set, the batch key for a specific batch",
 		},
+		cli.BoolFlag{
+			Name: "verbose",
+		},
 	},
 	Action: listBatches,
 }
@@ -536,6 +615,7 @@ func listBatches(ctx *cli.Context) error {
 		Filter: &mintrpc.ListBatchRequest_BatchKey{
 			BatchKey: batchKey,
 		},
+		Verbose: ctx.Bool("verbose"),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to list batches: %w", err)
