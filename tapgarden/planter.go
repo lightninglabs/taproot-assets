@@ -1205,6 +1205,10 @@ func (c *ChainPlanter) gardener() {
 			// After some basic validation, prepare the asset
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
+			//
+			// This method will also include the seedling in any
+			// existing pending batch or create a new pending batch
+			// if necessary.
 			ctx, cancel := c.WithCtxQuit()
 			err := c.prepAssetSeedling(ctx, req)
 			cancel()
@@ -1781,8 +1785,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	return caretaker, nil
 }
 
-// PendingBatch returns the current pending batch. If there's no pending batch,
-// then an error is returned.
+// PendingBatch returns the current pending batch, or nil if no batch is
+// pending.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 	req := newStateReq[*MintingBatch](reqTypePendingBatch)
 
@@ -1868,8 +1872,7 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 }
 
 // prepAssetSeedling performs some basic validation for the Seedling, then
-// either adds it to an existing pending batch or creates a new batch for it. A
-// bool indicating if a new batch should immediately be created is returned.
+// either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
@@ -1990,6 +1993,10 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 
 		newBatch.Seedlings[req.AssetName] = req
 
+		// The batch enable universe announcement flag inherits from the
+		// first seedling added to the batch.
+		newBatch.EnableUniAnnounce = req.EnableUniAnnounce
+
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
 		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
@@ -2004,12 +2011,26 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	case c.pendingBatch != nil:
 		log.Infof("Adding %v to existing MintingBatch", req)
 
+		// The batch already exist and may contain seedlings. Before
+		// adding the seedling to the batch, we'll ensure that the
+		// batch will still be valid after adding the seedling.
+		err := c.pendingBatch.ValidateSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("seedling can not be added to "+
+				"pending batch: %w", err)
+		}
+
 		c.pendingBatch.Seedlings[req.AssetName] = req
+
+		// The batch may already exist, but it may not have any
+		// seedlings. If this is the first seedling, we'll inherit the
+		// universe announcement flag from it.
+		c.pendingBatch.EnableUniAnnounce = req.EnableUniAnnounce
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err := c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {

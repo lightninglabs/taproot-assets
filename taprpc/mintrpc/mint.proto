@@ -215,6 +215,11 @@ message MintAssetRequest {
     possibly printed on the command line in the case of a very large batch.
     */
     bool short_response = 2;
+
+    // Set to true to enable universe announcements for the asset(s) mint event.
+    // This option restricts the minting batch to assets that are part of the
+    // same universe (i.e., share the same group key).
+    bool enable_uni_announce = 3;
 }
 
 message MintAssetResponse {
