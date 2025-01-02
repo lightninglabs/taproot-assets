@@ -439,7 +439,7 @@ func (n *Negotiator) HandleIncomingSellRequest(
 			sendOutgoingMsg(msg)
 
 			// Add an error to the error channel and return.
-			err = fmt.Errorf("failed to query ask price from "+
+			err = fmt.Errorf("failed to query bid price from "+
 				"oracle: %w", err)
 			n.cfg.ErrChan <- err
 			return
