@@ -997,8 +997,8 @@ func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
 
-	srvrLog.Debugf("HandleTraffic called, cid=%v, fundingBlob=%v", cid,
-		spew.Sdump(fundingBlob))
+	srvrLog.Debugf("HandleTraffic called (cid=%v, fundingBlob=%x)", cid,
+		fundingBlob.UnwrapOr(tlv.Blob{}))
 
 	if err := s.waitForReady(); err != nil {
 		return false, err
