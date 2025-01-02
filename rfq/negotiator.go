@@ -119,6 +119,11 @@ func (n *Negotiator) queryBidFromPriceOracle(assetSpecifier asset.Specifier,
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
 
+	log.Debugf("Querying price oracle for bid price (asset_specifier=%s, "+
+		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
+		assetSpecifier.String(), assetMaxAmt.String(),
+		paymentMaxAmt.String(), assetRateHint.String())
+
 	oracleResponse, err := n.cfg.PriceOracle.QueryBidPrice(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
 	)
@@ -239,6 +244,11 @@ func (n *Negotiator) queryAskFromPriceOracle(assetSpecifier asset.Specifier,
 	// Query the price oracle for an asking price.
 	ctx, cancel := n.WithCtxQuitNoTimeout()
 	defer cancel()
+
+	log.Debugf("Querying price oracle for ask price (asset_specifier=%s, "+
+		"asset_max_amt=%s, payment_max_amt=%s, asset_rate_hint=%s)",
+		assetSpecifier.String(), assetMaxAmt.String(),
+		paymentMaxAmt.String(), assetRateHint.String())
 
 	oracleResponse, err := n.cfg.PriceOracle.QueryAskPrice(
 		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt,
