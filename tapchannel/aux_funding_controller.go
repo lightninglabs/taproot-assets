@@ -2136,8 +2136,8 @@ func (f *FundingController) CanHandle(msg msgmux.PeerMsg) bool {
 		return true
 	}
 
-	log.Debugf("Failed to handle: %T", msg.Message)
-
+	log.Tracef("FundingController encountered an unsupported message "+
+		"type: %T", msg.Message)
 	return false
 }
 
