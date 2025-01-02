@@ -199,7 +199,7 @@ func (f *FederationEnvoy) Stop() error {
 func (f *FederationEnvoy) syncServerState(ctx context.Context,
 	addr ServerAddr, syncConfigs SyncConfigs) error {
 
-	log.Infof("Syncing Universe state with server=%v", spew.Sdump(addr))
+	log.Infof("Syncing Universe state with server=%s", addr.HostStr())
 
 	// Attempt to sync with the remote Universe server, if this errors then
 	// we'll bail out early as something wrong happened.
