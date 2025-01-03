@@ -255,6 +255,14 @@ message GenesisInfo {
     uint32 output_index = 6;
 }
 
+message ExternalKey {
+    string xpub = 1;
+
+    bytes master_fingerprint = 2;
+
+    string derivation_path = 3;
+}
+
 message GroupKeyRequest {
     // The internal key for the asset group before any tweaks have been applied.
     KeyDescriptor raw_key = 1;
@@ -279,6 +287,8 @@ message GroupKeyRequest {
     member of this asset group.
     */
     bytes new_asset = 4;
+
+    ExternalKey external_key = 5;
 }
 
 message TxOut {

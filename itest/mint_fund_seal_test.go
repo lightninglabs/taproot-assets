@@ -3,9 +3,20 @@ package itest
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
 	"math"
+	"os"
+	"os/exec"
+	"regexp"
+	"strings"
 	"testing"
+
+	"path/filepath"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -149,9 +160,9 @@ func testMintFundSealAssets(t *harnessTest) {
 	require.NotEmpty(t.t, fundResp.Batch)
 	require.Equal(
 		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
-		fundResp.Batch.State,
+		fundResp.Batch.Batch.State,
 	)
-	require.NotEmpty(t.t, fundResp.Batch.BatchPsbt)
+	require.NotEmpty(t.t, fundResp.Batch.Batch.BatchPsbt)
 
 	// Now we can add all the asset requests created above.
 	BuildMintingBatch(t.t, aliceTapd, assetReqs)
@@ -500,6 +511,306 @@ func testMintFundSealAssets(t *harnessTest) {
 	})
 }
 
+// ChantoolsHarness is a helper struct that provides a way to interact with
+// the chantools binary.
+type ChantoolsHarness struct {
+	// path is the path to the chantools binary.
+	path string
+
+	// workingDir is the chantools harness working directory.
+	workingDir string
+
+	// walletDbPath is the path to the wallet.db file created by chantools.
+	walletDbPath string
+}
+
+// NewChantoolsHarness creates a new instance of the ChantoolsHarness struct.
+func NewChantoolsHarness(t *testing.T) ChantoolsHarness {
+	path, err := exec.LookPath("chantools")
+	require.NoError(t, err, "chantools is not installed or not in PATH")
+
+	t.Logf("Using chantools binary at: %v", path)
+
+	// Assert that the version of chantools is as expected.
+	versionCmd := exec.Command(path, "--version")
+	versionOut, err := versionCmd.CombinedOutput()
+	require.NoError(t, err, "failed to get chantools version")
+
+	versionOutStr := string(versionOut)
+	if !strings.Contains(versionOutStr, "chantools version v0.13.5") {
+		t.Fatalf("unexpected chantools version: %v", versionOutStr)
+	}
+
+	// Create a temporary directory to store the wallet.db file.
+	workingDir, err := os.MkdirTemp("", "itest-tapd-chantools")
+	require.NoError(t, err, "failed to create chantools working directory")
+
+	return ChantoolsHarness{
+		path:         path,
+		workingDir:   workingDir,
+		walletDbPath: filepath.Join(workingDir, "wallet.db"),
+	}
+}
+
+// CreateWallet creates a new wallet using the chantools binary.
+func (c *ChantoolsHarness) CreateWallet(t *testing.T) {
+	cmd := exec.Command(
+		c.path, "--regtest", "createwallet", "--bip39",
+		"--generateseed", "--walletdbdir", c.workingDir,
+	)
+	cmd.Env = append(os.Environ(), "WALLET_PASSWORD=-")
+	cmd.Env = append(cmd.Env, "AEZEED_PASSPHRASE=-")
+
+	cmdOut, err := cmd.CombinedOutput()
+	require.NoError(t, err)
+
+	t.Logf("Chantools createwallet output: %v", string(cmdOut))
+}
+
+// DeriveKey derives a new key using the chantools binary.
+func (c *ChantoolsHarness) DeriveKey(t *testing.T) (string, string) {
+	cmd := exec.Command(
+		c.path, "--regtest", "derivekey", "--walletdb", c.walletDbPath,
+		"--path", "m/86'/1'/0'", "--neuter",
+	)
+	cmd.Env = append(os.Environ(), "WALLET_PASSWORD=-")
+
+	cmdOut, err := cmd.CombinedOutput()
+	require.NoError(t, err)
+
+	cmdOutStr := string(cmdOut)
+	t.Logf("Chantools derivekey output: %v", cmdOutStr)
+
+	// Parsing for xpub.
+	xpubPattern := `Extended public key \(xpub\):\s+([a-zA-Z0-9]+)`
+	xpubRegex := regexp.MustCompile(xpubPattern)
+	matches := xpubRegex.FindStringSubmatch(cmdOutStr)
+	require.Len(t, matches, 2)
+
+	xpub := matches[1]
+	require.NotEmpty(t, xpub)
+
+	// Parsing for master fingerprint.
+	fingerprintPattern := `Master Fingerprint:\s+([a-f0-9]+)`
+	fingerprintRegex := regexp.MustCompile(fingerprintPattern)
+	matches = fingerprintRegex.FindStringSubmatch(cmdOutStr)
+	require.Len(t, matches, 2)
+
+	masterFingerprint := matches[1]
+	require.Len(t, masterFingerprint, 8)
+
+	return xpub, masterFingerprint
+}
+
+// SignPsbt signs a PSBT using the chantools binary.
+func (c *ChantoolsHarness) SignPsbt(t *testing.T, psbtStr string) string {
+	cmd := exec.Command(
+		c.path, "--regtest", "signpsbt", "--walletdb", c.walletDbPath,
+		"--psbt", psbtStr,
+	)
+	cmd.Env = append(os.Environ(), "WALLET_PASSWORD=-")
+
+	cmdOut, err := cmd.CombinedOutput()
+	require.NoError(t, err)
+
+	cmdOutStr := string(cmdOut)
+	t.Logf("Chantools signpsbt output: %v", cmdOutStr)
+
+	// Extract the signed PSBT.
+	psbtPattern := `Successfully signed PSBT:\n\n([a-zA-Z0-9+/=]+)`
+	psbtRegex := regexp.MustCompile(psbtPattern)
+	matches := psbtRegex.FindStringSubmatch(cmdOutStr)
+	require.Len(t, matches, 2)
+
+	signedPsbtStr := matches[1]
+	require.NotEmpty(t, signedPsbtStr)
+
+	return signedPsbtStr
+}
+
+// testMintExternalGroupKeyChantools tests that we're able to mint an asset
+// using an external group key derived and managed by chantools.
+func testMintExternalGroupKeyChantools(t *harnessTest) {
+	chantools := NewChantoolsHarness(t.t)
+
+	// Use chantools to create a new wallet and derive a new key.
+	chantools.CreateWallet(t.t)
+	groupKeyXpub, groupKeyFingerprint := chantools.DeriveKey(t.t)
+
+	t.Logf("Extended public key (xpub): %v", groupKeyXpub)
+	t.Logf("Master Fingerprint: %v", groupKeyFingerprint)
+
+	// Formulate the external group key which will be used in the asset
+	// minting request.
+	fingerPrintBytes, err := hex.DecodeString(groupKeyFingerprint)
+	require.NoError(t.t, err)
+
+	externalGroupKey := &taprpc.ExternalKey{
+		Xpub:              groupKeyXpub,
+		MasterFingerprint: fingerPrintBytes,
+		DerivationPath:    "m/86'/1'/0'/0/0",
+	}
+
+	// Add asset mint request to mint batch.
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.ExternalGroupKey = externalGroupKey
+
+	assetReqs := []*mintrpc.MintAssetRequest{mintReq}
+	BuildMintingBatch(t.t, t.tapd, assetReqs)
+
+	// Fund mint batch with BTC.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	fundReq := &mintrpc.FundBatchRequest{}
+	fundResp, err := t.tapd.FundBatch(ctxt, fundReq)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, fundResp.Batch)
+	require.Equal(
+		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
+		fundResp.Batch.Batch.State,
+	)
+	require.Len(t.t, fundResp.Batch.UnsealedAssets, 1)
+
+	groupVirtualPsbt := fundResp.Batch.UnsealedAssets[0].GroupVirtualPsbt
+	t.Logf("Unsigned group virtual PSBT: %v", groupVirtualPsbt)
+
+	signedPsbtStr := chantools.SignPsbt(t.t, groupVirtualPsbt)
+	t.Logf("Signed group virtual PSBT: %v", signedPsbtStr)
+
+	// Cancel the context for the fund request call.
+	cancel()
+
+	// Seal the batch with the signed group virtual PSBT.
+	//
+	// Extract genesis asset ID.
+	gkr := fundResp.Batch.UnsealedAssets[0].GroupKeyRequest
+	genesisAssetIDBytes := gkr.AnchorGenesis.AssetId
+	var genesisAssetID asset.ID
+	copy(genesisAssetID[:], genesisAssetIDBytes)
+
+	// Extract witness from signed PSBT.
+	signedPsbt, err := psbt.NewFromRawBytes(bytes.NewReader(
+		[]byte(signedPsbtStr)), true,
+	)
+	require.NoError(t.t, err)
+
+	witnessStack, err := DeserializeWitnessStack(
+		signedPsbt.Inputs[0].FinalScriptWitness,
+	)
+	if err != nil {
+		log.Fatalf("Failed to deserialize witness stack: %v", err)
+	}
+
+	groupWitness := taprpc.GroupWitness{
+		GenesisId: genesisAssetID[:],
+		Witness:   witnessStack,
+	}
+
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	sealReq := mintrpc.SealBatchRequest{
+		GroupWitnesses: []*taprpc.GroupWitness{
+			&groupWitness,
+		},
+	}
+	sealResp, err := t.tapd.SealBatch(ctxt, &sealReq)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, sealResp.Batch)
+
+	// With the batch sealed successfully, we can now finalize it and
+	// broadcast the anchor TX.
+	ctxc, streamCancel := context.WithCancel(context.Background())
+	stream, err := t.tapd.SubscribeMintEvents(
+		ctxc, &mintrpc.SubscribeMintEventsRequest{},
+	)
+	require.NoError(t.t, err)
+	sub := &EventSubscription[*mintrpc.MintEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
+	batchTXID, batchKey := FinalizeBatchUnconfirmed(
+		t.t, t.lndHarness.Miner().Client, t.tapd, assetReqs,
+	)
+	batchAssets := ConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd, assetReqs, sub,
+		batchTXID, batchKey,
+	)
+
+	t.Logf("Batch assets: %v", batchAssets)
+}
+
+// DeserializeWitnessStack deserializes a serialized witness stack into a
+// [][]byte.
+func DeserializeWitnessStack(serialized []byte) ([][]byte, error) {
+	var stack [][]byte
+	reader := bytes.NewReader(serialized)
+
+	// Read the number of witness elements (compact size integer)
+	count, err := readCompactSize(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read witness count: %w", err)
+	}
+
+	// Read each witness element
+	for i := uint64(0); i < count; i++ {
+		elementSize, err := readCompactSize(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read witness "+
+				"element size: %w", err)
+		}
+
+		// Read the witness element data
+		element := make([]byte, elementSize)
+		if _, err := reader.Read(element); err != nil {
+			return nil, fmt.Errorf("failed to read witness "+
+				"element data: %w", err)
+		}
+		stack = append(stack, element)
+	}
+
+	return stack, nil
+}
+
+// readCompactSize reads a compact size integer from the given reader.
+func readCompactSize(r *bytes.Reader) (uint64, error) {
+	if r.Len() == 0 {
+		return 0, errors.New("unexpected EOF")
+	}
+
+	prefix, _ := r.ReadByte()
+	switch {
+	case prefix < 253:
+		return uint64(prefix), nil
+	case prefix == 253:
+		var value uint16
+		err := binary.Read(r, binary.LittleEndian, &value)
+		if err != nil {
+			return 0, err
+		}
+		return uint64(value), nil
+	case prefix == 254:
+		var value uint32
+		err := binary.Read(r, binary.LittleEndian, &value)
+		if err != nil {
+			return 0, err
+		}
+		return uint64(value), nil
+	case prefix == 255:
+		var value uint64
+		err := binary.Read(r, binary.LittleEndian, &value)
+		if err != nil {
+			return 0, err
+		}
+		return value, nil
+	default:
+		return 0, errors.New("invalid compact size prefix")
+	}
+}
+
 // Derive a random key on an LND node, with a key family not matching the
 // Taproot Assets key family.
 func deriveRandomKey(t *testing.T, ctxt context.Context,
@@ -618,6 +929,22 @@ func unmarshalPendingAssetGroup(t *testing.T,
 	virtualTx, err := taprpc.UnmarshalGroupVirtualTx(a.GroupVirtualTx)
 	require.NoError(t, err)
 
+	// Ensure that the group virtual tx is the same as the grouped virtual
+	// PSBT.
+	groupVirtualPsbt, err := base64.StdEncoding.DecodeString(
+		a.GroupVirtualPsbt,
+	)
+	require.NoError(t, err)
+
+	groupVmPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(groupVirtualPsbt), false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, groupVmPsbt)
+
+	require.Equal(t, *groupVmPsbt.UnsignedTx, virtualTx.Tx)
+
+	// Unmarshal group key request.
 	require.NotNil(t, a.GroupKeyRequest)
 	keyReq, err := taprpc.UnmarshalGroupKeyRequest(a.GroupKeyRequest)
 	require.NoError(t, err)

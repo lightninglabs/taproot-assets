@@ -6,9 +6,11 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 )
 
 // Blob either represents a serialized proof file, including the checksum or a
@@ -388,12 +390,19 @@ func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
 
 			err := groupAnchorVerifier(&newAsset.Genesis, groupKey)
 			if err == nil {
-				rawKey := asset.ToSerialized(
-					groupKey.RawKey.PubKey,
+				// TODO(ffranr): Handle custom tapscript
+				//  subtree.
+				groupReveal, err := asset.NewGroupKeyRevealV1(
+					*groupKey.RawKey.PubKey,
+					newAsset.Genesis.ID(),
+					fn.None[chainhash.Hash](),
 				)
-				groupReveal := asset.NewGroupKeyRevealV0(
-					rawKey, groupKey.TapscriptRoot)
-				assetProof.GroupKeyReveal = groupReveal
+				if err != nil {
+					return nil, fmt.Errorf("unable to " +
+						"create group key reveal")
+				}
+
+				assetProof.GroupKeyReveal = &groupReveal
 			}
 		}
 

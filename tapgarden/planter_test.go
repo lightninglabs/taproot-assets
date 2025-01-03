@@ -458,8 +458,14 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 		fundedBatch, fundErr := t.planter.FundBatch(
 			fundParams,
 		)
+
+		var batch *tapgarden.MintingBatch
+		if fundedBatch != nil {
+			batch = fundedBatch.MintingBatch
+		}
+
 		resp := &FundBatchResp{
-			Batch: fundedBatch,
+			Batch: batch,
 			Err:   fundErr,
 		}
 

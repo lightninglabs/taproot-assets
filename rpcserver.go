@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -20,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/wtxmgr"
@@ -457,22 +459,20 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	// or anchor must be specified, but not both. Neither a group tapscript
 	// root nor group internal key can be specified.
 	case req.Asset.GroupedAsset:
-		if !specificGroupKey && !specificGroupAnchor {
+		switch {
+		case !specificGroupKey && !specificGroupAnchor:
 			return nil, fmt.Errorf("must specify a group key or" +
 				"group anchor")
-		}
 
-		if specificGroupKey && specificGroupAnchor {
+		case specificGroupKey && specificGroupAnchor:
 			return nil, fmt.Errorf("cannot specify both a group " +
 				"key and a group anchor")
-		}
 
-		if groupTapscriptRootSize != 0 {
+		case groupTapscriptRootSize != 0:
 			return nil, fmt.Errorf("cannot specify a group " +
 				"tapscript root with emission disabled")
-		}
 
-		if specificGroupInternalKey {
+		case specificGroupInternalKey:
 			return nil, fmt.Errorf("cannot specify a group " +
 				"internal key with emission disabled")
 		}
@@ -581,6 +581,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		groupTapscriptRoot = bytes.Clone(req.Asset.GroupTapscriptRoot)
 	}
 
+	if req.Asset.ExternalGroupKey != nil &&
+		req.Asset.GroupInternalKey != nil {
+
+		return nil, fmt.Errorf("cannot set both external group key " +
+			"and group internal key descriptor")
+	}
+
 	seedling := &tapgarden.Seedling{
 		AssetVersion:   assetVersion,
 		AssetType:      asset.Type(req.Asset.AssetType),
@@ -606,6 +613,30 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		seedling.GroupTapscriptRoot = groupTapscriptRoot
 	}
 
+	if req.Asset.ExternalGroupKey != nil {
+		seedling.ExternalKey, err = taprpc.UnmarshalExternalKey(
+			req.Asset.ExternalGroupKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse external key: "+
+				"%w", err)
+		}
+
+		if err := seedling.ExternalKey.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid external key: %w", err)
+		}
+
+		internalKey, err := seedling.ExternalKey.PubKey()
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive internal "+
+				"group key from xpub: %w", err)
+		}
+
+		seedling.GroupInternalKey = &keychain.KeyDescriptor{
+			PubKey: internalKey,
+		}
+	}
+
 	switch {
 	// If a group key is provided, parse the provided group public key
 	// before creating the asset seedling.
@@ -628,7 +659,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			},
 		}
 
-	// If a group anchor is provided, propoate the name to the seedling.
+	// If a group anchor is provided, propagate the name to the seedling.
 	// We cannot do any name validation from outside the minter.
 	case specificGroupAnchor:
 		seedling.GroupAnchor = &req.Asset.GroupAnchor
@@ -715,12 +746,10 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		return nil, err
 	}
 
-	batch, err := r.cfg.AssetMinter.FundBatch(
-		tapgarden.FundParams{
-			FeeRate:        feeRateOpt,
-			SiblingTapTree: tapTreeOpt,
-		},
-	)
+	batch, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
+		FeeRate:        feeRateOpt,
+		SiblingTapTree: tapTreeOpt,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund batch: %w", err)
 	}
@@ -730,7 +759,10 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		return &mintrpc.FundBatchResponse{}, nil
 	}
 
-	rpcBatch, err := marshalMintingBatch(batch, req.ShortResponse)
+	rpcBatch, err := marshalVerboseBatch(
+		batch, !req.ShortResponse, r.cfg.ChainParams.Params,
+		req.ShortResponse,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -887,7 +919,9 @@ func (r *rpcServer) ListBatches(_ context.Context,
 		batches, func(b *tapgarden.VerboseBatch) (*mintrpc.VerboseBatch,
 			error) {
 
-			return marshalVerboseBatch(b, req.Verbose, false)
+			return marshalVerboseBatch(
+				b, req.Verbose, r.cfg.ChainParams.Params, false,
+			)
 		},
 	)
 	if err != nil {
@@ -4073,7 +4107,8 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 
 // marshalVerboseBatch marshals a minting batch into the RPC counterpart.
 func marshalVerboseBatch(batch *tapgarden.VerboseBatch, verbose bool,
-	skipSeedlings bool) (*mintrpc.VerboseBatch, error) {
+	params *chaincfg.Params, skipSeedlings bool) (*mintrpc.VerboseBatch,
+	error) {
 
 	rpcMintingBatch, err := marshalMintingBatch(
 		batch.MintingBatch, skipSeedlings,
@@ -4095,7 +4130,7 @@ func marshalVerboseBatch(batch *tapgarden.VerboseBatch, verbose bool,
 	// We only need to convert the seedlings to unsealed seedlings.
 	if len(batch.UnsealedSeedlings) > 0 {
 		rpcBatch.UnsealedAssets, err = marshalUnsealedSeedlings(
-			verbose, batch.UnsealedSeedlings,
+			params, verbose, batch.UnsealedSeedlings,
 		)
 		if err != nil {
 			return nil, err
@@ -4242,13 +4277,14 @@ func marshalSeedling(seedling *tapgarden.Seedling) (*mintrpc.PendingAsset,
 
 // marshalUnsealedSeedling marshals an unsealed seedling into the RPC
 // counterpart.
-func marshalUnsealedSeedling(verbose bool,
+func marshalUnsealedSeedling(params *chaincfg.Params, verbose bool,
 	seedling *tapgarden.UnsealedSeedling) (*mintrpc.UnsealedAsset, error) {
 
 	var (
-		groupVirtualTx *taprpc.GroupVirtualTx
-		groupReq       *taprpc.GroupKeyRequest
-		err            error
+		groupVirtualTx   *taprpc.GroupVirtualTx
+		groupReq         *taprpc.GroupKeyRequest
+		groupVirtualPsbt string
+		err              error
 	)
 
 	rpcSeedling, err := marshalSeedling(seedling.Seedling)
@@ -4270,12 +4306,33 @@ func marshalUnsealedSeedling(verbose bool,
 		if err != nil {
 			return nil, err
 		}
+
+		groupVirtualPacket, err := seedling.PendingAssetGroup.PSBT(
+			params,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error getting group virtual "+
+				"PSBT for unsealed seedling: %w", err)
+		}
+
+		// Serialize PSBT to bytes.
+		var psbtBuf bytes.Buffer
+		err = groupVirtualPacket.Serialize(&psbtBuf)
+		if err != nil {
+			return nil, fmt.Errorf("error serializing group "+
+				"virtual PSBT for unsealed seedling: %w", err)
+		}
+
+		groupVirtualPsbt = base64.StdEncoding.EncodeToString(
+			psbtBuf.Bytes(),
+		)
 	}
 
 	return &mintrpc.UnsealedAsset{
-		Asset:           rpcSeedling,
-		GroupVirtualTx:  groupVirtualTx,
-		GroupKeyRequest: groupReq,
+		Asset:            rpcSeedling,
+		GroupVirtualTx:   groupVirtualTx,
+		GroupVirtualPsbt: groupVirtualPsbt,
+		GroupKeyRequest:  groupReq,
 	}, nil
 }
 
@@ -4289,13 +4346,15 @@ func marshalSeedlings(
 
 // marshalUnsealedSeedlings marshals the unsealed seedlings into the RPC
 // counterpart.
-func marshalUnsealedSeedlings(verbose bool,
+func marshalUnsealedSeedlings(params *chaincfg.Params, verbose bool,
 	seedlings map[string]*tapgarden.UnsealedSeedling) (
 	[]*mintrpc.UnsealedAsset, error) {
 
 	rpcAssets := make([]*mintrpc.UnsealedAsset, 0, len(seedlings))
 	for _, seedling := range seedlings {
-		nextSeedling, err := marshalUnsealedSeedling(verbose, seedling)
+		nextSeedling, err := marshalUnsealedSeedling(
+			params, verbose, seedling,
+		)
 		if err != nil {
 			return nil, err
 		}
