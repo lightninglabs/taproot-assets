@@ -1676,7 +1676,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 			groupedAsset, nil, nil, noProofLookup,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to verify asset group"+
+			return nil, fmt.Errorf("unable to verify asset group "+
 				"witness: %s, %w", reqAssetID.String(), err)
 		}
 
