@@ -628,7 +628,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			},
 		}
 
-	// If a group anchor is provided, propoate the name to the seedling.
+	// If a group anchor is provided, propagate the name to the seedling.
 	// We cannot do any name validation from outside the minter.
 	case specificGroupAnchor:
 		seedling.GroupAnchor = &req.Asset.GroupAnchor

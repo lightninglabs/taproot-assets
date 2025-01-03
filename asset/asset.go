@@ -1040,7 +1040,7 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // hash may represent either a single leaf or the root hash of an entire
 // subtree.
 //
-// If `custom_root_hash` is not provided, it defaults to a bare `[OP_RETURN` as
+// If `custom_root_hash` is not provided, it defaults to a bare `[OP_RETURN]` as
 // well. In this case, no valid script spending path can correspond to the
 // custom subtree root hash due to the pre-image resistance of SHA-256.
 //
