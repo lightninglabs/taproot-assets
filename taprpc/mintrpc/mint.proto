@@ -303,7 +303,7 @@ message FundBatchRequest {
 
 message FundBatchResponse {
     // The funded batch.
-    MintingBatch batch = 1;
+    VerboseBatch batch = 1;
 }
 
 message SealBatchRequest {

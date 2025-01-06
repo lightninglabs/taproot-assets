@@ -149,9 +149,9 @@ func testMintFundSealAssets(t *harnessTest) {
 	require.NotEmpty(t.t, fundResp.Batch)
 	require.Equal(
 		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
-		fundResp.Batch.State,
+		fundResp.Batch.Batch.State,
 	)
-	require.NotEmpty(t.t, fundResp.Batch.BatchPsbt)
+	require.NotEmpty(t.t, fundResp.Batch.Batch.BatchPsbt)
 
 	// Now we can add all the asset requests created above.
 	BuildMintingBatch(t.t, aliceTapd, assetReqs)

@@ -25,7 +25,7 @@ import (
 // FundBatchResp is the response returned from the FundBatch method.
 type FundBatchResp struct {
 	// Batch is the batch that was funded.
-	Batch *MintingBatch
+	Batch *VerboseBatch
 }
 
 // Planter is responsible for batching a set of seedlings into a minting batch
