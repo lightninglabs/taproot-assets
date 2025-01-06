@@ -465,7 +465,7 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 		}
 
 		respChan <- &FundBatchResp{
-			Batch: fundBatchResp.Batch,
+			Batch: fundBatchResp.Batch.MintingBatch,
 		}
 	}()
 }
