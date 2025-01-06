@@ -357,7 +357,7 @@
       "type": "object",
       "properties": {
         "batch": {
-          "$ref": "#/definitions/mintrpcMintingBatch",
+          "$ref": "#/definitions/mintrpcVerboseBatch",
           "description": "The funded batch."
         }
       }

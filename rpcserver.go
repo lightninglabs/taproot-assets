@@ -728,8 +728,8 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		return &mintrpc.FundBatchResponse{}, nil
 	}
 
-	rpcBatch, err := marshalMintingBatch(
-		fundBatchResp.Batch, req.ShortResponse,
+	rpcBatch, err := marshalVerboseBatch(
+		fundBatchResp.Batch, !req.ShortResponse, req.ShortResponse,
 	)
 	if err != nil {
 		return nil, err

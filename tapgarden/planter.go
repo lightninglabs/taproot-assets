@@ -1340,8 +1340,18 @@ func (c *ChainPlanter) gardener() {
 					break
 				}
 
+				// Formulate a verbose batch to return to the
+				// caller.
+				verboseBatch, err := newVerboseBatch(
+					c.pendingBatch, c.cfg.GenTxBuilder,
+				)
+				if err != nil {
+					req.Error(err)
+					break
+				}
+
 				req.Resolve(&FundBatchResp{
-					Batch: c.pendingBatch,
+					Batch: verboseBatch,
 				})
 
 			case reqTypeSealBatch:
