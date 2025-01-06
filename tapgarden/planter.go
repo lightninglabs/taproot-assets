@@ -952,19 +952,12 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 
 	var (
 		finalBatches, nonFinalBatches = filterFinalizedBatches(batches)
-		verboseBatches                []*VerboseBatch
+		sortedBatches                 []*MintingBatch
 	)
 
 	switch {
 	case len(finalBatches) == 0:
-		verboseBatches = fn.Map(batches,
-			func(b *MintingBatch) *VerboseBatch {
-				return &VerboseBatch{
-					MintingBatch:      b,
-					UnsealedSeedlings: nil,
-				}
-			},
-		)
+		sortedBatches = batches
 
 	// For finalized batches, we need to fetch the assets from the proof
 	// archiver, not the DB.
@@ -989,7 +982,12 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 			return a.CreationTime.Compare(b.CreationTime)
 		})
 
-		verboseBatches = fn.Map(allBatches,
+		sortedBatches = allBatches
+	}
+
+	// Return the batches without any extra asset group info.
+	if !params.Verbose {
+		batches := fn.Map(sortedBatches,
 			func(b *MintingBatch) *VerboseBatch {
 				return &VerboseBatch{
 					MintingBatch:      b,
@@ -997,15 +995,15 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 				}
 			},
 		)
+
+		return batches, nil
 	}
 
-	// Return the batches without any extra asset group info.
-	if !params.Verbose {
-		return verboseBatches, nil
-	}
+	// Formulate verbose batches from the sorted batches.
+	verboseBatches := make([]*VerboseBatch, len(sortedBatches))
 
-	for _, batch := range verboseBatches {
-		currentBatch := batch
+	for idx := range sortedBatches {
+		currentBatch := sortedBatches[idx]
 
 		// The batch must be pending, funded, and have seedlings for us
 		// to show pending asset group information.
@@ -1019,81 +1017,96 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		default:
 		}
 
-		// Filter the batch seedlings to only consider those that will
-		// become grouped assets. If there are no such seedlings, then
-		// there is no extra information to show.
-		groupSeedlings, _ := filterSeedlingsWithGroup(
-			currentBatch.Seedlings,
-		)
-		if len(groupSeedlings) == 0 {
-			continue
-		}
-
-		// Before we can build the group key requests for each seedling,
-		// we must fetch the genesis point and anchor index for the
-		// batch.
-		anchorOutputIndex := extractAnchorOutputIndex(
-			currentBatch.GenesisPacket,
-		)
-		genesisPoint := extractGenesisOutpoint(
-			currentBatch.GenesisPacket.Pkt.UnsignedTx,
-		)
-
-		// Construct the group key requests and group virtual TXs for
-		// each seedling. With these we can verify provided asset group
-		// witnesses, or attempt to derive asset group witnesses if
-		// needed.
-		groupReqs, genTXs, err := buildGroupReqs(
-			genesisPoint, anchorOutputIndex, genBuilder,
-			groupSeedlings,
-		)
+		verboseBatch, err := newVerboseBatch(currentBatch, genBuilder)
 		if err != nil {
-			return nil, fmt.Errorf("unable to build group "+
-				"requests: %w", err)
+			return nil, err
 		}
 
-		if len(groupReqs) != len(genTXs) {
-			return nil, fmt.Errorf("mismatched number of group " +
-				"requests and virtual TXs")
-		}
-
-		// Copy existing seedlngs into the unsealed seedling map; we'll
-		// clear the batch seedlings after adding group information.
-		currentBatch.UnsealedSeedlings = make(
-			map[string]*UnsealedSeedling,
-			len(currentBatch.Seedlings),
-		)
-		for k, v := range currentBatch.Seedlings {
-			currentBatch.UnsealedSeedlings[k] = &UnsealedSeedling{
-				Seedling:          v,
-				PendingAssetGroup: nil,
-			}
-		}
-
-		// Match each group key request and group virtual TX with the
-		// corresponding seedling.
-		for i := 0; i < len(groupReqs); i++ {
-			seedlingName := groupReqs[i].NewAsset.Genesis.Tag
-			seedling, ok := currentBatch.
-				UnsealedSeedlings[seedlingName]
-			if !ok {
-				return nil, fmt.Errorf("unable to find "+
-					"seedling with tag matching asset "+
-					"group: %s", seedlingName)
-			}
-
-			seedling.PendingAssetGroup = &PendingAssetGroup{
-				GroupKeyRequest: groupReqs[i],
-				GroupVirtualTx:  genTXs[i],
-			}
-		}
-
-		// Clear the original batch seedlings so each asset is only
-		// represented once.
-		currentBatch.Seedlings = nil
+		verboseBatches[idx] = verboseBatch
 	}
 
 	return verboseBatches, nil
+}
+
+// newVerboseBatch constructs a new verbose batch from a given minting batch.
+// The verbose batch includes extra information about the asset group, if any.
+func newVerboseBatch(currentBatch *MintingBatch,
+	genBuilder asset.GenesisTxBuilder) (*VerboseBatch, error) {
+
+	verboseBatch := &VerboseBatch{
+		MintingBatch: currentBatch.Copy(),
+	}
+
+	// Filter the batch seedlings to only consider those that will become
+	// grouped assets. If there are no such seedlings, then there is no
+	// extra information to add.
+	groupSeedlings, _ := filterSeedlingsWithGroup(
+		currentBatch.Seedlings,
+	)
+	if len(groupSeedlings) == 0 {
+		return verboseBatch, nil
+	}
+
+	// Before we can build the group key requests for each seedling, we must
+	// fetch the genesis point and anchor index for the batch.
+	anchorOutputIndex := extractAnchorOutputIndex(
+		currentBatch.GenesisPacket,
+	)
+	genesisPoint := extractGenesisOutpoint(
+		currentBatch.GenesisPacket.Pkt.UnsignedTx,
+	)
+
+	// Construct the group key requests and group virtual TXs for each
+	// seedling. With these we can verify provided asset group witnesses, or
+	// attempt to derive asset group witnesses if needed.
+	groupReqs, genTXs, err := buildGroupReqs(
+		genesisPoint, anchorOutputIndex, genBuilder, groupSeedlings,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to build group requests: %w",
+			err)
+	}
+
+	if len(groupReqs) != len(genTXs) {
+		return nil, fmt.Errorf("mismatched number of group requests " +
+			"and virtual TXs")
+	}
+
+	// Copy existing seedlings into the unsealed seedling map; we'll clear
+	// the batch seedlings after adding group information.
+	verboseBatch.UnsealedSeedlings = make(
+		map[string]*UnsealedSeedling,
+		len(currentBatch.Seedlings),
+	)
+	for k, v := range currentBatch.Seedlings {
+		verboseBatch.UnsealedSeedlings[k] = &UnsealedSeedling{
+			Seedling:          v,
+			PendingAssetGroup: nil,
+		}
+	}
+
+	// Match each group key request and group virtual TX with the
+	// corresponding seedling.
+	for i := 0; i < len(groupReqs); i++ {
+		seedlingName := groupReqs[i].NewAsset.Genesis.Tag
+		seedling, ok := verboseBatch.
+			UnsealedSeedlings[seedlingName]
+		if !ok {
+			return nil, fmt.Errorf("unable to find seedling with "+
+				"tag matching asset group: %s", seedlingName)
+		}
+
+		seedling.PendingAssetGroup = &PendingAssetGroup{
+			GroupKeyRequest: groupReqs[i],
+			GroupVirtualTx:  genTXs[i],
+		}
+	}
+
+	// Clear the original batch seedlings so each asset is only represented
+	// once.
+	verboseBatch.Seedlings = nil
+
+	return verboseBatch, nil
 }
 
 // canCancelBatch returns a batch key if the planter is in a state where a batch
