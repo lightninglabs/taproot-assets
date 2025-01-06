@@ -1312,7 +1312,9 @@ func (c *ChainPlanter) gardener() {
 					break
 				}
 
-				req.Resolve(c.pendingBatch)
+				req.Resolve(&FundBatchResp{
+					Batch: c.pendingBatch,
+				})
 
 			case reqTypeSealBatch:
 				if c.pendingBatch == nil {
@@ -1821,8 +1823,8 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 
 // FundBatch sends a signal to the planter to fund the current batch, or create
 // a funded batch.
-func (c *ChainPlanter) FundBatch(params FundParams) (*MintingBatch, error) {
-	req := newStateParamReq[*MintingBatch](reqTypeFundBatch, params)
+func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
+	req := newStateParamReq[*FundBatchResp](reqTypeFundBatch, params)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")

@@ -455,15 +455,18 @@ func (t *mintingTestHarness) fundBatch(wg *sync.WaitGroup,
 			fundParams = *params
 		}
 
-		fundedBatch, fundErr := t.planter.FundBatch(
-			fundParams,
-		)
-		resp := &FundBatchResp{
-			Batch: fundedBatch,
-			Err:   fundErr,
+		fundBatchResp, fundErr := t.planter.FundBatch(fundParams)
+		if fundErr != nil {
+			respChan <- &FundBatchResp{
+				Err: fundErr,
+			}
+
+			return
 		}
 
-		respChan <- resp
+		respChan <- &FundBatchResp{
+			Batch: fundBatchResp.Batch,
+		}
 	}()
 }
 
