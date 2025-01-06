@@ -715,22 +715,22 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 		return nil, err
 	}
 
-	batch, err := r.cfg.AssetMinter.FundBatch(
-		tapgarden.FundParams{
-			FeeRate:        feeRateOpt,
-			SiblingTapTree: tapTreeOpt,
-		},
-	)
+	fundBatchResp, err := r.cfg.AssetMinter.FundBatch(tapgarden.FundParams{
+		FeeRate:        feeRateOpt,
+		SiblingTapTree: tapTreeOpt,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund batch: %w", err)
 	}
 
 	// If there was no batch to fund, return an empty response.
-	if batch == nil {
+	if fundBatchResp.Batch == nil {
 		return &mintrpc.FundBatchResponse{}, nil
 	}
 
-	rpcBatch, err := marshalMintingBatch(batch, req.ShortResponse)
+	rpcBatch, err := marshalMintingBatch(
+		fundBatchResp.Batch, req.ShortResponse,
+	)
 	if err != nil {
 		return nil, err
 	}

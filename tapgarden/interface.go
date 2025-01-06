@@ -22,6 +22,12 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 )
 
+// FundBatchResp is the response returned from the FundBatch method.
+type FundBatchResp struct {
+	// Batch is the batch that was funded.
+	Batch *MintingBatch
+}
+
 // Planter is responsible for batching a set of seedlings into a minting batch
 // that will eventually be confirmed on chain.
 type Planter interface {
@@ -43,7 +49,7 @@ type Planter interface {
 
 	// FundBatch attempts to provide a genesis point for the current batch,
 	// or create a new funded batch.
-	FundBatch(params FundParams) (*MintingBatch, error)
+	FundBatch(params FundParams) (*FundBatchResp, error)
 
 	// SealBatch attempts to seal the current batch, by providing or
 	// deriving all witnesses necessary to create the final genesis TX.
