@@ -38,6 +38,10 @@ var testCases = []*testCase{
 		test: testMintFundSealAssets,
 	},
 	{
+		name: "mint external group key chantools",
+		test: testMintExternalGroupKeyChantools,
+	},
+	{
 		name: "mint asset decimal display",
 		test: testMintAssetWithDecimalDisplayMetaField,
 	},
