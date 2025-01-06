@@ -4,7 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
+	"errors"
+	"fmt"
+	"log"
 	"math"
 	"testing"
 
@@ -499,6 +503,188 @@ func testMintFundSealAssets(t *harnessTest) {
 		anchor := out.Anchor
 		return bytes.Equal(anchor.TaprootAssetRoot, anchor.MerkleRoot)
 	})
+}
+
+// testMintExternalGroupKeyChantools tests that we're able to mint an asset
+// using an external asset signing group key derived and managed by chantools.
+func testMintExternalGroupKeyChantools(t *harnessTest) {
+	chantools := NewChantoolsHarness(t.t)
+
+	// Use chantools to create a new wallet and derive a new key.
+	chantools.CreateWallet(t.t)
+	groupKeyXpub, groupKeyFingerprint := chantools.DeriveKey(t.t)
+
+	t.Logf("Extended public key (xpub): %v", groupKeyXpub)
+	t.Logf("Master Fingerprint: %v", groupKeyFingerprint)
+
+	// Formulate the external group key which will be used in the asset
+	// minting request.
+	fingerPrintBytes, err := hex.DecodeString(groupKeyFingerprint)
+	require.NoError(t.t, err)
+
+	externalGroupKey := &taprpc.ExternalKey{
+		Xpub:              groupKeyXpub,
+		MasterFingerprint: fingerPrintBytes,
+		DerivationPath:    "m/86'/1'/0'/0/0",
+	}
+
+	// Add asset mint request to mint batch.
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.ExternalGroupKey = externalGroupKey
+
+	assetReqs := []*mintrpc.MintAssetRequest{mintReq}
+	BuildMintingBatch(t.t, t.tapd, assetReqs)
+
+	// Fund mint batch with BTC.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	fundReq := &mintrpc.FundBatchRequest{}
+	fundResp, err := t.tapd.FundBatch(ctxt, fundReq)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, fundResp.Batch)
+	require.Equal(
+		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
+		fundResp.Batch.Batch.State,
+	)
+	require.Len(t.t, fundResp.Batch.UnsealedAssets, 1)
+
+	groupVirtualPsbt := fundResp.Batch.UnsealedAssets[0].GroupVirtualPsbt
+	t.Logf("Unsigned group virtual PSBT: %v", groupVirtualPsbt)
+
+	signedPsbt := chantools.SignPsbt(t.t, groupVirtualPsbt)
+	t.Logf("Signed group virtual PSBT: %v", signedPsbt)
+
+	// Sanity check signed PSBT.
+	require.Len(t.t, signedPsbt.Inputs, 1)
+	require.Len(t.t, signedPsbt.Outputs, 1)
+
+	// Cancel the context for the fund request call.
+	cancel()
+
+	// Seal the batch with the signed group virtual PSBT.
+	//
+	// Extract genesis asset ID.
+	gkr := fundResp.Batch.UnsealedAssets[0].GroupKeyRequest
+	genesisAssetIDBytes := gkr.AnchorGenesis.AssetId
+	var genesisAssetID asset.ID
+	copy(genesisAssetID[:], genesisAssetIDBytes)
+
+	// Extract witness from signed PSBT.
+	witnessStack, err := DeserializeWitnessStack(
+		signedPsbt.Inputs[0].FinalScriptWitness,
+	)
+	if err != nil {
+		log.Fatalf("Failed to deserialize witness stack: %v", err)
+	}
+
+	groupWitness := taprpc.GroupWitness{
+		GenesisId: genesisAssetID[:],
+		Witness:   witnessStack,
+	}
+
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	sealReq := mintrpc.SealBatchRequest{
+		GroupWitnesses: []*taprpc.GroupWitness{
+			&groupWitness,
+		},
+	}
+	sealResp, err := t.tapd.SealBatch(ctxt, &sealReq)
+	require.NoError(t.t, err)
+	require.NotEmpty(t.t, sealResp.Batch)
+
+	// With the batch sealed successfully, we can now finalize it and
+	// broadcast the anchor TX.
+	ctxc, streamCancel := context.WithCancel(context.Background())
+	stream, err := t.tapd.SubscribeMintEvents(
+		ctxc, &mintrpc.SubscribeMintEventsRequest{},
+	)
+	require.NoError(t.t, err)
+	sub := &EventSubscription[*mintrpc.MintEvent]{
+		ClientEventStream: stream,
+		Cancel:            streamCancel,
+	}
+
+	batchTXID, batchKey := FinalizeBatchUnconfirmed(
+		t.t, t.lndHarness.Miner().Client, t.tapd, assetReqs,
+	)
+	batchAssets := ConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd, assetReqs, sub,
+		batchTXID, batchKey,
+	)
+
+	t.Logf("Batch assets: %v", batchAssets)
+}
+
+// DeserializeWitnessStack deserializes a serialized witness stack into a
+// [][]byte.
+func DeserializeWitnessStack(serialized []byte) ([][]byte, error) {
+	var stack [][]byte
+	reader := bytes.NewReader(serialized)
+
+	// Read the number of witness elements (compact size integer)
+	count, err := readCompactSize(reader)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read witness count: %w", err)
+	}
+
+	// Read each witness element
+	for i := uint64(0); i < count; i++ {
+		elementSize, err := readCompactSize(reader)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read witness "+
+				"element size: %w", err)
+		}
+
+		// Read the witness element data
+		element := make([]byte, elementSize)
+		if _, err := reader.Read(element); err != nil {
+			return nil, fmt.Errorf("failed to read witness "+
+				"element data: %w", err)
+		}
+		stack = append(stack, element)
+	}
+
+	return stack, nil
+}
+
+// readCompactSize reads a compact size integer from the given reader.
+func readCompactSize(r *bytes.Reader) (uint64, error) {
+	if r.Len() == 0 {
+		return 0, errors.New("unexpected EOF")
+	}
+
+	prefix, _ := r.ReadByte()
+	switch {
+	case prefix < 253:
+		return uint64(prefix), nil
+	case prefix == 253:
+		var value uint16
+		err := binary.Read(r, binary.LittleEndian, &value)
+		if err != nil {
+			return 0, err
+		}
+		return uint64(value), nil
+	case prefix == 254:
+		var value uint32
+		err := binary.Read(r, binary.LittleEndian, &value)
+		if err != nil {
+			return 0, err
+		}
+		return uint64(value), nil
+	case prefix == 255:
+		var value uint64
+		err := binary.Read(r, binary.LittleEndian, &value)
+		if err != nil {
+			return 0, err
+		}
+		return value, nil
+	default:
+		return 0, errors.New("invalid compact size prefix")
+	}
 }
 
 // Derive a random key on an LND node, with a key family not matching the
