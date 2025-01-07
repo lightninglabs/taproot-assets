@@ -954,6 +954,40 @@ func (e *ExternalKey) PubKey() (btcec.PublicKey, error) {
 	return *pubKey, nil
 }
 
+// NewGroupKeyV1FromExternal creates a new V1 group key from an external key and
+// asset ID. The customRootHash is optional and can be used to specify a custom
+// tapscript root.
+func NewGroupKeyV1FromExternal(externalKey ExternalKey, assetID ID,
+	customRoot fn.Option[chainhash.Hash]) (btcec.PublicKey, chainhash.Hash,
+	error) {
+
+	var (
+		zeroHash   chainhash.Hash
+		zeroPubKey btcec.PublicKey
+	)
+
+	internalKey, err := externalKey.PubKey()
+	if err != nil {
+		return zeroPubKey, zeroHash, fmt.Errorf("cannot derive group "+
+			"internal key from provided external key "+
+			"(e.g. xpub): %w", err)
+	}
+
+	root, err := NewGroupKeyTapscriptRoot(assetID, customRoot)
+	if err != nil {
+		return zeroPubKey, zeroHash, fmt.Errorf("cannot derive group "+
+			"key reveal tapscript root: %w", err)
+	}
+
+	groupPubKey, err := GroupPubKeyV1(&internalKey, root, assetID)
+	if err != nil {
+		return zeroPubKey, zeroHash, fmt.Errorf("cannot derive group "+
+			"public key: %w", err)
+	}
+
+	return *groupPubKey, root.root, nil
+}
+
 // GroupKey is the tweaked public key that is used to associate assets together
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
@@ -2077,11 +2111,53 @@ func (req *GroupKeyRequest) Validate() error {
 	return nil
 }
 
+// NewGroupPubKey derives a group key for the asset group based on the group key
+// request and the genesis asset ID.
+func (req *GroupKeyRequest) NewGroupPubKey(genesisAssetID ID) (btcec.PublicKey,
+	error) {
+
+	// If the external key is not specified, we will construct a version 0
+	// group key.
+	if req.ExternalKey.IsNone() {
+		// Compute the tweaked group key and set it in the asset before
+		// creating the virtual minting transaction.
+		groupPubKey, err := GroupPubKeyV0(
+			req.RawKey.PubKey, genesisAssetID[:], req.TapscriptRoot,
+		)
+		if err != nil {
+			return btcec.PublicKey{}, fmt.Errorf("cannot tweak "+
+				"group key: %w", err)
+		}
+
+		return *groupPubKey, nil
+	}
+
+	// At this point, the external key should be specified. We will now
+	// construct a new version 1 group key.
+	externalKey, err := req.ExternalKey.UnwrapOrErr(
+		fmt.Errorf("unexpected nil external key"),
+	)
+	if err != nil {
+		return btcec.PublicKey{}, err
+	}
+
+	groupPubKey, _, err := NewGroupKeyV1FromExternal(
+		externalKey, genesisAssetID, req.CustomTapscriptRoot,
+	)
+	if err != nil {
+		return btcec.PublicKey{}, fmt.Errorf("cannot derive group "+
+			"key: %w", err)
+	}
+
+	return groupPubKey, nil
+}
+
 // BuildGroupVirtualTx derives the tweaked group key for group key request,
 // and constructs the group virtual TX needed to construct a sign descriptor and
 // produce an asset group witness.
 func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 	*GroupVirtualTx, error) {
+
 	// First, perform the final checks on the asset being authorized for
 	// group membership.
 	err := req.Validate()
@@ -2089,23 +2165,20 @@ func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 		return nil, err
 	}
 
-	// Compute the tweaked group key and set it in the asset before
-	// creating the virtual minting transaction.
-	genesisTweak := req.AnchorGen.ID()
-	tweakedGroupKey, err := GroupPubKeyV0(
-		req.RawKey.PubKey, genesisTweak[:], req.TapscriptRoot,
-	)
+	// Construct an asset group pub key.
+	genesisAssetID := req.AnchorGen.ID()
+	groupPubKey, err := req.NewGroupPubKey(genesisAssetID)
 	if err != nil {
-		return nil, fmt.Errorf("cannot tweak group key: %w", err)
-	}
-
-	assetWithGroup := req.NewAsset.Copy()
-	assetWithGroup.GroupKey = &GroupKey{
-		GroupPubKey: *tweakedGroupKey,
+		return nil, fmt.Errorf("cannot derive group key: %w", err)
 	}
 
 	// Build the virtual transaction that represents the minting of the new
 	// asset, which will be signed to generate the group witness.
+	assetWithGroup := req.NewAsset.Copy()
+	assetWithGroup.GroupKey = &GroupKey{
+		GroupPubKey: groupPubKey,
+	}
+
 	genesisTx, prevOut, err := genBuilder.BuildGenesisTx(assetWithGroup)
 	if err != nil {
 		return nil, fmt.Errorf("cannot build virtual tx: %w", err)
@@ -2114,8 +2187,8 @@ func (req *GroupKeyRequest) BuildGroupVirtualTx(genBuilder GenesisTxBuilder) (
 	return &GroupVirtualTx{
 		Tx:         *genesisTx,
 		PrevOut:    *prevOut,
-		GenID:      genesisTweak,
-		TweakedKey: *tweakedGroupKey,
+		GenID:      genesisAssetID,
+		TweakedKey: groupPubKey,
 	}, nil
 }
 
