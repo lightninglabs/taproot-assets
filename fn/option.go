@@ -1,10 +1,21 @@
 package fn
 
-// Option[A] represents a value which may or may not be there. This is very
+import "fmt"
+
+// Option represents a value which may or may not be there. This is very
 // often preferable to nil-able pointers.
 type Option[A any] struct {
 	isSome bool
 	some   A
+}
+
+// String returns a string representation of the Option.
+func (o Option[A]) String() string {
+	if o.isSome {
+		return fmt.Sprintf("Some(%v)", o.some)
+	}
+
+	return "None"
 }
 
 // Some trivially injects a value into an optional context.
