@@ -255,6 +255,35 @@ message GenesisInfo {
     uint32 output_index = 6;
 }
 
+/*
+This message represents an external key used for deriving and managing
+hierarchical deterministic (HD) wallet addresses according to BIP-86.
+ */
+message ExternalKey {
+    /*
+    This field specifies the extended public key derived at depth 3 of the
+    BIP-86 hierarchy (e.g., m/86'/0'/0'). This key serves as the parent key for
+    deriving child public keys and addresses.
+     */
+    string xpub = 1;
+
+    /*
+    This field specifies the fingerprint of the master key, derived from the
+    first 4 bytes of the hash160 of the master public key. It is used to
+    identify the master key in BIP-86 derivation schemes.
+     */
+    bytes master_fingerprint = 2;
+
+    /*
+    This field specifies the extended BIP-86 derivation path used to derive a
+    child key from the XPub. Starting from the base path of the XPub
+    (e.g., m/86'/0'/0'), this path must contain exactly 5 components in total
+    (e.g., m/86'/0'/0'/0/0), with the additional components defining specific
+    child keys, such as individual addresses.
+     */
+    string derivation_path = 3;
+}
+
 message GroupKeyRequest {
     // The internal key for the asset group before any tweaks have been applied.
     KeyDescriptor raw_key = 1;
