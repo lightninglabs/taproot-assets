@@ -172,6 +172,8 @@ message MintAsset {
     /*
     The optional key that will be used as the internal key for an asset group
     created with this asset.
+
+    If this field is set then external_group_key must be unset, and vice versa.
     */
     taprpc.KeyDescriptor group_internal_key = 10;
 
@@ -201,6 +203,16 @@ message MintAsset {
     compatible with assets that have a JSON MetaData field.
     */
     uint32 decimal_display = 13;
+
+    /*
+    The external group key is an optional field that allows specifying an
+    external signing key for the group virtual transaction during minting.
+    This key enables signing operations to be performed externally, outside
+    the daemon.
+
+    If this field is set then group_internal_key must be unset, and vice versa.
+    */
+    taprpc.ExternalKey external_group_key = 14;
 }
 
 message MintAssetRequest {
