@@ -1183,12 +1183,14 @@ func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sq
 
 const fetchGroupByGenesis = `-- name: FetchGroupByGenesis :one
 SELECT
+    key_group_info_view.version AS version,
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
     key_group_info_view.tapscript_root AS tapscript_root,
-    key_group_info_view.witness_stack AS witness_stack
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = $1
@@ -1196,36 +1198,42 @@ WHERE (
 `
 
 type FetchGroupByGenesisRow struct {
-	TweakedGroupKey []byte
-	RawKey          []byte
-	KeyIndex        int32
-	KeyFamily       int32
-	TapscriptRoot   []byte
-	WitnessStack    []byte
+	Version           int32
+	TweakedGroupKey   []byte
+	RawKey            []byte
+	KeyIndex          int32
+	KeyFamily         int32
+	TapscriptRoot     []byte
+	WitnessStack      []byte
+	CustomSubtreeRoot []byte
 }
 
 func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int64) (FetchGroupByGenesisRow, error) {
 	row := q.db.QueryRowContext(ctx, fetchGroupByGenesis, genesisID)
 	var i FetchGroupByGenesisRow
 	err := row.Scan(
+		&i.Version,
 		&i.TweakedGroupKey,
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
 		&i.TapscriptRoot,
 		&i.WitnessStack,
+		&i.CustomSubtreeRoot,
 	)
 	return i, err
 }
 
 const fetchGroupByGroupKey = `-- name: FetchGroupByGroupKey :one
-SELECT 
+SELECT
+    key_group_info_view.version AS version,
     key_group_info_view.gen_asset_id AS gen_asset_id,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
     key_group_info_view.tapscript_root AS tapscript_root,
-    key_group_info_view.witness_stack AS witness_stack
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = $1
@@ -1235,12 +1243,14 @@ LIMIT 1
 `
 
 type FetchGroupByGroupKeyRow struct {
-	GenAssetID    int64
-	RawKey        []byte
-	KeyIndex      int32
-	KeyFamily     int32
-	TapscriptRoot []byte
-	WitnessStack  []byte
+	Version           int32
+	GenAssetID        int64
+	RawKey            []byte
+	KeyIndex          int32
+	KeyFamily         int32
+	TapscriptRoot     []byte
+	WitnessStack      []byte
+	CustomSubtreeRoot []byte
 }
 
 // Sort and limit to return the genesis ID for initial genesis of the group.
@@ -1248,12 +1258,14 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 	row := q.db.QueryRowContext(ctx, fetchGroupByGroupKey, groupKey)
 	var i FetchGroupByGroupKeyRow
 	err := row.Scan(
+		&i.Version,
 		&i.GenAssetID,
 		&i.RawKey,
 		&i.KeyIndex,
 		&i.KeyFamily,
 		&i.TapscriptRoot,
 		&i.WitnessStack,
+		&i.CustomSubtreeRoot,
 	)
 	return i, err
 }
@@ -1267,7 +1279,7 @@ SELECT
     genesis_info_view.meta_Hash, 
     genesis_info_view.asset_type,
     key_group_info_view.tweaked_group_key,
-    version AS asset_version
+    assets.version AS asset_version
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
@@ -2196,7 +2208,9 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetB
 
 const queryAssets = `-- name: QueryAssets :many
 SELECT
-    assets.asset_id AS asset_primary_key, assets.genesis_id, version, spent,
+    assets.asset_id AS asset_primary_key,
+    assets.genesis_id, assets.version,
+    spent,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
     script_keys.declared_known AS script_key_declared_known,
@@ -2569,9 +2583,10 @@ func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64
 
 const upsertAssetGroupKey = `-- name: UpsertAssetGroupKey :one
 INSERT INTO asset_groups (
-    tweaked_group_key, tapscript_root, internal_key_id, genesis_point_id 
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5, $6
 ) ON CONFLICT (tweaked_group_key)
     -- This is not a NOP, update the genesis point ID in case it wasn't set
     -- before.
@@ -2580,18 +2595,22 @@ RETURNING group_id
 `
 
 type UpsertAssetGroupKeyParams struct {
-	TweakedGroupKey []byte
-	TapscriptRoot   []byte
-	InternalKeyID   int64
-	GenesisPointID  int64
+	Version           int32
+	TweakedGroupKey   []byte
+	TapscriptRoot     []byte
+	InternalKeyID     int64
+	GenesisPointID    int64
+	CustomSubtreeRoot []byte
 }
 
 func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error) {
 	row := q.db.QueryRowContext(ctx, upsertAssetGroupKey,
+		arg.Version,
 		arg.TweakedGroupKey,
 		arg.TapscriptRoot,
 		arg.InternalKeyID,
 		arg.GenesisPointID,
+		arg.CustomSubtreeRoot,
 	)
 	var group_id int64
 	err := row.Scan(&group_id)

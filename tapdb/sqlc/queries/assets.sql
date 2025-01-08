@@ -167,9 +167,10 @@ RETURNING genesis_id;
 
 -- name: UpsertAssetGroupKey :one
 INSERT INTO asset_groups (
-    tweaked_group_key, tapscript_root, internal_key_id, genesis_point_id 
+    version, tweaked_group_key, tapscript_root, internal_key_id,
+    genesis_point_id, custom_subtree_root
 ) VALUES (
-    $1, $2, $3, $4
+    $1, $2, $3, $4, $5, $6
 ) ON CONFLICT (tweaked_group_key)
     -- This is not a NOP, update the genesis point ID in case it wasn't set
     -- before.
@@ -377,7 +378,7 @@ SELECT
     genesis_info_view.meta_Hash, 
     genesis_info_view.asset_type,
     key_group_info_view.tweaked_group_key,
-    version AS asset_version
+    assets.version AS asset_version
 FROM assets
 JOIN genesis_info_view
     ON assets.genesis_id = genesis_info_view.gen_asset_id
@@ -386,13 +387,15 @@ JOIN key_group_info_view
 WHERE spent = false;
 
 -- name: FetchGroupByGroupKey :one
-SELECT 
+SELECT
+    key_group_info_view.version AS version,
     key_group_info_view.gen_asset_id AS gen_asset_id,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
     key_group_info_view.tapscript_root AS tapscript_root,
-    key_group_info_view.witness_stack AS witness_stack
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
 FROM key_group_info_view
 WHERE (
     key_group_info_view.tweaked_group_key = @group_key
@@ -403,12 +406,14 @@ LIMIT 1;
 
 -- name: FetchGroupByGenesis :one
 SELECT
+    key_group_info_view.version AS version,
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
     key_group_info_view.raw_key AS raw_key,
     key_group_info_view.key_index AS key_index,
     key_group_info_view.key_family AS key_family,
     key_group_info_view.tapscript_root AS tapscript_root,
-    key_group_info_view.witness_stack AS witness_stack
+    key_group_info_view.witness_stack AS witness_stack,
+    key_group_info_view.custom_subtree_root AS custom_subtree_root
 FROM key_group_info_view
 WHERE (
     key_group_info_view.gen_asset_id = @genesis_id
@@ -416,7 +421,9 @@ WHERE (
 
 -- name: QueryAssets :many
 SELECT
-    assets.asset_id AS asset_primary_key, assets.genesis_id, version, spent,
+    assets.asset_id AS asset_primary_key,
+    assets.genesis_id, assets.version,
+    spent,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
     script_keys.declared_known AS script_key_declared_known,
