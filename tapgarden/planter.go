@@ -660,8 +660,15 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		}
 
 		var (
-			amount     uint64
-			groupInfo  *asset.AssetGroup
+			amount uint64
+
+			// groupInfo represents the group key and genesis data
+			// for the asset group. This is populated if the
+			// seedling specifies a group key or if it specifies
+			// a group anchor and the corresponding group already
+			// exists.
+			groupInfo *asset.AssetGroup
+
 			protoAsset *asset.Asset
 			err        error
 		)
@@ -703,6 +710,10 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			}
 		}
 
+		// If groupInfo is specified, a group key already exists for the
+		// seedling. This key will be used to create a placeholder group
+		// key request, which will then be used to generate a group
+		// virtual transaction.
 		if groupInfo != nil {
 			groupReq, err := asset.NewGroupKeyRequest(
 				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
@@ -723,6 +734,10 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 			groupReqs = append(groupReqs, *groupReq)
 			genTXs = append(genTXs, *genTx)
+
+			// TODO(ffranr): Should we continue to the next seedling
+			//  at this point? The group key request and virtual
+			//  transaction have been created.
 		}
 
 		// If emission is enabled, an internal key for the group should
