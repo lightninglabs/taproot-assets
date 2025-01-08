@@ -1374,6 +1374,34 @@ type GroupKeyRevealV1 struct {
 // Ensure that GroupKeyRevealV1 implements the GroupKeyReveal interface.
 var _ GroupKeyReveal = (*GroupKeyRevealV1)(nil)
 
+// NewGroupKeyReveal creates a new group key reveal instance from the given
+// group key and genesis asset ID.
+func NewGroupKeyReveal(groupKey GroupKey, genesisAssetID ID) (GroupKeyReveal,
+	error) {
+
+	switch groupKey.Version {
+	case GroupKeyV1:
+		gkr, err := NewGroupKeyRevealV1(
+			*groupKey.RawKey.PubKey, genesisAssetID,
+			groupKey.CustomTapscriptRoot,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		return &gkr, nil
+
+	case GroupKeyV0:
+		rawKey := ToSerialized(groupKey.RawKey.PubKey)
+		gkr := NewGroupKeyRevealV0(rawKey, groupKey.TapscriptRoot)
+		return gkr, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported group key version: %d",
+			groupKey.Version)
+	}
+}
+
 // NewGroupKeyRevealV1 creates a new version 1 group key reveal instance.
 func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
 	genesisAssetID ID,
