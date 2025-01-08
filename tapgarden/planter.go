@@ -832,6 +832,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			genTXs = append(genTXs, *genTx)
 
 			newGroupKey := &asset.GroupKey{
+				Version:       groupReq.Version,
 				RawKey:        *seedling.GroupInternalKey,
 				TapscriptRoot: seedling.GroupTapscriptRoot,
 			}
@@ -1741,6 +1742,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 			// Set the provided witness; it will be validated below.
 			subtreeRoot := groupReq.CustomTapscriptRoot
 			groupKey = &asset.GroupKey{
+				Version:             groupReq.Version,
 				RawKey:              groupReq.RawKey,
 				GroupPubKey:         genTX.TweakedKey,
 				TapscriptRoot:       groupReq.TapscriptRoot,
