@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -327,11 +328,21 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		return nullID, ErrTapscriptRootSize
 	}
 
+	// Formulate custom tapscript subtree root bytes if specified.
+	customTapscriptRoot := fn.MapOptionZ(
+		groupKey.CustomTapscriptRoot,
+		func(root chainhash.Hash) []byte {
+			return root[:]
+		},
+	)
+
 	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
-		TweakedGroupKey: tweakedKeyBytes,
-		TapscriptRoot:   groupKey.TapscriptRoot,
-		InternalKeyID:   keyID,
-		GenesisPointID:  genesisPointID,
+		Version:           int32(groupKey.Version),
+		TweakedGroupKey:   tweakedKeyBytes,
+		TapscriptRoot:     groupKey.TapscriptRoot,
+		InternalKeyID:     keyID,
+		GenesisPointID:    genesisPointID,
+		CustomSubtreeRoot: customTapscriptRoot,
 	})
 	if err != nil {
 		return nullID, fmt.Errorf("%w: %w", ErrUpsertGroupKey, err)
