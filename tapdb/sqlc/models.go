@@ -64,11 +64,13 @@ type AssetBurnTransfer struct {
 }
 
 type AssetGroup struct {
-	GroupID         int64
-	TweakedGroupKey []byte
-	TapscriptRoot   []byte
-	InternalKeyID   int64
-	GenesisPointID  int64
+	GroupID           int64
+	TweakedGroupKey   []byte
+	TapscriptRoot     []byte
+	InternalKeyID     int64
+	GenesisPointID    int64
+	Version           int32
+	CustomSubtreeRoot []byte
 }
 
 type AssetGroupWitness struct {
@@ -238,15 +240,17 @@ type InternalKey struct {
 }
 
 type KeyGroupInfoView struct {
-	WitnessID       int64
-	GenAssetID      int64
-	WitnessStack    []byte
-	TapscriptRoot   []byte
-	TweakedGroupKey []byte
-	RawKey          []byte
-	KeyIndex        int32
-	KeyFamily       int32
-	XOnlyGroupKey   []byte
+	Version           int32
+	WitnessID         int64
+	GenAssetID        int64
+	WitnessStack      []byte
+	TapscriptRoot     []byte
+	TweakedGroupKey   []byte
+	RawKey            []byte
+	KeyIndex          int32
+	KeyFamily         int32
+	XOnlyGroupKey     []byte
+	CustomSubtreeRoot []byte
 }
 
 type Macaroon struct {
