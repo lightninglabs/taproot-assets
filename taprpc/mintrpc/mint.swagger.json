@@ -422,7 +422,7 @@
         "group_tapscript_root": {
           "type": "string",
           "format": "byte",
-          "description": "The optional root of a tapscript tree that will be used when constructing a\nnew asset group key. This enables future issuance authorized with a script\nwitness."
+          "description": "An optional root of a Tapscript tree used when constructing a new asset\ngroup key. This allows for future asset issuance authorized using a\nscript witness.\n\nIf an external group key is provided, the V1 scheme for group key script\nconstruction will be used, which supports PSBT signing. In this scheme,\nthe user-supplied Tapscript root is extended by two levels of Tapscript\nsiblings that commit to the group anchor's asset ID. As a result, the\nprovided Tapscript root becomes a branch within a larger Tapscript tree,\nand the final Tapscript root will differ from the one specified here."
         },
         "script_key": {
           "$ref": "#/definitions/taprpcScriptKey",
