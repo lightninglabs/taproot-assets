@@ -201,6 +201,14 @@ message MintAsset {
     compatible with assets that have a JSON MetaData field.
     */
     uint32 decimal_display = 13;
+
+    /*
+    The external group key is an optional field that allows specifying an
+    external signing key for the group virtual transaction during minting.
+    This key enables signing operations to be performed externally, outside
+    the daemon.
+    */
+    taprpc.ExternalKey external_group_key = 14;
 }
 
 message MintAssetRequest {

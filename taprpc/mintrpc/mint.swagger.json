@@ -432,6 +432,10 @@
           "type": "integer",
           "format": "int64",
           "description": "Decimal display dictates the number of decimal places to shift the amount to\nthe left converting from Taproot Asset integer representation to a\nUX-recognizable fractional quantity.\n\nFor example, if the decimal_display value is 2 and there's 100 of those\nassets, then a wallet would display the amount as \"1.00\". This field is\nintended as information for wallets that display balances and has no impact\non the behavior of the daemon or any other part of the protocol. This value\nis encoded in the MetaData field as a JSON field, therefore it is only\ncompatible with assets that have a JSON MetaData field."
+        },
+        "external_group_key": {
+          "$ref": "#/definitions/taprpcExternalKey",
+          "description": "The external group key is an optional field that allows specifying an\nexternal signing key for the group virtual transaction during minting.\nThis key enables signing operations to be performed externally, outside\nthe daemon."
         }
       }
     },
@@ -714,6 +718,25 @@
       ],
       "default": "ASSET_VERSION_V0",
       "description": " - ASSET_VERSION_V0: ASSET_VERSION_V0 is the default asset version. This version will include\nthe witness vector in the leaf for a tap commitment.\n - ASSET_VERSION_V1: ASSET_VERSION_V1 is the asset version that leaves out the witness vector\nfrom the MS-SMT leaf encoding."
+    },
+    "taprpcExternalKey": {
+      "type": "object",
+      "properties": {
+        "xpub": {
+          "type": "string",
+          "description": "This field specifies the extended public key derived at depth 3 of the\nBIP-86 hierarchy (e.g., m/86'/0'/0'). This key serves as the parent key for\nderiving child public keys and addresses."
+        },
+        "master_fingerprint": {
+          "type": "string",
+          "format": "byte",
+          "description": "This field specifies the fingerprint of the master key, derived from the\nfirst 4 bytes of the hash160 of the master public key. It is used to\nidentify the master key in BIP-86 derivation schemes."
+        },
+        "derivation_path": {
+          "type": "string",
+          "description": "This field specifies the extended BIP-86 derivation path used to derive a\nchild key from the XPub. Starting from the base path of the XPub\n(e.g., m/86'/0'/0'), this path must contain exactly 5 components in total\n(e.g., m/86'/0'/0'/0/0), with the additional components defining specific\nchild keys, such as individual addresses."
+        }
+      },
+      "description": "This message represents an external key used for deriving and managing\nhierarchical deterministic (HD) wallet addresses according to BIP-86."
     },
     "taprpcGenesisInfo": {
       "type": "object",
