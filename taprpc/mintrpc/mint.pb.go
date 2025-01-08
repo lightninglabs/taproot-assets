@@ -331,9 +331,16 @@ type MintAsset struct {
 	// The optional key that will be used as the internal key for an asset group
 	// created with this asset.
 	GroupInternalKey *taprpc.KeyDescriptor `protobuf:"bytes,10,opt,name=group_internal_key,json=groupInternalKey,proto3" json:"group_internal_key,omitempty"`
-	// The optional root of a tapscript tree that will be used when constructing a
-	// new asset group key. This enables future issuance authorized with a script
-	// witness.
+	// An optional root of a Tapscript tree used when constructing a new asset
+	// group key. This allows for future asset issuance authorized using a
+	// script witness.
+	//
+	// If an external group key is provided, the V1 scheme for group key script
+	// construction will be used, which supports PSBT signing. In this scheme,
+	// the user-supplied Tapscript root is extended by two levels of Tapscript
+	// siblings that commit to the group anchor's asset ID. As a result, the
+	// provided Tapscript root becomes a branch within a larger Tapscript tree,
+	// and the final Tapscript root will differ from the one specified here.
 	GroupTapscriptRoot []byte `protobuf:"bytes,11,opt,name=group_tapscript_root,json=groupTapscriptRoot,proto3" json:"group_tapscript_root,omitempty"`
 	// The optional script key to use for the new asset. If no script key is given,
 	// a BIP-86 key will be derived from the underlying wallet.
