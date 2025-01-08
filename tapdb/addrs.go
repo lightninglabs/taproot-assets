@@ -1097,9 +1097,10 @@ func (t *TapAddressBook) QueryAssetGroup(ctx context.Context,
 		}
 
 		assetGroup.GroupKey, err = parseGroupKeyInfo(
-			groupInfo.TweakedGroupKey, groupInfo.RawKey,
-			groupInfo.WitnessStack, groupInfo.TapscriptRoot,
-			groupInfo.KeyFamily, groupInfo.KeyIndex,
+			groupInfo.Version, groupInfo.TweakedGroupKey,
+			groupInfo.RawKey, groupInfo.WitnessStack,
+			groupInfo.TapscriptRoot, groupInfo.KeyFamily,
+			groupInfo.KeyIndex, groupInfo.CustomSubtreeRoot,
 		)
 
 		return err
