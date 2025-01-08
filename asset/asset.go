@@ -1182,6 +1182,11 @@ func (g *GroupKeyRevealTapscript) Validate(assetID ID) error {
 	return nil
 }
 
+// Root returns the final tapscript root hash of the group key reveal tapscript.
+func (g *GroupKeyRevealTapscript) Root() chainhash.Hash {
+	return g.root
+}
+
 // GroupKeyRevealV1 is a version 1 group key reveal type for representing the
 // data used to derive and verify the tweaked key used to identify an asset
 // group.
