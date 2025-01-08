@@ -386,13 +386,20 @@ func committedProofs(baseProof *Proof, tapTreeRoot *commitment.TapCommitment,
 		if newAsset.GroupKey != nil {
 			groupKey := newAsset.GroupKey
 
+			// Check if the asset is the group anchor.
 			err := groupAnchorVerifier(&newAsset.Genesis, groupKey)
 			if err == nil {
-				rawKey := asset.ToSerialized(
-					groupKey.RawKey.PubKey,
+				// At this point, we know that the asset is the
+				// group anchor. We'll now create the group key
+				// reveal for this asset.
+				groupReveal, err := asset.NewGroupKeyReveal(
+					*groupKey, newAsset.Genesis.ID(),
 				)
-				groupReveal := asset.NewGroupKeyRevealV0(
-					rawKey, groupKey.TapscriptRoot)
+				if err != nil {
+					return nil, fmt.Errorf("unable to " +
+						"create group key reveal")
+				}
+
 				assetProof.GroupKeyReveal = groupReveal
 			}
 		}
