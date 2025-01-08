@@ -946,12 +946,22 @@ type GroupKey struct {
 	// 	tweakedGroupKey = TapTweak(internalKey, tapTweak)
 	GroupPubKey btcec.PublicKey
 
-	// TapscriptRoot is the root of the Tapscript tree that commits to all
-	// script spend conditions for the group key. Instead of spending an
-	// asset, these scripts are used to define witnesses more complex than
-	// a Schnorr signature for reissuing assets. A group key with an empty
-	// Tapscript root can only authorize reissuance with a signature.
+	// TapscriptRoot represents the root of the Tapscript tree that commits
+	// to all script spend conditions associated with the group key. Instead
+	// of simply authorizing asset spending, these scripts enable more
+	// complex witness mechanisms beyond a Schnorr signature, allowing for
+	// reissuance of assets. A group key with an empty Tapscript root can
+	// only authorize reissuance using a signature.
+	//
+	// In the V1 group key construction, this root is never empty. It always
+	// includes two layers of script leaves that commit to the group
+	// anchor's (genesis) asset ID, ensuring any user-provided Tapscript
+	// root is positioned at level 2.
 	TapscriptRoot []byte
+
+	// CustomTapscriptRoot is an optional tapscript root to graft at the
+	// second level of the tapscript tree, if specified.
+	CustomTapscriptRoot fn.Option[chainhash.Hash]
 
 	// Witness is a stack of witness elements that authorizes the membership
 	// of an asset in a particular asset group. The witness can be a single
@@ -977,8 +987,14 @@ type GroupKeyRequest struct {
 
 	// TapscriptRoot is the root of a Tapscript tree that includes script
 	// spend conditions for the group key. A group key with an empty
-	// Tapscript root can only authorize reissuance with a signature.
+	// Tapscript root can only authorize re-issuance with a signature. This
+	// is the root of any user-defined scripts. For a V1 group key
+	// construction the final tapscript root will never be empty.
 	TapscriptRoot []byte
+
+	// CustomTapscriptRoot is an optional tapscript root to graft at the
+	// second level of the tapscript tree, if specified.
+	CustomTapscriptRoot fn.Option[chainhash.Hash]
 
 	// NewAsset is the asset which we are requesting group membership for.
 	// A successful request will produce a witness that authorizes this
@@ -1946,14 +1962,17 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 // NewGroupKeyRequest constructs and validates a group key request.
 func NewGroupKeyRequest(internalKey keychain.KeyDescriptor,
 	externalKey fn.Option[ExternalKey], anchorGen Genesis,
-	newAsset *Asset, scriptRoot []byte) (*GroupKeyRequest, error) {
+	newAsset *Asset, tapscriptRoot []byte,
+	customTapscriptRoot fn.Option[chainhash.Hash]) (*GroupKeyRequest,
+	error) {
 
 	req := &GroupKeyRequest{
-		RawKey:        internalKey,
-		ExternalKey:   externalKey,
-		AnchorGen:     anchorGen,
-		NewAsset:      newAsset,
-		TapscriptRoot: scriptRoot,
+		RawKey:              internalKey,
+		ExternalKey:         externalKey,
+		AnchorGen:           anchorGen,
+		NewAsset:            newAsset,
+		TapscriptRoot:       tapscriptRoot,
+		CustomTapscriptRoot: customTapscriptRoot,
 	}
 
 	err := req.Validate()

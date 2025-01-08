@@ -11,6 +11,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
@@ -620,6 +621,7 @@ func NewGroupKeyRequestNoErr(t testing.TB, internalKey keychain.KeyDescriptor,
 
 	req, err := NewGroupKeyRequest(
 		internalKey, fn.None[ExternalKey](), gen, newAsset, scriptRoot,
+		fn.None[chainhash.Hash](),
 	)
 	require.NoError(t, err)
 

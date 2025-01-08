@@ -719,6 +719,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 				groupInfo.GroupKey.RawKey, seedling.ExternalKey,
 				*groupInfo.Genesis, protoAsset,
 				groupInfo.GroupKey.TapscriptRoot,
+				groupInfo.GroupKey.CustomTapscriptRoot,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
@@ -745,15 +746,75 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		// already be specified. Use that to derive the key group
 		// signature along with the tweaked key group.
 		if seedling.EnableEmission {
-			if seedling.GroupInternalKey == nil {
+			if seedling.GroupInternalKey == nil &&
+				seedling.ExternalKey.IsNone() {
+
 				return nil, nil, fmt.Errorf("unable to " +
-					"derive group key")
+					"derive group key, both internal and " +
+					"external keys are unspecified")
+			}
+
+			// If seedling.GroupTapscriptRoot is specified and the
+			// seedling includes an external key, we must use group
+			// key V1. As a result, seedling.GroupTapscriptRoot will
+			// be treated as a custom tapscript subtree root, which
+			// we will graft into the group key's tapscript tree. We
+			// will proceed with this now.
+			var (
+				tsRoot         = seedling.GroupTapscriptRoot
+				customRootHash fn.Option[chainhash.Hash]
+			)
+			if seedling.ExternalKey.IsSome() {
+				// If seedling.GroupTapscriptRoot is specified,
+				// set it to the custom root hash. Then we will
+				// calculate a new tapscript root hash which
+				// includes the custom root as a grafted
+				// subtree.
+				if len(tsRoot) > 0 {
+					r, err := chainhash.NewHash(tsRoot)
+					if err != nil {
+						return nil, nil, err
+					}
+
+					customRootHash = fn.Some(*r)
+				}
+
+				// Construct an asset group tapscript tree,
+				// incorporating the optional custom subtree
+				// through grafting.
+				//
+				// At this point, we are constructing the group
+				// tapscript tree root whether or not the
+				// customRootHash is defined.
+				tapscriptTree, err :=
+					asset.NewGroupKeyTapscriptRoot(
+						assetGen.ID(), customRootHash,
+					)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				// Update the group tapscript tree root hash to
+				// the new root hash. If customRootHash is
+				// defined, the new root hash incorporates it as
+				// a subtree.
+				tsRoot = fn.ByteSlice(tapscriptTree.Root())
+			}
+
+			// The group internal key should be set at this point.
+			//
+			// If an external key is present, the internal key
+			// should be a public key derived from the external
+			// key.
+			if seedling.GroupInternalKey == nil {
+				return nil, nil, fmt.Errorf("internal key is " +
+					"missing for seedling")
 			}
 
 			groupReq, err := asset.NewGroupKeyRequest(
 				*seedling.GroupInternalKey,
 				seedling.ExternalKey, assetGen,
-				protoAsset, seedling.GroupTapscriptRoot,
+				protoAsset, tsRoot, customRootHash,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
@@ -1678,11 +1739,13 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		switch {
 		case ok:
 			// Set the provided witness; it will be validated below.
+			subtreeRoot := groupReq.CustomTapscriptRoot
 			groupKey = &asset.GroupKey{
-				RawKey:        groupReq.RawKey,
-				GroupPubKey:   genTX.TweakedKey,
-				TapscriptRoot: groupReq.TapscriptRoot,
-				Witness:       groupWitness.Witness,
+				RawKey:              groupReq.RawKey,
+				GroupPubKey:         genTX.TweakedKey,
+				TapscriptRoot:       groupReq.TapscriptRoot,
+				CustomTapscriptRoot: subtreeRoot,
+				Witness:             groupWitness.Witness,
 			}
 
 		default:
