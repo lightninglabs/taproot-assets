@@ -92,6 +92,30 @@ const (
 	V1 Version = 1
 )
 
+// GroupKeyVersion denotes the version of the group key construction.
+type GroupKeyVersion uint8
+
+const (
+	// GroupKeyV0 is the initial version of the group key where the group
+	// internal key is tweaked with the group anchor's asset ID.
+	GroupKeyV0 GroupKeyVersion = 0
+
+	// GroupKeyV1 is the version of the group key that uses a construction
+	// that is compatible with PSBT signing where the group anchor's asset
+	// ID is appended as a sibling to any user-provided tapscript tree.
+	GroupKeyV1 GroupKeyVersion = 1
+)
+
+// NewGroupKeyVersionFromInt32 creates a new GroupKeyVersion from an int32. This
+// function is useful for decoding GroupKeyVersions from the SQL database.
+func NewGroupKeyVersionFromInt32(v int32) (GroupKeyVersion, error) {
+	if v > math.MaxUint8 {
+		return 0, fmt.Errorf("invalid group key version: %d", v)
+	}
+
+	return GroupKeyVersion(v), nil
+}
+
 // EncodeType is used to denote the type of encoding used for an asset.
 type EncodeType uint8
 
@@ -934,6 +958,9 @@ func (e *ExternalKey) PubKey() (btcec.PublicKey, error) {
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
 type GroupKey struct {
+	// Version is the version of the group key construction.
+	Version GroupKeyVersion
+
 	// RawKey is the raw group key before the tweak with the genesis point
 	// has been applied.
 	RawKey keychain.KeyDescriptor
@@ -972,6 +999,9 @@ type GroupKey struct {
 
 // GroupKeyRequest contains the essential fields used to derive a group key.
 type GroupKeyRequest struct {
+	// Version is the version of the group key construction.
+	Version GroupKeyVersion
+
 	// RawKey is the raw group key before the tweak with the genesis point
 	// has been applied.
 	RawKey keychain.KeyDescriptor
@@ -1966,7 +1996,15 @@ func NewGroupKeyRequest(internalKey keychain.KeyDescriptor,
 	customTapscriptRoot fn.Option[chainhash.Hash]) (*GroupKeyRequest,
 	error) {
 
+	// Specify the group key version based on the presence of an external
+	// key.
+	var version GroupKeyVersion
+	if externalKey.IsSome() {
+		version = GroupKeyV1
+	}
+
 	req := &GroupKeyRequest{
+		Version:             version,
 		RawKey:              internalKey,
 		ExternalKey:         externalKey,
 		AnchorGen:           anchorGen,
@@ -2015,6 +2053,25 @@ func (req *GroupKeyRequest) Validate() error {
 	if tapscriptRootSize != 0 && tapscriptRootSize != sha256.Size {
 		return fmt.Errorf("tapscript root must be %d bytes",
 			sha256.Size)
+	}
+
+	// Version 1 specific checks.
+	if req.Version == GroupKeyV1 {
+		tapscriptRoot, err := chainhash.NewHash(req.TapscriptRoot)
+		if err != nil {
+			return fmt.Errorf("version 1 group key request " +
+				"tapscript root must be a valid hash")
+		}
+
+		if tapscriptRoot.IsEqual(&chainhash.Hash{}) {
+			return fmt.Errorf("version 1 group key request " +
+				"tapscript root must not be all zeros")
+		}
+	}
+
+	if req.ExternalKey.IsSome() && req.Version != GroupKeyV1 {
+		return fmt.Errorf("external key can only be specified for " +
+			"version 1 group key request")
 	}
 
 	return nil
@@ -2154,6 +2211,7 @@ func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 	}
 
 	return &GroupKey{
+		Version:       GroupKeyV0,
 		RawKey:        signDesc.KeyDesc,
 		GroupPubKey:   genTx.TweakedKey,
 		TapscriptRoot: signDesc.TapTweak,
