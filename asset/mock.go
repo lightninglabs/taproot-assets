@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
@@ -617,7 +618,9 @@ func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
 func NewGroupKeyRequestNoErr(t testing.TB, internalKey keychain.KeyDescriptor,
 	gen Genesis, newAsset *Asset, scriptRoot []byte) *GroupKeyRequest {
 
-	req, err := NewGroupKeyRequest(internalKey, gen, newAsset, scriptRoot)
+	req, err := NewGroupKeyRequest(
+		internalKey, fn.None[ExternalKey](), gen, newAsset, scriptRoot,
+	)
 	require.NoError(t, err)
 
 	return req

@@ -18,10 +18,12 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -847,6 +849,87 @@ type AssetGroup struct {
 	*GroupKey
 }
 
+// ExternalKey represents an external key used for deriving and managing
+// hierarchical deterministic (HD) wallet addresses according to BIP-86.
+type ExternalKey struct {
+	// XPub is the extended public key derived at depth 3 of the BIP-86
+	// hierarchy (e.g., m/86'/0'/0'). This key serves as the parent key for
+	// deriving child public keys and addresses.
+	XPub hdkeychain.ExtendedKey
+
+	// MasterFingerprint is the fingerprint of the master key, derived from
+	// the first 4 bytes of the hash160 of the master public key. It is used
+	// to identify the master key in BIP-86 derivation schemes.
+	MasterFingerprint uint32
+
+	// DerivationPath specifies the extended BIP-86 derivation path used to
+	// derive a child key from the XPub. Starting from the base path of the
+	// XPub (e.g., m/86'/0'/0'), this path must contain exactly 5 components
+	// in total (e.g., m/86'/0'/0'/0/0), with the additional components
+	// defining specific child keys, such as individual addresses.
+	DerivationPath []uint32
+}
+
+// Validate ensures that the ExternalKey's fields conform to the expected
+// requirements for a BIP-86 key structure.
+func (e *ExternalKey) Validate() error {
+	if e.XPub.IsPrivate() {
+		return fmt.Errorf("xpub must be public key only")
+	}
+
+	if e.XPub.Depth() != 3 {
+		return fmt.Errorf("xpub must be derived at depth 3")
+	}
+
+	if len(e.DerivationPath) != 5 {
+		return fmt.Errorf("derivation path must have exactly 5 " +
+			"componenets")
+	}
+
+	bip86Purpose := waddrmgr.KeyScopeBIP0086.Purpose +
+		hdkeychain.HardenedKeyStart
+	if e.DerivationPath[0] != bip86Purpose {
+		return fmt.Errorf("xpub must be derived from BIP-0086 " +
+			"(Taproot) derivation path")
+	}
+
+	return nil
+}
+
+// PubKey derives and returns the public key corresponding to the final index in
+// the ExternalKey's BIP-86 derivation path.
+//
+// The method assumes the ExternalKey's XPub was derived at depth 3
+// (e.g., m/86'/0'/0') and uses the fourth and fifth components of the
+// DerivationPath to derive a child key, typically representing an address or
+// output key.
+func (e *ExternalKey) PubKey() (btcec.PublicKey, error) {
+	err := e.Validate()
+	if err != nil {
+		return btcec.PublicKey{}, err
+	}
+
+	internalExternalFlag := e.DerivationPath[3]
+	index := e.DerivationPath[4]
+
+	changeKey, err := e.XPub.Derive(internalExternalFlag)
+	if err != nil {
+		return btcec.PublicKey{}, err
+	}
+
+	indexKey, err := changeKey.Derive(index)
+	if err != nil {
+		return btcec.PublicKey{}, err
+	}
+
+	pubKey, err := indexKey.ECPubKey()
+	if err != nil {
+		return btcec.PublicKey{}, err
+	}
+
+	return *pubKey, nil
+}
+
 // GroupKey is the tweaked public key that is used to associate assets together
 // across distinct asset IDs, allowing further issuance of the asset to be made
 // possible.
@@ -882,6 +965,10 @@ type GroupKeyRequest struct {
 	// RawKey is the raw group key before the tweak with the genesis point
 	// has been applied.
 	RawKey keychain.KeyDescriptor
+
+	// ExternalKey specifies a public key that, when provided, is used to
+	// externally sign the group virtual transaction outside of tapd.
+	ExternalKey fn.Option[ExternalKey]
 
 	// AnchorGen is the genesis of the group anchor, which is the asset used
 	// to derive the single tweak for the group key. For a new group key,
@@ -1857,11 +1944,13 @@ func NewScriptKeyBip86(rawKey keychain.KeyDescriptor) ScriptKey {
 }
 
 // NewGroupKeyRequest constructs and validates a group key request.
-func NewGroupKeyRequest(internalKey keychain.KeyDescriptor, anchorGen Genesis,
+func NewGroupKeyRequest(internalKey keychain.KeyDescriptor,
+	externalKey fn.Option[ExternalKey], anchorGen Genesis,
 	newAsset *Asset, scriptRoot []byte) (*GroupKeyRequest, error) {
 
 	req := &GroupKeyRequest{
 		RawKey:        internalKey,
+		ExternalKey:   externalKey,
 		AnchorGen:     anchorGen,
 		NewAsset:      newAsset,
 		TapscriptRoot: scriptRoot,
@@ -1989,6 +2078,12 @@ func AssembleGroupKeyFromWitness(genTx GroupVirtualTx, req GroupKeyRequest,
 func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 	req GroupKeyRequest, tapLeaf *psbt.TaprootTapLeafScript) (*GroupKey,
 	error) {
+
+	// Cannot derive the group key witness for an external key.
+	if req.ExternalKey.IsSome() {
+		return nil, fmt.Errorf("cannot derive group key witness for " +
+			"group key with external key")
+	}
 
 	// Populate the signing descriptor needed to sign the virtual minting
 	// transaction.
