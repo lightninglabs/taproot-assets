@@ -1309,11 +1309,23 @@ func TestExternalKeyPubKey(t *testing.T) {
 		return *xpub
 	}
 
+	dummyXPubTestnet := func() hdkeychain.ExtendedKey {
+		xpubStr := "tpubDDfTBtwwqxXuCej7pKYfbXeCW3inAtv1cw4knmvYTTHk" +
+			"w3NoKaeCNH5XdY6n6fnBPc1gWEgeurfmBVzJLfBB1hGU64LsHFz" +
+			"Jv4ASqaHyALH"
+		xpub, err := hdkeychain.NewKeyFromString(xpubStr)
+		if err != nil {
+			panic("failed to create xpub: " + err.Error())
+		}
+		return *xpub
+	}
+
 	testCases := []struct {
-		name          string
-		externalKey   ExternalKey
-		expectError   bool
-		expectedError string
+		name           string
+		externalKey    ExternalKey
+		expectedPubKey string
+		expectError    bool
+		expectedError  string
 	}{
 		{
 			name: "valid BIP-86 external key",
@@ -1327,6 +1339,11 @@ func TestExternalKeyPubKey(t *testing.T) {
 				},
 			},
 			expectError: false,
+
+			// The pubkey was generated with "chantools derivekey
+			// --rootkey xpub... --path "m/0/0" --neuter" command.
+			expectedPubKey: "02c0ca6c5d4dc4899de975f17f1023e424a" +
+				"93a7ba6339cbaf514689f75d51787cc",
 		},
 		{
 			name: "invalid derivation path length",
@@ -1358,9 +1375,114 @@ func TestExternalKeyPubKey(t *testing.T) {
 			expectedError: "xpub must be derived from BIP-0086 " +
 				"(Taproot) derivation path",
 		},
+		{
+			name: "valid BIP-86 external key, custom coin_type",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					42 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 0, 0,
+				},
+			},
+			expectError: false,
 
-		// TODO(ffranr): Add test(s) for positive case: valid xpub and
-		//  valid known correct corresponding public key.
+			// The pubkey was generated with "chantools derivekey
+			// --rootkey xpub... --path m/0/0 --neuter" command.
+			expectedPubKey: "02c0ca6c5d4dc4899de975f17f1023e424a" +
+				"93a7ba6339cbaf514689f75d51787cc",
+		},
+		{
+			name: "valid BIP-86 external key, custom account",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					42 + hdkeychain.HardenedKeyStart, 0, 0,
+				},
+			},
+			expectError: false,
+
+			// The pubkey was generated with "chantools derivekey
+			// --rootkey xpub... --path m/0/0 --neuter" command.
+			expectedPubKey: "02c0ca6c5d4dc4899de975f17f1023e424a" +
+				"93a7ba6339cbaf514689f75d51787cc",
+		},
+		{
+			name: "valid BIP-86 external key, change output",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 1, 0,
+				},
+			},
+			expectError: false,
+
+			// The pubkey was generated with "chantools derivekey
+			// --rootkey xpub... --path m/1/0 --neuter" command.
+			expectedPubKey: "02ce0e73519634aaf1a34cc17afb517a697" +
+				"95c063386030f1b1b724410a84aa709",
+		},
+		{
+			name: "valid BIP-86 external key, change=2",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 2, 0,
+				},
+			},
+			expectError: false,
+
+			// The pubkey was generated with "chantools derivekey
+			// --rootkey xpub... --path m/2/0 --neuter" command.
+			expectedPubKey: "0278b9669141d21f0598cc44a427c5d03a3" +
+				"5d6aaed5555931a99a1659dfea4ebcf",
+		},
+		{
+			name: "valid BIP-86 external key, index=2",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 0, 2,
+				},
+			},
+			expectError: false,
+
+			// The pubkey was generated with "chantools derivekey
+			// --rootkey xpub... --path "m/0/2" --neuter" command.
+			expectedPubKey: "0375e49d472c25d1138a5526b9b7a0198e1" +
+				"d692cc3fd0133f260aca446e1244ff9",
+		},
+		{
+			name: "valid BIP-86 external key, testnet",
+			externalKey: ExternalKey{
+				XPub:              dummyXPubTestnet(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					1 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 0, 0,
+				},
+			},
+			expectError: false,
+
+			// The pubkey was generated with "chantools derivekey
+			// --testnet --rootkey xpub... --path "m/0/0" --neuter".
+			expectedPubKey: "0280a3fcbeb7f770af6dd45cb0f4d02e104" +
+				"4eafe0d8b05bcaec79dc0478c7fa0da",
+		},
 	}
 
 	for _, tc := range testCases {
@@ -1375,10 +1497,16 @@ func TestExternalKeyPubKey(t *testing.T) {
 						tc.expectedError,
 					)
 				}
-			} else {
-				require.NoError(tt, err)
-				require.IsType(tt, btcec.PublicKey{}, pubKey)
+
+				return
 			}
+
+			require.NoError(tt, err)
+			require.IsType(tt, btcec.PublicKey{}, pubKey)
+			pubKeyHex := hex.EncodeToString(
+				pubKey.SerializeCompressed(),
+			)
+			require.Equal(tt, tc.expectedPubKey, pubKeyHex)
 		})
 	}
 }
