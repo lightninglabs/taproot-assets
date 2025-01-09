@@ -92,6 +92,15 @@ build:
 	$(GOBUILD) -tags="$(DEV_TAGS)" -o tapcli-debug $(DEV_GCFLAGS) $(DEV_LDFLAGS) $(PKG)/cmd/tapcli
 
 build-itest:
+	@if ! command -v chantools > /dev/null; then \
+		$(call print, "Building itest chantools."); \
+		rm -rf itest/chantools; \
+		git clone --depth 1 --branch v0.13.5 https://github.com/lightninglabs/chantools.git itest/chantools; \
+		cd itest/chantools && make install; \
+	else \
+		$(call print, "Chantools is already installed and available in PATH."); \
+	fi
+
 	@$(call print, "Building itest btcd.")
 	CGO_ENABLED=0 $(GOBUILD) -tags="integration" -o itest/btcd-itest $(BTCD_PKG)
 
