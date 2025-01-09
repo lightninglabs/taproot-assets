@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -19,6 +21,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	"github.com/lightningnetwork/lnd/keychain"
+	"github.com/lightningnetwork/lnd/lntest"
 )
 
 // Shorthand for the asset transfer output proof delivery status enum.
@@ -323,6 +326,51 @@ func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
 		),
 		TapscriptRoot: req.TapscriptRoot,
 		NewAsset:      assetBuf.Bytes(),
+	}, nil
+}
+
+// UnmarshalExternalKey parses an external key from the RPC variant.
+func UnmarshalExternalKey(rpcKey *ExternalKey) (asset.ExternalKey, error) {
+	if rpcKey == nil {
+		return asset.ExternalKey{}, fmt.Errorf("unexpected nil RPC " +
+			"external key")
+	}
+
+	// Parse xpub.
+	xpub, err := hdkeychain.NewKeyFromString(rpcKey.Xpub)
+	if err != nil {
+		return asset.ExternalKey{}, err
+	}
+
+	// Parse derivation path.
+	path, err := lntest.ParseDerivationPath(rpcKey.DerivationPath)
+	if err != nil {
+		return asset.ExternalKey{}, err
+	}
+
+	// We assume the first three elements of the derivation path are
+	// hardened, so we need to add the hardened key offset.
+	for i := 0; i < 3; i++ {
+		path[i] += hdkeychain.HardenedKeyStart
+	}
+
+	// Parse master fingerprint.
+	var masterFingerprint uint32
+	if len(rpcKey.MasterFingerprint) > 0 {
+		if len(rpcKey.MasterFingerprint) != 4 {
+			return asset.ExternalKey{}, fmt.Errorf("master " +
+				"fingerprint must be 4 bytes")
+		}
+
+		masterFingerprint = binary.LittleEndian.Uint32(
+			rpcKey.MasterFingerprint,
+		)
+	}
+
+	return asset.ExternalKey{
+		XPub:              *xpub,
+		MasterFingerprint: masterFingerprint,
+		DerivationPath:    path,
 	}, nil
 }
 
