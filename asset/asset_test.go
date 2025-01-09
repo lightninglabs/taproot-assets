@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -1290,4 +1291,94 @@ func TestCopySpendTemplate(t *testing.T) {
 	newAsset.LockTime = 0
 
 	require.True(t, newAsset.DeepEqual(spendTemplate))
+}
+
+// TestExternalKeyPubKey tests that the public key can be derived from an
+// external key.
+func TestExternalKeyPubKey(t *testing.T) {
+	t.Parallel()
+
+	dummyXPub := func() hdkeychain.ExtendedKey {
+		xpubStr := "xpub6BynCcnXLYNnnMUZARkHxbP9pG6h5rES8Zb8aHtGwmFX" +
+			"9DdjJiyT9PNwkSMZfS3CvGRpvV21SkLRM6xhtshvA3DnJbQsvjD" +
+			"yySWGArynQNf"
+		xpub, err := hdkeychain.NewKeyFromString(xpubStr)
+		if err != nil {
+			panic("failed to create xpub: " + err.Error())
+		}
+		return *xpub
+	}
+
+	testCases := []struct {
+		name          string
+		externalKey   ExternalKey
+		expectError   bool
+		expectedError string
+	}{
+		{
+			name: "valid BIP-86 external key",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 0, 0,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid derivation path length",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					86 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+				},
+			},
+			expectError: true,
+			expectedError: "derivation path must have exactly 5 " +
+				"components",
+		},
+		{
+			name: "invalid BIP-86 derivation path",
+			externalKey: ExternalKey{
+				XPub:              dummyXPub(),
+				MasterFingerprint: 0x12345678,
+				DerivationPath: []uint32{
+					44 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart,
+					0 + hdkeychain.HardenedKeyStart, 0, 0,
+				},
+			},
+			expectError: true,
+			expectedError: "xpub must be derived from BIP-0086 " +
+				"(Taproot) derivation path",
+		},
+
+		// TODO(ffranr): Add test(s) for positive case: valid xpub and
+		//  valid known correct corresponding public key.
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(tt *testing.T) {
+			pubKey, err := tc.externalKey.PubKey()
+
+			if tc.expectError {
+				require.Error(tt, err, tc.name)
+				if tc.expectedError != "" {
+					require.Contains(
+						tt, err.Error(),
+						tc.expectedError,
+					)
+				}
+			} else {
+				require.NoError(tt, err)
+				require.IsType(tt, btcec.PublicKey{}, pubKey)
+			}
+		})
+	}
 }

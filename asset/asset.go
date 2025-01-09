@@ -907,7 +907,7 @@ func (e *ExternalKey) Validate() error {
 
 	if len(e.DerivationPath) != 5 {
 		return fmt.Errorf("derivation path must have exactly 5 " +
-			"componenets")
+			"components")
 	}
 
 	bip86Purpose := waddrmgr.KeyScopeBIP0086.Purpose +
