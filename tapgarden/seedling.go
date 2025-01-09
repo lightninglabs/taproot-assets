@@ -6,6 +6,7 @@ import (
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -112,8 +113,14 @@ type Seedling struct {
 	// all script spend conditions for the group key. Instead of spending an
 	// asset, these scripts are used to define witnesses more complex than
 	// a Schnorr signature for reissuing assets. A group key with an empty
-	// Tapscript root can only authorize reissuance with a signature.
+	// Tapscript root can only authorize re-issuance with a signature.
 	GroupTapscriptRoot []byte
+
+	// ExternalKey is an optional field that allows specifying an external
+	// signing key for the group virtual transaction during minting. This
+	// key enables signing operations to be performed externally, outside
+	// the daemon.
+	ExternalKey fn.Option[asset.ExternalKey]
 }
 
 // validateFields attempts to validate the set of input fields for the passed

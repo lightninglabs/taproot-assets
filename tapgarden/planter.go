@@ -716,8 +716,9 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		// virtual transaction.
 		if groupInfo != nil {
 			groupReq, err := asset.NewGroupKeyRequest(
-				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
-				protoAsset, groupInfo.GroupKey.TapscriptRoot,
+				groupInfo.GroupKey.RawKey, seedling.ExternalKey,
+				*groupInfo.Genesis, protoAsset,
+				groupInfo.GroupKey.TapscriptRoot,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
@@ -750,7 +751,8 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			}
 
 			groupReq, err := asset.NewGroupKeyRequest(
-				*seedling.GroupInternalKey, assetGen,
+				*seedling.GroupInternalKey,
+				seedling.ExternalKey, assetGen,
 				protoAsset, seedling.GroupTapscriptRoot,
 			)
 			if err != nil {
