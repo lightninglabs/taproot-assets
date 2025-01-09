@@ -295,8 +295,19 @@ func UnmarshalGroupKeyRequest(req *GroupKeyRequest) (*asset.GroupKeyRequest,
 		return nil, err
 	}
 
+	var externalKey fn.Option[asset.ExternalKey]
+	if req.ExternalKey != nil {
+		key, err := UnmarshalExternalKey(req.ExternalKey)
+		if err != nil {
+			return nil, err
+		}
+
+		externalKey = fn.Some(key)
+	}
+
 	return &asset.GroupKeyRequest{
 		RawKey:        rawKey,
+		ExternalKey:   externalKey,
 		AnchorGen:     *anchorGen,
 		TapscriptRoot: req.TapscriptRoot,
 		NewAsset:      &newAsset,
@@ -319,6 +330,9 @@ func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
 		return nil, err
 	}
 
+	// Marshal the external key into the RPC format.
+	externalKey := fn.MapOptionZ(req.ExternalKey, MarshalExternalKey)
+
 	return &GroupKeyRequest{
 		RawKey: MarshalKeyDescriptor(req.RawKey),
 		AnchorGenesis: MarshalGenesisInfo(
@@ -326,7 +340,34 @@ func MarshalGroupKeyRequest(req *asset.GroupKeyRequest) (*GroupKeyRequest,
 		),
 		TapscriptRoot: req.TapscriptRoot,
 		NewAsset:      assetBuf.Bytes(),
+		ExternalKey:   externalKey,
 	}, nil
+}
+
+// MarshalExternalKey marshals an external key into its RPC counterpart.
+func MarshalExternalKey(key asset.ExternalKey) *ExternalKey {
+	var masterFingerprint [4]byte
+	binary.LittleEndian.PutUint32(
+		masterFingerprint[:], key.MasterFingerprint,
+	)
+
+	// The first three elements of the derivation path are hardened, so to
+	// format we need to subtract the hardened key offset again.
+	path := key.DerivationPath
+	purpose := path[0] - hdkeychain.HardenedKeyStart
+	coinType := path[1] - hdkeychain.HardenedKeyStart
+	account := path[2] - hdkeychain.HardenedKeyStart
+	internalExternalAddr := path[3]
+	addrIndex := path[4]
+
+	derivationPathStr := fmt.Sprintf("m/%d'/%d'/%d'/%d/%d", purpose,
+		coinType, account, internalExternalAddr, addrIndex)
+
+	return &ExternalKey{
+		Xpub:              key.XPub.String(),
+		MasterFingerprint: masterFingerprint[:],
+		DerivationPath:    derivationPathStr,
+	}
 }
 
 // UnmarshalExternalKey parses an external key from the RPC variant.

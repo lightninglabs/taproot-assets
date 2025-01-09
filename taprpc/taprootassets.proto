@@ -308,6 +308,14 @@ message GroupKeyRequest {
     member of this asset group.
     */
     bytes new_asset = 4;
+
+    /*
+    The external key is an optional field that allows specifying an
+    external signing key for the group virtual transaction during minting.
+    This key enables signing operations to be performed externally, outside
+    the daemon.
+     */
+    ExternalKey external_key = 5;
 }
 
 message TxOut {

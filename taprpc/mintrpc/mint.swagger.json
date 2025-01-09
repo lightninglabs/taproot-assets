@@ -790,6 +790,10 @@
           "type": "string",
           "format": "byte",
           "description": "The serialized asset which we are requesting group membership for. A\nsuccessful request will produce a witness that authorizes this asset to be a\nmember of this asset group."
+        },
+        "external_key": {
+          "$ref": "#/definitions/taprpcExternalKey",
+          "description": "The external key is an optional field that allows specifying an\nexternal signing key for the group virtual transaction during minting.\nThis key enables signing operations to be performed externally, outside\nthe daemon."
         }
       }
     },
