@@ -775,7 +775,7 @@
       "properties": {
         "raw_key": {
           "$ref": "#/definitions/taprpcKeyDescriptor",
-          "description": "The internal key for the asset group before any tweaks have been applied."
+          "description": "The internal key for the asset group before any tweaks have been applied.\nIf this field is set then external_key must be empty, and vice versa."
         },
         "anchor_genesis": {
           "$ref": "#/definitions/taprpcGenesisInfo",
@@ -790,6 +790,10 @@
           "type": "string",
           "format": "byte",
           "description": "The serialized asset which we are requesting group membership for. A\nsuccessful request will produce a witness that authorizes this asset to be a\nmember of this asset group."
+        },
+        "external_key": {
+          "$ref": "#/definitions/taprpcExternalKey",
+          "description": "The external key is an optional field that allows specifying an\nexternal signing key for the group virtual transaction during minting.\nThis key enables signing operations to be performed externally, outside\nthe daemon.\n\nIf this field is set then raw_key must be empty, and vice versa."
         }
       }
     },

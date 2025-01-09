@@ -285,7 +285,10 @@ message ExternalKey {
 }
 
 message GroupKeyRequest {
-    // The internal key for the asset group before any tweaks have been applied.
+    /*
+    The internal key for the asset group before any tweaks have been applied.
+    If this field is set then external_key must be empty, and vice versa.
+     */
     KeyDescriptor raw_key = 1;
 
     /*
@@ -308,6 +311,16 @@ message GroupKeyRequest {
     member of this asset group.
     */
     bytes new_asset = 4;
+
+    /*
+    The external key is an optional field that allows specifying an
+    external signing key for the group virtual transaction during minting.
+    This key enables signing operations to be performed externally, outside
+    the daemon.
+
+    If this field is set then raw_key must be empty, and vice versa.
+     */
+    ExternalKey external_key = 5;
 }
 
 message TxOut {
