@@ -13,6 +13,7 @@ cmd/tapd/tapd
 
 /itest/lnd-itest
 /itest/btcd-itest
+/itest/chantools
 /itest/regtest/*
 /itest/*.log
 /itest/.backendlogs/*
