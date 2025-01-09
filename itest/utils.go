@@ -142,7 +142,7 @@ func MineBlocks(t *testing.T, client *rpcclient.Client,
 	var txids []*chainhash.Hash
 	var err error
 	if numTxs > 0 {
-		txids, err = waitForNTxsInMempool(
+		txids, err = WaitForNTxsInMempool(
 			client, numTxs, minerMempoolTimeout,
 		)
 		if err != nil {
@@ -386,7 +386,7 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		batchResp.Batch.BatchKey,
 		mintrpc.BatchState_BATCH_STATE_BROADCAST,
 	)
-	hashes, err := waitForNTxsInMempool(
+	hashes, err := WaitForNTxsInMempool(
 		minerClient, 1, options.mintingTimeout,
 	)
 	require.NoError(t, err)

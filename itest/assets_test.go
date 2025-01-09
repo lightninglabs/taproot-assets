@@ -183,7 +183,7 @@ func testMintBatchResume(t *harnessTest) {
 	require.NoError(t.t, t.tapd.stop(false))
 	require.NoError(t.t, t.tapd.start(false))
 
-	hashes, err := waitForNTxsInMempool(
+	hashes, err := WaitForNTxsInMempool(
 		t.lndHarness.Miner().Client, 1, defaultWaitTimeout,
 	)
 	require.NoError(t.t, err)
