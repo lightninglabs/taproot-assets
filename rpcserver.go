@@ -581,6 +581,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		groupTapscriptRoot = bytes.Clone(req.Asset.GroupTapscriptRoot)
 	}
 
+	if req.Asset.ExternalGroupKey != nil &&
+		req.Asset.GroupInternalKey != nil {
+
+		return nil, fmt.Errorf("cannot set both external group key " +
+			"and group internal key descriptor")
+	}
+
 	seedling := &tapgarden.Seedling{
 		AssetVersion:   assetVersion,
 		AssetType:      asset.Type(req.Asset.AssetType),
@@ -604,6 +611,31 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	if groupTapscriptRootSize != 0 {
 		seedling.GroupTapscriptRoot = groupTapscriptRoot
+	}
+
+	if req.Asset.ExternalGroupKey != nil {
+		externalKey, err := taprpc.UnmarshalExternalKey(
+			req.Asset.ExternalGroupKey,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse external key: "+
+				"%w", err)
+		}
+
+		if err := externalKey.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid external key: %w", err)
+		}
+
+		internalKey, err := externalKey.PubKey()
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive internal "+
+				"group key from xpub: %w", err)
+		}
+
+		seedling.ExternalKey = fn.Some(externalKey)
+		seedling.GroupInternalKey = &keychain.KeyDescriptor{
+			PubKey: &internalKey,
+		}
 	}
 
 	switch {
