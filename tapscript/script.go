@@ -34,7 +34,7 @@ func NewChannelFundingScriptTree() *FundingScriptTree {
 	tapScriptRoot := tapscriptTree.RootNode.TapHash()
 
 	// Finally, we'll make the funding output script which actually uses a
-	// NUMs key to force a script path only.
+	// NUMS key to force a script path only.
 	fundingOutputKey := txscript.ComputeTaprootOutputKey(
 		&input.TaprootNUMSKey, tapScriptRoot[:],
 	)

@@ -139,7 +139,7 @@ var (
 	// EmptyGenesisID is the ID of the empty genesis struct.
 	EmptyGenesisID = EmptyGenesis.ID()
 
-	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
+	// NUMSBytes is the NUMS point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
 	// "taproot-assets" with SHA2-256. The code for the try-and-increment
 	// approach can be seen here:
