@@ -1116,24 +1116,76 @@ type GroupKeyReveal interface {
 	GroupPubKey(assetID ID) (*btcec.PublicKey, error)
 }
 
-// NewNonSpendableScriptLeaf creates a new non-spendable tapscript script leaf
-// that includes the specified data. If the data is nil, the leaf will not
-// contain any data but will still be a valid non-spendable script leaf.
+// NewNonSpendableScriptLeaf creates a new non-spendable Taproot script leaf
+// that commits to the provided data. If no data is provided (i.e., data is
+// nil), the leaf will still be valid and non-spendable, but it will not
+// include any additional data.
 //
-// The script leaf is made non-spendable by including an OP_RETURN opcode at the
-// start of the script. While the script can still be executed, it will always
-// fail and cannot be used to spend funds.
+// The script leaf is made non-spendable using a deterministic NUMS (Nothing
+// Up My Sleeve) commitment. A deterministic NUMS commitment is a method for
+// deriving a unique point on an elliptic curve that commits to a specific
+// NUMS-derived base key and optional tweak data. This approach ensures that
+// no arbitrary or malicious values can be introduced.
+//
+// The final tweaked key is computed as:
+//
+// ```
+// K_tweaked = K_nums + h * G
+// ```
+//
+// where:
+//   - `h` is the SHA-256 hash of the provided tweak data.
+//   - `G` is the standard generator point of the elliptic curve.
+//   - `K_nums` is the NUMS generator point.
+//
+// It is crucial that `K_nums` is a true NUMS generator point, meaning it
+// cannot be represented as a linear combination of the standard generator
+// point `G`. This property guarantees that no private key exists for
+// `K_tweaked`, ensuring the commitment remains non-spendable.
+//
+// To elaborate, if `K_nums` could be expressed as `K_nums = n * G`, where `n`
+// is a scalar, tweaking it with `h` would yield:
+//
+// ```
+// K_tweaked = n * G + h * G
+// ```
+//
+// In such a case, the scalar `(n + h)` could serve as a private key, making
+// the commitment spendable. However, since `K_nums` is a genuine NUMS key
+// independent of `G`, this situation is impossible, ensuring the key remains
+// secure and non-spendable.
+//
+// The resulting script is a standard `pk(data)` Miniscript, where the data
+// serves as the tweak for the deterministic NUMS commitment. This script
+// enforces the `OP_CHECKSIG` operation, using the derived non-spendable
+// commitment key.
 func NewNonSpendableScriptLeaf(data []byte) (txscript.TapLeaf, error) {
-	// Construct a script builder and add the OP_RETURN opcode to the start
-	// of the script to ensure that the script is non-executable.
-	scriptBuilder := txscript.NewScriptBuilder().AddOp(txscript.OP_RETURN)
-
-	// Add the data to the script if it is provided.
+	// Use a tweaked NUMS key if data is provided, otherwise use the NUMS
+	// key.
+	nonSpendableKey := input.TaprootNUMSKey
 	if data != nil {
-		scriptBuilder.AddData(data)
+		// Compute the SHA-256 hash of the data to generate the tweak.
+		// This ensures the tweak is exactly 32 bytes long, a
+		// requirement for the tweak function to function correctly. By
+		// hashing the data, the resulting commitment key securely
+		// incorporates and commits to the entirety of the provided
+		// data.
+		dataHash := chainhash.HashH(data)
+
+		// The data hash is incorporated into the commitment by using it
+		// as a scalar multiplier for the standard generator point `G`.
+		// The NUMS key, on the other hand, is a separate generator
+		// point with no known linear relationship to `G`.
+		tweakedNumsKey := input.TweakPubKeyWithTweak(
+			&input.TaprootNUMSKey, dataHash[:],
+		)
+		nonSpendableKey = *tweakedNumsKey
 	}
 
-	// Construct script from the script builder.
+	// Formulate a miniscript pk(data) script.
+	scriptBuilder := txscript.NewScriptBuilder()
+	scriptBuilder.AddData(schnorr.SerializePubKey(&nonSpendableKey))
+	scriptBuilder.AddOp(txscript.OP_CHECKSIG)
 	script, err := scriptBuilder.Script()
 	if err != nil {
 		return txscript.TapLeaf{}, fmt.Errorf("failed to construct "+
@@ -1220,15 +1272,15 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //
 // The final tapscript tree adopts the following structure:
 //
-//	                       [tapscript_root]
-//	                         /          \
-//	[OP_RETURN <genesis asset ID>]   [tweaked_custom_branch]
-//	                                      /        \
-//	                              [OP_RETURN]   <custom_root_hash>
+//	                      [tapscript_root]
+//	                        /          \
+//	[pk(NUMS+<genesis asset ID>)]   [tweaked_custom_branch]
+//	                                     /        \
+//	                              [pk(NUMS)]   <custom_root_hash>
 //
 // Where:
 //   - [tapscript_root] is the root of the final tapscript tree.
-//   - [OP_RETURN <genesis asset ID>] is a first-layer non-spendable script
+//   - [pk(NUMS+<genesis asset ID>)] is a first-layer non-spendable script
 //     leaf that commits to the genesis asset ID.
 //   - [tweaked_custom_branch] is a branch node that serves two purposes:
 //     1. It cannot be misinterpreted as a genesis asset ID leaf.
