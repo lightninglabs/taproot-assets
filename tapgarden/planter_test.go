@@ -2096,11 +2096,13 @@ func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 		hashLockLeaf, schnorrSigLeaf,
 	).RootNode.TapHash()
 
-	spendTestCases := []struct {
+	type testCase struct {
 		name       string
 		genWitness func(*testing.T, *asset.Asset,
 			asset.GroupKeyRevealV1) wire.TxWitness
-	}{{
+	}
+
+	spendTestCases := []testCase{{
 		name: "key spend",
 		genWitness: func(t *testing.T, a *asset.Asset,
 			gkr asset.GroupKeyRevealV1) wire.TxWitness {
@@ -2177,41 +2179,55 @@ func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 		},
 	}}
 
+	runTestCase := func(tt *testing.T, tc testCase,
+		version asset.NonSpendLeafVersion) {
+
+		randAsset := asset.RandAsset(tt, asset.Normal)
+		genAssetID := randAsset.ID()
+		groupKeyReveal, err := asset.NewGroupKeyRevealV1(
+			version, *internalKeyDesc.PubKey, genAssetID,
+			fn.Some(userRoot),
+		)
+		require.NoError(tt, err)
+
+		// Set the group key on the asset, since it's a randomly created
+		// group key otherwise.
+		groupPubKey, err := groupKeyReveal.GroupPubKey(genAssetID)
+		require.NoError(tt, err)
+
+		gkr := groupKeyReveal
+		randAsset.GroupKey = &asset.GroupKey{
+			RawKey:        internalKeyDesc,
+			GroupPubKey:   *groupPubKey,
+			TapscriptRoot: gkr.TapscriptRoot(),
+		}
+		randAsset.PrevWitnesses = []asset.Witness{
+			{
+				PrevID: &asset.PrevID{},
+			},
+		}
+
+		witness := tc.genWitness(tt, randAsset, groupKeyReveal)
+		randAsset.PrevWitnesses[0].TxWitness = witness
+
+		err = txValidator.Execute(
+			randAsset, nil, nil, proof.MockChainLookup,
+		)
+		require.NoError(tt, err)
+	}
+
+	gkrVersions := []asset.NonSpendLeafVersion{
+		asset.OpReturnVersion,
+		asset.PedersenVersion,
+	}
+
 	for _, tc := range spendTestCases {
-		t.Run(tc.name, func(tt *testing.T) {
-			randAsset := asset.RandAsset(tt, asset.Normal)
-			genAssetID := randAsset.ID()
-			groupKeyReveal, err := asset.NewGroupKeyRevealV1(
-				*internalKeyDesc.PubKey, genAssetID,
-				fn.Some(userRoot),
-			)
-			require.NoError(tt, err)
-
-			// Set the group key on the asset, since it's a randomly
-			// created group key otherwise.
-			groupPubKey, err := groupKeyReveal.GroupPubKey(
-				genAssetID,
-			)
-			require.NoError(tt, err)
-			randAsset.GroupKey = &asset.GroupKey{
-				RawKey:        internalKeyDesc,
-				GroupPubKey:   *groupPubKey,
-				TapscriptRoot: groupKeyReveal.TapscriptRoot(),
-			}
-			randAsset.PrevWitnesses = []asset.Witness{
-				{
-					PrevID: &asset.PrevID{},
-				},
-			}
-
-			witness := tc.genWitness(tt, randAsset, groupKeyReveal)
-			randAsset.PrevWitnesses[0].TxWitness = witness
-
-			err = txValidator.Execute(
-				randAsset, nil, nil, proof.MockChainLookup,
-			)
-			require.NoError(tt, err)
-		})
+		for _, version := range gkrVersions {
+			name := fmt.Sprintf("%s:%v", tc.name, version)
+			t.Run(name, func(tt *testing.T) {
+				runTestCase(tt, tc, version)
+			})
+		}
 	}
 }
 
@@ -2238,7 +2254,8 @@ func TestGroupKeyRevealV1WitnessNoScripts(t *testing.T) {
 	randAsset := asset.RandAsset(t, asset.Normal)
 	genAssetID := randAsset.ID()
 	groupKeyReveal, err := asset.NewGroupKeyRevealV1(
-		*internalKeyDesc.PubKey, genAssetID, fn.None[chainhash.Hash](),
+		asset.OpReturnVersion, *internalKeyDesc.PubKey, genAssetID,
+		fn.None[chainhash.Hash](),
 	)
 	require.NoError(t, err)
 

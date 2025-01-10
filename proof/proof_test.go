@@ -126,6 +126,7 @@ func assertEqualGroupKeyRevealV1(t *testing.T, expected,
 	actual asset.GroupKeyRevealV1, expectedGenesisAssetID asset.ID) {
 
 	require.Equal(t, expected.RawKey(), actual.RawKey())
+	require.Equal(t, expected.Version(), actual.Version())
 
 	// Compare the tapscript root. Normalize nil to empty slice for
 	// comparison.
@@ -209,11 +210,14 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 	require.Equal(t, expected.TxMerkleProof, actual.TxMerkleProof)
 	require.Equal(t, expected.Asset, actual.Asset)
 
-	assertEqualTaprootProof(t, &expected.InclusionProof, &actual.InclusionProof)
+	assertEqualTaprootProof(
+		t, &expected.InclusionProof, &actual.InclusionProof,
+	)
 
 	for i := range expected.ExclusionProofs {
 		assertEqualTaprootProof(
-			t, &expected.ExclusionProofs[i], &actual.ExclusionProofs[i],
+			t, &expected.ExclusionProofs[i],
+			&actual.ExclusionProofs[i],
 		)
 	}
 
@@ -239,7 +243,9 @@ func assertEqualProof(t *testing.T, expected, actual *Proof) {
 			len(expected.AdditionalInputs),
 		)
 		for j := range expected.AdditionalInputs[i].proofs {
-			e, err := expected.AdditionalInputs[i].ProofAt(uint32(j))
+			e, err := expected.AdditionalInputs[i].ProofAt(
+				uint32(j),
+			)
 			require.NoError(t, err)
 
 			a, err := actual.AdditionalInputs[i].ProofAt(uint32(j))
@@ -268,28 +274,37 @@ func TestProofEncodingGroupKeyRevealV1(t *testing.T) {
 	scriptKey := test.RandPubKey(t)
 	proof := RandProof(t, genesis, scriptKey, oddTxBlock, 0, 1)
 
-	// Override the group key reveal with a V1 reveal.
 	internalKey := test.RandPubKey(t)
 	customRoot := chainhash.Hash(test.RandBytes(32))
-	groupKeyReveal, err := asset.NewGroupKeyRevealV1(
-		*internalKey, genesis.ID(), fn.Some(customRoot),
-	)
-	require.NoError(t, err)
 
-	proof.GroupKeyReveal = &groupKeyReveal
+	versions := []asset.NonSpendLeafVersion{
+		asset.OpReturnVersion, asset.PedersenVersion,
+	}
+	for _, version := range versions {
+		// Override the group key reveal with a V1 reveal.
+		groupKeyReveal, err := asset.NewGroupKeyRevealV1(
+			version, *internalKey, genesis.ID(),
+			fn.Some(customRoot),
+		)
+		require.NoError(t, err)
 
-	file, err := NewFile(V0, proof, proof)
-	require.NoError(t, err)
-	proof.AdditionalInputs = []File{*file, *file}
+		proof.GroupKeyReveal = &groupKeyReveal
 
-	var proofBuf bytes.Buffer
-	require.NoError(t, proof.Encode(&proofBuf))
-	proofBytes := proofBuf.Bytes()
+		file, err := NewFile(V0, proof, proof)
+		require.NoError(t, err)
+		proof.AdditionalInputs = []File{*file, *file}
 
-	var decodedProof Proof
-	require.NoError(t, decodedProof.Decode(bytes.NewReader(proofBytes)))
+		var proofBuf bytes.Buffer
+		require.NoError(t, proof.Encode(&proofBuf))
+		proofBytes := proofBuf.Bytes()
 
-	assertEqualProof(t, &proof, &decodedProof)
+		var decodedProof Proof
+		require.NoError(
+			t, decodedProof.Decode(bytes.NewReader(proofBytes)),
+		)
+
+		assertEqualProof(t, &proof, &decodedProof)
+	}
 }
 
 func TestProofEncoding(t *testing.T) {
