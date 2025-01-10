@@ -25,6 +25,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/pedersen"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -953,17 +954,62 @@ type GroupKeyReveal interface {
 // that includes the specified data. If the data is nil, the leaf will not
 // contain any data but will still be a valid non-spendable script leaf.
 //
-// The script leaf is made non-spendable by including an OP_RETURN opcode at the
-// start of the script. While the script can still be executed, it will always
-// fail and cannot be used to spend funds.
-func NewNonSpendableScriptLeaf(data []byte) (txscript.TapLeaf, error) {
-	// Construct a script builder and add the OP_RETURN opcode to the start
-	// of the script to ensure that the script is non-executable.
-	scriptBuilder := txscript.NewScriptBuilder().AddOp(txscript.OP_RETURN)
+// The script leaf is made non-spendable by including an OP_RETURN/OP_CHECKSIG
+// opcode at the start of the script. While the script can still be executed, it
+// will always fail and cannot be used to spend funds.
+func NewNonSpendableScriptLeaf(version GkrV1Version,
+	data []byte) (txscript.TapLeaf, error) {
 
-	// Add the data to the script if it is provided.
-	if data != nil {
-		scriptBuilder.AddData(data)
+	var firstOp byte
+	switch version {
+	// For the OP_RETURN based version, we'll use a single OP_RETURN opcode.
+	case OpReturnVersion:
+		firstOp = txscript.OP_RETURN
+
+	// For the Pedersen commitment based version, we'll use a single
+	// OP_CEHCKSIG with an un-spendable key.
+	case PedersenVersion:
+		firstOp = txscript.OP_CHECKSIG
+
+	default:
+		// TODO(roasbeef): auto accept of new version for forwards
+		// compat?
+		return txscript.TapLeaf{}, fmt.Errorf("unknown "+
+			"version %v", version)
+	}
+
+	// Construct a script builder and add the firstOp opcode to the start of
+	// the script to ensure that the script is non-executable.
+	scriptBuilder := txscript.NewScriptBuilder().AddOp(firstOp)
+
+	switch version {
+	// For the OP_RETURN based version, we'll just add the data as a push
+	// data if provided.
+	case OpReturnVersion:
+		// Add the data to the script if it is provided.
+		if data != nil {
+			scriptBuilder.AddData(data)
+		}
+
+	// For the Pedersen commitment based version, things are a bit more
+	// involved. We'll take the asset ID then create a Pedersen commitment
+	// from it. We'll always add this value, as if it isn't present, then
+	// we'll just be committing to an empty message.
+	case PedersenVersion:
+		var msg [sha256.Size]byte
+		copy(msg[:], data)
+
+		// Make a Pedersen opening that uses no mask (we don't carry on
+		// the random value, as we don't care about hiding here). We'll
+		// also use the existing NUMs point.
+		op := pedersen.Opening{
+			Msg: msg,
+		}
+		commitPoint := pedersen.NewCommitment(op).Point()
+
+		commitBytes := schnorr.SerializePubKey(&commitPoint)
+
+		scriptBuilder.AddData(commitBytes)
 	}
 
 	// Construct script from the script builder.
@@ -991,8 +1037,8 @@ const (
 
 func NewGKRVersionRecord(version *uint8) tlv.Record {
 	return tlv.MakePrimitiveRecord(GKRVersion, version)
-}
 
+}
 func NewGKRInternalKeyRecord(internalKey *SerializedKey) tlv.Record {
 	return tlv.MakePrimitiveRecord(GKRInternalKey, (*[33]byte)(internalKey))
 }
@@ -1072,7 +1118,12 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //   - [OP_RETURN] is a non-spendable script leaf containing the script
 //     `OP_RETURN`. Its presence ensures that [tweaked_custom_branch] remains
 //     a branch node and cannot be a valid genesis asset ID leaf.
+//
+// TODO(roasbeef): upgrade diagram w/ v1 and v2
 type GroupKeyRevealTapscript struct {
+	// version is the version of the group key reveal.
+	version GkrV1Version
+
 	// root is the final tapscript root after all tapscript tweaks have
 	// been applied. The asset group key is derived from this root and the
 	// internal key.
@@ -1101,7 +1152,7 @@ type GroupKeyRevealTapscript struct {
 // subtree root hash.
 //
 // nolint: lll
-func NewGroupKeyTapscriptRoot(genesisAssetID ID,
+func NewGroupKeyTapscriptRoot(version GkrV1Version, genesisAssetID ID,
 	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealTapscript, error) {
 
 	// First, we compute the tweaked custom branch hash. This hash is
@@ -1110,7 +1161,7 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 	//
 	// If a custom tapscript subtree root hash is provided, we use it.
 	// Otherwise, we default to an empty non-spendable leaf hash as well.
-	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(nil)
+	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(version, nil)
 	if err != nil {
 		return GroupKeyRevealTapscript{}, err
 	}
@@ -1125,7 +1176,7 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 	// asset ID leaf hash to compute the final tapscript root hash.
 	//
 	// Construct a non-spendable tapscript leaf for the genesis asset ID.
-	assetIDLeaf, err := NewNonSpendableScriptLeaf(genesisAssetID[:])
+	assetIDLeaf, err := NewNonSpendableScriptLeaf(version, genesisAssetID[:])
 	if err != nil {
 		return GroupKeyRevealTapscript{}, err
 	}
@@ -1149,6 +1200,7 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 	)
 
 	return GroupKeyRevealTapscript{
+		version:                     version,
 		root:                        rootHash,
 		customSubtreeRoot:           customRoot,
 		customSubtreeInclusionProof: customSubtreeInclusionProof,
@@ -1160,7 +1212,9 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 func (g *GroupKeyRevealTapscript) Validate(assetID ID) error {
 	// Compute the final tapscript root hash from the genesis asset ID and
 	// the custom tapscript subtree root hash.
-	tapscript, err := NewGroupKeyTapscriptRoot(assetID, g.customSubtreeRoot)
+	tapscript, err := NewGroupKeyTapscriptRoot(
+		g.version, assetID, g.customSubtreeRoot,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to compute tapscript root hash: %w",
 			err)
@@ -1182,12 +1236,29 @@ func (g *GroupKeyRevealTapscript) Validate(assetID ID) error {
 	return nil
 }
 
+// GkrV1Version is the version of the group key reveal.
+//
+// Version 1 is the original version that's based on an OP_RETURN.
+//
+// Version 2 is a follow up version that instead uses a Pedersen commitment.
+type GkrV1Version = uint8
+
+const (
+	// OpReturnVersion is the version of the group key reveal that uses an
+	// OP_RETURN.
+	OpReturnVersion GkrV1Version = 1
+
+	// PedersenVersion is the version of the group key reveal that uses a
+	// Pedersen commitment.
+	PedersenVersion GkrV1Version = 2
+)
+
 // GroupKeyRevealV1 is a version 1 group key reveal type for representing the
 // data used to derive and verify the tweaked key used to identify an asset
 // group.
 type GroupKeyRevealV1 struct {
 	// version is the version of the group key reveal.
-	version uint8
+	version GkrV1Version
 
 	// internalKey refers to the internal key used to derive the asset
 	// group key. Typically, this internal key is the user's signing public
@@ -1203,13 +1274,13 @@ type GroupKeyRevealV1 struct {
 var _ GroupKeyReveal = (*GroupKeyRevealV1)(nil)
 
 // NewGroupKeyRevealV1 creates a new version 1 group key reveal instance.
-func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
+func NewGroupKeyRevealV1(version GkrV1Version, internalKey btcec.PublicKey,
 	genesisAssetID ID,
 	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealV1, error) {
 
 	// Compute the final tapscript root.
 	gkrTapscript, err := NewGroupKeyTapscriptRoot(
-		genesisAssetID, customRoot,
+		version, genesisAssetID, customRoot,
 	)
 	if err != nil {
 		return GroupKeyRevealV1{}, fmt.Errorf("failed to generate "+
@@ -1217,7 +1288,7 @@ func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
 	}
 
 	return GroupKeyRevealV1{
-		version:     1,
+		version:     version,
 		internalKey: ToSerialized(&internalKey),
 		tapscript:   gkrTapscript,
 	}, nil
@@ -1248,7 +1319,8 @@ func (g *GroupKeyRevealV1) ScriptSpendControlBlock(
 	// root.
 	if len(g.tapscript.customSubtreeInclusionProof) == 0 {
 		gkrTapscript, err := NewGroupKeyTapscriptRoot(
-			genesisAssetID, g.tapscript.customSubtreeRoot,
+			g.version, genesisAssetID,
+			g.tapscript.customSubtreeRoot,
 		)
 		if err != nil {
 			return txscript.ControlBlock{}, fmt.Errorf("failed to "+

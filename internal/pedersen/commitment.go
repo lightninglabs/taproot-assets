@@ -144,3 +144,8 @@ func (c Commitment) Verify(op Opening) bool {
 
 	return c.point.IsEqual(&commitPoint)
 }
+
+// Point returns the underlying point of the commitment.
+func (c Commitment) Point() btcec.PublicKey {
+	return c.point
+}

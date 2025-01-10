@@ -272,7 +272,8 @@ func TestProofEncodingGroupKeyRevealV1(t *testing.T) {
 	internalKey := test.RandPubKey(t)
 	customRoot := chainhash.Hash(test.RandBytes(32))
 	groupKeyReveal, err := asset.NewGroupKeyRevealV1(
-		*internalKey, genesis.ID(), fn.Some(customRoot),
+		asset.OpReturnVersion, *internalKey, genesis.ID(),
+		fn.Some(customRoot),
 	)
 	require.NoError(t, err)
 

@@ -16,6 +16,8 @@ import (
 type testCaseGkrEncodeDecode struct {
 	testName string
 
+	version GkrV1Version
+
 	internalKey       btcec.PublicKey
 	genesisAssetID    ID
 	customSubtreeRoot fn.Option[chainhash.Hash]
@@ -24,7 +26,8 @@ type testCaseGkrEncodeDecode struct {
 // GroupKeyReveal generates a GroupKeyReveal instance from the test case.
 func (tc testCaseGkrEncodeDecode) GroupKeyReveal() (GroupKeyReveal, error) {
 	gkr, err := NewGroupKeyRevealV1(
-		tc.internalKey, tc.genesisAssetID, tc.customSubtreeRoot,
+		tc.version, tc.internalKey, tc.genesisAssetID,
+		tc.customSubtreeRoot,
 	)
 
 	return &gkr, err
@@ -167,6 +170,14 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 		// Randomly decide whether to include a custom script.
 		hasCustomScript := rapid.Bool().Draw(t, "has_custom_script")
 
+		// Version should be either 1 or 2.
+		var version GkrV1Version
+		if rapid.Bool().Draw(t, "version") {
+			version = OpReturnVersion
+		} else {
+			version = PedersenVersion
+		}
+
 		// If a custom script is included, generate a random script leaf
 		// and subtree root.
 		var customSubtreeRoot fn.Option[chainhash.Hash]
@@ -190,6 +201,7 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 		// Create a new GroupKeyReveal instance from the random test
 		// inputs.
 		gkrV1, err := NewGroupKeyRevealV1(
+			version,
 			internalKey,
 			genesisAssetID,
 			customSubtreeRoot,
