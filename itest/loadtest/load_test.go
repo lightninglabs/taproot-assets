@@ -5,6 +5,7 @@ package loadtest
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 	"time"
 
@@ -124,11 +125,5 @@ func shouldRunCase(name string, configuredCases []string) bool {
 		return true
 	}
 
-	for _, c := range configuredCases {
-		if c == name {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(configuredCases, name)
 }
