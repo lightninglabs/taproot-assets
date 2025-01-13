@@ -228,6 +228,10 @@ type FundParams struct {
 // SealParams change how asset groups in a minting batch are created.
 type SealParams struct {
 	GroupWitnesses []asset.PendingGroupWitness
+
+	// SignedGroupVirtualPsbts are the signed group virtual PSBTs that
+	// will be used to create the group witness for the asset group.
+	SignedGroupVirtualPsbts []psbt.Packet
 }
 
 func newStateParamReq[T, S any](req reqType, param S) *stateParamReq[T, S] {
