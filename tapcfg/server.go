@@ -8,6 +8,7 @@ import (
 	"fmt"
 
 	"github.com/btcsuite/btclog"
+	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -126,8 +127,14 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return db.WithTx(tx)
 		},
 	)
+
+	cfgLogger.Debugf("multiverse_cache=%v",
+		spew.Sdump(cfg.Universe.MultiverseCaches))
+
 	multiverse := tapdb.NewMultiverseStore(
-		multiverseDB, tapdb.DefaultMultiverseStoreConfig(),
+		multiverseDB, &tapdb.MultiverseStoreConfig{
+			Caches: *cfg.Universe.MultiverseCaches,
+		},
 	)
 
 	uniStatsDB := tapdb.NewTransactionExecutor(
