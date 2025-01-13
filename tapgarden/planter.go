@@ -1702,6 +1702,50 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	return nil
 }
 
+// matchPsbtToGroupReq attempts to match a signed group virtual PSBT to a
+// corresponding group key request.
+func matchPsbtToGroupReq(psbt psbt.Packet,
+	groupReqs []asset.GroupKeyRequest) (fn.Option[asset.GroupKeyRequest],
+	error) {
+
+	// Sanity check PSBT.
+	if len(psbt.Inputs) != 1 {
+		return fn.None[asset.GroupKeyRequest](), fmt.Errorf(
+			"PSBT must have a single input")
+	}
+
+	psbtInPrevOut := psbt.UnsignedTx.TxIn[0].PreviousOutPoint
+
+	// Match the signed PSBT to the corresponding group request.
+	for idxReq := range groupReqs {
+		req := groupReqs[idxReq]
+
+		// Formulate the group virtual TX for the group key request so
+		// we can extract the previous output.
+		tx, err := groupReqs[0].BuildGroupVirtualTx(
+			&tapscript.GroupTxBuilder{},
+		)
+		if err != nil {
+			return fn.None[asset.GroupKeyRequest](), err
+		}
+
+		// Sanity check that the group virtual TX.
+		if len(tx.Tx.TxIn) != 1 {
+			return fn.None[asset.GroupKeyRequest](), fmt.Errorf(
+				"group virtual TX must have a single input")
+		}
+		vTxInPrevOut := tx.Tx.TxIn[0].PreviousOutPoint
+
+		// If the previous output of the signed PSBT matches the
+		// previous output of the group virtual TX, we have a match.
+		if vTxInPrevOut.Hash == psbtInPrevOut.Hash {
+			return fn.Some(req), nil
+		}
+	}
+
+	return fn.None[asset.GroupKeyRequest](), nil
+}
+
 // sealBatch will verify that each grouped asset in the pending batch has an
 // asset group witness, and will attempt to create asset group witnesses when
 // possible if they are not provided. After all asset group witnesses have been
@@ -1791,7 +1835,71 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 			return nil, fmt.Errorf("witness has no matching "+
 				"seedling: %v", wit)
 		}
+
 		externalWitnesses[wit.GenID] = wit
+	}
+
+	// Extract witnesses from signed group virtual PSBTs.
+	for idxPsbt := range params.SignedGroupVirtualPsbts {
+		psbtPacket := params.SignedGroupVirtualPsbts[idxPsbt]
+
+		// Match the signed PSBT to the corresponding group request.
+		groupReqMatch, err := matchPsbtToGroupReq(
+			psbtPacket, groupReqs,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("encountered error while "+
+				"matching signed PSBT to group request: %w",
+				err)
+		}
+
+		// Ensure that a matching group key reveal has been found.
+		if groupReqMatch.IsNone() {
+			return nil, fmt.Errorf("failed to find matching " +
+				"group key request for signed group virtual " +
+				"PSBT")
+		}
+
+		// Ensure that an external witness has not already been
+		// specified for the given genesis asset ID.
+		genesisAssetID := fn.MapOptionZ(
+			groupReqMatch,
+			func(req asset.GroupKeyRequest) asset.ID {
+				return req.NewAsset.ID()
+			},
+		)
+
+		if _, ok := externalWitnesses[genesisAssetID]; ok {
+			return nil, fmt.Errorf("signed PSBT is a duplicate "+
+				"witness for asset ID: %v", genesisAssetID)
+		}
+
+		// Finalize the signed PSBT.
+		err = psbt.MaybeFinalizeAll(&psbtPacket)
+		if err != nil {
+			return nil, fmt.Errorf("unable to finalize signed "+
+				"PSBT for asset ID: %v, %w", genesisAssetID,
+				err)
+		}
+
+		// Extract the signed transaction from the PSBT.
+		tx, err := psbt.Extract(&psbtPacket)
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract signed "+
+				"PSBT for asset ID: %v, %w", genesisAssetID,
+				err)
+		}
+
+		if len(tx.TxIn) != 1 {
+			return nil, fmt.Errorf("expected exactly 1 input in "+
+				"signed PSBT for asset ID: %v", genesisAssetID)
+		}
+
+		// Add the witness to the set of external witnesses.
+		externalWitnesses[genesisAssetID] = asset.PendingGroupWitness{
+			GenID:   genesisAssetID,
+			Witness: tx.TxIn[0].Witness,
+		}
 	}
 
 	assetGroups := make([]*asset.AssetGroup, 0, len(groupReqs))
