@@ -846,9 +846,14 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 		// Sync failures are expected from Universe servers that do not
 		// have a relevant universe root.
 		if err != nil {
-			log.Debugf("asset lookup for %v failed with remote"+
-				"server: %v", assetID.String(), addr.HostStr())
-			//lint:ignore nilerr failure is expected and logged
+			log.Warnf("Asset lookup failed: asset_id=%v, "+
+				"remote_server=%v: %v", assetID.String(),
+				addr.HostStr(), err)
+
+			// We don't want to abort syncing here, as this might
+			// just be one server in our list and returning an error
+			// would cause us to stop trying the other servers.
+			// lint:ignore nilerr failure is expected and logged.
 			return nil
 		}
 
@@ -856,8 +861,16 @@ func (f *FederationEnvoy) SyncAssetInfo(ctx context.Context,
 		// one universe root.
 		if syncDiff != nil {
 			if len(syncDiff) != 1 {
-				log.Debugf("unexpected number of sync diffs: "+
-					"%v", len(syncDiff))
+				log.Warnf("Unexpected number of sync diffs "+
+					"when looking up asset: num_diffs=%d, "+
+					"asset_id=%v, remote_server=%v",
+					len(syncDiff), assetID.String(),
+					addr.HostStr())
+
+				// We don't want to abort syncing here, as this
+				// might just be one server in our list and
+				// returning an error would cause us to stop
+				// trying the other servers.
 				return nil
 			}
 
