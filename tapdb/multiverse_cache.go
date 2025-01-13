@@ -294,6 +294,7 @@ func newSyncerRootNodeCache(enabled bool,
 		preAllocSize:  preAllocSize,
 		universeRoots: rootsMap,
 		cacheLogger:   newCacheLogger("syncer_universe_roots"),
+		enabled:       enabled,
 	}
 }
 
