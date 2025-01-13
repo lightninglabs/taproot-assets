@@ -5,7 +5,10 @@ import (
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -20,6 +23,30 @@ func generateRandomBytes(t *rapid.T) [sha256.Size]byte {
 	copy(result[:], bytes)
 
 	return result
+}
+
+func TestNumsCommitment(t *testing.T) {
+	t.Parallel()
+
+	randAssetID := test.RandBytes(32)
+	msg := chainhash.HashH(randAssetID)
+
+	// Formulate a Pedersen commitment to the message.
+	opening := Opening{
+		Msg:  msg,
+		NUMs: fn.Some(input.TaprootNUMSKey),
+	}
+
+	commitment := NewCommitment(opening)
+	pedersenCommitment := commitment.Point()
+
+	// Tweak the NUMs key with the message hash.
+	tweakedNumsKey := input.TweakPubKeyWithTweak(
+		&input.TaprootNUMSKey, msg[:],
+	)
+
+	// The tweaked NUMs key should be equal to the Pedersen commitment.
+	require.True(t, pedersenCommitment.IsEqual(tweakedNumsKey))
 }
 
 // TestPedersenCommitmentProperties tests various properties of Pedersen
