@@ -589,7 +589,14 @@
             "type": "object",
             "$ref": "#/definitions/taprpcGroupWitness"
           },
-          "description": "The assetID, witness pairs that authorize asset membership in a group."
+          "description": "The assetID, witness pairs that authorize asset membership in a group.\nThis field should not be used in conjunction with\n`signed_group_virtual_psbts`; use one or the other."
+        },
+        "signed_group_virtual_psbts": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "The base64 encoded signed group virtual PSBTs.\nThis field should not be used in conjunction with `group_witnesses`;\nuse one or the other."
         }
       }
     },
