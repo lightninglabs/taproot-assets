@@ -195,6 +195,16 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 		return resp, nil
 	}
 
+	// We now run some validation checks on the asset HTLC.
+	err = s.validateAssetHTLC(htlc)
+	if err != nil {
+		log.Errorf("Failed to validate asset HTLC: %v", err)
+
+		resp.CancelSet = true
+
+		return resp, nil
+	}
+
 	// Convert the total asset amount to milli-satoshis using the price from
 	// the accepted quote.
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
@@ -365,6 +375,43 @@ func isAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 	}
 
 	return false
+}
+
+// validateAssetHTLC runs a couple of checks on the provided asset HTLC.
+func (s *AuxInvoiceManager) validateAssetHTLC(htlc *rfqmsg.Htlc) error {
+	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
+
+	// Retrieve the asset identifier from the RFQ quote.
+	identifier, err := s.identifierFromQuote(rfqID)
+	if err != nil {
+		return fmt.Errorf("could not extract assetID from "+
+			"quote: %v", err)
+	}
+
+	if !identifier.HasId() {
+		return fmt.Errorf("asset specifier has empty assetID")
+	}
+
+	// Check for each of the asset balances of the HTLC that the identifier
+	// matches that of the RFQ quote.
+	for _, v := range htlc.Balances() {
+		err := fn.MapOptionZ(
+			identifier.ID(), func(id asset.ID) error {
+				if v.AssetID.Val != id {
+					return fmt.Errorf("mismatch between " +
+						"htlc asset ID and rfq asset " +
+						"ID")
+				}
+
+				return nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Stop signals for an aux invoice manager to gracefully exit.
