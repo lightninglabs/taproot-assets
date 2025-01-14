@@ -2,11 +2,13 @@ package asset
 
 import (
 	"bytes"
+	"math/rand"
 	"testing"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/stretchr/testify/require"
@@ -162,6 +164,12 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 		// Generate a random internal key.
 		internalKeyBytes := rapid.SliceOfN(rapid.Byte(), 32, 32).
 			Draw(t, "internal_key_bytes")
+
+		// The internal key bytes shouldn't be all zero.
+		if bytes.Equal(internalKeyBytes, make([]byte, 32)) {
+			return
+		}
+
 		_, publicKey := btcec.PrivKeyFromBytes(internalKeyBytes)
 		internalKey := *publicKey
 
@@ -272,4 +280,119 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 			)
 		}
 	})
+}
+
+// TestNonSpendableLeafScript tests that the unspendable leaf script is actually
+// unspendable.
+func TestNonSpendableLeafScript(t *testing.T) {
+	var assetID ID
+	_, err := rand.Read(assetID[:])
+	require.NoError(t, err)
+
+	internalKey := test.RandPubKey(t)
+
+	const amt = 1000
+
+	testCases := []struct {
+		name string
+
+		version   NonSpendLeafVersion
+		errString string
+	}{
+
+		{
+			name:      "op_return",
+			version:   OpReturnVersion,
+			errString: "script returned early",
+		},
+		{
+			name:      "pedersen",
+			version:   PedersenVersion,
+			errString: "signature not empty on failed checksig",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			// For this test, we'll just have the test leaf be the
+			// only element in the script tree.
+			testLeaf, err := NewNonSpendableScriptLeaf(
+				testCase.version, assetID[:],
+			)
+			require.NoError(t, err)
+
+			// From the script tree, we'll then create the taproot
+			// output public key.
+			scriptTree := txscript.AssembleTaprootScriptTree(
+				testLeaf,
+			)
+			rootHash := scriptTree.RootNode.TapHash()
+			outputKey := txscript.ComputeTaprootOutputKey(
+				internalKey, rootHash[:],
+			)
+
+			// Finally, we'll make the dummy spend transaction, and
+			// the output script that we'll attempt to spend.
+			spendTx := wire.NewMsgTx(1)
+			spendTx.AddTxIn(&wire.TxIn{})
+
+			leafScript, err := txscript.PayToTaprootScript(
+				outputKey,
+			)
+			require.NoError(t, err)
+
+			prevOuts := txscript.NewCannedPrevOutputFetcher(
+				leafScript, amt,
+			)
+			sigHash := txscript.NewTxSigHashes(spendTx, prevOuts)
+
+			// If this is the Pedersen variant, then we'll actually
+			// need to generate a signature.
+			var sig []byte
+			if testCase.version == PedersenVersion {
+				privKey, _ := btcec.PrivKeyFromBytes(assetID[:])
+
+				sig, err = txscript.RawTxInTapscriptSignature(
+					spendTx, sigHash, 0, amt, leafScript,
+					testLeaf, txscript.SigHashAll, privKey,
+				)
+				require.NoError(t, err)
+			}
+
+			proofs := scriptTree.LeafMerkleProofs[0]
+			ctrlBlock := proofs.ToControlBlock(internalKey)
+			ctrlBockBytes, err := ctrlBlock.ToBytes()
+			require.NoError(t, err)
+
+			// The final witness template is just the script, then
+			// the control block.
+			finalWitness := wire.TxWitness{
+				testLeaf.Script, ctrlBockBytes,
+			}
+
+			// If we have a sig, then we'll add this on as well to
+			// ensure that even a well crafted signature is
+			// rejected.
+			if sig != nil {
+				finalWitness = append(
+					[][]byte{sig}, finalWitness...,
+				)
+			}
+
+			spendTx.TxIn[0].Witness = finalWitness
+
+			// Finally, we'll execute the spend. This should fail if
+			// the leaf is actually unspendable.
+			vm, err := txscript.NewEngine(
+				leafScript, spendTx, 0,
+				txscript.StandardVerifyFlags, nil, sigHash,
+				amt, prevOuts,
+			)
+			require.NoError(t, err)
+
+			err = vm.Execute()
+			require.Error(t, err)
+			require.ErrorContains(t, err, testCase.errString)
+		})
+	}
 }
