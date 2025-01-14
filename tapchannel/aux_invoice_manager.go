@@ -198,6 +198,19 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	// Convert the total asset amount to milli-satoshis using the price from
 	// the accepted quote.
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
+
+	assetID, err := s.assetIDFromQuote(rfqID)
+	if err != nil {
+		return nil, fmt.Errorf("could not extract assetID from "+
+			"quote: %v", err)
+	}
+	for _, v := range htlc.Balances() {
+		if v.AssetID.Val != *assetID {
+			return nil, fmt.Errorf("mismatch between htlc asset " +
+				"ID and rfq quote asset ID")
+		}
+	}
+
 	assetRate, err := s.priceFromQuote(rfqID)
 	if err != nil {
 		return nil, fmt.Errorf("unable to get price from quote with "+
