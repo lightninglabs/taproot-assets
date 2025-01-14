@@ -7,6 +7,7 @@ import (
 
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -245,6 +246,34 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	}
 
 	return resp, nil
+}
+
+// assetIDFromQuote retrieves the quote by looking up the rfq manager's maps of
+// accepted quotes based on the passed rfq ID. If there's a match, the asset
+// ID is returned.
+func (s *AuxInvoiceManager) assetIDFromQuote(
+	rfqID rfqmsg.ID) (*asset.ID, error) {
+
+	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
+
+	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
+	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
+
+	switch {
+	case isBuy:
+		if buyQuote.Request.AssetSpecifier.HasId() {
+			return buyQuote.Request.AssetSpecifier.UnwrapIdToPtr(), nil
+		}
+
+	case isSell:
+		if sellQuote.Request.AssetSpecifier.HasId() {
+			return sellQuote.Request.AssetSpecifier.UnwrapIdToPtr(), nil
+		}
+	}
+
+	return nil, fmt.Errorf("rfqID does not match any accepted buy or " +
+		"sell quote")
 }
 
 // priceFromQuote retrieves the price from the accepted quote for the given RFQ
