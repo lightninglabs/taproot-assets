@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -1143,19 +1144,21 @@ func NewNonSpendableScriptLeaf(version NonSpendLeafVersion,
 	// For the Pedersen commitment based version, we'll use a single
 	// OP_CEHCKSIG with an un-spendable key.
 	case PedersenVersion:
+		// Make sure we don't accidentally truncate the data.
+		if len(data) > sha256.Size {
+			return txscript.TapLeaf{}, fmt.Errorf("data too large")
+		}
+
 		var msg [sha256.Size]byte
 		copy(msg[:], data)
 
-		// Make a Pedersen opening that uses no mask (we don't carry on
-		// the random value, as we don't care about hiding here). We'll
-		// also use the existing NUMS point.
-		op := pedersen.Opening{
-			Msg: msg,
+		_, commitPoint, err := TweakedNumsKey(msg)
+		if err != nil {
+			return txscript.TapLeaf{}, fmt.Errorf("failed to "+
+				"derive tweaked NUMS key: %w", err)
 		}
-		commitPoint := pedersen.NewCommitment(op).Point()
 
-		commitBytes := schnorr.SerializePubKey(&commitPoint)
-
+		commitBytes := schnorr.SerializePubKey(commitPoint)
 		builder = txscript.NewScriptBuilder().AddData(commitBytes).
 			AddOp(txscript.OP_CHECKSIG)
 
@@ -1201,6 +1204,65 @@ func NewGKRTapscriptRootRecord(root *chainhash.Hash) tlv.Record {
 
 func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 	return tlv.MakePrimitiveRecord(GKRCustomSubtreeRoot, (*[32]byte)(root))
+}
+
+// NumsXPub turns the given NUMS key into an extended public key (using the x
+// coordinate of the public key as the chain code), then derives the actual key
+// to use from the derivation path 0/0. The extended key always has the mainnet
+// version, but can be converted to any network on demand by the caller with
+// CloneWithVersion().
+func NumsXPub(numsKey btcec.PublicKey) (*hdkeychain.ExtendedKey,
+	*btcec.PublicKey, error) {
+
+	keyBytes := numsKey.SerializeCompressed()
+	chainCode := keyBytes[1:]
+
+	// We use a depth of 3, emulating BIP44/49/84/86 style derivation for
+	// xpubs. We also always use mainnet to not require the caller to pass
+	// in the net params. Converting to another network is possible with
+	// CloneWithVersion().
+	const depth = 3
+	extendedNumsKey := hdkeychain.NewExtendedKey(
+		chaincfg.MainNetParams.HDPublicKeyID[:], keyBytes, chainCode,
+		[]byte{0, 0, 0, 0}, depth, 0, false,
+	)
+
+	// Derive the actual key to use from the xpub.
+	changeBranch, err := extendedNumsKey.Derive(0)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	indexBranch, err := changeBranch.Derive(0)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	actualKey, err := indexBranch.ECPubKey()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return extendedNumsKey, actualKey, nil
+}
+
+// TweakedNumsKey derives the NUMS key from the given data, then creates the
+// extended key from it and derives the actual (derived child) key to use from
+// the derivation path 0/0. The extended key always has the mainnet version, but
+// can be converted to any network on demand by the caller with
+// CloneWithVersion().
+func TweakedNumsKey(msg [32]byte) (*hdkeychain.ExtendedKey, *btcec.PublicKey,
+	error) {
+
+	// Make a Pedersen opening that uses no mask (we don't carry on
+	// the random value, as we don't care about hiding here). We'll
+	// also use the existing NUMs point.
+	op := pedersen.Opening{
+		Msg: msg,
+	}
+	commitPoint := pedersen.NewCommitment(op).Point()
+
+	return NumsXPub(commitPoint)
 }
 
 // GroupKeyRevealTapscript holds data used to derive the tapscript root, which
@@ -1274,7 +1336,10 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //   - One that uses a normal OP_CHECKSIG operator where the pubkey
 //     argument is a key that cannot be signed with. We generate this
 //     special public key using a Pedersen commitment, where the message is
-//     the asset ID (or 32 all-zero bytes in case data is nil/empty).
+//     the asset ID (or 32 all-zero bytes in case data is nil/empty). To achieve
+//     hardware wallet support, that key is then turned into an extended key
+//     (xpub) and a child key at path 0/0 is used as the actual public key that
+//     goes into the OP_CHECKSIG script.
 //
 // If `custom_root_hash` is not provided, then there is no sibling to the asset
 // ID leaf, meaning the tree only has a single leaf. This makes it possible to
@@ -1301,7 +1366,10 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //   - One that uses a normal OP_CHECKSIG operator where the pubkey
 //     argument is a key that cannot be signed with. We generate this
 //     special public key using a Pedersen commitment, where the message is
-//     the asset ID (or 32 all-zero bytes in case data is nil/empty).
+//     the asset ID (or 32 all-zero bytes in case data is nil/empty). To
+//     achieve hardware wallet support, that key is then turned into an extended
+//     key (xpub) and a child key at path 0/0 is used as the actual public key
+//     that goes into the OP_CHECKSIG script.
 type GroupKeyRevealTapscript struct {
 	// version is the version of the group key reveal that determines how
 	// the non-spendable leaf is created.
