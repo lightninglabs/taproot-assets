@@ -975,7 +975,7 @@ func NewGroupKeyV1FromExternal(version NonSpendLeafVersion,
 			"(e.g. xpub): %w", err)
 	}
 
-	root, err := NewGroupKeyTapscriptRoot(version, assetID, customRoot)
+	root, _, err := NewGroupKeyTapscriptRoot(version, assetID, customRoot)
 	if err != nil {
 		return zeroPubKey, zeroHash, fmt.Errorf("cannot derive group "+
 			"key reveal tapscript root: %w", err)
@@ -1317,26 +1317,15 @@ type GroupKeyRevealTapscript struct {
 	// tapscript tree. This subtree may define script spending conditions
 	// associated with the group key.
 	customSubtreeRoot fn.Option[chainhash.Hash]
-
-	// customSubtreeInclusionProof provides the inclusion proof for the
-	// custom tapscript subtree. It is required to spend the custom
-	// tapscript leaves within the tree.
-	//
-	// NOTE: This field should not be serialized as part of the group key
-	// reveal. It is included here to ensure it is constructed concurrently
-	// with the tapscript root, maintaining consistency and minimizing
-	// errors.
-	customSubtreeInclusionProof []byte
 }
 
 // NewGroupKeyTapscriptRoot computes the final tapscript root hash
 // which is used to derive the asset group key. The final tapscript root
 // hash is computed from the genesis asset ID and an optional custom tapscript
 // subtree root hash.
-//
-// nolint: lll
 func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
-	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealTapscript, error) {
+	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealTapscript, []byte,
+	error) {
 
 	// First, we compute the tweaked custom branch hash. This hash is
 	// derived by combining the hash of a non-spendable leaf and the root
@@ -1346,7 +1335,7 @@ func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
 	// Otherwise, we default to an empty non-spendable leaf hash as well.
 	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(version, nil)
 	if err != nil {
-		return GroupKeyRevealTapscript{}, err
+		return GroupKeyRevealTapscript{}, nil, err
 	}
 
 	// Next, we'll combine the tweaked custom branch hash with the genesis
@@ -1357,7 +1346,7 @@ func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
 		version, genesisAssetID[:],
 	)
 	if err != nil {
-		return GroupKeyRevealTapscript{}, err
+		return GroupKeyRevealTapscript{}, nil, err
 	}
 
 	// Compute the tweaked custom branch hash or leaf, depending on whether
@@ -1381,19 +1370,16 @@ func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
 	emptyNonSpendLeafHash := emptyNonSpendLeaf.TapHash()
 	assetIDLeafHash := assetIDLeaf.TapHash()
 
-	customSubtreeInclusionProof := bytes.Join(
-		[][]byte{
-			emptyNonSpendLeafHash[:],
-			assetIDLeafHash[:],
-		}, nil,
-	)
+	customSubtreeInclusionProof := bytes.Join([][]byte{
+		emptyNonSpendLeafHash[:],
+		assetIDLeafHash[:],
+	}, nil)
 
 	return GroupKeyRevealTapscript{
-		version:                     version,
-		root:                        rootHash,
-		customSubtreeRoot:           customRoot,
-		customSubtreeInclusionProof: customSubtreeInclusionProof,
-	}, nil
+		version:           version,
+		root:              rootHash,
+		customSubtreeRoot: customRoot,
+	}, customSubtreeInclusionProof, nil
 }
 
 // Validate checks that the group key reveal tapscript is well-formed and
@@ -1401,7 +1387,7 @@ func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
 func (g *GroupKeyRevealTapscript) Validate(assetID ID) error {
 	// Compute the final tapscript root hash from the genesis asset ID and
 	// the custom tapscript subtree root hash.
-	tapscript, err := NewGroupKeyTapscriptRoot(
+	tapscript, _, err := NewGroupKeyTapscriptRoot(
 		g.version, assetID, g.customSubtreeRoot,
 	)
 	if err != nil {
@@ -1503,7 +1489,7 @@ func NewGroupKeyRevealV1(version NonSpendLeafVersion,
 	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealV1, error) {
 
 	// Compute the final tapscript root.
-	gkrTapscript, err := NewGroupKeyTapscriptRoot(
+	gkrTapscript, _, err := NewGroupKeyTapscriptRoot(
 		version, genesisAssetID, customRoot,
 	)
 	if err != nil {
@@ -1520,8 +1506,6 @@ func NewGroupKeyRevealV1(version NonSpendLeafVersion,
 
 // ScriptSpendControlBlock returns the control block for the script spending
 // path in the custom tapscript subtree.
-//
-// nolint: lll
 func (g *GroupKeyRevealV1) ScriptSpendControlBlock(
 	genesisAssetID ID) (txscript.ControlBlock, error) {
 
@@ -1537,39 +1521,29 @@ func (g *GroupKeyRevealV1) ScriptSpendControlBlock(
 	outputKeyIsOdd := outputKey.SerializeCompressed()[0] ==
 		secp256k1.PubKeyFormatCompressedOdd
 
-	// If the custom subtree inclusion proof is nil, it may not have been
-	// set during decoding. Compute it, set it on the group key reveal, and
-	// validate both the computed tapscript root against the expected
+	// We now re-calculate the group key reveal tapscript root, which also
+	// gives us the inclusion proof for the custom tapscript subtree.
+	gkrTapscript, inclusionProof, err := NewGroupKeyTapscriptRoot(
+		g.version, genesisAssetID, g.tapscript.customSubtreeRoot,
+	)
+	if err != nil {
+		return txscript.ControlBlock{}, fmt.Errorf("failed to "+
+			"generate tapscript artifacts: %w", err)
+	}
+
+	// Ensure that the computed tapscript root matches the expected
 	// root.
-	if len(g.tapscript.customSubtreeInclusionProof) == 0 {
-		gkrTapscript, err := NewGroupKeyTapscriptRoot(
-			g.version, genesisAssetID,
-			g.tapscript.customSubtreeRoot,
-		)
-		if err != nil {
-			return txscript.ControlBlock{}, fmt.Errorf("failed to "+
-				"generate tapscript artifacts: %w", err)
-		}
-
-		// Ensure that the computed tapscript root matches the expected
-		// root.
-		if !gkrTapscript.root.IsEqual(&g.tapscript.root) {
-			return txscript.ControlBlock{}, fmt.Errorf("tapscript "+
-				"root mismatch (expected=%s, computed=%s)",
-				g.tapscript.root, gkrTapscript.root)
-		}
-
-		// Set the custom subtree inclusion proof on the group key
-		// reveal.
-		g.tapscript.customSubtreeInclusionProof =
-			gkrTapscript.customSubtreeInclusionProof
+	if !gkrTapscript.root.IsEqual(&g.tapscript.root) {
+		return txscript.ControlBlock{}, fmt.Errorf("tapscript "+
+			"root mismatch (expected=%s, computed=%s)",
+			g.tapscript.root, gkrTapscript.root)
 	}
 
 	return txscript.ControlBlock{
 		InternalKey:     internalKey,
 		OutputKeyYIsOdd: outputKeyIsOdd,
 		LeafVersion:     txscript.BaseLeafVersion,
-		InclusionProof:  g.tapscript.customSubtreeInclusionProof,
+		InclusionProof:  inclusionProof,
 	}, nil
 }
 

@@ -102,7 +102,6 @@ func TestGroupKeyRevealEncodeDecode(t *testing.T) {
 			// encoding/decoding.
 			gkrV1, ok := gkr.(*GroupKeyRevealV1)
 			require.True(tt, ok)
-			gkrV1.tapscript.customSubtreeInclusionProof = nil
 
 			// Compare decoded group key reveal with the original.
 			require.Equal(tt, gkrV1, gkrDecoded)
@@ -233,10 +232,6 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 			uint64(buffer.Len()),
 		)
 		require.NoError(t, err)
-
-		// Prepare for comparison by removing non-encoded fields from
-		// the original GroupKeyReveal.
-		gkrV1.tapscript.customSubtreeInclusionProof = nil
 
 		// Compare decoded with original.
 		require.Equal(t, &gkrV1, gkrDecoded)

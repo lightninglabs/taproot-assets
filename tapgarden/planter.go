@@ -849,7 +849,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 				// At this point, we are constructing the group
 				// tapscript tree root whether the
 				// customRootHash is defined.
-				tapscriptTree, err :=
+				tapscriptTree, _, err :=
 					asset.NewGroupKeyTapscriptRoot(
 						// TODO(guggero): Make this
 						// configurable in the future.
