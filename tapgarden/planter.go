@@ -163,11 +163,6 @@ func (p *PendingAssetGroup) PSBT(
 		p.GroupKeyRequest.RawKey.PubKey,
 	)
 
-	var (
-		bip32Derivation   *psbt.Bip32Derivation
-		trBip32Derivation *psbt.TaprootBip32Derivation
-	)
-
 	switch {
 	case p.GroupKeyRequest.ExternalKey.IsSome():
 		externalKey := p.GroupKeyRequest.ExternalKey.UnwrapToPtr()
@@ -177,28 +172,98 @@ func (p *PendingAssetGroup) PSBT(
 				"from external key: %w", err)
 		}
 
-		bip32Derivation = &psbt.Bip32Derivation{
+		bip32Main := &psbt.Bip32Derivation{
 			PubKey:               pubKey.SerializeCompressed(),
 			MasterKeyFingerprint: externalKey.MasterFingerprint,
 			Bip32Path:            externalKey.DerivationPath,
 		}
-		trBip32Derivation = &psbt.TaprootBip32Derivation{
-			XOnlyPubKey:          bip32Derivation.PubKey[1:],
+		trBip32Main := &psbt.TaprootBip32Derivation{
+			XOnlyPubKey:          bip32Main.PubKey[1:],
 			MasterKeyFingerprint: externalKey.MasterFingerprint,
 			Bip32Path:            externalKey.DerivationPath,
 			LeafHashes:           make([][]byte, 0),
 		}
 
-	default:
-		bip32Derivation, trBip32Derivation =
-			tappsbt.Bip32DerivationFromKeyDesc(
-				p.GroupKeyRequest.RawKey, params.HDCoinType,
-			)
-	}
+		xPub := externalKey.XPub
+		xPubPath := externalKey.DerivationPath[:xPub.Depth()]
+		packet.XPubs = append(packet.XPubs, psbt.XPub{
+			ExtendedKey:          psbt.EncodeExtendedKey(&xPub),
+			MasterKeyFingerprint: externalKey.MasterFingerprint,
+			Bip32Path:            xPubPath,
+		})
 
-	vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
-	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-		trBip32Derivation,
+		vIn.Bip32Derivation = []*psbt.Bip32Derivation{
+			bip32Main,
+		}
+		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trBip32Main,
+		}
+
+		// TODO(guggero): Make this switch dependent on the non-spend
+		// leaf version, once we allow the user to configure that.
+		if true {
+			assetID := p.AnchorGen.ID()
+			numsXPub, numsKey, err := asset.TweakedNumsKey(assetID)
+			if err != nil {
+				return nil, fmt.Errorf("error deriving nums "+
+					"key: %w", err)
+			}
+
+			// For the fake/NUMS key, we use a specific static
+			// fingerprint, which will allow us to identify it in
+			// the HWI library in order to construct the correct
+			// miniscript policy for this type of spend.
+			numsFP := asset.PedersenXPubMasterKeyFingerprint
+			numsKeyBytes := numsKey.SerializeCompressed()
+			bip32Nums := &psbt.Bip32Derivation{
+				PubKey:               numsKeyBytes,
+				MasterKeyFingerprint: numsFP,
+				// We use the same derivation path as for the
+				// "real" key, but it doesn't really matter,
+				// since it's a fake key anyway.
+				Bip32Path: externalKey.DerivationPath,
+			}
+			trBip32Nums := &psbt.TaprootBip32Derivation{
+				XOnlyPubKey:          numsKeyBytes[1:],
+				MasterKeyFingerprint: numsFP,
+				// We use the same derivation path as for the
+				// "real" key, but it doesn't really matter,
+				// since it's a fake key anyway.
+				Bip32Path:  externalKey.DerivationPath,
+				LeafHashes: make([][]byte, 0),
+			}
+
+			vIn.Bip32Derivation = append(
+				vIn.Bip32Derivation, bip32Nums,
+			)
+			vIn.TaprootBip32Derivation = append(
+				vIn.TaprootBip32Derivation, trBip32Nums,
+			)
+
+			numsXPub, err = numsXPub.CloneWithVersion(
+				params.HDPublicKeyID[:],
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error cloning nums "+
+					"key: %w", err)
+			}
+			packet.XPubs = append(packet.XPubs, psbt.XPub{
+				ExtendedKey: psbt.EncodeExtendedKey(
+					numsXPub,
+				),
+				MasterKeyFingerprint: numsFP,
+				Bip32Path:            xPubPath,
+			})
+		}
+
+	default:
+		bip32, trBip32 := tappsbt.Bip32DerivationFromKeyDesc(
+			p.GroupKeyRequest.RawKey, params.HDCoinType,
+		)
+		vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32}
+		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trBip32,
+		}
 	}
 
 	return packet, nil
@@ -906,9 +971,10 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		genTXs = append(genTXs, *genTx)
 
 		newGroupKey := &asset.GroupKey{
-			Version:       groupReq.Version,
-			RawKey:        *seedling.GroupInternalKey,
-			TapscriptRoot: seedling.GroupTapscriptRoot,
+			Version:             groupReq.Version,
+			RawKey:              *seedling.GroupInternalKey,
+			TapscriptRoot:       seedling.GroupTapscriptRoot,
+			CustomTapscriptRoot: customRootHash,
 		}
 
 		newGroups[seedlingName] = &asset.AssetGroup{
