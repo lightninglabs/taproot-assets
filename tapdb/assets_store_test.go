@@ -1759,6 +1759,84 @@ func TestAssetGroupComplexWitness(t *testing.T) {
 	require.True(t, groupKey.IsEqual(storedGroup.GroupKey))
 }
 
+// TestAssetGroupV1 tests that we can store and fetch an asset group version 1.
+func TestAssetGroupV1(t *testing.T) {
+	t.Parallel()
+
+	mintingStore, assetStore, db := newAssetStore(t)
+	ctx := context.Background()
+
+	internalKey := test.RandPubKey(t)
+	groupAnchorGen := asset.RandGenesis(t, asset.RandAssetType(t))
+	groupAnchorGen.MetaHash = [32]byte{}
+	tapscriptRoot := test.RandBytes(32)
+	customTapscriptRoot := test.RandHash()
+	groupSig := test.RandBytes(64)
+
+	// First, we'll insert all the required rows we need to satisfy the
+	// foreign key constraints needed to insert a new genesis witness.
+	genesisPointID, err := upsertGenesisPoint(
+		ctx, db, groupAnchorGen.FirstPrevOut,
+	)
+	require.NoError(t, err)
+
+	genAssetID, err := upsertGenesis(
+		ctx, db, genesisPointID, groupAnchorGen,
+	)
+	require.NoError(t, err)
+
+	groupKey := asset.GroupKey{
+		Version: asset.GroupKeyV1,
+		RawKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+		},
+		GroupPubKey:   *internalKey,
+		TapscriptRoot: tapscriptRoot,
+		CustomTapscriptRoot: fn.Some[chainhash.Hash](
+			customTapscriptRoot,
+		),
+		Witness: fn.MakeSlice(tapscriptRoot, groupSig),
+	}
+
+	// Upsert, fetch, and check the group key.
+	_, err = upsertGroupKey(
+		ctx, &groupKey, assetStore.db, genesisPointID, genAssetID,
+	)
+	require.NoError(t, err)
+
+	storedGroup, err := mintingStore.FetchGroupByGroupKey(ctx, internalKey)
+	require.NoError(t, err)
+
+	require.Equal(t, groupAnchorGen, *storedGroup.Genesis)
+	require.True(t, groupKey.IsEqual(storedGroup.GroupKey))
+
+	// Formulate a new group key where the custom tapscript root is None.
+	// Check that we can insert and fetch the group key.
+	groupKeyCustomRootNone := asset.GroupKey{
+		Version: asset.GroupKeyV1,
+		RawKey: keychain.KeyDescriptor{
+			PubKey: internalKey,
+		},
+		GroupPubKey:         *internalKey,
+		TapscriptRoot:       tapscriptRoot,
+		CustomTapscriptRoot: fn.None[chainhash.Hash](),
+		Witness:             fn.MakeSlice(tapscriptRoot, groupSig),
+	}
+
+	// Upsert, fetch, and check the group key.
+	_, err = upsertGroupKey(
+		ctx, &groupKeyCustomRootNone, assetStore.db, genesisPointID,
+		genAssetID,
+	)
+	require.NoError(t, err)
+
+	storedGroup2, err := mintingStore.FetchGroupByGroupKey(ctx, internalKey)
+	require.NoError(t, err)
+
+	require.Equal(t, groupAnchorGen, *storedGroup2.Genesis)
+	require.True(t, groupKeyCustomRootNone.IsEqual(storedGroup2.GroupKey))
+}
+
 // TestAssetGroupKeyUpsert tests that if you try to insert another asset group
 // key with the same tweaked_group_key, then only one is actually created.
 func TestAssetGroupKeyUpsert(t *testing.T) {
