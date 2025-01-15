@@ -1223,11 +1223,12 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // The tapscript tree is formulated to guarantee that only one recognizable
 // genesis asset ID can exist in the tree. The ID is uniquely placed in the
 // first leaf layer, which contains exactly two nodes: the ID leaf and its
-// sibling. The sibling node is deliberately constructed to ensure it cannot be
-// mistaken for a genesis asset ID leaf.
+// sibling (if present). The sibling node is deliberately constructed to ensure
+// it cannot be mistaken for a genesis asset ID leaf.
 //
 // The sibling node, `[tweaked_custom_branch]`, of the genesis asset ID leaf is
-// a branch node by design. It serves two purposes:
+// a branch node by design and is only required if the user wants to use custom
+// scripts. It serves two purposes:
 //  1. It ensures that only one genesis asset ID leaf can exist in the first
 //     layer, as it is not a valid genesis asset ID leaf.
 //  2. It optionally supports user-defined script spending leaves, enabling
@@ -1237,10 +1238,6 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // `[tweaked_custom_branch]` as a single node hash, `custom_root_hash`. This
 // hash may represent either a single leaf or the root hash of an entire
 // subtree.
-//
-// If `custom_root_hash` is not provided, it defaults to a bare `non_spend()` as
-// well. In this case, no valid script spending path can correspond to the
-// custom subtree root hash due to the pre-image resistance of SHA-256.
 //
 // A sibling node is included alongside the `custom_root_hash` node. This
 // sibling is a non-spendable script leaf containing `non_spend()`. Its
@@ -1265,8 +1262,35 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //     1. It cannot be misinterpreted as a genesis asset ID leaf.
 //     2. It optionally includes user-defined script spending leaves.
 //   - <custom_root_hash> is the root hash of the custom tapscript subtree.
-//     If not specified, it defaults to the same non_spend() that's on the left
-//     side.
+//     If not specified, the whole right branch [tweaked_custom_branch] is
+//     omitted (see below).
+//   - non_spend(data) is a non-spendable script leaf that contains the data
+//     argument. The data can be nil/empty in which case, the un-spendable
+//     script doesn't commit to the data. Its presence ensures that
+//     [tweaked_custom_branch] remains a branch node and cannot be a valid
+//     genesis asset ID leaf. Two non-spendable script leaves are possible:
+//   - One that uses an OP_RETURN to create a script that will "return
+//     early" and terminate the script execution.
+//   - One that uses a normal OP_CHECKSIG operator where the pubkey
+//     argument is a key that cannot be signed with. We generate this
+//     special public key using a Pedersen commitment, where the message is
+//     the asset ID (or 32 all-zero bytes in case data is nil/empty).
+//
+// If `custom_root_hash` is not provided, then there is no sibling to the asset
+// ID leaf, meaning the tree only has a single leaf. This makes it possible to
+// turn the single asset ID leaf into a miniscript policy, either using
+// raw(hex(OP_RETURN <asset_id>)) or pk(<Pedersen commitment key>).
+// The final tapscript tree with no custom scripts adopts the following
+// structure:
+//
+//	      [tapscript_root]
+//	             |
+//	[non_spend(<genesis asset ID>)]
+//
+// Where:
+//   - [tapscript_root] is the root of the final tapscript tree.
+//   - [non_spend(<genesis asset ID>)] is a first-layer non-spendable script
+//     leaf that commits to the genesis asset ID.
 //   - non_spend(data) is a non-spendable script leaf that contains the data
 //     argument. The data can be nil/empty in which case, the un-spendable
 //     script doesn't commit to the data. Its presence ensures that
@@ -1325,26 +1349,32 @@ func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
 		return GroupKeyRevealTapscript{}, err
 	}
 
-	// Compute the tweaked custom branch hash.
-	tweakedCustomBranchHash := TapBranchHash(
-		emptyNonSpendLeaf.TapHash(),
-		customRoot.UnwrapOr(emptyNonSpendLeaf.TapHash()),
-	)
-
 	// Next, we'll combine the tweaked custom branch hash with the genesis
 	// asset ID leaf hash to compute the final tapscript root hash.
 	//
 	// Construct a non-spendable tapscript leaf for the genesis asset ID.
-	assetIDLeaf, err := NewNonSpendableScriptLeaf(version, genesisAssetID[:])
+	assetIDLeaf, err := NewNonSpendableScriptLeaf(
+		version, genesisAssetID[:],
+	)
 	if err != nil {
 		return GroupKeyRevealTapscript{}, err
 	}
 
-	// Compute final tapscript root hash. This is the root hash of the
-	// tapscript tree that is used to derive the asset group key.
-	rootHash := TapBranchHash(
-		assetIDLeaf.TapHash(), tweakedCustomBranchHash,
-	)
+	// Compute the tweaked custom branch hash or leaf, depending on whether
+	// we have a custom tapscript subtree root hash. We move the
+	// un-spendable leaf to level 1 if there is no custom root hash. This is
+	// mainly due to the fact that we require valid scripts in order to have
+	// hardware wallet support. An empty leaf cannot be represented as a
+	// list of scripts in a PSBT. That also means that custom scripts are
+	// currently not compatible with miniscript policy based hardware
+	// wallets.
+	rootHash := assetIDLeaf.TapHash()
+	customRoot.WhenSome(func(customRoot chainhash.Hash) {
+		rightHash := TapBranchHash(
+			emptyNonSpendLeaf.TapHash(), customRoot,
+		)
+		rootHash = TapBranchHash(assetIDLeaf.TapHash(), rightHash)
+	})
 
 	// Construct the custom subtree inclusion proof. This proof is required
 	// to spend custom tapscript leaves in the tapscript tree.
