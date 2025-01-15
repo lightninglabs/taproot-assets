@@ -167,7 +167,8 @@ func randAsset(t *testing.T, genOpts ...assetGenOpt) *asset.Asset {
 	}
 
 	groupReq := asset.NewGroupKeyRequestNoErr(
-		t, groupKeyDesc, initialGen, protoAsset, nil,
+		t, groupKeyDesc, fn.None[asset.ExternalKey](), initialGen,
+		protoAsset, nil, fn.None[chainhash.Hash](),
 	)
 	genTx, err := groupReq.BuildGroupVirtualTx(&genTxBuilder)
 	require.NoError(t, err)
