@@ -10,6 +10,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -887,7 +888,10 @@ func TestAssetGroupKey(t *testing.T) {
 	// TweakTaprootPrivKey modifies the private key that is passed in! We
 	// need to provide a copy to arrive at the same result.
 	protoAsset := NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
-	groupReq := NewGroupKeyRequestNoErr(t, fakeKeyDesc, g, protoAsset, nil)
+	groupReq := NewGroupKeyRequestNoErr(
+		t, fakeKeyDesc, fn.None[ExternalKey](), g, protoAsset, nil,
+		fn.None[chainhash.Hash](),
+	)
 	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.NoError(t, err)
 
@@ -905,7 +909,8 @@ func TestAssetGroupKey(t *testing.T) {
 	tweakedKey = txscript.TweakTaprootPrivKey(*internalKey, tapTweak)
 
 	groupReq = NewGroupKeyRequestNoErr(
-		t, test.PubToKeyDesc(privKey.PubKey()), g, protoAsset, tapTweak,
+		t, test.PubToKeyDesc(privKey.PubKey()), fn.None[ExternalKey](),
+		g, protoAsset, tapTweak, fn.None[chainhash.Hash](),
 	)
 	genTx, err = groupReq.BuildGroupVirtualTx(&genBuilder)
 	require.NoError(t, err)

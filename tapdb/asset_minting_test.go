@@ -132,7 +132,8 @@ func storeGroupGenesis(t *testing.T, ctx context.Context, initGen asset.Genesis,
 		t, assetGen, nil, asset.RandScriptKey(t),
 	)
 	groupReq := asset.NewGroupKeyRequestNoErr(
-		t, privDesc, initGen, genProtoAsset, nil,
+		t, privDesc, fn.None[asset.ExternalKey](), initGen,
+		genProtoAsset, nil, fn.None[chainhash.Hash](),
 	)
 	genTx, err := groupReq.BuildGroupVirtualTx(&genTxBuilder)
 	require.NoError(t, err)
@@ -671,8 +672,10 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 		if groupInfo != nil {
 			groupReq := asset.NewGroupKeyRequestNoErr(
 				t, groupInfo.GroupKey.RawKey,
+				fn.None[asset.ExternalKey](),
 				*groupInfo.Genesis, protoAsset,
 				groupInfo.GroupKey.TapscriptRoot,
+				fn.None[chainhash.Hash](),
 			)
 			genTx, err := groupReq.BuildGroupVirtualTx(
 				&genTxBuilder,
@@ -690,8 +693,10 @@ func seedlingsToAssetRoot(t *testing.T, genesisPoint wire.OutPoint,
 			groupKeyRaw, newGroupPriv := test.RandKeyDesc(t)
 			genSigner := asset.NewMockGenesisSigner(newGroupPriv)
 			groupReq := asset.NewGroupKeyRequestNoErr(
-				t, groupKeyRaw, assetGen, protoAsset,
+				t, groupKeyRaw, fn.None[asset.ExternalKey](),
+				assetGen, protoAsset,
 				seedling.GroupTapscriptRoot,
+				fn.None[chainhash.Hash](),
 			)
 			genTx, err := groupReq.BuildGroupVirtualTx(
 				&genTxBuilder,

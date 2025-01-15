@@ -617,11 +617,13 @@ func NewAssetNoErr(t testing.TB, gen Genesis, amt, locktime, relocktime uint64,
 }
 
 func NewGroupKeyRequestNoErr(t testing.TB, internalKey keychain.KeyDescriptor,
-	gen Genesis, newAsset *Asset, scriptRoot []byte) *GroupKeyRequest {
+	externalKey fn.Option[ExternalKey], gen Genesis, newAsset *Asset,
+	scriptRoot []byte,
+	customTapscriptRoot fn.Option[chainhash.Hash]) *GroupKeyRequest {
 
 	req, err := NewGroupKeyRequest(
-		internalKey, fn.None[ExternalKey](), gen, newAsset, scriptRoot,
-		fn.None[chainhash.Hash](),
+		internalKey, externalKey, gen, newAsset, scriptRoot,
+		customTapscriptRoot,
 	)
 	require.NoError(t, err)
 
