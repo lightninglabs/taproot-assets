@@ -1476,8 +1476,8 @@ func TestTapCommitmentDeepCopy(t *testing.T) {
 	)
 }
 
-// TestTaprootAssetCommitmentScript tests that we're able to properly verify if
-// a given script is a valid Taproot Asset commitment script or not.
+// TestIsTaprootAssetCommitmentScript tests that we're able to properly
+// verify if a given script is a valid Taproot Asset commitment script or not.
 func TestIsTaprootAssetCommitmentScript(t *testing.T) {
 	t.Parallel()
 

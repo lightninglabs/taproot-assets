@@ -386,7 +386,7 @@ func testCollectibleGroupSend(t *harnessTest) {
 	}
 }
 
-// sendAsset sends the given number of assets of the given type from the given
+// sendAssets sends the given number of assets of the given type from the given
 // node to the other node.
 func sendAssets(t *testing.T, ctx context.Context, numAssets uint64,
 	assetType taprpc.AssetType, send, receive *tapdHarness,

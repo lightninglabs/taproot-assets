@@ -1007,7 +1007,7 @@ func TestDeriveGroupKey(t *testing.T) {
 	require.NotNil(t, groupKey)
 }
 
-// TestAssetWitness tests that the asset group witness can be serialized and
+// TestAssetWitnesses tests that the asset group witness can be serialized and
 // parsed correctly, and that signature detection works correctly.
 func TestAssetWitnesses(t *testing.T) {
 	t.Parallel()
