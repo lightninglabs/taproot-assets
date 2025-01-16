@@ -12,15 +12,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+const (
+	// defaultTimeout is the default timeout.
+	defaultTimeout = 25 * time.Second
+)
+
 var (
 	// serverMetrics is a global variable that holds the Prometheus metrics
 	// for the gRPC server.
 	serverMetrics *grpc_prometheus.ServerMetrics
-)
 
-const (
-	// dbTimeout is the default database timeout.
-	dbTimeout = 20 * time.Second
+	// promTimeout is the timeout used by the prometheus collectors.
+	promTimeout time.Duration
 )
 
 // PrometheusExporter is a metric exporter that uses Prometheus directly. The
@@ -44,6 +47,11 @@ func (p *PrometheusExporter) Start() error {
 	// Make sure that the server metrics has been created.
 	if serverMetrics == nil {
 		return fmt.Errorf("server metrics not set")
+	}
+
+	promTimeout = defaultTimeout
+	if p.config.CollectorRPCTimeout.Seconds() != 0 {
+		promTimeout = p.config.CollectorRPCTimeout
 	}
 
 	// Create a custom Prometheus registry.
