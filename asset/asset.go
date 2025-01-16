@@ -20,6 +20,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -27,6 +28,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/internal/pedersen"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
@@ -139,7 +141,7 @@ var (
 	// EmptyGenesisID is the ID of the empty genesis struct.
 	EmptyGenesisID = EmptyGenesis.ID()
 
-	// NUMSBytes is the NUMs point we'll use for un-spendable script keys.
+	// NUMSBytes is the NUMS point we'll use for un-spendable script keys.
 	// It was generated via a try-and-increment approach using the phrase
 	// "taproot-assets" with SHA2-256. The code for the try-and-increment
 	// approach can be seen here:
@@ -957,7 +959,8 @@ func (e *ExternalKey) PubKey() (btcec.PublicKey, error) {
 // NewGroupKeyV1FromExternal creates a new V1 group key from an external key and
 // asset ID. The customRootHash is optional and can be used to specify a custom
 // tapscript root.
-func NewGroupKeyV1FromExternal(externalKey ExternalKey, assetID ID,
+func NewGroupKeyV1FromExternal(version NonSpendLeafVersion,
+	externalKey ExternalKey, assetID ID,
 	customRoot fn.Option[chainhash.Hash]) (btcec.PublicKey, chainhash.Hash,
 	error) {
 
@@ -973,7 +976,7 @@ func NewGroupKeyV1FromExternal(externalKey ExternalKey, assetID ID,
 			"(e.g. xpub): %w", err)
 	}
 
-	root, err := NewGroupKeyTapscriptRoot(assetID, customRoot)
+	root, _, err := NewGroupKeyTapscriptRoot(version, assetID, customRoot)
 	if err != nil {
 		return zeroPubKey, zeroHash, fmt.Errorf("cannot derive group "+
 			"key reveal tapscript root: %w", err)
@@ -1122,21 +1125,50 @@ type GroupKeyReveal interface {
 // that includes the specified data. If the data is nil, the leaf will not
 // contain any data but will still be a valid non-spendable script leaf.
 //
-// The script leaf is made non-spendable by including an OP_RETURN opcode at the
-// start of the script. While the script can still be executed, it will always
-// fail and cannot be used to spend funds.
-func NewNonSpendableScriptLeaf(data []byte) (txscript.TapLeaf, error) {
-	// Construct a script builder and add the OP_RETURN opcode to the start
-	// of the script to ensure that the script is non-executable.
-	scriptBuilder := txscript.NewScriptBuilder().AddOp(txscript.OP_RETURN)
+// The script leaf is made non-spendable by including an OP_RETURN at the start
+// of the script (or an OP_CHECKSIG at the end, depending on the version). While
+// the script can still be executed, it will always fail and cannot be used to
+// spend funds.
+func NewNonSpendableScriptLeaf(version NonSpendLeafVersion,
+	data []byte) (txscript.TapLeaf, error) {
 
-	// Add the data to the script if it is provided.
-	if data != nil {
-		scriptBuilder.AddData(data)
+	var builder *txscript.ScriptBuilder
+	switch version {
+	// For the OP_RETURN based version, we'll use a single OP_RETURN opcode.
+	case OpReturnVersion:
+		builder = txscript.NewScriptBuilder().AddOp(txscript.OP_RETURN)
+		if data != nil {
+			builder = builder.AddData(data)
+		}
+
+	// For the Pedersen commitment based version, we'll use a single
+	// OP_CEHCKSIG with an un-spendable key.
+	case PedersenVersion:
+		// Make sure we don't accidentally truncate the data.
+		if len(data) > sha256.Size {
+			return txscript.TapLeaf{}, fmt.Errorf("data too large")
+		}
+
+		var msg [sha256.Size]byte
+		copy(msg[:], data)
+
+		_, commitPoint, err := TweakedNumsKey(msg)
+		if err != nil {
+			return txscript.TapLeaf{}, fmt.Errorf("failed to "+
+				"derive tweaked NUMS key: %w", err)
+		}
+
+		commitBytes := schnorr.SerializePubKey(commitPoint)
+		builder = txscript.NewScriptBuilder().AddData(commitBytes).
+			AddOp(txscript.OP_CHECKSIG)
+
+	default:
+		return txscript.TapLeaf{}, fmt.Errorf("unknown "+
+			"version %v", version)
 	}
 
 	// Construct script from the script builder.
-	script, err := scriptBuilder.Script()
+	script, err := builder.Script()
 	if err != nil {
 		return txscript.TapLeaf{}, fmt.Errorf("failed to construct "+
 			"non-spendable script: %w", err)
@@ -1174,6 +1206,65 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 	return tlv.MakePrimitiveRecord(GKRCustomSubtreeRoot, (*[32]byte)(root))
 }
 
+// NumsXPub turns the given NUMS key into an extended public key (using the x
+// coordinate of the public key as the chain code), then derives the actual key
+// to use from the derivation path 0/0. The extended key always has the mainnet
+// version, but can be converted to any network on demand by the caller with
+// CloneWithVersion().
+func NumsXPub(numsKey btcec.PublicKey) (*hdkeychain.ExtendedKey,
+	*btcec.PublicKey, error) {
+
+	keyBytes := numsKey.SerializeCompressed()
+	chainCode := keyBytes[1:]
+
+	// We use a depth of 3, emulating BIP44/49/84/86 style derivation for
+	// xpubs. We also always use mainnet to not require the caller to pass
+	// in the net params. Converting to another network is possible with
+	// CloneWithVersion().
+	const depth = 3
+	extendedNumsKey := hdkeychain.NewExtendedKey(
+		chaincfg.MainNetParams.HDPublicKeyID[:], keyBytes, chainCode,
+		[]byte{0, 0, 0, 0}, depth, 0, false,
+	)
+
+	// Derive the actual key to use from the xpub.
+	changeBranch, err := extendedNumsKey.Derive(0)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	indexBranch, err := changeBranch.Derive(0)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	actualKey, err := indexBranch.ECPubKey()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return extendedNumsKey, actualKey, nil
+}
+
+// TweakedNumsKey derives the NUMS key from the given data, then creates the
+// extended key from it and derives the actual (derived child) key to use from
+// the derivation path 0/0. The extended key always has the mainnet version, but
+// can be converted to any network on demand by the caller with
+// CloneWithVersion().
+func TweakedNumsKey(msg [32]byte) (*hdkeychain.ExtendedKey, *btcec.PublicKey,
+	error) {
+
+	// Make a Pedersen opening that uses no mask (we don't carry on
+	// the random value, as we don't care about hiding here). We'll
+	// also use the existing NUMs point.
+	op := pedersen.Opening{
+		Msg: msg,
+	}
+	commitPoint := pedersen.NewCommitment(op).Point()
+
+	return NumsXPub(commitPoint)
+}
+
 // GroupKeyRevealTapscript holds data used to derive the tapscript root, which
 // is then used to calculate the asset group key.
 //
@@ -1194,11 +1285,12 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // The tapscript tree is formulated to guarantee that only one recognizable
 // genesis asset ID can exist in the tree. The ID is uniquely placed in the
 // first leaf layer, which contains exactly two nodes: the ID leaf and its
-// sibling. The sibling node is deliberately constructed to ensure it cannot be
-// mistaken for a genesis asset ID leaf.
+// sibling (if present). The sibling node is deliberately constructed to ensure
+// it cannot be mistaken for a genesis asset ID leaf.
 //
 // The sibling node, `[tweaked_custom_branch]`, of the genesis asset ID leaf is
-// a branch node by design. It serves two purposes:
+// a branch node by design and is only required if the user wants to use custom
+// scripts. It serves two purposes:
 //  1. It ensures that only one genesis asset ID leaf can exist in the first
 //     layer, as it is not a valid genesis asset ID leaf.
 //  2. It optionally supports user-defined script spending leaves, enabling
@@ -1209,12 +1301,8 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 // hash may represent either a single leaf or the root hash of an entire
 // subtree.
 //
-// If `custom_root_hash` is not provided, it defaults to a bare `[OP_RETURN]` as
-// well. In this case, no valid script spending path can correspond to the
-// custom subtree root hash due to the pre-image resistance of SHA-256.
-//
 // A sibling node is included alongside the `custom_root_hash` node. This
-// sibling is a non-spendable script leaf containing `[OP_RETURN]`. Its
+// sibling is a non-spendable script leaf containing `non_spend()`. Its
 // presence ensures that one of the two positions in the first layer of the
 // tapscript tree is occupied by a branch node. Due to the pre-image
 // resistance of SHA-256, this prevents the existence of a second recognizable
@@ -1224,24 +1312,69 @@ func NewGKRCustomSubtreeRootRecord(root *chainhash.Hash) tlv.Record {
 //
 //	                       [tapscript_root]
 //	                         /          \
-//	[OP_RETURN <genesis asset ID>]   [tweaked_custom_branch]
+//	[non_spend(<genesis asset ID>)]   [tweaked_custom_branch]
 //	                                      /        \
-//	                              [OP_RETURN]   <custom_root_hash>
+//	                              [non_spend()]   <custom_root_hash>
 //
 // Where:
 //   - [tapscript_root] is the root of the final tapscript tree.
-//   - [OP_RETURN <genesis asset ID>] is a first-layer non-spendable script
+//   - [non_spend(<genesis asset ID>)] is a first-layer non-spendable script
 //     leaf that commits to the genesis asset ID.
 //   - [tweaked_custom_branch] is a branch node that serves two purposes:
 //     1. It cannot be misinterpreted as a genesis asset ID leaf.
 //     2. It optionally includes user-defined script spending leaves.
 //   - <custom_root_hash> is the root hash of the custom tapscript subtree.
-//     If not specified, it defaults to the same [OP_RETURN] that's on the left
-//     side.
-//   - [OP_RETURN] is a non-spendable script leaf containing the script
-//     `OP_RETURN`. Its presence ensures that [tweaked_custom_branch] remains
-//     a branch node and cannot be a valid genesis asset ID leaf.
+//     If not specified, the whole right branch [tweaked_custom_branch] is
+//     omitted (see below).
+//   - non_spend(data) is a non-spendable script leaf that contains the data
+//     argument. The data can be nil/empty in which case, the un-spendable
+//     script doesn't commit to the data. Its presence ensures that
+//     [tweaked_custom_branch] remains a branch node and cannot be a valid
+//     genesis asset ID leaf. Two non-spendable script leaves are possible:
+//   - One that uses an OP_RETURN to create a script that will "return
+//     early" and terminate the script execution.
+//   - One that uses a normal OP_CHECKSIG operator where the pubkey
+//     argument is a key that cannot be signed with. We generate this
+//     special public key using a Pedersen commitment, where the message is
+//     the asset ID (or 32 all-zero bytes in case data is nil/empty). To achieve
+//     hardware wallet support, that key is then turned into an extended key
+//     (xpub) and a child key at path 0/0 is used as the actual public key that
+//     goes into the OP_CHECKSIG script.
+//
+// If `custom_root_hash` is not provided, then there is no sibling to the asset
+// ID leaf, meaning the tree only has a single leaf. This makes it possible to
+// turn the single asset ID leaf into a miniscript policy, either using
+// raw(hex(OP_RETURN <asset_id>)) or pk(<Pedersen commitment key>).
+// The final tapscript tree with no custom scripts adopts the following
+// structure:
+//
+//	      [tapscript_root]
+//	             |
+//	[non_spend(<genesis asset ID>)]
+//
+// Where:
+//   - [tapscript_root] is the root of the final tapscript tree.
+//   - [non_spend(<genesis asset ID>)] is a first-layer non-spendable script
+//     leaf that commits to the genesis asset ID.
+//   - non_spend(data) is a non-spendable script leaf that contains the data
+//     argument. The data can be nil/empty in which case, the un-spendable
+//     script doesn't commit to the data. Its presence ensures that
+//     [tweaked_custom_branch] remains a branch node and cannot be a valid
+//     genesis asset ID leaf. Two non-spendable script leaves are possible:
+//   - One that uses an OP_RETURN to create a script that will "return
+//     early" and terminate the script execution.
+//   - One that uses a normal OP_CHECKSIG operator where the pubkey
+//     argument is a key that cannot be signed with. We generate this
+//     special public key using a Pedersen commitment, where the message is
+//     the asset ID (or 32 all-zero bytes in case data is nil/empty). To
+//     achieve hardware wallet support, that key is then turned into an extended
+//     key (xpub) and a child key at path 0/0 is used as the actual public key
+//     that goes into the OP_CHECKSIG script.
 type GroupKeyRevealTapscript struct {
+	// version is the version of the group key reveal that determines how
+	// the non-spendable leaf is created.
+	version NonSpendLeafVersion
+
 	// root is the final tapscript root after all tapscript tweaks have
 	// been applied. The asset group key is derived from this root and the
 	// internal key.
@@ -1252,26 +1385,15 @@ type GroupKeyRevealTapscript struct {
 	// tapscript tree. This subtree may define script spending conditions
 	// associated with the group key.
 	customSubtreeRoot fn.Option[chainhash.Hash]
-
-	// customSubtreeInclusionProof provides the inclusion proof for the
-	// custom tapscript subtree. It is required to spend the custom
-	// tapscript leaves within the tree.
-	//
-	// NOTE: This field should not be serialized as part of the group key
-	// reveal. It is included here to ensure it is constructed concurrently
-	// with the tapscript root, maintaining consistency and minimizing
-	// errors.
-	customSubtreeInclusionProof []byte
 }
 
 // NewGroupKeyTapscriptRoot computes the final tapscript root hash
 // which is used to derive the asset group key. The final tapscript root
 // hash is computed from the genesis asset ID and an optional custom tapscript
 // subtree root hash.
-//
-// nolint: lll
-func NewGroupKeyTapscriptRoot(genesisAssetID ID,
-	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealTapscript, error) {
+func NewGroupKeyTapscriptRoot(version NonSpendLeafVersion, genesisAssetID ID,
+	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealTapscript, []byte,
+	error) {
 
 	// First, we compute the tweaked custom branch hash. This hash is
 	// derived by combining the hash of a non-spendable leaf and the root
@@ -1279,49 +1401,53 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 	//
 	// If a custom tapscript subtree root hash is provided, we use it.
 	// Otherwise, we default to an empty non-spendable leaf hash as well.
-	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(nil)
+	emptyNonSpendLeaf, err := NewNonSpendableScriptLeaf(version, nil)
 	if err != nil {
-		return GroupKeyRevealTapscript{}, err
+		return GroupKeyRevealTapscript{}, nil, err
 	}
-
-	// Compute the tweaked custom branch hash.
-	tweakedCustomBranchHash := TapBranchHash(
-		emptyNonSpendLeaf.TapHash(),
-		customRoot.UnwrapOr(emptyNonSpendLeaf.TapHash()),
-	)
 
 	// Next, we'll combine the tweaked custom branch hash with the genesis
 	// asset ID leaf hash to compute the final tapscript root hash.
 	//
 	// Construct a non-spendable tapscript leaf for the genesis asset ID.
-	assetIDLeaf, err := NewNonSpendableScriptLeaf(genesisAssetID[:])
+	assetIDLeaf, err := NewNonSpendableScriptLeaf(
+		version, genesisAssetID[:],
+	)
 	if err != nil {
-		return GroupKeyRevealTapscript{}, err
+		return GroupKeyRevealTapscript{}, nil, err
 	}
 
-	// Compute final tapscript root hash. This is the root hash of the
-	// tapscript tree that is used to derive the asset group key.
-	rootHash := TapBranchHash(
-		assetIDLeaf.TapHash(), tweakedCustomBranchHash,
-	)
+	// Compute the tweaked custom branch hash or leaf, depending on whether
+	// we have a custom tapscript subtree root hash. We move the
+	// un-spendable leaf to level 1 if there is no custom root hash. This is
+	// mainly due to the fact that we require valid scripts in order to have
+	// hardware wallet support. An empty leaf cannot be represented as a
+	// list of scripts in a PSBT. That also means that custom scripts are
+	// currently not compatible with miniscript policy based hardware
+	// wallets.
+	rootHash := assetIDLeaf.TapHash()
+	customRoot.WhenSome(func(customRoot chainhash.Hash) {
+		rightHash := TapBranchHash(
+			emptyNonSpendLeaf.TapHash(), customRoot,
+		)
+		rootHash = TapBranchHash(assetIDLeaf.TapHash(), rightHash)
+	})
 
 	// Construct the custom subtree inclusion proof. This proof is required
 	// to spend custom tapscript leaves in the tapscript tree.
 	emptyNonSpendLeafHash := emptyNonSpendLeaf.TapHash()
 	assetIDLeafHash := assetIDLeaf.TapHash()
 
-	customSubtreeInclusionProof := bytes.Join(
-		[][]byte{
-			emptyNonSpendLeafHash[:],
-			assetIDLeafHash[:],
-		}, nil,
-	)
+	customSubtreeInclusionProof := bytes.Join([][]byte{
+		emptyNonSpendLeafHash[:],
+		assetIDLeafHash[:],
+	}, nil)
 
 	return GroupKeyRevealTapscript{
-		root:                        rootHash,
-		customSubtreeRoot:           customRoot,
-		customSubtreeInclusionProof: customSubtreeInclusionProof,
-	}, nil
+		version:           version,
+		root:              rootHash,
+		customSubtreeRoot: customRoot,
+	}, customSubtreeInclusionProof, nil
 }
 
 // Validate checks that the group key reveal tapscript is well-formed and
@@ -1329,7 +1455,9 @@ func NewGroupKeyTapscriptRoot(genesisAssetID ID,
 func (g *GroupKeyRevealTapscript) Validate(assetID ID) error {
 	// Compute the final tapscript root hash from the genesis asset ID and
 	// the custom tapscript subtree root hash.
-	tapscript, err := NewGroupKeyTapscriptRoot(assetID, g.customSubtreeRoot)
+	tapscript, _, err := NewGroupKeyTapscriptRoot(
+		g.version, assetID, g.customSubtreeRoot,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to compute tapscript root hash: %w",
 			err)
@@ -1356,12 +1484,30 @@ func (g *GroupKeyRevealTapscript) Root() chainhash.Hash {
 	return g.root
 }
 
+// NonSpendLeafVersion is the version of the group key reveal.
+//
+// Version 1 is the original version that's based on an OP_RETURN.
+//
+// Version 2 is a follow-up version that instead uses a Pedersen commitment.
+type NonSpendLeafVersion = uint8
+
+const (
+	// OpReturnVersion is the version of the group key reveal that uses an
+	// OP_RETURN.
+	OpReturnVersion NonSpendLeafVersion = 1
+
+	// PedersenVersion is the version of the group key reveal that uses a
+	// Pedersen commitment.
+	PedersenVersion NonSpendLeafVersion = 2
+)
+
 // GroupKeyRevealV1 is a version 1 group key reveal type for representing the
 // data used to derive and verify the tweaked key used to identify an asset
 // group.
 type GroupKeyRevealV1 struct {
-	// version is the version of the group key reveal.
-	version uint8
+	// version is the version of the group key reveal that determines how
+	// the non-spendable leaf is created.
+	version NonSpendLeafVersion
 
 	// internalKey refers to the internal key used to derive the asset
 	// group key. Typically, this internal key is the user's signing public
@@ -1384,8 +1530,9 @@ func NewGroupKeyReveal(groupKey GroupKey, genesisAssetID ID) (GroupKeyReveal,
 	switch groupKey.Version {
 	case GroupKeyV1:
 		gkr, err := NewGroupKeyRevealV1(
-			*groupKey.RawKey.PubKey, genesisAssetID,
-			groupKey.CustomTapscriptRoot,
+			// TODO(guggero): Make this configurable in the future.
+			PedersenVersion, *groupKey.RawKey.PubKey,
+			genesisAssetID, groupKey.CustomTapscriptRoot,
 		)
 		if err != nil {
 			return nil, err
@@ -1405,13 +1552,13 @@ func NewGroupKeyReveal(groupKey GroupKey, genesisAssetID ID) (GroupKeyReveal,
 }
 
 // NewGroupKeyRevealV1 creates a new version 1 group key reveal instance.
-func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
-	genesisAssetID ID,
+func NewGroupKeyRevealV1(version NonSpendLeafVersion,
+	internalKey btcec.PublicKey, genesisAssetID ID,
 	customRoot fn.Option[chainhash.Hash]) (GroupKeyRevealV1, error) {
 
 	// Compute the final tapscript root.
-	gkrTapscript, err := NewGroupKeyTapscriptRoot(
-		genesisAssetID, customRoot,
+	gkrTapscript, _, err := NewGroupKeyTapscriptRoot(
+		version, genesisAssetID, customRoot,
 	)
 	if err != nil {
 		return GroupKeyRevealV1{}, fmt.Errorf("failed to generate "+
@@ -1419,7 +1566,7 @@ func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
 	}
 
 	return GroupKeyRevealV1{
-		version:     1,
+		version:     version,
 		internalKey: ToSerialized(&internalKey),
 		tapscript:   gkrTapscript,
 	}, nil
@@ -1427,8 +1574,6 @@ func NewGroupKeyRevealV1(internalKey btcec.PublicKey,
 
 // ScriptSpendControlBlock returns the control block for the script spending
 // path in the custom tapscript subtree.
-//
-// nolint: lll
 func (g *GroupKeyRevealV1) ScriptSpendControlBlock(
 	genesisAssetID ID) (txscript.ControlBlock, error) {
 
@@ -1444,38 +1589,29 @@ func (g *GroupKeyRevealV1) ScriptSpendControlBlock(
 	outputKeyIsOdd := outputKey.SerializeCompressed()[0] ==
 		secp256k1.PubKeyFormatCompressedOdd
 
-	// If the custom subtree inclusion proof is nil, it may not have been
-	// set during decoding. Compute it, set it on the group key reveal, and
-	// validate both the computed tapscript root against the expected
+	// We now re-calculate the group key reveal tapscript root, which also
+	// gives us the inclusion proof for the custom tapscript subtree.
+	gkrTapscript, inclusionProof, err := NewGroupKeyTapscriptRoot(
+		g.version, genesisAssetID, g.tapscript.customSubtreeRoot,
+	)
+	if err != nil {
+		return txscript.ControlBlock{}, fmt.Errorf("failed to "+
+			"generate tapscript artifacts: %w", err)
+	}
+
+	// Ensure that the computed tapscript root matches the expected
 	// root.
-	if len(g.tapscript.customSubtreeInclusionProof) == 0 {
-		gkrTapscript, err := NewGroupKeyTapscriptRoot(
-			genesisAssetID, g.tapscript.customSubtreeRoot,
-		)
-		if err != nil {
-			return txscript.ControlBlock{}, fmt.Errorf("failed to "+
-				"generate tapscript artifacts: %w", err)
-		}
-
-		// Ensure that the computed tapscript root matches the expected
-		// root.
-		if !gkrTapscript.root.IsEqual(&g.tapscript.root) {
-			return txscript.ControlBlock{}, fmt.Errorf("tapscript "+
-				"root mismatch (expected=%s, computed=%s)",
-				g.tapscript.root, gkrTapscript.root)
-		}
-
-		// Set the custom subtree inclusion proof on the group key
-		// reveal.
-		g.tapscript.customSubtreeInclusionProof =
-			gkrTapscript.customSubtreeInclusionProof
+	if !gkrTapscript.root.IsEqual(&g.tapscript.root) {
+		return txscript.ControlBlock{}, fmt.Errorf("tapscript "+
+			"root mismatch (expected=%s, computed=%s)",
+			g.tapscript.root, gkrTapscript.root)
 	}
 
 	return txscript.ControlBlock{
 		InternalKey:     internalKey,
 		OutputKeyYIsOdd: outputKeyIsOdd,
 		LeafVersion:     txscript.BaseLeafVersion,
-		InclusionProof:  g.tapscript.customSubtreeInclusionProof,
+		InclusionProof:  inclusionProof,
 	}, nil
 }
 
@@ -1532,7 +1668,16 @@ func (g *GroupKeyRevealV1) Decode(r io.Reader, buf *[8]byte, l uint64) error {
 			fn.Some[chainhash.Hash](customSubtreeRoot)
 	}
 
+	// Thread the version through to the reveal tapscript, which is needed
+	// for the validation context.
+	g.tapscript.version = g.version
+
 	return nil
+}
+
+// Version returns the commitment version of the group key reveal V1.
+func (g *GroupKeyRevealV1) Version() NonSpendLeafVersion {
+	return g.version
 }
 
 // RawKey returns the raw key of the group key reveal.
@@ -2172,7 +2317,9 @@ func (req *GroupKeyRequest) NewGroupPubKey(genesisAssetID ID) (btcec.PublicKey,
 	}
 
 	groupPubKey, _, err := NewGroupKeyV1FromExternal(
-		externalKey, genesisAssetID, req.CustomTapscriptRoot,
+		// TODO(guggero): Make version configurable.
+		PedersenVersion, externalKey, genesisAssetID,
+		req.CustomTapscriptRoot,
 	)
 	if err != nil {
 		return btcec.PublicKey{}, fmt.Errorf("cannot derive group "+
