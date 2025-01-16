@@ -124,6 +124,9 @@ message UnsealedAsset {
 
     // The group virtual transaction for the asset.
     taprpc.GroupVirtualTx group_virtual_tx = 3;
+
+    // The byte serialized PSBT equivalent of the group virtual transaction.
+    string group_virtual_psbt = 4;
 }
 
 message MintAsset {
@@ -172,13 +175,22 @@ message MintAsset {
     /*
     The optional key that will be used as the internal key for an asset group
     created with this asset.
+
+    If this field is set then external_group_key must be unset, and vice versa.
     */
     taprpc.KeyDescriptor group_internal_key = 10;
 
     /*
-    The optional root of a tapscript tree that will be used when constructing a
-    new asset group key. This enables future issuance authorized with a script
-    witness.
+    An optional root of a Tapscript tree used when constructing a new asset
+    group key. This allows for future asset issuance authorized using a
+    script witness.
+
+    If an external group key is provided, the V1 scheme for group key script
+    construction will be used, which supports PSBT signing. In this scheme,
+    the user-supplied Tapscript root is extended by two levels of Tapscript
+    siblings that commit to the group anchor's asset ID. As a result, the
+    provided Tapscript root becomes a branch within a larger Tapscript tree,
+    and the final Tapscript root will differ from the one specified here.
     */
     bytes group_tapscript_root = 11;
 
@@ -201,6 +213,16 @@ message MintAsset {
     compatible with assets that have a JSON MetaData field.
     */
     uint32 decimal_display = 13;
+
+    /*
+    The external group key is an optional field that allows specifying an
+    external signing key for the group virtual transaction during minting.
+    This key enables signing operations to be performed externally, outside
+    the daemon.
+
+    If this field is set then group_internal_key must be unset, and vice versa.
+    */
+    taprpc.ExternalKey external_group_key = 14;
 }
 
 message MintAssetRequest {
@@ -303,7 +325,7 @@ message FundBatchRequest {
 
 message FundBatchResponse {
     // The funded batch.
-    MintingBatch batch = 1;
+    VerboseBatch batch = 1;
 }
 
 message SealBatchRequest {

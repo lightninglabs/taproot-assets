@@ -12,8 +12,10 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -83,6 +85,10 @@ type UpsertAssetStore interface {
 	// updated asset's database ID is returned.
 	SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64,
 		error)
+
+	// UpsertTapscriptTreeRootHash inserts a new tapscript tree root hash.
+	UpsertTapscriptTreeRootHash(ctx context.Context,
+		arg TapscriptTreeRootHash) (int64, error)
 }
 
 var (
@@ -327,11 +333,37 @@ func upsertGroupKey(ctx context.Context, groupKey *asset.GroupKey,
 		return nullID, ErrTapscriptRootSize
 	}
 
+	// Upsert the custom tapscript root if set. We will pass the returned ID
+	// to the group key upsert.
+	rootID, err := fn.MapOptionZ(
+		groupKey.CustomTapscriptRoot,
+		func(root chainhash.Hash) lfn.Result[sql.NullInt32] {
+			id, err := q.UpsertTapscriptTreeRootHash(
+				ctx, TapscriptTreeRootHash{
+					RootHash:   root[:],
+					BranchOnly: false,
+				},
+			)
+			if err != nil {
+				return lfn.Err[sql.NullInt32](err)
+			}
+
+			return lfn.Ok(sqlInt32(id))
+		},
+	).Unpack()
+	if err != nil {
+		return nullID, fmt.Errorf("failed to upsert custom tapscript "+
+			"root: %w", err)
+	}
+
+	// Upsert the group key itself.
 	groupID, err := q.UpsertAssetGroupKey(ctx, AssetGroupKey{
-		TweakedGroupKey: tweakedKeyBytes,
-		TapscriptRoot:   groupKey.TapscriptRoot,
-		InternalKeyID:   keyID,
-		GenesisPointID:  genesisPointID,
+		Version:             int32(groupKey.Version),
+		TweakedGroupKey:     tweakedKeyBytes,
+		TapscriptRoot:       groupKey.TapscriptRoot,
+		InternalKeyID:       keyID,
+		GenesisPointID:      genesisPointID,
+		CustomSubtreeRootID: rootID,
 	})
 	if err != nil {
 		return nullID, fmt.Errorf("%w: %w", ErrUpsertGroupKey, err)
@@ -541,9 +573,10 @@ func fetchGroupByGenesis(ctx context.Context, q GroupStore,
 	}
 
 	groupKey, err := parseGroupKeyInfo(
-		groupInfo.TweakedGroupKey, groupInfo.RawKey,
+		groupInfo.Version, groupInfo.TweakedGroupKey, groupInfo.RawKey,
 		groupInfo.WitnessStack, groupInfo.TapscriptRoot,
 		groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.CustomSubtreeRoot,
 	)
 	if err != nil {
 		return nil, err
@@ -575,8 +608,10 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 	}
 
 	groupKey, err := parseGroupKeyInfo(
-		groupKeyQuery, groupInfo.RawKey, groupInfo.WitnessStack,
-		groupInfo.TapscriptRoot, groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.Version, groupKeyQuery, groupInfo.RawKey,
+		groupInfo.WitnessStack, groupInfo.TapscriptRoot,
+		groupInfo.KeyFamily, groupInfo.KeyIndex,
+		groupInfo.CustomSubtreeRoot,
 	)
 	if err != nil {
 		return nil, err
@@ -589,8 +624,9 @@ func fetchGroupByGroupKey(ctx context.Context, q GroupStore,
 }
 
 // parseGroupKeyInfo maps information on a group key into a GroupKey.
-func parseGroupKeyInfo(tweakedKey, rawKey, witness, tapscriptRoot []byte,
-	keyFamily, keyIndex int32) (*asset.GroupKey, error) {
+func parseGroupKeyInfo(version int32, tweakedKey, rawKey, witness,
+	tapscriptRoot []byte, keyFamily, keyIndex int32,
+	customSubtreeRoot []byte) (*asset.GroupKey, error) {
 
 	tweakedGroupKey, err := btcec.ParsePubKey(tweakedKey)
 	if err != nil {
@@ -618,11 +654,28 @@ func parseGroupKeyInfo(tweakedKey, rawKey, witness, tapscriptRoot []byte,
 		}
 	}
 
+	// Parse group key version from database row.
+	groupKeyVersion, err := asset.NewGroupKeyVersion(version)
+	if err != nil {
+		return nil, err
+	}
+
+	// Parse custom tapscript root if specified.
+	var customSubtreeRootHash fn.Option[chainhash.Hash]
+	if len(customSubtreeRoot) != 0 {
+		var rootHash chainhash.Hash
+		copy(rootHash[:], customSubtreeRoot)
+
+		customSubtreeRootHash = fn.Some(rootHash)
+	}
+
 	return &asset.GroupKey{
-		RawKey:        groupRawKey,
-		GroupPubKey:   *tweakedGroupKey,
-		TapscriptRoot: tapscriptRoot,
-		Witness:       groupWitness,
+		Version:             groupKeyVersion,
+		RawKey:              groupRawKey,
+		GroupPubKey:         *tweakedGroupKey,
+		TapscriptRoot:       tapscriptRoot,
+		Witness:             groupWitness,
+		CustomTapscriptRoot: customSubtreeRootHash,
 	}, nil
 }
 

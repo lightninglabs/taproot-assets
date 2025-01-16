@@ -3,6 +3,7 @@ package itest
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/hex"
 	"math"
 	"testing"
@@ -149,9 +150,9 @@ func testMintFundSealAssets(t *harnessTest) {
 	require.NotEmpty(t.t, fundResp.Batch)
 	require.Equal(
 		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
-		fundResp.Batch.State,
+		fundResp.Batch.Batch.State,
 	)
-	require.NotEmpty(t.t, fundResp.Batch.BatchPsbt)
+	require.NotEmpty(t.t, fundResp.Batch.Batch.BatchPsbt)
 
 	// Now we can add all the asset requests created above.
 	BuildMintingBatch(t.t, aliceTapd, assetReqs)
@@ -500,6 +501,91 @@ func testMintFundSealAssets(t *harnessTest) {
 	})
 }
 
+// testMintExternalGroupKeyChantools tests that we're able to mint an asset
+// using an external asset signing group key derived and managed by chantools.
+func testMintExternalGroupKeyChantools(t *harnessTest) {
+	chantools := NewChantoolsHarness(t.t)
+
+	// Use chantools to create a new wallet and derive a new key.
+	chantools.CreateWallet(t.t)
+	groupKeyXpub, groupKeyFingerprint := chantools.DeriveKey(t.t)
+
+	t.Logf("Extended public key (xpub): %v", groupKeyXpub)
+	t.Logf("Master Fingerprint: %v", groupKeyFingerprint)
+
+	// Formulate the external group key which will be used in the asset
+	// minting request.
+	fingerPrintBytes, err := hex.DecodeString(groupKeyFingerprint)
+	require.NoError(t.t, err)
+
+	externalGroupKey := &taprpc.ExternalKey{
+		Xpub:              groupKeyXpub,
+		MasterFingerprint: fingerPrintBytes,
+		DerivationPath:    "m/86'/1'/0'/0/0",
+	}
+
+	// Now we will use the external group key to mint.
+	//
+	// Construct external signer callback to sign the group virtual PSBT.
+	signerCallback := func(
+		unsealedAsset []*mintrpc.UnsealedAsset) []ExternalSigRes {
+
+		var res []ExternalSigRes
+		for idx := range unsealedAsset {
+			unsealedA := unsealedAsset[idx]
+
+			t.Logf("Unsigned group virtual PSBT: %v",
+				unsealedA.GroupVirtualPsbt)
+
+			signedPsbt := chantools.SignPsbt(
+				t.t, unsealedA.GroupVirtualPsbt,
+			)
+			t.Logf("Signed group virtual PSBT: %v", signedPsbt)
+
+			var assetID asset.ID
+			copy(
+				assetID[:],
+				unsealedA.GroupKeyRequest.AnchorGenesis.AssetId,
+			)
+
+			res = append(res, ExternalSigRes{
+				SignedPsbt: signedPsbt,
+				AssetID:    assetID,
+			})
+		}
+
+		return res
+	}
+
+	// Mint assets with the external signer.
+	//
+	// Add asset mint request to mint batch.
+	mintReq := CopyRequest(issuableAssets[0])
+	mintReq.Asset.ExternalGroupKey = externalGroupKey
+
+	assetReqs := []*mintrpc.MintAssetRequest{mintReq}
+
+	batchAssets := MintAssetExternalSigner(
+		t, t.tapd, assetReqs, signerCallback,
+	)
+	t.Logf("First batch asset: %v", batchAssets)
+
+	// Formulate a second asset mint request with the same external group
+	// key. This will ensure that we can mint two different tranches into
+	// the same group.
+	mintReq2 := CopyRequest(issuableAssets[0])
+	mintReq2.Asset.Name = "itestbuxx-money-printer-brrr-tranche-2"
+	mintReq2.Asset.ExternalGroupKey = externalGroupKey
+
+	assetReqs2 := []*mintrpc.MintAssetRequest{mintReq2}
+
+	// Mint assets with the external signer.
+	batchAssets2 := MintAssetExternalSigner(
+		t, t.tapd, assetReqs2, signerCallback,
+	)
+	t.Logf("Second batch asset: %v", batchAssets2)
+}
+
 // Derive a random key on an LND node, with a key family not matching the
 // Taproot Assets key family.
 func deriveRandomKey(t *testing.T, ctxt context.Context,
@@ -618,6 +704,22 @@ func unmarshalPendingAssetGroup(t *testing.T,
 	virtualTx, err := taprpc.UnmarshalGroupVirtualTx(a.GroupVirtualTx)
 	require.NoError(t, err)
 
+	// Ensure that the group virtual tx is the same as the grouped virtual
+	// PSBT.
+	groupVirtualPsbt, err := base64.StdEncoding.DecodeString(
+		a.GroupVirtualPsbt,
+	)
+	require.NoError(t, err)
+
+	groupVmPsbt, err := psbt.NewFromRawBytes(
+		bytes.NewReader(groupVirtualPsbt), false,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, groupVmPsbt)
+
+	require.Equal(t, *groupVmPsbt.UnsignedTx, virtualTx.Tx)
+
+	// Unmarshal group key request.
 	require.NotNil(t, a.GroupKeyRequest)
 	keyReq, err := taprpc.UnmarshalGroupKeyRequest(a.GroupKeyRequest)
 	require.NoError(t, err)

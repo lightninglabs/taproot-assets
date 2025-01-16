@@ -149,8 +149,8 @@ func TestNewAssetCommitment(t *testing.T) {
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
 	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
-		t, test.PubToKeyDesc(group1Pub), genesis1, genesis2ProtoAsset,
-		nil,
+		t, test.PubToKeyDesc(group1Pub), fn.None[asset.ExternalKey](),
+		genesis1, genesis2ProtoAsset, nil, fn.None[chainhash.Hash](),
 	)
 	group1ReissuedGenTx, err := group1ReissuedGroupReq.BuildGroupVirtualTx(
 		&genTxBuilder,
@@ -1021,7 +1021,8 @@ func TestUpdateAssetCommitment(t *testing.T) {
 	genTxBuilder := asset.MockGroupTxBuilder{}
 	group1Priv, group1Pub := btcec.PrivKeyFromBytes(group1PrivBytes)
 	group1ReissuedGroupReq := asset.NewGroupKeyRequestNoErr(
-		t, test.PubToKeyDesc(group1Pub), genesis1, group1Reissued, nil,
+		t, test.PubToKeyDesc(group1Pub), fn.None[asset.ExternalKey](),
+		genesis1, group1Reissued, nil, fn.None[chainhash.Hash](),
 	)
 	group1ReissuedGenTx, err := group1ReissuedGroupReq.BuildGroupVirtualTx(
 		&genTxBuilder,

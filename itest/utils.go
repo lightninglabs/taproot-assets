@@ -3,6 +3,8 @@ package itest
 import (
 	"bytes"
 	"context"
+	"fmt"
+	"log"
 	"testing"
 	"time"
 
@@ -30,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -733,6 +736,151 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	)
 
 	return mintedAsset[0], &importReq
+}
+
+// ExternalSigRes is a helper struct that holds the signed PSBT and the
+// corresponding asset ID.
+type ExternalSigRes struct {
+	SignedPsbt psbt.Packet
+	AssetID    asset.ID
+}
+
+// ExternalSigCallback is a callback function that is called to sign the group
+// virtual PSBT with external signers.
+type ExternalSigCallback func([]*mintrpc.UnsealedAsset) []ExternalSigRes
+
+// MintAssetExternalSigner is a helper function that mints a batch of assets and
+// calls the external signer callback to sign the group virtual PSBT.
+func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
+	assetReqs []*mintrpc.MintAssetRequest,
+	externalSignerCallback ExternalSigCallback) []*taprpc.Asset {
+
+	BuildMintingBatch(t.t, tapNode, assetReqs)
+
+	// Fund mint batch with BTC.
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+
+	fundResp, err := tapNode.FundBatch(ctxt, &mintrpc.FundBatchRequest{})
+	require.NoError(t.t, err)
+
+	// Cancel the context for the fund request call.
+	cancel()
+
+	require.NotEmpty(t.t, fundResp.Batch)
+	require.Equal(
+		t.t, mintrpc.BatchState_BATCH_STATE_PENDING,
+		fundResp.Batch.Batch.State,
+	)
+	require.Len(t.t, fundResp.Batch.UnsealedAssets, 1)
+
+	// Pass unsealed assets to external signer callback to sign the group
+	// virtual PSBT.
+	callbackRes := externalSignerCallback(fundResp.Batch.UnsealedAssets)
+
+	// Extract group witness from signed PSBTs.
+	var groupWitnesses []*taprpc.GroupWitness
+	for idx := range callbackRes {
+		res := callbackRes[idx]
+		signedPsbt := res.SignedPsbt
+		genesisAssetID := res.AssetID
+
+		// Sanity check signed PSBT.
+		require.Len(t.t, signedPsbt.Inputs, 1)
+		require.Len(t.t, signedPsbt.Outputs, 1)
+
+		// Extract witness from signed PSBT.
+		witnessStack, err := DeserializeWitnessStack(
+			signedPsbt.Inputs[0].FinalScriptWitness,
+		)
+		if err != nil {
+			log.Fatalf("Failed to deserialize witness stack: %v",
+				err)
+		}
+
+		groupWitness := taprpc.GroupWitness{
+			GenesisId: genesisAssetID[:],
+			Witness:   witnessStack,
+		}
+
+		groupWitnesses = append(groupWitnesses, &groupWitness)
+	}
+
+	// Seal the batch with the group witnesses.
+	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
+
+	sealReq := mintrpc.SealBatchRequest{
+		GroupWitnesses: groupWitnesses,
+	}
+	sealResp, err := tapNode.SealBatch(ctxt, &sealReq)
+	require.NoError(t.t, err)
+
+	// Cancel the context for the seal request call.
+	cancel()
+
+	require.NotEmpty(t.t, sealResp.Batch)
+
+	// With the batch sealed successfully, we can now finalize it and
+	// broadcast the anchor TX.
+	ctxt, cancel = context.WithCancel(context.Background())
+	defer cancel()
+	stream, err := tapNode.SubscribeMintEvents(
+		ctxt, &mintrpc.SubscribeMintEventsRequest{},
+	)
+	require.NoError(t.t, err)
+	sub := &EventSubscription[*mintrpc.MintEvent]{
+		ClientEventStream: stream,
+		Cancel:            cancel,
+	}
+
+	batchTXID, batchKey := FinalizeBatchUnconfirmed(
+		t.t, t.lndHarness.Miner().Client, tapNode, assetReqs,
+	)
+	batchAssets := ConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, tapNode, assetReqs, sub,
+		batchTXID, batchKey,
+	)
+
+	return batchAssets
+}
+
+// DeserializeWitnessStack deserializes a serialized witness stack into a
+// [][]byte.
+//
+// TODO(ffranr): Reconcile this function with asset.TxWitnessDecoder.
+func DeserializeWitnessStack(serialized []byte) ([][]byte, error) {
+	var (
+		// buf is a general scratch buffer used when reading.
+		buf [8]byte
+
+		stack [][]byte
+	)
+	reader := bytes.NewReader(serialized)
+
+	// Read the number of witness elements (compact size integer)
+	count, err := tlv.ReadVarInt(reader, &buf)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read witness count: %w", err)
+	}
+
+	// Read each witness element
+	for i := uint64(0); i < count; i++ {
+		elementSize, err := tlv.ReadVarInt(reader, &buf)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read witness "+
+				"element size: %w", err)
+		}
+
+		// Read the witness element data
+		element := make([]byte, elementSize)
+		if _, err := reader.Read(element); err != nil {
+			return nil, fmt.Errorf("failed to read witness "+
+				"element data: %w", err)
+		}
+		stack = append(stack, element)
+	}
+
+	return stack, nil
 }
 
 // SyncUniverses syncs the universes of two tapd instances and waits until they

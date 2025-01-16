@@ -10,13 +10,16 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
+	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -139,6 +142,66 @@ type ListBatchesParams struct {
 type PendingAssetGroup struct {
 	asset.GroupKeyRequest
 	asset.GroupVirtualTx
+}
+
+// PSBT returns a PSBT packet that can be used to create a group witness for the
+// asset group.
+func (p *PendingAssetGroup) PSBT(
+	params chaincfg.Params) (*psbt.Packet, error) {
+
+	// Generate PSBT equivalent of the group virtual tx.
+	packet, err := psbt.NewFromUnsignedTx(&p.GroupVirtualTx.Tx)
+	if err != nil {
+		return nil, fmt.Errorf("error producing group virtual PSBT "+
+			"from tx: %w", err)
+	}
+
+	vIn := &packet.Inputs[0]
+	vIn.WitnessUtxo = &p.GroupVirtualTx.PrevOut
+	vIn.TaprootMerkleRoot = p.GroupKeyRequest.TapscriptRoot
+	vIn.TaprootInternalKey = schnorr.SerializePubKey(
+		p.GroupKeyRequest.RawKey.PubKey,
+	)
+
+	var (
+		bip32Derivation   *psbt.Bip32Derivation
+		trBip32Derivation *psbt.TaprootBip32Derivation
+	)
+
+	switch {
+	case p.GroupKeyRequest.ExternalKey.IsSome():
+		externalKey := p.GroupKeyRequest.ExternalKey.UnwrapToPtr()
+		pubKey, err := externalKey.PubKey()
+		if err != nil {
+			return nil, fmt.Errorf("error deriving public key "+
+				"from external key: %w", err)
+		}
+
+		bip32Derivation = &psbt.Bip32Derivation{
+			PubKey:               pubKey.SerializeCompressed(),
+			MasterKeyFingerprint: externalKey.MasterFingerprint,
+			Bip32Path:            externalKey.DerivationPath,
+		}
+		trBip32Derivation = &psbt.TaprootBip32Derivation{
+			XOnlyPubKey:          bip32Derivation.PubKey[1:],
+			MasterKeyFingerprint: externalKey.MasterFingerprint,
+			Bip32Path:            externalKey.DerivationPath,
+			LeafHashes:           make([][]byte, 0),
+		}
+
+	default:
+		bip32Derivation, trBip32Derivation =
+			tappsbt.Bip32DerivationFromKeyDesc(
+				p.GroupKeyRequest.RawKey, params.HDCoinType,
+			)
+	}
+
+	vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
+	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trBip32Derivation,
+	}
+
+	return packet, nil
 }
 
 // UnsealedSeedling is a previously submitted seedling and its associated
@@ -660,8 +723,15 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 		}
 
 		var (
-			amount     uint64
-			groupInfo  *asset.AssetGroup
+			amount uint64
+
+			// groupInfo represents the group key and genesis data
+			// for the asset group. This is populated if the
+			// seedling specifies a group key or if it specifies
+			// a group anchor and the corresponding group already
+			// exists.
+			groupInfo *asset.AssetGroup
+
 			protoAsset *asset.Asset
 			err        error
 		)
@@ -703,10 +773,16 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			}
 		}
 
+		// If groupInfo is specified, a group key already exists for the
+		// seedling. This key will be used to create a placeholder group
+		// key request, which will then be used to generate a group
+		// virtual transaction.
 		if groupInfo != nil {
 			groupReq, err := asset.NewGroupKeyRequest(
-				groupInfo.GroupKey.RawKey, *groupInfo.Genesis,
-				protoAsset, groupInfo.GroupKey.TapscriptRoot,
+				groupInfo.GroupKey.RawKey, seedling.ExternalKey,
+				*groupInfo.Genesis, protoAsset,
+				groupInfo.GroupKey.TapscriptRoot,
+				groupInfo.GroupKey.CustomTapscriptRoot,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
@@ -723,20 +799,85 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 
 			groupReqs = append(groupReqs, *groupReq)
 			genTXs = append(genTXs, *genTx)
+
+			// TODO(ffranr): Should we continue to the next seedling
+			//  at this point? The group key request and virtual
+			//  transaction have been created.
 		}
 
 		// If emission is enabled, an internal key for the group should
 		// already be specified. Use that to derive the key group
 		// signature along with the tweaked key group.
 		if seedling.EnableEmission {
-			if seedling.GroupInternalKey == nil {
+			if seedling.GroupInternalKey == nil &&
+				seedling.ExternalKey.IsNone() {
+
 				return nil, nil, fmt.Errorf("unable to " +
-					"derive group key")
+					"derive group key, both internal and " +
+					"external keys are unspecified")
+			}
+
+			// If seedling.GroupTapscriptRoot is specified and the
+			// seedling includes an external key, we must use group
+			// key V1. As a result, seedling.GroupTapscriptRoot will
+			// be treated as a custom tapscript subtree root, which
+			// we will graft into the group key's tapscript tree. We
+			// will proceed with this now.
+			var (
+				tsRoot         = seedling.GroupTapscriptRoot
+				customRootHash fn.Option[chainhash.Hash]
+			)
+			if seedling.ExternalKey.IsSome() {
+				// If seedling.GroupTapscriptRoot is specified,
+				// set it to the custom root hash. Then we will
+				// calculate a new tapscript root hash which
+				// includes the custom root as a grafted
+				// subtree.
+				if len(tsRoot) > 0 {
+					r, err := chainhash.NewHash(tsRoot)
+					if err != nil {
+						return nil, nil, err
+					}
+
+					customRootHash = fn.Some(*r)
+				}
+
+				// Construct an asset group tapscript tree,
+				// incorporating the optional custom subtree
+				// through grafting.
+				//
+				// At this point, we are constructing the group
+				// tapscript tree root whether or not the
+				// customRootHash is defined.
+				tapscriptTree, err :=
+					asset.NewGroupKeyTapscriptRoot(
+						assetGen.ID(), customRootHash,
+					)
+				if err != nil {
+					return nil, nil, err
+				}
+
+				// Update the group tapscript tree root hash to
+				// the new root hash. If customRootHash is
+				// defined, the new root hash incorporates it as
+				// a subtree.
+				tsRoot = fn.ByteSlice(tapscriptTree.Root())
+			}
+
+			// The group internal key should be set at this point.
+			//
+			// If an external key is present, the internal key
+			// should be a public key derived from the external
+			// key.
+			if seedling.GroupInternalKey == nil {
+				return nil, nil, fmt.Errorf("internal key is " +
+					"missing for seedling")
 			}
 
 			groupReq, err := asset.NewGroupKeyRequest(
-				*seedling.GroupInternalKey, assetGen,
-				protoAsset, seedling.GroupTapscriptRoot,
+				*seedling.GroupInternalKey,
+				seedling.ExternalKey, assetGen,
+				protoAsset, tsRoot, customRootHash,
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to "+
@@ -754,6 +895,7 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			genTXs = append(genTXs, *genTx)
 
 			newGroupKey := &asset.GroupKey{
+				Version:       groupReq.Version,
 				RawKey:        *seedling.GroupInternalKey,
 				TapscriptRoot: seedling.GroupTapscriptRoot,
 			}
@@ -952,19 +1094,12 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 
 	var (
 		finalBatches, nonFinalBatches = filterFinalizedBatches(batches)
-		verboseBatches                []*VerboseBatch
+		sortedBatches                 []*MintingBatch
 	)
 
 	switch {
 	case len(finalBatches) == 0:
-		verboseBatches = fn.Map(batches,
-			func(b *MintingBatch) *VerboseBatch {
-				return &VerboseBatch{
-					MintingBatch:      b,
-					UnsealedSeedlings: nil,
-				}
-			},
-		)
+		sortedBatches = batches
 
 	// For finalized batches, we need to fetch the assets from the proof
 	// archiver, not the DB.
@@ -989,7 +1124,13 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 			return a.CreationTime.Compare(b.CreationTime)
 		})
 
-		verboseBatches = fn.Map(allBatches,
+		sortedBatches = allBatches
+	}
+
+	// Return the batches without any extra asset group info.
+	if !params.Verbose {
+		batches := fn.Map(
+			sortedBatches,
 			func(b *MintingBatch) *VerboseBatch {
 				return &VerboseBatch{
 					MintingBatch:      b,
@@ -997,15 +1138,15 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 				}
 			},
 		)
+
+		return batches, nil
 	}
 
-	// Return the batches without any extra asset group info.
-	if !params.Verbose {
-		return verboseBatches, nil
-	}
+	// Formulate verbose batches from the sorted batches.
+	verboseBatches := make([]*VerboseBatch, len(sortedBatches))
 
-	for _, batch := range verboseBatches {
-		currentBatch := batch
+	for idx := range sortedBatches {
+		currentBatch := sortedBatches[idx]
 
 		// The batch must be pending, funded, and have seedlings for us
 		// to show pending asset group information.
@@ -1019,81 +1160,96 @@ func listBatches(ctx context.Context, batchStore MintingStore,
 		default:
 		}
 
-		// Filter the batch seedlings to only consider those that will
-		// become grouped assets. If there are no such seedlings, then
-		// there is no extra information to show.
-		groupSeedlings, _ := filterSeedlingsWithGroup(
-			currentBatch.Seedlings,
-		)
-		if len(groupSeedlings) == 0 {
-			continue
-		}
-
-		// Before we can build the group key requests for each seedling,
-		// we must fetch the genesis point and anchor index for the
-		// batch.
-		anchorOutputIndex := extractAnchorOutputIndex(
-			currentBatch.GenesisPacket,
-		)
-		genesisPoint := extractGenesisOutpoint(
-			currentBatch.GenesisPacket.Pkt.UnsignedTx,
-		)
-
-		// Construct the group key requests and group virtual TXs for
-		// each seedling. With these we can verify provided asset group
-		// witnesses, or attempt to derive asset group witnesses if
-		// needed.
-		groupReqs, genTXs, err := buildGroupReqs(
-			genesisPoint, anchorOutputIndex, genBuilder,
-			groupSeedlings,
-		)
+		verboseBatch, err := newVerboseBatch(currentBatch, genBuilder)
 		if err != nil {
-			return nil, fmt.Errorf("unable to build group "+
-				"requests: %w", err)
+			return nil, err
 		}
 
-		if len(groupReqs) != len(genTXs) {
-			return nil, fmt.Errorf("mismatched number of group " +
-				"requests and virtual TXs")
-		}
-
-		// Copy existing seedlngs into the unsealed seedling map; we'll
-		// clear the batch seedlings after adding group information.
-		currentBatch.UnsealedSeedlings = make(
-			map[string]*UnsealedSeedling,
-			len(currentBatch.Seedlings),
-		)
-		for k, v := range currentBatch.Seedlings {
-			currentBatch.UnsealedSeedlings[k] = &UnsealedSeedling{
-				Seedling:          v,
-				PendingAssetGroup: nil,
-			}
-		}
-
-		// Match each group key request and group virtual TX with the
-		// corresponding seedling.
-		for i := 0; i < len(groupReqs); i++ {
-			seedlingName := groupReqs[i].NewAsset.Genesis.Tag
-			seedling, ok := currentBatch.
-				UnsealedSeedlings[seedlingName]
-			if !ok {
-				return nil, fmt.Errorf("unable to find "+
-					"seedling with tag matching asset "+
-					"group: %s", seedlingName)
-			}
-
-			seedling.PendingAssetGroup = &PendingAssetGroup{
-				GroupKeyRequest: groupReqs[i],
-				GroupVirtualTx:  genTXs[i],
-			}
-		}
-
-		// Clear the original batch seedlings so each asset is only
-		// represented once.
-		currentBatch.Seedlings = nil
+		verboseBatches[idx] = verboseBatch
 	}
 
 	return verboseBatches, nil
+}
+
+// newVerboseBatch constructs a new verbose batch from a given minting batch.
+// The verbose batch includes extra information about the asset group, if any.
+func newVerboseBatch(currentBatch *MintingBatch,
+	genBuilder asset.GenesisTxBuilder) (*VerboseBatch, error) {
+
+	verboseBatch := &VerboseBatch{
+		MintingBatch: currentBatch.Copy(),
+	}
+
+	// Filter the batch seedlings to only consider those that will become
+	// grouped assets. If there are no such seedlings, then there is no
+	// extra information to add.
+	groupSeedlings, _ := filterSeedlingsWithGroup(
+		currentBatch.Seedlings,
+	)
+	if len(groupSeedlings) == 0 {
+		return verboseBatch, nil
+	}
+
+	// Before we can build the group key requests for each seedling, we must
+	// fetch the genesis point and anchor index for the batch.
+	anchorOutputIndex := extractAnchorOutputIndex(
+		currentBatch.GenesisPacket,
+	)
+	genesisPoint := extractGenesisOutpoint(
+		currentBatch.GenesisPacket.Pkt.UnsignedTx,
+	)
+
+	// Construct the group key requests and group virtual TXs for each
+	// seedling. With these we can verify provided asset group witnesses, or
+	// attempt to derive asset group witnesses if needed.
+	groupReqs, genTXs, err := buildGroupReqs(
+		genesisPoint, anchorOutputIndex, genBuilder, groupSeedlings,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to build group requests: %w",
+			err)
+	}
+
+	if len(groupReqs) != len(genTXs) {
+		return nil, fmt.Errorf("mismatched number of group requests " +
+			"and virtual TXs")
+	}
+
+	// Copy existing seedlings into the unsealed seedling map; we'll clear
+	// the batch seedlings after adding group information.
+	verboseBatch.UnsealedSeedlings = make(
+		map[string]*UnsealedSeedling,
+		len(currentBatch.Seedlings),
+	)
+	for k, v := range currentBatch.Seedlings {
+		verboseBatch.UnsealedSeedlings[k] = &UnsealedSeedling{
+			Seedling:          v,
+			PendingAssetGroup: nil,
+		}
+	}
+
+	// Match each group key request and group virtual TX with the
+	// corresponding seedling.
+	for i := 0; i < len(groupReqs); i++ {
+		seedlingName := groupReqs[i].NewAsset.Genesis.Tag
+		seedling, ok := verboseBatch.
+			UnsealedSeedlings[seedlingName]
+		if !ok {
+			return nil, fmt.Errorf("unable to find seedling with "+
+				"tag matching asset group: %s", seedlingName)
+		}
+
+		seedling.PendingAssetGroup = &PendingAssetGroup{
+			GroupKeyRequest: groupReqs[i],
+			GroupVirtualTx:  genTXs[i],
+		}
+	}
+
+	// Clear the original batch seedlings so each asset is only represented
+	// once.
+	verboseBatch.Seedlings = nil
+
+	return verboseBatch, nil
 }
 
 // canCancelBatch returns a batch key if the planter is in a state where a batch
@@ -1312,7 +1468,19 @@ func (c *ChainPlanter) gardener() {
 					break
 				}
 
-				req.Resolve(c.pendingBatch)
+				// Formulate a verbose batch to return to the
+				// caller.
+				verboseBatch, err := newVerboseBatch(
+					c.pendingBatch, c.cfg.GenTxBuilder,
+				)
+				if err != nil {
+					req.Error(err)
+					break
+				}
+
+				req.Resolve(&FundBatchResp{
+					Batch: verboseBatch,
+				})
 
 			case reqTypeSealBatch:
 				if c.pendingBatch == nil {
@@ -1636,11 +1804,14 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		switch {
 		case ok:
 			// Set the provided witness; it will be validated below.
+			subtreeRoot := groupReq.CustomTapscriptRoot
 			groupKey = &asset.GroupKey{
-				RawKey:        groupReq.RawKey,
-				GroupPubKey:   genTX.TweakedKey,
-				TapscriptRoot: groupReq.TapscriptRoot,
-				Witness:       groupWitness.Witness,
+				Version:             groupReq.Version,
+				RawKey:              groupReq.RawKey,
+				GroupPubKey:         genTX.TweakedKey,
+				TapscriptRoot:       groupReq.TapscriptRoot,
+				CustomTapscriptRoot: subtreeRoot,
+				Witness:             groupWitness.Witness,
 			}
 
 		default:
@@ -1676,7 +1847,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 			groupedAsset, nil, nil, noProofLookup,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to verify asset group"+
+			return nil, fmt.Errorf("unable to verify asset group "+
 				"witness: %s, %w", reqAssetID.String(), err)
 		}
 
@@ -1821,8 +1992,8 @@ func (c *ChainPlanter) ListBatches(params ListBatchesParams) ([]*VerboseBatch,
 
 // FundBatch sends a signal to the planter to fund the current batch, or create
 // a funded batch.
-func (c *ChainPlanter) FundBatch(params FundParams) (*MintingBatch, error) {
-	req := newStateParamReq[*MintingBatch](reqTypeFundBatch, params)
+func (c *ChainPlanter) FundBatch(params FundParams) (*FundBatchResp, error) {
+	req := newStateParamReq[*FundBatchResp](reqTypeFundBatch, params)
 
 	if !fn.SendOrQuit[stateRequest](c.stateReqs, req, c.Quit) {
 		return nil, fmt.Errorf("chain planter shutting down")
