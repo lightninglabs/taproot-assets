@@ -1009,6 +1009,8 @@ func AssertSendEvents(t *testing.T, scriptKey []byte,
 	go func() {
 		select {
 		case <-timeout:
+			t.Logf("AssertSendEvents: cancelling stream after " +
+				"timeout")
 			stream.Cancel()
 
 		case <-success:
@@ -1020,8 +1022,14 @@ func AssertSendEvents(t *testing.T, scriptKey []byte,
 		require.NoError(t, err, "receiving send event")
 
 		require.True(t, sendsToKey(event))
+
+		// Check the event's error field for unexpected errors. Perform
+		// this check before verifying the expected send state, as
+		// errors might occur alongside an out-of-order send state.
+		require.Emptyf(
+			t, event.Error, "send event error: %x", event,
+		)
 		require.Equal(t, startStatus.String(), event.SendState)
-		require.Empty(t, event.Error)
 
 		// Fully close the stream once we definitely no longer need the
 		// stream.
