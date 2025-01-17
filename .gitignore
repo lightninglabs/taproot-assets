@@ -29,6 +29,10 @@ cmd/tapd/tapd
 # Test binary, built with `go test -c`
 *.test
 
+# Ignore Rapid testing framework .fail files. These files are used for
+# reproducing test failures locally during development.
+*.fail
+
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
 coverage.*
