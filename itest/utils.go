@@ -3,8 +3,6 @@ package itest
 import (
 	"bytes"
 	"context"
-	"fmt"
-	"log"
 	"testing"
 	"time"
 
@@ -32,7 +30,6 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
-	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
@@ -779,38 +776,28 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 	callbackRes := externalSignerCallback(fundResp.Batch.UnsealedAssets)
 
 	// Extract group witness from signed PSBTs.
-	var groupWitnesses []*taprpc.GroupWitness
+	var signedGroupVirtualPsbts []string
 	for idx := range callbackRes {
 		res := callbackRes[idx]
 		signedPsbt := res.SignedPsbt
-		genesisAssetID := res.AssetID
 
 		// Sanity check signed PSBT.
 		require.Len(t.t, signedPsbt.Inputs, 1)
 		require.Len(t.t, signedPsbt.Outputs, 1)
 
-		// Extract witness from signed PSBT.
-		witnessStack, err := DeserializeWitnessStack(
-			signedPsbt.Inputs[0].FinalScriptWitness,
+		// Encode the signed PSBT as a string.
+		signedPsbtStr, err := signedPsbt.B64Encode()
+		require.NoError(t.t, err)
+		signedGroupVirtualPsbts = append(
+			signedGroupVirtualPsbts, signedPsbtStr,
 		)
-		if err != nil {
-			log.Fatalf("Failed to deserialize witness stack: %v",
-				err)
-		}
-
-		groupWitness := taprpc.GroupWitness{
-			GenesisId: genesisAssetID[:],
-			Witness:   witnessStack,
-		}
-
-		groupWitnesses = append(groupWitnesses, &groupWitness)
 	}
 
 	// Seal the batch with the group witnesses.
 	ctxt, cancel = context.WithTimeout(ctxb, defaultWaitTimeout)
 
 	sealReq := mintrpc.SealBatchRequest{
-		GroupWitnesses: groupWitnesses,
+		SignedGroupVirtualPsbts: signedGroupVirtualPsbts,
 	}
 	sealResp, err := tapNode.SealBatch(ctxt, &sealReq)
 	require.NoError(t.t, err)
@@ -842,45 +829,6 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 	)
 
 	return batchAssets
-}
-
-// DeserializeWitnessStack deserializes a serialized witness stack into a
-// [][]byte.
-//
-// TODO(ffranr): Reconcile this function with asset.TxWitnessDecoder.
-func DeserializeWitnessStack(serialized []byte) ([][]byte, error) {
-	var (
-		// buf is a general scratch buffer used when reading.
-		buf [8]byte
-
-		stack [][]byte
-	)
-	reader := bytes.NewReader(serialized)
-
-	// Read the number of witness elements (compact size integer)
-	count, err := tlv.ReadVarInt(reader, &buf)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read witness count: %w", err)
-	}
-
-	// Read each witness element
-	for i := uint64(0); i < count; i++ {
-		elementSize, err := tlv.ReadVarInt(reader, &buf)
-		if err != nil {
-			return nil, fmt.Errorf("failed to read witness "+
-				"element size: %w", err)
-		}
-
-		// Read the witness element data
-		element := make([]byte, elementSize)
-		if _, err := reader.Read(element); err != nil {
-			return nil, fmt.Errorf("failed to read witness "+
-				"element data: %w", err)
-		}
-		stack = append(stack, element)
-	}
-
-	return stack, nil
 }
 
 // SyncUniverses syncs the universes of two tapd instances and waits until they
