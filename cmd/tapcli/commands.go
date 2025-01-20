@@ -140,6 +140,7 @@ func printRespJSON(resp proto.Message) {
 	fmt.Printf("%s\n", jsonBytes)
 }
 
+// nolint: lll
 var debugLevelCommand = cli.Command{
 	Name:  "debuglevel",
 	Usage: "Set the debug level.",

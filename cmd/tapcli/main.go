@@ -48,7 +48,9 @@ const (
 
 var (
 	defaultTapdDir     = btcutil.AppDataDir("tapd", false)
-	defaultTLSCertPath = filepath.Join(defaultTapdDir, defaultTLSCertFilename)
+	defaultTLSCertPath = filepath.Join(
+		defaultTapdDir, defaultTLSCertFilename,
+	)
 )
 
 func fatal(err error) {
@@ -158,16 +160,17 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 		}
 
 		macConstraints := []macaroons.Constraint{
-			// We add a time-based constraint to prevent replay of the
-			// macaroon. It's good for 60 seconds by default to make up for
-			// any discrepancy between client and server clocks, but leaking
-			// the macaroon before it becomes invalid makes it possible for
-			// an attacker to reuse the macaroon. In addition, the validity
-			// time of the macaroon is extended by the time the server clock
-			// is behind the client clock, or shortened by the time the
+			// We add a time-based constraint to prevent replay of
+			// the macaroon. It's good for 60 seconds by default to
+			// make up for any discrepancy between client and server
+			// clocks, but leaking the macaroon before it becomes
+			// invalid makes it possible for an attacker to reuse
+			// the macaroon. In addition, the validity time of the
+			// macaroon is extended by the time the server clock is
+			// behind the client clock, or shortened by the time the
 			// server clock is ahead of the client clock (or invalid
-			// altogether if, in the latter case, this time is more than 60
-			// seconds).
+			// altogether if, in the latter case, this time is more
+			// than 60 seconds).
 			macaroons.TimeoutConstraint(profile.Macaroons.Timeout),
 
 			// Lock macaroon down to a specific IP address.
@@ -194,7 +197,9 @@ func getClientConn(ctx *cli.Context, skipMacaroons bool) *grpc.ClientConn {
 	// to connect to the grpc server.
 	if ctx.GlobalIsSet("socksproxy") {
 		socksProxy := ctx.GlobalString("socksproxy")
-		torDialer := func(_ context.Context, addr string) (net.Conn, error) {
+		torDialer := func(_ context.Context, addr string) (net.Conn,
+			error) {
+
 			return tor.Dial(
 				addr, socksProxy, false, false,
 				tor.DefaultConnTimeout,
@@ -248,7 +253,8 @@ func extractPathArgs(ctx *cli.Context) (string, string, error) {
 		// tapddir/data/<network> in order to fetch the
 		// macaroon that we need.
 		macPath = filepath.Join(
-			tapdDir, defaultDataDir, network, defaultMacaroonFilename,
+			tapdDir, defaultDataDir, network,
+			defaultMacaroonFilename,
 		)
 	}
 
