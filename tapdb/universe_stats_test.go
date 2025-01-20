@@ -125,6 +125,20 @@ func (u *uniStatsHarness) assertUniverseStatsEqual(t *testing.T,
 	require.NoError(t, err)
 }
 
+func (u *uniStatsHarness) addEvents(numAssets int) {
+	// Next, we'll log 2 proof events, and a random amount of syncs for
+	// each asset.
+	for i := 0; i < numAssets; i++ {
+		u.logProofEventByIndex(i)
+		u.logProofEventByIndex(i)
+
+		numSyncs := rand.Int() % 10
+		for j := 0; j < numSyncs; j++ {
+			u.logSyncEventByIndex(i)
+		}
+	}
+}
+
 // TestUniverseStatsEvents tests that we're able to properly insert, and also
 // fetch information related to universe sync related events.
 func TestUniverseStatsEvents(t *testing.T) {
@@ -271,15 +285,7 @@ func TestUniverseQuerySyncStatsSorting(t *testing.T) {
 
 	// Next, we'll log 2 proof events, and a random amount of syncs for
 	// each asset.
-	for i := 0; i < numAssets; i++ {
-		sh.logProofEventByIndex(i)
-		sh.logProofEventByIndex(i)
-
-		numSyncs := rand.Int() % 10
-		for j := 0; j < numSyncs; j++ {
-			sh.logSyncEventByIndex(i)
-		}
-	}
+	sh.addEvents(numAssets)
 
 	// sortCheck is used to generate an IsSorted func bound to the
 	// response, for each sort type below.

@@ -68,6 +68,22 @@ func dropIndices(t *testing.T, db *BaseDB) {
 		`DROP INDEX IF EXISTS idx_universe_roots_composite`,
 		`DROP INDEX IF EXISTS idx_universe_leaves_asset`,
 		`DROP INDEX IF EXISTS idx_mssmt_nodes_composite`,
+		// Instead of dropping an index, we restore the old, inefficient
+		// view that was present before migration #27.
+		`DROP VIEW universe_stats`,
+		`CREATE VIEW universe_stats AS
+		  SELECT
+		    COUNT(CASE WHEN u.event_type = 'SYNC' THEN 1 ELSE NULL END)
+                      AS total_asset_syncs,
+		    COUNT(CASE WHEN u.event_type = 'NEW_PROOF' THEN 1 
+                      ELSE NULL END) AS total_asset_proofs,
+		    roots.asset_id,
+                    roots.group_key,
+		    roots.proof_type
+		  FROM universe_events u
+		  JOIN universe_roots roots
+		    ON u.universe_root_id = roots.id
+		  GROUP BY roots.asset_id, roots.group_key, roots.proof_type`,
 	}
 
 	executeSQLStatements(t, db, statements, "Dropping")
@@ -139,6 +155,18 @@ var testQueries = []queryTest{
 	{
 		name:  "query_asset_stats",
 		query: queryAssetStatsQuery,
+		args: func(h *uniStatsHarness) []interface{} {
+			return []interface{}{}
+		},
+		dbTypes: []sqlc.BackendType{
+			sqlc.BackendTypeSqlite,
+			sqlc.BackendTypePostgres,
+		},
+	},
+
+	{
+		name:  "query_aggregated_stats",
+		query: sqlc.QueryUniverseStats,
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{}
 		},
@@ -294,6 +322,11 @@ func TestUniverseIndexPerformance(t *testing.T) {
 
 		h := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
 		require.NotNil(t, h)
+
+		// Generate some events for all assets.
+		for range 10 {
+			h.addEvents(numAssets)
+		}
 
 		if withIndices {
 			createIndices(t, sqlDB)
