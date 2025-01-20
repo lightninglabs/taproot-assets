@@ -68,6 +68,21 @@ func getClient(ctx *cli.Context) (taprpc.TaprootAssetsClient, func()) {
 	return taprpc.NewTaprootAssetsClient(conn), cleanUp
 }
 
+// RpcBundle is an interface that bundles all the client interfaces
+// that are used by the tapcli.
+type RpcBundle interface {
+	taprpc.TaprootAssetsClient
+
+	// TODO(ffranr): Add more client interfaces here.
+}
+
+func getRpcClientBundle(ctx *cli.Context) (RpcBundle, func()) {
+	client, cleanUp := getClient(ctx)
+
+	// TODO(ffranr): Add more client connections here.
+	return client, cleanUp
+}
+
 func getMintClient(ctx *cli.Context) (mintrpc.MintClient, func()) {
 	conn := getClientConn(ctx, false)
 

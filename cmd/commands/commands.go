@@ -9,6 +9,7 @@ import (
 
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 	"google.golang.org/protobuf/proto"
@@ -101,6 +102,55 @@ func NewApp() cli.App {
 	app.Commands = append(app.Commands, devCommands...)
 
 	return *app
+}
+
+// actionOpts contains the options for an action.
+type actionOpts struct {
+	ctx          context.Context
+	client       RpcBundle
+	silencePrint bool
+	respChan     chan<- lfn.Result[interface{}]
+}
+
+// ActionOption is a function type that can be used to set options for an
+// action.
+type ActionOption func(*actionOpts)
+
+// defaultActionOpts returns the default action options.
+func defaultActionOpts() *actionOpts {
+	return &actionOpts{}
+}
+
+// ActionWithCtx is an option modifier function that sets the context for an
+// action.
+func ActionWithCtx(ctx context.Context) ActionOption {
+	return func(opts *actionOpts) {
+		opts.ctx = ctx
+	}
+}
+
+// ActionWithClient is an option modifier function that sets the client for an
+// action.
+func ActionWithClient(client RpcBundle) ActionOption {
+	return func(opts *actionOpts) {
+		opts.client = client
+	}
+}
+
+// ActionWithSilencePrint is an option modifier function that sets the silence
+// print option for an action.
+func ActionWithSilencePrint(silencePrint bool) ActionOption {
+	return func(opts *actionOpts) {
+		opts.silencePrint = silencePrint
+	}
+}
+
+// ActionRespChan is an option modifier function that sets the response channel
+// for an action.
+func ActionRespChan(respChan chan<- lfn.Result[interface{}]) ActionOption {
+	return func(opts *actionOpts) {
+		opts.respChan = respChan
+	}
 }
 
 func getContext() context.Context {
@@ -221,4 +271,71 @@ func getInfo(ctx *cli.Context) error {
 
 	printRespJSON(resp)
 	return nil
+}
+
+// UnwrappedAction is a function signatures for unwrapped actions that are
+// executed by the wrapped action.
+type UnwrappedAction func(cliCtx *cli.Context, ctx context.Context,
+	client taprpc.TaprootAssetsClient, silencePrint bool) (proto.Message,
+	error)
+
+// WrappedAction is a function signature for wrapped actions that are executed
+// by cli.
+type WrappedAction = func(*cli.Context) error
+
+// NewWrappedAction creates a new WrappedAction that wraps an UnwrappedAction.
+func NewWrappedAction(action UnwrappedAction,
+	actionOpts ...ActionOption) WrappedAction {
+
+	// Formulate the action options struct from the provided option
+	// modifier functions.
+	opts := defaultActionOpts()
+	for _, actionOpt := range actionOpts {
+		actionOpt(opts)
+	}
+
+	var (
+		// Unpack options from opts to avoid overwriting below.
+		ctx          = opts.ctx
+		client       = opts.client
+		silencePrint = opts.silencePrint
+		respChan     = opts.respChan
+
+		// By default, a no-operation client cleanup function is
+		// specified because the caller is expected to handle the
+		// cleanup for any client provided as an argument.
+		clientCleanUp = func() {}
+	)
+
+	return func(cliCtx *cli.Context) error {
+		// If a client is not provided, create a new client using the
+		// CLI context.
+		if client == nil {
+			ctx = getContext()
+			client, clientCleanUp = getRpcClientBundle(cliCtx)
+		}
+
+		// Defer client cleanup.
+		defer clientCleanUp()
+
+		// Execute underlying action using the RPC client.
+		resp, err := action(cliCtx, ctx, client, silencePrint)
+		if err != nil {
+			// If a response channel is provided, send the error to
+			// the response channel.
+			if respChan != nil {
+				respChan <- lfn.Err[interface{}](err)
+			}
+
+			return err
+		}
+
+		// If a response channel is provided, send the response to the
+		// response channel.
+		if respChan != nil {
+			respChan <- lfn.Ok[interface{}](resp)
+		}
+
+		return nil
+	}
 }
