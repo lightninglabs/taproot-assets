@@ -118,4 +118,14 @@ func testGetInfo(t *harnessTest) {
 	// Ensure network field is set correctly.
 	expectedNetwork := t.tapd.cfg.NetParams.Name
 	require.Equal(t.t, expectedNetwork, resp.Network)
+
+	// Attempt to get the info using the CLI.
+	respGeneric, err := ExecTapCLI(ctxt, t.tapd, "getinfo")
+	require.NoError(t.t, err)
+
+	// Type assert the response to the expected type.
+	respCli := respGeneric.(*taprpc.GetInfoResponse)
+
+	// Ensure the response matches the expected response.
+	require.Equal(t.t, resp, respCli)
 }
