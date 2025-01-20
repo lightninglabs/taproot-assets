@@ -47,6 +47,15 @@ const (
 	// assets. The main contributing factor to this size are the previous
 	// witnesses which we currently allow to number up to 65k witnesses.
 	MaxAssetEncodeSizeBytes = blockchain.MaxBlockWeight
+
+	// PedersenXPubMasterKeyFingerprint is the master key fingerprint we use
+	// to identify the fake xPub we create from a Pedersen commitment public
+	// key (which is a special form of tweaked NUMS key). Master key
+	// fingerprints in PSBTs are always encoded as little-endian uint32s but
+	// displayed as 4 bytes of hex. Serialized as little-endian uint32, this
+	// spells "7a9a55e7" which can be read as "TAP asset" in leet speak
+	// (with a bit of imagination).
+	PedersenXPubMasterKeyFingerprint uint32 = 0xe7559a7a
 )
 
 // SerializedKey is a type for representing a public key, serialized in the

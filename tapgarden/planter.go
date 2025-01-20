@@ -163,11 +163,6 @@ func (p *PendingAssetGroup) PSBT(
 		p.GroupKeyRequest.RawKey.PubKey,
 	)
 
-	var (
-		bip32Derivation   *psbt.Bip32Derivation
-		trBip32Derivation *psbt.TaprootBip32Derivation
-	)
-
 	switch {
 	case p.GroupKeyRequest.ExternalKey.IsSome():
 		externalKey := p.GroupKeyRequest.ExternalKey.UnwrapToPtr()
@@ -177,28 +172,98 @@ func (p *PendingAssetGroup) PSBT(
 				"from external key: %w", err)
 		}
 
-		bip32Derivation = &psbt.Bip32Derivation{
+		bip32Main := &psbt.Bip32Derivation{
 			PubKey:               pubKey.SerializeCompressed(),
 			MasterKeyFingerprint: externalKey.MasterFingerprint,
 			Bip32Path:            externalKey.DerivationPath,
 		}
-		trBip32Derivation = &psbt.TaprootBip32Derivation{
-			XOnlyPubKey:          bip32Derivation.PubKey[1:],
+		trBip32Main := &psbt.TaprootBip32Derivation{
+			XOnlyPubKey:          bip32Main.PubKey[1:],
 			MasterKeyFingerprint: externalKey.MasterFingerprint,
 			Bip32Path:            externalKey.DerivationPath,
 			LeafHashes:           make([][]byte, 0),
 		}
 
-	default:
-		bip32Derivation, trBip32Derivation =
-			tappsbt.Bip32DerivationFromKeyDesc(
-				p.GroupKeyRequest.RawKey, params.HDCoinType,
-			)
-	}
+		xPub := externalKey.XPub
+		xPubPath := externalKey.DerivationPath[:xPub.Depth()]
+		packet.XPubs = append(packet.XPubs, psbt.XPub{
+			ExtendedKey:          psbt.EncodeExtendedKey(&xPub),
+			MasterKeyFingerprint: externalKey.MasterFingerprint,
+			Bip32Path:            xPubPath,
+		})
 
-	vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32Derivation}
-	vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-		trBip32Derivation,
+		vIn.Bip32Derivation = []*psbt.Bip32Derivation{
+			bip32Main,
+		}
+		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trBip32Main,
+		}
+
+		// TODO(guggero): Make this switch dependent on the non-spend
+		// leaf version, once we allow the user to configure that.
+		if true {
+			assetID := p.AnchorGen.ID()
+			numsXPub, numsKey, err := asset.TweakedNumsKey(assetID)
+			if err != nil {
+				return nil, fmt.Errorf("error deriving nums "+
+					"key: %w", err)
+			}
+
+			// For the fake/NUMS key, we use a specific static
+			// fingerprint, which will allow us to identify it in
+			// the HWI library in order to construct the correct
+			// miniscript policy for this type of spend.
+			numsFP := asset.PedersenXPubMasterKeyFingerprint
+			numsKeyBytes := numsKey.SerializeCompressed()
+			bip32Nums := &psbt.Bip32Derivation{
+				PubKey:               numsKeyBytes,
+				MasterKeyFingerprint: numsFP,
+				// We use the same derivation path as for the
+				// "real" key, but it doesn't really matter,
+				// since it's a fake key anyway.
+				Bip32Path: externalKey.DerivationPath,
+			}
+			trBip32Nums := &psbt.TaprootBip32Derivation{
+				XOnlyPubKey:          numsKeyBytes[1:],
+				MasterKeyFingerprint: numsFP,
+				// We use the same derivation path as for the
+				// "real" key, but it doesn't really matter,
+				// since it's a fake key anyway.
+				Bip32Path:  externalKey.DerivationPath,
+				LeafHashes: make([][]byte, 0),
+			}
+
+			vIn.Bip32Derivation = append(
+				vIn.Bip32Derivation, bip32Nums,
+			)
+			vIn.TaprootBip32Derivation = append(
+				vIn.TaprootBip32Derivation, trBip32Nums,
+			)
+
+			numsXPub, err = numsXPub.CloneWithVersion(
+				params.HDPublicKeyID[:],
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error cloning nums "+
+					"key: %w", err)
+			}
+			packet.XPubs = append(packet.XPubs, psbt.XPub{
+				ExtendedKey: psbt.EncodeExtendedKey(
+					numsXPub,
+				),
+				MasterKeyFingerprint: numsFP,
+				Bip32Path:            xPubPath,
+			})
+		}
+
+	default:
+		bip32, trBip32 := tappsbt.Bip32DerivationFromKeyDesc(
+			p.GroupKeyRequest.RawKey, params.HDCoinType,
+		)
+		vIn.Bip32Derivation = []*psbt.Bip32Derivation{bip32}
+		vIn.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+			trBip32,
+		}
 	}
 
 	return packet, nil
@@ -809,108 +874,112 @@ func buildGroupReqs(genesisPoint wire.OutPoint, assetOutputIndex uint32,
 			//  transaction have been created.
 		}
 
+		// If emission isn't enabled, we don't have to do anything else
+		// for this seedling.
+		if !seedling.EnableEmission {
+			continue
+		}
+
 		// If emission is enabled, an internal key for the group should
 		// already be specified. Use that to derive the key group
 		// signature along with the tweaked key group.
-		if seedling.EnableEmission {
-			if seedling.GroupInternalKey == nil &&
-				seedling.ExternalKey.IsNone() {
+		if seedling.GroupInternalKey == nil &&
+			seedling.ExternalKey.IsNone() {
 
-				return nil, nil, fmt.Errorf("unable to " +
-					"derive group key, both internal and " +
-					"external keys are unspecified")
-			}
+			return nil, nil, fmt.Errorf("unable to " +
+				"derive group key, both internal and " +
+				"external keys are unspecified")
+		}
 
-			// If seedling.GroupTapscriptRoot is specified and the
-			// seedling includes an external key, we must use group
-			// key V1. As a result, seedling.GroupTapscriptRoot will
-			// be treated as a custom tapscript subtree root, which
-			// we will graft into the group key's tapscript tree. We
-			// will proceed with this now.
-			var (
-				tsRoot         = seedling.GroupTapscriptRoot
-				customRootHash fn.Option[chainhash.Hash]
-			)
-			if seedling.ExternalKey.IsSome() {
-				// If seedling.GroupTapscriptRoot is specified,
-				// set it to the custom root hash. Then we will
-				// calculate a new tapscript root hash which
-				// includes the custom root as a grafted
-				// subtree.
-				if len(tsRoot) > 0 {
-					r, err := chainhash.NewHash(tsRoot)
-					if err != nil {
-						return nil, nil, err
-					}
-
-					customRootHash = fn.Some(*r)
-				}
-
-				// Construct an asset group tapscript tree,
-				// incorporating the optional custom subtree
-				// through grafting.
-				//
-				// At this point, we are constructing the group
-				// tapscript tree root whether the
-				// customRootHash is defined.
-				tapscriptTree, _, err :=
-					asset.NewGroupKeyTapscriptRoot(
-						// TODO(guggero): Make this
-						// configurable in the future.
-						asset.PedersenVersion,
-						assetGen.ID(), customRootHash,
-					)
+		// If seedling.GroupTapscriptRoot is specified and the
+		// seedling includes an external key, we must use group
+		// key V1. As a result, seedling.GroupTapscriptRoot will
+		// be treated as a custom tapscript subtree root, which
+		// we will graft into the group key's tapscript tree. We
+		// will proceed with this now.
+		var (
+			tsRoot         = seedling.GroupTapscriptRoot
+			customRootHash fn.Option[chainhash.Hash]
+		)
+		if seedling.ExternalKey.IsSome() {
+			// If seedling.GroupTapscriptRoot is specified,
+			// set it to the custom root hash. Then we will
+			// calculate a new tapscript root hash which
+			// includes the custom root as a grafted
+			// subtree.
+			if len(tsRoot) > 0 {
+				r, err := chainhash.NewHash(tsRoot)
 				if err != nil {
 					return nil, nil, err
 				}
 
-				// Update the group tapscript tree root hash to
-				// the new root hash. If customRootHash is
-				// defined, the new root hash incorporates it as
-				// a subtree.
-				tsRoot = fn.ByteSlice(tapscriptTree.Root())
+				customRootHash = fn.Some(*r)
 			}
 
-			// The group internal key should be set at this point.
+			// Construct an asset group tapscript tree,
+			// incorporating the optional custom subtree
+			// through grafting.
 			//
-			// If an external key is present, the internal key
-			// should be a public key derived from the external
-			// key.
-			if seedling.GroupInternalKey == nil {
-				return nil, nil, fmt.Errorf("internal key is " +
-					"missing for seedling")
-			}
-
-			groupReq, err := asset.NewGroupKeyRequest(
-				*seedling.GroupInternalKey,
-				seedling.ExternalKey, assetGen,
-				protoAsset, tsRoot, customRootHash,
-			)
-			if err != nil {
-				return nil, nil, fmt.Errorf("unable to "+
-					"request asset group creation: %w", err)
-			}
-
-			genTx, err := groupReq.BuildGroupVirtualTx(
-				genBuilder,
+			// At this point, we are constructing the group
+			// tapscript tree root whether the
+			// customRootHash is defined.
+			tapscriptTree, _, err := asset.NewGroupKeyTapscriptRoot(
+				// TODO(guggero): Make this configurable in the
+				// future.
+				asset.PedersenVersion, assetGen.ID(),
+				customRootHash,
 			)
 			if err != nil {
 				return nil, nil, err
 			}
 
-			groupReqs = append(groupReqs, *groupReq)
-			genTXs = append(genTXs, *genTx)
+			// Update the group tapscript tree root hash to
+			// the new root hash. If customRootHash is
+			// defined, the new root hash incorporates it as
+			// a subtree.
+			tsRoot = fn.ByteSlice(tapscriptTree.Root())
+		}
 
-			newGroupKey := &asset.GroupKey{
-				Version:       groupReq.Version,
-				RawKey:        *seedling.GroupInternalKey,
-				TapscriptRoot: seedling.GroupTapscriptRoot,
-			}
+		// The group internal key should be set at this point.
+		//
+		// If an external key is present, the internal key
+		// should be a public key derived from the external
+		// key.
+		if seedling.GroupInternalKey == nil {
+			return nil, nil, fmt.Errorf("internal key is " +
+				"missing for seedling")
+		}
 
-			newGroups[seedlingName] = &asset.AssetGroup{
-				Genesis:  &assetGen,
-				GroupKey: newGroupKey,
-			}
+		groupReq, err := asset.NewGroupKeyRequest(
+			*seedling.GroupInternalKey,
+			seedling.ExternalKey, assetGen,
+			protoAsset, tsRoot, customRootHash,
+		)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unable to "+
+				"request asset group creation: %w", err)
+		}
+
+		genTx, err := groupReq.BuildGroupVirtualTx(
+			genBuilder,
+		)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		groupReqs = append(groupReqs, *groupReq)
+		genTXs = append(genTXs, *genTx)
+
+		newGroupKey := &asset.GroupKey{
+			Version:             groupReq.Version,
+			RawKey:              *seedling.GroupInternalKey,
+			TapscriptRoot:       seedling.GroupTapscriptRoot,
+			CustomTapscriptRoot: customRootHash,
+		}
+
+		newGroups[seedlingName] = &asset.AssetGroup{
+			Genesis:  &assetGen,
+			GroupKey: newGroupKey,
 		}
 	}
 
