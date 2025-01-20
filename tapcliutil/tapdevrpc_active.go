@@ -1,6 +1,6 @@
 //go:build dev
 
-package main
+package tapcliutil
 
 import (
 	"fmt"

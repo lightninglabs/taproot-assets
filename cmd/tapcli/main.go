@@ -4,12 +4,16 @@
 
 package main
 
-import "os"
+import (
+	"os"
+
+	"github.com/lightninglabs/taproot-assets/tapcliutil"
+)
 
 func main() {
 	// Set up the main CLI app.
-	app := NewApp()
+	app := tapcliutil.NewApp()
 	if err := app.Run(os.Args); err != nil {
-		Fatal(err)
+		tapcliutil.Fatal(err)
 	}
 }
