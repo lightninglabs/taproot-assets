@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
+	"github.com/lightninglabs/taproot-assets/tapcliutil"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
@@ -31,6 +32,7 @@ import (
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
+	"github.com/urfave/cli"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/backoff"
 	"google.golang.org/grpc/credentials"
@@ -286,6 +288,57 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		clientCfg: finalCfg,
 		ht:        ht,
 	}, nil
+}
+
+// cliApp creates a new CLI app which calls into the tapd harness.
+func cliApp(ctx context.Context, tapClient *tapdHarness,
+	respChan chan<- interface{}, errChan chan<- error) *cli.App {
+
+	app := cli.NewApp()
+	app.Name = "tapcli-itest"
+
+	clientSpecifier := tapcliutil.NewRpcClientHarness(
+		ctx, tapClient, respChan, errChan,
+	)
+	app.Commands = tapcliutil.Commands(clientSpecifier)
+
+	return app
+}
+
+// ExecTapCLI uses the CLI parser to invoke the specified tapd harness via RPC,
+// passing the provided arguments. It returns the response or an error.
+func ExecTapCLI(ctx context.Context, tapClient *tapdHarness,
+	args ...string) (interface{}, error) {
+
+	// Prepend a dummy path to the args to make the CLI argument parser
+	// happy. The first argument is the path to the binary, which is not
+	// used in the tests.
+	args = append([]string{"dummy-path"}, args...)
+
+	responseChan := make(chan interface{}, 1)
+	errCh := make(chan error, 1)
+
+	go func() {
+		app := cliApp(ctx, tapClient, responseChan, errCh)
+		err := app.Run(args)
+		if err != nil {
+			errCh <- err
+		}
+	}()
+
+	// Wait for either a response or an error.
+	select {
+	case resp := <-responseChan:
+		close(responseChan)
+		return resp, nil
+	case err := <-errCh:
+		close(responseChan)
+		return nil, err
+	case <-ctx.Done():
+		// Handle context cancellation
+		close(responseChan)
+		return nil, ctx.Err()
+	}
 }
 
 // updateConfigWithNode updates the tapd configuration with the connection

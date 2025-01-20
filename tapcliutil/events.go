@@ -1,4 +1,4 @@
-package main
+package tapcliutil
 
 import (
 	"encoding/hex"
