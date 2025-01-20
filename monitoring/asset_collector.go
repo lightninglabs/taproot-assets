@@ -97,7 +97,7 @@ func (a *universeStatsCollector) Collect(ch chan<- prometheus.Metric) {
 	a.collectMx.Lock()
 	defer a.collectMx.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), promTimeout)
 	defer cancel()
 
 	universeStats, err := a.cfg.UniverseStats.AggregateSyncStats(ctx)
