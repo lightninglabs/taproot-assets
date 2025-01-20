@@ -337,7 +337,14 @@ message SealBatchRequest {
     bool short_response = 1;
 
     // The assetID, witness pairs that authorize asset membership in a group.
+    // This field should not be used in conjunction with
+    // `signed_group_virtual_psbts`; use one or the other.
     repeated taprpc.GroupWitness group_witnesses = 2;
+
+    // The base64 encoded signed group virtual PSBTs.
+    // This field should not be used in conjunction with `group_witnesses`;
+    // use one or the other.
+    repeated string signed_group_virtual_psbts = 3;
 }
 
 message SealBatchResponse {

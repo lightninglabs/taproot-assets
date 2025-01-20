@@ -780,6 +780,7 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 func (r *rpcServer) SealBatch(ctx context.Context,
 	req *mintrpc.SealBatchRequest) (*mintrpc.SealBatchResponse, error) {
 
+	// Unmarshal group witnesses from the request.
 	var groupWitnesses []asset.PendingGroupWitness
 	for i := range req.GroupWitnesses {
 		wit, err := taprpc.UnmarshalGroupWitness(req.GroupWitnesses[i])
@@ -790,9 +791,27 @@ func (r *rpcServer) SealBatch(ctx context.Context,
 		groupWitnesses = append(groupWitnesses, *wit)
 	}
 
+	// Unmarshal signed group virtual PSBTs from the request.
+	var groupPSBTs []psbt.Packet
+	for i := range req.SignedGroupVirtualPsbts {
+		groupPsbt := req.SignedGroupVirtualPsbts[i]
+
+		// Decode the signed group virtual PSBT.
+		r := bytes.NewReader([]byte(groupPsbt))
+		psbtPacket, err := psbt.NewFromRawBytes(r, true)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse signed "+
+				"group virtual PSBT (signed_psbt=%s): %w",
+				groupPsbt, err)
+		}
+
+		groupPSBTs = append(groupPSBTs, *psbtPacket)
+	}
+
 	batch, err := r.cfg.AssetMinter.SealBatch(
 		tapgarden.SealParams{
-			GroupWitnesses: groupWitnesses,
+			GroupWitnesses:          groupWitnesses,
+			SignedGroupVirtualPsbts: groupPSBTs,
 		},
 	)
 	if err != nil {

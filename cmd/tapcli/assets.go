@@ -461,7 +461,16 @@ var sealBatchCommand = cli.Command{
 		cli.StringSliceFlag{
 			Name: "group_signatures",
 			Usage: "the asset ID and signature, separated by a " +
-				"colon",
+				"colon. This flag should not be used in " +
+				"conjunction with 'signed_group_psbt'; use " +
+				"one or the other.",
+		},
+		cli.StringSliceFlag{
+			Name: "signed_group_psbt",
+			Usage: "a signed group PSBT for a single asset group " +
+				"in the batch. This flag should not be used " +
+				"in conjunction with 'group_signatures'; use " +
+				"one or the other.",
 		},
 	},
 	Hidden: true,
@@ -474,13 +483,10 @@ func sealBatch(ctx *cli.Context) error {
 	defer cleanUp()
 
 	req := &mintrpc.SealBatchRequest{
-		ShortResponse: ctx.Bool(shortResponseName),
+		ShortResponse:           ctx.Bool(shortResponseName),
+		SignedGroupVirtualPsbts: ctx.StringSlice("signed_group_psbt"),
 	}
 
-	// TODO(guggero): Actually just ask for the signed PSBT back and extract
-	// the signature from there. We can query the pending batch to get the
-	// asset ID of each PSBT (can match by the unsigned transaction's input
-	// prev out).
 	sigs := ctx.StringSlice("group_signatures")
 	for _, witness := range sigs {
 		parts := strings.Split(witness, ":")

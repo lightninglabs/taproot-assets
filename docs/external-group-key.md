@@ -249,99 +249,10 @@ Successfully signed PSBT:
 cHNidP8BAF4CAAAAATKZro+KSjqg4YQvE0bqBCbWuii3ekKAdufOGo57L8lwAAAAAAAAAAAAAQBlzR0AAAAAIlEgxoSpM86Pyu/bCRKhOc6/2TLXDGXnUnXn69FQqD8gw7cAAAAAAAEBKwBlzR0AAAAAIlEgqUflbsA2uA/P2qYe6qclsUox7koFCR3h1xkwh4+M1wQBCEIBQAv/X4PJqGyO2YzL2uJgIK+gDFGCTIFkzAq29ThWcBuW5mFIc7aQX1CBtxHSXiF8/jn+F5sWeL0pve1ZKxY7L4EAAA==
 ```
 
-## Step 5b: Extract the signature from the PSBT
-
-TODO(guggero/ffranr): Replace this step by allowing the CLI to take the signed
-PSBT instead. We can list the batch to get the asset ID of each pending asset
-and match the PSBT's input previous output to find out what signed PSBT belongs
-to what asset (in case there are multiple).
-
-```shell
-$ bitcoin-cli decodepsbt cHNidP8BAF4CAAAAATKZro+KSjqg4YQvE0bqBCbWuii3ekKAdufOGo57L8lwAAAAAAAAAAAAAQBlzR0AAAAAIlEgxoSpM86Pyu/bCRKhOc6/2TLXDGXnUnXn69FQqD8gw7cAAAAAAAEBKwBlzR0AAAAAIlEgqUflbsA2uA/P2qYe6qclsUox7koFCR3h1xkwh4+M1wQBCEIBQAv/X4PJqGyO2YzL2uJgIK+gDFGCTIFkzAq29ThWcBuW5mFIc7aQX1CBtxHSXiF8/jn+F5sWeL0pve1ZKxY7L4EAAA==
-
-{
-  "tx": {
-    "txid": "1994e0f5e6beee0a58f76b2f806894f94d93ea0a21c6e380b7634f76c358c38a",
-    "hash": "1994e0f5e6beee0a58f76b2f806894f94d93ea0a21c6e380b7634f76c358c38a",
-    "version": 2,
-    "size": 94,
-    "vsize": 94,
-    "weight": 376,
-    "locktime": 0,
-    "vin": [
-      {
-        "txid": "70c92f7b8e1acee77680427ab728bad62604ea46132f84e1a03a4a8a8fae9932",
-        "vout": 0,
-        "scriptSig": {
-          "asm": "",
-          "hex": ""
-        },
-        "sequence": 0
-      }
-    ],
-    "vout": [
-      {
-        "value": 5.00000000,
-        "n": 0,
-        "scriptPubKey": {
-          "asm": "1 c684a933ce8fcaefdb0912a139cebfd932d70c65e75275e7ebd150a83f20c3b7",
-          "desc": "addr(bcrt1pc6z2jv7w3l9wlkcfz2snnn4lmyedwrr9uaf8telt69g2s0eqcwmsnuxkp4)#ramnsz8q",
-          "hex": "5120c684a933ce8fcaefdb0912a139cebfd932d70c65e75275e7ebd150a83f20c3b7",
-          "address": "bcrt1pc6z2jv7w3l9wlkcfz2snnn4lmyedwrr9uaf8telt69g2s0eqcwmsnuxkp4",
-          "type": "witness_v1_taproot"
-        }
-      }
-    ]
-  },
-  "global_xpubs": [
-  ],
-  "psbt_version": 0,
-  "proprietary": [
-  ],
-  "unknown": {
-  },
-  "inputs": [
-    {
-      "witness_utxo": {
-        "amount": 5.00000000,
-        "scriptPubKey": {
-          "asm": "1 a947e56ec036b80fcfdaa61eeaa725b14a31ee4a05091de1d71930878f8cd704",
-          "desc": "rawtr(a947e56ec036b80fcfdaa61eeaa725b14a31ee4a05091de1d71930878f8cd704)#fnjmj6gz",
-          "hex": "5120a947e56ec036b80fcfdaa61eeaa725b14a31ee4a05091de1d71930878f8cd704",
-          "address": "bcrt1p49r72mkqx6uqln765c0w4fe9k99rrmj2q5y3mcwhrycg0ruv6uzqgnfa6h",
-          "type": "witness_v1_taproot"
-        }
-      },
-      "final_scriptwitness": [
-        "0bff5f83c9a86c8ed98ccbdae26020afa00c51824c8164cc0ab6f53856701b96e6614873b6905f5081b711d25e217cfe39fe179b1678bd29bded592b163b2f81"
-      ]
-    }
-  ],
-  "outputs": [
-    {
-    }
-  ],
-  "fee": 0.00000000
-}
- 
-```
-
-We'll take the witness as the signature for the next step:
-
-```json
-"final_scriptwitness": [
-"0bff5f83c9a86c8ed98ccbdae26020afa00c51824c8164cc0ab6f53856701b96e6614873b6905f5081b711d25e217cfe39fe179b1678bd29bded592b163b2f81"
-]
-```
-
 ## Step 6: Seal the batch with the signature
 
-TODO(guggero/ffranr): Use signed PSBT instead, currently it's
-`--group_signatures <asset_id>:<signature>`, but should be
-`--signed_group_psbt` or something like that.
-
 ```shell
-$ tapcli assets mint seal --group_signatures c4b0771c1bd1334bf20df5204c162702a6dc765a9cb15b1bc9e3c91e0282061b:0bff5f83c9a86c8ed98ccbdae26020afa00c51824c8164cc0ab6f53856701b96e6614873b6905f5081b711d25e217cfe39fe179b1678bd29bded592b163b2f81
+$ tapcli assets mint seal --signed_group_psbt cHNidP8BAF4CAAAAATKZro+KSjqg4YQvE0bqBCbWuii3ekKAdufOGo57L8lwAAAAAAAAAAAAAQBlzR0AAAAAIlEgxoSpM86Pyu/bCRKhOc6/2TLXDGXnUnXn69FQqD8gw7cAAAAAAAEBKwBlzR0AAAAAIlEgqUflbsA2uA/P2qYe6qclsUox7koFCR3h1xkwh4+M1wQBCEIBQAv/X4PJqGyO2YzL2uJgIK+gDFGCTIFkzAq29ThWcBuW5mFIc7aQX1CBtxHSXiF8/jn+F5sWeL0pve1ZKxY7L4EAAA==
 
 {
     "batch":  {
