@@ -16,7 +16,7 @@ import (
 )
 
 // NewApp creates a new tapcli app with all the available commands.
-func NewApp() cli.App {
+func NewApp(actionOpts ...ActionOption) cli.App {
 	app := cli.NewApp()
 	app.Name = "tapcli"
 	app.Version = tap.Version()
@@ -91,7 +91,7 @@ func NewApp() cli.App {
 		stopCommand,
 		debugLevelCommand,
 		profileSubCommand,
-		getInfoCommand,
+		NewGetInfoCommand(actionOpts...),
 	}
 	app.Commands = append(app.Commands, assetsCommands...)
 	app.Commands = append(app.Commands, addrCommands...)
@@ -251,26 +251,32 @@ func stopDaemon(ctx *cli.Context) error {
 	return nil
 }
 
-var getInfoCommand = cli.Command{
-	Name:        "getinfo",
-	Usage:       "Get daemon info.",
-	Description: "Returns basic information related to the active daemon.",
-	Action:      getInfo,
+// NewGetInfoCommand creates a new command to get daemon info.
+func NewGetInfoCommand(actionOpts ...ActionOption) cli.Command {
+	return cli.Command{
+		Name:  "getinfo",
+		Usage: "Get daemon info.",
+		Description: "Returns basic information related to the " +
+			"active daemon.",
+		Action: NewWrappedAction(getInfo, actionOpts...),
+	}
 }
 
-func getInfo(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+// getInfo is the action function for the `getinfo` command.
+func getInfo(_ *cli.Context, ctx context.Context,
+	client taprpc.TaprootAssetsClient, silencePrint bool) (proto.Message,
+	error) {
 
-	req := &taprpc.GetInfoRequest{}
-	resp, err := client.GetInfo(ctxc, req)
+	resp, err := client.GetInfo(ctx, &taprpc.GetInfoRequest{})
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	printRespJSON(resp)
-	return nil
+	if !silencePrint {
+		printRespJSON(resp)
+	}
+
+	return resp, nil
 }
 
 // UnwrappedAction is a function signatures for unwrapped actions that are
