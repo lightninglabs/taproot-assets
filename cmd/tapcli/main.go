@@ -10,6 +10,6 @@ func main() {
 	// Set up the main CLI app.
 	app := NewApp()
 	if err := app.Run(os.Args); err != nil {
-		fatal(err)
+		Fatal(err)
 	}
 }

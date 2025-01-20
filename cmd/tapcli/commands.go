@@ -121,7 +121,7 @@ func getContext() context.Context {
 func printJSON(resp interface{}) {
 	b, err := json.Marshal(resp)
 	if err != nil {
-		fatal(err)
+		Fatal(err)
 	}
 
 	var out bytes.Buffer
