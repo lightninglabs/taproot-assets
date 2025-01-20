@@ -92,11 +92,13 @@ func NewApp() cli.App {
 	}
 
 	// Add all the available commands.
+	//
+	// TODO(ffranr): Replace with a call to `Commands`.
 	app.Commands = []cli.Command{
 		stopCommand,
 		debugLevelCommand,
 		profileSubCommand,
-		getInfoCommand,
+		NewGetInfoCommand(nil),
 	}
 	app.Commands = append(app.Commands, assetsCommands...)
 	app.Commands = append(app.Commands, addrCommands...)
@@ -119,6 +121,18 @@ type ClientInterfaceBundle interface {
 	tchrpc.TaprootAssetChannelsClient
 	universerpc.UniverseClient
 	tapdevrpc.TapDevClient
+}
+
+// Commands returns all the available commands for the tapcli.
+//
+// TODO(ffranr): Add all the available commands.
+func Commands(rpcClientHarness *RpcClientHarness) []cli.Command {
+	// Add all the available commands.
+	commands := []cli.Command{
+		NewGetInfoCommand(rpcClientHarness),
+	}
+
+	return commands
 }
 
 func getContext() context.Context {
@@ -219,26 +233,33 @@ func stopDaemon(ctx *cli.Context) error {
 	return nil
 }
 
-var getInfoCommand = cli.Command{
-	Name:        "getinfo",
-	Usage:       "Get daemon info.",
-	Description: "Returns basic information related to the active daemon.",
-	Action:      getInfo,
+// NewGetInfoCommand creates a new command to get daemon info.
+func NewGetInfoCommand(clientSpecifier *RpcClientHarness) cli.Command {
+	return cli.Command{
+		Name:  "getinfo",
+		Usage: "Get daemon info.",
+		Description: "Returns basic information related to the " +
+			"active daemon.",
+		Action: NewWrappedAction(clientSpecifier, getInfo),
+	}
 }
 
-func getInfo(ctx *cli.Context) error {
-	ctxc := getContext()
-	client, cleanUp := getClient(ctx)
-	defer cleanUp()
+// getInfo is the action function for the `getinfo` command.
+func getInfo(_ *cli.Context, ctx context.Context,
+	client taprpc.TaprootAssetsClient, silencePrint bool) (proto.Message,
+	error) {
 
 	req := &taprpc.GetInfoRequest{}
-	resp, err := client.GetInfo(ctxc, req)
+	resp, err := client.GetInfo(ctx, req)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
-	printRespJSON(resp)
-	return nil
+	if !silencePrint {
+		printRespJSON(resp)
+	}
+
+	return resp, nil
 }
 
 // RpcClientHarness is a struct that contains the necessary information to
