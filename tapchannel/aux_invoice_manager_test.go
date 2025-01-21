@@ -168,10 +168,10 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 				}
 			} else {
 				if !assert.ErrorContains(
-					m.t, err, "price from quote",
+					m.t, err, "extract assetID from quote",
 				) {
 
-					m.t.Errorf("expected quote price err")
+					m.t.Errorf("expected assetID error")
 				}
 			}
 
@@ -216,7 +216,15 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 
 		quote, ok := m.rfqMap[rfqID.Scid()]
 		if !ok {
-			m.t.Errorf("no rfq quote found")
+			if res.CancelSet {
+				continue
+			}
+
+			if !assert.ErrorContains(m.t, err, "price from quote") {
+				m.t.Errorf("expected quote related error")
+			}
+
+			continue
 		}
 
 		assetRate := lnwire.MilliSatoshi(
@@ -264,6 +272,11 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 // TestAuxInvoiceManager tests that the htlc modifications of the aux invoice
 // manager align with our expectations.
 func TestAuxInvoiceManager(t *testing.T) {
+	var (
+		assetID        = dummyAssetID(1)
+		assetSpecifier = asset.NewSpecifierFromId(assetID)
+	)
+
 	testCases := []struct {
 		name            string
 		buyQuotes       rfq.BuyAcceptMap
@@ -342,8 +355,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.NewAssetBalance(
-								dummyAssetID(1),
-								3,
+								assetID, 3,
 							),
 						}, fn.Some(testRfqID),
 					),
@@ -360,6 +372,9 @@ func TestAuxInvoiceManager(t *testing.T) {
 					AssetRate: rfqmsg.NewAssetRate(
 						testAssetRate, time.Now(),
 					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
 				},
 			},
 		},
@@ -375,8 +390,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.NewAssetBalance(
-								dummyAssetID(1),
-								4,
+								assetID, 4,
 							),
 						}, fn.Some(testRfqID),
 					),
@@ -394,6 +408,9 @@ func TestAuxInvoiceManager(t *testing.T) {
 					AssetRate: rfqmsg.NewAssetRate(
 						testAssetRate, time.Now(),
 					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
 				},
 			},
 		},
@@ -408,8 +425,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 					WireCustomRecords: newWireCustomRecords(
 						t, []*rfqmsg.AssetBalance{
 							rfqmsg.NewAssetBalance(
-								dummyAssetID(1),
-								4,
+								assetID, 4,
 							),
 						}, fn.Some(testRfqID),
 					),
@@ -419,6 +435,42 @@ func TestAuxInvoiceManager(t *testing.T) {
 			responses: []lndclient.InvoiceHtlcModifyResponse{
 				{
 					CancelSet: true,
+				},
+			},
+		},
+		{
+			name: "asset invoice, wrong asset htlc",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   3_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							rfqmsg.NewAssetBalance(
+								dummyAssetID(5),
+								3,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					CancelSet: true,
+				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: assetSpecifier,
+					},
 				},
 			},
 		},
