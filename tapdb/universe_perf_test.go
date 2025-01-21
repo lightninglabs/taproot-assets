@@ -75,45 +75,6 @@ func dropIndices(t *testing.T, db *BaseDB) {
 
 // Query definitions for performance testing.
 const (
-	// fetchUniverseRootQuery returns root info for a given namespace.
-	// This corresponds to the FetchUniverseRoot query.
-	fetchUniverseRootQuery = `
-		SELECT 
-			universe_roots.asset_id, 
-			group_key, 
-			proof_type,
-			mssmt_nodes.hash_key root_hash, 
-			mssmt_nodes.sum root_sum,
-			genesis_assets.asset_tag asset_name
-		FROM universe_roots
-		JOIN mssmt_roots 
-			ON universe_roots.namespace_root = mssmt_roots.namespace
-		JOIN mssmt_nodes 
-			ON mssmt_nodes.hash_key = mssmt_roots.root_hash 
-			AND mssmt_nodes.namespace = mssmt_roots.namespace
-		JOIN genesis_assets
-			ON genesis_assets.asset_id = universe_roots.asset_id
-		WHERE mssmt_nodes.namespace = $1`
-
-	// queryUniverseLeavesQuery gets leaf info for a namespace. This
-	// corresponds to the QueryUniverseLeaves query.
-	queryUniverseLeavesQuery = `
-		SELECT 
-			leaves.script_key_bytes, 
-			gen.gen_asset_id, 
-			nodes.value AS genesis_proof, 
-			nodes.sum AS sum_amt, 
-			gen.asset_id
-		FROM universe_leaves AS leaves
-		JOIN mssmt_nodes AS nodes
-			ON leaves.leaf_node_key = nodes.key 
-			AND leaves.leaf_node_namespace = nodes.namespace
-		JOIN genesis_info_view AS gen
-			ON leaves.asset_genesis_id = gen.gen_asset_id
-		WHERE leaves.leaf_node_namespace = $1 
-			AND (leaves.minting_point = $2 OR $2 IS NULL)
-			AND (leaves.script_key_bytes = $3 OR $3 IS NULL)`
-
 	// queryAssetStatsQuery gets aggregated stats for assets. This
 	// corresponds to the first part of the QueryUniverseAssetStats query.
 	queryAssetStatsQuery = `
@@ -149,7 +110,7 @@ type queryTest struct {
 var testQueries = []queryTest{
 	{
 		name:  "fetch_universe_root",
-		query: fetchUniverseRootQuery,
+		query: sqlc.FetchUniverseRoot,
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{h.assetUniverses[0].id.String()}
 		},
@@ -161,7 +122,7 @@ var testQueries = []queryTest{
 
 	{
 		name:  "query_universe_leaves",
-		query: queryUniverseLeavesQuery,
+		query: sqlc.QueryUniverseLeaves,
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{
 				h.assetUniverses[0].id.String(),
