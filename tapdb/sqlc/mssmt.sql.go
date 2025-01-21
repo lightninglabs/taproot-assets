@@ -9,19 +9,19 @@ import (
 	"context"
 )
 
-const deleteAllNodes = `-- name: DeleteAllNodes :execrows
+const DeleteAllNodes = `-- name: DeleteAllNodes :execrows
 DELETE FROM mssmt_nodes WHERE namespace = $1
 `
 
 func (q *Queries) DeleteAllNodes(ctx context.Context, namespace string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteAllNodes, namespace)
+	result, err := q.db.ExecContext(ctx, DeleteAllNodes, namespace)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const deleteNode = `-- name: DeleteNode :execrows
+const DeleteNode = `-- name: DeleteNode :execrows
 DELETE FROM mssmt_nodes WHERE hash_key = $1 AND namespace = $2
 `
 
@@ -31,31 +31,31 @@ type DeleteNodeParams struct {
 }
 
 func (q *Queries) DeleteNode(ctx context.Context, arg DeleteNodeParams) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteNode, arg.HashKey, arg.Namespace)
+	result, err := q.db.ExecContext(ctx, DeleteNode, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const deleteRoot = `-- name: DeleteRoot :execrows
+const DeleteRoot = `-- name: DeleteRoot :execrows
 DELETE FROM mssmt_roots WHERE namespace = $1
 `
 
 func (q *Queries) DeleteRoot(ctx context.Context, namespace string) (int64, error) {
-	result, err := q.db.ExecContext(ctx, deleteRoot, namespace)
+	result, err := q.db.ExecContext(ctx, DeleteRoot, namespace)
 	if err != nil {
 		return 0, err
 	}
 	return result.RowsAffected()
 }
 
-const fetchAllNodes = `-- name: FetchAllNodes :many
+const FetchAllNodes = `-- name: FetchAllNodes :many
 SELECT hash_key, l_hash_key, r_hash_key, key, value, sum, namespace FROM mssmt_nodes
 `
 
 func (q *Queries) FetchAllNodes(ctx context.Context) ([]MssmtNode, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAllNodes)
+	rows, err := q.db.QueryContext(ctx, FetchAllNodes)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (q *Queries) FetchAllNodes(ctx context.Context) ([]MssmtNode, error) {
 	return items, nil
 }
 
-const fetchChildren = `-- name: FetchChildren :many
+const FetchChildren = `-- name: FetchChildren :many
 WITH RECURSIVE mssmt_branches_cte (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth
 )
@@ -124,7 +124,7 @@ type FetchChildrenRow struct {
 }
 
 func (q *Queries) FetchChildren(ctx context.Context, arg FetchChildrenParams) ([]FetchChildrenRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchChildren, arg.HashKey, arg.Namespace)
+	rows, err := q.db.QueryContext(ctx, FetchChildren, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +155,7 @@ func (q *Queries) FetchChildren(ctx context.Context, arg FetchChildrenParams) ([
 	return items, nil
 }
 
-const fetchChildrenSelfJoin = `-- name: FetchChildrenSelfJoin :many
+const FetchChildrenSelfJoin = `-- name: FetchChildrenSelfJoin :many
 WITH subtree_cte (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace, depth
 ) AS (
@@ -186,7 +186,7 @@ type FetchChildrenSelfJoinRow struct {
 }
 
 func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSelfJoinParams) ([]FetchChildrenSelfJoinRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchChildrenSelfJoin, arg.HashKey, arg.Namespace)
+	rows, err := q.db.QueryContext(ctx, FetchChildrenSelfJoin, arg.HashKey, arg.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (q *Queries) FetchChildrenSelfJoin(ctx context.Context, arg FetchChildrenSe
 	return items, nil
 }
 
-const fetchRootNode = `-- name: FetchRootNode :one
+const FetchRootNode = `-- name: FetchRootNode :one
 SELECT nodes.hash_key, nodes.l_hash_key, nodes.r_hash_key, nodes.key, nodes.value, nodes.sum, nodes.namespace
 FROM mssmt_nodes nodes
 JOIN mssmt_roots roots
@@ -226,7 +226,7 @@ JOIN mssmt_roots roots
 `
 
 func (q *Queries) FetchRootNode(ctx context.Context, namespace string) (MssmtNode, error) {
-	row := q.db.QueryRowContext(ctx, fetchRootNode, namespace)
+	row := q.db.QueryRowContext(ctx, FetchRootNode, namespace)
 	var i MssmtNode
 	err := row.Scan(
 		&i.HashKey,
@@ -240,7 +240,7 @@ func (q *Queries) FetchRootNode(ctx context.Context, namespace string) (MssmtNod
 	return i, err
 }
 
-const insertBranch = `-- name: InsertBranch :exec
+const InsertBranch = `-- name: InsertBranch :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 ) VALUES ($1, $2, $3, NULL, NULL, $4, $5)
@@ -255,7 +255,7 @@ type InsertBranchParams struct {
 }
 
 func (q *Queries) InsertBranch(ctx context.Context, arg InsertBranchParams) error {
-	_, err := q.db.ExecContext(ctx, insertBranch,
+	_, err := q.db.ExecContext(ctx, InsertBranch,
 		arg.HashKey,
 		arg.LHashKey,
 		arg.RHashKey,
@@ -265,7 +265,7 @@ func (q *Queries) InsertBranch(ctx context.Context, arg InsertBranchParams) erro
 	return err
 }
 
-const insertCompactedLeaf = `-- name: InsertCompactedLeaf :exec
+const InsertCompactedLeaf = `-- name: InsertCompactedLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 ) VALUES ($1, NULL, NULL, $2, $3, $4, $5)
@@ -280,7 +280,7 @@ type InsertCompactedLeafParams struct {
 }
 
 func (q *Queries) InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLeafParams) error {
-	_, err := q.db.ExecContext(ctx, insertCompactedLeaf,
+	_, err := q.db.ExecContext(ctx, InsertCompactedLeaf,
 		arg.HashKey,
 		arg.Key,
 		arg.Value,
@@ -290,7 +290,7 @@ func (q *Queries) InsertCompactedLeaf(ctx context.Context, arg InsertCompactedLe
 	return err
 }
 
-const insertLeaf = `-- name: InsertLeaf :exec
+const InsertLeaf = `-- name: InsertLeaf :exec
 INSERT INTO mssmt_nodes (
     hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
 ) VALUES ($1, NULL, NULL, NULL, $2, $3, $4)
@@ -304,7 +304,7 @@ type InsertLeafParams struct {
 }
 
 func (q *Queries) InsertLeaf(ctx context.Context, arg InsertLeafParams) error {
-	_, err := q.db.ExecContext(ctx, insertLeaf,
+	_, err := q.db.ExecContext(ctx, InsertLeaf,
 		arg.HashKey,
 		arg.Value,
 		arg.Sum,
@@ -313,7 +313,7 @@ func (q *Queries) InsertLeaf(ctx context.Context, arg InsertLeafParams) error {
 	return err
 }
 
-const upsertRootNode = `-- name: UpsertRootNode :exec
+const UpsertRootNode = `-- name: UpsertRootNode :exec
 INSERT INTO mssmt_roots (
     root_hash, namespace
 ) VALUES (
@@ -329,6 +329,6 @@ type UpsertRootNodeParams struct {
 }
 
 func (q *Queries) UpsertRootNode(ctx context.Context, arg UpsertRootNodeParams) error {
-	_, err := q.db.ExecContext(ctx, upsertRootNode, arg.RootHash, arg.Namespace)
+	_, err := q.db.ExecContext(ctx, UpsertRootNode, arg.RootHash, arg.Namespace)
 	return err
 }

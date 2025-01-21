@@ -9,24 +9,24 @@ import (
 	"context"
 )
 
-const assetsDBSizePostgres = `-- name: AssetsDBSizePostgres :one
+const AssetsDBSizePostgres = `-- name: AssetsDBSizePostgres :one
 SELECT pg_catalog.pg_database_size(current_database()) AS size
 `
 
 func (q *Queries) AssetsDBSizePostgres(ctx context.Context) (int64, error) {
-	row := q.db.QueryRowContext(ctx, assetsDBSizePostgres)
+	row := q.db.QueryRowContext(ctx, AssetsDBSizePostgres)
 	var size int64
 	err := row.Scan(&size)
 	return size, err
 }
 
-const assetsDBSizeSqlite = `-- name: AssetsDBSizeSqlite :one
+const AssetsDBSizeSqlite = `-- name: AssetsDBSizeSqlite :one
 SELECT page_count * page_size AS size_in_bytes 
 FROM pragma_page_count(), pragma_page_size()
 `
 
 func (q *Queries) AssetsDBSizeSqlite(ctx context.Context) (int32, error) {
-	row := q.db.QueryRowContext(ctx, assetsDBSizeSqlite)
+	row := q.db.QueryRowContext(ctx, AssetsDBSizeSqlite)
 	var size_in_bytes int32
 	err := row.Scan(&size_in_bytes)
 	return size_in_bytes, err

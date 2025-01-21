@@ -9,19 +9,19 @@ import (
 	"context"
 )
 
-const getRootKey = `-- name: GetRootKey :one
+const GetRootKey = `-- name: GetRootKey :one
 SELECT id, root_key FROM macaroons 
 WHERE id = $1
 `
 
 func (q *Queries) GetRootKey(ctx context.Context, id []byte) (Macaroon, error) {
-	row := q.db.QueryRowContext(ctx, getRootKey, id)
+	row := q.db.QueryRowContext(ctx, GetRootKey, id)
 	var i Macaroon
 	err := row.Scan(&i.ID, &i.RootKey)
 	return i, err
 }
 
-const insertRootKey = `-- name: InsertRootKey :exec
+const InsertRootKey = `-- name: InsertRootKey :exec
 INSERT INTO macaroons (id, root_key) VALUES ($1, $2)
 `
 
@@ -31,6 +31,6 @@ type InsertRootKeyParams struct {
 }
 
 func (q *Queries) InsertRootKey(ctx context.Context, arg InsertRootKeyParams) error {
-	_, err := q.db.ExecContext(ctx, insertRootKey, arg.ID, arg.RootKey)
+	_, err := q.db.ExecContext(ctx, InsertRootKey, arg.ID, arg.RootKey)
 	return err
 }

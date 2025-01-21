@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const deleteFederationProofSyncLog = `-- name: DeleteFederationProofSyncLog :exec
+const DeleteFederationProofSyncLog = `-- name: DeleteFederationProofSyncLog :exec
 WITH selected_server_id AS (
     -- Select the server ids from the universe_servers table for the specified
     -- hosts.
@@ -40,7 +40,7 @@ type DeleteFederationProofSyncLogParams struct {
 }
 
 func (q *Queries) DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFederationProofSyncLogParams) error {
-	_, err := q.db.ExecContext(ctx, deleteFederationProofSyncLog,
+	_, err := q.db.ExecContext(ctx, DeleteFederationProofSyncLog,
 		arg.Status,
 		arg.MinTimestamp,
 		arg.MinAttemptCounter,
@@ -49,7 +49,7 @@ func (q *Queries) DeleteFederationProofSyncLog(ctx context.Context, arg DeleteFe
 	return err
 }
 
-const deleteMultiverseLeaf = `-- name: DeleteMultiverseLeaf :exec
+const DeleteMultiverseLeaf = `-- name: DeleteMultiverseLeaf :exec
 DELETE FROM multiverse_leaves
 WHERE leaf_node_namespace = $1 AND leaf_node_key = $2
 `
@@ -60,11 +60,11 @@ type DeleteMultiverseLeafParams struct {
 }
 
 func (q *Queries) DeleteMultiverseLeaf(ctx context.Context, arg DeleteMultiverseLeafParams) error {
-	_, err := q.db.ExecContext(ctx, deleteMultiverseLeaf, arg.Namespace, arg.LeafNodeKey)
+	_, err := q.db.ExecContext(ctx, DeleteMultiverseLeaf, arg.Namespace, arg.LeafNodeKey)
 	return err
 }
 
-const deleteUniverseEvents = `-- name: DeleteUniverseEvents :exec
+const DeleteUniverseEvents = `-- name: DeleteUniverseEvents :exec
 WITH root_id AS (
     SELECT id
     FROM universe_roots
@@ -75,31 +75,31 @@ WHERE universe_root_id = (SELECT id FROM root_id)
 `
 
 func (q *Queries) DeleteUniverseEvents(ctx context.Context, namespaceRoot string) error {
-	_, err := q.db.ExecContext(ctx, deleteUniverseEvents, namespaceRoot)
+	_, err := q.db.ExecContext(ctx, DeleteUniverseEvents, namespaceRoot)
 	return err
 }
 
-const deleteUniverseLeaves = `-- name: DeleteUniverseLeaves :exec
+const DeleteUniverseLeaves = `-- name: DeleteUniverseLeaves :exec
 DELETE FROM universe_leaves
 WHERE leaf_node_namespace = $1
 `
 
 func (q *Queries) DeleteUniverseLeaves(ctx context.Context, namespace string) error {
-	_, err := q.db.ExecContext(ctx, deleteUniverseLeaves, namespace)
+	_, err := q.db.ExecContext(ctx, DeleteUniverseLeaves, namespace)
 	return err
 }
 
-const deleteUniverseRoot = `-- name: DeleteUniverseRoot :exec
+const DeleteUniverseRoot = `-- name: DeleteUniverseRoot :exec
 DELETE FROM universe_roots
 WHERE namespace_root = $1
 `
 
 func (q *Queries) DeleteUniverseRoot(ctx context.Context, namespaceRoot string) error {
-	_, err := q.db.ExecContext(ctx, deleteUniverseRoot, namespaceRoot)
+	_, err := q.db.ExecContext(ctx, DeleteUniverseRoot, namespaceRoot)
 	return err
 }
 
-const deleteUniverseServer = `-- name: DeleteUniverseServer :exec
+const DeleteUniverseServer = `-- name: DeleteUniverseServer :exec
 DELETE FROM universe_servers
 WHERE server_host = $1 OR id = $2
 `
@@ -110,11 +110,11 @@ type DeleteUniverseServerParams struct {
 }
 
 func (q *Queries) DeleteUniverseServer(ctx context.Context, arg DeleteUniverseServerParams) error {
-	_, err := q.db.ExecContext(ctx, deleteUniverseServer, arg.TargetServer, arg.TargetID)
+	_, err := q.db.ExecContext(ctx, DeleteUniverseServer, arg.TargetServer, arg.TargetID)
 	return err
 }
 
-const fetchMultiverseRoot = `-- name: FetchMultiverseRoot :one
+const FetchMultiverseRoot = `-- name: FetchMultiverseRoot :one
 SELECT proof_type, n.hash_key as multiverse_root_hash, n.sum as multiverse_root_sum
 FROM multiverse_roots r
 JOIN mssmt_roots m
@@ -132,13 +132,13 @@ type FetchMultiverseRootRow struct {
 }
 
 func (q *Queries) FetchMultiverseRoot(ctx context.Context, namespaceRoot string) (FetchMultiverseRootRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchMultiverseRoot, namespaceRoot)
+	row := q.db.QueryRowContext(ctx, FetchMultiverseRoot, namespaceRoot)
 	var i FetchMultiverseRootRow
 	err := row.Scan(&i.ProofType, &i.MultiverseRootHash, &i.MultiverseRootSum)
 	return i, err
 }
 
-const fetchUniverseKeys = `-- name: FetchUniverseKeys :many
+const FetchUniverseKeys = `-- name: FetchUniverseKeys :many
 SELECT leaves.minting_point, leaves.script_key_bytes
 FROM universe_leaves AS leaves
 WHERE leaves.leaf_node_namespace = $1
@@ -161,7 +161,7 @@ type FetchUniverseKeysRow struct {
 }
 
 func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysParams) ([]FetchUniverseKeysRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchUniverseKeys,
+	rows, err := q.db.QueryContext(ctx, FetchUniverseKeys,
 		arg.Namespace,
 		arg.SortDirection,
 		arg.NumOffset,
@@ -188,7 +188,7 @@ func (q *Queries) FetchUniverseKeys(ctx context.Context, arg FetchUniverseKeysPa
 	return items, nil
 }
 
-const fetchUniverseRoot = `-- name: FetchUniverseRoot :one
+const FetchUniverseRoot = `-- name: FetchUniverseRoot :one
 SELECT universe_roots.asset_id, group_key, proof_type,
        mssmt_nodes.hash_key root_hash, mssmt_nodes.sum root_sum,
        genesis_assets.asset_tag asset_name
@@ -213,7 +213,7 @@ type FetchUniverseRootRow struct {
 }
 
 func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (FetchUniverseRootRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchUniverseRoot, namespace)
+	row := q.db.QueryRowContext(ctx, FetchUniverseRoot, namespace)
 	var i FetchUniverseRootRow
 	err := row.Scan(
 		&i.AssetID,
@@ -226,7 +226,7 @@ func (q *Queries) FetchUniverseRoot(ctx context.Context, namespace string) (Fetc
 	return i, err
 }
 
-const insertNewProofEvent = `-- name: InsertNewProofEvent :exec
+const InsertNewProofEvent = `-- name: InsertNewProofEvent :exec
 WITH group_key_root_id AS (
     SELECT id
     FROM universe_roots roots
@@ -265,7 +265,7 @@ type InsertNewProofEventParams struct {
 }
 
 func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewProofEvent,
+	_, err := q.db.ExecContext(ctx, InsertNewProofEvent,
 		arg.GroupKeyXOnly,
 		arg.EventTime,
 		arg.EventTimestamp,
@@ -275,7 +275,7 @@ func (q *Queries) InsertNewProofEvent(ctx context.Context, arg InsertNewProofEve
 	return err
 }
 
-const insertNewSyncEvent = `-- name: InsertNewSyncEvent :exec
+const InsertNewSyncEvent = `-- name: InsertNewSyncEvent :exec
 WITH group_key_root_id AS (
     SELECT id
     FROM universe_roots roots
@@ -314,7 +314,7 @@ type InsertNewSyncEventParams struct {
 }
 
 func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEventParams) error {
-	_, err := q.db.ExecContext(ctx, insertNewSyncEvent,
+	_, err := q.db.ExecContext(ctx, InsertNewSyncEvent,
 		arg.GroupKeyXOnly,
 		arg.EventTime,
 		arg.EventTimestamp,
@@ -324,7 +324,7 @@ func (q *Queries) InsertNewSyncEvent(ctx context.Context, arg InsertNewSyncEvent
 	return err
 }
 
-const insertUniverseServer = `-- name: InsertUniverseServer :exec
+const InsertUniverseServer = `-- name: InsertUniverseServer :exec
 INSERT INTO universe_servers(
     server_host, last_sync_time
 ) VALUES (
@@ -338,11 +338,11 @@ type InsertUniverseServerParams struct {
 }
 
 func (q *Queries) InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error {
-	_, err := q.db.ExecContext(ctx, insertUniverseServer, arg.ServerHost, arg.LastSyncTime)
+	_, err := q.db.ExecContext(ctx, InsertUniverseServer, arg.ServerHost, arg.LastSyncTime)
 	return err
 }
 
-const logServerSync = `-- name: LogServerSync :exec
+const LogServerSync = `-- name: LogServerSync :exec
 UPDATE universe_servers
 SET last_sync_time = $1
 WHERE server_host = $2
@@ -354,11 +354,11 @@ type LogServerSyncParams struct {
 }
 
 func (q *Queries) LogServerSync(ctx context.Context, arg LogServerSyncParams) error {
-	_, err := q.db.ExecContext(ctx, logServerSync, arg.NewSyncTime, arg.TargetServer)
+	_, err := q.db.ExecContext(ctx, LogServerSync, arg.NewSyncTime, arg.TargetServer)
 	return err
 }
 
-const queryAssetStatsPerDayPostgres = `-- name: QueryAssetStatsPerDayPostgres :many
+const QueryAssetStatsPerDayPostgres = `-- name: QueryAssetStatsPerDayPostgres :many
 SELECT
     to_char(to_timestamp(event_timestamp), 'YYYY-MM-DD') AS day,
     SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
@@ -383,7 +383,7 @@ type QueryAssetStatsPerDayPostgresRow struct {
 
 // BETWEEN is inclusive for both start and end values.
 func (q *Queries) QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAssetStatsPerDayPostgresParams) ([]QueryAssetStatsPerDayPostgresRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDayPostgres, arg.StartTime, arg.EndTime)
+	rows, err := q.db.QueryContext(ctx, QueryAssetStatsPerDayPostgres, arg.StartTime, arg.EndTime)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +405,7 @@ func (q *Queries) QueryAssetStatsPerDayPostgres(ctx context.Context, arg QueryAs
 	return items, nil
 }
 
-const queryAssetStatsPerDaySqlite = `-- name: QueryAssetStatsPerDaySqlite :many
+const QueryAssetStatsPerDaySqlite = `-- name: QueryAssetStatsPerDaySqlite :many
 SELECT
     cast(strftime('%Y-%m-%d', datetime(event_timestamp, 'unixepoch')) as text) AS day,
     SUM(CASE WHEN event_type = 'SYNC' THEN 1 ELSE 0 END) AS sync_events,
@@ -429,7 +429,7 @@ type QueryAssetStatsPerDaySqliteRow struct {
 }
 
 func (q *Queries) QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAssetStatsPerDaySqliteParams) ([]QueryAssetStatsPerDaySqliteRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetStatsPerDaySqlite, arg.StartTime, arg.EndTime)
+	rows, err := q.db.QueryContext(ctx, QueryAssetStatsPerDaySqlite, arg.StartTime, arg.EndTime)
 	if err != nil {
 		return nil, err
 	}
@@ -451,14 +451,14 @@ func (q *Queries) QueryAssetStatsPerDaySqlite(ctx context.Context, arg QueryAsse
 	return items, nil
 }
 
-const queryFederationGlobalSyncConfigs = `-- name: QueryFederationGlobalSyncConfigs :many
+const QueryFederationGlobalSyncConfigs = `-- name: QueryFederationGlobalSyncConfigs :many
 SELECT proof_type, allow_sync_insert, allow_sync_export
 FROM federation_global_sync_config
 ORDER BY proof_type
 `
 
 func (q *Queries) QueryFederationGlobalSyncConfigs(ctx context.Context) ([]FederationGlobalSyncConfig, error) {
-	rows, err := q.db.QueryContext(ctx, queryFederationGlobalSyncConfigs)
+	rows, err := q.db.QueryContext(ctx, QueryFederationGlobalSyncConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -480,7 +480,7 @@ func (q *Queries) QueryFederationGlobalSyncConfigs(ctx context.Context) ([]Feder
 	return items, nil
 }
 
-const queryFederationProofSyncLog = `-- name: QueryFederationProofSyncLog :many
+const QueryFederationProofSyncLog = `-- name: QueryFederationProofSyncLog :many
 SELECT
     log.id, status, timestamp, sync_direction, attempt_counter,
     -- Select fields from the universe_servers table.
@@ -545,7 +545,7 @@ type QueryFederationProofSyncLogRow struct {
 // Join on mssmt_nodes to get leaf related fields.
 // Join on genesis_info_view to get leaf related fields.
 func (q *Queries) QueryFederationProofSyncLog(ctx context.Context, arg QueryFederationProofSyncLogParams) ([]QueryFederationProofSyncLogRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryFederationProofSyncLog,
+	rows, err := q.db.QueryContext(ctx, QueryFederationProofSyncLog,
 		arg.SyncDirection,
 		arg.Status,
 		arg.LeafNamespace,
@@ -589,14 +589,14 @@ func (q *Queries) QueryFederationProofSyncLog(ctx context.Context, arg QueryFede
 	return items, nil
 }
 
-const queryFederationUniSyncConfigs = `-- name: QueryFederationUniSyncConfigs :many
+const QueryFederationUniSyncConfigs = `-- name: QueryFederationUniSyncConfigs :many
 SELECT namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 FROM federation_uni_sync_config
 ORDER BY group_key NULLS LAST, asset_id NULLS LAST, proof_type
 `
 
 func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]FederationUniSyncConfig, error) {
-	rows, err := q.db.QueryContext(ctx, queryFederationUniSyncConfigs)
+	rows, err := q.db.QueryContext(ctx, QueryFederationUniSyncConfigs)
 	if err != nil {
 		return nil, err
 	}
@@ -625,7 +625,7 @@ func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]Federati
 	return items, nil
 }
 
-const queryMultiverseLeaves = `-- name: QueryMultiverseLeaves :many
+const QueryMultiverseLeaves = `-- name: QueryMultiverseLeaves :many
 SELECT r.namespace_root, r.proof_type, l.asset_id, l.group_key, 
        smt_nodes.value AS universe_root_hash, smt_nodes.sum AS universe_root_sum
 FROM multiverse_leaves l
@@ -655,7 +655,7 @@ type QueryMultiverseLeavesRow struct {
 }
 
 func (q *Queries) QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverseLeavesParams) ([]QueryMultiverseLeavesRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryMultiverseLeaves, arg.ProofType, arg.AssetID, arg.GroupKey)
+	rows, err := q.db.QueryContext(ctx, QueryMultiverseLeaves, arg.ProofType, arg.AssetID, arg.GroupKey)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +684,7 @@ func (q *Queries) QueryMultiverseLeaves(ctx context.Context, arg QueryMultiverse
 	return items, nil
 }
 
-const queryUniverseAssetStats = `-- name: QueryUniverseAssetStats :many
+const QueryUniverseAssetStats = `-- name: QueryUniverseAssetStats :many
 
 WITH asset_supply AS (
     SELECT SUM(nodes.sum) AS supply, gen.asset_id AS asset_id
@@ -803,7 +803,7 @@ type QueryUniverseAssetStatsRow struct {
 // TODO(roasbeef): use the universe id instead for the grouping? so namespace
 // root, simplifies queries
 func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverseAssetStatsParams) ([]QueryUniverseAssetStatsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryUniverseAssetStats,
+	rows, err := q.db.QueryContext(ctx, QueryUniverseAssetStats,
 		arg.SortBy,
 		arg.SortDirection,
 		arg.NumOffset,
@@ -846,7 +846,7 @@ func (q *Queries) QueryUniverseAssetStats(ctx context.Context, arg QueryUniverse
 	return items, nil
 }
 
-const queryUniverseLeaves = `-- name: QueryUniverseLeaves :many
+const QueryUniverseLeaves = `-- name: QueryUniverseLeaves :many
 SELECT leaves.script_key_bytes, gen.gen_asset_id, nodes.value AS genesis_proof, 
        nodes.sum AS sum_amt, gen.asset_id
 FROM universe_leaves AS leaves
@@ -877,7 +877,7 @@ type QueryUniverseLeavesRow struct {
 }
 
 func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeavesParams) ([]QueryUniverseLeavesRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryUniverseLeaves, arg.Namespace, arg.MintingPointBytes, arg.ScriptKeyBytes)
+	rows, err := q.db.QueryContext(ctx, QueryUniverseLeaves, arg.Namespace, arg.MintingPointBytes, arg.ScriptKeyBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -905,7 +905,7 @@ func (q *Queries) QueryUniverseLeaves(ctx context.Context, arg QueryUniverseLeav
 	return items, nil
 }
 
-const queryUniverseServers = `-- name: QueryUniverseServers :many
+const QueryUniverseServers = `-- name: QueryUniverseServers :many
 SELECT id, server_host, last_sync_time FROM universe_servers
 WHERE (id = $1 OR $1 IS NULL) AND
       (server_host = $2
@@ -918,7 +918,7 @@ type QueryUniverseServersParams struct {
 }
 
 func (q *Queries) QueryUniverseServers(ctx context.Context, arg QueryUniverseServersParams) ([]UniverseServer, error) {
-	rows, err := q.db.QueryContext(ctx, queryUniverseServers, arg.ID, arg.ServerHost)
+	rows, err := q.db.QueryContext(ctx, QueryUniverseServers, arg.ID, arg.ServerHost)
 	if err != nil {
 		return nil, err
 	}
@@ -940,7 +940,7 @@ func (q *Queries) QueryUniverseServers(ctx context.Context, arg QueryUniverseSer
 	return items, nil
 }
 
-const queryUniverseStats = `-- name: QueryUniverseStats :one
+const QueryUniverseStats = `-- name: QueryUniverseStats :one
 WITH stats AS (
     SELECT total_asset_syncs, total_asset_proofs
     FROM universe_stats
@@ -990,7 +990,7 @@ type QueryUniverseStatsRow struct {
 }
 
 func (q *Queries) QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow, error) {
-	row := q.db.QueryRowContext(ctx, queryUniverseStats)
+	row := q.db.QueryRowContext(ctx, QueryUniverseStats)
 	var i QueryUniverseStatsRow
 	err := row.Scan(
 		&i.TotalSyncs,
@@ -1001,12 +1001,12 @@ func (q *Queries) QueryUniverseStats(ctx context.Context) (QueryUniverseStatsRow
 	return i, err
 }
 
-const universeLeaves = `-- name: UniverseLeaves :many
+const UniverseLeaves = `-- name: UniverseLeaves :many
 SELECT id, asset_genesis_id, minting_point, script_key_bytes, universe_root_id, leaf_node_key, leaf_node_namespace FROM universe_leaves
 `
 
 func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
-	rows, err := q.db.QueryContext(ctx, universeLeaves)
+	rows, err := q.db.QueryContext(ctx, UniverseLeaves)
 	if err != nil {
 		return nil, err
 	}
@@ -1036,7 +1036,7 @@ func (q *Queries) UniverseLeaves(ctx context.Context) ([]UniverseLeafe, error) {
 	return items, nil
 }
 
-const universeRoots = `-- name: UniverseRoots :many
+const UniverseRoots = `-- name: UniverseRoots :many
 SELECT universe_roots.asset_id, group_key, proof_type,
        mssmt_roots.root_hash AS root_hash, mssmt_nodes.sum AS root_sum,
        genesis_assets.asset_tag AS asset_name
@@ -1070,7 +1070,7 @@ type UniverseRootsRow struct {
 }
 
 func (q *Queries) UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([]UniverseRootsRow, error) {
-	rows, err := q.db.QueryContext(ctx, universeRoots, arg.SortDirection, arg.NumOffset, arg.NumLimit)
+	rows, err := q.db.QueryContext(ctx, UniverseRoots, arg.SortDirection, arg.NumOffset, arg.NumLimit)
 	if err != nil {
 		return nil, err
 	}
@@ -1099,7 +1099,7 @@ func (q *Queries) UniverseRoots(ctx context.Context, arg UniverseRootsParams) ([
 	return items, nil
 }
 
-const upsertFederationGlobalSyncConfig = `-- name: UpsertFederationGlobalSyncConfig :exec
+const UpsertFederationGlobalSyncConfig = `-- name: UpsertFederationGlobalSyncConfig :exec
 INSERT INTO federation_global_sync_config (
     proof_type, allow_sync_insert, allow_sync_export
 )
@@ -1117,11 +1117,11 @@ type UpsertFederationGlobalSyncConfigParams struct {
 }
 
 func (q *Queries) UpsertFederationGlobalSyncConfig(ctx context.Context, arg UpsertFederationGlobalSyncConfigParams) error {
-	_, err := q.db.ExecContext(ctx, upsertFederationGlobalSyncConfig, arg.ProofType, arg.AllowSyncInsert, arg.AllowSyncExport)
+	_, err := q.db.ExecContext(ctx, UpsertFederationGlobalSyncConfig, arg.ProofType, arg.AllowSyncInsert, arg.AllowSyncExport)
 	return err
 }
 
-const upsertFederationProofSyncLog = `-- name: UpsertFederationProofSyncLog :one
+const UpsertFederationProofSyncLog = `-- name: UpsertFederationProofSyncLog :one
 INSERT INTO federation_proof_sync_log AS log (
     status, timestamp, sync_direction, proof_leaf_id, universe_root_id,
     servers_id
@@ -1175,7 +1175,7 @@ type UpsertFederationProofSyncLogParams struct {
 }
 
 func (q *Queries) UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFederationProofSyncLogParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertFederationProofSyncLog,
+	row := q.db.QueryRowContext(ctx, UpsertFederationProofSyncLog,
 		arg.Status,
 		arg.Timestamp,
 		arg.SyncDirection,
@@ -1191,7 +1191,7 @@ func (q *Queries) UpsertFederationProofSyncLog(ctx context.Context, arg UpsertFe
 	return id, err
 }
 
-const upsertFederationUniSyncConfig = `-- name: UpsertFederationUniSyncConfig :exec
+const UpsertFederationUniSyncConfig = `-- name: UpsertFederationUniSyncConfig :exec
 INSERT INTO federation_uni_sync_config  (
     namespace, asset_id, group_key, proof_type, allow_sync_insert, allow_sync_export
 )
@@ -1214,7 +1214,7 @@ type UpsertFederationUniSyncConfigParams struct {
 }
 
 func (q *Queries) UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertFederationUniSyncConfigParams) error {
-	_, err := q.db.ExecContext(ctx, upsertFederationUniSyncConfig,
+	_, err := q.db.ExecContext(ctx, UpsertFederationUniSyncConfig,
 		arg.Namespace,
 		arg.AssetID,
 		arg.GroupKey,
@@ -1225,7 +1225,7 @@ func (q *Queries) UpsertFederationUniSyncConfig(ctx context.Context, arg UpsertF
 	return err
 }
 
-const upsertMultiverseLeaf = `-- name: UpsertMultiverseLeaf :one
+const UpsertMultiverseLeaf = `-- name: UpsertMultiverseLeaf :one
 INSERT INTO multiverse_leaves (
     multiverse_root_id, asset_id, group_key, leaf_node_key, leaf_node_namespace
 ) VALUES (
@@ -1248,7 +1248,7 @@ type UpsertMultiverseLeafParams struct {
 }
 
 func (q *Queries) UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverseLeafParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertMultiverseLeaf,
+	row := q.db.QueryRowContext(ctx, UpsertMultiverseLeaf,
 		arg.MultiverseRootID,
 		arg.AssetID,
 		arg.GroupKey,
@@ -1260,7 +1260,7 @@ func (q *Queries) UpsertMultiverseLeaf(ctx context.Context, arg UpsertMultiverse
 	return id, err
 }
 
-const upsertMultiverseRoot = `-- name: UpsertMultiverseRoot :one
+const UpsertMultiverseRoot = `-- name: UpsertMultiverseRoot :one
 INSERT INTO multiverse_roots (namespace_root, proof_type)
 VALUES ($1, $2)
 ON CONFLICT (namespace_root)
@@ -1275,13 +1275,13 @@ type UpsertMultiverseRootParams struct {
 }
 
 func (q *Queries) UpsertMultiverseRoot(ctx context.Context, arg UpsertMultiverseRootParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertMultiverseRoot, arg.NamespaceRoot, arg.ProofType)
+	row := q.db.QueryRowContext(ctx, UpsertMultiverseRoot, arg.NamespaceRoot, arg.ProofType)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
 
-const upsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec
+const UpsertUniverseLeaf = `-- name: UpsertUniverseLeaf :exec
 INSERT INTO universe_leaves (
     asset_genesis_id, script_key_bytes, universe_root_id, leaf_node_key, 
     leaf_node_namespace, minting_point
@@ -1305,7 +1305,7 @@ type UpsertUniverseLeafParams struct {
 }
 
 func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeafParams) error {
-	_, err := q.db.ExecContext(ctx, upsertUniverseLeaf,
+	_, err := q.db.ExecContext(ctx, UpsertUniverseLeaf,
 		arg.AssetGenesisID,
 		arg.ScriptKeyBytes,
 		arg.UniverseRootID,
@@ -1316,7 +1316,7 @@ func (q *Queries) UpsertUniverseLeaf(ctx context.Context, arg UpsertUniverseLeaf
 	return err
 }
 
-const upsertUniverseRoot = `-- name: UpsertUniverseRoot :one
+const UpsertUniverseRoot = `-- name: UpsertUniverseRoot :one
 INSERT INTO universe_roots (
     namespace_root, asset_id, group_key, proof_type
 ) VALUES (
@@ -1336,7 +1336,7 @@ type UpsertUniverseRootParams struct {
 }
 
 func (q *Queries) UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertUniverseRoot,
+	row := q.db.QueryRowContext(ctx, UpsertUniverseRoot,
 		arg.NamespaceRoot,
 		arg.AssetID,
 		arg.GroupKey,
