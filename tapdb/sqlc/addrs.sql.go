@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const fetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
+const FetchAddrByTaprootOutputKey = `-- name: FetchAddrByTaprootOutputKey :one
 SELECT
     version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
     taproot_output_key, amount, asset_type, creation_time, managed_from,
@@ -59,7 +59,7 @@ type FetchAddrByTaprootOutputKeyRow struct {
 }
 
 func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAddrByTaprootOutputKey, taprootOutputKey)
+	row := q.db.QueryRowContext(ctx, FetchAddrByTaprootOutputKey, taprootOutputKey)
 	var i FetchAddrByTaprootOutputKeyRow
 	err := row.Scan(
 		&i.Version,
@@ -86,7 +86,7 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 	return i, err
 }
 
-const fetchAddrEvent = `-- name: FetchAddrEvent :one
+const FetchAddrEvent = `-- name: FetchAddrEvent :one
 SELECT
     creation_time, status, asset_proof_id, asset_id,
     chain_txns.txid as txid,
@@ -119,7 +119,7 @@ type FetchAddrEventRow struct {
 }
 
 func (q *Queries) FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAddrEvent, id)
+	row := q.db.QueryRowContext(ctx, FetchAddrEvent, id)
 	var i FetchAddrEventRow
 	err := row.Scan(
 		&i.CreationTime,
@@ -136,7 +136,7 @@ func (q *Queries) FetchAddrEvent(ctx context.Context, id int64) (FetchAddrEventR
 	return i, err
 }
 
-const fetchAddrEventByAddrKeyAndOutpoint = `-- name: FetchAddrEventByAddrKeyAndOutpoint :one
+const FetchAddrEventByAddrKeyAndOutpoint = `-- name: FetchAddrEventByAddrKeyAndOutpoint :one
 WITH target_addr(addr_id) AS (
     SELECT id
     FROM addrs
@@ -184,7 +184,7 @@ type FetchAddrEventByAddrKeyAndOutpointRow struct {
 }
 
 func (q *Queries) FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg FetchAddrEventByAddrKeyAndOutpointParams) (FetchAddrEventByAddrKeyAndOutpointRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAddrEventByAddrKeyAndOutpoint, arg.TaprootOutputKey, arg.Txid, arg.ChainTxnOutputIndex)
+	row := q.db.QueryRowContext(ctx, FetchAddrEventByAddrKeyAndOutpoint, arg.TaprootOutputKey, arg.Txid, arg.ChainTxnOutputIndex)
 	var i FetchAddrEventByAddrKeyAndOutpointRow
 	err := row.Scan(
 		&i.ID,
@@ -202,7 +202,7 @@ func (q *Queries) FetchAddrEventByAddrKeyAndOutpoint(ctx context.Context, arg Fe
 	return i, err
 }
 
-const fetchAddrs = `-- name: FetchAddrs :many
+const FetchAddrs = `-- name: FetchAddrs :many
 SELECT 
     version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
     taproot_output_key, amount, asset_type, creation_time, managed_from,
@@ -263,7 +263,7 @@ type FetchAddrsRow struct {
 }
 
 func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAddrs,
+	rows, err := q.db.QueryContext(ctx, FetchAddrs,
 		arg.CreatedAfter,
 		arg.CreatedBefore,
 		arg.UnmanagedOnly,
@@ -312,7 +312,7 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 	return items, nil
 }
 
-const insertAddr = `-- name: InsertAddr :one
+const InsertAddr = `-- name: InsertAddr :one
 INSERT INTO addrs (
     version, asset_version, genesis_asset_id, group_key, script_key_id,
     taproot_key_id, tapscript_sibling, taproot_output_key, amount, asset_type,
@@ -336,7 +336,7 @@ type InsertAddrParams struct {
 }
 
 func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertAddr,
+	row := q.db.QueryRowContext(ctx, InsertAddr,
 		arg.Version,
 		arg.AssetVersion,
 		arg.GenesisAssetID,
@@ -355,7 +355,7 @@ func (q *Queries) InsertAddr(ctx context.Context, arg InsertAddrParams) (int64, 
 	return id, err
 }
 
-const queryEventIDs = `-- name: QueryEventIDs :many
+const QueryEventIDs = `-- name: QueryEventIDs :many
 SELECT
     addr_events.id as event_id, addrs.taproot_output_key as taproot_output_key
 FROM addr_events
@@ -381,7 +381,7 @@ type QueryEventIDsRow struct {
 }
 
 func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([]QueryEventIDsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryEventIDs,
+	rows, err := q.db.QueryContext(ctx, QueryEventIDs,
 		arg.StatusFrom,
 		arg.StatusTo,
 		arg.AddrTaprootKey,
@@ -408,7 +408,7 @@ func (q *Queries) QueryEventIDs(ctx context.Context, arg QueryEventIDsParams) ([
 	return items, nil
 }
 
-const setAddrManaged = `-- name: SetAddrManaged :exec
+const SetAddrManaged = `-- name: SetAddrManaged :exec
 WITH target_addr(addr_id) AS (
     SELECT id
     FROM addrs
@@ -425,11 +425,11 @@ type SetAddrManagedParams struct {
 }
 
 func (q *Queries) SetAddrManaged(ctx context.Context, arg SetAddrManagedParams) error {
-	_, err := q.db.ExecContext(ctx, setAddrManaged, arg.TaprootOutputKey, arg.ManagedFrom)
+	_, err := q.db.ExecContext(ctx, SetAddrManaged, arg.TaprootOutputKey, arg.ManagedFrom)
 	return err
 }
 
-const upsertAddrEvent = `-- name: UpsertAddrEvent :one
+const UpsertAddrEvent = `-- name: UpsertAddrEvent :one
 WITH target_addr(addr_id) AS (
     SELECT id
     FROM addrs
@@ -465,7 +465,7 @@ type UpsertAddrEventParams struct {
 }
 
 func (q *Queries) UpsertAddrEvent(ctx context.Context, arg UpsertAddrEventParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertAddrEvent,
+	row := q.db.QueryRowContext(ctx, UpsertAddrEvent,
 		arg.TaprootOutputKey,
 		arg.Txid,
 		arg.CreationTime,

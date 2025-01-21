@@ -18,28 +18,21 @@ const (
 	createUniverseRootIndex = `
 		CREATE INDEX IF NOT EXISTS idx_universe_roots_composite
 		ON universe_roots(
-			namespace_root,
-			proof_type,
-			asset_id
+			namespace_root, proof_type, asset_id
 		);`
 
 	// createUniverseLeavesIndex optimizes universe leaf queries.
 	createUniverseLeavesIndex = `
-		CREATE INDEX IF NOT EXISTS idx_universe_leaves_composite
+		CREATE INDEX IF NOT EXISTS idx_universe_leaves_asset
 		ON universe_leaves(
-			leaf_node_namespace,
-			universe_root_id,
-			leaf_node_key
+			asset_genesis_id, universe_root_id
 		);`
 
 	// createMSMTNodesIndex optimizes MSSMT node lookups.
 	createMSMTNodesIndex = `
 		CREATE INDEX IF NOT EXISTS idx_mssmt_nodes_composite
 		ON mssmt_nodes(
-			namespace,
-			key,
-			hash_key,
-			sum
+			namespace, key, hash_key, sum
 		);`
 )
 
@@ -73,8 +66,24 @@ func createIndices(t *testing.T, db *BaseDB) {
 func dropIndices(t *testing.T, db *BaseDB) {
 	statements := []string{
 		`DROP INDEX IF EXISTS idx_universe_roots_composite`,
-		`DROP INDEX IF EXISTS idx_universe_leaves_composite`,
+		`DROP INDEX IF EXISTS idx_universe_leaves_asset`,
 		`DROP INDEX IF EXISTS idx_mssmt_nodes_composite`,
+		// Instead of dropping an index, we restore the old, inefficient
+		// view that was present before migration #27.
+		`DROP VIEW universe_stats`,
+		`CREATE VIEW universe_stats AS
+		  SELECT
+		    COUNT(CASE WHEN u.event_type = 'SYNC' THEN 1 ELSE NULL END)
+                      AS total_asset_syncs,
+		    COUNT(CASE WHEN u.event_type = 'NEW_PROOF' THEN 1 
+                      ELSE NULL END) AS total_asset_proofs,
+		    roots.asset_id,
+                    roots.group_key,
+		    roots.proof_type
+		  FROM universe_events u
+		  JOIN universe_roots roots
+		    ON u.universe_root_id = roots.id
+		  GROUP BY roots.asset_id, roots.group_key, roots.proof_type`,
 	}
 
 	executeSQLStatements(t, db, statements, "Dropping")
@@ -82,44 +91,8 @@ func dropIndices(t *testing.T, db *BaseDB) {
 
 // Query definitions for performance testing.
 const (
-	// fetchUniverseRootQuery returns root info for a given namespace.
-	fetchUniverseRootQuery = `
-		SELECT 
-			universe_roots.asset_id, 
-			group_key, 
-			proof_type,
-			mssmt_nodes.hash_key root_hash, 
-			mssmt_nodes.sum root_sum,
-			genesis_assets.asset_tag asset_name
-		FROM universe_roots
-		JOIN mssmt_roots 
-			ON universe_roots.namespace_root = mssmt_roots.namespace
-		JOIN mssmt_nodes 
-			ON mssmt_nodes.hash_key = mssmt_roots.root_hash 
-			AND mssmt_nodes.namespace = mssmt_roots.namespace
-		JOIN genesis_assets
-			ON genesis_assets.asset_id = universe_roots.asset_id
-		WHERE mssmt_nodes.namespace = $1`
-
-	// queryUniverseLeavesQuery gets leaf info for a namespace.
-	queryUniverseLeavesQuery = `
-		SELECT 
-			leaves.script_key_bytes, 
-			gen.gen_asset_id, 
-			nodes.value AS genesis_proof, 
-			nodes.sum AS sum_amt, 
-			gen.asset_id
-		FROM universe_leaves AS leaves
-		JOIN mssmt_nodes AS nodes
-			ON leaves.leaf_node_key = nodes.key 
-			AND leaves.leaf_node_namespace = nodes.namespace
-		JOIN genesis_info_view AS gen
-			ON leaves.asset_genesis_id = gen.gen_asset_id
-		WHERE leaves.leaf_node_namespace = $1 
-			AND (leaves.minting_point = $2 OR $2 IS NULL)
-			AND (leaves.script_key_bytes = $3 OR $3 IS NULL)`
-
-	// queryAssetStatsQuery gets aggregated stats for assets.
+	// queryAssetStatsQuery gets aggregated stats for assets. This
+	// corresponds to the first part of the QueryUniverseAssetStats query.
 	queryAssetStatsQuery = `
 		WITH asset_supply AS (
 			SELECT 
@@ -153,7 +126,7 @@ type queryTest struct {
 var testQueries = []queryTest{
 	{
 		name:  "fetch_universe_root",
-		query: fetchUniverseRootQuery,
+		query: sqlc.FetchUniverseRoot,
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{h.assetUniverses[0].id.String()}
 		},
@@ -165,7 +138,7 @@ var testQueries = []queryTest{
 
 	{
 		name:  "query_universe_leaves",
-		query: queryUniverseLeavesQuery,
+		query: sqlc.QueryUniverseLeaves,
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{
 				h.assetUniverses[0].id.String(),
@@ -182,6 +155,18 @@ var testQueries = []queryTest{
 	{
 		name:  "query_asset_stats",
 		query: queryAssetStatsQuery,
+		args: func(h *uniStatsHarness) []interface{} {
+			return []interface{}{}
+		},
+		dbTypes: []sqlc.BackendType{
+			sqlc.BackendTypeSqlite,
+			sqlc.BackendTypePostgres,
+		},
+	},
+
+	{
+		name:  "query_aggregated_stats",
+		query: sqlc.QueryUniverseStats,
 		args: func(h *uniStatsHarness) []interface{} {
 			return []interface{}{}
 		},
@@ -276,7 +261,9 @@ func executeQuery(ctx context.Context, t *testing.T, db *BaseDB,
 	for i := 0; i < numQueries; i++ {
 		rows, err := db.QueryContext(ctx, q.query, q.args(h)...)
 		require.NoError(t, err)
-		rows.Close()
+
+		closeErr := rows.Close()
+		require.NoError(t, closeErr)
 	}
 
 	return time.Since(start)
@@ -309,94 +296,98 @@ type queryStats struct {
 func TestUniverseIndexPerformance(t *testing.T) {
 	t.Parallel()
 
+	// Create context with reasonable timeout.
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
+
 	testResults := make(map[string]*queryStats)
 
-	// runTest executes all queries with or without indices.
-	runTest := func(withIndices bool) {
-		testName := fmt.Sprintf("indices=%v", withIndices)
+	// setupDB creates a new database and harness for testing, either
+	// creating or dropping the supporting indices.
+	setupDB := func(withIndices bool) (*BaseDB, *uniStatsHarness) {
+		db := NewTestDB(t)
+		sqlDB := db.BaseDB
 
-		t.Run(testName, func(t *testing.T) {
-			// Create context with reasonable timeout.
-			ctx, cancel := context.WithTimeout(
-				context.Background(), 5*time.Minute,
-			)
-			defer cancel()
+		// Set reasonable connection limits.
+		sqlDB.SetMaxOpenConns(25)
+		sqlDB.SetMaxIdleConns(25)
+		sqlDB.SetConnMaxLifetime(testTimeout)
 
-			db := NewTestDB(t)
-			sqlDB := db.BaseDB
+		testClock := clock.NewTestClock(time.Now())
+		statsDB, _ := newUniverseStatsWithDB(db.BaseDB, testClock)
 
-			// Set reasonable connection limits.
-			sqlDB.SetMaxOpenConns(25)
-			sqlDB.SetMaxIdleConns(25)
-			sqlDB.SetConnMaxLifetime(time.Minute * 5)
+		// Add progress tracking.
+		t.Logf("Gen test data: %d assets, %d leaves/tree",
+			numAssets, numLeavesPerTree)
 
-			testClock := clock.NewTestClock(time.Now())
-			statsDB, _ := newUniverseStatsWithDB(
-				db.BaseDB,
-				testClock,
-			)
+		h := newUniStatsHarness(t, numAssets, db.BaseDB, statsDB)
+		require.NotNil(t, h)
 
-			// Add progress tracking.
-			t.Logf("Gen test data: %d assets, %d leaves/tree",
-				numAssets, numLeavesPerTree)
+		// Generate some events for all assets.
+		for range 10 {
+			h.addEvents(numAssets)
+		}
 
-			h := newUniStatsHarness(
-				t,
-				numAssets,
-				db.BaseDB,
-				statsDB,
-			)
-			require.NotNil(t, h)
+		if withIndices {
+			createIndices(t, sqlDB)
+		} else {
+			dropIndices(t, sqlDB)
+		}
 
-			if withIndices {
-				createIndices(t, sqlDB)
-			} else {
-				dropIndices(t, sqlDB)
+		return sqlDB, h
+	}
+
+	// runTest executes a query with or without indices.
+	runTest := func(t *testing.T, q queryTest, withIndices bool,
+		sqlDB *BaseDB, h *uniStatsHarness) {
+
+		t.Logf("\n=== Query Plan for %s ===", q.name)
+
+		// Skip unsupported queries.
+		if !supportsQuery(sqlDB.Backend(), q.dbTypes) {
+			t.Skipf("Query %s unsupported by backend %v",
+				q.name, sqlDB.Backend())
+			return
+		}
+
+		plan := getQueryPlan(ctx, t, sqlDB, q, h)
+		t.Logf("Query Plan:\n%s", plan)
+
+		// Execute the query repeatedly.
+		queryTime := executeQuery(ctx, t, sqlDB, q, h)
+
+		// Record results.
+		stat, ok := testResults[q.name]
+		if !ok {
+			stat = &queryStats{
+				name: q.name,
 			}
+			testResults[q.name] = stat
+		}
 
-			// Execute each test query.
-			for _, q := range testQueries {
-				t.Logf("\n=== Query Plan for %s ===", q.name)
+		stat.queries = numQueries
+		stat.queryPlan = plan
+		if withIndices {
+			stat.withIndices = queryTime
+		} else {
+			stat.withoutIndices = queryTime
+		}
 
-				// Skip unsupported queries.
-				if !supportsQuery(sqlDB.Backend(), q.dbTypes) {
-					t.Skipf("Query %s unsupported "+
-						"by backend %v",
-						q.name, sqlDB.Backend())
-					continue
-				}
-
-				plan := getQueryPlan(ctx, t, sqlDB, q, h)
-				t.Logf("Query Plan:\n%s", plan)
-
-				// Execute the query repeatedly.
-				queryTime := executeQuery(ctx, t, sqlDB, q, h)
-
-				// Record results.
-				stat, ok := testResults[q.name]
-				if !ok {
-					stat = &queryStats{
-						name: q.name,
-					}
-					testResults[q.name] = stat
-				}
-
-				stat.queries = numQueries
-				stat.queryPlan = plan
-				if withIndices {
-					stat.withIndices = queryTime
-				} else {
-					stat.withoutIndices = queryTime
-				}
-
-				t.Logf("%s executed in: %v", q.name, queryTime)
-			}
-
-			logPerformanceAnalysis(t, testResults)
-		})
+		t.Logf("%s executed in: %v", q.name, queryTime)
 	}
 
 	// Run tests with and without indices.
-	runTest(false)
-	runTest(true)
+	for _, withIndices := range []bool{false, true} {
+		sqlDB, h := setupDB(withIndices)
+
+		for _, q := range testQueries {
+			testName := fmt.Sprintf("name=%v,indices=%v", q.name,
+				withIndices)
+			t.Run(testName, func(t *testing.T) {
+				runTest(t, q, withIndices, sqlDB, h)
+			})
+		}
+
+		logPerformanceAnalysis(t, testResults)
+	}
 }

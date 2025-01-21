@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-const allAssets = `-- name: AllAssets :many
+const AllAssets = `-- name: AllAssets :many
 SELECT asset_id, genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent 
 FROM assets
 `
 
 func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
-	rows, err := q.db.QueryContext(ctx, allAssets)
+	rows, err := q.db.QueryContext(ctx, AllAssets)
 	if err != nil {
 		return nil, err
 	}
@@ -53,13 +53,13 @@ func (q *Queries) AllAssets(ctx context.Context) ([]Asset, error) {
 	return items, nil
 }
 
-const allInternalKeys = `-- name: AllInternalKeys :many
+const AllInternalKeys = `-- name: AllInternalKeys :many
 SELECT key_id, raw_key, key_family, key_index 
 FROM internal_keys
 `
 
 func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
-	rows, err := q.db.QueryContext(ctx, allInternalKeys)
+	rows, err := q.db.QueryContext(ctx, AllInternalKeys)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +86,7 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 	return items, nil
 }
 
-const allMintingBatches = `-- name: AllMintingBatches :many
+const AllMintingBatches = `-- name: AllMintingBatches :many
 SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
@@ -109,7 +109,7 @@ type AllMintingBatchesRow struct {
 }
 
 func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error) {
-	rows, err := q.db.QueryContext(ctx, allMintingBatches)
+	rows, err := q.db.QueryContext(ctx, AllMintingBatches)
 	if err != nil {
 		return nil, err
 	}
@@ -144,7 +144,7 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 	return items, nil
 }
 
-const anchorGenesisPoint = `-- name: AnchorGenesisPoint :exec
+const AnchorGenesisPoint = `-- name: AnchorGenesisPoint :exec
 WITH target_point(genesis_id) AS (
     SELECT genesis_id
     FROM genesis_points
@@ -161,11 +161,11 @@ type AnchorGenesisPointParams struct {
 }
 
 func (q *Queries) AnchorGenesisPoint(ctx context.Context, arg AnchorGenesisPointParams) error {
-	_, err := q.db.ExecContext(ctx, anchorGenesisPoint, arg.PrevOut, arg.AnchorTxID)
+	_, err := q.db.ExecContext(ctx, AnchorGenesisPoint, arg.PrevOut, arg.AnchorTxID)
 	return err
 }
 
-const anchorPendingAssets = `-- name: AnchorPendingAssets :exec
+const AnchorPendingAssets = `-- name: AnchorPendingAssets :exec
 WITH assets_to_update AS (
     SELECT script_key_id
     FROM assets 
@@ -186,11 +186,11 @@ type AnchorPendingAssetsParams struct {
 }
 
 func (q *Queries) AnchorPendingAssets(ctx context.Context, arg AnchorPendingAssetsParams) error {
-	_, err := q.db.ExecContext(ctx, anchorPendingAssets, arg.PrevOut, arg.AnchorUtxoID)
+	_, err := q.db.ExecContext(ctx, AnchorPendingAssets, arg.PrevOut, arg.AnchorUtxoID)
 	return err
 }
 
-const assetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
+const AssetsByGenesisPoint = `-- name: AssetsByGenesisPoint :many
 SELECT assets.asset_id, assets.genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent, gen_asset_id, genesis_assets.asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id, genesis_points.genesis_id, prev_out, anchor_tx_id
 FROM assets 
 JOIN genesis_assets 
@@ -227,7 +227,7 @@ type AssetsByGenesisPointRow struct {
 }
 
 func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]AssetsByGenesisPointRow, error) {
-	rows, err := q.db.QueryContext(ctx, assetsByGenesisPoint, prevOut)
+	rows, err := q.db.QueryContext(ctx, AssetsByGenesisPoint, prevOut)
 	if err != nil {
 		return nil, err
 	}
@@ -273,7 +273,7 @@ func (q *Queries) AssetsByGenesisPoint(ctx context.Context, prevOut []byte) ([]A
 	return items, nil
 }
 
-const assetsInBatch = `-- name: AssetsInBatch :many
+const AssetsInBatch = `-- name: AssetsInBatch :many
 SELECT
     gen_asset_id, asset_id, asset_tag, assets_meta.meta_data_hash, 
     output_index, asset_type, genesis_points.prev_out prev_out
@@ -300,7 +300,7 @@ type AssetsInBatchRow struct {
 }
 
 func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error) {
-	rows, err := q.db.QueryContext(ctx, assetsInBatch, rawKey)
+	rows, err := q.db.QueryContext(ctx, AssetsInBatch, rawKey)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ func (q *Queries) AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInB
 	return items, nil
 }
 
-const bindMintingBatchWithTapSibling = `-- name: BindMintingBatchWithTapSibling :exec
+const BindMintingBatchWithTapSibling = `-- name: BindMintingBatchWithTapSibling :exec
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -349,11 +349,11 @@ type BindMintingBatchWithTapSiblingParams struct {
 }
 
 func (q *Queries) BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error {
-	_, err := q.db.ExecContext(ctx, bindMintingBatchWithTapSibling, arg.RawKey, arg.TapscriptSibling)
+	_, err := q.db.ExecContext(ctx, BindMintingBatchWithTapSibling, arg.RawKey, arg.TapscriptSibling)
 	return err
 }
 
-const bindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :exec
+const BindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :exec
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -374,7 +374,7 @@ type BindMintingBatchWithTxParams struct {
 }
 
 func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error {
-	_, err := q.db.ExecContext(ctx, bindMintingBatchWithTx,
+	_, err := q.db.ExecContext(ctx, BindMintingBatchWithTx,
 		arg.RawKey,
 		arg.MintingTxPsbt,
 		arg.ChangeOutputIndex,
@@ -383,7 +383,7 @@ func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBat
 	return err
 }
 
-const confirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
+const ConfirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
 UPDATE chain_txns
 SET block_height = $2, block_hash = $3, tx_index = $4
 WHERE txid = $1
@@ -397,7 +397,7 @@ type ConfirmChainAnchorTxParams struct {
 }
 
 func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error {
-	_, err := q.db.ExecContext(ctx, confirmChainAnchorTx,
+	_, err := q.db.ExecContext(ctx, ConfirmChainAnchorTx,
 		arg.Txid,
 		arg.BlockHeight,
 		arg.BlockHash,
@@ -406,7 +406,7 @@ func (q *Queries) ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnch
 	return err
 }
 
-const confirmChainTx = `-- name: ConfirmChainTx :exec
+const ConfirmChainTx = `-- name: ConfirmChainTx :exec
 WITH target_txn(txn_id) AS (
     SELECT anchor_tx_id
     FROM genesis_points points
@@ -429,7 +429,7 @@ type ConfirmChainTxParams struct {
 }
 
 func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error {
-	_, err := q.db.ExecContext(ctx, confirmChainTx,
+	_, err := q.db.ExecContext(ctx, ConfirmChainTx,
 		arg.RawKey,
 		arg.BlockHeight,
 		arg.BlockHash,
@@ -438,7 +438,7 @@ func (q *Queries) ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) 
 	return err
 }
 
-const deleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
+const DeleteExpiredUTXOLeases = `-- name: DeleteExpiredUTXOLeases :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
 WHERE lease_owner IS NOT NULL AND
@@ -447,21 +447,21 @@ WHERE lease_owner IS NOT NULL AND
 `
 
 func (q *Queries) DeleteExpiredUTXOLeases(ctx context.Context, now sql.NullTime) error {
-	_, err := q.db.ExecContext(ctx, deleteExpiredUTXOLeases, now)
+	_, err := q.db.ExecContext(ctx, DeleteExpiredUTXOLeases, now)
 	return err
 }
 
-const deleteManagedUTXO = `-- name: DeleteManagedUTXO :exec
+const DeleteManagedUTXO = `-- name: DeleteManagedUTXO :exec
 DELETE FROM managed_utxos
 WHERE outpoint = $1
 `
 
 func (q *Queries) DeleteManagedUTXO(ctx context.Context, outpoint []byte) error {
-	_, err := q.db.ExecContext(ctx, deleteManagedUTXO, outpoint)
+	_, err := q.db.ExecContext(ctx, DeleteManagedUTXO, outpoint)
 	return err
 }
 
-const deleteTapscriptTreeEdges = `-- name: DeleteTapscriptTreeEdges :exec
+const DeleteTapscriptTreeEdges = `-- name: DeleteTapscriptTreeEdges :exec
 WITH tree_info AS (
     -- This CTE is used to fetch all edges that link the given tapscript tree
     -- root hash to child nodes.
@@ -476,11 +476,11 @@ WHERE edge_id IN (SELECT edge_id FROM tree_info)
 `
 
 func (q *Queries) DeleteTapscriptTreeEdges(ctx context.Context, rootHash []byte) error {
-	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeEdges, rootHash)
+	_, err := q.db.ExecContext(ctx, DeleteTapscriptTreeEdges, rootHash)
 	return err
 }
 
-const deleteTapscriptTreeNodes = `-- name: DeleteTapscriptTreeNodes :exec
+const DeleteTapscriptTreeNodes = `-- name: DeleteTapscriptTreeNodes :exec
 DELETE FROM tapscript_nodes
 WHERE NOT EXISTS (
     SELECT 1
@@ -491,32 +491,32 @@ WHERE NOT EXISTS (
 `
 
 func (q *Queries) DeleteTapscriptTreeNodes(ctx context.Context) error {
-	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeNodes)
+	_, err := q.db.ExecContext(ctx, DeleteTapscriptTreeNodes)
 	return err
 }
 
-const deleteTapscriptTreeRoot = `-- name: DeleteTapscriptTreeRoot :exec
+const DeleteTapscriptTreeRoot = `-- name: DeleteTapscriptTreeRoot :exec
 DELETE FROM tapscript_roots
 WHERE root_hash = $1
 `
 
 func (q *Queries) DeleteTapscriptTreeRoot(ctx context.Context, rootHash []byte) error {
-	_, err := q.db.ExecContext(ctx, deleteTapscriptTreeRoot, rootHash)
+	_, err := q.db.ExecContext(ctx, DeleteTapscriptTreeRoot, rootHash)
 	return err
 }
 
-const deleteUTXOLease = `-- name: DeleteUTXOLease :exec
+const DeleteUTXOLease = `-- name: DeleteUTXOLease :exec
 UPDATE managed_utxos
 SET lease_owner = NULL, lease_expiry = NULL
 WHERE outpoint = $1
 `
 
 func (q *Queries) DeleteUTXOLease(ctx context.Context, outpoint []byte) error {
-	_, err := q.db.ExecContext(ctx, deleteUTXOLease, outpoint)
+	_, err := q.db.ExecContext(ctx, DeleteUTXOLease, outpoint)
 	return err
 }
 
-const fetchAssetID = `-- name: FetchAssetID :many
+const FetchAssetID = `-- name: FetchAssetID :many
 SELECT asset_id
     FROM assets
     JOIN script_keys 
@@ -536,7 +536,7 @@ type FetchAssetIDParams struct {
 }
 
 func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]int64, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetID, arg.TweakedScriptKey, arg.Outpoint)
+	rows, err := q.db.QueryContext(ctx, FetchAssetID, arg.TweakedScriptKey, arg.Outpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -558,7 +558,7 @@ func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]i
 	return items, nil
 }
 
-const fetchAssetMeta = `-- name: FetchAssetMeta :one
+const FetchAssetMeta = `-- name: FetchAssetMeta :one
 SELECT meta_data_hash, meta_data_blob, meta_data_type
 FROM assets_meta
 WHERE meta_id = $1
@@ -571,13 +571,13 @@ type FetchAssetMetaRow struct {
 }
 
 func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAssetMeta, metaID)
+	row := q.db.QueryRowContext(ctx, FetchAssetMeta, metaID)
 	var i FetchAssetMetaRow
 	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
 	return i, err
 }
 
-const fetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
+const FetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
 SELECT meta_data_hash, meta_data_blob, meta_data_type
 FROM assets_meta
 WHERE meta_data_hash = $1
@@ -590,13 +590,13 @@ type FetchAssetMetaByHashRow struct {
 }
 
 func (q *Queries) FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAssetMetaByHash, metaDataHash)
+	row := q.db.QueryRowContext(ctx, FetchAssetMetaByHash, metaDataHash)
 	var i FetchAssetMetaByHashRow
 	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
 	return i, err
 }
 
-const fetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
+const FetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
 SELECT meta_data_hash, meta_data_blob, meta_data_type
 FROM genesis_assets assets
 JOIN assets_meta
@@ -611,13 +611,13 @@ type FetchAssetMetaForAssetRow struct {
 }
 
 func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchAssetMetaForAsset, assetID)
+	row := q.db.QueryRowContext(ctx, FetchAssetMetaForAsset, assetID)
 	var i FetchAssetMetaForAssetRow
 	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
 	return i, err
 }
 
-const fetchAssetProof = `-- name: FetchAssetProof :many
+const FetchAssetProof = `-- name: FetchAssetProof :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key, utxos.outpoint
     FROM assets
@@ -650,7 +650,7 @@ type FetchAssetProofRow struct {
 }
 
 func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
+	rows, err := q.db.QueryContext(ctx, FetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
 	if err != nil {
 		return nil, err
 	}
@@ -678,7 +678,7 @@ func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams
 	return items, nil
 }
 
-const fetchAssetProofs = `-- name: FetchAssetProofs :many
+const FetchAssetProofs = `-- name: FetchAssetProofs :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key
     FROM assets
@@ -697,7 +697,7 @@ type FetchAssetProofsRow struct {
 }
 
 func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetProofs)
+	rows, err := q.db.QueryContext(ctx, FetchAssetProofs)
 	if err != nil {
 		return nil, err
 	}
@@ -719,7 +719,7 @@ func (q *Queries) FetchAssetProofs(ctx context.Context) ([]FetchAssetProofsRow, 
 	return items, nil
 }
 
-const fetchAssetProofsByAssetID = `-- name: FetchAssetProofsByAssetID :many
+const FetchAssetProofsByAssetID = `-- name: FetchAssetProofsByAssetID :many
 WITH asset_info AS (
     SELECT assets.asset_id, script_keys.tweaked_script_key
     FROM assets
@@ -741,7 +741,7 @@ type FetchAssetProofsByAssetIDRow struct {
 }
 
 func (q *Queries) FetchAssetProofsByAssetID(ctx context.Context, assetID []byte) ([]FetchAssetProofsByAssetIDRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetProofsByAssetID, assetID)
+	rows, err := q.db.QueryContext(ctx, FetchAssetProofsByAssetID, assetID)
 	if err != nil {
 		return nil, err
 	}
@@ -763,7 +763,7 @@ func (q *Queries) FetchAssetProofsByAssetID(ctx context.Context, assetID []byte)
 	return items, nil
 }
 
-const fetchAssetProofsSizes = `-- name: FetchAssetProofsSizes :many
+const FetchAssetProofsSizes = `-- name: FetchAssetProofsSizes :many
 SELECT script_keys.tweaked_script_key AS script_key, 
        LENGTH(asset_proofs.proof_file) AS proof_file_length
 FROM asset_proofs
@@ -779,7 +779,7 @@ type FetchAssetProofsSizesRow struct {
 }
 
 func (q *Queries) FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetProofsSizes)
+	rows, err := q.db.QueryContext(ctx, FetchAssetProofsSizes)
 	if err != nil {
 		return nil, err
 	}
@@ -801,7 +801,7 @@ func (q *Queries) FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofs
 	return items, nil
 }
 
-const fetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
+const FetchAssetWitnesses = `-- name: FetchAssetWitnesses :many
 SELECT 
     assets.asset_id, prev_out_point, prev_asset_id, prev_script_key, 
     witness_stack, split_commitment_proof
@@ -824,7 +824,7 @@ type FetchAssetWitnessesRow struct {
 }
 
 func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetWitnesses, assetID)
+	rows, err := q.db.QueryContext(ctx, FetchAssetWitnesses, assetID)
 	if err != nil {
 		return nil, err
 	}
@@ -853,14 +853,14 @@ func (q *Queries) FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64
 	return items, nil
 }
 
-const fetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
+const FetchAssetsByAnchorTx = `-- name: FetchAssetsByAnchorTx :many
 SELECT asset_id, genesis_id, version, script_key_id, asset_group_witness_id, script_version, amount, lock_time, relative_lock_time, split_commitment_root_hash, split_commitment_root_value, anchor_utxo_id, spent
 FROM assets
 WHERE anchor_utxo_id = $1
 `
 
 func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt64) ([]Asset, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetsByAnchorTx, anchorUtxoID)
+	rows, err := q.db.QueryContext(ctx, FetchAssetsByAnchorTx, anchorUtxoID)
 	if err != nil {
 		return nil, err
 	}
@@ -896,7 +896,7 @@ func (q *Queries) FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.Nu
 	return items, nil
 }
 
-const fetchAssetsForBatch = `-- name: FetchAssetsForBatch :many
+const FetchAssetsForBatch = `-- name: FetchAssetsForBatch :many
 WITH genesis_info AS (
     -- This CTE is used to fetch the base asset information from disk based on
     -- the raw key of the batch that will ultimately create this set of assets.
@@ -997,7 +997,7 @@ type FetchAssetsForBatchRow struct {
 // doesn't have a group key. See the comment in fetchAssetSprouts for a work
 // around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchAssetsForBatch, rawKey)
+	rows, err := q.db.QueryContext(ctx, FetchAssetsForBatch, rawKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1046,14 +1046,14 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 	return items, nil
 }
 
-const fetchChainTx = `-- name: FetchChainTx :one
+const FetchChainTx = `-- name: FetchChainTx :one
 SELECT txn_id, txid, chain_fees, raw_tx, block_height, block_hash, tx_index
 FROM chain_txns
 WHERE txid = $1
 `
 
 func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, error) {
-	row := q.db.QueryRowContext(ctx, fetchChainTx, txid)
+	row := q.db.QueryRowContext(ctx, FetchChainTx, txid)
 	var i ChainTxn
 	err := row.Scan(
 		&i.TxnID,
@@ -1067,14 +1067,14 @@ func (q *Queries) FetchChainTx(ctx context.Context, txid []byte) (ChainTxn, erro
 	return i, err
 }
 
-const fetchGenesisByAssetID = `-- name: FetchGenesisByAssetID :one
+const FetchGenesisByAssetID = `-- name: FetchGenesisByAssetID :one
 SELECT gen_asset_id, asset_id, asset_tag, meta_hash, output_index, asset_type, prev_out, anchor_txid, block_height 
 FROM genesis_info_view
 WHERE asset_id = $1
 `
 
 func (q *Queries) FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error) {
-	row := q.db.QueryRowContext(ctx, fetchGenesisByAssetID, assetID)
+	row := q.db.QueryRowContext(ctx, FetchGenesisByAssetID, assetID)
 	var i GenesisInfoView
 	err := row.Scan(
 		&i.GenAssetID,
@@ -1090,7 +1090,7 @@ func (q *Queries) FetchGenesisByAssetID(ctx context.Context, assetID []byte) (Ge
 	return i, err
 }
 
-const fetchGenesisByID = `-- name: FetchGenesisByID :one
+const FetchGenesisByID = `-- name: FetchGenesisByID :one
 SELECT
     asset_id, asset_tag, assets_meta.meta_data_hash, output_index, asset_type,
     genesis_points.prev_out prev_out
@@ -1112,7 +1112,7 @@ type FetchGenesisByIDRow struct {
 }
 
 func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int64) (FetchGenesisByIDRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchGenesisByID, genAssetID)
+	row := q.db.QueryRowContext(ctx, FetchGenesisByID, genAssetID)
 	var i FetchGenesisByIDRow
 	err := row.Scan(
 		&i.AssetID,
@@ -1125,7 +1125,7 @@ func (q *Queries) FetchGenesisByID(ctx context.Context, genAssetID int64) (Fetch
 	return i, err
 }
 
-const fetchGenesisID = `-- name: FetchGenesisID :one
+const FetchGenesisID = `-- name: FetchGenesisID :one
 WITH target_point(genesis_id) AS (
     SELECT genesis_id
     FROM genesis_points
@@ -1155,7 +1155,7 @@ type FetchGenesisIDParams struct {
 }
 
 func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, fetchGenesisID,
+	row := q.db.QueryRowContext(ctx, FetchGenesisID,
 		arg.AssetID,
 		arg.AssetTag,
 		arg.MetaHash,
@@ -1168,20 +1168,20 @@ func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) 
 	return gen_asset_id, err
 }
 
-const fetchGenesisPointByAnchorTx = `-- name: FetchGenesisPointByAnchorTx :one
+const FetchGenesisPointByAnchorTx = `-- name: FetchGenesisPointByAnchorTx :one
 SELECT genesis_id, prev_out, anchor_tx_id 
 FROM genesis_points
 WHERE anchor_tx_id = $1
 `
 
 func (q *Queries) FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt64) (GenesisPoint, error) {
-	row := q.db.QueryRowContext(ctx, fetchGenesisPointByAnchorTx, anchorTxID)
+	row := q.db.QueryRowContext(ctx, FetchGenesisPointByAnchorTx, anchorTxID)
 	var i GenesisPoint
 	err := row.Scan(&i.GenesisID, &i.PrevOut, &i.AnchorTxID)
 	return i, err
 }
 
-const fetchGroupByGenesis = `-- name: FetchGroupByGenesis :one
+const FetchGroupByGenesis = `-- name: FetchGroupByGenesis :one
 SELECT
     key_group_info_view.version AS version,
     key_group_info_view.tweaked_group_key AS tweaked_group_key,
@@ -1209,7 +1209,7 @@ type FetchGroupByGenesisRow struct {
 }
 
 func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int64) (FetchGroupByGenesisRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchGroupByGenesis, genesisID)
+	row := q.db.QueryRowContext(ctx, FetchGroupByGenesis, genesisID)
 	var i FetchGroupByGenesisRow
 	err := row.Scan(
 		&i.Version,
@@ -1224,7 +1224,7 @@ func (q *Queries) FetchGroupByGenesis(ctx context.Context, genesisID int64) (Fet
 	return i, err
 }
 
-const fetchGroupByGroupKey = `-- name: FetchGroupByGroupKey :one
+const FetchGroupByGroupKey = `-- name: FetchGroupByGroupKey :one
 SELECT
     key_group_info_view.version AS version,
     key_group_info_view.gen_asset_id AS gen_asset_id,
@@ -1255,7 +1255,7 @@ type FetchGroupByGroupKeyRow struct {
 
 // Sort and limit to return the genesis ID for initial genesis of the group.
 func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (FetchGroupByGroupKeyRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchGroupByGroupKey, groupKey)
+	row := q.db.QueryRowContext(ctx, FetchGroupByGroupKey, groupKey)
 	var i FetchGroupByGroupKeyRow
 	err := row.Scan(
 		&i.Version,
@@ -1270,7 +1270,7 @@ func (q *Queries) FetchGroupByGroupKey(ctx context.Context, groupKey []byte) (Fe
 	return i, err
 }
 
-const fetchGroupedAssets = `-- name: FetchGroupedAssets :many
+const FetchGroupedAssets = `-- name: FetchGroupedAssets :many
 SELECT
     assets.asset_id AS asset_primary_key,
     amount, lock_time, relative_lock_time, spent, 
@@ -1303,7 +1303,7 @@ type FetchGroupedAssetsRow struct {
 }
 
 func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchGroupedAssets)
+	rows, err := q.db.QueryContext(ctx, FetchGroupedAssets)
 	if err != nil {
 		return nil, err
 	}
@@ -1337,7 +1337,7 @@ func (q *Queries) FetchGroupedAssets(ctx context.Context) ([]FetchGroupedAssetsR
 	return items, nil
 }
 
-const fetchInternalKeyLocator = `-- name: FetchInternalKeyLocator :one
+const FetchInternalKeyLocator = `-- name: FetchInternalKeyLocator :one
 SELECT key_family, key_index
 FROM internal_keys
 WHERE raw_key = $1
@@ -1349,13 +1349,13 @@ type FetchInternalKeyLocatorRow struct {
 }
 
 func (q *Queries) FetchInternalKeyLocator(ctx context.Context, rawKey []byte) (FetchInternalKeyLocatorRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchInternalKeyLocator, rawKey)
+	row := q.db.QueryRowContext(ctx, FetchInternalKeyLocator, rawKey)
 	var i FetchInternalKeyLocatorRow
 	err := row.Scan(&i.KeyFamily, &i.KeyIndex)
 	return i, err
 }
 
-const fetchManagedUTXO = `-- name: FetchManagedUTXO :one
+const FetchManagedUTXO = `-- name: FetchManagedUTXO :one
 SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
@@ -1390,7 +1390,7 @@ type FetchManagedUTXORow struct {
 }
 
 func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOParams) (FetchManagedUTXORow, error) {
-	row := q.db.QueryRowContext(ctx, fetchManagedUTXO, arg.TxnID, arg.Outpoint)
+	row := q.db.QueryRowContext(ctx, FetchManagedUTXO, arg.TxnID, arg.Outpoint)
 	var i FetchManagedUTXORow
 	err := row.Scan(
 		&i.UtxoID,
@@ -1412,7 +1412,7 @@ func (q *Queries) FetchManagedUTXO(ctx context.Context, arg FetchManagedUTXOPara
 	return i, err
 }
 
-const fetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
+const FetchManagedUTXOs = `-- name: FetchManagedUTXOs :many
 SELECT utxo_id, outpoint, amt_sats, internal_key_id, taproot_asset_root, tapscript_sibling, merkle_root, txn_id, lease_owner, lease_expiry, root_version, key_id, raw_key, key_family, key_index
 FROM managed_utxos utxos
 JOIN internal_keys keys
@@ -1438,7 +1438,7 @@ type FetchManagedUTXOsRow struct {
 }
 
 func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchManagedUTXOs)
+	rows, err := q.db.QueryContext(ctx, FetchManagedUTXOs)
 	if err != nil {
 		return nil, err
 	}
@@ -1476,7 +1476,7 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
-const fetchMintingBatch = `-- name: FetchMintingBatch :one
+const FetchMintingBatch = `-- name: FetchMintingBatch :one
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
     -- internal key associated with the batch. This internal key is used as the
@@ -1511,7 +1511,7 @@ type FetchMintingBatchRow struct {
 }
 
 func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchMintingBatch, rawKey)
+	row := q.db.QueryRowContext(ctx, FetchMintingBatch, rawKey)
 	var i FetchMintingBatchRow
 	err := row.Scan(
 		&i.BatchID,
@@ -1530,7 +1530,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 	return i, err
 }
 
-const fetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
+const FetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
 SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
@@ -1554,7 +1554,7 @@ type FetchMintingBatchesByInverseStateRow struct {
 }
 
 func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchMintingBatchesByInverseState, batchState)
+	rows, err := q.db.QueryContext(ctx, FetchMintingBatchesByInverseState, batchState)
 	if err != nil {
 		return nil, err
 	}
@@ -1589,7 +1589,7 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 	return items, nil
 }
 
-const fetchScriptKeyByTweakedKey = `-- name: FetchScriptKeyByTweakedKey :one
+const FetchScriptKeyByTweakedKey = `-- name: FetchScriptKeyByTweakedKey :one
 SELECT tweak, raw_key, key_family, key_index, declared_known
 FROM script_keys
 JOIN internal_keys
@@ -1606,7 +1606,7 @@ type FetchScriptKeyByTweakedKeyRow struct {
 }
 
 func (q *Queries) FetchScriptKeyByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (FetchScriptKeyByTweakedKeyRow, error) {
-	row := q.db.QueryRowContext(ctx, fetchScriptKeyByTweakedKey, tweakedScriptKey)
+	row := q.db.QueryRowContext(ctx, FetchScriptKeyByTweakedKey, tweakedScriptKey)
 	var i FetchScriptKeyByTweakedKeyRow
 	err := row.Scan(
 		&i.Tweak,
@@ -1618,27 +1618,27 @@ func (q *Queries) FetchScriptKeyByTweakedKey(ctx context.Context, tweakedScriptK
 	return i, err
 }
 
-const fetchScriptKeyIDByTweakedKey = `-- name: FetchScriptKeyIDByTweakedKey :one
+const FetchScriptKeyIDByTweakedKey = `-- name: FetchScriptKeyIDByTweakedKey :one
 SELECT script_key_id
 FROM script_keys
 WHERE tweaked_script_key = $1
 `
 
 func (q *Queries) FetchScriptKeyIDByTweakedKey(ctx context.Context, tweakedScriptKey []byte) (int64, error) {
-	row := q.db.QueryRowContext(ctx, fetchScriptKeyIDByTweakedKey, tweakedScriptKey)
+	row := q.db.QueryRowContext(ctx, FetchScriptKeyIDByTweakedKey, tweakedScriptKey)
 	var script_key_id int64
 	err := row.Scan(&script_key_id)
 	return script_key_id, err
 }
 
-const fetchSeedlingByID = `-- name: FetchSeedlingByID :one
+const FetchSeedlingByID = `-- name: FetchSeedlingByID :one
 SELECT seedling_id, asset_name, asset_version, asset_type, asset_supply, asset_meta_id, emission_enabled, batch_id, group_genesis_id, group_anchor_id, script_key_id, group_internal_key_id, group_tapscript_root
 FROM asset_seedlings
 WHERE seedling_id = $1
 `
 
 func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (AssetSeedling, error) {
-	row := q.db.QueryRowContext(ctx, fetchSeedlingByID, seedlingID)
+	row := q.db.QueryRowContext(ctx, FetchSeedlingByID, seedlingID)
 	var i AssetSeedling
 	err := row.Scan(
 		&i.SeedlingID,
@@ -1658,7 +1658,7 @@ func (q *Queries) FetchSeedlingByID(ctx context.Context, seedlingID int64) (Asse
 	return i, err
 }
 
-const fetchSeedlingID = `-- name: FetchSeedlingID :one
+const FetchSeedlingID = `-- name: FetchSeedlingID :one
 WITH target_key_id AS (
     -- We use this CTE to fetch the key_id of the internal key that's
     -- associated with a given batch. This can only return one value in
@@ -1682,13 +1682,13 @@ type FetchSeedlingIDParams struct {
 }
 
 func (q *Queries) FetchSeedlingID(ctx context.Context, arg FetchSeedlingIDParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, fetchSeedlingID, arg.SeedlingName, arg.BatchKey)
+	row := q.db.QueryRowContext(ctx, FetchSeedlingID, arg.SeedlingName, arg.BatchKey)
 	var seedling_id int64
 	err := row.Scan(&seedling_id)
 	return seedling_id, err
 }
 
-const fetchSeedlingsForBatch = `-- name: FetchSeedlingsForBatch :many
+const FetchSeedlingsForBatch = `-- name: FetchSeedlingsForBatch :many
 WITH target_batch(batch_id) AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -1747,7 +1747,7 @@ type FetchSeedlingsForBatchRow struct {
 }
 
 func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]FetchSeedlingsForBatchRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchSeedlingsForBatch, rawKey)
+	rows, err := q.db.QueryContext(ctx, FetchSeedlingsForBatch, rawKey)
 	if err != nil {
 		return nil, err
 	}
@@ -1792,7 +1792,7 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 	return items, nil
 }
 
-const fetchTapscriptTree = `-- name: FetchTapscriptTree :many
+const FetchTapscriptTree = `-- name: FetchTapscriptTree :many
 WITH tree_info AS (
     -- This CTE is used to fetch all edges that link the given tapscript tree
     -- root hash to child nodes. Each edge also contains the index of the child
@@ -1818,7 +1818,7 @@ type FetchTapscriptTreeRow struct {
 
 // Sort the nodes by node_index here instead of returning the indices.
 func (q *Queries) FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]FetchTapscriptTreeRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchTapscriptTree, rootHash)
+	rows, err := q.db.QueryContext(ctx, FetchTapscriptTree, rootHash)
 	if err != nil {
 		return nil, err
 	}
@@ -1840,13 +1840,13 @@ func (q *Queries) FetchTapscriptTree(ctx context.Context, rootHash []byte) ([]Fe
 	return items, nil
 }
 
-const genesisAssets = `-- name: GenesisAssets :many
+const GenesisAssets = `-- name: GenesisAssets :many
 SELECT gen_asset_id, asset_id, asset_tag, meta_data_id, output_index, asset_type, genesis_point_id 
 FROM genesis_assets
 `
 
 func (q *Queries) GenesisAssets(ctx context.Context) ([]GenesisAsset, error) {
-	rows, err := q.db.QueryContext(ctx, genesisAssets)
+	rows, err := q.db.QueryContext(ctx, GenesisAssets)
 	if err != nil {
 		return nil, err
 	}
@@ -1876,13 +1876,13 @@ func (q *Queries) GenesisAssets(ctx context.Context) ([]GenesisAsset, error) {
 	return items, nil
 }
 
-const genesisPoints = `-- name: GenesisPoints :many
+const GenesisPoints = `-- name: GenesisPoints :many
 SELECT genesis_id, prev_out, anchor_tx_id
 FROM genesis_points
 `
 
 func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
-	rows, err := q.db.QueryContext(ctx, genesisPoints)
+	rows, err := q.db.QueryContext(ctx, GenesisPoints)
 	if err != nil {
 		return nil, err
 	}
@@ -1904,7 +1904,7 @@ func (q *Queries) GenesisPoints(ctx context.Context) ([]GenesisPoint, error) {
 	return items, nil
 }
 
-const hasAssetProof = `-- name: HasAssetProof :one
+const HasAssetProof = `-- name: HasAssetProof :one
 WITH asset_info AS (
     SELECT assets.asset_id
     FROM assets
@@ -1919,13 +1919,13 @@ JOIN asset_info
 `
 
 func (q *Queries) HasAssetProof(ctx context.Context, tweakedScriptKey []byte) (bool, error) {
-	row := q.db.QueryRowContext(ctx, hasAssetProof, tweakedScriptKey)
+	row := q.db.QueryRowContext(ctx, HasAssetProof, tweakedScriptKey)
 	var has_proof bool
 	err := row.Scan(&has_proof)
 	return has_proof, err
 }
 
-const insertAssetSeedling = `-- name: InsertAssetSeedling :exec
+const InsertAssetSeedling = `-- name: InsertAssetSeedling :exec
 INSERT INTO asset_seedlings (
     asset_name, asset_type, asset_version, asset_supply, asset_meta_id,
     emission_enabled, batch_id, group_genesis_id, group_anchor_id,
@@ -1955,7 +1955,7 @@ type InsertAssetSeedlingParams struct {
 }
 
 func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedlingParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetSeedling,
+	_, err := q.db.ExecContext(ctx, InsertAssetSeedling,
 		arg.AssetName,
 		arg.AssetType,
 		arg.AssetVersion,
@@ -1972,7 +1972,7 @@ func (q *Queries) InsertAssetSeedling(ctx context.Context, arg InsertAssetSeedli
 	return err
 }
 
-const insertAssetSeedlingIntoBatch = `-- name: InsertAssetSeedlingIntoBatch :exec
+const InsertAssetSeedlingIntoBatch = `-- name: InsertAssetSeedlingIntoBatch :exec
 WITH target_key_id AS (
     -- We use this CTE to fetch the key_id of the internal key that's
     -- associated with a given batch. This can only return one value in
@@ -2013,7 +2013,7 @@ type InsertAssetSeedlingIntoBatchParams struct {
 }
 
 func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAssetSeedlingIntoBatchParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetSeedlingIntoBatch,
+	_, err := q.db.ExecContext(ctx, InsertAssetSeedlingIntoBatch,
 		arg.RawKey,
 		arg.AssetName,
 		arg.AssetType,
@@ -2030,7 +2030,7 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 	return err
 }
 
-const newMintingBatch = `-- name: NewMintingBatch :exec
+const NewMintingBatch = `-- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
     batch_state, batch_id, height_hint, creation_time_unix
 ) VALUES (0, $1, $2, $3)
@@ -2043,11 +2043,11 @@ type NewMintingBatchParams struct {
 }
 
 func (q *Queries) NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error {
-	_, err := q.db.ExecContext(ctx, newMintingBatch, arg.BatchID, arg.HeightHint, arg.CreationTimeUnix)
+	_, err := q.db.ExecContext(ctx, NewMintingBatch, arg.BatchID, arg.HeightHint, arg.CreationTimeUnix)
 	return err
 }
 
-const queryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
+const QueryAssetBalancesByAsset = `-- name: QueryAssetBalancesByAsset :many
 SELECT
     genesis_info_view.asset_id, SUM(amount) balance,
     genesis_info_view.asset_tag, genesis_info_view.meta_hash,
@@ -2104,7 +2104,7 @@ type QueryAssetBalancesByAssetRow struct {
 // doesn't have a group key. See the comment in fetchAssetSprouts for a work
 // around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetBalancesByAssetParams) ([]QueryAssetBalancesByAssetRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByAsset,
+	rows, err := q.db.QueryContext(ctx, QueryAssetBalancesByAsset,
 		arg.AssetIDFilter,
 		arg.Leased,
 		arg.Now,
@@ -2139,7 +2139,7 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetB
 	return items, nil
 }
 
-const queryAssetBalancesByGroup = `-- name: QueryAssetBalancesByGroup :many
+const QueryAssetBalancesByGroup = `-- name: QueryAssetBalancesByGroup :many
 SELECT
     key_group_info_view.tweaked_group_key, SUM(amount) balance
 FROM assets
@@ -2179,7 +2179,7 @@ type QueryAssetBalancesByGroupRow struct {
 }
 
 func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetBalancesByGroupParams) ([]QueryAssetBalancesByGroupRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetBalancesByGroup,
+	rows, err := q.db.QueryContext(ctx, QueryAssetBalancesByGroup,
 		arg.KeyGroupFilter,
 		arg.Leased,
 		arg.Now,
@@ -2206,7 +2206,7 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetB
 	return items, nil
 }
 
-const queryAssets = `-- name: QueryAssets :many
+const QueryAssets = `-- name: QueryAssets :many
 SELECT
     assets.asset_id AS asset_primary_key,
     assets.genesis_id, assets.version, spent,
@@ -2357,7 +2357,7 @@ type QueryAssetsRow struct {
 // make the entire statement evaluate to true, if none of these extra args are
 // specified.
 func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]QueryAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssets,
+	rows, err := q.db.QueryContext(ctx, QueryAssets,
 		arg.AssetIDFilter,
 		arg.TweakedScriptKey,
 		arg.AnchorPoint,
@@ -2434,7 +2434,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 	return items, nil
 }
 
-const setAssetSpent = `-- name: SetAssetSpent :one
+const SetAssetSpent = `-- name: SetAssetSpent :one
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
     FROM assets
@@ -2462,13 +2462,13 @@ type SetAssetSpentParams struct {
 }
 
 func (q *Queries) SetAssetSpent(ctx context.Context, arg SetAssetSpentParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, setAssetSpent, arg.AnchorPoint, arg.ScriptKey, arg.GenAssetID)
+	row := q.db.QueryRowContext(ctx, SetAssetSpent, arg.AnchorPoint, arg.ScriptKey, arg.GenAssetID)
 	var asset_id int64
 	err := row.Scan(&asset_id)
 	return asset_id, err
 }
 
-const updateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
+const UpdateBatchGenesisTx = `-- name: UpdateBatchGenesisTx :exec
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -2487,11 +2487,11 @@ type UpdateBatchGenesisTxParams struct {
 }
 
 func (q *Queries) UpdateBatchGenesisTx(ctx context.Context, arg UpdateBatchGenesisTxParams) error {
-	_, err := q.db.ExecContext(ctx, updateBatchGenesisTx, arg.RawKey, arg.MintingTxPsbt)
+	_, err := q.db.ExecContext(ctx, UpdateBatchGenesisTx, arg.RawKey, arg.MintingTxPsbt)
 	return err
 }
 
-const updateMintingBatchState = `-- name: UpdateMintingBatchState :exec
+const UpdateMintingBatchState = `-- name: UpdateMintingBatchState :exec
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
     -- internal key associated with the batch. This internal key is used as the
@@ -2514,11 +2514,11 @@ type UpdateMintingBatchStateParams struct {
 }
 
 func (q *Queries) UpdateMintingBatchState(ctx context.Context, arg UpdateMintingBatchStateParams) error {
-	_, err := q.db.ExecContext(ctx, updateMintingBatchState, arg.RawKey, arg.BatchState)
+	_, err := q.db.ExecContext(ctx, UpdateMintingBatchState, arg.RawKey, arg.BatchState)
 	return err
 }
 
-const updateUTXOLease = `-- name: UpdateUTXOLease :exec
+const UpdateUTXOLease = `-- name: UpdateUTXOLease :exec
 UPDATE managed_utxos
 SET lease_owner = $1, lease_expiry = $2
 WHERE outpoint = $3
@@ -2531,11 +2531,11 @@ type UpdateUTXOLeaseParams struct {
 }
 
 func (q *Queries) UpdateUTXOLease(ctx context.Context, arg UpdateUTXOLeaseParams) error {
-	_, err := q.db.ExecContext(ctx, updateUTXOLease, arg.LeaseOwner, arg.LeaseExpiry, arg.Outpoint)
+	_, err := q.db.ExecContext(ctx, UpdateUTXOLease, arg.LeaseOwner, arg.LeaseExpiry, arg.Outpoint)
 	return err
 }
 
-const upsertAsset = `-- name: UpsertAsset :one
+const UpsertAsset = `-- name: UpsertAsset :one
 INSERT INTO assets (
     genesis_id, version, script_key_id, asset_group_witness_id, script_version, 
     amount, lock_time, relative_lock_time, anchor_utxo_id, spent
@@ -2563,7 +2563,7 @@ type UpsertAssetParams struct {
 }
 
 func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertAsset,
+	row := q.db.QueryRowContext(ctx, UpsertAsset,
 		arg.GenesisID,
 		arg.Version,
 		arg.ScriptKeyID,
@@ -2580,7 +2580,7 @@ func (q *Queries) UpsertAsset(ctx context.Context, arg UpsertAssetParams) (int64
 	return asset_id, err
 }
 
-const upsertAssetGroupKey = `-- name: UpsertAssetGroupKey :one
+const UpsertAssetGroupKey = `-- name: UpsertAssetGroupKey :one
 INSERT INTO asset_groups (
     version, tweaked_group_key, tapscript_root, internal_key_id,
     genesis_point_id, custom_subtree_root_id
@@ -2603,7 +2603,7 @@ type UpsertAssetGroupKeyParams struct {
 }
 
 func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupKeyParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertAssetGroupKey,
+	row := q.db.QueryRowContext(ctx, UpsertAssetGroupKey,
 		arg.Version,
 		arg.TweakedGroupKey,
 		arg.TapscriptRoot,
@@ -2616,7 +2616,7 @@ func (q *Queries) UpsertAssetGroupKey(ctx context.Context, arg UpsertAssetGroupK
 	return group_id, err
 }
 
-const upsertAssetGroupWitness = `-- name: UpsertAssetGroupWitness :one
+const UpsertAssetGroupWitness = `-- name: UpsertAssetGroupWitness :one
 INSERT INTO asset_group_witnesses (
     witness_stack, gen_asset_id, group_key_id
 ) VALUES (
@@ -2634,13 +2634,13 @@ type UpsertAssetGroupWitnessParams struct {
 }
 
 func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGroupWitnessParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertAssetGroupWitness, arg.WitnessStack, arg.GenAssetID, arg.GroupKeyID)
+	row := q.db.QueryRowContext(ctx, UpsertAssetGroupWitness, arg.WitnessStack, arg.GenAssetID, arg.GroupKeyID)
 	var witness_id int64
 	err := row.Scan(&witness_id)
 	return witness_id, err
 }
 
-const upsertAssetMeta = `-- name: UpsertAssetMeta :one
+const UpsertAssetMeta = `-- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
     meta_data_hash, meta_data_blob, meta_data_type
 ) VALUES (
@@ -2662,13 +2662,13 @@ type UpsertAssetMetaParams struct {
 }
 
 func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertAssetMeta, arg.MetaDataHash, arg.MetaDataBlob, arg.MetaDataType)
+	row := q.db.QueryRowContext(ctx, UpsertAssetMeta, arg.MetaDataHash, arg.MetaDataBlob, arg.MetaDataType)
 	var meta_id int64
 	err := row.Scan(&meta_id)
 	return meta_id, err
 }
 
-const upsertAssetProofByID = `-- name: UpsertAssetProofByID :exec
+const UpsertAssetProofByID = `-- name: UpsertAssetProofByID :exec
 INSERT INTO asset_proofs (
     asset_id, proof_file
 ) VALUES (
@@ -2684,11 +2684,11 @@ type UpsertAssetProofByIDParams struct {
 }
 
 func (q *Queries) UpsertAssetProofByID(ctx context.Context, arg UpsertAssetProofByIDParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetProofByID, arg.AssetID, arg.ProofFile)
+	_, err := q.db.ExecContext(ctx, UpsertAssetProofByID, arg.AssetID, arg.ProofFile)
 	return err
 }
 
-const upsertAssetWitness = `-- name: UpsertAssetWitness :exec
+const UpsertAssetWitness = `-- name: UpsertAssetWitness :exec
 INSERT INTO asset_witnesses (
     asset_id, prev_out_point, prev_asset_id, prev_script_key, witness_stack,
     split_commitment_proof, witness_index
@@ -2714,7 +2714,7 @@ type UpsertAssetWitnessParams struct {
 }
 
 func (q *Queries) UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitnessParams) error {
-	_, err := q.db.ExecContext(ctx, upsertAssetWitness,
+	_, err := q.db.ExecContext(ctx, UpsertAssetWitness,
 		arg.AssetID,
 		arg.PrevOutPoint,
 		arg.PrevAssetID,
@@ -2726,7 +2726,7 @@ func (q *Queries) UpsertAssetWitness(ctx context.Context, arg UpsertAssetWitness
 	return err
 }
 
-const upsertChainTx = `-- name: UpsertChainTx :one
+const UpsertChainTx = `-- name: UpsertChainTx :one
 INSERT INTO chain_txns (
     txid, raw_tx, chain_fees, block_height, block_hash, tx_index
 ) VALUES (
@@ -2751,7 +2751,7 @@ type UpsertChainTxParams struct {
 }
 
 func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertChainTx,
+	row := q.db.QueryRowContext(ctx, UpsertChainTx,
 		arg.Txid,
 		arg.RawTx,
 		arg.ChainFees,
@@ -2764,7 +2764,7 @@ func (q *Queries) UpsertChainTx(ctx context.Context, arg UpsertChainTxParams) (i
 	return txn_id, err
 }
 
-const upsertGenesisAsset = `-- name: UpsertGenesisAsset :one
+const UpsertGenesisAsset = `-- name: UpsertGenesisAsset :one
 WITH target_meta_id AS (
     SELECT meta_id
     FROM assets_meta
@@ -2790,7 +2790,7 @@ type UpsertGenesisAssetParams struct {
 }
 
 func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAssetParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertGenesisAsset,
+	row := q.db.QueryRowContext(ctx, UpsertGenesisAsset,
 		arg.MetaDataHash,
 		arg.AssetID,
 		arg.AssetTag,
@@ -2803,7 +2803,7 @@ func (q *Queries) UpsertGenesisAsset(ctx context.Context, arg UpsertGenesisAsset
 	return gen_asset_id, err
 }
 
-const upsertGenesisPoint = `-- name: UpsertGenesisPoint :one
+const UpsertGenesisPoint = `-- name: UpsertGenesisPoint :one
 INSERT INTO genesis_points(
     prev_out
 ) VALUES (
@@ -2815,13 +2815,13 @@ RETURNING genesis_id
 `
 
 func (q *Queries) UpsertGenesisPoint(ctx context.Context, prevOut []byte) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertGenesisPoint, prevOut)
+	row := q.db.QueryRowContext(ctx, UpsertGenesisPoint, prevOut)
 	var genesis_id int64
 	err := row.Scan(&genesis_id)
 	return genesis_id, err
 }
 
-const upsertInternalKey = `-- name: UpsertInternalKey :one
+const UpsertInternalKey = `-- name: UpsertInternalKey :one
 INSERT INTO internal_keys (
     raw_key,  key_family, key_index
 ) VALUES (
@@ -2839,13 +2839,13 @@ type UpsertInternalKeyParams struct {
 }
 
 func (q *Queries) UpsertInternalKey(ctx context.Context, arg UpsertInternalKeyParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
+	row := q.db.QueryRowContext(ctx, UpsertInternalKey, arg.RawKey, arg.KeyFamily, arg.KeyIndex)
 	var key_id int64
 	err := row.Scan(&key_id)
 	return key_id, err
 }
 
-const upsertManagedUTXO = `-- name: UpsertManagedUTXO :one
+const UpsertManagedUTXO = `-- name: UpsertManagedUTXO :one
 WITH target_key(key_id) AS (
     SELECT key_id
     FROM internal_keys
@@ -2875,7 +2875,7 @@ type UpsertManagedUTXOParams struct {
 }
 
 func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertManagedUTXO,
+	row := q.db.QueryRowContext(ctx, UpsertManagedUTXO,
 		arg.RawKey,
 		arg.Outpoint,
 		arg.AmtSats,
@@ -2890,7 +2890,7 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 	return utxo_id, err
 }
 
-const upsertScriptKey = `-- name: UpsertScriptKey :one
+const UpsertScriptKey = `-- name: UpsertScriptKey :one
 INSERT INTO script_keys (
     internal_key_id, tweaked_script_key, tweak, declared_known
 ) VALUES (
@@ -2924,7 +2924,7 @@ type UpsertScriptKeyParams struct {
 }
 
 func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertScriptKey,
+	row := q.db.QueryRowContext(ctx, UpsertScriptKey,
 		arg.InternalKeyID,
 		arg.TweakedScriptKey,
 		arg.Tweak,
@@ -2935,7 +2935,7 @@ func (q *Queries) UpsertScriptKey(ctx context.Context, arg UpsertScriptKeyParams
 	return script_key_id, err
 }
 
-const upsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one
+const UpsertTapscriptTreeEdge = `-- name: UpsertTapscriptTreeEdge :one
 INSERT INTO tapscript_edges (
     root_hash_id, node_index, raw_node_id
 ) VALUES (
@@ -2955,13 +2955,13 @@ type UpsertTapscriptTreeEdgeParams struct {
 }
 
 func (q *Queries) UpsertTapscriptTreeEdge(ctx context.Context, arg UpsertTapscriptTreeEdgeParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeEdge, arg.RootHashID, arg.NodeIndex, arg.RawNodeID)
+	row := q.db.QueryRowContext(ctx, UpsertTapscriptTreeEdge, arg.RootHashID, arg.NodeIndex, arg.RawNodeID)
 	var edge_id int64
 	err := row.Scan(&edge_id)
 	return edge_id, err
 }
 
-const upsertTapscriptTreeNode = `-- name: UpsertTapscriptTreeNode :one
+const UpsertTapscriptTreeNode = `-- name: UpsertTapscriptTreeNode :one
 INSERT INTO tapscript_nodes (
     raw_node
 ) VALUES (
@@ -2973,13 +2973,13 @@ RETURNING node_id
 `
 
 func (q *Queries) UpsertTapscriptTreeNode(ctx context.Context, rawNode []byte) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeNode, rawNode)
+	row := q.db.QueryRowContext(ctx, UpsertTapscriptTreeNode, rawNode)
 	var node_id int64
 	err := row.Scan(&node_id)
 	return node_id, err
 }
 
-const upsertTapscriptTreeRootHash = `-- name: UpsertTapscriptTreeRootHash :one
+const UpsertTapscriptTreeRootHash = `-- name: UpsertTapscriptTreeRootHash :one
 INSERT INTO tapscript_roots (
     root_hash, branch_only
 ) VALUES (
@@ -2998,7 +2998,7 @@ type UpsertTapscriptTreeRootHashParams struct {
 }
 
 func (q *Queries) UpsertTapscriptTreeRootHash(ctx context.Context, arg UpsertTapscriptTreeRootHashParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, upsertTapscriptTreeRootHash, arg.RootHash, arg.BranchOnly)
+	row := q.db.QueryRowContext(ctx, UpsertTapscriptTreeRootHash, arg.RootHash, arg.BranchOnly)
 	var root_id int64
 	err := row.Scan(&root_id)
 	return root_id, err

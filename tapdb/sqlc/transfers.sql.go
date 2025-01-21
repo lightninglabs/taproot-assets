@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-const applyPendingOutput = `-- name: ApplyPendingOutput :one
+const ApplyPendingOutput = `-- name: ApplyPendingOutput :one
 WITH spent_asset AS (
     SELECT genesis_id, asset_group_witness_id, script_version
     FROM assets
@@ -50,7 +50,7 @@ type ApplyPendingOutputParams struct {
 }
 
 func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutputParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, applyPendingOutput,
+	row := q.db.QueryRowContext(ctx, ApplyPendingOutput,
 		arg.AssetVersion,
 		arg.LockTime,
 		arg.RelativeLockTime,
@@ -67,17 +67,17 @@ func (q *Queries) ApplyPendingOutput(ctx context.Context, arg ApplyPendingOutput
 	return asset_id, err
 }
 
-const deleteAssetWitnesses = `-- name: DeleteAssetWitnesses :exec
+const DeleteAssetWitnesses = `-- name: DeleteAssetWitnesses :exec
 DELETE FROM asset_witnesses
 WHERE asset_id = $1
 `
 
 func (q *Queries) DeleteAssetWitnesses(ctx context.Context, assetID int64) error {
-	_, err := q.db.ExecContext(ctx, deleteAssetWitnesses, assetID)
+	_, err := q.db.ExecContext(ctx, DeleteAssetWitnesses, assetID)
 	return err
 }
 
-const fetchTransferInputs = `-- name: FetchTransferInputs :many
+const FetchTransferInputs = `-- name: FetchTransferInputs :many
 SELECT input_id, anchor_point, asset_id, script_key, amount
 FROM asset_transfer_inputs inputs
 WHERE transfer_id = $1
@@ -93,7 +93,7 @@ type FetchTransferInputsRow struct {
 }
 
 func (q *Queries) FetchTransferInputs(ctx context.Context, transferID int64) ([]FetchTransferInputsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchTransferInputs, transferID)
+	rows, err := q.db.QueryContext(ctx, FetchTransferInputs, transferID)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (q *Queries) FetchTransferInputs(ctx context.Context, transferID int64) ([]
 	return items, nil
 }
 
-const fetchTransferOutputs = `-- name: FetchTransferOutputs :many
+const FetchTransferOutputs = `-- name: FetchTransferOutputs :many
 SELECT
     output_id, proof_suffix, amount, serialized_witnesses, script_key_local,
     split_commitment_root_hash, split_commitment_root_value, num_passive_assets,
@@ -193,7 +193,7 @@ type FetchTransferOutputsRow struct {
 }
 
 func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error) {
-	rows, err := q.db.QueryContext(ctx, fetchTransferOutputs, transferID)
+	rows, err := q.db.QueryContext(ctx, FetchTransferOutputs, transferID)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 	return items, nil
 }
 
-const insertAssetTransfer = `-- name: InsertAssetTransfer :one
+const InsertAssetTransfer = `-- name: InsertAssetTransfer :one
 WITH target_txn(txn_id) AS (
     SELECT txn_id
     FROM chain_txns
@@ -268,13 +268,13 @@ type InsertAssetTransferParams struct {
 }
 
 func (q *Queries) InsertAssetTransfer(ctx context.Context, arg InsertAssetTransferParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertAssetTransfer, arg.HeightHint, arg.TransferTimeUnix, arg.AnchorTxid)
+	row := q.db.QueryRowContext(ctx, InsertAssetTransfer, arg.HeightHint, arg.TransferTimeUnix, arg.AnchorTxid)
 	var id int64
 	err := row.Scan(&id)
 	return id, err
 }
 
-const insertAssetTransferInput = `-- name: InsertAssetTransferInput :exec
+const InsertAssetTransferInput = `-- name: InsertAssetTransferInput :exec
 INSERT INTO asset_transfer_inputs (
     transfer_id, anchor_point, asset_id, script_key, amount
 ) VALUES (
@@ -291,7 +291,7 @@ type InsertAssetTransferInputParams struct {
 }
 
 func (q *Queries) InsertAssetTransferInput(ctx context.Context, arg InsertAssetTransferInputParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetTransferInput,
+	_, err := q.db.ExecContext(ctx, InsertAssetTransferInput,
 		arg.TransferID,
 		arg.AnchorPoint,
 		arg.AssetID,
@@ -301,7 +301,7 @@ func (q *Queries) InsertAssetTransferInput(ctx context.Context, arg InsertAssetT
 	return err
 }
 
-const insertAssetTransferOutput = `-- name: InsertAssetTransferOutput :exec
+const InsertAssetTransferOutput = `-- name: InsertAssetTransferOutput :exec
 INSERT INTO asset_transfer_outputs (
     transfer_id, anchor_utxo, script_key, script_key_local,
     amount, serialized_witnesses, split_commitment_root_hash,
@@ -334,7 +334,7 @@ type InsertAssetTransferOutputParams struct {
 }
 
 func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAssetTransferOutputParams) error {
-	_, err := q.db.ExecContext(ctx, insertAssetTransferOutput,
+	_, err := q.db.ExecContext(ctx, InsertAssetTransferOutput,
 		arg.TransferID,
 		arg.AnchorUtxo,
 		arg.ScriptKey,
@@ -356,7 +356,7 @@ func (q *Queries) InsertAssetTransferOutput(ctx context.Context, arg InsertAsset
 	return err
 }
 
-const insertBurn = `-- name: InsertBurn :one
+const InsertBurn = `-- name: InsertBurn :one
 INSERT INTO asset_burn_transfers (
     transfer_id, note, asset_id, group_key, amount
 )
@@ -375,7 +375,7 @@ type InsertBurnParams struct {
 }
 
 func (q *Queries) InsertBurn(ctx context.Context, arg InsertBurnParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, insertBurn,
+	row := q.db.QueryRowContext(ctx, InsertBurn,
 		arg.TransferID,
 		arg.Note,
 		arg.AssetID,
@@ -387,7 +387,7 @@ func (q *Queries) InsertBurn(ctx context.Context, arg InsertBurnParams) (int64, 
 	return burn_id, err
 }
 
-const insertPassiveAsset = `-- name: InsertPassiveAsset :exec
+const InsertPassiveAsset = `-- name: InsertPassiveAsset :exec
 WITH target_asset(asset_id) AS (
     SELECT assets.asset_id
     FROM assets
@@ -422,7 +422,7 @@ type InsertPassiveAssetParams struct {
 }
 
 func (q *Queries) InsertPassiveAsset(ctx context.Context, arg InsertPassiveAssetParams) error {
-	_, err := q.db.ExecContext(ctx, insertPassiveAsset,
+	_, err := q.db.ExecContext(ctx, InsertPassiveAsset,
 		arg.TransferID,
 		arg.NewAnchorUtxo,
 		arg.ScriptKey,
@@ -435,7 +435,7 @@ func (q *Queries) InsertPassiveAsset(ctx context.Context, arg InsertPassiveAsset
 	return err
 }
 
-const logProofTransferAttempt = `-- name: LogProofTransferAttempt :exec
+const LogProofTransferAttempt = `-- name: LogProofTransferAttempt :exec
 INSERT INTO proof_transfer_log (
     transfer_type, proof_locator_hash, time_unix
 ) VALUES (
@@ -450,11 +450,11 @@ type LogProofTransferAttemptParams struct {
 }
 
 func (q *Queries) LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error {
-	_, err := q.db.ExecContext(ctx, logProofTransferAttempt, arg.TransferType, arg.ProofLocatorHash, arg.TimeUnix)
+	_, err := q.db.ExecContext(ctx, LogProofTransferAttempt, arg.TransferType, arg.ProofLocatorHash, arg.TimeUnix)
 	return err
 }
 
-const queryAssetTransfers = `-- name: QueryAssetTransfers :many
+const QueryAssetTransfers = `-- name: QueryAssetTransfers :many
 SELECT
     id, height_hint, txns.txid, txns.block_hash AS anchor_tx_block_hash,
     transfer_time_unix
@@ -497,7 +497,7 @@ type QueryAssetTransfersRow struct {
 }
 
 func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfersParams) ([]QueryAssetTransfersRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryAssetTransfers, arg.AnchorTxHash, arg.PendingTransfersOnly)
+	rows, err := q.db.QueryContext(ctx, QueryAssetTransfers, arg.AnchorTxHash, arg.PendingTransfersOnly)
 	if err != nil {
 		return nil, err
 	}
@@ -525,7 +525,7 @@ func (q *Queries) QueryAssetTransfers(ctx context.Context, arg QueryAssetTransfe
 	return items, nil
 }
 
-const queryBurns = `-- name: QueryBurns :many
+const QueryBurns = `-- name: QueryBurns :many
 SELECT
     abt.note,
     abt.asset_id,
@@ -562,7 +562,7 @@ type QueryBurnsRow struct {
 }
 
 func (q *Queries) QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]QueryBurnsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryBurns, arg.AssetID, arg.GroupKey, arg.AnchorTxid)
+	rows, err := q.db.QueryContext(ctx, QueryBurns, arg.AssetID, arg.GroupKey, arg.AnchorTxid)
 	if err != nil {
 		return nil, err
 	}
@@ -590,7 +590,7 @@ func (q *Queries) QueryBurns(ctx context.Context, arg QueryBurnsParams) ([]Query
 	return items, nil
 }
 
-const queryPassiveAssets = `-- name: QueryPassiveAssets :many
+const QueryPassiveAssets = `-- name: QueryPassiveAssets :many
 SELECT passive.asset_id, passive.new_anchor_utxo, passive.script_key,
        passive.new_witness_stack, passive.new_proof,
        genesis_assets.asset_id AS genesis_id, passive.asset_version,
@@ -617,7 +617,7 @@ type QueryPassiveAssetsRow struct {
 }
 
 func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]QueryPassiveAssetsRow, error) {
-	rows, err := q.db.QueryContext(ctx, queryPassiveAssets, transferID)
+	rows, err := q.db.QueryContext(ctx, QueryPassiveAssets, transferID)
 	if err != nil {
 		return nil, err
 	}
@@ -648,7 +648,7 @@ func (q *Queries) QueryPassiveAssets(ctx context.Context, transferID int64) ([]Q
 	return items, nil
 }
 
-const queryProofTransferAttempts = `-- name: QueryProofTransferAttempts :many
+const QueryProofTransferAttempts = `-- name: QueryProofTransferAttempts :many
 SELECT time_unix
 FROM proof_transfer_log
 WHERE proof_locator_hash = $1
@@ -662,7 +662,7 @@ type QueryProofTransferAttemptsParams struct {
 }
 
 func (q *Queries) QueryProofTransferAttempts(ctx context.Context, arg QueryProofTransferAttemptsParams) ([]time.Time, error) {
-	rows, err := q.db.QueryContext(ctx, queryProofTransferAttempts, arg.ProofLocatorHash, arg.TransferType)
+	rows, err := q.db.QueryContext(ctx, QueryProofTransferAttempts, arg.ProofLocatorHash, arg.TransferType)
 	if err != nil {
 		return nil, err
 	}
@@ -684,7 +684,7 @@ func (q *Queries) QueryProofTransferAttempts(ctx context.Context, arg QueryProof
 	return items, nil
 }
 
-const reAnchorPassiveAssets = `-- name: ReAnchorPassiveAssets :exec
+const ReAnchorPassiveAssets = `-- name: ReAnchorPassiveAssets :exec
 UPDATE assets
 SET anchor_utxo_id = $1,
     split_commitment_root_hash = NULL,
@@ -698,11 +698,11 @@ type ReAnchorPassiveAssetsParams struct {
 }
 
 func (q *Queries) ReAnchorPassiveAssets(ctx context.Context, arg ReAnchorPassiveAssetsParams) error {
-	_, err := q.db.ExecContext(ctx, reAnchorPassiveAssets, arg.NewAnchorUtxoID, arg.AssetID)
+	_, err := q.db.ExecContext(ctx, ReAnchorPassiveAssets, arg.NewAnchorUtxoID, arg.AssetID)
 	return err
 }
 
-const setTransferOutputProofDeliveryStatus = `-- name: SetTransferOutputProofDeliveryStatus :exec
+const SetTransferOutputProofDeliveryStatus = `-- name: SetTransferOutputProofDeliveryStatus :exec
 WITH target(output_id) AS (
     SELECT output_id
     FROM asset_transfer_outputs output
@@ -723,6 +723,6 @@ type SetTransferOutputProofDeliveryStatusParams struct {
 }
 
 func (q *Queries) SetTransferOutputProofDeliveryStatus(ctx context.Context, arg SetTransferOutputProofDeliveryStatusParams) error {
-	_, err := q.db.ExecContext(ctx, setTransferOutputProofDeliveryStatus, arg.DeliveryComplete, arg.SerializedAnchorOutpoint, arg.Position)
+	_, err := q.db.ExecContext(ctx, SetTransferOutputProofDeliveryStatus, arg.DeliveryComplete, arg.SerializedAnchorOutpoint, arg.Position)
 	return err
 }
