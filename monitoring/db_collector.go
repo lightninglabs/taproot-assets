@@ -84,7 +84,7 @@ func (a *dbCollector) Collect(ch chan<- prometheus.Metric) {
 	a.collectMx.Lock()
 	defer a.collectMx.Unlock()
 
-	ctxdb, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	ctxdb, cancel := context.WithTimeout(context.Background(), promTimeout)
 	defer cancel()
 
 	// Fetch the db size.

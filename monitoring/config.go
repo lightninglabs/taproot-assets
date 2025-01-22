@@ -1,6 +1,8 @@
 package monitoring
 
 import (
+	"time"
+
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/universe"
@@ -10,6 +12,8 @@ import (
 // PrometheusConfig is the set of configuration data that specifies if
 // Prometheus metric exporting is activated, and if so the listening address of
 // the Prometheus server.
+//
+// nolint: lll
 type PrometheusConfig struct {
 	// Active, if true, then Prometheus metrics will be exported.
 	Active bool `long:"active" description:"if true prometheus metrics will be exported"`
@@ -17,6 +21,11 @@ type PrometheusConfig struct {
 	// ListenAddr is the listening address that we should use to allow the
 	// main Prometheus server to scrape our metrics.
 	ListenAddr string `long:"listenaddr" description:"the interface we should listen on for prometheus"`
+
+	// CollectorRPCTimeout is the context timeout to be used by the RPC
+	// calls performed during metrics collection. This should not be greater
+	// than the scrape interval of prometheus.
+	CollectorRPCTimeout time.Duration `long:"collector-rpc-timeout" description:"the default timeout to be used in the RPC calls performed during metric collection"`
 
 	// RPCServer is a pointer to the main RPC server. We use this to export
 	// generic RPC metrics to monitor the health of the service.
@@ -45,7 +54,8 @@ type PrometheusConfig struct {
 // metrics exporter.
 func DefaultPrometheusConfig() PrometheusConfig {
 	return PrometheusConfig{
-		ListenAddr: "127.0.0.1:8989",
-		Active:     false,
+		ListenAddr:          "127.0.0.1:8989",
+		Active:              false,
+		CollectorRPCTimeout: defaultTimeout,
 	}
 }

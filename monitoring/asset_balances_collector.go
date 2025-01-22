@@ -72,7 +72,7 @@ func (a *assetBalancesCollector) Collect(ch chan<- prometheus.Metric) {
 	a.collectMx.Lock()
 	defer a.collectMx.Unlock()
 
-	ctxdb, cancel := context.WithTimeout(context.Background(), dbTimeout)
+	ctxdb, cancel := context.WithTimeout(context.Background(), promTimeout)
 	defer cancel()
 
 	assets, err := a.cfg.AssetStore.FetchAllAssets(ctxdb, false, false, nil)
