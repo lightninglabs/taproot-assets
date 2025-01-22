@@ -15,6 +15,7 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/tapcfg"
@@ -26,6 +27,7 @@ import (
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -286,6 +288,55 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		clientCfg: finalCfg,
 		ht:        ht,
 	}, nil
+}
+
+// ExecTapCLI uses the CLI parser to invoke the specified tapd harness via RPC,
+// passing the provided arguments. It returns the response or an error.
+func ExecTapCLI(ctx context.Context, tapClient *tapdHarness,
+	args ...string) (interface{}, error) {
+
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+
+	// Construct a response channel to receive the response from the CLI
+	// command.
+	responseChan := make(chan lfn.Result[interface{}], 1)
+
+	// Construct an app which supports the tapcli command set.
+	opt := []commands.ActionOption{
+		commands.ActionWithCtx(ctx),
+		commands.ActionWithClient(tapClient),
+		commands.ActionWithSilencePrint(true),
+		commands.ActionRespChan(responseChan),
+	}
+
+	app := commands.NewApp(opt...)
+	app.Name = "tapcli-itest"
+
+	// Prepend a dummy path to the args to satisfy the CLI argument parser.
+	args = append([]string{"dummy-path"}, args...)
+
+	// Run the app within the current goroutine. This does not start a
+	// separate process.
+	if err := app.Run(args); err != nil {
+		return nil, err
+	}
+
+	// Wait for a response of context cancellation.
+	select {
+	case respResult := <-responseChan:
+		resp, err := respResult.Unpack()
+		if err != nil {
+			return nil, err
+		}
+
+		return resp, nil
+
+	case <-ctx.Done():
+		// Handle context cancellation.
+		return nil, ctx.Err()
+	}
 }
 
 // updateConfigWithNode updates the tapd configuration with the connection
