@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -214,7 +215,13 @@ func fetchRootsForIDs(ctx context.Context, idsToSync []Identifier,
 				return err
 			}
 
-			rootsToSync <- root
+			// Older versions of the universe didn't return an error
+			// when the root wasn't found. But the returned root is
+			// empty in that case, so we can check for that.
+			if !IsEmptyRoot(root) {
+				rootsToSync <- root
+			}
+
 			return nil
 		},
 	)
@@ -608,4 +615,39 @@ func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
 	}
 
 	return leafKeys, nil
+}
+
+// IsEmptyRoot return true if the given root does not have any values set.
+func IsEmptyRoot(root Root) bool {
+	return root.ID == Identifier{} && root.Node == nil &&
+		root.AssetName == "" && len(root.GroupedAssets) == 0
+}
+
+// IsEmptyRootResponse returns true if the given root response does not have
+// any values set.
+func IsEmptyRootResponse(resp *universerpc.QueryRootResponse) bool {
+	// If the response is nil, then it's empty by definition.
+	if resp == nil {
+		return true
+	}
+
+	// If none of the roots are set, then the response is empty. This is
+	// not expected to be the case with the current version, as the roots
+	// are always set, but their content is empty. But future versions might
+	// set it that way.
+	if resp.IssuanceRoot == nil && resp.TransferRoot == nil {
+		return true
+	}
+
+	// If both roots are set, but their IDs are nil, then the response is
+	// empty. This is what the current version returns when the roots are
+	// empty.
+	if resp.IssuanceRoot != nil && resp.TransferRoot != nil {
+		return resp.IssuanceRoot.Id == nil &&
+			resp.TransferRoot.Id == nil
+	}
+
+	// If only one of the roots is set, then the response is likely not
+	// empty, or at least not as per our definition.
+	return false
 }

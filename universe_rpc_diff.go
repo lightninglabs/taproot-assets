@@ -120,6 +120,14 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 		return universe.Root{}, err
 	}
 
+	// Old universe servers will return an empty response instead of the
+	// above error. But our sync engine now understands the error, so we can
+	// transform the empty response to the error. Future servers will return
+	// the error directly, which can be handled by newer clients.
+	if universe.IsEmptyRootResponse(universeRoot) {
+		return universe.Root{}, universe.ErrNoUniverseRoot
+	}
+
 	if id.ProofType == universe.ProofTypeIssuance {
 		return unmarshalUniverseRoot(universeRoot.IssuanceRoot)
 	}

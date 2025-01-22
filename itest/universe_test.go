@@ -717,16 +717,16 @@ func testUniverseFederation(t *harnessTest) {
 	require.Empty(t.t, rootResp.TransferRoot.AssetName)
 	require.Empty(t.t, rootResp.TransferRoot.AmountsByAssetId)
 
-	// Because the above QueryAssetRoots doesn't return an error, this
-	// currently leads to an error further down in the sync logic, which can
-	// be shown by syncing an invalid asset ID.
+	// The sync logic should detect that the response from the universe
+	// server was empty and just skip that root, not resulting in an error
+	// anymore.
 	dummyID := &unirpc.ID{
 		Id: &unirpc.ID_AssetId{
 			AssetId: dummyAssetIDBytes,
 		},
 		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
 	}
-	_, err = bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+	syncResp, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
 		UniverseHost: t.tapd.rpcHost(),
 		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
 		SyncTargets: []*unirpc.SyncTarget{
@@ -735,10 +735,8 @@ func testUniverseFederation(t *harnessTest) {
 			},
 		},
 	})
-	require.ErrorContains(
-		t.t, err, "unable to sync universe: unable to fetch roots for "+
-			"universe sync: missing universe id",
-	)
+	require.NoError(t.t, err)
+	require.Empty(t.t, syncResp.SyncedUniverses)
 }
 
 // testFederationSyncConfig tests that we can properly set and query the
