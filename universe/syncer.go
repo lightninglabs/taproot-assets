@@ -195,7 +195,22 @@ func fetchRootsForIDs(ctx context.Context, idsToSync []Identifier,
 		ctx, idsToSync,
 		func(ctx context.Context, id Identifier) error {
 			root, err := diffEngine.RootNode(ctx, id)
-			if err != nil {
+			switch {
+			// We're potentially calling an RPC endpoint, so the
+			// error cannot always be mapped directly using
+			// errors.Is, so we use fn.IsRpcErr. If we do get the
+			// ErrNoUniverseRoot it means the remote universe
+			// doesn't know about that root, which is okay and not
+			// a reason to abort the sync. This could either be the
+			// case because the asset ID was configured manually
+			// and isn't present in all universes, or because it's
+			// actually an incorrect asset ID.
+			case fn.IsRpcErr(err, ErrNoUniverseRoot):
+				log.Debugf("UniverseRoot(%v) not found in "+
+					"remote universe", id.String())
+				return nil
+
+			case err != nil:
 				return err
 			}
 
@@ -223,8 +238,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	// If we don't have this root, then we don't have anything to compare
 	// to, so we'll proceed as normal.
 	case errors.Is(err, ErrNoUniverseRoot):
-		// TODO(roasbeef): abstraction leak, error should be in
-		// universe package
+		// Continue below, we don't have this root locally.
 
 	// If the local root matches the remote root, then we're done here.
 	case err == nil && mssmt.IsEqualNode(localRoot, remoteRoot):
