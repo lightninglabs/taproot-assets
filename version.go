@@ -45,14 +45,14 @@ const (
 	AppMinor uint = 5
 
 	// AppPatch defines the application patch for this binary.
-	AppPatch uint = 0
+	AppPatch uint = 1
 
 	// AppStatus defines the release status of this binary (e.g. beta).
 	AppStatus = "alpha"
 
 	// AppPreRelease defines the pre-release version of this binary.
 	// It MUST only contain characters from the semantic versioning spec.
-	AppPreRelease = ""
+	AppPreRelease = "rc1"
 
 	// GitTagIncludeStatus indicates whether the status should be included
 	// in the git tag name.
