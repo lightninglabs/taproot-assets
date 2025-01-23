@@ -301,6 +301,13 @@ func (m *MintingBatch) HasSeedlings() bool {
 	return len(m.Seedlings) != 0
 }
 
+// AddSeedling adds a new seedling to the batch.
+func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
+	m.Seedlings[newSeedling.AssetName] = &newSeedling
+
+	return nil
+}
+
 // ToMintingBatch creates a new MintingBatch from a VerboseBatch.
 func (v *VerboseBatch) ToMintingBatch() *MintingBatch {
 	newBatch := v.MintingBatch.Copy()
