@@ -16,6 +16,7 @@ cmd/tapd/tapd
 /itest/chantools
 /itest/regtest/*
 /itest/*.log
+/itest/*.log.*
 /itest/.backendlogs/*
 /itest/.minerlogs/*
 /itest/tapd-itest
