@@ -2356,30 +2356,40 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			return err
 		}
 
-		log.Infof("Adding %v to new MintingBatch", req)
+		c.pendingBatch = newBatch
 
-		newBatch.Seedlings[req.AssetName] = req
+		log.Infof("Attempting to add a seedling to a new batch "+
+			"(seedling=%v)", req)
+
+		err = c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		err = c.cfg.Log.CommitMintingBatch(ctx, c.pendingBatch)
 		if err != nil {
 			return err
 		}
 
-		c.pendingBatch = newBatch
-
 	// A batch already exists, so we'll add this seedling to the batch,
 	// committing it to disk fully before we move on.
 	case c.pendingBatch != nil:
-		log.Infof("Adding %v to existing MintingBatch", req)
+		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
+			req)
 
-		c.pendingBatch.Seedlings[req.AssetName] = req
+		err := c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err := c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
