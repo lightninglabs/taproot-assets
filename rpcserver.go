@@ -591,12 +591,13 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 	}
 
 	seedling := &tapgarden.Seedling{
-		AssetVersion:   assetVersion,
-		AssetType:      asset.Type(req.Asset.AssetType),
-		AssetName:      req.Asset.Name,
-		Amount:         req.Asset.Amount,
-		EnableEmission: req.Asset.NewGroupedAsset,
-		Meta:           seedlingMeta,
+		AssetVersion:        assetVersion,
+		AssetType:           asset.Type(req.Asset.AssetType),
+		AssetName:           req.Asset.Name,
+		Amount:              req.Asset.Amount,
+		EnableEmission:      req.Asset.NewGroupedAsset,
+		Meta:                seedlingMeta,
+		EnableUniCommitment: req.Asset.EnableUniCommitment,
 	}
 
 	rpcsLog.Infof("[MintAsset]: version=%v, type=%v, name=%v, amt=%v, "+
