@@ -7,6 +7,7 @@ import (
 
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -194,6 +195,16 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 		return resp, nil
 	}
 
+	// We now run some validation checks on the asset HTLC.
+	err = s.validateAssetHTLC(htlc)
+	if err != nil {
+		log.Errorf("Failed to validate asset HTLC: %v", err)
+
+		resp.CancelSet = true
+
+		return resp, nil
+	}
+
 	// Convert the total asset amount to milli-satoshis using the price from
 	// the accepted quote.
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
@@ -245,6 +256,36 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	}
 
 	return resp, nil
+}
+
+// identifierFromQuote retrieves the quote by looking up the rfq manager's maps
+// of accepted quotes based on the passed rfq ID. If there's a match, the asset
+// specifier is returned.
+func (s *AuxInvoiceManager) identifierFromQuote(
+	rfqID rfqmsg.ID) (asset.Specifier, error) {
+
+	acceptedBuyQuotes := s.cfg.RfqManager.PeerAcceptedBuyQuotes()
+	acceptedSellQuotes := s.cfg.RfqManager.LocalAcceptedSellQuotes()
+
+	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
+	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
+
+	switch {
+	case isBuy:
+		if buyQuote.Request.AssetSpecifier.HasId() {
+			req := buyQuote.Request
+			return req.AssetSpecifier, nil
+		}
+
+	case isSell:
+		if sellQuote.Request.AssetSpecifier.HasId() {
+			req := sellQuote.Request
+			return req.AssetSpecifier, nil
+		}
+	}
+
+	return asset.Specifier{}, fmt.Errorf("rfqID does not match any " +
+		"accepted buy or sell quote")
 }
 
 // priceFromQuote retrieves the price from the accepted quote for the given RFQ
@@ -334,6 +375,43 @@ func isAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 	}
 
 	return false
+}
+
+// validateAssetHTLC runs a couple of checks on the provided asset HTLC.
+func (s *AuxInvoiceManager) validateAssetHTLC(htlc *rfqmsg.Htlc) error {
+	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
+
+	// Retrieve the asset identifier from the RFQ quote.
+	identifier, err := s.identifierFromQuote(rfqID)
+	if err != nil {
+		return fmt.Errorf("could not extract assetID from "+
+			"quote: %v", err)
+	}
+
+	if !identifier.HasId() {
+		return fmt.Errorf("asset specifier has empty assetID")
+	}
+
+	// Check for each of the asset balances of the HTLC that the identifier
+	// matches that of the RFQ quote.
+	for _, v := range htlc.Balances() {
+		err := fn.MapOptionZ(
+			identifier.ID(), func(id asset.ID) error {
+				if v.AssetID.Val != id {
+					return fmt.Errorf("mismatch between " +
+						"htlc asset ID and rfq asset " +
+						"ID")
+				}
+
+				return nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // Stop signals for an aux invoice manager to gracefully exit.

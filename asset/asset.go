@@ -431,6 +431,11 @@ func (s *Specifier) WhenId(f func(ID)) {
 	s.id.WhenSome(f)
 }
 
+// ID returns the underlying asset ID option of the specifier.
+func (s *Specifier) ID() fn.Option[ID] {
+	return s.id
+}
+
 // WhenGroupPubKey executes the given function if asset group public key field
 // is specified.
 func (s *Specifier) WhenGroupPubKey(f func(btcec.PublicKey)) {
