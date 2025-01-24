@@ -414,16 +414,20 @@ func (b *BatchCaretaker) assetCultivator() {
 
 // extractAnchorOutputIndex extracts the anchor output index from a funded
 // genesis packet.
-func extractAnchorOutputIndex(genesisPkt *tapsend.FundedPsbt) uint32 {
+func extractAnchorOutputIndex(genesisPkt *tapsend.FundedPsbt) (uint32, error) {
+	if len(genesisPkt.Pkt.UnsignedTx.TxOut) != 2 {
+		return 0, fmt.Errorf("funded genesis packet has unexpected "+
+			"number of outputs, expected 2 (txout_len=%d)",
+			len(genesisPkt.Pkt.UnsignedTx.TxOut))
+	}
+
 	anchorOutputIndex := uint32(0)
 
-	// TODO(jhb): Does funding guarantee that minting TXs always have
-	// exactly two outputs? If not this func should be fallible.
 	if genesisPkt.ChangeOutputIndex == 0 {
 		anchorOutputIndex = 1
 	}
 
-	return anchorOutputIndex
+	return anchorOutputIndex, nil
 }
 
 // extractGenesisOutpoint extracts the genesis point (the first input from the
@@ -614,9 +618,13 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// and vice versa.
 		// TODO(jhb): return the anchor index instead of change? or both
 		// so this works for N outputs
-		b.anchorOutputIndex = extractAnchorOutputIndex(
+		b.anchorOutputIndex, err = extractAnchorOutputIndex(
 			b.cfg.Batch.GenesisPacket,
 		)
+		if err != nil {
+			return 0, err
+		}
+
 		genesisPoint := extractGenesisOutpoint(genesisTxPkt.UnsignedTx)
 
 		// First, we'll turn all the seedlings into actual taproot assets.

@@ -1032,7 +1032,11 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 
 	// Collect genesis TX information from the batch to build the proof
 	// locators.
-	anchorOutputIndex := extractAnchorOutputIndex(batch.GenesisPacket)
+	anchorOutputIndex, err := extractAnchorOutputIndex(batch.GenesisPacket)
+	if err != nil {
+		return nil, err
+	}
+
 	signedTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
 	if err != nil {
 		return nil, err
@@ -1268,9 +1272,13 @@ func newVerboseBatch(currentBatch *MintingBatch,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex := extractAnchorOutputIndex(
+	anchorOutputIndex, err := extractAnchorOutputIndex(
 		currentBatch.GenesisPacket,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	genesisPoint := extractGenesisOutpoint(
 		currentBatch.GenesisPacket.Pkt.UnsignedTx,
 	)
@@ -1847,9 +1855,13 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex := extractAnchorOutputIndex(
+	anchorOutputIndex, err := extractAnchorOutputIndex(
 		workingBatch.GenesisPacket,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	genesisPoint := extractGenesisOutpoint(
 		workingBatch.GenesisPacket.Pkt.UnsignedTx,
 	)
