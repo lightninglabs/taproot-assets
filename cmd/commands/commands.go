@@ -107,7 +107,7 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 // actionOpts contains the options for an action.
 type actionOpts struct {
 	ctx          context.Context
-	client       RpcBundle
+	client       RpcClientsBundle
 	silencePrint bool
 	respChan     chan<- lfn.Result[interface{}]
 }
@@ -131,7 +131,7 @@ func ActionWithCtx(ctx context.Context) ActionOption {
 
 // ActionWithClient is an option modifier function that sets the client for an
 // action.
-func ActionWithClient(client RpcBundle) ActionOption {
+func ActionWithClient(client RpcClientsBundle) ActionOption {
 	return func(opts *actionOpts) {
 		opts.client = client
 	}
