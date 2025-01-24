@@ -178,7 +178,7 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			continue
 		}
 
-		if len(r.WireCustomRecords) == 0 {
+		if !rfqmsg.HasAssetHTLCCustomRecords(r.WireCustomRecords) {
 			if isAssetInvoice(r.Invoice, m) {
 				if !res.CancelSet {
 					m.t.Errorf("expected cancel set flag")
@@ -196,10 +196,7 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			continue
 		}
 
-		htlcBlob, err := r.WireCustomRecords.Serialize()
-		require.NoError(m.t, err)
-
-		htlc, err := rfqmsg.DecodeHtlc(htlcBlob)
+		htlc, err := rfqmsg.HtlcFromCustomRecords(r.WireCustomRecords)
 		require.NoError(m.t, err)
 
 		if htlc.RfqID.ValOpt().IsNone() {
