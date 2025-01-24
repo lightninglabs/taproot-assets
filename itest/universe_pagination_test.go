@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -59,7 +60,8 @@ func testUniversePaginationSimple(t *harnessTest) {
 
 // mintBatchAssetsTest mints many assets
 func mintBatchAssetsTest(
-	t *testing.T, alice, bob TapdClient, aliceHost string, mintSize int,
+	t *testing.T, alice, bob commands.RpcClientsBundle, aliceHost string,
+	mintSize int,
 	mintAssets func([]*mintrpc.MintAssetRequest) []*taprpc.Asset,
 	imageMetadataBytes []byte, minterTimeout time.Duration) {
 
@@ -216,8 +218,8 @@ func mintBatchAssetsTest(
 }
 
 // fetchAllLeafKeys fetches all leaf keys for a given universe ID.
-func fetchAllLeafKeys(alice TapdClient, id *unirpc.ID) ([]*unirpc.AssetKey,
-	error) {
+func fetchAllLeafKeys(alice commands.RpcClientsBundle,
+	id *unirpc.ID) ([]*unirpc.AssetKey, error) {
 
 	keys := make([]*unirpc.AssetKey, 0)
 	offset := int32(0)

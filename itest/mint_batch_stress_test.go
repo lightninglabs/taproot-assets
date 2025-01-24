@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -93,7 +94,8 @@ func GetImageMetadataBytes(t *testing.T, fileName string) []byte {
 }
 
 func mintBatchStressTest(
-	t *testing.T, alice, bob TapdClient, aliceHost string, batchSize int,
+	t *testing.T, alice, bob commands.RpcClientsBundle, aliceHost string,
+	batchSize int,
 	mintAssets func([]*mintrpc.MintAssetRequest) []*taprpc.Asset,
 	imageMetadataBytes []byte, minterTimeout time.Duration) {
 
