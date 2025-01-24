@@ -35,7 +35,7 @@ func testChannelRPCs(t *harnessTest) {
 		},
 	)
 	require.NoError(t.t, err)
-	require.Len(t.t, encodeResp.CustomRecords, 2)
+	require.Len(t.t, encodeResp.CustomRecords, 1)
 
 	var rfqIdType rfqmsg.HtlcRfqIDType
 	rfqIdTlvTypeNumber := uint64(rfqIdType.TypeVal())

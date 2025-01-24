@@ -110,8 +110,11 @@ func (h *Htlc) SumAssetBalance(assetSpecifier asset.Specifier) (rfqmath.BigInt,
 
 // Records returns the records that make up the Htlc.
 func (h *Htlc) Records() []tlv.Record {
-	records := []tlv.Record{
-		h.Amounts.Record(),
+	var records []tlv.Record
+
+	// Don't encode the asset amounts if there are none.
+	if len(h.Amounts.Val.Balances) > 0 {
+		records = append(records, h.Amounts.Record())
 	}
 
 	h.RfqID.WhenSome(func(r tlv.RecordT[HtlcRfqIDType, ID]) {
