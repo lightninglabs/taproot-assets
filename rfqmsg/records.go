@@ -217,6 +217,26 @@ func HtlcFromCustomRecords(records lnwire.CustomRecords) (*Htlc, error) {
 	return DecodeHtlc(encoded)
 }
 
+// HasAssetHTLCCustomRecords returns true if the given custom records contain
+// the custom records that we'd expect an asset HTLC to carry.
+func HasAssetHTLCCustomRecords(records lnwire.CustomRecords) bool {
+	var (
+		amountType HtlcAmountRecordType
+		rfqIDType  HtlcRfqIDType
+	)
+	for key := range records {
+		if key == uint64(amountType.TypeVal()) {
+			return true
+		}
+
+		if key == uint64(rfqIDType.TypeVal()) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // AssetBalance is a record that represents the amount of an asset that is
 // being transferred or is available to be spent.
 type AssetBalance struct {
