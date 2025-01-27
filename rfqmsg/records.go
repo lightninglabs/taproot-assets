@@ -110,8 +110,11 @@ func (h *Htlc) SumAssetBalance(assetSpecifier asset.Specifier) (rfqmath.BigInt,
 
 // Records returns the records that make up the Htlc.
 func (h *Htlc) Records() []tlv.Record {
-	records := []tlv.Record{
-		h.Amounts.Record(),
+	var records []tlv.Record
+
+	// Don't encode the asset amounts if there are none.
+	if len(h.Amounts.Val.Balances) > 0 {
+		records = append(records, h.Amounts.Record())
 	}
 
 	h.RfqID.WhenSome(func(r tlv.RecordT[HtlcRfqIDType, ID]) {
@@ -212,6 +215,26 @@ func HtlcFromCustomRecords(records lnwire.CustomRecords) (*Htlc, error) {
 	}
 
 	return DecodeHtlc(encoded)
+}
+
+// HasAssetHTLCCustomRecords returns true if the given custom records contain
+// the custom records that we'd expect an asset HTLC to carry.
+func HasAssetHTLCCustomRecords(records lnwire.CustomRecords) bool {
+	var (
+		amountType HtlcAmountRecordType
+		rfqIDType  HtlcRfqIDType
+	)
+	for key := range records {
+		if key == uint64(amountType.TypeVal()) {
+			return true
+		}
+
+		if key == uint64(rfqIDType.TypeVal()) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // AssetBalance is a record that represents the amount of an asset that is

@@ -151,14 +151,19 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	log.Debugf("Received wire custom records: %v",
 		limitSpewer.Sdump(req.WireCustomRecords))
 
-	// No custom record on the HTLC, so we have nothing to do.
-	if len(req.WireCustomRecords) == 0 {
-		// If there's no wire custom records and the invoice is an asset
-		// invoice do not settle the invoice. Since we are asking for
-		// assets in the invoice, we may not let this HTLC go through
-		// as it is not carrying assets. This could lead to undesired
-		// behavior where the asset invoice may be settled by accepting
-		// sats instead of assets.
+	// Check if any strict forwarding rules need to be applied. Strict
+	// forwarding means that we want assets for asset invoices and sats for
+	// BTC invoices, and no mixing of the two.
+	switch {
+	// No asset custom records on the HTLC, check that we're not expecting
+	// assets.
+	case !rfqmsg.HasAssetHTLCCustomRecords(req.WireCustomRecords):
+		// If there's no asset wire custom records but the invoice is an
+		// asset invoice, do not settle the invoice. Since we are asking
+		// for assets in the invoice, we may not let this HTLC go
+		// through as it is not carrying assets. This could lead to
+		// undesired behavior where the asset invoice may be settled by
+		// accepting sats instead of assets.
 		//
 		// TODO(george): Strict-forwarding could be configurable?
 		if isAssetInvoice(req.Invoice, s) {
@@ -166,22 +171,21 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 		}
 
 		return resp, nil
-	} else if !isAssetInvoice(req.Invoice, s) && !req.Invoice.IsKeysend {
+
+	// We have custom records, but the invoice is not an asset invoice.
+	case !isAssetInvoice(req.Invoice, s) && !req.Invoice.IsKeysend:
 		// If we do have custom records, but the invoice does not
 		// correspond to an asset invoice, we do not settle the invoice.
 		// Since we requested btc we should be receiving btc.
 		resp.CancelSet = true
 
 		return resp, nil
+
+	default:
+		// No strict forwarding rule violation, continue below.
 	}
 
-	htlcBlob, err := req.WireCustomRecords.Serialize()
-	if err != nil {
-		return nil, fmt.Errorf("error serializing custom records: %w",
-			err)
-	}
-
-	htlc, err := rfqmsg.DecodeHtlc(htlcBlob)
+	htlc, err := rfqmsg.HtlcFromCustomRecords(req.WireCustomRecords)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode htlc: %w", err)
 	}

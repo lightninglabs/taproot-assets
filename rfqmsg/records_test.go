@@ -8,13 +8,15 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
 
 type htlcTestCase struct {
-	name         string
-	htlc         *Htlc
-	expectedJSON string
+	name          string
+	htlc          *Htlc
+	expectedJSON  string
+	expectRecords bool
 
 	// sumBalances is a map of asset ID to the expected sum of balances for
 	// that asset in the HTLC.
@@ -28,6 +30,14 @@ func assetHtlcTestCase(t *testing.T, tc htlcTestCase) {
 	var b bytes.Buffer
 	err := tc.htlc.Encode(&b)
 	require.NoError(t, err)
+
+	asCustomRecords, err := lnwire.ParseCustomRecords(b.Bytes())
+	require.NoError(t, err)
+
+	require.Equal(
+		t, tc.expectRecords,
+		HasAssetHTLCCustomRecords(asCustomRecords),
+	)
 
 	deserializedHtlc := &Htlc{}
 	err = deserializedHtlc.Decode(&b)
@@ -78,6 +88,7 @@ func TestHtlc(t *testing.T) {
 			htlc: NewHtlc([]*AssetBalance{
 				NewAssetBalance([32]byte{1}, 1000),
 			}, fn.None[ID]()),
+			expectRecords: true,
 			//nolint:lll
 			expectedJSON: `{
   "balances": [
@@ -100,6 +111,7 @@ func TestHtlc(t *testing.T) {
 				[32]byte{1}: rfqmath.NewBigIntFromUint64(3000),
 				[32]byte{2}: rfqmath.NewBigIntFromUint64(5000),
 			},
+			expectRecords: true,
 		},
 		{
 			name: "channel with multiple balance assets",
@@ -107,6 +119,7 @@ func TestHtlc(t *testing.T) {
 				NewAssetBalance([32]byte{1}, 1000),
 				NewAssetBalance([32]byte{2}, 2000),
 			}, fn.Some(ID{0, 1, 2, 3, 4, 5, 6, 7})),
+			expectRecords: true,
 			//nolint:lll
 			expectedJSON: `{
   "balances": [
