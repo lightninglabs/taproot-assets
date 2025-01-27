@@ -131,6 +131,10 @@ func (m *MintingBatch) Copy() *MintingBatch {
 // validateGroupAnchor checks if the group anchor for a seedling is valid.
 // A valid anchor must already be part of the batch and have emission enabled.
 func (m *MintingBatch) validateGroupAnchor(s *Seedling) error {
+	if s.GroupAnchor == nil {
+		return fmt.Errorf("group anchor unspecified")
+	}
+
 	anchor, ok := m.Seedlings[*s.GroupAnchor]
 
 	if anchor == nil || !ok {

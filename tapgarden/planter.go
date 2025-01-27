@@ -1032,7 +1032,11 @@ func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 
 	// Collect genesis TX information from the batch to build the proof
 	// locators.
-	anchorOutputIndex := extractAnchorOutputIndex(batch.GenesisPacket)
+	anchorOutputIndex, err := extractAnchorOutputIndex(batch.GenesisPacket)
+	if err != nil {
+		return nil, err
+	}
+
 	signedTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
 	if err != nil {
 		return nil, err
@@ -1268,9 +1272,13 @@ func newVerboseBatch(currentBatch *MintingBatch,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex := extractAnchorOutputIndex(
+	anchorOutputIndex, err := extractAnchorOutputIndex(
 		currentBatch.GenesisPacket,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	genesisPoint := extractGenesisOutpoint(
 		currentBatch.GenesisPacket.Pkt.UnsignedTx,
 	)
@@ -1437,6 +1445,10 @@ func (c *ChainPlanter) gardener() {
 			// After some basic validation, prepare the asset
 			// seedling (soon to be a sprout) by committing it to
 			// disk as part of the latest batch.
+			//
+			// This method will also include the seedling in any
+			// existing pending batch or create a new pending batch
+			// if necessary.
 			ctx, cancel := c.WithCtxQuit()
 			err := c.prepAssetSeedling(ctx, req)
 			cancel()
@@ -1843,9 +1855,13 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex := extractAnchorOutputIndex(
+	anchorOutputIndex, err := extractAnchorOutputIndex(
 		workingBatch.GenesisPacket,
 	)
+	if err != nil {
+		return nil, err
+	}
+
 	genesisPoint := extractGenesisOutpoint(
 		workingBatch.GenesisPacket.Pkt.UnsignedTx,
 	)
@@ -2136,8 +2152,8 @@ func (c *ChainPlanter) finalizeBatch(params FinalizeParams) (*BatchCaretaker,
 	return caretaker, nil
 }
 
-// PendingBatch returns the current pending batch. If there's no pending batch,
-// then an error is returned.
+// PendingBatch returns the current pending batch, or nil if no batch is
+// pending.
 func (c *ChainPlanter) PendingBatch() (*MintingBatch, error) {
 	req := newStateReq[*MintingBatch](reqTypePendingBatch)
 
@@ -2223,8 +2239,7 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 }
 
 // prepAssetSeedling performs some basic validation for the Seedling, then
-// either adds it to an existing pending batch or creates a new batch for it. A
-// bool indicating if a new batch should immediately be created is returned.
+// either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
