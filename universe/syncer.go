@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -195,11 +196,32 @@ func fetchRootsForIDs(ctx context.Context, idsToSync []Identifier,
 		ctx, idsToSync,
 		func(ctx context.Context, id Identifier) error {
 			root, err := diffEngine.RootNode(ctx, id)
-			if err != nil {
+			switch {
+			// We're potentially calling an RPC endpoint, so the
+			// error cannot always be mapped directly using
+			// errors.Is, so we use fn.IsRpcErr. If we do get the
+			// ErrNoUniverseRoot it means the remote universe
+			// doesn't know about that root, which is okay and not
+			// a reason to abort the sync. This could either be the
+			// case because the asset ID was configured manually
+			// and isn't present in all universes, or because it's
+			// actually an incorrect asset ID.
+			case fn.IsRpcErr(err, ErrNoUniverseRoot):
+				log.Debugf("UniverseRoot(%v) not found in "+
+					"remote universe", id.String())
+				return nil
+
+			case err != nil:
 				return err
 			}
 
-			rootsToSync <- root
+			// Older versions of the universe didn't return an error
+			// when the root wasn't found. But the returned root is
+			// empty in that case, so we can check for that.
+			if !IsEmptyRoot(root) {
+				rootsToSync <- root
+			}
+
 			return nil
 		},
 	)
@@ -223,8 +245,7 @@ func (s *SimpleSyncer) syncRoot(ctx context.Context, remoteRoot Root,
 	// If we don't have this root, then we don't have anything to compare
 	// to, so we'll proceed as normal.
 	case errors.Is(err, ErrNoUniverseRoot):
-		// TODO(roasbeef): abstraction leak, error should be in
-		// universe package
+		// Continue below, we don't have this root locally.
 
 	// If the local root matches the remote root, then we're done here.
 	case err == nil && mssmt.IsEqualNode(localRoot, remoteRoot):
@@ -594,4 +615,39 @@ func (s *SimpleSyncer) fetchAllLeafKeys(ctx context.Context,
 	}
 
 	return leafKeys, nil
+}
+
+// IsEmptyRoot return true if the given root does not have any values set.
+func IsEmptyRoot(root Root) bool {
+	return root.ID == Identifier{} && root.Node == nil &&
+		root.AssetName == "" && len(root.GroupedAssets) == 0
+}
+
+// IsEmptyRootResponse returns true if the given root response does not have
+// any values set.
+func IsEmptyRootResponse(resp *universerpc.QueryRootResponse) bool {
+	// If the response is nil, then it's empty by definition.
+	if resp == nil {
+		return true
+	}
+
+	// If none of the roots are set, then the response is empty. This is
+	// not expected to be the case with the current version, as the roots
+	// are always set, but their content is empty. But future versions might
+	// set it that way.
+	if resp.IssuanceRoot == nil && resp.TransferRoot == nil {
+		return true
+	}
+
+	// If both roots are set, but their IDs are nil, then the response is
+	// empty. This is what the current version returns when the roots are
+	// empty.
+	if resp.IssuanceRoot != nil && resp.TransferRoot != nil {
+		return resp.IssuanceRoot.Id == nil &&
+			resp.TransferRoot.Id == nil
+	}
+
+	// If only one of the roots is set, then the response is likely not
+	// empty, or at least not as per our definition.
+	return false
 }

@@ -4946,8 +4946,7 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 		return assetRoots, nil
 
 	case err != nil:
-		return nil, fmt.Errorf("asset group lookup failed: %w",
-			err)
+		return nil, fmt.Errorf("asset group lookup failed: %w", err)
 
 	// We found the correct group for this asset; fetch the universe
 	// roots for the group.
@@ -4979,10 +4978,12 @@ func (r *rpcServer) QueryAssetRoots(ctx context.Context,
 // specific asset, for both proof types. The asset can be identified by its
 // asset ID or group key.
 func (r *rpcServer) queryAssetProofRoots(ctx context.Context,
-	id universe.Identifier) (*unirpc.QueryRootResponse, error) {
+	uniID universe.Identifier) (*unirpc.QueryRootResponse, error) {
 
-	var issuanceRootRPC, transferRootRPC *unirpc.UniverseRoot
-	uniID := id
+	var (
+		resp unirpc.QueryRootResponse
+		err  error
+	)
 
 	issuanceRoot, issuanceErr := r.cfg.UniverseArchive.RootNode(ctx, uniID)
 	if issuanceErr != nil {
@@ -4994,7 +4995,7 @@ func (r *rpcServer) queryAssetProofRoots(ctx context.Context,
 		}
 	}
 
-	issuanceRootRPC, err := marshalUniverseRoot(issuanceRoot)
+	resp.IssuanceRoot, err = marshalUniverseRoot(issuanceRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -5015,15 +5016,12 @@ func (r *rpcServer) queryAssetProofRoots(ctx context.Context,
 		}
 	}
 
-	transferRootRPC, err = marshalUniverseRoot(transferRoot)
+	resp.TransferRoot, err = marshalUniverseRoot(transferRoot)
 	if err != nil {
 		return nil, err
 	}
 
-	return &unirpc.QueryRootResponse{
-		IssuanceRoot: issuanceRootRPC,
-		TransferRoot: transferRootRPC,
-	}, nil
+	return &resp, nil
 }
 
 // DeleteAssetRoot attempts to locate the current Universe root for a specific

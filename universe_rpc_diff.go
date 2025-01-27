@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
@@ -109,8 +110,22 @@ func (r *RpcUniverseDiff) RootNode(ctx context.Context,
 	}
 
 	universeRoot, err := r.conn.QueryAssetRoots(ctx, rootReq)
-	if err != nil {
+	switch {
+	// We're calling using the RPC endpoint, so the error cannot be mapped
+	// directly using errors.Is.
+	case fn.IsRpcErr(err, universe.ErrNoUniverseRoot):
+		return universe.Root{}, universe.ErrNoUniverseRoot
+
+	case err != nil:
 		return universe.Root{}, err
+	}
+
+	// Old universe servers will return an empty response instead of the
+	// above error. But our sync engine now understands the error, so we can
+	// transform the empty response to the error. Future servers will return
+	// the error directly, which can be handled by newer clients.
+	if universe.IsEmptyRootResponse(universeRoot) {
+		return universe.Root{}, universe.ErrNoUniverseRoot
 	}
 
 	if id.ProofType == universe.ProofTypeIssuance {

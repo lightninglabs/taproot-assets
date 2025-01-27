@@ -688,6 +688,55 @@ func testUniverseFederation(t *harnessTest) {
 	)
 	require.NoError(t.t, err)
 	require.Equal(t.t, 0, len(fedNodes.Servers))
+
+	// When querying for a universe root that doesn't exist, we currently
+	// get an empty response. In a future version, this should be a
+	// universe.ErrNoUniverseRoot error.
+	dummyAssetIDBytes := fn.ByteSlice([32]byte{0x01})
+	rootResp, err := bob.QueryAssetRoots(ctxt, &unirpc.AssetRootQuery{
+		Id: &unirpc.ID{
+			Id: &unirpc.ID_AssetId{
+				AssetId: dummyAssetIDBytes,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+
+	// The following checks show the problem: The actual roots are not nil
+	// but all the fields are empty. So they're basically useless. To not
+	// break the sync for older clients, we can't just change this right
+	// away. But we're going to change this in the future.
+	require.NotNil(t.t, rootResp.IssuanceRoot)
+	require.Nil(t.t, rootResp.IssuanceRoot.Id)
+	require.Nil(t.t, rootResp.IssuanceRoot.MssmtRoot)
+	require.Empty(t.t, rootResp.IssuanceRoot.AssetName)
+	require.Empty(t.t, rootResp.IssuanceRoot.AmountsByAssetId)
+	require.NotNil(t.t, rootResp.TransferRoot)
+	require.Nil(t.t, rootResp.TransferRoot.Id)
+	require.Nil(t.t, rootResp.TransferRoot.MssmtRoot)
+	require.Empty(t.t, rootResp.TransferRoot.AssetName)
+	require.Empty(t.t, rootResp.TransferRoot.AmountsByAssetId)
+
+	// The sync logic should detect that the response from the universe
+	// server was empty and just skip that root, not resulting in an error
+	// anymore.
+	dummyID := &unirpc.ID{
+		Id: &unirpc.ID_AssetId{
+			AssetId: dummyAssetIDBytes,
+		},
+		ProofType: unirpc.ProofType_PROOF_TYPE_ISSUANCE,
+	}
+	syncResp, err := bob.SyncUniverse(ctxt, &unirpc.SyncRequest{
+		UniverseHost: t.tapd.rpcHost(),
+		SyncMode:     unirpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY,
+		SyncTargets: []*unirpc.SyncTarget{
+			{
+				Id: dummyID,
+			},
+		},
+	})
+	require.NoError(t.t, err)
+	require.Empty(t.t, syncResp.SyncedUniverses)
 }
 
 // testFederationSyncConfig tests that we can properly set and query the
