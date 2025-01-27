@@ -224,38 +224,67 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			continue
 		}
 
+		// Convert from asset units to mSAT using the asset rate.
+		// Asset rate is the number of asset units per BTC.
+		assetUnits := rfqmath.NewBigIntFixedPoint(
+			htlc.Amounts.Val.Sum(), 0,
+		)
+		assetValueMsat := rfqmath.UnitsToMilliSatoshi(
+			assetUnits, quote.AssetRate.Rate,
+		)
+
 		assetRate := lnwire.MilliSatoshi(
 			quote.AssetRate.Rate.ToUint64(),
 		)
 		msatPerBtc := float64(btcutil.SatoshiPerBitcoin * 1000)
+
+		// TODO(ffranr): Replace with rfqmath.UnitsToMilliSatoshi
 		unitValue := msatPerBtc / float64(assetRate)
-		assetUnits := lnwire.MilliSatoshi(htlc.Amounts.Val.Sum())
-
-		floatValue := float64(assetUnits) * unitValue
-
-		assetValueMsat := lnwire.MilliSatoshi(floatValue)
 
 		acceptedMsat := lnwire.MilliSatoshi(0)
 		for _, htlc := range r.Invoice.Htlcs {
 			acceptedMsat += lnwire.MilliSatoshi(htlc.AmtMsat)
 		}
 
+		// Calculate an mSAT margin to accommodate overpayment,
+		// accounting for potential rounding errors. This margin is
+		// determined based on the number of HTLCs and the mSAT value of
+		// a single asset unit.
+		//
+		// TODO(ffranr): This ^ is what I think is happening here. But
+		//  I'm not sure how to account for the +1 in the marginHtlcs.
+		//  Also, oneAssetUnitInMsat is often 0, so the marginMsat is
+		//  also 0.
 		marginHtlcs := len(r.Invoice.Htlcs) + 1
 		marginMsat := lnwire.MilliSatoshi(
 			float64(marginHtlcs) * unitValue,
 		)
 
+		// Determine the maximum acceptable threshold for the total HTLC
+		// mSAT amount that the HTLCs should carry to settle the
+		// invoice, including any overpayment.
+		//
+		// TODO(ffranr): I don't understand why we add `assetValueMsat`
+		//  here. Is that already included in `marginMsat`? Also, why
+		//  the +1 msat again here?
 		totalMsatIn := marginMsat + assetValueMsat + acceptedMsat + 1
 
 		invoiceValue := lnwire.MilliSatoshi(r.Invoice.ValueMsat)
 
 		if totalMsatIn >= invoiceValue {
+			// TODO(ffranr): What's going on here?
+			//  If the total payment amount (+ margin) is at least
+			//  the invoice value, remainder of the
+			//  amount to pay should not equal... ???
 			if (invoiceValue - acceptedMsat) != res.AmtPaid {
 				m.t.Errorf("amt + accepted != invoice amt")
 			}
 		} else {
+			// TODO(ffranr): What's going on here?
 			if assetValueMsat != res.AmtPaid {
-				m.t.Errorf("unexpected final asset value")
+				m.t.Errorf("unexpected final asset value "+
+					"(expected=%v, actual=%v)",
+					assetValueMsat, res.AmtPaid)
 			}
 		}
 	}
