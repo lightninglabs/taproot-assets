@@ -282,8 +282,9 @@ func testMinRelayFeeBump(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
-// testRestartReceiver tests that the receiver node's asset balance after a
-// single asset transfer does not change if the receiver node restarts.
+// testRestartReceiverCheckBalance tests that the receiver node's asset
+// balance after a single asset transfer does not change if the receiver
+// node restarts.
 // Before the addition of this test, after restarting the receiver node
 // the asset balance would be erroneously incremented. This is because the
 // receiver node was not storing asset transfer in its database with the
@@ -1667,9 +1668,9 @@ func assertAssetNtfsEvent[T assetRpcEvent](t *harnessTest,
 		expectedCount, countFound)
 }
 
-// assertAssetNtfsEvent asserts that the given asset complete event notification
-// was received. This function will block until the event is received or the
-// event stream is closed.
+// assertAssetCompleteEvent asserts that the given asset complete event
+// notification was received. This function will block until the event
+// is received or the event stream is closed.
 func assertAssetCompleteEvent(t *harnessTest,
 	timeout time.Duration, encodedAddr string,
 	stream *EventSubscription[*tapdevrpc.ReceiveAssetEvent]) {

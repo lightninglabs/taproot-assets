@@ -111,7 +111,7 @@ func AssetHasSplitRootAssert(hasSplit bool) AssetAssert {
 	}
 }
 
-// AssetHasSplitRootAssert returns an Assert that checks the state of an asset's
+// AssetHasScriptKeyAssert returns an Assert that checks the state of an asset's
 // split commitment root.
 func AssetHasScriptKeyAssert(hasKey bool) AssetAssert {
 	return func(a *Asset) error {
