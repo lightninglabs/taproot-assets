@@ -13,11 +13,13 @@ import (
 
 	"github.com/btcsuite/btcd/rpcclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/itest"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
@@ -37,12 +39,10 @@ var (
 type rpcClient struct {
 	cfg *TapConfig
 	lnd *rpc.HarnessRPC
-	taprpc.TaprootAssetsClient
-	assetwalletrpc.AssetWalletClient
-	tapdevrpc.TapDevClient
-	mintrpc.MintClient
-	rfqrpc.RfqClient
-	universerpc.UniverseClient
+
+	// RpcClientsBundle is a bundle of all the gRPC clients that are
+	// available to the test harness.
+	commands.RpcClientsBundle
 }
 
 // assetIDWithBalance returns the asset ID of an asset that has at least the
@@ -181,14 +181,24 @@ func getTapClient(t *testing.T, ctx context.Context,
 	universeClient := universerpc.NewUniverseClient(conn)
 
 	client := &rpcClient{
-		cfg:                 cfg,
-		lnd:                 lnd,
-		TaprootAssetsClient: assetsClient,
-		AssetWalletClient:   assetWalletClient,
-		TapDevClient:        devClient,
-		MintClient:          mintMintClient,
-		RfqClient:           rfqClient,
-		UniverseClient:      universeClient,
+		cfg: cfg,
+		lnd: lnd,
+		RpcClientsBundle: &struct {
+			taprpc.TaprootAssetsClient
+			assetwalletrpc.AssetWalletClient
+			mintrpc.MintClient
+			rfqrpc.RfqClient
+			tchrpc.TaprootAssetChannelsClient
+			universerpc.UniverseClient
+			tapdevrpc.TapDevClient
+		}{
+			TaprootAssetsClient: assetsClient,
+			AssetWalletClient:   assetWalletClient,
+			TapDevClient:        devClient,
+			MintClient:          mintMintClient,
+			RfqClient:           rfqClient,
+			UniverseClient:      universeClient,
+		},
 	}
 
 	t.Cleanup(func() {

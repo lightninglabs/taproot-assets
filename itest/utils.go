@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	taprootassets "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -308,7 +309,7 @@ func WithError(errorText string) MintOption {
 	}
 }
 
-func BuildMintingBatch(t *testing.T, tapClient TapdClient,
+func BuildMintingBatch(t *testing.T, tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest, opts ...MintOption) {
 
 	options := DefaultMintOptions()
@@ -330,7 +331,8 @@ func BuildMintingBatch(t *testing.T, tapClient TapdClient,
 }
 
 func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
-	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	tapClient commands.RpcClientsBundle,
+	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) (chainhash.Hash, []byte) {
 
 	options := DefaultMintOptions()
@@ -460,7 +462,8 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 // waits until the minting transaction is in the mempool but does not mine a
 // block.
 func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
-	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	tapClient commands.RpcClientsBundle,
+	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) (chainhash.Hash, []byte) {
 
 	// Submit all the assets in the same batch.
@@ -474,7 +477,8 @@ func MintAssetUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 // MintAssetsConfirmBatch mints all given assets in the same batch, confirms the
 // batch and verifies all asset proofs of the minted assets.
 func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
-	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	tapClient commands.RpcClientsBundle,
+	assetRequests []*mintrpc.MintAssetRequest,
 	opts ...MintOption) []*taprpc.Asset {
 
 	options := DefaultMintOptions()
@@ -510,7 +514,8 @@ func MintAssetsConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 }
 
 func ConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
-	tapClient TapdClient, assetRequests []*mintrpc.MintAssetRequest,
+	tapClient commands.RpcClientsBundle,
+	assetRequests []*mintrpc.MintAssetRequest,
 	sub *EventSubscription[*mintrpc.MintEvent], mintTXID chainhash.Hash,
 	batchKey []byte, opts ...MintOption) []*taprpc.Asset {
 
@@ -834,7 +839,8 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 // SyncUniverses syncs the universes of two tapd instances and waits until they
 // are in sync.
 func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
-	universeTapd TapdClient, universeHost string, timeout time.Duration) {
+	universeTapd commands.RpcClientsBundle, universeHost string,
+	timeout time.Duration) {
 
 	ctxt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -873,8 +879,10 @@ func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 }
 
 // SubscribeSendEvents subscribes to send events and returns the event stream.
+//
+// nolint: lll
 func SubscribeSendEvents(t *testing.T,
-	tapd TapdClient) *EventSubscription[*tapdevrpc.SendAssetEvent] {
+	tapd commands.RpcClientsBundle) *EventSubscription[*tapdevrpc.SendAssetEvent] {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithCancel(ctxb)
@@ -892,8 +900,10 @@ func SubscribeSendEvents(t *testing.T,
 
 // SubscribeReceiveEvents subscribes to receive events and returns the event
 // stream.
+//
+// nolint: lll
 func SubscribeReceiveEvents(t *testing.T,
-	tapd TapdClient) *EventSubscription[*tapdevrpc.ReceiveAssetEvent] {
+	tapd commands.RpcClientsBundle) *EventSubscription[*tapdevrpc.ReceiveAssetEvent] {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithCancel(ctxb)
@@ -911,7 +921,7 @@ func SubscribeReceiveEvents(t *testing.T,
 
 // NewAddrWithEventStream creates a new TAP address and also registers a new
 // event stream for receive events for the address.
-func NewAddrWithEventStream(t *testing.T, tapd TapdClient,
+func NewAddrWithEventStream(t *testing.T, tapd commands.RpcClientsBundle,
 	req *taprpc.NewAddrRequest) (*taprpc.Addr,
 	*EventSubscription[*taprpc.ReceiveEvent]) {
 

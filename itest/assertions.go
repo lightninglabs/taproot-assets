@@ -17,6 +17,7 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -1089,7 +1090,7 @@ func AssertMintEvents(t *testing.T, batchKey []byte,
 // the correct state before confirming it and then asserting the confirmed state
 // with the node.
 func ConfirmAndAssertOutboundTransfer(t *testing.T,
-	minerClient *rpcclient.Client, sender TapdClient,
+	minerClient *rpcclient.Client, sender commands.RpcClientsBundle,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers int) *wire.MsgBlock {
@@ -1104,7 +1105,7 @@ func ConfirmAndAssertOutboundTransfer(t *testing.T,
 // transfer has the correct state and number of outputs before confirming it and
 // then asserting the confirmed state with the node.
 func ConfirmAndAssertOutboundTransferWithOutputs(t *testing.T,
-	minerClient *rpcclient.Client, sender TapdClient,
+	minerClient *rpcclient.Client, sender commands.RpcClientsBundle,
 	sendResp *taprpc.SendAssetResponse, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int) *wire.MsgBlock {
@@ -1119,7 +1120,7 @@ func ConfirmAndAssertOutboundTransferWithOutputs(t *testing.T,
 // AssertAssetOutboundTransferWithOutputs makes sure the given outbound transfer
 // has the correct state and number of outputs.
 func AssertAssetOutboundTransferWithOutputs(t *testing.T,
-	minerClient *rpcclient.Client, sender TapdClient,
+	minerClient *rpcclient.Client, sender commands.RpcClientsBundle,
 	transfer *taprpc.AssetTransfer, assetID []byte,
 	expectedAmounts []uint64, currentTransferIdx,
 	numTransfers, numOutputs int, confirm bool) *wire.MsgBlock {
@@ -1828,7 +1829,7 @@ func VerifyGroupAnchor(t *testing.T, assets []*taprpc.Asset,
 // AssertAssetsMinted makes sure all assets in the minting request were in fact
 // minted in the given anchor TX and block. The function returns the list of
 // minted assets.
-func AssertAssetsMinted(t *testing.T, tapClient TapdClient,
+func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 	assetRequests []*mintrpc.MintAssetRequest, mintTXID,
 	blockHash chainhash.Hash) []*taprpc.Asset {
 

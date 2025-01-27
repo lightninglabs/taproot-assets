@@ -18,6 +18,7 @@ import (
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/cmd/commands"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
@@ -57,7 +58,7 @@ var (
 // Taproot Assets Protocol. This includes the BTC level, the asset level and the
 // group key level.
 func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
-	bobTapd TapdClient, universeHostPort string,
+	bobTapd commands.RpcClientsBundle, universeHostPort string,
 	bitcoinClient *rpcclient.Client, aliceLnd, bobLnd *rpc.HarnessRPC,
 	params *chaincfg.Params, testTimeout time.Duration) {
 
@@ -358,7 +359,7 @@ func MultiSigTest(t *testing.T, ctx context.Context, aliceTapd,
 	)
 }
 
-func DeriveKeys(t *testing.T, tapd TapdClient) (asset.ScriptKey,
+func DeriveKeys(t *testing.T, tapd commands.RpcClientsBundle) (asset.ScriptKey,
 	keychain.KeyDescriptor) {
 
 	ctx := context.Background()
@@ -388,8 +389,9 @@ func DeriveKeys(t *testing.T, tapd TapdClient) (asset.ScriptKey,
 	return *scriptKey, internalKeyLnd
 }
 
-func CommitVirtualPsbts(t *testing.T, funder TapdClient, packet *psbt.Packet,
-	activePackets []*tappsbt.VPacket, passivePackets []*tappsbt.VPacket,
+func CommitVirtualPsbts(t *testing.T, funder commands.RpcClientsBundle,
+	packet *psbt.Packet, activePackets []*tappsbt.VPacket,
+	passivePackets []*tappsbt.VPacket,
 	changeOutputIndex int32) (*psbt.Packet, []*tappsbt.VPacket,
 	[]*tappsbt.VPacket, *wrpc.CommitVirtualPsbtsResponse) {
 
@@ -487,8 +489,9 @@ func FinalizePacket(t *testing.T, lnd *rpc.HarnessRPC,
 	return signedPacket
 }
 
-func LogAndPublish(t *testing.T, tapd TapdClient, btcPkt *psbt.Packet,
-	activeAssets []*tappsbt.VPacket, passiveAssets []*tappsbt.VPacket,
+func LogAndPublish(t *testing.T, tapd commands.RpcClientsBundle,
+	btcPkt *psbt.Packet, activeAssets []*tappsbt.VPacket,
+	passiveAssets []*tappsbt.VPacket,
 	commitResp *wrpc.CommitVirtualPsbtsResponse) *taprpc.SendAssetResponse {
 
 	ctxb := context.Background()

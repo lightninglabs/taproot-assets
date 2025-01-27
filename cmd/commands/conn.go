@@ -18,9 +18,13 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/lightningnetwork/lnd/tor"
@@ -58,6 +62,54 @@ func Fatal(err error) {
 	os.Exit(1)
 }
 
+// RpcClientsBundle is an interface that groups all the RPC clients.
+type RpcClientsBundle interface {
+	taprpc.TaprootAssetsClient
+	assetwalletrpc.AssetWalletClient
+	mintrpc.MintClient
+	rfqrpc.RfqClient
+	tchrpc.TaprootAssetChannelsClient
+	universerpc.UniverseClient
+	tapdevrpc.TapDevClient
+}
+
+// getRpcClientBundle returns a bundle of all the RPC clients.
+func getRpcClientBundle(ctx *cli.Context) (RpcClientsBundle, func()) {
+	conn := getClientConn(ctx, false)
+
+	cleanUp := func() {
+		conn.Close()
+	}
+
+	tapClient := taprpc.NewTaprootAssetsClient(conn)
+	assetWalletClient := assetwalletrpc.NewAssetWalletClient(conn)
+	mintMintClient := mintrpc.NewMintClient(conn)
+	rfqClient := rfqrpc.NewRfqClient(conn)
+	channelsClient := tchrpc.NewTaprootAssetChannelsClient(conn)
+	universeClient := universerpc.NewUniverseClient(conn)
+	devClient := tapdevrpc.NewTapDevClient(conn)
+
+	// Use an inline struct to eliminate the need for defining an additional
+	// struct, reducing potential confusion with RpcClientsBundle.
+	return struct {
+		taprpc.TaprootAssetsClient
+		assetwalletrpc.AssetWalletClient
+		mintrpc.MintClient
+		rfqrpc.RfqClient
+		tchrpc.TaprootAssetChannelsClient
+		universerpc.UniverseClient
+		tapdevrpc.TapDevClient
+	}{
+		TaprootAssetsClient:        tapClient,
+		AssetWalletClient:          assetWalletClient,
+		MintClient:                 mintMintClient,
+		RfqClient:                  rfqClient,
+		TaprootAssetChannelsClient: channelsClient,
+		UniverseClient:             universeClient,
+		TapDevClient:               devClient,
+	}, cleanUp
+}
+
 func getClient(ctx *cli.Context) (taprpc.TaprootAssetsClient, func()) {
 	conn := getClientConn(ctx, false)
 
@@ -66,21 +118,6 @@ func getClient(ctx *cli.Context) (taprpc.TaprootAssetsClient, func()) {
 	}
 
 	return taprpc.NewTaprootAssetsClient(conn), cleanUp
-}
-
-// RpcBundle is an interface that bundles all the client interfaces
-// that are used by the tapcli.
-type RpcBundle interface {
-	taprpc.TaprootAssetsClient
-
-	// TODO(ffranr): Add more client interfaces here.
-}
-
-func getRpcClientBundle(ctx *cli.Context) (RpcBundle, func()) {
-	client, cleanUp := getClient(ctx)
-
-	// TODO(ffranr): Add more client connections here.
-	return client, cleanUp
 }
 
 func getMintClient(ctx *cli.Context) (mintrpc.MintClient, func()) {
