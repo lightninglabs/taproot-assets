@@ -127,7 +127,10 @@ func ComputeView(ourBalance, theirBalance uint64,
 					entry.ParentIndex)
 			}
 
-			if len(parentEntry.CustomRecords) > 0 {
+			if rfqmsg.HasAssetHTLCCustomRecords(
+				parentEntry.CustomRecords,
+			) {
+
 				assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
 					parentEntry.CustomRecords,
 				)
@@ -171,7 +174,10 @@ func ComputeView(ourBalance, theirBalance uint64,
 					entry.ParentIndex)
 			}
 
-			if len(parentEntry.CustomRecords) > 0 {
+			if rfqmsg.HasAssetHTLCCustomRecords(
+				parentEntry.CustomRecords,
+			) {
+
 				assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
 					parentEntry.CustomRecords,
 				)
@@ -209,7 +215,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 		// when it comes to balance calculations. We still need to keep
 		// track of them, so we can create non-asset allocations
 		// correctly.
-		if len(entry.CustomRecords) == 0 {
+		if !rfqmsg.HasAssetHTLCCustomRecords(entry.CustomRecords) {
 			nonAssetView.OurUpdates = append(
 				nonAssetView.OurUpdates, &DecodedDescriptor{
 					AuxHtlcDescriptor: entry,
@@ -251,7 +257,7 @@ func ComputeView(ourBalance, theirBalance uint64,
 		// when it comes to balance calculations. We still need to keep
 		// track of them, so we can create non-asset allocations
 		// correctly.
-		if len(entry.CustomRecords) == 0 {
+		if !rfqmsg.HasAssetHTLCCustomRecords(entry.CustomRecords) {
 			nonAssetView.TheirUpdates = append(
 				nonAssetView.TheirUpdates, &DecodedDescriptor{
 					AuxHtlcDescriptor: entry,
