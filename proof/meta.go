@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -46,6 +47,10 @@ const (
 	// define when minting assets. Since the uint64 max value has 19 decimal
 	// places we will allow for a max of 12 decimal places.
 	MaxDecDisplay = uint32(12)
+
+	// MaxCanonicalUniverseLength is the maximum length of the canonical
+	// universe URL.
+	MaxCanonicalUniverseLength = 255
 )
 
 var (
@@ -86,6 +91,13 @@ var (
 	// ErrDecDisplayMissing is returned if the decimal display key is
 	// not present in a JSON object.
 	ErrDecDisplayMissing = errors.New("decimal display field missing")
+
+	// ErrCanonicalUniverseTooLong is returned if the canonical universe URL
+	// is too long.
+	ErrCanonicalUniverseTooLong = fmt.Errorf(
+		"canonical universe URL too long, max %d characters",
+		MaxCanonicalUniverseLength,
+	)
 )
 
 // MetaReveal is an optional TLV type that can be added to the proof of a
@@ -109,6 +121,11 @@ type MetaReveal struct {
 	// this value is not zero, then the decimal display is also added as a
 	// field to the JSON object for backward compatibility.
 	DecimalDisplay fn.Option[uint32]
+
+	// CanonicalUniverse is the URL of the canonical (approved,
+	// authoritative) universe where the asset minting and universe
+	// commitment proofs will be pushed to.
+	CanonicalUniverse fn.Option[url.URL]
 
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
@@ -152,7 +169,18 @@ func (m *MetaReveal) Validate() error {
 	}
 
 	// If the decimal display is set, it must be valid.
-	return fn.MapOptionZ(m.DecimalDisplay, IsValidDecDisplay)
+	err = fn.MapOptionZ(m.DecimalDisplay, IsValidDecDisplay)
+	if err != nil {
+		return err
+	}
+
+	return fn.MapOptionZ(m.CanonicalUniverse, func(u url.URL) error {
+		if len(u.String()) > MaxCanonicalUniverseLength {
+			return ErrCanonicalUniverseTooLong
+		}
+
+		return nil
+	})
 }
 
 // IsValidMetaType checks if the passed value is a valid meta type.
@@ -394,6 +422,12 @@ func (m *MetaReveal) EncodeRecords() []tlv.Record {
 		))
 	}
 
+	if m.CanonicalUniverse.IsSome() {
+		records = append(records, MetaRevealCanonicalUniverseRecord(
+			&m.CanonicalUniverse,
+		))
+	}
+
 	// Add any unknown odd types that were encountered during decoding.
 	return asset.CombineRecords(records, m.UnknownOddTypes)
 }
@@ -404,6 +438,7 @@ func (m *MetaReveal) DecodeRecords() []tlv.Record {
 		MetaRevealTypeRecord(&m.Type),
 		MetaRevealDataRecord(&m.Data),
 		MetaRevealDecimalDisplayRecord(&m.DecimalDisplay),
+		MetaRevealCanonicalUniverseRecord(&m.CanonicalUniverse),
 	}
 }
 

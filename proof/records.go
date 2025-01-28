@@ -3,6 +3,7 @@ package proof
 import (
 	"bytes"
 	"io"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -44,9 +45,10 @@ const (
 	TapscriptProofTapPreimage2 tlv.Type = 3
 	TapscriptProofBip86        tlv.Type = 4
 
-	MetaRevealEncodingType   tlv.Type = 0
-	MetaRevealDataType       tlv.Type = 2
-	MetaRevealDecimalDisplay tlv.Type = 5
+	MetaRevealEncodingType          tlv.Type = 0
+	MetaRevealDataType              tlv.Type = 2
+	MetaRevealDecimalDisplay        tlv.Type = 5
+	MetaRevealCanonicalUniverseType tlv.Type = 7
 )
 
 // KnownProofTypes is a set of all known proof TLV types. This set is asserted
@@ -86,6 +88,7 @@ var KnownTapscriptProofTypes = fn.NewSet(
 // asserted to be complete by a check in the BIP test vector unit tests.
 var KnownMetaRevealTypes = fn.NewSet(
 	MetaRevealEncodingType, MetaRevealDataType, MetaRevealDecimalDisplay,
+	MetaRevealCanonicalUniverseType,
 )
 
 func VersionRecord(version *TransitionVersion) tlv.Record {
@@ -402,6 +405,7 @@ func DUint32Option(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 	if t, ok := val.(*fn.Option[uint32]); ok {
 		if l == 0 {
 			*t = fn.None[uint32]()
+
 			return nil
 		}
 
@@ -415,6 +419,74 @@ func DUint32Option(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "*fn.Option[uint32]", l, l)
+}
+
+func MetaRevealCanonicalUniverseRecord(
+	universeAddr *fn.Option[url.URL]) tlv.Record {
+
+	// If the option is not set, we'll encode it as a zero-length record.
+	// But because we'll not include the record at all if it's not set at
+	// the call site when encoding, this will not be the case for this
+	// specific record.
+	addrBytes := make([]byte, 0)
+	if universeAddr != nil {
+		universeAddr.WhenSome(func(addr url.URL) {
+			addrBytes = []byte(addr.String())
+		})
+	}
+
+	return tlv.MakeDynamicRecord(
+		MetaRevealCanonicalUniverseType, universeAddr,
+		tlv.SizeVarBytes(&addrBytes), UrlOptionEncoder,
+		UrlOptionDecoder,
+	)
+}
+
+// UrlOptionEncoder encodes a URL option. If the value is not set, we'll encode
+// it as a zero-length record. But that means that the type and length fields
+// will still be encoded, which is different from the record not being present
+// at all. If the distinction should be made (e.g. to not re-encode old records
+// that didn't have that field at all with the new zero-length record), the
+// caller needs to handle that by conditionally including or not including the
+// record.
+func UrlOptionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[url.URL]); ok {
+		return fn.MapOptionZ(*t, func(value url.URL) error {
+			addrBytes := []byte(value.String())
+			return tlv.EVarBytes(w, &addrBytes, buf)
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[url.URL]")
+}
+
+func UrlOptionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > tlv.MaxRecordSize {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if t, ok := val.(*fn.Option[url.URL]); ok {
+		if l == 0 {
+			*t = fn.None[url.URL]()
+
+			return nil
+		}
+
+		var addrBytes []byte
+		err := tlv.DVarBytes(r, &addrBytes, buf, l)
+		if err != nil {
+			return err
+		}
+
+		addr, err := url.ParseRequestURI(string(addrBytes))
+		if err != nil {
+			return err
+		}
+
+		*t = fn.Some(*addr)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*fn.Option[url.URL]", l, l)
 }
 
 func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {
