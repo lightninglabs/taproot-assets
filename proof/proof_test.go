@@ -1215,6 +1215,24 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			require.NoError(tt, err)
 
 			require.Equal(tt, p, decoded)
+
+			// We can't verify the full proof chain but at least we
+			// can verify the inclusion/exclusion proofs.
+			_, err = decoded.VerifyProofs()
+			require.NoError(tt, err)
+
+			// If there is a genesis reveal, we can validate the
+			// full proof chain, as it's the first proof in the
+			// chain.
+			if decoded.GenesisReveal != nil {
+				_, err = decoded.Verify(
+					context.Background(), nil,
+					MockHeaderVerifier,
+					DefaultMerkleVerifier,
+					MockGroupVerifier, MockChainLookup,
+				)
+				require.NoError(tt, err)
+			}
 		})
 	}
 
