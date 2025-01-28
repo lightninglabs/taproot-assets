@@ -927,17 +927,26 @@ func (ttp *TestTapscriptProof) ToTapscriptProof(t testing.TB) *TapscriptProof {
 func NewTestFromMetaReveal(t testing.TB, m *MetaReveal) *TestMetaReveal {
 	t.Helper()
 
+	var canonicalUniverse string
+	m.CanonicalUniverse.WhenSome(func(u url.URL) {
+		canonicalUniverse = u.String()
+	})
+
 	return &TestMetaReveal{
-		Type:            uint8(m.Type),
-		Data:            hex.EncodeToString(m.Data),
-		UnknownOddTypes: m.UnknownOddTypes,
+		Type:              uint8(m.Type),
+		Data:              hex.EncodeToString(m.Data),
+		DecimalDisplay:    m.DecimalDisplay.UnwrapToPtr(),
+		CanonicalUniverse: canonicalUniverse,
+		UnknownOddTypes:   m.UnknownOddTypes,
 	}
 }
 
 type TestMetaReveal struct {
-	Type            uint8       `json:"type"`
-	Data            string      `json:"data"`
-	UnknownOddTypes tlv.TypeMap `json:"unknown_odd_types"`
+	Type              uint8       `json:"type"`
+	Data              string      `json:"data"`
+	DecimalDisplay    *uint32     `json:"decimal_display"`
+	CanonicalUniverse string      `json:"canonical_universe"`
+	UnknownOddTypes   tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
@@ -946,9 +955,24 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 	data, err := hex.DecodeString(tmr.Data)
 	require.NoError(t, err)
 
+	var decimalDisplay fn.Option[uint32]
+	if tmr.DecimalDisplay != nil {
+		decimalDisplay = fn.Some(*tmr.DecimalDisplay)
+	}
+
+	var canonicalUniverse fn.Option[url.URL]
+	if tmr.CanonicalUniverse != "" {
+		uniURL, err := url.Parse(tmr.CanonicalUniverse)
+		require.NoError(t, err)
+
+		canonicalUniverse = fn.Some(*uniURL)
+	}
+
 	return &MetaReveal{
-		Type:            MetaType(tmr.Type),
-		Data:            data,
-		UnknownOddTypes: tmr.UnknownOddTypes,
+		Type:              MetaType(tmr.Type),
+		Data:              data,
+		DecimalDisplay:    decimalDisplay,
+		CanonicalUniverse: canonicalUniverse,
+		UnknownOddTypes:   tmr.UnknownOddTypes,
 	}
 }

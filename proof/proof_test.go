@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -559,6 +560,9 @@ func TestGenesisProofVerification(t *testing.T) {
 	testBranchPreimage := commitment.NewPreimageFromBranch(branch)
 	amount := uint64(5000)
 
+	dummyURL, err := url.Parse("universerpc://some-host:1234")
+	require.NoError(t, err)
+
 	testCases := []struct {
 		name                 string
 		assetType            asset.Type
@@ -750,6 +754,29 @@ func TestGenesisProofVerification(t *testing.T) {
 				gkr.SetTapscriptRoot(test.RandBytes(32))
 			},
 			expectedErr: ErrGroupKeyRevealMismatch,
+		},
+		{
+			name: "normal asset with a meta reveal and " +
+				"decimal display and canonical universe",
+			assetType: asset.Normal,
+			amount:    &amount,
+			metaReveal: &MetaReveal{
+				Data: []byte("meant in crooking " +
+					"nevermore"),
+				DecimalDisplay:    fn.Some[uint32](8),
+				CanonicalUniverse: fn.Some(*dummyURL),
+			},
+		},
+		{
+			name: "collectible with a meta reveal and " +
+				"decimal display and canonical universe",
+			assetType: asset.Collectible,
+			metaReveal: &MetaReveal{
+				Data: []byte("shall be lifted " +
+					"nevermore"),
+				DecimalDisplay:    fn.Some[uint32](3),
+				CanonicalUniverse: fn.Some(*dummyURL),
+			},
 		},
 	}
 
