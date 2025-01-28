@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -499,4 +501,144 @@ func DUint32Option(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
 		return nil
 	}
 	return tlv.NewTypeForDecodingErr(val, "*fn.Option[uint32]", l, l)
+}
+
+// UrlSliceOptionEncoder encodes a URL option. If the value is not set, or the
+// slice is empty, we'll encode it as a zero-length record. But that means that
+// the type and length fields will still be encoded, which is different from the
+// record not being present at all. If the distinction should be made (e.g. to
+// not re-encode old records that didn't have that field at all with the new
+// zero-length record), the caller needs to handle that by conditionally
+// including or not including the record.
+func UrlSliceOptionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[[]url.URL]); ok {
+		return fn.MapOptionZ(*t, func(value []url.URL) error {
+			numValues := uint64(len(value))
+			if numValues == 0 {
+				return nil
+			}
+
+			err := tlv.WriteVarInt(w, numValues, buf)
+			if err != nil {
+				return err
+			}
+
+			for _, addr := range value {
+				addrBytes := []byte(addr.String())
+				err := asset.InlineVarBytesEncoder(
+					w, &addrBytes, buf,
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[[]url.URL]")
+}
+
+// UrlSliceOptionDecoder decodes a URL option.
+func UrlSliceOptionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > MaxNumCanonicalUniverseURLs*MaxCanonicalUniverseURLLength {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if t, ok := val.(*fn.Option[[]url.URL]); ok {
+		if l == 0 {
+			*t = fn.None[[]url.URL]()
+
+			return nil
+		}
+
+		numValues, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		if numValues > MaxNumCanonicalUniverseURLs {
+			return tlv.ErrRecordTooLarge
+		}
+
+		urls := make([]url.URL, 0, numValues)
+		for i := uint64(0); i < numValues; i++ {
+			var urlBytes []byte
+			err := asset.InlineVarBytesDecoder(
+				r, &urlBytes, buf,
+				MaxCanonicalUniverseURLLength,
+			)
+			if err != nil {
+				return err
+			}
+
+			addr, err := url.ParseRequestURI(string(urlBytes))
+			if err != nil {
+				return err
+			}
+			urls = append(urls, *addr)
+		}
+
+		*t = fn.Some(urls)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*fn.Option[[]url.URL]", l, l)
+}
+
+// PublicKeyOptionEncoder encodes a public key option. If the value is not set,
+// we'll encode it as a zero-length record. But that means that the type and
+// length fields will still be encoded, which is different from the record not
+// being present at all. If the distinction should be made (e.g. to not
+// re-encode old records that didn't have that field at all with the new
+// zero-length record), the caller needs to handle that by conditionally
+// including or not including the record.
+func PublicKeyOptionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[btcec.PublicKey]); ok {
+		return fn.MapOptionZ(*t, func(value btcec.PublicKey) error {
+			if value == emptyKey {
+				return nil
+			}
+
+			ptr := &value
+			return asset.CompressedPubKeyEncoder(w, &ptr, buf)
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[btcec.PublicKey]")
+}
+
+// PublicKeyOptionDecoder decodes a public key option.
+func PublicKeyOptionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if l > btcec.PubKeyBytesLenCompressed {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if t, ok := val.(*fn.Option[btcec.PublicKey]); ok {
+		if l == 0 {
+			*t = fn.None[btcec.PublicKey]()
+
+			return nil
+		}
+
+		var result *btcec.PublicKey
+		err := asset.CompressedPubKeyDecoder(r, &result, buf, l)
+		if err != nil {
+			return err
+		}
+
+		if result == nil || *result == emptyKey {
+			*t = fn.None[btcec.PublicKey]()
+
+			return nil
+		}
+
+		*t = fn.Some(*result)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(
+		val, "*fn.Option[btcec.PublicKey]", l, l,
+	)
 }
