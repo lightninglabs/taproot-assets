@@ -116,6 +116,9 @@ var (
 	// ErrNoAssetGroup is returned when no matching asset group is found.
 	ErrNoAssetGroup = errors.New("no matching asset group")
 
+	// ErrNoAssetMeta is returned when no matching asset meta is found.
+	ErrNoAssetMeta = errors.New("no matching asset meta")
+
 	// ErrGroupGenesisInfo is returned when fetching genesis info for an
 	// asset group fails.
 	ErrGroupGenesisInfo = errors.New("unable to fetch group genesis info")

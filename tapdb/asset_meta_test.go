@@ -54,7 +54,7 @@ func TestAssetMetaUpsert(t *testing.T) {
 	// If we fetch the meta, then we should get the blob back this time.
 	fetchedMeta, err := db.FetchAssetMeta(ctx, metaID)
 	require.NoError(t, err)
-	require.Equal(t, metaBlob[:], fetchedMeta.MetaDataBlob)
+	require.Equal(t, metaBlob[:], fetchedMeta.AssetsMetum.MetaDataBlob)
 
 	// If we insert a meta of all zeroes twice, then we should get the same
 	// value back.

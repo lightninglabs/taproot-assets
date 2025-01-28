@@ -131,9 +131,9 @@ WITH target_batch(batch_id) AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
-    assets_meta.meta_data_hash, assets_meta.meta_data_type, 
-    assets_meta.meta_data_blob, emission_enabled, batch_id, 
+SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
+    sqlc.embed(assets_meta),
+    emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id, group_tapscript_root,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
@@ -225,9 +225,8 @@ WITH genesis_info AS (
     -- for internal keys that match our main batch key.
     SELECT
         gen_asset_id, asset_id, asset_tag, output_index, asset_type,
-        genesis_points.prev_out prev_out, 
-        assets_meta.meta_data_hash meta_hash, assets_meta.meta_data_type meta_type,
-        assets_meta.meta_data_blob meta_blob
+        genesis_points.prev_out prev_out,
+        assets_meta.meta_id
     FROM genesis_assets
     LEFT JOIN assets_meta
         ON genesis_assets.meta_data_id = assets_meta.meta_id
@@ -267,15 +266,18 @@ SELECT
     key_group_info.key_family AS group_key_family,
     key_group_info.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, spent,
-    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_hash, 
-    genesis_info.meta_type, genesis_info.meta_blob, 
+    genesis_info.asset_id, genesis_info.asset_tag,
+    sqlc.embed(assets_meta),
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
 JOIN genesis_info
     ON assets.genesis_id = genesis_info.gen_asset_id
+-- We use a LEFT JOIN here as not every asset has a meta data entry.
+LEFT JOIN assets_meta
+    ON genesis_info.meta_id = assets_meta.meta_id
 -- We use a LEFT JOIN here as not every asset has a group key, so this'll
--- generate rows that have NULL values for the faily key fields if an asset
+-- generate rows that have NULL values for the group key fields if an asset
 -- doesn't have a group key. See the comment in fetchAssetSprouts for a work
 -- around that needs to be used with this query until a sqlc bug is fixed.
 LEFT JOIN key_group_info
@@ -993,17 +995,17 @@ INSERT INTO assets_meta (
 RETURNING meta_id;
 
 -- name: FetchAssetMeta :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT sqlc.embed(assets_meta)
 FROM assets_meta
 WHERE meta_id = $1;
 
 -- name: FetchAssetMetaByHash :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT sqlc.embed(assets_meta)
 FROM assets_meta
 WHERE meta_data_hash = $1;
 
 -- name: FetchAssetMetaForAsset :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT sqlc.embed(assets_meta)
 FROM genesis_assets assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id

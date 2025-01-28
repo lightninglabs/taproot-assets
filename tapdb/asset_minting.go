@@ -738,14 +738,11 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			seedling.GroupAnchor = &seedlingAnchor.AssetName
 		}
 
-		if len(dbSeedling.MetaDataBlob) != 0 {
-			seedling.Meta = &proof.MetaReveal{
-				Data: dbSeedling.MetaDataBlob,
-				Type: proof.MetaType(
-					dbSeedling.MetaDataType.Int16,
-				),
-			}
-		}
+		parseAssetMetaReveal(dbSeedling.AssetsMetum).WhenSome(
+			func(meta proof.MetaReveal) {
+				seedling.Meta = &meta
+			},
+		)
 
 		seedlings[seedling.AssetName] = seedling
 	}
@@ -872,8 +869,11 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 			Type:         asset.Type(sprout.AssetType),
 		}
 
-		if len(sprout.MetaHash) != 0 {
-			copy(assetGenesis.MetaHash[:], sprout.MetaHash)
+		if len(sprout.AssetsMetum.MetaDataHash) != 0 {
+			copy(
+				assetGenesis.MetaHash[:],
+				sprout.AssetsMetum.MetaDataHash,
+			)
 		}
 
 		// With the base information extracted, we'll use that to
@@ -966,10 +966,16 @@ func fetchMetaByAssetID(ctx context.Context, db PendingAssetStore,
 		return nil, err
 	}
 
-	return &proof.MetaReveal{
-		Data: assetMeta.MetaDataBlob,
-		Type: proof.MetaType(assetMeta.MetaDataType.Int16),
-	}, nil
+	// Parse the meta reveal from the database. We expect it to exist at
+	// this point, as we didn't get an sql.ErrNoRows error above.
+	meta, err := parseAssetMetaReveal(assetMeta.AssetsMetum).UnwrapOrErr(
+		ErrNoAssetMeta,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &meta, nil
 }
 
 // FetchAssetMeta fetches the meta reveal for an asset genesis.
