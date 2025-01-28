@@ -183,9 +183,6 @@ func (i *VInput) encode() (psbt.PInput, error) {
 		{
 			key:     PsbtKeyTypeInputTapAssetProof,
 			encoder: proofEncoder(i.Proof),
-		}, {
-			key:     PsbtKeyTypeInputAltLeaves,
-			encoder: altLeavesEncoder(i.AltLeaves),
 		},
 	}
 

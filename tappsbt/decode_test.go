@@ -255,7 +255,6 @@ func TestEncodingDecoding(t *testing.T) {
 				firstLeaf, secondLeaf,
 			}
 
-			pkt.Inputs[0].AltLeaves = asset.CopyAltLeaves(altLeaves)
 			pkt.Outputs[0].AltLeaves = asset.CopyAltLeaves(
 				altLeaves,
 			)
@@ -279,7 +278,6 @@ func TestEncodingDecoding(t *testing.T) {
 				altLeaves[idx] = asset.RandAltLeaf(t)
 			}
 
-			pkt.Inputs[0].AltLeaves = altLeaves
 			pkt.Outputs[0].AltLeaves = altLeaves
 			pkt.Outputs[1].AltLeaves = altLeaves
 
