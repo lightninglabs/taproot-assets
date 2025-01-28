@@ -367,6 +367,10 @@
               "meta_reveal": {
                 "type": 0,
                 "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "decimal_display": null,
+                "universe_commitments": null,
+                "canonical_universes": null,
+                "delegation_key": null,
                 "unknown_odd_types": null
               },
               "additional_inputs": null,
@@ -757,6 +761,10 @@
               "meta_reveal": {
                 "type": 0,
                 "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "decimal_display": null,
+                "universe_commitments": null,
+                "canonical_universes": null,
+                "delegation_key": null,
                 "unknown_odd_types": null
               },
               "additional_inputs": null,
@@ -1208,6 +1216,10 @@
               "meta_reveal": {
                 "type": 0,
                 "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "decimal_display": null,
+                "universe_commitments": null,
+                "canonical_universes": null,
+                "delegation_key": null,
                 "unknown_odd_types": null
               },
               "additional_inputs": null,
@@ -1627,6 +1639,10 @@
               "meta_reveal": {
                 "type": 0,
                 "data": "71756f74682074686520726176656e206e657665726d6f7265",
+                "decimal_display": null,
+                "universe_commitments": null,
+                "canonical_universes": null,
+                "delegation_key": null,
                 "unknown_odd_types": null
               },
               "additional_inputs": null,
