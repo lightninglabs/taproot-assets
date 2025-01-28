@@ -344,7 +344,10 @@ func (m *MetaReveal) SetDecDisplay(decDisplay uint32) error {
 // the meta data itself.
 func (m *MetaReveal) MetaHash() [asset.MetaHashLen]byte {
 	var b bytes.Buffer
-	_ = m.Encode(&b)
+	err := m.Encode(&b)
+	if err != nil {
+		log.Errorf("Unable to encode meta reveal: %v", err)
+	}
 
 	return sha256.Sum256(b.Bytes())
 }

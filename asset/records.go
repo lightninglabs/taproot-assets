@@ -153,7 +153,12 @@ func CombineRecords(records []tlv.Record, unparsed tlv.TypeMap) []tlv.Record {
 		))
 	}
 
-	return append(records, stubRecords...)
+	// Because the map above gives random access to the records, we need to
+	// re-sort them to ensure that the records are in the correct order.
+	combinedRecords := append(records, stubRecords...)
+	tlv.SortRecords(combinedRecords)
+
+	return combinedRecords
 }
 
 // WitnessTlvType represents the different TLV types for Asset Witness TLV
