@@ -1131,11 +1131,14 @@ func (t *TapAddressBook) FetchAssetMetaByHash(ctx context.Context,
 
 		// If no record is present, we should get a sql.ErrNoRows error
 		// above.
-		parseAssetMetaReveal(dbMeta.AssetsMetum).WhenSome(
-			func(meta proof.MetaReveal) {
-				assetMeta = &meta
-			},
-		)
+		metaOpt, err := parseAssetMetaReveal(dbMeta.AssetsMetum)
+		if err != nil {
+			return fmt.Errorf("unable to parse asset meta: %w", err)
+		}
+
+		metaOpt.WhenSome(func(meta proof.MetaReveal) {
+			assetMeta = &meta
+		})
 
 		return nil
 	})
@@ -1164,11 +1167,14 @@ func (t *TapAddressBook) FetchAssetMetaForAsset(ctx context.Context,
 
 		// If no record is present, we should get a sql.ErrNoRows error
 		// above.
-		parseAssetMetaReveal(dbMeta.AssetsMetum).WhenSome(
-			func(meta proof.MetaReveal) {
-				assetMeta = &meta
-			},
-		)
+		metaOpt, err := parseAssetMetaReveal(dbMeta.AssetsMetum)
+		if err != nil {
+			return fmt.Errorf("unable to parse asset meta: %w", err)
+		}
+
+		metaOpt.WhenSome(func(meta proof.MetaReveal) {
+			assetMeta = &meta
+		})
 
 		return nil
 	})

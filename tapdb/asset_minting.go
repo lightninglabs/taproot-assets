@@ -738,11 +738,15 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 			seedling.GroupAnchor = &seedlingAnchor.AssetName
 		}
 
-		parseAssetMetaReveal(dbSeedling.AssetsMetum).WhenSome(
-			func(meta proof.MetaReveal) {
-				seedling.Meta = &meta
-			},
-		)
+		metaOpt, err := parseAssetMetaReveal(dbSeedling.AssetsMetum)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse asset meta: %w",
+				err)
+		}
+
+		metaOpt.WhenSome(func(meta proof.MetaReveal) {
+			seedling.Meta = &meta
+		})
 
 		seedlings[seedling.AssetName] = seedling
 	}
@@ -968,9 +972,12 @@ func fetchMetaByAssetID(ctx context.Context, db PendingAssetStore,
 
 	// Parse the meta reveal from the database. We expect it to exist at
 	// this point, as we didn't get an sql.ErrNoRows error above.
-	meta, err := parseAssetMetaReveal(assetMeta.AssetsMetum).UnwrapOrErr(
-		ErrNoAssetMeta,
-	)
+	metaOpt, err := parseAssetMetaReveal(assetMeta.AssetsMetum)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse asset meta: %w", err)
+	}
+
+	meta, err := metaOpt.UnwrapOrErr(ErrNoAssetMeta)
 	if err != nil {
 		return nil, err
 	}
