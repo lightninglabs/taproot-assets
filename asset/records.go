@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"fmt"
 	"io"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -302,4 +303,33 @@ func NewWitnessSplitCommitmentRecord(commitment **SplitCommitment) tlv.Record {
 		WitnessSplitCommitment, commitment, recordSize,
 		SplitCommitmentEncoder, SplitCommitmentDecoder,
 	)
+}
+
+// UrlEncoder encodes a url.URL as a variable length byte slice.
+func UrlEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*url.URL); ok {
+		addrBytes := []byte((*t).String())
+		return tlv.EVarBytes(w, &addrBytes, buf)
+	}
+	return tlv.NewTypeForEncodingErr(val, "*url.URL")
+}
+
+// UrlDecoder decodes a variable length byte slice as an url.URL.
+func UrlDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if t, ok := val.(*url.URL); ok {
+		var addrBytes []byte
+		err := tlv.DVarBytes(r, &addrBytes, buf, l)
+		if err != nil {
+			return err
+		}
+
+		addr, err := url.ParseRequestURI(string(addrBytes))
+		if err != nil {
+			return err
+		}
+		*t = *addr
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*url.URL", l, l)
 }

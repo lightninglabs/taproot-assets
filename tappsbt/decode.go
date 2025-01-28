@@ -524,6 +524,6 @@ func urlDecoder(u **url.URL) decoderFunc {
 		if *u == nil {
 			*u = &url.URL{}
 		}
-		return tlvDecoder(*u, address.UrlDecoder)(key, byteVal)
+		return tlvDecoder(*u, asset.UrlDecoder)(key, byteVal)
 	}
 }

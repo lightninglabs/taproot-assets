@@ -13,7 +13,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -530,7 +529,7 @@ func urlEncoder(val *url.URL) encoderFunc {
 			b       bytes.Buffer
 			scratch [8]byte
 		)
-		if err := address.UrlEncoder(&b, val, &scratch); err != nil {
+		if err := asset.UrlEncoder(&b, val, &scratch); err != nil {
 			return nil, fmt.Errorf("error encoding TLV record: %w",
 				err)
 		}
