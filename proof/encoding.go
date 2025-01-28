@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -462,4 +463,40 @@ func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "GenesisReveal")
+}
+
+// EUint32Option encodes a uint32 option. If the value is not set, we'll encode
+// it as a zero-length record. But that means that the type and length fields
+// will still be encoded, which is different from the record not being present
+// at all. If the distinction should be made (e.g. to not re-encode old records
+// that didn't have that field at all with the new zero-length record), the
+// caller needs to handle that by conditionally including or not including the
+// record.
+func EUint32Option(w io.Writer, val interface{}, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[uint32]); ok {
+		return fn.MapOptionZ(*t, func(value uint32) error {
+			return tlv.EUint32T(w, value, buf)
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[uint32]")
+}
+
+// DUint32Option decodes a uint32 option.
+func DUint32Option(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	if t, ok := val.(*fn.Option[uint32]); ok {
+		if l == 0 {
+			*t = fn.None[uint32]()
+			return nil
+		}
+
+		var newVal uint32
+		if err := tlv.DUint32(r, &newVal, buf, l); err != nil {
+			return err
+		}
+
+		*t = fn.Some(newVal)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*fn.Option[uint32]", l, l)
 }
