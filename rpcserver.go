@@ -540,14 +540,12 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		// If a custom decimal display was requested, add that to the
 		// metadata and re-validate it.
 		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			updatedMeta, err := seedlingMeta.SetDecDisplay(
+			err := seedlingMeta.SetDecDisplay(
 				req.Asset.DecimalDisplay,
 			)
 			if err != nil {
 				return nil, err
 			}
-
-			seedlingMeta = updatedMeta
 
 			err = seedlingMeta.Validate()
 			if err != nil {
