@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -46,6 +48,14 @@ const (
 	// define when minting assets. Since the uint64 max value has 19 decimal
 	// places we will allow for a max of 12 decimal places.
 	MaxDecDisplay = uint32(12)
+
+	// MaxNumCanonicalUniverseURLs is the maximum number of canonical
+	// universe URLs that can be set.
+	MaxNumCanonicalUniverseURLs = 16
+
+	// MaxCanonicalUniverseURLLength is the maximum length of the canonical
+	// universe URL.
+	MaxCanonicalUniverseURLLength = 255
 )
 
 var (
@@ -86,6 +96,35 @@ var (
 	// ErrDecDisplayMissing is returned if the decimal display key is
 	// not present in a JSON object.
 	ErrDecDisplayMissing = errors.New("decimal display field missing")
+
+	// ErrCanonicalUniverseInvalid is returned if the canonical universe
+	// URL is invalid.
+	ErrCanonicalUniverseInvalid = errors.New(
+		"canonical universe URL invalid",
+	)
+
+	// ErrTooManyCanonicalUniverseURLs is returned if the number of
+	// canonical universe URLs exceeds the maximum.
+	ErrTooManyCanonicalUniverseURLs = fmt.Errorf(
+		"too many canonical universe URLs, max %d",
+		MaxNumCanonicalUniverseURLs,
+	)
+
+	// ErrCanonicalUniverseURLTooLong is returned if the canonical universe
+	// URL is too long.
+	ErrCanonicalUniverseURLTooLong = fmt.Errorf(
+		"canonical universe URL too long, max %d characters",
+		MaxCanonicalUniverseURLLength,
+	)
+
+	// ErrDelegationKeyEmpty is returned if the delegation key is empty.
+	ErrDelegationKeyEmpty = errors.New("delegation key is empty")
+
+	// ErrDelegationKeyNotOnCurve is returned if the delegation key is not
+	// on the curve.
+	ErrDelegationKeyNotOnCurve = errors.New(
+		"delegation key is not on curve",
+	)
 )
 
 // MetaReveal is an optional TLV type that can be added to the proof of a
@@ -109,6 +148,22 @@ type MetaReveal struct {
 	// this value is not zero, then the decimal display is also added as a
 	// field to the JSON object for backward compatibility.
 	DecimalDisplay fn.Option[uint32]
+
+	// UniverseCommitments indicates that the asset group this asset belongs
+	// to will create and push universe commitments to the canonical
+	// universe. A universe commitment is a "proof of inventory" that
+	// commits the issuer's current total asset balance (sum of all mints
+	// minus burns or ignored assets) on-chain.
+	UniverseCommitments bool
+
+	// CanonicalUniverses is a list of URLs of the canonical (approved,
+	// authoritative) universe where the asset minting and universe
+	// commitment proofs will be pushed to.
+	CanonicalUniverses fn.Option[[]url.URL]
+
+	// DelegationKey is the public key that is used to verify universe
+	// commitment related on-chain outputs and proofs.
+	DelegationKey fn.Option[btcec.PublicKey]
 
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
@@ -152,7 +207,44 @@ func (m *MetaReveal) Validate() error {
 	}
 
 	// If the decimal display is set, it must be valid.
-	return fn.MapOptionZ(m.DecimalDisplay, IsValidDecDisplay)
+	err = fn.MapOptionZ(m.DecimalDisplay, IsValidDecDisplay)
+	if err != nil {
+		return err
+	}
+
+	err = fn.MapOptionZ(m.CanonicalUniverses, func(urls []url.URL) error {
+		// If the option is set, the slice must not be empty.
+		if len(urls) == 0 {
+			return ErrCanonicalUniverseInvalid
+		}
+
+		if len(urls) > MaxNumCanonicalUniverseURLs {
+			return ErrTooManyCanonicalUniverseURLs
+		}
+
+		for _, u := range urls {
+			if len(u.String()) > MaxCanonicalUniverseURLLength {
+				return ErrCanonicalUniverseURLTooLong
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+
+	return fn.MapOptionZ(m.DelegationKey, func(key btcec.PublicKey) error {
+		if key == emptyKey {
+			return ErrDelegationKeyEmpty
+		}
+
+		if !key.IsOnCurve() {
+			return ErrDelegationKeyNotOnCurve
+		}
+
+		return nil
+	})
 }
 
 // IsValidMetaType checks if the passed value is a valid meta type.
@@ -385,12 +477,33 @@ func (m *MetaReveal) EncodeRecords() []tlv.Record {
 		MetaRevealDataRecord(&m.Data),
 	}
 
+	// In order not to change the encoding of existing records if
+	// we de-serialize and re-serialize them, we only encode this boolean
+	// value if it's actually true.
+	if m.UniverseCommitments {
+		records = append(records, MetaRevealUniverseCommitmentsRecord(
+			&m.UniverseCommitments,
+		))
+	}
+
 	// To make sure we don't re-encode old assets that don't have a decimal
 	// display value as a TLV field with a different value, we only encode
 	// the decimal display value if it is explicitly set.
 	if m.DecimalDisplay.IsSome() {
 		records = append(records, MetaRevealDecimalDisplayRecord(
 			&m.DecimalDisplay,
+		))
+	}
+
+	if m.CanonicalUniverses.IsSome() {
+		records = append(records, MetaRevealCanonicalUniversesRecord(
+			&m.CanonicalUniverses,
+		))
+	}
+
+	if m.DelegationKey.IsSome() {
+		records = append(records, MetaRevealDelegationKeyRecord(
+			&m.DelegationKey,
 		))
 	}
 
@@ -404,6 +517,9 @@ func (m *MetaReveal) DecodeRecords() []tlv.Record {
 		MetaRevealTypeRecord(&m.Type),
 		MetaRevealDataRecord(&m.Data),
 		MetaRevealDecimalDisplayRecord(&m.DecimalDisplay),
+		MetaRevealUniverseCommitmentsRecord(&m.UniverseCommitments),
+		MetaRevealCanonicalUniversesRecord(&m.CanonicalUniverses),
+		MetaRevealDelegationKeyRecord(&m.DelegationKey),
 	}
 }
 
