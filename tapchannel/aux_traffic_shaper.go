@@ -326,3 +326,10 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 
 	return htlcAmountMSat, updatedRecords, nil
 }
+
+// IsCustomHTLC returns true if the HTLC carries the set of relevant custom
+// records to put it under the purview of the traffic shaper, meaning that it's
+// from a custom channel.
+func (s *AuxTrafficShaper) IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool {
+	return rfqmsg.HasAssetHTLCCustomRecords(htlcRecords)
+}
