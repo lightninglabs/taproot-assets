@@ -100,6 +100,16 @@ type MetaReveal struct {
 	// Data is the committed data being revealed.
 	Data []byte
 
+	// DecimalDisplay is the decimal display value of the asset. This is
+	// used to determine the number of decimal places to display when
+	// presenting the asset amount to the user. If this field is not
+	// explicitly encoded in the TLV, this is an older asset that didn't
+	// have this field. New assets will always set an explicit value, even
+	// if that is the default value of zero. If the meta type is JSON and
+	// this value is not zero, then the decimal display is also added as a
+	// field to the JSON object for backward compatibility.
+	DecimalDisplay fn.Option[uint32]
+
 	// UnknownOddTypes is a map of unknown odd types that were encountered
 	// during decoding. This map is used to preserve unknown types that we
 	// don't know of yet, so we can still encode them back when serializing.
@@ -141,7 +151,8 @@ func (m *MetaReveal) Validate() error {
 		}
 	}
 
-	return nil
+	// If the decimal display is set, it must be valid.
+	return fn.MapOptionZ(m.DecimalDisplay, IsValidDecDisplay)
 }
 
 // IsValidMetaType checks if the passed value is a valid meta type.
@@ -232,6 +243,12 @@ func (m *MetaReveal) GetDecDisplay() (map[string]interface{}, uint32, error) {
 		return nil, 0, nil
 	}
 
+	// If the decimal display is set as the new TLV value, we can use that
+	// directly.
+	if decimalDisplay, isSet := m.DecimalDisplay.Unwrap(); isSet {
+		return nil, decimalDisplay, nil
+	}
+
 	if m.Type != MetaJson {
 		return nil, 0, ErrNotJSON
 	}
@@ -311,9 +328,18 @@ func (m *MetaReveal) SetDecDisplay(decDisplay uint32) error {
 		return err
 	}
 
-	// If the meta type is not JSON, we can't set the decimal display value.
+	m.DecimalDisplay = fn.Some(decDisplay)
+
+	// We only set the decimal display value in the JSON if it isn't the
+	// default value of 0.
+	if decDisplay == 0 {
+		return nil
+	}
+
+	// If the meta type is not JSON, we're done already, as the decimal
+	// display will only be encoded in the TLV.
 	if m.Type != MetaJson {
-		return ErrNotJSON
+		return nil
 	}
 
 	// If the meta type is JSON, we'll also want to set the decimal display
@@ -359,6 +385,15 @@ func (m *MetaReveal) EncodeRecords() []tlv.Record {
 		MetaRevealDataRecord(&m.Data),
 	}
 
+	// To make sure we don't re-encode old assets that don't have a decimal
+	// display value as a TLV field with a different value, we only encode
+	// the decimal display value if it is explicitly set.
+	if m.DecimalDisplay.IsSome() {
+		records = append(records, MetaRevealDecimalDisplayRecord(
+			&m.DecimalDisplay,
+		))
+	}
+
 	// Add any unknown odd types that were encountered during decoding.
 	return asset.CombineRecords(records, m.UnknownOddTypes)
 }
@@ -368,6 +403,7 @@ func (m *MetaReveal) DecodeRecords() []tlv.Record {
 	return []tlv.Record{
 		MetaRevealTypeRecord(&m.Type),
 		MetaRevealDataRecord(&m.Data),
+		MetaRevealDecimalDisplayRecord(&m.DecimalDisplay),
 	}
 }
 
