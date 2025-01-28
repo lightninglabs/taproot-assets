@@ -2012,15 +2012,6 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		)
 	}
 
-	// Each input must have a valid set of AltLeaves at this point.
-	for outpoint, leaves := range inputAltLeaves {
-		err := asset.ValidAltLeaves(leaves)
-		if err != nil {
-			return fmt.Errorf("input %v invalid alt leaves: %w",
-				outpoint.String(), err)
-		}
-	}
-
 	// We can now go through each anchor input that contains assets being
 	// spent and check that we arrive at the correct script.
 	for anchorOutpoint, assets := range inputAssets {
