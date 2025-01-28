@@ -173,9 +173,6 @@ func (i *VInput) decode(pIn psbt.PInput) error {
 	}, {
 		key:     PsbtKeyTypeInputTapAssetProof,
 		decoder: proofDecoder(&i.Proof),
-	}, {
-		key:     PsbtKeyTypeInputAltLeaves,
-		decoder: altLeavesDecoder(&i.AltLeaves),
 	}}
 
 	for idx := range mapping {
