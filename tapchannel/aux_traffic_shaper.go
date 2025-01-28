@@ -12,7 +12,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn"
-	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -71,10 +70,6 @@ func (s *AuxTrafficShaper) Stop() error {
 
 	return stopErr
 }
-
-// A compile-time check to ensure that AuxTrafficShaper fully implements the
-// htlcswitch.AuxTrafficShaper interface.
-var _ htlcswitch.AuxTrafficShaper = (*AuxTrafficShaper)(nil)
 
 // ShouldHandleTraffic is called in order to check if the channel identified by
 // the provided channel ID is handled by the traffic shaper implementation. If
@@ -325,11 +320,4 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	return htlcAmountMSat, updatedRecords, nil
-}
-
-// IsCustomHTLC returns true if the HTLC carries the set of relevant custom
-// records to put it under the purview of the traffic shaper, meaning that it's
-// from a custom channel.
-func (s *AuxTrafficShaper) IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool {
-	return rfqmsg.HasAssetHTLCCustomRecords(htlcRecords)
 }
