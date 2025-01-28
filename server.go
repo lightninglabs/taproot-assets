@@ -19,6 +19,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/monitoring"
 	"github.com/lightninglabs/taproot-assets/perms"
+	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/rpcperms"
 	"github.com/lightninglabs/taproot-assets/tapchannel"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
@@ -1050,6 +1051,17 @@ func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	return s.cfg.AuxTrafficShaper.ProduceHtlcExtraData(
 		totalAmount, htlcCustomRecords,
 	)
+}
+
+// IsCustomHTLC returns true if the HTLC carries the set of relevant custom
+// records to put it under the purview of the traffic shaper, meaning that it's
+// from a custom channel.
+//
+// NOTE: This method is part of the routing.TlvTrafficShaper interface.
+func (s *Server) IsCustomHTLC(htlcRecords lnwire.CustomRecords) bool {
+	// We don't need to wait for server ready here since this operation can
+	// be done completely stateless.
+	return rfqmsg.HasAssetHTLCCustomRecords(htlcRecords)
 }
 
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close
