@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"io"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -43,8 +44,9 @@ const (
 	TapscriptProofTapPreimage2 tlv.Type = 3
 	TapscriptProofBip86        tlv.Type = 4
 
-	MetaRevealEncodingType tlv.Type = 0
-	MetaRevealDataType     tlv.Type = 2
+	MetaRevealEncodingType   tlv.Type = 0
+	MetaRevealDataType       tlv.Type = 2
+	MetaRevealDecimalDisplay tlv.Type = 5
 )
 
 // KnownProofTypes is a set of all known proof TLV types. This set is asserted
@@ -83,7 +85,7 @@ var KnownTapscriptProofTypes = fn.NewSet(
 // KnownMetaRevealTypes is a set of all known meta reveal TLV types. This set is
 // asserted to be complete by a check in the BIP test vector unit tests.
 var KnownMetaRevealTypes = fn.NewSet(
-	MetaRevealEncodingType, MetaRevealDataType,
+	MetaRevealEncodingType, MetaRevealDataType, MetaRevealDecimalDisplay,
 )
 
 func VersionRecord(version *TransitionVersion) tlv.Record {
@@ -360,6 +362,59 @@ func MetaRevealDataRecord(data *[]byte) tlv.Record {
 		MetaRevealDataType, data, sizeFunc, tlv.EVarBytes,
 		asset.DVarBytesWithLimit(MetaDataMaxSizeBytes),
 	)
+}
+
+func MetaRevealDecimalDisplayRecord(
+	decimalDisplay *fn.Option[uint32]) tlv.Record {
+
+	// If the option is not set, we'll encode it as a zero-length record.
+	// But because we'll not include the record at all if it's not set at
+	// the call site when encoding, this will not be the case for this
+	// specific record.
+	var size uint64
+	if decimalDisplay != nil && decimalDisplay.IsSome() {
+		size = 4
+	}
+
+	return tlv.MakeStaticRecord(
+		MetaRevealDecimalDisplay, decimalDisplay, size,
+		EUint32Option, DUint32Option,
+	)
+}
+
+// EUint32Option encodes a uint32 option. If the value is not set, we'll encode
+// it as a zero-length record. But that means that the type and length fields
+// will still be encoded, which is different from the record not being present
+// at all. If the distinction should be made (e.g. to not re-encode old records
+// that didn't have that field at all with the new zero-length record), the
+// caller needs to handle that by conditionally including or not including the
+// record.
+func EUint32Option(w io.Writer, val interface{}, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[uint32]); ok {
+		return fn.MapOptionZ(*t, func(value uint32) error {
+			return tlv.EUint32T(w, value, buf)
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[uint32]")
+}
+
+func DUint32Option(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	if t, ok := val.(*fn.Option[uint32]); ok {
+		if l == 0 {
+			*t = fn.None[uint32]()
+			return nil
+		}
+
+		var newVal uint32
+		if err := tlv.DUint32(r, &newVal, buf, l); err != nil {
+			return err
+		}
+
+		*t = fn.Some(newVal)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*fn.Option[uint32]", l, l)
 }
 
 func GenesisRevealRecord(genesis **asset.Genesis) tlv.Record {

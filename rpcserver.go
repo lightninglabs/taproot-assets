@@ -494,11 +494,19 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 	var seedlingMeta *proof.MetaReveal
 
-	// If a custom decimal display is set, the meta type must also be set to
-	// JSON.
+	// If a custom decimal display is set, we require the AssetMeta to be
+	// set. That means the user has to at least specify the meta type.
 	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
-		return nil, fmt.Errorf("decimal display requires JSON asset " +
+		return nil, fmt.Errorf("decimal display requires asset " +
 			"metadata")
+	}
+
+	// Decimal display doesn't really make sense for collectibles.
+	if req.Asset.DecimalDisplay != 0 &&
+		req.Asset.AssetType == taprpc.AssetType_COLLECTIBLE {
+
+		return nil, fmt.Errorf("decimal display is not supported for " +
+			"collectibles")
 	}
 
 	if req.Asset.AssetMeta != nil {
@@ -508,13 +516,6 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 
-		// If the meta type is not JSON, then a custom decimal display
-		// cannot be set.
-		if metaType != proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			return nil, fmt.Errorf("cannot set decimal display " +
-				"if meta type is not JSON")
-		}
-
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
 		seedlingMeta = &proof.MetaReveal{
@@ -522,35 +523,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			Type: metaType,
 		}
 
-		// If a custom decimal display was requested correctly, but no
-		// metadata was provided, we'll set the metadata to an empty
-		// JSON object. The decimal display will be added as the only
-		// object.
-		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			if len(req.Asset.AssetMeta.Data) == 0 {
-				seedlingMeta.Data = []byte("{}")
-			}
+		// We always set the decimal display, even if it is the default
+		// value of 0, since we now encode it in the TLV meta data.
+		err = seedlingMeta.SetDecDisplay(req.Asset.DecimalDisplay)
+		if err != nil {
+			return nil, err
 		}
 
 		err = seedlingMeta.Validate()
 		if err != nil {
 			return nil, err
-		}
-
-		// If a custom decimal display was requested, add that to the
-		// metadata and re-validate it.
-		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			err := seedlingMeta.SetDecDisplay(
-				req.Asset.DecimalDisplay,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			err = seedlingMeta.Validate()
-			if err != nil {
-				return nil, err
-			}
 		}
 	}
 

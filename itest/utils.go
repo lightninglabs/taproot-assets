@@ -422,12 +422,10 @@ func FinalizeBatchUnconfirmed(t *testing.T, minerClient *rpcclient.Client,
 		require.NoError(t, err)
 
 		metaReveal.Type = validMetaType
-		if metaReveal.Type == proof.MetaJson {
-			err := metaReveal.SetDecDisplay(
-				assetRequest.Asset.DecimalDisplay,
-			)
-			require.NoError(t, err)
-		}
+		err = metaReveal.SetDecDisplay(
+			assetRequest.Asset.DecimalDisplay,
+		)
+		require.NoError(t, err)
 
 		metaHash := metaReveal.MetaHash()
 
@@ -599,6 +597,9 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 		Type: proof.MetaOpaque,
 		Data: req.AssetMeta.Data,
 	}
+	err = assetMeta.SetDecDisplay(req.DecimalDisplay)
+	require.NoError(t.t, err)
+
 	metaHash := assetMeta.MetaHash()
 	metaReveals := tapgarden.AssetMetas{
 		asset.ToSerialized(assetScriptKey.PubKey): &assetMeta,
