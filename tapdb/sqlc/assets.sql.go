@@ -559,7 +559,7 @@ func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]i
 }
 
 const FetchAssetMeta = `-- name: FetchAssetMeta :one
-SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_canonical_universe
 FROM assets_meta
 WHERE meta_id = $1
 `
@@ -576,12 +576,14 @@ func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetM
 		&i.AssetsMetum.MetaDataHash,
 		&i.AssetsMetum.MetaDataBlob,
 		&i.AssetsMetum.MetaDataType,
+		&i.AssetsMetum.MetaDecimalDisplay,
+		&i.AssetsMetum.MetaCanonicalUniverse,
 	)
 	return i, err
 }
 
 const FetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
-SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_canonical_universe
 FROM assets_meta
 WHERE meta_data_hash = $1
 `
@@ -598,12 +600,14 @@ func (q *Queries) FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte)
 		&i.AssetsMetum.MetaDataHash,
 		&i.AssetsMetum.MetaDataBlob,
 		&i.AssetsMetum.MetaDataType,
+		&i.AssetsMetum.MetaDecimalDisplay,
+		&i.AssetsMetum.MetaCanonicalUniverse,
 	)
 	return i, err
 }
 
 const FetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
-SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_canonical_universe
 FROM genesis_assets assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
@@ -622,6 +626,8 @@ func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (F
 		&i.AssetsMetum.MetaDataHash,
 		&i.AssetsMetum.MetaDataBlob,
 		&i.AssetsMetum.MetaDataType,
+		&i.AssetsMetum.MetaDecimalDisplay,
+		&i.AssetsMetum.MetaCanonicalUniverse,
 	)
 	return i, err
 }
@@ -957,7 +963,7 @@ SELECT
     key_group_info.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, spent,
     genesis_info.asset_id, genesis_info.asset_tag,
-    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type,
+    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_canonical_universe,
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
@@ -1039,6 +1045,8 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 			&i.AssetsMetum.MetaDataHash,
 			&i.AssetsMetum.MetaDataBlob,
 			&i.AssetsMetum.MetaDataType,
+			&i.AssetsMetum.MetaDecimalDisplay,
+			&i.AssetsMetum.MetaCanonicalUniverse,
 			&i.GenesisOutputIndex,
 			&i.AssetType,
 			&i.GenesisPrevOut,
@@ -1707,7 +1715,7 @@ WITH target_batch(batch_id) AS (
     WHERE keys.raw_key = $1
 )
 SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
-    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type,
+    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type, assets_meta.meta_decimal_display, assets_meta.meta_canonical_universe,
     emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id, group_tapscript_root,
     script_keys.tweak AS script_key_tweak,
@@ -1773,6 +1781,8 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.AssetsMetum.MetaDataHash,
 			&i.AssetsMetum.MetaDataBlob,
 			&i.AssetsMetum.MetaDataType,
+			&i.AssetsMetum.MetaDecimalDisplay,
+			&i.AssetsMetum.MetaCanonicalUniverse,
 			&i.EmissionEnabled,
 			&i.BatchID,
 			&i.GroupGenesisID,
@@ -2651,27 +2661,38 @@ func (q *Queries) UpsertAssetGroupWitness(ctx context.Context, arg UpsertAssetGr
 
 const UpsertAssetMeta = `-- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
-    meta_data_hash, meta_data_blob, meta_data_type
+    meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display,
+    meta_canonical_universe
 ) VALUES (
-    $1, $2, $3 
+    $1, $2, $3, $4, $5
 ) ON CONFLICT (meta_data_hash)
     -- In this case, we may be inserting the data+type for an existing blob. So
-    -- we'll set both of those values. At this layer we assume the meta hash
+    -- we'll set all of those values. At this layer we assume the meta hash
     -- has been validated elsewhere.
-    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob), 
-                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type)
+    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob),
+                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type),
+                  meta_decimal_display = COALESCE(EXCLUDED.meta_decimal_display, assets_meta.meta_decimal_display),
+                  meta_canonical_universe = COALESCE(EXCLUDED.meta_canonical_universe, assets_meta.meta_canonical_universe)
         
 RETURNING meta_id
 `
 
 type UpsertAssetMetaParams struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	MetaDataHash          []byte
+	MetaDataBlob          []byte
+	MetaDataType          sql.NullInt16
+	MetaDecimalDisplay    sql.NullInt32
+	MetaCanonicalUniverse sql.NullString
 }
 
 func (q *Queries) UpsertAssetMeta(ctx context.Context, arg UpsertAssetMetaParams) (int64, error) {
-	row := q.db.QueryRowContext(ctx, UpsertAssetMeta, arg.MetaDataHash, arg.MetaDataBlob, arg.MetaDataType)
+	row := q.db.QueryRowContext(ctx, UpsertAssetMeta,
+		arg.MetaDataHash,
+		arg.MetaDataBlob,
+		arg.MetaDataType,
+		arg.MetaDecimalDisplay,
+		arg.MetaCanonicalUniverse,
+	)
 	var meta_id int64
 	err := row.Scan(&meta_id)
 	return meta_id, err

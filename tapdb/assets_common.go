@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -688,9 +689,11 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	assetGen *asset.Genesis, metaReveal *proof.MetaReveal) (int64, error) {
 
 	var (
-		metaHash [32]byte
-		metaBlob []byte
-		metaType sql.NullInt16
+		metaHash              [32]byte
+		metaBlob              []byte
+		metaType              sql.NullInt16
+		metaDecimalDisplay    sql.NullInt32
+		metaCanonicalUniverse sql.NullString
 
 		err error
 	)
@@ -701,10 +704,11 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	case metaReveal != nil:
 		metaHash = metaReveal.MetaHash()
 		metaBlob = metaReveal.Data
-		metaType = sql.NullInt16{
-			Int16: int16(metaReveal.Type),
-			Valid: true,
-		}
+		metaType = sqlInt16(metaReveal.Type)
+		metaDecimalDisplay = sqlOptInt32(metaReveal.DecimalDisplay)
+		metaReveal.CanonicalUniverse.WhenSome(func(u url.URL) {
+			metaCanonicalUniverse = sqlStr(u.String())
+		})
 
 	// Otherwise, we'll just be inserting only the meta hash. At a later
 	// time, the reveal/blob can also be inserted.
@@ -717,9 +721,11 @@ func maybeUpsertAssetMeta(ctx context.Context, db UpsertAssetStore,
 	}
 
 	assetMetaID, err := db.UpsertAssetMeta(ctx, NewAssetMeta{
-		MetaDataHash: metaHash[:],
-		MetaDataBlob: metaBlob,
-		MetaDataType: metaType,
+		MetaDataHash:          metaHash[:],
+		MetaDataBlob:          metaBlob,
+		MetaDataType:          metaType,
+		MetaDecimalDisplay:    metaDecimalDisplay,
+		MetaCanonicalUniverse: metaCanonicalUniverse,
 	})
 	if err != nil {
 		return assetMetaID, err

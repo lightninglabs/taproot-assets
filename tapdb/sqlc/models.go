@@ -162,10 +162,12 @@ type AssetWitness struct {
 }
 
 type AssetsMetum struct {
-	MetaID       int64
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	MetaID                int64
+	MetaDataHash          []byte
+	MetaDataBlob          []byte
+	MetaDataType          sql.NullInt16
+	MetaDecimalDisplay    sql.NullInt32
+	MetaCanonicalUniverse sql.NullString
 }
 
 type ChainTxn struct {

@@ -46,8 +46,10 @@ func TestAssetMetaUpsert(t *testing.T) {
 	// Now we'll insert the meta hash again, but this time we'll add the
 	// blob.
 	metaID, err = db.UpsertAssetMeta(ctx, NewAssetMeta{
-		MetaDataHash: metaHash[:],
-		MetaDataBlob: assetMeta.Data,
+		MetaDataHash:          metaHash[:],
+		MetaDataBlob:          assetMeta.Data,
+		MetaDecimalDisplay:    sqlInt32(11),
+		MetaCanonicalUniverse: sqlStr("test"),
 	})
 	require.NoError(t, err)
 
@@ -55,6 +57,13 @@ func TestAssetMetaUpsert(t *testing.T) {
 	fetchedMeta, err := db.FetchAssetMeta(ctx, metaID)
 	require.NoError(t, err)
 	require.Equal(t, metaBlob[:], fetchedMeta.AssetsMetum.MetaDataBlob)
+	require.Equal(
+		t, sqlInt32(11), fetchedMeta.AssetsMetum.MetaDecimalDisplay,
+	)
+	require.Equal(
+		t, sqlStr("test"),
+		fetchedMeta.AssetsMetum.MetaCanonicalUniverse,
+	)
 
 	// If we insert a meta of all zeroes twice, then we should get the same
 	// value back.
