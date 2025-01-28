@@ -2021,12 +2021,20 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 				inputAssets[outpoint], vIn.Asset(),
 			)
 			inputSiblings[outpoint] = sibling
-			inputAltLeaves[outpoint] = append(
-				inputAltLeaves[outpoint],
-				asset.CopyAltLeaves(vIn.AltLeaves)...,
-			)
 			inputScripts[outpoint] = anchorIn.WitnessUtxo.PkScript
 			inputAnchors[outpoint] = vIn.Anchor
+
+			// AltLeaves are the same for all assets from the same
+			// outpoint. So we only need to store them once for each
+			// outpoint.
+			if vIn.Proof == nil {
+				continue
+			}
+			if _, ok := inputAltLeaves[outpoint]; !ok {
+				inputAltLeaves[outpoint] = asset.CopyAltLeaves(
+					vIn.Proof.AltLeaves,
+				)
+			}
 		}
 	}
 
