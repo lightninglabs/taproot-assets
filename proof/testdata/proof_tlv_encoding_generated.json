@@ -1197,6 +1197,10 @@
         "meta_reveal": {
           "type": 0,
           "data": "6d65616e7420696e2063726f6b696e67206e657665726d6f7265",
+          "decimal_display": null,
+          "universe_commitments": null,
+          "canonical_universes": null,
+          "delegation_key": null,
           "unknown_odd_types": null
         },
         "additional_inputs": null,
@@ -1347,6 +1351,10 @@
         "meta_reveal": {
           "type": 0,
           "data": "7368616c6c206265206c6966746564206e657665726d6f7265",
+          "decimal_display": null,
+          "universe_commitments": null,
+          "canonical_universes": null,
+          "delegation_key": null,
           "unknown_odd_types": null
         },
         "additional_inputs": null,
@@ -1445,6 +1453,10 @@
         "meta_reveal": {
           "type": 1,
           "data": "7b22666f6f223a2022626172227d",
+          "decimal_display": null,
+          "universe_commitments": null,
+          "canonical_universes": null,
+          "delegation_key": null,
           "unknown_odd_types": {
             "31337": "ZGVjaW1hbERpc3BsYXk/"
           }
@@ -1467,6 +1479,370 @@
       },
       "expected": "544150500004000000000224e700164e518b243f424c46f9ea63db1c2c34b512c403c128ee19030a6226517b96ba92e20450000000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d61900000000000eb76d7cef2bc52fbde22a56b2cb5750c64a5f9b5b75ae8d1ed943876896824d1f2247e70000000000000000065e0200000001e700164e518b243f424c46f9ea63db1c2c34b512c403c128ee19030a6226517be292ba960000000000014a0100000000000022512087c5895738b41cf39358c72acd68045bcde8caa83e30b6c8b5fc4bcc0ace35b2000000000801000afd018e000100028ae700164e518b243f424c46f9ea63db1c2c34b512c403c128ee19030a6226517b96ba92e24038363162393663613635653334643331663234643666353665653835303932333134613464373635363230356331353332326631633937363133633037396561bd4c1872ae986883d0e8efaccc2cebfb2141bcdf5fd99a51950ee10e461c018500000000010401010601010bad01ab016500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000342014053708a81ea99bb907ea297021dadc6f43c57bfdac91c578cb6df4d5b11b9f6d48c4e931ae3edf7944894c480291ddfbccc52df7bb72301a042e41408bf53e9150e0200001021021fee70480d0e1993490293bb7a747b01602ab5ed55d3dc88f2178853f448e1b5112103dd2340c51f4b7e90984731e96af24a45eccdfc854c2b45f21ad8aada65c4dd880c9f0004000000000221022681983a9b0ebfe74d02e665cf2409061b0038078230ef3d1c706880ce8814c903740149000100022001df08d7a8685881c98ac9d9f045aa953570726c8ff5a6b7ede1c948ee6f4ebb04220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff022700010202220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1126000101020e7b22666f6f223a2022626172227dfd7a690f646563696d616c446973706c61793f160400000001178ae700164e518b243f424c46f9ea63db1c2c34b512c403c128ee19030a6226517b96ba92e24038363162393663613635653334643331663234643666353665653835303932333134613464373635363230356331353332326631633937363133633037396561bd4c1872ae986883d0e8efaccc2cebfb2141bcdf5fd99a51950ee10e461c01850000000001192102076fa1bc3fa96db45917cf9532e73362f9588c7e834b70ee455188737dab7fa0",
       "comment": "meta reveal with unknown odd type"
+    },
+    {
+      "proof": {
+        "prev_out": "b525865f44fa13d1180663d178adeb89dc7a74866ea38039cb4455c5f648c1cb:112541181",
+        "block_header": {
+          "version": 0,
+          "prev_block": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+          "merkle_root": "e1334f6ae7423751d310180a818e84afc7d3683dca08d7b55ee616cdad954be6",
+          "timestamp": 3747137179,
+          "bits": 0,
+          "nonce": 0
+        },
+        "block_height": 1,
+        "anchor_tx": "0200000001cbc148f6c55544cb3980a36e86747adc89ebad78d1630618d113fa445f8625b5fd3db5060000000000014a01000000000000225120ead4a22567590cd1a87e61a5875e18947bd5d30d8a4890a5ee6d17b92ef3f2e100000000",
+        "tx_merkle_proof": {
+          "nodes": [],
+          "bits": []
+        },
+        "asset": {
+          "version": 0,
+          "genesis_first_prev_out": "b525865f44fa13d1180663d178adeb89dc7a74866ea38039cb4455c5f648c1cb:112541181",
+          "genesis_tag": "d7ad323c50a5b11703374174a9977026c20cd52c10b72f14e0569a684a3dcf2c",
+          "genesis_meta_hash": "f7f383557db65a613e7f07b2ed4dc6aca69b9c487ee7656f0500f7ad3b15353b",
+          "genesis_output_index": 0,
+          "genesis_type": 0,
+          "amount": 5000,
+          "lock_time": 0,
+          "relative_lock_time": 0,
+          "prev_witnesses": [
+            {
+              "prev_id": {
+                "out_point": "0000000000000000000000000000000000000000000000000000000000000000:0",
+                "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
+                "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
+              },
+              "tx_witness": [
+                "bfeeb9a3637491d42e3a8459fc587c08be3a031c1a41fde3314ad68867678f104348b01643f00e3a84922ef441e3baa2be2dfad3818b938bf24ec35373da8da4"
+              ],
+              "split_commitment": null
+            }
+          ],
+          "split_commitment_root": null,
+          "script_version": 0,
+          "script_key": "02a8fbf44877a3f6d05f47f3e3a53a80f9896fce987b99df90b399af033878c318",
+          "group_key": {
+            "group_key": "032b38f1ac407583a49a517fba228e1a028c6089c9380d8fa105abff7a5eae64e4"
+          },
+          "unknown_odd_types": null
+        },
+        "inclusion_proof": {
+          "output_index": 0,
+          "internal_key": "0210004ee6b0a1f59afb7c045cc9eb9d3fdb8c5de1beef7fc65cf441c322ca1613",
+          "commitment_proof": {
+            "proof": {
+              "asset_proof": {
+                "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "version": 0,
+                "tap_key": "dadc2d3b175457cbb536ca1b7c2443f8073806eacd4e456bde8bcbc91ba5ba7d",
+                "unknown_odd_types": null
+              },
+              "taproot_asset_proof": {
+                "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "version": 2,
+                "unknown_odd_types": null
+              },
+              "unknown_odd_types": null
+            },
+            "tapscript_sibling": "",
+            "unknown_odd_types": null
+          },
+          "tapscript_proof": null,
+          "unknown_odd_types": null
+        },
+        "exclusion_proofs": null,
+        "split_root_proof": null,
+        "meta_reveal": {
+          "type": 0,
+          "data": "6d65616e7420696e2063726f6f6b696e67206e657665726d6f7265",
+          "decimal_display": 8,
+          "universe_commitments": null,
+          "canonical_universes": [
+            "universerpc://some-host:1234"
+          ],
+          "delegation_key": null,
+          "unknown_odd_types": null
+        },
+        "additional_inputs": null,
+        "challenge_witness": null,
+        "genesis_reveal": {
+          "first_prev_out": "b525865f44fa13d1180663d178adeb89dc7a74866ea38039cb4455c5f648c1cb:112541181",
+          "tag": "d7ad323c50a5b11703374174a9977026c20cd52c10b72f14e0569a684a3dcf2c",
+          "meta_hash": "f7f383557db65a613e7f07b2ed4dc6aca69b9c487ee7656f0500f7ad3b15353b",
+          "output_index": 0,
+          "type": 0
+        },
+        "group_key_reveal": {
+          "raw_key": "02b3545fd507b4a79726561e2c736bc6a31ac742bd9bc215dc397f3fd5d5c1c372",
+          "tapscript_root": ""
+        },
+        "alt_leaves": null,
+        "unknown_odd_types": null
+      },
+      "expected": "544150500004000000000224cbc148f6c55544cb3980a36e86747adc89ebad78d1630618d113fa445f8625b506b53dfd0450000000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d6190000000000e64b95adcd16e65eb5d708ca3d68d3c7af848e810a1810d3513742e76a4f33e19bc658df0000000000000000065e0200000001cbc148f6c55544cb3980a36e86747adc89ebad78d1630618d113fa445f8625b5fd3db5060000000000014a01000000000000225120ead4a22567590cd1a87e61a5875e18947bd5d30d8a4890a5ee6d17b92ef3f2e1000000000801000afd0190000100028acbc148f6c55544cb3980a36e86747adc89ebad78d1630618d113fa445f8625b506b53dfd4064376164333233633530613562313137303333373431373461393937373032366332306364353263313062373266313465303536396136383461336463663263f7f383557db65a613e7f07b2ed4dc6aca69b9c487ee7656f0500f7ad3b15353b00000000000401000603fd13880bad01ab0165000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003420140bfeeb9a3637491d42e3a8459fc587c08be3a031c1a41fde3314ad68867678f104348b01643f00e3a84922ef441e3baa2be2dfad3818b938bf24ec35373da8da40e020000102102a8fbf44877a3f6d05f47f3e3a53a80f9896fce987b99df90b399af033878c3181121032b38f1ac407583a49a517fba228e1a028c6089c9380d8fa105abff7a5eae64e40c9f00040000000002210210004ee6b0a1f59afb7c045cc9eb9d3fdb8c5de1beef7fc65cf441c322ca1613037401490001000220dadc2d3b175457cbb536ca1b7c2443f8073806eacd4e456bde8bcbc91ba5ba7d04220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff022700010202220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff1146000100021b6d65616e7420696e2063726f6f6b696e67206e657665726d6f7265050400000008091e011c756e6976657273657270633a2f2f736f6d652d686f73743a31323334160400000001178acbc148f6c55544cb3980a36e86747adc89ebad78d1630618d113fa445f8625b506b53dfd4064376164333233633530613562313137303333373431373461393937373032366332306364353263313062373266313465303536396136383461336463663263f7f383557db65a613e7f07b2ed4dc6aca69b9c487ee7656f0500f7ad3b15353b0000000000192102b3545fd507b4a79726561e2c736bc6a31ac742bd9bc215dc397f3fd5d5c1c372",
+      "comment": "normal asset with a meta reveal and decimal display and canonical universe URL"
+    },
+    {
+      "proof": {
+        "prev_out": "fe9960a9175e67a980c31ab1911b06963e340f9f30d433d9705eefdfe762e9c9:2020055348",
+        "block_header": {
+          "version": 0,
+          "prev_block": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+          "merkle_root": "ee10a15ce35bee17e4eb151e64b76426ae25326d8ca082036ad0f4be311b6b0d",
+          "timestamp": 2824388468,
+          "bits": 0,
+          "nonce": 0
+        },
+        "block_height": 1,
+        "anchor_tx": "0200000001c9e962e7dfef5e70d933d4309f0f343e96061b91b11ac380a9675e17a96099fe349967780000000000014a010000000000002251204519ee4b32cc6bb7289f5d434dead85ec709d33b2a534840bcd8f454cc5d0ad100000000",
+        "tx_merkle_proof": {
+          "nodes": [],
+          "bits": []
+        },
+        "asset": {
+          "version": 0,
+          "genesis_first_prev_out": "fe9960a9175e67a980c31ab1911b06963e340f9f30d433d9705eefdfe762e9c9:2020055348",
+          "genesis_tag": "264ec9451ec23aaaa367d640faad4af3d44d6d86544ade34c935182843f6b4d1",
+          "genesis_meta_hash": "fe28de4a80a62597f24f1279b41cc4c3488e2037537a9145959cca33389e1b8a",
+          "genesis_output_index": 0,
+          "genesis_type": 1,
+          "amount": 1,
+          "lock_time": 0,
+          "relative_lock_time": 0,
+          "prev_witnesses": [
+            {
+              "prev_id": {
+                "out_point": "0000000000000000000000000000000000000000000000000000000000000000:0",
+                "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
+                "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
+              },
+              "tx_witness": [
+                "2411e25e9bb6e7eb2bb8cd56c27022746c3da6120b53e60a206be8476f0f0525b01d0179ad029e0adb75b7569111f0401b55273ece98f4ffc5e042c7f40646e7"
+              ],
+              "split_commitment": null
+            }
+          ],
+          "split_commitment_root": null,
+          "script_version": 0,
+          "script_key": "02aa2a1a5a62ec9177f3c1fec2255dbf881e7b7bb52617998c7a1fe85e515ee3dd",
+          "group_key": {
+            "group_key": "02e6f0423945264476b2254c711956a2827404cc88ab624213fcf5545804c1c7a3"
+          },
+          "unknown_odd_types": null
+        },
+        "inclusion_proof": {
+          "output_index": 0,
+          "internal_key": "02bc34e025fb476662eb9b7b4a912a79d668b0268acc36765977513b09f6e52fb3",
+          "commitment_proof": {
+            "proof": {
+              "asset_proof": {
+                "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "version": 0,
+                "tap_key": "4013e71144131c0842870b7710ae5fc875e338f1107ed31443f961df22ab4963",
+                "unknown_odd_types": null
+              },
+              "taproot_asset_proof": {
+                "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "version": 2,
+                "unknown_odd_types": null
+              },
+              "unknown_odd_types": null
+            },
+            "tapscript_sibling": "",
+            "unknown_odd_types": null
+          },
+          "tapscript_proof": null,
+          "unknown_odd_types": null
+        },
+        "exclusion_proofs": null,
+        "split_root_proof": null,
+        "meta_reveal": {
+          "type": 0,
+          "data": "7368616c6c206265206c6966746564206e657665726d6f7265",
+          "decimal_display": 3,
+          "universe_commitments": null,
+          "canonical_universes": [
+            "universerpc://some-host:1234"
+          ],
+          "delegation_key": null,
+          "unknown_odd_types": null
+        },
+        "additional_inputs": null,
+        "challenge_witness": null,
+        "genesis_reveal": {
+          "first_prev_out": "fe9960a9175e67a980c31ab1911b06963e340f9f30d433d9705eefdfe762e9c9:2020055348",
+          "tag": "264ec9451ec23aaaa367d640faad4af3d44d6d86544ade34c935182843f6b4d1",
+          "meta_hash": "fe28de4a80a62597f24f1279b41cc4c3488e2037537a9145959cca33389e1b8a",
+          "output_index": 0,
+          "type": 1
+        },
+        "group_key_reveal": {
+          "raw_key": "0361770a58dfcd17906b7f8a0e0425a52337970d06591abc9240d4d8693ec3b57b",
+          "tapscript_root": ""
+        },
+        "alt_leaves": null,
+        "unknown_odd_types": null
+      },
+      "expected": "544150500004000000000224c9e962e7dfef5e70d933d4309f0f343e96061b91b11ac380a9675e17a96099fe786799340450000000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d61900000000000d6b1b31bef4d06a0382a08c6d3225ae2664b7641e15ebe417ee5be35ca110ee74bf58a80000000000000000065e0200000001c9e962e7dfef5e70d933d4309f0f343e96061b91b11ac380a9675e17a96099fe349967780000000000014a010000000000002251204519ee4b32cc6bb7289f5d434dead85ec709d33b2a534840bcd8f454cc5d0ad1000000000801000afd018e000100028ac9e962e7dfef5e70d933d4309f0f343e96061b91b11ac380a9675e17a96099fe786799344032363465633934353165633233616161613336376436343066616164346166336434346436643836353434616465333463393335313832383433663662346431fe28de4a80a62597f24f1279b41cc4c3488e2037537a9145959cca33389e1b8a00000000010401010601010bad01ab01650000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000034201402411e25e9bb6e7eb2bb8cd56c27022746c3da6120b53e60a206be8476f0f0525b01d0179ad029e0adb75b7569111f0401b55273ece98f4ffc5e042c7f40646e70e020000102102aa2a1a5a62ec9177f3c1fec2255dbf881e7b7bb52617998c7a1fe85e515ee3dd112102e6f0423945264476b2254c711956a2827404cc88ab624213fcf5545804c1c7a30c9f000400000000022102bc34e025fb476662eb9b7b4a912a79d668b0268acc36765977513b09f6e52fb30374014900010002204013e71144131c0842870b7710ae5fc875e338f1107ed31443f961df22ab496304220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff022700010202220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff114400010002197368616c6c206265206c6966746564206e657665726d6f7265050400000003091e011c756e6976657273657270633a2f2f736f6d652d686f73743a31323334160400000001178ac9e962e7dfef5e70d933d4309f0f343e96061b91b11ac380a9675e17a96099fe786799344032363465633934353165633233616161613336376436343066616164346166336434346436643836353434616465333463393335313832383433663662346431fe28de4a80a62597f24f1279b41cc4c3488e2037537a9145959cca33389e1b8a000000000119210361770a58dfcd17906b7f8a0e0425a52337970d06591abc9240d4d8693ec3b57b",
+      "comment": "collectible with a meta reveal and decimal display and canonical universe URL"
+    },
+    {
+      "proof": {
+        "prev_out": "19e7358a5f2e2a4b735937f40d3b628bd494710cb199c0d99e9f3420b82dd4fc:1469177755",
+        "block_header": {
+          "version": 0,
+          "prev_block": "000000000019d6689c085ae165831e934ff763ae46a2a6c172b3f1b60a8ce26f",
+          "merkle_root": "c38176aa77fb7087f335ec2c11428e48c826151652b6073409b879fd31799618",
+          "timestamp": 2189833511,
+          "bits": 0,
+          "nonce": 0
+        },
+        "block_height": 1,
+        "anchor_tx": "0200000001fcd42db820349f9ed9c099b10c7194d48b623b0df43759734b2a2e5f8a35e7199bdf91570000000000014a0100000000000022512039251f1e865e6286adf1c46680549cc88e03c5c0113612efa25e8a71ee8f24a600000000",
+        "tx_merkle_proof": {
+          "nodes": [],
+          "bits": []
+        },
+        "asset": {
+          "version": 0,
+          "genesis_first_prev_out": "19e7358a5f2e2a4b735937f40d3b628bd494710cb199c0d99e9f3420b82dd4fc:1469177755",
+          "genesis_tag": "a1612aad5d3ea7e8e35f325c9168ac490f22cb713ddb61fbd96011c5849ac8e2",
+          "genesis_meta_hash": "ba94bffcac0cac6f383fadd9782e7d1dfe741fa76bff5723ad78688348edabc5",
+          "genesis_output_index": 0,
+          "genesis_type": 0,
+          "amount": 5000,
+          "lock_time": 0,
+          "relative_lock_time": 0,
+          "prev_witnesses": [
+            {
+              "prev_id": {
+                "out_point": "0000000000000000000000000000000000000000000000000000000000000000:0",
+                "asset_id": "0000000000000000000000000000000000000000000000000000000000000000",
+                "script_key": "000000000000000000000000000000000000000000000000000000000000000000"
+              },
+              "tx_witness": [
+                "85cc79e362b307fca4f2326461c0f15610285aa0356495a3be74336d60f1f2537f729d0ba22ca99a94c15ddeb18b82879895ed61631246022e36ab171fe41148"
+              ],
+              "split_commitment": null
+            }
+          ],
+          "split_commitment_root": null,
+          "script_version": 0,
+          "script_key": "02dd3d9c135f1cc434ede36929ffe262ad5f8211c3ed0dd133eb394f3e4519a818",
+          "group_key": {
+            "group_key": "0248596ab49bde017257e64abea83543ed63079091b2ff734d03ca764e0d0d1a0f"
+          },
+          "unknown_odd_types": null
+        },
+        "inclusion_proof": {
+          "output_index": 0,
+          "internal_key": "02792ffb6abbf3d5bce42afff4638be7343e033e9c7b3d9ac81d6da7ce7176524e",
+          "commitment_proof": {
+            "proof": {
+              "asset_proof": {
+                "proof": "0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+                "version": 0,
+                "tap_key": "83757d67c9b10ee40badf050079635b903443a9b253d67b204ef4a2a5d625d28",
+                "unknown_odd_types": null
+              },
+              "taproot_asset_proof": {
+                "proof": "00019a0e15afd4bc8fdc393eab668d009ba0f33955b9cca4c4ab6ecc95b1ababa7460000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f",
+                "version": 2,
+                "unknown_odd_types": null
+              },
+              "unknown_odd_types": null
+            },
+            "tapscript_sibling": "",
+            "unknown_odd_types": null
+          },
+          "tapscript_proof": null,
+          "unknown_odd_types": null
+        },
+        "exclusion_proofs": null,
+        "split_root_proof": null,
+        "meta_reveal": {
+          "type": 0,
+          "data": "66756c6c79206c6f61646564",
+          "decimal_display": 11,
+          "universe_commitments": true,
+          "canonical_universes": [
+            "universerpc://some-host:1234",
+            "universerpc://another-host:765"
+          ],
+          "delegation_key": "027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe",
+          "unknown_odd_types": null
+        },
+        "additional_inputs": null,
+        "challenge_witness": null,
+        "genesis_reveal": {
+          "first_prev_out": "19e7358a5f2e2a4b735937f40d3b628bd494710cb199c0d99e9f3420b82dd4fc:1469177755",
+          "tag": "a1612aad5d3ea7e8e35f325c9168ac490f22cb713ddb61fbd96011c5849ac8e2",
+          "meta_hash": "ba94bffcac0cac6f383fadd9782e7d1dfe741fa76bff5723ad78688348edabc5",
+          "output_index": 0,
+          "type": 0
+        },
+        "group_key_reveal": {
+          "raw_key": "0239d8231e5af9668eb4af2f81e536fb24f46fdbad9a09f69154d1c002a183db06",
+          "tapscript_root": ""
+        },
+        "alt_leaves": [
+          {
+            "version": 0,
+            "genesis_first_prev_out": "0000000000000000000000000000000000000000000000000000000000000000:0",
+            "genesis_tag": "",
+            "genesis_meta_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "genesis_output_index": 0,
+            "genesis_type": 0,
+            "amount": 0,
+            "lock_time": 0,
+            "relative_lock_time": 0,
+            "prev_witnesses": [
+              {
+                "prev_id": null,
+                "tx_witness": null,
+                "split_commitment": null
+              }
+            ],
+            "split_commitment_root": null,
+            "script_version": 9561,
+            "script_key": "0293ef7b605bc9769eeb0091b20a5979fda874402f2c0881af561d58032a684361",
+            "group_key": null,
+            "unknown_odd_types": null
+          },
+          {
+            "version": 0,
+            "genesis_first_prev_out": "0000000000000000000000000000000000000000000000000000000000000000:0",
+            "genesis_tag": "",
+            "genesis_meta_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "genesis_output_index": 0,
+            "genesis_type": 0,
+            "amount": 0,
+            "lock_time": 0,
+            "relative_lock_time": 0,
+            "prev_witnesses": [
+              {
+                "prev_id": null,
+                "tx_witness": [
+                  "de7b9e8c546035eab7e2",
+                  "da420f32ed5c94bc12a3",
+                  "4dc68eb99257a7ea03b6"
+                ],
+                "split_commitment": null
+              }
+            ],
+            "split_commitment_root": null,
+            "script_version": 7185,
+            "script_key": "02442ef4f15828c4a929123d2639b9868721f0a91ae8a37c2b9bdc79aefa03eb77",
+            "group_key": null,
+            "unknown_odd_types": null
+          }
+        ],
+        "unknown_odd_types": null
+      },
+      "expected": "544150500004000000000224fcd42db820349f9ed9c099b10c7194d48b623b0df43759734b2a2e5f8a35e7195791df9b0450000000006fe28c0ab6f1b372c1a6a246ae63f74f931e8365e15a089c68d619000000000018967931fd79b8093407b652161526c8488e42112cec35f38770fb77aa7681c3273586820000000000000000065e0200000001fcd42db820349f9ed9c099b10c7194d48b623b0df43759734b2a2e5f8a35e7199bdf91570000000000014a0100000000000022512039251f1e865e6286adf1c46680549cc88e03c5c0113612efa25e8a71ee8f24a6000000000801000afd0190000100028afcd42db820349f9ed9c099b10c7194d48b623b0df43759734b2a2e5f8a35e7195791df9b4061313631326161643564336561376538653335663332356339313638616334393066323263623731336464623631666264393630313163353834396163386532ba94bffcac0cac6f383fadd9782e7d1dfe741fa76bff5723ad78688348edabc500000000000401000603fd13880bad01ab016500000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000342014085cc79e362b307fca4f2326461c0f15610285aa0356495a3be74336d60f1f2537f729d0ba22ca99a94c15ddeb18b82879895ed61631246022e36ab171fe411480e020000102102dd3d9c135f1cc434ede36929ffe262ad5f8211c3ed0dd133eb394f3e4519a81811210248596ab49bde017257e64abea83543ed63079091b2ff734d03ca764e0d0d1a0f0cc7000400000000022102792ffb6abbf3d5bce42afff4638be7343e033e9c7b3d9ac81d6da7ce7176524e039c0149000100022083757d67c9b10ee40badf050079635b903443a9b253d67b204ef4a2a5d625d2804220000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff024f000102024a00019a0e15afd4bc8fdc393eab668d009ba0f33955b9cca4c4ab6ecc95b1ababa7460000000000000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff7f117c000100020c66756c6c79206c6f6164656405040000000b070101093d021c756e6976657273657270633a2f2f736f6d652d686f73743a313233341e756e6976657273657270633a2f2f616e6f746865722d686f73743a3736350b21027c79b9b26e463895eef5679d8558942c86c4ad2233adef01bc3e6d540b3653fe160400000001178afcd42db820349f9ed9c099b10c7194d48b623b0df43759734b2a2e5f8a35e7195791df9b4061313631326161643564336561376538653335663332356339313638616334393066323263623731336464623631666264393630313163353834396163386532ba94bffcac0cac6f383fadd9782e7d1dfe741fa76bff5723ad78688348edabc5000000000019210239d8231e5af9668eb4af2f81e536fb24f46fdbad9a09f69154d1c002a183db061b7d022b0b0201000e02255910210293ef7b605bc9769eeb0091b20a5979fda874402f2c0881af561d58032a6843614f0b2601240322030ade7b9e8c546035eab7e20ada420f32ed5c94bc12a30a4dc68eb99257a7ea03b60e021c11102102442ef4f15828c4a929123d2639b9868721f0a91ae8a37c2b9bdc79aefa03eb77",
+      "comment": "normal asset with all meta reveal fields"
     }
   ],
   "error_test_cases": null

@@ -927,17 +927,45 @@ func (ttp *TestTapscriptProof) ToTapscriptProof(t testing.TB) *TapscriptProof {
 func NewTestFromMetaReveal(t testing.TB, m *MetaReveal) *TestMetaReveal {
 	t.Helper()
 
+	var universeCommitments *bool
+	if m.UniverseCommitments {
+		trueValue := true
+		universeCommitments = &trueValue
+	}
+
+	var canonicalUniverses []string
+	m.CanonicalUniverses.WhenSome(func(urls []url.URL) {
+		canonicalUniverses = fn.Map(urls, func(u url.URL) string {
+			return u.String()
+		})
+	})
+
+	var delegationKey *string
+	m.DelegationKey.WhenSome(func(key btcec.PublicKey) {
+		keyBytes := key.SerializeCompressed()
+		keyHex := hex.EncodeToString(keyBytes)
+		delegationKey = &keyHex
+	})
+
 	return &TestMetaReveal{
-		Type:            uint8(m.Type),
-		Data:            hex.EncodeToString(m.Data),
-		UnknownOddTypes: m.UnknownOddTypes,
+		Type:                uint8(m.Type),
+		Data:                hex.EncodeToString(m.Data),
+		UniverseCommitments: universeCommitments,
+		DecimalDisplay:      m.DecimalDisplay.UnwrapToPtr(),
+		CanonicalUniverses:  canonicalUniverses,
+		DelegationKey:       delegationKey,
+		UnknownOddTypes:     m.UnknownOddTypes,
 	}
 }
 
 type TestMetaReveal struct {
-	Type            uint8       `json:"type"`
-	Data            string      `json:"data"`
-	UnknownOddTypes tlv.TypeMap `json:"unknown_odd_types"`
+	Type                uint8       `json:"type"`
+	Data                string      `json:"data"`
+	DecimalDisplay      *uint32     `json:"decimal_display"`
+	UniverseCommitments *bool       `json:"universe_commitments"`
+	CanonicalUniverses  []string    `json:"canonical_universes"`
+	DelegationKey       *string     `json:"delegation_key"`
+	UnknownOddTypes     tlv.TypeMap `json:"unknown_odd_types"`
 }
 
 func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
@@ -946,9 +974,47 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 	data, err := hex.DecodeString(tmr.Data)
 	require.NoError(t, err)
 
+	var decimalDisplay fn.Option[uint32]
+	if tmr.DecimalDisplay != nil {
+		decimalDisplay = fn.Some(*tmr.DecimalDisplay)
+	}
+
+	var universeCommitments bool
+	if tmr.UniverseCommitments != nil && *tmr.UniverseCommitments {
+		universeCommitments = true
+	}
+
+	var canonicalUniverses fn.Option[[]url.URL]
+	if len(tmr.CanonicalUniverses) > 0 {
+		urls := make([]url.URL, len(tmr.CanonicalUniverses))
+		for idx, u := range tmr.CanonicalUniverses {
+			uniURL, err := url.Parse(u)
+			require.NoError(t, err)
+
+			urls[idx] = *uniURL
+		}
+
+		canonicalUniverses = fn.Some(urls)
+	}
+
+	var delegationKey fn.Option[btcec.PublicKey]
+	if tmr.DelegationKey != nil {
+		keyBytes, err := hex.DecodeString(*tmr.DelegationKey)
+		require.NoError(t, err)
+
+		key, err := btcec.ParsePubKey(keyBytes)
+		require.NoError(t, err)
+
+		delegationKey = fn.Some(*key)
+	}
+
 	return &MetaReveal{
-		Type:            MetaType(tmr.Type),
-		Data:            data,
-		UnknownOddTypes: tmr.UnknownOddTypes,
+		Type:                MetaType(tmr.Type),
+		Data:                data,
+		DecimalDisplay:      decimalDisplay,
+		UniverseCommitments: universeCommitments,
+		CanonicalUniverses:  canonicalUniverses,
+		DelegationKey:       delegationKey,
+		UnknownOddTypes:     tmr.UnknownOddTypes,
 	}
 }
