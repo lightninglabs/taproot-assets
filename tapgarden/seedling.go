@@ -3,6 +3,7 @@ package tapgarden
 import (
 	"crypto/sha256"
 	"fmt"
+	"net/url"
 
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -181,6 +182,14 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 			"group asset type %v", group.Genesis.Type)
 	}
 
+	return validateAnchorMeta(c.Meta, anchorMeta)
+}
+
+// validateAnchorMeta checks that the metadata of the seedling matches that of
+// the group anchor, if there is a group anchor.
+func validateAnchorMeta(seedlingMeta *proof.MetaReveal,
+	anchorMeta *proof.MetaReveal) error {
+
 	// The decimal display of the seedling must match that of the group
 	// anchor. We already validated the seedling metadata, so we don't care
 	// if the value is explicit or if the metadata is JSON, but we must
@@ -189,11 +198,9 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 		seedlingDecDisplay uint32
 		anchorDecDisplay   uint32
 	)
-
-	if c.Meta != nil {
-		_, seedlingDecDisplay, _ = c.Meta.GetDecDisplay()
+	if seedlingMeta != nil {
+		_, seedlingDecDisplay, _ = seedlingMeta.GetDecDisplay()
 	}
-
 	if anchorMeta != nil {
 		_, anchorDecDisplay, _ = anchorMeta.GetDecDisplay()
 	}
@@ -202,6 +209,29 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 		return fmt.Errorf("seedling decimal display does not match "+
 			"group anchor: %d, %d", seedlingDecDisplay,
 			anchorDecDisplay)
+	}
+
+	// We also require the canonical universe URL and universe commitment
+	// flag to match.
+	var (
+		seedlingCanonicalURL string
+		anchorCanonicalURL   string
+	)
+	if seedlingMeta != nil {
+		seedlingMeta.CanonicalUniverse.WhenSome(func(u url.URL) {
+			seedlingCanonicalURL = u.String()
+		})
+	}
+	if anchorMeta != nil {
+		anchorMeta.CanonicalUniverse.WhenSome(func(u url.URL) {
+			anchorCanonicalURL = u.String()
+		})
+	}
+
+	if seedlingCanonicalURL != anchorCanonicalURL {
+		return fmt.Errorf("seedling canonical universe URL does not "+
+			"match group anchor: %v, %v", seedlingCanonicalURL,
+			anchorCanonicalURL)
 	}
 
 	return nil
