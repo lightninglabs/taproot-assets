@@ -982,15 +982,20 @@ WHERE asset_id = $1;
 
 -- name: UpsertAssetMeta :one
 INSERT INTO assets_meta (
-    meta_data_hash, meta_data_blob, meta_data_type
+    meta_data_hash, meta_data_blob, meta_data_type, meta_decimal_display,
+    meta_universe_commitments, meta_canonical_universes, meta_delegation_key
 ) VALUES (
-    $1, $2, $3 
+    $1, $2, $3, $4, $5, $6, $7
 ) ON CONFLICT (meta_data_hash)
     -- In this case, we may be inserting the data+type for an existing blob. So
-    -- we'll set both of those values. At this layer we assume the meta hash
+    -- we'll set all of those values. At this layer we assume the meta hash
     -- has been validated elsewhere.
-    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob), 
-                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type)
+    DO UPDATE SET meta_data_blob = COALESCE(EXCLUDED.meta_data_blob, assets_meta.meta_data_blob),
+                  meta_data_type = COALESCE(EXCLUDED.meta_data_type, assets_meta.meta_data_type),
+                  meta_decimal_display = COALESCE(EXCLUDED.meta_decimal_display, assets_meta.meta_decimal_display),
+                  meta_universe_commitments = COALESCE(EXCLUDED.meta_universe_commitments, assets_meta.meta_universe_commitments),
+                  meta_canonical_universes = COALESCE(EXCLUDED.meta_canonical_universes, assets_meta.meta_canonical_universes),
+                  meta_delegation_key = COALESCE(EXCLUDED.meta_delegation_key, assets_meta.meta_delegation_key)
         
 RETURNING meta_id;
 
