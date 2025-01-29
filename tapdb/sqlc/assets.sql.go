@@ -559,45 +559,51 @@ func (q *Queries) FetchAssetID(ctx context.Context, arg FetchAssetIDParams) ([]i
 }
 
 const FetchAssetMeta = `-- name: FetchAssetMeta :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type
 FROM assets_meta
 WHERE meta_id = $1
 `
 
 type FetchAssetMetaRow struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	AssetsMetum AssetsMetum
 }
 
 func (q *Queries) FetchAssetMeta(ctx context.Context, metaID int64) (FetchAssetMetaRow, error) {
 	row := q.db.QueryRowContext(ctx, FetchAssetMeta, metaID)
 	var i FetchAssetMetaRow
-	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	err := row.Scan(
+		&i.AssetsMetum.MetaID,
+		&i.AssetsMetum.MetaDataHash,
+		&i.AssetsMetum.MetaDataBlob,
+		&i.AssetsMetum.MetaDataType,
+	)
 	return i, err
 }
 
 const FetchAssetMetaByHash = `-- name: FetchAssetMetaByHash :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type
 FROM assets_meta
 WHERE meta_data_hash = $1
 `
 
 type FetchAssetMetaByHashRow struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	AssetsMetum AssetsMetum
 }
 
 func (q *Queries) FetchAssetMetaByHash(ctx context.Context, metaDataHash []byte) (FetchAssetMetaByHashRow, error) {
 	row := q.db.QueryRowContext(ctx, FetchAssetMetaByHash, metaDataHash)
 	var i FetchAssetMetaByHashRow
-	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	err := row.Scan(
+		&i.AssetsMetum.MetaID,
+		&i.AssetsMetum.MetaDataHash,
+		&i.AssetsMetum.MetaDataBlob,
+		&i.AssetsMetum.MetaDataType,
+	)
 	return i, err
 }
 
 const FetchAssetMetaForAsset = `-- name: FetchAssetMetaForAsset :one
-SELECT meta_data_hash, meta_data_blob, meta_data_type
+SELECT assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type
 FROM genesis_assets assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
@@ -605,15 +611,18 @@ WHERE assets.asset_id = $1
 `
 
 type FetchAssetMetaForAssetRow struct {
-	MetaDataHash []byte
-	MetaDataBlob []byte
-	MetaDataType sql.NullInt16
+	AssetsMetum AssetsMetum
 }
 
 func (q *Queries) FetchAssetMetaForAsset(ctx context.Context, assetID []byte) (FetchAssetMetaForAssetRow, error) {
 	row := q.db.QueryRowContext(ctx, FetchAssetMetaForAsset, assetID)
 	var i FetchAssetMetaForAssetRow
-	err := row.Scan(&i.MetaDataHash, &i.MetaDataBlob, &i.MetaDataType)
+	err := row.Scan(
+		&i.AssetsMetum.MetaID,
+		&i.AssetsMetum.MetaDataHash,
+		&i.AssetsMetum.MetaDataBlob,
+		&i.AssetsMetum.MetaDataType,
+	)
 	return i, err
 }
 
@@ -906,9 +915,8 @@ WITH genesis_info AS (
     -- for internal keys that match our main batch key.
     SELECT
         gen_asset_id, asset_id, asset_tag, output_index, asset_type,
-        genesis_points.prev_out prev_out, 
-        assets_meta.meta_data_hash meta_hash, assets_meta.meta_data_type meta_type,
-        assets_meta.meta_data_blob meta_blob
+        genesis_points.prev_out prev_out,
+        assets_meta.meta_id
     FROM genesis_assets
     LEFT JOIN assets_meta
         ON genesis_assets.meta_data_id = assets_meta.meta_id
@@ -948,13 +956,15 @@ SELECT
     key_group_info.key_family AS group_key_family,
     key_group_info.key_index AS group_key_index,
     script_version, amount, lock_time, relative_lock_time, spent,
-    genesis_info.asset_id, genesis_info.asset_tag, genesis_info.meta_hash, 
-    genesis_info.meta_type, genesis_info.meta_blob, 
+    genesis_info.asset_id, genesis_info.asset_tag,
+    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type,
     genesis_info.output_index AS genesis_output_index, genesis_info.asset_type,
     genesis_info.prev_out AS genesis_prev_out
 FROM assets
 JOIN genesis_info
     ON assets.genesis_id = genesis_info.gen_asset_id
+LEFT JOIN assets_meta
+    ON genesis_info.meta_id = assets_meta.meta_id
 LEFT JOIN key_group_info
     ON assets.genesis_id = key_group_info.gen_asset_id
 JOIN script_keys
@@ -984,16 +994,15 @@ type FetchAssetsForBatchRow struct {
 	Spent                  bool
 	AssetID                []byte
 	AssetTag               string
-	MetaHash               []byte
-	MetaType               sql.NullInt16
-	MetaBlob               []byte
+	AssetsMetum            AssetsMetum
 	GenesisOutputIndex     int32
 	AssetType              int16
 	GenesisPrevOut         []byte
 }
 
+// We use a LEFT JOIN here as not every asset has a meta data entry.
 // We use a LEFT JOIN here as not every asset has a group key, so this'll
-// generate rows that have NULL values for the faily key fields if an asset
+// generate rows that have NULL values for the group key fields if an asset
 // doesn't have a group key. See the comment in fetchAssetSprouts for a work
 // around that needs to be used with this query until a sqlc bug is fixed.
 func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error) {
@@ -1026,9 +1035,10 @@ func (q *Queries) FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]Fet
 			&i.Spent,
 			&i.AssetID,
 			&i.AssetTag,
-			&i.MetaHash,
-			&i.MetaType,
-			&i.MetaBlob,
+			&i.AssetsMetum.MetaID,
+			&i.AssetsMetum.MetaDataHash,
+			&i.AssetsMetum.MetaDataBlob,
+			&i.AssetsMetum.MetaDataType,
 			&i.GenesisOutputIndex,
 			&i.AssetType,
 			&i.GenesisPrevOut,
@@ -1696,9 +1706,9 @@ WITH target_batch(batch_id) AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply, 
-    assets_meta.meta_data_hash, assets_meta.meta_data_type, 
-    assets_meta.meta_data_blob, emission_enabled, batch_id, 
+SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
+    assets_meta.meta_id, assets_meta.meta_data_hash, assets_meta.meta_data_blob, assets_meta.meta_data_type,
+    emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id, group_tapscript_root,
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
@@ -1727,9 +1737,7 @@ type FetchSeedlingsForBatchRow struct {
 	AssetType              int16
 	AssetVersion           int16
 	AssetSupply            int64
-	MetaDataHash           []byte
-	MetaDataType           sql.NullInt16
-	MetaDataBlob           []byte
+	AssetsMetum            AssetsMetum
 	EmissionEnabled        bool
 	BatchID                int64
 	GroupGenesisID         sql.NullInt64
@@ -1761,9 +1769,10 @@ func (q *Queries) FetchSeedlingsForBatch(ctx context.Context, rawKey []byte) ([]
 			&i.AssetType,
 			&i.AssetVersion,
 			&i.AssetSupply,
-			&i.MetaDataHash,
-			&i.MetaDataType,
-			&i.MetaDataBlob,
+			&i.AssetsMetum.MetaID,
+			&i.AssetsMetum.MetaDataHash,
+			&i.AssetsMetum.MetaDataBlob,
+			&i.AssetsMetum.MetaDataType,
 			&i.EmissionEnabled,
 			&i.BatchID,
 			&i.GroupGenesisID,

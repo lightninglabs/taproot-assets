@@ -1129,10 +1129,13 @@ func (t *TapAddressBook) FetchAssetMetaByHash(ctx context.Context,
 			return err
 		}
 
-		assetMeta = &proof.MetaReveal{
-			Data: dbMeta.MetaDataBlob,
-			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
-		}
+		// If no record is present, we should get a sql.ErrNoRows error
+		// above.
+		parseAssetMetaReveal(dbMeta.AssetsMetum).WhenSome(
+			func(meta proof.MetaReveal) {
+				assetMeta = &meta
+			},
+		)
 
 		return nil
 	})
@@ -1159,10 +1162,13 @@ func (t *TapAddressBook) FetchAssetMetaForAsset(ctx context.Context,
 			return err
 		}
 
-		assetMeta = &proof.MetaReveal{
-			Data: dbMeta.MetaDataBlob,
-			Type: proof.MetaType(dbMeta.MetaDataType.Int16),
-		}
+		// If no record is present, we should get a sql.ErrNoRows error
+		// above.
+		parseAssetMetaReveal(dbMeta.AssetsMetum).WhenSome(
+			func(meta proof.MetaReveal) {
+				assetMeta = &meta
+			},
+		)
 
 		return nil
 	})

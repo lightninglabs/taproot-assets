@@ -56,8 +56,9 @@ type Querier interface {
 	FetchAssetProofsSizes(ctx context.Context) ([]FetchAssetProofsSizesRow, error)
 	FetchAssetWitnesses(ctx context.Context, assetID sql.NullInt64) ([]FetchAssetWitnessesRow, error)
 	FetchAssetsByAnchorTx(ctx context.Context, anchorUtxoID sql.NullInt64) ([]Asset, error)
+	// We use a LEFT JOIN here as not every asset has a meta data entry.
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
-	// generate rows that have NULL values for the faily key fields if an asset
+	// generate rows that have NULL values for the group key fields if an asset
 	// doesn't have a group key. See the comment in fetchAssetSprouts for a work
 	// around that needs to be used with this query until a sqlc bug is fixed.
 	FetchAssetsForBatch(ctx context.Context, rawKey []byte) ([]FetchAssetsForBatchRow, error)

@@ -149,10 +149,10 @@ func testMintAssetWithDecimalDisplayMetaField(t *harnessTest) {
 	}
 
 	// Manually update the requested metadata and compute the expected hash.
-	updatedMeta, err := mintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
+	err := mintedMeta.SetDecDisplay(firstAsset.DecimalDisplay)
 	require.NoError(t.t, err)
 
-	metaHash := updatedMeta.MetaHash()
+	metaHash := mintedMeta.MetaHash()
 
 	// The meta hash from the minted asset must match the expected hash.
 	genMetaHash := firstAssetMinted.AssetGenesis.MetaHash

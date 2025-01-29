@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"math"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -306,66 +305,49 @@ func (m *MetaReveal) DecDisplayOption() (fn.Option[uint32], error) {
 
 // SetDecDisplay attempts to set the decimal display value in existing JSON
 // metadata. It checks that the new metadata is below the maximum metadata size.
-func (m *MetaReveal) SetDecDisplay(decDisplay uint32) (*MetaReveal, error) {
+func (m *MetaReveal) SetDecDisplay(decDisplay uint32) error {
 	err := IsValidDecDisplay(decDisplay)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	// Fetch the current decimal display value.
-	currentMetaJSON, currentDecDisplay, err := m.GetDecDisplay()
+	// If the meta type is not JSON, we can't set the decimal display value.
+	if m.Type != MetaJson {
+		return ErrNotJSON
+	}
+
+	// If the meta type is JSON, we'll also want to set the decimal display
+	// value in the JSON object.
+	metaJSON, err := DecodeMetaJSON(m.Data)
 	switch {
-	// The current metadata is valid JSON. Either no decimal display value
-	// is present, or it is but doesn't match the desired value.
-	case errors.Is(err, ErrDecDisplayMissing),
-		currentDecDisplay != decDisplay:
+	// If the metadata is currently empty, we'll just start with an empty
+	// JSON object.
+	case len(m.Data) == 0 || errors.Is(err, ErrMetaDataMissing):
+		metaJSON = make(map[string]interface{})
 
-		// If the requested decimal display value is 0, we don't need to
-		// add the field at all, as that is the default.
-		if decDisplay == 0 {
-			return &MetaReveal{
-				Type: m.Type,
-				Data: m.Data,
-			}, nil
-		}
-
-		// Otherwise, set the decimal display value and re-validate the
-		// JSON object.
-		updatedJSON := make(map[string]interface{})
-		maps.Copy(updatedJSON, currentMetaJSON)
-
-		updatedJSON[MetadataDecDisplayKey] = decDisplay
-
-		updatedJSONBytes, err := EncodeMetaJSON(updatedJSON)
-		if err != nil {
-			return nil, fmt.Errorf("invalid metadata after "+
-				"setting decimal display: %w", err)
-		}
-
-		return &MetaReveal{
-			Type: m.Type,
-			Data: updatedJSONBytes,
-		}, nil
-
-	// No metadata update needed.
-	case currentDecDisplay == decDisplay:
-		return &MetaReveal{
-			Type: m.Type,
-			Data: m.Data,
-		}, nil
-
-	// Our metadata is invalid in another way.
-	default:
-		return nil, fmt.Errorf("%w: %d", ErrDecDisplayInvalid,
-			decDisplay)
+	case err != nil:
+		return err
 	}
+
+	metaJSON[MetadataDecDisplayKey] = decDisplay
+
+	m.Data, err = EncodeMetaJSON(metaJSON)
+	if err != nil {
+		return fmt.Errorf("invalid metadata after setting decimal "+
+			"display: %w", err)
+	}
+
+	return nil
 }
 
 // MetaHash returns the computed meta hash based on the TLV serialization of
 // the meta data itself.
 func (m *MetaReveal) MetaHash() [asset.MetaHashLen]byte {
 	var b bytes.Buffer
-	_ = m.Encode(&b)
+	err := m.Encode(&b)
+	if err != nil {
+		log.Errorf("Unable to encode meta reveal: %v", err)
+	}
 
 	return sha256.Sum256(b.Bytes())
 }
