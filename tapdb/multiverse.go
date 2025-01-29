@@ -239,7 +239,7 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 	// root node, as that shouldn't happen (unless the cache is empty).
 	// This will always return nil if the cache is disabled, so we don't
 	// need an extra indentation for that check here.
-	rootNode := b.syncerCache.fetchRoot(id)
+	rootNode := b.syncerCache.fetchRoot(id, false)
 	if rootNode != nil {
 		return *rootNode, nil
 	}
@@ -256,7 +256,7 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		// Because another goroutine might have filled the cache while
 		// we were waiting for the lock, we'll check again if the item
 		// is now in the cache.
-		rootNode = b.syncerCache.fetchRoot(id)
+		rootNode = b.syncerCache.fetchRoot(id, true)
 		if rootNode != nil {
 			return *rootNode, nil
 		}
@@ -269,7 +269,7 @@ func (b *MultiverseStore) UniverseRootNode(ctx context.Context,
 		}
 
 		// We now try again to fetch the root node from the cache.
-		rootNode = b.syncerCache.fetchRoot(id)
+		rootNode = b.syncerCache.fetchRoot(id, true)
 		if rootNode != nil {
 			return *rootNode, nil
 		}
