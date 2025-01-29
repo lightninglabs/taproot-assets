@@ -594,11 +594,13 @@ func genHopHints(t *rapid.T, rfqID rfqmsg.ID) []*lnrpc.HopHint {
 // genCustomRecords generates custom records that have a random amount of random
 // asset units, and may have an SCID as routing hint.
 func genCustomRecords(t *rapid.T, amtMsat int64,
-	rfqID rfqmsg.ID) (lnwire.CustomRecords, uint64) {
+	rfqID rfqmsg.ID) (asset.ID, lnwire.CustomRecords, uint64) {
+
+	var assetID asset.ID
 
 	// Introduce a chance of no wire custom records.
 	if rapid.Bool().Draw(t, "no_wire_custom_records") {
-		return nil, 0
+		return assetID, nil, 0
 	}
 
 	// Pick a random number of asset units. The amount of units may be as
@@ -609,11 +611,10 @@ func genCustomRecords(t *rapid.T, amtMsat int64,
 		uint64(amtMsat*1000)+1,
 	).Draw(t, "asset_units")
 
+	assetID = dummyAssetID(rapid.Byte().Draw(t, "asset_id"))
+
 	balance := []*rfqmsg.AssetBalance{
-		rfqmsg.NewAssetBalance(
-			dummyAssetID(rapid.Byte().Draw(t, "asset_id")),
-			assetUnits,
-		),
+		rfqmsg.NewAssetBalance(assetID, assetUnits),
 	}
 
 	htlc := genHtlc(t, balance, rfqID)
@@ -621,7 +622,7 @@ func genCustomRecords(t *rapid.T, amtMsat int64,
 	customRecords, err := lnwire.ParseCustomRecords(htlc.Bytes())
 	require.NoError(t, err)
 
-	return customRecords, assetUnits
+	return assetID, customRecords, assetUnits
 }
 
 // genHtlc generates an instance of rfqmsg.Htlc with the provided asset amounts
@@ -648,7 +649,7 @@ func genHtlc(t *rapid.T, balance []*rfqmsg.AssetBalance,
 // genRequest generates an InvoiceHtlcModifyRequest with random values. This
 // method also returns the assetUnits and the rfqID used by the htlc.
 func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
-	rfqmsg.ID) {
+	asset.ID, rfqmsg.ID) {
 
 	request := lndclient.InvoiceHtlcModifyRequest{}
 
@@ -661,13 +662,13 @@ func genRequest(t *rapid.T) (lndclient.InvoiceHtlcModifyRequest, uint64,
 		recordsAmt = request.Invoice.ValueMsat
 	}
 
-	wireRecords, assetUnits := genCustomRecords(
+	assetID, wireRecords, assetUnits := genCustomRecords(
 		t, recordsAmt, rfqID,
 	)
 	request.WireCustomRecords = wireRecords
 	request.ExitHtlcAmt = lnwire.MilliSatoshi(recordsAmt)
 
-	return request, assetUnits, rfqID
+	return request, assetUnits, assetID, rfqID
 }
 
 // genRequests generates a random array of requests to be processed by the
@@ -681,7 +682,7 @@ func genRequests(t *rapid.T) ([]lndclient.InvoiceHtlcModifyRequest,
 	requests := make([]lndclient.InvoiceHtlcModifyRequest, 0)
 
 	for range numRequests {
-		req, numAssets, scid := genRequest(t)
+		req, numAssets, assetID, scid := genRequest(t)
 		requests = append(requests, req)
 
 		quoteAmt := uint64(0)
@@ -689,7 +690,7 @@ func genRequests(t *rapid.T) ([]lndclient.InvoiceHtlcModifyRequest,
 			quoteAmt = uint64(req.Invoice.ValueMsat)
 		}
 
-		genBuyQuotes(t, rfqMap, numAssets, quoteAmt, scid)
+		genBuyQuotes(t, rfqMap, numAssets, quoteAmt, assetID, scid)
 	}
 
 	return requests, rfqMap
@@ -708,7 +709,7 @@ func genRandomVertex(t *rapid.T) route.Vertex {
 // genBuyQuotes populates the provided map of rfq quotes with the desired values
 // for a specific
 func genBuyQuotes(t *rapid.T, rfqMap rfq.BuyAcceptMap, units, amtMsat uint64,
-	scid rfqmsg.ID) {
+	assetID asset.ID, scid rfqmsg.ID) {
 
 	// If the passed asset units is set to 0 this means that no wire custom
 	// records were set. To avoid a division by zero in the lines below we
@@ -762,6 +763,9 @@ func genBuyQuotes(t *rapid.T, rfqMap rfq.BuyAcceptMap, units, amtMsat uint64,
 	rfqMap[rfqScid.Scid()] = rfqmsg.BuyAccept{
 		Peer:      peer,
 		AssetRate: rfqmsg.NewAssetRate(rateFp, time.Now()),
+		Request: rfqmsg.BuyRequest{
+			AssetSpecifier: asset.NewSpecifierFromId(assetID),
+		},
 	}
 }
 
