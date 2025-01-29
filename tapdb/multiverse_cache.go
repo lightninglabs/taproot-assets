@@ -391,13 +391,21 @@ func (r *syncerRootNodeCache) fetchRoots(q universe.RootNodesQuery,
 }
 
 // fetchRoot reads the cached root for the given ID.
-func (r *syncerRootNodeCache) fetchRoot(id universe.Identifier) *universe.Root {
+func (r *syncerRootNodeCache) fetchRoot(id universe.Identifier,
+	haveWriteLock bool) *universe.Root {
+
 	if !r.enabled {
 		return nil
 	}
 
-	r.RLock()
-	defer r.RUnlock()
+	// If we've acquired the write lock because we're doing a last lookup
+	// before potentially populating the cache, we don't need to acquire the
+	// read lock. If we're just normally reading from the cache, we'll need
+	// to acquire the read lock.
+	if !haveWriteLock {
+		r.RLock()
+		defer r.RUnlock()
+	}
 
 	root, ok := r.universeRoots[id.Key()]
 	if !ok {
