@@ -786,7 +786,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 	b.syncerCache.addOrReplace(universe.Root{
 		ID:        id,
 		AssetName: leaf.Asset.Tag,
-		Node:      issuanceProof.MultiverseRoot,
+		Node:      issuanceProof.UniverseRoot,
 	})
 
 	// Notify subscribers about the new proof leaf, now that we're sure we

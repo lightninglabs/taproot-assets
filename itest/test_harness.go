@@ -378,6 +378,9 @@ type tapdHarnessParams struct {
 	// sqliteDatabaseFilePath is the path to the SQLite database file to
 	// use.
 	sqliteDatabaseFilePath *string
+
+	// disableSyncCache indicates whether the sync cache should be disabled.
+	disableSyncCache bool
 }
 
 type Option func(*tapdHarnessParams)
@@ -413,6 +416,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.addrAssetSyncerDisable = params.addrAssetSyncerDisable
 		ho.fedSyncTickerInterval = params.fedSyncTickerInterval
 		ho.sqliteDatabaseFilePath = params.sqliteDatabaseFilePath
+		ho.disableSyncCache = params.disableSyncCache
 	}
 
 	tapdCfg := tapdConfig{
