@@ -126,6 +126,10 @@ type harnessOpts struct {
 	// sqliteDatabaseFilePath is the path to the SQLite database file to
 	// use.
 	sqliteDatabaseFilePath *string
+
+	// disableSyncCache is a flag that can be set to true to disable the
+	// universe syncer cache.
+	disableSyncCache bool
 }
 
 type harnessOption func(*harnessOpts)
@@ -281,6 +285,10 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 
 	if opts.fedSyncTickerInterval != nil {
 		finalCfg.Universe.SyncInterval = *opts.fedSyncTickerInterval
+	}
+
+	if !opts.disableSyncCache {
+		finalCfg.Universe.MultiverseCaches.SyncerCacheEnabled = true
 	}
 
 	return &tapdHarness{
