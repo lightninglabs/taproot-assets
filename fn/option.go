@@ -58,6 +58,12 @@ func ElimOption[A, B any](o Option[A], b func() B, f func(A) B) B {
 	return b()
 }
 
+// Unwrap is used to extract the value from an option. If the option is empty,
+// then the zero value of the type that parameterizes the option is returned.
+func (o Option[A]) Unwrap() (A, bool) {
+	return o.some, o.isSome
+}
+
 // UnwrapOr is used to extract a value from an option, and we supply the default
 // value in the case when the Option is empty.
 //
