@@ -1178,6 +1178,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"minimum relay fee: %w", err)
 		}
 
+		log.Infof("Min relay fee: %v",
+			minRelayFee.FeePerKVByte().String())
+
 		// If the fee rate is below the minimum relay fee, we'll
 		// bump it up.
 		if feeRate < minRelayFee {
