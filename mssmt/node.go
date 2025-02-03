@@ -162,31 +162,46 @@ func (c *CompactedLeafNode) Key() [32]byte {
 }
 
 func (c *CompactedLeafNode) Extract(requestedHeight int) Node {
-	// We need to guarantee that the returned Node is a branch so that
-	// walkDown can continue descending.
-	// Let target be the maximum level we must expand to. If the requested
-	// height is too deep (≥ c.Height), we set target to c.Height - 1.
-	target := requestedHeight
-	if target >= c.Height {
-		target = c.Height - 1
-	}
+    // DEBUG: print arguments and key.
+    fmt.Printf("Extract: requestedHeight=%d, c.Height=%d, key=%x\n", requestedHeight, c.Height, c.key)
 
-	// Start with the stored leaf.
-	var current Node = c.LeafNode
-	// Expand from the compaction level down to target+1.
-	for j := c.Height - 1; j >= target+1; j-- {
-		if bitIndex(uint8(j), &c.key) == 0 {
-			current = NewBranch(current, EmptyTree[j+1])
-		} else {
-			current = NewBranch(EmptyTree[j+1], current)
-		}
-	}
-	// Finally, wrap one more layer so that the result is a branch.
-	if bitIndex(uint8(target), &c.key) == 0 {
-		return NewBranch(current, EmptyTree[target+1])
-	} else {
-		return NewBranch(EmptyTree[target+1], current)
-	}
+    // Ensure that if requestedHeight is too deep, we adjust it.
+    target := requestedHeight
+    if target >= c.Height {
+        target = c.Height - 1
+    }
+
+    // Start with the stored leaf.
+    var current Node = c.LeafNode
+
+    // Expand from the compaction level down to target+1.
+    for j := c.Height - 1; j >= target+1; j-- {
+        fmt.Printf("Extract loop: j=%d, bit=%d\n", j, bitIndex(uint8(j), &c.key))
+        if bitIndex(uint8(j), &c.key) == 0 {
+            current = NewBranch(current, EmptyTree[j+1])
+        } else {
+            current = NewBranch(EmptyTree[j+1], current)
+        }
+    }
+
+    // Ensure that the sibling we use is a branch.
+    sibling := EmptyTree[target+1]
+    if target+1 == MaxTreeLevels {
+        // Wrap the empty leaf in a branch so that it’s not a pure leaf.
+        sibling = NewBranch(sibling, sibling)
+    }
+
+    // Finally, wrap one more layer based on the key bit so that the result is a branch.
+    var result Node
+    if bitIndex(uint8(target), &c.key) == 0 {
+        result = NewBranch(current, sibling)
+    } else {
+        result = NewBranch(sibling, current)
+    }
+
+    // DEBUG: print type and hash of result.
+    fmt.Printf("Extract returning: type=%T, hash=%x\n", result, result.NodeHash())
+    return result
 }
 
 // Copy returns a deep copy of the compacted leaf node.
