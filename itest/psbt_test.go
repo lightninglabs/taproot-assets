@@ -1388,7 +1388,7 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	AssertSendEvents(
 		t.t, scriptKey1Bytes, sendEvents,
-		tapfreighter.SendStateWaitTxConf,
+		tapfreighter.SendStateBroadcastComplete,
 		tapfreighter.SendStateComplete,
 	)
 

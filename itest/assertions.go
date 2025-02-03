@@ -963,7 +963,7 @@ func AssertSendEventsComplete(t *testing.T, scriptKey []byte,
 	stream *EventSubscription[*taprpc.SendEvent]) {
 
 	AssertSendEvents(
-		t, scriptKey, stream, tapfreighter.SendStateWaitTxConf,
+		t, scriptKey, stream, tapfreighter.SendStateBroadcastComplete,
 		tapfreighter.SendStateComplete,
 	)
 }
