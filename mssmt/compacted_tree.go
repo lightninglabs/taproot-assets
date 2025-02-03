@@ -7,6 +7,14 @@ import (
 	"sort"
 )
 
+// BatchedInsertionEntry represents an entry used for batched
+// insertions into the MS-SMT. It consists of a key and the
+// associated leaf node to insert.
+type BatchedInsertionEntry struct {
+	Key  [32]byte
+	Leaf *LeafNode
+)
+
 // partitionEntries splits the given batched insertion entries into
 // two slices based on the bit at the provided height.
 // Entries with bit 0 go into leftEntries and those with bit 1 into rightEntries.
