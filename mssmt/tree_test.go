@@ -84,8 +84,7 @@ func TestBatchedInsertEmpty(t *testing.T) {
 func TestBatchedInsertOverflow(t *testing.T) {
 	ctx := context.Background()
 	store := mssmt.NewDefaultStore()
-	tree := mssmt.NewCompactedTree(store)
-	compTree := tree.(*mssmt.CompactedTree)
+	compTree := mssmt.NewCompactedTree(store)
 
 	// Insert one leaf with a huge sum.
 	huge := uint64(math.MaxUint64 - 100)
