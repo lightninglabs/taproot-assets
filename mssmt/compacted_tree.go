@@ -2,7 +2,9 @@ package mssmt
 
 import (
 	"context"
+	"bytes"
 	"fmt"
+	"sort"
 )
 
 // CompactedTree represents a compacted Merkle-Sum Sparse Merkle Tree (MS-SMT).
@@ -252,6 +254,10 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 
 // BatchedInsert inserts multiple leaf nodes at the given keys within the MS-SMT.
 func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInsertionEntry) (Tree, error) {
+	sort.Slice(entries, func(i, j int) bool {
+		return bytes.Compare(entries[i].Key[:], entries[j].Key[:]) < 0
+	})
+
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
 		currentRoot, err := tx.RootNode()
 		if err != nil {
