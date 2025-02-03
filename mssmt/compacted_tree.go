@@ -318,6 +318,34 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 	return t, nil
 }
 
+  
+// processCompactedLeaf handles the insertion of a batch of entries into a slot
+// that is currently occupied by a compacted leaf. A compacted leaf represents a
+// compressed subtree where all branches between a specific height and the actual
+// leaf are assumed to be default. Depending on the batched insertion entries,
+// this function determines whether to update (i.e. replace) the existing leaf or 
+// to merge it with a conflicting new entry.
+// 
+// The logic is as follows:
+// 
+// 1. When exactly one entry is provided:
+//    - If the entry's key matches the compacted leaf’s key, the function treats it
+//      as a replacement. It deletes the existing compacted leaf from the store and
+//      inserts a new compacted leaf built from the provided leaf data.
+//    - If the entry’s key differs from the compacted leaf’s key, a conflict is
+//      detected and the function calls the merge helper to combine the new leaf with
+//      the existing leaf into a merged branch.
+// 
+// 2. When multiple entries are provided:
+//    - First, it checks whether all entries share the same key as the compacted leaf.
+//      If they do, the function performs a replacement using the data from the last entry
+//      in the batch.
+//    - Otherwise, it finds the first entry with a key that differs from the compacted leaf
+//      and then invokes the merge helper to merge that conflicting leaf with the current one.
+// 
+// In every case, the function returns the updated node (either a new compacted leaf or a 
+// merged branch) and any error encountered during the processing.
+
 func (t *CompactedTree) processCompactedLeaf(tx TreeStoreUpdateTx, height int,
 	entries []BatchedInsertionEntry, cl *CompactedLeafNode) (Node, error) {
 
