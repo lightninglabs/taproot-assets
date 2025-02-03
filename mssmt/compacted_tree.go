@@ -1,8 +1,8 @@
 package mssmt
 
 import (
-	"context"
 	"bytes"
+	"context"
 	"fmt"
 	"sort"
 )
@@ -13,7 +13,7 @@ import (
 type BatchedInsertionEntry struct {
 	Key  [32]byte
 	Leaf *LeafNode
-)
+}
 
 // partitionEntries splits the given batched insertion entries into
 // two slices based on the bit at the provided height.
@@ -39,9 +39,9 @@ type CompactedTree struct {
 	store TreeStore
 }
 
- // batchedInsert recursively inserts a batch of leaf nodes into the MS-SMT.
- // It partitions the given entries based on the bit at the specified height
- // and processes both left and right subtrees accordingly.
+// batchedInsert recursively inserts a batch of leaf nodes into the MS-SMT.
+// It partitions the given entries based on the bit at the specified height
+// and processes both left and right subtrees accordingly.
 func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
 	// Base-case: If we've reached the bottom, simply return the current branch.
 	if height >= lastBitIndex {
@@ -131,13 +131,13 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInse
 	return t, nil
 }
 
- // processSubtree handles the recursive insertion for a subtree (left or right)
- // based on the provided child node. Depending on whether the child is an
- // existing compacted leaf or branch, it either replaces, merges, or recurses
- // deeper to insert the batch of entries.
- // It returns the updated child Node on success.
- func (t *CompactedTree) processSubtree(tx TreeStoreUpdateTx, height int,
- 	entries []BatchedInsertionEntry, child Node) (Node, error) {
+// processSubtree handles the recursive insertion for a subtree (left or right)
+// based on the provided child node. Depending on whether the child is an
+// existing compacted leaf or branch, it either replaces, merges, or recurses
+// deeper to insert the batch of entries.
+// It returns the updated child Node on success.
+func (t *CompactedTree) processSubtree(tx TreeStoreUpdateTx, height int,
+	entries []BatchedInsertionEntry, child Node) (Node, error) {
 	if child != EmptyTree[height+1] {
 		if cl, ok := child.(*CompactedLeafNode); ok {
 			if len(entries) == 1 {
