@@ -24,7 +24,10 @@ import (
 func TestBatchedInsert(t *testing.T) {
 	ctx := context.Background()
 	numLeaves := 10
-	var leaves []treeLeaf
+	var leaves []struct {
+		key  [32]byte
+		leaf *mssmt.LeafNode
+	}
 	for i := 0; i < numLeaves; i++ {
 		var key [32]byte
 		// Use a simple deterministic pattern.
