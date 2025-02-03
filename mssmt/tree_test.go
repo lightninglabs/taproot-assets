@@ -61,7 +61,7 @@ func TestBatchedInsert(t *testing.T) {
 	for _, entry := range batch {
 		retrieved, err := newTree.(*mssmt.CompactedTree).Get(ctx, entry.Key)
 		require.NoError(t, err)
-		require.Equal(t, entry.leaf, retrieved, "mismatch for key %x", entry.key)
+		require.Equal(t, entry.Leaf, retrieved, "mismatch for key %x", entry.Key)
 	}
 }
 
@@ -83,9 +83,9 @@ func TestBatchedInsertEmpty(t *testing.T) {
 // returns an error.
 func TestBatchedInsertOverflow(t *testing.T) {
 	ctx := context.Background()
-	store := NewDefaultStore()
-	tree := NewCompactedTree(store)
-	compTree := tree.(*CompactedTree)
+	store := mssmt.NewDefaultStore()
+	tree := mssmt.NewCompactedTree(store)
+	compTree := tree.(*mssmt.CompactedTree)
 
 	// Insert one leaf with a huge sum.
 	huge := uint64(math.MaxUint64 - 100)
@@ -105,7 +105,7 @@ func TestBatchedInsertOverflow(t *testing.T) {
 	}
 	_, err = compTree.BatchedInsert(ctx, batch)
 	require.Error(t, err)
-	require.ErrorIs(t, err, ErrIntegerOverflow)
+	require.ErrorIs(t, err, mssmt.ErrIntegerOverflow)
 }
 
 var (
