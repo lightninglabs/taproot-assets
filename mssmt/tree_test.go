@@ -59,7 +59,7 @@ func TestBatchedInsert(t *testing.T) {
 
 	// Verify that each inserted leaf can be retrieved.
 	for _, entry := range batch {
-		retrieved, err := newTree.(*mssmt.CompactedTree).Get(ctx, entry.Key)
+		retrieved, err := newTree.Get(ctx, entry.Key)
 		require.NoError(t, err)
 		require.Equal(t, entry.Leaf, retrieved, "mismatch for key %x", entry.Key)
 	}
