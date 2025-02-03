@@ -339,14 +339,29 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 		switch node := next.(type) {
 		case *CompactedLeafNode:
 			// Our next node is a compacted leaf. We just need to
-			// expand it so we can continue our walk down the tree.
-			next = node.Extract(i)
+			// Force full extraction so that we always receive a branch node
+			// (using node.Height-1).
+			next = node.Extract(node.Height - 1)
 
-			// Sibling might be a compacted leaf too, in which case
-			// we need to extract it as well.
+			// If the sibling is also a compacted leaf, extract it fully.
 			if compSibling, ok := sibling.(*CompactedLeafNode); ok {
-				sibling = compSibling.Extract(i)
+				sibling = compSibling.Extract(compSibling.Height - 1)
 			}
+
+			// Continue walking down using the fully expanded branch.
+			for j := i; j <= lastBitIndex; j++ {
+				if iter != nil {
+					if err := iter(j, next, sibling, current); err != nil {
+						return nil, err
+					}
+				}
+				current = next
+				if j < lastBitIndex {
+					branch := current.(*BranchNode)
+					next, sibling = stepOrder(j+1, key, branch.Left, branch.Right)
+				}
+			}
+			return current.(*LeafNode), nil
 
 			// Now that all required branches are reconstructed we
 			// can continue the search for the leaf matching the
