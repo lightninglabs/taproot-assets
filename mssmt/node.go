@@ -172,7 +172,7 @@ func (c *CompactedLeafNode) Extract(requestedHeight int) Node {
 	}
 
 	// Start with the stored leaf.
-	current := c.LeafNode
+	var current Node = c.LeafNode
 	// Expand from the compaction level down to target+1.
 	for j := c.Height - 1; j >= target+1; j-- {
 		if bitIndex(uint8(j), &c.key) == 0 {
