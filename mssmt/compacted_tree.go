@@ -46,7 +46,6 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	// Process left subtree:
 	var newLeft Node
 	if len(leftEntries) > 0 {
-		var newLeft Node
 		// Check if the current left child is not empty.
 		if leftChild != EmptyTree[height+1] {
 			// If the existing child is a compacted leaf, we must handle potential collisions.
@@ -139,7 +138,6 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	// Process right subtree:
 	var newRight Node
 	if len(rightEntries) > 0 {
-		var newRight Node
 		// Check if the current right child is not empty.
 		if rightChild != EmptyTree[height+1] {
 			// If the existing child is a compacted leaf, we must handle potential collisions.
