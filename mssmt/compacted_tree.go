@@ -15,20 +15,6 @@ type BatchedInsertionEntry struct {
 	Leaf *LeafNode
 }
 
-// partitionEntries splits the given batched insertion entries into
-// two slices based on the bit at the provided height.
-// Entries with bit 0 go into leftEntries and those with bit 1 into rightEntries.
-func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
-	for _, entry := range entries {
-		if bitIndex(uint8(height), &entry.Key) == 0 {
-			leftEntries = append(leftEntries, entry)
-		} else {
-			rightEntries = append(rightEntries, entry)
-		}
-	}
-	return
-}
-
 // CompactedTree represents a compacted Merkle-Sum Sparse Merkle Tree (MS-SMT).
 // The tree has the same properties as a normal MS-SMT tree and is able to
 // create the same proofs and same root as the FullTree implemented in this
@@ -37,177 +23,6 @@ func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries,
 // for large trees.
 type CompactedTree struct {
 	store TreeStore
-}
-
-// batchedInsert recursively inserts a batch of leaf nodes into the MS-SMT.
-// It partitions the given entries based on the bit at the specified height
-// and processes both left and right subtrees accordingly.
-func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
-	// Base-case: If we've reached the bottom, simply return the current branch.
-	if height >= lastBitIndex {
-		return root, nil
-	}
-
-	// Guard against empty batch.
-	if len(entries) == 0 {
-		return root, nil
-	}
-
-	leftEntries, rightEntries := partitionEntries(entries, height)
-
-	// Get the current children from the node.
-	leftChild, rightChild, err := tx.GetChildren(height, root.NodeHash())
-	if err != nil {
-		return nil, err
-	}
-
-	// Process left subtree using the helper function.
-	if len(leftEntries) > 0 {
-		newLeft, err := t.processSubtree(tx, height, leftEntries, leftChild)
-		if err != nil {
-			return nil, err
-		}
-		leftChild = newLeft
-	}
-
-	// Process right subtree using the helper function.
-	if len(rightEntries) > 0 {
-		newRight, err := t.processSubtree(tx, height, rightEntries, rightChild)
-		if err != nil {
-			return nil, err
-		}
-		rightChild = newRight
-	}
-
-	// Create the updated branch from the new left and right children.
-	var updatedBranch *BranchNode
-	updatedBranch = NewBranch(leftChild, rightChild)
-
-	// Delete the old branch and insert the new one.
-	if root != EmptyTree[height] {
-		if err := tx.DeleteBranch(root.NodeHash()); err != nil {
-			return nil, err
-		}
-	}
-	if !IsEqualNode(updatedBranch, EmptyTree[height]) {
-		if err := tx.InsertBranch(updatedBranch); err != nil {
-			return nil, err
-		}
-	}
-
-	return updatedBranch, nil
-}
-
-// BatchedInsert inserts multiple leaf nodes at the given keys within the MS-SMT.
-func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInsertionEntry) (Tree, error) {
-	sort.Slice(entries, func(i, j int) bool {
-		return bytes.Compare(entries[i].Key[:], entries[j].Key[:]) < 0
-	})
-
-	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
-		currentRoot, err := tx.RootNode()
-		if err != nil {
-			return err
-		}
-		branchRoot := currentRoot.(*BranchNode)
-
-		// (Optional) Loop over entries and check for sum overflow.
-		for _, entry := range entries {
-			if err := CheckSumOverflowUint64(branchRoot.NodeSum(), entry.Leaf.NodeSum()); err != nil {
-				return fmt.Errorf("batched insert key %v sum overflow: %w", entry.Key, err)
-			}
-		}
-
-		// Call the new batchedInsert method.
-		newRoot, err := t.batchedInsert(tx, entries, 0, branchRoot)
-		if err != nil {
-			return err
-		}
-		return tx.UpdateRoot(newRoot)
-	})
-	if err != nil {
-		return nil, err
-	}
-	return t, nil
-}
-
-// processSubtree handles the recursive insertion for a subtree (left or right)
-// based on the provided child node. Depending on whether the child is an
-// existing compacted leaf or branch, it either replaces, merges, or recurses
-// deeper to insert the batch of entries.
-// It returns the updated child Node on success.
-func (t *CompactedTree) processSubtree(tx TreeStoreUpdateTx, height int,
-	entries []BatchedInsertionEntry, child Node) (Node, error) {
-	if child != EmptyTree[height+1] {
-		if cl, ok := child.(*CompactedLeafNode); ok {
-			if len(entries) == 1 {
-				entry := entries[0]
-				if entry.Key == cl.Key() {
-					// Replacement: update the existing compacted leaf.
-					newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
-					if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
-						return nil, err
-					}
-					if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
-						return nil, err
-					}
-					return newLeaf, nil
-				}
-				// Collision detected: merge the new entry with the existing compacted leaf.
-				return t.merge(tx, height+1, entry.Key, entry.Leaf, cl.Key(), cl.LeafNode)
-			}
-
-			// For multiple entries, check if all match the existing key.
-			allMatch := true
-			for _, entry := range entries {
-				if entry.Key != cl.Key() {
-					allMatch = false
-					break
-				}
-			}
-			if allMatch {
-				// All entries match; perform a replacement with the last entry.
-				lastEntry := entries[len(entries)-1]
-				newLeaf := NewCompactedLeafNode(height+1, &lastEntry.Key, lastEntry.Leaf)
-				if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
-					return nil, err
-				}
-				if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
-					return nil, err
-				}
-				return newLeaf, nil
-			}
-
-			// Otherwise, merge using the first differing entry.
-			var mergeEntry *BatchedInsertionEntry
-			for _, entry := range entries {
-				if entry.Key != cl.Key() {
-					mergeEntry = &entry
-					break
-				}
-			}
-			if mergeEntry == nil {
-				return nil, fmt.Errorf("unexpected nil merge entry")
-			}
-			return t.merge(tx, height+1, mergeEntry.Key, mergeEntry.Leaf, cl.Key(), cl.LeafNode)
-		}
-
-		// If child is not a compacted leaf (i.e. it is a branch), recurse normally.
-		baseChild := child.(*BranchNode)
-		return t.batchedInsert(tx, entries, height+1, baseChild)
-	}
-
-	// When the child is empty, insert a new compacted leaf or process as a branch.
-	if len(entries) == 1 {
-		entry := entries[0]
-		newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
-		if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
-			return nil, err
-		}
-		return newLeaf, nil
-	}
-	baseChild := EmptyTree[height+1].(*BranchNode)
-	return t.batchedInsert(tx, entries, height+1, baseChild)
 }
 
 var _ Tree = (*CompactedTree)(nil)
@@ -500,6 +315,211 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 		return nil, dbErr
 	}
 
+	return t, nil
+}
+
+func (t *CompactedTree) processCompactedLeaf(tx TreeStoreUpdateTx, height int,
+	entries []BatchedInsertionEntry, cl *CompactedLeafNode) (Node, error) {
+
+	// processCompactedLeaf handles the case when the current child node is
+	// a compacted leaf. Depending on the batch of new entries, it will either
+	// replace the leaf or merge it with a conflicting entry.
+
+	// Case 1: Only one new entry.
+	if len(entries) == 1 {
+		entry := entries[0]
+		if entry.Key == cl.Key() {
+			// Replacement: key matches, so update the compacted leaf with the
+			// new leaf data.
+			newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+			if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
+				return nil, err
+			}
+			if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+				return nil, err
+			}
+			return newLeaf, nil
+		}
+		// Conflict: key differs – merge the new entry with the existing leaf.
+		return t.merge(tx, height+1, entry.Key, entry.Leaf, cl.Key(), cl.LeafNode)
+	}
+
+	// Case 2: Multiple entries.
+	// First, check whether every entry has the same key as the compacted leaf.
+	allMatch := true
+	for _, entry := range entries {
+		if entry.Key != cl.Key() {
+			allMatch = false
+			break
+		}
+	}
+	if allMatch {
+		// All entries match; replace with the last entry's data.
+		lastEntry := entries[len(entries)-1]
+		newLeaf := NewCompactedLeafNode(height+1, &lastEntry.Key, lastEntry.Leaf)
+		if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
+			return nil, err
+		}
+		if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+			return nil, err
+		}
+		return newLeaf, nil
+	}
+
+	// Otherwise, find the first entry that differs and perform a merge.
+	var mergeEntry *BatchedInsertionEntry
+	for _, entry := range entries {
+		if entry.Key != cl.Key() {
+			mergeEntry = &entry
+			break
+		}
+	}
+	if mergeEntry == nil {
+		return nil, fmt.Errorf("unexpected nil merge entry")
+	}
+	return t.merge(tx, height+1, mergeEntry.Key, mergeEntry.Leaf,
+		cl.Key(), cl.LeafNode)
+}
+
+// processSubtree processes a subtree of the MS-SMT based on the provided
+// height, entries, and child node. It handles the case where the child node is
+// either empty or a compacted leaf, and returns the updated child node.
+func (t *CompactedTree) processSubtree(tx TreeStoreUpdateTx, height int,
+	entries []BatchedInsertionEntry, child Node) (Node, error) {
+
+	// If the child is not the default empty node, then we need to process
+	// it accordingly.
+	if child != EmptyTree[height+1] {
+		// If the child is a compacted leaf then delegate to our helper.
+		if cl, ok := child.(*CompactedLeafNode); ok {
+			return t.processCompactedLeaf(tx, height, entries, cl)
+		}
+
+		// Otherwise, child is assumed to be a branch node:
+		baseChild := child.(*BranchNode)
+		return t.batchedInsert(tx, entries, height+1, baseChild)
+	}
+
+	// If the child is empty:
+	if len(entries) == 1 {
+		// With a single entry, simply create a new compacted leaf.
+		entry := entries[0]
+		newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+		if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+			return nil, err
+		}
+		return newLeaf, nil
+	}
+
+	// When multiple entries share an empty child, use an empty branch node
+	// to recursively process the batch.
+	baseChild := EmptyTree[height+1].(*BranchNode)
+	return t.batchedInsert(tx, entries, height+1, baseChild)
+}
+
+// partitionEntries splits the given batched insertion entries into
+// two slices based on the bit at the provided height.
+// Entries with bit 0 go into leftEntries and those with bit 1 into rightEntries.
+func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
+	for _, entry := range entries {
+		if bitIndex(uint8(height), &entry.Key) == 0 {
+			leftEntries = append(leftEntries, entry)
+		} else {
+			rightEntries = append(rightEntries, entry)
+		}
+	}
+	return
+}
+
+// batchedInsert recursively inserts a batch of leaf nodes into the MS-SMT.
+// It partitions the given entries based on the bit at the specified height
+// and processes both left and right subtrees accordingly.
+func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
+	// Base-case: If we've reached the bottom, simply return the current branch.
+	if height >= lastBitIndex {
+		return root, nil
+	}
+
+	// Guard against empty batch.
+	if len(entries) == 0 {
+		return root, nil
+	}
+
+	leftEntries, rightEntries := partitionEntries(entries, height)
+
+	// Get the current children from the node.
+	leftChild, rightChild, err := tx.GetChildren(height, root.NodeHash())
+	if err != nil {
+		return nil, err
+	}
+
+	// Process left subtree using the helper function.
+	if len(leftEntries) > 0 {
+		newLeft, err := t.processSubtree(tx, height, leftEntries, leftChild)
+		if err != nil {
+			return nil, err
+		}
+		leftChild = newLeft
+	}
+
+	// Process right subtree using the helper function.
+	if len(rightEntries) > 0 {
+		newRight, err := t.processSubtree(tx, height, rightEntries, rightChild)
+		if err != nil {
+			return nil, err
+		}
+		rightChild = newRight
+	}
+
+	// Create the updated branch from the new left and right children.
+	var updatedBranch *BranchNode
+	updatedBranch = NewBranch(leftChild, rightChild)
+
+	// Delete the old branch and insert the new one.
+	if root != EmptyTree[height] {
+		if err := tx.DeleteBranch(root.NodeHash()); err != nil {
+			return nil, err
+		}
+	}
+	if !IsEqualNode(updatedBranch, EmptyTree[height]) {
+		if err := tx.InsertBranch(updatedBranch); err != nil {
+			return nil, err
+		}
+	}
+
+	return updatedBranch, nil
+}
+
+// BatchedInsert inserts multiple leaf nodes at the given keys within the MS-SMT.
+func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInsertionEntry) (Tree, error) {
+	sort.Slice(entries, func(i, j int) bool {
+		return bytes.Compare(entries[i].Key[:], entries[j].Key[:]) < 0
+	})
+
+	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+		branchRoot := currentRoot.(*BranchNode)
+
+		// (Optional) Loop over entries and check for sum overflow.
+		for _, entry := range entries {
+			if err := CheckSumOverflowUint64(branchRoot.NodeSum(), entry.Leaf.NodeSum()); err != nil {
+				return fmt.Errorf("batched insert key %v sum overflow: %w", entry.Key, err)
+			}
+		}
+
+		// Call the new batchedInsert method.
+		newRoot, err := t.batchedInsert(tx, entries, 0, branchRoot)
+		if err != nil {
+			return err
+		}
+		return tx.UpdateRoot(newRoot)
+	})
+	if err != nil {
+		return nil, err
+	}
 	return t, nil
 }
 
