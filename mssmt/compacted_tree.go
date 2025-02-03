@@ -30,7 +30,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	// Partition entries into two groups based on bit at current height.
 	var leftEntries, rightEntries []BatchedInsertionEntry
 	for _, entry := range entries {
-		if bitIndex(uint8(height), &entry.key) == 0 {
+		if bitIndex(uint8(height), &entry.Key) == 0 {
 			leftEntries = append(leftEntries, entry)
 		} else {
 			rightEntries = append(rightEntries, entry)
@@ -89,7 +89,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 
 	// Create the updated branch from the new left and right children.
 	var updatedBranch *BranchNode
-	if bitIndex(uint8(height), &entries[0].key) == 0 {
+	if bitIndex(uint8(height), &entries[0].Key) == 0 {
 		updatedBranch = NewBranch(newLeft, newRight)
 	} else {
 		updatedBranch = NewBranch(newRight, newLeft)
@@ -121,8 +121,8 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInse
 
 		// (Optional) Loop over entries and check for sum overflow.
 		for _, entry := range entries {
-			if err := CheckSumOverflowUint64(branchRoot.NodeSum(), entry.leaf.NodeSum()); err != nil {
-				return fmt.Errorf("batched insert key %v sum overflow: %w", entry.key, err)
+			if err := CheckSumOverflowUint64(branchRoot.NodeSum(), entry.Leaf.NodeSum()); err != nil {
+				return fmt.Errorf("batched insert key %v sum overflow: %w", entry.Key, err)
 			}
 		}
 
