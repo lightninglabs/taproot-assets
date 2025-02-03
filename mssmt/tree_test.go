@@ -1,12 +1,6 @@
-//go:build !race
-
-
-package mssmt
+package mssmt_test
 
 import (
-	"context"
-	"fmt"
-	"math"
 	"bytes"
 	"context"
 	"encoding/hex"
@@ -19,6 +13,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	_ "github.com/lightninglabs/taproot-assets/tapdb"
 
 	"github.com/stretchr/testify/require"
