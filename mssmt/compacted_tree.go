@@ -341,12 +341,8 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 		switch node := next.(type) {
 		case *CompactedLeafNode:
 			// Our next node is a compacted leaf. We simply return the underlying leaf.
-			fmt.Printf("walkDown: encountered compacted leaf at level %d, returning underlying leaf\n", i)
 			return node.LeafNode, nil
 
-			// Now that all required branches are reconstructed we
-			// can continue the search for the leaf matching the
-			// passed key.
 			for j := i; j <= lastBitIndex; j++ {
 				if iter != nil {
 					err := iter(j, next, sibling, current)
@@ -357,9 +353,6 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 				current = next
 
 				if j < lastBitIndex {
-					// Since we have all the branches we
-					// need extracted already we can just
-					// continue walking down.
 					branch := current.(*BranchNode)
 					next, sibling = stepOrder(
 						j+1, key, branch.Left,
