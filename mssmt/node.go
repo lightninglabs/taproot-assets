@@ -162,14 +162,31 @@ func (c *CompactedLeafNode) Key() [32]byte {
 }
 
 func (c *CompactedLeafNode) Extract(requestedHeight int) Node {
-    // Force extraction to always return a branch node wrapping the stored leaf.
-    // Use the level immediately above the compaction level.
-    branchLevel := c.Height - 1
-    if bitIndex(uint8(branchLevel), &c.key) == 0 {
-        return NewBranch(c.LeafNode, EmptyTree[branchLevel+1])
-    } else {
-        return NewBranch(EmptyTree[branchLevel+1], c.LeafNode)
-    }
+	// We need to guarantee that the returned Node is a branch so that
+	// walkDown can continue descending.
+	// Let target be the maximum level we must expand to. If the requested
+	// height is too deep (≥ c.Height), we set target to c.Height - 1.
+	target := requestedHeight
+	if target >= c.Height {
+		target = c.Height - 1
+	}
+
+	// Start with the stored leaf.
+	current := c.LeafNode
+	// Expand from the compaction level down to target+1.
+	for j := c.Height - 1; j >= target+1; j-- {
+		if bitIndex(uint8(j), &c.key) == 0 {
+			current = NewBranch(current, EmptyTree[j+1])
+		} else {
+			current = NewBranch(EmptyTree[j+1], current)
+		}
+	}
+	// Finally, wrap one more layer so that the result is a branch.
+	if bitIndex(uint8(target), &c.key) == 0 {
+		return NewBranch(current, EmptyTree[target+1])
+	} else {
+		return NewBranch(EmptyTree[target+1], current)
+	}
 }
 
 // Copy returns a deep copy of the compacted leaf node.
