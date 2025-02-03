@@ -232,9 +232,9 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	// Create the updated branch from the new left and right children.
 	var updatedBranch *BranchNode
 	if bitIndex(uint8(height), &entries[0].Key) == 0 {
-		updatedBranch = NewBranch(newLeft, newRight)
+		updatedBranch = NewBranch(leftChild, rightChild)
 	} else {
-		updatedBranch = NewBranch(newRight, newLeft)
+		updatedBranch = NewBranch(rightChild, leftChild)
 	}
 
 	// Delete the old branch and insert the new one.
