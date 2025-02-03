@@ -161,35 +161,24 @@ func (c *CompactedLeafNode) Key() [32]byte {
 	return c.key
 }
 
-func (c *CompactedLeafNode) Extract(requestedHeight int) Node {
-    target := requestedHeight
-    if target >= c.Height {
-        target = c.Height - 1
-    }
+// Extract extracts the subtree represented by this compacted leaf and returns
+// the topmost node in the tree.
+func (c *CompactedLeafNode) Extract(height int) Node {
+	var current Node = c.LeafNode
 
-    var current Node = c.LeafNode
+	// Walk up and recreate the missing branches.
+	for j := MaxTreeLevels; j > height+1; j-- {
+		var left, right Node
+		if bitIndex(uint8(j-1), &c.key) == 0 {
+			left, right = current, EmptyTree[j]
+		} else {
+			left, right = EmptyTree[j], current
+		}
 
-    for j := c.Height - 1; j >= target+1; j-- {
-        if bitIndex(uint8(j), &c.key) == 0 {
-            current = NewBranch(current, EmptyTree[j+1])
-        } else {
-            current = NewBranch(EmptyTree[j+1], current)
-        }
-    }
+		current = NewBranch(left, right)
+	}
 
-    sibling := EmptyTree[target+1]
-    if target+1 == MaxTreeLevels {
-        sibling = NewBranch(sibling, sibling)
-    }
-
-    var result Node
-    if bitIndex(uint8(target), &c.key) == 0 {
-        result = NewBranch(current, sibling)
-    } else {
-        result = NewBranch(sibling, current)
-    }
-
-    return result
+	return current
 }
 
 // Copy returns a deep copy of the compacted leaf node.
