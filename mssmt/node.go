@@ -163,13 +163,13 @@ func (c *CompactedLeafNode) Key() [32]byte {
 
 // Extract extracts the subtree represented by this compacted leaf and returns
 // the topmost node in the tree.
-func (c *CompactedLeafNode) Extract(height int) Node {
+func (c *CompactedLeafNode) Extract(requestedHeight int) Node {
 	// If the search is at or below the height where this compacted leaf was created,
 	// we simply return the stored leaf.
 	if requestedHeight >= c.Height {
 		return c.LeafNode
 	}
-	current := c.LeafNode
+	var current Node = c.LeafNode
 	// Otherwise, add the missing branch layers from c.Height-1 down to requestedHeight+1.
 	for j := c.Height - 1; j >= requestedHeight+1; j-- {
 		if bitIndex(uint8(j), &c.key) == 0 {
