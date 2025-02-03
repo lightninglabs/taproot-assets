@@ -1395,6 +1395,16 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"transaction %v: %w", txHash, err)
 		}
 
+		// Set send state to the next state to evaluate.
+		currentPkg.SendState = SendStateBroadcastComplete
+		return &currentPkg, nil
+
+	// At this stage, the transaction has been broadcast to the network.
+	// From this point forward, the transfer cancellation methodology
+	// changes.
+	case SendStateBroadcastComplete:
+		log.Infof("Transfer tx broadcast complete")
+
 		// With the transaction broadcast, we'll deliver a
 		// notification via the transaction broadcast response channel.
 		currentPkg.deliverTxBroadcastResp()
