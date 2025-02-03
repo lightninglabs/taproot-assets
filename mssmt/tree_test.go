@@ -30,15 +30,17 @@ func TestBatchedInsert(t *testing.T) {
 		// Use a simple deterministic pattern.
 		key[0] = byte(i + 1)
 		value := []byte(fmt.Sprintf("leaf-%d", i))
-		leaves = append(leaves, mssmt.treeLeaf{
+		leaves = append(leaves, struct {
+			key  [32]byte
+			leaf *mssmt.LeafNode
+		}{
 			key:  key,
 			leaf: mssmt.NewLeafNode(value, uint64(i+1)),
 		})
 	}
 
 	store := mssmt.NewDefaultStore()
-	tree := mssmt.NewCompactedTree(store)
-	compTree := tree.(*mssmt.CompactedTree)
+	compTree := mssmt.NewCompactedTree(store)
 
 	// Build the batch.
 	var batch []mssmt.BatchedInsertionEntry
@@ -54,7 +56,7 @@ func TestBatchedInsert(t *testing.T) {
 
 	// Verify that each inserted leaf can be retrieved.
 	for _, entry := range batch {
-		retrieved, err := newTree.(*CompactedTree).Get(ctx, entry.key)
+		retrieved, err := newTree.(*mssmt.CompactedTree).Get(ctx, entry.Key)
 		require.NoError(t, err)
 		require.Equal(t, entry.leaf, retrieved, "mismatch for key %x", entry.key)
 	}
@@ -64,9 +66,8 @@ func TestBatchedInsert(t *testing.T) {
 // leaves the tree unchanged.
 func TestBatchedInsertEmpty(t *testing.T) {
 	ctx := context.Background()
-	store := NewDefaultStore()
-	tree := NewCompactedTree(store)
-	compTree := tree.(*CompactedTree)
+	store := mssmt.NewDefaultStore()
+	compTree := mssmt.NewCompactedTree(store)
 
 	newTree, err := compTree.BatchedInsert(ctx, []batchedInsertionEntry{})
 	require.NoError(t, err)
