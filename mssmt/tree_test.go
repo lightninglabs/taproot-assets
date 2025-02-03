@@ -30,22 +30,22 @@ func TestBatchedInsert(t *testing.T) {
 		// Use a simple deterministic pattern.
 		key[0] = byte(i + 1)
 		value := []byte(fmt.Sprintf("leaf-%d", i))
-		leaves = append(leaves, treeLeaf{
+		leaves = append(leaves, mssmt.treeLeaf{
 			key:  key,
-			leaf: NewLeafNode(value, uint64(i+1)),
+			leaf: mssmt.NewLeafNode(value, uint64(i+1)),
 		})
 	}
 
-	store := NewDefaultStore()
-	tree := NewCompactedTree(store)
-	compTree := tree.(*CompactedTree)
+	store := mssmt.NewDefaultStore()
+	tree := mssmt.NewCompactedTree(store)
+	compTree := tree.(*mssmt.CompactedTree)
 
 	// Build the batch.
-	var batch []batchedInsertionEntry
+	var batch []mssmt.BatchedInsertionEntry
 	for _, tl := range leaves {
-		batch = append(batch, batchedInsertionEntry{
-			key:  tl.key,
-			leaf: tl.leaf,
+		batch = append(batch, mssmt.BatchedInsertionEntry{
+			Key:  tl.key,
+			Leaf: tl.leaf,
 		})
 	}
 
@@ -72,7 +72,7 @@ func TestBatchedInsertEmpty(t *testing.T) {
 	require.NoError(t, err)
 	root, err := newTree.Root(ctx)
 	require.NoError(t, err)
-	require.True(t, IsEqualNode(root, EmptyTree[0]))
+	require.True(t, mssmt.IsEqualNode(root, mssmt.EmptyTree[0]))
 }
 
 // TestBatchedInsertOverflow verifies that a batch insertion causing a sum overflow
@@ -86,18 +86,18 @@ func TestBatchedInsertOverflow(t *testing.T) {
 	// Insert one leaf with a huge sum.
 	huge := uint64(math.MaxUint64 - 100)
 	key1 := [32]byte{1}
-	hugeLeaf := NewLeafNode([]byte("huge"), huge)
+	hugeLeaf := mssmt.NewLeafNode([]byte("huge"), huge)
 	_, err := compTree.Insert(ctx, key1, hugeLeaf)
 	require.NoError(t, err)
 
 	// Prepare a batch with one normal leaf and one that overflows the root sum.
 	key2 := [32]byte{2}
-	normalLeaf := NewLeafNode([]byte("normal"), 50)
+	normalLeaf := mssmt.NewLeafNode([]byte("normal"), 50)
 	key3 := [32]byte{3}
-	overflowLeaf := NewLeafNode([]byte("overflow"), 101) //  huge + 101 exceeds MaxUint64
-	batch := []batchedInsertionEntry{
-		{key: key2, leaf: normalLeaf},
-		{key: key3, leaf: overflowLeaf},
+	overflowLeaf := mssmt.NewLeafNode([]byte("overflow"), 101) //  huge + 101 exceeds MaxUint64
+	batch := []mssmt.BatchedInsertionEntry{
+		{Key: key2, Leaf: normalLeaf},
+		{Key: key3, Leaf: overflowLeaf},
 	}
 	_, err = compTree.BatchedInsert(ctx, batch)
 	require.Error(t, err)

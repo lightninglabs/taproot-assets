@@ -16,7 +16,7 @@ type CompactedTree struct {
 }
 
 // batched_insert handles the insertion of multiple entries in one go.
-func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []batchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
+func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
 	// Base-case: If we've reached the bottom, simply return the current branch.
 	if height >= lastBitIndex {
 		return root, nil
@@ -28,7 +28,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []batchedIn
 	}
 
 	// Partition entries into two groups based on bit at current height.
-	var leftEntries, rightEntries []batchedInsertionEntry
+	var leftEntries, rightEntries []BatchedInsertionEntry
 	for _, entry := range entries {
 		if bitIndex(uint8(height), &entry.key) == 0 {
 			leftEntries = append(leftEntries, entry)
@@ -111,7 +111,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []batchedIn
 }
 
 // BatchedInsert inserts multiple leaf nodes at the given keys within the MS-SMT.
-func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []batchedInsertionEntry) (Tree, error) {
+func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInsertionEntry) (Tree, error) {
 	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
 		currentRoot, err := tx.RootNode()
 		if err != nil {
@@ -139,10 +139,10 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []batchedInse
 	return t, nil
 }
 
-// batchedInsertionEntry represents one leaf insertion.
-type batchedInsertionEntry struct {
-	key  [hashSize]byte
-	leaf *LeafNode
+// BatchedInsertionEntry represents one leaf insertion.
+type BatchedInsertionEntry struct {
+	Key  [hashSize]byte
+	Leaf *LeafNode
 }
 
 var _ Tree = (*CompactedTree)(nil)
