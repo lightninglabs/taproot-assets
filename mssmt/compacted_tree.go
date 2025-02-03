@@ -129,7 +129,7 @@ func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedIns
 				}
 			} else {
 				baseLeft := EmptyTree[height+1].(*BranchNode)
-				newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
+				newLeft, err = t.batchedInsert(tx, leftEntries, height+1, baseLeft)
 				if err != nil {
 					return nil, err
 				}
@@ -221,7 +221,7 @@ func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedIns
 				}
 			} else {
 				baseRight := EmptyTree[height+1].(*BranchNode)
-				newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
+				newRight, err = t.batchedInsert(tx, rightEntries, height+1, baseRight)
 				if err != nil {
 					return nil, err
 				}
@@ -283,23 +283,84 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInse
 	return t, nil
 }
 
-+// partitionEntries splits the insertion entries into two slices based on the
-+// bit at the given height. The leftEntries slice collects all entries whose
-+// key has the bit 0 at that position, while rightEntries collects those with bit 1.
-+func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
-+	for _, entry := range entries {
-+		if bitIndex(uint8(height), &entry.Key) == 0 {
-+			leftEntries = append(leftEntries, entry)
-+		} else {
-+			rightEntries = append(rightEntries, entry)
++// processSubtree handles the recursive insertion for a subtree (left or right)
++// based on the provided child node. Depending on whether the child is an
++// existing compacted leaf or branch, it either replaces, merges, or recurses
++// deeper to insert the batch of entries.
++// It returns the updated child Node on success.
++func (t *CompactedTree) processSubtree(tx TreeStoreUpdateTx, height int,
++	entries []BatchedInsertionEntry, child Node) (Node, error) {
++	if child != EmptyTree[height+1] {
++		if cl, ok := child.(*CompactedLeafNode); ok {
++			if len(entries) == 1 {
++				entry := entries[0]
++				if entry.Key == cl.Key() {
++					// Replacement: update the existing compacted leaf.
++					newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
++					if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
++						return nil, err
++					}
++					if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
++						return nil, err
++					}
++					return newLeaf, nil
++				}
++				// Collision detected: merge the new entry with the existing compacted leaf.
++				return t.merge(tx, height+1, entry.Key, entry.Leaf, cl.Key(), cl.LeafNode)
++			}
++
++			// For multiple entries, check if all match the existing key.
++			allMatch := true
++			for _, entry := range entries {
++				if entry.Key != cl.Key() {
++					allMatch = false
++					break
++				}
++			}
++			if allMatch {
++				// All entries match; perform a replacement with the last entry.
++				lastEntry := entries[len(entries)-1]
++				newLeaf := NewCompactedLeafNode(height+1, &lastEntry.Key, lastEntry.Leaf)
++				if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
++					return nil, err
++				}
++				if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
++					return nil, err
++				}
++				return newLeaf, nil
++			}
++
++			// Otherwise, merge using the first differing entry.
++			var mergeEntry *BatchedInsertionEntry
++			for _, entry := range entries {
++				if entry.Key != cl.Key() {
++					mergeEntry = &entry
++					break
++				}
++			}
++			if mergeEntry == nil {
++				return nil, fmt.Errorf("unexpected nil merge entry")
++			}
++			return t.merge(tx, height+1, mergeEntry.Key, mergeEntry.Leaf, cl.Key(), cl.LeafNode)
 +		}
++
++		// If child is not a compacted leaf (i.e. it is a branch), recurse normally.
++		baseChild := child.(*BranchNode)
++		return t.batchedInsert(tx, entries, height+1, baseChild)
 +	}
-+	return
++
++	// When the child is empty, insert a new compacted leaf or process as a branch.
++	if len(entries) == 1 {
++		entry := entries[0]
++		newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
++		if err := tx.InsertCompactedLeaf(newLeaf.(*CompactedLeafNode)); err != nil {
++			return nil, err
++		}
++		return newLeaf, nil
++	}
++	baseChild := EmptyTree[height+1].(*BranchNode)
++	return t.batchedInsert(tx, entries, height+1, baseChild)
 +}
-type BatchedInsertionEntry struct {
-	Key  [hashSize]byte
-	Leaf *LeafNode
-}
 
 var _ Tree = (*CompactedTree)(nil)
 
