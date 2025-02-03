@@ -72,7 +72,7 @@ func TestBatchedInsertEmpty(t *testing.T) {
 	store := mssmt.NewDefaultStore()
 	compTree := mssmt.NewCompactedTree(store)
 
-	newTree, err := compTree.BatchedInsert(ctx, []batchedInsertionEntry{})
+	newTree, err := compTree.BatchedInsert(ctx, []mssmt.BatchedInsertionEntry{})
 	require.NoError(t, err)
 	root, err := newTree.Root(ctx)
 	require.NoError(t, err)
