@@ -121,6 +121,9 @@ type CompactedLeafNode struct {
 	// compactedNodeHash holds the topmost (omitted) node's node hash in the
 	// subtree.
 	compactedNodeHash NodeHash
+
+	// Height is the level at which this compacted leaf was created.
+	Height int
 }
 
 // NewCompactedLeafNode creates a new compacted leaf at the passed height with
@@ -144,6 +147,7 @@ func NewCompactedLeafNode(height int, key *[32]byte,
 		compactedNodeHash: nodeHash,
 	}
 
+	node.Height = height
 	return node
 }
 
@@ -160,20 +164,20 @@ func (c *CompactedLeafNode) Key() [32]byte {
 // Extract extracts the subtree represented by this compacted leaf and returns
 // the topmost node in the tree.
 func (c *CompactedLeafNode) Extract(height int) Node {
-	var current Node = c.LeafNode
-
-	// Walk up and recreate the missing branches.
-	for j := MaxTreeLevels; j > height+1; j-- {
-		var left, right Node
-		if bitIndex(uint8(j-1), &c.key) == 0 {
-			left, right = current, EmptyTree[j]
-		} else {
-			left, right = EmptyTree[j], current
-		}
-
-		current = NewBranch(left, right)
+	// If the search is at or below the height where this compacted leaf was created,
+	// we simply return the stored leaf.
+	if requestedHeight >= c.Height {
+		return c.LeafNode
 	}
-
+	current := c.LeafNode
+	// Otherwise, add the missing branch layers from c.Height-1 down to requestedHeight+1.
+	for j := c.Height - 1; j >= requestedHeight+1; j-- {
+		if bitIndex(uint8(j), &c.key) == 0 {
+			current = NewBranch(current, EmptyTree[j+1])
+		} else {
+			current = NewBranch(EmptyTree[j+1], current)
+		}
+	}
 	return current
 }
 
