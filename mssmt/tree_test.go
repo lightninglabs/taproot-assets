@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"testing"
 
+	"crypto/sha256"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
@@ -29,9 +30,7 @@ func TestBatchedInsert(t *testing.T) {
 		leaf *mssmt.LeafNode
 	}
 	for i := 0; i < numLeaves; i++ {
-		var key [32]byte
-		// Use a simple deterministic pattern.
-		key[0] = byte(i + 1)
+		key := sha256.Sum256([]byte(fmt.Sprintf("value-%d", i)))
 		value := []byte(fmt.Sprintf("leaf-%d", i))
 		leaves = append(leaves, struct {
 			key  [32]byte

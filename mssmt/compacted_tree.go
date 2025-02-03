@@ -46,21 +46,31 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	// Process left subtree:
 	var newLeft Node
 	if len(leftEntries) > 0 {
-		// If there is no current left subtree, start with a default branch.
-		var baseLeft *BranchNode
-		if leftChild == EmptyTree[height+1] {
-			baseLeft = EmptyTree[height+1].(*BranchNode)
-		} else {
-			// If the left side is compacted, expand it.
-			if cl, ok := leftChild.(*CompactedLeafNode); ok {
-				baseLeft = cl.Extract(height+1).(*BranchNode)
-			} else {
-				baseLeft = leftChild.(*BranchNode)
+		var newLeft Node
+		// If there is exactly one insertion and the current left child is empty,
+		// create a compacted leaf (mirroring the logic in CompactedTree.insert).
+		if len(leftEntries) == 1 && leftChild == EmptyTree[height+1] {
+			entry := leftEntries[0]
+			compLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+			if err := tx.InsertCompactedLeaf(compLeaf); err != nil {
+				return nil, err
 			}
-		}
-		newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
-		if err != nil {
-			return nil, err
+			newLeft = compLeaf
+		} else {
+			var baseLeft *BranchNode
+			if leftChild == EmptyTree[height+1] {
+				baseLeft = EmptyTree[height+1].(*BranchNode)
+			} else {
+				if cl, ok := leftChild.(*CompactedLeafNode); ok {
+					baseLeft = cl.Extract(height+1).(*BranchNode)
+				} else {
+					baseLeft = leftChild.(*BranchNode)
+				}
+			}
+			newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		newLeft = leftChild
@@ -69,19 +79,29 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	// Process right subtree:
 	var newRight Node
 	if len(rightEntries) > 0 {
-		var baseRight *BranchNode
-		if rightChild == EmptyTree[height+1] {
-			baseRight = EmptyTree[height+1].(*BranchNode)
-		} else {
-			if cr, ok := rightChild.(*CompactedLeafNode); ok {
-				baseRight = cr.Extract(height+1).(*BranchNode)
-			} else {
-				baseRight = rightChild.(*BranchNode)
+		var newRight Node
+		if len(rightEntries) == 1 && rightChild == EmptyTree[height+1] {
+			entry := rightEntries[0]
+			compLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+			if err := tx.InsertCompactedLeaf(compLeaf); err != nil {
+				return nil, err
 			}
-		}
-		newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
-		if err != nil {
-			return nil, err
+			newRight = compLeaf
+		} else {
+			var baseRight *BranchNode
+			if rightChild == EmptyTree[height+1] {
+				baseRight = EmptyTree[height+1].(*BranchNode)
+			} else {
+				if cr, ok := rightChild.(*CompactedLeafNode); ok {
+					baseRight = cr.Extract(height+1).(*BranchNode)
+				} else {
+					baseRight = rightChild.(*BranchNode)
+				}
+			}
+			newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
+			if err != nil {
+				return nil, err
+			}
 		}
 	} else {
 		newRight = rightChild
