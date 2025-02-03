@@ -338,30 +338,18 @@ func (t *CompactedTree) walkDown(tx TreeStoreViewTx, key *[hashSize]byte,
 
 		switch node := next.(type) {
 		case *CompactedLeafNode:
-			// Our next node is a compacted leaf. We just need to
-			// Force full extraction so that we always receive a branch node
-			// (using node.Height-1).
-			next = node.Extract(node.Height - 1)
-
-			// If the sibling is also a compacted leaf, extract it fully.
+			// Our next node is a compacted leaf. We want to fully
+			// expand it so that the compacted subtree is completely unrolled
+			// up to the leaf level.
+			fmt.Printf("walkDown: encountered compacted leaf at level %d, expanding fully\n", i)
+			fullyExpanded := node.Extract(lastBitIndex)
+			// If the sibling is also a compacted leaf, fully expand it.
 			if compSibling, ok := sibling.(*CompactedLeafNode); ok {
-				sibling = compSibling.Extract(compSibling.Height - 1)
+				sibling = compSibling.Extract(lastBitIndex)
 			}
-
-			// Continue walking down using the fully expanded branch.
-			for j := i; j <= lastBitIndex; j++ {
-				if iter != nil {
-					if err := iter(j, next, sibling, current); err != nil {
-						return nil, err
-					}
-				}
-				current = next
-				if j < lastBitIndex {
-					branch := current.(*BranchNode)
-					next, sibling = stepOrder(j+1, key, branch.Left, branch.Right)
-				}
-			}
-			return current.(*LeafNode), nil
+			fmt.Printf("walkDown: fully expanded node type: %T, hash=%x\n", fullyExpanded, fullyExpanded.NodeHash())
+			// FullyExpanded is expected to be a leaf. Return it straight away.
+			return fullyExpanded.(*LeafNode), nil
 
 			// Now that all required branches are reconstructed we
 			// can continue the search for the leaf matching the
