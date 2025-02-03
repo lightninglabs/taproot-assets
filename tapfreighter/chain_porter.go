@@ -1391,6 +1391,18 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"transaction %v: %w", txHash, err)
 
 		case err != nil:
+			// If the error is due to the min relay fee not being
+			// met, we'll unlock the inputs we locked for this
+			// transfer before returning the error.
+			if strings.Contains(
+				err.Error(), "min relay fee not met",
+			) {
+				p.unlockInputs(ctx, &currentPkg)
+			}
+
+			// We exercise caution by not unlocking the inputs in
+			// the general error case, in case the transaction was
+			// somehow broadcasted.
 			return nil, fmt.Errorf("unable to broadcast "+
 				"transaction %v: %w", txHash, err)
 		}
