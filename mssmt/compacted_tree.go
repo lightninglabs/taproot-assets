@@ -47,64 +47,186 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	var newLeft Node
 	if len(leftEntries) > 0 {
 		var newLeft Node
-		// If there is exactly one insertion and the current left child is empty,
-		// create a compacted leaf (mirroring the logic in CompactedTree.insert).
-		if len(leftEntries) == 1 && leftChild == EmptyTree[height+1] {
-			entry := leftEntries[0]
-			compLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
-			if err := tx.InsertCompactedLeaf(compLeaf); err != nil {
-				return nil, err
-			}
-			newLeft = compLeaf
-		} else {
-			var baseLeft *BranchNode
-			if leftChild == EmptyTree[height+1] {
-				baseLeft = EmptyTree[height+1].(*BranchNode)
-			} else {
-				if cl, ok := leftChild.(*CompactedLeafNode); ok {
-					baseLeft = cl.Extract(height+1).(*BranchNode)
+		// Check if the current left child is not empty.
+		if leftChild != EmptyTree[height+1] {
+			// If the existing child is a compacted leaf, we must handle potential collisions.
+			if cl, ok := leftChild.(*CompactedLeafNode); ok {
+				if len(leftEntries) == 1 {
+					entry := leftEntries[0]
+					if entry.Key == cl.Key() {
+						// Replacement: update the compacted leaf.
+						newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+						if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
+							return nil, err
+						}
+						if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+							return nil, err
+						}
+						newLeft = newLeaf
+					} else {
+						// Collision – keys differ: call merge to combine the new entry with the existing compacted leaf.
+						newLeft, err = t.merge(tx, height+1, entry.Key, entry.Leaf, cl.Key(), cl.LeafNode)
+						if err != nil {
+							return nil, err
+						}
+					}
 				} else {
-					baseLeft = leftChild.(*BranchNode)
+					// Multiple batch entries – check if they all match the existing key.
+					allMatch := true
+					for _, entry := range leftEntries {
+						if entry.Key != cl.Key() {
+							allMatch = false
+							break
+						}
+					}
+					if allMatch {
+						// All entries match; take the last one as replacement.
+						lastEntry := leftEntries[len(leftEntries)-1]
+						newLeaf := NewCompactedLeafNode(height+1, &lastEntry.Key, lastEntry.Leaf)
+						if err := tx.DeleteCompactedLeaf(cl.NodeHash()); err != nil {
+							return nil, err
+						}
+						if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+							return nil, err
+						}
+						newLeft = newLeaf
+					} else {
+						// At least one entry has a different key – merge using the first differing entry.
+						var mergeEntry *BatchedInsertionEntry
+						for _, entry := range leftEntries {
+							if entry.Key != cl.Key() {
+								mergeEntry = &entry
+								break
+							}
+						}
+						if mergeEntry == nil {
+							return nil, fmt.Errorf("unexpected nil merge entry")
+						}
+						newLeft, err = t.merge(tx, height+1, mergeEntry.Key, mergeEntry.Leaf, cl.Key(), cl.LeafNode)
+						if err != nil {
+							return nil, err
+						}
+					}
+				}
+			} else {
+				// leftChild is not a compacted leaf, so it must be a branch; recurse normally.
+				baseLeft := leftChild.(*BranchNode)
+				newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
+				if err != nil {
+					return nil, err
 				}
 			}
-			newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
-			if err != nil {
-				return nil, err
+		} else {
+			// The left child is empty.
+			if len(leftEntries) == 1 {
+				entry := leftEntries[0]
+				newLeft = NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+				if err := tx.InsertCompactedLeaf(newLeft.(*CompactedLeafNode)); err != nil {
+					return nil, err
+				}
+			} else {
+				baseLeft := EmptyTree[height+1].(*BranchNode)
+				newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
-	} else {
-		newLeft = leftChild
+		// Use newLeft as the computed left child.
+		leftChild = newLeft
 	}
 
 	// Process right subtree:
 	var newRight Node
 	if len(rightEntries) > 0 {
 		var newRight Node
-		if len(rightEntries) == 1 && rightChild == EmptyTree[height+1] {
-			entry := rightEntries[0]
-			compLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
-			if err := tx.InsertCompactedLeaf(compLeaf); err != nil {
-				return nil, err
-			}
-			newRight = compLeaf
-		} else {
-			var baseRight *BranchNode
-			if rightChild == EmptyTree[height+1] {
-				baseRight = EmptyTree[height+1].(*BranchNode)
-			} else {
-				if cr, ok := rightChild.(*CompactedLeafNode); ok {
-					baseRight = cr.Extract(height+1).(*BranchNode)
+		// Check if the current right child is not empty.
+		if rightChild != EmptyTree[height+1] {
+			// If the existing child is a compacted leaf, we must handle potential collisions.
+			if cr, ok := rightChild.(*CompactedLeafNode); ok {
+				if len(rightEntries) == 1 {
+					entry := rightEntries[0]
+					if entry.Key == cr.Key() {
+						// Replacement: update the compacted leaf.
+						newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+						if err := tx.DeleteCompactedLeaf(cr.NodeHash()); err != nil {
+							return nil, err
+						}
+						if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+							return nil, err
+						}
+						newRight = newLeaf
+					} else {
+						// Collision – keys differ: call merge to combine the new entry with the existing compacted leaf.
+						newRight, err = t.merge(tx, height+1, entry.Key, entry.Leaf, cr.Key(), cr.LeafNode)
+						if err != nil {
+							return nil, err
+						}
+					}
 				} else {
-					baseRight = rightChild.(*BranchNode)
+					// Multiple batch entries – check if they all match the existing key.
+					allMatch := true
+					for _, entry := range rightEntries {
+						if entry.Key != cr.Key() {
+							allMatch = false
+							break
+						}
+					}
+					if allMatch {
+						// All entries match; take the last one as replacement.
+						lastEntry := rightEntries[len(rightEntries)-1]
+						newLeaf := NewCompactedLeafNode(height+1, &lastEntry.Key, lastEntry.Leaf)
+						if err := tx.DeleteCompactedLeaf(cr.NodeHash()); err != nil {
+							return nil, err
+						}
+						if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
+							return nil, err
+						}
+						newRight = newLeaf
+					} else {
+						// At least one entry has a different key – merge using the first differing entry.
+						var mergeEntry *BatchedInsertionEntry
+						for _, entry := range rightEntries {
+							if entry.Key != cr.Key() {
+								mergeEntry = &entry
+								break
+							}
+						}
+						if mergeEntry == nil {
+							return nil, fmt.Errorf("unexpected nil merge entry")
+						}
+						newRight, err = t.merge(tx, height+1, mergeEntry.Key, mergeEntry.Leaf, cr.Key(), cr.LeafNode)
+						if err != nil {
+							return nil, err
+						}
+					}
+				}
+			} else {
+				// rightChild is not a compacted leaf, so it must be a branch; recurse normally.
+				baseRight := rightChild.(*BranchNode)
+				newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
+				if err != nil {
+					return nil, err
 				}
 			}
-			newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
-			if err != nil {
-				return nil, err
+		} else {
+			// The right child is empty.
+			if len(rightEntries) == 1 {
+				entry := rightEntries[0]
+				newRight = NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
+				if err := tx.InsertCompactedLeaf(newRight.(*CompactedLeafNode)); err != nil {
+					return nil, err
+				}
+			} else {
+				baseRight := EmptyTree[height+1].(*BranchNode)
+				newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
+				if err != nil {
+					return nil, err
+				}
 			}
 		}
-	} else {
-		newRight = rightChild
+		// Use newRight as the computed right child.
+		rightChild = newRight
 	}
 
 	// Create the updated branch from the new left and right children.
