@@ -22,6 +22,11 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []batchedIn
 		return root, nil
 	}
 
+	// Guard against empty batch.
+	if len(entries) == 0 {
+		return root, nil
+	}
+
 	// Partition entries into two groups based on bit at current height.
 	var leftEntries, rightEntries []batchedInsertionEntry
 	for _, entry := range entries {

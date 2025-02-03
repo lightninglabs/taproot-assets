@@ -20,6 +20,102 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+package mssmt
+
+import (
+	"context"
+	"fmt"
+	"math"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+// TestBatchedInsert verifies that a batch of leaves is inserted correctly
+// and that each inserted element can be retrieved.
+func TestBatchedInsert(t *testing.T) {
+	ctx := context.Background()
+	numLeaves := 10
+	var leaves []treeLeaf
+	for i := 0; i < numLeaves; i++ {
+		var key [32]byte
+		// Use a simple deterministic pattern.
+		key[0] = byte(i + 1)
+		value := []byte(fmt.Sprintf("leaf-%d", i))
+		leaves = append(leaves, treeLeaf{
+			key:  key,
+			leaf: NewLeafNode(value, uint64(i+1)),
+		})
+	}
+
+	store := NewDefaultStore()
+	tree := NewCompactedTree(store)
+	compTree := tree.(*CompactedTree)
+
+	// Build the batch.
+	var batch []batchedInsertionEntry
+	for _, tl := range leaves {
+		batch = append(batch, batchedInsertionEntry{
+			key:  tl.key,
+			leaf: tl.leaf,
+		})
+	}
+
+	newTree, err := compTree.BatchedInsert(ctx, batch)
+	require.NoError(t, err)
+
+	// Verify that each inserted leaf can be retrieved.
+	for _, entry := range batch {
+		retrieved, err := newTree.(*CompactedTree).Get(ctx, entry.key)
+		require.NoError(t, err)
+		require.Equal(t, entry.leaf, retrieved, "mismatch for key %x", entry.key)
+	}
+}
+
+// TestBatchedInsertEmpty ensures that calling BatchedInsert with an empty batch
+// leaves the tree unchanged.
+func TestBatchedInsertEmpty(t *testing.T) {
+	ctx := context.Background()
+	store := NewDefaultStore()
+	tree := NewCompactedTree(store)
+	compTree := tree.(*CompactedTree)
+
+	newTree, err := compTree.BatchedInsert(ctx, []batchedInsertionEntry{})
+	require.NoError(t, err)
+	root, err := newTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, IsEqualNode(root, EmptyTree[0]))
+}
+
+// TestBatchedInsertOverflow verifies that a batch insertion causing a sum overflow
+// returns an error.
+func TestBatchedInsertOverflow(t *testing.T) {
+	ctx := context.Background()
+	store := NewDefaultStore()
+	tree := NewCompactedTree(store)
+	compTree := tree.(*CompactedTree)
+
+	// Insert one leaf with a huge sum.
+	huge := uint64(math.MaxUint64 - 100)
+	key1 := [32]byte{1}
+	hugeLeaf := NewLeafNode([]byte("huge"), huge)
+	_, err := compTree.Insert(ctx, key1, hugeLeaf)
+	require.NoError(t, err)
+
+	// Prepare a batch with one normal leaf and one that overflows the root sum.
+	key2 := [32]byte{2}
+	normalLeaf := NewLeafNode([]byte("normal"), 50)
+	key3 := [32]byte{3}
+	overflowLeaf := NewLeafNode([]byte("overflow"), 101) //  huge + 101 exceeds MaxUint64
+	batch := []batchedInsertionEntry{
+		{key: key2, leaf: normalLeaf},
+		{key: key3, leaf: overflowLeaf},
+	}
+	_, err = compTree.BatchedInsert(ctx, batch)
+	require.Error(t, err)
+	require.ErrorIs(t, err, ErrIntegerOverflow)
+}
+
 var (
 	errorTestVectorName       = "mssmt_tree_error_cases.json"
 	deletionTestVectorName    = "mssmt_tree_deletion.json"
