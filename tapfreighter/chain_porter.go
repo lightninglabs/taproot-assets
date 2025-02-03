@@ -1487,7 +1487,7 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 	// sanity-check that we have known input commitments to unlock, since
 	// that might not always be the case (for example if another party
 	// contributes inputs).
-	if pkg.SendState < SendStateStorePreBroadcast &&
+	if pkg.SendState < SendStateBroadcastComplete &&
 		len(pkg.InputCommitments) > 0 {
 
 		for prevID := range pkg.InputCommitments {
