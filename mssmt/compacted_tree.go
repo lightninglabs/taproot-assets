@@ -318,34 +318,32 @@ func (t *CompactedTree) Insert(ctx context.Context, key [hashSize]byte,
 	return t, nil
 }
 
-  
 // processCompactedLeaf handles the insertion of a batch of entries into a slot
 // that is currently occupied by a compacted leaf. A compacted leaf represents a
 // compressed subtree where all branches between a specific height and the actual
 // leaf are assumed to be default. Depending on the batched insertion entries,
-// this function determines whether to update (i.e. replace) the existing leaf or 
+// this function determines whether to update (i.e. replace) the existing leaf or
 // to merge it with a conflicting new entry.
-// 
+//
 // The logic is as follows:
-// 
+//
 // 1. When exactly one entry is provided:
-//    - If the entry's key matches the compacted leaf’s key, the function treats it
-//      as a replacement. It deletes the existing compacted leaf from the store and
-//      inserts a new compacted leaf built from the provided leaf data.
-//    - If the entry’s key differs from the compacted leaf’s key, a conflict is
-//      detected and the function calls the merge helper to combine the new leaf with
-//      the existing leaf into a merged branch.
-// 
+//   - If the entry's key matches the compacted leaf’s key, the function treats it
+//     as a replacement. It deletes the existing compacted leaf from the store and
+//     inserts a new compacted leaf built from the provided leaf data.
+//   - If the entry’s key differs from the compacted leaf’s key, a conflict is
+//     detected and the function calls the merge helper to combine the new leaf with
+//     the existing leaf into a merged branch.
+//
 // 2. When multiple entries are provided:
-//    - First, it checks whether all entries share the same key as the compacted leaf.
-//      If they do, the function performs a replacement using the data from the last entry
-//      in the batch.
-//    - Otherwise, it finds the first entry with a key that differs from the compacted leaf
-//      and then invokes the merge helper to merge that conflicting leaf with the current one.
-// 
-// In every case, the function returns the updated node (either a new compacted leaf or a 
+//   - First, it checks whether all entries share the same key as the compacted leaf.
+//     If they do, the function performs a replacement using the data from the last entry
+//     in the batch.
+//   - Otherwise, it finds the first entry with a key that differs from the compacted leaf
+//     and then invokes the merge helper to merge that conflicting leaf with the current one.
+//
+// In every case, the function returns the updated node (either a new compacted leaf or a
 // merged branch) and any error encountered during the processing.
-
 func (t *CompactedTree) processCompactedLeaf(tx TreeStoreUpdateTx, height int,
 	entries []BatchedInsertionEntry, cl *CompactedLeafNode) (Node, error) {
 
@@ -409,9 +407,35 @@ func (t *CompactedTree) processCompactedLeaf(tx TreeStoreUpdateTx, height int,
 		cl.Key(), cl.LeafNode)
 }
 
-// processSubtree processes a subtree of the MS-SMT based on the provided
-// height, entries, and child node. It handles the case where the child node is
-// either empty or a compacted leaf, and returns the updated child node.
+// processSubtree processes a batch of insertion entries for a specific
+// subtree at the given height.
+//
+// Depending on the current state of the child node at that subtree slot,
+// this method determines how to incorporate the batched entries:
+//
+//  1. If the child is not the default empty node (i.e. it already contains
+//     non-default data):
+//     - If the child is a compacted leaf, processSubtree delegates to the
+//     processCompactedLeaf helper. This handles the case where the slot
+//     already has a compressed leaf, performing either a replacement (if
+//     the batched entry’s key matches) or merging conflicting entries.
+//     - Otherwise, the child is assumed to be a branch node, so the batched
+//     entries are recursively inserted into that branch via a call to
+//     batchedInsert at the next tree level.
+//
+//  2. If the child is the default empty node (i.e. no prior insertion has
+//     occurred in this slot):
+//     - For a single entry, a new compacted leaf is created at the next
+//     level using that entry’s key and leaf, and inserted directly.
+//     - For multiple entries, an empty branch node (from the precomputed
+//     EmptyTree for the next level) is used as the base to recursively
+//     process the entries using batchedInsert.
+//
+// In all cases, processSubtree returns the updated node that replaces the
+// current child, along with any error encountered during processing.
+//
+// This helper reduces nesting by separating the logic for non-empty versus
+// empty subtrees and for compacted leaf handling versus full branch recursion.
 func (t *CompactedTree) processSubtree(tx TreeStoreUpdateTx, height int,
 	entries []BatchedInsertionEntry, child Node) (Node, error) {
 
@@ -459,9 +483,45 @@ func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries,
 	return
 }
 
-// batchedInsert recursively inserts a batch of leaf nodes into the MS-SMT.
-// It partitions the given entries based on the bit at the specified height
-// and processes both left and right subtrees accordingly.
+// batchedInsert recursively processes a batch of insertion entries
+// into the subtree of the current branch node at the specified height.
+//
+// The function works as follows:
+//
+// 1. Base-Case and Empty Batch:
+//   - If the current level (height) has reached or exceeded the last
+//     bit index, no further descent is possible, so the current branch
+//     is simply returned.
+//   - If there are no entries to insert, the current branch is returned
+//     unchanged.
+//
+// 2. Partitioning Entries:
+//   - The batch of insertion entries is split into two groups via the helper
+//     function partitionEntries. Entries with a 0 bit at the current level
+//     go into the leftEntries slice, and those with a 1 bit go into the
+//     rightEntries slice.
+//
+// 3. Recursively Updating Subtrees:
+//   - The current branch’s children are retrieved using GetChildren.
+//   - For each side that has corresponding entries:
+//   - processSubtree is invoked to update that subtree.
+//   - The updated child node (either a newly created compacted leaf or a
+//     recursively updated branch) replaces the old child.
+//
+// 4. Reassembling the Branch:
+//   - A new branch is constructed from the updated left and right children.
+//   - The old branch (if not the default empty branch) is deleted from the
+//     store.
+//   - If the newly formed branch is not equivalent to the default empty
+//     node for that height, it is inserted into the store.
+//
+// 5. Return Value:
+//   - The function returns the updated branch node reflecting all batched
+//     insertions at that level.
+//
+// This helper encapsulates the recursion and merging logic for batched insertions,
+// reducing nesting in the higher-level BatchedInsert method and making the overall
+// insertion process easier to follow and maintain.
 func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
 	// Base-case: If we've reached the bottom, simply return the current branch.
 	if height >= lastBitIndex {
@@ -518,7 +578,44 @@ func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedIns
 	return updatedBranch, nil
 }
 
-// BatchedInsert inserts multiple leaf nodes at the given keys within the MS-SMT.
+// BatchedInsert inserts multiple leaf nodes into the MS-SMT as a batch
+// operation.
+//
+// It accepts a context and a slice of BatchedInsertionEntry, where each entry
+// specifies a target key and its associated leaf to be inserted. The method
+// performs the batch insertion in a transactional manner on the underlying
+// tree store and proceeds through the following steps:
+//
+//  1. Sorting:
+//     - The entries are first sorted in lexicographic order based on their keys.
+//     This consistent ordering is essential for generating valid proofs and
+//     ensuring history-independence.
+//
+//  2. Overflow Check and Transaction Setup:
+//     - Within an update transaction, the current root branch is retrieved.
+//     - For each entry, the function checks whether adding the leaf’s sum to the
+//     current root sum would overflow a uint64. If an overflow is detected,
+//     the batch insertion aborts and returns an error.
+//
+//  3. Recursive Processing via Helper:
+//     - The sorted entries are passed to the recursive helper batchedInsert along
+//     with the current root and a starting height of 0.
+//     - The helper partitions the entries based on the bit at each tree level,
+//     recursively updating non-empty subtrees and creating new compacted leaves
+//     or branch nodes as needed.
+//
+//  4. Root Update:
+//     - When recursion completes, a new root reflecting all batched updates is
+//     obtained. This new root is then stored in the tree store, finalizing the
+//     update.
+//
+//  5. Return:
+//     - On success, BatchedInsert returns the updated tree instance (implementing
+//     the Tree interface). In case of any errors (e.g. overflow or transactional
+//     failures), it returns the appropriate error.
+//
+// This method encapsulates the complex merging and partitioning logic required for
+// efficient batched insertions into a compacted Merkle-Sum Sparse Merkle Tree.
 func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInsertionEntry) (Tree, error) {
 	sort.Slice(entries, func(i, j int) bool {
 		return bytes.Compare(entries[i].Key[:], entries[j].Key[:]) < 0
