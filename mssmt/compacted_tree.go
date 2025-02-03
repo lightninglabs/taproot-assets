@@ -22,6 +22,19 @@ type CompactedTree struct {
  // and processes both left and right subtrees accordingly.
 func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
 	// Base-case: If we've reached the bottom, simply return the current branch.
+// partitionEntries splits the given batched insertion entries into two slices
+// based on the bit at the provided height. Entries with bit 0 go into leftEntries
+// and those with bit 1 go into rightEntries.
+func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
+	for _, entry := range entries {
+		if bitIndex(uint8(height), &entry.Key) == 0 {
+			leftEntries = append(leftEntries, entry)
+		} else {
+			rightEntries = append(rightEntries, entry)
+		}
+	}
+	return
+}
 	if height >= lastBitIndex {
 		return root, nil
 	}
@@ -179,7 +192,7 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInse
 	if len(entries) == 1 {
 		entry := entries[0]
 		newLeaf := NewCompactedLeafNode(height+1, &entry.Key, entry.Leaf)
-		if err := tx.InsertCompactedLeaf(newLeaf.(*CompactedLeafNode)); err != nil {
+		if err := tx.InsertCompactedLeaf(newLeaf); err != nil {
 			return nil, err
 		}
 		return newLeaf, nil
