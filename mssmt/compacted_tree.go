@@ -7,6 +7,20 @@ import (
 	"sort"
 )
 
+// partitionEntries splits the given batched insertion entries into
+// two slices based on the bit at the provided height.
+// Entries with bit 0 go into leftEntries and those with bit 1 into rightEntries.
+func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
+	for _, entry := range entries {
+		if bitIndex(uint8(height), &entry.Key) == 0 {
+			leftEntries = append(leftEntries, entry)
+		} else {
+			rightEntries = append(rightEntries, entry)
+		}
+	}
+	return
+}
+
 // CompactedTree represents a compacted Merkle-Sum Sparse Merkle Tree (MS-SMT).
 // The tree has the same properties as a normal MS-SMT tree and is able to
 // create the same proofs and same root as the FullTree implemented in this
@@ -22,19 +36,6 @@ type CompactedTree struct {
  // and processes both left and right subtrees accordingly.
 func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
 	// Base-case: If we've reached the bottom, simply return the current branch.
-// partitionEntries splits the given batched insertion entries into two slices
-// based on the bit at the provided height. Entries with bit 0 go into leftEntries
-// and those with bit 1 go into rightEntries.
-func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
-	for _, entry := range entries {
-		if bitIndex(uint8(height), &entry.Key) == 0 {
-			leftEntries = append(leftEntries, entry)
-		} else {
-			rightEntries = append(rightEntries, entry)
-		}
-	}
-	return
-}
 	if height >= lastBitIndex {
 		return root, nil
 	}
