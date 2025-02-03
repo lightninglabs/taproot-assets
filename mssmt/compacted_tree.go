@@ -17,8 +17,10 @@ type CompactedTree struct {
 	store TreeStore
 }
 
-// batched_insert handles the insertion of multiple entries in one go.
-func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
++// batchedInsert recursively inserts a batch of leaf nodes into the MS-SMT.
++// It partitions the given entries based on the bit at the specified height
++// and processes both left and right subtrees accordingly.
+func (t *CompactedTree) batchedInsert(tx TreeStoreUpdateTx, entries []BatchedInsertionEntry, height int, root *BranchNode) (*BranchNode, error) {
 	// Base-case: If we've reached the bottom, simply return the current branch.
 	if height >= lastBitIndex {
 		return root, nil
@@ -112,7 +114,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 			} else {
 				// leftChild is not a compacted leaf, so it must be a branch; recurse normally.
 				baseLeft := leftChild.(*BranchNode)
-				newLeft, err = t.batched_insert(tx, leftEntries, height+1, baseLeft)
+				newLeft, err = t.batchedInsert(tx, leftEntries, height+1, baseLeft)
 				if err != nil {
 					return nil, err
 				}
@@ -204,7 +206,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 			} else {
 				// rightChild is not a compacted leaf, so it must be a branch; recurse normally.
 				baseRight := rightChild.(*BranchNode)
-				newRight, err = t.batched_insert(tx, rightEntries, height+1, baseRight)
+				newRight, err = t.batchedInsert(tx, rightEntries, height+1, baseRight)
 				if err != nil {
 					return nil, err
 				}
@@ -268,8 +270,8 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInse
 			}
 		}
 
-		// Call the new batched_insert method.
-		newRoot, err := t.batched_insert(tx, entries, 0, branchRoot)
+		// Call the new batchedInsert method.
+		newRoot, err := t.batchedInsert(tx, entries, 0, branchRoot)
 		if err != nil {
 			return err
 		}
@@ -281,7 +283,19 @@ func (t *CompactedTree) BatchedInsert(ctx context.Context, entries []BatchedInse
 	return t, nil
 }
 
-// BatchedInsertionEntry represents one leaf insertion.
++// partitionEntries splits the insertion entries into two slices based on the
++// bit at the given height. The leftEntries slice collects all entries whose
++// key has the bit 0 at that position, while rightEntries collects those with bit 1.
++func partitionEntries(entries []BatchedInsertionEntry, height int) (leftEntries, rightEntries []BatchedInsertionEntry) {
++	for _, entry := range entries {
++		if bitIndex(uint8(height), &entry.Key) == 0 {
++			leftEntries = append(leftEntries, entry)
++		} else {
++			rightEntries = append(rightEntries, entry)
++		}
++	}
++	return
++}
 type BatchedInsertionEntry struct {
 	Key  [hashSize]byte
 	Leaf *LeafNode
