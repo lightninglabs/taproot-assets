@@ -161,30 +161,15 @@ func (c *CompactedLeafNode) Key() [32]byte {
 	return c.key
 }
 
-// Extract extracts the subtree represented by this compacted leaf and returns
-// the topmost node in the tree.
 func (c *CompactedLeafNode) Extract(requestedHeight int) Node {
-	// If the requested height is too deep relative to the compaction, adjust
-	// it to one level above the compaction level so that we always get a branch.
-	if requestedHeight >= c.Height {
-		requestedHeight = c.Height - 1
-	}
-	if requestedHeight == c.Height-1 {
-		if bitIndex(uint8(requestedHeight), &c.key) == 0 {
-			return NewBranch(c.LeafNode, EmptyTree[requestedHeight+1])
-		} else {
-			return NewBranch(EmptyTree[requestedHeight+1], c.LeafNode)
-		}
-	}
-	var current Node = c.LeafNode
-	for j := c.Height - 1; j >= requestedHeight+1; j-- {
-		if bitIndex(uint8(j), &c.key) == 0 {
-			current = NewBranch(current, EmptyTree[j+1])
-		} else {
-			current = NewBranch(EmptyTree[j+1], current)
-		}
-	}
-	return current
+    // Force extraction to always return a branch node wrapping the stored leaf.
+    // Use the level immediately above the compaction level.
+    branchLevel := c.Height - 1
+    if bitIndex(uint8(branchLevel), &c.key) == 0 {
+        return NewBranch(c.LeafNode, EmptyTree[branchLevel+1])
+    } else {
+        return NewBranch(EmptyTree[branchLevel+1], c.LeafNode)
+    }
 }
 
 // Copy returns a deep copy of the compacted leaf node.
