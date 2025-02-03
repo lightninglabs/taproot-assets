@@ -49,7 +49,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 		// If there is no current left subtree, start with a default branch.
 		var baseLeft *BranchNode
 		if leftChild == EmptyTree[height+1] {
-			baseLeft = NewBranch(EmptyTree[height+1], EmptyTree[height+1])
+			baseLeft = EmptyTree[height+1].(*BranchNode)
 		} else {
 			// If the left side is compacted, expand it.
 			if cl, ok := leftChild.(*CompactedLeafNode); ok {
@@ -71,7 +71,7 @@ func (t *CompactedTree) batched_insert(tx TreeStoreUpdateTx, entries []BatchedIn
 	if len(rightEntries) > 0 {
 		var baseRight *BranchNode
 		if rightChild == EmptyTree[height+1] {
-			baseRight = NewBranch(EmptyTree[height+1], EmptyTree[height+1])
+			baseRight = EmptyTree[height+1].(*BranchNode)
 		} else {
 			if cr, ok := rightChild.(*CompactedLeafNode); ok {
 				baseRight = cr.Extract(height+1).(*BranchNode)
