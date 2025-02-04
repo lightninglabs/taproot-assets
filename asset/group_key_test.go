@@ -11,6 +11,7 @@ import (
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
 )
@@ -389,5 +390,133 @@ func TestNonSpendableLeafScript(t *testing.T) {
 			require.Error(t, err)
 			require.ErrorContains(t, err, testCase.errString)
 		})
+	}
+}
+
+// TestGroupKeyIsEqual tests that GroupKey.IsEqual is correct.
+func TestGroupKeyIsEqual(t *testing.T) {
+	t.Parallel()
+
+	testKey := &GroupKey{
+		RawKey: keychain.KeyDescriptor{
+			// Fill in some non-defaults.
+			KeyLocator: keychain.KeyLocator{
+				Family: keychain.KeyFamilyMultiSig,
+				Index:  1,
+			},
+			PubKey: pubKey,
+		},
+		GroupPubKey: *pubKey,
+		Witness:     sigWitness,
+	}
+
+	pubKeyCopy := *pubKey
+
+	tests := []struct {
+		a, b  *GroupKey
+		equal bool
+	}{
+		{
+			a:     nil,
+			b:     nil,
+			equal: true,
+		},
+		{
+			a:     &GroupKey{},
+			b:     &GroupKey{},
+			equal: true,
+		},
+		{
+			a:     nil,
+			b:     &GroupKey{},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &GroupKey{
+				GroupPubKey: *pubKey,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &GroupKey{
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &GroupKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+					PubKey:     nil,
+				},
+
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &GroupKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: &pubKeyCopy,
+				},
+
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			equal: false,
+		},
+		{
+			a: testKey,
+			b: &GroupKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+					PubKey:     &pubKeyCopy,
+				},
+
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			equal: true,
+		},
+		{
+			a: &GroupKey{
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			b: &GroupKey{
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			equal: true,
+		},
+		{
+			a: &GroupKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+				},
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			b: &GroupKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: testKey.RawKey.KeyLocator,
+				},
+				GroupPubKey: testKey.GroupPubKey,
+				Witness:     testKey.Witness,
+			},
+			equal: true,
+		},
+	}
+
+	for _, testCase := range tests {
+		testCase := testCase
+		require.Equal(t, testCase.equal, testCase.a.IsEqual(testCase.b))
+		require.Equal(t, testCase.equal, testCase.b.IsEqual(testCase.a))
 	}
 }
