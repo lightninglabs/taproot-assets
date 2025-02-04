@@ -1491,6 +1491,9 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 		return
 	}
 
+	// TODO(ffranr): Make use of CheckMempoolAccept to ensure we don't
+	//  unlock inputs for transactions that are in the mempool.
+
 	// If we haven't even attempted to broadcast yet, we're still in a state
 	// where we give feedback to the user synchronously, as we haven't
 	// created an on-chain transaction that we need to await confirmation.
@@ -1530,6 +1533,9 @@ func (p *ChainPorter) unlockInputs(ctx context.Context, pkg *sendPackage) {
 			log.Warnf("Unable to unlock input %v: %v", op, err)
 		}
 	}
+
+	// TODO(ffranr): Remove pending asset transfer and chain tx from the
+	//  database.
 }
 
 // logPacket logs the virtual packet to the debug log.
