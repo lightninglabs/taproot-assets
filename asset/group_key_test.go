@@ -598,9 +598,9 @@ func TestDeriveGroupKeyV0(t *testing.T) {
 	require.Error(t, err)
 }
 
-// TestDeriveGroupKey tests that group key derivation fails for assets that are
-// not eligible to be group anchors.
-func TestDeriveGroupKey(t *testing.T) {
+// TestGroupKeyDerivationInvalidAsset ensures group key derivation fails
+// for assets that are not valid group anchors.
+func TestGroupKeyDerivationInvalidAsset(t *testing.T) {
 	t.Parallel()
 
 	groupPriv := test.RandPrivKey()
