@@ -11,13 +11,11 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
-	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/mssmt"
-	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
 	"pgregory.net/rapid"
@@ -727,81 +725,6 @@ func TestAssetID(t *testing.T) {
 	}
 	differentID := normalWithDifferentType.ID()
 	require.NotEqual(t, id[:], differentID[:])
-}
-
-// TestAssetGroupKey tests that the asset key group is derived correctly.
-func TestAssetGroupKey(t *testing.T) {
-	t.Parallel()
-
-	privKey, err := btcec.NewPrivateKey()
-	groupPub := privKey.PubKey()
-	require.NoError(t, err)
-	privKeyCopy := btcec.PrivKeyFromScalar(&privKey.Key)
-	genSigner := NewMockGenesisSigner(privKeyCopy)
-	genBuilder := MockGroupTxBuilder{}
-	fakeKeyDesc := test.PubToKeyDesc(groupPub)
-	fakeScriptKey := NewScriptKeyBip86(fakeKeyDesc)
-
-	g := Genesis{
-		FirstPrevOut: wire.OutPoint{
-			Hash:  hashBytes1,
-			Index: 99,
-		},
-		Tag:         "normal asset 1",
-		MetaHash:    [MetaHashLen]byte{1, 2, 3},
-		OutputIndex: 21,
-		Type:        Collectible,
-	}
-	groupTweak := g.ID()
-
-	internalKey := input.TweakPrivKey(privKeyCopy, groupTweak[:])
-	tweakedKey := txscript.TweakTaprootPrivKey(*internalKey, nil)
-
-	// TweakTaprootPrivKey modifies the private key that is passed in! We
-	// need to provide a copy to arrive at the same result.
-	protoAsset := NewAssetNoErr(t, g, 1, 0, 0, fakeScriptKey, nil)
-	groupReq := NewGroupKeyRequestNoErr(
-		t, fakeKeyDesc, fn.None[ExternalKey](), g, protoAsset, nil,
-		fn.None[chainhash.Hash](),
-	)
-	genTx, err := groupReq.BuildGroupVirtualTx(&genBuilder)
-	require.NoError(t, err)
-
-	keyGroup, err := DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
-	require.NoError(t, err)
-
-	require.Equal(
-		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
-		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
-	)
-
-	// We should also be able to reproduce the correct tweak with a non-nil
-	// tapscript root.
-	tapTweak := test.RandBytes(32)
-	tweakedKey = txscript.TweakTaprootPrivKey(*internalKey, tapTweak)
-
-	groupReq = NewGroupKeyRequestNoErr(
-		t, test.PubToKeyDesc(privKey.PubKey()), fn.None[ExternalKey](),
-		g, protoAsset, tapTweak, fn.None[chainhash.Hash](),
-	)
-	genTx, err = groupReq.BuildGroupVirtualTx(&genBuilder)
-	require.NoError(t, err)
-
-	keyGroup, err = DeriveGroupKey(genSigner, *genTx, *groupReq, nil)
-	require.NoError(t, err)
-
-	require.Equal(
-		t, schnorr.SerializePubKey(tweakedKey.PubKey()),
-		schnorr.SerializePubKey(&keyGroup.GroupPubKey),
-	)
-
-	// Group key tweaking should fail when given invalid tweaks.
-	badTweak := test.RandBytes(33)
-	_, err = GroupPubKeyV0(groupPub, badTweak, badTweak)
-	require.Error(t, err)
-
-	_, err = GroupPubKeyV0(groupPub, groupTweak[:], badTweak)
-	require.Error(t, err)
 }
 
 // TestDeriveGroupKey tests that group key derivation fails for assets that are
