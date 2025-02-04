@@ -18,6 +18,8 @@ import (
 	"pgregory.net/rapid"
 )
 
+// testCaseGkrEncodeDecode defines a unit test case for encoding
+// and decoding a group key reveal.
 type testCaseGkrEncodeDecode struct {
 	testName string
 
@@ -280,8 +282,8 @@ func TestGroupKeyRevealEncodeDecodeRapid(tt *testing.T) {
 	})
 }
 
-// TestNonSpendableLeafScript tests that the unspendable leaf script is actually
-// unspendable.
+// TestNonSpendableLeafScript tests that the non-spendable leaf script is
+// actually non-spendable.
 func TestNonSpendableLeafScript(t *testing.T) {
 	var assetID ID
 	_, err := rand.Read(assetID[:])
@@ -380,7 +382,7 @@ func TestNonSpendableLeafScript(t *testing.T) {
 			spendTx.TxIn[0].Witness = finalWitness
 
 			// Finally, we'll execute the spend. This should fail if
-			// the leaf is actually unspendable.
+			// the leaf is actually non-spendable.
 			vm, err := txscript.NewEngine(
 				leafScript, spendTx, 0,
 				txscript.StandardVerifyFlags, nil, sigHash,
