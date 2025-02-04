@@ -842,6 +842,10 @@ func (t *mintingTestHarness) fetchSingleBatch(
 		return t.assertBatchProgressing()
 	}
 
+	go func() {
+		<-t.keyRing.ReqKeys
+	}()
+
 	batch, err := t.store.FetchMintingBatch(context.Background(), batchKey)
 	require.NoError(t, err)
 	require.NotNil(t, batch)
@@ -1149,6 +1153,8 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// Now that the planter is back up, a single caretaker should have been
 	// launched as well. The batch should already be funded.
 	batch := t.fetchSingleBatch(nil)
+
+	require.NotNil(t, batch.GenesisPacket)
 	t.assertBatchGenesisTx(batch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 

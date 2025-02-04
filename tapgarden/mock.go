@@ -659,7 +659,9 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	select {
 	case m.ReqKeys <- &desc:
 	case <-ctx.Done():
-		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
+		// The context is done but we can still return the key
+		// descriptor because it was derived successfully.
+		return desc, nil
 	}
 
 	return desc, nil

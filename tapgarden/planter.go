@@ -662,6 +662,34 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// setPreCommitmentOutput sets the
+func (c *ChainPlanter) setPreCommitmentOutput(
+	fundedGenesisPkt *tapsend.FundedPsbt) error {
+
+	// Derive a new key to lock the change output.
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	newKey, err := c.cfg.KeyRing.DeriveNextKey(
+		ctx, asset.TaprootAssetsKeyFamily,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to derive pre-commitment output "+
+			"key: %w", err)
+	}
+	newKey = newKey
+
+	//bip32Derivation, trBip32Derivation := tappsbt.Bip32DerivationFromKeyDesc(
+	//	newKey, c.cfg.ChainParams.HDCoinType,
+	//)
+	//bip32Derivation = bip32Derivation
+	//trBip32Derivation = trBip32Derivation
+
+	// Set in PSBT output and inner unsigned transaction.
+
+	return nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -744,6 +772,14 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
+
+	// TODO(ffranr): Lock change output here if EnableUniCommitment set for
+	//  batch.
+	err = c.setPreCommitmentOutput(fundedGenesisPkt)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lock pre-commitment "+
+			"output: %w", err)
+	}
 
 	return fundedGenesisPkt, nil
 }
@@ -2283,6 +2319,12 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			return fmt.Errorf("group anchor genesis %x not found: "+
 				"%w", groupKeyBytes, err,
 			)
+		}
+
+		// If the universe commitment feature is enabled for the group
+		// genesis asset, we ensure it is also enabled for the seedling.
+		if anchorMeta.UniCommitTRKey.IsSome() {
+			req.EnableUniCommitment = true
 		}
 
 		err = req.validateGroupKey(*groupInfo, anchorMeta)
