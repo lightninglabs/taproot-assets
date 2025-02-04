@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -82,6 +83,11 @@ type GardenKit struct {
 // PlanterConfig is the main config for the ChainPlanter.
 type PlanterConfig struct {
 	GardenKit
+
+	// ChainParams defines the chain parameters for the target blockchain
+	// network. It specifies whether the network is Bitcoin mainnet or
+	// testnet.
+	ChainParams address.ChainParams
 
 	// ProofUpdates is the storage backend for updated proofs.
 	ProofUpdates proof.Archiver
