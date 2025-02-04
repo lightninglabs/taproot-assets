@@ -523,8 +523,8 @@ func TestGroupKeyIsEqual(t *testing.T) {
 	}
 }
 
-// TestAssetGroupKey tests that the asset key group is derived correctly.
-func TestAssetGroupKey(t *testing.T) {
+// TestDeriveGroupKeyV0 verifies the correct derivation of the V0 group key.
+func TestDeriveGroupKeyV0(t *testing.T) {
 	t.Parallel()
 
 	privKey, err := btcec.NewPrivateKey()
