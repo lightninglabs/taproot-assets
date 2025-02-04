@@ -23,6 +23,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -144,6 +145,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 	}
 
 	t.planter = tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+		ChainParams: address.ParamsForChain("regtest"),
 		GardenKit: tapgarden.GardenKit{
 			Wallet:       t.wallet,
 			ChainBridge:  t.chain,
