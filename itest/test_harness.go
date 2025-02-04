@@ -476,10 +476,10 @@ func isMempoolEmpty(miner *rpcclient.Client, timeout time.Duration) (bool,
 	}
 }
 
-// waitForNTxsInMempool polls until finding the desired number of transactions
+// WaitForNTxsInMempool polls until finding the desired number of transactions
 // in the provided miner's mempool. An error is returned if this number is not
 // met after the given timeout.
-func waitForNTxsInMempool(miner *rpcclient.Client, n int,
+func WaitForNTxsInMempool(miner *rpcclient.Client, n int,
 	timeout time.Duration) ([]*chainhash.Hash, error) {
 
 	breakTimeout := time.After(timeout)

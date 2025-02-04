@@ -93,6 +93,16 @@ type Config struct {
 	// only relevant for the mint test.
 	BatchSize int `long:"mint-test-batch-size" description:"the number of assets to mint in a single batch; only relevant for the mint test"`
 
+	// TotalNumGroups is the total number of groups that the minted assets
+	// belong to.
+	TotalNumGroups int `long:"mint-test-total-groups" description:"the total number of groups the minted assets belong to"`
+
+	// MintSupplyMin is the minimum supply to mint per asset.
+	MintSupplyMin int `long:"mint-test-supply-min" description:"the max supply to mint per asset"`
+
+	// MintSupplyMax is the max suipply to mint per asset.
+	MintSupplyMax int `long:"mint-test-supply-max" description:"the min supply to mint per asset"`
+
 	// NumSends is the number of asset sends to perform. This is only
 	// relevant for the send test.
 	NumSends int `long:"send-test-num-sends" description:"the number of send operations to perform; only relevant for the send test"`
