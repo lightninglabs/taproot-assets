@@ -529,16 +529,17 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			"access status: %w", err)
 	}
 
+	chainParams := address.ParamsForChain(cfg.ActiveNetParams.Name)
+
 	return &tap.Config{
 		DebugLevel:            cfg.DebugLevel,
 		RuntimeID:             runtimeID,
 		EnableChannelFeatures: enableChannelFeatures,
 		Lnd:                   lndServices,
-		ChainParams: address.ParamsForChain(
-			cfg.ActiveNetParams.Name,
-		),
-		ReOrgWatcher: reOrgWatcher,
+		ChainParams:           chainParams,
+		ReOrgWatcher:          reOrgWatcher,
 		AssetMinter: tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+			ChainParams: chainParams,
 			GardenKit: tapgarden.GardenKit{
 				Wallet:                walletAnchor,
 				ChainBridge:           chainBridge,
