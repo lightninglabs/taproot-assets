@@ -156,6 +156,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 			ProofFiles:   t.proofFiles,
 			ProofWatcher: t.proofWatcher,
 		},
+		ChainParams:  *chainParams,
 		ProofUpdates: t.proofFiles,
 		ErrChan:      t.errChan,
 	})
