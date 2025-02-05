@@ -29,22 +29,24 @@ func sendTest(t *testing.T, ctx context.Context, cfg *Config) {
 	ctxt, cancel := context.WithTimeout(ctxb, cfg.TestTimeout)
 	defer cancel()
 
+	sendType := stringToAssetType(cfg.SendAssetType)
+
 	t.Logf("Running send test, sending %d asset(s) of type %v %d times",
-		cfg.NumAssets, cfg.SendType, cfg.NumSends)
+		cfg.NumAssets, sendType, cfg.NumSends)
 	for i := 1; i <= cfg.NumSends; i++ {
 		send, receive, ok := pickSendNode(
-			t, ctx, cfg.NumAssets, cfg.SendType, alice, bob,
+			t, ctx, cfg.NumAssets, sendType, alice, bob,
 		)
 		if !ok {
 			t.Fatalf("Aborting send test at attempt %d of %d as "+
 				"no node has enough balance to send %d "+
 				"assets of type %v", i, cfg.NumSends,
-				cfg.NumAssets, cfg.SendType)
+				cfg.NumAssets, sendType)
 			return
 		}
 
 		sendAssets(
-			t, ctxt, cfg.NumAssets, cfg.SendType, send, receive,
+			t, ctxt, cfg.NumAssets, sendType, send, receive,
 			bitcoinClient, cfg.TestTimeout,
 		)
 
