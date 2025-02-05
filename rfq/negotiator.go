@@ -17,7 +17,7 @@ import (
 const (
 	// minAssetRatesExpiryLifetime is the minimum asset rates expiry
 	// lifetime in seconds.
-	minAssetRatesExpiryLifetime = 60
+	minAssetRatesExpiryLifetime = 10
 
 	// DefaultAcceptPriceDeviationPpm is the default price deviation in
 	// parts per million that is accepted by the RFQ negotiator.
