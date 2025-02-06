@@ -42,6 +42,11 @@ var (
 	regtestParams     = &chaincfg.RegressionNetParams
 )
 
+const (
+	SyncModeIssuance = universerpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY
+	SyncModeFull     = universerpc.UniverseSyncMode_SYNC_FULL
+)
+
 // ClientEventStream is a generic interface for a client stream that allows us
 // to receive events from a server.
 type ClientEventStream[T any] interface {
@@ -834,14 +839,44 @@ func MintAssetExternalSigner(t *harnessTest, tapNode *tapdHarness,
 	return batchAssets
 }
 
+// syncOptions is a struct that is used to customize the way we perform a
+// universe sync.
+type syncOptions struct {
+	syncMode universerpc.UniverseSyncMode
+}
+
+// defaultSyncOptions returns the default syncOptions.
+func defaultSyncOptions() *syncOptions {
+	return &syncOptions{
+		syncMode: SyncModeIssuance,
+	}
+}
+
+// SyncUniverseOpt is used to modify the parameters of a universe sync.
+type SyncUniverseOpt func(*syncOptions)
+
+// WithSyncMode can be used to define which sync mode to be used when performing
+// a universe sync.
+func WithSyncMode(mode universerpc.UniverseSyncMode) SyncUniverseOpt {
+	return func(so *syncOptions) {
+		so.syncMode = mode
+	}
+}
+
 // SyncUniverses syncs the universes of two tapd instances and waits until they
 // are in sync.
 func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 	universeTapd commands.RpcClientsBundle, universeHost string,
-	timeout time.Duration) {
+	timeout time.Duration, opts ...SyncUniverseOpt) {
 
 	ctxt, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+
+	options := defaultSyncOptions()
+
+	for _, opt := range opts {
+		opt(options)
+	}
 
 	_, err := clientTapd.AddFederationServer(
 		ctxt, &universerpc.AddFederationServerRequest{
@@ -863,10 +898,9 @@ func SyncUniverses(ctx context.Context, t *testing.T, clientTapd,
 		// If we've already added the server in a previous run, we'll
 		// just need to kick off a sync (as that would otherwise be done
 		// by adding the server request already).
-		mode := universerpc.UniverseSyncMode_SYNC_ISSUANCE_ONLY
 		_, err := clientTapd.SyncUniverse(ctxt, &universerpc.SyncRequest{
 			UniverseHost: universeHost,
-			SyncMode:     mode,
+			SyncMode:     options.syncMode,
 		})
 		require.NoError(t, err)
 	}
