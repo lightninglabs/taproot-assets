@@ -1940,7 +1940,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fundDesc := addrToFundDesc(state.address1)
 
 		inputAsset, err := tapsend.AssetFromTapCommitment(
-			&state.asset1TapTree, fundDesc, state.spenderScriptKey,
+			&state.asset1TapTree, fundDesc.AssetSpecifier,
+			state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1949,7 +1950,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: &state.asset1TapTree,
-			}, inputAsset.Type, fundDesc,
+			}, inputAsset.Type, fundDesc.AssetSpecifier,
+			fundDesc.Amount,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1966,8 +1968,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fundDesc := addrToFundDesc(state.address1CollectGroup)
 
 		inputAsset, err := tapsend.AssetFromTapCommitment(
-			&state.asset1CollectGroupTapTree, fundDesc,
-			state.spenderScriptKey,
+			&state.asset1CollectGroupTapTree,
+			fundDesc.AssetSpecifier, state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1977,7 +1979,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
 				state.asset1CollectGroupPrevID: inputCommitment,
-			}, inputAsset.Type, fundDesc,
+			}, inputAsset.Type, fundDesc.AssetSpecifier,
+			fundDesc.Amount,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -1994,7 +1997,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fundDesc := addrToFundDesc(state.address1)
 
 		inputAsset, err := tapsend.AssetFromTapCommitment(
-			&state.asset2TapTree, fundDesc, state.spenderScriptKey,
+			&state.asset2TapTree, fundDesc.AssetSpecifier,
+			state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2003,7 +2007,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
 				state.asset2PrevID: &state.asset2TapTree,
-			}, inputAsset.Type, fundDesc,
+			}, inputAsset.Type, fundDesc.AssetSpecifier,
+			fundDesc.Amount,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2020,7 +2025,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fundDesc := addrToFundDesc(state.address2)
 
 		inputAsset, err := tapsend.AssetFromTapCommitment(
-			&state.asset1TapTree, fundDesc, state.spenderScriptKey,
+			&state.asset1TapTree, fundDesc.AssetSpecifier,
+			state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2029,7 +2035,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: &state.asset1TapTree,
-			}, inputAsset.Type, fundDesc,
+			}, inputAsset.Type, fundDesc.AssetSpecifier,
+			fundDesc.Amount,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2046,7 +2053,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fundDesc := addrToFundDesc(state.address1CollectGroup)
 
 		inputAsset, err := tapsend.AssetFromTapCommitment(
-			&state.asset1TapTree, fundDesc, state.spenderScriptKey,
+			&state.asset1TapTree, fundDesc.AssetSpecifier,
+			state.spenderScriptKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2055,7 +2063,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: &state.asset1TapTree,
-			}, inputAsset.Type, fundDesc,
+			}, inputAsset.Type, fundDesc.AssetSpecifier,
+			fundDesc.Amount,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2081,7 +2090,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fundDesc := addrToFundDesc(*address1testnet)
 
 		inputAsset, err := tapsend.AssetFromTapCommitment(
-			&state.asset1TapTree, fundDesc, state.receiverPubKey,
+			&state.asset1TapTree, fundDesc.AssetSpecifier,
+			state.receiverPubKey,
 		)
 		if err != nil {
 			return nil, nil, err
@@ -2090,7 +2100,8 @@ var addressValidInputTestCases = []addressValidInputTestCase{{
 		fullValue, err := tapsend.ValidateInputs(
 			tappsbt.InputCommitments{
 				state.asset1PrevID: &state.asset1TapTree,
-			}, inputAsset.Type, fundDesc,
+			}, inputAsset.Type, fundDesc.AssetSpecifier,
+			fundDesc.Amount,
 		)
 		if err != nil {
 			return nil, nil, err
