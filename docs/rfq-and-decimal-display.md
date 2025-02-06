@@ -369,6 +369,9 @@ use a price oracle, but its role is different for those parties:
   tasked with validating exchange rates offered to them by the edge node, to
   make sure they aren't proposing absurd rates (by accident or on purpose).
 
+**NOTE**: By default, the _minimum_ quote expiry at tapd node will accept is _10
+seconds_.
+
 Due to the fundamentally different roles of the price oracle for both parties,
 it is expected that the actual implementation for the price oracle is also
 different among the parties.
