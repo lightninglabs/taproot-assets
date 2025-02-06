@@ -393,13 +393,6 @@ type KeyRing interface {
 	DeriveNextKey(context.Context,
 		keychain.KeyFamily) (keychain.KeyDescriptor, error)
 
-	// DeriveKey attempts to derive an arbitrary key specified by the
-	// passed KeyLocator. This may be used in several recovery scenarios,
-	// or when manually rotating something like our current default node
-	// key.
-	DeriveKey(context.Context,
-		keychain.KeyLocator) (keychain.KeyDescriptor, error)
-
 	// IsLocalKey returns true if the key is under the control of the wallet
 	// and can be derived by it.
 	IsLocalKey(context.Context, keychain.KeyDescriptor) bool

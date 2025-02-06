@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -55,23 +54,6 @@ func (l *LndRpcKeyRing) DeriveNextTaprootAssetKey(
 	if err != nil {
 		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
 			"derive next key: %w", err)
-	}
-
-	return *keyDesc, nil
-}
-
-// DeriveKey attempts to derive an arbitrary key specified by the passed
-// KeyLocator. This may be used in several recovery scenarios, or when manually
-// rotating something like our current default node key.
-func (l *LndRpcKeyRing) DeriveKey(ctx context.Context,
-	keyLoc keychain.KeyLocator) (keychain.KeyDescriptor, error) {
-
-	tapdLog.Debugf("Deriving new key, key_loc=%v", spew.Sdump(keyLoc))
-
-	keyDesc, err := l.lnd.WalletKit.DeriveKey(ctx, &keyLoc)
-	if err != nil {
-		return keychain.KeyDescriptor{}, fmt.Errorf("unable to "+
-			"derive key ring: %w", err)
 	}
 
 	return *keyDesc, nil
