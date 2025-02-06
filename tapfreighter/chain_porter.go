@@ -1208,10 +1208,9 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		}
 
 		// Gather passive assets virtual packets and sign them.
-		wallet := p.cfg.AssetWallet
-
-		currentPkg.PassiveAssets, err = wallet.CreatePassiveAssets(
-			ctx, currentPkg.VirtualPackets,
+		currentPkg.PassiveAssets, err = CreatePassiveAssets(
+			ctx, p.cfg.KeyRing, p.cfg.ProofReader,
+			currentPkg.VirtualPackets,
 			currentPkg.InputCommitments,
 		)
 		if err != nil {
@@ -1223,6 +1222,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Debugf("Signing %d passive assets",
 			len(currentPkg.PassiveAssets))
+
+		wallet := p.cfg.AssetWallet
 		err = wallet.SignPassiveAssets(currentPkg.PassiveAssets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)

@@ -179,6 +179,8 @@ type Config struct {
 
 	AssetWallet tapfreighter.Wallet
 
+	KeyRing tapfreighter.KeyRing
+
 	CoinSelect *tapfreighter.CoinSelect
 
 	ChainPorter tapfreighter.Porter
