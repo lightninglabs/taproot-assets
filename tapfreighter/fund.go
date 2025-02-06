@@ -24,10 +24,10 @@ import (
 // single asset ID/tranche or group key with multiple tranches).
 func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	keyRing KeyRing, addrBook AddrBook, fundDesc *tapsend.FundingDescriptor,
-	vPkt *tappsbt.VPacket,
+	vPktTemplate *tappsbt.VPacket,
 	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
 
-	if vPkt.ChainParams == nil {
+	if vPktTemplate.ChainParams == nil {
 		return nil, errors.New("chain params not set in virtual packet")
 	}
 
@@ -37,7 +37,7 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 
 	assetType := selectedCommitments[0].Asset.Type
 
-	totalInputAmt := uint64(0)
+	inputAmounts := make(map[asset.ID]uint64)
 	for _, anchorAsset := range selectedCommitments {
 		// We only use the sum of all assets of the same TAP commitment
 		// key to avoid counting passive assets as well. We'll filter
@@ -49,56 +49,91 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 			continue
 		}
 
-		totalInputAmt += anchorAsset.Asset.Amount
+		inputAmounts[anchorAsset.Asset.ID()] += anchorAsset.Asset.Amount
 	}
 
-	inputCommitments, err := setVPacketInputs(
-		ctx, exporter, selectedCommitments, vPkt,
-	)
-	if err != nil {
-		return nil, err
-	}
+	// We now know how much we're spending and how many tranches we're
+	// spending from. Now we need to create a packet for each tranche.
+	remainingAmount := fundDesc.Amount
+	allPackets := make([]*tappsbt.VPacket, 0, len(inputAmounts))
+	allInputCommitments := make(tappsbt.InputCommitments, len(inputAmounts))
+	for assetID, inputAmount := range inputAmounts {
+		vPkt := vPktTemplate.Copy()
 
-	fullValue, err := tapsend.ValidateInputs(
-		inputCommitments, assetType, fundDesc.AssetSpecifier,
-		fundDesc.Amount,
-	)
-	if err != nil {
-		return nil, err
-	}
+		trancheAmount := inputAmount
+		if trancheAmount > remainingAmount {
+			trancheAmount = remainingAmount
+		}
 
-	// Make sure we'll recognize local script keys in the virtual packet
-	// later on in the process by annotating them with the full descriptor
-	// information.
-	if err := annotateLocalScriptKeys(ctx, vPkt, addrBook); err != nil {
-		return nil, err
-	}
+		commitmentsByAssetID := fn.Filter(
+			selectedCommitments, func(c *AnchoredCommitment) bool {
+				return c.Asset.ID() == assetID
+			},
+		)
 
-	// If we don't spend the full value, we need to create a change output.
-	changeAmount := totalInputAmt - fundDesc.Amount
-	err = createChangeOutput(ctx, vPkt, keyRing, fullValue, changeAmount)
-	if err != nil {
-		return nil, err
+		inputCommitments, err := setVPacketInputs(
+			ctx, exporter, commitmentsByAssetID, vPkt,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		// We need to add the asset ID here in case the funding request
+		// only came in by group key.
+		specifier := asset.NewSpecifierOptionalGroupPubKey(
+			assetID, fundDesc.AssetSpecifier.UnwrapGroupKeyToPtr(),
+		)
+		fullValue, err := tapsend.ValidateInputs(
+			inputCommitments, assetType, specifier, trancheAmount,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		changeAmount := inputAmount - trancheAmount
+		remainingAmount -= trancheAmount
+
+		err = annotateLocalScriptKeys(ctx, vPkt, addrBook)
+		if err != nil {
+			return nil, fmt.Errorf("error annotating local script "+
+				"keys: %w", err)
+		}
+
+		err = createChangeOutput(
+			ctx, vPkt, keyRing, fullValue, changeAmount,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("error calculating change "+
+				"outputs: %w", err)
+		}
+
+		for prevID, inputCommitment := range inputCommitments {
+			allInputCommitments[prevID] = inputCommitment
+		}
+
+		allPackets = append(allPackets, vPkt)
 	}
 
 	// Before we can prepare output assets for our send, we need to generate
 	// a new internal key for the anchor outputs. We assume any output that
 	// hasn't got an internal key set is going to a local anchor, and we
 	// provide the internal key for that.
-	packets := []*tappsbt.VPacket{vPkt}
-	err = generateOutputAnchorInternalKeys(ctx, packets, keyRing)
+	err := generateOutputAnchorInternalKeys(ctx, allPackets, keyRing)
 	if err != nil {
 		return nil, fmt.Errorf("unable to generate output anchor "+
 			"internal keys: %w", err)
 	}
 
-	if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
-		return nil, fmt.Errorf("unable to prepare outputs: %w", err)
+	for _, vPkt := range allPackets {
+		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+			return nil, fmt.Errorf("unable to prepare outputs: %w",
+				err)
+		}
 	}
 
 	return &FundedVPacket{
-		VPackets:         packets,
-		InputCommitments: inputCommitments,
+		VPackets:         allPackets,
+		InputCommitments: allInputCommitments,
 	}, nil
 }
 
