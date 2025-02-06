@@ -37,6 +37,8 @@ type CommitmentConstraints struct {
 
 	// CoinSelectType is the type of coins that should be selected.
 	CoinSelectType tapsend.CoinSelectType
+
+	GroupKeyOnly bool
 }
 
 // AssetBurn holds data related to a burn of an asset.

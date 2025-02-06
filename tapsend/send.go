@@ -205,6 +205,8 @@ type FundingDescriptor struct {
 
 	// CoinSelectType specifies the type of coins that should be selected.
 	CoinSelectType CoinSelectType
+
+	GroupKeyOnly bool
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset

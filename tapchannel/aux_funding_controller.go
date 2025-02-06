@@ -806,6 +806,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 		AssetSpecifier: specifier,
 		Amount:         amt,
 		CoinSelectType: tapsend.Bip86Only,
+		GroupKeyOnly:   true,
 	}
 
 	// Fund the packet. This will derive an anchor internal key for us, but
