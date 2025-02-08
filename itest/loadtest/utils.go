@@ -100,6 +100,16 @@ func (r *rpcClient) listTransfersSince(t *testing.T, ctx context.Context,
 	return resp.Transfers[newIndex:]
 }
 
+// initAlice is similar to initClients, but only returns the Alice client.
+func initAlice(t *testing.T, ctx context.Context, cfg *Config) *rpcClient {
+	alice := getTapClient(t, ctx, cfg.Alice.Tapd, cfg.Alice.Lnd)
+
+	_, err := alice.GetInfo(ctx, &taprpc.GetInfoRequest{})
+	require.NoError(t, err)
+
+	return alice
+}
+
 func initClients(t *testing.T, ctx context.Context,
 	cfg *Config) (*rpcClient, *rpcClient, *rpcclient.Client) {
 

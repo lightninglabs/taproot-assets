@@ -115,6 +115,14 @@ type Config struct {
 	// relevant for the send test.
 	SendType taprpc.AssetType `long:"send-test-send-type" description:"the type of asset to attempt to send; only relevant for the send test"`
 
+	// SyncPageSize is the page size to use in the sync test for calls made
+	// to the universe server.
+	SyncPageSize int `long:"sync-page-size" description:"the page size to use in the sync test when fetching data from the universe server"`
+
+	// SyncNumClients is the number of clients to use in the sync test. This
+	// many clients will try to sync in parallel.
+	SyncNumClients int `long:"sync-num-clients" description:"the number of sync clients to use for the sync test"`
+
 	// TestSuiteTimeout is the timeout for the entire test suite.
 	TestSuiteTimeout time.Duration `long:"test-suite-timeout" description:"the timeout for the entire test suite"`
 
