@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"slices"
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -9,13 +10,20 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightningnetwork/lnd/lnwire"
+	"github.com/stretchr/testify/mock"
 )
 
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
 // It returns the suggested rate as the exchange rate.
 type MockPriceOracle struct {
+	// Mock is the underlying mock object used to track method invocations
+	// in tests.
+	mock.Mock
+
 	// expiryDelay is the lifetime of a quote in seconds.
-	expiryDelay    uint64
+	expiryDelay uint64
+
+	// assetToBtcRate is the default asset to BTC exchange rate.
 	assetToBtcRate rfqmath.BigIntFixedPoint
 }
 
@@ -48,33 +56,70 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 }
 
 // QueryAskPrice returns the ask price for the given asset amount.
-func (m *MockPriceOracle) QueryAskPrice(_ context.Context,
-	_ asset.Specifier, _ fn.Option[uint64],
-	_ fn.Option[lnwire.MilliSatoshi],
-	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
+func (m *MockPriceOracle) QueryAskPrice(ctx context.Context,
+	assetSpecifier asset.Specifier,
+	assetMaxAmt fn.Option[uint64],
+	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
-	// Calculate the rate expiry timestamp.
-	lifetime := time.Duration(m.expiryDelay) * time.Second
-	expiry := time.Now().Add(lifetime).UTC()
+	// Return early with default value if no expected calls are predefined
+	// for this method.
+	if !hasExpectedCall(m.ExpectedCalls, "QueryAskPrice") {
+		// Calculate the rate expiry timestamp.
+		lifetime := time.Duration(m.expiryDelay) * time.Second
+		expiry := time.Now().Add(lifetime).UTC()
 
-	return &OracleResponse{
-		AssetRate: rfqmsg.NewAssetRate(m.assetToBtcRate, expiry),
-	}, nil
+		return &OracleResponse{
+			AssetRate: rfqmsg.NewAssetRate(
+				m.assetToBtcRate, expiry,
+			),
+		}, nil
+	}
+
+	// If an expected call exist, call normally.
+	args := m.Called(
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+	)
+	resp, _ := args.Get(0).(*OracleResponse)
+	return resp, args.Error(1)
 }
 
 // QueryBidPrice returns a bid price for the given asset amount.
-func (m *MockPriceOracle) QueryBidPrice(_ context.Context, _ asset.Specifier,
-	_ fn.Option[uint64], _ fn.Option[lnwire.MilliSatoshi],
-	_ fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
+func (m *MockPriceOracle) QueryBidPrice(ctx context.Context,
+	assetSpecifier asset.Specifier,
+	assetMaxAmt fn.Option[uint64],
+	paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
+	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse, error) {
 
-	// Calculate the rate expiry timestamp.
-	lifetime := time.Duration(m.expiryDelay) * time.Second
-	expiry := time.Now().Add(lifetime).UTC()
+	// Return early with default value if no expected calls are predefined
+	// for this method.
+	if !hasExpectedCall(m.ExpectedCalls, "QueryBidPrice") {
+		// Calculate the rate expiry timestamp.
+		lifetime := time.Duration(m.expiryDelay) * time.Second
+		expiry := time.Now().Add(lifetime).UTC()
 
-	return &OracleResponse{
-		AssetRate: rfqmsg.NewAssetRate(m.assetToBtcRate, expiry),
-	}, nil
+		return &OracleResponse{
+			AssetRate: rfqmsg.NewAssetRate(
+				m.assetToBtcRate, expiry,
+			),
+		}, nil
+	}
+
+	// If an expected call exist, call normally.
+	args := m.Called(
+		ctx, assetSpecifier, assetMaxAmt, paymentMaxAmt, assetRateHint,
+	)
+	resp, _ := args.Get(0).(*OracleResponse)
+	return resp, args.Error(1)
 }
 
 // Ensure that MockPriceOracle implements the PriceOracle interface.
 var _ PriceOracle = (*MockPriceOracle)(nil)
+
+// hasExpectedCall checks if the method call has been registered as an expected
+// call with the mock object.
+func hasExpectedCall(expectedCalls []*mock.Call, method string) bool {
+	return slices.ContainsFunc(expectedCalls, func(call *mock.Call) bool {
+		return call.Method == method
+	})
+}
