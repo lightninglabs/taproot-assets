@@ -48,6 +48,10 @@ var loadTestCases = []testCase{
 		fn:   sendTest,
 	},
 	{
+		name: "sendV2",
+		fn:   sendTestV2,
+	},
+	{
 		name: "multisig",
 		fn:   multisigTest,
 	},

@@ -6,7 +6,6 @@ import (
 
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/jessevdk/go-flags"
-	"github.com/lightninglabs/taproot-assets/taprpc"
 )
 
 const (
@@ -111,9 +110,10 @@ type Config struct {
 	// This is only relevant for the send test.
 	NumAssets uint64 `long:"send-test-num-assets" description:"the number of assets to send in each send operation; only relevant for the send test"`
 
-	// SendType is the type of asset to attempt to send. This is only
-	// relevant for the send test.
-	SendType taprpc.AssetType `long:"send-test-send-type" description:"the type of asset to attempt to send; only relevant for the send test"`
+	// SendAssetType is the type of asset to attempt to send. This is only
+	// relevant for the send test. Acceptable values are "normal" and
+	// "collectible".
+	SendAssetType string `long:"send-asset-type" description:"the type of asset to attempt to send; only relevant for the send test"`
 
 	// TestSuiteTimeout is the timeout for the entire test suite.
 	TestSuiteTimeout time.Duration `long:"test-suite-timeout" description:"the timeout for the entire test suite"`
@@ -143,8 +143,8 @@ func DefaultConfig() Config {
 		Network:          "regtest",
 		BatchSize:        100,
 		NumSends:         50,
-		NumAssets:        1, // We only mint collectibles.
-		SendType:         taprpc.AssetType_COLLECTIBLE,
+		NumAssets:        1,
+		SendAssetType:    "normal",
 		TestSuiteTimeout: defaultSuiteTimeout,
 		TestTimeout:      defaultTestTimeout,
 		PrometheusGateway: &PrometheusGatewayConfig{

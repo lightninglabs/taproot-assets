@@ -289,3 +289,15 @@ func getBitcoinConn(t *testing.T, cfg *BitcoinConfig) *rpcclient.Client {
 
 	return client
 }
+
+// stringToAssetType converts a string of an asset type to its respective taprpc
+// type enum value.
+func stringToAssetType(t string) taprpc.AssetType {
+	switch t {
+	case "collectible":
+		return taprpc.AssetType_COLLECTIBLE
+
+	default:
+		return taprpc.AssetType_NORMAL
+	}
+}
