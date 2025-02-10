@@ -641,8 +641,14 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			return
 		}
 
-		// Ensure that the peer provided price is reasonable given the
-		// price provided by the price oracle service.
+		// The price returned by the oracle may not always align with
+		// our specific interests, depending on the oracle's pricing
+		// methodology. In other words, it may provide a general market
+		// price rather than one optimized for our needs.
+		//
+		// To account for this, we allow some tolerance in price
+		// deviation, ensuring that we can accept a reasonable range of
+		// prices while maintaining flexibility.
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
@@ -774,8 +780,14 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 			return
 		}
 
-		// Ensure that the peer provided price is reasonable given the
-		// price provided by the price oracle service.
+		// The price returned by the oracle may not always align with
+		// our specific interests, depending on the oracle's pricing
+		// methodology. In other words, it may provide a general market
+		// price rather than one optimized for our needs.
+		//
+		// To account for this, we allow some tolerance in price
+		// deviation, ensuring that we can accept a reasonable range of
+		// prices while maintaining flexibility.
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
