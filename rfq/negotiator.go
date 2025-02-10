@@ -600,14 +600,19 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	go func() {
 		defer n.Wg.Done()
 
-		// The buy accept message contains an ask price. This price
-		// is the price that the peer is willing to accept in order to
-		// sell the asset that we are buying.
+		// The buy accept message includes an ask price, which
+		// represents the amount the peer is willing to accept for the
+		// asset we are purchasing.
 		//
-		// We will sanity check that price by querying our price oracle
-		// for an ask price. We will then compare the ask price returned
-		// by the price oracle with the ask price provided by the peer.
-		assetRate, err := n.queryAskFromPriceOracle(
+		// To validate this ask, we will query our price oracle for a
+		// bid price and compare it with the peer's asking price. If the
+		// two prices fall within an acceptable tolerance, we will
+		// approve the quote.
+		//
+		// When querying the price oracle, we will provide the peer's
+		// ask price as a hint. The oracle may factor this into its
+		// calculations to generate a more relevant bid price.
+		assetRate, err := n.queryBidFromPriceOracle(
 			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
