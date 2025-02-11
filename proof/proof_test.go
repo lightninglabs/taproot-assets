@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -559,6 +560,15 @@ func TestGenesisProofVerification(t *testing.T) {
 	testBranchPreimage := commitment.NewPreimageFromBranch(branch)
 	amount := uint64(5000)
 
+	dummyURL, err := url.Parse("universerpc://some-host:1234")
+	require.NoError(t, err)
+
+	dummyURL2, err := url.Parse("universerpc://another-host:765")
+	require.NoError(t, err)
+
+	oneURL := fn.Some[[]url.URL]([]url.URL{*dummyURL})
+	twoURL := fn.Some[[]url.URL]([]url.URL{*dummyURL, *dummyURL2})
+
 	testCases := []struct {
 		name                 string
 		assetType            asset.Type
@@ -750,6 +760,43 @@ func TestGenesisProofVerification(t *testing.T) {
 				gkr.SetTapscriptRoot(test.RandBytes(32))
 			},
 			expectedErr: ErrGroupKeyRevealMismatch,
+		},
+		{
+			name: "normal asset with a meta reveal and " +
+				"decimal display and canonical universe URL",
+			assetType: asset.Normal,
+			amount:    &amount,
+			metaReveal: &MetaReveal{
+				Data: []byte("meant in crooking " +
+					"nevermore"),
+				DecimalDisplay:     fn.Some[uint32](8),
+				CanonicalUniverses: oneURL,
+			},
+		},
+		{
+			name: "collectible with a meta reveal and " +
+				"decimal display and canonical universe URL",
+			assetType: asset.Collectible,
+			metaReveal: &MetaReveal{
+				Data: []byte("shall be lifted " +
+					"nevermore"),
+				DecimalDisplay:     fn.Some[uint32](3),
+				CanonicalUniverses: oneURL,
+			},
+		},
+		{
+			name:      "normal asset with all meta reveal fields",
+			assetType: asset.Normal,
+			amount:    &amount,
+			metaReveal: &MetaReveal{
+				Data:                []byte("fully loaded"),
+				DecimalDisplay:      fn.Some[uint32](11),
+				UniverseCommitments: true,
+				CanonicalUniverses:  twoURL,
+				DelegationKey: fn.MaybeSome(
+					asset.NUMSPubKey,
+				),
+			},
 		},
 	}
 

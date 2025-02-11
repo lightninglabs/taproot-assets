@@ -2,6 +2,7 @@ package proof
 
 import (
 	"bytes"
+	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
@@ -28,6 +29,7 @@ const (
 	GenesisRevealType    tlv.Type = 23
 	GroupKeyRevealType   tlv.Type = 25
 	AltLeavesType        tlv.Type = 27
+	UniCommitmentsType   tlv.Type = 29
 
 	TaprootProofOutputIndexType     tlv.Type = 0
 	TaprootProofInternalKeyType     tlv.Type = 2
@@ -43,8 +45,12 @@ const (
 	TapscriptProofTapPreimage2 tlv.Type = 3
 	TapscriptProofBip86        tlv.Type = 4
 
-	MetaRevealEncodingType tlv.Type = 0
-	MetaRevealDataType     tlv.Type = 2
+	MetaRevealEncodingType           tlv.Type = 0
+	MetaRevealDataType               tlv.Type = 2
+	MetaRevealDecimalDisplay         tlv.Type = 5
+	MetaRevealUniverseCommitments    tlv.Type = 7
+	MetaRevealCanonicalUniversesType tlv.Type = 9
+	MetaRevealDelegationKeyType      tlv.Type = 11
 )
 
 // KnownProofTypes is a set of all known proof TLV types. This set is asserted
@@ -55,6 +61,7 @@ var KnownProofTypes = fn.NewSet(
 	ExclusionProofsType, SplitRootProofType, MetaRevealType,
 	AdditionalInputsType, ChallengeWitnessType, BlockHeightType,
 	GenesisRevealType, GroupKeyRevealType, AltLeavesType,
+	UniCommitmentsType,
 )
 
 // KnownTaprootProofTypes is a set of all known Taproot proof TLV types. This
@@ -83,7 +90,9 @@ var KnownTapscriptProofTypes = fn.NewSet(
 // KnownMetaRevealTypes is a set of all known meta reveal TLV types. This set is
 // asserted to be complete by a check in the BIP test vector unit tests.
 var KnownMetaRevealTypes = fn.NewSet(
-	MetaRevealEncodingType, MetaRevealDataType,
+	MetaRevealEncodingType, MetaRevealDataType, MetaRevealDecimalDisplay,
+	MetaRevealUniverseCommitments, MetaRevealCanonicalUniversesType,
+	MetaRevealDelegationKeyType,
 )
 
 func VersionRecord(version *TransitionVersion) tlv.Record {
@@ -359,6 +368,70 @@ func MetaRevealDataRecord(data *[]byte) tlv.Record {
 	return tlv.MakeDynamicRecord(
 		MetaRevealDataType, data, sizeFunc, tlv.EVarBytes,
 		asset.DVarBytesWithLimit(MetaDataMaxSizeBytes),
+	)
+}
+
+func MetaRevealDecimalDisplayRecord(
+	decimalDisplay *fn.Option[uint32]) tlv.Record {
+
+	// If the option is not set, we'll encode it as a zero-length record.
+	// But because we'll not include the record at all if it's not set at
+	// the call site when encoding, this will not be the case for this
+	// specific record.
+	var size uint64
+	if decimalDisplay != nil && decimalDisplay.IsSome() {
+		size = 4
+	}
+
+	return tlv.MakeStaticRecord(
+		MetaRevealDecimalDisplay, decimalDisplay, size,
+		EUint32Option, DUint32Option,
+	)
+}
+
+func MetaRevealUniverseCommitmentsRecord(useCommitments *bool) tlv.Record {
+	return tlv.MakeStaticRecord(
+		MetaRevealUniverseCommitments, useCommitments, 1,
+		BoolEncoder, BoolDecoder,
+	)
+}
+
+func MetaRevealCanonicalUniversesRecord(
+	addrs *fn.Option[[]url.URL]) tlv.Record {
+
+	// If the option is not set, or it's an empty slice, we'll encode it as
+	// a zero-length record. But because we'll not include the record at all
+	// if it's not set at the call site when encoding, this will not be the
+	// case for this specific record.
+	recordSize := func() uint64 {
+		var (
+			b   bytes.Buffer
+			buf [8]byte
+		)
+		if err := UrlSliceOptionEncoder(&b, addrs, &buf); err != nil {
+			panic(err)
+		}
+		return uint64(len(b.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		MetaRevealCanonicalUniversesType, addrs, recordSize,
+		UrlSliceOptionEncoder, UrlSliceOptionDecoder,
+	)
+}
+
+func MetaRevealDelegationKeyRecord(key *fn.Option[btcec.PublicKey]) tlv.Record {
+	// If the option is not set, we'll encode it as a zero-length record.
+	// But because we'll not include the record at all if it's not set at
+	// the call site when encoding, this will not be the case for this
+	// specific record.
+	var size uint64
+	if key != nil && key.IsSome() {
+		size = btcec.PubKeyBytesLenCompressed
+	}
+
+	return tlv.MakeStaticRecord(
+		MetaRevealDelegationKeyType, key, size,
+		PublicKeyOptionEncoder, PublicKeyOptionDecoder,
 	)
 }
 

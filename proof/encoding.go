@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net/url"
 
 	"github.com/btcsuite/btcd/blockchain"
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -462,4 +465,250 @@ func GenesisRevealDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 	}
 
 	return tlv.NewTypeForEncodingErr(val, "GenesisReveal")
+}
+
+// EUint32Option encodes a uint32 option. If the value is not set, we'll encode
+// it as a zero-length record. But that means that the type and length fields
+// will still be encoded, which is different from the record not being present
+// at all. If the distinction should be made (e.g. to not re-encode old records
+// that didn't have that field at all with the new zero-length record), the
+// caller needs to handle that by conditionally including or not including the
+// record.
+func EUint32Option(w io.Writer, val interface{}, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[uint32]); ok {
+		return fn.MapOptionZ(*t, func(value uint32) error {
+			return tlv.EUint32T(w, value, buf)
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[uint32]")
+}
+
+func DUint32Option(r io.Reader, val interface{}, buf *[8]byte, l uint64) error {
+	if t, ok := val.(*fn.Option[uint32]); ok {
+		if l == 0 {
+			*t = fn.None[uint32]()
+			return nil
+		}
+
+		var newVal uint32
+		if err := tlv.DUint32(r, &newVal, buf, l); err != nil {
+			return err
+		}
+
+		*t = fn.Some(newVal)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*fn.Option[uint32]", l, l)
+}
+
+// UrlSliceOptionEncoder encodes a URL option. If the value is not set, or the
+// slice is empty, we'll encode it as a zero-length record. But that means that
+// the type and length fields will still be encoded, which is different from the
+// record not being present at all. If the distinction should be made (e.g. to
+// not re-encode old records that didn't have that field at all with the new
+// zero-length record), the caller needs to handle that by conditionally
+// including or not including the record.
+func UrlSliceOptionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[[]url.URL]); ok {
+		return fn.MapOptionZ(*t, func(value []url.URL) error {
+			numValues := uint64(len(value))
+			if numValues == 0 {
+				return nil
+			}
+
+			err := tlv.WriteVarInt(w, numValues, buf)
+			if err != nil {
+				return err
+			}
+
+			for _, addr := range value {
+				addrBytes := []byte(addr.String())
+				err := asset.InlineVarBytesEncoder(
+					w, &addrBytes, buf,
+				)
+				if err != nil {
+					return err
+				}
+			}
+
+			return nil
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[[]url.URL]")
+}
+
+func UrlSliceOptionDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
+	if l > MaxNumCanonicalUniverseURLs*MaxCanonicalUniverseURLLength {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if t, ok := val.(*fn.Option[[]url.URL]); ok {
+		if l == 0 {
+			*t = fn.None[[]url.URL]()
+
+			return nil
+		}
+
+		numValues, err := tlv.ReadVarInt(r, buf)
+		if err != nil {
+			return err
+		}
+
+		if numValues > MaxNumCanonicalUniverseURLs {
+			return tlv.ErrRecordTooLarge
+		}
+
+		urls := make([]url.URL, 0, numValues)
+		for i := uint64(0); i < numValues; i++ {
+			var urlBytes []byte
+			err := asset.InlineVarBytesDecoder(
+				r, &urlBytes, buf,
+				MaxCanonicalUniverseURLLength,
+			)
+			if err != nil {
+				return err
+			}
+
+			addr, err := url.ParseRequestURI(string(urlBytes))
+			if err != nil {
+				return err
+			}
+			urls = append(urls, *addr)
+		}
+
+		*t = fn.Some(urls)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(val, "*fn.Option[[]url.URL]", l, l)
+}
+
+// PublicKeyOptionEncoder encodes a public key option. If the value is not set,
+// we'll encode it as a zero-length record. But that means that the type and
+// length fields will still be encoded, which is different from the record not
+// being present at all. If the distinction should be made (e.g. to not
+// re-encode old records that didn't have that field at all with the new
+// zero-length record), the caller needs to handle that by conditionally
+// including or not including the record.
+func PublicKeyOptionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*fn.Option[btcec.PublicKey]); ok {
+		return fn.MapOptionZ(*t, func(value btcec.PublicKey) error {
+			if value == emptyKey {
+				return nil
+			}
+
+			ptr := &value
+			return asset.CompressedPubKeyEncoder(w, &ptr, buf)
+		})
+	}
+	return tlv.NewTypeForEncodingErr(val, "*fn.Option[btcec.PublicKey]")
+}
+
+func PublicKeyOptionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if l > btcec.PubKeyBytesLenCompressed {
+		return tlv.ErrRecordTooLarge
+	}
+
+	if t, ok := val.(*fn.Option[btcec.PublicKey]); ok {
+		if l == 0 {
+			*t = fn.None[btcec.PublicKey]()
+
+			return nil
+		}
+
+		var result *btcec.PublicKey
+		err := asset.CompressedPubKeyDecoder(r, &result, buf, l)
+		if err != nil {
+			return err
+		}
+
+		if result == nil || *result == emptyKey {
+			*t = fn.None[btcec.PublicKey]()
+
+			return nil
+		}
+
+		*t = fn.Some(*result)
+
+		return nil
+	}
+	return tlv.NewTypeForDecodingErr(
+		val, "*fn.Option[btcec.PublicKey]", l, l,
+	)
+}
+
+// UniCommitmentVersionEncoder is a function that can be used to encode a
+// UniCommitmentVersion to a writer.
+func UniCommitmentVersionEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if version, ok := val.(*UniCommitmentVersion); ok {
+		versionUint8 := uint8(*version)
+		return tlv.EUint8(w, &versionUint8, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "UniCommitmentVersion")
+}
+
+// UniCommitmentVersionDecoder is a function that can be used to decode a
+// UniCommitmentVersion from a reader.
+func UniCommitmentVersionDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if version, ok := val.(*UniCommitmentVersion); ok {
+		var versionInt uint8
+		err := tlv.DUint8(r, &versionInt, buf, l)
+		if err != nil {
+			return err
+		}
+
+		*version = UniCommitmentVersion(versionInt)
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "UniCommitmentVersion", l, 1)
+}
+
+// UniCommitmentParamsEncoder is a function that can be used to encode a
+// UniCommitmentParams to a writer.
+func UniCommitmentParamsEncoder(w io.Writer, val any, buf *[8]byte) error {
+	if t, ok := val.(*UniCommitmentParams); ok {
+		var paramsBuf bytes.Buffer
+		if err := t.Encode(&paramsBuf); err != nil {
+			return err
+		}
+
+		paramsBytes := paramsBuf.Bytes()
+		return asset.InlineVarBytesEncoder(w, &paramsBytes, buf)
+	}
+
+	return tlv.NewTypeForEncodingErr(val, "UniCommitmentParams")
+}
+
+// UniCommitmentParamsDecoder is a function that can be used to decode a
+// UniCommitmentParams from a reader.
+func UniCommitmentParamsDecoder(r io.Reader, val any, buf *[8]byte,
+	l uint64) error {
+
+	if typ, ok := val.(*UniCommitmentParams); ok {
+		var paramsBytes []byte
+		err := asset.InlineVarBytesDecoder(
+			r, &paramsBytes, buf, tlv.MaxRecordSize,
+		)
+		if err != nil {
+			return err
+		}
+
+		var params UniCommitmentParams
+		err = params.Decode(bytes.NewReader(paramsBytes))
+		if err != nil {
+			return err
+		}
+
+		*typ = params
+		return nil
+	}
+
+	return tlv.NewTypeForDecodingErr(val, "UniCommitmentParams", l, 1)
 }

@@ -1852,22 +1852,19 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 	confirmedAssets := GroupAssetsByName(listRespConfirmed.Assets)
 
 	for _, assetRequest := range assetRequests {
-		metaReveal := &proof.MetaReveal{
-			Data: assetRequest.Asset.AssetMeta.Data,
-		}
-
 		validMetaType, err := proof.IsValidMetaType(
 			assetRequest.Asset.AssetMeta.Type,
 		)
 		require.NoError(t, err)
 
-		metaReveal.Type = validMetaType
-		if metaReveal.Type == proof.MetaJson {
-			err := metaReveal.SetDecDisplay(
-				assetRequest.Asset.DecimalDisplay,
-			)
-			require.NoError(t, err)
+		metaReveal := &proof.MetaReveal{
+			Data: assetRequest.Asset.AssetMeta.Data,
+			Type: validMetaType,
 		}
+		err = metaReveal.SetDecDisplay(
+			assetRequest.Asset.DecimalDisplay,
+		)
+		require.NoError(t, err)
 
 		metaHash := metaReveal.MetaHash()
 
@@ -2077,10 +2074,15 @@ func assertGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 	equalityCheck := func(a *mintrpc.MintAsset,
 		b *taprpc.AssetHumanReadable) {
 
-		metaHash := (&proof.MetaReveal{
+		assetMeta := &proof.MetaReveal{
 			Type: proof.MetaOpaque,
 			Data: a.AssetMeta.Data,
-		}).MetaHash()
+		}
+
+		err = assetMeta.SetDecDisplay(a.DecimalDisplay)
+		require.NoError(t, err)
+
+		metaHash := assetMeta.MetaHash()
 
 		require.Equal(t, a.AssetType, b.Type)
 		require.Equal(t, a.Name, b.Tag)
