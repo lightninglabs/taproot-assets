@@ -121,7 +121,14 @@ func (f FixedPoint[T]) Equals(other FixedPoint[T]) bool {
 // WithinTolerance returns true if the two FixedPoint values are within the
 // given tolerance (in parts per million (PPM)).
 func (f FixedPoint[T]) WithinTolerance(
-	other FixedPoint[T], tolerancePpm T) bool {
+	other FixedPoint[T], tolerancePpm T) (bool, error) {
+
+	// If either of the coefficients are zero, we cannot check tolerance.
+	zero := NewInt[T]().FromUint64(0)
+	if f.Coefficient.Equals(zero) || other.Coefficient.Equals(zero) {
+		return false, fmt.Errorf("cannot check tolerance with zero " +
+			"value")
+	}
 
 	// Determine the larger scale between the two fixed-point numbers.
 	// Both values will be scaled to this larger scale to ensure a
@@ -162,7 +169,8 @@ func (f FixedPoint[T]) WithinTolerance(
 	// Compare the scaled delta to the product of the maximum coefficient
 	// and the tolerance.
 	toleranceCoefficient := maxCoefficient.Mul(tolerancePpm)
-	return toleranceCoefficient.Gte(scaledDelta)
+	result := toleranceCoefficient.Gte(scaledDelta)
+	return result, nil
 }
 
 // FixedPointFromUint64 creates a new FixedPoint from the given integer and
