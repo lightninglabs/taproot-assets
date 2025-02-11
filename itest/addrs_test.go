@@ -182,7 +182,7 @@ func testAddresses(t *harnessTest) {
 		},
 		Amount: 22,
 	}
-	manualAsset, mintProof := ManualMintSimpleAsset(
+	manualAsset, mintProofBlob, mintOP := ManualMintSimpleAsset(
 		t, t.lndHarness.Alice, t.tapd, commitment.TapCommitmentV0, &req,
 	)
 
@@ -191,12 +191,11 @@ func testAddresses(t *harnessTest) {
 	respJSON, err := formatProtoJSON(manualAsset)
 	require.NoError(t.t, err)
 
-	t.Logf("manually minted asset: %s", respJSON)
+	t.Logf("Manually minted asset: %s", respJSON)
 
 	// Import the issuance proof to the second node so we can try to receive
 	// it.
-	_, err = secondTapd.ImportProof(ctxb, mintProof)
-	require.NoError(t.t, err)
+	ImportProofFileDeprecated(t, secondTapd, mintProofBlob, mintOP)
 
 	// Trying to receive the new asset to a version 0 address should
 	// succeed.
@@ -774,7 +773,9 @@ func testUnknownTlvType(t *harnessTest) {
 		require.NoError(t.t, charlie.stop(!*noDelete))
 	}()
 
-	ImportProofFile(t, charlie, modifiedBlob, genInfo.GenesisPoint)
+	ImportProofFileDeprecated(
+		t, charlie, modifiedBlob, genInfo.GenesisPoint,
+	)
 
 	// When we export it again, it should have the same TLV types.
 	transferProof2 := exportProof(
@@ -845,7 +846,7 @@ func sendProof(t *harnessTest, src, dst *tapdHarness,
 	genInfo *taprpc.GenesisInfo) {
 
 	proofResp := exportProof(t, src, sendResp, scriptKey, genInfo)
-	ImportProofFile(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
+	ImportProofFile(t, dst, proofResp.RawProofFile)
 }
 
 // exportProof manually exports a proof from the given source node for a
@@ -883,7 +884,7 @@ func transferProofUniRPC(t *harnessTest, src, dst *tapdHarness,
 		t.t, src, genInfo.AssetId, scriptKey, outpoint, group,
 	)
 
-	lastProof, err := proofFile.LastProof()
+	lastProof, err := proofFile.RawLastProof()
 	require.NoError(t.t, err)
 
 	return InsertProofIntoUniverse(t.t, dst, lastProof)
@@ -904,7 +905,7 @@ func transferProofNormalExportUniInsert(t *harnessTest, src, dst *tapdHarness,
 	err := f.Decode(bytes.NewReader(proofResp.RawProofFile))
 	require.NoError(t.t, err)
 
-	lastProof, err := f.LastProof()
+	lastProof, err := f.RawLastProof()
 	require.NoError(t.t, err)
 
 	return InsertProofIntoUniverse(t.t, dst, lastProof)

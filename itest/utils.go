@@ -564,7 +564,7 @@ func ConfirmBatch(t *testing.T, minerClient *rpcclient.Client,
 
 func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	tapClient *tapdHarness, commitVersion commitment.TapCommitmentVersion,
-	req *mintrpc.MintAsset) (*taprpc.Asset, *tapdevrpc.ImportProofRequest) {
+	req *mintrpc.MintAsset) (*taprpc.Asset, proof.Blob, string) {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
@@ -725,12 +725,9 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	require.NoError(t.t, err)
 	require.True(t.t, proof.IsProofFile(proofBlob))
 
-	importReq := tapdevrpc.ImportProofRequest{
-		ProofFile:    proofBlob,
-		GenesisPoint: genesisOutpoint.String(),
-	}
-	_, err = tapClient.ImportProof(ctxb, &importReq)
-	require.NoError(t.t, err)
+	ImportProofFileDeprecated(
+		t, tapClient, proofBlob, genesisOutpoint.String(),
+	)
 
 	// After proof import, the minted assets should appear in the output of
 	// ListAssets.
@@ -743,7 +740,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 		confEvent.Block.BlockHash(),
 	)
 
-	return mintedAsset[0], &importReq
+	return mintedAsset[0], proofBlob, genesisOutpoint.String()
 }
 
 // ExternalSigRes is a helper struct that holds the signed PSBT and the
@@ -1009,9 +1006,73 @@ func ExportProofFile(t *testing.T, src *tapdHarness, assetID, scriptKey []byte,
 	return proofResp
 }
 
-// ImportProofFile manually imports a proof file using the development only
-// ImportProof RPC.
+// ImportProofFile manually imports a proof file into the given node's universe,
+// then registers the inbound transfer to make the wallet aware of the new asset
+// it received.
 func ImportProofFile(t *harnessTest, dst commands.RpcClientsBundle,
+	rawFile proof.Blob) {
+
+	t.Logf("Importing proof %x", rawFile)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := dst.UnpackProofFile(ctxt, &taprpc.UnpackProofFileRequest{
+		RawProofFile: rawFile,
+	})
+	require.NoError(t.t, err)
+
+	// Import the proof into the universe.
+	var lastProof *unirpc.AssetProofResponse
+	for _, rawProof := range resp.RawProofs {
+		lastProof = InsertProofIntoUniverse(t.t, dst, rawProof)
+	}
+	require.NotNil(t.t, lastProof)
+	require.NotNil(t.t, lastProof.AssetLeaf)
+	require.NotNil(t.t, lastProof.AssetLeaf.Proof)
+
+	// The proof leaf only contains the actual asset and none of the
+	// taprpc.ChainAsset fields. So for anything related to the actual chain
+	// output, we need to decode the proof in the leaf.
+	decodeResp, err := dst.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
+		RawProof: lastProof.AssetLeaf.Proof,
+	})
+	require.NoError(t.t, err)
+
+	proofAsset := lastProof.AssetLeaf.Asset
+	chainAnchor := decodeResp.DecodedProof.Asset.ChainAnchor
+	op, err := wire.NewOutPointFromString(chainAnchor.AnchorOutpoint)
+	require.NoError(t.t, err)
+
+	var groupKey []byte
+	if proofAsset.AssetGroup != nil {
+		groupKey = proofAsset.AssetGroup.TweakedGroupKey
+	}
+
+	// In order for Bob to expect this incoming transfer, we need to
+	// register it with the internal wallet of Bob.
+	registerResp, err := dst.RegisterTransfer(
+		ctxb, &taprpc.RegisterTransferRequest{
+			AssetId:   proofAsset.AssetGenesis.AssetId,
+			GroupKey:  groupKey,
+			ScriptKey: proofAsset.ScriptKey,
+			Outpoint: &taprpc.OutPoint{
+				Txid:        op.Hash[:],
+				OutputIndex: op.Index,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, proofAsset.ScriptKey,
+		registerResp.RegisteredAsset.ScriptKey,
+	)
+}
+
+// ImportProofFileDeprecated manually imports a proof file using the development
+// only ImportProof RPC.
+func ImportProofFileDeprecated(t *harnessTest, dst commands.RpcClientsBundle,
 	rawFile proof.Blob,
 	genesisPoint string) *tapdevrpc.ImportProofResponse {
 
@@ -1114,54 +1175,55 @@ func ExportProofFileFromUniverse(t *testing.T, src commands.RpcClientsBundle,
 // InsertProofIntoUniverse manually inserts a proof into the given node using
 // the universe related InsertProof RPC.
 func InsertProofIntoUniverse(t *testing.T, dst commands.RpcClientsBundle,
-	proof *proof.Proof) *unirpc.AssetProofResponse {
+	proofBytes proof.Blob) *unirpc.AssetProofResponse {
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
-	var lastProofBytes bytes.Buffer
-	err := proof.Encode(&lastProofBytes)
+	resp, err := dst.DecodeProof(ctxt, &taprpc.DecodeProofRequest{
+		RawProof:          proofBytes,
+		WithMetaReveal:    true,
+		WithPrevWitnesses: true,
+	})
 	require.NoError(t, err)
 
-	proofAsset := proof.Asset
-
-	proofType := universe.ProofTypeTransfer
-	if proofAsset.IsGenesisAsset() {
-		proofType = universe.ProofTypeIssuance
-	}
+	rpcProof := resp.DecodedProof
+	rpcAsset := rpcProof.Asset
+	rpcAnchor := rpcAsset.ChainAnchor
 
 	uniID := universe.Identifier{
-		AssetID:   proofAsset.ID(),
-		ProofType: proofType,
+		ProofType: universe.ProofTypeTransfer,
 	}
-	if proofAsset.GroupKey != nil {
-		uniID.GroupKey = &proofAsset.GroupKey.GroupPubKey
+	if rpcProof.GenesisReveal != nil {
+		uniID.ProofType = universe.ProofTypeIssuance
+	}
+
+	copy(uniID.AssetID[:], rpcAsset.AssetGenesis.AssetId)
+	if rpcAsset.AssetGroup != nil {
+		uniID.GroupKey, err = btcec.ParsePubKey(
+			rpcAsset.AssetGroup.TweakedGroupKey,
+		)
+		require.NoError(t, err)
 	}
 
 	rpcUniID, err := taprootassets.MarshalUniID(uniID)
 	require.NoError(t, err)
 
-	rpcOutPoint := &unirpc.Outpoint{
-		HashStr: proof.AnchorTx.TxHash().String(),
-		Index:   int32(proof.InclusionProof.OutputIndex),
-	}
-
-	scriptKeyBytes := proofAsset.ScriptKey.PubKey.SerializeCompressed()
 	importResp, err := dst.InsertProof(ctxt, &unirpc.AssetProof{
 		Key: &unirpc.UniverseKey{
 			Id: rpcUniID,
 			LeafKey: &unirpc.AssetKey{
-				Outpoint: &unirpc.AssetKey_Op{
-					Op: rpcOutPoint,
+				Outpoint: &unirpc.AssetKey_OpStr{
+					OpStr: rpcAnchor.AnchorOutpoint,
 				},
 				ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
-					ScriptKeyBytes: scriptKeyBytes,
+					ScriptKeyBytes: rpcAsset.ScriptKey,
 				},
 			},
 		},
 		AssetLeaf: &unirpc.AssetLeaf{
-			Proof: lastProofBytes.Bytes(),
+			Proof: proofBytes,
 		},
 	})
 	require.NoError(t, err)

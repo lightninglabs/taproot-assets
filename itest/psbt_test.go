@@ -424,14 +424,14 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 
 	numAssets := 1
 	AssertNumAssets(t.t, ctxb, sender, numAssets)
-	firstAsset, _ = ManualMintSimpleAsset(
+	firstAsset, _, _ = ManualMintSimpleAsset(
 		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV0,
 		&firstReq,
 	)
 
 	numAssets += 1
 	AssertNumAssets(t.t, ctxb, sender, numAssets)
-	secondAsset, _ = ManualMintSimpleAsset(
+	secondAsset, _, _ = ManualMintSimpleAsset(
 		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV1,
 		&secondReq,
 	)
@@ -2681,6 +2681,13 @@ func testPsbtLockTimeSend(t *harnessTest) {
 		},
 	}
 
+	// We need to let the wallet of Bob know that we're going to use a
+	// script key with a custom root.
+	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+	})
+	require.NoError(t.t, err)
+
 	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
 		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
 		asset.V0, chainParams,
@@ -2888,6 +2895,13 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 			Tweak:  rootHash,
 		},
 	}
+
+	// We need to let the wallet of Bob know that we're going to use a
+	// script key with a custom root.
+	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+	})
+	require.NoError(t.t, err)
 
 	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
 		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
@@ -3097,6 +3111,13 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 			Tweak:  rootHash,
 		},
 	}
+
+	// We need to let the wallet of Bob know that we're going to use a
+	// script key with a custom root.
+	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+	})
+	require.NoError(t.t, err)
 
 	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
 		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,

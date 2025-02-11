@@ -21,7 +21,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
-	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnrpc/walletrpc"
 	"github.com/stretchr/testify/require"
@@ -238,11 +237,7 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 		proofFile := AssertAssetProofs(
 			t.t, src, chainClient, existingAsset,
 		)
-		_, err := dst.ImportProof(ctxt, &tapdevrpc.ImportProofRequest{
-			ProofFile:    proofFile,
-			GenesisPoint: gen.GenesisPoint,
-		})
-		require.NoError(t.t, err)
+		ImportProofFileDeprecated(t, dst, proofFile, gen.GenesisPoint)
 	}
 
 	listResp, err := dst.ListAssets(
