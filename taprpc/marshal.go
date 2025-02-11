@@ -511,6 +511,47 @@ func UnmarshalGroupWitness(wit *GroupWitness) (*asset.PendingGroupWitness,
 	}, nil
 }
 
+// MarshalChainAsset marshals a chain asset into its RPC counterpart.
+func MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
+	decDisplay fn.Option[uint32], withWitness bool,
+	keyRing KeyLookup) (*Asset, error) {
+
+	rpcAsset, err := MarshalAsset(
+		ctx, a.Asset, a.IsSpent, withWitness, keyRing, decDisplay,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var anchorTxBytes []byte
+	if a.AnchorTx != nil {
+		var b bytes.Buffer
+		err := a.AnchorTx.Serialize(&b)
+		if err != nil {
+			return nil, fmt.Errorf("unable to serialize anchor "+
+				"tx: %w", err)
+		}
+		anchorTxBytes = b.Bytes()
+	}
+
+	rpcAsset.ChainAnchor = &AnchorInfo{
+		AnchorTx:         anchorTxBytes,
+		AnchorBlockHash:  a.AnchorBlockHash.String(),
+		AnchorOutpoint:   a.AnchorOutpoint.String(),
+		InternalKey:      a.AnchorInternalKey.SerializeCompressed(),
+		MerkleRoot:       a.AnchorMerkleRoot,
+		TapscriptSibling: a.AnchorTapscriptSibling,
+		BlockHeight:      a.AnchorBlockHeight,
+	}
+
+	if a.AnchorLeaseOwner != [32]byte{} {
+		rpcAsset.LeaseOwner = a.AnchorLeaseOwner[:]
+		rpcAsset.LeaseExpiry = a.AnchorLeaseExpiry.UTC().Unix()
+	}
+
+	return rpcAsset, nil
+}
+
 // MarshalAsset converts an asset to its rpc representation.
 func MarshalAsset(ctx context.Context, a *asset.Asset,
 	isSpent, withWitness bool, keyRing KeyLookup,

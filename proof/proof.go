@@ -9,6 +9,7 @@ import (
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -487,6 +488,43 @@ func (p *Proof) IsUnknownVersion() bool {
 	default:
 		return true
 	}
+}
+
+// ToChainAsset converts the proof to a ChainAsset.
+func (p *Proof) ToChainAsset() (asset.ChainAsset, error) {
+	emptyAsset := asset.ChainAsset{}
+
+	if p.InclusionProof.CommitmentProof == nil {
+		return emptyAsset, fmt.Errorf("inclusion proof is missing " +
+			"commitment proof")
+	}
+
+	commitmentProof := p.InclusionProof.CommitmentProof
+	tsSibling, tsHash, err := commitment.MaybeEncodeTapscriptPreimage(
+		commitmentProof.TapSiblingPreimage,
+	)
+	if err != nil {
+		return emptyAsset, fmt.Errorf("error encoding tapscript "+
+			"sibling: %w", err)
+	}
+
+	tapProof, err := commitmentProof.DeriveByAssetInclusion(&p.Asset)
+	if err != nil {
+		return emptyAsset, fmt.Errorf("error deriving inclusion "+
+			"proof: %w", err)
+	}
+
+	merkleRoot := tapProof.TapscriptRoot(tsHash)
+	return asset.ChainAsset{
+		Asset:                  &p.Asset,
+		AnchorTx:               &p.AnchorTx,
+		AnchorBlockHash:        p.BlockHeader.BlockHash(),
+		AnchorOutpoint:         p.OutPoint(),
+		AnchorBlockHeight:      p.BlockHeight,
+		AnchorInternalKey:      p.InclusionProof.InternalKey,
+		AnchorMerkleRoot:       merkleRoot[:],
+		AnchorTapscriptSibling: tsSibling,
+	}, nil
 }
 
 // Ensure Proof implements the tlv.RecordProducer interface.

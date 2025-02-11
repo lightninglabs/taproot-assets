@@ -1955,7 +1955,9 @@ func testSendNoCourierUniverseImport(t *harnessTest) {
 	// Since we disabled proof couriers, we need to manually transfer the
 	// proof from the sender to the receiver now. We use the universe RPC
 	// InsertProof method to do this.
-	sendProofUniRPC(t, t.tapd, secondTapd, receiveAddr.ScriptKey, genInfo)
+	transferProofNormalExportUniInsert(
+		t, t.tapd, secondTapd, receiveAddr.ScriptKey, genInfo,
+	)
 
 	// And now, the transfer should be completed on the receiver side too.
 	AssertNonInteractiveRecvComplete(t.t, secondTapd, 1)

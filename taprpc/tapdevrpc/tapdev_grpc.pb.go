@@ -18,10 +18,13 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TapDevClient interface {
+	// Deprecated: Do not use.
 	// tapcli: `dev importproof`
-	// ImportProof attempts to import a proof file into the daemon. If successful,
+	// Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
+	// attempts to import a proof file into the daemon. If successful,
 	// a new asset will be inserted on disk, spendable using the specified target
 	// script key, and internal key.
+	// NOTE: This RPC will be removed with the next major release.
 	ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error)
 	// SubscribeSendAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset sending process.
@@ -39,6 +42,7 @@ func NewTapDevClient(cc grpc.ClientConnInterface) TapDevClient {
 	return &tapDevClient{cc}
 }
 
+// Deprecated: Do not use.
 func (c *tapDevClient) ImportProof(ctx context.Context, in *ImportProofRequest, opts ...grpc.CallOption) (*ImportProofResponse, error) {
 	out := new(ImportProofResponse)
 	err := c.cc.Invoke(ctx, "/tapdevrpc.TapDev/ImportProof", in, out, opts...)
@@ -116,10 +120,13 @@ func (x *tapDevSubscribeReceiveAssetEventNtfnsClient) Recv() (*ReceiveAssetEvent
 // All implementations must embed UnimplementedTapDevServer
 // for forward compatibility
 type TapDevServer interface {
+	// Deprecated: Do not use.
 	// tapcli: `dev importproof`
-	// ImportProof attempts to import a proof file into the daemon. If successful,
+	// Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
+	// attempts to import a proof file into the daemon. If successful,
 	// a new asset will be inserted on disk, spendable using the specified target
 	// script key, and internal key.
+	// NOTE: This RPC will be removed with the next major release.
 	ImportProof(context.Context, *ImportProofRequest) (*ImportProofResponse, error)
 	// SubscribeSendAssetEventNtfns registers a subscription to the event
 	// notification stream which relates to the asset sending process.

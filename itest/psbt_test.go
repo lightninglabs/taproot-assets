@@ -424,14 +424,14 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 
 	numAssets := 1
 	AssertNumAssets(t.t, ctxb, sender, numAssets)
-	firstAsset, _ = ManualMintSimpleAsset(
+	firstAsset, _, _ = ManualMintSimpleAsset(
 		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV0,
 		&firstReq,
 	)
 
 	numAssets += 1
 	AssertNumAssets(t.t, ctxb, sender, numAssets)
-	secondAsset, _ = ManualMintSimpleAsset(
+	secondAsset, _, _ = ManualMintSimpleAsset(
 		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV1,
 		&secondReq,
 	)
@@ -513,12 +513,12 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually send the
 	// proofs from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, sender, receiver, send1Resp,
 		receiverScriptKey1.PubKey.SerializeCompressed(),
 		firstAsset.AssetGenesis,
 	)
-	_ = sendProof(
+	sendProof(
 		t, sender, receiver, send2Resp,
 		receiverScriptKey2.PubKey.SerializeCompressed(),
 		secondAsset.AssetGenesis,
@@ -650,7 +650,7 @@ func runPsbtInteractiveFullValueSendTest(ctxt context.Context, t *harnessTest,
 
 		// This is an interactive transfer, so we do need to manually
 		// send the proof from the sender to the receiver.
-		_ = sendProof(
+		sendProof(
 			t, sender, receiver, sendResp, receiverScriptKeyBytes,
 			genInfo,
 		)
@@ -877,7 +877,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 
 		// This is an interactive transfer, so we do need to manually
 		// send the proof from the sender to the receiver.
-		_ = sendProof(
+		sendProof(
 			t, sender, receiver, sendResp, receiverScriptKeyBytes,
 			genInfo,
 		)
@@ -1114,11 +1114,11 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually send the
 	// proofs from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, sender, receiver, publishResp, receiverScriptKey1Bytes,
 		genInfo,
 	)
-	_ = sendProof(
+	sendProof(
 		t, sender, receiver, publishResp, receiverScriptKey2Bytes,
 		genInfo,
 	)
@@ -1220,7 +1220,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually send the
 	// proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, alice, bob, sendResp,
 		receiverScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -1394,10 +1394,10 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually send the
 	// proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, sender, receiver, sendResp, scriptKey1Bytes, genInfo,
 	)
-	_ = sendProof(
+	sendProof(
 		t, sender, receiver, sendResp,
 		receiverScriptKey2.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -1638,7 +1638,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	// This is an interactive transfer. Therefore, we will manually transfer
 	// the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, secondaryTapd, primaryTapd, sendResp,
 		primaryNodeScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -1713,7 +1713,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	// This is an interactive transfer. Therefore, we will manually transfer
 	// the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, secondaryTapd, primaryTapd, sendResp,
 		primaryNodeScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -1900,7 +1900,7 @@ func testPsbtSighashNone(t *harnessTest) {
 	// This is an interactive/PSBT based transfer, so we do need to manually
 	// send the proof from the sender to the receiver because the proof
 	// courier address gets lost in the address->PSBT conversion.
-	_ = sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
+	sendProof(t, bob, alice, sendResp, aliceAddr.ScriptKey, genInfo)
 
 	// If Bob was successful in his attempt to edit the outputs, Alice
 	// should see an asset with an amount of 399.
@@ -2170,7 +2170,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 
 	// Now we need to create the bitcoin PSBT where the previously created
 	// vPSBT will be anchored to.
-	btcpsbt, err := tapsend.PrepareAnchoringTemplate([]*tappsbt.VPacket{
+	btcPacket, err := tapsend.PrepareAnchoringTemplate([]*tappsbt.VPacket{
 		vPkt,
 	})
 	require.NoError(t.t, err)
@@ -2178,8 +2178,8 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// This bitcoin PSBT should have 1 input, which is the anchor of Alice's
 	// assets, and 2 outputs that correspond to Alice's bitcoin change
 	// (index 0) and the anchor that carries the assets (index 1).
-	require.Len(t.t, btcpsbt.Inputs, 1)
-	require.Len(t.t, btcpsbt.Outputs, 2)
+	require.Len(t.t, btcPacket.Inputs, 1)
+	require.Len(t.t, btcPacket.Outputs, 2)
 
 	// Let's set an actual address for Alice's output.
 	addrResp := t.lndHarness.Alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
@@ -2197,23 +2197,22 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// These are basically Alice's terms that she signs the assets over:
 	// Send me 69420 satoshis to this address that belongs to me, and you
 	// will get assets in return.
-	btcpsbt.UnsignedTx.TxOut[0].PkScript = alicePkScript
-	btcpsbt.UnsignedTx.TxOut[0].Value = 69420
+	btcPacket.UnsignedTx.TxOut[0].PkScript = alicePkScript
+	btcPacket.UnsignedTx.TxOut[0].Value = 69420
 	derivation, trDerivation := getAddressBip32Derivation(
 		t.t, addrResp.Address, t.lndHarness.Alice,
 	)
 
 	// Add the derivation info and internal key for alice's taproot address.
-	btcpsbt.Outputs[0].Bip32Derivation = []*psbt.Bip32Derivation{
+	btcPacket.Outputs[0].Bip32Derivation = []*psbt.Bip32Derivation{
 		derivation,
 	}
-	btcpsbt.Outputs[0].TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
-		trDerivation,
-	}
-	btcpsbt.Outputs[0].TaprootInternalKey = trDerivation.XOnlyPubKey
+	btcPacket.Outputs[0].TaprootBip32Derivation =
+		[]*psbt.TaprootBip32Derivation{trDerivation}
+	btcPacket.Outputs[0].TaprootInternalKey = trDerivation.XOnlyPubKey
 
 	var b bytes.Buffer
-	err = btcpsbt.Serialize(&b)
+	err = btcPacket.Serialize(&b)
 	require.NoError(t.t, err)
 
 	// Now we need to commit the vPSBT and PSBT, creating all the related
@@ -2233,7 +2232,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Now we retrieve the bitcoin PSBT from the response.
-	btcpsbt, err = psbt.NewFromRawBytes(
+	btcPacket, err = psbt.NewFromRawBytes(
 		bytes.NewReader(resp.AnchorPsbt), false,
 	)
 	require.NoError(t.t, err)
@@ -2244,27 +2243,27 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// following sighash flag we commit to exactly that input and output,
 	// but we also allow anyone to add their own inputs, which will allow
 	// Bob later to add his btc input to pay Alice.
-	btcpsbt.Inputs[0].SighashType = txscript.SigHashSingle |
+	btcPacket.Inputs[0].SighashType = txscript.SigHashSingle |
 		txscript.SigHashAnyOneCanPay
 
 	// We now strip the extra input that was only used to fund the bitcoin
 	// psbt. This is meant to be filled later by the person redeeming this
 	// swap offer.
-	btcpsbt.Inputs = append(
-		btcpsbt.Inputs[:1], btcpsbt.Inputs[2:]...,
+	btcPacket.Inputs = append(
+		btcPacket.Inputs[:1], btcPacket.Inputs[2:]...,
 	)
-	btcpsbt.UnsignedTx.TxIn = append(
-		btcpsbt.UnsignedTx.TxIn[:1], btcpsbt.UnsignedTx.TxIn[2:]...,
+	btcPacket.UnsignedTx.TxIn = append(
+		btcPacket.UnsignedTx.TxIn[:1], btcPacket.UnsignedTx.TxIn[2:]...,
 	)
 
 	// Let's get rid of the change output that we no longer need.
-	btcpsbt.Outputs = btcpsbt.Outputs[:2]
-	btcpsbt.UnsignedTx.TxOut = btcpsbt.UnsignedTx.TxOut[:2]
+	btcPacket.Outputs = btcPacket.Outputs[:2]
+	btcPacket.UnsignedTx.TxOut = btcPacket.UnsignedTx.TxOut[:2]
 
-	t.Logf("Alice BTC PSBT: %v", spew.Sdump(btcpsbt))
+	t.Logf("Alice BTC PSBT: %v", spew.Sdump(btcPacket))
 
 	b.Reset()
-	err = btcpsbt.Serialize(&b)
+	err = btcPacket.Serialize(&b)
 	require.NoError(t.t, err)
 
 	// Now alice signs the bitcoin psbt.
@@ -2277,14 +2276,14 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.Len(t.t, signPsbtResp.SignedInputs, 1)
 	require.Equal(t.t, uint32(0), signPsbtResp.SignedInputs[0])
 
-	btcpsbt, err = psbt.NewFromRawBytes(
+	btcPacket, err = psbt.NewFromRawBytes(
 		bytes.NewReader(signPsbtResp.SignedPsbt), false,
 	)
 	require.NoError(t.t, err)
 
 	// Let's do some sanity checks.
-	require.Len(t.t, btcpsbt.Inputs, 1)
-	require.Len(t.t, btcpsbt.Outputs, 2)
+	require.Len(t.t, btcPacket.Inputs, 1)
+	require.Len(t.t, btcPacket.Outputs, 2)
 
 	signedVpsbtBytes, err := tappsbt.Encode(vPkt)
 	require.NoError(t.t, err)
@@ -2327,11 +2326,12 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// needs to be updated to point to Bob's keys as well. Otherwise, he
 	// wouldn't be able to take over custody of the anchor carrying the
 	// assets.
-	btcpsbt.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
+	btcPacket.Outputs[1].TaprootInternalKey = schnorr.SerializePubKey(
 		bobAnchorInternalKey.PubKey,
 	)
-	btcpsbt.Outputs[1].Bip32Derivation = bobVOut.AnchorOutputBip32Derivation
-	btcpsbt.Outputs[1].TaprootBip32Derivation =
+	btcPacket.Outputs[1].Bip32Derivation =
+		bobVOut.AnchorOutputBip32Derivation
+	btcPacket.Outputs[1].TaprootBip32Derivation =
 		bobVOut.AnchorOutputTaprootBip32Derivation
 
 	// Before Bob tidies up the output commitments he keeps a backup of the
@@ -2358,7 +2358,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// Now let's serialize the edited vPSBT and commit it to our bitcoin
 	// PSBT.
 	b.Reset()
-	err = btcpsbt.Serialize(&b)
+	err = btcPacket.Serialize(&b)
 	require.NoError(t.t, err)
 
 	// This call will also fund the PSBT, which means that the bitcoin that
@@ -2383,7 +2383,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 
 	// Since Bob brings in a new input to the bitcoin transaction, he needs
 	// to sign it. We do not care about the sighash flag here, that can be
-	// the default, as as we will not edit the bitcoin transaction further.
+	// the default, as we will not edit the bitcoin transaction further.
 	signResp := t.lndHarness.Bob.RPC.SignPsbt(
 		&walletrpc.SignPsbtRequest{
 			FundedPsbt: resp.AnchorPsbt,
@@ -2405,6 +2405,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 
 	// Bob should sign exactly 1 input.
 	require.Len(t.t, signResp.SignedInputs, 1)
+
 	// Bob should have signed the input at the expected index.
 	require.Equal(t.t, bobInputIdx, signResp.SignedInputs[0])
 	require.NoError(t.t, finalPsbt.SanityCheck())
@@ -2423,10 +2424,31 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// We also need to push the proof for this transfer to the universe
 	// server.
 	bobScriptKeyBytes := bobScriptKey.PubKey.SerializeCompressed()
-	sendUniProof(
+	bobOutputIndex := uint32(1)
+	transferTXID := finalPsbt.UnsignedTx.TxHash()
+	bobAssetOutpoint := fmt.Sprintf("%s:%d", transferTXID.String(),
+		bobOutputIndex)
+	transferProofUniRPC(
 		t, t.universeServer.service, bob, bobScriptKeyBytes, genInfo,
-		mintedAsset.AssetGroup,
-		logResp.Transfer.Outputs[0].Anchor.Outpoint,
+		mintedAsset.AssetGroup, bobAssetOutpoint,
+	)
+
+	// In order for Bob to expect this incoming transfer, we need to
+	// register it with the internal wallet of Bob.
+	registerResp, err := bob.RegisterTransfer(
+		ctxb, &taprpc.RegisterTransferRequest{
+			AssetId:   assetID[:],
+			GroupKey:  mintedAsset.AssetGroup.TweakedGroupKey,
+			ScriptKey: bobScriptKeyBytes,
+			Outpoint: &taprpc.OutPoint{
+				Txid:        transferTXID[:],
+				OutputIndex: bobOutputIndex,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, bobScriptKeyBytes, registerResp.RegisteredAsset.ScriptKey,
 	)
 
 	bobAssets, err := bob.ListAssets(ctxb, &taprpc.ListAssetRequest{})
@@ -2435,6 +2457,8 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// Verify that Bob now holds the asset.
 	require.Len(t.t, bobAssets.Assets, 1)
 	require.Equal(t.t, bobAssets.Assets[0].Amount, numUnits)
+
+	require.Equal(t.t, bobScriptKeyBytes, bobAssets.Assets[0].ScriptKey)
 }
 
 // testPsbtExternalCommit tests the ability to fully customize the BTC level of
@@ -2657,6 +2681,13 @@ func testPsbtLockTimeSend(t *harnessTest) {
 		},
 	}
 
+	// We need to let the wallet of Bob know that we're going to use a
+	// script key with a custom root.
+	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+	})
+	require.NoError(t.t, err)
+
 	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
 		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
 		asset.V0, chainParams,
@@ -2692,7 +2723,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, alice, bob, sendResp,
 		bobAssetScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -2780,7 +2811,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, bob, alice, sendRespSpend,
 		aliceScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -2865,6 +2896,13 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 		},
 	}
 
+	// We need to let the wallet of Bob know that we're going to use a
+	// script key with a custom root.
+	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+	})
+	require.NoError(t.t, err)
+
 	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
 		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
 		asset.V0, chainParams,
@@ -2900,7 +2938,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, alice, bob, sendResp,
 		bobAssetScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -2987,7 +3025,7 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, bob, alice, sendRespSpend,
 		aliceScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)
@@ -3074,6 +3112,13 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 		},
 	}
 
+	// We need to let the wallet of Bob know that we're going to use a
+	// script key with a custom root.
+	_, err = bob.DeclareScriptKey(ctxt, &wrpc.DeclareScriptKeyRequest{
+		ScriptKey: taprpc.MarshalScriptKey(bobAssetScriptKey),
+	})
+	require.NoError(t.t, err)
+
 	fundRespLock := fundPacket(t, alice, tappsbt.ForInteractiveSend(
 		id, fullAmt, bobAssetScriptKey, 0, 0, 0, bobInternalKey,
 		asset.V0, chainParams,
@@ -3109,7 +3154,7 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually
 	// send the proof from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, alice, bob, sendResp,
 		bobAssetScriptKey.PubKey.SerializeCompressed(), genInfo,
 	)

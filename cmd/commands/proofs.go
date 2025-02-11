@@ -22,6 +22,7 @@ var proofCommands = []cli.Command{
 		Subcommands: []cli.Command{
 			verifyProofCommand,
 			decodeProofCommand,
+			unpackProofFileCommand,
 			exportProofCommand,
 			proveOwnershipCommand,
 			verifyOwnershipCommand,
@@ -145,7 +146,56 @@ func decodeProof(ctx *cli.Context) error {
 
 	resp, err := client.DecodeProof(ctxc, req)
 	if err != nil {
-		return fmt.Errorf("unable to verify file: %w", err)
+		return fmt.Errorf("unable to decode file: %w", err)
+	}
+
+	printRespJSON(resp)
+	return nil
+}
+
+var unpackProofFileCommand = cli.Command{
+	Name:      "unpack",
+	ShortName: "u",
+	Usage: "unpack a Taproot Asset proof file into individual raw " +
+		"proofs",
+	Description: `
+	Unpacks a taproot asset proof file that contains the full provenance of
+	an asset into its individual raw proofs, in the order they appear in the
+	proof file.
+`,
+	Flags: []cli.Flag{
+		cli.StringFlag{
+			Name: proofPathName,
+			Usage: "the path to the proof file on disk; use the " +
+				"dash character (-) to read from stdin instead",
+		},
+	},
+	Action: unpackProofFile,
+}
+
+func unpackProofFile(ctx *cli.Context) error {
+	ctxc := getContext()
+	client, cleanUp := getClient(ctx)
+	defer cleanUp()
+
+	if !ctx.IsSet(proofPathName) {
+		_ = cli.ShowCommandHelp(ctx, "unpack")
+		return nil
+	}
+
+	filePath := lncfg.CleanAndExpandPath(ctx.String(proofPathName))
+	rawFile, err := readFile(filePath)
+	if err != nil {
+		return fmt.Errorf("unable to read proof file: %w", err)
+	}
+
+	resp, err := client.UnpackProofFile(
+		ctxc, &taprpc.UnpackProofFileRequest{
+			RawProofFile: rawFile,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to unpack file: %w", err)
 	}
 
 	printRespJSON(resp)

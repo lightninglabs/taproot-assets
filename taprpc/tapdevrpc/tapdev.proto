@@ -8,11 +8,15 @@ option go_package = "github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc";
 
 service TapDev {
     /* tapcli: `dev importproof`
-    ImportProof attempts to import a proof file into the daemon. If successful,
+    Deprecated, use the new taprpc.RegisterTransfer RPC instead! ImportProof
+    attempts to import a proof file into the daemon. If successful,
     a new asset will be inserted on disk, spendable using the specified target
     script key, and internal key.
+    NOTE: This RPC will be removed with the next major release.
     */
-    rpc ImportProof (ImportProofRequest) returns (ImportProofResponse);
+    rpc ImportProof (ImportProofRequest) returns (ImportProofResponse) {
+        option deprecated = true;
+    };
 
     /*
     SubscribeSendAssetEventNtfns registers a subscription to the event

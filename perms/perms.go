@@ -64,6 +64,10 @@ var (
 			Entity: "proofs",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/UnpackProofFile": {{
+			Entity: "proofs",
+			Action: "read",
+		}},
 		"/taprpc.TaprootAssets/ExportProof": {{
 			Entity: "proofs",
 			Action: "read",
@@ -91,6 +95,13 @@ var (
 		"/taprpc.TaprootAssets/SubscribeSendEvents": {{
 			Entity: "assets",
 			Action: "read",
+		}},
+		"/taprpc.TaprootAssets/RegisterTransfer": {{
+			Entity: "assets",
+			Action: "write",
+		}, {
+			Entity: "proofs",
+			Action: "write",
 		}},
 		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
 			Entity: "assets",

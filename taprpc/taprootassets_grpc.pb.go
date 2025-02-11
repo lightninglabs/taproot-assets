@@ -72,6 +72,10 @@ type TaprootAssetsClient interface {
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
 	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
+	// tapcli: `proofs unpack`
+	// UnpackProofFile unpacks a proof file into a list of the individual raw
+	// proofs in the proof chain.
+	UnpackProofFile(ctx context.Context, in *UnpackProofFileRequest, opts ...grpc.CallOption) (*UnpackProofFileResponse, error)
 	// tapcli: `assets send`
 	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
 	// to complete an asset send. The method returns information w.r.t the on chain
@@ -105,6 +109,15 @@ type TaprootAssetsClient interface {
 	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
 	// asset transfers.
 	SubscribeSendEvents(ctx context.Context, in *SubscribeSendEventsRequest, opts ...grpc.CallOption) (TaprootAssets_SubscribeSendEventsClient, error)
+	// RegisterTransfer informs the daemon about a new inbound transfer that has
+	// happened. This is used for interactive transfers where no TAP address is
+	// involved and the recipient is aware of the transfer through an out-of-band
+	// protocol but the daemon hasn't been informed about the completion of the
+	// transfer. For this to work, the proof must already be in the recipient's
+	// local universe (e.g. through the use of the universerpc.ImportProof RPC or
+	// the universe proof courier and universe sync mechanisms) and this call
+	// simply instructs the daemon to detect the transfer as an asset it owns.
+	RegisterTransfer(ctx context.Context, in *RegisterTransferRequest, opts ...grpc.CallOption) (*RegisterTransferResponse, error)
 }
 
 type taprootAssetsClient struct {
@@ -241,6 +254,15 @@ func (c *taprootAssetsClient) ExportProof(ctx context.Context, in *ExportProofRe
 	return out, nil
 }
 
+func (c *taprootAssetsClient) UnpackProofFile(ctx context.Context, in *UnpackProofFileRequest, opts ...grpc.CallOption) (*UnpackProofFileResponse, error) {
+	out := new(UnpackProofFileResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/UnpackProofFile", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *taprootAssetsClient) SendAsset(ctx context.Context, in *SendAssetRequest, opts ...grpc.CallOption) (*SendAssetResponse, error) {
 	out := new(SendAssetResponse)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/SendAsset", in, out, opts...)
@@ -350,6 +372,15 @@ func (x *taprootAssetsSubscribeSendEventsClient) Recv() (*SendEvent, error) {
 	return m, nil
 }
 
+func (c *taprootAssetsClient) RegisterTransfer(ctx context.Context, in *RegisterTransferRequest, opts ...grpc.CallOption) (*RegisterTransferResponse, error) {
+	out := new(RegisterTransferResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/RegisterTransfer", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // TaprootAssetsServer is the server API for TaprootAssets service.
 // All implementations must embed UnimplementedTaprootAssetsServer
 // for forward compatibility
@@ -408,6 +439,10 @@ type TaprootAssetsServer interface {
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
 	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
+	// tapcli: `proofs unpack`
+	// UnpackProofFile unpacks a proof file into a list of the individual raw
+	// proofs in the proof chain.
+	UnpackProofFile(context.Context, *UnpackProofFileRequest) (*UnpackProofFileResponse, error)
 	// tapcli: `assets send`
 	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
 	// to complete an asset send. The method returns information w.r.t the on chain
@@ -441,6 +476,15 @@ type TaprootAssetsServer interface {
 	// SubscribeSendEvents allows a caller to subscribe to send events for outgoing
 	// asset transfers.
 	SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error
+	// RegisterTransfer informs the daemon about a new inbound transfer that has
+	// happened. This is used for interactive transfers where no TAP address is
+	// involved and the recipient is aware of the transfer through an out-of-band
+	// protocol but the daemon hasn't been informed about the completion of the
+	// transfer. For this to work, the proof must already be in the recipient's
+	// local universe (e.g. through the use of the universerpc.ImportProof RPC or
+	// the universe proof courier and universe sync mechanisms) and this call
+	// simply instructs the daemon to detect the transfer as an asset it owns.
+	RegisterTransfer(context.Context, *RegisterTransferRequest) (*RegisterTransferResponse, error)
 	mustEmbedUnimplementedTaprootAssetsServer()
 }
 
@@ -490,6 +534,9 @@ func (UnimplementedTaprootAssetsServer) DecodeProof(context.Context, *DecodeProo
 func (UnimplementedTaprootAssetsServer) ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExportProof not implemented")
 }
+func (UnimplementedTaprootAssetsServer) UnpackProofFile(context.Context, *UnpackProofFileRequest) (*UnpackProofFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnpackProofFile not implemented")
+}
 func (UnimplementedTaprootAssetsServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
 }
@@ -510,6 +557,9 @@ func (UnimplementedTaprootAssetsServer) SubscribeReceiveEvents(*SubscribeReceive
 }
 func (UnimplementedTaprootAssetsServer) SubscribeSendEvents(*SubscribeSendEventsRequest, TaprootAssets_SubscribeSendEventsServer) error {
 	return status.Errorf(codes.Unimplemented, "method SubscribeSendEvents not implemented")
+}
+func (UnimplementedTaprootAssetsServer) RegisterTransfer(context.Context, *RegisterTransferRequest) (*RegisterTransferResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RegisterTransfer not implemented")
 }
 func (UnimplementedTaprootAssetsServer) mustEmbedUnimplementedTaprootAssetsServer() {}
 
@@ -776,6 +826,24 @@ func _TaprootAssets_ExportProof_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_UnpackProofFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnpackProofFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).UnpackProofFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/UnpackProofFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).UnpackProofFile(ctx, req.(*UnpackProofFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_SendAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendAssetRequest)
 	if err := dec(in); err != nil {
@@ -908,6 +976,24 @@ func (x *taprootAssetsSubscribeSendEventsServer) Send(m *SendEvent) error {
 	return x.ServerStream.SendMsg(m)
 }
 
+func _TaprootAssets_RegisterTransfer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RegisterTransferRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).RegisterTransfer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/RegisterTransfer",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).RegisterTransfer(ctx, req.(*RegisterTransferRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // TaprootAssets_ServiceDesc is the grpc.ServiceDesc for TaprootAssets service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -972,6 +1058,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _TaprootAssets_ExportProof_Handler,
 		},
 		{
+			MethodName: "UnpackProofFile",
+			Handler:    _TaprootAssets_UnpackProofFile_Handler,
+		},
+		{
 			MethodName: "SendAsset",
 			Handler:    _TaprootAssets_SendAsset_Handler,
 		},
@@ -990,6 +1080,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "FetchAssetMeta",
 			Handler:    _TaprootAssets_FetchAssetMeta_Handler,
+		},
+		{
+			MethodName: "RegisterTransfer",
+			Handler:    _TaprootAssets_RegisterTransfer_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{
