@@ -336,13 +336,13 @@ func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 	for idx := range outputs {
 		vOut := outputs[idx]
 
-		haveIProof := params.HaveInclusionProof(vOut.AnchorOutputIndex)
-		haveEProof := params.HaveExclusionProof(vOut.AnchorOutputIndex)
+		outIndex := vOut.AnchorOutputIndex
+		haveIProof := params.HaveInclusionProof(outIndex)
+		haveEProof := params.HaveExclusionProof(outIndex)
 		if haveIProof || haveEProof {
 			continue
 		}
 
-		outIndex := vOut.AnchorOutputIndex
 		tapTree := outputCommitments[outIndex]
 
 		_, splitExclusionProof, err := tapTree.Proof(
