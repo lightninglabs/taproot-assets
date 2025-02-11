@@ -2424,10 +2424,31 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// We also need to push the proof for this transfer to the universe
 	// server.
 	bobScriptKeyBytes := bobScriptKey.PubKey.SerializeCompressed()
+	bobOutputIndex := uint32(1)
+	transferTXID := finalPsbt.UnsignedTx.TxHash()
+	bobAssetOutpoint := fmt.Sprintf("%s:%d", transferTXID.String(),
+		bobOutputIndex)
 	transferProofUniRPC(
 		t, t.universeServer.service, bob, bobScriptKeyBytes, genInfo,
-		mintedAsset.AssetGroup,
-		logResp.Transfer.Outputs[0].Anchor.Outpoint,
+		mintedAsset.AssetGroup, bobAssetOutpoint,
+	)
+
+	// In order for Bob to expect this incoming transfer, we need to
+	// register it with the internal wallet of Bob.
+	registerResp, err := bob.RegisterTransfer(
+		ctxb, &taprpc.RegisterTransferRequest{
+			AssetId:   assetID[:],
+			GroupKey:  mintedAsset.AssetGroup.TweakedGroupKey,
+			ScriptKey: bobScriptKeyBytes,
+			Outpoint: &taprpc.OutPoint{
+				Txid:        transferTXID[:],
+				OutputIndex: bobOutputIndex,
+			},
+		},
+	)
+	require.NoError(t.t, err)
+	require.Equal(
+		t.t, bobScriptKeyBytes, registerResp.RegisteredAsset.ScriptKey,
 	)
 
 	bobAssets, err := bob.ListAssets(ctxb, &taprpc.ListAssetRequest{})
@@ -2436,6 +2457,8 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// Verify that Bob now holds the asset.
 	require.Len(t.t, bobAssets.Assets, 1)
 	require.Equal(t.t, bobAssets.Assets[0].Amount, numUnits)
+
+	require.Equal(t.t, bobScriptKeyBytes, bobAssets.Assets[0].ScriptKey)
 }
 
 // testPsbtExternalCommit tests the ability to fully customize the BTC level of
