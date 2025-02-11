@@ -135,6 +135,19 @@ service TaprootAssets {
     */
     rpc SubscribeSendEvents (SubscribeSendEventsRequest)
         returns (stream SendEvent);
+
+    /*
+    RegisterTransfer informs the daemon about a new inbound transfer that has
+    happened. This is used for interactive transfers where no TAP address is
+    involved and the recipient is aware of the transfer through an out-of-band
+    protocol but the daemon hasn't been informed about the completion of the
+    transfer. For this to work, the proof must already be in the recipient's
+    local universe (e.g. through the use of the universerpc.ImportProof RPC or
+    the universe proof courier and universe sync mechanisms) and this call
+    simply instructs the daemon to detect the transfer as an asset it owns.
+    */
+    rpc RegisterTransfer (RegisterTransferRequest)
+        returns (RegisterTransferResponse);
 }
 
 enum AssetType {
@@ -1477,4 +1490,22 @@ message AnchorTransaction {
     The final, signed anchor transaction that was broadcast to the network.
     */
     bytes final_tx = 6;
+}
+
+message RegisterTransferRequest {
+    // The asset ID of the asset to register the transfer for.
+    bytes asset_id = 1;
+
+    // The optional group key of the asset to register the transfer for.
+    bytes group_key = 2;
+
+    // The script key of the asset to register the transfer for.
+    bytes script_key = 3;
+
+    // The outpoint of the transaction that was used to receive the asset.
+    taprpc.OutPoint outpoint = 4;
+}
+
+message RegisterTransferResponse {
+    Asset registered_asset = 1;
 }

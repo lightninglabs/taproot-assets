@@ -92,6 +92,13 @@ var (
 			Entity: "assets",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/RegisterTransfer": {{
+			Entity: "assets",
+			Action: "write",
+		}, {
+			Entity: "proofs",
+			Action: "write",
+		}},
 		"/assetwalletrpc.AssetWallet/FundVirtualPsbt": {{
 			Entity: "assets",
 			Action: "write",

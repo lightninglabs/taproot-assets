@@ -81,3 +81,7 @@ http:
     - selector: taprpc.TaprootAssets.SubscribeSendEvents
       post: "/v1/taproot-assets/events/asset-send"
       body: "*"
+
+    - selector: taprpc.TaprootAssets.RegisterTransfer
+      post: "/v1/taproot-assets/assets/transfers/register"
+      body: "*"

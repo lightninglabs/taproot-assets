@@ -447,6 +447,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/assets/transfers/register": {
+      "post": {
+        "summary": "RegisterTransfer informs the daemon about a new inbound transfer that has\nhappened. This is used for interactive transfers where no TAP address is\ninvolved and the recipient is aware of the transfer through an out-of-band\nprotocol but the daemon hasn't been informed about the completion of the\ntransfer. For this to work, the proof must already be in the recipient's\nlocal universe (e.g. through the use of the universerpc.ImportProof RPC or\nthe universe proof courier and universe sync mechanisms) and this call\nsimply instructs the daemon to detect the transfer as an asset it owns.",
+        "operationId": "TaprootAssets_RegisterTransfer",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcRegisterTransferResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcRegisterTransferRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/assets/transfers/{anchor_txid}": {
       "get": {
         "summary": "tapcli: `assets transfers`\nListTransfers lists outbound asset transfers tracked by the target daemon.",
@@ -2102,6 +2135,38 @@
         "error": {
           "type": "string",
           "description": "An optional error, indicating that executing the status above failed."
+        }
+      }
+    },
+    "taprpcRegisterTransferRequest": {
+      "type": "object",
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The asset ID of the asset to register the transfer for."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The optional group key of the asset to register the transfer for."
+        },
+        "script_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The script key of the asset to register the transfer for."
+        },
+        "outpoint": {
+          "$ref": "#/definitions/taprpcOutPoint",
+          "description": "The outpoint of the transaction that was used to receive the asset."
+        }
+      }
+    },
+    "taprpcRegisterTransferResponse": {
+      "type": "object",
+      "properties": {
+        "registered_asset": {
+          "$ref": "#/definitions/taprpcAsset"
         }
       }
     },

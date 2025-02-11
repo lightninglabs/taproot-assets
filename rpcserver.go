@@ -7953,7 +7953,7 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 		AssetId:      assetID[:],
 	}
 
-	// If this asset ID belongs to an asset group, then we'll display thiat
+	// If this asset ID belongs to an asset group, then we'll display that
 	// information as well.
 	//
 	// nolint:lll
@@ -8008,4 +8008,163 @@ func (r *rpcServer) DecodeAssetPayReq(ctx context.Context,
 	)
 
 	return &resp, nil
+}
+
+// RegisterTransfer informs the daemon about a new inbound transfer that has
+// happened. This is used for interactive transfers where no TAP address is
+// involved and the recipient is aware of the transfer through an out-of-band
+// protocol but the daemon hasn't been informed about the completion of the
+// transfer. For this to work, the proof must already be in the recipient's
+// local universe (e.g. through the use of the universerpc.ImportProof RPC or
+// the universe proof courier and universe sync mechanisms) and this call
+// simply instructs the daemon to detect the transfer as an asset it owns.
+func (r *rpcServer) RegisterTransfer(ctx context.Context,
+	req *taprpc.RegisterTransferRequest) (*taprpc.RegisterTransferResponse,
+	error) {
+
+	// First, we'll perform some basic input validation.
+	switch {
+	case len(req.AssetId) == 0:
+		return nil, fmt.Errorf("asset ID must be specified")
+
+	case len(req.AssetId) != 32:
+		return nil, fmt.Errorf("asset ID must be 32 bytes, was %d",
+			len(req.AssetId))
+
+	case len(req.GroupKey) > 0 && len(req.GroupKey) != 33:
+		return nil, fmt.Errorf("group key must be 33 bytes, was %d",
+			len(req.GroupKey))
+
+	case len(req.ScriptKey) == 0:
+		return nil, fmt.Errorf("script key must be specified")
+
+	case len(req.ScriptKey) != 33:
+		return nil, fmt.Errorf("script key must be 33 bytes, was %d",
+			len(req.ScriptKey))
+
+	case req.Outpoint == nil:
+		return nil, fmt.Errorf("outpoint must be specified")
+	}
+
+	// We'll query our local universe for the full proof. Since we're
+	// talking about a transfer here, we'll only look at transfer proofs.
+	var (
+		locator = proof.Locator{
+			AssetID: &asset.ID{},
+		}
+		err error
+	)
+	copy(locator.AssetID[:], req.AssetId)
+
+	if len(req.GroupKey) > 0 {
+		locator.GroupKey, err = btcec.ParsePubKey(req.GroupKey)
+		if err != nil {
+			return nil, fmt.Errorf("error parsing group key: %w",
+				err)
+		}
+	}
+
+	scriptPubKey, err := btcec.ParsePubKey(req.ScriptKey)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing script key: %w", err)
+	}
+	locator.ScriptKey = *scriptPubKey
+
+	hash, err := chainhash.NewHash(req.Outpoint.Txid)
+	if err != nil {
+		return nil, err
+	}
+	locator.OutPoint = &wire.OutPoint{
+		Hash:  *hash,
+		Index: req.Outpoint.OutputIndex,
+	}
+
+	// Before we query for the proof, we want to make sure the script key is
+	// already known to us. In an interactive transfer, we'd expect a script
+	// key to be derived on the recipient node, so it should already be
+	// registered. This is mainly to prevent the user from importing a proof
+	// for an asset that they won't be able to spend, because it doesn't
+	// belong to this node (which is the main issue with the old
+	// tapdevrpc.ImportProof RPC).
+	_, err = r.cfg.DatabaseConfig.TapAddrBook.FetchScriptKey(
+		ctx, scriptPubKey,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching script key, consider "+
+			"declaring it with DeclareScriptKey if it does "+
+			"belong to this node: %w", err)
+	}
+
+	// Next, we make sure we don't already have this proof in the local
+	// archive (only in the universe). If we have, it means the user already
+	// imported it, and we don't want to overwrite it.
+	haveProof, err := r.cfg.ProofArchive.HasProof(ctx, locator)
+	if err != nil {
+		return nil, fmt.Errorf("error checking if proof is available: "+
+			"%w", err)
+	}
+	if haveProof {
+		return nil, fmt.Errorf("proof already exists for this transfer")
+	}
+
+	// We now fetch the full proof file from the local multiverse store,
+	// making sure we have the full proof chain for this transfer.
+	fullProvenance, err := r.cfg.Multiverse.FetchProof(ctx, locator)
+	if err != nil {
+		return nil, fmt.Errorf("error fetching full proof: %w", err)
+	}
+
+	// Let's make sure we can parse it as a file.
+	proofFile, err := fullProvenance.AsFile()
+	if err != nil {
+		return nil, fmt.Errorf("error converting proof to file: %w",
+			err)
+	}
+
+	// All seems well, we can now import the proof into our local proof
+	// archive, which will also materialize an asset in the asset database.
+	headerVerifier := tapgarden.GenHeaderVerifier(ctx, r.cfg.ChainBridge)
+	groupVerifier := tapgarden.GenGroupVerifier(ctx, r.cfg.MintingStore)
+	err = r.cfg.ProofArchive.ImportProofs(
+		ctx, headerVerifier, proof.DefaultMerkleVerifier, groupVerifier,
+		r.cfg.ChainBridge, false, &proof.AnnotatedProof{
+			Locator: locator,
+			Blob:    fullProvenance,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error importing proof: %w", err)
+	}
+
+	// In case this proof hasn't been buried sufficiently, let's also hand
+	// it to the re-org watcher.
+	err = r.cfg.ReOrgWatcher.MaybeWatch(
+		proofFile, r.cfg.ReOrgWatcher.DefaultUpdateCallback(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error watching received proof: %w", err)
+	}
+
+	lastProof, err := proofFile.LastProof()
+	if err != nil {
+		return nil, fmt.Errorf("error getting last proof: %w", err)
+	}
+
+	chainAsset, err := lastProof.ToChainAsset()
+	if err != nil {
+		return nil, fmt.Errorf("unable to convert proof to chain "+
+			"asset: %w", err)
+	}
+
+	rpcAsset, err := r.MarshalChainAsset(
+		ctx, chainAsset, lastProof.MetaReveal, false, r.cfg.AddrBook,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal chain asset: %w",
+			err)
+	}
+
+	return &taprpc.RegisterTransferResponse{
+		RegisteredAsset: rpcAsset,
+	}, nil
 }
