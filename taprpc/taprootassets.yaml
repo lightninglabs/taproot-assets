@@ -43,6 +43,10 @@ http:
     - selector: taprpc.TaprootAssets.ExportProof
       post: "/v1/taproot-assets/proofs/export"
       body: "*"
+      
+    - selector: taprpc.TaprootAssets.UnpackProofFile
+      post: "/v1/taproot-assets/proofs/unpack-file"
+      body: "*"
 
     - selector: taprpc.TaprootAssets.ListBalances
       get: "/v1/taproot-assets/assets/balance"

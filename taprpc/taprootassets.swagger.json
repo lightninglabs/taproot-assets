@@ -831,6 +831,39 @@
         ]
       }
     },
+    "/v1/taproot-assets/proofs/unpack-file": {
+      "post": {
+        "summary": "tapcli: `proofs unpack`\nUnpackProofFile unpacks a proof file into a list of the individual raw\nproofs in the proof chain.",
+        "operationId": "TaprootAssets_UnpackProofFile",
+        "responses": {
+          "200": {
+            "description": "A successful response.",
+            "schema": {
+              "$ref": "#/definitions/taprpcUnpackProofFileResponse"
+            }
+          },
+          "default": {
+            "description": "An unexpected error response.",
+            "schema": {
+              "$ref": "#/definitions/rpcStatus"
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/taprpcUnpackProofFileRequest"
+            }
+          }
+        ],
+        "tags": [
+          "TaprootAssets"
+        ]
+      }
+    },
     "/v1/taproot-assets/proofs/verify": {
       "post": {
         "summary": "tapcli: `proofs verify`\nVerifyProof attempts to verify a given proof file that claims to be anchored\nat the specified genesis point.",
@@ -2405,6 +2438,29 @@
         "num_passive_assets": {
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "taprpcUnpackProofFileRequest": {
+      "type": "object",
+      "properties": {
+        "raw_proof_file": {
+          "type": "string",
+          "format": "byte",
+          "description": "The raw proof file encoded as bytes. Must be a file and not just an\nindividual mint/transfer proof."
+        }
+      }
+    },
+    "taprpcUnpackProofFileResponse": {
+      "type": "object",
+      "properties": {
+        "raw_proofs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "byte"
+          },
+          "description": "The individual proofs contained in the proof file, ordered by their\nappearance within the file (issuance proof first, last known transfer\nlast)."
         }
       }
     },

@@ -371,6 +371,31 @@ func RegisterTaprootAssetsJSONCallbacks(registry map[string]func(ctx context.Con
 		callback(string(respBytes), nil)
 	}
 
+	registry["taprpc.TaprootAssets.UnpackProofFile"] = func(ctx context.Context,
+		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
+
+		req := &UnpackProofFileRequest{}
+		err := marshaler.Unmarshal([]byte(reqJSON), req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		client := NewTaprootAssetsClient(conn)
+		resp, err := client.UnpackProofFile(ctx, req)
+		if err != nil {
+			callback("", err)
+			return
+		}
+
+		respBytes, err := marshaler.Marshal(resp)
+		if err != nil {
+			callback("", err)
+			return
+		}
+		callback(string(respBytes), nil)
+	}
+
 	registry["taprpc.TaprootAssets.SendAsset"] = func(ctx context.Context,
 		conn *grpc.ClientConn, reqJSON string, callback func(string, error)) {
 

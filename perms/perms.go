@@ -64,6 +64,10 @@ var (
 			Entity: "proofs",
 			Action: "read",
 		}},
+		"/taprpc.TaprootAssets/UnpackProofFile": {{
+			Entity: "proofs",
+			Action: "read",
+		}},
 		"/taprpc.TaprootAssets/ExportProof": {{
 			Entity: "proofs",
 			Action: "read",

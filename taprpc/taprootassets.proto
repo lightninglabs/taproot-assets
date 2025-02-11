@@ -87,6 +87,13 @@ service TaprootAssets {
     */
     rpc ExportProof (ExportProofRequest) returns (ProofFile);
 
+    /* tapcli: `proofs unpack`
+    UnpackProofFile unpacks a proof file into a list of the individual raw
+    proofs in the proof chain.
+    */
+    rpc UnpackProofFile (UnpackProofFileRequest)
+        returns (UnpackProofFileResponse);
+
     /* tapcli: `assets send`
     SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
     to complete an asset send. The method returns information w.r.t the on chain
@@ -1144,6 +1151,19 @@ message ExportProofRequest {
 
     // TODO(roasbeef): specify information to make new state transition in proof
     // file?
+}
+
+message UnpackProofFileRequest {
+    // The raw proof file encoded as bytes. Must be a file and not just an
+    // individual mint/transfer proof.
+    bytes raw_proof_file = 1;
+}
+
+message UnpackProofFileResponse {
+    // The individual proofs contained in the proof file, ordered by their
+    // appearance within the file (issuance proof first, last known transfer
+    // last).
+    repeated bytes raw_proofs = 1;
 }
 
 enum AddrEventStatus {

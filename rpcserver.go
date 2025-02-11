@@ -1717,6 +1717,32 @@ func (r *rpcServer) DecodeProof(ctx context.Context,
 	}, nil
 }
 
+// UnpackProofFile unpacks a proof file into a list of the individual raw
+// proofs in the proof chain.
+func (r *rpcServer) UnpackProofFile(_ context.Context,
+	req *taprpc.UnpackProofFileRequest) (*taprpc.UnpackProofFileResponse,
+	error) {
+
+	blob := proof.Blob(req.RawProofFile)
+	file, err := blob.AsFile()
+	if err != nil {
+		return nil, fmt.Errorf("unable to decode proof file: %w", err)
+	}
+
+	proofBlobs := make([][]byte, file.NumProofs())
+	for i := 0; i < file.NumProofs(); i++ {
+		proofBlobs[i], err = file.RawProofAt(uint32(i))
+		if err != nil {
+			return nil, fmt.Errorf("unable to extract proof: %w",
+				err)
+		}
+	}
+
+	return &taprpc.UnpackProofFileResponse{
+		RawProofs: proofBlobs,
+	}, nil
+}
+
 // marshalProof turns a transition proof into an RPC DecodedProof.
 func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 	withPrevWitnesses, withMetaReveal bool) (*taprpc.DecodedProof, error) {

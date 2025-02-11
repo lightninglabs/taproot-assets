@@ -72,6 +72,10 @@ type TaprootAssetsClient interface {
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
 	ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error)
+	// tapcli: `proofs unpack`
+	// UnpackProofFile unpacks a proof file into a list of the individual raw
+	// proofs in the proof chain.
+	UnpackProofFile(ctx context.Context, in *UnpackProofFileRequest, opts ...grpc.CallOption) (*UnpackProofFileResponse, error)
 	// tapcli: `assets send`
 	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
 	// to complete an asset send. The method returns information w.r.t the on chain
@@ -244,6 +248,15 @@ func (c *taprootAssetsClient) DecodeProof(ctx context.Context, in *DecodeProofRe
 func (c *taprootAssetsClient) ExportProof(ctx context.Context, in *ExportProofRequest, opts ...grpc.CallOption) (*ProofFile, error) {
 	out := new(ProofFile)
 	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/ExportProof", in, out, opts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *taprootAssetsClient) UnpackProofFile(ctx context.Context, in *UnpackProofFileRequest, opts ...grpc.CallOption) (*UnpackProofFileResponse, error) {
+	out := new(UnpackProofFileResponse)
+	err := c.cc.Invoke(ctx, "/taprpc.TaprootAssets/UnpackProofFile", in, out, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -426,6 +439,10 @@ type TaprootAssetsServer interface {
 	// ExportProof exports the latest raw proof file anchored at the specified
 	// script_key.
 	ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error)
+	// tapcli: `proofs unpack`
+	// UnpackProofFile unpacks a proof file into a list of the individual raw
+	// proofs in the proof chain.
+	UnpackProofFile(context.Context, *UnpackProofFileRequest) (*UnpackProofFileResponse, error)
 	// tapcli: `assets send`
 	// SendAsset uses one or multiple passed Taproot Asset address(es) to attempt
 	// to complete an asset send. The method returns information w.r.t the on chain
@@ -516,6 +533,9 @@ func (UnimplementedTaprootAssetsServer) DecodeProof(context.Context, *DecodeProo
 }
 func (UnimplementedTaprootAssetsServer) ExportProof(context.Context, *ExportProofRequest) (*ProofFile, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ExportProof not implemented")
+}
+func (UnimplementedTaprootAssetsServer) UnpackProofFile(context.Context, *UnpackProofFileRequest) (*UnpackProofFileResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method UnpackProofFile not implemented")
 }
 func (UnimplementedTaprootAssetsServer) SendAsset(context.Context, *SendAssetRequest) (*SendAssetResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SendAsset not implemented")
@@ -806,6 +826,24 @@ func _TaprootAssets_ExportProof_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
+func _TaprootAssets_UnpackProofFile_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(UnpackProofFileRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TaprootAssetsServer).UnpackProofFile(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: "/taprpc.TaprootAssets/UnpackProofFile",
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TaprootAssetsServer).UnpackProofFile(ctx, req.(*UnpackProofFileRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _TaprootAssets_SendAsset_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(SendAssetRequest)
 	if err := dec(in); err != nil {
@@ -1018,6 +1056,10 @@ var TaprootAssets_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ExportProof",
 			Handler:    _TaprootAssets_ExportProof_Handler,
+		},
+		{
+			MethodName: "UnpackProofFile",
+			Handler:    _TaprootAssets_UnpackProofFile_Handler,
 		},
 		{
 			MethodName: "SendAsset",
