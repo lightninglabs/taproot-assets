@@ -492,27 +492,29 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		return nil, err
 	}
 
-	var seedlingMeta *proof.MetaReveal
-
-	// If a custom decimal display is set, the meta type must also be set to
-	// JSON.
+	// If a custom decimal display is set, we require the AssetMeta to be
+	// set. That means the user has to at least specify the meta type.
 	if req.Asset.DecimalDisplay != 0 && req.Asset.AssetMeta == nil {
-		return nil, fmt.Errorf("decimal display requires JSON asset " +
+		return nil, fmt.Errorf("decimal display requires asset " +
 			"metadata")
 	}
 
-	if req.Asset.AssetMeta != nil {
+	// Decimal display doesn't really make sense for collectibles.
+	if req.Asset.DecimalDisplay != 0 &&
+		req.Asset.AssetType == taprpc.AssetType_COLLECTIBLE {
+
+		return nil, fmt.Errorf("decimal display is not supported for " +
+			"collectibles")
+	}
+
+	var seedlingMeta *proof.MetaReveal
+	switch {
+	// If we have an explicit asset meta field, we parse the content.
+	case req.Asset.AssetMeta != nil:
 		// Ensure that the meta type is valid.
 		metaType, err := proof.IsValidMetaType(req.Asset.AssetMeta.Type)
 		if err != nil {
 			return nil, err
-		}
-
-		// If the meta type is not JSON, then a custom decimal display
-		// cannot be set.
-		if metaType != proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			return nil, fmt.Errorf("cannot set decimal display " +
-				"if meta type is not JSON")
 		}
 
 		// If the asset meta field was specified, then the data inside
@@ -522,14 +524,21 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			Type: metaType,
 		}
 
-		// If a custom decimal display was requested correctly, but no
-		// metadata was provided, we'll set the metadata to an empty
-		// JSON object. The decimal display will be added as the only
-		// object.
-		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			if len(req.Asset.AssetMeta.Data) == 0 {
-				seedlingMeta.Data = []byte("{}")
-			}
+		// Before we set the TLV based decimal display, we first make
+		// sure we wouldn't overwrite a custom decimal display in the
+		// JSON meta data that has a different value.
+		_, jsonDecDisplay, err := seedlingMeta.GetDecDisplay()
+		if err == nil && jsonDecDisplay != req.Asset.DecimalDisplay {
+			return nil, fmt.Errorf("decimal display in JSON " +
+				"asset meta does not match the one in the " +
+				"request")
+		}
+
+		// We always set the decimal display, even if it is the default
+		// value of 0, since we now encode it in the TLV meta data.
+		err = seedlingMeta.SetDecDisplay(req.Asset.DecimalDisplay)
+		if err != nil {
+			return nil, err
 		}
 
 		err = seedlingMeta.Validate()
@@ -537,20 +546,23 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 
-		// If a custom decimal display was requested, add that to the
-		// metadata and re-validate it.
-		if metaType == proof.MetaJson && req.Asset.DecimalDisplay != 0 {
-			err := seedlingMeta.SetDecDisplay(
-				req.Asset.DecimalDisplay,
-			)
-			if err != nil {
-				return nil, err
-			}
+	// If no asset meta field was specified, we create a default meta
+	// reveal with the decimal display set.
+	default:
+		seedlingMeta = &proof.MetaReveal{
+			Type: proof.MetaOpaque,
+		}
 
-			err = seedlingMeta.Validate()
-			if err != nil {
-				return nil, err
-			}
+		// We always set the decimal display, even if it is the default
+		// value of 0, since we now encode it in the TLV meta data.
+		err = seedlingMeta.SetDecDisplay(req.Asset.DecimalDisplay)
+		if err != nil {
+			return nil, err
+		}
+
+		err = seedlingMeta.Validate()
+		if err != nil {
+			return nil, err
 		}
 	}
 

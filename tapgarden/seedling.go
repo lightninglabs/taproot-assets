@@ -181,6 +181,14 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 			"group asset type %v", group.Genesis.Type)
 	}
 
+	return validateAnchorMeta(c.Meta, anchorMeta)
+}
+
+// validateAnchorMeta checks that the metadata of the seedling matches that of
+// the group anchor, if there is a group anchor.
+func validateAnchorMeta(seedlingMeta *proof.MetaReveal,
+	anchorMeta *proof.MetaReveal) error {
+
 	// The decimal display of the seedling must match that of the group
 	// anchor. We already validated the seedling metadata, so we don't care
 	// if the value is explicit or if the metadata is JSON, but we must
@@ -189,11 +197,9 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 		seedlingDecDisplay uint32
 		anchorDecDisplay   uint32
 	)
-
-	if c.Meta != nil {
-		_, seedlingDecDisplay, _ = c.Meta.GetDecDisplay()
+	if seedlingMeta != nil {
+		_, seedlingDecDisplay, _ = seedlingMeta.GetDecDisplay()
 	}
-
 	if anchorMeta != nil {
 		_, anchorDecDisplay, _ = anchorMeta.GetDecDisplay()
 	}
@@ -202,6 +208,33 @@ func (c Seedling) validateGroupKey(group asset.AssetGroup,
 		return fmt.Errorf("seedling decimal display does not match "+
 			"group anchor: %d, %d", seedlingDecDisplay,
 			anchorDecDisplay)
+	}
+
+	// If the anchor asset had universe commitments turned on, then the
+	// seedling must also have them.
+	var (
+		seedlingUniverseCommitments bool
+		anchorUniverseCommitments   bool
+	)
+	if seedlingMeta != nil && seedlingMeta.UniverseCommitments {
+		seedlingUniverseCommitments = true
+	}
+	if anchorMeta != nil && anchorMeta.UniverseCommitments {
+		anchorUniverseCommitments = true
+	}
+
+	if seedlingUniverseCommitments != anchorUniverseCommitments {
+		return fmt.Errorf("seedling universe commitments flag does "+
+			"not match group anchor: %v, %v",
+			seedlingUniverseCommitments, anchorUniverseCommitments)
+	}
+
+	// For now, we simply require a delegation key to be set when universe
+	// commitments are turned on. In the future, we could allow this to be
+	// empty and the group internal key to be used for signing.
+	if seedlingUniverseCommitments && seedlingMeta.DelegationKey.IsNone() {
+		return fmt.Errorf("delegation key must be set for universe " +
+			"commitments flag")
 	}
 
 	return nil
