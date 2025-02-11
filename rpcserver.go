@@ -6580,15 +6580,9 @@ func (r *rpcServer) checkPeerChannel(ctx context.Context, peer route.Vertex,
 	// For any other case, we'll want to make sure there is a channel with
 	// a non-zero balance of the given asset to carry the order.
 	default:
-		assetID, err := specifier.UnwrapIdOrErr()
-		if err != nil {
-			return fmt.Errorf("cannot check asset channel, " +
-				"missing asset ID")
-		}
-
 		// If we don't get an error here, it means we do have an asset
 		// channel with the peer.
-		_, err = r.rfqChannel(ctx, assetID, &peer)
+		_, err := r.rfqChannel(ctx, specifier, &peer)
 		if err != nil {
 			return fmt.Errorf("error checking asset channel: %w",
 				err)
@@ -7227,8 +7221,10 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			peerPubKey = &parsedKey
 		}
 
+		specifier := asset.NewSpecifierFromId(assetID)
+
 		// We can now query the asset channels we have.
-		assetChan, err := r.rfqChannel(ctx, assetID, peerPubKey)
+		assetChan, err := r.rfqChannel(ctx, specifier, peerPubKey)
 		if err != nil {
 			return fmt.Errorf("error finding asset channel to "+
 				"use: %w", err)
@@ -7518,8 +7514,10 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		peerPubKey = &parsedKey
 	}
 
+	specifier := asset.NewSpecifierFromId(assetID)
+
 	// We can now query the asset channels we have.
-	assetChan, err := r.rfqChannel(ctx, assetID, peerPubKey)
+	assetChan, err := r.rfqChannel(ctx, specifier, peerPubKey)
 	if err != nil {
 		return nil, fmt.Errorf("error finding asset channel to use: %w",
 			err)
@@ -7788,60 +7786,62 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 
 // rfqChannel returns the channel to use for RFQ operations. If a peer public
 // key is specified, the channels are filtered by that peer. If there are
-// multiple channels for the same asset, the user must specify the peer public
-// key.
-func (r *rpcServer) rfqChannel(ctx context.Context, id asset.ID,
-	peerPubKey *route.Vertex) (*channelWithAsset, error) {
+// multiple channels for the same specifier, the user must specify the peer
+// public key.
+func (r *rpcServer) rfqChannel(ctx context.Context, specifier asset.Specifier,
+	peerPubKey *route.Vertex) (*channelWithSpecifier, error) {
 
-	balances, err := r.computeChannelAssetBalance(ctx)
+	balances, err := r.computeChannelAssetBalance(ctx, specifier)
 	if err != nil {
 		return nil, fmt.Errorf("error computing available asset "+
 			"channel balance: %w", err)
 	}
 
-	assetBalances, haveBalance := balances[id]
-	if !haveBalance || len(assetBalances) == 0 {
-		return nil, fmt.Errorf("no asset channel balance found for "+
-			"asset %s", id.String())
+	if len(balances) == 0 {
+		return nil, fmt.Errorf("no asset channel balance found for %s",
+			specifier.String())
 	}
 
 	// If a peer public key was specified, we always want to use that to
 	// filter the asset channels.
 	if peerPubKey != nil {
-		assetBalances = fn.Filter(
-			assetBalances, func(c channelWithAsset) bool {
+		balances = fn.Filter(
+			balances, func(c channelWithSpecifier) bool {
 				return c.channelInfo.PubKeyBytes == *peerPubKey
 			},
 		)
 	}
 
 	switch {
-	// If there are multiple asset channels for the same asset, we need to
-	// ask the user to specify the peer public key. Otherwise, we don't know
-	// who to ask for a quote.
-	case len(assetBalances) > 1 && peerPubKey == nil:
+	// If there are multiple asset channels for the same specifier, we need
+	// to ask the user to specify the peer public key. Otherwise, we don't
+	// know who to ask for a quote.
+	case len(balances) > 1 && peerPubKey == nil:
 		return nil, fmt.Errorf("multiple asset channels found for "+
-			"asset %s, please specify the peer pubkey", id.String())
+			"%s, please specify the peer pubkey",
+			specifier.String())
 
 	// If the user specified a peer public key, and we still have multiple
-	// channels, it means we have multiple channels with the same asset and
-	// the same peer. So we just return the first channel.
-	case len(assetBalances) >= 1:
-		return &assetBalances[0], nil
+	// channels, it means we have multiple channels with the same specifier
+	// and the same peer. So we just return the first channel.
+	case len(balances) >= 1:
+		return &balances[0], nil
 
-	// The default case is: We don't have any channels with that asset ID
+	// The default case is: We don't have any channels with that specifier
 	// and peer.
 	default:
-		return nil, fmt.Errorf("no asset channel found for asset %s "+
-			"and peer %s", id.String(), peerPubKey.String())
+		return nil, fmt.Errorf("no asset channel found for %s and "+
+			"peer %s", specifier.String(), peerPubKey.String())
 	}
 }
 
-// channelWithAsset is a helper struct that combines the information of a single
-// asset within a channel with the channels' general information.
-type channelWithAsset struct {
-	// assetInfo is the information about one of the assets in a channel.
-	assetInfo rfqmsg.JsonAssetChanInfo
+// channelWithSpecifier is a helper struct that combines the information of an
+// asset specifier that is satisfied by a channel with the channels' general
+// information.
+type channelWithSpecifier struct {
+	// specifier is the asset specifier that is satisfied by this channels'
+	// assets.
+	specifier asset.Specifier
 
 	// channelInfo is the information about the channel the asset is
 	// committed to.
@@ -7849,16 +7849,75 @@ type channelWithAsset struct {
 }
 
 // computeChannelAssetBalance computes the total local and remote balance for
-// each asset channel.
-func (r *rpcServer) computeChannelAssetBalance(
-	ctx context.Context) (map[asset.ID][]channelWithAsset, error) {
+// each asset channel that matches the provided asset specifier.
+func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
+	specifier asset.Specifier) ([]channelWithSpecifier, error) {
 
 	activeChannels, err := r.cfg.Lnd.Client.ListChannels(ctx, true, false)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch channels: %w", err)
 	}
 
-	channelsByID := make(map[asset.ID][]channelWithAsset)
+	// specifierFilter is a helper function that checks if the assets of a
+	// channel satisfy the provided asset specifier.
+	specifierFilter := func(
+		assets []rfqmsg.JsonAssetChanInfo) (bool, error) {
+
+		for assetIdx := range assets {
+			assetOutput := assets[assetIdx]
+			assetGen := assetOutput.AssetInfo.AssetGenesis
+			assetIDBytes, err := hex.DecodeString(
+				assetGen.AssetID,
+			)
+			if err != nil {
+				return false, fmt.Errorf("error "+
+					"decoding asset ID: %w", err)
+			}
+
+			var assetID asset.ID
+			copy(assetID[:], assetIDBytes)
+
+			switch specifier.HasGroupPubKey() {
+			case true:
+				specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+				group, err := r.cfg.TapAddrBook.QueryAssetGroup(
+					ctx, assetID,
+				)
+				if err != nil {
+					return false, fmt.Errorf("failed to "+
+						"query asset group: %v", err)
+				}
+
+				if group == nil || group.GroupKey == nil {
+					return false, nil
+				}
+
+				if !group.GroupPubKey.IsEqual(specifierGK) {
+					return false, nil
+				}
+
+			case false:
+				if !specifier.HasId() {
+					return false, fmt.Errorf("specifier " +
+						"must have either group key " +
+						"or id")
+				}
+
+				specifierID := specifier.UnwrapIdToPtr()
+
+				if strings.Compare(
+					specifierID.String(), assetID.String(),
+				) != 0 {
+					return false, nil
+				}
+			}
+		}
+
+		return true, nil
+	}
+
+	channels := make([]channelWithSpecifier, 0)
 	for chanIdx := range activeChannels {
 		openChan := activeChannels[chanIdx]
 		if len(openChan.CustomChannelData) == 0 {
@@ -7872,27 +7931,22 @@ func (r *rpcServer) computeChannelAssetBalance(
 				"data: %w", err)
 		}
 
-		for assetIdx := range assetData.Assets {
-			assetOutput := assetData.Assets[assetIdx]
-			assetIDStr := assetOutput.AssetInfo.AssetGenesis.AssetID
-			assetIDBytes, err := hex.DecodeString(assetIDStr)
-			if err != nil {
-				return nil, fmt.Errorf("error decoding asset "+
-					"ID: %w", err)
-			}
-			var assetID asset.ID
-			copy(assetID[:], assetIDBytes)
+		// Check if the assets of this channel match the provided
+		// specifier.
+		pass, err := specifierFilter(assetData.Assets)
+		if err != nil {
+			return nil, err
+		}
 
-			channelsByID[assetID] = append(
-				channelsByID[assetID], channelWithAsset{
-					assetInfo:   assetOutput,
-					channelInfo: openChan,
-				},
-			)
+		if pass {
+			channels = append(channels, channelWithSpecifier{
+				specifier:   specifier,
+				channelInfo: openChan,
+			})
 		}
 	}
 
-	return channelsByID, nil
+	return channels, nil
 }
 
 // getInboundPolicy returns the policy of the given channel that points towards
