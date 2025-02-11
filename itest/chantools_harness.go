@@ -2,6 +2,7 @@ package itest
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -48,8 +49,9 @@ type ChantoolsHarness struct {
 
 // NewChantoolsHarness creates a new instance of the ChantoolsHarness struct.
 func NewChantoolsHarness(t *testing.T) ChantoolsHarness {
-	path, err := exec.LookPath("chantools")
-	require.NoError(t, err, "chantools is not installed or not in PATH")
+	wd, err := os.Getwd()
+	require.NoError(t, err)
+	path := fmt.Sprintf("%s/chantools/chantools", wd)
 
 	t.Logf("Using chantools binary at: %v", path)
 
