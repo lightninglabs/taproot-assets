@@ -1091,8 +1091,12 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 
 	rpcAssets := make([]*taprpc.Asset, len(assets))
 	for i, a := range assets {
+		if a == nil {
+			return nil, fmt.Errorf("nil asset at index %d", i)
+		}
+
 		rpcAssets[i], err = r.MarshalChainAsset(
-			ctx, a, nil, withWitness, r.cfg.AddrBook,
+			ctx, *a, nil, withWitness, r.cfg.AddrBook,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to marshal asset: %w",
@@ -1104,7 +1108,7 @@ func (r *rpcServer) fetchRpcAssets(ctx context.Context, withWitness,
 }
 
 // MarshalChainAsset marshals the given chain asset into an RPC asset.
-func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
+func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 	meta *proof.MetaReveal, withWitness bool,
 	keyRing taprpc.KeyLookup) (*taprpc.Asset, error) {
 
@@ -1125,38 +1129,9 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a *asset.ChainAsset,
 		return nil, err
 	}
 
-	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, a.Asset, a.IsSpent, withWitness, keyRing, decDisplay,
+	return taprpc.MarshalChainAsset(
+		ctx, a, decDisplay, withWitness, keyRing,
 	)
-	if err != nil {
-		return nil, err
-	}
-
-	var anchorTxBytes []byte
-	if a.AnchorTx != nil {
-		anchorTxBytes, err = serialize(a.AnchorTx)
-		if err != nil {
-			return nil, fmt.Errorf("unable to serialize anchor "+
-				"tx: %w", err)
-		}
-	}
-
-	rpcAsset.ChainAnchor = &taprpc.AnchorInfo{
-		AnchorTx:         anchorTxBytes,
-		AnchorBlockHash:  a.AnchorBlockHash.String(),
-		AnchorOutpoint:   a.AnchorOutpoint.String(),
-		InternalKey:      a.AnchorInternalKey.SerializeCompressed(),
-		MerkleRoot:       a.AnchorMerkleRoot,
-		TapscriptSibling: a.AnchorTapscriptSibling,
-		BlockHeight:      a.AnchorBlockHeight,
-	}
-
-	if a.AnchorLeaseOwner != [32]byte{} {
-		rpcAsset.LeaseOwner = a.AnchorLeaseOwner[:]
-		rpcAsset.LeaseExpiry = a.AnchorLeaseExpiry.UTC().Unix()
-	}
-
-	return rpcAsset, nil
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
@@ -1750,10 +1725,6 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		rpcMeta        *taprpc.AssetMeta
 		rpcGenesis     = p.GenesisReveal
 		rpcGroupKey    = p.GroupKeyReveal
-		anchorOutpoint = wire.OutPoint{
-			Hash:  p.AnchorTx.TxHash(),
-			Index: p.InclusionProof.OutputIndex,
-		}
 		txMerkleProof  = p.TxMerkleProof
 		inclusionProof = p.InclusionProof
 		splitRootProof = p.SplitRootProof
@@ -1772,31 +1743,10 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 			err)
 	}
 
-	if inclusionProof.CommitmentProof == nil {
-		return nil, fmt.Errorf("inclusion proof is missing " +
-			"commitment proof")
-	}
-	tsSibling, tsHash, err := commitment.MaybeEncodeTapscriptPreimage(
-		inclusionProof.CommitmentProof.TapSiblingPreimage,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error encoding tapscript sibling: %w",
-			err)
-	}
-
-	tapProof, err := inclusionProof.CommitmentProof.DeriveByAssetInclusion(
-		&p.Asset,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("error deriving inclusion proof: %w",
-			err)
-	}
-	merkleRoot := tapProof.TapscriptRoot(tsHash)
-
 	var exclusionProofs [][]byte
 	for _, exclusionProof := range p.ExclusionProofs {
 		var exclusionProofBuf bytes.Buffer
-		err = exclusionProof.Encode(&exclusionProofBuf)
+		err := exclusionProof.Encode(&exclusionProofBuf)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode exclusion "+
 				"proofs: %w", err)
@@ -1808,7 +1758,7 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 
 	var splitRootProofBuf bytes.Buffer
 	if splitRootProof != nil {
-		err = splitRootProof.Encode(&splitRootProofBuf)
+		err := splitRootProof.Encode(&splitRootProofBuf)
 		if err != nil {
 			return nil, fmt.Errorf("unable to encode split root "+
 				"proof: %w", err)
@@ -1828,18 +1778,19 @@ func (r *rpcServer) marshalProof(ctx context.Context, p *proof.Proof,
 		}
 	}
 
-	rpcAsset, err := r.MarshalChainAsset(ctx, &asset.ChainAsset{
-		Asset:                  &p.Asset,
-		AnchorTx:               &p.AnchorTx,
-		AnchorBlockHash:        p.BlockHeader.BlockHash(),
-		AnchorBlockHeight:      p.BlockHeight,
-		AnchorOutpoint:         anchorOutpoint,
-		AnchorInternalKey:      p.InclusionProof.InternalKey,
-		AnchorMerkleRoot:       merkleRoot[:],
-		AnchorTapscriptSibling: tsSibling,
-	}, p.MetaReveal, withPrevWitnesses, r.cfg.AddrBook)
+	chainAsset, err := p.ToChainAsset()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("unable to convert proof to chain "+
+			"asset: %w", err)
+	}
+
+	rpcAsset, err := r.MarshalChainAsset(
+		ctx, chainAsset, p.MetaReveal, withPrevWitnesses,
+		r.cfg.AddrBook,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to marshal chain asset: %w",
+			err)
 	}
 
 	if withMetaReveal {
