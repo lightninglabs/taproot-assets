@@ -2424,7 +2424,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// We also need to push the proof for this transfer to the universe
 	// server.
 	bobScriptKeyBytes := bobScriptKey.PubKey.SerializeCompressed()
-	sendUniProof(
+	transferProofUniRPC(
 		t, t.universeServer.service, bob, bobScriptKeyBytes, genInfo,
 		mintedAsset.AssetGroup,
 		logResp.Transfer.Outputs[0].Anchor.Outpoint,

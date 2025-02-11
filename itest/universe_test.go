@@ -323,7 +323,9 @@ func testUniverseManualSync(t *harnessTest) {
 	// universe.
 	firstAsset := rpcIssuableAssets[0]
 	firstAssetGen := firstAsset.AssetGenesis
-	sendProofUniRPC(t, t.tapd, bob, firstAsset.ScriptKey, firstAssetGen)
+	transferProofNormalExportUniInsert(
+		t, t.tapd, bob, firstAsset.ScriptKey, firstAssetGen,
+	)
 
 	// We should also be able to fetch an asset from Bob's Universe, and
 	// query for that asset with the compressed script key.

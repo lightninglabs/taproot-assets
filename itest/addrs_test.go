@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 
-	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/wire"
 	tap "github.com/lightninglabs/taproot-assets"
@@ -776,7 +775,7 @@ func testUnknownTlvType(t *harnessTest) {
 		require.NoError(t.t, charlie.stop(!*noDelete))
 	}()
 
-	importProof(t, charlie, modifiedBlob, genInfo.GenesisPoint)
+	ImportProofFile(t, charlie, modifiedBlob, genInfo.GenesisPoint)
 
 	// When we export it again, it should have the same TLV types.
 	transferProof2 := exportProof(
@@ -847,7 +846,9 @@ func sendProof(t *harnessTest, src, dst *tapdHarness,
 	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
 
 	proofResp := exportProof(t, src, sendResp, scriptKey, genInfo)
-	return importProof(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
+	return ImportProofFile(
+		t, dst, proofResp.RawProofFile, genInfo.GenesisPoint,
+	)
 }
 
 // exportProof manually exports a proof from the given source node for a
@@ -855,8 +856,6 @@ func sendProof(t *harnessTest, src, dst *tapdHarness,
 func exportProof(t *harnessTest, src *tapdHarness,
 	sendResp *taprpc.SendAssetResponse, scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *taprpc.ProofFile {
-
-	ctxb := context.Background()
 
 	// We need to find the outpoint of the asset we sent to the address.
 	var outpoint *taprpc.OutPoint
@@ -874,157 +873,33 @@ func exportProof(t *harnessTest, src *tapdHarness,
 		}
 	}
 
-	var proofResp *taprpc.ProofFile
-	waitErr := wait.NoError(func() error {
-		resp, err := src.ExportProof(ctxb, &taprpc.ExportProofRequest{
-			AssetId:   genInfo.AssetId,
-			ScriptKey: scriptKey,
-			Outpoint:  outpoint,
-		})
-		if err != nil {
-			return err
-		}
-
-		proofResp = resp
-		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t.t, waitErr)
-
-	return proofResp
+	return ExportProofFile(t.t, src, genInfo.AssetId, scriptKey, outpoint)
 }
 
-// importProof manually imports a proof using the development only ImportProof
-// RPC.
-func importProof(t *harnessTest, dst *tapdHarness, rawFile []byte,
-	genesisPoint string) *tapdevrpc.ImportProofResponse {
+// transferProofUniRPC manually exports a proof from the given source using the
+// universe RPCs and then inserts it into the destination node's universe.
+func transferProofUniRPC(t *harnessTest, src, dst *tapdHarness,
+	scriptKey []byte, genInfo *taprpc.GenesisInfo, group *taprpc.AssetGroup,
+	outpoint string) *unirpc.AssetProofResponse {
 
-	t.Logf("Importing proof %x", rawFile)
+	proofFile := ExportProofFileFromUniverse(
+		t.t, src, genInfo.AssetId, scriptKey, outpoint, group,
+	)
 
-	ctxb := context.Background()
-	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
-		ProofFile:    rawFile,
-		GenesisPoint: genesisPoint,
-	})
+	lastProof, err := proofFile.LastProof()
 	require.NoError(t.t, err)
 
-	return importResp
+	return InsertProofIntoUniverse(t.t, dst, lastProof)
 }
 
-// sendUniProof manually exports a proof from the given source using the
-// universe RPCs and then imports it into the destination node.
-func sendUniProof(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
-	genInfo *taprpc.GenesisInfo, group *taprpc.AssetGroup,
-	outpoint string) *tapdevrpc.ImportProofResponse {
-
-	ctxb := context.Background()
-	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
-	defer cancel()
-
-	fetchUniProof := func(ctx context.Context,
-		loc proof.Locator) (proof.Blob, error) {
-
-		uniID := universe.Identifier{
-			AssetID: *loc.AssetID,
-		}
-		if loc.GroupKey != nil {
-			uniID.GroupKey = loc.GroupKey
-		}
-
-		rpcUniID, err := tap.MarshalUniID(uniID)
-		require.NoError(t.t, err)
-
-		op := &unirpc.Outpoint{
-			HashStr: loc.OutPoint.Hash.String(),
-			Index:   int32(loc.OutPoint.Index),
-		}
-		scriptKeyBytes := loc.ScriptKey.SerializeCompressed()
-
-		uniProof, err := src.QueryProof(ctx, &unirpc.UniverseKey{
-			Id: rpcUniID,
-			LeafKey: &unirpc.AssetKey{
-				Outpoint: &unirpc.AssetKey_Op{
-					Op: op,
-				},
-				ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
-					ScriptKeyBytes: scriptKeyBytes,
-				},
-			},
-		})
-		if err != nil {
-			return nil, err
-		}
-
-		return uniProof.AssetLeaf.Proof, nil
-	}
-
-	var assetID asset.ID
-	copy(assetID[:], genInfo.AssetId)
-
-	scriptPubKey, err := btcec.ParsePubKey(scriptKey)
-	require.NoError(t.t, err)
-
-	op, err := wire.NewOutPointFromString(outpoint)
-	require.NoError(t.t, err)
-
-	loc := proof.Locator{
-		AssetID:   &assetID,
-		ScriptKey: *scriptPubKey,
-		OutPoint:  op,
-	}
-
-	if group != nil {
-		groupKey, err := btcec.ParsePubKey(group.TweakedGroupKey)
-		require.NoError(t.t, err)
-
-		loc.GroupKey = groupKey
-	}
-
-	var proofFile *proof.File
-	err = wait.NoError(func() error {
-		proofFile, err = proof.FetchProofProvenance(
-			ctxt, nil, loc, fetchUniProof,
-		)
-		return err
-	}, defaultWaitTimeout)
-	require.NoError(t.t, err)
-
-	var buf bytes.Buffer
-	err = proofFile.Encode(&buf)
-	require.NoError(t.t, err)
-
-	t.Logf("Importing proof %x", buf.Bytes())
-
-	importResp, err := dst.ImportProof(ctxb, &tapdevrpc.ImportProofRequest{
-		ProofFile:    buf.Bytes(),
-		GenesisPoint: genInfo.GenesisPoint,
-	})
-	require.NoError(t.t, err)
-
-	return importResp
-}
-
-// sendProofUniRPC manually exports a proof from the given source node and
-// imports it using the universe related InsertProof RPC on the destination
-// node.
-func sendProofUniRPC(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
+// transferProofNormalExportUniInsert manually exports a proof from the given
+// source node and imports it using the universe related InsertProof RPC on the
+// destination node.
+func transferProofNormalExportUniInsert(t *harnessTest, src, dst *tapdHarness,
+	scriptKey []byte,
 	genInfo *taprpc.GenesisInfo) *unirpc.AssetProofResponse {
 
-	ctxb := context.Background()
-
-	var proofResp *taprpc.ProofFile
-	waitErr := wait.NoError(func() error {
-		resp, err := src.ExportProof(ctxb, &taprpc.ExportProofRequest{
-			AssetId:   genInfo.AssetId,
-			ScriptKey: scriptKey,
-		})
-		if err != nil {
-			return err
-		}
-
-		proofResp = resp
-		return nil
-	}, defaultWaitTimeout)
-	require.NoError(t.t, waitErr)
+	proofResp := ExportProofFile(t.t, src, genInfo.AssetId, scriptKey, nil)
 
 	t.Logf("Importing proof %x using InsertProof", proofResp.RawProofFile)
 
@@ -1035,51 +910,7 @@ func sendProofUniRPC(t *harnessTest, src, dst *tapdHarness, scriptKey []byte,
 	lastProof, err := f.LastProof()
 	require.NoError(t.t, err)
 
-	var lastProofBytes bytes.Buffer
-	err = lastProof.Encode(&lastProofBytes)
-	require.NoError(t.t, err)
-	asset := lastProof.Asset
-
-	proofType := universe.ProofTypeTransfer
-	if asset.IsGenesisAsset() {
-		proofType = universe.ProofTypeIssuance
-	}
-
-	uniID := universe.Identifier{
-		AssetID:   asset.ID(),
-		ProofType: proofType,
-	}
-	if asset.GroupKey != nil {
-		uniID.GroupKey = &asset.GroupKey.GroupPubKey
-	}
-
-	rpcUniID, err := tap.MarshalUniID(uniID)
-	require.NoError(t.t, err)
-
-	outpoint := &unirpc.Outpoint{
-		HashStr: lastProof.AnchorTx.TxHash().String(),
-		Index:   int32(lastProof.InclusionProof.OutputIndex),
-	}
-
-	importResp, err := dst.InsertProof(ctxb, &unirpc.AssetProof{
-		Key: &unirpc.UniverseKey{
-			Id: rpcUniID,
-			LeafKey: &unirpc.AssetKey{
-				Outpoint: &unirpc.AssetKey_Op{
-					Op: outpoint,
-				},
-				ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
-					ScriptKeyBytes: scriptKey,
-				},
-			},
-		},
-		AssetLeaf: &unirpc.AssetLeaf{
-			Proof: lastProofBytes.Bytes(),
-		},
-	})
-	require.NoError(t.t, err)
-
-	return importResp
+	return InsertProofIntoUniverse(t.t, dst, lastProof)
 }
 
 // sendOptions is a struct that holds a SendAssetRequest and an
