@@ -18,7 +18,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
-	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -843,12 +842,10 @@ func testUnknownTlvType(t *harnessTest) {
 // using the development only ImportProof RPC on the destination node.
 func sendProof(t *harnessTest, src, dst *tapdHarness,
 	sendResp *taprpc.SendAssetResponse, scriptKey []byte,
-	genInfo *taprpc.GenesisInfo) *tapdevrpc.ImportProofResponse {
+	genInfo *taprpc.GenesisInfo) {
 
 	proofResp := exportProof(t, src, sendResp, scriptKey, genInfo)
-	return ImportProofFile(
-		t, dst, proofResp.RawProofFile, genInfo.GenesisPoint,
-	)
+	ImportProofFile(t, dst, proofResp.RawProofFile, genInfo.GenesisPoint)
 }
 
 // exportProof manually exports a proof from the given source node for a

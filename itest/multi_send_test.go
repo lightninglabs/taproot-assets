@@ -266,17 +266,17 @@ func testAnchorMultipleVirtualTransactions(t *harnessTest) {
 
 	// This is an interactive transfer, so we do need to manually send the
 	// proofs from the sender to the receiver.
-	_ = sendProof(
+	sendProof(
 		t, aliceTapd, bobTapd, sendResp,
 		scriptKeys[0].PubKey.SerializeCompressed(),
 		assetXTranche1.AssetGenesis,
 	)
-	_ = sendProof(
+	sendProof(
 		t, aliceTapd, bobTapd, sendResp,
 		scriptKeys[1].PubKey.SerializeCompressed(),
 		assetXTranche2.AssetGenesis,
 	)
-	_ = sendProof(
+	sendProof(
 		t, aliceTapd, bobTapd, sendResp,
 		scriptKeys[2].PubKey.SerializeCompressed(),
 		assetXTranche3.AssetGenesis,
