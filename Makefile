@@ -2,12 +2,10 @@ PKG := github.com/lightninglabs/taproot-assets
 
 BTCD_PKG := github.com/btcsuite/btcd
 LND_PKG := github.com/lightningnetwork/lnd
-GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 TOOLS_DIR := tools
 
 GO_BIN := ${GOPATH}/bin
-GOACC_BIN := $(GO_BIN)/go-acc
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
 
@@ -74,10 +72,6 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-
-$(GOACC_BIN):
-	@$(call print, "Installing go-acc.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOACC_PKG)
 
 $(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
@@ -188,9 +182,9 @@ unit-trace:
 	@$(call print, "Running unit tests in trace mode (enabling package loggers on level trace).")
 	$(UNIT_TRACE)
 
-unit-cover: $(GOACC_BIN)
+unit-cover:
 	@$(call print, "Running unit coverage tests.")
-	$(GOACC); $(COVER_HTML)
+	$(UNIT_COVER)
 
 unit-race:
 	@$(call print, "Running unit race tests.")
