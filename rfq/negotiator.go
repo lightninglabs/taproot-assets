@@ -652,9 +652,30 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
-		acceptablePrice := msg.AssetRate.Rate.WithinTolerance(
+		acceptablePrice, err := msg.AssetRate.Rate.WithinTolerance(
 			assetRate.Rate, tolerance,
 		)
+		if err != nil {
+			// The tolerance check failed. We will return without
+			// calling the quote accept callback.
+			err = fmt.Errorf("failed to check tolerance: %w", err)
+			log.Errorf("Error checking tolerance: %v", err)
+
+			// Construct an invalid quote response event so that we
+			// can inform the peer that the quote response has not
+			// validated successfully.
+			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+				&msg, InvalidAssetRatesQuoteRespStatus,
+			)
+			finalise(
+				msg, fn.Some[InvalidQuoteRespEvent](
+					*invalidQuoteRespEvent,
+				),
+			)
+
+			return
+		}
+
 		if !acceptablePrice {
 			// The price is not within the acceptable tolerance.
 			// We will return without calling the quote accept
@@ -791,9 +812,30 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
-		acceptablePrice := msg.AssetRate.Rate.WithinTolerance(
+		acceptablePrice, err := msg.AssetRate.Rate.WithinTolerance(
 			assetRate.Rate, tolerance,
 		)
+		if err != nil {
+			// The tolerance check failed. We will return without
+			// calling the quote accept callback.
+			err = fmt.Errorf("failed to check tolerance: %w", err)
+			log.Errorf("Error checking tolerance: %v", err)
+
+			// Construct an invalid quote response event so that we
+			// can inform the peer that the quote response has not
+			// validated successfully.
+			invalidQuoteRespEvent := NewInvalidQuoteRespEvent(
+				&msg, InvalidAssetRatesQuoteRespStatus,
+			)
+			finalise(
+				msg, fn.Some[InvalidQuoteRespEvent](
+					*invalidQuoteRespEvent,
+				),
+			)
+
+			return
+		}
+
 		if !acceptablePrice {
 			// The price is not within the acceptable bounds.
 			// We will return without calling the quote accept

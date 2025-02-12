@@ -309,11 +309,25 @@ func testCasesWithinTolerance[N Int[N]](t *testing.T) {
 		},
 	}
 
+	// Create a zero coefficient to test the error case.
+	zeroCoefficient := NewInt[N]().FromUint64(0)
+
 	// Run the test cases.
 	for idx, tc := range testCases {
-		result := tc.firstFp.WithinTolerance(
+		result, err := tc.firstFp.WithinTolerance(
 			tc.secondFp, NewInt[N]().FromUint64(tc.tolerancePpm),
 		)
+
+		// If either of the coefficients are zero, we expect an error.
+		if tc.firstFp.Coefficient.Equals(zeroCoefficient) ||
+			tc.secondFp.Coefficient.Equals(zeroCoefficient) {
+
+			require.Error(t, err)
+			require.False(t, result)
+			continue
+		}
+
+		require.NoError(t, err, "Test case %d failed", idx)
 
 		// Compare bounds check result with expected test case within
 		// bounds flag.
@@ -330,7 +344,7 @@ func testWithinToleranceEqualValues(t *rapid.T) {
 	tolerancePpm := rapid.Int64Min(0).Draw(t, "tolerance")
 
 	// Generate a random coefficient and scale.
-	coefficient := rapid.Int64Min(0).Draw(t, "coefficient")
+	coefficient := rapid.Int64Min(1).Draw(t, "coefficient")
 	scale := rapid.Uint8Range(0, 18).Draw(t, "scale")
 
 	// Create two identical FixedPoint[BigInt] values.
@@ -348,7 +362,9 @@ func testWithinToleranceEqualValues(t *rapid.T) {
 
 	// The result should always be true when the fixed-point values
 	// are equal.
-	result := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	result, err := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	require.NoError(t, err)
+
 	if !result {
 		t.Fatalf("WithinTolerance should be true when values " +
 			"are equal, but got false")
@@ -363,7 +379,7 @@ func testWithinToleranceZeroTolerance(t *rapid.T) {
 	tolerancePpmBigInt := NewBigInt(big.NewInt(0))
 
 	// Generate two equal fixed-points.
-	coefficient := rapid.Int64Min(0).Draw(t, "coefficient")
+	coefficient := rapid.Int64Min(1).Draw(t, "coefficient")
 	scale := rapid.Uint8Range(0, 18).Draw(t, "scale")
 	f1 := FixedPoint[BigInt]{
 		Coefficient: NewBigInt(big.NewInt(coefficient)),
@@ -375,7 +391,9 @@ func testWithinToleranceZeroTolerance(t *rapid.T) {
 		Scale:       scale,
 	}
 
-	require.True(t, f1.WithinTolerance(f2, tolerancePpmBigInt))
+	result, err := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	require.NoError(t, err)
+	require.True(t, result)
 }
 
 // testWithinToleranceSymmetric is a property-based test which ensures that the
@@ -383,8 +401,8 @@ func testWithinToleranceZeroTolerance(t *rapid.T) {
 // values does not change the result).
 func testWithinToleranceSymmetric(t *rapid.T) {
 	// Generate random coefficients, scales, and tolerance
-	coefficient := rapid.Int64Min(0).Draw(t, "coefficient_1")
-	coefficient2 := rapid.Int64Min(0).Draw(t, "coefficient_2")
+	coefficient := rapid.Int64Min(1).Draw(t, "coefficient_1")
+	coefficient2 := rapid.Int64Min(1).Draw(t, "coefficient_2")
 	scale1 := rapid.Uint8Range(0, 18).Draw(t, "scale_1")
 	scale2 := rapid.Uint8Range(0, 18).Draw(t, "scale_2")
 	tolerancePpm := rapid.Int64Range(0, 1_000_000).Draw(t, "tolerance")
@@ -401,8 +419,11 @@ func testWithinToleranceSymmetric(t *rapid.T) {
 
 	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
 
-	result1 := f1.WithinTolerance(f2, tolerancePpmBigInt)
-	result2 := f2.WithinTolerance(f1, tolerancePpmBigInt)
+	result1, err := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	require.NoError(t, err)
+
+	result2, err := f2.WithinTolerance(f1, tolerancePpmBigInt)
+	require.NoError(t, err)
 
 	if result1 != result2 {
 		t.Fatalf("WithinTolerance is not symmetric: "+
@@ -420,14 +441,14 @@ func testWithinToleranceMaxTolerance(t *rapid.T) {
 	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
 
 	// Generate random fixed-point values.
-	coefficient1 := rapid.Int64Min(0).Draw(t, "coefficient_1")
+	coefficient1 := rapid.Int64Min(1).Draw(t, "coefficient_1")
 	scale1 := rapid.Uint8Range(0, 18).Draw(t, "scale_1")
 	f1 := FixedPoint[BigInt]{
 		Coefficient: NewBigInt(big.NewInt(coefficient1)),
 		Scale:       scale1,
 	}
 
-	coefficient2 := rapid.Int64Min(0).Draw(t, "coefficient_2")
+	coefficient2 := rapid.Int64Min(1).Draw(t, "coefficient_2")
 	scale2 := rapid.Uint8Range(0, 18).Draw(t, "scale_2")
 	f2 := FixedPoint[BigInt]{
 		Coefficient: NewBigInt(big.NewInt(coefficient2)),
@@ -436,11 +457,57 @@ func testWithinToleranceMaxTolerance(t *rapid.T) {
 
 	// The result should always be true when tolerancePpm is at its max or
 	// larger.
-	result := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	result, err := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	require.NoError(t, err)
+
 	if !result {
 		t.Fatalf("WithinTolerance should be true when tolerancePpm " +
 			"is large, but got false")
 	}
+}
+
+// testWithinToleranceCoefficientZeroError is a property-based test which
+// ensures that the WithinTolerance method returns an error when either or both
+// of the fixed-point values have a coefficient of zero.
+func testWithinToleranceCoefficientZeroError(t *rapid.T) {
+	// Set tolerancePpm to any value above 100%.
+	tolerancePpm := rapid.Int64Min(1_000_000).Draw(t, "tolerance")
+	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
+
+	// Generate a random mode to determine which coefficient(s) to set to
+	// zero.
+	mode := rapid.Int64Range(0, 2).Draw(t, "mode")
+
+	var coefficient1, coefficient2 int64
+	switch mode {
+	case 0:
+		coefficient1 = 0
+		coefficient2 = rapid.Int64Min(1).Draw(t, "coefficient_2")
+	case 1:
+		coefficient1 = rapid.Int64Min(1).Draw(t, "coefficient_1")
+		coefficient2 = 0
+	case 2:
+		coefficient1 = 0
+		coefficient2 = 0
+	}
+
+	// Generate random fixed-point values from the coefficients.
+	scale1 := rapid.Uint8Range(0, 18).Draw(t, "scale_1")
+	f1 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient1)),
+		Scale:       scale1,
+	}
+
+	scale2 := rapid.Uint8Range(0, 18).Draw(t, "scale_2")
+	f2 := FixedPoint[BigInt]{
+		Coefficient: NewBigInt(big.NewInt(coefficient2)),
+		Scale:       scale2,
+	}
+
+	// We always expect an error when either or both coefficients are zero.
+	result, err := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	require.Error(t, err)
+	require.False(t, result)
 }
 
 // testWithinToleranceFloatReproduce is a property-based test that verifies
@@ -452,7 +519,7 @@ func testWithinToleranceFloatReproduce(t *rapid.T) {
 	tolerancePpmBigInt := NewBigInt(big.NewInt(tolerancePpm))
 
 	// Generate random fixed-point values.
-	coefficientsRange := rapid.Int64Range(0, 1_000_000_000)
+	coefficientsRange := rapid.Int64Range(1, 1_000_000_000)
 
 	coefficient1 := coefficientsRange.Draw(t, "coefficient_1")
 	scale1 := rapid.Uint8Range(0, 9).Draw(t, "scale_1")
@@ -469,7 +536,8 @@ func testWithinToleranceFloatReproduce(t *rapid.T) {
 	}
 
 	// Compute the result using the WithinTolerance method.
-	result := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	result, err := f1.WithinTolerance(f2, tolerancePpmBigInt)
+	require.NoError(t, err)
 
 	// Compute expected result using float64.
 	f1Float := f1.ToFloat64()
@@ -521,6 +589,11 @@ func testWithinTolerance(t *testing.T) {
 	t.Run(
 		"within_tolerance_max_tolerance",
 		rapid.MakeCheck(testWithinToleranceMaxTolerance),
+	)
+
+	t.Run(
+		"within_tolerance_coefficient_zero_error",
+		rapid.MakeCheck(testWithinToleranceCoefficientZeroError),
 	)
 
 	t.Run(
