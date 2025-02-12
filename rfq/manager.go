@@ -1,6 +1,7 @@
 package rfq
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -963,6 +964,33 @@ func (m *Manager) GetAssetGroupKey(ctx context.Context,
 	m.assetIDToGroup.Store(id, groupKeyBytes)
 
 	return groupKeyBytes, nil
+}
+
+// AssetMatchesSpecifier checks if the provided asset satisfies the provided
+// specifier. If the specifier includes a group key, we will check if the asset
+// belongs to that group.
+func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
+	specifier asset.Specifier, id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		group, err := m.GetAssetGroupKey(ctx, id)
+		if err != nil {
+			return false, err
+		}
+
+		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		return bytes.Equal(group, specifierGK.SerializeCompressed()),
+			nil
+
+	case specifier.HasId():
+		specifierID := specifier.UnwrapIdToPtr()
+
+		return specifierID.IsEqual(id), nil
+	}
+
+	return false, fmt.Errorf("specifier is empty")
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
