@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -961,6 +962,71 @@ func (m *Manager) getAssetGroupKey(ctx context.Context,
 	m.groupKeyLookupCache.Store(id, &group.GroupPubKey)
 
 	return fn.Some(group.GroupPubKey), nil
+}
+
+// AssetMatchesSpecifier checks if the provided asset satisfies the provided
+// specifier. If the specifier includes a group key, we will check if the asset
+// belongs to that group.
+func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
+	specifier asset.Specifier, id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		group, err := m.getAssetGroupKey(ctx, id)
+		if err != nil {
+			return false, err
+		}
+
+		if group.IsNone() {
+			return false, nil
+		}
+
+		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		return group.UnwrapToPtr().IsEqual(specifierGK), nil
+
+	case specifier.HasId():
+		specifierID := specifier.UnwrapIdToPtr()
+
+		return *specifierID == id, nil
+
+	default:
+		return false, fmt.Errorf("specifier is empty")
+	}
+}
+
+// ChannelCompatible checks a channel's assets against an asset specifier. If
+// the specifier is an asset ID, then all assets must be of that specific ID,
+// if the specifier is a group key, then all assets in the channel must belong
+// to that group.
+func (m *Manager) ChannelCompatible(ctx context.Context,
+	jsonAssets []rfqmsg.JsonAssetChanInfo, specifier asset.Specifier) (bool,
+	error) {
+
+	for _, chanAsset := range jsonAssets {
+		gen := chanAsset.AssetInfo.AssetGenesis
+		assetIDBytes, err := hex.DecodeString(
+			gen.AssetID,
+		)
+		if err != nil {
+			return false, fmt.Errorf("error decoding asset ID: %w",
+				err)
+		}
+
+		var assetID asset.ID
+		copy(assetID[:], assetIDBytes)
+
+		match, err := m.AssetMatchesSpecifier(ctx, specifier, assetID)
+		if err != nil {
+			return false, err
+		}
+
+		if !match {
+			return false, err
+		}
+	}
+
+	return true, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
