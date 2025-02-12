@@ -10,7 +10,7 @@ defaults:
     shell: bash
 
 env:
-  GO_VERSION: 1.22.6
+  GO_VERSION: 1.22.12
 
 jobs:
   main:
@@ -136,8 +136,8 @@ jobs:
             ```
             tar -xvzf vendor.tar.gz
             tar -xvzf tapd-source-${{ env.RELEASE_VERSION }}.tar.gz
-            GO111MODULE=on go install -v -mod=vendor -ldflags "-X github.com/lightninglabs/taproot-assets/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/tapd
-            GO111MODULE=on go install -v -mod=vendor -ldflags "-X github.com/lightninglabs/taproot-assets/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/tapcli
+            go install -v -mod=vendor -ldflags "-X github.com/lightninglabs/taproot-assets/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/tapd
+            go install -v -mod=vendor -ldflags "-X github.com/lightninglabs/taproot-assets/build.Commit=${{ env.RELEASE_VERSION }}" ./cmd/tapcli
             ```
 
             The `-mod=vendor` flag tells the `go build` command that it doesn't need to fetch the dependencies, and instead, they're all enclosed in the local vendor directory. 

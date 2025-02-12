@@ -12,6 +12,5 @@ import (
 	_ "github.com/dvyukov/go-fuzz/go-fuzz-build"
 	_ "github.com/dvyukov/go-fuzz/go-fuzz-dep"
 	_ "github.com/golangci/golangci-lint/cmd/golangci-lint"
-	_ "github.com/ory/go-acc"
 	_ "github.com/rinchsan/gosimports/cmd/gosimports"
 )
