@@ -6576,8 +6576,9 @@ func (r *rpcServer) checkPeerChannel(ctx context.Context, peer route.Vertex,
 		}
 
 		// If we don't get an error here, it means we do have an asset
-		// channel with the peer.
-		_, err = r.rfqChannel(ctx, assetID, &peer)
+		// channel with the peer. The intention doesn't matter as we're
+		// just checking whether a channel exists.
+		_, err = r.rfqChannel(ctx, assetID, &peer, NoIntention)
 		if err != nil {
 			return fmt.Errorf("error checking asset channel: %w",
 				err)
@@ -7217,7 +7218,9 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 		}
 
 		// We can now query the asset channels we have.
-		assetChan, err := r.rfqChannel(ctx, assetID, peerPubKey)
+		assetChan, err := r.rfqChannel(
+			ctx, assetID, peerPubKey, SendIntention,
+		)
 		if err != nil {
 			return fmt.Errorf("error finding asset channel to "+
 				"use: %w", err)
@@ -7508,7 +7511,9 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	// We can now query the asset channels we have.
-	assetChan, err := r.rfqChannel(ctx, assetID, peerPubKey)
+	assetChan, err := r.rfqChannel(
+		ctx, assetID, peerPubKey, ReceiveIntention,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error finding asset channel to use: %w",
 			err)
@@ -7775,12 +7780,30 @@ func (r *rpcServer) DecDisplayForAssetID(ctx context.Context,
 	return meta.DecDisplayOption()
 }
 
+// chanIntention defines the intention of calling rfqChannel. This helps with
+// returning the channel that is most suitable for what we want to do.
+type chanIntention uint8
+
+const (
+	// NoIntention defines the absence of any intention, signalling that we
+	// don't really care which channel is returned.
+	NoIntention chanIntention = iota
+
+	// SendIntention defines the intention to send over an asset channel.
+	SendIntention
+
+	// ReceiveIntention defines the intention to receive over an asset
+	// channel.
+	ReceiveIntention
+)
+
 // rfqChannel returns the channel to use for RFQ operations. If a peer public
 // key is specified, the channels are filtered by that peer. If there are
 // multiple channels for the same asset, the user must specify the peer public
 // key.
 func (r *rpcServer) rfqChannel(ctx context.Context, id asset.ID,
-	peerPubKey *route.Vertex) (*channelWithAsset, error) {
+	peerPubKey *route.Vertex,
+	intention chanIntention) (*channelWithAsset, error) {
 
 	balances, err := r.computeChannelAssetBalance(ctx)
 	if err != nil {
@@ -7812,18 +7835,48 @@ func (r *rpcServer) rfqChannel(ctx context.Context, id asset.ID,
 		return nil, fmt.Errorf("multiple asset channels found for "+
 			"asset %s, please specify the peer pubkey", id.String())
 
-	// If the user specified a peer public key, and we still have multiple
-	// channels, it means we have multiple channels with the same asset and
-	// the same peer. So we just return the first channel.
-	case len(assetBalances) >= 1:
-		return &assetBalances[0], nil
-
-	// The default case is: We don't have any channels with that asset ID
-	// and peer.
-	default:
+	// We don't have any channels with that asset ID and peer.
+	case len(assetBalances) == 0:
 		return nil, fmt.Errorf("no asset channel found for asset %s "+
 			"and peer %s", id.String(), peerPubKey.String())
 	}
+
+	// If the user specified a peer public key, and we still have multiple
+	// channels, it means we have multiple channels with the same asset and
+	// the same peer, as we ruled out the rest of the cases above.
+
+	// Initialize best balance to first channel of the list.
+	bestBalance := assetBalances[0]
+
+	switch intention {
+	case ReceiveIntention:
+		// If the intention is to receive, return the channel
+		// with the best remote balance.
+		fn.ForEach(assetBalances, func(b channelWithAsset) {
+			if b.assetInfo.RemoteBalance >
+				bestBalance.assetInfo.RemoteBalance {
+
+				bestBalance = b
+			}
+		})
+
+	case SendIntention:
+		// If the intention is to send, return the channel with
+		// the best local balance.
+		fn.ForEach(assetBalances, func(b channelWithAsset) {
+			if b.assetInfo.LocalBalance >
+				bestBalance.assetInfo.LocalBalance {
+
+				bestBalance = b
+			}
+		})
+
+	case NoIntention:
+		// Do nothing. Just return the first element that was
+		// assigned above.
+	}
+
+	return &bestBalance, nil
 }
 
 // channelWithAsset is a helper struct that combines the information of a single
