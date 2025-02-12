@@ -14,10 +14,10 @@ VERSION_GO_FILE := "version.go"
 
 COMMIT := $(shell git describe --tags --dirty --always)
 
-GOBUILD := GOEXPERIMENT=loopvar GO111MODULE=on go build -v
-GOINSTALL := GOEXPERIMENT=loopvar GO111MODULE=on go install -v
-GOTEST := GOEXPERIMENT=loopvar GO111MODULE=on go test
-GOMOD := GO111MODULE=on go mod
+GOBUILD := go build -v
+GOINSTALL := go install -v
+GOTEST := go test
+GOMOD := go mod
 
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'
 GOLIST_COVER := $$(go list -deps $(PKG)/... | grep '$(PKG)')
