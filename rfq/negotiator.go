@@ -756,10 +756,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	}
 
 	// Query the price oracle asynchronously using a separate goroutine.
-	n.Wg.Add(1)
-	go func() {
-		defer n.Wg.Done()
-
+	n.ContextGuard.Goroutine(func() error {
 		// The sell accept message includes a bid price, which
 		// represents the amount the peer is willing to pay for the
 		// asset we are selling.
@@ -778,14 +775,8 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 			fn.Some(msg.AssetRate),
 		)
 		if err != nil {
-			// The price oracle returned an error. We will return
-			// without calling the quote accept callback.
-			err = fmt.Errorf("negotiator failed to query price "+
-				"oracle when handling incoming sell accept "+
-				"message: %w", err)
-			log.Errorf("Error calling price oracle: %v", err)
-			n.cfg.ErrChan <- err
-
+			// The price oracle returned an error.
+			//
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not
 			// validated successfully.
@@ -798,7 +789,9 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 				),
 			)
 
-			return
+			return fmt.Errorf("negotiator failed to query price "+
+				"oracle when handling incoming sell accept "+
+				"message: %w", err)
 		}
 
 		// The price returned by the oracle may not always align with
@@ -816,11 +809,8 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 			assetRate.Rate, tolerance,
 		)
 		if err != nil {
-			// The tolerance check failed. We will return without
-			// calling the quote accept callback.
-			err = fmt.Errorf("failed to check tolerance: %w", err)
-			log.Errorf("Error checking tolerance: %v", err)
-
+			// The tolerance check failed.
+			//
 			// Construct an invalid quote response event so that we
 			// can inform the peer that the quote response has not
 			// validated successfully.
@@ -833,7 +823,7 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 				),
 			)
 
-			return
+			return fmt.Errorf("failed to check tolerance: %w", err)
 		}
 
 		if !acceptablePrice {
@@ -857,11 +847,17 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 				),
 			)
 
-			return
+			return nil
 		}
 
 		finalise(msg, fn.None[InvalidQuoteRespEvent]())
-	}()
+		return nil
+	}, func(err error) {
+		log.Errorf("Error checking incoming sell accept asset rate: %v",
+			err)
+
+		n.cfg.ErrChan <- err
+	})
 }
 
 // SellOffer is a struct that represents an asset sell offer. This

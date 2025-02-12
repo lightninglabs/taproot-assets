@@ -99,3 +99,29 @@ func (g *ContextGuard) WithCtxQuitNoTimeout() (context.Context, func()) {
 
 	return ctx, cancel
 }
+
+// Goroutine runs the given function in a separate goroutine and ensures proper
+// error handling. If the object function returns an error, the provided error
+// handler is called.
+//
+// This method also manages the context guard wait group when spawning the
+// goroutine.
+func (g *ContextGuard) Goroutine(f func() error, errHandler func(error)) {
+	if f == nil {
+		panic("no function provided")
+	}
+
+	if errHandler == nil {
+		panic("no error handler provided")
+	}
+
+	g.Wg.Add(1)
+	go func() {
+		defer g.Wg.Done()
+
+		err := f()
+		if err != nil {
+			errHandler(err)
+		}
+	}()
+}
