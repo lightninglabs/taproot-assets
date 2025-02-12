@@ -350,6 +350,14 @@ migration-check:
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) coverage.txt
+	$(RM) -r itest/regtest
+	$(RM) -r itest/chantools
+	$(RM) itest/btcd-itest
+	$(RM) itest/lnd-itest
+	$(RM) loadtest
+	$(RM) tapd-debug
+	$(RM) tapcli-debug
+	$(RM) -r taproot-assets-v*
 
 .PHONY: all \
 	default \
