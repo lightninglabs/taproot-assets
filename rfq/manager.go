@@ -558,18 +558,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		return c.PubKeyBytes == peer
 	}, localChans)
 
-	// Identify the correct channel to use as the base SCID for the alias
-	// by inspecting the asset data in the custom channel data.
-	assetID, err := assetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return fmt.Errorf("asset ID must be specified when adding "+
-			"alias: %w", err)
-	}
-
-	var (
-		assetIDStr = assetID.String()
-		baseSCID   uint64
-	)
+	var baseSCID uint64
 	for _, localChan := range peerChannels {
 		if len(localChan.CustomChannelData) == 0 {
 			continue
@@ -583,12 +572,20 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 			continue
 		}
 
-		for _, channelAsset := range assetData.Assets {
-			gen := channelAsset.AssetInfo.AssetGenesis
-			if gen.AssetID == assetIDStr {
-				baseSCID = localChan.ChannelID
-				break
-			}
+		match, err := m.ChannelCompatible(
+			ctxb, assetData.Assets, assetSpecifier,
+		)
+		if err != nil {
+			return err
+		}
+
+		// TODO(george): Instead of returning the first result,
+		// try to pick the best channel for what we're trying to
+		// do (receive/send). Binding a baseSCID means we're
+		// also binding the asset liquidity on that channel.
+		if match {
+			baseSCID = localChan.ChannelID
+			break
 		}
 	}
 
@@ -602,8 +599,8 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
 	if baseSCID == 0 {
-		return fmt.Errorf("add alias: base SCID not found for asset: "+
-			"%v", assetID)
+		return fmt.Errorf("add alias: base SCID not found for %s",
+			&assetSpecifier)
 	}
 
 	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
