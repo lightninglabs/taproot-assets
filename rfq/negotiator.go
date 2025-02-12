@@ -600,14 +600,19 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 	go func() {
 		defer n.Wg.Done()
 
-		// The buy accept message contains an ask price. This price
-		// is the price that the peer is willing to accept in order to
-		// sell the asset that we are buying.
+		// The buy accept message includes an ask price, which
+		// represents the amount the peer is willing to accept for the
+		// asset we are purchasing.
 		//
-		// We will sanity check that price by querying our price oracle
-		// for an ask price. We will then compare the ask price returned
-		// by the price oracle with the ask price provided by the peer.
-		assetRate, err := n.queryAskFromPriceOracle(
+		// To validate this ask, we will query our price oracle for a
+		// bid price and compare it with the peer's asking price. If the
+		// two prices fall within an acceptable tolerance, we will
+		// approve the quote.
+		//
+		// When querying the price oracle, we will provide the peer's
+		// ask price as a hint. The oracle may factor this into its
+		// calculations to generate a more relevant bid price.
+		assetRate, err := n.queryBidFromPriceOracle(
 			msg.Request.AssetSpecifier,
 			fn.Some(msg.Request.AssetMaxAmt),
 			fn.None[lnwire.MilliSatoshi](), fn.Some(msg.AssetRate),
@@ -636,8 +641,14 @@ func (n *Negotiator) HandleIncomingBuyAccept(msg rfqmsg.BuyAccept,
 			return
 		}
 
-		// Ensure that the peer provided price is reasonable given the
-		// price provided by the price oracle service.
+		// The price returned by the oracle may not always align with
+		// our specific interests, depending on the oracle's pricing
+		// methodology. In other words, it may provide a general market
+		// price rather than one optimized for our needs.
+		//
+		// To account for this, we allow some tolerance in price
+		// deviation, ensuring that we can accept a reasonable range of
+		// prices while maintaining flexibility.
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
@@ -728,17 +739,22 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 	go func() {
 		defer n.Wg.Done()
 
-		// The sell accept message contains a bid price. This price
-		// is the price that the peer is willing to pay in order to buy
-		// the asset that we are selling.
+		// The sell accept message includes a bid price, which
+		// represents the amount the peer is willing to pay for the
+		// asset we are selling.
 		//
-		// We will sanity check that price by querying our price oracle
-		// for a bid price. We will then compare the bid price returned
-		// by the price oracle with the bid price provided by the peer.
-		assetRate, err := n.queryBidFromPriceOracle(
+		// To validate this bid, we will query our price oracle for an
+		// ask price and compare it with the peer's bid. If the two
+		// prices fall within an acceptable tolerance, we will accept
+		// the quote.
+		//
+		// When querying the price oracle, we will provide the peer's
+		// bid as a hint. The oracle may incorporate this bid into its
+		// calculations to determine a more accurate ask price.
+		assetRate, err := n.queryAskFromPriceOracle(
 			msg.Request.AssetSpecifier, fn.None[uint64](),
 			fn.Some(msg.Request.PaymentMaxAmt),
-			msg.Request.AssetRateHint,
+			fn.Some(msg.AssetRate),
 		)
 		if err != nil {
 			// The price oracle returned an error. We will return
@@ -764,8 +780,14 @@ func (n *Negotiator) HandleIncomingSellAccept(msg rfqmsg.SellAccept,
 			return
 		}
 
-		// Ensure that the peer provided price is reasonable given the
-		// price provided by the price oracle service.
+		// The price returned by the oracle may not always align with
+		// our specific interests, depending on the oracle's pricing
+		// methodology. In other words, it may provide a general market
+		// price rather than one optimized for our needs.
+		//
+		// To account for this, we allow some tolerance in price
+		// deviation, ensuring that we can accept a reasonable range of
+		// prices while maintaining flexibility.
 		tolerance := rfqmath.NewBigIntFromUint64(
 			n.cfg.AcceptPriceDeviationPpm,
 		)
