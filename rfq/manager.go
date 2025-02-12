@@ -1,7 +1,9 @@
 package rfq
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -61,6 +63,14 @@ type (
 	SellAcceptMap map[SerialisedScid]rfqmsg.SellAccept
 )
 
+// GroupLookup is an interface that helps us look up a group of an asset based
+// on the asset ID.
+type GroupLookup interface {
+	// QueryAssetGroup fetches the group information of an asset, if it
+	// belongs in a group.
+	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+}
+
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
 // manager.
 type ManagerCfg struct {
@@ -83,6 +93,10 @@ type ManagerCfg struct {
 	// ChannelLister is the channel lister that the RFQ manager will use to
 	// determine the available channels for routing.
 	ChannelLister ChannelLister
+
+	// GroupLookup is an interface that helps us querry asset groups by
+	// asset IDs.
+	GroupLookup GroupLookup
 
 	// AliasManager is the SCID alias manager. This component is injected
 	// into the manager once lnd and tapd are hooked together.
@@ -164,6 +178,12 @@ type Manager struct {
 	localAcceptedSellQuotes lnutils.SyncMap[
 		SerialisedScid, rfqmsg.SellAccept,
 	]
+
+	// assetIDToGroup is a map that helps us quickly perform an in-memory
+	// look up of the group an asset belongs to. Since this information is
+	// static and generated during minting, it is not possible for an asset
+	// to change groups.
+	assetIDToGroup lnutils.SyncMap[asset.ID, []byte]
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -539,18 +559,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		return c.PubKeyBytes == peer
 	}, localChans)
 
-	// Identify the correct channel to use as the base SCID for the alias
-	// by inspecting the asset data in the custom channel data.
-	assetID, err := assetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return fmt.Errorf("asset ID must be specified when adding "+
-			"alias: %w", err)
-	}
-
-	var (
-		assetIDStr = assetID.String()
-		baseSCID   uint64
-	)
+	var baseSCID uint64
 	for _, localChan := range peerChannels {
 		if len(localChan.CustomChannelData) == 0 {
 			continue
@@ -566,7 +575,29 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 
 		for _, channelAsset := range assetData.Assets {
 			gen := channelAsset.AssetInfo.AssetGenesis
-			if gen.AssetID == assetIDStr {
+			assetIDBytes, err := hex.DecodeString(
+				gen.AssetID,
+			)
+			if err != nil {
+				return fmt.Errorf("error "+
+					"decoding asset ID: %w", err)
+			}
+
+			var assetID asset.ID
+			copy(assetID[:], assetIDBytes)
+
+			match, err := m.AssetMatchesSpecifier(
+				ctxb, assetSpecifier, assetID,
+			)
+			if err != nil {
+				return err
+			}
+
+			// TODO(george): Instead of returning the first result,
+			// try to pick the best channel for what we're trying to
+			// do (receive/send). Binding a baseSCID means we're
+			// also binding the asset liquidity on that channel.
+			if match {
 				baseSCID = localChan.ChannelID
 				break
 			}
@@ -583,8 +614,8 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
 	if baseSCID == 0 {
-		return fmt.Errorf("add alias: base SCID not found for asset: "+
-			"%v", assetID)
+		return fmt.Errorf("add alias: base SCID not found for %v",
+			assetSpecifier)
 	}
 
 	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
@@ -915,6 +946,63 @@ func (m *Manager) RemoveSubscriber(
 	m.subscribers.Delete(subscriber.ID())
 
 	return nil
+}
+
+// GetAssetGroupKey retrieves the group key of an asset based on its ID.
+func (m *Manager) GetAssetGroupKey(ctx context.Context,
+	id asset.ID) ([]byte, error) {
+
+	// First, see if we have already queried our DB for this ID.
+	v, ok := m.assetIDToGroup.Load(id)
+	if ok {
+		return v, nil
+	}
+
+	// Perform the DB query.
+	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the asset does not belong to a group, return early with no error
+	// or response.
+	if group == nil || group.GroupKey == nil {
+		return nil, nil
+	}
+
+	groupKeyBytes := group.GroupKey.GroupPubKey.SerializeCompressed()
+
+	// Store the result for future calls.
+	m.assetIDToGroup.Store(id, groupKeyBytes)
+
+	return groupKeyBytes, nil
+}
+
+// AssetMatchesSpecifier checks if the provided asset satisfies the provided
+// specifier. If the specifier includes a group key, we will check if the asset
+// belongs to that group.
+func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
+	specifier asset.Specifier, id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		group, err := m.GetAssetGroupKey(ctx, id)
+		if err != nil {
+			return false, err
+		}
+
+		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		return bytes.Equal(group, specifierGK.SerializeCompressed()),
+			nil
+
+	case specifier.HasId():
+		specifierID := specifier.UnwrapIdToPtr()
+
+		return specifierID.IsEqual(id), nil
+	}
+
+	return false, fmt.Errorf("specifier is empty")
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.

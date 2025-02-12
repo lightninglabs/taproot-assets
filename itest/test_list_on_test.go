@@ -315,7 +315,10 @@ var testCases = []*testCase{
 		name: "rfq asset sell htlc intercept",
 		test: testRfqAssetSellHtlcIntercept,
 	},
-
+	{
+		name: "rfq negotiation group key",
+		test: testRfqNegotiationGroupKey,
+	},
 	{
 		name: "multi signature on all levels",
 		test: testMultiSignature,
