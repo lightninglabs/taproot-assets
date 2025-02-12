@@ -203,7 +203,7 @@ itest-trace: build-itest itest-only-trace
 itest-only: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/regtest; date
-	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
+	$(GOTEST) ./itest -v $(ITEST_COVERAGE) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
 
 itest-only-trace: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")

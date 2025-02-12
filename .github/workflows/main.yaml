@@ -252,7 +252,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: run itest
-        run: make itest
+        run: make itest cover=1
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -265,6 +265,15 @@ jobs:
           name: logs-itest
           path: logs-itest.zip
           retention-days: 5
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          path-to-profile: itest/coverage.txt
+          flag-name: 'itest'
+          parallel: true
 
   ########################
   # run integration tests with Postgres backend
@@ -280,7 +289,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: run itest
-        run: make itest dbbackend=postgres
+        run: make itest dbbackend=postgres cover=1
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -293,6 +302,15 @@ jobs:
           name: logs-itest-postgres
           path: logs-itest-postgres.zip
           retention-days: 5
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          path-to-profile: itest/coverage.txt
+          flag-name: 'itest'
+          parallel: true
 
   ########################
   # Run LiTd tests
