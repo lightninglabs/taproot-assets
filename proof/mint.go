@@ -158,6 +158,23 @@ func (p *BaseProofParams) HaveInclusionProof(anchorOutputIndex uint32) bool {
 	return p.OutputIndex == int(anchorOutputIndex)
 }
 
+// HaveSTXOExclusionProof returns true if the inclusion proof is for the given
+// anchor output index.
+func (p *BaseProofParams) HaveSTXOExclusionProof(
+	anchorOutputIndex uint32) bool {
+
+	for _, proof := range p.ExclusionProofs {
+		if proof.OutputIndex == anchorOutputIndex &&
+			proof.CommitmentProof != nil &&
+			len(proof.CommitmentProof.STXOProofs) > 0 {
+
+			return true
+		}
+	}
+
+	return false
+}
+
 // MintParams holds the set of chain level information needed to make a proof
 // file for the set of assets minted in a batch.
 type MintParams struct {
@@ -289,6 +306,7 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 		InternalKey: params.InternalKey,
 	}
 	proof.ExclusionProofs = params.ExclusionProofs
+
 	return proof, nil
 }
 
