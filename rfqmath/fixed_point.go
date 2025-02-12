@@ -119,7 +119,20 @@ func (f FixedPoint[T]) Equals(other FixedPoint[T]) bool {
 }
 
 // WithinTolerance returns true if the two FixedPoint values are within the
-// given tolerance (in parts per million (PPM)).
+// given tolerance, specified in parts per million (PPM).
+//
+// The tolerance is applied relative to the larger of the two values to ensure
+// that a 100% tolerance (1,000,000 PPM) always results in a match for any two
+// nonzero values.
+//
+// This max-based approach (e.g. ask) is more lenient than using the smaller
+// value (e.g., bid) as the reference. For example, if the two values are 100
+// and 105, a 5% tolerance (50,000 PPM) allows a maximum difference of:
+// - Bid-based: 100 × 0.05 = 5 (so 105 is the limit)
+// - Max-based: 105 × 0.05 = 5.25 (so 105 is still within tolerance)
+//
+// This means max-based tolerance accepts slightly wider spreads, making it
+// less strict in bid-ask scenarios.
 func (f FixedPoint[T]) WithinTolerance(
 	other FixedPoint[T], tolerancePpm T) (bool, error) {
 
