@@ -63,11 +63,35 @@ fi
 
 target_go_version="$1"
 
+# File paths to be excluded from the check.
+exception_list=(
+    # Exclude chantools files as they are not in this project.
+    "./itest/chantools/.golangci.yml"
+    "./itest/chantools/.github/workflows/main.yml"
+)
+
+# is_exception checks if a file is in the exception list.
+is_exception() {
+    local file="$1"
+    for exception in "${exception_list[@]}"; do
+        if [ "$file" == "$exception" ]; then
+            return 0
+        fi
+    done
+    return 1
+}
+
 # Search for YAML files in the current directory and its subdirectories.
 yaml_files=$(find . -type f \( -name "*.yaml" -o -name "*.yml" \))
 
 # Check each YAML file.
 for file in $yaml_files; do
+    # Skip the file if it is in the exception list.
+    if is_exception "$file"; then
+        echo "Skipping $file"
+        continue
+    fi
+
     check_go_version_yaml "$file" "$target_go_version"
     check_go_version_env_variable "$file" "$target_go_version"
 done
