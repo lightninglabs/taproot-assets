@@ -245,6 +245,11 @@ func (i ID) String() string {
 	return hex.EncodeToString(i[:])
 }
 
+// IsEqual returns true if the ID matches the provided ID.
+func (i ID) IsEqual(a ID) bool {
+	return bytes.Equal(i[:], a[:])
+}
+
 // Record returns a TLV record that can be used to encode/decode an ID to/from a
 // TLV stream.
 //
