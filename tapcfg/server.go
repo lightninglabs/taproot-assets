@@ -405,6 +405,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			HtlcSubscriber:  lndRouterClient,
 			PriceOracle:     priceOracle,
 			ChannelLister:   walletAnchor,
+			GroupLookup:     tapdbAddrBook,
 			AliasManager:    lndRouterClient,
 			// nolint: lll
 			AcceptPriceDeviationPpm: rfqCfg.AcceptPriceDeviationPpm,

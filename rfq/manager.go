@@ -61,6 +61,14 @@ type (
 	SellAcceptMap map[SerialisedScid]rfqmsg.SellAccept
 )
 
+// GroupLookup is an interface that helps us look up a group of an asset based
+// on the asset ID.
+type GroupLookup interface {
+	// QueryAssetGroup fetches the group information of an asset, if it
+	// belongs in a group.
+	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+}
+
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
 // manager.
 type ManagerCfg struct {
@@ -83,6 +91,10 @@ type ManagerCfg struct {
 	// ChannelLister is the channel lister that the RFQ manager will use to
 	// determine the available channels for routing.
 	ChannelLister ChannelLister
+
+	// GroupLookup is an interface that helps us querry asset groups by
+	// asset IDs.
+	GroupLookup GroupLookup
 
 	// AliasManager is the SCID alias manager. This component is injected
 	// into the manager once lnd and tapd are hooked together.
@@ -164,6 +176,12 @@ type Manager struct {
 	localAcceptedSellQuotes lnutils.SyncMap[
 		SerialisedScid, rfqmsg.SellAccept,
 	]
+
+	// assetIDToGroup is a map that helps us quickly perform an in-memory
+	// look up of the group an asset belongs to. Since this information is
+	// static and generated during minting, it is not possible for an asset
+	// to change groups.
+	assetIDToGroup lnutils.SyncMap[asset.ID, []byte]
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -915,6 +933,36 @@ func (m *Manager) RemoveSubscriber(
 	m.subscribers.Delete(subscriber.ID())
 
 	return nil
+}
+
+// GetAssetGroupKey retrieves the group key of an asset based on its ID.
+func (m *Manager) GetAssetGroupKey(ctx context.Context,
+	id asset.ID) ([]byte, error) {
+
+	// First, see if we have already queried our DB for this ID.
+	v, ok := m.assetIDToGroup.Load(id)
+	if ok {
+		return v, nil
+	}
+
+	// Perform the DB query.
+	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	// If the asset does not belong to a group, return early with no error
+	// or response.
+	if group == nil || group.GroupKey == nil {
+		return nil, nil
+	}
+
+	groupKeyBytes := group.GroupKey.GroupPubKey.SerializeCompressed()
+
+	// Store the result for future calls.
+	m.assetIDToGroup.Store(id, groupKeyBytes)
+
+	return groupKeyBytes, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
