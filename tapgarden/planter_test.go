@@ -23,6 +23,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -144,6 +145,7 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 	}
 
 	t.planter = tapgarden.NewChainPlanter(tapgarden.PlanterConfig{
+		ChainParams: address.ParamsForChain("regtest"),
 		GardenKit: tapgarden.GardenKit{
 			Wallet:       t.wallet,
 			ChainBridge:  t.chain,
@@ -840,6 +842,10 @@ func (t *mintingTestHarness) fetchSingleBatch(
 		return t.assertBatchProgressing()
 	}
 
+	go func() {
+		<-t.keyRing.ReqKeys
+	}()
+
 	batch, err := t.store.FetchMintingBatch(context.Background(), batchKey)
 	require.NoError(t, err)
 	require.NotNil(t, batch)
@@ -1147,6 +1153,8 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// Now that the planter is back up, a single caretaker should have been
 	// launched as well. The batch should already be funded.
 	batch := t.fetchSingleBatch(nil)
+
+	require.NotNil(t, batch.GenesisPacket)
 	t.assertBatchGenesisTx(batch.GenesisPacket)
 	t.assertNumCaretakersActive(1)
 

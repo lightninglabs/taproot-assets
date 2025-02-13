@@ -16,6 +16,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -81,6 +82,11 @@ type GardenKit struct {
 
 // PlanterConfig is the main config for the ChainPlanter.
 type PlanterConfig struct {
+	// ChainParams defines the chain parameters for the target blockchain
+	// network. It specifies whether the network is Bitcoin mainnet or
+	// testnet.
+	ChainParams address.ChainParams
+
 	GardenKit
 
 	// ProofUpdates is the storage backend for updated proofs.
@@ -656,6 +662,34 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// setPreCommitmentOutput sets the
+func (c *ChainPlanter) setPreCommitmentOutput(
+	fundedGenesisPkt *tapsend.FundedPsbt) error {
+
+	// Derive a new key to lock the change output.
+	ctx, cancel := c.WithCtxQuit()
+	defer cancel()
+
+	newKey, err := c.cfg.KeyRing.DeriveNextKey(
+		ctx, asset.TaprootAssetsKeyFamily,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to derive pre-commitment output "+
+			"key: %w", err)
+	}
+	newKey = newKey
+
+	//bip32Derivation, trBip32Derivation := tappsbt.Bip32DerivationFromKeyDesc(
+	//	newKey, c.cfg.ChainParams.HDCoinType,
+	//)
+	//bip32Derivation = bip32Derivation
+	//trBip32Derivation = trBip32Derivation
+
+	// Set in PSBT output and inner unsigned transaction.
+
+	return nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -738,6 +772,14 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
+
+	// TODO(ffranr): Lock change output here if EnableUniCommitment set for
+	//  batch.
+	err = c.setPreCommitmentOutput(fundedGenesisPkt)
+	if err != nil {
+		return nil, fmt.Errorf("unable to lock pre-commitment "+
+			"output: %w", err)
+	}
 
 	return fundedGenesisPkt, nil
 }
@@ -2279,6 +2321,12 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			)
 		}
 
+		// If the universe commitment feature is enabled for the group
+		// genesis asset, we ensure it is also enabled for the seedling.
+		if anchorMeta.UniCommitTRKey.IsSome() {
+			req.EnableUniCommitment = true
+		}
+
 		err = req.validateGroupKey(*groupInfo, anchorMeta)
 		if err != nil {
 			return err
@@ -2351,35 +2399,44 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	// No batch, so we'll create a new one with only this seedling as part
 	// of the batch.
 	case c.pendingBatch == nil:
-		newBatch, err := c.newBatch()
+		var err error
+		c.pendingBatch, err = c.newBatch()
 		if err != nil {
 			return err
 		}
 
-		log.Infof("Adding %v to new MintingBatch", req)
+		log.Infof("Attempting to add a seedling to a new batch "+
+			"(seedling=%v)", req)
 
-		newBatch.Seedlings[req.AssetName] = req
+		err = c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		err = c.cfg.Log.CommitMintingBatch(ctx, c.pendingBatch)
 		if err != nil {
 			return err
 		}
-
-		c.pendingBatch = newBatch
 
 	// A batch already exists, so we'll add this seedling to the batch,
 	// committing it to disk fully before we move on.
 	case c.pendingBatch != nil:
-		log.Infof("Adding %v to existing MintingBatch", req)
+		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
+			req)
 
-		c.pendingBatch.Seedlings[req.AssetName] = req
+		err := c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err := c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {

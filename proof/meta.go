@@ -172,6 +172,11 @@ type MetaReveal struct {
 	// protocol as it allows new odd (optional) types to be added without
 	// breaking old clients that don't yet fully understand them.
 	UnknownOddTypes tlv.TypeMap
+
+	// UniCommitTRKey is the Taproot output key of the minting anchor
+	// transaction's universe pre-commitment output. This field is optional.
+	// If specified, universe commitments are enabled for the minting event.
+	UniCommitTRKey fn.Option[btcec.PublicKey]
 }
 
 // SizableInteger is a subset of Integer that excludes int8, since we never use
