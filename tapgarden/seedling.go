@@ -233,10 +233,12 @@ func validateAnchorMeta(seedlingMeta *proof.MetaReveal,
 		anchorUniverseCommitments = true
 	}
 
-	if seedlingUniverseCommitments != anchorUniverseCommitments {
-		return fmt.Errorf("seedling universe commitments flag does "+
-			"not match group anchor: %v, %v",
-			seedlingUniverseCommitments, anchorUniverseCommitments)
+	// If the anchor asset has universe commitment feature turned on, then
+	// the same must be true for the seedling.
+	if anchorUniverseCommitments && !seedlingUniverseCommitments {
+		return fmt.Errorf("seedling universe commitments flag is " +
+			"false but must be true since the group anchor's " +
+			"flag is true")
 	}
 
 	// For now, we simply require a delegation key to be set when universe
