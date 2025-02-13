@@ -174,12 +174,6 @@ type MetaReveal struct {
 	UnknownOddTypes tlv.TypeMap
 }
 
-// SizableInteger is a subset of Integer that excludes int8, since we never use
-// it in practice.
-type SizableInteger interface {
-	constraints.Unsigned | ~int | ~int16 | ~int32 | ~int64
-}
-
 // Validate validates the meta reveal.
 func (m *MetaReveal) Validate() error {
 	// A meta reveal is allowed to be nil.
@@ -245,6 +239,12 @@ func (m *MetaReveal) Validate() error {
 
 		return nil
 	})
+}
+
+// SizableInteger is a subset of Integer that excludes int8, since we never use
+// it in practice.
+type SizableInteger interface {
+	constraints.Unsigned | ~int | ~int16 | ~int32 | ~int64
 }
 
 // IsValidMetaType checks if the passed value is a valid meta type.
