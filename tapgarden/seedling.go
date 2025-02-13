@@ -246,8 +246,7 @@ func validateAnchorMeta(seedlingMeta *proof.MetaReveal,
 	}
 
 	// For now, we simply require a delegation key to be set when universe
-	// commitments are turned on. In the future, we could allow this to be
-	// empty and the group internal key to be used for signing.
+	// commitments are turned on.
 	if seedlingUniverseCommitments && seedlingMeta.DelegationKey.IsNone() {
 		return fmt.Errorf("delegation key must be set for universe " +
 			"commitments flag")
