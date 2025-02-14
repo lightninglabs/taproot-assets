@@ -249,6 +249,8 @@ gen: rpc sqlc
 sqlc:
 	@$(call print, "Generating sql models and queries in Go")
 	./scripts/gen_sqlc_docker.sh
+	@$(call print, "Merging SQL migrations into consolidated schemas")
+	go run ./cmd/merge-sql-schemas/main.go
 
 sqlc-check: sqlc
 	@$(call print, "Verifying sql code generation.")
