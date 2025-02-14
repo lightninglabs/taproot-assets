@@ -52,3 +52,4 @@ vendor/
 
 # Release builds
 /taproot-assets-*
+.aider*
