@@ -666,7 +666,8 @@ func (f *AssetWallet) fundPacketWithInputs(ctx context.Context,
 	}
 
 	fullValue, err := tapsend.ValidateInputs(
-		inputCommitments, assetType, fundDesc,
+		inputCommitments, assetType, fundDesc.AssetSpecifier,
+		fundDesc.Amount,
 	)
 	if err != nil {
 		return nil, err
