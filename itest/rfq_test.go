@@ -8,9 +8,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
@@ -19,6 +21,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/lightningnetwork/lnd/lntest/node"
+	"github.com/lightningnetwork/lnd/lntest/port"
 	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -427,8 +430,17 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 // testRfqNegotiationGroupKey checks that two nodes can negotiate and register
 // quotes based on a specifier that only uses a group key.
 func testRfqNegotiationGroupKey(t *harnessTest) {
+	// For this test we'll use an actual oracle RPC server harness.
+	oracleAddr := fmt.Sprintf("localhost:%d", port.NextAvailablePort())
+	oracle := newOracleHarness(oracleAddr)
+	oracle.start(t.t)
+	t.t.Cleanup(oracle.stop)
+
+	// We need to craft the oracle server URL in the correct format.
+	oracleURL := fmt.Sprintf("rfqrpc://%s", oracleAddr)
+
 	// Initialize a new test scenario.
-	ts := newRfqTestScenario(t)
+	ts := newRfqTestScenario(t, WithRfqOracleServer(oracleURL))
 
 	// Mint an asset with Alice's tapd node.
 	rpcAssets := MintAssetsConfirmBatch(
@@ -437,6 +449,18 @@ func testRfqNegotiationGroupKey(t *harnessTest) {
 	)
 
 	mintedAssetGroupKey := rpcAssets[0].AssetGroup.TweakedGroupKey
+
+	groupKey, err := btcec.ParsePubKey(mintedAssetGroupKey)
+	require.NoError(t.t, err)
+
+	specifierGK := asset.NewSpecifierFromGroupKey(*groupKey)
+
+	// Let's set some dummy ask and bid prices. The peers should reach an
+	// agreement on price.
+	askPrice := rfqmath.NewBigIntFixedPoint(99_000_00, 2)
+	bidPrice := rfqmath.NewBigIntFixedPoint(101_000_00, 2)
+
+	oracle.setPrice(specifierGK, bidPrice, askPrice)
 
 	ctxb := context.Background()
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
