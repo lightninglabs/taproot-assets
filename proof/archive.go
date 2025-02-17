@@ -133,9 +133,8 @@ type AnnotatedProof struct {
 	*AssetSnapshot
 }
 
-// Archiver is the main storage backend the ProofArchiver uses to store and
-// query for proof files.
-type Archiver interface {
+// Exporter is used to fetch proofs by their unique identifier.
+type Exporter interface {
 	// FetchProof fetches a proof for an asset uniquely identified by the
 	// passed ProofIdentifier.
 	//
@@ -144,6 +143,12 @@ type Archiver interface {
 	// locator then ErrMultipleProofs should be returned to indicate more
 	// specific fields need to be set in the Locator (e.g. the OutPoint).
 	FetchProof(ctx context.Context, id Locator) (Blob, error)
+}
+
+// Archiver is the main storage backend the ProofArchiver uses to store and
+// query for proof files.
+type Archiver interface {
+	Exporter
 
 	// FetchIssuanceProof fetches the issuance proof for an asset, given the
 	// anchor point of the issuance (NOT the genesis point for the asset).
