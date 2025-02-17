@@ -152,12 +152,10 @@ func NewSellRequestFromWire(wireMsg WireMessage,
 
 // Validate ensures that the quote request is valid.
 func (q *SellRequest) Validate() error {
-	// Ensure that the asset specifier is set.
-	//
-	// TODO(ffranr): For now, the asset ID must be set. We do not currently
-	//  support group keys.
-	if !q.AssetSpecifier.HasId() {
-		return fmt.Errorf("asset id not specified in SellRequest")
+	// Ensure that the asset specifier has either an asset ID or a group
+	// key set.
+	if !q.AssetSpecifier.HasId() && !q.AssetSpecifier.HasGroupPubKey() {
+		return fmt.Errorf("asset specifier is empty")
 	}
 
 	// Ensure that the message version is supported.

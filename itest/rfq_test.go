@@ -424,6 +424,112 @@ func testRfqAssetSellHtlcIntercept(t *harnessTest) {
 	require.NoError(t.t, err)
 }
 
+// testRfqNegotiationGroupKey checks that two nodes can negotiate and register
+// quotes based on a specifier that only uses a group key.
+func testRfqNegotiationGroupKey(t *harnessTest) {
+	// Initialize a new test scenario.
+	ts := newRfqTestScenario(t)
+
+	// Mint an asset with Alice's tapd node.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, ts.AliceTapd,
+		[]*mintrpc.MintAssetRequest{issuableAssets[0]},
+	)
+
+	mintedAssetGroupKey := rpcAssets[0].AssetGroup.TweakedGroupKey
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	// Subscribe to Alice's RFQ events stream.
+	aliceEventNtfns, err := ts.AliceTapd.SubscribeRfqEventNtfns(
+		ctxb, &rfqrpc.SubscribeRfqEventNtfnsRequest{},
+	)
+	require.NoError(t.t, err)
+
+	// Alice sends a sell order to Bob for some amount of the newly minted
+	// asset.
+	askAmt := uint64(42000)
+	sellOrderExpiry := uint64(time.Now().Add(24 * time.Hour).Unix())
+
+	// We first try to add a sell order without specifying the asset skip
+	// flag. That should result in an error, since we only have a normal
+	// channel and not an asset channel.
+	sellReq := &rfqrpc.AddAssetSellOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_GroupKey{
+				GroupKey: mintedAssetGroupKey,
+			},
+		},
+		PaymentMaxAmt: askAmt,
+		Expiry:        sellOrderExpiry,
+
+		// Here we explicitly specify Bob as the destination
+		// peer for the sell order. This will prompt Alice's
+		// tapd node to send a request for quote message to
+		// Bob's node.
+		PeerPubKey: ts.BobLnd.PubKey[:],
+
+		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
+	}
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	require.ErrorContains(
+		t.t, err, "no asset channel balance found",
+	)
+
+	// Now we set the skip flag and we shouldn't get an error anymore.
+	sellReq.SkipAssetChannelCheck = true
+	_, err = ts.AliceTapd.AddAssetSellOrder(ctxt, sellReq)
+	require.NoError(t.t, err, "unable to upsert asset sell order")
+
+	// Wait until Alice receives an incoming sell quote accept message (sent
+	// from Bob) RFQ event notification.
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEventNtfns.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedSellQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+	}, rfqTimeout)
+
+	// We now repeat the same flow, where Alice is making a BuyOrderRequest.
+	assetMaxAmt := uint64(1000)
+	buyOrderExpiry := sellOrderExpiry
+
+	buyReq := &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: &rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_GroupKey{
+				GroupKey: mintedAssetGroupKey,
+			},
+		},
+		AssetMaxAmt:    assetMaxAmt,
+		Expiry:         buyOrderExpiry,
+		PeerPubKey:     ts.BobLnd.PubKey[:],
+		TimeoutSeconds: uint32(rfqTimeout.Seconds()),
+	}
+
+	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
+	require.ErrorContains(
+		t.t, err, "no asset channel balance found",
+	)
+
+	// Now we set the skip flag and we shouldn't get an error anymore.
+	buyReq.SkipAssetChannelCheck = true
+	_, err = ts.AliceTapd.AddAssetBuyOrder(ctxt, buyReq)
+	require.NoError(t.t, err)
+
+	// Wait until Alice receives an incoming buy quote accept message (sent
+	// from Bob) RFQ event notification.
+	BeforeTimeout(t.t, func() {
+		event, err := aliceEventNtfns.Recv()
+		require.NoError(t.t, err)
+
+		_, ok := event.Event.(*rfqrpc.RfqEvent_PeerAcceptedBuyQuote)
+		require.True(t.t, ok, "unexpected event: %v", event)
+	}, rfqTimeout)
+}
+
 // rfqTestScenario is a struct which holds test scenario helper infra.
 type rfqTestScenario struct {
 	testHarness *harnessTest
