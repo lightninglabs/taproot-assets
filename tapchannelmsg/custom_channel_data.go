@@ -83,9 +83,10 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 			),
 			DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
 		}
+		capacity := OutputSum(c.OpenChan.Assets())
 		resp.Assets = append(resp.Assets, rfqmsg.JsonAssetChanInfo{
 			AssetInfo:     utxo,
-			Capacity:      output.Amount.Val,
+			Capacity:      capacity,
 			LocalBalance:  c.LocalCommit.LocalAssets.Val.Sum(),
 			RemoteBalance: c.LocalCommit.RemoteAssets.Val.Sum(),
 		})
