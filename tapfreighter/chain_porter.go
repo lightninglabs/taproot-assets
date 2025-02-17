@@ -1228,6 +1228,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 
 		log.Debugf("Signing %d passive assets",
 			len(currentPkg.PassiveAssets))
+
 		err = wallet.SignPassiveAssets(currentPkg.PassiveAssets)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
