@@ -2002,13 +2002,8 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 	// of proofs. But the chain lookup will need them to look up transaction
 	// and block information in those proofs, so it's easiest to provide
 	// them as a single file that can be iterated through.
-	proofFile, err := proof.NewFile(
-		proof.V0, fn.Map(inputAssetProofs,
-			func(p *proof.Proof) proof.Proof {
-				return *p
-			},
-		)...,
-	)
+	derefProofs := fn.Map(inputAssetProofs, fn.DerefPanic)
+	proofFile, err := proof.NewFile(proof.V0, derefProofs...)
 	if err != nil {
 		return fmt.Errorf("unable to create proof file: %w", err)
 	}
