@@ -3387,11 +3387,13 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		// We found the asset group, so we can use the group key to
 		// burn the asset.
 		groupKey = &assetGroup.GroupPubKey
+
 	case errors.Is(err, address.ErrAssetGroupUnknown):
 		// We don't know the asset group, so we'll try to burn the
 		// asset using the asset ID only.
 		rpcsLog.Debug("Asset group key not found, asset may not be " +
 			"part of a group")
+
 	case err != nil:
 		return nil, fmt.Errorf("error querying asset group: %w", err)
 	}
