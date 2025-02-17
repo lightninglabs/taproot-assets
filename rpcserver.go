@@ -6353,8 +6353,8 @@ func MarshalAssetFedSyncCfg(
 }
 
 // unmarshalAssetSpecifier unmarshals an asset specifier from the RPC form.
-func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier) (*asset.ID,
-	*btcec.PublicKey, error) {
+func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier,
+	failWhenBothSet bool) (*asset.ID, *btcec.PublicKey, error) {
 
 	if s == nil {
 		return nil, nil, fmt.Errorf("asset specifier must be specified")
@@ -6362,14 +6362,24 @@ func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier) (*asset.ID,
 
 	return parseAssetSpecifier(
 		s.GetAssetId(), s.GetAssetIdStr(), s.GetGroupKey(),
-		s.GetGroupKeyStr(),
+		s.GetGroupKeyStr(), failWhenBothSet,
 	)
 }
 
 // parseAssetSpecifier parses an asset specifier from the RPC form.
 func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
-	reqGroupKey []byte, reqGroupKeyStr string) (*asset.ID, *btcec.PublicKey,
-	error) {
+	reqGroupKey []byte, reqGroupKeyStr string,
+	failWhenBothSet bool) (*asset.ID, *btcec.PublicKey, error) {
+
+	// In certain cases, we may want to fail if both the asset ID and group
+	// key are set. This is because the asset ID is more specific than the
+	// group key.
+	assetIDSet := len(reqAssetID) > 0 || len(reqAssetIDStr) > 0
+	groupKeySet := len(reqGroupKey) > 0 || len(reqGroupKeyStr) > 0
+	if failWhenBothSet && assetIDSet && groupKeySet {
+		return nil, nil, fmt.Errorf("both asset ID and group key " +
+			"cannot be specified at the same time")
+	}
 
 	// Attempt to decode the asset specifier from the RPC request. In cases
 	// where both the asset ID and asset group key are provided, we will
@@ -6444,7 +6454,7 @@ func unmarshalAssetBuyOrder(
 	req *rfqrpc.AddAssetBuyOrderRequest) (*rfq.BuyOrder, error) {
 
 	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
+		req.AssetSpecifier, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
@@ -6623,7 +6633,7 @@ func unmarshalAssetSellOrder(
 	req *rfqrpc.AddAssetSellOrderRequest) (*rfq.SellOrder, error) {
 
 	assetId, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
+		req.AssetSpecifier, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
@@ -6756,7 +6766,7 @@ func (r *rpcServer) AddAssetSellOffer(_ context.Context,
 
 	// Unmarshal the sell offer from the RPC form.
 	assetID, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
+		req.AssetSpecifier, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
@@ -6793,7 +6803,7 @@ func (r *rpcServer) AddAssetBuyOffer(_ context.Context,
 
 	// Unmarshal the asset specifier from the RPC form.
 	assetID, assetGroupKey, err := unmarshalAssetSpecifier(
-		req.AssetSpecifier,
+		req.AssetSpecifier, false,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error unmarshalling asset specifier: "+
@@ -6999,7 +7009,7 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 
 	assetID, groupKey, err := parseAssetSpecifier(
-		req.GetAssetId(), "", req.GetGroupKey(), "",
+		req.GetAssetId(), "", req.GetGroupKey(), "", true,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing asset specifier: %w", err)

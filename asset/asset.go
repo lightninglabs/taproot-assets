@@ -469,6 +469,17 @@ func (s *Specifier) UnwrapToPtr() (*ID, *btcec.PublicKey) {
 	return s.UnwrapIdToPtr(), s.UnwrapGroupKeyToPtr()
 }
 
+// EnsureDistinct ensures that the asset ID and group public key fields are
+// distinct.
+func (s *Specifier) EnsureDistinct() error {
+	if s.HasId() && s.HasGroupPubKey() {
+		return errors.New("both asset ID and group public key are " +
+			"set on specifier")
+	}
+
+	return nil
+}
+
 // Type denotes the asset types supported by the Taproot Asset protocol.
 type Type uint8
 
