@@ -408,7 +408,7 @@ func TestFundPacket(t *testing.T) {
 			addrBook := &mockAddrBook{}
 			keyRing := tapgarden.NewMockKeyRing()
 
-			result, err := fundPacketWithInputs(
+			result, err := createFundedPacketWithInputs(
 				ctx, exporter, keyRing, addrBook,
 				tc.fundDesc, tc.vPkt, tc.selectedCommitments,
 			)
@@ -431,7 +431,7 @@ func TestFundPacket(t *testing.T) {
 				result.InputCommitments,
 			)
 			assertOutputsEqual(
-				tt, []*tappsbt.VPacket{result.VPacket},
+				tt, result.VPackets,
 				tc.expectedOutputs(tt, keyRing),
 			)
 		})
