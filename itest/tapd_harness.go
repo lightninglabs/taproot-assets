@@ -118,6 +118,7 @@ type harnessOpts struct {
 	proofCourier                 proof.CourierHarness
 	custodianProofRetrievalDelay *time.Duration
 	addrAssetSyncerDisable       bool
+	oracleServerAddress          string
 
 	// fedSyncTickerInterval is the interval at which the federation envoy
 	// sync ticker will fire.
@@ -136,6 +137,14 @@ type harnessOption func(*harnessOpts)
 
 func defaultHarnessOpts() *harnessOpts {
 	return &harnessOpts{}
+}
+
+// withOracleAddress is a functional option that sets the oracle address option
+// to the provided string.
+func withOracleAddress(addr string) harnessOption {
+	return func(ho *harnessOpts) {
+		ho.oracleServerAddress = addr
+	}
 }
 
 // newTapdHarness creates a new tapd server harness with the given
@@ -218,13 +227,20 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 	// was not set, this will be false, which is the default.
 	tapCfg.AddrBook.DisableSyncer = opts.addrAssetSyncerDisable
 
-	// Set the experimental config for the RFQ service.
-	tapCfg.Experimental = &tapcfg.ExperimentalConfig{
-		Rfq: rfq.CliConfig{
-			//nolint:lll
-			PriceOracleAddress:     rfq.MockPriceOracleServiceAddress,
-			MockOracleAssetsPerBTC: 5_820_600,
-		},
+	switch {
+	case len(opts.oracleServerAddress) > 0:
+		tapCfg.Experimental.Rfq.PriceOracleAddress =
+			opts.oracleServerAddress
+
+	default:
+		// Set the experimental config for the RFQ service.
+		tapCfg.Experimental = &tapcfg.ExperimentalConfig{
+			Rfq: rfq.CliConfig{
+				//nolint:lll
+				PriceOracleAddress:     rfq.MockPriceOracleServiceAddress,
+				MockOracleAssetsPerBTC: 5_820_600,
+			},
+		}
 	}
 
 	cfgLogger := tapCfg.LogWriter.GenSubLogger("CONF", nil)
