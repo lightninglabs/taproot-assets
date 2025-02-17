@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
@@ -32,13 +33,20 @@ var (
 )
 
 type mockExporter struct {
-	singleProof proof.Proof
+	proofs []*proof.Proof
 }
 
-func (m *mockExporter) FetchProof(context.Context,
-	proof.Locator) (proof.Blob, error) {
+func (m *mockExporter) FetchProof(_ context.Context,
+	loc proof.Locator) (proof.Blob, error) {
 
-	f, err := proof.NewFile(proof.V0, m.singleProof)
+	singleProof, err := fn.First(m.proofs, func(p *proof.Proof) bool {
+		return p.Asset.ScriptKey.PubKey.IsEqual(&loc.ScriptKey)
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	f, err := proof.NewFile(proof.V0, *singleProof)
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +89,8 @@ func (m *mockAddrBook) FetchInternalKeyLocator(_ context.Context,
 
 var _ AddrBook = (*mockAddrBook)(nil)
 
-func randProof(t *testing.T, amount uint64,
-	internalKey keychain.KeyDescriptor) proof.Proof {
+func randProof(t *testing.T, amount uint64, internalKey keychain.KeyDescriptor,
+	groupKey *asset.GroupKey) proof.Proof {
 
 	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
 	require.NoError(t, err)
@@ -101,7 +109,7 @@ func randProof(t *testing.T, amount uint64,
 
 	txMerkleProof := proof.TxMerkleProof{}
 	mintCommitment, assets, err := commitment.Mint(
-		nil, randGen, nil, &commitment.AssetDetails{
+		nil, randGen, groupKey, &commitment.AssetDetails{
 			Type:             randGen.Type,
 			ScriptKey:        test.PubToKeyDesc(scriptKey),
 			Amount:           &amount,
@@ -166,10 +174,12 @@ func TestFundPacket(t *testing.T) {
 	ctx := context.Background()
 
 	internalKey, _ := test.RandKeyDesc(t)
+	grpInternalKey1, _ := test.RandKeyDesc(t)
+	grpInternalKey2, _ := test.RandKeyDesc(t)
 	scriptKey := asset.RandScriptKey(t)
 
 	const mintAmount = 500
-	inputProof := randProof(t, mintAmount, internalKey)
+	inputProof := randProof(t, mintAmount, internalKey, nil)
 	inputAsset := inputProof.Asset
 	assetID := inputAsset.ID()
 
@@ -182,10 +192,48 @@ func TestFundPacket(t *testing.T) {
 	inputCommitment, err := commitment.FromAssets(nil, &inputProof.Asset)
 	require.NoError(t, err)
 
+	groupPubKey := test.RandPubKey(t)
+	groupKey := &asset.GroupKey{
+		GroupPubKey: *groupPubKey,
+	}
+
+	groupProof1 := randProof(t, mintAmount*2, grpInternalKey1, groupKey)
+	groupInputAsset1 := groupProof1.Asset
+	groupAssetID1 := groupInputAsset1.ID()
+
+	groupProof2 := randProof(t, mintAmount*2, grpInternalKey2, groupKey)
+	groupInputAsset2 := groupProof2.Asset
+	groupAssetID2 := groupInputAsset2.ID()
+
+	grpInputPrevID1 := asset.PrevID{
+		OutPoint: groupProof1.OutPoint(),
+		ID:       groupAssetID1,
+		ScriptKey: asset.ToSerialized(
+			groupInputAsset1.ScriptKey.PubKey,
+		),
+	}
+	grpInputPrevID2 := asset.PrevID{
+		OutPoint: groupProof2.OutPoint(),
+		ID:       groupAssetID2,
+		ScriptKey: asset.ToSerialized(
+			groupInputAsset2.ScriptKey.PubKey,
+		),
+	}
+
+	grpInputCommitment1, err := commitment.FromAssets(
+		nil, &groupInputAsset1,
+	)
+	require.NoError(t, err)
+	grpInputCommitment2, err := commitment.FromAssets(
+		nil, &groupInputAsset2,
+	)
+	require.NoError(t, err)
+
 	testCases := []struct {
 		name                string
 		fundDesc            *tapsend.FundingDescriptor
 		vPkt                *tappsbt.VPacket
+		inputProofs         []*proof.Proof
 		selectedCommitments []*AnchoredCommitment
 		keysDerived         int
 		expectedErr         string
@@ -208,6 +256,7 @@ func TestFundPacket(t *testing.T) {
 					Interactive: false,
 				}},
 			},
+			inputProofs: []*proof.Proof{&inputProof},
 			selectedCommitments: []*AnchoredCommitment{{
 				AnchorPoint: inputProof.OutPoint(),
 				InternalKey: internalKey,
@@ -267,6 +316,7 @@ func TestFundPacket(t *testing.T) {
 					Interactive: false,
 				}},
 			},
+			inputProofs: []*proof.Proof{&inputProof},
 			selectedCommitments: []*AnchoredCommitment{{
 				AnchorPoint: inputProof.OutPoint(),
 				InternalKey: internalKey,
@@ -298,6 +348,7 @@ func TestFundPacket(t *testing.T) {
 					AnchorOutputIndex: 1,
 				}},
 			},
+			inputProofs: []*proof.Proof{&inputProof},
 			selectedCommitments: []*AnchoredCommitment{{
 				AnchorPoint: inputProof.OutPoint(),
 				InternalKey: internalKey,
@@ -341,11 +392,250 @@ func TestFundPacket(t *testing.T) {
 				)
 			},
 		},
+		{
+			name: "multi input, full value, change present",
+			fundDesc: &tapsend.FundingDescriptor{
+				AssetSpecifier: asset.NewSpecifierFromGroupKey(
+					*groupPubKey,
+				),
+				Amount: mintAmount * 4,
+			},
+			vPkt: &tappsbt.VPacket{
+				ChainParams: testParams,
+				Outputs: []*tappsbt.VOutput{{
+					Type:        tappsbt.TypeSplitRoot,
+					Amount:      0,
+					ScriptKey:   asset.NUMSScriptKey,
+					Interactive: false,
+				}, {
+					Amount:            mintAmount * 4,
+					ScriptKey:         scriptKey,
+					Interactive:       false,
+					AnchorOutputIndex: 1,
+				}},
+			},
+			inputProofs: []*proof.Proof{&groupProof1, &groupProof2},
+			selectedCommitments: []*AnchoredCommitment{{
+				AnchorPoint: groupProof1.OutPoint(),
+				InternalKey: grpInternalKey1,
+				Commitment:  grpInputCommitment1,
+				Asset:       &groupInputAsset1,
+			}, {
+				AnchorPoint: groupProof2.OutPoint(),
+				InternalKey: grpInternalKey2,
+				Commitment:  grpInputCommitment2,
+				Asset:       &groupInputAsset2,
+			}},
+			keysDerived: 2,
+			// We test that we have two virtual packets, both with
+			// one input and two outputs. In the first vOutput, we
+			// always each have the tombstone zero-value output,
+			// since this is a full-value spend across two vPackets.
+			// The vOutputs across the two vPackets should each go
+			// to the same anchor output. And the same anchor output
+			// key should be derived for the same output indexes.
+			validate: func(t *testing.T, r *FundedVPacket,
+				kr *tapgarden.MockKeyRing) {
+
+				inputCommitments := tappsbt.InputCommitments{
+					grpInputPrevID1: grpInputCommitment1,
+					grpInputPrevID2: grpInputCommitment2,
+				}
+				require.Equal(
+					t, inputCommitments, r.InputCommitments,
+				)
+
+				require.Len(t, r.VPackets, 2)
+				require.Len(t, r.VPackets[0].Outputs, 2)
+				require.Len(t, r.VPackets[0].Inputs, 1)
+
+				vOut00 := r.VPackets[0].Outputs[0]
+				require.Equal(t, uint64(0), vOut00.Amount)
+				require.Equal(
+					t, asset.NUMSScriptKey,
+					vOut00.ScriptKey,
+				)
+				require.Equal(
+					t, kr.PubKeyAt(t, 0),
+					vOut00.AnchorOutputInternalKey,
+				)
+
+				vOut01 := r.VPackets[0].Outputs[1]
+				require.Equal(
+					t, uint64(mintAmount*2), vOut01.Amount,
+				)
+				require.Equal(t, scriptKey, vOut01.ScriptKey)
+				require.Equal(
+					t, kr.PubKeyAt(t, 1),
+					vOut01.AnchorOutputInternalKey,
+				)
+
+				vOut10 := r.VPackets[1].Outputs[0]
+				require.Equal(t, uint64(0), vOut10.Amount)
+				require.Equal(
+					t, asset.NUMSScriptKey,
+					vOut10.ScriptKey,
+				)
+				require.Equal(
+					t, kr.PubKeyAt(t, 0),
+					vOut10.AnchorOutputInternalKey,
+				)
+
+				vOut11 := r.VPackets[1].Outputs[1]
+				require.Equal(
+					t, uint64(mintAmount*2), vOut11.Amount,
+				)
+				require.Equal(t, scriptKey, vOut11.ScriptKey)
+				require.Equal(
+					t, kr.PubKeyAt(t, 1),
+					vOut11.AnchorOutputInternalKey,
+				)
+			},
+		},
+		{
+			name: "multi input, partial amount, no change present",
+			fundDesc: &tapsend.FundingDescriptor{
+				AssetSpecifier: asset.NewSpecifierFromGroupKey(
+					*groupPubKey,
+				),
+				Amount: mintAmount * 3,
+			},
+			vPkt: &tappsbt.VPacket{
+				ChainParams: testParams,
+				Outputs: []*tappsbt.VOutput{{
+					Amount:      mintAmount * 3,
+					ScriptKey:   scriptKey,
+					Interactive: false,
+				}},
+			},
+			inputProofs: []*proof.Proof{&groupProof1, &groupProof2},
+			selectedCommitments: []*AnchoredCommitment{{
+				AnchorPoint: groupProof1.OutPoint(),
+				InternalKey: grpInternalKey1,
+				Commitment:  grpInputCommitment1,
+				Asset:       &groupInputAsset1,
+			}, {
+				AnchorPoint: groupProof2.OutPoint(),
+				InternalKey: grpInternalKey2,
+				Commitment:  grpInputCommitment2,
+				Asset:       &groupInputAsset2,
+			}},
+			keysDerived: 3,
+			// This is an unsupported case. Because with the values
+			// available, we'd have a full-value spend in one
+			// vPacket but a partial spend in the other. The change
+			// output should just always be added in the template to
+			// avoid this error.
+			expectedErr: "single output must be interactive",
+		},
+		{
+			name: "multi input, partial amount, change present",
+			fundDesc: &tapsend.FundingDescriptor{
+				AssetSpecifier: asset.NewSpecifierFromGroupKey(
+					*groupPubKey,
+				),
+				Amount: mintAmount * 3,
+			},
+			vPkt: &tappsbt.VPacket{
+				ChainParams: testParams,
+				Outputs: []*tappsbt.VOutput{{
+					Type:        tappsbt.TypeSplitRoot,
+					Amount:      0,
+					ScriptKey:   asset.NUMSScriptKey,
+					Interactive: false,
+				}, {
+					Amount:            mintAmount * 3,
+					ScriptKey:         scriptKey,
+					Interactive:       false,
+					AnchorOutputIndex: 1,
+				}},
+			},
+			inputProofs: []*proof.Proof{&groupProof1, &groupProof2},
+			selectedCommitments: []*AnchoredCommitment{{
+				AnchorPoint: groupProof1.OutPoint(),
+				InternalKey: grpInternalKey1,
+				Commitment:  grpInputCommitment1,
+				Asset:       &groupInputAsset1,
+			}, {
+				AnchorPoint: groupProof2.OutPoint(),
+				InternalKey: grpInternalKey2,
+				Commitment:  grpInputCommitment2,
+				Asset:       &groupInputAsset2,
+			}},
+			keysDerived: 3,
+			// We test that we have two virtual packets, both with
+			// one input and two outputs. The first vPacket will be
+			// a full-value spend, so the change should be the NUMS
+			// key. The second vPacket is a partial spend, so there
+			// should be change and a key derived for it. The
+			// vOutputs across the two vPackets should each go to
+			// the same anchor output. And the same anchor output
+			// key should be derived for the same output indexes.
+			validate: func(t *testing.T, r *FundedVPacket,
+				kr *tapgarden.MockKeyRing) {
+
+				inputCommitments := tappsbt.InputCommitments{
+					grpInputPrevID1: grpInputCommitment1,
+					grpInputPrevID2: grpInputCommitment2,
+				}
+				require.Equal(
+					t, inputCommitments, r.InputCommitments,
+				)
+
+				require.Len(t, r.VPackets, 2)
+				require.Len(t, r.VPackets[0].Outputs, 2)
+				require.Len(t, r.VPackets[0].Inputs, 1)
+
+				vOut00 := r.VPackets[0].Outputs[0]
+				require.Equal(t, uint64(0), vOut00.Amount)
+				require.Equal(
+					t, asset.NUMSScriptKey,
+					vOut00.ScriptKey,
+				)
+				require.Equal(
+					t, kr.PubKeyAt(t, 1),
+					vOut00.AnchorOutputInternalKey,
+				)
+
+				vOut01 := r.VPackets[0].Outputs[1]
+				require.Equal(
+					t, uint64(mintAmount*2), vOut01.Amount,
+				)
+				require.Equal(t, scriptKey, vOut01.ScriptKey)
+				require.Equal(
+					t, kr.PubKeyAt(t, 2),
+					vOut01.AnchorOutputInternalKey,
+				)
+
+				vOut10 := r.VPackets[1].Outputs[0]
+				require.Equal(
+					t, uint64(mintAmount), vOut10.Amount,
+				)
+				require.Equal(
+					t, kr.ScriptKeyAt(t, 0),
+					vOut10.ScriptKey,
+				)
+				require.Equal(
+					t, kr.PubKeyAt(t, 1),
+					vOut10.AnchorOutputInternalKey,
+				)
+
+				vOut11 := r.VPackets[1].Outputs[1]
+				require.Equal(
+					t, uint64(mintAmount), vOut11.Amount,
+				)
+				require.Equal(t, scriptKey, vOut11.ScriptKey)
+				require.Equal(
+					t, kr.PubKeyAt(t, 2),
+					vOut11.AnchorOutputInternalKey,
+				)
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		exporter := &mockExporter{
-			singleProof: inputProof,
+			proofs: tc.inputProofs,
 		}
 		addrBook := &mockAddrBook{}
 		keyRing := tapgarden.NewMockKeyRing()
@@ -373,16 +663,16 @@ func TestFundPacket(t *testing.T) {
 
 		close(quit)
 		for err := range errs {
-			require.NoError(t, err)
+			require.NoError(t, err, tc.name)
 		}
 
 		if tc.expectedErr != "" {
-			require.ErrorContains(t, err, tc.expectedErr)
+			require.ErrorContains(t, err, tc.expectedErr, tc.name)
 
 			continue
 		}
 
-		require.NoError(t, err)
+		require.NoError(t, err, tc.name)
 		require.NotNil(t, result)
 		tc.validate(t, result, keyRing)
 	}
