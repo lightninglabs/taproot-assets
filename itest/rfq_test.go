@@ -546,13 +546,69 @@ type rfqTestScenario struct {
 	CarolTapd *tapdHarness
 }
 
+// rfqTestScenarioOpts is a struct that holds options related to creating an rfq
+// test scenario.
+type rfqTestScenarioOpts struct {
+	oracleServerAddr  string
+	oracleServerAlice string
+	oracleServerBob   string
+	oracleServerCarol string
+}
+
+// RfqOption is a functional option that edits an existing instance of rfq
+// test scenario options.
+type RfqOption func(*rfqTestScenarioOpts)
+
+// DefaultRfqOptions returns the default set of rfq test scenario options.
+func DefaultRfqOptions() rfqTestScenarioOpts {
+	return rfqTestScenarioOpts{}
+}
+
+// WithRfqOracleServer is a functional option that sets the oracle server option
+// to the provided string. This oracle server will be the default oracle for
+// all test scenario tapd nodes.
+func WithRfqOracleServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.oracleServerAddr = s
+	}
+}
+
+// WithAliceOracleServer sets the oracle server to be used by Alice tapd. This
+// will override the global oracle server option.
+func WithAliceOracleServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.oracleServerAlice = s
+	}
+}
+
+// WithBobOracleServer sets the oracle server to be used by Bob tapd. This will
+// override the global oracle server option.
+func WithBobOracleServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.oracleServerBob = s
+	}
+}
+
+// WithCarolOracleServer sets the oracle server to be used by Carol tapd. This
+// will override the global oracle server option.
+func WithCarolOracleServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.oracleServerCarol = s
+	}
+}
+
 // newRfqTestScenario initializes a new test scenario with three new LND nodes
 // and connects them to have the following topology,
 //
 //	Alice --> Bob --> Carol
 //
 // It also creates new tapd nodes for each of the LND nodes.
-func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
+func newRfqTestScenario(t *harnessTest, opts ...RfqOption) *rfqTestScenario {
+	rfqOpts := DefaultRfqOptions()
+	for _, opt := range opts {
+		opt(&rfqOpts)
+	}
+
 	// Specify wallet outputs to fund the wallets of the new nodes.
 	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
 
@@ -607,9 +663,22 @@ func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 	t.lndHarness.AssertTopologyChannelOpen(carolLnd, aliceBobChannel)
 
 	// Create tapd nodes.
-	aliceTapd := setupTapdHarness(t.t, t, aliceLnd, t.universeServer)
-	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
-	carolTapd := setupTapdHarness(t.t, t, carolLnd, t.universeServer)
+	aliceTapd := setupTapdHarness(
+		t.t, t, aliceLnd, t.universeServer, WithOracleServer(
+			rfqOpts.oracleServerAddr, rfqOpts.oracleServerAlice,
+		),
+	)
+
+	bobTapd := setupTapdHarness(
+		t.t, t, bobLnd, t.universeServer, WithOracleServer(
+			rfqOpts.oracleServerAddr, rfqOpts.oracleServerBob,
+		),
+	)
+	carolTapd := setupTapdHarness(
+		t.t, t, carolLnd, t.universeServer, WithOracleServer(
+			rfqOpts.oracleServerAddr, rfqOpts.oracleServerCarol,
+		),
+	)
 
 	ts := rfqTestScenario{
 		testHarness: t,
