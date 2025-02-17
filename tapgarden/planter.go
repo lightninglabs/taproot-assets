@@ -14,6 +14,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -24,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -662,6 +664,57 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// lockPreCommitmentOutput locks the pre-commitment output of the minting
+// transaction for a batch that uses universe commitments. The pre-commitment
+// output is the change output of the minting transaction, which will be locked
+// using the given delegation key.
+func (c *ChainPlanter) lockPreCommitmentOutput(
+	delegationKey keychain.KeyDescriptor,
+	fundedPsbt *tapsend.FundedPsbt) error {
+
+	// Override PSBT change output.
+	psbtChangeOut := &fundedPsbt.Pkt.Outputs[fundedPsbt.ChangeOutputIndex]
+
+	psbtChangeOut.TaprootInternalKey = schnorr.SerializePubKey(
+		delegationKey.PubKey,
+	)
+
+	// Also add derivation information for the internal key to the PSBT.
+	bip32Derivation, trBip32Derivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			delegationKey, c.cfg.ChainParams.HDCoinType,
+		)
+
+	psbtChangeOut.Bip32Derivation = []*psbt.Bip32Derivation{
+		bip32Derivation,
+	}
+	psbtChangeOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trBip32Derivation,
+	}
+
+	// Override PSBT packet unsigned transaction change output.
+	changeIndex := fundedPsbt.ChangeOutputIndex
+	txChangeOut := fundedPsbt.Pkt.UnsignedTx.TxOut[changeIndex]
+
+	// Formulate a taproot output key from the new key (which is effectively
+	// the taproot internal key).
+	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(
+		delegationKey.PubKey,
+	)
+
+	// Create a new pay-to-taproot pk script from the taproot output key.
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
+	if err != nil {
+		return fmt.Errorf("unable to create pk script: %w", err)
+	}
+
+	// Set the unsigned transaction change output to the new taproot output
+	// script.
+	txChangeOut.PkScript = pkScript
+
+	return nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -744,6 +797,40 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
+
+	// If the batch is configured to use universe commitment, the minting
+	// transaction's change output becomes the universe pre-commitment
+	// output, which will be locked for spending by tapd only.
+	if c.pendingBatch != nil && c.pendingBatch.UniverseCommitments {
+		// If we've funded the batch and universe commitment is enabled,
+		// there should be at least one seedling in the batch.
+		if len(c.pendingBatch.Seedlings) == 0 {
+			return nil, fmt.Errorf("uni commitment enabled for " +
+				"funded batch but no seedlings in batch")
+		}
+
+		// Extract delegated key from the first encountered seedling in
+		// the batch. For simplicity, the delegation key should be set
+		// for all seedlings in the batch.
+		var delegationKey keychain.KeyDescriptor
+		for _, seedling := range c.pendingBatch.Seedlings {
+			var err error
+			delegationKey, err = seedling.DelegationKey.UnwrapOrErr(
+				fmt.Errorf("no delegation key found in " +
+					"seedling"),
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Modify the PSBT to lock the pre-commitment output.
+		err = c.lockPreCommitmentOutput(delegationKey, fundedGenesisPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to lock pre-commitment "+
+				"output: %w", err)
+		}
+	}
 
 	return fundedGenesisPkt, nil
 }
@@ -1778,6 +1865,9 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 				"sibling for minting batch %w", err)
 		}
 	}
+
+	// TODO(ffranr): Do we need to write the pre-commitment output key to
+	//  the database here?
 
 	err = c.cfg.Log.CommitBatchTx(
 		ctx, workingBatch.BatchKey.PubKey, workingBatch.GenesisPacket,
