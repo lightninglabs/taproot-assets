@@ -6342,35 +6342,55 @@ func MarshalAssetFedSyncCfg(
 }
 
 // unmarshalAssetSpecifier unmarshals an asset specifier from the RPC form.
-func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
+func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier) (*asset.ID,
 	*btcec.PublicKey, error) {
+
+	if s == nil {
+		return nil, nil, fmt.Errorf("asset specifier must be specified")
+	}
+
+	return parseAssetSpecifier(
+		s.GetAssetId(), s.GetAssetIdStr(), s.GetGroupKey(),
+		s.GetGroupKeyStr(),
+	)
+}
+
+// parseAssetSpecifier parses an asset specifier from the RPC form.
+func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
+	reqGroupKey []byte, reqGroupKeyStr string) (*asset.ID, *btcec.PublicKey,
+	error) {
 
 	// Attempt to decode the asset specifier from the RPC request. In cases
 	// where both the asset ID and asset group key are provided, we will
 	// give precedence to the asset ID due to its higher level of
 	// specificity.
 	var (
-		assetID *asset.ID
-
-		groupKeyBytes []byte
-		groupKey      *btcec.PublicKey
-
-		err error
+		assetID  *asset.ID
+		groupKey *btcec.PublicKey
+		err      error
 	)
 
 	switch {
 	// Parse the asset ID if it's set.
-	case len(req.GetAssetId()) > 0:
+	case len(reqAssetID) > 0:
+		if len(reqAssetID) != sha256.Size {
+			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
+		}
+
 		var assetIdBytes [32]byte
-		copy(assetIdBytes[:], req.GetAssetId())
+		copy(assetIdBytes[:], reqAssetID)
 		id := asset.ID(assetIdBytes)
 		assetID = &id
 
-	case len(req.GetAssetIdStr()) > 0:
-		assetIDBytes, err := hex.DecodeString(req.GetAssetIdStr())
+	case len(reqAssetIDStr) > 0:
+		assetIDBytes, err := hex.DecodeString(reqAssetIDStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding asset "+
 				"ID: %w", err)
+		}
+
+		if len(assetIDBytes) != sha256.Size {
+			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
 		}
 
 		var id asset.ID
@@ -6378,18 +6398,15 @@ func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
 		assetID = &id
 
 	// Parse the group key if it's set.
-	case len(req.GetGroupKey()) > 0:
-		groupKeyBytes = req.GetGroupKey()
-		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
+	case len(reqGroupKey) > 0:
+		groupKey, err = btcec.ParsePubKey(reqGroupKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing group "+
 				"key: %w", err)
 		}
 
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(
-			req.GetGroupKeyStr(),
-		)
+	case len(reqGroupKeyStr) > 0:
+		groupKeyBytes, err := hex.DecodeString(reqGroupKeyStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding group "+
 				"key: %w", err)
@@ -6970,8 +6987,17 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 		return nil, fmt.Errorf("error parsing peer pubkey: %w", err)
 	}
 
-	if len(req.AssetId) != sha256.Size {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.GetAssetId(), "", nil, "",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing asset specifier: %w", err)
+	}
+
+	assetSpecifier, err := asset.NewSpecifier(assetID, groupKey, nil, true)
+	if err != nil {
+		return nil, fmt.Errorf("error creating asset specifier: %w",
+			err)
 	}
 
 	if req.AssetAmount == 0 {
@@ -6982,12 +7008,12 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 
 	fundReq := tapchannel.FundReq{
-		PeerPub:     *peerPub,
-		AssetAmount: req.AssetAmount,
-		FeeRate:     chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
-		PushAmount:  btcutil.Amount(req.PushSat),
+		PeerPub:        *peerPub,
+		AssetSpecifier: assetSpecifier,
+		AssetAmount:    req.AssetAmount,
+		FeeRate:        chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
+		PushAmount:     btcutil.Amount(req.PushSat),
 	}
-	copy(fundReq.AssetID[:], req.AssetId)
 
 	chanPoint, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
 	if err != nil {
