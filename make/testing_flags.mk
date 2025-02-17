@@ -4,6 +4,7 @@ RPC_TAGS = autopilotrpc chainrpc invoicesrpc peersrpc routerrpc signrpc verrpc w
 LOG_TAGS =
 TEST_FLAGS =
 ITEST_FLAGS = -logoutput
+ITEST_COVERAGE =
 COVER_PKG = $$(go list -deps -tags="$(DEV_TAGS)" ./... | grep '$(PKG)' | grep -v taprpc)
 COVER_HTML = go tool cover -html=coverage.txt -o coverage.html
 POSTGRES_START_DELAY = 5
@@ -64,6 +65,11 @@ ifneq ($(tags),)
 DEV_TAGS += ${tags}
 endif
 
+# Enable integration test coverage (requires Go >= 1.20.0).
+ifneq ($(cover),)
+ITEST_COVERAGE = -coverprofile=itest/coverage.txt -coverpkg=./...
+endif
+
 # Define the log tags that will be applied only when running unit tests. If none
 # are provided, we default to "nolog" which will be silent.
 ifneq ($(log),)
@@ -98,6 +104,7 @@ UNIT_TARGETED ?= no
 # targeted case. Otherwise, default to running all tests.
 ifeq ($(UNIT_TARGETED), yes)
 UNIT := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
+UNIT_COVER := $(GOTEST) -coverprofile=coverage.txt -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
 UNIT_DEBUG := $(GOTEST) -v -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) $(UNITPKG)
 UNIT_TRACE := $(GOTEST) -v -tags="$(DEV_TAGS) stdout trace" $(TEST_FLAGS) $(UNITPKG)
 UNIT_RACE := $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS) lowscrypt" $(TEST_FLAGS) -race $(UNITPKG)
@@ -105,6 +112,7 @@ endif
 
 ifeq ($(UNIT_TARGETED), no)
 UNIT := $(GOLIST) | $(XARGS) env $(GOTEST) -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
+UNIT_COVER := $(GOTEST) -coverprofile=coverage.txt -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS) ./...
 UNIT_DEBUG := $(GOLIST) | $(XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) $(LOG_TAGS)" $(TEST_FLAGS)
 UNIT_TRACE := $(GOLIST) | $(XARGS) env $(GOTEST) -v -tags="$(DEV_TAGS) stdout trace" $(TEST_FLAGS)
 UNIT_RACE := $(UNIT) -race

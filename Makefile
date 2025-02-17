@@ -2,12 +2,10 @@ PKG := github.com/lightninglabs/taproot-assets
 
 BTCD_PKG := github.com/btcsuite/btcd
 LND_PKG := github.com/lightningnetwork/lnd
-GOACC_PKG := github.com/ory/go-acc
 GOIMPORTS_PKG := github.com/rinchsan/gosimports/cmd/gosimports
 TOOLS_DIR := tools
 
 GO_BIN := ${GOPATH}/bin
-GOACC_BIN := $(GO_BIN)/go-acc
 GOIMPORTS_BIN := $(GO_BIN)/gosimports
 MIGRATE_BIN := $(GO_BIN)/migrate
 
@@ -16,10 +14,10 @@ VERSION_GO_FILE := "version.go"
 
 COMMIT := $(shell git describe --tags --dirty --always)
 
-GOBUILD := GOEXPERIMENT=loopvar GO111MODULE=on go build -v
-GOINSTALL := GOEXPERIMENT=loopvar GO111MODULE=on go install -v
-GOTEST := GOEXPERIMENT=loopvar GO111MODULE=on go test
-GOMOD := GO111MODULE=on go mod
+GOBUILD := go build -v
+GOINSTALL := go install -v
+GOTEST := go test
+GOMOD := go mod
 
 GOLIST := go list -deps $(PKG)/... | grep '$(PKG)'
 GOLIST_COVER := $$(go list -deps $(PKG)/... | grep '$(PKG)')
@@ -56,9 +54,10 @@ endif
 DOCKER_TOOLS = docker run \
   -v $(shell bash -c "go env GOCACHE || (mkdir -p /tmp/go-cache; echo /tmp/go-cache)"):/tmp/build/.cache \
   -v $(shell bash -c "go env GOMODCACHE || (mkdir -p /tmp/go-modcache; echo /tmp/go-modcache)"):/tmp/build/.modcache \
+  -v $(shell bash -c "mkdir -p /tmp/go-lint-cache; echo /tmp/go-lint-cache"):/root/.cache/golangci-lint \
   -v $$(pwd):/build taproot-assets-tools
 
-GO_VERSION = 1.22.6
+GO_VERSION = 1.22.12
 
 GREEN := "\\033[0;32m"
 NC := "\\033[0m"
@@ -73,10 +72,6 @@ all: scratch check install
 # ============
 # DEPENDENCIES
 # ============
-
-$(GOACC_BIN):
-	@$(call print, "Installing go-acc.")
-	cd $(TOOLS_DIR); go install -trimpath $(GOACC_PKG)
 
 $(GOIMPORTS_BIN):
 	@$(call print, "Installing goimports.")
@@ -187,9 +182,9 @@ unit-trace:
 	@$(call print, "Running unit tests in trace mode (enabling package loggers on level trace).")
 	$(UNIT_TRACE)
 
-unit-cover: $(GOACC_BIN)
+unit-cover:
 	@$(call print, "Running unit coverage tests.")
-	$(GOACC); $(COVER_HTML)
+	$(UNIT_COVER)
 
 unit-race:
 	@$(call print, "Running unit race tests.")
@@ -202,7 +197,7 @@ itest-trace: build-itest itest-only-trace
 itest-only: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")
 	rm -rf itest/regtest; date
-	$(GOTEST) ./itest -v -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
+	$(GOTEST) ./itest -v $(ITEST_COVERAGE) -tags="$(ITEST_TAGS)" $(TEST_FLAGS) $(ITEST_FLAGS) -btcdexec=./btcd-itest -logdir=regtest
 
 itest-only-trace: aperture-dir
 	@$(call print, "Running integration tests with ${backend} backend.")
@@ -350,6 +345,14 @@ migration-check:
 clean:
 	@$(call print, "Cleaning source.$(NC)")
 	$(RM) coverage.txt
+	$(RM) -r itest/regtest
+	$(RM) -r itest/chantools
+	$(RM) itest/btcd-itest
+	$(RM) itest/lnd-itest
+	$(RM) loadtest
+	$(RM) tapd-debug
+	$(RM) tapcli-debug
+	$(RM) -r taproot-assets-v*
 
 .PHONY: all \
 	default \
