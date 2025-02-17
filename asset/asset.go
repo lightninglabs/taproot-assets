@@ -1016,12 +1016,12 @@ type GroupKey struct {
 	// has been applied.
 	RawKey keychain.KeyDescriptor
 
-	// GroupPubKey is the tweaked public key that is used to associate assets
-	// together across distinct asset IDs, allowing further issuance of the
-	// asset to be made possible. The tweaked public key is the result of:
+	// GroupPubKey is the tweaked public key that is used to associate
+	// assets together across distinct asset IDs, allowing further issuance
+	// of the asset to be made possible.
 	//
-	// 	internalKey = rawKey + singleTweak * G
-	// 	tweakedGroupKey = TapTweak(internalKey, tapTweak)
+	// The precise construction of this key depends on the version of the
+	// group key construction.
 	GroupPubKey btcec.PublicKey
 
 	// TapscriptRoot represents the root of the Tapscript tree that commits
