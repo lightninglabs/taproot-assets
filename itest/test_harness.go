@@ -386,9 +386,22 @@ type tapdHarnessParams struct {
 
 	// disableSyncCache indicates whether the sync cache should be disabled.
 	disableSyncCache bool
+
+	// oracleServerAddress defines the oracle server's address that this tapd
+	// harness is going to use.
+	oracleServerAddress string
 }
 
+// Option is a tapd harness option.
 type Option func(*tapdHarnessParams)
+
+// WithOracleServer is a functional option that sets the oracle server address
+// option to the provided string.
+func WithOracleServer(s string) Option {
+	return func(th *tapdHarnessParams) {
+		th.oracleServerAddress = s
+	}
+}
 
 // setupTapdHarness creates a new tapd that connects to the given lnd node
 // and to the given universe server.
@@ -422,6 +435,7 @@ func setupTapdHarness(t *testing.T, ht *harnessTest,
 		ho.fedSyncTickerInterval = params.fedSyncTickerInterval
 		ho.sqliteDatabaseFilePath = params.sqliteDatabaseFilePath
 		ho.disableSyncCache = params.disableSyncCache
+		ho.oracleServerAddress = params.oracleServerAddress
 	}
 
 	tapdCfg := tapdConfig{

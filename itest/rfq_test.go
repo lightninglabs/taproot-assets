@@ -546,13 +546,41 @@ type rfqTestScenario struct {
 	CarolTapd *tapdHarness
 }
 
+// rfqTestScenarioOpts is a struct that holds options related to creating an rfq
+// test scenario.
+type rfqTestScenarioOpts struct {
+	oracleServerAddr string
+}
+
+// RfqOption is a functional option that edits an existing instance of rfq
+// test scenario options.
+type RfqOption func(*rfqTestScenarioOpts)
+
+// DefaultRfqOptions returns the default set of rfq test scenario options.
+func DefaultRfqOptions() rfqTestScenarioOpts {
+	return rfqTestScenarioOpts{}
+}
+
+// WithRfqOracleServer is a functional option that sets the oracle server option
+// to the provided string.
+func WithRfqOracleServer(s string) RfqOption {
+	return func(rtso *rfqTestScenarioOpts) {
+		rtso.oracleServerAddr = s
+	}
+}
+
 // newRfqTestScenario initializes a new test scenario with three new LND nodes
 // and connects them to have the following topology,
 //
 //	Alice --> Bob --> Carol
 //
 // It also creates new tapd nodes for each of the LND nodes.
-func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
+func newRfqTestScenario(t *harnessTest, opts ...RfqOption) *rfqTestScenario {
+	rfqOpts := DefaultRfqOptions()
+	for _, opt := range opts {
+		opt(&rfqOpts)
+	}
+
 	// Specify wallet outputs to fund the wallets of the new nodes.
 	const fundAmount = 1 * btcutil.SatoshiPerBitcoin
 
@@ -606,10 +634,20 @@ func newRfqTestScenario(t *harnessTest) *rfqTestScenario {
 	// Make sure Carol is aware of channel Alice -> Bob.
 	t.lndHarness.AssertTopologyChannelOpen(carolLnd, aliceBobChannel)
 
+	var tapdOpt []Option
+	if len(rfqOpts.oracleServerAddr) > 0 {
+		tapdOpt = append(tapdOpt, WithOracleServer(rfqOpts.oracleServerAddr))
+	}
+
 	// Create tapd nodes.
-	aliceTapd := setupTapdHarness(t.t, t, aliceLnd, t.universeServer)
-	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
-	carolTapd := setupTapdHarness(t.t, t, carolLnd, t.universeServer)
+	aliceTapd := setupTapdHarness(
+		t.t, t, aliceLnd, t.universeServer, tapdOpt...,
+	)
+
+	bobTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer, tapdOpt...)
+	carolTapd := setupTapdHarness(
+		t.t, t, carolLnd, t.universeServer, tapdOpt...,
+	)
 
 	ts := rfqTestScenario{
 		testHarness: t,
