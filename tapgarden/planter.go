@@ -2243,7 +2243,8 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// First, we'll perform some basic validation for the seedling.
+	// First, we'll perform some basic validation for the seedling. This
+	// includes verifying its metadata.
 	if err := req.validateFields(); err != nil {
 		return err
 	}
