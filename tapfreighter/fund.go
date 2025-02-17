@@ -85,21 +85,11 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	// a new internal key for the anchor outputs. We assume any output that
 	// hasn't got an internal key set is going to a local anchor, and we
 	// provide the internal key for that.
-	for idx := range vPkt.Outputs {
-		vOut := vPkt.Outputs[idx]
-		if vOut.AnchorOutputInternalKey != nil {
-			continue
-		}
-
-		newInternalKey, err := keyRing.DeriveNextKey(
-			ctx, asset.TaprootAssetsKeyFamily,
-		)
-		if err != nil {
-			return nil, err
-		}
-		vOut.SetAnchorInternalKey(
-			newInternalKey, vPkt.ChainParams.HDCoinType,
-		)
+	packets := []*tappsbt.VPacket{vPkt}
+	err = generateOutputAnchorInternalKeys(ctx, packets, keyRing)
+	if err != nil {
+		return nil, fmt.Errorf("unable to generate output anchor "+
+			"internal keys: %w", err)
 	}
 
 	if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
@@ -107,7 +97,7 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	}
 
 	return &FundedVPacket{
-		VPackets:         []*tappsbt.VPacket{vPkt},
+		VPackets:         packets,
 		InputCommitments: inputCommitments,
 	}, nil
 }
@@ -234,6 +224,117 @@ func createChangeOutput(ctx context.Context, vPkt *tappsbt.VPacket,
 		return maxVersion
 	}
 	changeOut.AssetVersion = fn.Reduce(vPkt.Inputs, maxVersion)
+
+	return nil
+}
+
+// generateOutputAnchorInternalKeys generates internal keys for the anchor
+// outputs of the given virtual packets. If an output already has an internal
+// key set, it will be used. If not, a new key will be derived and set.
+// At the same time we make sure that we don't use different keys for the same
+// anchor output index in case there are multiple packets.
+func generateOutputAnchorInternalKeys(ctx context.Context,
+	packets []*tappsbt.VPacket, keyRing KeyRing) error {
+
+	// We need to make sure we don't use different keys for the same anchor
+	// output index in case there are multiple packets. So we'll keep track
+	// of any set keys here. This will be a merged set of existing and new
+	// keys.
+	anchorKeys := make(map[uint32]tappsbt.Anchor)
+
+	// addAnchorKey adds the anchor key to the map.
+	addAnchorKey := func(vOut *tappsbt.VOutput) {
+		// nolint: lll
+		anchorKeys[vOut.AnchorOutputIndex] = tappsbt.Anchor{
+			InternalKey:       vOut.AnchorOutputInternalKey,
+			Bip32Derivation:   vOut.AnchorOutputBip32Derivation,
+			TrBip32Derivation: vOut.AnchorOutputTaprootBip32Derivation,
+		}
+	}
+
+	// extractAnchorKey is a helper function that extracts the anchor key
+	// from a virtual output and makes sure it is consistent with the
+	// existing anchor keys from previous outputs of the same or different
+	// packets.
+	extractAnchorKey := func(vOut *tappsbt.VOutput) error {
+		if vOut.AnchorOutputInternalKey == nil {
+			return nil
+		}
+
+		anchorIndex := vOut.AnchorOutputIndex
+		anchorKey := vOut.AnchorOutputInternalKey
+
+		// Handle the case where we already have an anchor defined for
+		// this index.
+		if _, ok := anchorKeys[anchorIndex]; ok {
+			existingPubKey := anchorKeys[anchorIndex].InternalKey
+			if !existingPubKey.IsEqual(anchorKey) {
+				return fmt.Errorf("anchor output index %d "+
+					"already has a different internal key "+
+					"set: %x", anchorIndex,
+					existingPubKey.SerializeCompressed())
+			}
+
+			// The keys are the same, so this is already correct.
+			return nil
+		}
+
+		// There is no anchor yet, so we add it to the map.
+		addAnchorKey(vOut)
+
+		return nil
+	}
+
+	// Do a first pass through all packets to collect all existing anchor
+	// keys. At the same time we make sure we don't already have diverging
+	// information.
+	for _, vPkt := range packets {
+		for _, vOut := range vPkt.Outputs {
+			if err := extractAnchorKey(vOut); err != nil {
+				return err
+			}
+		}
+	}
+
+	// We now do a second pass through all packets and set the internal keys
+	// for all outputs that don't have one yet. If we don't have any key for
+	// an output index, we create a new one.
+	// nolint: lll
+	for _, vPkt := range packets {
+		for idx := range vPkt.Outputs {
+			vOut := vPkt.Outputs[idx]
+
+			// Skip any outputs that already have an internal key.
+			if vOut.AnchorOutputInternalKey != nil {
+				continue
+			}
+
+			// Check if we can use an existing key for this output
+			// index.
+			anchor, ok := anchorKeys[vOut.AnchorOutputIndex]
+			if ok {
+				vOut.AnchorOutputInternalKey = anchor.InternalKey
+				vOut.AnchorOutputBip32Derivation = anchor.Bip32Derivation
+				vOut.AnchorOutputTaprootBip32Derivation = anchor.TrBip32Derivation
+
+				continue
+			}
+
+			newInternalKey, err := keyRing.DeriveNextKey(
+				ctx, asset.TaprootAssetsKeyFamily,
+			)
+			if err != nil {
+				return err
+			}
+			vOut.SetAnchorInternalKey(
+				newInternalKey, vPkt.ChainParams.HDCoinType,
+			)
+
+			// Store this anchor information in case we have other
+			// outputs in other packets that need it.
+			addAnchorKey(vOut)
+		}
+	}
 
 	return nil
 }

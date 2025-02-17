@@ -291,9 +291,10 @@ func TestFundPacket(t *testing.T) {
 					ScriptKey:   asset.NUMSScriptKey,
 					Interactive: false,
 				}, {
-					Amount:      mintAmount,
-					ScriptKey:   scriptKey,
-					Interactive: false,
+					Amount:            mintAmount,
+					ScriptKey:         scriptKey,
+					Interactive:       false,
+					AnchorOutputIndex: 1,
 				}},
 			},
 			selectedCommitments: []*AnchoredCommitment{{
