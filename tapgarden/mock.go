@@ -690,6 +690,43 @@ func (m *MockKeyRing) IsLocalKey(_ context.Context,
 	return false
 }
 
+func (m *MockKeyRing) PubKeyAt(t *testing.T, idx uint32) *btcec.PublicKey {
+	m.RLock()
+	defer m.RUnlock()
+
+	loc := keychain.KeyLocator{
+		Index:  idx,
+		Family: asset.TaprootAssetsKeyFamily,
+	}
+
+	priv, ok := m.Keys[loc]
+	if !ok {
+		t.Fatalf("script key not found at index %d", idx)
+	}
+
+	return priv.PubKey()
+}
+
+func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
+	m.RLock()
+	defer m.RUnlock()
+
+	loc := keychain.KeyLocator{
+		Index:  idx,
+		Family: asset.TaprootAssetsKeyFamily,
+	}
+
+	priv, ok := m.Keys[loc]
+	if !ok {
+		t.Fatalf("script key not found at index %d", idx)
+	}
+
+	return asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		KeyLocator: loc,
+		PubKey:     priv.PubKey(),
+	})
+}
+
 type MockGenSigner struct {
 	KeyRing     *MockKeyRing
 	failSigning atomic.Bool
