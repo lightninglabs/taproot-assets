@@ -117,7 +117,22 @@ var universeRootsCommand = cli.Command{
 		cli.BoolFlag{
 			Name: skipAmountsByIdName,
 			Usage: "skip showing the amounts by ID for grouped " +
-				"assets to optimize response size and speed",
+				"assets to optimize response size and speed; " +
+				"only applies if no asset ID or group key is " +
+				"specified",
+		},
+		cli.Uint64Flag{
+			Name: offsetName,
+			Usage: "the offset to start returning results from; " +
+				"only applies if no asset ID or group key is " +
+				"specified",
+		},
+		cli.Uint64Flag{
+			Name: limitName,
+			Usage: "the maximum number of results to return; " +
+				"only applies if no asset ID or group key is " +
+				"specified",
+			Value: universe.RequestPageSize,
 		},
 	},
 	Action: universeRoots,
@@ -205,6 +220,8 @@ func universeRoots(ctx *cli.Context) error {
 		universeRoots, err := client.AssetRoots(
 			ctxc, &unirpc.AssetRootRequest{
 				WithAmountsById: !ctx.Bool(skipAmountsByIdName),
+				Offset:          int32(ctx.Uint64(offsetName)),
+				Limit:           int32(ctx.Uint64(limitName)),
 			},
 		)
 		if err != nil {
