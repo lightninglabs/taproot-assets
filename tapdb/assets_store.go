@@ -888,7 +888,9 @@ func (a *AssetStore) constraintsToDbFilter(
 
 		// If we query by group key, we don't also include the asset ID,
 		// otherwise we'd only get assets from that specific tranche.
-		if len(assetFilter.KeyGroupFilter) > 0 {
+		if query.DistinctSpecifier &&
+			len(assetFilter.KeyGroupFilter) > 0 {
+
 			assetFilter.AssetIDFilter = nil
 		}
 
