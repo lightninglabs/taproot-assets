@@ -18,8 +18,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapsend"
 )
 
-// fundPacketWithInputs funds a virtual transaction with the given inputs.
-func fundPacketWithInputs(ctx context.Context, exporter proof.Exporter,
+// createFundedPacketWithInputs funds a set of virtual transaction with the
+// given inputs. A new vPacket is created for each tranche of the active asset
+// (which is the one specified in the funding descriptor, which is either a
+// single asset ID/tranche or group key with multiple tranches).
+func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	keyRing KeyRing, addrBook AddrBook, fundDesc *tapsend.FundingDescriptor,
 	vPkt *tappsbt.VPacket,
 	selectedCommitments []*AnchoredCommitment) (*FundedVPacket, error) {
@@ -28,13 +31,9 @@ func fundPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 		return nil, errors.New("chain params not set in virtual packet")
 	}
 
-	assetId, err := fundDesc.AssetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return nil, err
-	}
-
-	log.Infof("Selected %v asset inputs for send of %d to %x",
-		len(selectedCommitments), fundDesc.Amount, assetId[:])
+	log.Infof("Selected %v asset inputs for send of %d to %v",
+		len(selectedCommitments), fundDesc.Amount,
+		fundDesc.AssetSpecifier.String())
 
 	assetType := selectedCommitments[0].Asset.Type
 
@@ -197,7 +196,7 @@ func fundPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 	}
 
 	return &FundedVPacket{
-		VPacket:          vPkt,
+		VPackets:         []*tappsbt.VPacket{vPkt},
 		InputCommitments: inputCommitments,
 	}, nil
 }
