@@ -257,6 +257,12 @@ type FundingControllerCfg struct {
 	// genesis for any assets used within channels.
 	AssetSyncer AssetSyncer
 
+	// KeyRing is used to derive keys from lnd's wallet.
+	KeyRing tapfreighter.KeyRing
+
+	// Exporter allows exporting of proofs.
+	Exporter proof.Exporter
+
 	// FeatureBits is used to verify that the peer has the required feature
 	// to fund asset channels.
 	FeatureBits FeatureBitVerifer
@@ -964,9 +970,9 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 			"virtual packet: %w", err)
 	}
 
-	passivePkts, err := f.cfg.AssetWallet.CreatePassiveAssets(
-		ctx, []*tappsbt.VPacket{activePkt},
-		fundingVpkt.InputCommitments,
+	passivePkts, err := tapfreighter.CreatePassiveAssets(
+		ctx, f.cfg.KeyRing, f.cfg.Exporter,
+		[]*tappsbt.VPacket{activePkt}, fundingVpkt.InputCommitments,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to create passive "+

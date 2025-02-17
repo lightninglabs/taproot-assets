@@ -2158,8 +2158,9 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 
 	// Extract the passive assets that are needed for the fully RPC driven
 	// flow.
-	passivePackets, err := r.cfg.AssetWallet.CreatePassiveAssets(
-		ctx, []*tappsbt.VPacket{fundedVPkt.VPacket},
+	passivePackets, err := tapfreighter.CreatePassiveAssets(
+		ctx, r.cfg.KeyRing, r.cfg.ProofArchive,
+		[]*tappsbt.VPacket{fundedVPkt.VPacket},
 		fundedVPkt.InputCommitments,
 	)
 	if err != nil {
