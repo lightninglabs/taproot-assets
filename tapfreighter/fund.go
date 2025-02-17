@@ -67,107 +67,18 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 		return nil, err
 	}
 
-	// We want to know if we are sending to ourselves. We detect that by
-	// looking at the key descriptor of the script key. Because that is not
-	// part of addresses and might not be specified by the user through the
-	// PSBT interface, we now attempt to detect all local script keys and
-	// mark them as such by filling in the descriptor.
-	for idx := range vPkt.Outputs {
-		vOut := vPkt.Outputs[idx]
-
-		tweakedKey, err := addrBook.FetchScriptKey(
-			ctx, vOut.ScriptKey.PubKey,
-		)
-		switch {
-		case err == nil:
-			// We found a tweaked key for this output, so we'll
-			// update the key with the full descriptor info.
-			vOut.ScriptKey.TweakedScriptKey = tweakedKey
-
-		case errors.Is(err, address.ErrScriptKeyNotFound):
-			// This is not a local key, or at least we don't know of
-			// it in the database.
-			continue
-
-		default:
-			return nil, fmt.Errorf("cannot fetch script key: %w",
-				err)
-		}
+	// Make sure we'll recognize local script keys in the virtual packet
+	// later on in the process by annotating them with the full descriptor
+	// information.
+	if err := annotateLocalScriptKeys(ctx, vPkt, addrBook); err != nil {
+		return nil, err
 	}
 
-	// We expect some change back, or have passive assets to commit to, so
-	// let's make sure we create a transfer output.
-	var changeOut *tappsbt.VOutput
-	if !fullValue {
-		// Do we need to add a change output?
-		changeOut, err = vPkt.SplitRootOutput()
-		if err != nil {
-			lastOut := vPkt.Outputs[len(vPkt.Outputs)-1]
-			splitOutIndex := lastOut.AnchorOutputIndex + 1
-			changeOut = &tappsbt.VOutput{
-				Type:              tappsbt.TypeSplitRoot,
-				Interactive:       lastOut.Interactive,
-				AnchorOutputIndex: splitOutIndex,
-
-				// We want to handle deriving a real key in a
-				// generic manner, so we'll do that just below.
-				ScriptKey: asset.NUMSScriptKey,
-			}
-
-			vPkt.Outputs = append(vPkt.Outputs, changeOut)
-		}
-
-		// Since we know we're going to receive some change back, we
-		// need to make sure it is going to an address that we control.
-		// This should only be the case where we create the default
-		// change output with the NUMS key to avoid deriving too many
-		// keys prematurely. We don't need to derive a new key if we
-		// only have passive assets to commit to, since they all have
-		// their own script key and the output is more of a placeholder
-		// to attach the passive assets to.
-		unSpendable, err := changeOut.ScriptKey.IsUnSpendable()
-		if err != nil {
-			return nil, fmt.Errorf("cannot determine if script "+
-				"key is spendable: %w", err)
-		}
-		if unSpendable && !fullValue {
-			changeScriptKey, err := keyRing.DeriveNextKey(
-				ctx, asset.TaprootAssetsKeyFamily,
-			)
-			if err != nil {
-				return nil, err
-			}
-
-			// We'll assume BIP-0086 everywhere, and use the tweaked
-			// key from here on out.
-			changeOut.ScriptKey = asset.NewScriptKeyBip86(
-				changeScriptKey,
-			)
-		}
-
-		// For existing change outputs, we'll just update the amount
-		// since we might not have known what coin would've been
-		// selected and how large the change would turn out to be.
-		changeOut.Amount = totalInputAmt - fundDesc.Amount
-
-		// The asset version of the output should be the max of the set
-		// of input versions. We need to set this now as in
-		// PrepareOutputAssets locators are created which includes the
-		// version from the vOut. If we don't set it here, a v1 asset
-		// spent that becomes change will be a v0 if combined with such
-		// inputs.
-		//
-		// TODO(roasbeef): remove as not needed?
-		maxVersion := func(maxVersion asset.Version,
-			vInput *tappsbt.VInput) asset.Version {
-
-			if vInput.Asset().Version > maxVersion {
-				return vInput.Asset().Version
-			}
-
-			return maxVersion
-		}
-		changeOut.AssetVersion = fn.Reduce(vPkt.Inputs, maxVersion)
+	// If we don't spend the full value, we need to create a change output.
+	changeAmount := totalInputAmt - fundDesc.Amount
+	err = createChangeOutput(ctx, vPkt, keyRing, fullValue, changeAmount)
+	if err != nil {
+		return nil, err
 	}
 
 	// Before we can prepare output assets for our send, we need to generate
@@ -199,6 +110,127 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 		VPackets:         []*tappsbt.VPacket{vPkt},
 		InputCommitments: inputCommitments,
 	}, nil
+}
+
+// annotateLocalScriptKeys annotates the local script keys in the given virtual
+// packet with the full descriptor information.
+func annotateLocalScriptKeys(ctx context.Context, vPkt *tappsbt.VPacket,
+	addrBook AddrBook) error {
+
+	// We want to know if we are sending to ourselves. We detect that by
+	// looking at the key descriptor of the script key. Because that is not
+	// part of addresses and might not be specified by the user through the
+	// PSBT interface, we now attempt to detect all local script keys and
+	// mark them as such by filling in the descriptor.
+	for idx := range vPkt.Outputs {
+		vOut := vPkt.Outputs[idx]
+
+		tweakedKey, err := addrBook.FetchScriptKey(
+			ctx, vOut.ScriptKey.PubKey,
+		)
+		switch {
+		case err == nil:
+			// We found a tweaked key for this output, so we'll
+			// update the key with the full descriptor info.
+			vOut.ScriptKey.TweakedScriptKey = tweakedKey
+
+		case errors.Is(err, address.ErrScriptKeyNotFound):
+			// This is not a local key, or at least we don't know of
+			// it in the database.
+			continue
+
+		default:
+			return fmt.Errorf("cannot fetch script key: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// createChangeOutput creates a change output for the given virtual packet if
+// it isn't fully spent.
+func createChangeOutput(ctx context.Context, vPkt *tappsbt.VPacket,
+	keyRing KeyRing, fullValue bool, changeAmount uint64) error {
+
+	// We expect some change back, or have passive assets to commit to, so
+	// let's make sure we create a transfer output.
+	var (
+		changeOut *tappsbt.VOutput
+		err       error
+	)
+	if !fullValue {
+		// Do we need to add a change output?
+		changeOut, err = vPkt.SplitRootOutput()
+		if err != nil {
+			lastOut := vPkt.Outputs[len(vPkt.Outputs)-1]
+			splitOutIndex := lastOut.AnchorOutputIndex + 1
+			changeOut = &tappsbt.VOutput{
+				Type:              tappsbt.TypeSplitRoot,
+				Interactive:       lastOut.Interactive,
+				AnchorOutputIndex: splitOutIndex,
+
+				// We want to handle deriving a real key in a
+				// generic manner, so we'll do that just below.
+				ScriptKey: asset.NUMSScriptKey,
+			}
+
+			vPkt.Outputs = append(vPkt.Outputs, changeOut)
+		}
+
+		// Since we know we're going to receive some change back, we
+		// need to make sure it is going to an address that we control.
+		// This should only be the case where we create the default
+		// change output with the NUMS key to avoid deriving too many
+		// keys prematurely. We don't need to derive a new key if we
+		// only have passive assets to commit to, since they all have
+		// their own script key and the output is more of a placeholder
+		// to attach the passive assets to.
+		unSpendable, err := changeOut.ScriptKey.IsUnSpendable()
+		if err != nil {
+			return fmt.Errorf("cannot determine if script key is "+
+				"spendable: %w", err)
+		}
+		if unSpendable {
+			changeScriptKey, err := keyRing.DeriveNextKey(
+				ctx, asset.TaprootAssetsKeyFamily,
+			)
+			if err != nil {
+				return err
+			}
+
+			// We'll assume BIP-0086 everywhere, and use the tweaked
+			// key from here on out.
+			changeOut.ScriptKey = asset.NewScriptKeyBip86(
+				changeScriptKey,
+			)
+		}
+
+		// For existing change outputs, we'll just update the amount
+		// since we might not have known what coin would've been
+		// selected and how large the change would turn out to be.
+		changeOut.Amount = changeAmount
+
+		// The asset version of the output should be the max of the set
+		// of input versions. We need to set this now as in
+		// PrepareOutputAssets locators are created which includes the
+		// version from the vOut. If we don't set it here, a v1 asset
+		// spent that becomes change will be a v0 if combined with such
+		// inputs.
+		//
+		// TODO(roasbeef): remove as not needed?
+		maxVersion := func(maxVersion asset.Version,
+			vInput *tappsbt.VInput) asset.Version {
+
+			if vInput.Asset().Version > maxVersion {
+				return vInput.Asset().Version
+			}
+
+			return maxVersion
+		}
+		changeOut.AssetVersion = fn.Reduce(vPkt.Inputs, maxVersion)
+	}
+
+	return nil
 }
 
 // setVPacketInputs sets the inputs of the given vPkt to the given send eligible
