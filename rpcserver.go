@@ -507,7 +507,10 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			"collectibles")
 	}
 
-	var seedlingMeta *proof.MetaReveal
+	// TODO(ffranr): Move seedling MetaReveal construction into
+	//  ChainPlanter. This will allow us to simplify delegation key
+	//  management.
+	var seedlingMeta proof.MetaReveal
 	switch {
 	// If we have an explicit asset meta field, we parse the content.
 	case req.Asset.AssetMeta != nil:
@@ -519,7 +522,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 
 		// If the asset meta field was specified, then the data inside
 		// must be valid. Let's check that now.
-		seedlingMeta = &proof.MetaReveal{
+		seedlingMeta = proof.MetaReveal{
 			Data: req.Asset.AssetMeta.Data,
 			Type: metaType,
 		}
@@ -541,26 +544,16 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 			return nil, err
 		}
 
-		err = seedlingMeta.Validate()
-		if err != nil {
-			return nil, err
-		}
-
 	// If no asset meta field was specified, we create a default meta
 	// reveal with the decimal display set.
 	default:
-		seedlingMeta = &proof.MetaReveal{
+		seedlingMeta = proof.MetaReveal{
 			Type: proof.MetaOpaque,
 		}
 
 		// We always set the decimal display, even if it is the default
 		// value of 0, since we now encode it in the TLV meta data.
 		err = seedlingMeta.SetDecDisplay(req.Asset.DecimalDisplay)
-		if err != nil {
-			return nil, err
-		}
-
-		err = seedlingMeta.Validate()
 		if err != nil {
 			return nil, err
 		}
@@ -606,7 +599,7 @@ func (r *rpcServer) MintAsset(ctx context.Context,
 		AssetName:           req.Asset.Name,
 		Amount:              req.Asset.Amount,
 		EnableEmission:      req.Asset.NewGroupedAsset,
-		Meta:                seedlingMeta,
+		Meta:                &seedlingMeta,
 		UniverseCommitments: req.Asset.UniverseCommitments,
 	}
 
