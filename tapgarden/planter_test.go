@@ -1835,13 +1835,15 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 		test.DefaultHashLockWitness, hashLockLeaf.Script,
 		hashLockControlBlock,
 	}
-	seedlingWitness := asset.PendingGroupWitness{
+	seedlingWitness := tapgarden.PendingGroupWitness{
 		GenID:   seedlingAssetID,
 		Witness: hashLockWitness,
 	}
 
 	sealedBatch, err := t.planter.SealBatch(tapgarden.SealParams{
-		GroupWitnesses: []asset.PendingGroupWitness{seedlingWitness},
+		GroupWitnesses: []tapgarden.PendingGroupWitness{
+			seedlingWitness,
+		},
 	})
 	require.NoError(t, err)
 
@@ -1864,7 +1866,9 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 
 	// Trying to seal the batch again should fail.
 	_, err = t.planter.SealBatch(tapgarden.SealParams{
-		GroupWitnesses: []asset.PendingGroupWitness{seedlingWitness},
+		GroupWitnesses: []tapgarden.PendingGroupWitness{
+			seedlingWitness,
+		},
 	})
 	require.ErrorContains(t, err, "batch is already sealed")
 

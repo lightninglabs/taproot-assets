@@ -1402,10 +1402,3 @@ func DeriveGroupKey(genSigner GenesisSigner, genTx GroupVirtualTx,
 		Witness:       witness,
 	}, nil
 }
-
-// PendingGroupWitness specifies the asset group witness for an asset seedling
-// in an unsealed minting batch.
-type PendingGroupWitness struct {
-	GenID   ID
-	Witness wire.TxWitness
-}

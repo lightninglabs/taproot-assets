@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
@@ -481,33 +480,6 @@ func UnmarshalGroupVirtualTx(genTx *GroupVirtualTx) (*asset.GroupVirtualTx,
 		PrevOut:    prevOut,
 		GenID:      asset.ID(genTx.GenesisId),
 		TweakedKey: *tweakedKey,
-	}, nil
-}
-
-// UnmarshalGroupWitness parses an asset group witness from the RPC variant.
-func UnmarshalGroupWitness(wit *GroupWitness) (*asset.PendingGroupWitness,
-	error) {
-
-	if len(wit.GenesisId) != sha256.Size {
-		return nil, fmt.Errorf("invalid genesis id length: "+
-			"%d, %x", len(wit.GenesisId), wit.GenesisId)
-	}
-
-	// Assert that a given witness stack does not exceed the limit used by
-	// the VM.
-	witSize := 0
-	for _, witItem := range wit.Witness {
-		witSize += len(witItem)
-	}
-
-	if witSize > blockchain.MaxBlockWeight {
-		return nil, fmt.Errorf("asset group witness too large: %d",
-			witSize)
-	}
-
-	return &asset.PendingGroupWitness{
-		GenID:   asset.ID(wit.GenesisId),
-		Witness: wit.Witness,
 	}, nil
 }
 
