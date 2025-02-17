@@ -12,6 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
+	"github.com/btcsuite/btclog"
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
@@ -207,7 +208,11 @@ func (h *harnessTest) setupLogging() {
 	tap.SetupLoggers(h.logWriter, h.interceptor)
 	aperture.SetupLoggers(h.logWriter, h.interceptor)
 
-	h.logWriter.SetLogLevels(*logLevel)
+	UseLogger(build.NewSubLogger(Subsystem, func(tag string) btclog.Logger {
+		return h.logWriter.GenSubLogger(tag, func() {})
+	}))
+
+	h.logWriter.SetLogLevels("debug")
 }
 
 func (h *harnessTest) newLndClient(
