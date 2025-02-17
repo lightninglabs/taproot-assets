@@ -2159,8 +2159,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	// Extract the passive assets that are needed for the fully RPC driven
 	// flow.
 	passivePackets, err := tapfreighter.CreatePassiveAssets(
-		ctx, r.cfg.KeyRing, r.cfg.ProofArchive,
-		[]*tappsbt.VPacket{fundedVPkt.VPacket},
+		ctx, r.cfg.KeyRing, r.cfg.ProofArchive, fundedVPkt.VPackets,
 		fundedVPkt.InputCommitments,
 	)
 	if err != nil {
@@ -2182,7 +2181,12 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 	}
 
-	response.FundedPsbt, err = serialize(fundedVPkt.VPacket)
+	// TODO(guggero): Remove this once we support multiple packets.
+	if len(fundedVPkt.VPackets) > 1 {
+		return nil, fmt.Errorf("only one packet supported")
+	}
+
+	response.FundedPsbt, err = serialize(fundedVPkt.VPackets[0])
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -3346,16 +3350,22 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		return nil, fmt.Errorf("error funding burn: %w", err)
 	}
 
+	// We don't support burning by group key yet, so we only expect a single
+	// vPacket (which implies a single asset ID is involved).
+	if len(fundResp.VPackets) > 1 {
+		return nil, fmt.Errorf("only one packet supported")
+	}
+
 	// Now we can sign the packet and send it to the chain.
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(fundResp.VPacket)
+	vPkt := fundResp.VPackets[0]
+	_, err = r.cfg.AssetWallet.SignVirtualPacket(vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
-			[]*tappsbt.VPacket{fundResp.VPacket},
-			fundResp.InputCommitments, in.Note,
+			fundResp.VPackets, fundResp.InputCommitments, in.Note,
 		),
 	)
 	if err != nil {
@@ -3370,7 +3380,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	var burnProof *taprpc.DecodedProof
 	for idx := range resp.Outputs {
-		vOut := fundResp.VPacket.Outputs[idx]
+		vOut := vPkt.Outputs[idx]
 		tOut := resp.Outputs[idx]
 		if vOut.Asset.IsBurn() {
 			p, err := proof.Decode(tOut.ProofSuffix)

@@ -816,13 +816,19 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 // sendInputOwnershipProofs sends the input ownership proofs to the remote
 // party during the validation phase of the funding process.
 func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
-	vPkt *tappsbt.VPacket, fundingState *pendingAssetFunding) error {
+	vPackets []*tappsbt.VPacket, fundingState *pendingAssetFunding) error {
 
 	ctx, done := f.WithCtxQuit()
 	defer done()
 
-	log.Infof("Generating input ownership proofs for %v inputs",
-		len(vPkt.Inputs))
+	log.Infof("Generating input ownership proofs for %v packets",
+		len(vPackets))
+
+	// TODO(guggero): Remove once we add group key support.
+	if len(vPackets) > 1 {
+		return fmt.Errorf("only one vPacket supported for now")
+	}
+	vPkt := vPackets[0]
 
 	// For each of the inputs we selected, we'll create a new ownership
 	// proof for each of them. We'll send this to the peer, so they can
@@ -954,25 +960,26 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 
 	log.Infof("Signing all funding vPackets")
 
-	activePkt := fundingVpkt.VPacket
+	activePackets := fundingVpkt.VPackets
+	for idx := range activePackets {
+		encoded, err := tappsbt.Encode(activePackets[idx])
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unable to encode "+
+				"active packet: %w", err)
+		}
 
-	encoded, err := tappsbt.Encode(activePkt)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to encode active "+
-			"packet: %w", err)
-	}
+		log.Debugf("Active packet %d: %x", idx, encoded)
 
-	log.Debugf("Active packet: %x", encoded)
-
-	_, err = f.cfg.AssetWallet.SignVirtualPacket(activePkt)
-	if err != nil {
-		return nil, nil, nil, fmt.Errorf("unable to sign and commit "+
-			"virtual packet: %w", err)
+		_, err = f.cfg.AssetWallet.SignVirtualPacket(activePackets[idx])
+		if err != nil {
+			return nil, nil, nil, fmt.Errorf("unable to sign and "+
+				"commit virtual packet: %w", err)
+		}
 	}
 
 	passivePkts, err := tapfreighter.CreatePassiveAssets(
-		ctx, f.cfg.KeyRing, f.cfg.Exporter,
-		[]*tappsbt.VPacket{activePkt}, fundingVpkt.InputCommitments,
+		ctx, f.cfg.KeyRing, f.cfg.Exporter, activePackets,
+		fundingVpkt.InputCommitments,
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("unable to create passive "+
@@ -984,7 +991,7 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 			"assets: %w", err)
 	}
 
-	allPackets := append([]*tappsbt.VPacket{}, activePkt)
+	allPackets := append([]*tappsbt.VPacket{}, activePackets...)
 	allPackets = append(allPackets, passivePkts...)
 
 	err = tapsend.ValidateVPacketVersions(allPackets)
@@ -992,7 +999,7 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 		return nil, nil, nil, fmt.Errorf("signed packets: %w", err)
 	}
 
-	return allPackets, []*tappsbt.VPacket{activePkt}, passivePkts, nil
+	return allPackets, activePackets, passivePkts, nil
 }
 
 // anchorVPackets anchors the vPackets to the funding PSBT, creating a
@@ -1162,20 +1169,25 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 		return nil, fmt.Errorf("unable to parse internal key: %w", err)
 	}
 
-	fundedVpkt.VPacket.Outputs[0].AnchorOutputBip32Derivation = nil
-	fundedVpkt.VPacket.Outputs[0].AnchorOutputTaprootBip32Derivation = nil
-	fundingInternalKeyDesc := keychain.KeyDescriptor{
-		PubKey: fundingInternalKey,
+	// Overwrite the funding output's anchor information with the on-chain
+	// funding output internal key (MuSig2 key).
+	fundingPackets := fundedVpkt.VPackets
+	for idx := range fundingPackets {
+		fundingPkt := fundingPackets[idx]
+		fundingPkt.Outputs[0].AnchorOutputBip32Derivation = nil
+		fundingPkt.Outputs[0].AnchorOutputTaprootBip32Derivation = nil
+		fundingInternalKeyDesc := keychain.KeyDescriptor{
+			PubKey: fundingInternalKey,
+		}
+		fundingPkt.Outputs[0].SetAnchorInternalKey(
+			fundingInternalKeyDesc, f.cfg.ChainParams.HDCoinType,
+		)
 	}
-	fundedVpkt.VPacket.Outputs[0].SetAnchorInternalKey(
-		fundingInternalKeyDesc, f.cfg.ChainParams.HDCoinType,
-	)
 
 	// Given the asset inputs selected in the prior step, we'll now
 	// construct a template packet that maps our asset inputs to actual
 	// inputs in the PSBT packet.
-	fundingVPkts := []*tappsbt.VPacket{fundedVpkt.VPacket}
-	fundingPsbt, err := tapsend.PrepareAnchoringTemplate(fundingVPkts)
+	fundingPsbt, err := tapsend.PrepareAnchoringTemplate(fundingPackets)
 	if err != nil {
 		return nil, err
 	}
@@ -1554,10 +1566,14 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 
 	// Now that we've funded the vPk, keep track of the set of inputs we
 	// locked to ensure we unlock them later.
-	fundingState.lockedAssetInputs = fn.Map(
-		fundingVpkt.VPacket.Inputs,
-		func(in *tappsbt.VInput) wire.OutPoint {
-			return in.PrevID.OutPoint
+	fundingState.lockedAssetInputs = fn.FlatMap(
+		fundingVpkt.VPackets, func(p *tappsbt.VPacket) []wire.OutPoint {
+			return fn.Map(
+				p.Inputs,
+				func(in *tappsbt.VInput) wire.OutPoint {
+					return in.PrevID.OutPoint
+				},
+			)
 		},
 	)
 
@@ -1576,8 +1592,8 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 		}
 	}
 
-	// Register a defer to execute if none of the set up below succeeds.
-	// This ensure we always unlock the UTXO.
+	// Register a defer to execute if none of the setup below succeeds.
+	// This ensures we always unlock the UTXO.
 	var setupSuccess bool
 	defer func() {
 		if !setupSuccess {
@@ -1589,15 +1605,11 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// we allow to be commited to a single channel. This is to make sure we
 	// have a decent number of HTLCs available. See Godoc of maxNumAssetIDs
 	// for more information.
-	//
-	// TODO(guggero): This following code is obviously wrong and needs to be
-	// changed when we support committing fungible assets into a channel. To
-	// avoid this TODO from being overlooked, we add a dummy implementation
-	// with a condition that currently will never be true (since there's
-	// only a single vPacket being selected currently anyway).
 	assetIDSet := lfn.NewSet[asset.ID]()
-	for _, out := range fundingVpkt.VPacket.Outputs {
-		assetIDSet.Add(out.Asset.ID())
+	for _, fundingPacket := range fundingVpkt.VPackets {
+		for _, out := range fundingPacket.Outputs {
+			assetIDSet.Add(out.Asset.ID())
+		}
 	}
 	if assetIDSet.Size() > maxNumAssetIDs {
 		return fmt.Errorf("too many different asset IDs in channel "+
@@ -1609,17 +1621,20 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// we can derive the tapscript root that'll be used alongside the
 	// internal key (which we'll only learn from lnd later as we finalize
 	// the funding PSBT).
-	fundingOutput := fundingVpkt.VPacket.Outputs[0]
+	fundingAssets := fn.Map(
+		fundingVpkt.VPackets, func(pkt *tappsbt.VPacket) *asset.Asset {
+			return pkt.Outputs[0].Asset.Copy()
+		},
+	)
 	fundingCommitVersion, err := tappsbt.CommitmentVersion(
-		fundingVpkt.VPacket.Version,
+		fundingVpkt.VPackets[0].Version,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
 	}
 
 	fundingCommitment, err := commitment.FromAssets(
-		fundingCommitVersion,
-		fundingOutput.Asset.Copy(),
+		fundingCommitVersion, fundingAssets...,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
@@ -1636,7 +1651,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// need to derive then send a series of ownership
 	// proofs to the remote party.
 	err = f.sendInputOwnershipProofs(
-		fundReq.PeerPub, fundingVpkt.VPacket, fundingState,
+		fundReq.PeerPub, fundingVpkt.VPackets, fundingState,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to send input ownership "+

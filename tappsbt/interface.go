@@ -167,9 +167,6 @@ var (
 // split again in this virtual transaction). Therefore, if an anchor output
 // carries commitments for multiple assets, a virtual transaction needs to be
 // created, signed and then anchored for each asset ID separately.
-//
-// TODO(guggero): Actually support merging multiple virtual transactions into a
-// single BTC transaction.
 type VPacket struct {
 	// Inputs is the list of asset inputs that are being spent.
 	Inputs []*VInput
