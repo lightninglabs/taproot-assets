@@ -785,11 +785,6 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	// case our destination will just be the OP_TRUE tapscript that we use
 	// for the funding output.
 	pktTemplate := &tappsbt.VPacket{
-		Inputs: []*tappsbt.VInput{{
-			PrevID: asset.PrevID{
-				ID: assetID,
-			},
-		}},
 		Outputs: []*tappsbt.VOutput{{
 			Amount:            amt,
 			AssetVersion:      asset.V1,
