@@ -407,7 +407,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		NamespaceRoot: namespace,
 		AssetID:       fn.ByteSlice(leaf.ID()),
 		GroupKey:      groupKeyBytes,
-		ProofType:     id.ProofType.String(),
+		ProofType:     sqlStr(id.ProofType.String()),
 	})
 	if err != nil {
 		return nil, err

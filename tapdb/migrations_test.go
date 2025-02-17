@@ -293,3 +293,142 @@ func TestMigration20(t *testing.T) {
 	blob2 := p2[asset2Key]
 	require.Equal(t, []byte{0xee, 0xee}, []byte(blob2))
 }
+
+// TestMigration29 tests that the migration to version 29 works as expected.
+// It verifies the migration of existing data and the insertion of new rows
+// using the new proof types "burn" and "ignore".
+func TestMigration29(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a test database at a version prior to migration 29 (e.g.
+	// version 28).
+	db := NewTestDBWithVersion(t, 28)
+
+	// Insert dummy data representing the pre-migration state.
+	// This should minimally populate the tables that will be affected by
+	InsertTestdata(t, db.BaseDB, "migrations_test_00029_dummy_data.sql")
+
+	// Run the migration to the latest version.
+	err := db.ExecuteMigrations(TargetLatest)
+	require.NoError(t, err)
+
+	// First, we'll Verify pre-existing dummy data was migrated correctly.
+
+	// Check universe_roots: the dummy row should keep its original
+	// proof_type.
+	var proofType string
+	err = db.QueryRowContext(ctx,
+		"SELECT proof_type FROM universe_roots WHERE id = 1").Scan(
+		&proofType,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "issuance", proofType)
+
+	// Check federation_global_sync_config dummy data.
+	err = db.QueryRowContext(ctx,
+		"SELECT proof_type FROM federation_global_sync_config LIMIT 1").Scan(
+		&proofType,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "transfer", proofType)
+
+	// Check federation_uni_sync_config dummy data.
+	err = db.QueryRowContext(ctx,
+		"SELECT proof_type FROM federation_uni_sync_config LIMIT 1").Scan(
+		&proofType,
+	)
+	require.NoError(t, err)
+	require.Equal(t, "issuance", proofType)
+
+	// Next, we'll insert new rows that use the newly allowed values "burn"
+	// and "ignore".
+	//
+	// For the 'burn' proof type:
+	//   - Insert a unique mssmt_nodes row and a corresponding mssmt_roots
+	//   row with namespace 'ns_burn'.
+	//
+	//   - Then insert a universe_roots row referencing namespace 'ns_burn'
+	_, err = db.ExecContext(ctx, ` 
+	  INSERT INTO mssmt_nodes (
+	      hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+	  )
+	  VALUES (
+		X'1111111111111111111111111111111111111111111111111111111111111111',
+	      NULL, NULL, X'00', X'00', 0, 'ns_burn'
+	  )
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+	  INSERT INTO mssmt_roots (namespace, root_hash)
+	  VALUES ('ns_burn', X'1111111111111111111111111111111111111111111111111111111111111111')
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, ` 
+	  INSERT INTO universe_roots (namespace_root, asset_id, group_key, proof_type)
+	  VALUES ('ns_burn', NULL, X'000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f', 'burn')
+	`)
+	require.NoError(t, err)
+
+	// For the 'ignore' proof type:
+	//
+	//   - Insert a unique mssmt_nodes row and a corresponding mssmt_roots
+	//   row with namespace 'ns_ignore'.
+	//
+	//   - Then insert a universe_roots row referencing namespace
+	//   'ns_ignore' with proof_type 'ignore'.
+	_, err = db.ExecContext(ctx, `
+	  INSERT INTO mssmt_nodes (
+	      hash_key, l_hash_key, r_hash_key, key, value, sum, namespace
+	  )
+	  VALUES (
+	      X'2222222222222222222222222222222222222222222222222222222222222222',
+	      NULL, NULL, X'00', X'00', 0, 'ns_ignore'
+	  )
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+	  INSERT INTO mssmt_roots (namespace, root_hash)
+	  VALUES ('ns_ignore', X'2222222222222222222222222222222222222222222222222222222222222222')
+	`)
+	require.NoError(t, err)
+	_, err = db.ExecContext(ctx, `
+	  INSERT INTO universe_roots (namespace_root, asset_id, group_key, proof_type)
+	  VALUES ('ns_ignore', NULL, X'00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF', 'ignore')
+	`)
+	require.NoError(t, err)
+
+	// Verify that the two newly inserted rows exist.
+	var count int
+	err = db.QueryRowContext(ctx, `
+	  SELECT COUNT(*) FROM universe_roots WHERE proof_type IN ('burn', 'ignore')
+	`).Scan(&count)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+
+	// For federation_global_sync_config, insert a new row with proof_type
+	// "burn".
+	_, err = db.ExecContext(ctx, `
+	  INSERT INTO federation_global_sync_config (proof_type, allow_sync_insert, allow_sync_export)
+	  VALUES ('burn', 1, 0)
+	`)
+	require.NoError(t, err)
+	err = db.QueryRowContext(ctx, `
+	  SELECT proof_type FROM federation_global_sync_config WHERE proof_type = 'burn'
+	`).Scan(&proofType)
+	require.NoError(t, err)
+	require.Equal(t, "burn", proofType)
+
+	// For federation_uni_sync_config, insert a new row with proof_type
+	// "ignore". Note: The schema requires a valid 33-byte group_key. Here
+	// we use a hard-coded hex value.
+	_, err = db.ExecContext(ctx, `
+	  INSERT INTO federation_uni_sync_config (namespace, group_key, proof_type, allow_sync_insert, allow_sync_export)
+	  VALUES ('test', X'00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF00', 'ignore', false, true)
+	`)
+	require.NoError(t, err)
+	err = db.QueryRowContext(ctx, `
+	  SELECT proof_type FROM federation_uni_sync_config WHERE proof_type = 'ignore' LIMIT 1
+	`).Scan(&proofType)
+	require.NoError(t, err)
+	require.Equal(t, "ignore", proofType)
+}
