@@ -527,13 +527,6 @@ func TestCustodianNewAddr(t *testing.T) {
 	})
 	h.assertStartup()
 
-	// Store a new random address to the store. We need to acknowledge the
-	// creation of two keys in a goroutine to unblock the underlying key
-	// ring.
-	go func() {
-		<-h.keyRing.ReqKeys
-		<-h.keyRing.ReqKeys
-	}()
 	ctx := context.Background()
 	addr, _ := randAddr(h)
 	proofCourierAddr := address.RandProofCourierAddr(t)
@@ -543,6 +536,8 @@ func TestCustodianNewAddr(t *testing.T) {
 		proofCourierAddr,
 	)
 	require.NoError(t, err)
+
+	h.keyRing.AssertNumberOfCalls(t, "DeriveNextTaprootAssetKey", 2)
 
 	h.assertAddrsRegistered(dbAddr)
 
@@ -591,16 +586,14 @@ func TestBookAssetSyncer(t *testing.T) {
 	// If we add the asset to the asset syncer, address creation should
 	// succeed.
 	h.syncer.AddAsset(*newAsset)
-	go func() {
-		<-h.keyRing.ReqKeys
-		<-h.keyRing.ReqKeys
-	}()
 	addrVersion = test.RandFlip(address.V0, address.V1)
 	newAddr, err := h.addrBook.NewAddress(
 		ctx, addrVersion, newAsset.ID(), 1, nil, proofCourierAddr,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, newAddr)
+
+	h.keyRing.AssertNumberOfCalls(t, "DeriveNextTaprootAssetKey", 2)
 
 	numAddrs := 1
 	validAddrs := fn.MakeSlice(newAddr)
