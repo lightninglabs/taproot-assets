@@ -407,17 +407,22 @@ type VInput struct {
 
 // Copy creates a deep copy of the VInput.
 func (i *VInput) Copy() *VInput {
-	return &VInput{
+	vInCopy := &VInput{
 		PInput: i.PInput,
 		PrevID: i.PrevID,
 		Anchor: i.Anchor,
-		asset:  i.asset.Copy(),
 		// We never expect the individual fields of the proof to change
 		// while it is assigned to a virtual input. So not deep copying
 		// it here is fine.
 		Proof:     i.Proof,
 		AltLeaves: asset.CopyAltLeaves(i.AltLeaves),
 	}
+
+	if i.asset != nil {
+		vInCopy.asset = i.asset.Copy()
+	}
+
+	return vInCopy
 }
 
 // Asset returns the input's asset that's being spent.
