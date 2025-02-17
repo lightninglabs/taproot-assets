@@ -224,9 +224,9 @@ func NewAssetWallet(cfg *WalletConfig) *AssetWallet {
 // FundedVPacket is the result from an attempt to fund a given Taproot Asset
 // address send request via a call to FundAddressSend.
 type FundedVPacket struct {
-	// VPacket is the virtual transaction that was created to fund the
-	// transfer.
-	VPacket *tappsbt.VPacket
+	// VPackets is a list of virtual transaction that was created to fund
+	// the transfer.
+	VPackets []*tappsbt.VPacket
 
 	// InputCommitments is a map from virtual package input index to its
 	// associated Taproot Asset commitment.
@@ -453,7 +453,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		}
 	}()
 
-	pkt, err := fundPacketWithInputs(
+	pkt, err := createFundedPacketWithInputs(
 		ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook, fundDesc,
 		vPkt, selectedCommitments,
 	)
@@ -566,7 +566,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 
 	// The virtual transaction is now ready to be further enriched with the
 	// split commitment and other data.
-	fundedPkt, err := fundPacketWithInputs(
+	fundedPkt, err := createFundedPacketWithInputs(
 		ctx, f.cfg.AssetProofs, f.cfg.KeyRing, f.cfg.AddrBook, fundDesc,
 		vPkt, selectedCommitments,
 	)
@@ -574,12 +574,19 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		return nil, err
 	}
 
+	// We don't support burning by group key yet, so we only expect a single
+	// vPacket (which implies a single asset ID is involved).
+	if len(fundedPkt.VPackets) != 1 {
+		return nil, fmt.Errorf("expected a single vPacket, got %d",
+			len(fundedPkt.VPackets))
+	}
+
 	// We want to avoid a BTC output being created that just sits there
 	// without an actual commitment in it. So if we are not getting any
 	// change or passive assets in this output, we'll not want to go through
 	// with it.
-	firstOut := fundedPkt.VPacket.Outputs[0]
-	if len(fundedPkt.VPacket.Outputs) == 1 &&
+	firstOut := fundedPkt.VPackets[0].Outputs[0]
+	if len(fundedPkt.VPackets[0].Outputs) == 1 &&
 		firstOut.Amount == fundDesc.Amount {
 
 		// A burn is an interactive transfer. So we don't expect there
@@ -589,7 +596,7 @@ func (f *AssetWallet) FundBurn(ctx context.Context,
 		// case, we'll return as burning all assets in an anchor output
 		// is not supported.
 		otherAssets, err := hasOtherAssets(
-			fundedPkt.InputCommitments, []*tappsbt.VPacket{vPkt},
+			fundedPkt.InputCommitments, fundedPkt.VPackets,
 		)
 		if err != nil {
 			return nil, err

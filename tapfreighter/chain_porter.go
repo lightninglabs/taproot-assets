@@ -1085,9 +1085,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
-		currentPkg.VirtualPackets = []*tappsbt.VPacket{
-			fundSendRes.VPacket,
-		}
+		currentPkg.VirtualPackets = fundSendRes.VPackets
 		currentPkg.InputCommitments = fundSendRes.InputCommitments
 
 		currentPkg.SendState = SendStateVirtualSign

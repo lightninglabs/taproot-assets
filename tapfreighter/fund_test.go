@@ -224,10 +224,11 @@ func TestFundPacket(t *testing.T) {
 					t, inputCommitments, r.InputCommitments,
 				)
 
-				require.Len(t, r.VPacket.Outputs, 2)
-				require.Len(t, r.VPacket.Inputs, 1)
+				require.Len(t, r.VPackets, 1)
+				require.Len(t, r.VPackets[0].Outputs, 2)
+				require.Len(t, r.VPackets[0].Inputs, 1)
 
-				vOut0 := r.VPacket.Outputs[0]
+				vOut0 := r.VPackets[0].Outputs[0]
 				require.Equal(t, uint64(20), vOut0.Amount)
 				require.Equal(t, scriptKey, vOut0.ScriptKey)
 				require.Equal(
@@ -235,7 +236,7 @@ func TestFundPacket(t *testing.T) {
 					vOut0.AnchorOutputInternalKey,
 				)
 
-				vOut1 := r.VPacket.Outputs[1]
+				vOut1 := r.VPackets[0].Outputs[1]
 				require.Equal(
 					t, uint64(mintAmount-20), vOut1.Amount,
 				)
@@ -312,10 +313,11 @@ func TestFundPacket(t *testing.T) {
 					t, inputCommitments, r.InputCommitments,
 				)
 
-				require.Len(t, r.VPacket.Outputs, 2)
-				require.Len(t, r.VPacket.Inputs, 1)
+				require.Len(t, r.VPackets, 1)
+				require.Len(t, r.VPackets[0].Outputs, 2)
+				require.Len(t, r.VPackets[0].Inputs, 1)
 
-				vOut0 := r.VPacket.Outputs[0]
+				vOut0 := r.VPackets[0].Outputs[0]
 				require.Equal(t, uint64(0), vOut0.Amount)
 				require.Equal(
 					t, asset.NUMSScriptKey,
@@ -326,7 +328,7 @@ func TestFundPacket(t *testing.T) {
 					vOut0.AnchorOutputInternalKey,
 				)
 
-				vOut1 := r.VPacket.Outputs[1]
+				vOut1 := r.VPackets[0].Outputs[1]
 				require.Equal(
 					t, uint64(mintAmount), vOut1.Amount,
 				)
@@ -346,7 +348,7 @@ func TestFundPacket(t *testing.T) {
 		addrBook := &mockAddrBook{}
 		keyRing := tapgarden.NewMockKeyRing()
 
-		result, err := fundPacketWithInputs(
+		result, err := createFundedPacketWithInputs(
 			ctx, exporter, keyRing, addrBook,
 			tc.fundDesc, tc.vPkt, tc.selectedCommitments,
 		)
