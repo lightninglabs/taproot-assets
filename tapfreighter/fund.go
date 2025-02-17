@@ -31,6 +31,13 @@ func createFundedPacketWithInputs(ctx context.Context, exporter proof.Exporter,
 		return nil, errors.New("chain params not set in virtual packet")
 	}
 
+	if fundDesc.DistinctSpecifier {
+		if err := fundDesc.AssetSpecifier.EnsureDistinct(); err != nil {
+			return nil, fmt.Errorf("asset specifier not distinct: "+
+				"%w", err)
+		}
+	}
+
 	log.Infof("Selected %v asset inputs for send of %d to %v",
 		len(selectedCommitments), fundDesc.Amount,
 		fundDesc.AssetSpecifier.String())
