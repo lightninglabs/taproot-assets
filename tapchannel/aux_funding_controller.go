@@ -751,10 +751,11 @@ func (f *fundingFlowIndex) fromMsg(chainParams *address.ChainParams,
 // fundVirtualPacket attempts to fund a new vPacket using the asset wallet to
 // find the asset inputs required to satisfy a funding request.
 func (f *FundingController) fundVirtualPacket(ctx context.Context,
-	assetID asset.ID, amt uint64) (*tapfreighter.FundedVPacket, error) {
+	specifier asset.Specifier, amt uint64) (*tapfreighter.FundedVPacket,
+	error) {
 
-	log.Infof("Funding new vPacket channel, asset_id=%v, amt=%v",
-		assetID, amt)
+	log.Infof("Funding new vPacket channel, asset=%s, amt=%v", &specifier,
+		amt)
 
 	// Our funding script key will be the OP_TRUE addr that we'll use as
 	// the funding script on the asset level.
@@ -795,16 +796,14 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 		ChainParams: &f.cfg.ChainParams,
 		Version:     tappsbt.V1,
 	}
-	fundDesc, err := tapsend.DescribeRecipients(
-		ctx, pktTemplate, f.cfg.GroupKeyIndex,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to describe recipients: %w", err)
+	fundDesc := &tapsend.FundingDescriptor{
+		AssetSpecifier: specifier,
+		Amount:         amt,
+		CoinSelectType: tapsend.Bip86Only,
 	}
 
 	// Fund the packet. This will derive an anchor internal key for us, but
 	// we'll overwrite that later on.
-	fundDesc.CoinSelectType = tapsend.Bip86Only
 	return f.cfg.AssetWallet.FundPacket(ctx, fundDesc, pktTemplate)
 }
 
@@ -1544,8 +1543,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// With our initial state created, we'll now attempt to fund the
 	// channel on the TAP level with a vPacket.
 	fundingVpkt, err := f.fundVirtualPacket(
-		fundReq.ctx, fundReq.AssetID,
-		fundReq.AssetAmount,
+		fundReq.ctx, fundReq.AssetSpecifier, fundReq.AssetAmount,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to fund vPacket: %w", err)
@@ -2028,8 +2026,8 @@ type FundReq struct {
 	// TODO(roasbeef): also need p2p address?
 	PeerPub btcec.PublicKey
 
-	// AssetID is the asset that we're funding the channel with.
-	AssetID asset.ID
+	// AssetSpecifier is the asset that we're funding the channel with.
+	AssetSpecifier asset.Specifier
 
 	// AssetAmount is the amount of the asset that we're funding the channel
 	// with.
