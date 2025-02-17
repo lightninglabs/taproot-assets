@@ -2238,10 +2238,96 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return <-req.resp, <-req.err
 }
 
+// prepSeedlingUniCommitments finalizes the seedling for universe commitments
+// if the feature is enabled.
+func (c *ChainPlanter) prepSeedlingUniCommitments(ctx context.Context,
+	req *Seedling) error {
+
+	// If the universe commitments feature is disabled for this seedling,
+	// we can skip this any further modifications. The seedling will be
+	// validated relative to the batch later.
+	if !req.UniverseCommitments {
+		return nil
+	}
+
+	// Set the universe commitments flag in the seedling metadata.
+	req.Meta.UniverseCommitments = true
+
+	// At this point, we know that the universe commitments feature is
+	// enabled for the seedling. If a group anchor seedling is specified
+	// we will use its delegation key.
+	if req.GroupAnchor != nil {
+		// Retrieve the group anchor seedling from the pending batch.
+		anchorSeedlingName := *req.GroupAnchor
+
+		anchor, ok := c.pendingBatch.Seedlings[anchorSeedlingName]
+		if anchor == nil || !ok {
+			return fmt.Errorf("group anchor seedling not present "+
+				"in batch (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		if anchor.Meta == nil {
+			return fmt.Errorf("group anchor seedling has no meta "+
+				"(anchor_seedling_name=%s)", anchorSeedlingName)
+		}
+
+		if anchor.Meta.DelegationKey.IsNone() {
+			return fmt.Errorf("group anchor seedling has no "+
+				"metadata delegation key "+
+				"(anchor_seedling_name=%s)", anchorSeedlingName)
+		}
+
+		if anchor.DelegationKey.IsNone() {
+			return fmt.Errorf("group anchor seedling has no "+
+				"delegation key (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		// Set the delegation key for the seedling to the delegation key
+		// of the group anchor seedling.
+		req.Meta.DelegationKey = anchor.Meta.DelegationKey
+		req.DelegationKey = anchor.DelegationKey
+
+		// Return early, no further seedling prep required for universe
+		// commitments feature.
+		return nil
+	}
+
+	// On the other hand, if we're handling the group anchor seedling, we
+	// and the delegation key is unset, we must generate a new one.
+	if req.EnableEmission && req.GroupAnchor == nil {
+		newKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to derive pre-commitment "+
+				"output key: %w", err)
+		}
+
+		// Ensure that the key descriptor public key is set.
+		if newKey.PubKey == nil {
+			return fmt.Errorf("derived key has no public key")
+		}
+		pubKey := *newKey.PubKey
+
+		req.DelegationKey = fn.Some(newKey)
+		req.Meta.DelegationKey = fn.Some(pubKey)
+	}
+
+	return nil
+}
+
 // prepAssetSeedling performs some basic validation for the Seedling, then
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
+
+	// Finalise the seedling for universe commitments feature if enabled.
+	err := c.prepSeedlingUniCommitments(ctx, req)
+	if err != nil {
+		return err
+	}
 
 	// First, we'll perform some basic validation for the seedling. This
 	// includes verifying its metadata.
