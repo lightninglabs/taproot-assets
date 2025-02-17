@@ -40,13 +40,6 @@ type ProofImporter interface {
 		replace bool, proofs ...*proof.AnnotatedProof) error
 }
 
-// ProofExporter is used to fetch input proofs to
-type ProofExporter interface {
-	// FetchProof attempts to fetcb a serialized proof file from the local
-	// archive based on the passed locator.
-	FetchProof(ctx context.Context, id proof.Locator) (proof.Blob, error)
-}
-
 // ChainPorterConfig is the main config for the chain porter.
 type ChainPorterConfig struct {
 	// Signer implements the Taproot Asset level signing we need to sign a
@@ -80,7 +73,8 @@ type ChainPorterConfig struct {
 
 	ProofWriter ProofImporter
 
-	ProofReader ProofExporter
+	// ProofReader is used to fetch input proofs.
+	ProofReader proof.Exporter
 
 	// ProofCourierDispatcher is the dispatcher that is used to create new
 	// proof courier handles for sending proofs based on the protocol of
