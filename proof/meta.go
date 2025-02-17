@@ -228,6 +228,13 @@ func (m *MetaReveal) Validate() error {
 		return err
 	}
 
+	// The asset metadata is invalid when the universe commitments feature
+	// is enabled but no delegation key is specified.
+	if m.UniverseCommitments && m.DelegationKey.IsNone() {
+		return fmt.Errorf("universe commitments enabled in asset " +
+			"metadata but delegation key is unspecified")
+	}
+
 	return fn.MapOptionZ(m.DelegationKey, func(key btcec.PublicKey) error {
 		if key == emptyKey {
 			return ErrDelegationKeyEmpty
@@ -288,6 +295,8 @@ func IsValidDecDisplay(decDisplay uint32) error {
 
 // DecodeMetaJSON decodes bytes as a JSON object, after checking that the bytes
 // could be valid metadata.
+//
+// TODO(ffranr): Add unit test for `jBytes := []byte{}`.
 func DecodeMetaJSON(jBytes []byte) (map[string]interface{}, error) {
 	jMeta := make(map[string]interface{})
 
