@@ -9,8 +9,11 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
+	oraclerpc "github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/mock"
+	"google.golang.org/grpc"
 )
 
 // MockPriceOracle is a mock implementation of the PriceOracle interface.
@@ -111,6 +114,34 @@ func (m *MockPriceOracle) QueryBidPrice(ctx context.Context,
 	)
 	resp, _ := args.Get(0).(*OracleResponse)
 	return resp, args.Error(1)
+}
+
+// QueryAssetRates is a mock implementation of the QueryAssetRates method.
+func (m *MockPriceOracle) QueryAssetRates(ctx context.Context,
+	in *priceoraclerpc.QueryAssetRatesRequest, opts ...grpc.CallOption,
+) (*priceoraclerpc.QueryAssetRatesResponse, error) {
+
+	// Unmarshal the subject asset to BTC rate.
+	rpcRate := &priceoraclerpc.FixedPoint{
+		Coefficient: m.assetToBtcRate.Coefficient.String(),
+		Scale:       uint32(m.assetToBtcRate.Scale),
+	}
+
+	return &priceoraclerpc.QueryAssetRatesResponse{
+		Result: &priceoraclerpc.QueryAssetRatesResponse_Ok{
+			Ok: &priceoraclerpc.QueryAssetRatesOkResponse{
+				AssetRates: &priceoraclerpc.AssetRates{
+					SubjectAssetRate: rpcRate,
+				},
+			},
+		},
+	}, nil
+}
+
+// Client returns a client that can be used to interact with the mock price
+// oracle.
+func (m *MockPriceOracle) Client() oraclerpc.PriceOracleClient {
+	return m
 }
 
 // Ensure that MockPriceOracle implements the PriceOracle interface.

@@ -107,6 +107,9 @@ type PriceOracle interface {
 		paymentMaxAmt fn.Option[lnwire.MilliSatoshi],
 		assetRateHint fn.Option[rfqmsg.AssetRate]) (
 		*OracleResponse, error)
+
+	// RawClient returns the underlying RPC client.
+	Client() oraclerpc.PriceOracleClient
 }
 
 // RpcPriceOracle is a price oracle that uses an external RPC server to get
@@ -402,6 +405,11 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 	default:
 		return nil, fmt.Errorf("unexpected response type: %T", result)
 	}
+}
+
+// Client returns the underlying RPC client.
+func (r *RpcPriceOracle) Client() oraclerpc.PriceOracleClient {
+	return r.client
 }
 
 // Ensure that RpcPriceOracle implements the PriceOracle interface.
