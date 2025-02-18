@@ -25,6 +25,12 @@ var (
 	ErrInvalidCommitmentProof = errors.New(
 		"invalid Taproot Asset commitment proof",
 	)
+
+	// ErrStxoInputProofMissing is returned when a required STXO input proof
+	// is missing.
+	ErrStxoInputProofMissing = errors.New(
+		"missing STXO input proof for Taproot Asset commitment",
+	)
 )
 
 // CommitmentProof represents a full commitment proof for an asset. It can
