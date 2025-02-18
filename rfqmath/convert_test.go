@@ -828,3 +828,59 @@ func TestConversionMsat(t *testing.T) {
 		rapid.MakeCheck(testRoundTripConversion[BigInt]),
 	)
 }
+
+// TestConversionSatsPerAsset tests the conversion of satoshis per asset to an
+// asset per BTC rate.
+func TestConversionSatsPerAsset(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		satsPerAsset  uint64
+		expectedValue uint64
+	}{
+		{
+			satsPerAsset:  5,
+			expectedValue: 20_000_000,
+		},
+		{
+			satsPerAsset:  10,
+			expectedValue: 10_000_000,
+		},
+		{
+			satsPerAsset:  20,
+			expectedValue: 5_000_000,
+		},
+		{
+			satsPerAsset:  1,
+			expectedValue: 100_000_000,
+		},
+		{
+			satsPerAsset:  50,
+			expectedValue: 2_000_000,
+		},
+		{
+			satsPerAsset:  100,
+			expectedValue: 1_000_000,
+		},
+		{
+			satsPerAsset:  0,
+			expectedValue: 0,
+		},
+	}
+
+	for idx := range testCases {
+		testCase := testCases[idx]
+
+		t.Run(fmt.Sprintf("SatsPerAsset=%d", testCase.satsPerAsset),
+			func(t *testing.T) {
+				actual := SatsPerAssetToAssetRate(
+					testCase.satsPerAsset,
+				)
+				expected := NewBigIntFixedPoint(
+					testCase.expectedValue, 0,
+				)
+				require.Equal(t, expected, actual)
+			},
+		)
+	}
+}
