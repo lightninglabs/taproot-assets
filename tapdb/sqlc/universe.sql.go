@@ -206,7 +206,7 @@ WHERE mssmt_nodes.namespace = $1
 type FetchUniverseRootRow struct {
 	AssetID   []byte
 	GroupKey  []byte
-	ProofType string
+	ProofType sql.NullString
 	RootHash  []byte
 	RootSum   int64
 	AssetName string
@@ -260,7 +260,7 @@ type InsertNewProofEventParams struct {
 	GroupKeyXOnly  interface{}
 	EventTime      time.Time
 	EventTimestamp int64
-	ProofType      string
+	ProofType      sql.NullString
 	AssetID        []byte
 }
 
@@ -309,7 +309,7 @@ type InsertNewSyncEventParams struct {
 	GroupKeyXOnly  interface{}
 	EventTime      time.Time
 	EventTimestamp int64
-	ProofType      string
+	ProofType      sql.NullString
 	AssetID        []byte
 }
 
@@ -539,7 +539,7 @@ type QueryFederationProofSyncLogRow struct {
 	LeafAssetID           []byte
 	UniAssetID            []byte
 	UniGroupKey           []byte
-	UniProofType          string
+	UniProofType          sql.NullString
 }
 
 // Join on mssmt_nodes to get leaf related fields.
@@ -595,15 +595,24 @@ FROM federation_uni_sync_config
 ORDER BY group_key NULLS LAST, asset_id NULLS LAST, proof_type
 `
 
-func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]FederationUniSyncConfig, error) {
+type QueryFederationUniSyncConfigsRow struct {
+	Namespace       string
+	AssetID         []byte
+	GroupKey        []byte
+	ProofType       sql.NullString
+	AllowSyncInsert bool
+	AllowSyncExport bool
+}
+
+func (q *Queries) QueryFederationUniSyncConfigs(ctx context.Context) ([]QueryFederationUniSyncConfigsRow, error) {
 	rows, err := q.db.QueryContext(ctx, QueryFederationUniSyncConfigs)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []FederationUniSyncConfig
+	var items []QueryFederationUniSyncConfigsRow
 	for rows.Next() {
-		var i FederationUniSyncConfig
+		var i QueryFederationUniSyncConfigsRow
 		if err := rows.Scan(
 			&i.Namespace,
 			&i.AssetID,
@@ -1063,7 +1072,7 @@ type UniverseRootsParams struct {
 type UniverseRootsRow struct {
 	AssetID   []byte
 	GroupKey  []byte
-	ProofType string
+	ProofType sql.NullString
 	RootHash  []byte
 	RootSum   int64
 	AssetName string
@@ -1208,7 +1217,7 @@ type UpsertFederationUniSyncConfigParams struct {
 	Namespace       string
 	AssetID         []byte
 	GroupKey        []byte
-	ProofType       string
+	ProofType       sql.NullString
 	AllowSyncInsert bool
 	AllowSyncExport bool
 }
@@ -1332,7 +1341,7 @@ type UpsertUniverseRootParams struct {
 	NamespaceRoot string
 	AssetID       []byte
 	GroupKey      []byte
-	ProofType     string
+	ProofType     sql.NullString
 }
 
 func (q *Queries) UpsertUniverseRoot(ctx context.Context, arg UpsertUniverseRootParams) (int64, error) {
