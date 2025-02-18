@@ -179,8 +179,8 @@ required Go version ($goversion)."
     pushd "${dir}"
 
     green " - Building: ${os} ${arch} ${arm} with build tags '${buildtags}'"
-    env GOEXPERIMENT=loopvar CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapd
-    env GOEXPERIMENT=loopvar CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapcli
+    env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapd
+    env CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" GOARM=$arm GOAMD64="v1" go build -v -trimpath -ldflags="${ldflags}" -tags="${buildtags}" ${PKG}/cmd/tapcli
     popd
 
     # Add the hashes for the individual binaries as well for easy verification

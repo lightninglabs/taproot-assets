@@ -19,7 +19,7 @@ env:
   # go needs absolute directories, using the $HOME variable doesn't work here.
   GOPATH: /home/runner/work/go
 
-  GO_VERSION: '1.22.6'
+  GO_VERSION: '1.22.12'
   
   LITD_ITEST_BRANCH: 'master'
 
@@ -232,6 +232,7 @@ jobs:
       - name: Send coverage
         uses: shogo82148/actions-goveralls@v1
         if: matrix.unit_type == 'unit-cover'
+        continue-on-error: true
         with:
           path-to-profile: coverage.txt
           flag-name: 'unit'
@@ -251,7 +252,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: run itest
-        run: make itest
+        run: make itest cover=1
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -264,6 +265,15 @@ jobs:
           name: logs-itest
           path: logs-itest.zip
           retention-days: 5
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          path-to-profile: itest/coverage.txt
+          flag-name: 'itest'
+          parallel: true
 
   ########################
   # run integration tests with Postgres backend
@@ -279,7 +289,7 @@ jobs:
         uses: ./.github/actions/setup-go
 
       - name: run itest
-        run: make itest dbbackend=postgres
+        run: make itest dbbackend=postgres cover=1
 
       - name: Zip log files on failure
         if: ${{ failure() }}
@@ -292,6 +302,15 @@ jobs:
           name: logs-itest-postgres
           path: logs-itest-postgres.zip
           retention-days: 5
+
+      - name: Send coverage
+        uses: shogo82148/actions-goveralls@v1
+        if: ${{ success() }}
+        continue-on-error: true
+        with:
+          path-to-profile: itest/coverage.txt
+          flag-name: 'itest'
+          parallel: true
 
   ########################
   # Run LiTd tests
@@ -347,5 +366,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: shogo82148/actions-goveralls@v1
+        continue-on-error: true
         with:
           parallel-finished: true
