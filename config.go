@@ -53,6 +53,8 @@ type RPCConfig struct {
 
 	AllowPublicStats bool
 
+	AllowPublicPriceOracle bool
+
 	LetsEncryptDir string
 
 	LetsEncryptListen string
