@@ -13,6 +13,7 @@ import (
 	"github.com/btcsuite/btcd/btcutil/hdkeychain"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -2513,6 +2514,175 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.Equal(t.t, bobAssets.Assets[0].Amount, numUnits)
 
 	require.Equal(t.t, bobScriptKeyBytes, bobAssets.Assets[0].ScriptKey)
+}
+
+// testPsbtSTXOExclusionProofs tests that we can properly send normal assets
+// back and forth, using partial amounts, between nodes with the use of PSBTs,
+// and that we see the expected STXO exclusion proofs.
+func testPsbtSTXOExclusionProofs(t *harnessTest) {
+	// First, we'll make a normal asset with a bunch of units that we are
+	// going to send backand forth. We're also minting a passive asset that
+	// should remain where it is.
+	rpcAssets := MintAssetsConfirmBatch(
+		t.t, t.lndHarness.Miner().Client, t.tapd,
+		[]*mintrpc.MintAssetRequest{
+			simpleAssets[0],
+			// Our "passive" asset.
+			{
+				Asset: &mintrpc.MintAsset{
+					AssetType: taprpc.AssetType_NORMAL,
+					Name:      "itestbuxx-passive",
+					AssetMeta: &taprpc.AssetMeta{
+						Data: []byte("some metadata"),
+					},
+					Amount: 123,
+				},
+			},
+		},
+	)
+
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	mintedAsset := rpcAssets[0]
+	genInfo := rpcAssets[0].AssetGenesis
+	var assetId asset.ID
+	copy(assetId[:], genInfo.AssetId)
+
+	// Now that we have the asset created, we'll make a new node that'll
+	// serve as the node which'll receive the assets.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
+	defer func() {
+		require.NoError(t.t, bob.stop(!*noDelete))
+	}()
+
+	alice := t.tapd
+
+	// We need to derive two keys, one for the new script key and
+	// one for the internal key.
+	bobScriptKey, bobAnchorIntKeyDesc := DeriveKeys(t.t, bob)
+
+	var id [32]byte
+	copy(id[:], genInfo.AssetId)
+	sendAmt := uint64(2400)
+
+	vPkt := tappsbt.ForInteractiveSend(
+		id, sendAmt, bobScriptKey, 0, 0, 0,
+		bobAnchorIntKeyDesc, asset.V0, chainParams,
+	)
+
+	// Next, we'll attempt to complete a transfer with PSBTs from
+	// alice to bob, using the partial amount.
+	fundResp := fundPacket(t, alice, vPkt)
+	signResp, err := alice.SignVirtualPsbt(
+		ctxt, &wrpc.SignVirtualPsbtRequest{
+			FundedPsbt: fundResp.FundedPsbt,
+		},
+	)
+	require.NoError(t.t, err)
+
+	// Now we'll attempt to complete the transfer.
+	sendResp, err := alice.AnchorVirtualPsbts(
+		ctxt, &wrpc.AnchorVirtualPsbtsRequest{
+			VirtualPsbts: [][]byte{signResp.SignedPsbt},
+		},
+	)
+	require.NoError(t.t, err)
+
+	numOutputs := 2
+	changeAmt := mintedAsset.Amount - sendAmt
+	ConfirmAndAssertOutboundTransferWithOutputs(
+		t.t, t.lndHarness.Miner().Client, alice, sendResp,
+		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 0, 1, numOutputs,
+	)
+
+	// We want the proof of the change asset since that is the root asset.
+	aliceScriptKeyBytes := sendResp.Transfer.Outputs[0].ScriptKey
+	proofResp := exportProof(
+		t, alice, sendResp, aliceScriptKeyBytes, genInfo,
+	)
+	proofFile, err := proof.DecodeFile(proofResp.RawProofFile)
+	require.NoError(t.t, err)
+	require.Equal(t.t, proofFile.NumProofs(), 2)
+	latestProof, err := proofFile.LastProof()
+	require.NoError(t.t, err)
+
+	// This proof should contain the STXO exclusion proofs
+	stxoProofs := latestProof.ExclusionProofs[0].CommitmentProof.STXOProofs
+	require.NotNil(t.t, stxoProofs)
+
+	// We expect a single exclusion proof for the change output, which is
+	// the input asset that we spent which should not be committed to in the
+	// other anchor output.
+	outpoint, err := wire.NewOutPointFromString(
+		mintedAsset.ChainAnchor.AnchorOutpoint,
+	)
+	require.NoError(t.t, err)
+
+	prevId := asset.PrevID{
+		OutPoint:  *outpoint,
+		ID:        id,
+		ScriptKey: asset.SerializedKey(mintedAsset.ScriptKey),
+	}
+
+	prevIdKey := asset.DeriveBurnKey(prevId)
+	expectedScriptKey := asset.NewScriptKey(prevIdKey)
+
+	pubKey := expectedScriptKey.PubKey
+	identifier := asset.ToSerialized(pubKey)
+
+	require.Len(t.t, stxoProofs, 1)
+
+	// If we derive the identifier from the script key we expect of the
+	// minimal asset, it should yield a proof when used as a key for the
+	// stxoProofs.
+	require.NotNil(t.t, stxoProofs[identifier])
+
+	// Create the minimal asset for which we expect to see the STXO
+	// exclusion.
+	minAsset, err := asset.NewAltLeaf(expectedScriptKey, asset.ScriptV0)
+	require.NoError(t.t, err)
+
+	// We need to copy the base exclusion proof for each STXO because we'll
+	// modify it with the specific asset and taproot proofs.
+	stxoProof := stxoProofs[identifier]
+	stxoExclProof := proof.MakeSTXOProof(
+		latestProof.ExclusionProofs[0], &stxoProof,
+	)
+
+	// Derive the possible taproot keys assuming the exclusion proof is
+	// correct.
+	derivedKeys, err := stxoExclProof.DeriveByAssetExclusion(
+		minAsset.AssetCommitmentKey(),
+		minAsset.TapCommitmentKey(),
+	)
+	require.NoError(t.t, err)
+
+	// Extract the actual taproot key from the anchor tx.
+	expectedTaprootKey, err := proof.ExtractTaprootKey(
+		&latestProof.AnchorTx, stxoExclProof.OutputIndex,
+	)
+	require.NoError(t.t, err)
+	expectedKey := schnorr.SerializePubKey(expectedTaprootKey)
+
+	// Convert the derived (possible) keys into their schnorr serialized
+	// counterparts.
+	serializedKeys := make([][]byte, 0, len(derivedKeys))
+	for derivedKey := range derivedKeys {
+		serializedKeys = append(
+			serializedKeys, derivedKey.SchnorrSerialized(),
+		)
+	}
+
+	// The derived keys should contain the expected key.
+	require.Contains(t.t, serializedKeys, expectedKey)
+
+	// This is an interactive transfer, so we do need to manually
+	// send the proof from the sender to the receiver.
+	bobScriptKeyBytes := bobScriptKey.PubKey.SerializeCompressed()
+	sendProof(t, alice, bob, sendResp, bobScriptKeyBytes, genInfo)
 }
 
 // testPsbtExternalCommit tests the ability to fully customize the BTC level of
