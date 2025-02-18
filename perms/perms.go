@@ -311,6 +311,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/priceoraclerpc.PriceOracle/QueryAssetRates": {{
+			Entity: "priceoracle",
+			Action: "read",
+		}},
 	}
 
 	// defaultMacaroonWhitelist defines a default set of RPC endpoints that
@@ -332,7 +336,8 @@ var (
 // macaroon authentication.
 func MacaroonWhitelist(allowUniPublicAccessRead bool,
 	allowUniPublicAccessWrite bool, allowPublicUniProofCourier bool,
-	allowPublicStats bool) map[string]struct{} {
+	allowPublicStats bool, allowPublicPriceOracle bool,
+) map[string]struct{} {
 
 	// Make a copy of the default whitelist.
 	whitelist := make(map[string]struct{})
@@ -355,6 +360,11 @@ func MacaroonWhitelist(allowUniPublicAccessRead bool,
 		whitelist["/universerpc.Universe/QueryAssetStats"] = struct{}{}
 		whitelist["/universerpc.Universe/UniverseStats"] = struct{}{}
 		whitelist["/universerpc.Universe/QueryEvents"] = struct{}{}
+	}
+
+	// Conditionally add public price oracle RPC endpoints to the whitelist.
+	if allowPublicPriceOracle {
+		whitelist["/priceoraclerpc.PriceOracle/QueryAssetRates"] = struct{}{} // nolint: lll
 	}
 
 	return whitelist
