@@ -336,6 +336,10 @@ var testCases = []*testCase{
 		name: "asset signing after lnd restore from seed",
 		test: testRestoreLndFromSeed,
 	},
+	{
+		name: "price oracle proxy",
+		test: testPriceOracleProxy,
+	},
 }
 
 var optionalTestCases = []*testCase{
