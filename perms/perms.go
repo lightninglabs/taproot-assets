@@ -311,6 +311,10 @@ var (
 			Entity: "assets",
 			Action: "write",
 		}},
+		"/priceoraclerpc.PriceOracle/QueryAssetRates": {{
+			Entity: "priceoracle",
+			Action: "read",
+		}},
 	}
 
 	// defaultMacaroonWhitelist defines a default set of RPC endpoints that

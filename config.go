@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
@@ -196,6 +197,10 @@ type Config struct {
 	RfqManager *rfq.Manager
 
 	PriceOracle rfq.PriceOracle
+
+	// ProxyPriceOracle is an optional price oracle that can be used to
+	// proxy price requests to another price oracle.
+	ProxyPriceOracle priceoraclerpc.PriceOracleClient
 
 	UniverseStats universe.Telemetry
 

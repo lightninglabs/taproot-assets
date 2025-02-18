@@ -46,6 +46,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
@@ -70,6 +71,8 @@ import (
 	"golang.org/x/exp/maps"
 	"golang.org/x/time/rate"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 var (
@@ -84,6 +87,11 @@ var (
 	// P2TRChangeType is the type of change address that should be used for
 	// funding PSBTs, as we'll always want to use P2TR change addresses.
 	P2TRChangeType = walletrpc.ChangeAddressType_CHANGE_ADDRESS_TYPE_P2TR
+
+	// ErrPriceOracleUnimplemented is the error returned when the price
+	// oracle service is unimplemented.
+	ErrPriceOracleUnimplemented = status.Error(
+		codes.Unimplemented, "price oracle service is unimplemented")
 )
 
 const (
@@ -161,6 +169,7 @@ type rpcServer struct {
 	tchrpc.UnimplementedTaprootAssetChannelsServer
 	tapdevrpc.UnimplementedTapDevServer
 	unirpc.UnimplementedUniverseServer
+	priceoraclerpc.UnimplementedPriceOracleServer
 
 	interceptor signal.Interceptor
 
@@ -230,6 +239,8 @@ func (r *rpcServer) RegisterWithGrpcServer(grpcServer *grpc.Server) error {
 	tchrpc.RegisterTaprootAssetChannelsServer(grpcServer, r)
 	unirpc.RegisterUniverseServer(grpcServer, r)
 	tapdevrpc.RegisterGrpcServer(grpcServer, r)
+	priceoraclerpc.RegisterPriceOracleServer(grpcServer, r)
+
 	return nil
 }
 
@@ -8258,4 +8269,19 @@ func (r *rpcServer) RegisterTransfer(ctx context.Context,
 	return &taprpc.RegisterTransferResponse{
 		RegisteredAsset: rpcAsset,
 	}, nil
+}
+
+// QueryAssetRates retrieves the exchange rate between a tap asset and BTC for
+// a specified transaction type, subject asset, and payment asset. The asset
+// rate represents the number of tap asset units per BTC.
+// NOTE: This call is proxied to the underlying price oracle.
+func (r *rpcServer) QueryAssetRates(ctx context.Context,
+	req *priceoraclerpc.QueryAssetRatesRequest) (
+	*priceoraclerpc.QueryAssetRatesResponse, error) {
+
+	if r.cfg.ProxyPriceOracle == nil {
+		return nil, ErrPriceOracleUnimplemented
+	}
+
+	return r.cfg.ProxyPriceOracle.QueryAssetRates(ctx, req)
 }
