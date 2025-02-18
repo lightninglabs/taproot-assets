@@ -45,13 +45,8 @@ func NewMockPriceOracleSatPerAsset(expiryDelay uint64,
 	satsPerAsset uint64) *MockPriceOracle {
 
 	return &MockPriceOracle{
-		expiryDelay: expiryDelay,
-
-		// TODO(ffranr): This is incorrect, we should convert
-		//  satoshis per asset to assets per BTC.
-		assetToBtcRate: rfqmath.NewBigIntFixedPoint(
-			satsPerAsset, 0,
-		),
+		expiryDelay:    expiryDelay,
+		assetToBtcRate: rfqmath.SatsPerAssetToAssetRate(satsPerAsset),
 	}
 }
 

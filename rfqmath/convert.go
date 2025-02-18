@@ -172,3 +172,16 @@ func MinTransportableMSat(dustLimit lnwire.MilliSatoshi,
 	oneAssetUnit := NewBigIntFixedPoint(1, 0)
 	return dustLimit + UnitsToMilliSatoshi(oneAssetUnit, rate)
 }
+
+// SatsPerAssetToAssetRate converts a satoshis per asset rate to an asset to
+// BTC rate.
+func SatsPerAssetToAssetRate(satsPerAsset uint64) BigIntFixedPoint {
+	if satsPerAsset == 0 {
+		return NewBigIntFixedPoint(0, 0)
+	}
+
+	satsPerAssetFp := NewBigIntFixedPoint(satsPerAsset, 0)
+	satsPerBTC := NewBigIntFixedPoint(100_000_000, 0)
+
+	return satsPerBTC.Div(satsPerAssetFp)
+}
