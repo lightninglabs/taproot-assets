@@ -290,9 +290,16 @@ type FundParams struct {
 	SiblingTapTree fn.Option[asset.TapscriptTreeNodes]
 }
 
+// PendingGroupWitness specifies the asset group witness for an asset seedling
+// in an unsealed minting batch.
+type PendingGroupWitness struct {
+	GenID   asset.ID
+	Witness wire.TxWitness
+}
+
 // SealParams change how asset groups in a minting batch are created.
 type SealParams struct {
-	GroupWitnesses []asset.PendingGroupWitness
+	GroupWitnesses []PendingGroupWitness
 
 	// SignedGroupVirtualPsbts are the signed group virtual PSBTs that
 	// will be used to create the group witness for the asset group.
@@ -1914,7 +1921,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		})...,
 	)
 
-	externalWitnesses := make(map[asset.ID]asset.PendingGroupWitness)
+	externalWitnesses := make(map[asset.ID]PendingGroupWitness)
 	for _, wit := range params.GroupWitnesses {
 		if !seedlingAssetIDs.Contains(wit.GenID) {
 			return nil, fmt.Errorf("witness has no matching "+
@@ -1981,7 +1988,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 		}
 
 		// Add the witness to the set of external witnesses.
-		externalWitnesses[genesisAssetID] = asset.PendingGroupWitness{
+		externalWitnesses[genesisAssetID] = PendingGroupWitness{
 			GenID:   genesisAssetID,
 			Witness: tx.TxIn[0].Witness,
 		}

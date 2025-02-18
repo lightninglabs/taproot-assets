@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
@@ -785,15 +786,42 @@ func (r *rpcServer) FundBatch(ctx context.Context,
 	}, nil
 }
 
+// UnmarshalGroupWitness parses an asset group witness from the RPC variant.
+func UnmarshalGroupWitness(
+	wit *taprpc.GroupWitness) (*tapgarden.PendingGroupWitness, error) {
+
+	if len(wit.GenesisId) != sha256.Size {
+		return nil, fmt.Errorf("invalid genesis id length: "+
+			"%d, %x", len(wit.GenesisId), wit.GenesisId)
+	}
+
+	// Assert that a given witness stack does not exceed the limit used by
+	// the VM.
+	witSize := 0
+	for _, witItem := range wit.Witness {
+		witSize += len(witItem)
+	}
+
+	if witSize > blockchain.MaxBlockWeight {
+		return nil, fmt.Errorf("asset group witness too large: %d",
+			witSize)
+	}
+
+	return &tapgarden.PendingGroupWitness{
+		GenID:   asset.ID(wit.GenesisId),
+		Witness: wit.Witness,
+	}, nil
+}
+
 // SealBatch attempts to seal the current pending batch, validating provided
 // asset group witnesses and generating asset group witnesses as needed.
 func (r *rpcServer) SealBatch(ctx context.Context,
 	req *mintrpc.SealBatchRequest) (*mintrpc.SealBatchResponse, error) {
 
 	// Unmarshal group witnesses from the request.
-	var groupWitnesses []asset.PendingGroupWitness
+	var groupWitnesses []tapgarden.PendingGroupWitness
 	for i := range req.GroupWitnesses {
-		wit, err := taprpc.UnmarshalGroupWitness(req.GroupWitnesses[i])
+		wit, err := UnmarshalGroupWitness(req.GroupWitnesses[i])
 		if err != nil {
 			return nil, err
 		}
