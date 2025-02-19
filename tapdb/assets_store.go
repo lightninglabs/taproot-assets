@@ -1835,10 +1835,8 @@ func (a *AssetStore) upsertAssetProof(ctx context.Context,
 // The final resting place of the asset will be used as the script key itself.
 //
 // NOTE: This implements the proof.ArchiveBackend interface.
-func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.HeaderVerifier,
-	_ proof.MerkleVerifier, _ proof.GroupVerifier,
-	_ proof.ChainLookupGenerator, replace bool,
-	proofs ...*proof.AnnotatedProof) error {
+func (a *AssetStore) ImportProofs(ctx context.Context, _ proof.VerifierCtx,
+	replace bool, proofs ...*proof.AnnotatedProof) error {
 
 	var writeTxOpts AssetStoreTxOptions
 

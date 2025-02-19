@@ -68,11 +68,15 @@ func runBIPTestVectorBackwardCompatible(t *testing.T,
 			// full proof chain, as it's the first proof in the
 			// chain.
 			if decoded.GenesisReveal != nil {
+				vCtx := VerifierCtx{
+					HeaderVerifier: MockHeaderVerifier,
+					MerkleVerifier: DefaultMerkleVerifier,
+					GroupVerifier:  MockGroupVerifier,
+					ChainLookupGen: MockChainLookup,
+				}
 				_, err = decoded.Verify(
 					context.Background(), nil,
-					MockHeaderVerifier,
-					DefaultMerkleVerifier,
-					MockGroupVerifier, MockChainLookup,
+					MockChainLookup, vCtx,
 				)
 				require.NoError(tt, err)
 			}
