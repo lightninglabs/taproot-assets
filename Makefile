@@ -252,9 +252,17 @@ sqlc:
 	@$(call print, "Merging SQL migrations into consolidated schemas")
 	go run ./cmd/merge-sql-schemas/main.go
 
-sqlc-check: sqlc
+sqlc-check: 
 	@$(call print, "Verifying sql code generation.")
-	if test -n "$$(git status --porcelain '*.go')"; then echo "SQL models not properly generated!"; git status --porcelain '*.go'; exit 1; fi
+	@if [ ! -f tapdb/sqlc/schemas/generated_schema.sql ]; then \
+		echo "Missing file: tapdb/sqlc/schemas/generated_schema.sql"; \
+		exit 1; \
+	fi
+	@if test -n "$$(git status --porcelain '*.go')"; then \
+		echo "SQL models not properly generated!"; \
+		git status --porcelain '*.go'; \
+		exit 1; \
+	fi
 
 rpc:
 	@$(call print, "Compiling protos.")
