@@ -171,9 +171,7 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	// With all our test data constructed, we'll now attempt to import the
 	// asset into the database.
 	require.NoError(t, assetStore.ImportProofs(
-		ctx, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, false,
-		annotatedProof,
+		ctx, proof.MockVerifierCtx, false, annotatedProof,
 	))
 
 	// Now the HasProof should return true.

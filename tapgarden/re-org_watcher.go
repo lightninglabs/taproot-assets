@@ -580,12 +580,17 @@ func (w *ReOrgWatcher) DefaultUpdateCallback() proof.UpdateCallback {
 		ctxt, cancel := w.CtxBlocking()
 		defer cancel()
 
-		headerVerifier := GenHeaderVerifier(ctxt, w.cfg.ChainBridge)
+		vCtx := proof.VerifierCtx{
+			HeaderVerifier: GenHeaderVerifier(
+				ctxt, w.cfg.ChainBridge,
+			),
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			GroupVerifier:  w.cfg.GroupVerifier,
+			ChainLookupGen: w.cfg.ChainBridge,
+		}
 		for idx := range proofs {
 			err := proof.ReplaceProofInBlob(
-				ctxt, proofs[idx], w.cfg.ProofArchive,
-				headerVerifier, proof.DefaultMerkleVerifier,
-				w.cfg.GroupVerifier, w.cfg.ChainBridge,
+				ctxt, proofs[idx], w.cfg.ProofArchive, vCtx,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to update proofs: %w",

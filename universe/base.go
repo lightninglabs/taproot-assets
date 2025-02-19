@@ -338,15 +338,15 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	key LeafKey, newProof *proof.Proof,
 	prevAssetSnapshot *proof.AssetSnapshot) (*proof.AssetSnapshot, error) {
 
-	lookup, err := a.cfg.ChainLookupGenerator.GenProofChainLookup(newProof)
-	if err != nil {
-		return nil, fmt.Errorf("unable to generate chain lookup: %w",
-			err)
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: a.cfg.HeaderVerifier,
+		MerkleVerifier: a.cfg.MerkleVerifier,
+		GroupVerifier:  a.cfg.GroupVerifier,
+		ChainLookupGen: a.cfg.ChainLookupGenerator,
 	}
 
 	assetSnapshot, err := newProof.Verify(
-		ctx, prevAssetSnapshot, a.cfg.HeaderVerifier,
-		a.cfg.MerkleVerifier, a.cfg.GroupVerifier, lookup,
+		ctx, prevAssetSnapshot, vCtx,
 	)
 	if err != nil {
 		var skBytes []byte
