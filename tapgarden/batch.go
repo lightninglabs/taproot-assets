@@ -309,6 +309,74 @@ func (m *MintingBatch) HasSeedlings() bool {
 	return len(m.Seedlings) != 0
 }
 
+// validateDelegationKey ensures that the delegation key is valid for a seedling
+// being considered for inclusion in the batch.
+func (m *MintingBatch) validateDelegationKey(newSeedling Seedling) error {
+	// If the universe commitment flag is disabled, then the delegation key
+	// should not be set.
+	if !newSeedling.UniverseCommitments {
+		if newSeedling.DelegationKey.IsSome() {
+			return fmt.Errorf("delegation key must not be set " +
+				"for seedling without universe commitments")
+		}
+
+		// If the universe commitment flag is disabled and the
+		// delegation key is correctly unset, no further checks are
+		// needed.
+		return nil
+	}
+
+	// At this point, we know that the universe commitment flag is enabled
+	// for the seedling. Therefore, the delegation key must be set.
+	delegationKey, err := newSeedling.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key must be set for seedling with " +
+			"universe commitments"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// validateKeyDesc is a helper function to validate a key descriptor.
+	validateKeyDesc := func(keyDesc keychain.KeyDescriptor) error {
+		if keyDesc.PubKey == nil {
+			return fmt.Errorf("pubkey is nil")
+		}
+
+		if !keyDesc.PubKey.IsOnCurve() {
+			return fmt.Errorf("pubkey is not on curve")
+		}
+
+		return nil
+	}
+
+	// Ensure that the delegation key is valid.
+	err = validateKeyDesc(delegationKey)
+	if err != nil {
+		return fmt.Errorf("candidate seedling delegation "+
+			"key validation failed: %w", err)
+	}
+
+	// Ensure that the delegation key is the same for all seedlings in the
+	// batch.
+	for _, seedling := range m.Seedlings {
+		// Ensure that the delegation key matches that of the candidate
+		// seedling.
+		keyDesc, err := seedling.DelegationKey.UnwrapOrErr(
+			fmt.Errorf("delegation key must be set for seedling " +
+				"with universe commitments"),
+		)
+		if err != nil {
+			return err
+		}
+
+		if !delegationKey.PubKey.IsEqual(keyDesc.PubKey) {
+			return fmt.Errorf("delegation key mismatch")
+		}
+	}
+
+	return nil
+}
+
 // validateUniCommitment verifies that the seedling adheres to the universe
 // commitment feature restrictions in the context of the current batch state.
 func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
@@ -416,6 +484,13 @@ func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
 	// can be set to match the seedling's flag state.
 	if !m.HasSeedlings() {
 		m.UniverseCommitments = newSeedling.UniverseCommitments
+	}
+
+	// Ensure that the delegation key is valid for the seedling being
+	// considered for inclusion in the batch.
+	err = m.validateDelegationKey(newSeedling)
+	if err != nil {
+		return fmt.Errorf("delegation key validation failed: %w", err)
 	}
 
 	// Add the seedling to the batch.
