@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	lfn "github.com/lightningnetwork/lnd/fn"
+
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -29,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 var (
@@ -1000,6 +1003,66 @@ func TestProofVerification(t *testing.T) {
 	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
+}
+
+// TestProofFileVerificationIgnoreChecker tests that the ignore checker can be
+// used as a proof rejection cache.
+func TestProofFileVerificationIgnoreChecker(t *testing.T) {
+	proofHex, err := os.ReadFile(proofFileHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	proofFile := &File{}
+	err = proofFile.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	numProofs := proofFile.NumProofs()
+
+	rapid.Check(t, func(t *rapid.T) {
+		// Pick an invalid proof index in the range. -1 means that no
+		// proofs are invalid.
+		invalidIdx := rapid.IntRange(-1, numProofs-1).Draw(
+			t, "invalidIdx",
+		)
+
+		vCtx := MockVerifierCtx
+
+		reject := invalidIdx >= 0
+
+		if reject {
+			p, err := proofFile.ProofAt(uint32(invalidIdx))
+			require.NoError(t, err)
+
+			assetPoint := AssetPoint{
+				OutPoint: wire.OutPoint{
+					Hash:  p.AnchorTx.TxHash(),
+					Index: p.InclusionProof.OutputIndex,
+				},
+				ID: p.Asset.ID(),
+				ScriptKey: asset.ToSerialized(
+					p.Asset.ScriptKey.PubKey,
+				),
+			}
+
+			ignoreChecker := newMockIgnoreChecker(
+				false, assetPoint,
+			)
+			vCtx.IgnoreChecker = lfn.Some[IgnoreChecker](
+				ignoreChecker,
+			)
+		}
+
+		_, err = proofFile.Verify(context.Background(), vCtx)
+		if reject {
+			require.ErrorIs(t, err, ErrProofInvalid)
+		} else {
+			require.NoError(t, err)
+		}
+	})
 }
 
 // TestOwnershipProofVerification ensures that the ownership proof encoding and

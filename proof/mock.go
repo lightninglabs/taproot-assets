@@ -1028,3 +1028,21 @@ func (tmr *TestMetaReveal) ToMetaReveal(t testing.TB) *MetaReveal {
 		UnknownOddTypes:     tmr.UnknownOddTypes,
 	}
 }
+
+type mockIgnoreChecker struct {
+	ignoredAssetPoints fn.Set[AssetPoint]
+	ignoreAll          bool
+}
+
+func newMockIgnoreChecker(ignoreAll bool,
+	ignorePoints ...AssetPoint) *mockIgnoreChecker {
+
+	return &mockIgnoreChecker{
+		ignoredAssetPoints: fn.NewSet(ignorePoints...),
+		ignoreAll:          ignoreAll,
+	}
+}
+
+func (m *mockIgnoreChecker) IsIgnored(assetPoint AssetPoint) bool {
+	return m.ignoreAll || m.ignoredAssetPoints.Contains(assetPoint)
+}

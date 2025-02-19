@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/vm"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
@@ -33,6 +34,21 @@ type ChainLookupGenerator interface {
 	GenProofChainLookup(p *Proof) (asset.ChainLookup, error)
 }
 
+// AssetPoint is similar to PrevID but is meant to be used for created asset
+// outputs rather than those that are spent. This is similar to the concept of
+// an outpoint in normal Bitcoin.
+type AssetPoint = asset.PrevID
+
+// IgnoreChecker is used during proof validation to optionally fail validation
+// if a proof is known to be invalid. This can be used as a caching mechanism to
+// avoid expensive validation for already known invalid proofs.
+type IgnoreChecker interface {
+	// IsIgnored returns true if the given prevID is known to be invalid. A
+	// prevID is used here, but the check should be tested against a proof
+	// result, or produced output.
+	IsIgnored(prevID AssetPoint) bool
+}
+
 // VerifierCtx is a context struct that is used to pass in various interfaces
 // needed during proof verification.
 type VerifierCtx struct {
@@ -45,6 +61,8 @@ type VerifierCtx struct {
 	GroupAnchorVerifier GroupAnchorVerifier
 
 	ChainLookupGen ChainLookupGenerator
+
+	IgnoreChecker lfn.Option[IgnoreChecker]
 }
 
 // Verifier abstracts away from the task of verifying a proof file blob.
@@ -559,6 +577,23 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			"%w", err)
 	}
 
+	assetPoint := AssetPoint{
+		OutPoint:  p.OutPoint(),
+		ID:        p.Asset.ID(),
+		ScriptKey: asset.ToSerialized(p.Asset.ScriptKey.PubKey),
+	}
+
+	// Before we do any other validation, we'll check to see if we can halt
+	// validation here, as the proof is already known to be invalid. This
+	// can be used as a rejection caching mechanism.
+	fail := lfn.MapOptionZ(vCtx.IgnoreChecker, func(c IgnoreChecker) bool {
+		return c.IsIgnored(assetPoint)
+	})
+	if fail {
+		return prev, fmt.Errorf("%w: asset_point=%v is ignored",
+			ErrProofInvalid, assetPoint)
+	}
+
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
@@ -683,11 +718,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// TODO(roasbeef): need tx index as well
 
 	return &AssetSnapshot{
-		Asset: &p.Asset,
-		OutPoint: wire.OutPoint{
-			Hash:  p.AnchorTx.TxHash(),
-			Index: p.InclusionProof.OutputIndex,
-		},
+		Asset:             &p.Asset,
+		OutPoint:          p.OutPoint(),
 		AnchorBlockHash:   p.BlockHeader.BlockHash(),
 		AnchorBlockHeight: p.BlockHeight,
 		AnchorTx:          &p.AnchorTx,
@@ -790,6 +822,27 @@ func (f *File) Verify(ctx context.Context,
 		if err != nil {
 			return nil, err
 		}
+
+		// At this point, we'll check to see if we can halt validation
+		// here, as the proof is already known to be invalid. This can
+		// be used as a rejection caching mechanism.
+		fail := lfn.MapOptionZ(
+			vCtx.IgnoreChecker, func(checker IgnoreChecker) bool {
+				assetPoint := AssetPoint{
+					OutPoint: result.OutPoint,
+					ID:       result.Asset.ID(),
+					ScriptKey: asset.ToSerialized(
+						result.Asset.ScriptKey.PubKey,
+					),
+				}
+
+				return checker.IsIgnored(assetPoint)
+			},
+		)
+		if fail {
+			return prev, ErrProofFileInvalid
+		}
+
 		prev = result
 	}
 
