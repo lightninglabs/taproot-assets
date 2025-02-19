@@ -32,6 +32,10 @@ func ToArray[T ByteArray](v []byte) T {
 // CopySlice returns a copy of the given slice. Does a shallow copy of the
 // slice itself, not the underlying elements.
 func CopySlice[T any](slice []T) []T {
+	if slice == nil {
+		return nil
+	}
+
 	newSlice := make([]T, len(slice))
 	copy(newSlice, slice)
 	return newSlice

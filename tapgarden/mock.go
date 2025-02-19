@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -602,13 +603,16 @@ func (m *MockAssetSyncer) EnableAssetSync(_ context.Context,
 }
 
 type MockKeyRing struct {
-	FamIndex keychain.KeyFamily
+	sync.RWMutex
+
 	KeyIndex uint32
 
 	Keys map[keychain.KeyLocator]*btcec.PrivateKey
 
 	ReqKeys chan *keychain.KeyDescriptor
 }
+
+var _ KeyRing = (*MockKeyRing)(nil)
 
 func NewMockKeyRing() *MockKeyRing {
 	return &MockKeyRing{
@@ -634,9 +638,10 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	default:
 	}
 
+	m.Lock()
 	defer func() {
-		m.FamIndex++
 		m.KeyIndex++
+		m.Unlock()
 	}()
 
 	priv, err := btcec.NewPrivateKey()
@@ -646,7 +651,7 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 
 	loc := keychain.KeyLocator{
 		Index:  m.KeyIndex,
-		Family: m.FamIndex,
+		Family: keyFam,
 	}
 
 	m.Keys[loc] = priv
@@ -665,20 +670,61 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	return desc, nil
 }
 
-func (m *MockKeyRing) DeriveKey(ctx context.Context,
-	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+func (m *MockKeyRing) IsLocalKey(_ context.Context,
+	d keychain.KeyDescriptor) bool {
 
-	select {
-	case <-ctx.Done():
-		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
-	default:
+	m.RLock()
+	defer m.RUnlock()
+
+	priv, ok := m.Keys[d.KeyLocator]
+	if ok && priv.PubKey().IsEqual(d.PubKey) {
+		return true
 	}
 
-	return keychain.KeyDescriptor{}, nil
+	for _, key := range m.Keys {
+		if key.PubKey().IsEqual(d.PubKey) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func (m *MockKeyRing) IsLocalKey(context.Context, keychain.KeyDescriptor) bool {
-	return true
+func (m *MockKeyRing) PubKeyAt(t *testing.T, idx uint32) *btcec.PublicKey {
+	m.RLock()
+	defer m.RUnlock()
+
+	loc := keychain.KeyLocator{
+		Index:  idx,
+		Family: asset.TaprootAssetsKeyFamily,
+	}
+
+	priv, ok := m.Keys[loc]
+	if !ok {
+		t.Fatalf("script key not found at index %d", idx)
+	}
+
+	return priv.PubKey()
+}
+
+func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
+	m.RLock()
+	defer m.RUnlock()
+
+	loc := keychain.KeyLocator{
+		Index:  idx,
+		Family: asset.TaprootAssetsKeyFamily,
+	}
+
+	priv, ok := m.Keys[loc]
+	if !ok {
+		t.Fatalf("script key not found at index %d", idx)
+	}
+
+	return asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		KeyLocator: loc,
+		PubKey:     priv.PubKey(),
+	})
 }
 
 type MockGenSigner struct {

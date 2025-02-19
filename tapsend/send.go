@@ -277,26 +277,27 @@ func DescribeAddrs(addrs []*address.Tap) (*FundingDescriptor, error) {
 // AssetFromTapCommitment uses a script key to extract an asset from a given
 // Taproot Asset commitment.
 func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
-	desc *FundingDescriptor, inputScriptKey btcec.PublicKey) (*asset.Asset,
-	error) {
+	specifier asset.Specifier,
+	inputScriptKey btcec.PublicKey) (*asset.Asset, error) {
 
 	// The top-level Taproot Asset tree must have a non-empty asset tree at
 	// the leaf specified by the funding descriptor's asset (group) specific
 	// commitment locator.
+	tapKey := asset.TapCommitmentKey(specifier)
 	assetCommitments := tapCommitment.Commitments()
-	assetCommitment, ok := assetCommitments[desc.TapCommitmentKey()]
+	assetCommitment, ok := assetCommitments[tapKey]
 	if !ok {
 		return nil, fmt.Errorf("input commitment does "+
-			"not contain asset_id=%x: %w", desc.TapCommitmentKey(),
+			"not contain asset_id=%x: %w", tapKey,
 			ErrMissingInputAsset)
 	}
 
 	// Determine whether issuance is disabled for the asset.
-	issuanceDisabled := !desc.AssetSpecifier.HasGroupPubKey()
+	issuanceDisabled := !specifier.HasGroupPubKey()
 
-	assetId, err := desc.AssetSpecifier.UnwrapIdOrErr()
+	assetId, err := specifier.UnwrapIdOrErr()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("asset from tap commitment: %w", err)
 	}
 
 	// The asset tree must have a non-empty Asset at the location
@@ -318,7 +319,8 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 // ValidateInputs validates a set of inputs against a funding request. It
 // returns true if the inputs would be spent fully, otherwise false.
 func ValidateInputs(inputCommitments tappsbt.InputCommitments,
-	expectedAssetType asset.Type, desc *FundingDescriptor) (bool, error) {
+	expectedAssetType asset.Type, specifier asset.Specifier,
+	outputAmount uint64) (bool, error) {
 
 	// Extract the input assets from the input commitments.
 	inputAssets := make([]*asset.Asset, 0, len(inputCommitments))
@@ -333,7 +335,7 @@ func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 		// Gain the asset that we'll use as an input and in the process
 		// validate the selected input and commitment.
 		inputAsset, err := AssetFromTapCommitment(
-			tapCommitment, desc, *senderScriptKey,
+			tapCommitment, specifier, *senderScriptKey,
 		)
 		if err != nil {
 			return false, err
@@ -360,12 +362,12 @@ func ValidateInputs(inputCommitments tappsbt.InputCommitments,
 
 		// Ensure that the input assets are sufficient to cover the amount
 		// being sent.
-		if totalInputsAmount < desc.Amount {
+		if totalInputsAmount < outputAmount {
 			return false, ErrInsufficientInputAssets
 		}
 
 		// Check if the input assets are fully spent.
-		isFullValueSpend = totalInputsAmount == desc.Amount
+		isFullValueSpend = totalInputsAmount == outputAmount
 
 	case asset.Collectible:
 		isFullValueSpend = true
