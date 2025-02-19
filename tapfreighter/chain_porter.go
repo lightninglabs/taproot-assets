@@ -36,11 +36,8 @@ type ProofImporter interface {
 	// the script key itself. If replace is specified, we expect a proof to
 	// already be present, and we just update (replace) it with the new
 	// proof.
-	ImportProofs(ctx context.Context, headerVerifier proof.HeaderVerifier,
-		merkleVerifier proof.MerkleVerifier,
-		groupVerifier proof.GroupVerifier,
-		chainVerifier proof.ChainLookupGenerator, replace bool,
-		proofs ...*proof.AnnotatedProof) error
+	ImportProofs(ctx context.Context, vCtx proof.VerifierCtx,
+		replace bool, proofs ...*proof.AnnotatedProof) error
 }
 
 // ProofExporter is used to fetch input proofs to
@@ -487,12 +484,17 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		)
 	}
 
+	vCtx := proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: proof.DefaultMerkleVerifier,
+		GroupVerifier:  p.cfg.GroupVerifier,
+		ChainLookupGen: p.cfg.ChainBridge,
+	}
+
 	log.Infof("Importing %d passive asset proofs into local Proof "+
 		"Archive", len(passiveAssetProofFiles))
 	err := p.cfg.ProofWriter.ImportProofs(
-		ctx, headerVerifier, proof.DefaultMerkleVerifier,
-		p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
-		passiveAssetProofFiles...,
+		ctx, vCtx, false, passiveAssetProofFiles...,
 	)
 	if err != nil {
 		return fmt.Errorf("error importing passive proof: %w", err)
@@ -562,13 +564,18 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		serializedScriptKey := asset.ToSerialized(out.ScriptKey.PubKey)
 		sendPkg.FinalProofs[serializedScriptKey] = outputProof
 
+		vCtx := proof.VerifierCtx{
+			HeaderVerifier: headerVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			GroupVerifier:  p.cfg.GroupVerifier,
+			ChainLookupGen: p.cfg.ChainBridge,
+		}
+
 		// Before we import the proof into the proof archive, we'll
 		// validate it.
 		verifier := &proof.BaseVerifier{}
 		_, err = verifier.Verify(
-			ctx, bytes.NewReader(outputProof.Blob),
-			headerVerifier, proof.DefaultMerkleVerifier,
-			p.cfg.GroupVerifier, p.cfg.ChainBridge,
+			ctx, bytes.NewReader(outputProof.Blob), vCtx,
 		)
 		if err != nil {
 			return fmt.Errorf("error verifying proof: %w", err)
@@ -578,9 +585,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 		log.Infof("Importing proof for output %d into local Proof "+
 			"Archive", idx)
 		err = p.cfg.ProofWriter.ImportProofs(
-			ctx, headerVerifier, proof.DefaultMerkleVerifier,
-			p.cfg.GroupVerifier, p.cfg.ChainBridge, false,
-			outputProof,
+			ctx, vCtx, false, outputProof,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof: %w", err)
