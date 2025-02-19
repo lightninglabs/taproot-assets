@@ -167,10 +167,8 @@ type Archiver interface {
 	// the script key itself. If replace is specified, we expect a proof to
 	// already be present, and we just update (replace) it with the new
 	// proof.
-	ImportProofs(ctx context.Context, headerVerifier HeaderVerifier,
-		merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
-		chainLookupGen ChainLookupGenerator, replace bool,
-		proofs ...*AnnotatedProof) error
+	ImportProofs(ctx context.Context, vCtx VerifierCtx,
+		replace bool, proofs ...*AnnotatedProof) error
 }
 
 // NotifyArchiver is an Archiver that also allows callers to subscribe to
@@ -709,9 +707,8 @@ func (f *FileArchiver) FetchProofs(_ context.Context,
 // update (replace) it with the new proof.
 //
 // NOTE: This implements the Archiver interface.
-func (f *FileArchiver) ImportProofs(_ context.Context,
-	_ HeaderVerifier, _ MerkleVerifier, _ GroupVerifier,
-	_ ChainLookupGenerator, replace bool, proofs ...*AnnotatedProof) error {
+func (f *FileArchiver) ImportProofs(_ context.Context, _ VerifierCtx,
+	replace bool, proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
 		proofPath, err := genProofFileStoragePath(
@@ -906,9 +903,7 @@ func (m *MultiArchiver) FetchProofs(ctx context.Context,
 // ImportProofs attempts to store fully populated proofs on disk. The previous
 // outpoint of the first state transition will be used as the Genesis point.
 // The final resting place of the asset will be used as the script key itself.
-func (m *MultiArchiver) ImportProofs(ctx context.Context,
-	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier, chainLookupGen ChainLookupGenerator,
+func (m *MultiArchiver) ImportProofs(ctx context.Context, vCtx VerifierCtx,
 	replace bool, proofs ...*AnnotatedProof) error {
 
 	// Before we import the proofs into the archive, we want to make sure
@@ -917,8 +912,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	f := func(c context.Context, proof *AnnotatedProof) error {
 		// First, we'll decode and then also verify the proof.
 		finalStateTransition, err := m.proofVerifier.Verify(
-			c, bytes.NewReader(proof.Blob), headerVerifier,
-			merkleVerifier, groupVerifier, chainLookupGen,
+			c, bytes.NewReader(proof.Blob), vCtx,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to verify proof: %w", err)
@@ -957,10 +951,7 @@ func (m *MultiArchiver) ImportProofs(ctx context.Context,
 	// additional supplementary information into the locator, we'll attempt
 	// to import each proof our archive backends.
 	for _, archive := range m.backends {
-		err := archive.ImportProofs(
-			ctx, headerVerifier, merkleVerifier, groupVerifier,
-			chainLookupGen, replace, proofs...,
-		)
+		err := archive.ImportProofs(ctx, vCtx, replace, proofs...)
 		if err != nil {
 			return err
 		}
@@ -1026,9 +1017,7 @@ var _ NotifyArchiver = (*MultiArchiver)(nil)
 // assets of the same ID. This is useful when we want to update the proof with a
 // new one after a re-org.
 func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
-	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier,
-	chainLookupGen ChainLookupGenerator) error {
+	vCtx VerifierCtx) error {
 
 	// This is a bit of a hacky part. If we have a chain of transactions
 	// that were re-organized, we can't verify the whole chain until all of
@@ -1037,7 +1026,7 @@ func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
 	// since we don't know if the whole chain has been updated yet (the
 	// confirmations might come in out of order).
 	// TODO(guggero): Find a better way to do this.
-	headerVerifier = func(wire.BlockHeader, uint32) error {
+	vCtx.HeaderVerifier = func(wire.BlockHeader, uint32) error {
 		return nil
 	}
 
@@ -1105,10 +1094,7 @@ func ReplaceProofInBlob(ctx context.Context, p *Proof, archive Archiver,
 			Locator: existingProof.Locator,
 			Blob:    buf.Bytes(),
 		}
-		err = archive.ImportProofs(
-			ctx, headerVerifier, merkleVerifier, groupVerifier,
-			chainLookupGen, true, directProof,
-		)
+		err = archive.ImportProofs(ctx, vCtx, true, directProof)
 		if err != nil {
 			return fmt.Errorf("unable to import updated proof: %w",
 				err)

@@ -51,12 +51,16 @@ func TestProofStitching(t *testing.T) {
 	err = f.Decode(bytes.NewReader(tplBytes))
 	require.NoError(t, err)
 
+	vCtx := VerifierCtx{
+		HeaderVerifier: verifier.VerifyHeader,
+		MerkleVerifier: MockMerkleVerifier,
+		GroupVerifier:  MockGroupVerifier,
+		ChainLookupGen: MockChainLookup,
+	}
+
 	// We want the template to valid, otherwise all other steps are
 	// meaningless.
-	_, err = f.Verify(
-		context.Background(), verifier.VerifyHeader, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
-	)
+	_, err = f.Verify(context.Background(), vCtx)
 	require.NoError(t, err)
 
 	// The template proof is the last proof in the file, that was the only
@@ -110,6 +114,7 @@ func TestProofStitching(t *testing.T) {
 		brokenProof.TxMerkleProof = *merkleProof
 		brokenProof.BlockHeight = mindedBlock
 		brokenProof.BlockHeader = block.Header
+		vCtx.MerkleVerifier = DefaultMerkleVerifier
 
 		// We now should have a fully valid proof that we can write out
 		// to a file, by replacing the last one in the template.
@@ -120,11 +125,7 @@ func TestProofStitching(t *testing.T) {
 		// can't be fixed because of the script key usage. So if we
 		// get an "invalid exclusion proof" error when validating, we
 		// need to skip this proof.
-		_, err = f.Verify(
-			context.Background(), verifier.VerifyHeader,
-			DefaultMerkleVerifier, MockGroupVerifier,
-			MockChainLookup,
-		)
+		_, err = f.Verify(context.Background(), vCtx)
 		switch {
 		case errors.Is(err, commitment.ErrInvalidTaprootProof):
 			t.Logf("Proof %d is invalid and can't be rescued: %v",

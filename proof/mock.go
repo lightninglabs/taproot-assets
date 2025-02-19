@@ -27,6 +27,18 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var (
+	// MockVerifierCtx is a verifier context that uses mock implementations
+	// for all the verifier interfaces.
+	MockVerifierCtx = VerifierCtx{
+		HeaderVerifier:      MockHeaderVerifier,
+		MerkleVerifier:      MockMerkleVerifier,
+		GroupVerifier:       MockGroupVerifier,
+		GroupAnchorVerifier: MockGroupAnchorVerifier,
+		ChainLookupGen:      MockChainLookup,
+	}
+)
+
 func RandProof(t testing.TB, genesis asset.Genesis,
 	scriptKey *btcec.PublicKey, block wire.MsgBlock, txIndex int,
 	outputIndex uint32) Proof {
@@ -161,8 +173,7 @@ func NewMockVerifier(t *testing.T) *MockVerifier {
 }
 
 func (m *MockVerifier) Verify(context.Context, io.Reader,
-	HeaderVerifier, MerkleVerifier, GroupVerifier,
-	ChainLookupGenerator) (*AssetSnapshot, error) {
+	VerifierCtx) (*AssetSnapshot, error) {
 
 	return &AssetSnapshot{
 		Asset: &asset.Asset{
@@ -413,9 +424,8 @@ func (m *MockProofArchive) FetchProofs(_ context.Context,
 }
 
 // ImportProofs will store the given proofs, without performing any validation.
-func (m *MockProofArchive) ImportProofs(_ context.Context, _ HeaderVerifier,
-	_ MerkleVerifier, _ GroupVerifier, _ ChainLookupGenerator, _ bool,
-	proofs ...*AnnotatedProof) error {
+func (m *MockProofArchive) ImportProofs(_ context.Context, _ VerifierCtx,
+	_ bool, proofs ...*AnnotatedProof) error {
 
 	for _, proof := range proofs {
 		err := m.storeLocator(proof.Locator)

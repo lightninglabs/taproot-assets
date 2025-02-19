@@ -229,9 +229,7 @@ func WithSiblingPreimage(
 // NewMintingBlobs takes a set of minting parameters, and produces a series of
 // serialized proof files, which proves the creation/existence of each of the
 // assets within the batch.
-func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
-	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
-	anchorVerifier GroupAnchorVerifier, chainLookupGen ChainLookupGenerator,
+func NewMintingBlobs(params *MintParams, vCtx VerifierCtx,
 	blobOpts ...MintingBlobOption) (AssetProofs, error) {
 
 	opts := defaultMintingBlobOpts()
@@ -245,7 +243,7 @@ func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 	}
 
 	proofs, err := committedProofs(
-		base, params.TaprootAssetRoot, anchorVerifier, opts,
+		base, params.TaprootAssetRoot, vCtx.GroupAnchorVerifier, opts,
 	)
 	if err != nil {
 		return nil, err
@@ -257,15 +255,12 @@ func NewMintingBlobs(params *MintParams, headerVerifier HeaderVerifier,
 	for key := range proofs {
 		proof := proofs[key]
 
-		lookup, err := chainLookupGen.GenProofChainLookup(proof)
+		lookup, err := vCtx.ChainLookupGen.GenProofChainLookup(proof)
 		if err != nil {
 			return nil, err
 		}
 
-		_, err = proof.Verify(
-			ctx, nil, headerVerifier, merkleVerifier, groupVerifier,
-			lookup,
-		)
+		_, err = proof.Verify(ctx, nil, lookup, vCtx)
 		if err != nil {
 			return nil, fmt.Errorf("invalid proof file generated: "+
 				"%w", err)

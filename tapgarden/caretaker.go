@@ -987,11 +987,6 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		ctx, cancel := b.WithCtxQuitNoTimeout()
 		defer cancel()
 
-		headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
-		merkleVerifier := proof.DefaultMerkleVerifier
-		groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
-		groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
-
 		// Fetch the optional tapscript sibling for this batch, which
 		// is needed to construct valid inclusion proofs.
 		var batchSibling *commitment.TapscriptPreimage
@@ -1043,9 +1038,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 				"%w", err)
 		}
 
+		vCtx := b.verifierCtx(ctx)
 		mintingProofs, err := proof.NewMintingBlobs(
-			baseProof, headerVerifier, merkleVerifier,
-			groupVerifier, groupAnchorVerifier, b.cfg.ChainBridge,
+			baseProof, vCtx,
 			proof.WithAssetMetaReveals(b.cfg.Batch.AssetMetas),
 			proof.WithSiblingPreimage(batchSibling),
 		)
@@ -1087,7 +1082,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// reissunces. This is required for any possible reissuances
 		// to be verified correctly when updating our local Universe.
 		anchorAssets, nonAnchorAssets, err := SortAssets(
-			committedAssets, groupAnchorVerifier,
+			committedAssets, vCtx.GroupAnchorVerifier,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("could not sort assets: %w", err)
@@ -1106,8 +1101,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			mintingProof := mintingProofs[scriptKey]
 
 			proofBlob, uniProof, err := b.storeMintingProof(
-				ctx, newAsset, mintingProof, mintTxHash,
-				headerVerifier, merkleVerifier, groupVerifier,
+				ctx, newAsset, mintingProof, mintTxHash, vCtx,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to store "+
@@ -1196,9 +1190,7 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 // can be used to register the asset with the universe.
 func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 	a *asset.Asset, mintingProof *proof.Proof, mintTxHash chainhash.Hash,
-	headerVerifier proof.HeaderVerifier, merkleVerifier proof.MerkleVerifier,
-	groupVerifier proof.GroupVerifier) (proof.Blob, *universe.Item,
-	error) {
+	vCtx proof.VerifierCtx) (proof.Blob, *universe.Item, error) {
 
 	assetID := a.ID()
 	blob, err := proof.EncodeAsProofFile(mintingProof)
@@ -1216,10 +1208,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		Blob: blob,
 	}
 
-	err = b.cfg.ProofFiles.ImportProofs(
-		ctx, headerVerifier, merkleVerifier, groupVerifier,
-		b.cfg.ChainBridge, false, fullProof,
-	)
+	err = b.cfg.ProofFiles.ImportProofs(ctx, vCtx, false, fullProof)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to insert proofs: %w", err)
 	}
@@ -1595,5 +1584,21 @@ func GenRawGroupAnchorVerifier(ctx context.Context) func(*asset.Genesis,
 		}
 
 		return nil
+	}
+}
+
+// verifierCtx returns a verifier context that can be used to verify proofs.
+func (b *BatchCaretaker) verifierCtx(ctx context.Context) proof.VerifierCtx {
+	headerVerifier := GenHeaderVerifier(ctx, b.cfg.ChainBridge)
+	merkleVerifier := proof.DefaultMerkleVerifier
+	groupVerifier := GenGroupVerifier(ctx, b.cfg.Log)
+	groupAnchorVerifier := GenGroupAnchorVerifier(ctx, b.cfg.Log)
+
+	return proof.VerifierCtx{
+		HeaderVerifier:      headerVerifier,
+		MerkleVerifier:      merkleVerifier,
+		GroupVerifier:       groupVerifier,
+		GroupAnchorVerifier: groupAnchorVerifier,
+		ChainLookupGen:      b.cfg.ChainBridge,
 	}
 }

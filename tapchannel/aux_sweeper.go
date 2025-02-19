@@ -1427,11 +1427,16 @@ func importOutputProofs(scid lnwire.ShortChannelID,
 			return fmt.Errorf("unable to encode proof: %w", err)
 		}
 
+		vCtx := proof.VerifierCtx{
+			HeaderVerifier: headerVerifier,
+			MerkleVerifier: proof.DefaultMerkleVerifier,
+			GroupVerifier:  groupVerifier,
+			ChainLookupGen: chainBridge,
+		}
+
 		fundingUTXO := proofToImport.Asset
 		err = proofArchive.ImportProofs(
-			ctxb, headerVerifier, proof.DefaultMerkleVerifier,
-			groupVerifier, chainBridge, false,
-			&proof.AnnotatedProof{
+			ctxb, vCtx, false, &proof.AnnotatedProof{
 				//nolint:lll
 				Locator: proof.Locator{
 					AssetID:   fn.Ptr(fundingUTXO.ID()),
