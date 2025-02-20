@@ -2245,12 +2245,73 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return <-req.resp, <-req.err
 }
 
+// prepSeedlingDelegationKey finalizes the seedling delegation key.
+func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
+	req *Seedling) error {
+
+	// If the universe commitments feature is disabled for this seedling,
+	// we can skip any further delegation key considerations.
+	if !req.UniverseCommitments {
+		return nil
+	}
+
+	// At this point, we know that the universe commitments feature is
+	// enabled for the seedling. If a group anchor seedling is specified
+	// we will use its delegation key.
+	if req.GroupAnchor != nil {
+		// Retrieve the group anchor seedling from the pending batch.
+		anchorSeedlingName := *req.GroupAnchor
+
+		anchor, ok := c.pendingBatch.Seedlings[anchorSeedlingName]
+		if anchor == nil || !ok {
+			return fmt.Errorf("group anchor seedling not present "+
+				"in batch (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		if anchor.DelegationKey.IsNone() {
+			return fmt.Errorf("group anchor seedling has no "+
+				"delegation key (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		// Set the delegation key for the seedling to the delegation key
+		// of the group anchor seedling.
+		req.DelegationKey = anchor.DelegationKey
+
+		// Return early, no further seedling prep required for universe
+		// commitments feature.
+		return nil
+	}
+
+	// On the other hand, if we're handling the group anchor seedling, we
+	// and the delegation key is unset, we must generate a new one.
+	if req.EnableEmission && req.GroupAnchor == nil {
+		newKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to derive pre-commitment "+
+				"output key: %w", err)
+		}
+
+		req.DelegationKey = fn.Some(newKey)
+	}
+
+	return nil
+}
+
 // prepAssetSeedling performs some basic validation for the Seedling, then
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// First, we'll perform some basic validation for the seedling.
+	// Finalise the seedling delegation key.
+	err := c.prepSeedlingDelegationKey(ctx, req)
+	if err != nil {
+		return err
+	}
+
 	if err := req.validateFields(); err != nil {
 		return err
 	}
