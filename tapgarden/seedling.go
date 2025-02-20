@@ -102,6 +102,10 @@ type Seedling struct {
 	// attestations regarding the state of the universe.
 	UniverseCommitments bool
 
+	// DelegationKey is the public key that is used to verify universe
+	// commitment related on-chain outputs and proofs.
+	DelegationKey fn.Option[keychain.KeyDescriptor]
+
 	// GroupAnchor is the name of another seedling in the pending batch that
 	// will anchor an asset group. This seedling will be minted with the
 	// same group key as the anchor asset.
