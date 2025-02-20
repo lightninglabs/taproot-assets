@@ -252,7 +252,7 @@ sqlc:
 	@$(call print, "Merging SQL migrations into consolidated schemas")
 	go run ./cmd/merge-sql-schemas/main.go
 
-sqlc-check: 
+sqlc-check: sqlc
 	@$(call print, "Verifying sql code generation.")
 	@if [ ! -f tapdb/sqlc/schemas/generated_schema.sql ]; then \
 		echo "Missing file: tapdb/sqlc/schemas/generated_schema.sql"; \
