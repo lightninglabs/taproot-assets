@@ -2,7 +2,6 @@ package tapscript
 
 import (
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
@@ -26,15 +25,7 @@ func PayToAddrScript(internalKey btcec.PublicKey, sibling *chainhash.Hash,
 		&internalKey, tapscriptRoot[:],
 	)
 
-	return PayToTaprootScript(outputKey)
-}
-
-// PayToTaprootScript creates a pk script for a pay-to-taproot output key.
-func PayToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
-	return txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(taprootKey)).
-		Script()
+	return txscript.PayToTaprootScript(outputKey)
 }
 
 // FlipParity turns the given public key from even to odd parity or vice versa.

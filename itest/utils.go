@@ -27,7 +27,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	unirpc "github.com/lightninglabs/taproot-assets/taprpc/universerpc"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/chainntnfs"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -637,7 +636,7 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	mintPubkey := txscript.ComputeTaprootOutputKey(
 		internalKey.PubKey, fn.ByteSlice(anchorCommitRoot),
 	)
-	genesisScript, err := tapscript.PayToTaprootScript(mintPubkey)
+	genesisScript, err := txscript.PayToTaprootScript(mintPubkey)
 	require.NoError(t.t, err)
 
 	// Add the genesis script to the funded PSBT, and then sign at the

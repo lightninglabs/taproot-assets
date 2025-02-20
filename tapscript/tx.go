@@ -221,7 +221,9 @@ func VirtualTx(newAsset *asset.Asset, prevAssets commitment.InputSet) (
 func InputAssetPrevOut(prevAsset asset.Asset) (*wire.TxOut, error) {
 	switch prevAsset.ScriptVersion {
 	case asset.ScriptV0:
-		pkScript, err := PayToTaprootScript(prevAsset.ScriptKey.PubKey)
+		pkScript, err := txscript.PayToTaprootScript(
+			prevAsset.ScriptKey.PubKey,
+		)
 		if err != nil {
 			return nil, err
 		}

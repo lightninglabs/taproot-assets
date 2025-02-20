@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 )
@@ -185,7 +184,7 @@ func (a *Allocation) finalPkScript() ([]byte, error) {
 			return nil, err
 		}
 
-		return tapscript.PayToTaprootScript(taprootKey)
+		return txscript.PayToTaprootScript(taprootKey)
 	}
 
 	if a.OutputCommitment == nil {
@@ -210,7 +209,7 @@ func (a *Allocation) finalPkScript() ([]byte, error) {
 		a.InternalKey, tapscriptRoot[:],
 	)
 
-	return tapscript.PayToTaprootScript(taprootOutputKey)
+	return txscript.PayToTaprootScript(taprootOutputKey)
 }
 
 // AuxLeaf returns the auxiliary leaf for the allocation. If the output
