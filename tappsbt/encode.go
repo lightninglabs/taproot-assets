@@ -9,7 +9,6 @@ import (
 	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
-	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -226,7 +225,7 @@ func (o *VOutput) encode(coinType uint32) (psbt.POutput, *wire.TxOut, error) {
 	// Before we start with any fields that need to go into the Unknowns
 	// slice, we add the information that we can stuff into the wire TX or
 	// existing PSBT fields.
-	assetPkScript, err := payToTaprootScript(o.ScriptKey.PubKey)
+	assetPkScript, err := txscript.PayToTaprootScript(o.ScriptKey.PubKey)
 	if err != nil {
 		return pOut, nil, fmt.Errorf("error creating asset taproot "+
 			"script: %w", err)
@@ -485,16 +484,6 @@ func tapscriptPreimageEncoder(t *commitment.TapscriptPreimage) encoderFunc {
 	}
 
 	return tlvEncoder(&t, commitment.TapscriptPreimageEncoder)
-}
-
-// payToTaprootScript creates a pk script for a pay-to-taproot output key. We
-// create a copy of the tapscript.PayToTaprootScript function here to avoid a
-// circular dependency.
-func payToTaprootScript(taprootKey *btcec.PublicKey) ([]byte, error) {
-	return txscript.NewScriptBuilder().
-		AddOp(txscript.OP_1).
-		AddData(schnorr.SerializePubKey(taprootKey)).
-		Script()
 }
 
 // vOutputTypeEncoder is a TLV encoder that encodes the given VOutputType to the
