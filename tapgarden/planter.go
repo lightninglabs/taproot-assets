@@ -2312,6 +2312,26 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 		return err
 	}
 
+	// Set seedling asset metadata fields.
+	req.Meta.UniverseCommitments = req.UniverseCommitments
+
+	if req.DelegationKey.IsSome() {
+		keyDesc, err := req.DelegationKey.UnwrapOrErr(
+			fmt.Errorf("delegation key is not set"),
+		)
+		if err != nil {
+			return err
+		}
+
+		if keyDesc.PubKey == nil {
+			return fmt.Errorf("delegation key has no public key")
+		}
+
+		req.Meta.DelegationKey = fn.Some(*keyDesc.PubKey)
+	}
+
+	// We will perform basic validation on the seedling, including metadata
+	// validation.
 	if err := req.validateFields(); err != nil {
 		return err
 	}
