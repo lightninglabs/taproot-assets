@@ -34,6 +34,9 @@ exclude_list=(
     # Exclude the tools Dockerfile as otherwise the linter may need to be
     # considered every time the Go version is updated.
     "./tools/Dockerfile"
+
+    # Exclude chantools files as they are not in this project.
+    "./itest/chantools"
 )
 
 # is_excluded checks if a file or directory is in the exclude list.

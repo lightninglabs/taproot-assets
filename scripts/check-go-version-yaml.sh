@@ -66,8 +66,7 @@ target_go_version="$1"
 # File paths to be excluded from the check.
 exclude_list=(
     # Exclude chantools files as they are not in this project.
-    "./itest/chantools/.golangci.yml"
-    "./itest/chantools/.github/workflows/main.yml"
+    "./itest/chantools"
 )
 
 # is_excluded checks if a file or directory is in the exclude list.
