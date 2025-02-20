@@ -30,17 +30,29 @@ fi
 target_go_version="$1"
 
 # File paths to be excluded from the check.
-exception_list=(
+exclude_list=(
     # Exclude the tools Dockerfile as otherwise the linter may need to be
     # considered every time the Go version is updated.
     "./tools/Dockerfile"
+
+    # Exclude chantools files as they are not in this project.
+    "./itest/chantools"
 )
 
-# is_exception checks if a file is in the exception list.
-is_exception() {
+# is_excluded checks if a file or directory is in the exclude list.
+is_excluded() {
     local file="$1"
-    for exception in "${exception_list[@]}"; do
-        if [ "$file" == "$exception" ]; then
+    for exclude in "${exclude_list[@]}"; do
+
+        # Check if the file matches exactly with an exclusion entry.
+        if [[ "$file" == "$exclude" ]]; then
+            return 0
+        fi
+
+        # Check if the file is inside an excluded directory.
+        # The trailing slash ensures that similarly named directories
+        # (e.g., ./itest/chantools_other) are not mistakenly excluded.
+        if [[ "$file/" == "$exclude"* ]]; then
             return 0
         fi
     done
@@ -52,8 +64,8 @@ dockerfiles=$(find . -type f -name "*.Dockerfile" -o -name "Dockerfile")
 
 # Check each Dockerfile
 for file in $dockerfiles; do
-    # Skip the file if it is in the exception list.
-    if is_exception "$file"; then
+    # Skip the file if it is in the exclusion list.
+    if is_excluded "$file"; then
         echo "Skipping $file"
         continue
     fi
