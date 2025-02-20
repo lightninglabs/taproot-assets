@@ -256,7 +256,7 @@ func (m *MintingBatch) genesisScript(sibling *commitment.TapscriptPreimage) (
 		return nil, err
 	}
 
-	return tapscript.PayToTaprootScript(mintingOutputKey)
+	return txscript.PayToTaprootScript(mintingOutputKey)
 }
 
 // State returns the private state of the batch.

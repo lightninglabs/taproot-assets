@@ -13,6 +13,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -23,7 +24,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/lnrpc"
@@ -403,7 +403,7 @@ func randWalletTx(addr *address.AddrWithKeyInfo) (int, *lndclient.Transaction) {
 		// We've randomly chosen an index where we place our Taproot
 		// output key of the address.
 		if addr != nil && idx == taprootOutput {
-			out.PkScript, _ = tapscript.PayToTaprootScript(
+			out.PkScript, _ = txscript.PayToTaprootScript(
 				&addr.TaprootOutputKey,
 			)
 			detail.OutputType = txTypeTaproot

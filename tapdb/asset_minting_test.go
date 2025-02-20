@@ -910,7 +910,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 	mintingOutputKey, _, err := mintingBatch.MintingOutputKey(&randSibling)
 	require.NoError(t, err)
 
-	script, err := tapscript.PayToTaprootScript(mintingOutputKey)
+	script, err := txscript.PayToTaprootScript(mintingOutputKey)
 	require.NoError(t, err)
 
 	genesisPacket.Pkt.UnsignedTx.TxOut[anchorOutputIndex].PkScript = script
