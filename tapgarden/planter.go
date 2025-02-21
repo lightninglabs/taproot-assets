@@ -669,6 +669,26 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// unfundedAnchorPsbt creates an unfunded PSBT packet for the minting anchor
+// transaction.
+func unfundedAnchorPsbt() (psbt.Packet, error) {
+	var zero psbt.Packet
+
+	// Construct a template transaction for our minting anchor transaction.
+	txTemplate := wire.NewMsgTx(2)
+
+	// Add one output to anchor all assets which are being minted.
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
+
+	// Formulate the PSBT packet from the template transaction.
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return zero, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	return *genesisPkt, nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -681,18 +701,16 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	log.Infof("Attempting to fund batch: %x", batchKey)
 
-	// Construct a 1-output TX as a template for our genesis TX, which the
-	// backing wallet will fund.
-	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
-	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	// Construct an unfunded anchor PSBT which will eventually become a
+	// funded minting anchor transaction.
+	genesisPkt, err := unfundedAnchorPsbt()
 	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+		return nil, fmt.Errorf("unable to create anchor template tx: "+
+			"%w", err)
 	}
+	log.Tracef("Unfunded batch anchor PSBT: %v", spew.Sdump(genesisPkt))
 
-	log.Infof("creating skeleton PSBT for batch: %x", batchKey)
-	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
-
+	// Compute the anchor transaction fee rate.
 	var feeRate chainfee.SatPerKWeight
 	switch {
 	// If a fee rate was manually assigned for this batch, use that instead
@@ -743,7 +761,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	}
 
 	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
-		ctx, genesisPkt, 1, feeRate, -1,
+		ctx, &genesisPkt, 1, feeRate, -1,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
