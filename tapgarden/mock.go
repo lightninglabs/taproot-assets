@@ -182,6 +182,10 @@ func (m *MockWalletAnchor) FundPsbt(_ context.Context, packet *psbt.Packet,
 	packet.UnsignedTx.AddTxOut(&changeOutput)
 	packet.Outputs = append(packet.Outputs, psbt.POutput{})
 
+	// The change output was added last, so it will be the last output in
+	// the list. Update the change index to reflect this.
+	changeIdx = int32(len(packet.Outputs) - 1)
+
 	// We always have the change output be the second output, so this means
 	// the Taproot Asset commitment will live in the first output.
 	pkt := &tapsend.FundedPsbt{

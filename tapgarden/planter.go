@@ -749,6 +749,12 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 		return nil, fmt.Errorf("unable to fund psbt: %w", err)
 	}
 
+	// Sanity check the funded PSBT.
+	if fundedGenesisPkt.ChangeOutputIndex == -1 {
+		return nil, fmt.Errorf("undefined change output index in " +
+			"funded anchor transaction")
+	}
+
 	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
