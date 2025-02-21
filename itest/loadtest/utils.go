@@ -14,7 +14,9 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/cmd/commands"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/itest"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
@@ -22,6 +24,7 @@ import (
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
+	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd/lntest/rpc"
 	"github.com/lightningnetwork/lnd/macaroons"
 	"github.com/stretchr/testify/require"
@@ -310,4 +313,81 @@ func stringToAssetType(t string) taprpc.AssetType {
 	default:
 		return taprpc.AssetType_NORMAL
 	}
+}
+
+// noopBaseUni is a dummy implementation of the universe.DiffEngine and
+// universe.LocalRegistrar interfaces. This is meant to be used by the simple
+// syncer used in the sync loadtest. As we don't care about persistence and we
+// always want to do a full sync, we always return an empty root node to trigger
+// a sync.
+type noopBaseUni struct{}
+
+// RootNode returns the root node of the base universe corresponding to the
+// passed ID.
+func (n noopBaseUni) RootNode(ctx context.Context,
+	id universe.Identifier) (universe.Root, error) {
+
+	return universe.Root{
+		Node: mssmt.EmptyLeafNode,
+	}, nil
+}
+
+// RootNodes returns the set of root nodes for all known base universes assets.
+func (n noopBaseUni) RootNodes(ctx context.Context,
+	q universe.RootNodesQuery) ([]universe.Root, error) {
+
+	return nil, nil
+}
+
+// MultiverseRoot returns the root node of the multiverse for the specified
+// proof type. If the given list of universe IDs is non-empty, then the root
+// will be calculated just for those universes.
+func (n *noopBaseUni) MultiverseRoot(ctx context.Context,
+	proofType universe.ProofType,
+	filterByIDs []universe.Identifier) (fn.Option[universe.MultiverseRoot],
+	error) {
+
+	return fn.None[universe.MultiverseRoot](), nil
+}
+
+// UpsertProofLeaf attempts to upsert a proof for an asset issuance or transfer
+// event. This method will return an error if the passed proof is invalid. If
+// the leaf is already known, then no action is taken and the existing
+// commitment proof returned.
+func (n noopBaseUni) UpsertProofLeaf(ctx context.Context,
+	id universe.Identifier, key universe.LeafKey,
+	leaf *universe.Leaf) (*universe.Proof, error) {
+
+	return nil, nil
+}
+
+// UpsertProofLeafBatch inserts a batch of proof leaves within the target
+// universe tree. We assume the proofs within the batch have already been
+// checked that they don't yet exist in the local database.
+func (n noopBaseUni) UpsertProofLeafBatch(ctx context.Context,
+	items []*universe.Item) error {
+
+	return nil
+}
+
+// Close closes the noopBaseUni, stopping all goroutines and freeing all
+// resources.
+func (n noopBaseUni) Close() error {
+	return nil
+}
+
+// FetchProofLeaf attempts to fetch a proof leaf for the target leaf key
+// and given a universe identifier (assetID/groupKey).
+func (n noopBaseUni) FetchProofLeaf(ctx context.Context, id universe.Identifier,
+	key universe.LeafKey) ([]*universe.Proof, error) {
+
+	return nil, nil
+}
+
+// UniverseLeafKeys returns the set of leaf keys known for the specified
+// universe identifier.
+func (n noopBaseUni) UniverseLeafKeys(ctx context.Context,
+	q universe.UniverseLeafKeysQuery) ([]universe.LeafKey, error) {
+
+	return nil, nil
 }
