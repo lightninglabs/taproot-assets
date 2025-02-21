@@ -92,6 +92,20 @@ type Seedling struct {
 	// for this asset meaning future assets linked to it can be created.
 	EnableEmission bool
 
+	// UniverseCommitments indicates whether the minting event which
+	// will be associated with the seedling supports universe commitments.
+	// If set to true, the seedling can only be included in a minting batch
+	// where all assets share the same asset group key, which must be
+	// specified.
+	//
+	// Universe commitments are minter-controlled, on-chain anchored
+	// attestations regarding the state of the universe.
+	UniverseCommitments bool
+
+	// DelegationKey is the public key that is used to verify universe
+	// commitment related on-chain outputs and proofs.
+	DelegationKey fn.Option[keychain.KeyDescriptor]
+
 	// GroupAnchor is the name of another seedling in the pending batch that
 	// will anchor an asset group. This seedling will be minted with the
 	// same group key as the anchor asset.
@@ -223,15 +237,16 @@ func validateAnchorMeta(seedlingMeta *proof.MetaReveal,
 		anchorUniverseCommitments = true
 	}
 
-	if seedlingUniverseCommitments != anchorUniverseCommitments {
-		return fmt.Errorf("seedling universe commitments flag does "+
-			"not match group anchor: %v, %v",
-			seedlingUniverseCommitments, anchorUniverseCommitments)
+	// If the anchor asset has universe commitment feature turned on, then
+	// the same must be true for the seedling.
+	if anchorUniverseCommitments && !seedlingUniverseCommitments {
+		return fmt.Errorf("seedling universe commitments flag is " +
+			"false but must be true since the group anchor's " +
+			"flag is true")
 	}
 
 	// For now, we simply require a delegation key to be set when universe
-	// commitments are turned on. In the future, we could allow this to be
-	// empty and the group internal key to be used for signing.
+	// commitments are turned on.
 	if seedlingUniverseCommitments && seedlingMeta.DelegationKey.IsNone() {
 		return fmt.Errorf("delegation key must be set for universe " +
 			"commitments flag")

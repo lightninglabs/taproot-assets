@@ -14,8 +14,10 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -23,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -82,6 +85,11 @@ type GardenKit struct {
 // PlanterConfig is the main config for the ChainPlanter.
 type PlanterConfig struct {
 	GardenKit
+
+	// ChainParams defines the chain parameters for the target blockchain
+	// network. It specifies whether the network is Bitcoin mainnet or
+	// testnet.
+	ChainParams address.ChainParams
 
 	// ProofUpdates is the storage backend for updated proofs.
 	ProofUpdates proof.Archiver
@@ -663,6 +671,57 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// lockPreCommitmentOutput locks the pre-commitment output of the minting
+// transaction for a batch that uses universe commitments. The pre-commitment
+// output is the change output of the minting transaction, which will be locked
+// using the given delegation key.
+func (c *ChainPlanter) lockPreCommitmentOutput(
+	delegationKey keychain.KeyDescriptor,
+	fundedPsbt *tapsend.FundedPsbt) error {
+
+	// Override PSBT change output.
+	psbtChangeOut := &fundedPsbt.Pkt.Outputs[fundedPsbt.ChangeOutputIndex]
+
+	psbtChangeOut.TaprootInternalKey = schnorr.SerializePubKey(
+		delegationKey.PubKey,
+	)
+
+	// Also add derivation information for the internal key to the PSBT.
+	bip32Derivation, trBip32Derivation :=
+		tappsbt.Bip32DerivationFromKeyDesc(
+			delegationKey, c.cfg.ChainParams.HDCoinType,
+		)
+
+	psbtChangeOut.Bip32Derivation = []*psbt.Bip32Derivation{
+		bip32Derivation,
+	}
+	psbtChangeOut.TaprootBip32Derivation = []*psbt.TaprootBip32Derivation{
+		trBip32Derivation,
+	}
+
+	// Override PSBT packet unsigned transaction change output.
+	changeIndex := fundedPsbt.ChangeOutputIndex
+	txChangeOut := fundedPsbt.Pkt.UnsignedTx.TxOut[changeIndex]
+
+	// Formulate a taproot output key from the new key (which is effectively
+	// the taproot internal key).
+	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(
+		delegationKey.PubKey,
+	)
+
+	// Create a new pay-to-taproot pk script from the taproot output key.
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
+	if err != nil {
+		return fmt.Errorf("unable to create pk script: %w", err)
+	}
+
+	// Set the unsigned transaction change output to the new taproot output
+	// script.
+	txChangeOut.PkScript = pkScript
+
+	return nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -745,6 +804,40 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
+
+	// If the batch is configured to use universe commitment, the minting
+	// transaction's change output becomes the universe pre-commitment
+	// output, which will be locked for spending by tapd only.
+	if c.pendingBatch != nil && c.pendingBatch.UniverseCommitments {
+		// If we've funded the batch and universe commitment is enabled,
+		// there should be at least one seedling in the batch.
+		if len(c.pendingBatch.Seedlings) == 0 {
+			return nil, fmt.Errorf("uni commitment enabled for " +
+				"funded batch but no seedlings in batch")
+		}
+
+		// Extract delegated key from the first encountered seedling in
+		// the batch. For simplicity, the delegation key should be set
+		// for all seedlings in the batch.
+		var delegationKey keychain.KeyDescriptor
+		for _, seedling := range c.pendingBatch.Seedlings {
+			var err error
+			delegationKey, err = seedling.DelegationKey.UnwrapOrErr(
+				fmt.Errorf("no delegation key found in " +
+					"seedling"),
+			)
+			if err != nil {
+				return nil, err
+			}
+		}
+
+		// Modify the PSBT to lock the pre-commitment output.
+		err = c.lockPreCommitmentOutput(delegationKey, fundedGenesisPkt)
+		if err != nil {
+			return nil, fmt.Errorf("unable to lock pre-commitment "+
+				"output: %w", err)
+		}
+	}
 
 	return fundedGenesisPkt, nil
 }
@@ -1780,6 +1873,9 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 		}
 	}
 
+	// TODO(ffranr): Do we need to write the pre-commitment output key to
+	//  the database here?
+
 	err = c.cfg.Log.CommitBatchTx(
 		ctx, workingBatch.BatchKey.PubKey, workingBatch.GenesisPacket,
 	)
@@ -2245,12 +2341,93 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return <-req.resp, <-req.err
 }
 
+// prepSeedlingDelegationKey finalizes the seedling delegation key.
+func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
+	req *Seedling) error {
+
+	// If the universe commitments feature is disabled for this seedling,
+	// we can skip any further delegation key considerations.
+	if !req.UniverseCommitments {
+		return nil
+	}
+
+	// At this point, we know that the universe commitments feature is
+	// enabled for the seedling. If a group anchor seedling is specified
+	// we will use its delegation key.
+	if req.GroupAnchor != nil {
+		// Retrieve the group anchor seedling from the pending batch.
+		anchorSeedlingName := *req.GroupAnchor
+
+		anchor, ok := c.pendingBatch.Seedlings[anchorSeedlingName]
+		if anchor == nil || !ok {
+			return fmt.Errorf("group anchor seedling not present "+
+				"in batch (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		if anchor.DelegationKey.IsNone() {
+			return fmt.Errorf("group anchor seedling has no "+
+				"delegation key (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		// Set the delegation key for the seedling to the delegation key
+		// of the group anchor seedling.
+		req.DelegationKey = anchor.DelegationKey
+
+		// Return early, no further seedling prep required for universe
+		// commitments feature.
+		return nil
+	}
+
+	// On the other hand, if we're handling the group anchor seedling, we
+	// and the delegation key is unset, we must generate a new one.
+	if req.EnableEmission && req.GroupAnchor == nil {
+		newKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to derive pre-commitment "+
+				"output key: %w", err)
+		}
+
+		req.DelegationKey = fn.Some(newKey)
+	}
+
+	return nil
+}
+
 // prepAssetSeedling performs some basic validation for the Seedling, then
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// First, we'll perform some basic validation for the seedling.
+	// Finalise the seedling delegation key.
+	err := c.prepSeedlingDelegationKey(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	// Set seedling asset metadata fields.
+	req.Meta.UniverseCommitments = req.UniverseCommitments
+
+	if req.DelegationKey.IsSome() {
+		keyDesc, err := req.DelegationKey.UnwrapOrErr(
+			fmt.Errorf("delegation key is not set"),
+		)
+		if err != nil {
+			return err
+		}
+
+		if keyDesc.PubKey == nil {
+			return fmt.Errorf("delegation key has no public key")
+		}
+
+		req.Meta.DelegationKey = fn.Some(*keyDesc.PubKey)
+	}
+
+	// We will perform basic validation on the seedling, including metadata
+	// validation.
 	if err := req.validateFields(); err != nil {
 		return err
 	}
@@ -2363,30 +2540,40 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			return err
 		}
 
-		log.Infof("Adding %v to new MintingBatch", req)
+		c.pendingBatch = newBatch
 
-		newBatch.Seedlings[req.AssetName] = req
+		log.Infof("Attempting to add a seedling to a new batch "+
+			"(seedling=%v)", req)
+
+		err = c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		err = c.cfg.Log.CommitMintingBatch(ctx, c.pendingBatch)
 		if err != nil {
 			return err
 		}
 
-		c.pendingBatch = newBatch
-
 	// A batch already exists, so we'll add this seedling to the batch,
 	// committing it to disk fully before we move on.
 	case c.pendingBatch != nil:
-		log.Infof("Adding %v to existing MintingBatch", req)
+		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
+			req)
 
-		c.pendingBatch.Seedlings[req.AssetName] = req
+		err := c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err := c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
