@@ -164,7 +164,9 @@ func (t *mintingTestHarness) refreshChainPlanter() {
 
 // newRandSeedlings creates numSeedlings amount of seedlings with random
 // initialized values.
-func (t *mintingTestHarness) newRandSeedlings(numSeedlings int) []*tapgarden.Seedling {
+func (t *mintingTestHarness) newRandSeedlings(
+	numSeedlings int) []*tapgarden.Seedling {
+
 	seedlings := make([]*tapgarden.Seedling, numSeedlings)
 	for i := 0; i < numSeedlings; i++ {
 		var n [32]byte
@@ -214,44 +216,9 @@ func (t *mintingTestHarness) assertBatchResumedBackground(wg *sync.WaitGroup,
 	}()
 }
 
-func (t *mintingTestHarness) assertKeyDerived() *keychain.KeyDescriptor {
-	t.Helper()
-
-	key, err := fn.RecvOrTimeout(t.keyRing.ReqKeys, defaultTimeout)
-	require.NoError(t, err)
-
-	return *key
-}
-
-// assertKeyDerivedBackground unblocks key derivation with the test harness key
-// ring. This is only needed when using the key ring from a unit test and not
-// the planter or caretaker.
-func (t *mintingTestHarness) assertKeyDerivedBackground(
-	wg *sync.WaitGroup) **keychain.KeyDescriptor {
-
-	t.Helper()
-
-	var (
-		key **keychain.KeyDescriptor
-		err error
-	)
-
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-
-		key, err = fn.RecvOrTimeout(t.keyRing.ReqKeys, defaultTimeout)
-		require.NoError(t, err)
-	}()
-
-	// This return value will be unsafe to use until we confirm that the
-	// above goroutine has returned.
-	return key
-}
-
-// createExternalBatch creates a new pending batch outside of the planter, which
+// createExternalBatch creates a new pending batch outside the planter, which
 // can then be stored on disk.
-func (t *mintingTestHarness) createExternalBatch(wg *sync.WaitGroup,
+func (t *mintingTestHarness) createExternalBatch(
 	numSeedlings int) *tapgarden.MintingBatch {
 
 	t.Helper()
@@ -266,13 +233,11 @@ func (t *mintingTestHarness) createExternalBatch(wg *sync.WaitGroup,
 		// The group internal key should be from the key ring since we
 		// expect the caretaker to sign with it later.
 		if seedling.EnableEmission {
-			t.assertKeyDerivedBackground(wg)
 			groupKey, err := t.keyRing.DeriveNextKey(
 				context.Background(),
 				asset.TaprootAssetsKeyFamily,
 			)
 			require.NoError(t, err)
-			wg.Wait()
 
 			seedling.GroupInternalKey = &groupKey
 		}
@@ -280,12 +245,10 @@ func (t *mintingTestHarness) createExternalBatch(wg *sync.WaitGroup,
 		seedlingsWithKeys[seedling.AssetName] = seedling
 	}
 
-	t.assertKeyDerivedBackground(wg)
 	batchInternalKey, err := t.keyRing.DeriveNextKey(
 		context.Background(), asset.TaprootAssetsKeyFamily,
 	)
 	require.NoError(t, err)
-	wg.Wait()
 
 	newBatch := &tapgarden.MintingBatch{
 		CreationTime: time.Now(),
@@ -307,6 +270,7 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 	for i, seedling := range seedlings {
 		seedling := seedling
 		keyCount := 0
+		t.keyRing.Calls = nil
 
 		// For the first seedling sent, we should get a new request,
 		// representing the batch internal key.
@@ -332,11 +296,6 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 		updates, err := t.planter.QueueNewSeedling(seedling)
 		require.NoError(t, err)
 
-		for keyCount != 0 {
-			t.assertKeyDerived()
-			keyCount--
-		}
-
 		// We should get an update from the update channel that the
 		// seedling is now pending.
 		update, err := fn.RecvOrTimeout(updates, defaultTimeout)
@@ -347,6 +306,8 @@ func (t *mintingTestHarness) queueSeedlingsInBatch(isFunded bool,
 
 		// The received update should be a state of MintingStateSeed.
 		require.Equal(t, tapgarden.MintingStateSeed, update.NewState)
+
+		t.keyRing.AssertNumberOfCalls(t, "DeriveNextKey", keyCount)
 	}
 }
 
@@ -1745,7 +1706,6 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	}
 	t.fundBatch(&wg, respChan, &fundReq)
 
-	t.assertKeyDerived()
 	t.assertGenesisTxFunded(&manualFee)
 	t.assertFundBatch(&wg, respChan, "")
 
@@ -1986,7 +1946,7 @@ func testFundSealOnRestart(t *mintingTestHarness) {
 	// We should also be able to resume one batch even when resuming another
 	// batch fails. Since we can only queue one batch at a time, we'll
 	// insert another pending batch on disk while the planter is shut down.
-	dbBatch := t.createExternalBatch(&wg, numSeedlings)
+	dbBatch := t.createExternalBatch(numSeedlings)
 	batchCount++
 	err := t.store.CommitMintingBatch(context.Background(), dbBatch)
 	require.NoError(t, err)
@@ -2083,12 +2043,6 @@ func TestGroupKeyRevealV1WitnessWithCustomRoot(t *testing.T) {
 		txValidator      = &tap.ValidatorV0{}
 		hashLockPreimage = []byte("foobar")
 	)
-
-	// We expect two keys to be derived from the mock.
-	go func() {
-		<-mockKeyRing.ReqKeys
-		<-mockKeyRing.ReqKeys
-	}()
 
 	// The internal key is for the actual internal key of the group.
 	internalKeyDesc, err := mockKeyRing.DeriveNextTaprootAssetKey(ctx)
@@ -2251,11 +2205,6 @@ func TestGroupKeyRevealV1WitnessNoScripts(t *testing.T) {
 		txBuilder   = &tapscript.GroupTxBuilder{}
 		txValidator = &tap.ValidatorV0{}
 	)
-
-	// We expect just one key to be derived from the mock.
-	go func() {
-		<-mockKeyRing.ReqKeys
-	}()
 
 	// The internal key is for the actual internal key of the group.
 	internalKeyDesc, err := mockKeyRing.DeriveNextTaprootAssetKey(ctx)

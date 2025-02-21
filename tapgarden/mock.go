@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -29,6 +30,7 @@ import (
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 )
 
@@ -602,19 +604,29 @@ func (m *MockAssetSyncer) EnableAssetSync(_ context.Context,
 }
 
 type MockKeyRing struct {
-	FamIndex keychain.KeyFamily
+	mock.Mock
+
+	sync.RWMutex
+
 	KeyIndex uint32
 
 	Keys map[keychain.KeyLocator]*btcec.PrivateKey
-
-	ReqKeys chan *keychain.KeyDescriptor
 }
 
+var _ KeyRing = (*MockKeyRing)(nil)
+
 func NewMockKeyRing() *MockKeyRing {
-	return &MockKeyRing{
-		Keys:    make(map[keychain.KeyLocator]*btcec.PrivateKey),
-		ReqKeys: make(chan *keychain.KeyDescriptor),
+	keyRing := &MockKeyRing{
+		Keys: make(map[keychain.KeyLocator]*btcec.PrivateKey),
 	}
+
+	keyRing.On(
+		"DeriveNextKey", mock.Anything,
+		keychain.KeyFamily(asset.TaprootAssetsKeyFamily),
+	).Return(nil)
+	keyRing.On("DeriveNextTaprootAssetKey", mock.Anything).Return(nil)
+
+	return keyRing
 }
 
 // DeriveNextTaprootAssetKey attempts to derive the *next* key within the
@@ -622,11 +634,15 @@ func NewMockKeyRing() *MockKeyRing {
 func (m *MockKeyRing) DeriveNextTaprootAssetKey(
 	ctx context.Context) (keychain.KeyDescriptor, error) {
 
+	m.Called(ctx)
+
 	return m.DeriveNextKey(ctx, asset.TaprootAssetsKeyFamily)
 }
 
 func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	keyFam keychain.KeyFamily) (keychain.KeyDescriptor, error) {
+
+	m.Called(ctx, keyFam)
 
 	select {
 	case <-ctx.Done():
@@ -634,9 +650,10 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 	default:
 	}
 
+	m.Lock()
 	defer func() {
-		m.FamIndex++
 		m.KeyIndex++
+		m.Unlock()
 	}()
 
 	priv, err := btcec.NewPrivateKey()
@@ -646,7 +663,7 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 
 	loc := keychain.KeyLocator{
 		Index:  m.KeyIndex,
-		Family: m.FamIndex,
+		Family: keyFam,
 	}
 
 	m.Keys[loc] = priv
@@ -656,29 +673,66 @@ func (m *MockKeyRing) DeriveNextKey(ctx context.Context,
 		KeyLocator: loc,
 	}
 
-	select {
-	case m.ReqKeys <- &desc:
-	case <-ctx.Done():
-		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
-	}
-
 	return desc, nil
 }
 
-func (m *MockKeyRing) DeriveKey(ctx context.Context,
-	_ keychain.KeyLocator) (keychain.KeyDescriptor, error) {
+func (m *MockKeyRing) IsLocalKey(ctx context.Context,
+	d keychain.KeyDescriptor) bool {
 
-	select {
-	case <-ctx.Done():
-		return keychain.KeyDescriptor{}, fmt.Errorf("shutting down")
-	default:
+	m.Called(ctx, d)
+
+	m.RLock()
+	defer m.RUnlock()
+
+	priv, ok := m.Keys[d.KeyLocator]
+	if ok && priv.PubKey().IsEqual(d.PubKey) {
+		return true
 	}
 
-	return keychain.KeyDescriptor{}, nil
+	for _, key := range m.Keys {
+		if key.PubKey().IsEqual(d.PubKey) {
+			return true
+		}
+	}
+
+	return false
 }
 
-func (m *MockKeyRing) IsLocalKey(context.Context, keychain.KeyDescriptor) bool {
-	return true
+func (m *MockKeyRing) PubKeyAt(t *testing.T, idx uint32) *btcec.PublicKey {
+	m.RLock()
+	defer m.RUnlock()
+
+	loc := keychain.KeyLocator{
+		Index:  idx,
+		Family: asset.TaprootAssetsKeyFamily,
+	}
+
+	priv, ok := m.Keys[loc]
+	if !ok {
+		t.Fatalf("script key not found at index %d", idx)
+	}
+
+	return priv.PubKey()
+}
+
+func (m *MockKeyRing) ScriptKeyAt(t *testing.T, idx uint32) asset.ScriptKey {
+	m.RLock()
+	defer m.RUnlock()
+
+	loc := keychain.KeyLocator{
+		Index:  idx,
+		Family: asset.TaprootAssetsKeyFamily,
+	}
+
+	priv, ok := m.Keys[loc]
+	if !ok {
+		t.Fatalf("script key not found at index %d", idx)
+	}
+
+	return asset.NewScriptKeyBip86(keychain.KeyDescriptor{
+		KeyLocator: loc,
+		PubKey:     priv.PubKey(),
+	})
 }
 
 type MockGenSigner struct {

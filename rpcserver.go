@@ -2224,8 +2224,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	// Extract the passive assets that are needed for the fully RPC driven
 	// flow.
 	passivePackets, err := r.cfg.AssetWallet.CreatePassiveAssets(
-		ctx, []*tappsbt.VPacket{fundedVPkt.VPacket},
-		fundedVPkt.InputCommitments,
+		ctx, fundedVPkt.VPackets, fundedVPkt.InputCommitments,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error creating passive assets: %w", err)
@@ -2246,7 +2245,12 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 	}
 
-	response.FundedPsbt, err = serialize(fundedVPkt.VPacket)
+	// TODO(guggero): Remove this once we support multiple packets.
+	if len(fundedVPkt.VPackets) > 1 {
+		return nil, fmt.Errorf("only one packet supported")
+	}
+
+	response.FundedPsbt, err = serialize(fundedVPkt.VPackets[0])
 	if err != nil {
 		return nil, fmt.Errorf("error serializing packet: %w", err)
 	}
@@ -3376,11 +3380,13 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		// We found the asset group, so we can use the group key to
 		// burn the asset.
 		groupKey = &assetGroup.GroupPubKey
+
 	case errors.Is(err, address.ErrAssetGroupUnknown):
 		// We don't know the asset group, so we'll try to burn the
 		// asset using the asset ID only.
 		rpcsLog.Debug("Asset group key not found, asset may not be " +
 			"part of a group")
+
 	case err != nil:
 		return nil, fmt.Errorf("error querying asset group: %w", err)
 	}
@@ -3408,16 +3414,22 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 		return nil, fmt.Errorf("error funding burn: %w", err)
 	}
 
+	// We don't support burning by group key yet, so we only expect a single
+	// vPacket (which implies a single asset ID is involved).
+	if len(fundResp.VPackets) > 1 {
+		return nil, fmt.Errorf("only one packet supported")
+	}
+
 	// Now we can sign the packet and send it to the chain.
-	_, err = r.cfg.AssetWallet.SignVirtualPacket(fundResp.VPacket)
+	vPkt := fundResp.VPackets[0]
+	_, err = r.cfg.AssetWallet.SignVirtualPacket(vPkt)
 	if err != nil {
 		return nil, fmt.Errorf("error signing packet: %w", err)
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
 		tapfreighter.NewPreSignedParcel(
-			[]*tappsbt.VPacket{fundResp.VPacket},
-			fundResp.InputCommitments, in.Note,
+			fundResp.VPackets, fundResp.InputCommitments, in.Note,
 		),
 	)
 	if err != nil {
@@ -3432,7 +3444,7 @@ func (r *rpcServer) BurnAsset(ctx context.Context,
 
 	var burnProof *taprpc.DecodedProof
 	for idx := range resp.Outputs {
-		vOut := fundResp.VPacket.Outputs[idx]
+		vOut := vPkt.Outputs[idx]
 		tOut := resp.Outputs[idx]
 		if vOut.Asset.IsBurn() {
 			p, err := proof.Decode(tOut.ProofSuffix)
@@ -6405,35 +6417,55 @@ func MarshalAssetFedSyncCfg(
 }
 
 // unmarshalAssetSpecifier unmarshals an asset specifier from the RPC form.
-func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
+func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier) (*asset.ID,
 	*btcec.PublicKey, error) {
+
+	if s == nil {
+		return nil, nil, fmt.Errorf("asset specifier must be specified")
+	}
+
+	return parseAssetSpecifier(
+		s.GetAssetId(), s.GetAssetIdStr(), s.GetGroupKey(),
+		s.GetGroupKeyStr(),
+	)
+}
+
+// parseAssetSpecifier parses an asset specifier from the RPC form.
+func parseAssetSpecifier(reqAssetID []byte, reqAssetIDStr string,
+	reqGroupKey []byte, reqGroupKeyStr string) (*asset.ID, *btcec.PublicKey,
+	error) {
 
 	// Attempt to decode the asset specifier from the RPC request. In cases
 	// where both the asset ID and asset group key are provided, we will
 	// give precedence to the asset ID due to its higher level of
 	// specificity.
 	var (
-		assetID *asset.ID
-
-		groupKeyBytes []byte
-		groupKey      *btcec.PublicKey
-
-		err error
+		assetID  *asset.ID
+		groupKey *btcec.PublicKey
+		err      error
 	)
 
 	switch {
 	// Parse the asset ID if it's set.
-	case len(req.GetAssetId()) > 0:
+	case len(reqAssetID) > 0:
+		if len(reqAssetID) != sha256.Size {
+			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
+		}
+
 		var assetIdBytes [32]byte
-		copy(assetIdBytes[:], req.GetAssetId())
+		copy(assetIdBytes[:], reqAssetID)
 		id := asset.ID(assetIdBytes)
 		assetID = &id
 
-	case len(req.GetAssetIdStr()) > 0:
-		assetIDBytes, err := hex.DecodeString(req.GetAssetIdStr())
+	case len(reqAssetIDStr) > 0:
+		assetIDBytes, err := hex.DecodeString(reqAssetIDStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding asset "+
 				"ID: %w", err)
+		}
+
+		if len(assetIDBytes) != sha256.Size {
+			return nil, nil, fmt.Errorf("asset ID must be 32 bytes")
 		}
 
 		var id asset.ID
@@ -6441,18 +6473,15 @@ func unmarshalAssetSpecifier(req *rfqrpc.AssetSpecifier) (*asset.ID,
 		assetID = &id
 
 	// Parse the group key if it's set.
-	case len(req.GetGroupKey()) > 0:
-		groupKeyBytes = req.GetGroupKey()
-		groupKey, err = btcec.ParsePubKey(groupKeyBytes)
+	case len(reqGroupKey) > 0:
+		groupKey, err = btcec.ParsePubKey(reqGroupKey)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error parsing group "+
 				"key: %w", err)
 		}
 
-	case len(req.GetGroupKeyStr()) > 0:
-		groupKeyBytes, err := hex.DecodeString(
-			req.GetGroupKeyStr(),
-		)
+	case len(reqGroupKeyStr) > 0:
+		groupKeyBytes, err := hex.DecodeString(reqGroupKeyStr)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error decoding group "+
 				"key: %w", err)
@@ -7033,8 +7062,17 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 		return nil, fmt.Errorf("error parsing peer pubkey: %w", err)
 	}
 
-	if len(req.AssetId) != sha256.Size {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.GetAssetId(), "", nil, "",
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing asset specifier: %w", err)
+	}
+
+	assetSpecifier, err := r.fundingAssetSpecifier(ctx, assetID, groupKey)
+	if err != nil {
+		return nil, fmt.Errorf("error creating asset specifier: %w",
+			err)
 	}
 
 	if req.AssetAmount == 0 {
@@ -7045,12 +7083,12 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 
 	fundReq := tapchannel.FundReq{
-		PeerPub:     *peerPub,
-		AssetAmount: req.AssetAmount,
-		FeeRate:     chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
-		PushAmount:  btcutil.Amount(req.PushSat),
+		PeerPub:        *peerPub,
+		AssetSpecifier: assetSpecifier,
+		AssetAmount:    req.AssetAmount,
+		FeeRate:        chainfee.SatPerVByte(req.FeeRateSatPerVbyte),
+		PushAmount:     btcutil.Amount(req.PushSat),
 	}
-	copy(fundReq.AssetID[:], req.AssetId)
 
 	chanPoint, err := r.cfg.AuxFundingController.FundChannel(ctx, fundReq)
 	if err != nil {
@@ -7061,6 +7099,55 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 		Txid:        chanPoint.Hash.String(),
 		OutputIndex: int32(chanPoint.Index),
 	}, nil
+}
+
+// fundingAssetSpecifier returns an asset specifier for the funding process. The
+// funding specific part here is that if an asset is identified only by its ID,
+// we also look up the group key for it. This is necessary for the funding
+// process, as we need to know the group key to locate the asset in a
+// commitment.
+func (r *rpcServer) fundingAssetSpecifier(ctx context.Context,
+	assetID *asset.ID, groupKey *btcec.PublicKey) (asset.Specifier, error) {
+
+	var result asset.Specifier
+
+	// There are 4 ways in which the specifier can be set:
+	switch {
+	// Only the asset ID is set. At this point we don't know if this is an
+	// un-grouped asset or the group key was just not specified. For the
+	// funding specific code, we need the group to be set if it is grouped,
+	// otherwise we'll get an error when trying to locate the asset in a
+	// commitment.
+	case assetID != nil && groupKey == nil:
+		dbGroupKey, err := r.cfg.TapAddrBook.QueryAssetGroup(
+			ctx, *assetID,
+		)
+		switch {
+		case err == nil && dbGroupKey.GroupKey != nil:
+			groupKey = &dbGroupKey.GroupPubKey
+
+		case err != nil:
+			return result, fmt.Errorf("unable to query asset "+
+				"group: %w", err)
+		}
+
+		return asset.NewSpecifier(assetID, groupKey, nil, true)
+
+	// Only the group key is set. This is a grouped asset, and we want to
+	// fund a transaction with any tranche.
+	case assetID == nil && groupKey != nil:
+		return asset.NewSpecifier(nil, groupKey, nil, true)
+
+	// Both values are set, this is a grouped asset, but for funding we
+	// might only want assets from a specific tranche.
+	case assetID != nil && groupKey != nil:
+		return asset.NewSpecifier(assetID, groupKey, nil, true)
+
+	// None of the values is set, we can't continue.
+	default:
+		return result, fmt.Errorf("either asset ID or asset group " +
+			"key must be specified")
+	}
 }
 
 // EncodeCustomRecords allows RPC users to encode Taproot Asset channel related

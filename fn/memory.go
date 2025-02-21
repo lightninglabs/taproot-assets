@@ -1,5 +1,13 @@
 package fn
 
+import "errors"
+
+var (
+	// ErrNilPointerDeference is returned when a nil pointer is
+	// dereferenced.
+	ErrNilPointerDeference = errors.New("nil pointer dereference")
+)
+
 // Ptr returns the pointer of the given value. This is useful in instances
 // where a function returns the value, but a pointer is wanted. Without this,
 // then an intermediate variable is needed.
@@ -32,7 +40,31 @@ func ToArray[T ByteArray](v []byte) T {
 // CopySlice returns a copy of the given slice. Does a shallow copy of the
 // slice itself, not the underlying elements.
 func CopySlice[T any](slice []T) []T {
+	if slice == nil {
+		return nil
+	}
+
 	newSlice := make([]T, len(slice))
 	copy(newSlice, slice)
 	return newSlice
+}
+
+// Deref safely dereferences a pointer. If the pointer is nil, it returns the
+// zero value of type T and an error.
+func Deref[T any](ptr *T) (T, error) {
+	if ptr == nil {
+		var zero T
+		return zero, ErrNilPointerDeference
+	}
+
+	return *ptr, nil
+}
+
+// DerefPanic dereferences a pointer. If the pointer is nil, it panics.
+func DerefPanic[T any](ptr *T) T {
+	if ptr == nil {
+		panic(ErrNilPointerDeference)
+	}
+
+	return *ptr
 }
