@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightningnetwork/lnd/lntest"
 	"github.com/stretchr/testify/require"
 )
@@ -128,4 +129,24 @@ func testGetInfo(t *harnessTest) {
 
 	// Ensure the response matches the expected response.
 	require.Equal(t.t, resp, respCli)
+}
+
+// testPriceOracleProxy tests the price oracle proxy.
+func testPriceOracleProxy(t *harnessTest) {
+	ctxb := context.Background()
+	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
+	defer cancel()
+
+	resp, err := t.tapd.PriceOracleClient.QueryAssetRates(
+		ctxt, &priceoraclerpc.QueryAssetRatesRequest{},
+	)
+	require.NoError(t.t, err)
+
+	okResp := resp.GetOk()
+	require.NotNil(t.t, okResp)
+
+	require.Equal(
+		t.t, fmt.Sprintf("%v", mockPriceOracleCoef),
+		okResp.AssetRates.SubjectAssetRate.Coefficient,
+	)
 }

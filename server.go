@@ -315,6 +315,7 @@ func (s *Server) RunUntilShutdown(mainErrChan <-chan error) error {
 		s.cfg.UniversePublicAccess.IsWriteAccessGranted(),
 		s.cfg.RPCConfig.AllowPublicUniProofCourier,
 		s.cfg.RPCConfig.AllowPublicStats,
+		s.cfg.RPCConfig.AllowPublicPriceOracle,
 	)
 
 	// Create a new RPC interceptor that we'll add to the GRPC server. This
