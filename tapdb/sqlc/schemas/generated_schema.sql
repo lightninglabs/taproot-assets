@@ -334,17 +334,8 @@ CREATE TABLE chain_txns (
 );
 
 CREATE TABLE federation_global_sync_config (
-    -- This field is an enum representing the proof type stored in the given
-    -- universe.
-    proof_type TEXT NOT NULL PRIMARY KEY CHECK(proof_type IN ('issuance', 'transfer')),
-
-    -- This field is a boolean that indicates whether or not a universe of the
-    -- given proof type should accept remote proof insertion via federation
-    -- sync.
+    proof_type TEXT NOT NULL PRIMARY KEY REFERENCES proof_types(proof_type),
     allow_sync_insert BOOLEAN NOT NULL,
-
-    -- This field is a boolean that indicates whether or not a universe of the
-    -- given proof type should accept remote proof export via federation sync.
     allow_sync_export BOOLEAN NOT NULL
 );
 
@@ -389,15 +380,11 @@ CREATE TABLE federation_uni_sync_config (
 
     -- This field is an enum representing the proof type stored in the given
     -- universe.
-    proof_type TEXT NOT NULL CHECK(proof_type IN ('issuance', 'transfer')),
-
-    -- This field is a boolean that indicates whether or not the given universe
-    -- should accept remote proof insertion via federation sync.
     allow_sync_insert BOOLEAN NOT NULL,
 
     -- This field is a boolean that indicates whether or not the given universe
     -- should accept remote proof export via federation sync.
-    allow_sync_export BOOLEAN NOT NULL,
+    allow_sync_export BOOLEAN NOT NULL, proof_type TEXT REFERENCES proof_types(proof_type),
 
     -- Both the asset ID and group key cannot be null at the same time.
     CHECK (
@@ -632,6 +619,10 @@ CREATE TABLE proof_transfer_log (
     time_unix TIMESTAMP NOT NULL
 );
 
+CREATE TABLE proof_types (
+    proof_type TEXT PRIMARY KEY
+);
+
 CREATE TABLE script_keys (
     script_key_id INTEGER PRIMARY KEY,
 
@@ -728,8 +719,7 @@ CREATE TABLE universe_roots (
 
     -- This field is an enum representing the proof type stored in the given
     -- universe.
-    proof_type TEXT NOT NULL CHECK(proof_type IN ('issuance', 'transfer'))
-);
+    proof_type TEXT REFERENCES proof_types(proof_type));
 
 CREATE TABLE universe_servers (
     id INTEGER PRIMARY KEY,

@@ -58,7 +58,7 @@ type (
 
 	// FedUniSyncConfigs is the universe specific federation sync config
 	// returned from a query.
-	FedUniSyncConfigs = sqlc.FederationUniSyncConfig
+	FedUniSyncConfigs = sqlc.QueryFederationUniSyncConfigsRow
 
 	// QueryUniServersParams is used to query for universe servers.
 	QueryUniServersParams = sqlc.QueryUniverseServersParams
@@ -553,7 +553,7 @@ func fetchProofSyncLogEntry(ctx context.Context, entry ProofSyncLogEntry,
 
 	uniID, err := universe.NewUniIDFromRawArgs(
 		entry.UniAssetID, entry.UniGroupKey,
-		entry.UniProofType,
+		entry.UniProofType.String,
 	)
 	if err != nil {
 		return nil, err
@@ -648,10 +648,12 @@ func (u *UniverseFederationDB) UpsertFederationSyncConfig(
 
 			err := db.UpsertFederationUniSyncConfig(
 				ctx, UpsertFedUniSyncConfigParams{
-					Namespace:       uniID.String(),
-					AssetID:         assetIDBytes,
-					GroupKey:        groupPubKey,
-					ProofType:       uniID.ProofType.String(),
+					Namespace: uniID.String(),
+					AssetID:   assetIDBytes,
+					GroupKey:  groupPubKey,
+					ProofType: sqlStr(
+						uniID.ProofType.String(),
+					),
 					AllowSyncInsert: config.AllowSyncInsert,
 					AllowSyncExport: config.AllowSyncExport,
 				},
@@ -775,7 +777,7 @@ func (u *UniverseFederationDB) QueryFederationSyncConfigs(
 
 		for i, config := range uniDbConfigs {
 			proofType, err := universe.ParseStrProofType(
-				config.ProofType,
+				config.ProofType.String,
 			)
 			if err != nil {
 				return err
