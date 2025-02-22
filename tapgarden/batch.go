@@ -14,7 +14,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -51,7 +50,7 @@ type MintingBatch struct {
 	// GenesisPacket is the funded genesis packet that may or may not be
 	// fully signed. When broadcast, this will create all assets stored
 	// within this batch.
-	GenesisPacket *tapsend.FundedPsbt
+	GenesisPacket *FundedMintAnchorPsbt
 
 	// RootAssetCommitment is the root Taproot Asset commitment for all the
 	// assets contained in this batch.

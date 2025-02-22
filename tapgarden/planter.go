@@ -1322,12 +1322,13 @@ func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
 func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 	archiver proof.Archiver, batch *MintingBatch) (*MintingBatch, error) {
 
+	if batch.GenesisPacket == nil {
+		return nil, fmt.Errorf("batch is missing anchor tx packet")
+	}
+
 	// Collect genesis TX information from the batch to build the proof
 	// locators.
-	anchorOutputIndex, err := extractAnchorOutputIndex(batch.GenesisPacket)
-	if err != nil {
-		return nil, err
-	}
+	anchorOutputIndex := batch.GenesisPacket.AssetAnchorOutIdx
 
 	signedTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
 	if err != nil {
@@ -1564,12 +1565,7 @@ func newVerboseBatch(currentBatch *MintingBatch,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex, err := extractAnchorOutputIndex(
-		currentBatch.GenesisPacket,
-	)
-	if err != nil {
-		return nil, err
-	}
+	anchorOutputIndex := currentBatch.GenesisPacket.AssetAnchorOutIdx
 
 	genesisPoint := extractGenesisOutpoint(
 		currentBatch.GenesisPacket.Pkt.UnsignedTx,
@@ -2018,10 +2014,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 				"batch: %x %w", batchKey[:], err)
 		}
 
-		// TODO(ffranr): In a future commit, we will replace the
-		//  GenesisPacket field type so as to carry along the
-		//  pre-commitment output info.
-		batch.GenesisPacket = &mintAnchorTx.FundedPsbt
+		batch.GenesisPacket = &mintAnchorTx
 
 		return nil
 	}
@@ -2069,7 +2062,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	}
 
 	err = c.cfg.Log.CommitBatchTx(
-		ctx, workingBatch.BatchKey.PubKey, workingBatch.GenesisPacket,
+		ctx, workingBatch.BatchKey.PubKey, *workingBatch.GenesisPacket,
 	)
 	if err != nil {
 		return err
@@ -2150,12 +2143,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex, err := extractAnchorOutputIndex(
-		workingBatch.GenesisPacket,
-	)
-	if err != nil {
-		return nil, err
-	}
+	anchorOutputIndex := workingBatch.GenesisPacket.AssetAnchorOutIdx
 
 	genesisPoint := extractGenesisOutpoint(
 		workingBatch.GenesisPacket.Pkt.UnsignedTx,
