@@ -51,11 +51,17 @@ func TestProofStitching(t *testing.T) {
 	err = f.Decode(bytes.NewReader(tplBytes))
 	require.NoError(t, err)
 
+	vCtx := VerifierCtx{
+		HeaderVerifier: verifier.VerifyHeader,
+		MerkleVerifier: MockMerkleVerifier,
+		GroupVerifier:  MockGroupVerifier,
+		ChainLookupGen: MockChainLookup,
+	}
+
 	// We want the template to valid, otherwise all other steps are
 	// meaningless.
 	_, err = f.Verify(
-		context.Background(), verifier.VerifyHeader, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
+		context.Background(), vCtx,
 	)
 	require.NoError(t, err)
 
@@ -121,9 +127,7 @@ func TestProofStitching(t *testing.T) {
 		// get an "invalid exclusion proof" error when validating, we
 		// need to skip this proof.
 		_, err = f.Verify(
-			context.Background(), verifier.VerifyHeader,
-			DefaultMerkleVerifier, MockGroupVerifier,
-			MockChainLookup,
+			context.Background(), vCtx,
 		)
 		switch {
 		case errors.Is(err, commitment.ErrInvalidTaprootProof):

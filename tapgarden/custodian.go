@@ -611,10 +611,8 @@ func (c *Custodian) receiveProof(addr *address.Tap, op wire.OutPoint,
 	ctx, cancel = c.CtxBlocking()
 	defer cancel()
 
-	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
 	err = c.cfg.ProofArchive.ImportProofs(
-		ctx, headerVerifier, proof.DefaultMerkleVerifier,
-		c.cfg.GroupVerifier, c.cfg.ChainBridge, false, addrProof,
+		ctx, c.verifierCtx(ctx), false, addrProof,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to import proofs script_key=%x, "+
@@ -974,10 +972,8 @@ func (c *Custodian) assertProofInLocalArchive(p *proof.AnnotatedProof) error {
 	// We don't have the proof yet, or not in all backends, so we
 	// need to import it now.
 	if !haveProof {
-		headerVerifier := GenHeaderVerifier(ctxt, c.cfg.ChainBridge)
 		err = c.cfg.ProofArchive.ImportProofs(
-			ctxt, headerVerifier, proof.DefaultMerkleVerifier,
-			c.cfg.GroupVerifier, c.cfg.ChainBridge, false, p,
+			ctxt, c.verifierCtx(ctxt), false, p,
 		)
 		if err != nil {
 			return fmt.Errorf("error importing proof file into "+
@@ -1154,4 +1150,17 @@ func AddrMatchesAsset(addr *address.AddrWithKeyInfo, a *asset.Asset) bool {
 func EventMatchesProof(event *address.Event, p *proof.Proof) bool {
 	return AddrMatchesAsset(event.Addr, &p.Asset) &&
 		event.Outpoint == p.OutPoint()
+}
+
+// verifierCtx returns a verifier context that can be used to verify proofs.
+func (c *Custodian) verifierCtx(ctx context.Context) proof.VerifierCtx {
+	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	merkleVerifier := proof.DefaultMerkleVerifier
+
+	return proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: merkleVerifier,
+		GroupVerifier:  c.cfg.GroupVerifier,
+		ChainLookupGen: c.cfg.ChainBridge,
+	}
 }
