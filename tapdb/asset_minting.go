@@ -239,6 +239,11 @@ type PendingAssetStore interface {
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
+
+	// FetchMintAnchorUniCommitment fetches the mint anchor uni commitment
+	// for a given batch.
+	FetchMintAnchorUniCommitment(ctx context.Context,
+		batchID int32) (sqlc.MintAnchorUniCommitment, error)
 }
 
 var (
@@ -1164,11 +1169,59 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		if err != nil {
 			return nil, err
 		}
-		batch.GenesisPacket = &tapsend.FundedPsbt{
-			Pkt: genesisPkt,
-			ChangeOutputIndex: extractSqlInt32[int32](
-				dbBatch.ChangeOutputIndex,
-			),
+
+		if !dbBatch.AssetsOutputIndex.Valid {
+			return nil, fmt.Errorf("missing asset anchor output " +
+				"index")
+		}
+		assetAnchorOutIdx := dbBatch.AssetsOutputIndex.Int32
+
+		// If the batch has universe commitments, we will retrieve
+		// the pre-commitment output index from the database.
+		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
+		if dbBatch.UniverseCommitments {
+			res, err := q.FetchMintAnchorUniCommitment(
+				ctx, int32(dbBatch.BatchID),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to fetch mint "+
+					"anchor uni commitment: %w", err)
+			}
+
+			// Parse the internal key from the database.
+			internalKey, err := btcec.ParsePubKey(
+				res.TaprootInternalKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing "+
+					"taproot internal key: %w", err)
+			}
+
+			// Parse the group public key from the database.
+			groupPubKey, err := btcec.ParsePubKey(res.GroupKey)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing "+
+					"group public key: %w", err)
+			}
+
+			preCommitOut = fn.Some(
+				tapgarden.PreCommitmentOutput{
+					OutIdx:      uint32(res.TxOutputIndex),
+					InternalKey: *internalKey,
+					GroupPubKey: *groupPubKey,
+				},
+			)
+		}
+
+		batch.GenesisPacket = &tapgarden.FundedMintAnchorPsbt{
+			FundedPsbt: tapsend.FundedPsbt{
+				Pkt: genesisPkt,
+				ChangeOutputIndex: extractSqlInt32[int32](
+					dbBatch.ChangeOutputIndex,
+				),
+			},
+			AssetAnchorOutIdx:   uint32(assetAnchorOutIdx),
+			PreCommitmentOutput: preCommitOut,
 		}
 	}
 
@@ -1283,7 +1336,8 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 // CommitBatchTx updates the genesis transaction of a batch based on the batch
 // key.
 func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPacket *tapsend.FundedPsbt) error {
+	batchKey *btcec.PublicKey,
+	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
 
 	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
 	rawBatchKey := batchKey.SerializeCompressed()
@@ -1417,7 +1471,8 @@ func fetchSeedlingGroups(ctx context.Context, q PendingAssetStore,
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPacket *tapsend.FundedPsbt,
+	batchKey *btcec.PublicKey,
+	genesisPacket *tapgarden.FundedMintAnchorPsbt,
 	assetRoot *commitment.TapCommitment) error {
 
 	// Before we open the DB transaction below, we'll fetch the set of

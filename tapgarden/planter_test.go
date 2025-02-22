@@ -1148,14 +1148,14 @@ func testBasicAssetCreation(t *mintingTestHarness) {
 	// Now that the planter is back up, a single caretaker should have been
 	// launched as well. The batch should already be funded.
 	batch := t.fetchSingleBatch(nil)
-	t.assertBatchGenesisTx(batch.GenesisPacket)
+	t.assertBatchGenesisTx(&batch.GenesisPacket.FundedPsbt)
 	t.assertNumCaretakersActive(1)
 
 	// We'll now force yet another restart to ensure correctness of the
 	// state machine. We expect the PSBT packet to still be funded.
 	t.refreshChainPlanter()
 	batch = t.fetchSingleBatch(nil)
-	t.assertBatchGenesisTx(batch.GenesisPacket)
+	t.assertBatchGenesisTx(&batch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -1251,7 +1251,7 @@ func testMintingTicker(t *mintingTestHarness) {
 	// that the batch is already funded.
 	t.assertBatchProgressing()
 	currentBatch := t.fetchLastBatch()
-	t.assertBatchGenesisTx(currentBatch.GenesisPacket)
+	t.assertBatchGenesisTx(&currentBatch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -1352,7 +1352,7 @@ func testMintingCancelFinalize(t *mintingTestHarness) {
 
 	t.assertBatchProgressing()
 	thirdBatch = t.fetchLastBatch()
-	t.assertBatchGenesisTx(thirdBatch.GenesisPacket)
+	t.assertBatchGenesisTx(&thirdBatch.GenesisPacket.FundedPsbt)
 
 	// Now that the batch has been ticked, and the caretaker started, there
 	// should no longer be a pending batch.
@@ -1761,7 +1761,7 @@ func testFundSealBeforeFinalize(t *mintingTestHarness) {
 	fundedEmptyBatch := fundedBatches[0]
 	require.Len(t, fundedEmptyBatch.Seedlings, 0)
 	require.NotNil(t, fundedEmptyBatch.GenesisPacket)
-	t.assertBatchGenesisTx(fundedEmptyBatch.GenesisPacket)
+	t.assertBatchGenesisTx(&fundedEmptyBatch.GenesisPacket.FundedPsbt)
 	require.Equal(t, defaultTapHash[:], fundedEmptyBatch.TapSibling())
 	require.True(t, fundedEmptyBatch.State() == tapgarden.BatchStatePending)
 

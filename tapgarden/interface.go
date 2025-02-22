@@ -234,7 +234,7 @@ type MintingStore interface {
 	// NOTE: The BatchState should transition to BatchStateCommitted upon a
 	// successful call.
 	AddSproutsToBatch(ctx context.Context, batchKey *btcec.PublicKey,
-		genesisPacket *tapsend.FundedPsbt,
+		genesisPacket *FundedMintAnchorPsbt,
 		assets *commitment.TapCommitment) error
 
 	// CommitSignedGenesisTx adds a fully signed genesis transaction to the
@@ -288,7 +288,7 @@ type MintingStore interface {
 	// CommitBatchTx adds a funded transaction to the batch, which also sets
 	// the genesis point for the batch.
 	CommitBatchTx(ctx context.Context, batchKey *btcec.PublicKey,
-		genesisTx *tapsend.FundedPsbt) error
+		genesisTx FundedMintAnchorPsbt) error
 }
 
 // ChainBridge is our bridge to the target chain. It's used to get confirmation

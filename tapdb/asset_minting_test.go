@@ -88,7 +88,9 @@ func assertBatchEqual(t *testing.T, a, b *tapgarden.MintingBatch) {
 	require.Equal(t, a.TapSibling(), b.TapSibling())
 	require.Equal(t, a.BatchKey, b.BatchKey)
 	require.Equal(t, a.Seedlings, b.Seedlings)
-	assertPsbtEqual(t, a.GenesisPacket, b.GenesisPacket)
+	assertPsbtEqual(
+		t, &a.GenesisPacket.FundedPsbt, &b.GenesisPacket.FundedPsbt,
+	)
 	require.Equal(t, a.RootAssetCommitment, b.RootAssetCommitment)
 }
 
@@ -842,7 +844,10 @@ func TestAddSproutsToBatch(t *testing.T) {
 	// state.
 	assertSeedlingBatchLen(t, mintingBatches, 1, 0)
 	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateCommitted)
-	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
+	assertPsbtEqual(
+		t, &genesisPacket.FundedPsbt,
+		&mintingBatches[0].GenesisPacket.FundedPsbt,
+	)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
 
 	// We also expect that for each of the assets we created above, we're
@@ -930,7 +935,7 @@ func addRandAssets(t *testing.T, ctx context.Context,
 		batchKey:        batchKey,
 		groupKey:        &group.GroupKey.GroupPubKey,
 		groupGenAmt:     genAmt,
-		genesisPkt:      genesisPacket,
+		genesisPkt:      &genesisPacket.FundedPsbt,
 		assetRoot:       assetRoot,
 		merkleRoot:      merkleRoot[:],
 		scriptRoot:      scriptRoot[:],
@@ -981,7 +986,8 @@ func TestCommitBatchChainActions(t *testing.T) {
 		t, mintingBatches[0], tapgarden.BatchStateBroadcast,
 	)
 	assertPsbtEqual(
-		t, randAssetCtx.genesisPkt, mintingBatches[0].GenesisPacket,
+		t, randAssetCtx.genesisPkt,
+		&mintingBatches[0].GenesisPacket.FundedPsbt,
 	)
 	assertBatchSibling(t, mintingBatches[0], randAssetCtx.tapSiblingHash)
 
@@ -1486,7 +1492,10 @@ func TestGroupAnchors(t *testing.T) {
 	// state.
 	assertSeedlingBatchLen(t, mintingBatches, 1, 0)
 	assertBatchState(t, mintingBatches[0], tapgarden.BatchStateCommitted)
-	assertPsbtEqual(t, genesisPacket, mintingBatches[0].GenesisPacket)
+	assertPsbtEqual(
+		t, &genesisPacket.FundedPsbt,
+		&mintingBatches[0].GenesisPacket.FundedPsbt,
+	)
 	assertAssetsEqual(t, assetRoot, mintingBatches[0].RootAssetCommitment)
 
 	// Check that the number of group anchors and members matches the batch
