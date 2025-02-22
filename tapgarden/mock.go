@@ -66,9 +66,12 @@ func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
 		Seedlings:    RandSeedlings(t, numSeedlings),
 		HeightHint:   test.RandInt[uint32](),
 		CreationTime: time.Now(),
-		GenesisPacket: &tapsend.FundedPsbt{
-			Pkt:               &genesisTx,
-			ChangeOutputIndex: 1,
+		GenesisPacket: &FundedMintAnchorPsbt{
+			FundedPsbt: tapsend.FundedPsbt{
+				Pkt:               &genesisTx,
+				ChangeOutputIndex: 1,
+			},
+			AssetAnchorOutIdx: 0,
 		},
 	}
 }
