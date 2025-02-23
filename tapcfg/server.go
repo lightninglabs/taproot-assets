@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/universe"
 	"github.com/lightningnetwork/lnd"
@@ -366,6 +367,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 	// Determine whether we should use the mock price oracle service or a
 	// real price oracle service.
 	var priceOracle rfq.PriceOracle
+	var rpcPriceOracleClient priceoraclerpc.PriceOracleClient
 
 	rfqCfg := cfg.Experimental.Rfq
 	switch rfqCfg.PriceOracleAddress {
@@ -381,6 +383,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 				3600, rfqCfg.MockOracleSatsPerAsset,
 			)
 		}
+		rpcPriceOracleClient = priceOracle.Client()
 
 	case "":
 		// Leave the price oracle as nil, which will cause the RFQ
@@ -395,6 +398,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			return nil, fmt.Errorf("unable to create price "+
 				"oracle: %w", err)
 		}
+		rpcPriceOracleClient = priceOracle.Client()
 	}
 
 	// Construct the RFQ manager.
@@ -590,6 +594,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		UniverseQueriesBurst:     cfg.Universe.UniverseQueriesBurst,
 		RfqManager:               rfqManager,
 		PriceOracle:              priceOracle,
+		ProxyPriceOracle:         rpcPriceOracleClient,
 		AuxLeafSigner:            auxLeafSigner,
 		AuxFundingController:     auxFundingController,
 		AuxChanCloser:            auxChanCloser,

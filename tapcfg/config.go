@@ -238,6 +238,7 @@ type RpcConfig struct {
 
 	AllowPublicUniProofCourier bool `long:"allow-public-uni-proof-courier" description:"Disable macaroon authentication for universe proof courier RPC endpoints."`
 	AllowPublicStats           bool `long:"allow-public-stats" description:"Disable macaroon authentication for stats RPC endpoints."`
+	AllowPublicPriceOracle     bool `long:"allow-public-price-oracle" description:"Disable macaroon authentication for price oracle RPC endpoints."`
 
 	RestCORS []string `long:"restcors" description:"Add an ip:port/hostname to allow cross origin access from. To allow all origins, set as \"*\"."`
 
