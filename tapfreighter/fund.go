@@ -455,15 +455,8 @@ func createAndSetInput(vPkt *tappsbt.VPacket, idx int,
 
 	// At this point, we have a valid "coin" to spend in the commitment, so
 	// we'll add the relevant information to the virtual TX's input.
-	prevID := asset.PrevID{
-		OutPoint: assetInput.AnchorPoint,
-		ID:       assetInput.Asset.ID(),
-		ScriptKey: asset.ToSerialized(
-			assetInput.Asset.ScriptKey.PubKey,
-		),
-	}
 	vPkt.Inputs[idx] = &tappsbt.VInput{
-		PrevID: prevID,
+		PrevID: assetInput.PrevID(),
 		Anchor: tappsbt.Anchor{
 			Value:            assetInput.AnchorOutputValue,
 			PkScript:         anchorPkScript,
