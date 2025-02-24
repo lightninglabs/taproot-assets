@@ -556,7 +556,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// creates a virtual packet for each distinct asset ID that is committed
 	// to the channel.
 	vPackets, err := tapsend.DistributeCoins(
-		inputProofs, allocations, chainParams, tappsbt.V1,
+		inputProofs, allocations, chainParams, true, tappsbt.V1,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to distribute coins: %w",
@@ -1398,7 +1398,7 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 	)
 
 	vPackets, err := tapsend.DistributeCoins(
-		inputProofs, allocations, chainParams, tappsbt.V1,
+		inputProofs, allocations, chainParams, true, tappsbt.V1,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error distributing coins: %w", err)

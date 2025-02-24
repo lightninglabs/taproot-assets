@@ -61,30 +61,38 @@ func grindAssetID(t *testing.T, prefix byte) asset.Genesis {
 }
 
 func TestDistributeCoinsErrors(t *testing.T) {
-	_, err := DistributeCoins(nil, nil, testParams, tappsbt.V1)
+	_, err := DistributeCoins(nil, nil, testParams, true, tappsbt.V1)
 	require.ErrorIs(t, err, ErrMissingInputs)
 
 	_, err = DistributeCoins(
-		[]*proof.Proof{{}}, nil, testParams, tappsbt.V1,
+		[]*proof.Proof{{}}, nil, testParams, true, tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrMissingAllocations)
 
+	assetNormal := asset.RandAsset(t, asset.Normal)
+	proofNormal := makeProof(t, assetNormal)
 	assetCollectible := asset.RandAsset(t, asset.Collectible)
 	proofCollectible := makeProof(t, assetCollectible)
 	_, err = DistributeCoins(
-		[]*proof.Proof{proofCollectible}, []*Allocation{{}}, testParams,
-		tappsbt.V1,
+		[]*proof.Proof{proofNormal, proofCollectible},
+		[]*Allocation{{}}, testParams, true, tappsbt.V1,
 	)
-	require.ErrorIs(t, err, ErrNormalAssetsOnly)
+	require.ErrorIs(t, err, ErrInputTypesNotEqual)
 
-	assetNormal := asset.RandAsset(t, asset.Normal)
-	proofNormal := makeProof(t, assetNormal)
+	assetNormal2 := asset.RandAsset(t, asset.Normal)
+	proofNormal2 := makeProof(t, assetNormal2)
+	_, err = DistributeCoins(
+		[]*proof.Proof{proofNormal, proofNormal2},
+		[]*Allocation{{}}, testParams, true, tappsbt.V1,
+	)
+	require.ErrorIs(t, err, ErrInputGroupMismatch)
+
 	_, err = DistributeCoins(
 		[]*proof.Proof{proofNormal}, []*Allocation{
 			{
 				Amount: assetNormal.Amount / 2,
 			},
-		}, testParams, tappsbt.V1,
+		}, testParams, true, tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrInputOutputSumMismatch)
 }
@@ -92,49 +100,42 @@ func TestDistributeCoinsErrors(t *testing.T) {
 func TestDistributeCoins(t *testing.T) {
 	t.Parallel()
 
+	groupKey := &asset.GroupKey{
+		GroupPubKey: *test.RandPubKey(t),
+	}
+
 	assetID1 := grindAssetID(t, 0x01)
-	groupKey1 := &asset.GroupKey{
-		GroupPubKey: *test.RandPubKey(t),
-	}
-
 	assetID2 := grindAssetID(t, 0x02)
-	groupKey2 := &asset.GroupKey{
-		GroupPubKey: *test.RandPubKey(t),
-	}
-
 	assetID3 := grindAssetID(t, 0x03)
-	groupKey3 := &asset.GroupKey{
-		GroupPubKey: *test.RandPubKey(t),
-	}
 
 	assetID1Tranche1 := asset.NewAssetNoErr(
-		t, assetID1, 100, 0, 0, asset.RandScriptKey(t), groupKey1,
+		t, assetID1, 100, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 	assetID1Tranche2 := asset.NewAssetNoErr(
-		t, assetID1, 200, 0, 0, asset.RandScriptKey(t), groupKey1,
+		t, assetID1, 200, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 	assetID1Tranche3 := asset.NewAssetNoErr(
-		t, assetID1, 300, 0, 0, asset.RandScriptKey(t), groupKey1,
+		t, assetID1, 300, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 
 	assetID2Tranche1 := asset.NewAssetNoErr(
-		t, assetID2, 1000, 0, 0, asset.RandScriptKey(t), groupKey2,
+		t, assetID2, 1000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 	assetID2Tranche2 := asset.NewAssetNoErr(
-		t, assetID2, 2000, 0, 0, asset.RandScriptKey(t), groupKey2,
+		t, assetID2, 2000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 	assetID2Tranche3 := asset.NewAssetNoErr(
-		t, assetID2, 3000, 0, 0, asset.RandScriptKey(t), groupKey2,
+		t, assetID2, 3000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 
 	assetID3Tranche1 := asset.NewAssetNoErr(
-		t, assetID3, 10000, 0, 0, asset.RandScriptKey(t), groupKey3,
+		t, assetID3, 10000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 	assetID3Tranche2 := asset.NewAssetNoErr(
-		t, assetID3, 20000, 0, 0, asset.RandScriptKey(t), groupKey3,
+		t, assetID3, 20000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 	assetID3Tranche3 := asset.NewAssetNoErr(
-		t, assetID3, 30000, 0, 0, asset.RandScriptKey(t), groupKey3,
+		t, assetID3, 30000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 
 	var (
@@ -144,16 +145,18 @@ func TestDistributeCoins(t *testing.T) {
 	testCases := []struct {
 		name            string
 		inputs          []*proof.Proof
+		interactive     bool
 		allocations     []*Allocation
 		vPktVersion     tappsbt.VPacketVersion
 		expectedInputs  map[asset.ID][]asset.ScriptKey
 		expectedOutputs map[asset.ID][]*tappsbt.VOutput
 	}{
 		{
-			name: "single asset, split",
+			name: "single asset, split, interactive",
 			inputs: []*proof.Proof{
 				makeProof(t, assetID1Tranche1),
 			},
+			interactive: true,
 			allocations: []*Allocation{
 				{
 					Type:   CommitAllocationToLocal,
@@ -190,11 +193,161 @@ func TestDistributeCoins(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple assets, split",
+			name: "single asset, split, non-interactive",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+			},
+			interactive: false,
+			allocations: []*Allocation{
+				{
+					Type:   CommitAllocationToLocal,
+					Amount: 50,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					SplitRoot:   true,
+					Amount:      50,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            50,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            50,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "single asset, full value, interactive",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+			},
+			interactive: true,
+			allocations: []*Allocation{
+				{
+					Type:   CommitAllocationToLocal,
+					Amount: 100,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					SplitRoot:   true,
+					Amount:      0,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            100,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 0,
+					},
+				},
+			},
+		},
+		{
+			name: "single asset, full value, interactive, has " +
+				"split output",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+			},
+			interactive: true,
+			allocations: []*Allocation{
+				{
+					Type:      CommitAllocationToLocal,
+					Amount:    0,
+					SplitRoot: true,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      100,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            100,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "single asset, full value, non-interactive",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+			},
+			interactive: false,
+			allocations: []*Allocation{
+				{
+					Type:   CommitAllocationToLocal,
+					Amount: 100,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					SplitRoot:   true,
+					Amount:      0,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            100,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            0,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "multiple assets, split, interactive",
 			inputs: []*proof.Proof{
 				makeProof(t, assetID2Tranche1),
 				makeProof(t, assetID2Tranche2),
 			},
+			interactive: true,
 			allocations: []*Allocation{
 				{
 					Type:      CommitAllocationToLocal,
@@ -232,11 +385,55 @@ func TestDistributeCoins(t *testing.T) {
 			},
 		},
 		{
-			name: "multiple assets, one consumed fully",
+			name: "multiple assets, split, non-interactive",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID2Tranche1),
+				makeProof(t, assetID2Tranche2),
+			},
+			interactive: false,
+			allocations: []*Allocation{
+				{
+					Type:      CommitAllocationToLocal,
+					SplitRoot: true,
+					Amount:    1200,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      1800,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID2.ID(): {
+					assetID2Tranche1.ScriptKey,
+					assetID2Tranche2.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID2.ID(): {
+					{
+						Amount:            1200,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            1800,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "multiple assets, one consumed fully, " +
+				"interactive",
 			inputs: []*proof.Proof{
 				makeProof(t, assetID1Tranche1),
 				makeProof(t, assetID2Tranche1),
 			},
+			interactive: true,
 			allocations: []*Allocation{
 				{
 					Type:      CommitAllocationToLocal,
@@ -283,7 +480,66 @@ func TestDistributeCoins(t *testing.T) {
 			},
 		},
 		{
-			name: "lots of assets",
+			name: "multiple assets, one consumed fully, " +
+				"non-interactive",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+				makeProof(t, assetID2Tranche1),
+			},
+			interactive: false,
+			allocations: []*Allocation{
+				{
+					Type:      CommitAllocationToLocal,
+					SplitRoot: true,
+					Amount:    50,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      1050,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+				},
+				assetID2.ID(): {
+					assetID2Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            50,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            50,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+				assetID2.ID(): {
+					{
+						Amount:            0,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            1000,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "lots of assets, interactive",
 			inputs: []*proof.Proof{
 				makeProof(t, assetID1Tranche1),
 				makeProof(t, assetID1Tranche2),
@@ -295,6 +551,7 @@ func TestDistributeCoins(t *testing.T) {
 				makeProof(t, assetID3Tranche2),
 				makeProof(t, assetID3Tranche3),
 			},
+			interactive: true,
 			allocations: []*Allocation{
 				{
 					Type:      CommitAllocationToLocal,
@@ -357,13 +614,95 @@ func TestDistributeCoins(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "lots of assets, non-interactive",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+				makeProof(t, assetID1Tranche2),
+				makeProof(t, assetID1Tranche3),
+				makeProof(t, assetID2Tranche1),
+				makeProof(t, assetID2Tranche2),
+				makeProof(t, assetID2Tranche3),
+				makeProof(t, assetID3Tranche1),
+				makeProof(t, assetID3Tranche2),
+				makeProof(t, assetID3Tranche3),
+			},
+			interactive: false,
+			allocations: []*Allocation{
+				{
+					Type:      CommitAllocationToLocal,
+					SplitRoot: true,
+					Amount:    3600,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      63000,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+					assetID1Tranche2.ScriptKey,
+					assetID1Tranche3.ScriptKey,
+				},
+				assetID2.ID(): {
+					assetID2Tranche1.ScriptKey,
+					assetID2Tranche2.ScriptKey,
+					assetID2Tranche3.ScriptKey,
+				},
+				assetID3.ID(): {
+					assetID3Tranche1.ScriptKey,
+					assetID3Tranche2.ScriptKey,
+					assetID3Tranche3.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            600,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+				},
+				assetID2.ID(): {
+					{
+						Amount:            3000,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            3000,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+				assetID3.ID(): {
+					{
+						Amount:            0,
+						Type:              split,
+						Interactive:       false,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            60000,
+						Type:              simple,
+						Interactive:       false,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			packets, err := DistributeCoins(
 				tc.inputs, tc.allocations, testParams,
-				tc.vPktVersion,
+				tc.interactive, tc.vPktVersion,
 			)
 			require.NoError(t, err)
 
