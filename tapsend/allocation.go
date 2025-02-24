@@ -29,14 +29,18 @@ var (
 	// were provided.
 	ErrMissingAllocations = fmt.Errorf("no allocations provided")
 
+	// ErrInputTypesNotEqual is an error that is returned if the input types
+	// are not all the same.
+	ErrInputTypesNotEqual = fmt.Errorf("input types not all equal")
+
+	// ErrInputGroupMismatch is an error that is returned if the input
+	// assets don't all belong to the same asset group.
+	ErrInputGroupMismatch = fmt.Errorf("input assets not all of same group")
+
 	// ErrInputOutputSumMismatch is an error that is returned if the sum of
 	// the input asset proofs does not match the sum of the output
 	// allocations.
 	ErrInputOutputSumMismatch = fmt.Errorf("input and output sum mismatch")
-
-	// ErrNormalAssetsOnly is an error that is returned if an allocation
-	// contains an asset that is not a normal asset (e.g. a collectible).
-	ErrNormalAssetsOnly = fmt.Errorf("only normal assets are supported")
 
 	// ErrCommitmentNotSet is an error that is returned if the output
 	// commitment is not set for an allocation.
@@ -328,7 +332,7 @@ func sortPiecesWithProofs(pieces []*piece) {
 // asset outputs (asset UTXOs of different sizes from different tranches/asset
 // IDs) according to the distribution rules provided as "allocations".
 func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
-	chainParams *address.ChainParams,
+	chainParams *address.ChainParams, interactive bool,
 	vPktVersion tappsbt.VPacketVersion) ([]*tappsbt.VPacket, error) {
 
 	if len(inputs) == 0 {
@@ -340,10 +344,21 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	}
 
 	// Count how many asset units are available for distribution.
-	var inputSum uint64
+	var (
+		inputSum    uint64
+		firstType   = inputs[0].Asset.Type
+		firstTapKey = inputs[0].Asset.TapCommitmentKey()
+	)
 	for _, inputProof := range inputs {
-		if inputProof.Asset.Type != asset.Normal {
-			return nil, ErrNormalAssetsOnly
+		// We can't have mixed types (normal and collectibles) within
+		// the same allocation.
+		if firstType != inputProof.Asset.Type {
+			return nil, ErrInputTypesNotEqual
+		}
+
+		// Allocating assets from different asset groups is not allowed.
+		if firstTapKey != inputProof.Asset.TapCommitmentKey() {
+			return nil, ErrInputGroupMismatch
 		}
 
 		inputSum += inputProof.Asset.Amount
@@ -436,8 +451,24 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				),
 			}
 
-			// Skip fully allocated pieces
-			if p.available() == 0 {
+			// If we've allocated all pieces, or we don't need to
+			// allocate anything to this piece, we might only need
+			// to create a tombstone output.
+			if p.available() == 0 || toFill == 0 {
+				// We don't need a tombstone output for
+				// interactive transfers, or recipient outputs
+				// (outputs that don't go back to the sender).
+				if interactive || !a.SplitRoot {
+					continue
+				}
+
+				// Create a zero-amount tombstone output for the
+				// split root, if there is no change.
+				vOut.Type = tappsbt.TypeSplitRoot
+				p.packet.Outputs = append(
+					p.packet.Outputs, vOut,
+				)
+
 				continue
 			}
 
@@ -454,8 +485,21 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 			consumeFully := p.allocated == 0 &&
 				toFill >= p.available()
 
+			// If we're creating a non-interactive packet (e.g. for
+			// a TAP address based send), we definitely need a split
+			// root, even if there is no change. If there is change,
+			// then we also need a split root, even if we're
+			// creating a fully interactive packet.
+			needSplitRoot := a.SplitRoot &&
+				(!interactive || !consumeFully)
+
+			// The only exception is when the split root output is
+			// the only output, because it's not being used at all
+			// and goes back to the sender.
+			splitRootIsOnlyOutput := a.SplitRoot && consumeFully
+
 			outType := tappsbt.TypeSimple
-			if a.SplitRoot && !consumeFully {
+			if needSplitRoot && !splitRootIsOnlyOutput {
 				outType = tappsbt.TypeSplitRoot
 			}
 
@@ -470,10 +514,11 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 			toFill -= allocating
 
 			// If the piece has enough assets to fill the
-			// allocation, we can exit the loop. If it only fills
-			// part of the allocation, we'll continue to the next
-			// piece.
-			if toFill == 0 {
+			// allocation, we can exit the loop, unless we also need
+			// to create a tombstone output for a non-interactive
+			// send. If it only fills part of the allocation, we'll
+			// continue to the next piece.
+			if toFill == 0 && interactive {
 				break
 			}
 		}
