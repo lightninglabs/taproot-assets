@@ -530,7 +530,7 @@ JOIN internal_keys keys
     ON keys.key_id = batches.batch_id
 WHERE keys.raw_key = $1;
 
--- name: BindMintingBatchWithTx :exec
+-- name: BindMintingBatchWithTx :one
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -538,9 +538,10 @@ WITH target_batch AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-UPDATE asset_minting_batches 
+UPDATE asset_minting_batches
 SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
-WHERE batch_id IN (SELECT batch_id FROM target_batch);
+WHERE batch_id IN (SELECT batch_id FROM target_batch)
+RETURNING batch_id;
 
 -- name: BindMintingBatchWithTapSibling :exec
 WITH target_batch AS (
