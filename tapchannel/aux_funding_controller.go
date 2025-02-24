@@ -914,13 +914,16 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 	// We'll now send the signed inputs to the remote party.
 	//
 	// TODO(roasbeef): generalize for multi-asset
-	fundingAsset := vPkt.Outputs[0].Asset.Copy()
+	fundingOut, err := vPkt.FirstNonSplitRootOutput()
+	if err != nil {
+		return fmt.Errorf("unable to get funding asset: %w", err)
+	}
 	assetOutputMsg := cmsg.NewTxAssetOutputProof(
-		fundingState.pid, *fundingAsset, true,
+		fundingState.pid, *fundingOut.Asset, true,
 	)
 
 	log.Debugf("Sending TLV for funding asset output to remote party: %v",
-		limitSpewer.Sdump(fundingAsset))
+		limitSpewer.Sdump(fundingOut.Asset))
 
 	err = f.cfg.PeerMessenger.SendMessage(ctx, peerPub, assetOutputMsg)
 	if err != nil {
@@ -1167,12 +1170,22 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	fundingPackets := fundedVpkt.VPackets
 	for idx := range fundingPackets {
 		fundingPkt := fundingPackets[idx]
-		fundingPkt.Outputs[0].AnchorOutputBip32Derivation = nil
-		fundingPkt.Outputs[0].AnchorOutputTaprootBip32Derivation = nil
+
+		// The funding output is the first non-split output (the split
+		// output is only present if there is change from the channel
+		// funding).
+		fundingOut, err := fundingPkt.FirstNonSplitRootOutput()
+		if err != nil {
+			return nil, fmt.Errorf("unable to find funding output "+
+				"in funded packet: %w", err)
+		}
+
+		fundingOut.AnchorOutputBip32Derivation = nil
+		fundingOut.AnchorOutputTaprootBip32Derivation = nil
 		fundingInternalKeyDesc := keychain.KeyDescriptor{
 			PubKey: fundingInternalKey,
 		}
-		fundingPkt.Outputs[0].SetAnchorInternalKey(
+		fundingOut.SetAnchorInternalKey(
 			fundingInternalKeyDesc, f.cfg.ChainParams.HDCoinType,
 		)
 	}
@@ -1614,11 +1627,16 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// we can derive the tapscript root that'll be used alongside the
 	// internal key (which we'll only learn from lnd later as we finalize
 	// the funding PSBT).
-	fundingAssets := fn.Map(
-		fundingVpkt.VPackets, func(pkt *tappsbt.VPacket) *asset.Asset {
-			return pkt.Outputs[0].Asset.Copy()
-		},
-	)
+	fundingAssets := make([]*asset.Asset, 0, len(fundingVpkt.VPackets))
+	for _, pkt := range fundingVpkt.VPackets {
+		fundingOut, err := pkt.FirstNonSplitRootOutput()
+		if err != nil {
+			return fmt.Errorf("unable to find funding output in "+
+				"packet: %w", err)
+		}
+
+		fundingAssets = append(fundingAssets, fundingOut.Asset.Copy())
+	}
 	fundingCommitVersion, err := tappsbt.CommitmentVersion(
 		fundingVpkt.VPackets[0].Version,
 	)
