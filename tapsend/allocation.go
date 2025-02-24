@@ -328,7 +328,8 @@ func sortPiecesWithProofs(pieces []*piece) {
 // asset outputs (asset UTXOs of different sizes from different tranches/asset
 // IDs) according to the distribution rules provided as "allocations".
 func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
-	chainParams *address.ChainParams) ([]*tappsbt.VPacket, error) {
+	chainParams *address.ChainParams,
+	vPktVersion tappsbt.VPacketVersion) ([]*tappsbt.VPacket, error) {
 
 	if len(inputs) == 0 {
 		return nil, ErrMissingInputs
@@ -383,7 +384,9 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 			},
 		)
 
-		pkt, err := tappsbt.FromProofs(proofsByID, chainParams)
+		pkt, err := tappsbt.FromProofs(
+			proofsByID, chainParams, vPktVersion,
+		)
 		if err != nil {
 			return nil, err
 		}
