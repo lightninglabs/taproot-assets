@@ -319,66 +319,6 @@ func AssetFromTapCommitment(tapCommitment *commitment.TapCommitment,
 	return inputAsset, nil
 }
 
-// ValidateInputs validates a set of inputs against a funding request. It
-// returns true if the inputs would be spent fully, otherwise false.
-func ValidateInputs(inputCommitments tappsbt.InputCommitments,
-	expectedAssetType asset.Type, specifier asset.Specifier,
-	outputAmount uint64) (bool, error) {
-
-	// Extract the input assets from the input commitments.
-	inputAssets := make([]*asset.Asset, 0, len(inputCommitments))
-	for prevID := range inputCommitments {
-		tapCommitment := inputCommitments[prevID]
-		senderScriptKey, err := prevID.ScriptKey.ToPubKey()
-		if err != nil {
-			return false, fmt.Errorf("unable to parse sender "+
-				"script key: %v", err)
-		}
-
-		// Gain the asset that we'll use as an input and in the process
-		// validate the selected input and commitment.
-		inputAsset, err := AssetFromTapCommitment(
-			tapCommitment, specifier, *senderScriptKey,
-		)
-		if err != nil {
-			return false, err
-		}
-
-		// Ensure input asset has the expected type.
-		if inputAsset.Type != expectedAssetType {
-			return false, fmt.Errorf("unexpected input asset type")
-		}
-
-		inputAssets = append(inputAssets, inputAsset)
-	}
-
-	// Validate total amount of input assets and determine full value spend
-	// status.
-	var isFullValueSpend bool
-	switch expectedAssetType {
-	case asset.Normal:
-		// Sum the total amount of the input assets.
-		var totalInputsAmount uint64
-		for _, inputAsset := range inputAssets {
-			totalInputsAmount += inputAsset.Amount
-		}
-
-		// Ensure that the input assets are sufficient to cover the amount
-		// being sent.
-		if totalInputsAmount < outputAmount {
-			return false, ErrInsufficientInputAssets
-		}
-
-		// Check if the input assets are fully spent.
-		isFullValueSpend = totalInputsAmount == outputAmount
-
-	case asset.Collectible:
-		isFullValueSpend = true
-	}
-
-	return isFullValueSpend, nil
-}
-
 // ValidateCommitmentKeysUnique makes sure the outputs of a set of virtual
 // packets don't lead to collisions in and of the trees (e.g. two asset outputs
 // with the same asset ID and script key in the same anchor output) or with
