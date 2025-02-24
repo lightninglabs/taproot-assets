@@ -97,6 +97,15 @@ type AnchoredCommitment struct {
 	Asset *asset.Asset
 }
 
+// PrevID returns the previous ID of the asset commitment.
+func (c *AnchoredCommitment) PrevID() asset.PrevID {
+	return asset.PrevID{
+		OutPoint:  c.AnchorPoint,
+		ID:        c.Asset.ID(),
+		ScriptKey: asset.ToSerialized(c.Asset.ScriptKey.PubKey),
+	}
+}
+
 var (
 	// ErrMatchingAssetsNotFound is returned when an instance of
 	// AssetStoreListCoins cannot satisfy the given asset identification
