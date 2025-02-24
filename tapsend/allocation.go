@@ -633,3 +633,108 @@ func NonAssetExclusionProofs(
 		return nil
 	}
 }
+
+// AllocationsFromTemplate creates a list of allocations from a spend template.
+// If there is no split output present in the template, one is created to carry
+// potential change or a zero-value tombstone output in case of a
+// non-interactive transfer. The script key for those change/tombstone outputs
+// are set to the NUMS script key and need to be replaced with an actual script
+// key (if the change is non-zero) after the coin distribution has been
+// performed.
+func AllocationsFromTemplate(tpl *tappsbt.VPacket,
+	inputSum uint64) ([]*Allocation, bool, error) {
+
+	if len(tpl.Outputs) == 0 {
+		return nil, false, fmt.Errorf("spend template has no outputs")
+	}
+
+	// We first detect if the outputs are interactive or not. They need to
+	// all say the same thing, otherwise we can't proceed.
+	isInteractive := tpl.Outputs[0].Interactive
+	for idx := 1; idx < len(tpl.Outputs); idx++ {
+		if tpl.Outputs[idx].Interactive != isInteractive {
+			return nil, false, fmt.Errorf("outputs have " +
+				"different interactive flags")
+		}
+	}
+
+	// Calculate the total amount that is being spent.
+	var outputAmount uint64
+	for _, out := range tpl.Outputs {
+		outputAmount += out.Amount
+	}
+
+	// Validate the change amount so we can use it later.
+	if outputAmount > inputSum {
+		return nil, false, fmt.Errorf("output amount exceeds input sum")
+	}
+	changeAmount := inputSum - outputAmount
+
+	// In case there is no change/tombstone output, we assume the anchor
+	// output indexes are still increasing. So we'll just use the next one
+	// after the last output's anchor output index.
+	splitOutIndex := tpl.Outputs[len(tpl.Outputs)-1].AnchorOutputIndex + 1
+
+	// If there is no change/tombstone output in the template, we always
+	// create one. This will not be used (e.g. turned into an actual virtual
+	// output) by the allocation logic if is not needed (when it's an
+	// interactive full-value send).
+	localAllocation := &Allocation{
+		Type:        CommitAllocationToLocal,
+		OutputIndex: splitOutIndex,
+		SplitRoot:   true,
+		ScriptKey:   asset.NUMSScriptKey,
+	}
+
+	// If we have a split root defined in the template, we'll use that as
+	// the template for the local allocation.
+	if tpl.HasSplitRootOutput() {
+		splitRootOut, err := tpl.SplitRootOutput()
+		if err != nil {
+			return nil, false, err
+		}
+
+		setAllocationFieldsFromOutput(localAllocation, splitRootOut)
+	}
+
+	// We do need to overwrite the amount of the local allocation with the
+	// change amount now. We do _NOT_, however, derive change script keys
+	// yet, since we don't know if some of the packets created by the coin
+	// distribution might remain an un-spendable zero-amount tombstone
+	// output, and we don't want to derive change script keys for those.
+	localAllocation.Amount = changeAmount
+
+	// We now create the remote allocations for each non-split output.
+	remoteAllocations := make([]*Allocation, 0, len(tpl.Outputs))
+	normalOuts := fn.Filter(tpl.Outputs, tappsbt.VOutIsNotSplitRoot)
+	for _, out := range normalOuts {
+		remoteAllocation := &Allocation{
+			Type:      CommitAllocationToRemote,
+			SplitRoot: false,
+		}
+
+		setAllocationFieldsFromOutput(remoteAllocation, out)
+		remoteAllocations = append(remoteAllocations, remoteAllocation)
+	}
+
+	allAllocations := append(
+		[]*Allocation{localAllocation}, remoteAllocations...,
+	)
+
+	return allAllocations, isInteractive, nil
+}
+
+// setAllocationFieldsFromOutput sets the fields of the given allocation from
+// the given virtual output.
+func setAllocationFieldsFromOutput(alloc *Allocation, vOut *tappsbt.VOutput) {
+	alloc.Amount = vOut.Amount
+	alloc.AssetVersion = vOut.AssetVersion
+	alloc.OutputIndex = vOut.AnchorOutputIndex
+	alloc.InternalKey = vOut.AnchorOutputInternalKey
+	alloc.ScriptKey = vOut.ScriptKey
+	alloc.Sequence = uint32(vOut.RelativeLockTime)
+	alloc.LockTime = vOut.LockTime
+	alloc.ProofDeliveryAddress = vOut.ProofDeliveryAddress
+	alloc.AltLeaves = vOut.AltLeaves
+	alloc.SiblingPreimage = vOut.AnchorOutputTapscriptSibling
+}
