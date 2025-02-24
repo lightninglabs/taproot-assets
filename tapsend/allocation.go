@@ -163,6 +163,12 @@ type Allocation struct {
 	// ProofDeliveryAddress is the address the proof courier should use to
 	// upload the proof for this allocation.
 	ProofDeliveryAddress *url.URL
+
+	// AltLeaves represent data used to construct an Asset commitment, that
+	// will be inserted in the output anchor Tap commitment. These
+	// data-carrying leaves are used for a purpose distinct from
+	// representing individual Taproot Assets.
+	AltLeaves []asset.AltLeaf[asset.Asset]
 }
 
 // tapscriptSibling returns the tapscript sibling preimage from the non-asset
@@ -473,6 +479,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				RelativeLockTime: uint64(
 					a.Sequence,
 				),
+				AltLeaves: a.AltLeaves,
 			}
 
 			// If we've allocated all pieces, or we don't need to
