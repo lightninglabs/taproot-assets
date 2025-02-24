@@ -152,7 +152,7 @@ CREATE TABLE asset_minting_batches (
     height_hint INTEGER NOT NULL,
 
     creation_time_unix TIMESTAMP NOT NULL
-, tapscript_sibling BLOB);
+, tapscript_sibling BLOB, assets_output_index INTEGER, universe_commitments BOOLEAN NOT NULL DEFAULT FALSE);
 
 CREATE TABLE asset_proofs (
     proof_id INTEGER PRIMARY KEY,
@@ -509,6 +509,22 @@ CREATE TABLE managed_utxos (
     -- valid and the UTXO is available for coin selection.
     lease_expiry TIMESTAMP
 , root_version SMALLINT);
+
+CREATE TABLE mint_anchor_uni_commitments (
+    id INTEGER PRIMARY KEY,
+
+    -- The ID of the minting batch this universe commitment relates to.
+    batch_id INTEGER NOT NULL REFERENCES asset_minting_batches(batch_id),
+
+    -- The index of the mint batch anchor transaction pre-commitment output.
+    tx_output_index INTEGER NOT NULL,
+
+    -- The Taproot output internal key for the pre-commitment output.
+    taproot_internal_key BLOB,
+
+    -- The asset group key associated with the universe commitment.
+    group_key BLOB
+);
 
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.

@@ -539,7 +539,8 @@ WITH target_batch AS (
     WHERE keys.raw_key = $1
 )
 UPDATE asset_minting_batches
-SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
+SET minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
+    genesis_id = $5, universe_commitments = $6
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
 RETURNING batch_id;
 
@@ -1016,3 +1017,23 @@ FROM genesis_assets assets
 JOIN assets_meta
     ON assets.meta_data_id = assets_meta.meta_id
 WHERE assets.asset_id = $1;
+
+-- Upsert a record into the mint_anchor_uni_commitments table.
+-- If a record with the same batch_id and group_key already exists, update the
+-- existing record. Otherwise, insert a new record.
+-- name: UpsertMintAnchorUniCommitment :one
+INSERT INTO mint_anchor_uni_commitments (
+    id, batch_id, tx_output_index, taproot_internal_key, group_key
+)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
+    -- The following fields are updated if a conflict occurs.
+    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    group_key = EXCLUDED.group_key
+RETURNING id;
+
+-- Fetch a record from the mint_anchor_uni_commitments table by id.
+-- name: FetchMintAnchorUniCommitment :one
+SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+FROM mint_anchor_uni_commitments
+WHERE batch_id = $1;
