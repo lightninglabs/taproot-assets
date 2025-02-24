@@ -61,16 +61,19 @@ func grindAssetID(t *testing.T, prefix byte) asset.Genesis {
 }
 
 func TestDistributeCoinsErrors(t *testing.T) {
-	_, err := DistributeCoins(nil, nil, testParams)
+	_, err := DistributeCoins(nil, nil, testParams, tappsbt.V1)
 	require.ErrorIs(t, err, ErrMissingInputs)
 
-	_, err = DistributeCoins([]*proof.Proof{{}}, nil, testParams)
+	_, err = DistributeCoins(
+		[]*proof.Proof{{}}, nil, testParams, tappsbt.V1,
+	)
 	require.ErrorIs(t, err, ErrMissingAllocations)
 
 	assetCollectible := asset.RandAsset(t, asset.Collectible)
 	proofCollectible := makeProof(t, assetCollectible)
 	_, err = DistributeCoins(
 		[]*proof.Proof{proofCollectible}, []*Allocation{{}}, testParams,
+		tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrNormalAssetsOnly)
 
@@ -81,7 +84,7 @@ func TestDistributeCoinsErrors(t *testing.T) {
 			{
 				Amount: assetNormal.Amount / 2,
 			},
-		}, testParams,
+		}, testParams, tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrInputOutputSumMismatch)
 }
@@ -142,6 +145,7 @@ func TestDistributeCoins(t *testing.T) {
 		name            string
 		inputs          []*proof.Proof
 		allocations     []*Allocation
+		vPktVersion     tappsbt.VPacketVersion
 		expectedInputs  map[asset.ID][]asset.ScriptKey
 		expectedOutputs map[asset.ID][]*tappsbt.VOutput
 	}{
@@ -162,6 +166,7 @@ func TestDistributeCoins(t *testing.T) {
 					OutputIndex: 1,
 				},
 			},
+			vPktVersion: tappsbt.V1,
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID1.ID(): {
 					assetID1Tranche1.ScriptKey,
@@ -202,6 +207,7 @@ func TestDistributeCoins(t *testing.T) {
 					OutputIndex: 1,
 				},
 			},
+			vPktVersion: tappsbt.V1,
 			expectedInputs: map[asset.ID][]asset.ScriptKey{
 				assetID2.ID(): {
 					assetID2Tranche1.ScriptKey,
@@ -357,6 +363,7 @@ func TestDistributeCoins(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			packets, err := DistributeCoins(
 				tc.inputs, tc.allocations, testParams,
+				tc.vPktVersion,
 			)
 			require.NoError(t, err)
 
@@ -364,6 +371,9 @@ func TestDistributeCoins(t *testing.T) {
 				t, packets, tc.expectedInputs,
 				tc.expectedOutputs,
 			)
+			for _, pkt := range packets {
+				require.Equal(t, tc.vPktVersion, pkt.Version)
+			}
 		})
 	}
 }
