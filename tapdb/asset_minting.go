@@ -199,7 +199,8 @@ type PendingAssetStore interface {
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
-	BindMintingBatchWithTx(ctx context.Context, arg BatchChainUpdate) error
+	BindMintingBatchWithTx(ctx context.Context,
+		arg BatchChainUpdate) (int64, error)
 
 	// UpdateBatchGenesisTx updates the batch tx attached to an existing
 	// batch.
@@ -382,7 +383,7 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 					ErrUpsertGenesisPoint, err)
 			}
 
-			err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+			_, err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 				RawKey:            rawBatchKey,
 				MintingTxPsbt:     psbtBuf.Bytes(),
 				ChangeOutputIndex: sqlInt32(changeIdx),
@@ -1301,7 +1302,7 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 			return fmt.Errorf("%w: %w", ErrUpsertGenesisPoint, err)
 		}
 
-		return q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+		_, err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 			RawKey:        rawBatchKey,
 			MintingTxPsbt: psbtBuf.Bytes(),
 			ChangeOutputIndex: sqlInt32(
@@ -1309,6 +1310,7 @@ func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
 			),
 			GenesisID: sqlInt64(genesisPointID),
 		})
+		return err
 	})
 }
 
@@ -1459,7 +1461,7 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 		if err := genesisPacket.Pkt.Serialize(&psbtBuf); err != nil {
 			return fmt.Errorf("%w: %w", ErrEncodePsbt, err)
 		}
-		err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+		_, err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
 			RawKey:        rawBatchKey,
 			MintingTxPsbt: psbtBuf.Bytes(),
 			ChangeOutputIndex: sqlInt32(
