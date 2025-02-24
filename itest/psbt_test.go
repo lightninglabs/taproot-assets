@@ -871,7 +871,7 @@ func runPsbtInteractiveSplitSendTest(ctxt context.Context, t *harnessTest,
 		ConfirmAndAssertOutboundTransferWithOutputs(
 			t.t, t.lndHarness.Miner().Client, sender,
 			sendResp, genInfo.AssetId,
-			[]uint64{sendAmt, changeAmt}, i/2, (i/2)+1,
+			[]uint64{changeAmt, sendAmt}, i/2, (i/2)+1,
 			numOutputs,
 		)
 
@@ -1015,6 +1015,17 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	vPkt.Outputs[1].AltLeaves = nil
 
 	fundResp := fundPacket(t, sender, vPkt)
+
+	// The funding added a change output at the first index. So all the
+	// indexes will be shifted below. The output with index 1 becomes index
+	// 2 (where we cleared the alt leaves).
+	fundedvPkt, err := tappsbt.Decode(fundResp.FundedPsbt)
+	require.NoError(t.t, err)
+	require.Len(t.t, fundedvPkt.Outputs, 3)
+	require.Nil(t.t, fundedvPkt.Outputs[0].AltLeaves)
+	require.NotNil(t.t, fundedvPkt.Outputs[1].AltLeaves)
+	require.Nil(t.t, fundedvPkt.Outputs[2].AltLeaves)
+
 	signActiveResp, err := sender.SignVirtualPsbt(
 		ctxt, &wrpc.SignVirtualPsbtRequest{
 			FundedPsbt: fundResp.FundedPsbt,
@@ -1037,7 +1048,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	signedvPktCopy := signedvPkt.Copy()
-	require.NoError(t.t, signedvPkt.Outputs[1].SetAltLeaves(altLeaves3))
+	require.NoError(t.t, signedvPkt.Outputs[2].SetAltLeaves(altLeaves3))
 	signedvPktBytes, err := tappsbt.Encode(signedvPkt)
 	require.NoError(t.t, err)
 
@@ -1075,7 +1086,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 
 	// Now, let's set non-conflicting altLeaves for the second vOutput, and
 	// complete the transfer via the PSBT flow. This should succeed.
-	require.NoError(t.t, signedvPktCopy.Outputs[1].SetAltLeaves(altLeaves2))
+	require.NoError(t.t, signedvPktCopy.Outputs[2].SetAltLeaves(altLeaves2))
 	signedvPktBytes, err = tappsbt.Encode(signedvPktCopy)
 
 	require.NoError(t.t, err)
@@ -1105,7 +1116,7 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 	)
 
 	expectedAmounts := []uint64{
-		partialAmt, partialAmt * 2, partialAmt,
+		partialAmt, partialAmt, partialAmt * 2,
 	}
 	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, sender, publishResp,
@@ -1136,8 +1147,8 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 		string(receiverScriptKey2Bytes): allAltLeaves,
 	}
 
-	for _, asset := range receiverAssets.Assets {
-		AssertProofAltLeaves(t.t, receiver, asset, leafMap)
+	for _, receiverAsset := range receiverAssets.Assets {
+		AssertProofAltLeaves(t.t, receiver, receiverAsset, leafMap)
 	}
 }
 
@@ -1215,7 +1226,7 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, alice, sendResp,
-		genInfo.AssetId, []uint64{sendAmt, changeAmt}, 0, 1, 2,
+		genInfo.AssetId, []uint64{changeAmt, sendAmt}, 0, 1, 2,
 	)
 
 	// This is an interactive transfer, so we do need to manually send the
@@ -1314,9 +1325,9 @@ func testPsbtMultiSend(t *harnessTest) {
 	senderScriptKey2, _ := DeriveKeys(t.t, sender)
 
 	// We create the output at anchor index 0 for the first address.
-	outputAmounts := []uint64{1200, 1300, 1400, 800, 300}
+	outputAmounts := []uint64{300, 1200, 1300, 1400, 800}
 	vPkt := tappsbt.ForInteractiveSend(
-		id, outputAmounts[0], receiverScriptKey1, 0, 0, 0,
+		id, outputAmounts[1], receiverScriptKey1, 0, 0, 0,
 		receiverAnchorIntKeyDesc1, asset.V0, chainParams,
 	)
 
@@ -1325,15 +1336,15 @@ func testPsbtMultiSend(t *harnessTest) {
 	// still leave 300 units as change which we expect to end up at anchor
 	// index 3.
 	tappsbt.AddOutput(
-		vPkt, outputAmounts[1], receiverScriptKey2, 1,
+		vPkt, outputAmounts[2], receiverScriptKey2, 1,
 		receiverAnchorIntKeyDesc2, asset.V0,
 	)
 	tappsbt.AddOutput(
-		vPkt, outputAmounts[2], senderScriptKey1, 2,
+		vPkt, outputAmounts[3], senderScriptKey1, 2,
 		senderAnchorIntKeyDesc1, asset.V0,
 	)
 	tappsbt.AddOutput(
-		vPkt, outputAmounts[3], senderScriptKey2, 2,
+		vPkt, outputAmounts[4], senderScriptKey2, 2,
 		senderAnchorIntKeyDesc1, asset.V0,
 	)
 
@@ -1426,7 +1437,7 @@ func testPsbtMultiSend(t *harnessTest) {
 	// that shared the anchor output and the other one is treated as a
 	// passive asset.
 	sendAssetAndAssert(
-		ctxt, t, t.tapd, secondTapd, outputAmounts[2], 0,
+		ctxt, t, t.tapd, secondTapd, outputAmounts[3], 0,
 		genInfo, rpcAssets[0], 2, 3, 2,
 	)
 }
@@ -1632,7 +1643,7 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 	ConfirmAndAssertOutboundTransferWithOutputs(
 		t.t, t.lndHarness.Miner().Client, secondaryTapd,
 		sendResp, genInfo.AssetId,
-		[]uint64{sendAmt, changeAmt}, currentTransferIdx, numTransfers,
+		[]uint64{changeAmt, sendAmt}, currentTransferIdx, numTransfers,
 		numOutputs,
 	)
 
