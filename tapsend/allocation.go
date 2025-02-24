@@ -106,9 +106,20 @@ type Allocation struct {
 
 	// NonAssetLeaves is the full list of TapLeaf nodes that aren't any
 	// asset commitments. This is used to construct the tapscript sibling
-	// for the asset commitment. If this is a non-asset allocation and the
-	// list of leaves is empty, then we assume a BIP-0086 output.
+	// for the asset commitment. This is mutually exclusive to the
+	// SiblingPreimage field below, only one of them (or none) should be
+	// set. If this is a non-asset allocation and both NonAssetLeaves is
+	// empty and no SiblingPreimage is set, then we assume a BIP-0086
+	// output.
 	NonAssetLeaves []txscript.TapLeaf
+
+	// SiblingPreimage is the tapscript sibling preimage that is used to
+	// create the tapscript sibling for the asset commitment. This is
+	// mutually exclusive to the NonAssetLeaves above, only one of them (or
+	// none) should be set. If this is a non-asset allocation and both
+	// NonAssetLeaves is empty and no SiblingPreimage is set, then we assume
+	// a BIP-0086 output.
+	SiblingPreimage *commitment.TapscriptPreimage
 
 	// ScriptKey is the Taproot tweaked key encoding the different spend
 	// conditions possible for the asset allocation.
@@ -157,8 +168,21 @@ type Allocation struct {
 // tapscriptSibling returns the tapscript sibling preimage from the non-asset
 // leaves of the allocation. If there are no non-asset leaves, nil is returned.
 func (a *Allocation) tapscriptSibling() (*commitment.TapscriptPreimage, error) {
-	if len(a.NonAssetLeaves) == 0 {
+	if len(a.NonAssetLeaves) == 0 && a.SiblingPreimage == nil {
 		return nil, nil
+	}
+
+	// Make sure the two mutually exclusive fields aren't set at the same
+	// time.
+	if len(a.NonAssetLeaves) > 0 && a.SiblingPreimage != nil {
+		return nil, fmt.Errorf("both non-asset leaves and sibling " +
+			"preimage set")
+	}
+
+	// The sibling preimage has precedence. Only one of the two fields
+	// should be set in any case.
+	if a.SiblingPreimage != nil {
+		return a.SiblingPreimage, nil
 	}
 
 	treeNodes, err := asset.TapTreeNodesFromLeaves(a.NonAssetLeaves)
