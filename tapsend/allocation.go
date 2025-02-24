@@ -152,6 +152,9 @@ type Allocation struct {
 	// as the relative time lock on the virtual output.
 	Sequence uint32
 
+	// LockTime is the actual CLTV value that will be set on the output.
+	LockTime uint64
+
 	// HtlcIndex is the index of the HTLC that the allocation is for. This
 	// is only relevant for HTLC allocations.
 	HtlcIndex input.HtlcIndex
@@ -476,6 +479,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				AnchorOutputTapscriptSibling: sibling,
 				ScriptKey:                    a.ScriptKey,
 				ProofDeliveryAddress:         deliveryAddr,
+				LockTime:                     a.LockTime,
 				RelativeLockTime: uint64(
 					a.Sequence,
 				),
