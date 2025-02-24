@@ -1,4 +1,4 @@
-package tapchannel
+package tapsend
 
 import (
 	"bytes"
@@ -17,7 +17,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 )
 
@@ -172,10 +171,10 @@ func (a *Allocation) tapscriptSibling() (*commitment.TapscriptPreimage, error) {
 	return sibling, err
 }
 
-// finalPkScript returns the pkScript calculated from the internal key,
+// FinalPkScript returns the pkScript calculated from the internal key,
 // tapscript sibling and merkle root of the output commitment. If the output
 // commitment is not set, ErrCommitmentNotSet is returned.
-func (a *Allocation) finalPkScript() ([]byte, error) {
+func (a *Allocation) FinalPkScript() ([]byte, error) {
 	// If this is a normal commitment anchor output without any assets, then
 	// we'll map the sort Taproot output key to a script directly.
 	if a.Type == AllocationTypeNoAssets {
@@ -229,7 +228,7 @@ func (a *Allocation) AuxLeaf() (txscript.TapLeaf, error) {
 func (a *Allocation) MatchesOutput(pkScript []byte, value int64, cltv uint32,
 	htlcIndex input.HtlcIndex) (bool, error) {
 
-	finalPkScript, err := a.finalPkScript()
+	finalPkScript, err := a.FinalPkScript()
 	if err != nil {
 		return false, err
 	}
@@ -478,7 +477,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	packets := fn.Map(pieces, func(p *piece) *tappsbt.VPacket {
 		return p.packet
 	})
-	err := tapsend.ValidateVPacketVersions(packets)
+	err := ValidateVPacketVersions(packets)
 	if err != nil {
 		return nil, err
 	}
@@ -515,10 +514,10 @@ func AssignOutputCommitments(allocations []*Allocation,
 // NonAssetExclusionProofs returns an exclusion proof generator that creates
 // exclusion proofs for non-asset P2TR outputs in the given allocations.
 func NonAssetExclusionProofs(
-	allocations []*Allocation) tapsend.ExclusionProofGenerator {
+	allocations []*Allocation) ExclusionProofGenerator {
 
 	return func(target *proof.BaseProofParams,
-		isAnchor tapsend.IsAnchor) error {
+		isAnchor IsAnchor) error {
 
 		for _, alloc := range allocations {
 			// We only need exclusion proofs for allocations that

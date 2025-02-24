@@ -70,7 +70,7 @@ type assetCloseInfo struct {
 	// allocations is the list of allocations for the remote+local party.
 	// There'll be at most 4 of these: local+remote BTC outputs,
 	// local+remote asset outputs.
-	allocations []*Allocation
+	allocations []*tapsend.Allocation
 
 	// vPackets is the list of virtual packets that we'll use to anchor the
 	// outputs.
@@ -104,7 +104,7 @@ func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 // createCloseAlloc is a helper function that creates an allocation for an
 // asset close.
 func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
-	shutdownMsg tapchannelmsg.AuxShutdownMsg) (*Allocation, error) {
+	shutdownMsg tapchannelmsg.AuxShutdownMsg) (*tapsend.Allocation, error) {
 
 	assetID := closeAsset.ID()
 
@@ -132,13 +132,13 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 			"address: %w", err)
 	}
 
-	return &Allocation{
-		Type: func() AllocationType {
+	return &tapsend.Allocation{
+		Type: func() tapsend.AllocationType {
 			if isLocal {
-				return CommitAllocationToLocal
+				return tapsend.CommitAllocationToLocal
 			}
 
-			return CommitAllocationToRemote
+			return tapsend.CommitAllocationToRemote
 		}(),
 		SplitRoot:            isInitiator,
 		InternalKey:          shutdownMsg.AssetInternalKey.Val,
@@ -256,8 +256,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	// outputs. We track the amount that'll go to the anchor assets, so we
 	// can subtract this from the settled BTC amount.
 	var (
-		closeAllocs                               []*Allocation
-		localAlloc, remoteAlloc                   *Allocation
+		closeAllocs                               []*tapsend.Allocation
+		localAlloc, remoteAlloc                   *tapsend.Allocation
 		localAssetAnchorAmt, remoteAssetAnchorAmt btcutil.Amount
 	)
 	for _, localAssetProof := range commitState.LocalAssets.Val.Outputs {
@@ -317,8 +317,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		// Snip off the first two bytes, as we'll be getting a P2TR
 		// output from the higher level. We want a raw pubkey here.
 		sortScript := o.PkScript[2:]
-		closeAllocs = append(closeAllocs, &Allocation{
-			Type:                AllocationTypeNoAssets,
+		closeAllocs = append(closeAllocs, &tapsend.Allocation{
+			Type:                tapsend.AllocationTypeNoAssets,
 			BtcAmount:           amtAfterAnchor,
 			SortTaprootKeyBytes: sortScript,
 			InternalKey:         localShutdown.BtcInternalKey.Val,
@@ -347,8 +347,8 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		// Snip off the first two bytes, as we'll be getting a P2TR
 		// output from the higher level. We want a raw pubkey here.
 		sortScript := o.PkScript[2:]
-		closeAllocs = append(closeAllocs, &Allocation{
-			Type:                AllocationTypeNoAssets,
+		closeAllocs = append(closeAllocs, &tapsend.Allocation{
+			Type:                tapsend.AllocationTypeNoAssets,
 			BtcAmount:           amtAfterAnchor,
 			SortTaprootKeyBytes: sortScript,
 			InternalKey:         remoteShutdown.BtcInternalKey.Val,
@@ -361,14 +361,14 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	// With all allocations created, we now sort them to ensure that we
 	// have a stable and deterministic order that both parties can arrive
 	// at. We then assign the output indexes according to that order.
-	InPlaceAllocationSort(closeAllocs)
+	tapsend.InPlaceAllocationSort(closeAllocs)
 	for idx := range closeAllocs {
 		closeAllocs[idx].OutputIndex = uint32(idx)
 	}
 
 	// Now that we have the complete set of allocations, we'll distribute
 	// them to create the vPackets we'll need to anchor everything.
-	vPackets, err := DistributeCoins(
+	vPackets, err := tapsend.DistributeCoins(
 		inputProofs, closeAllocs, a.cfg.ChainParams,
 	)
 	if err != nil {
@@ -414,7 +414,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		return none, fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
 	}
-	err = AssignOutputCommitments(closeAllocs, outCommitments)
+	err = tapsend.AssignOutputCommitments(closeAllocs, outCommitments)
 	if err != nil {
 		return none, fmt.Errorf("unable to assign alloc output "+
 			"commitments: %w", err)
@@ -432,11 +432,11 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	// With the taproot keys updated, we know the pkScripts needed, so
 	// we'll create the wallet option for the co-op close.
 	var closeOutputs []lnwallet.CloseOutput
-	assetAllocations := fn.Filter(closeAllocs, FilterByTypeExclude(
-		AllocationTypeNoAssets,
+	assetAllocations := fn.Filter(closeAllocs, tapsend.FilterByTypeExclude(
+		tapsend.AllocationTypeNoAssets,
 	))
 	for _, alloc := range assetAllocations {
-		pkScript, err := alloc.finalPkScript()
+		pkScript, err := alloc.FinalPkScript()
 		if err != nil {
 			return none, fmt.Errorf("unable to make final "+
 				"pkScript: %w", err)
@@ -447,7 +447,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 				PkScript: pkScript,
 				Value:    int64(alloc.BtcAmount),
 			},
-			IsLocal: alloc.Type == CommitAllocationToLocal,
+			IsLocal: alloc.Type == tapsend.CommitAllocationToLocal,
 		})
 	}
 
@@ -682,7 +682,7 @@ func (a *AuxChanCloser) FinalizeClose(desc chancloser.AuxCloseDesc,
 	for idx := range closeInfo.vPackets {
 		vPkt := closeInfo.vPackets[idx]
 		for outIdx := range vPkt.Outputs {
-			exclusionCreator := NonAssetExclusionProofs(
+			exclusionCreator := tapsend.NonAssetExclusionProofs(
 				closeInfo.allocations,
 			)
 
