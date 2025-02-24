@@ -22,7 +22,7 @@ type Querier interface {
 	AssetsDBSizeSqlite(ctx context.Context) (int32, error)
 	AssetsInBatch(ctx context.Context, rawKey []byte) ([]AssetsInBatchRow, error)
 	BindMintingBatchWithTapSibling(ctx context.Context, arg BindMintingBatchWithTapSiblingParams) error
-	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error
+	BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error)
 	ConfirmChainAnchorTx(ctx context.Context, arg ConfirmChainAnchorTxParams) error
 	ConfirmChainTx(ctx context.Context, arg ConfirmChainTxParams) error
 	DeleteAllNodes(ctx context.Context, namespace string) (int64, error)

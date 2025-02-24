@@ -353,7 +353,7 @@ func (q *Queries) BindMintingBatchWithTapSibling(ctx context.Context, arg BindMi
 	return err
 }
 
-const BindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :exec
+const BindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :one
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -361,9 +361,10 @@ WITH target_batch AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-UPDATE asset_minting_batches 
+UPDATE asset_minting_batches
 SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
+RETURNING batch_id
 `
 
 type BindMintingBatchWithTxParams struct {
@@ -373,14 +374,16 @@ type BindMintingBatchWithTxParams struct {
 	GenesisID         sql.NullInt64
 }
 
-func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error {
-	_, err := q.db.ExecContext(ctx, BindMintingBatchWithTx,
+func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, BindMintingBatchWithTx,
 		arg.RawKey,
 		arg.MintingTxPsbt,
 		arg.ChangeOutputIndex,
 		arg.GenesisID,
 	)
-	return err
+	var batch_id int64
+	err := row.Scan(&batch_id)
+	return batch_id, err
 }
 
 const ConfirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
