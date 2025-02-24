@@ -417,6 +417,25 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 		for pieceIdx := range pieces {
 			p := pieces[pieceIdx]
 
+			sibling, err := a.tapscriptSibling()
+			if err != nil {
+				return nil, err
+			}
+
+			deliveryAddr := a.ProofDeliveryAddress
+			vOut := &tappsbt.VOutput{
+				AssetVersion:                 a.AssetVersion,
+				Interactive:                  true,
+				AnchorOutputIndex:            a.OutputIndex,
+				AnchorOutputInternalKey:      a.InternalKey,
+				AnchorOutputTapscriptSibling: sibling,
+				ScriptKey:                    a.ScriptKey,
+				ProofDeliveryAddress:         deliveryAddr,
+				RelativeLockTime: uint64(
+					a.Sequence,
+				),
+			}
+
 			// Skip fully allocated pieces
 			if p.available() == 0 {
 				continue
@@ -440,26 +459,11 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				outType = tappsbt.TypeSplitRoot
 			}
 
-			sibling, err := a.tapscriptSibling()
-			if err != nil {
-				return nil, err
-			}
-
-			deliveryAddr := a.ProofDeliveryAddress
-			vOut := &tappsbt.VOutput{
-				Amount:                       allocating,
-				AssetVersion:                 a.AssetVersion,
-				Type:                         outType,
-				Interactive:                  true,
-				AnchorOutputIndex:            a.OutputIndex,
-				AnchorOutputInternalKey:      a.InternalKey,
-				AnchorOutputTapscriptSibling: sibling,
-				ScriptKey:                    a.ScriptKey,
-				ProofDeliveryAddress:         deliveryAddr,
-				RelativeLockTime: uint64(
-					a.Sequence,
-				),
-			}
+			// We just need to update the type and amount for this
+			// virtual output, everything else can be taken from
+			// the allocation itself.
+			vOut.Type = outType
+			vOut.Amount = allocating
 			p.packet.Outputs = append(p.packet.Outputs, vOut)
 
 			p.allocated += allocating
