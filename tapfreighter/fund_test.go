@@ -161,6 +161,67 @@ func randProof(t *testing.T, amount uint64,
 	}
 }
 
+func assertOutputsEqual(t *testing.T, pkts []*tappsbt.VPacket,
+	expectedOutputs [][]*tappsbt.VOutput) {
+
+	t.Helper()
+
+	require.Len(t, pkts, len(expectedOutputs))
+	for i, pkt := range pkts {
+		require.Len(t, pkt.Outputs, len(expectedOutputs[i]))
+		require.Len(t, pkt.Inputs, 1)
+
+		for j, out := range pkt.Outputs {
+			expected := expectedOutputs[i][j]
+
+			// We don't expect all fields to match, so we can't just
+			// compare the outputs directly.
+			require.Equal(t, expected.Amount, out.Amount)
+			require.Equal(
+				t, expected.ScriptKey, out.ScriptKey,
+			)
+			require.Equal(
+				t, expected.Interactive,
+				out.Interactive,
+			)
+			require.Equal(t, expected.Type, out.Type)
+			require.Equal(
+				t, expected.AnchorOutputIndex,
+				out.AnchorOutputIndex,
+			)
+			require.Equal(
+				t, expected.AnchorOutputInternalKey,
+				out.AnchorOutputInternalKey,
+			)
+			require.Equal(t, expected.AltLeaves, out.AltLeaves)
+			require.Equal(
+				t, expected.AnchorOutputTapscriptSibling,
+				out.AnchorOutputTapscriptSibling,
+			)
+			require.Equal(
+				t, expected.AssetVersion, out.AssetVersion,
+			)
+			require.Equal(t, expected.LockTime, out.LockTime)
+			require.Equal(
+				t, expected.RelativeLockTime,
+				out.RelativeLockTime,
+			)
+			require.Equal(
+				t, expected.ProofDeliveryAddress,
+				out.ProofDeliveryAddress,
+			)
+
+			// We do expect the BIP-0032 derivations to be set on
+			// the resulting anchor outputs. But we can't really
+			// assert their values, just that they're set.
+			require.Len(t, out.AnchorOutputBip32Derivation, 1)
+			require.Len(
+				t, out.AnchorOutputTaprootBip32Derivation, 1,
+			)
+		}
+	}
+}
+
 func TestFundPacket(t *testing.T) {
 	ctx := context.Background()
 
@@ -224,29 +285,28 @@ func TestFundPacket(t *testing.T) {
 					t, inputCommitments, r.InputCommitments,
 				)
 
-				require.Len(t, r.VPackets, 1)
-				require.Len(t, r.VPackets[0].Outputs, 2)
-				require.Len(t, r.VPackets[0].Inputs, 1)
+				pkt0Outputs := []*tappsbt.VOutput{{
+					Amount:    20,
+					Type:      tappsbt.TypeSimple,
+					ScriptKey: scriptKey,
+					AnchorOutputInternalKey: kr.PubKeyAt(
+						t, 1,
+					),
+					AnchorOutputIndex: 0,
+				}, {
+					Amount:    mintAmount - 20,
+					Type:      tappsbt.TypeSplitRoot,
+					ScriptKey: kr.ScriptKeyAt(t, 0),
+					AnchorOutputInternalKey: kr.PubKeyAt(
+						t, 2,
+					),
+					AnchorOutputIndex: 1,
+				}}
 
-				vOut0 := r.VPackets[0].Outputs[0]
-				require.Equal(t, uint64(20), vOut0.Amount)
-				require.Equal(t, scriptKey, vOut0.ScriptKey)
-				require.Equal(
-					t, kr.PubKeyAt(t, 1),
-					vOut0.AnchorOutputInternalKey,
-				)
-
-				vOut1 := r.VPackets[0].Outputs[1]
-				require.Equal(
-					t, uint64(mintAmount-20), vOut1.Amount,
-				)
-				require.Equal(
-					t, kr.ScriptKeyAt(t, 0),
-					vOut1.ScriptKey,
-				)
-				require.Equal(
-					t, kr.PubKeyAt(t, 2),
-					vOut1.AnchorOutputInternalKey,
+				assertOutputsEqual(
+					t, r.VPackets, [][]*tappsbt.VOutput{
+						pkt0Outputs,
+					},
 				)
 			},
 		},
@@ -314,29 +374,28 @@ func TestFundPacket(t *testing.T) {
 					t, inputCommitments, r.InputCommitments,
 				)
 
-				require.Len(t, r.VPackets, 1)
-				require.Len(t, r.VPackets[0].Outputs, 2)
-				require.Len(t, r.VPackets[0].Inputs, 1)
+				pkt0Outputs := []*tappsbt.VOutput{{
+					Amount:    0,
+					Type:      tappsbt.TypeSplitRoot,
+					ScriptKey: asset.NUMSScriptKey,
+					AnchorOutputInternalKey: kr.PubKeyAt(
+						t, 0,
+					),
+					AnchorOutputIndex: 0,
+				}, {
+					Amount:    mintAmount,
+					Type:      tappsbt.TypeSimple,
+					ScriptKey: scriptKey,
+					AnchorOutputInternalKey: kr.PubKeyAt(
+						t, 1,
+					),
+					AnchorOutputIndex: 1,
+				}}
 
-				vOut0 := r.VPackets[0].Outputs[0]
-				require.Equal(t, uint64(0), vOut0.Amount)
-				require.Equal(
-					t, asset.NUMSScriptKey,
-					vOut0.ScriptKey,
-				)
-				require.Equal(
-					t, kr.PubKeyAt(t, 0),
-					vOut0.AnchorOutputInternalKey,
-				)
-
-				vOut1 := r.VPackets[0].Outputs[1]
-				require.Equal(
-					t, uint64(mintAmount), vOut1.Amount,
-				)
-				require.Equal(t, scriptKey, vOut1.ScriptKey)
-				require.Equal(
-					t, kr.PubKeyAt(t, 1),
-					vOut1.AnchorOutputInternalKey,
+				assertOutputsEqual(
+					t, r.VPackets, [][]*tappsbt.VOutput{
+						pkt0Outputs,
+					},
 				)
 			},
 		},
