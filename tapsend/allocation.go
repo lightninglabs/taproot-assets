@@ -473,7 +473,7 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 			deliveryAddr := a.ProofDeliveryAddress
 			vOut := &tappsbt.VOutput{
 				AssetVersion:                 a.AssetVersion,
-				Interactive:                  true,
+				Interactive:                  interactive,
 				AnchorOutputIndex:            a.OutputIndex,
 				AnchorOutputInternalKey:      a.InternalKey,
 				AnchorOutputTapscriptSibling: sibling,
