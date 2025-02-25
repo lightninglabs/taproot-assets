@@ -743,6 +743,7 @@ func TestFetchAllAssets(t *testing.T) {
 		assetGen:    assetGen.assetGens[2],
 		anchorPoint: assetGen.anchorPoints[0],
 		amt:         34,
+		scriptKey:   scriptKeyWithScript,
 	}, {
 		assetGen:    assetGen.assetGens[3],
 		anchorPoint: assetGen.anchorPoints[1],
@@ -778,16 +779,20 @@ func TestFetchAllAssets(t *testing.T) {
 		amt:         777,
 		scriptKey:   scriptKeyWithScript,
 	}}
-	makeFilter := func(amt uint64, anchorHeight int32,
+	makeFilter := func(minAmt, maxAmt uint64, anchorHeight int32,
+		scriptKey *asset.ScriptKey, anchorPoint *wire.OutPoint,
 		coinSelectType tapsend.CoinSelectType) *AssetQueryFilters {
 
 		constraints := tapfreighter.CommitmentConstraints{
-			MinAmt:         amt,
+			MinAmt:         minAmt,
+			MaxAmt:         maxAmt,
 			CoinSelectType: coinSelectType,
 		}
 		return &AssetQueryFilters{
 			CommitmentConstraints: constraints,
 			MinAnchorHeight:       anchorHeight,
+			ScriptKey:             scriptKey,
+			AnchorPoint:           anchorPoint,
 		}
 	}
 
@@ -815,43 +820,101 @@ func TestFetchAllAssets(t *testing.T) {
 		includeSpent:  true,
 		numAssets:     10,
 	}, {
-		name:      "min amount",
-		filter:    makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount",
+		filter: makeFilter(
+			12, 0, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		numAssets: 2,
 	}, {
-		name:         "min amount, include spent",
-		filter:       makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include spent",
+		filter: makeFilter(
+			12, 0, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		includeSpent: true,
 		numAssets:    4,
 	}, {
-		name:          "min amount, include leased",
-		filter:        makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include leased",
+		filter: makeFilter(
+			12, 0, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		includeLeased: true,
 		numAssets:     5,
 	}, {
-		name:          "min amount, include leased, include spent",
-		filter:        makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include leased, include spent",
+		filter: makeFilter(
+			12, 0, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		includeLeased: true,
 		includeSpent:  true,
 		numAssets:     8,
 	}, {
-		name:         "default min height, include spent",
-		filter:       makeFilter(0, 500, tapsend.ScriptTreesAllowed),
+		name: "default min height, include spent",
+		filter: makeFilter(
+			0, 0, 500, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		includeSpent: true,
 		numAssets:    6,
 	}, {
-		name:      "specific height",
-		filter:    makeFilter(0, 502, tapsend.ScriptTreesAllowed),
+		name: "specific height",
+		filter: makeFilter(
+			0, 0, 502, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		numAssets: 0,
 	}, {
-		name:         "default min height, include spent",
-		filter:       makeFilter(0, 502, tapsend.ScriptTreesAllowed),
+		name: "default min height, include spent",
+		filter: makeFilter(
+			0, 0, 502, nil, nil, tapsend.ScriptTreesAllowed,
+		),
 		includeSpent: true,
 		numAssets:    1,
 	}, {
-		name:      "script key with tapscript",
-		filter:    makeFilter(100, 0, tapsend.Bip86Only),
+		name: "script key with tapscript",
+		filter: makeFilter(
+			100, 0, 0, scriptKeyWithScript, nil, tapsend.Bip86Only,
+		),
 		numAssets: 0,
+	}, {
+		name: "script key",
+		filter: makeFilter(
+			0, 0, 0, scriptKeyWithScript, nil,
+			tapsend.ScriptTreesAllowed,
+		),
+		numAssets: 1,
+	}, {
+		name: "anchor point",
+		filter: makeFilter(
+			0, 0, 0, nil, &assetGen.anchorPoints[0],
+			tapsend.ScriptTreesAllowed,
+		),
+		numAssets: 3,
+	}, {
+		name: "max amount",
+		filter: makeFilter(
+			0, 100, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
+		numAssets: 4,
+	}, {
+		name: "max amount, include spent",
+		filter: makeFilter(
+			0, 100, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
+		includeSpent: true,
+		numAssets:    5,
+	}, {
+		name: "max amount, include leased",
+		filter: makeFilter(
+			0, 100, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
+		includeLeased: true,
+		numAssets:     6,
+	}, {
+		name: "max amount, include leased, include spent",
+		filter: makeFilter(
+			0, 100, 0, nil, nil, tapsend.ScriptTreesAllowed,
+		),
+		includeLeased: true,
+		includeSpent:  true,
+		numAssets:     7,
 	}}
 
 	// First, we'll create a new assets store and then insert the set of
