@@ -705,7 +705,7 @@ func (m *MockChainBridge) GetBlockTimestamp(_ context.Context, _ uint32) int64 {
 }
 
 func (m *MockChainBridge) PublishTransaction(_ context.Context,
-	tx *wire.MsgTx) error {
+	tx *wire.MsgTx, _ string) error {
 
 	m.PublishReq <- tx
 	return nil

@@ -840,7 +840,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		// transaction, then request a confirmation notification.
 		ctx, cancel := b.WithCtxQuit()
 		defer cancel()
-		err = b.cfg.ChainBridge.PublishTransaction(ctx, signedTx)
+		err = b.cfg.ChainBridge.PublishTransaction(
+			ctx, signedTx, IssuanceTxLabel,
+		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to publish "+
 				"transaction: %w", err)
