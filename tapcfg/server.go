@@ -612,7 +612,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 // CreateServerFromConfig creates a new Taproot Asset server from the given CLI
 // config.
 func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
-	shutdownInterceptor signal.Interceptor, enableChannelFeatures bool,
+	shutdownInterceptor signal.Interceptor,
 	mainErrChan chan<- error) (*tap.Server, error) {
 
 	// Given the config above, grab the TLS config which includes the set
@@ -638,7 +638,8 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 	cfgLogger.Infof("lnd connection initialized")
 
 	serverCfg, err := genServerConfig(
-		cfg, cfgLogger, &lndConn.LndServices, enableChannelFeatures,
+		cfg, cfgLogger, &lndConn.LndServices,
+		cfg.RpcConf.EnableChannelFeatures,
 		mainErrChan,
 	)
 	if err != nil {
@@ -666,6 +667,7 @@ func CreateServerFromConfig(cfg *Config, cfgLogger btclog.Logger,
 		LetsEncryptListen:          cfg.RpcConf.LetsEncryptListen,
 		LetsEncryptEmail:           cfg.RpcConf.LetsEncryptEmail,
 		LetsEncryptDomain:          cfg.RpcConf.LetsEncryptDomain,
+		EnableChannelFeatures:      cfg.RpcConf.EnableChannelFeatures,
 	}
 
 	return tap.NewServer(&serverCfg.ChainParams, serverCfg), nil

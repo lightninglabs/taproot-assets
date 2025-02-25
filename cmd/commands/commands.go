@@ -84,6 +84,11 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 				"macaroon jar instead of the default one. " +
 				"Can only be used if profiles are defined.",
 		},
+		cli.BoolFlag{
+			Name: "enable-channels-features",
+			Usage: "allows tapd to be able to" +
+				"fund channels without litd",
+		},
 	}
 
 	// Add all the available commands.

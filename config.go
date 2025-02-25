@@ -59,6 +59,8 @@ type RPCConfig struct {
 	LetsEncryptDomain string
 
 	LetsEncryptEmail string
+
+	EnableChannelFeatures bool
 }
 
 // DatabaseConfig is the config that holds all the persistence related structs

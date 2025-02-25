@@ -245,6 +245,8 @@ type RpcConfig struct {
 	LetsEncryptListen string `long:"letsencryptlisten" description:"The IP:port on which lnd will listen for Let's Encrypt challenges. Let's Encrypt will always try to contact on port 80. Often non-root processes are not allowed to bind to ports lower than 1024. This configuration option allows a different port to be used, but must be used in combination with port forwarding from port 80. This configuration can also be used to specify another IP address to listen on, for example an IPv6 address."`
 	LetsEncryptDomain string `long:"letsencryptdomain" description:"Request a Let's Encrypt certificate for this domain. Note that the certificate is only requested and stored when the first rpc connection comes in."`
 	LetsEncryptEmail  string `long:"letsencryptemail" description:"The email address to use for Let's Encrypt account registration."`
+
+	EnableChannelFeatures bool `long:"enable-channel-features" description:"Enable support for funding channels without litd"`
 }
 
 // LndConfig is the main config we'll use to connect to the lnd node that backs

@@ -382,7 +382,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 	)
 
 	hs.server, err = tapcfg.CreateServerFromConfig(
-		hs.clientCfg, cfgLogger, hs.ht.interceptor, false, mainErrChan,
+		hs.clientCfg, cfgLogger, hs.ht.interceptor, mainErrChan,
 	)
 	if err != nil {
 		return fmt.Errorf("could not create tapd server: %w", err)
