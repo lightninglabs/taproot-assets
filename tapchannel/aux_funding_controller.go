@@ -472,8 +472,8 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
 // addInputProofChunk adds a new proof chunk to the set of proof chunks that'll
 // be processed. If this is the last chunk for this proof, then true is
 // returned.
-func (p *pendingAssetFunding) addInputProofChunk(chunk cmsg.ProofChunk,
-) lfn.Result[lfn.Option[proof.Proof]] {
+func (p *pendingAssetFunding) addInputProofChunk(
+	chunk cmsg.ProofChunk) lfn.Result[lfn.Option[proof.Proof]] {
 
 	type ret = proof.Proof
 
@@ -1549,8 +1549,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// With our initial state created, we'll now attempt to fund the
 	// channel on the TAP level with a vPacket.
 	fundingVpkt, err := f.fundVirtualPacket(
-		fundReq.ctx, fundReq.AssetID,
-		fundReq.AssetAmount,
+		fundReq.ctx, fundReq.AssetID, fundReq.AssetAmount,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to fund vPacket: %w", err)
@@ -1581,7 +1580,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	}
 
 	// Register a defer to execute if none of the set up below succeeds.
-	// This ensure we always unlock the UTXO.
+	// This ensures we always unlock the UTXO.
 	var setupSuccess bool
 	defer func() {
 		if !setupSuccess {
@@ -1622,8 +1621,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	}
 
 	fundingCommitment, err := commitment.FromAssets(
-		fundingCommitVersion,
-		fundingOutput.Asset.Copy(),
+		fundingCommitVersion, fundingOutput.Asset.Copy(),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
@@ -1750,8 +1748,7 @@ func (f *FundingController) chanFunder() {
 			)
 			if err != nil {
 				f.cfg.ErrReporter.ReportError(
-					ctxc, msg.PeerPub, tempFundingID,
-					err,
+					ctxc, msg.PeerPub, tempFundingID, err,
 				)
 				log.Error(err)
 			}
