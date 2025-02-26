@@ -53,6 +53,11 @@ const (
 	// level ACK from the remote party before timing out.
 	ackTimeout = time.Second * 30
 
+	// proofCourierCheckTimeout is the amount of time we'll wait before we
+	// time out an attempt to connect to a proof courier when checking the
+	// configured address.
+	proofCourierCheckTimeout = time.Second * 5
+
 	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
 	// IDs) that can be committed to a single channel. The number needs to
 	// be limited to prevent the number of required HTLC signatures to be
@@ -1359,7 +1364,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 	// can't deal with the OP_TRUE funding output script key, as that's the
 	// same for asset channels out there. So the single mailbox would always
 	// be occupied.
-	if err := f.validateLocalProofCourier(); err != nil {
+	if err := f.validateLocalProofCourier(ctx); err != nil {
 		return tempPID, fmt.Errorf("unable to accept channel funding "+
 			"request, local proof courier is unsupported: %w", err)
 	}
@@ -1532,7 +1537,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// with the OP_TRUE funding output script key, as that's the same for
 	// asset channels out there. So the single mailbox would always be
 	// occupied.
-	if err := f.validateLocalProofCourier(); err != nil {
+	if err := f.validateLocalProofCourier(fundReq.ctx); err != nil {
 		return fmt.Errorf("unable to fund channel, local proof "+
 			"courier is unsupported: %w", err)
 	}
@@ -2053,7 +2058,9 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 // validateLocalProofCourier checks if the local proof courier is supported by
 // the funding controller. This is necessary to ensure that we can accept
 // incoming asset channel funding requests.
-func (f *FundingController) validateLocalProofCourier() error {
+func (f *FundingController) validateLocalProofCourier(
+	ctx context.Context) error {
+
 	courierURL := f.cfg.DefaultCourierAddr
 
 	flagHelp := "please set a universe based (universerpc://) proof " +
@@ -2071,6 +2078,25 @@ func (f *FundingController) validateLocalProofCourier() error {
 	if courierURL.Scheme != proof.UniverseRpcCourierType {
 		return fmt.Errorf("unsupported proof courier type '%v', %v",
 			courierURL.Scheme, flagHelp)
+	}
+
+	// We now also make a quick test connection.
+	ctxt, cancel := context.WithTimeout(ctx, proofCourierCheckTimeout)
+	defer cancel()
+	courier, err := proof.NewUniverseRpcCourier(
+		ctxt, &proof.UniverseRpcCourierCfg{}, nil, nil, courierURL,
+		false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to test connection proof courier "+
+			"'%v': %v", courierURL.String(), err)
+	}
+
+	err = courier.Close()
+	if err != nil {
+		// We only log any disconnect errors, as they're not critical.
+		log.Warnf("Unable to disconnect from proof courier '%v': %v",
+			courierURL.String(), err)
 	}
 
 	return nil
