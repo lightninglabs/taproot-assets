@@ -406,3 +406,27 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 
 // Ensure that RpcPriceOracle implements the PriceOracle interface.
 var _ PriceOracle = (*RpcPriceOracle)(nil)
+
+// rpcMarshalAssetSpecifier is a helper method that converts an asset specifier
+// to the oraclerpc representation of the specifier.
+func rpcMarshalAssetSpecifier(
+	assetSpecifier asset.Specifier) *oraclerpc.AssetSpecifier {
+
+	var subjectSpecifier oraclerpc.AssetSpecifier
+
+	switch {
+	case assetSpecifier.HasId():
+		assetID := assetSpecifier.UnwrapIdToPtr()
+		subjectSpecifier.Id = &oraclerpc.AssetSpecifier_AssetId{
+			AssetId: assetID[:],
+		}
+
+	case assetSpecifier.HasGroupPubKey():
+		groupKey := assetSpecifier.UnwrapGroupKeyToPtr()
+		subjectSpecifier.Id = &oraclerpc.AssetSpecifier_GroupKey{
+			GroupKey: groupKey.SerializeCompressed(),
+		}
+	}
+
+	return &subjectSpecifier
+}
