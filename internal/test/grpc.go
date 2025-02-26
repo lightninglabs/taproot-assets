@@ -1,0 +1,80 @@
+package test
+
+import (
+	"context"
+	"fmt"
+	"net"
+	"time"
+
+	"github.com/lightningnetwork/lnd/lntest/port"
+	"golang.org/x/sync/errgroup"
+	"google.golang.org/grpc"
+)
+
+var (
+	// ListenAddrTemplate is the template for the address the mock server
+	// listens on.
+	ListenAddrTemplate = "localhost:%d"
+
+	// StartupWaitTime is the time we wait for the server to start up.
+	StartupWaitTime = 50 * time.Millisecond
+)
+
+// StartMockGRPCServer starts a mock gRPC server on a free port and returns the
+// address it's listening on. The caller should clean up the server by calling
+// the cleanup function.
+func StartMockGRPCServer(grpcServer *grpc.Server) (string, func(), error) {
+	nextPort := port.NextAvailablePort()
+	listenAddr := fmt.Sprintf(ListenAddrTemplate, nextPort)
+
+	grpcListener, err := net.Listen("tcp", listenAddr)
+	if err != nil {
+		return "", nil, fmt.Errorf("mock RPC server unable to listen "+
+			"on %s", listenAddr)
+	}
+
+	// Create an errgroup with an associated context. If the goroutine
+	// errors, the context is closed.
+	g, ctx := errgroup.WithContext(context.Background())
+
+	// Channel to signal that the Serve goroutine has started.
+	startupSignal := make(chan struct{})
+
+	g.Go(func() error {
+		// The goroutine has started, signal the main goroutine.
+		close(startupSignal)
+
+		err := grpcServer.Serve(grpcListener)
+		if err != nil {
+			return fmt.Errorf("mock RPC server unable to serve "+
+				"on %s: %v", listenAddr, err)
+		}
+
+		return nil
+	})
+
+	// We wait until the goroutine has started before returning the
+	// listener address.
+	<-startupSignal
+
+	// Use a timeout to check for any immediate errors.
+	select {
+	case <-ctx.Done():
+		// If the context is canceled, an error occurred during startup.
+		return "", nil, ctx.Err()
+
+	case <-time.After(StartupWaitTime):
+		// No error was reported within the startup wait time, we can
+		// assume the server is running now.
+	}
+
+	// The cleanup function stops the server and waits for the goroutine to
+	// finish.
+	cleanup := func() {
+		grpcServer.Stop()
+		_ = grpcListener.Close()
+		_ = g.Wait()
+	}
+
+	return listenAddr, cleanup, nil
+}
