@@ -472,8 +472,8 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
 // addInputProofChunk adds a new proof chunk to the set of proof chunks that'll
 // be processed. If this is the last chunk for this proof, then true is
 // returned.
-func (p *pendingAssetFunding) addInputProofChunk(chunk cmsg.ProofChunk,
-) lfn.Result[lfn.Option[proof.Proof]] {
+func (p *pendingAssetFunding) addInputProofChunk(
+	chunk cmsg.ProofChunk) lfn.Result[lfn.Option[proof.Proof]] {
 
 	type ret = proof.Proof
 
@@ -1775,8 +1775,7 @@ func (f *FundingController) chanFunder() {
 			)
 			if err != nil {
 				f.cfg.ErrReporter.ReportError(
-					ctxc, msg.PeerPub, tempFundingID,
-					err,
+					ctxc, msg.PeerPub, tempFundingID, err,
 				)
 				log.Error(err)
 			}
