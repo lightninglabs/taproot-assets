@@ -490,7 +490,7 @@ func (b *MultiverseStore) queryRootNodes(ctx context.Context,
 			// Parse universe proof type and populate the universe
 			// ID.
 			id.ProofType, err = universe.ParseStrProofType(
-				dbRoot.ProofType,
+				dbRoot.ProofType.String,
 			)
 			if err != nil {
 				return err

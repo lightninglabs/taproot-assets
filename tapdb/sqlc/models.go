@@ -203,9 +203,9 @@ type FederationUniSyncConfig struct {
 	Namespace       string
 	AssetID         []byte
 	GroupKey        []byte
-	ProofType       string
 	AllowSyncInsert bool
 	AllowSyncExport bool
+	ProofType       sql.NullString
 }
 
 type GenesisAsset struct {
@@ -323,6 +323,10 @@ type ProofTransferLog struct {
 	TimeUnix         time.Time
 }
 
+type ProofType struct {
+	ProofType string
+}
+
 type ScriptKey struct {
 	ScriptKeyID      int64
 	InternalKeyID    int64
@@ -372,7 +376,7 @@ type UniverseRoot struct {
 	NamespaceRoot string
 	AssetID       []byte
 	GroupKey      []byte
-	ProofType     string
+	ProofType     sql.NullString
 }
 
 type UniverseServer struct {
@@ -386,5 +390,5 @@ type UniverseStat struct {
 	TotalAssetProofs int64
 	AssetID          []byte
 	GroupKey         []byte
-	ProofType        string
+	ProofType        sql.NullString
 }
