@@ -1267,7 +1267,12 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 	c.client = unirpc.NewUniverseClient(conn)
 	c.rawConn = conn
 
-	return nil
+	// Make sure we initiate the connection. The GetInfo RPC method is in
+	// the base macaroon white list, so it doesn't require any
+	// authentication, independent of the universe's configuration.
+	_, err = c.client.Info(ctx, &unirpc.InfoRequest{})
+
+	return err
 }
 
 // DeliverProof attempts to delivery a proof file to the receiver.
