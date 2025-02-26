@@ -107,7 +107,7 @@ func validateAssetRatesRequest(
 func startBackendRPC(t *testing.T, grpcServer *grpc.Server) string {
 	server := mockRpcPriceOracleServer{}
 	priceoraclerpc.RegisterPriceOracleServer(grpcServer, &server)
-	mockAddr, cleanup, err := test.StartMockGRPCServer(grpcServer)
+	mockAddr, cleanup, err := test.StartMockGRPCServer(t, grpcServer, false)
 	require.NoError(t, err)
 
 	t.Cleanup(cleanup)
