@@ -1369,6 +1369,15 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 
 	tempPID = assetFunding.pid
 
+	// Whatever the message from the peer is, it's about funding a channel.
+	// We can only support asset channels if we have the correct proof
+	// courier type configured, so we're ready to receive the channel funds
+	// once the channel is (force) closed.
+	if err := f.validateLocalProofCourier(); err != nil {
+		return tempPID, fmt.Errorf("unable to accept channel funding "+
+			"request, local proof courier is invalid: %w", err)
+	}
+
 	switch assetProof := proofMsg.(type) {
 	// This is input proof, so we'll verify the challenge witness, then
 	// store the proof.
@@ -1529,6 +1538,13 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	if !supportsAssetChans {
 		return fmt.Errorf("peer %x does not support asset channels",
 			fundReq.PeerPub.SerializeCompressed())
+	}
+
+	// We need to make sure we're ready to receive the channel funds once
+	// the channel is (force) closed.
+	if err := f.validateLocalProofCourier(); err != nil {
+		return fmt.Errorf("unable to fund channel, local proof "+
+			"courier is invalid: %w", err)
 	}
 
 	// Before we proceed, we'll make sure the fee rate we're using is above
@@ -2043,6 +2059,35 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 
 	if err := engine.Execute(); err != nil {
 		return fmt.Errorf("invalid witness: %w", err)
+	}
+
+	return nil
+}
+
+// validateLocalProofCourier checks if the local proof courier is supported by
+// the funding controller. This is necessary to ensure that we can accept
+// incoming asset channel funding requests, which only works if we have a
+// universe based proof courier configured. A hashmail based courier can't deal
+// with the OP_TRUE funding output script key, as that's the same for asset
+// channels out there. So the single mailbox would always be occupied.
+func (f *FundingController) validateLocalProofCourier() error {
+	courierURL := f.cfg.DefaultCourierAddr
+
+	flagHelp := "please set a universe based (universerpc://) proof " +
+		"courier in the proofcourieraddr configuration option or " +
+		"command line flag"
+
+	// There should always be a fallback proof courier, so this case
+	// shouldn't be possible. But we check anyway.
+	if courierURL == nil {
+		return fmt.Errorf("no proof courier configured, %v", flagHelp)
+	}
+
+	// We need the courier to be a universe based courier, as the hashmail
+	// courier can't deal with channel funding outputs.
+	if courierURL.Scheme != proof.UniverseRpcCourierType {
+		return fmt.Errorf("unsupported proof courier type '%v', %v",
+			courierURL.Scheme, flagHelp)
 	}
 
 	return nil
