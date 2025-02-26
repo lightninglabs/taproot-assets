@@ -53,6 +53,11 @@ const (
 	// level ACK from the remote party before timing out.
 	ackTimeout = time.Second * 30
 
+	// proofCourierCheckTimeout is the amount of time we'll wait before we
+	// time out an attempt to connect to a proof courier when checking the
+	// configured address.
+	proofCourierCheckTimeout = time.Second * 5
+
 	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
 	// IDs) that can be committed to a single channel. The number needs to
 	// be limited to prevent the number of required HTLC signatures to be
@@ -1373,7 +1378,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 	// We can only support asset channels if we have the correct proof
 	// courier type configured, so we're ready to receive the channel funds
 	// once the channel is (force) closed.
-	if err := f.validateLocalProofCourier(); err != nil {
+	if err := f.validateLocalProofCourier(ctx); err != nil {
 		return tempPID, fmt.Errorf("unable to accept channel funding "+
 			"request, local proof courier is invalid: %w", err)
 	}
@@ -1542,7 +1547,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 
 	// We need to make sure we're ready to receive the channel funds once
 	// the channel is (force) closed.
-	if err := f.validateLocalProofCourier(); err != nil {
+	if err := f.validateLocalProofCourier(fundReq.ctx); err != nil {
 		return fmt.Errorf("unable to fund channel, local proof "+
 			"courier is invalid: %w", err)
 	}
@@ -2070,7 +2075,9 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 // universe based proof courier configured. A hashmail based courier can't deal
 // with the OP_TRUE funding output script key, as that's the same for asset
 // channels out there. So the single mailbox would always be occupied.
-func (f *FundingController) validateLocalProofCourier() error {
+func (f *FundingController) validateLocalProofCourier(
+	ctx context.Context) error {
+
 	courierURL := f.cfg.DefaultCourierAddr
 
 	flagHelp := "please set a universe based (universerpc://) proof " +
@@ -2090,7 +2097,9 @@ func (f *FundingController) validateLocalProofCourier() error {
 			courierURL.Scheme, flagHelp)
 	}
 
-	return nil
+	return proof.CheckUniverseRpcCourierConnection(
+		ctx, proofCourierCheckTimeout, courierURL,
+	)
 }
 
 // FundReq is a message that's sent to the funding controller to request a new
