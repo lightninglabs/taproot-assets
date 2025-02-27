@@ -27,6 +27,7 @@ func transformByteLiterals(t *testing.T, db *BaseDB, query string) string {
 	return query
 }
 
+// TestMigrationSteps is an example test that illustrates how to test database
 // migrations by selectively applying only some migrations, inserting dummy data
 // and then applying the remaining migrations.
 func TestMigrationSteps(t *testing.T) {
@@ -330,24 +331,25 @@ func TestMigration29(t *testing.T) {
 	// Check universe_roots: the dummy row should keep its original
 	// proof_type.
 	var proofType string
-	err = db.QueryRowContext(ctx,
-		"SELECT proof_type FROM universe_roots WHERE id = 1").Scan(
-		&proofType,
-	)
+	err = db.QueryRowContext(ctx, `
+		SELECT proof_type FROM universe_roots WHERE id = 1
+	`).Scan(&proofType)
 	require.NoError(t, err)
 	require.Equal(t, "issuance", proofType)
 
 	// Check federation_global_sync_config dummy data.
-	err = db.QueryRowContext(ctx,
-		`SELECT proof_type 
-		FROM federation_global_sync_config LIMIT 1`).Scan(&proofType)
+	err = db.QueryRowContext(ctx, `
+		SELECT proof_type
+		FROM federation_global_sync_config LIMIT 1
+	`).Scan(&proofType)
 	require.NoError(t, err)
 	require.Equal(t, "transfer", proofType)
 
 	// Check federation_uni_sync_config dummy data.
-	err = db.QueryRowContext(ctx,
-		`SELECT proof_type 
-		FROM federation_uni_sync_config LIMIT 1`).Scan(&proofType)
+	err = db.QueryRowContext(ctx, `
+		SELECT proof_type 
+		FROM federation_uni_sync_config LIMIT 1
+	`).Scan(&proofType)
 	require.NoError(t, err)
 	require.Equal(t, "issuance", proofType)
 
