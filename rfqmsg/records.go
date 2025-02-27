@@ -2,6 +2,7 @@ package rfqmsg
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -82,22 +83,35 @@ func (h *Htlc) Balances() []*AssetBalance {
 	return h.Amounts.Val.Balances
 }
 
+// SpecifierChecker checks whether the passed specifier and asset ID match. If
+// the specifier contains a group key, it will check whether the asset belongs
+// to that group.
+type SpecifierChecker func(ctx context.Context, specifier asset.Specifier,
+	id asset.ID) (bool, error)
+
 // SumAssetBalance returns the sum of the asset balances for the given asset.
-func (h *Htlc) SumAssetBalance(assetSpecifier asset.Specifier) (rfqmath.BigInt,
+func (h *Htlc) SumAssetBalance(ctx context.Context,
+	assetSpecifier asset.Specifier,
+	specifierChecker SpecifierChecker) (rfqmath.BigInt,
 	error) {
 
 	balanceTotal := rfqmath.NewBigIntFromUint64(0)
 
-	targetAssetID, err := assetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return balanceTotal, fmt.Errorf("unable to unwrap asset ID: %w",
-			err)
+	if specifierChecker == nil {
+		return balanceTotal, fmt.Errorf("checker is nil")
 	}
 
 	for idx := range h.Amounts.Val.Balances {
 		balance := h.Amounts.Val.Balances[idx]
 
-		if balance.AssetID.Val != targetAssetID {
+		match, err := specifierChecker(
+			ctx, assetSpecifier, balance.AssetID.Val,
+		)
+		if err != nil {
+			return balanceTotal, err
+		}
+
+		if !match {
 			continue
 		}
 
