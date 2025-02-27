@@ -73,12 +73,35 @@ type mockRfqManager struct {
 	localSellQuotes rfq.SellAcceptMap
 }
 
+// PeerAcceptedBuyQuotes returns buy quotes that were requested by our node and
+// have been accepted by our peers. These quotes are exclusively available to
+// our node for the acquisition of assets.
 func (m *mockRfqManager) PeerAcceptedBuyQuotes() rfq.BuyAcceptMap {
 	return m.peerBuyQuotes
 }
 
+// LocalAcceptedSellQuotes returns sell quotes that were accepted by our node
+// and have been requested by our peers. These quotes are exclusively available
+// to our node for the sale of assets.
 func (m *mockRfqManager) LocalAcceptedSellQuotes() rfq.SellAcceptMap {
 	return m.localSellQuotes
+}
+
+// AssetMatchesSpecifier checks if the provided asset satisfies the provided
+// specifier. If the specifier includes a group key, we will check if the asset
+// belongs to that group.
+func (m *mockRfqManager) AssetMatchesSpecifier(ctx context.Context,
+	specifier asset.Specifier, id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		return true, nil
+
+	case specifier.HasId():
+		return *specifier.UnwrapIdToPtr() == id, nil
+	}
+
+	return false, nil
 }
 
 // mockHtlcModifier mocks the HtlcModifier interface that is required by the
@@ -100,12 +123,12 @@ func (m *mockHtlcModifier) HtlcModifier(ctx context.Context,
 		res, err := handler(ctx, r)
 
 		if err != nil {
-			return err
+			m.t.Errorf("Handler error: %v", err)
 		}
 
 		if m.expectedResQue[i].CancelSet {
 			if !res.CancelSet {
-				return fmt.Errorf("expected cancel set flag")
+				m.t.Errorf("expected cancel set flag")
 			}
 
 			continue
@@ -113,7 +136,7 @@ func (m *mockHtlcModifier) HtlcModifier(ctx context.Context,
 
 		// Check if there's a match with the expected outcome.
 		if res.AmtPaid != m.expectedResQue[i].AmtPaid {
-			return fmt.Errorf("invoice paid amount does not match "+
+			m.t.Errorf("invoice paid amount does not match "+
 				"expected amount, %v != %v", res.AmtPaid,
 				m.expectedResQue[i].AmtPaid)
 		}
