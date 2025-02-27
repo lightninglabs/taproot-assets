@@ -1387,6 +1387,13 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 			log.Infof("Validating input proof, prev_out=%v",
 				p.OutPoint())
 
+			vCtx := proof.VerifierCtx{
+				HeaderVerifier: f.cfg.HeaderVerifier,
+				MerkleVerifier: proof.DefaultMerkleVerifier,
+				GroupVerifier:  f.cfg.GroupVerifier,
+				ChainLookupGen: f.cfg.ChainBridge,
+			}
+
 			l, err := f.cfg.ChainBridge.GenProofChainLookup(&p)
 			if err != nil {
 				return fmt.Errorf("unable to create proof "+
@@ -1396,11 +1403,7 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 			// Next, we'll validate this proof to make sure that the
 			// initiator is actually able to spend these outputs in
 			// the funding transaction.
-			_, err = p.Verify(
-				ctx, nil, f.cfg.HeaderVerifier,
-				proof.DefaultMerkleVerifier,
-				f.cfg.GroupVerifier, l,
-			)
+			_, err = p.Verify(ctx, nil, l, vCtx)
 			if err != nil {
 				return fmt.Errorf("unable to verify "+
 					"ownership proof: %w", err)

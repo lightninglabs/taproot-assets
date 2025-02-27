@@ -17,6 +17,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/vm"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"golang.org/x/exp/maps"
 	"golang.org/x/sync/errgroup"
 )
@@ -33,15 +34,44 @@ type ChainLookupGenerator interface {
 	GenProofChainLookup(p *Proof) (asset.ChainLookup, error)
 }
 
+// AssetPoint is similar to PrevID but is meant to be used for created asset
+// outputs rather than those that are spent. This is similar to the concept of
+// an outpoint in normal Bitcoin.
+type AssetPoint = asset.PrevID
+
+// IgnoreChecker is used during proof validation to optionally fail validation
+// if a proof is known to be invalid. This can be used as a caching mechanism to
+// avoid expensive validation for already known invalid proofs.
+type IgnoreChecker interface {
+	// IsIgnored returns true if the given prevID is known to be invalid. A
+	// prevID is used here, but the check should be tested against a proof
+	// result, or produced output.
+	IsIgnored(prevID AssetPoint) bool
+}
+
+// VerifierCtx is a context struct that is used to pass in various interfaces
+// needed during proof verification.
+type VerifierCtx struct {
+	HeaderVerifier HeaderVerifier
+
+	MerkleVerifier MerkleVerifier
+
+	GroupVerifier GroupVerifier
+
+	GroupAnchorVerifier GroupAnchorVerifier
+
+	ChainLookupGen ChainLookupGenerator
+
+	IgnoreChecker lfn.Option[IgnoreChecker]
+}
+
 // Verifier abstracts away from the task of verifying a proof file blob.
 type Verifier interface {
 	// Verify takes the passed serialized proof file, and returns a nil
 	// error if the proof file is valid. A valid file should return an
 	// AssetSnapshot of the final state transition of the file.
 	Verify(c context.Context, blobReader io.Reader,
-		headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-		groupVerifier GroupVerifier,
-		chainLookupGen ChainLookupGenerator) (*AssetSnapshot, error)
+		ctx VerifierCtx) (*AssetSnapshot, error)
 }
 
 // BaseVerifier implements a simple verifier that loads the entire proof file
@@ -53,9 +83,7 @@ type BaseVerifier struct {
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
 func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
-	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier,
-	chainLookupGen ChainLookupGenerator) (*AssetSnapshot, error) {
+	vCtx VerifierCtx) (*AssetSnapshot, error) {
 
 	var proofFile File
 	err := proofFile.Decode(blobReader)
@@ -63,10 +91,7 @@ func (b *BaseVerifier) Verify(ctx context.Context, blobReader io.Reader,
 		return nil, fmt.Errorf("unable to parse proof: %w", err)
 	}
 
-	return proofFile.Verify(
-		ctx, headerVerifier, merkleVerifier, groupVerifier,
-		chainLookupGen.GenFileChainLookup(&proofFile),
-	)
+	return proofFile.Verify(ctx, vCtx)
 }
 
 // verifyTaprootProof attempts to verify a TaprootProof for inclusion or
@@ -226,9 +251,8 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 // state transition. This method returns the split asset information if this
 // state transition represents an asset split.
 func (p *Proof) verifyAssetStateTransition(ctx context.Context,
-	prev *AssetSnapshot, headerVerifier HeaderVerifier,
-	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
-	chainLookup asset.ChainLookup) (bool, error) {
+	prev *AssetSnapshot, chainLookup asset.ChainLookup,
+	vCtx VerifierCtx) (bool, error) {
 
 	// Determine whether we have an asset split based on the resulting
 	// asset's witness. If so, extract the root asset from the split asset.
@@ -272,10 +296,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 		inputProof := inputProof
 
 		errGroup.Go(func() error {
-			result, err := inputProof.Verify(
-				ctx, headerVerifier, merkleVerifier,
-				groupVerifier, chainLookup,
-			)
+			result, err := inputProof.Verify(ctx, vCtx)
 			if err != nil {
 				return err
 			}
@@ -318,7 +339,7 @@ func (p *Proof) verifyAssetStateTransition(ctx context.Context,
 // verifyChallengeWitness verifies the challenge witness by constructing a
 // well-defined 1-in-1-out packet and verifying the witness is valid for that
 // virtual transaction.
-func (p *Proof) verifyChallengeWitness(ctx context.Context,
+func (p *Proof) verifyChallengeWitness(_ context.Context,
 	chainLookup asset.ChainLookup,
 	challengeBytes fn.Option[[32]byte]) (bool, error) {
 
@@ -536,9 +557,7 @@ func WithChallengeBytes(challenge [32]byte) ProofVerificationOption {
 //  5. A set of asset inputs with valid witnesses are included that satisfy the
 //     resulting state transition.
 func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
-	headerVerifier HeaderVerifier, merkleVerifier MerkleVerifier,
-	groupVerifier GroupVerifier,
-	chainLookup asset.ChainLookup,
+	chainLookup asset.ChainLookup, vCtx VerifierCtx,
 	opts ...ProofVerificationOption) (*AssetSnapshot, error) {
 
 	var verificationParams proofVerificationParams
@@ -558,6 +577,23 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 			"%w", err)
 	}
 
+	assetPoint := AssetPoint{
+		OutPoint:  p.OutPoint(),
+		ID:        p.Asset.ID(),
+		ScriptKey: asset.ToSerialized(p.Asset.ScriptKey.PubKey),
+	}
+
+	// Before we do any other validation, we'll check to see if we can halt
+	// validation here, as the proof is already known to be invalid. This
+	// can be used as a rejection caching mechanism.
+	fail := lfn.MapOptionZ(vCtx.IgnoreChecker, func(c IgnoreChecker) bool {
+		return c.IsIgnored(assetPoint)
+	})
+	if fail {
+		return prev, fmt.Errorf("%w: asset_point=%v is ignored",
+			ErrProofInvalid, assetPoint)
+	}
+
 	// 1. A transaction that spends the previous asset output has a valid
 	// merkle proof within a block in the chain.
 	if prev != nil && p.PrevOut != prev.OutPoint {
@@ -570,14 +606,14 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	}
 
 	// Cross-check block header with a bitcoin node.
-	err := headerVerifier(p.BlockHeader, p.BlockHeight)
+	err := vCtx.HeaderVerifier(p.BlockHeader, p.BlockHeight)
 	if err != nil {
 		return nil, fmt.Errorf("failed to validate proof block "+
 			"header: %w", err)
 	}
 
 	// Assert that the transaction is in the block via the merkle proof.
-	err = merkleVerifier(
+	err = vCtx.MerkleVerifier(
 		&p.AnchorTx, &p.TxMerkleProof, p.BlockHeader.MerkleRoot,
 	)
 	if err != nil {
@@ -635,7 +671,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	case isGenesisAsset && hasGroupKey && !hasGroupKeyReveal:
 		// A reissuance must be for an asset group that has already
 		// been imported and verified.
-		if err := p.verifyGenesisGroupKey(groupVerifier); err != nil {
+		err := p.verifyGenesisGroupKey(vCtx.GroupVerifier)
+		if err != nil {
 			return nil, err
 		}
 
@@ -648,7 +685,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// 7. Verify group key for asset transfers. Any asset with a group key
 	// must carry a group key that has already been imported and verified.
 	if !isGenesisAsset && hasGroupKey {
-		if err := p.verifyGenesisGroupKey(groupVerifier); err != nil {
+		err := p.verifyGenesisGroupKey(vCtx.GroupVerifier)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -665,8 +703,7 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 
 	default:
 		splitAsset, err = p.verifyAssetStateTransition(
-			ctx, prev, headerVerifier, merkleVerifier,
-			groupVerifier, chainLookup,
+			ctx, prev, chainLookup, vCtx,
 		)
 	}
 	if err != nil {
@@ -681,11 +718,8 @@ func (p *Proof) Verify(ctx context.Context, prev *AssetSnapshot,
 	// TODO(roasbeef): need tx index as well
 
 	return &AssetSnapshot{
-		Asset: &p.Asset,
-		OutPoint: wire.OutPoint{
-			Hash:  p.AnchorTx.TxHash(),
-			Index: p.InclusionProof.OutputIndex,
-		},
+		Asset:             &p.Asset,
+		OutPoint:          p.OutPoint(),
 		AnchorBlockHash:   p.BlockHeader.BlockHash(),
 		AnchorBlockHeight: p.BlockHeight,
 		AnchorTx:          &p.AnchorTx,
@@ -752,9 +786,8 @@ func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
 // verification loop.
 //
 // TODO(roasbeef): pass in the expected genesis point here?
-func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
-	merkleVerifier MerkleVerifier, groupVerifier GroupVerifier,
-	chainLookup asset.ChainLookup) (*AssetSnapshot, error) {
+func (f *File) Verify(ctx context.Context,
+	vCtx VerifierCtx) (*AssetSnapshot, error) {
 
 	select {
 	case <-ctx.Done():
@@ -767,6 +800,8 @@ func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
 	if f.IsUnknownVersion() {
 		return nil, ErrUnknownVersion
 	}
+
+	chainLookup := vCtx.ChainLookupGen.GenFileChainLookup(f)
 
 	var prev *AssetSnapshot
 	for idx := range f.proofs {
@@ -782,12 +817,32 @@ func (f *File) Verify(ctx context.Context, headerVerifier HeaderVerifier,
 		}
 
 		result, err := decodedProof.Verify(
-			ctx, prev, headerVerifier, merkleVerifier,
-			groupVerifier, chainLookup,
+			ctx, prev, chainLookup, vCtx,
 		)
 		if err != nil {
 			return nil, err
 		}
+
+		// At this point, we'll check to see if we can halt validation
+		// here, as the proof is already known to be invalid. This can
+		// be used as a rejection caching mechanism.
+		fail := lfn.MapOptionZ(
+			vCtx.IgnoreChecker, func(checker IgnoreChecker) bool {
+				assetPoint := AssetPoint{
+					OutPoint: result.OutPoint,
+					ID:       result.Asset.ID(),
+					ScriptKey: asset.ToSerialized(
+						result.Asset.ScriptKey.PubKey,
+					),
+				}
+
+				return checker.IsIgnored(assetPoint)
+			},
+		)
+		if fail {
+			return prev, ErrProofFileInvalid
+		}
+
 		prev = result
 	}
 

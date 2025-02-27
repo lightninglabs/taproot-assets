@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	lfn "github.com/lightningnetwork/lnd/fn"
+
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
@@ -29,6 +31,7 @@ import (
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
+	"pgregory.net/rapid"
 )
 
 var (
@@ -812,10 +815,10 @@ func TestGenesisProofVerification(t *testing.T) {
 				tc.genesisRevealMutator, tc.groupRevealMutator,
 				tc.assetVersion,
 			)
+
 			_, err := genesisProof.Verify(
-				context.Background(), nil, MockHeaderVerifier,
-				MockMerkleVerifier, MockGroupVerifier,
-				MockChainLookup,
+				context.Background(), nil, MockChainLookup,
+				MockVerifierCtx,
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
 
@@ -861,10 +864,14 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 		originalBlockHeight = proof.BlockHeight
 	)
 
+	vCtx := MockVerifierCtx
+
 	// Header verifier compares given header to expected header. Verifier
 	// does not return error.
 	errHeaderVerifier := fmt.Errorf("invalid block header")
-	headerVerifier := func(header wire.BlockHeader, height uint32) error {
+	vCtx.HeaderVerifier = func(header wire.BlockHeader,
+		height uint32) error {
+
 		// Compare given block header against base reference block
 		// header.
 		if header != originalBlockHeader || height != originalBlockHeight {
@@ -875,18 +882,14 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 
 	// Verify that the original proof block header is as expected and
 	// therefore an error is not returned.
-	_, err := proof.Verify(
-		context.Background(), nil, headerVerifier, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
-	)
+	_, err := proof.Verify(context.Background(), nil, MockChainLookup, vCtx)
 	require.NoError(t, err)
 
 	// Modify proof block header, then check that the verification function
 	// propagates the correct error.
 	proof.BlockHeader.Nonce += 1
 	_, actualErr := proof.Verify(
-		context.Background(), nil, headerVerifier, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
+		context.Background(), nil, MockChainLookup, vCtx,
 	)
 	require.ErrorIs(t, actualErr, errHeaderVerifier)
 
@@ -897,8 +900,7 @@ func TestProofBlockHeaderVerification(t *testing.T) {
 	// propagates the correct error.
 	proof.BlockHeight += 1
 	_, actualErr = proof.Verify(
-		context.Background(), nil, headerVerifier, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
+		context.Background(), nil, MockChainLookup, vCtx,
 	)
 	require.ErrorIs(t, actualErr, errHeaderVerifier)
 }
@@ -918,19 +920,13 @@ func TestProofFileVerification(t *testing.T) {
 	err = f.Decode(bytes.NewReader(proofBytes))
 	require.NoError(t, err)
 
-	_, err = f.Verify(
-		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
-	)
+	_, err = f.Verify(context.Background(), MockVerifierCtx)
 	require.NoError(t, err)
 
 	// Ensure that verification of a proof of unknown version fails.
 	f.Version = Version(212)
 
-	lastAsset, err := f.Verify(
-		context.Background(), MockHeaderVerifier, MockMerkleVerifier,
-		MockGroupVerifier, MockChainLookup,
-	)
+	lastAsset, err := f.Verify(context.Background(), MockVerifierCtx)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
 }
@@ -988,8 +984,8 @@ func TestProofVerification(t *testing.T) {
 	// previous proof.
 	if len(p.ChallengeWitness) > 0 {
 		_, err = p.Verify(
-			context.Background(), nil, MockHeaderVerifier,
-			MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+			context.Background(), nil, MockChainLookup,
+			MockVerifierCtx,
 		)
 		require.NoError(t, err)
 	}
@@ -1003,11 +999,70 @@ func TestProofVerification(t *testing.T) {
 	p.Version = TransitionVersion(212)
 
 	lastAsset, err := p.Verify(
-		context.Background(), nil, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+		context.Background(), nil, MockChainLookup, MockVerifierCtx,
 	)
 	require.Nil(t, lastAsset)
 	require.ErrorIs(t, err, ErrUnknownVersion)
+}
+
+// TestProofFileVerificationIgnoreChecker tests that the ignore checker can be
+// used as a proof rejection cache.
+func TestProofFileVerificationIgnoreChecker(t *testing.T) {
+	proofHex, err := os.ReadFile(proofFileHexFileName)
+	require.NoError(t, err)
+
+	proofBytes, err := hex.DecodeString(
+		strings.Trim(string(proofHex), "\n"),
+	)
+	require.NoError(t, err)
+
+	proofFile := &File{}
+	err = proofFile.Decode(bytes.NewReader(proofBytes))
+	require.NoError(t, err)
+
+	numProofs := proofFile.NumProofs()
+
+	rapid.Check(t, func(t *rapid.T) {
+		// Pick an invalid proof index in the range. -1 means that no
+		// proofs are invalid.
+		invalidIdx := rapid.IntRange(-1, numProofs-1).Draw(
+			t, "invalidIdx",
+		)
+
+		vCtx := MockVerifierCtx
+
+		reject := invalidIdx >= 0
+
+		if reject {
+			p, err := proofFile.ProofAt(uint32(invalidIdx))
+			require.NoError(t, err)
+
+			assetPoint := AssetPoint{
+				OutPoint: wire.OutPoint{
+					Hash:  p.AnchorTx.TxHash(),
+					Index: p.InclusionProof.OutputIndex,
+				},
+				ID: p.Asset.ID(),
+				ScriptKey: asset.ToSerialized(
+					p.Asset.ScriptKey.PubKey,
+				),
+			}
+
+			ignoreChecker := newMockIgnoreChecker(
+				false, assetPoint,
+			)
+			vCtx.IgnoreChecker = lfn.Some[IgnoreChecker](
+				ignoreChecker,
+			)
+		}
+
+		_, err = proofFile.Verify(context.Background(), vCtx)
+		if reject {
+			require.ErrorIs(t, err, ErrProofInvalid)
+		} else {
+			require.NoError(t, err)
+		}
+	})
 }
 
 // TestOwnershipProofVerification ensures that the ownership proof encoding and
@@ -1026,8 +1081,7 @@ func TestOwnershipProofVerification(t *testing.T) {
 	require.NoError(t, err)
 
 	snapshot, err := p.Verify(
-		context.Background(), nil, MockHeaderVerifier,
-		MockMerkleVerifier, MockGroupVerifier, MockChainLookup,
+		context.Background(), nil, MockChainLookup, MockVerifierCtx,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, snapshot)
@@ -1272,11 +1326,15 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 			// full proof chain, as it's the first proof in the
 			// chain.
 			if decoded.GenesisReveal != nil {
+				vCtx := VerifierCtx{
+					HeaderVerifier: MockHeaderVerifier,
+					MerkleVerifier: DefaultMerkleVerifier,
+					GroupVerifier:  MockGroupVerifier,
+					ChainLookupGen: MockChainLookup,
+				}
 				_, err = decoded.Verify(
 					context.Background(), nil,
-					MockHeaderVerifier,
-					DefaultMerkleVerifier,
-					MockGroupVerifier, MockChainLookup,
+					MockChainLookup, vCtx,
 				)
 				require.NoError(tt, err)
 			}

@@ -712,11 +712,9 @@ func ManualMintSimpleAsset(t *harnessTest, lndNode *node.HarnessNode,
 	)
 	require.NoError(t.t, err)
 
-	chainBridge := tapgarden.NewMockChainBridge()
 	mintingProofs, err := proof.NewMintingBlobs(
-		&baseProof, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockGroupAnchorVerifier,
-		chainBridge, proof.WithAssetMetaReveals(metaReveals),
+		&baseProof, proof.MockVerifierCtx,
+		proof.WithAssetMetaReveals(metaReveals),
 	)
 	require.NoError(t.t, err)
 

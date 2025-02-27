@@ -336,8 +336,7 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.AnchorTxIndex = 5678
 	testProof.Blob = updatedBlob
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, true, testProof,
+		ctxb, proof.MockVerifierCtx, true, testProof,
 	))
 
 	currentBlob, err = assetStore.FetchProof(ctxb, proof.Locator{
@@ -391,9 +390,7 @@ func TestImportAssetProof(t *testing.T) {
 	testProof.Blob = []byte("new proof")
 
 	require.NoError(t, assetStore.ImportProofs(
-		ctxb, proof.MockHeaderVerifier, proof.MockMerkleVerifier,
-		proof.MockGroupVerifier, proof.MockChainLookup, false,
-		testProof,
+		ctxb, proof.MockVerifierCtx, false, testProof,
 	))
 
 	// We should still be able to fetch the old proof.

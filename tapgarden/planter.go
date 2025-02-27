@@ -2408,15 +2408,11 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 	ctx, cancel := c.WithCtxQuitNoTimeout()
 	defer cancel()
 
-	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
-	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
 	for idx := range proofs {
 		p := proofs[idx]
 
 		err := proof.ReplaceProofInBlob(
-			ctx, p, c.cfg.ProofUpdates, headerVerifier,
-			proof.DefaultMerkleVerifier, groupVerifier,
-			c.cfg.ChainBridge,
+			ctx, p, c.cfg.ProofUpdates, c.verifierCtx(ctx),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to update minted proofs: %w",
@@ -2549,6 +2545,20 @@ func (c *ChainPlanter) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range c.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
+	}
+}
+
+// verifierCtx returns a verifier context that can be used to verify proofs.
+func (c *ChainPlanter) verifierCtx(ctx context.Context) proof.VerifierCtx {
+	headerVerifier := GenHeaderVerifier(ctx, c.cfg.ChainBridge)
+	merkleVerifier := proof.DefaultMerkleVerifier
+	groupVerifier := GenGroupVerifier(ctx, c.cfg.Log)
+
+	return proof.VerifierCtx{
+		HeaderVerifier: headerVerifier,
+		MerkleVerifier: merkleVerifier,
+		GroupVerifier:  groupVerifier,
+		ChainLookupGen: c.cfg.ChainBridge,
 	}
 }
 
