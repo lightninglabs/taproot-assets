@@ -368,7 +368,7 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 	}
 
 	// Sum the asset balance in the HTLC record.
-	assetAmt, err := htlcRecord.SumAssetBalance(c.AssetSpecifier)
+	assetAmt, err := htlcRecord.SumAssetBalance(nil, c.AssetSpecifier, nil)
 	if err != nil {
 		return fmt.Errorf("error summing asset balance: %w", err)
 	}
