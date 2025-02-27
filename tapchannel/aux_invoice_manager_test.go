@@ -63,6 +63,22 @@ var (
 
 	// The test RFQ SCID that is derived from testRfqID.
 	testScid = testRfqID.Scid()
+
+	// The common asset ID used on test cases.
+	assetID = dummyAssetID(1)
+
+	// The asset ID of the first asset that is considered part of the group.
+	groupAssetID_1 = dummyAssetID(41)
+
+	// The asset ID of the second asset that is considered part of the
+	// group.
+	groupAssetID_2 = dummyAssetID(42)
+
+	// The specifier based on the common asset ID.
+	assetSpecifier = asset.NewSpecifierFromId(assetID)
+
+	// The specifier based on a dummy generated group key.
+	groupSpecifier = asset.NewSpecifierFromGroupKey(*pubKeyFromUint64(1337))
 )
 
 // mockRfqManager mocks the interface of the rfq manager required by the aux
@@ -95,7 +111,11 @@ func (m *mockRfqManager) AssetMatchesSpecifier(ctx context.Context,
 
 	switch {
 	case specifier.HasGroupPubKey():
-		return true, nil
+		if id == groupAssetID_1 || id == groupAssetID_2 {
+			return true, nil
+		}
+
+		return false, nil
 
 	case specifier.HasId():
 		return *specifier.UnwrapIdToPtr() == id, nil
@@ -292,11 +312,6 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 // TestAuxInvoiceManager tests that the htlc modifications of the aux invoice
 // manager align with our expectations.
 func TestAuxInvoiceManager(t *testing.T) {
-	var (
-		assetID        = dummyAssetID(1)
-		assetSpecifier = asset.NewSpecifierFromId(assetID)
-	)
-
 	testCases := []struct {
 		name            string
 		buyQuotes       rfq.BuyAcceptMap
@@ -490,6 +505,94 @@ func TestAuxInvoiceManager(t *testing.T) {
 					),
 					Request: rfqmsg.BuyRequest{
 						AssetSpecifier: assetSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, group key rfq",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   20_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							// Balance asset ID
+							// belongs to group.
+							rfqmsg.NewAssetBalance(
+								groupAssetID_1,
+								3,
+							),
+							// Balance asset ID
+							// belongs to group.
+							rfqmsg.NewAssetBalance(
+								groupAssetID_2,
+								4,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					AmtPaid: 3_000_000 + 4_000_000,
+				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: groupSpecifier,
+					},
+				},
+			},
+		},
+		{
+			name: "asset invoice, group key rfq, bad htlc",
+			requests: []lndclient.InvoiceHtlcModifyRequest{
+				{
+					Invoice: &lnrpc.Invoice{
+						RouteHints:  testRouteHints(),
+						ValueMsat:   20_000_000,
+						PaymentAddr: []byte{1, 1, 1},
+					},
+					WireCustomRecords: newWireCustomRecords(
+						t, []*rfqmsg.AssetBalance{
+							// Balance asset ID does
+							// not belong to group.
+							rfqmsg.NewAssetBalance(
+								dummyAssetID(2),
+								3,
+							),
+							// Balance asset ID does
+							// not belong to group.
+							rfqmsg.NewAssetBalance(
+								dummyAssetID(3),
+								4,
+							),
+						}, fn.Some(testRfqID),
+					),
+				},
+			},
+			responses: []lndclient.InvoiceHtlcModifyResponse{
+				{
+					CancelSet: true,
+				},
+			},
+			buyQuotes: rfq.BuyAcceptMap{
+				testScid: {
+					Peer: testNodeID,
+					AssetRate: rfqmsg.NewAssetRate(
+						testAssetRate, time.Now(),
+					),
+					Request: rfqmsg.BuyRequest{
+						AssetSpecifier: groupSpecifier,
 					},
 				},
 			},
