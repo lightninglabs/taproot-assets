@@ -2,6 +2,7 @@ package rfqmsg
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -82,22 +84,39 @@ func (h *Htlc) Balances() []*AssetBalance {
 	return h.Amounts.Val.Balances
 }
 
+// SpecifierChecker is an interface that contains methods for checking certain
+// properties related to asset specifiers.
+type SpecifierChecker interface {
+	// AssetMatchesSpecifier checks whether the passed specifier and asset
+	// ID match. If the specifier contains a group key, it will check
+	// whether the asset belongs to that group.
+	AssetMatchesSpecifier(ctx context.Context,
+		specifier asset.Specifier, id asset.ID) (bool, error)
+}
+
 // SumAssetBalance returns the sum of the asset balances for the given asset.
-func (h *Htlc) SumAssetBalance(assetSpecifier asset.Specifier) (rfqmath.BigInt,
+func (h *Htlc) SumAssetBalance(assetSpecifier asset.Specifier,
+	checker SpecifierChecker) (rfqmath.BigInt,
 	error) {
 
 	balanceTotal := rfqmath.NewBigIntFromUint64(0)
 
-	targetAssetID, err := assetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return balanceTotal, fmt.Errorf("unable to unwrap asset ID: %w",
-			err)
-	}
-
 	for idx := range h.Amounts.Val.Balances {
 		balance := h.Amounts.Val.Balances[idx]
 
-		if balance.AssetID.Val != targetAssetID {
+		ctxt, cancel := context.WithTimeout(
+			context.Background(), wait.DefaultTimeout,
+		)
+		defer cancel()
+
+		match, err := checker.AssetMatchesSpecifier(
+			ctxt, assetSpecifier, balance.AssetID.Val,
+		)
+		if err != nil {
+			return balanceTotal, err
+		}
+
+		if !match {
 			continue
 		}
 

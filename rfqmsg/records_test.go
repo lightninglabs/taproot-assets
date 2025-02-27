@@ -2,6 +2,7 @@ package rfqmsg
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -21,6 +22,22 @@ type htlcTestCase struct {
 	// sumBalances is a map of asset ID to the expected sum of balances for
 	// that asset in the HTLC.
 	sumBalances map[asset.ID]rfqmath.BigInt
+}
+
+type DummyChecker struct{}
+
+func (d *DummyChecker) AssetMatchesSpecifier(_ context.Context,
+	specifier asset.Specifier, id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		return true, nil
+
+	case specifier.HasId():
+		return *specifier.UnwrapIdToPtr() == id, nil
+	}
+
+	return false, nil
 }
 
 // assetHtlcTestCase is a helper function that asserts different properties of
@@ -61,9 +78,13 @@ func assetHtlcTestCase(t *testing.T, tc htlcTestCase) {
 		tc.sumBalances = make(map[asset.ID]rfqmath.BigInt)
 	}
 
+	dummyChecker := DummyChecker{}
+
 	for assetID, expectedBalance := range tc.sumBalances {
 		assetSpecifier := asset.NewSpecifierFromId(assetID)
-		balance, err := tc.htlc.SumAssetBalance(assetSpecifier)
+		balance, err := tc.htlc.SumAssetBalance(
+			assetSpecifier, &dummyChecker,
+		)
 		require.NoError(t, err)
 
 		require.Equal(t, expectedBalance, balance)
