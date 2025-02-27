@@ -1267,7 +1267,10 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 	c.client = unirpc.NewUniverseClient(conn)
 	c.rawConn = conn
 
-	return nil
+	// Make sure we initiate the connection.
+	_, err = c.client.Info(ctx, &unirpc.InfoRequest{})
+
+	return err
 }
 
 // DeliverProof attempts to delivery a proof file to the receiver.

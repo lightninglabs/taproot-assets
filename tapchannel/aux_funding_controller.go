@@ -53,6 +53,11 @@ const (
 	// level ACK from the remote party before timing out.
 	ackTimeout = time.Second * 30
 
+	// proofCourierCheckTimeout is the amount of time we'll wait before we
+	// time out an attempt to connect to a proof courier when checking the
+	// configured address.
+	proofCourierCheckTimeout = time.Second * 5
+
 	// maxNumAssetIDs is the maximum number of fungible asset pieces (asset
 	// IDs) that can be committed to a single channel. The number needs to
 	// be limited to prevent the number of required HTLC signatures to be
@@ -472,8 +477,8 @@ func (p *pendingAssetFunding) addToFundingCommitment(a *asset.Asset) error {
 // addInputProofChunk adds a new proof chunk to the set of proof chunks that'll
 // be processed. If this is the last chunk for this proof, then true is
 // returned.
-func (p *pendingAssetFunding) addInputProofChunk(chunk cmsg.ProofChunk,
-) lfn.Result[lfn.Option[proof.Proof]] {
+func (p *pendingAssetFunding) addInputProofChunk(
+	chunk cmsg.ProofChunk) lfn.Result[lfn.Option[proof.Proof]] {
 
 	type ret = proof.Proof
 
@@ -1351,6 +1356,19 @@ func (f *FundingController) processFundingMsg(ctx context.Context,
 
 	tempPID = assetFunding.pid
 
+	// Whatever the message from the peer is, it's about funding a channel.
+	// We can only support asset channels if we have the correct proof
+	// courier type configured, so we're ready to receive the channel funds
+	// once the channel is (force) closed. This only works if we have a
+	// universe based proof courier configured. A hashmail based courier
+	// can't deal with the OP_TRUE funding output script key, as that's the
+	// same for asset channels out there. So the single mailbox would always
+	// be occupied.
+	if err := f.validateLocalProofCourier(ctx); err != nil {
+		return tempPID, fmt.Errorf("unable to accept channel funding "+
+			"request, local proof courier is unsupported: %w", err)
+	}
+
 	switch assetProof := proofMsg.(type) {
 	// This is input proof, so we'll verify the challenge witness, then
 	// store the proof.
@@ -1513,6 +1531,17 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 			fundReq.PeerPub.SerializeCompressed())
 	}
 
+	// We need to make sure we're ready to receive the channel funds once
+	// the channel is (force) closed. This only works if we have a universe
+	// based proof courier configured. A hashmail based courier can't deal
+	// with the OP_TRUE funding output script key, as that's the same for
+	// asset channels out there. So the single mailbox would always be
+	// occupied.
+	if err := f.validateLocalProofCourier(fundReq.ctx); err != nil {
+		return fmt.Errorf("unable to fund channel, local proof "+
+			"courier is unsupported: %w", err)
+	}
+
 	// Before we proceed, we'll make sure the fee rate we're using is above
 	// the min relay fee.
 	minRelayFee, err := f.cfg.ChainWallet.MinRelayFee(fundReq.ctx)
@@ -1549,8 +1578,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	// With our initial state created, we'll now attempt to fund the
 	// channel on the TAP level with a vPacket.
 	fundingVpkt, err := f.fundVirtualPacket(
-		fundReq.ctx, fundReq.AssetID,
-		fundReq.AssetAmount,
+		fundReq.ctx, fundReq.AssetID, fundReq.AssetAmount,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to fund vPacket: %w", err)
@@ -1581,7 +1609,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	}
 
 	// Register a defer to execute if none of the set up below succeeds.
-	// This ensure we always unlock the UTXO.
+	// This ensures we always unlock the UTXO.
 	var setupSuccess bool
 	defer func() {
 		if !setupSuccess {
@@ -1622,8 +1650,7 @@ func (f *FundingController) processFundingReq(fundingFlows fundingFlowIndex,
 	}
 
 	fundingCommitment, err := commitment.FromAssets(
-		fundingCommitVersion,
-		fundingOutput.Asset.Copy(),
+		fundingCommitVersion, fundingOutput.Asset.Copy(),
 	)
 	if err != nil {
 		return fmt.Errorf("unable to create commitment: %w", err)
@@ -1750,8 +1777,7 @@ func (f *FundingController) chanFunder() {
 			)
 			if err != nil {
 				f.cfg.ErrReporter.ReportError(
-					ctxc, msg.PeerPub, tempFundingID,
-					err,
+					ctxc, msg.PeerPub, tempFundingID, err,
 				)
 				log.Error(err)
 			}
@@ -2024,6 +2050,53 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 
 	if err := engine.Execute(); err != nil {
 		return fmt.Errorf("invalid witness: %w", err)
+	}
+
+	return nil
+}
+
+// validateLocalProofCourier checks if the local proof courier is supported by
+// the funding controller. This is necessary to ensure that we can accept
+// incoming asset channel funding requests.
+func (f *FundingController) validateLocalProofCourier(
+	ctx context.Context) error {
+
+	courierURL := f.cfg.DefaultCourierAddr
+
+	flagHelp := "please set a universe based (universerpc://) proof " +
+		"courier in the proofcourieraddr configuration option or " +
+		"command line flag"
+
+	// There should always be a fallback proof courier, so this case
+	// shouldn't be possible. But we check anyway.
+	if courierURL == nil {
+		return fmt.Errorf("no proof courier configured, %v", flagHelp)
+	}
+
+	// We need the courier to be a universe based courier, as the hashmail
+	// courier can't deal with channel funding outputs.
+	if courierURL.Scheme != proof.UniverseRpcCourierType {
+		return fmt.Errorf("unsupported proof courier type '%v', %v",
+			courierURL.Scheme, flagHelp)
+	}
+
+	// We now also make a quick test connection.
+	ctxt, cancel := context.WithTimeout(ctx, proofCourierCheckTimeout)
+	defer cancel()
+	courier, err := proof.NewUniverseRpcCourier(
+		ctxt, &proof.UniverseRpcCourierCfg{}, nil, nil, courierURL,
+		false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to test connection proof courier "+
+			"'%v': %v", courierURL.String(), err)
+	}
+
+	err = courier.Close()
+	if err != nil {
+		// We only log any disconnect errors, as they're not critical.
+		log.Warnf("Unable to disconnect from proof courier '%v': %v",
+			courierURL.String(), err)
 	}
 
 	return nil
