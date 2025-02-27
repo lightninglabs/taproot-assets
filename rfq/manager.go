@@ -228,10 +228,11 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 
 	// Initialise and start the order handler.
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
-		CleanupInterval:  CacheCleanupInterval,
-		HtlcInterceptor:  m.cfg.HtlcInterceptor,
-		HtlcSubscriber:   m.cfg.HtlcSubscriber,
-		AcceptHtlcEvents: m.acceptHtlcEvents,
+		CleanupInterval:       CacheCleanupInterval,
+		HtlcInterceptor:       m.cfg.HtlcInterceptor,
+		HtlcSubscriber:        m.cfg.HtlcSubscriber,
+		AcceptHtlcEvents:      m.acceptHtlcEvents,
+		AssetSpecifierChecker: m,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",

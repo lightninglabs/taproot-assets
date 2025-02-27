@@ -3,6 +3,7 @@ package rfq
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"sync"
 	"time"
@@ -53,12 +54,23 @@ func parseHtlcCustomRecords(customRecords map[uint64][]byte) (*rfqmsg.Htlc,
 // SerialisedScid is a serialised short channel id (SCID).
 type SerialisedScid = rfqmsg.SerialisedScid
 
+// AssetSpecifierChecker is an interface that contains methods for checking
+// certain properties related to asset specifiers.
+type AssetSpecifierChecker interface {
+	// AssetMatchesSpecifier checks whether the passed specifier and asset
+	// ID match. If the specifier contains a group key, it will check
+	// whether the asset belongs to that group.
+	AssetMatchesSpecifier(ctx context.Context,
+		specifier asset.Specifier, id asset.ID) (bool, error)
+}
+
 // Policy is an interface that abstracts the terms which determine whether an
 // asset sale/purchase channel HTLC is accepted or rejected.
 type Policy interface {
 	// CheckHtlcCompliance returns an error if the given HTLC intercept
 	// descriptor does not satisfy the subject policy.
-	CheckHtlcCompliance(htlc lndclient.InterceptedHtlc) error
+	CheckHtlcCompliance(htlc lndclient.InterceptedHtlc,
+		specifierChecker AssetSpecifierChecker) error
 
 	// Expiry returns the policy's expiry time as a unix timestamp.
 	Expiry() uint64
@@ -146,7 +158,8 @@ func NewAssetSalePolicy(quote rfqmsg.BuyAccept) *AssetSalePolicy {
 // information used to determine the policy applicable to the HTLC. As a result,
 // HTLC custom records are not expected to be present.
 func (c *AssetSalePolicy) CheckHtlcCompliance(
-	htlc lndclient.InterceptedHtlc) error {
+	htlc lndclient.InterceptedHtlc,
+	specifierChecker AssetSpecifierChecker) error {
 
 	// Since we will be reading CurrentAmountMsat value we acquire a read
 	// lock.
@@ -248,11 +261,22 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 
 	outgoingAmt := rfqmath.DefaultOnChainHtlcMSat
 
-	// Unpack asset ID.
-	assetID, err := c.AssetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return nil, fmt.Errorf("asset sale policy has no asset ID: %w",
-			err)
+	var assetID asset.ID
+
+	switch {
+	case c.AssetSpecifier.HasGroupPubKey():
+		groupKey := c.AssetSpecifier.UnwrapGroupKeyToPtr()
+
+		// We have performed checks for the asset IDs inside the HTLC
+		// against the specifier's group key in a previous step. Here
+		// we just need to provide a dummy value as the asset ID. The
+		// real asset IDs will be carefully picked in a later step in
+		// the process. What really matters now is the total amount.
+		assetID = sha256.Sum256(groupKey.SerializeCompressed())
+
+	case c.AssetSpecifier.HasId():
+		specifierID := *c.AssetSpecifier.UnwrapIdToPtr()
+		copy(assetID[:], specifierID[:])
 	}
 
 	// Compute the outgoing asset amount given the msat outgoing amount and
@@ -342,7 +366,8 @@ func NewAssetPurchasePolicy(quote rfqmsg.SellAccept) *AssetPurchasePolicy {
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
 // does not satisfy the subject policy.
 func (c *AssetPurchasePolicy) CheckHtlcCompliance(
-	htlc lndclient.InterceptedHtlc) error {
+	htlc lndclient.InterceptedHtlc,
+	specifierChecker AssetSpecifierChecker) error {
 
 	// Since we will be reading CurrentAmountMsat value we acquire a read
 	// lock.
@@ -368,7 +393,9 @@ func (c *AssetPurchasePolicy) CheckHtlcCompliance(
 	}
 
 	// Sum the asset balance in the HTLC record.
-	assetAmt, err := htlcRecord.SumAssetBalance(c.AssetSpecifier, nil)
+	assetAmt, err := htlcRecord.SumAssetBalance(
+		c.AssetSpecifier, specifierChecker,
+	)
 	if err != nil {
 		return fmt.Errorf("error summing asset balance: %w", err)
 	}
@@ -524,14 +551,15 @@ func NewAssetForwardPolicy(incoming, outgoing Policy) (*AssetForwardPolicy,
 // CheckHtlcCompliance returns an error if the given HTLC intercept descriptor
 // does not satisfy the subject policy.
 func (a *AssetForwardPolicy) CheckHtlcCompliance(
-	htlc lndclient.InterceptedHtlc) error {
+	htlc lndclient.InterceptedHtlc,
+	sChk AssetSpecifierChecker) error {
 
-	if err := a.incomingPolicy.CheckHtlcCompliance(htlc); err != nil {
+	if err := a.incomingPolicy.CheckHtlcCompliance(htlc, sChk); err != nil {
 		return fmt.Errorf("error checking forward policy, inbound "+
 			"HTLC does not comply with policy: %w", err)
 	}
 
-	if err := a.outgoingPolicy.CheckHtlcCompliance(htlc); err != nil {
+	if err := a.outgoingPolicy.CheckHtlcCompliance(htlc, sChk); err != nil {
 		return fmt.Errorf("error checking forward policy, outbound "+
 			"HTLC does not comply with policy: %w", err)
 	}
@@ -642,6 +670,10 @@ type OrderHandlerCfg struct {
 	// HtlcSubscriber is a subscriber that is used to retrieve live HTLC
 	// event updates.
 	HtlcSubscriber HtlcSubscriber
+
+	// AssetSpecifierChecker is an interface that contains methods for
+	// checking certain properties related to asset specifiers.
+	AssetSpecifierChecker AssetSpecifierChecker
 }
 
 // OrderHandler orchestrates management of accepted quote bundles. It monitors
@@ -716,7 +748,7 @@ func (h *OrderHandler) handleIncomingHtlc(_ context.Context,
 	// At this point, we know that a policy exists and has not expired
 	// whilst sitting in the local cache. We can now check that the HTLC
 	// complies with the policy.
-	err = policy.CheckHtlcCompliance(htlc)
+	err = policy.CheckHtlcCompliance(htlc, h.cfg.AssetSpecifierChecker)
 	if err != nil {
 		log.Warnf("HTLC does not comply with policy: %v "+
 			"(HTLC=%v, policy=%v)", err, htlc, policy)
