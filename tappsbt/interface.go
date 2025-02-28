@@ -167,9 +167,6 @@ var (
 // split again in this virtual transaction). Therefore, if an anchor output
 // carries commitments for multiple assets, a virtual transaction needs to be
 // created, signed and then anchored for each asset ID separately.
-//
-// TODO(guggero): Actually support merging multiple virtual transactions into a
-// single BTC transaction.
 type VPacket struct {
 	// Inputs is the list of asset inputs that are being spent.
 	Inputs []*VInput
@@ -407,11 +404,16 @@ type VInput struct {
 
 // Copy creates a deep copy of the VInput.
 func (i *VInput) Copy() *VInput {
+	var copiedAsset *asset.Asset
+	if i.asset != nil {
+		copiedAsset = i.asset.Copy()
+	}
+
 	return &VInput{
 		PInput: i.PInput,
 		PrevID: i.PrevID,
 		Anchor: i.Anchor,
-		asset:  i.asset.Copy(),
+		asset:  copiedAsset,
 		// We never expect the individual fields of the proof to change
 		// while it is assigned to a virtual input. So not deep copying
 		// it here is fine.
