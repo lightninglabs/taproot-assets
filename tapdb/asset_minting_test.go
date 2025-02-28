@@ -1770,6 +1770,144 @@ func TestTapscriptTreeManager(t *testing.T) {
 	loadTapscriptTreeChecked(t, ctx, assetStore, tree5, tree5Hash)
 }
 
+// storeMintAnchorUniCommitment stores a mint anchor commitment in the DB.
+func storeMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
+	batchID int32, txOutputIndex int32, taprootInternalKey []byte,
+	groupKey []byte) {
+
+	ctx := context.Background()
+
+	var writeTxOpts AssetStoreTxOptions
+	upsertMintAnchorPreCommit := func(q PendingAssetStore) error {
+		_, err := q.UpsertMintAnchorUniCommitment(
+			ctx, sqlc.UpsertMintAnchorUniCommitmentParams{
+				BatchID:            batchID,
+				TxOutputIndex:      txOutputIndex,
+				TaprootInternalKey: taprootInternalKey,
+				GroupKey:           groupKey,
+			},
+		)
+		require.NoError(t, err)
+
+		return nil
+	}
+	_ = assetStore.db.ExecTx(ctx, &writeTxOpts, upsertMintAnchorPreCommit)
+}
+
+// assertMintAnchorUniCommitment is a helper function that reads a mint anchor
+// commitment from the DB and asserts that it matches the expected values.
+func assertMintAnchorUniCommitment(t *testing.T, assetStore AssetMintingStore,
+	batchID int32, txOutputIndex int32, preCommitInternalKeyBytes,
+	groupPubKeyBytes []byte) {
+
+	ctx := context.Background()
+	readOpts := NewAssetStoreReadTx()
+
+	var mintAnchorCommitment *sqlc.MintAnchorUniCommitment
+	readMintAnchorCommitment := func(q PendingAssetStore) error {
+		res, err := q.FetchMintAnchorUniCommitment(ctx, batchID)
+		require.NoError(t, err)
+
+		mintAnchorCommitment = &res
+		return nil
+	}
+	_ = assetStore.db.ExecTx(ctx, &readOpts, readMintAnchorCommitment)
+
+	// Ensure the mint anchor commitment matches the one we inserted.
+	require.NotNil(t, mintAnchorCommitment)
+	require.Equal(t, batchID, mintAnchorCommitment.BatchID)
+	require.Equal(t, txOutputIndex, mintAnchorCommitment.TxOutputIndex)
+	require.Equal(
+		t, preCommitInternalKeyBytes,
+		mintAnchorCommitment.TaprootInternalKey,
+	)
+	require.Equal(t, groupPubKeyBytes, mintAnchorCommitment.GroupKey)
+}
+
+// TestUpsertMintAnchorUniCommitment tests the UpsertMintAnchorUniCommitment
+// FetchMintAnchorUniCommitment and SQL queries. In particular, it tests that
+// upsert works correctly.
+func TestUpsertMintAnchorUniCommitment(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	assetStore, _, _ := newAssetStore(t)
+
+	// Create a new batch with one asset group seedling.
+	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, 1)
+	mintingBatch.UniverseCommitments = true
+
+	_, _, group := addRandGroupToBatch(
+		t, assetStore, ctx, mintingBatch.Seedlings,
+	)
+
+	// Commit batch.
+	require.NoError(t, assetStore.CommitMintingBatch(ctx, mintingBatch))
+
+	// Retrieve the batch ID of the batch we just inserted.
+	var batchID int32
+	readOpts := NewAssetStoreReadTx()
+	_ = assetStore.db.ExecTx(
+		ctx, &readOpts, func(q PendingAssetStore) error {
+			batches, err := q.AllMintingBatches(ctx)
+			require.NoError(t, err)
+			require.Len(t, batches, 1)
+
+			batchID = int32(batches[0].BatchID)
+			return nil
+		},
+	)
+
+	// Serialize keys into bytes for easier handling.
+	preCommitInternalKey := test.RandPubKey(t)
+	preCommitInternalKeyBytes := preCommitInternalKey.SerializeCompressed()
+
+	groupPubKeyBytes := group.GroupPubKey.SerializeCompressed()
+
+	// Upsert a mint anchor commitment for the batch.
+	txOutputIndex := int32(2)
+	storeMintAnchorUniCommitment(
+		t, *assetStore, batchID, txOutputIndex,
+		preCommitInternalKeyBytes, groupPubKeyBytes,
+	)
+
+	// Retrieve and inspect the mint anchor commitment we just inserted.
+	assertMintAnchorUniCommitment(
+		t, *assetStore, batchID, txOutputIndex,
+		preCommitInternalKeyBytes, groupPubKeyBytes,
+	)
+
+	// Upsert-ing a new taproot internal key for the same batch should
+	// overwrite the existing one.
+	internalKey2 := test.RandPubKey(t)
+	internalKey2Bytes := internalKey2.SerializeCompressed()
+
+	storeMintAnchorUniCommitment(
+		t, *assetStore, batchID, txOutputIndex, internalKey2Bytes,
+		groupPubKeyBytes,
+	)
+
+	assertMintAnchorUniCommitment(
+		t, *assetStore, batchID, txOutputIndex, internalKey2Bytes,
+		groupPubKeyBytes,
+	)
+
+	// Upsert-ing a new group key for the same batch should overwrite the
+	// existing one.
+	groupPubKey2 := test.RandPubKey(t)
+	groupPubKey2Bytes := groupPubKey2.SerializeCompressed()
+
+	storeMintAnchorUniCommitment(
+		t, *assetStore, batchID, txOutputIndex, internalKey2Bytes,
+		groupPubKey2Bytes,
+	)
+
+	assertMintAnchorUniCommitment(
+		t, *assetStore, batchID, txOutputIndex, internalKey2Bytes,
+		groupPubKey2Bytes,
+	)
+}
+
 func init() {
 	rand.Seed(time.Now().Unix())
 
