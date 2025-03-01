@@ -699,22 +699,15 @@ CREATE TABLE universe_events (
     event_time TIMESTAMP NOT NULL
 , event_timestamp BIGINT NOT NULL DEFAULT 0);
 
-CREATE TABLE universe_leaves (
+CREATE TABLE "universe_leaves" (
     id INTEGER PRIMARY KEY,
-
     asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
-
-    minting_point BLOB NOT NULL, 
-
+    minting_point BLOB NOT NULL,
     script_key_bytes BLOB NOT NULL CHECK(LENGTH(script_key_bytes) = 32),
-
     universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
-
     leaf_node_key BLOB,
-    
     leaf_node_namespace VARCHAR NOT NULL,
-
-    UNIQUE(minting_point, script_key_bytes)
+    UNIQUE(minting_point, script_key_bytes, leaf_node_namespace)
 );
 
 CREATE TABLE universe_roots (

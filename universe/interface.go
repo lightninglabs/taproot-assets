@@ -16,6 +16,8 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 var (
@@ -767,6 +769,12 @@ const (
 
 	// ProofTypeTransfer corresponds to the transfer proof type.
 	ProofTypeTransfer
+
+	// ProofTypeIgnore corresponds to the ignore proof type.
+	ProofTypeIgnore = 3
+
+	// ProofTypeBurn corresponds to the burn proof type.
+	ProofTypeBurn = 4
 )
 
 // NewProofTypeFromAsset returns the proof type for the given asset proof.
@@ -791,6 +799,10 @@ func (t ProofType) String() string {
 		return "issuance"
 	case ProofTypeTransfer:
 		return "transfer"
+	case ProofTypeIgnore:
+		return "ignore"
+	case ProofTypeBurn:
+		return "burn"
 	}
 
 	return fmt.Sprintf("unknown(%v)", int(t))
@@ -805,6 +817,10 @@ func ParseStrProofType(typeStr string) (ProofType, error) {
 		return ProofTypeIssuance, nil
 	case "transfer":
 		return ProofTypeTransfer, nil
+	case "ignore":
+		return ProofTypeIgnore, nil
+	case "burn":
+		return ProofTypeBurn, nil
 	default:
 		return 0, fmt.Errorf("unknown proof type: %v", typeStr)
 	}
@@ -1175,4 +1191,60 @@ type Telemetry interface {
 	// day.
 	QueryAssetStatsPerDay(ctx context.Context,
 		q GroupedStatsQuery) ([]*GroupedStats, error)
+}
+
+// IgnoreTuple....
+//
+// TODO(roasbeef): validate method given sig
+type IgnoreTuple = asset.PrevID
+
+// IgnoreTuples...
+type IgnoreTuples = []IgnoreTuple
+
+// SignedIgnoreTuple...
+//
+// TODO(roasbeef): encode+decode
+type SignedIgnoreTuple struct {
+	// IgnoreTuple...
+	IgnoreTuple
+
+	// Sig...
+	Sig schnorr.Signature
+}
+
+// AuthenticatedIgnoreTuple...
+type AuthenticatedIgnoreTuple struct {
+	SignedIgnoreTuple
+
+	// IgnoreTreeRoot is the root of the ignore tree that the ignore tuple
+	// resides within.
+	IgnoreTreeRoot mssmt.Node
+
+	// InclusionProof is the universe inclusion proof for the ignore tuple
+	// within the universe tree.
+	InclusionProof *mssmt.Proof
+}
+
+// TupleQueryResp...
+type TupleQueryResp = lfn.Result[lfn.Option[AuthenticatedIgnoreTuple]]
+
+// SumQueryResp...
+type SumQueryResp = lfn.Result[lfn.Option[uint64]]
+
+// IgnoreTree....
+type IgnoreTree interface {
+	// Sum...
+	Sum(asset.Specifier) SumQueryResp
+
+	// AddTuple...
+	//
+	// TODO(roasbeef): does all the signing under the hood
+	AddTuples(asset.Specifier,
+		...IgnoreTuple) lfn.Result[AuthenticatedIgnoreTuple]
+
+	// ListTuples...
+	ListTuples(asset.Specifier) lfn.Result[IgnoreTuples]
+
+	// QueryTuples...
+	QueryTuples(asset.Specifier, IgnoreTuple) TupleQueryResp
 }
