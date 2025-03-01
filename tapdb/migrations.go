@@ -22,7 +22,7 @@ const (
 	// daemon.
 	//
 	// NOTE: This MUST be updated when a new migration is added.
-	LatestMigrationVersion = 30
+	LatestMigrationVersion = 31
 )
 
 // MigrationTarget is a functional option that can be passed to applyMigrations

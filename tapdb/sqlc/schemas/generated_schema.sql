@@ -479,9 +479,6 @@ CREATE TABLE genesis_points (
 CREATE INDEX idx_mssmt_nodes_composite 
 ON mssmt_nodes(namespace, key, hash_key, sum);
 
-CREATE INDEX idx_universe_leaves_asset 
-ON universe_leaves(asset_genesis_id, universe_root_id);
-
 CREATE INDEX idx_universe_roots_composite ON universe_roots(namespace_root, proof_type, asset_id);
 
 CREATE TABLE internal_keys (
@@ -787,27 +784,21 @@ CREATE INDEX universe_events_event_time_idx ON universe_events(event_time);
 
 CREATE INDEX universe_events_type_idx ON universe_events(event_type);
 
-CREATE TABLE universe_leaves (
+CREATE TABLE "universe_leaves" (
     id INTEGER PRIMARY KEY,
-
     asset_genesis_id BIGINT NOT NULL REFERENCES genesis_assets(gen_asset_id),
-
-    minting_point BLOB NOT NULL, 
-
+    minting_point BLOB NOT NULL,
     script_key_bytes BLOB NOT NULL CHECK(LENGTH(script_key_bytes) = 32),
-
     universe_root_id BIGINT NOT NULL REFERENCES universe_roots(id),
-
     leaf_node_key BLOB,
-    
-    leaf_node_namespace VARCHAR NOT NULL,
-
-    UNIQUE(minting_point, script_key_bytes)
+    leaf_node_namespace VARCHAR NOT NULL
 );
 
 CREATE INDEX universe_leaves_key_idx ON universe_leaves(leaf_node_key);
 
 CREATE INDEX universe_leaves_namespace ON universe_leaves(leaf_node_namespace);
+
+CREATE UNIQUE INDEX universe_leaves_unique_minting_script_namespace ON "universe_leaves"(minting_point, script_key_bytes, leaf_node_namespace);
 
 CREATE TABLE universe_roots (
     id INTEGER PRIMARY KEY,

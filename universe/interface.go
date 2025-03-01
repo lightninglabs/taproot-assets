@@ -767,6 +767,12 @@ const (
 
 	// ProofTypeTransfer corresponds to the transfer proof type.
 	ProofTypeTransfer
+
+	// ProofTypeIgnore corresponds to the ignore proof type.
+	ProofTypeIgnore
+
+	// ProofTypeBurn corresponds to the burn proof type.
+	ProofTypeBurn
 )
 
 // NewProofTypeFromAsset returns the proof type for the given asset proof.
@@ -791,6 +797,10 @@ func (t ProofType) String() string {
 		return "issuance"
 	case ProofTypeTransfer:
 		return "transfer"
+	case ProofTypeIgnore:
+		return "ignore"
+	case ProofTypeBurn:
+		return "burn"
 	}
 
 	return fmt.Sprintf("unknown(%v)", int(t))
@@ -805,6 +815,10 @@ func ParseStrProofType(typeStr string) (ProofType, error) {
 		return ProofTypeIssuance, nil
 	case "transfer":
 		return ProofTypeTransfer, nil
+	case "ignore":
+		return ProofTypeIgnore, nil
+	case "burn":
+		return ProofTypeBurn, nil
 	default:
 		return 0, fmt.Errorf("unknown proof type: %v", typeStr)
 	}
