@@ -1005,8 +1005,8 @@ type WalletFundPsbt = func(ctx context.Context,
 // (all outputs need to hold some BTC to not be dust), and with a dummy script.
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
-func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
-	batchKey asset.SerializedKey,
+func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
+	pendingBatch *MintingBatch, batchKey asset.SerializedKey,
 	walletFundPsbt WalletFundPsbt) (FundedMintAnchorPsbt, error) {
 
 	var zero FundedMintAnchorPsbt
@@ -1015,8 +1015,8 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	// If universe commitments are enabled, we formulate a pre-commitment
 	// output. This output is spent by the universe commitment transaction.
 	var delegationKey fn.Option[DelegationKey]
-	if c.pendingBatch != nil && c.pendingBatch.SupplyCommitments {
-		delegationK, err := fetchDelegationKey(c.pendingBatch)
+	if pendingBatch != nil && pendingBatch.SupplyCommitments {
+		delegationK, err := fetchDelegationKey(pendingBatch)
 		if err != nil {
 			return zero, fmt.Errorf("unable to create "+
 				"pre-commitment output: %w", err)
@@ -1102,7 +1102,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	// If there is a group pub key to associate with the pre-commitment
 	// output, fetch it now.
-	preCommitGroupPubKey, err := fetchPreCommitGroupKey(c.pendingBatch)
+	preCommitGroupPubKey, err := fetchPreCommitGroupKey(pendingBatch)
 	if err != nil {
 		return zero, fmt.Errorf("unable to fetch pre-commitment "+
 			"group key: %w", err)
@@ -1136,7 +1136,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 		// we just need to set the corresponding fields in the PSBT.
 		bip32Derivation, trBip32Derivation :=
 			tappsbt.Bip32DerivationFromKeyDesc(
-				dKey, c.cfg.ChainParams.HDCoinType,
+				dKey, chainParams.HDCoinType,
 			)
 
 		pOut := &fundedGenesisPkt.Pkt.Outputs[outIdx]
@@ -2179,8 +2179,9 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			return *fundedPkt, nil
 		}
 
-		mintAnchorTx, err := c.fundGenesisPsbt(
-			ctx, batchKey, walletFundPsbt,
+		mintAnchorTx, err := fundGenesisPsbt(
+			ctx, c.cfg.ChainParams, c.pendingBatch, batchKey,
+			walletFundPsbt,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to fund minting PSBT for "+
