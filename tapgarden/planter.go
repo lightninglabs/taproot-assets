@@ -1006,11 +1006,10 @@ type WalletFundPsbt = func(ctx context.Context,
 // We need to use a dummy script as we can't know the actual script key since
 // that's dependent on the genesis outpoint.
 func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
-	pendingBatch *MintingBatch, batchKey asset.SerializedKey,
+	pendingBatch *MintingBatch,
 	walletFundPsbt WalletFundPsbt) (FundedMintAnchorPsbt, error) {
 
 	var zero FundedMintAnchorPsbt
-	log.Infof("Attempting to fund batch: %x", batchKey)
 
 	// If universe commitments are enabled, we formulate a pre-commitment
 	// output. This output is spent by the universe commitment transaction.
@@ -1064,7 +1063,6 @@ func fundGenesisPsbt(ctx context.Context, chainParams address.ChainParams,
 			"funded anchor transaction")
 	}
 
-	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
 	// Classify anchor transaction output indexes.
@@ -2179,8 +2177,9 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 			return *fundedPkt, nil
 		}
 
+		log.Infof("Attempting to fund batch: %x", batchKey)
 		mintAnchorTx, err := fundGenesisPsbt(
-			ctx, c.cfg.ChainParams, c.pendingBatch, batchKey,
+			ctx, c.cfg.ChainParams, c.pendingBatch,
 			walletFundPsbt,
 		)
 		if err != nil {
@@ -2188,6 +2187,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 				"batch: %x %w", batchKey[:], err)
 		}
 
+		log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 		batch.GenesisPacket = &mintAnchorTx
 
 		return nil
