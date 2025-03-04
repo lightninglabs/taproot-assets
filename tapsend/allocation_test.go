@@ -901,3 +901,172 @@ func TestAllocatePiece(t *testing.T) {
 		})
 	}
 }
+
+// TestAllocationsFromTemplate tests that we can correctly turn a virtual packet
+// template in a set of allocations.
+func TestAllocationsFromTemplate(t *testing.T) {
+	t.Parallel()
+
+	dummyScriptKey := asset.RandScriptKey(t)
+	dummyAltLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+
+	var (
+		simple = tappsbt.TypeSimple
+		split  = tappsbt.TypeSplitRoot
+	)
+	testCases := []struct {
+		name        string
+		template    *tappsbt.VPacket
+		inputSum    uint64
+		expectErr   string
+		interactive bool
+		allocations []*Allocation
+	}{
+		{
+			name:      "no outputs",
+			template:  &tappsbt.VPacket{},
+			expectErr: "spend template has no outputs",
+		},
+		{
+			name: "mixed interactive and non-interactive",
+			template: &tappsbt.VPacket{
+				Outputs: []*tappsbt.VOutput{
+					{
+						Interactive: true,
+					},
+					{
+						Interactive: false,
+					},
+				},
+			},
+			expectErr: "different interactive flags",
+		},
+		{
+			name: "output greater than input",
+			template: &tappsbt.VPacket{
+				Outputs: []*tappsbt.VOutput{
+					{
+						Amount: 100,
+					},
+					{
+						Amount: 200,
+					},
+				},
+			},
+			inputSum:  100,
+			expectErr: "output amount exceeds input sum",
+		},
+		{
+			name: "single asset, split, interactive, no " +
+				"change",
+			template: &tappsbt.VPacket{
+				Outputs: []*tappsbt.VOutput{
+					{
+						Amount:      50,
+						ScriptKey:   dummyScriptKey,
+						Interactive: true,
+						AltLeaves:   dummyAltLeaves,
+					},
+				},
+			},
+			inputSum:    100,
+			interactive: true,
+			allocations: []*Allocation{
+				{
+					Type:        CommitAllocationToLocal,
+					SplitRoot:   true,
+					Amount:      50,
+					OutputIndex: 1,
+					GenScriptKey: StaticScriptKeyGen(
+						asset.NUMSScriptKey,
+					),
+				},
+				{
+					Type:   CommitAllocationToRemote,
+					Amount: 50,
+					GenScriptKey: StaticScriptKeyGen(
+						dummyScriptKey,
+					),
+					AltLeaves: dummyAltLeaves,
+				},
+			},
+		},
+		{
+			name: "single asset, split, interactive, w/ " +
+				"change",
+			template: &tappsbt.VPacket{
+				Outputs: []*tappsbt.VOutput{
+					{
+						Type:        split,
+						Interactive: true,
+					},
+					{
+						Type:              simple,
+						Interactive:       true,
+						Amount:            50,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+			inputSum:    100,
+			interactive: true,
+			allocations: []*Allocation{
+				{
+					Type:        CommitAllocationToLocal,
+					SplitRoot:   true,
+					Amount:      50,
+					OutputIndex: 0,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      50,
+					OutputIndex: 1,
+				},
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			allocs, interactive, err := AllocationsFromTemplate(
+				tc.template, tc.inputSum,
+			)
+
+			if tc.expectErr != "" {
+				require.Contains(t, err.Error(), tc.expectErr)
+				return
+			}
+
+			require.NoError(t, err)
+
+			require.Equal(t, tc.interactive, interactive)
+
+			// We first check that the allocations return the
+			// correct script key from their generator.
+			for idx := range allocs {
+				// If the script key doesn't matter, we can
+				// skip this part and also ignore the generator
+				// in the comparison.
+				if tc.allocations[idx].GenScriptKey == nil {
+					allocs[idx].GenScriptKey = nil
+
+					continue
+				}
+
+				var id asset.ID
+				expected, _ := tc.allocations[idx].GenScriptKey(
+					id,
+				)
+				actual, _ := allocs[idx].GenScriptKey(id)
+				require.Equal(t, expected, actual)
+
+				// We then remove the generator from the
+				// allocation to make it easier to compare.
+				allocs[idx].GenScriptKey = nil
+				tc.allocations[idx].GenScriptKey = nil
+			}
+
+			require.Equal(t, tc.allocations, allocs)
+		})
+	}
+}
