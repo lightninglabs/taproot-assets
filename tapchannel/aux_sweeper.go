@@ -205,7 +205,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		return lfn.Err[returnType](err)
 	}
 
-	allocs := make([]*Allocation, 0, len(sweepInputs))
+	allocs := make([]*tapsend.Allocation, 0, len(sweepInputs))
 	ctx := context.Background()
 
 	// If this is a second level HTLC sweep, then we already have
@@ -250,8 +250,8 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 			// We leave out the internal key here, as we'll make it
 			// later once we actually have the other set of inputs
 			// we need to sweep.
-			allocs = append(allocs, &Allocation{
-				Type: CommitAllocationToLocal,
+			allocs = append(allocs, &tapsend.Allocation{
+				Type: tapsend.CommitAllocationToLocal,
 				// We don't need to worry about sorting, as
 				// we'll always be the first output index in the
 				// transaction.
@@ -280,7 +280,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 
 	// With the proofs constructed, we can now distribute the coins to
 	// create the vPackets that we'll pass on to the next stage.
-	vPackets, err := DistributeCoins(
+	vPackets, err := tapsend.DistributeCoins(
 		inputProofs, allocs, &a.cfg.ChainParams,
 	)
 	if err != nil {
@@ -1093,23 +1093,25 @@ func assetOutputToVPacket(fundingInputProofs map[asset.ID]*proof.Proof,
 // allocations for the anchor outputs. We'll use this later to create the proper
 // exclusion proofs.
 func anchorOutputAllocations(
-	keyRing *lnwallet.CommitmentKeyRing) lfn.Result[[]*Allocation] {
+	keyRing *lnwallet.CommitmentKeyRing) lfn.Result[[]*tapsend.Allocation] {
 
-	anchorAlloc := func(k *btcec.PublicKey) lfn.Result[*Allocation] {
+	anchorAlloc := func(
+		k *btcec.PublicKey) lfn.Result[*tapsend.Allocation] {
+
 		anchorTree, err := input.NewAnchorScriptTree(k)
 		if err != nil {
-			return lfn.Err[*Allocation](err)
+			return lfn.Err[*tapsend.Allocation](err)
 		}
 
 		sibling, scriptTree, err := LeavesFromTapscriptScriptTree(
 			anchorTree,
 		)
 		if err != nil {
-			return lfn.Err[*Allocation](err)
+			return lfn.Err[*tapsend.Allocation](err)
 		}
 
-		return lfn.Ok(&Allocation{
-			Type:           AllocationTypeNoAssets,
+		return lfn.Ok(&tapsend.Allocation{
+			Type:           tapsend.AllocationTypeNoAssets,
 			Amount:         0,
 			BtcAmount:      lnwallet.AnchorSize,
 			InternalKey:    scriptTree.InternalKey,
@@ -1123,9 +1125,10 @@ func anchorOutputAllocations(
 	localAnchor := anchorAlloc(keyRing.ToLocalKey)
 	remoteAnchor := anchorAlloc(keyRing.ToRemoteKey)
 
+	type resultType = lfn.Result[[]*tapsend.Allocation]
 	return lfn.AndThen2(
 		localAnchor, remoteAnchor,
-		func(a1, a2 *Allocation) lfn.Result[[]*Allocation] {
+		func(a1, a2 *tapsend.Allocation) resultType {
 			// Before we return the anchors, we'll make sure that
 			// they end up in the right sort order.
 			scriptCompare := bytes.Compare(
@@ -1140,7 +1143,7 @@ func anchorOutputAllocations(
 				a1.OutputIndex = 1
 			}
 
-			return lfn.Ok([]*Allocation{a1, a2})
+			return lfn.Ok([]*tapsend.Allocation{a1, a2})
 		},
 	)
 }
@@ -1617,7 +1620,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		return fmt.Errorf("unable to create anchor "+
 			"allocations: %w", err)
 	}
-	exclusionCreator := NonAssetExclusionProofs(anchorAllocations)
+	exclusionCreator := tapsend.NonAssetExclusionProofs(anchorAllocations)
 	for idx := range vPkts {
 		vPkt := vPkts[idx]
 		for outIdx := range vPkt.Outputs {

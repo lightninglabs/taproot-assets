@@ -1,4 +1,4 @@
-package tapchannel
+package tapsend
 
 import (
 	"bytes"
