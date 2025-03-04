@@ -575,7 +575,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		}
 
 		match, err := m.ChannelCompatible(
-			ctxb, assetData.Assets, assetSpecifier,
+			ctxb, assetData, assetSpecifier,
 		)
 		if err != nil {
 			return err
@@ -999,14 +999,13 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 // if the specifier is a group key, then all assets in the channel must belong
 // to that group.
 func (m *Manager) ChannelCompatible(ctx context.Context,
-	jsonAssets []rfqmsg.JsonAssetChanInfo, specifier asset.Specifier) (bool,
+	jsonChannel rfqmsg.JsonAssetChannel, specifier asset.Specifier) (bool,
 	error) {
 
-	for _, chanAsset := range jsonAssets {
-		gen := chanAsset.AssetInfo.AssetGenesis
-		assetIDBytes, err := hex.DecodeString(
-			gen.AssetID,
-		)
+	fundingAssets := jsonChannel.FundingAssets
+	for _, chanAsset := range fundingAssets {
+		gen := chanAsset.AssetGenesis
+		assetIDBytes, err := hex.DecodeString(gen.AssetID)
 		if err != nil {
 			return false, fmt.Errorf("error decoding asset ID: %w",
 				err)
