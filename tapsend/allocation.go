@@ -415,55 +415,15 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 		// Find the next piece that has assets left to allocate.
 		toFill := a.Amount
 		for pieceIdx := range pieces {
-			p := pieces[pieceIdx]
-
-			// Skip fully allocated pieces
-			if p.available() == 0 {
-				continue
-			}
-
-			// We know we have something to allocate, so let's now
-			// create a new vOutput for the allocation.
-			allocating := toFill
-			if p.available() < toFill {
-				allocating = p.available()
-			}
-
-			// We only need a split root output if this piece is
-			// being split. If we consume it fully in this
-			// allocation, we can use a simple output.
-			consumeFully := p.allocated == 0 &&
-				toFill >= p.available()
-
-			outType := tappsbt.TypeSimple
-			if a.SplitRoot && !consumeFully {
-				outType = tappsbt.TypeSplitRoot
-			}
-
-			sibling, err := a.tapscriptSibling()
+			fillDelta, updatedPiece, err := allocatePiece(
+				*pieces[pieceIdx], *a, toFill,
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			deliveryAddr := a.ProofDeliveryAddress
-			vOut := &tappsbt.VOutput{
-				Amount:                       allocating,
-				AssetVersion:                 a.AssetVersion,
-				Type:                         outType,
-				Interactive:                  true,
-				AnchorOutputIndex:            a.OutputIndex,
-				AnchorOutputInternalKey:      a.InternalKey,
-				AnchorOutputTapscriptSibling: sibling,
-				ScriptKey:                    a.ScriptKey,
-				ProofDeliveryAddress:         deliveryAddr,
-				RelativeLockTime: uint64(
-					a.Sequence,
-				),
-			}
-			p.packet.Outputs = append(p.packet.Outputs, vOut)
-
-			p.allocated += allocating
-			toFill -= allocating
+			pieces[pieceIdx] = updatedPiece
+			toFill -= fillDelta
 
 			// If the piece has enough assets to fill the
 			// allocation, we can exit the loop. If it only fills
@@ -484,6 +444,62 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	}
 
 	return packets, nil
+}
+
+// allocatePiece allocates assets from the given piece to the given allocation,
+// if there are units left to allocate. This adds a virtual output to the piece
+// and updates the amount of allocated assets. The function returns the amount
+// of assets that were allocated and the updated piece.
+func allocatePiece(p piece, a Allocation,
+	toFill uint64) (uint64, *piece, error) {
+
+	sibling, err := a.tapscriptSibling()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	deliveryAddr := a.ProofDeliveryAddress
+	vOut := &tappsbt.VOutput{
+		AssetVersion:                 a.AssetVersion,
+		Interactive:                  true,
+		AnchorOutputIndex:            a.OutputIndex,
+		AnchorOutputInternalKey:      a.InternalKey,
+		AnchorOutputTapscriptSibling: sibling,
+		ScriptKey:                    a.ScriptKey,
+		ProofDeliveryAddress:         deliveryAddr,
+		RelativeLockTime:             uint64(a.Sequence),
+	}
+
+	// Skip fully allocated pieces.
+	if p.available() == 0 {
+		return 0, &p, nil
+	}
+
+	// We know we have something to allocate, so let's now create a new
+	// vOutput for the allocation.
+	allocating := toFill
+	if p.available() < toFill {
+		allocating = p.available()
+	}
+
+	// We only need a split root output if this piece is being split. If we
+	// consume it fully in this allocation, we can use a simple output.
+	consumeFully := p.allocated == 0 && toFill >= p.available()
+
+	outType := tappsbt.TypeSimple
+	if a.SplitRoot && !consumeFully {
+		outType = tappsbt.TypeSplitRoot
+	}
+
+	// We just need to update the type and amount for this virtual output,
+	// everything else can be taken from the allocation itself.
+	vOut.Type = outType
+	vOut.Amount = allocating
+	p.packet.Outputs = append(p.packet.Outputs, vOut)
+
+	p.allocated += allocating
+
+	return allocating, &p, nil
 }
 
 // AssignOutputCommitments assigns the output commitments keyed by the output
