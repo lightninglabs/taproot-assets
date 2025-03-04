@@ -171,12 +171,12 @@ func OwnershipProofPacket(ownedAsset *asset.Asset,
 
 // FromProofs creates a packet from the given proofs that adds them as inputs to
 // the packet.
-func FromProofs(proofs []*proof.Proof,
-	params *address.ChainParams) (*VPacket, error) {
+func FromProofs(proofs []*proof.Proof, params *address.ChainParams,
+	version VPacketVersion) (*VPacket, error) {
 
 	pkt := &VPacket{
 		ChainParams: params,
-		Version:     V1,
+		Version:     version,
 	}
 
 	for idx := range proofs {
