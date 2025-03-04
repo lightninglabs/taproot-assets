@@ -797,9 +797,10 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 		Version:     tappsbt.V1,
 	}
 	fundDesc := &tapsend.FundingDescriptor{
-		AssetSpecifier: specifier,
-		Amount:         amt,
-		CoinSelectType: tapsend.Bip86Only,
+		AssetSpecifier:    specifier,
+		Amount:            amt,
+		CoinSelectType:    tapsend.Bip86Only,
+		DistinctSpecifier: true,
 	}
 
 	// Fund the packet. This will derive an anchor internal key for us, but
