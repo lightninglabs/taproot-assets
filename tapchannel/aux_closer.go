@@ -369,7 +369,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	// Now that we have the complete set of allocations, we'll distribute
 	// them to create the vPackets we'll need to anchor everything.
 	vPackets, err := tapsend.DistributeCoins(
-		inputProofs, closeAllocs, a.cfg.ChainParams, tappsbt.V1,
+		inputProofs, closeAllocs, a.cfg.ChainParams, true, tappsbt.V1,
 	)
 	if err != nil {
 		return none, fmt.Errorf("unable to distribute coins: %w", err)

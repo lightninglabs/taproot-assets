@@ -54,6 +54,7 @@ func FromAddresses(receiverAddrs []*address.Tap,
 	// process.
 	pkt.Outputs = append(pkt.Outputs, &VOutput{
 		Amount:            0,
+		Interactive:       false,
 		Type:              TypeSplitRoot,
 		AnchorOutputIndex: 0,
 		ScriptKey:         asset.NUMSScriptKey,

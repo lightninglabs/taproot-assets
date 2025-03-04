@@ -281,7 +281,7 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	// With the proofs constructed, we can now distribute the coins to
 	// create the vPackets that we'll pass on to the next stage.
 	vPackets, err := tapsend.DistributeCoins(
-		inputProofs, allocs, &a.cfg.ChainParams, tappsbt.V1,
+		inputProofs, allocs, &a.cfg.ChainParams, true, tappsbt.V1,
 	)
 	if err != nil {
 		return lfn.Errf[returnType]("error distributing coins: %w", err)
