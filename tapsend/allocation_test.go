@@ -3,6 +3,7 @@ package tapsend
 import (
 	"testing"
 
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -95,6 +96,15 @@ func TestDistributeCoinsErrors(t *testing.T) {
 		}, testParams, true, tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrInputOutputSumMismatch)
+
+	_, err = DistributeCoins(
+		[]*proof.Proof{proofNormal}, []*Allocation{{
+			Amount:          assetNormal.Amount,
+			NonAssetLeaves:  make([]txscript.TapLeaf, 1),
+			SiblingPreimage: &commitment.TapscriptPreimage{},
+		}}, testParams, true, tappsbt.V1,
+	)
+	require.ErrorIs(t, err, ErrInvalidSibling)
 }
 
 func TestDistributeCoins(t *testing.T) {

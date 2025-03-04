@@ -832,7 +832,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 				// any TAP tweaks.
 				htlcTree.TaprootKey,
 			),
-			CLTV:      htlc.Timeout,
+			SortCLTV:  htlc.Timeout,
 			HtlcIndex: htlc.HtlcIndex,
 		})
 
@@ -894,7 +894,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				htlcTree.TaprootKey,
 			),
-			CLTV:      htlc.Timeout,
+			SortCLTV:  htlc.Timeout,
 			HtlcIndex: htlc.HtlcIndex,
 		})
 
@@ -1365,7 +1365,7 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 			// used for sorting _before_ applying any TAP tweaks.
 			htlcTree.TaprootKey,
 		),
-		CLTV:      htlcTimeout.UnwrapOr(0),
+		SortCLTV:  htlcTimeout.UnwrapOr(0),
 		HtlcIndex: htlcIndex,
 	}}
 

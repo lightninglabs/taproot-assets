@@ -2,6 +2,7 @@ package tapsend
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -45,6 +46,12 @@ var (
 	// ErrCommitmentNotSet is an error that is returned if the output
 	// commitment is not set for an allocation.
 	ErrCommitmentNotSet = fmt.Errorf("output commitment not set")
+
+	// ErrInvalidSibling is an error that is returned if both non-asset
+	// leaves and sibling preimage are set for an allocation.
+	ErrInvalidSibling = errors.New(
+		"both non-asset leaves and sibling preimage set",
+	)
 )
 
 // AllocationType is an enum that defines the different types of asset
@@ -106,9 +113,20 @@ type Allocation struct {
 
 	// NonAssetLeaves is the full list of TapLeaf nodes that aren't any
 	// asset commitments. This is used to construct the tapscript sibling
-	// for the asset commitment. If this is a non-asset allocation and the
-	// list of leaves is empty, then we assume a BIP-0086 output.
+	// for the asset commitment. This is mutually exclusive to the
+	// SiblingPreimage field below, only one of them (or none) should be
+	// set. If this is a non-asset allocation and both NonAssetLeaves is
+	// empty and no SiblingPreimage is set, then we assume a BIP-0086
+	// output.
 	NonAssetLeaves []txscript.TapLeaf
+
+	// SiblingPreimage is the tapscript sibling preimage that is used to
+	// create the tapscript sibling for the asset commitment. This is
+	// mutually exclusive to the NonAssetLeaves above, only one of them (or
+	// none) should be set. If this is a non-asset allocation and both
+	// NonAssetLeaves is empty and no SiblingPreimage is set, then we assume
+	// a BIP-0086 output.
+	SiblingPreimage *commitment.TapscriptPreimage
 
 	// ScriptKey is the Taproot tweaked key encoding the different spend
 	// conditions possible for the asset allocation.
@@ -131,15 +149,18 @@ type Allocation struct {
 	// commitment present. This field should be used for sorting purposes.
 	SortTaprootKeyBytes []byte
 
-	// CLTV is the CLTV timeout for the asset allocation. This is only
-	// relevant for sorting purposes and is expected to be zero for any
+	// SortCLTV is the SortCLTV timeout for the asset allocation. This is
+	// only relevant for sorting purposes and is expected to be zero for any
 	// non-HTLC allocation.
-	CLTV uint32
+	SortCLTV uint32
 
 	// Sequence is the CSV value for the asset allocation. This is only
 	// relevant for HTLC second level transactions. This value will be set
 	// as the relative time lock on the virtual output.
 	Sequence uint32
+
+	// LockTime is the actual CLTV value that will be set on the output.
+	LockTime uint64
 
 	// HtlcIndex is the index of the HTLC that the allocation is for. This
 	// is only relevant for HTLC allocations.
@@ -152,13 +173,37 @@ type Allocation struct {
 	// ProofDeliveryAddress is the address the proof courier should use to
 	// upload the proof for this allocation.
 	ProofDeliveryAddress *url.URL
+
+	// AltLeaves represent data used to construct an Asset commitment, that
+	// will be inserted in the output anchor Tap commitment. These
+	// data-carrying leaves are used for a purpose distinct from
+	// representing individual Taproot Assets.
+	AltLeaves []asset.AltLeaf[asset.Asset]
+}
+
+// Validate checks that the allocation is correctly set up and that the fields
+// are consistent with each other.
+func (a *Allocation) Validate() error {
+	// Make sure the two mutually exclusive fields aren't set at the same
+	// time.
+	if len(a.NonAssetLeaves) > 0 && a.SiblingPreimage != nil {
+		return ErrInvalidSibling
+	}
+
+	return nil
 }
 
 // tapscriptSibling returns the tapscript sibling preimage from the non-asset
 // leaves of the allocation. If there are no non-asset leaves, nil is returned.
 func (a *Allocation) tapscriptSibling() (*commitment.TapscriptPreimage, error) {
-	if len(a.NonAssetLeaves) == 0 {
+	if len(a.NonAssetLeaves) == 0 && a.SiblingPreimage == nil {
 		return nil, nil
+	}
+
+	// The sibling preimage has precedence. Only one of the two fields
+	// should be set in any case.
+	if a.SiblingPreimage != nil {
+		return a.SiblingPreimage, nil
 	}
 
 	treeNodes, err := asset.TapTreeNodesFromLeaves(a.NonAssetLeaves)
@@ -239,7 +284,7 @@ func (a *Allocation) MatchesOutput(pkScript []byte, value int64, cltv uint32,
 	}
 
 	outputsEqual := bytes.Equal(pkScript, finalPkScript) &&
-		value == int64(a.BtcAmount) && cltv == a.CLTV &&
+		value == int64(a.BtcAmount) && cltv == a.SortCLTV &&
 		htlcIndex == a.HtlcIndex
 
 	return outputsEqual, nil
@@ -364,9 +409,15 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 		inputSum += inputProof.Asset.Amount
 	}
 
-	// Sum up the amounts that are to be allocated to the outputs.
+	// Sum up the amounts that are to be allocated to the outputs. We also
+	// validate that all the required fields are set and no conflicting
+	// fields are set.
 	var outputSum uint64
 	for _, allocation := range allocations {
+		if err := allocation.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid allocation: %w", err)
+		}
+
 		outputSum += allocation.Amount
 	}
 
@@ -483,7 +534,9 @@ func allocatePiece(p piece, a Allocation, toFill uint64,
 		AnchorOutputTapscriptSibling: sibling,
 		ScriptKey:                    a.ScriptKey,
 		ProofDeliveryAddress:         deliveryAddr,
+		LockTime:                     a.LockTime,
 		RelativeLockTime:             uint64(a.Sequence),
+		AltLeaves:                    a.AltLeaves,
 	}
 
 	// If we've allocated all pieces, or we don't need to allocate anything
