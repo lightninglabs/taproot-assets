@@ -133,7 +133,8 @@ type Allocation struct {
 	CLTV uint32
 
 	// Sequence is the CSV value for the asset allocation. This is only
-	// relevant for HTLC second level transactions.
+	// relevant for HTLC second level transactions. This value will be set
+	// as the relative time lock on the virtual output.
 	Sequence uint32
 
 	// HtlcIndex is the index of the HTLC that the allocation is for. This
@@ -457,9 +458,6 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 				),
 			}
 			p.packet.Outputs = append(p.packet.Outputs, vOut)
-
-			// TODO(guggero): If sequence > 0, set the sequence
-			// on the inputs of the packet.
 
 			p.allocated += allocating
 			toFill -= allocating
