@@ -19,6 +19,7 @@ import (
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
+	"golang.org/x/exp/maps"
 )
 
 const (
@@ -1323,6 +1324,21 @@ func OutputSum(outputs []*AssetOutput) uint64 {
 // associated with a particular HTLC index.
 type HtlcAssetOutput struct {
 	HtlcOutputs map[input.HtlcIndex]AssetOutputListRecord
+}
+
+// Sum returns the sum of the amounts of all the asset outputs in the list.
+func (h *HtlcAssetOutput) Sum() uint64 {
+	return OutputSum(h.Outputs())
+}
+
+// Outputs returns a flat list of all the asset outputs in the list.
+func (h *HtlcAssetOutput) Outputs() []*AssetOutput {
+	return fn.FlatMap(
+		maps.Values(h.HtlcOutputs),
+		func(r AssetOutputListRecord) []*AssetOutput {
+			return r.Outputs
+		},
+	)
 }
 
 // NewHtlcAssetOutput creates a new HtlcAssetOutput record with the given HTLC
