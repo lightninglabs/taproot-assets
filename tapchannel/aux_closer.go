@@ -101,12 +101,11 @@ func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 	}
 }
 
-// createCloseAlloc is a helper function that creates an allocation for an
-// asset close.
-func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
+// createCloseAlloc is a helper function that creates an allocation for an asset
+// close. This does not set a script key, as the script key will be set for each
+// packet after the coins have been distributed.
+func createCloseAlloc(isLocal, isInitiator bool, outputSum uint64,
 	shutdownMsg tapchannelmsg.AuxShutdownMsg) (*tapsend.Allocation, error) {
-
-	assetID := closeAsset.ID()
 
 	// The sort pkScript for the allocation will just be the internal key,
 	// mapped to a BIP 86 taproot output key.
@@ -114,9 +113,16 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 		shutdownMsg.AssetInternalKey.Val,
 	).SerializeCompressed()
 
-	scriptKey, ok := shutdownMsg.ScriptKeys.Val[assetID]
-	if !ok {
-		return nil, fmt.Errorf("no script key for asset %v", assetID)
+	scriptKeyGen := func(assetID asset.ID) (asset.ScriptKey, error) {
+		var emptyKey asset.ScriptKey
+
+		scriptKey, ok := shutdownMsg.ScriptKeys.Val[assetID]
+		if !ok {
+			return emptyKey, fmt.Errorf("no script key for asset "+
+				"%v", assetID)
+		}
+
+		return asset.NewScriptKey(&scriptKey), nil
 	}
 
 	var proofDeliveryUrl *url.URL
@@ -142,8 +148,8 @@ func createCloseAlloc(isLocal, isInitiator bool, closeAsset *asset.Asset,
 		}(),
 		SplitRoot:            isInitiator,
 		InternalKey:          shutdownMsg.AssetInternalKey.Val,
-		ScriptKey:            asset.NewScriptKey(&scriptKey),
-		Amount:               closeAsset.Amount,
+		GenScriptKey:         scriptKeyGen,
+		Amount:               outputSum,
 		AssetVersion:         asset.V0,
 		BtcAmount:            tapsend.DummyAmtSats,
 		SortTaprootKeyBytes:  sortKeyBytes,
@@ -260,37 +266,34 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		localAlloc, remoteAlloc                   *tapsend.Allocation
 		localAssetAnchorAmt, remoteAssetAnchorAmt btcutil.Amount
 	)
-	for _, localAssetProof := range commitState.LocalAssets.Val.Outputs {
-		localAsset := localAssetProof.Proof.Val.Asset
-
-		closeAlloc, err := createCloseAlloc(
-			true, desc.Initiator, &localAsset, localShutdown,
-		)
-		if err != nil {
-			return none, err
-		}
-
-		localAlloc = closeAlloc
-
-		localAssetAnchorAmt += closeAlloc.BtcAmount
-
-		closeAllocs = append(closeAllocs, closeAlloc)
+	sumAmounts := func(accu uint64, o *tapchannelmsg.AssetOutput) uint64 {
+		return accu + o.Amount.Val
 	}
-	for _, remoteAssetProof := range commitState.RemoteAssets.Val.Outputs {
-		remoteAsset := remoteAssetProof.Proof.Val.Asset
-
-		closeAlloc, err := createCloseAlloc(
-			false, !desc.Initiator, &remoteAsset, remoteShutdown,
+	localSum := fn.Reduce(commitState.LocalAssets.Val.Outputs, sumAmounts)
+	remoteSum := fn.Reduce(commitState.RemoteAssets.Val.Outputs, sumAmounts)
+	if localSum > 0 {
+		localAlloc, err = createCloseAlloc(
+			true, desc.Initiator, localSum, localShutdown,
 		)
 		if err != nil {
 			return none, err
 		}
 
-		remoteAlloc = closeAlloc
+		localAssetAnchorAmt += localAlloc.BtcAmount
 
-		remoteAssetAnchorAmt += closeAlloc.BtcAmount
+		closeAllocs = append(closeAllocs, localAlloc)
+	}
+	if remoteSum > 0 {
+		remoteAlloc, err = createCloseAlloc(
+			false, !desc.Initiator, remoteSum, remoteShutdown,
+		)
+		if err != nil {
+			return none, err
+		}
 
-		closeAllocs = append(closeAllocs, closeAlloc)
+		remoteAssetAnchorAmt += remoteAlloc.BtcAmount
+
+		closeAllocs = append(closeAllocs, remoteAlloc)
 	}
 
 	// Next, we'll create allocations for the (up to) two settled outputs

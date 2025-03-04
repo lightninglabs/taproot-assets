@@ -807,6 +807,17 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			schnorr.SerializePubKey(htlcTree.TaprootKey),
 			schnorr.SerializePubKey(tweakedTree.TaprootKey))
 
+		scriptKey := asset.ScriptKey{
+			PubKey: asset.NewScriptKey(
+				tweakedTree.TaprootKey,
+			).PubKey,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: tweakedTree.InternalKey,
+				},
+				Tweak: tweakedTree.TapscriptRoot,
+			},
+		}
 		allocations = append(allocations, &tapsend.Allocation{
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
@@ -815,17 +826,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.ScriptKey{
-				PubKey: asset.NewScriptKey(
-					tweakedTree.TaprootKey,
-				).PubKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						PubKey: tweakedTree.InternalKey,
-					},
-					Tweak: tweakedTree.TapscriptRoot,
-				},
-			},
+			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				// This _must_ remain the non-tweaked key, since
 				// this is used for sorting _before_ applying
@@ -1010,6 +1011,17 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
+		scriptKey := asset.ScriptKey{
+			PubKey: asset.NewScriptKey(
+				toLocalTree.TaprootKey,
+			).PubKey,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: toLocalTree.InternalKey,
+				},
+				Tweak: toLocalTree.TapscriptRoot,
+			},
+		}
 		allocation := &tapsend.Allocation{
 			Type:           tapsend.CommitAllocationToLocal,
 			Amount:         ourAssetBalance,
@@ -1018,17 +1030,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			BtcAmount:      ourBalance,
 			InternalKey:    toLocalTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.ScriptKey{
-				PubKey: asset.NewScriptKey(
-					toLocalTree.TaprootKey,
-				).PubKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						PubKey: toLocalTree.InternalKey,
-					},
-					Tweak: toLocalTree.TapscriptRoot,
-				},
-			},
+			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toLocalTree.TaprootKey,
 			),
@@ -1042,7 +1044,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				BtcAmount:      ourBalance,
 				InternalKey:    toLocalTree.InternalKey,
 				NonAssetLeaves: sibling,
-				ScriptKey: asset.NewScriptKey(
+				GenScriptKey: tapsend.StaticScriptPubKeyGen(
 					toLocalTree.TaprootKey,
 				),
 				SortTaprootKeyBytes: schnorr.SerializePubKey(
@@ -1072,6 +1074,17 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
+		scriptKey := asset.ScriptKey{
+			PubKey: asset.NewScriptKey(
+				toRemoteTree.TaprootKey,
+			).PubKey,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: toRemoteTree.InternalKey,
+				},
+				Tweak: toRemoteTree.TapscriptRoot,
+			},
+		}
 		allocation := &tapsend.Allocation{
 			Type:           tapsend.CommitAllocationToRemote,
 			Amount:         theirAssetBalance,
@@ -1080,18 +1093,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			BtcAmount:      theirBalance,
 			InternalKey:    toRemoteTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.ScriptKey{
-				PubKey: asset.NewScriptKey(
-					toRemoteTree.TaprootKey,
-				).PubKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						//nolint:lll
-						PubKey: toRemoteTree.InternalKey,
-					},
-					Tweak: toRemoteTree.TapscriptRoot,
-				},
-			},
+			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toRemoteTree.TaprootKey,
 			),
@@ -1105,7 +1107,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				BtcAmount:      theirBalance,
 				InternalKey:    toRemoteTree.InternalKey,
 				NonAssetLeaves: sibling,
-				ScriptKey: asset.NewScriptKey(
+				GenScriptKey: tapsend.StaticScriptPubKeyGen(
 					toRemoteTree.TaprootKey,
 				),
 				SortTaprootKeyBytes: schnorr.SerializePubKey(
@@ -1359,7 +1361,9 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		),
 		InternalKey:    htlcTree.InternalKey,
 		NonAssetLeaves: sibling,
-		ScriptKey:      asset.NewScriptKey(tweakedTree.TaprootKey),
+		GenScriptKey: tapsend.StaticScriptPubKeyGen(
+			tweakedTree.TaprootKey,
+		),
 		SortTaprootKeyBytes: schnorr.SerializePubKey(
 			// This _must_ remain the non-tweaked key, since this is
 			// used for sorting _before_ applying any TAP tweaks.

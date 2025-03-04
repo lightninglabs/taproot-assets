@@ -233,38 +233,40 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		// Otherwise, for each out we want to sweep, we'll construct an
 		// allocation that we'll use to deliver the funds back to the
 		// wallet.
-		for _, localAsset := range sweepInputs {
-			// For each output, we'll need to create a new script
-			// key to use for the sweep transaction.
+		sweepAssetSum := tapchannelmsg.OutputSum(sweepInputs)
+
+		// For this local allocation we'll need to create a new script
+		// key to use for the sweep transaction.
+		scriptKeyGen := func(asset.ID) (asset.ScriptKey, error) {
+			var emptyKey asset.ScriptKey
+
 			scriptKey, err := a.cfg.AddrBook.NextScriptKey(
 				ctx, asset.TaprootAssetsKeyFamily,
 			)
 			if err != nil {
-				return lfn.Err[[]*tappsbt.VPacket](err)
+				return emptyKey, err
 			}
 
-			// With the script key created, we can make a new
-			// allocation that will be used to sweep the funds back
-			// to our wallet.
-			//
-			// We leave out the internal key here, as we'll make it
-			// later once we actually have the other set of inputs
-			// we need to sweep.
-			allocs = append(allocs, &tapsend.Allocation{
-				Type: tapsend.CommitAllocationToLocal,
-				// We don't need to worry about sorting, as
-				// we'll always be the first output index in the
-				// transaction.
-				OutputIndex:  0,
-				Amount:       localAsset.Amount.Val,
-				AssetVersion: asset.V1,
-				BtcAmount:    tapsend.DummyAmtSats,
-				ScriptKey:    scriptKey,
-				SortTaprootKeyBytes: schnorr.SerializePubKey(
-					scriptKey.PubKey,
-				),
-			})
+			return scriptKey, nil
 		}
+
+		// With the script key created, we can make a new allocation
+		// that will be used to sweep the funds back to our wallet.
+		//
+		// We leave out the internal key here, as we'll make it later
+		// once we actually have the other set of inputs we need to
+		// sweep.
+		allocs = append(allocs, &tapsend.Allocation{
+			Type: tapsend.CommitAllocationToLocal,
+			// We don't need to worry about sorting, as
+			// we'll always be the first output index in the
+			// transaction.
+			OutputIndex:  0,
+			Amount:       sweepAssetSum,
+			AssetVersion: asset.V1,
+			BtcAmount:    tapsend.DummyAmtSats,
+			GenScriptKey: scriptKeyGen,
+		})
 	}
 
 	log.Infof("Created %v allocations for commit tx sweep: %v",

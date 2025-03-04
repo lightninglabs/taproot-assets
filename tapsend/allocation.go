@@ -52,6 +52,12 @@ var (
 	ErrInvalidSibling = errors.New(
 		"both non-asset leaves and sibling preimage set",
 	)
+
+	// ErrScriptKeyGenMissing is an error that is returned if the script key
+	// generator function is not set.
+	ErrScriptKeyGenMissing = errors.New(
+		"script key generator function not set for asset allocation",
+	)
 )
 
 // AllocationType is an enum that defines the different types of asset
@@ -86,6 +92,27 @@ const (
 	// the local node).
 	SecondLevelHtlcAllocation AllocationType = 5
 )
+
+// ScriptKeyGen is a function type that is used for generating a script key for
+// an asset specific script key.
+type ScriptKeyGen func(assetID asset.ID) (asset.ScriptKey, error)
+
+// StaticScriptKeyGen is a helper function that returns a script key generator
+// function that always returns the same script key.
+func StaticScriptKeyGen(scriptKey asset.ScriptKey) ScriptKeyGen {
+	return func(asset.ID) (asset.ScriptKey, error) {
+		return scriptKey, nil
+	}
+}
+
+// StaticScriptPubKeyGen is a helper function that returns a script key
+// generator function that always returns the same script key, provided as a
+// public key.
+func StaticScriptPubKeyGen(scriptPubKey *btcec.PublicKey) ScriptKeyGen {
+	return func(asset.ID) (asset.ScriptKey, error) {
+		return asset.NewScriptKey(scriptPubKey), nil
+	}
+}
 
 // Allocation is a struct that tracks how many units of assets should be
 // allocated to a specific output of an on-chain transaction. An allocation can
@@ -128,9 +155,10 @@ type Allocation struct {
 	// a BIP-0086 output.
 	SiblingPreimage *commitment.TapscriptPreimage
 
-	// ScriptKey is the Taproot tweaked key encoding the different spend
-	// conditions possible for the asset allocation.
-	ScriptKey asset.ScriptKey
+	// GenScriptKey is a function that returns the Taproot tweaked key
+	// encoding the different spend conditions possible for the asset
+	// allocation for a certain asset ID.
+	GenScriptKey ScriptKeyGen
 
 	// Amount is the amount of units that should be allocated in total.
 	// Available units from different UTXOs are distributed up to this total
@@ -188,6 +216,12 @@ func (a *Allocation) Validate() error {
 	// time.
 	if len(a.NonAssetLeaves) > 0 && a.SiblingPreimage != nil {
 		return ErrInvalidSibling
+	}
+
+	// The script key generator function is required for any allocation that
+	// carries assets.
+	if a.Type != AllocationTypeNoAssets && a.GenScriptKey == nil {
+		return ErrScriptKeyGenMissing
 	}
 
 	return nil
@@ -525,6 +559,12 @@ func allocatePiece(p piece, a Allocation, toFill uint64,
 		return 0, nil, err
 	}
 
+	scriptKey, err := a.GenScriptKey(p.assetID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("error generating script key for "+
+			"allocation: %w", err)
+	}
+
 	deliveryAddr := a.ProofDeliveryAddress
 	vOut := &tappsbt.VOutput{
 		AssetVersion:                 a.AssetVersion,
@@ -532,7 +572,7 @@ func allocatePiece(p piece, a Allocation, toFill uint64,
 		AnchorOutputIndex:            a.OutputIndex,
 		AnchorOutputInternalKey:      a.InternalKey,
 		AnchorOutputTapscriptSibling: sibling,
-		ScriptKey:                    a.ScriptKey,
+		ScriptKey:                    scriptKey,
 		ProofDeliveryAddress:         deliveryAddr,
 		LockTime:                     a.LockTime,
 		RelativeLockTime:             uint64(a.Sequence),

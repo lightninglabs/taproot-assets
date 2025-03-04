@@ -92,6 +92,9 @@ func TestDistributeCoinsErrors(t *testing.T) {
 		[]*proof.Proof{proofNormal}, []*Allocation{
 			{
 				Amount: assetNormal.Amount / 2,
+				GenScriptKey: StaticScriptKeyGen(
+					asset.RandScriptKey(t),
+				),
 			},
 		}, testParams, true, tappsbt.V1,
 	)
@@ -105,6 +108,14 @@ func TestDistributeCoinsErrors(t *testing.T) {
 		}}, testParams, true, tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrInvalidSibling)
+
+	_, err = DistributeCoins(
+		[]*proof.Proof{proofNormal}, []*Allocation{{
+			Type:   CommitAllocationToLocal,
+			Amount: assetNormal.Amount,
+		}}, testParams, true, tappsbt.V1,
+	)
+	require.ErrorIs(t, err, ErrScriptKeyGenMissing)
 }
 
 func TestDistributeCoins(t *testing.T) {
@@ -710,6 +721,19 @@ func TestDistributeCoins(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// We don't care about script keys in this test so we
+			// just set static ones.
+			dummyScriptKey := asset.RandScriptKey(t)
+			scriptKeyGen := StaticScriptKeyGen(dummyScriptKey)
+			for _, allocation := range tc.allocations {
+				allocation.GenScriptKey = scriptKeyGen
+			}
+			for _, outputs := range tc.expectedOutputs {
+				for _, output := range outputs {
+					output.ScriptKey = dummyScriptKey
+				}
+			}
+
 			packets, err := DistributeCoins(
 				tc.inputs, tc.allocations, testParams,
 				tc.interactive, tc.vPktVersion,
@@ -762,6 +786,8 @@ func assertPackets(t *testing.T, packets []*tappsbt.VPacket,
 
 // TestAllocatePiece tests the allocation of a piece of an asset.
 func TestAllocatePiece(t *testing.T) {
+	dummyScriptKey := asset.RandScriptKey(t)
+	scriptKeyGen := StaticScriptKeyGen(dummyScriptKey)
 	tests := []struct {
 		name               string
 		piece              piece
@@ -782,7 +808,8 @@ func TestAllocatePiece(t *testing.T) {
 				packet:         &tappsbt.VPacket{},
 			},
 			allocation: Allocation{
-				Amount: 50,
+				Amount:       50,
+				GenScriptKey: scriptKeyGen,
 			},
 			toFill:             50,
 			interactive:        true,
@@ -799,7 +826,8 @@ func TestAllocatePiece(t *testing.T) {
 				packet:         &tappsbt.VPacket{},
 			},
 			allocation: Allocation{
-				Amount: 150,
+				Amount:       150,
+				GenScriptKey: scriptKeyGen,
 			},
 			toFill:             150,
 			interactive:        true,
@@ -816,7 +844,8 @@ func TestAllocatePiece(t *testing.T) {
 				packet:         &tappsbt.VPacket{},
 			},
 			allocation: Allocation{
-				Amount: 0,
+				Amount:       0,
+				GenScriptKey: scriptKeyGen,
 			},
 			toFill:         0,
 			interactive:    true,
@@ -832,8 +861,9 @@ func TestAllocatePiece(t *testing.T) {
 				packet:         &tappsbt.VPacket{},
 			},
 			allocation: Allocation{
-				Amount:    50,
-				SplitRoot: true,
+				Amount:       50,
+				SplitRoot:    true,
+				GenScriptKey: scriptKeyGen,
 			},
 			toFill:             50,
 			interactive:        false,
