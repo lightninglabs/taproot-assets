@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -978,6 +979,18 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 
 	switch {
 	case specifier.HasGroupPubKey():
+		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		// Let's directly check if the ID is equal to the hash of the
+		// group key. This is used by the sender to indicate that any
+		// asset that belongs to this group may be used.
+		groupKeyX := schnorr.SerializePubKey(specifierGK)
+		if asset.ID(groupKeyX) == id {
+			return true, nil
+		}
+
+		// Now let's make an actual query to find this assetID's group,
+		// if it exists.
 		group, err := m.getAssetGroupKey(ctx, id)
 		if err != nil {
 			return false, err
@@ -986,8 +999,6 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 		if group.IsNone() {
 			return false, nil
 		}
-
-		specifierGK := specifier.UnwrapGroupKeyToPtr()
 
 		return group.UnwrapToPtr().IsEqual(specifierGK), nil
 
