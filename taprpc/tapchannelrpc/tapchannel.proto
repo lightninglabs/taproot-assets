@@ -142,6 +142,10 @@ message SendPaymentRequest {
     // are sent out to the network than the invoice amount plus routing fees
     // require to be paid.
     bool allow_overpay = 6;
+
+    // The group key which dictates which assets may be used for this payment.
+    // Mutually exclusive to asset_id.
+    bytes group_key = 7;
 }
 
 message SendPaymentResponse {
@@ -188,6 +192,11 @@ message AddInvoiceRequest {
     // won't be settled automatically. Instead, users will need to use the
     // invoicesrpc.SettleInvoice call to manually settle the invoice.
     HodlInvoice hodl_invoice = 5;
+
+    // The group key which dictates which assets may be accepted for this
+    // invoice. If set, any asset that belongs to this group may be accepted to
+    // settle this invoice. Mutually exclusive to asset_id.
+    bytes group_key = 6;
 }
 
 message AddInvoiceResponse {
