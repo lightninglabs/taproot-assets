@@ -8,6 +8,7 @@ import (
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
 )
 
@@ -184,6 +185,23 @@ func (s *SignedIgnoreTuple) Bytes() ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// UniverseLeafNode returns an SMT leaf for the SignedIgnoreTuple.
+func (i *SignedIgnoreTuple) UniverseLeafNode() (*mssmt.LeafNode, error) {
+	// Serialize the raw value of the tuple to insert into
+	// the tree.
+	rawVal, err := i.Bytes()
+	if err != nil {
+		return nil, err
+	}
+
+	return mssmt.NewLeafNode(rawVal, i.IgnoreTuple.Val.Amount), nil
+}
+
+// UniverseKey returns the universe tree key for the SignedIgnoreTuple.
+func (i *SignedIgnoreTuple) UniverseKey() [32]byte {
+	return i.IgnoreTuple.Val.Hash()
 }
 
 // DecodeSignedIgnoreTuple deserializes a SignedIgnoreTuple from the given blob.
