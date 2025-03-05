@@ -142,6 +142,10 @@ message SendPaymentRequest {
     // are sent out to the network than the invoice amount plus routing fees
     // require to be paid.
     bool allow_overpay = 6;
+
+    // The group key which dictates which assets may be used for this payment.
+    // Mutually exclusive to asset_id.
+    bytes group_key = 7;
 }
 
 message SendPaymentResponse {
