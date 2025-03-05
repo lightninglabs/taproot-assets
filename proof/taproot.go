@@ -411,7 +411,7 @@ func (p TaprootProof) DeriveByAssetExclusion(assetCommitmentKey,
 
 	return deriveCommitmentKeys(
 		tapCommitment, p.InternalKey,
-		p.CommitmentProof.TapSiblingPreimage, true, true,
+		p.CommitmentProof.TapSiblingPreimage, false, true,
 	)
 }
 
