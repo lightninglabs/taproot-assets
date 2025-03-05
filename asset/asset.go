@@ -449,6 +449,18 @@ func (s *Specifier) UnwrapGroupKeyToPtr() *btcec.PublicKey {
 	return s.groupKey.UnwrapToPtr()
 }
 
+// UnwrapGroupKeyOrErr unwraps the group public key field or returns an error if
+// it is not specified.
+func (s *Specifier) UnwrapGroupKeyOrErr() (*btcec.PublicKey, error) {
+	groupKey := s.groupKey.UnwrapToPtr()
+	if groupKey == nil {
+		return nil, fmt.Errorf("unable to unwrap asset group public " +
+			"key")
+	}
+
+	return groupKey, nil
+}
+
 // UnwrapToPtr unwraps the asset ID and asset group public key fields,
 // returning them as pointers.
 func (s *Specifier) UnwrapToPtr() (*ID, *btcec.PublicKey) {
