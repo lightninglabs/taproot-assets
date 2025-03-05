@@ -1226,7 +1226,7 @@ type IgnoreTree interface {
 	//
 	// TODO(roasbeef): does all the signing under the hood?
 	AddTuples(context.Context, asset.Specifier,
-		...SignedIgnoreTuple) lfn.Result[[]AuthenticatedIgnoreTuple]
+		...SignedIgnoreTuple) TupleQueryResp
 
 	// ListTuples returns the list of ignore tuples for the given asset.
 	ListTuples(context.Context, asset.Specifier) lfn.Result[IgnoreTuples]

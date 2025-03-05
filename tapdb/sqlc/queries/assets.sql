@@ -670,6 +670,11 @@ WHERE (
     genesis_assets.asset_type = @asset_type
 );
 
+-- name: LookupGenesisID :one
+SELECT gen_asset_id
+FROM genesis_assets
+WHERE asset_id = $1;
+
 -- name: FetchAssetsByAnchorTx :many
 SELECT *
 FROM assets

@@ -50,6 +50,10 @@ type UpsertAssetStore interface {
 	FetchGenesisID(ctx context.Context,
 		arg sqlc.FetchGenesisIDParams) (int64, error)
 
+	// LookupGenesisID fetches the database ID of an asset genesis by its
+	// asset ID.
+	LookupGenesisID(ctx context.Context, assetID []byte) (int64, error)
+
 	// FetchScriptKeyIDByTweakedKey determines the database ID of a script
 	// key by querying it by the tweaked key.
 	FetchScriptKeyIDByTweakedKey(ctx context.Context,
