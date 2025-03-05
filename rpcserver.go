@@ -7246,19 +7246,27 @@ func (r *rpcServer) EncodeCustomRecords(_ context.Context,
 func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	stream tchrpc.TaprootAssetChannels_SendPaymentServer) error {
 
+	if len(req.AssetId) > 0 && len(req.GroupKey) > 0 {
+		return fmt.Errorf("cannot set both asset id and group key")
+	}
+
 	if req.PaymentRequest == nil {
 		return fmt.Errorf("payment request must be specified")
 	}
 	pReq := req.PaymentRequest
 	ctx := stream.Context()
 
-	// Do some preliminary checks on the asset ID and make sure we have any
-	// balance for that asset.
-	if len(req.AssetId) != sha256.Size {
-		return fmt.Errorf("asset ID must be 32 bytes")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return err
 	}
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+
+	specifier, err := asset.NewExclusiveSpecifier(assetID, groupKey)
+	if err != nil {
+		return err
+	}
 
 	// Now that we know we have at least _some_ asset balance, we'll figure
 	// out what kind of payment this is, so we can determine _how many_
@@ -7383,7 +7391,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			peerPubKey = &parsedKey
 		}
 
-		specifier := asset.NewSpecifierFromId(assetID)
+		rpcSpecifier := marshalAssetSpecifier(specifier)
 
 		// We can now query the asset channels we have.
 		assetChan, err := r.rfqChannel(
@@ -7409,14 +7417,10 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		resp, err := r.AddAssetSellOrder(
 			ctx, &rfqrpc.AddAssetSellOrderRequest{
-				AssetSpecifier: &rfqrpc.AssetSpecifier{
-					Id: &rfqrpc.AssetSpecifier_AssetId{
-						AssetId: assetID[:],
-					},
-				},
-				PaymentMaxAmt: uint64(paymentMaxAmt),
-				Expiry:        uint64(expiry.Unix()),
-				PeerPubKey:    peerPubKey[:],
+				AssetSpecifier: &rpcSpecifier,
+				PaymentMaxAmt:  uint64(paymentMaxAmt),
+				Expiry:         uint64(expiry.Unix()),
+				PeerPubKey:     peerPubKey[:],
 				TimeoutSeconds: uint32(
 					rfq.DefaultTimeout.Seconds(),
 				),
@@ -7499,9 +7503,32 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"for keysend payment")
 		}
 
-		balances := []*rfqmsg.AssetBalance{
-			rfqmsg.NewAssetBalance(assetID, req.AssetAmount),
+		var balances []*rfqmsg.AssetBalance
+
+		switch {
+		case specifier.HasId():
+			balances = []*rfqmsg.AssetBalance{
+				rfqmsg.NewAssetBalance(
+					*specifier.UnwrapIdToPtr(),
+					req.AssetAmount,
+				),
+			}
+
+		case specifier.HasGroupPubKey():
+			groupKey := specifier.UnwrapGroupKeyToPtr()
+			groupKeyX := schnorr.SerializePubKey(groupKey)
+
+			// We can't distribute the amount over distinct asset ID
+			// balances, so we provide the total amount under the
+			// dummy asset ID that is produced by hashing the group
+			// key.
+			balances = []*rfqmsg.AssetBalance{
+				rfqmsg.NewAssetBalance(
+					asset.ID(groupKeyX), req.AssetAmount,
+				),
+			}
 		}
+
 		htlc := rfqmsg.NewHtlc(balances, fn.None[rfqmsg.ID]())
 
 		// We'll now map the HTLC struct into a set of TLV records,
