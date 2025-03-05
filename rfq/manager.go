@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
@@ -949,6 +951,10 @@ func (m *Manager) getAssetGroupKey(ctx context.Context,
 	// Perform the DB query.
 	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
 	if err != nil {
+		if errors.Is(err, address.ErrAssetGroupUnknown) {
+			return fn.None[btcec.PublicKey](), nil
+		}
+
 		return fn.None[btcec.PublicKey](), err
 	}
 
