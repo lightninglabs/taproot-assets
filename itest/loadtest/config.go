@@ -27,10 +27,13 @@ type User struct {
 
 // TapConfig are the main parameters needed for identifying and creating a grpc
 // client to a tapd subsystem.
+//
+// nolint:lll
 type TapConfig struct {
-	Name string `long:"name" description:"the name of the tapd instance"`
-	Host string `long:"host" description:"the host to connect to"`
-	Port int    `long:"port" description:"the port to connect to"`
+	Name     string `long:"name" description:"the name of the tapd instance"`
+	Host     string `long:"host" description:"the host to connect to"`
+	Port     int    `long:"port" description:"the port to connect to"`
+	RestPort int    `long:"restport" description:"the rest port to connect to"`
 
 	TLSPath string `long:"tlspath" description:"Path to tapd's TLS certificate, leave empty if TLS is disabled"`
 	MacPath string `long:"macpath" description:"Path to tapd's macaroon file"`
@@ -114,6 +117,20 @@ type Config struct {
 	// relevant for the send test. Acceptable values are "normal" and
 	// "collectible".
 	SendAssetType string `long:"send-asset-type" description:"the type of asset to attempt to send; only relevant for the send test"`
+
+	// SyncType is the type of sync to execute in the sync test. Acceptable
+	// values include:
+	//     "simplesyncer": re-uses simple syncer to perform a full sync
+	//     "rest": syncs the roots over rest requests
+	SyncType string `long:"sync-type" description:"the type of sync to execute"`
+
+	// SyncPageSize is the page size to use in the sync test for calls made
+	// to the universe server.
+	SyncPageSize int `long:"sync-page-size" description:"the page size to use in the sync test when fetching data from the universe server"`
+
+	// SyncNumClients is the number of clients to use in the sync test. This
+	// many clients will try to sync in parallel.
+	SyncNumClients int `long:"sync-num-clients" description:"the number of sync clients to use for the sync test"`
 
 	// TestSuiteTimeout is the timeout for the entire test suite.
 	TestSuiteTimeout time.Duration `long:"test-suite-timeout" description:"the timeout for the entire test suite"`
