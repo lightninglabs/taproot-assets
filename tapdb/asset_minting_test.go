@@ -499,7 +499,9 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 	// First, we'll write a new minting batch to disk, including an
 	// internal key and a set of seedlings. One random seedling will
 	// be a reissuance into a specific group.
-	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(numSeedlings),
+	)
 	_, randGroup, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -600,7 +602,9 @@ func TestCommitMintingBatchSeedlings(t *testing.T) {
 
 	// Insert another normal batch into the database. We should get this
 	// batch back if we query for the set of non-final batches.
-	mintingBatch = tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch = tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(numSeedlings),
+	)
 	err = assetStore.CommitMintingBatch(ctx, mintingBatch)
 	require.NoError(t, err)
 	mintingBatches = noError1(t, assetStore.FetchNonFinalBatches, ctx)
@@ -791,7 +795,9 @@ func TestAddSproutsToBatch(t *testing.T) {
 
 	// First, we'll create a new batch, then add some sample seedlings.
 	// One random seedling will be a reissuance into a specific group.
-	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(numSeedlings),
+	)
 	_, seedlingGroups, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -889,7 +895,9 @@ type randAssetCtx struct {
 func addRandAssets(t *testing.T, ctx context.Context,
 	assetStore *AssetMintingStore, numAssets int) randAssetCtx {
 
-	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numAssets)
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(numAssets),
+	)
 	genAmt, seedlingGroups, group := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -1397,7 +1405,9 @@ func TestGroupAnchors(t *testing.T) {
 	// internal key and a set of seedlings. One random seedling will
 	// be a reissuance into a specific group. Two other seedlings will form
 	// a multi-asset group.
-	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, numSeedlings)
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(numSeedlings),
+	)
 	_, seedlingGroups, _ := addRandGroupToBatch(
 		t, assetStore, ctx, mintingBatch.Seedlings,
 	)
@@ -1834,7 +1844,9 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 	assetStore, _, _ := newAssetStore(t)
 
 	// Create a new batch with one asset group seedling.
-	mintingBatch := tapgarden.RandSeedlingMintingBatch(t, 1)
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(1),
+	)
 	mintingBatch.UniverseCommitments = true
 
 	_, _, group := addRandGroupToBatch(
@@ -1906,6 +1918,33 @@ func TestUpsertMintAnchorUniCommitment(t *testing.T) {
 		t, *assetStore, batchID, txOutputIndex, internalKey2Bytes,
 		groupPubKey2Bytes,
 	)
+}
+
+// TestCommitMintingBatchSeedlings tests that we're able to properly write and
+// read a base minting batch on disk. This test covers the state when a batch
+// only has seedlings, without any fully formed assets.
+func TestBlah(t *testing.T) {
+	t.Parallel()
+
+	assetStore, _, _ := newAssetStore(t)
+
+	ctx := context.Background()
+	const numSeedlings = 5
+
+	// First, we'll write a new minting batch to disk, including an
+	// internal key and a set of seedlings. One random seedling will
+	// be a reissuance into a specific group.
+	mintingBatch := tapgarden.RandMintingBatch(
+		t, tapgarden.WithTotalSeedlings(1),
+		tapgarden.WithTotalGroups([]int{1}),
+		tapgarden.WithUniverseCommitments(true),
+	)
+	//_, randGroup, _ := addRandGroupToBatch(
+	//	t, assetStore, ctx, mintingBatch.Seedlings,
+	//)
+	//_, randSiblingHash := addRandSiblingToBatch(t, mintingBatch)
+	err := assetStore.CommitMintingBatch(ctx, mintingBatch)
+	require.NoError(t, err)
 }
 
 func init() {

@@ -21,6 +21,7 @@ import (
 	"github.com/btcsuite/btcwallet/waddrmgr"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
@@ -56,24 +57,217 @@ func RandSeedlings(t testing.TB, numSeedlings int) map[string]*Seedling {
 	return seedlings
 }
 
-// RandSeedlingMintingBatch creates a new minting batch with only random
-// seedlings populated for testing.
-func RandSeedlingMintingBatch(t testing.TB, numSeedlings int) *MintingBatch {
-	genesisTx := NewGenesisTx(t, chainfee.FeePerKwFloor)
-	BatchKey, _ := test.RandKeyDesc(t)
-	return &MintingBatch{
-		BatchKey:     BatchKey,
-		Seedlings:    RandSeedlings(t, numSeedlings),
-		HeightHint:   test.RandInt[uint32](),
-		CreationTime: time.Now(),
-		GenesisPacket: &FundedMintAnchorPsbt{
-			FundedPsbt: tapsend.FundedPsbt{
-				Pkt:               &genesisTx,
-				ChangeOutputIndex: 1,
-			},
-			AssetAnchorOutIdx: 0,
-		},
+// RandGroupSeedlings generates a random set of seedlings for a single asset
+// group.
+func RandGroupSeedlings(t testing.TB, numSeedlings int,
+	uniCommitments bool) map[string]*Seedling {
+
+	seedlings := make(map[string]*Seedling)
+
+	// Formulate group anchor seedling.
+	metaBlob := test.RandBytes(32)
+	groupAnchorName := hex.EncodeToString(test.RandBytes(32))
+	assetType := asset.Normal
+
+	// For now, we only test the v0 and v1 versions.
+	assetVersion := asset.Version(test.RandIntn(2))
+
+	scriptKey, _ := test.RandKeyDesc(t)
+
+	// If universe commitments are enabled, we generate a random key
+	// descriptor to use as the delegation key.
+	var delegationKey fn.Option[keychain.KeyDescriptor]
+	if uniCommitments {
+		keyDesc, _ := test.RandKeyDesc(t)
+		delegationKey = fn.Some(keyDesc)
 	}
+
+	assetGenesis := asset.RandGenesis(t, assetType)
+
+	// Create asset group key.
+	groupPrivateDesc, groupPrivateKey := test.RandKeyDesc(t)
+
+	// Generate the signature for our group genesis asset.
+	genSigner := asset.NewMockGenesisSigner(groupPrivateKey)
+	genTxBuilder := asset.MockGroupTxBuilder{}
+
+	genProtoAsset := asset.RandAssetWithValues(
+		t, assetGenesis, nil, asset.RandScriptKey(t),
+	)
+	groupKeyRequest := asset.NewGroupKeyRequestNoErr(
+		t, groupPrivateDesc, fn.None[asset.ExternalKey](), assetGenesis,
+		genProtoAsset, nil, fn.None[chainhash.Hash](),
+	)
+	genTx, err := groupKeyRequest.BuildGroupVirtualTx(&genTxBuilder)
+	require.NoError(t, err)
+
+	groupKey, err := asset.DeriveGroupKey(
+		genSigner, *genTx, *groupKeyRequest, nil,
+	)
+	require.NoError(t, err)
+
+	seedlings[groupAnchorName] = &Seedling{
+		AssetVersion: assetVersion,
+		AssetType:    assetType,
+		AssetName:    groupAnchorName,
+		Meta: &proof.MetaReveal{
+			Data: metaBlob,
+		},
+		Amount: uint64(test.RandInt[uint32]()),
+		GroupInfo: &asset.AssetGroup{
+			Genesis:  &assetGenesis,
+			GroupKey: groupKey,
+		},
+		ScriptKey:           asset.NewScriptKeyBip86(scriptKey),
+		EnableEmission:      true,
+		UniverseCommitments: uniCommitments,
+		DelegationKey:       delegationKey,
+	}
+
+	// Formulate non-anchor group seedlings.
+	for i := 0; i < numSeedlings-1; i++ {
+		seedlingName := hex.EncodeToString(test.RandBytes(32))
+
+		seedlings[groupAnchorName] = &Seedling{
+			AssetVersion: assetVersion,
+			AssetType:    assetType,
+			AssetName:    seedlingName,
+			GroupAnchor:  &groupAnchorName,
+			Meta: &proof.MetaReveal{
+				Data: metaBlob,
+			},
+			Amount:              uint64(test.RandInt[uint32]()),
+			ScriptKey:           asset.NewScriptKeyBip86(scriptKey),
+			EnableEmission:      true,
+			UniverseCommitments: uniCommitments,
+		}
+	}
+
+	return seedlings
+}
+
+// MintBatchOptions is a set of options for creating a new minting batch.
+type MintBatchOptions struct {
+	// totalSeedlings specifies the number of seedlings to generate in this
+	// minting batch. The seedlings are randomly assigned as grouped or
+	// ungrouped.
+	totalSeedlings int
+
+	// totalGroups specifies the number of asset groups to generate in this
+	// minting batch. Each element in the slice specifies the number of
+	// seedlings to generate for the corresponding asset group.
+	totalGroups []int
+
+	// universeCommitments specifies whether to generate universe
+	// commitments for the asset groups in this minting batch.
+	universeCommitments bool
+}
+
+// MintBatchOption is a functional option for creating a new minting batch.
+type MintBatchOption func(*MintBatchOptions)
+
+// DefaultMintBatchOptions returns a new set of default minting batch options.
+func DefaultMintBatchOptions() MintBatchOptions {
+	return MintBatchOptions{}
+}
+
+// WithTotalSeedlings sets the total number of seedlings to populate in the
+// minting batch.
+func WithTotalSeedlings(count int) MintBatchOption {
+	return func(options *MintBatchOptions) {
+		options.totalSeedlings = count
+	}
+}
+
+// WithTotalGroups sets the total number of asset groups to populate in the
+// minting batch. Each element in the slice specifies the number of seedlings
+// to generate for the corresponding asset group.
+func WithTotalGroups(counts []int) MintBatchOption {
+	return func(options *MintBatchOptions) {
+		options.totalGroups = counts
+	}
+}
+
+// WithUniverseCommitments specifies whether to generate universe commitments
+// for the asset groups in the minting batch.
+func WithUniverseCommitments(enabled bool) MintBatchOption {
+	return func(options *MintBatchOptions) {
+		options.universeCommitments = enabled
+	}
+}
+
+// RandMintingBatch creates a new minting batch with only random seedlings
+// populated for testing.
+func RandMintingBatch(t testing.TB, opts ...MintBatchOption) *MintingBatch {
+	// Construct options.
+	options := DefaultMintBatchOptions()
+	for _, opt := range opts {
+		opt(&options)
+	}
+
+	// Formulate batch seedlings.
+	seedlings := make(map[string]*Seedling)
+
+	// Generate seedlings for each asset group.
+	for idx := range options.totalGroups {
+		countSeedlingsInGroup := options.totalGroups[idx]
+
+		groupSeedlings := RandGroupSeedlings(
+			t, countSeedlingsInGroup, options.universeCommitments,
+		)
+
+		// Add the seedlings to the total seedlings map.
+		for name, seedling := range groupSeedlings {
+			seedlings[name] = seedling
+		}
+	}
+
+	// If the total number of seedlings generated so far is less than the
+	// total number of seedlings requested, we generate the remaining
+	// seedlings at random.
+	if len(seedlings) < options.totalSeedlings {
+		remaining := options.totalSeedlings - len(seedlings)
+		randSeedlings := RandSeedlings(t, remaining)
+
+		// Add the seedlings to the total seedlings map.
+		for name, seedling := range randSeedlings {
+			seedlings[name] = seedling
+		}
+	}
+
+	// Randomly generating seedlings may result in overlaps with existing
+	// ones, leading to fewer seedlings than intended. Sanity check to
+	// ensure that the total number of seedlings generated matches the
+	// requested amount. This check might help debug flakes in tests.
+	require.Equal(t, options.totalSeedlings, len(seedlings))
+
+	batchKey, _ := test.RandKeyDesc(t)
+	batch := MintingBatch{
+		BatchKey:            batchKey,
+		Seedlings:           seedlings,
+		HeightHint:          test.RandInt[uint32](),
+		CreationTime:        time.Now(),
+		UniverseCommitments: options.universeCommitments,
+	}
+
+	walletFundPsbt := func(ctx context.Context,
+		anchorPkt psbt.Packet) (tapsend.FundedPsbt, error) {
+
+		FundGenesisTx(&anchorPkt, chainfee.FeePerKwFloor)
+
+		return tapsend.FundedPsbt{
+			Pkt:               &anchorPkt,
+			ChangeOutputIndex: 1,
+		}, nil
+	}
+
+	// Fund genesis packet.
+	ctx := context.Background()
+	fundedPsbt, err := fundGenesisPsbt(ctx, &batch, walletFundPsbt)
+	require.NoError(t, err)
+
+	batch.GenesisPacket = &fundedPsbt
+	return &batch
 }
 
 type MockWalletAnchor struct {
