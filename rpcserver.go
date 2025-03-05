@@ -7684,18 +7684,31 @@ func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	req *tchrpc.AddInvoiceRequest) (*tchrpc.AddInvoiceResponse, error) {
 
+	if len(req.AssetId) > 0 && len(req.GroupKey) > 0 {
+		return nil, fmt.Errorf("cannot set both asset id and group key")
+	}
+
 	if req.InvoiceRequest == nil {
 		return nil, fmt.Errorf("invoice request must be specified")
 	}
 	iReq := req.InvoiceRequest
 
-	// Do some preliminary checks on the asset ID and make sure we have any
-	// balance for that asset.
-	if len(req.AssetId) != sha256.Size {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	var specifier asset.Specifier
+
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return nil, err
 	}
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+
+	switch {
+	case assetID != nil:
+		specifier = asset.NewSpecifierFromId(*assetID)
+
+	case groupKey != nil:
+		specifier = asset.NewSpecifierFromGroupKey(*groupKey)
+	}
 
 	// The peer public key is optional if there is only a single asset
 	// channel.
@@ -7709,8 +7722,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 		peerPubKey = &parsedKey
 	}
-
-	specifier := asset.NewSpecifierFromId(assetID)
 
 	// We can now query the asset channels we have.
 	assetChan, err := r.rfqChannel(
@@ -7733,15 +7744,13 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		time.Duration(expirySeconds) * time.Second,
 	)
 
+	rpcSpecifier := marshalAssetSpecifier(specifier)
+
 	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
-		AssetSpecifier: &rfqrpc.AssetSpecifier{
-			Id: &rfqrpc.AssetSpecifier_AssetId{
-				AssetId: assetID[:],
-			},
-		},
-		AssetMaxAmt: req.AssetAmount,
-		Expiry:      uint64(expiryTimestamp.Unix()),
-		PeerPubKey:  peerPubKey[:],
+		AssetSpecifier: &rpcSpecifier,
+		AssetMaxAmt:    req.AssetAmount,
+		Expiry:         uint64(expiryTimestamp.Unix()),
+		PeerPubKey:     peerPubKey[:],
 		TimeoutSeconds: uint32(
 			rfq.DefaultTimeout.Seconds(),
 		),
