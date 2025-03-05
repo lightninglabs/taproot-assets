@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 var (
@@ -1189,4 +1190,47 @@ type Telemetry interface {
 	// day.
 	QueryAssetStatsPerDay(ctx context.Context,
 		q GroupedStatsQuery) ([]*GroupedStats, error)
+}
+
+// AuthenticatedIgnoreTuple wraps the existing SignedIgnoreTuple struct and
+// includes information that allows it to be authenticated against an ignore
+// tree universe root.
+//
+// TODO(roasbeef): supplement with bitcoin header proof
+type AuthenticatedIgnoreTuple struct {
+	SignedIgnoreTuple
+
+	// IgnoreTreeRoot is the root of the ignore tree that the ignore tuple
+	// resides within.
+	IgnoreTreeRoot mssmt.Node
+
+	// InclusionProof is the universe inclusion proof for the ignore tuple
+	// within the universe tree.
+	InclusionProof *mssmt.Proof
+}
+
+// TupleQueryResp is the response to a query for ignore tuples.
+type TupleQueryResp = lfn.Result[lfn.Option[[]AuthenticatedIgnoreTuple]]
+
+// SumQueryResp is the response to a query for the sum of ignore tuples.
+type SumQueryResp = lfn.Result[lfn.Option[uint64]]
+
+// IgnoreTree represents a tree of ignore tuples which can be used to
+// effectively cache rejection of invalid proofs.
+type IgnoreTree interface {
+	// Sum returns the sum of the ignore tuples for the given asset.
+	Sum(context.Context, asset.Specifier) SumQueryResp
+
+	// AddTuple adds a new ignore tuples to the ignore tree.
+	//
+	// TODO(roasbeef): does all the signing under the hood?
+	AddTuples(context.Context, asset.Specifier,
+		...SignedIgnoreTuple) lfn.Result[[]AuthenticatedIgnoreTuple]
+
+	// ListTuples returns the list of ignore tuples for the given asset.
+	ListTuples(context.Context, asset.Specifier) lfn.Result[IgnoreTuples]
+
+	// QueryTuples returns the ignore tuples for the given asset.
+	QueryTuples(context.Context, asset.Specifier,
+		...IgnoreTuple) TupleQueryResp
 }
