@@ -1666,7 +1666,7 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID to use for the payment. This must be set for both invoice\nand keysend payments, unless RFQ negotiation was already done beforehand\nand payment_request.first_hop_custom_records already contains valid RFQ\ndata."
+          "description": "The asset ID to use for the payment. This must be set for both invoice\nand keysend payments, unless RFQ negotiation was already done beforehand\nand payment_request.first_hop_custom_records already contains valid RFQ\ndata. Mutually exclusive to group_key."
         },
         "asset_amount": {
           "type": "string",
@@ -1690,6 +1690,11 @@
         "allow_overpay": {
           "type": "boolean",
           "description": "If a small invoice should be paid that is below the amount that always\nneeds to be sent out to carry a single asset unit, then by default the\npayment is rejected. If this flag is set, then the payment will be\nallowed to proceed, even if it is uneconomical, meaning that more sats\nare sent out to the network than the invoice amount plus routing fees\nrequire to be paid."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key which dictates which assets may be used for this payment.\nMutually exclusive to asset_id."
         }
       }
     },
