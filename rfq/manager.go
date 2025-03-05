@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -981,6 +982,18 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 		}
 
 		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		// If the group lookup failed, let's see if the provided assetID
+		// is the hash of the group key, which is used by the sender to
+		// indicate that any asset that belongs to this group may be
+		// used.
+		if group == nil {
+			groupHash := sha256.Sum256(
+				specifierGK.SerializeCompressed(),
+			)
+
+			return groupHash == id, nil
+		}
 
 		return group.IsEqual(specifierGK), nil
 
