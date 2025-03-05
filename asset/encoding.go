@@ -864,7 +864,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			return err
 		}
 
-		leaves := make([]AltLeaf[Asset], 0, numItems)
+		leaves := make([]AltLeaf[Asset], numItems)
 		leafKeys := make(map[SerializedKey]struct{})
 		for i := uint64(0); i < numItems; i++ {
 			var streamBytes []byte
@@ -890,7 +890,7 @@ func AltLeavesDecoder(r io.Reader, val any, buf *[8]byte, l uint64) error {
 			}
 
 			leafKeys[leafKey] = struct{}{}
-			leaves = append(leaves, AltLeaf[Asset](&leaf))
+			leaves[i] = AltLeaf[Asset](&leaf)
 		}
 
 		*typ = leaves
