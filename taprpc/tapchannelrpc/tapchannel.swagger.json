@@ -1493,7 +1493,7 @@
         "asset_id": {
           "type": "string",
           "format": "byte",
-          "description": "The asset ID to use for the invoice."
+          "description": "The asset ID to use for the invoice. Mutually exclusive to group_key."
         },
         "asset_amount": {
           "type": "string",
@@ -1512,6 +1512,11 @@
         "hodl_invoice": {
           "$ref": "#/definitions/tapchannelrpcHodlInvoice",
           "description": "If set, then this will make the invoice created a hodl invoice, which\nwon't be settled automatically. Instead, users will need to use the\ninvoicesrpc.SettleInvoice call to manually settle the invoice."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key which dictates which assets may be accepted for this\ninvoice. If set, any asset that belongs to this group may be accepted to\nsettle this invoice. Mutually exclusive to asset_id."
         }
       }
     },
