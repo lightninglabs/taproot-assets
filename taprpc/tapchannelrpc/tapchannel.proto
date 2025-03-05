@@ -168,7 +168,7 @@ message HodlInvoice {
 }
 
 message AddInvoiceRequest {
-    // The asset ID to use for the invoice.
+    // The asset ID to use for the invoice. Mutually exclusive to group_key.
     bytes asset_id = 1;
 
     // The asset amount to receive.
@@ -192,6 +192,11 @@ message AddInvoiceRequest {
     // won't be settled automatically. Instead, users will need to use the
     // invoicesrpc.SettleInvoice call to manually settle the invoice.
     HodlInvoice hodl_invoice = 5;
+
+    // The group key which dictates which assets may be accepted for this
+    // invoice. If set, any asset that belongs to this group may be accepted to
+    // settle this invoice. Mutually exclusive to asset_id.
+    bytes group_key = 6;
 }
 
 message AddInvoiceResponse {
