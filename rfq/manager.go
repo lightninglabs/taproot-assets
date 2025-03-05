@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -947,6 +948,10 @@ func (m *Manager) GetAssetGroupKey(ctx context.Context,
 	// Perform the DB query.
 	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
 	if err != nil {
+		if strings.Contains(err.Error(), "asset group is unknown") {
+			return nil, nil
+		}
+
 		return nil, err
 	}
 
