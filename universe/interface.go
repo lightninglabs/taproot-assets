@@ -1193,28 +1193,13 @@ type Telemetry interface {
 		q GroupedStatsQuery) ([]*GroupedStats, error)
 }
 
-// IgnoreTuple....
+// AuthenticatedIgnoreTuple wraps the existing SignedIgnoreTuple struct and
+// includes information that allows it to be authenticated against an ignore
+// tree universe root.
 //
-// TODO(roasbeef): validate method given sig
-type IgnoreTuple = asset.PrevID
-
-// IgnoreTuples...
-type IgnoreTuples = []IgnoreTuple
-
-// SignedIgnoreTuple...
-//
-// TODO(roasbeef): encode+decode
-type SignedIgnoreTuple struct {
-	// IgnoreTuple...
-	IgnoreTuple
-
-	// Sig...
-	Sig schnorr.Signature
-}
-
-// AuthenticatedIgnoreTuple...
+// TODO(roasbeef): supplement with bitcoin header proof
 type AuthenticatedIgnoreTuple struct {
-	SignedIgnoreTuple
+	*SignedIgnoreTuple
 
 	// IgnoreTreeRoot is the root of the ignore tree that the ignore tuple
 	// resides within.
@@ -1225,26 +1210,28 @@ type AuthenticatedIgnoreTuple struct {
 	InclusionProof *mssmt.Proof
 }
 
-// TupleQueryResp...
-type TupleQueryResp = lfn.Result[lfn.Option[AuthenticatedIgnoreTuple]]
+// TupleQueryResp is the response to a query for ignore tuples.
+type TupleQueryResp = lfn.Result[lfn.Option[[]AuthenticatedIgnoreTuple]]
 
-// SumQueryResp...
+// SumQueryResp is the response to a query for the sum of ignore tuples.
 type SumQueryResp = lfn.Result[lfn.Option[uint64]]
 
-// IgnoreTree....
+// IgnoreTree represents a tree of ignore tuples which can be used to
+// effectively cache rejection of invalid proofs.
 type IgnoreTree interface {
-	// Sum...
-	Sum(asset.Specifier) SumQueryResp
+	// Sum returns the sum of the ignore tuples for the given asset.
+	Sum(context.Context, asset.Specifier) SumQueryResp
 
-	// AddTuple...
+	// AddTuple adds a new ignore tuples to the ignore tree.
 	//
-	// TODO(roasbeef): does all the signing under the hood
-	AddTuples(asset.Specifier,
-		...IgnoreTuple) lfn.Result[AuthenticatedIgnoreTuple]
+	// TODO(roasbeef): does all the signing under the hood?
+	AddTuples(context.Context, asset.Specifier,
+		...SignedIgnoreTuple) lfn.Result[[]AuthenticatedIgnoreTuple]
 
-	// ListTuples...
-	ListTuples(asset.Specifier) lfn.Result[IgnoreTuples]
+	// ListTuples returns the list of ignore tuples for the given asset.
+	ListTuples(context.Context, asset.Specifier) lfn.Result[IgnoreTuples]
 
-	// QueryTuples...
-	QueryTuples(asset.Specifier, IgnoreTuple) TupleQueryResp
+	// QueryTuples returns the ignore tuples for the given asset.
+	QueryTuples(context.Context, asset.Specifier,
+		...IgnoreTuple) TupleQueryResp
 }
