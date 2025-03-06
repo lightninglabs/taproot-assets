@@ -32,10 +32,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: docker image cache
         uses: jpribyl/action-docker-layer-caching@v0.1.1
@@ -49,10 +51,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: Generate RPC stubs and check REST annotations
         run: make rpc-check
@@ -62,10 +66,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v3
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: Run go mod tidy
         run: make mod-check
@@ -75,10 +81,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: Run test vector creation check
         run: make test-vector-check
@@ -88,7 +96,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Run migration check
         run: make migration-check
@@ -101,10 +109,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: compile code
         run: go install -v ./...
@@ -120,10 +130,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: check default values in sample-tapd.conf file
         run: make sample-conf-check
@@ -136,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -163,10 +175,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: setup go ${{ env.GO_VERSION }}
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: build release for all architectures
         run: make release
@@ -179,12 +193,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: run lint
         run: make lint
@@ -197,10 +213,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: run format
         run: make fmt
@@ -221,10 +239,12 @@ jobs:
           - unit dbbackend=postgres
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: run ${{ matrix.unit_type }}
         run: make ${{ matrix.unit_type }}
@@ -246,10 +266,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: run itest
         run: make itest cover=1
@@ -283,10 +305,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: run itest
         run: make itest dbbackend=postgres cover=1
@@ -321,13 +345,15 @@ jobs:
 
     steps:
       - name: git checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Setup go environment
-        uses: ./.github/actions/setup-go
+      - name: Setup go ${{ env.GO_VERSION }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: '${{ env.GO_VERSION }}'
 
       - name: Clone Lit repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           repository: lightninglabs/lightning-terminal
           ref: ${{ env.LITD_ITEST_BRANCH }}
