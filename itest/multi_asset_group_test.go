@@ -95,9 +95,8 @@ func testMintMultiAssetGroups(t *harnessTest) {
 
 	// Finally, we send some assets from the multi-asset group to Bob to
 	// ensure that they can be sent and received correctly.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -329,9 +328,8 @@ func testMultiAssetGroupSend(t *harnessTest) {
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()

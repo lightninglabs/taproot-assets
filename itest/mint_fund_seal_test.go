@@ -42,8 +42,8 @@ func testMintFundSealAssets(t *harnessTest) {
 	// party in the test. This tapd node is connected to lnd "Bob".
 	var (
 		aliceTapd = t.tapd
-		aliceLnd  = t.lndHarness.Alice
-		bobLnd    = t.lndHarness.Bob
+		aliceLnd  = t.tapd.cfg.LndNode
+		bobLnd    = t.lndHarness.NewNodeWithCoins("Bob", nil)
 		bobTapd   = setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	)
 
