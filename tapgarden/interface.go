@@ -332,7 +332,7 @@ type ChainBridge interface {
 
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.
-	PublishTransaction(context.Context, *wire.MsgTx) error
+	PublishTransaction(context.Context, *wire.MsgTx, string) error
 
 	// EstimateFee returns a fee estimate for the confirmation target.
 	EstimateFee(ctx context.Context,
