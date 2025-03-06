@@ -23,6 +23,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
@@ -83,6 +84,10 @@ const (
 	// timeout we'll use for waiting for a receiver to acknowledge a proof
 	// transfer.
 	defaultProofTransferReceiverAckTimeout = 500 * time.Millisecond
+
+	// mockPriceOracleCoef is the coefficient used in the mock price oracle
+	// to calculate the asset rate.
+	mockPriceOracleCoef = 5_820_600
 )
 
 // tapdHarness is a test harness that holds everything that is needed to
@@ -102,6 +107,7 @@ type tapdHarness struct {
 	tchrpc.TaprootAssetChannelsClient
 	universerpc.UniverseClient
 	tapdevrpc.TapDevClient
+	priceoraclerpc.PriceOracleClient
 }
 
 // tapdConfig holds all configuration items that are required to start a tapd
@@ -223,7 +229,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		Rfq: rfq.CliConfig{
 			//nolint:lll
 			PriceOracleAddress:     rfq.MockPriceOracleServiceAddress,
-			MockOracleAssetsPerBTC: 5_820_600,
+			MockOracleAssetsPerBTC: mockPriceOracleCoef,
 		},
 	}
 
@@ -425,6 +431,7 @@ func (hs *tapdHarness) start(expectErrExit bool) error {
 	)
 	hs.UniverseClient = universerpc.NewUniverseClient(rpcConn)
 	hs.TapDevClient = tapdevrpc.NewTapDevClient(rpcConn)
+	hs.PriceOracleClient = priceoraclerpc.NewPriceOracleClient(rpcConn)
 
 	return nil
 }
