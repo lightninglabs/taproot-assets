@@ -11,7 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightningnetwork/lnd/channeldb"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lntypes"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"

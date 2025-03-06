@@ -20,13 +20,13 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/decred/dcrd/dcrec/secp256k1/v4"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
-	"github.com/lightningnetwork/lnd/build"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/tlv"
 	"github.com/stretchr/testify/require"
@@ -1466,8 +1466,6 @@ func TestProofUnknownOddType(t *testing.T) {
 }
 
 func init() {
-	logWriter := build.NewRotatingLogWriter()
-	logger := logWriter.GenSubLogger(Subsystem, func() {})
-	logWriter.RegisterSubLogger(Subsystem, logger)
-	UseLogger(logger)
+	logger := btclog.NewSLogger(btclog.NewDefaultHandler(os.Stdout))
+	UseLogger(logger.SubSystem(Subsystem))
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
