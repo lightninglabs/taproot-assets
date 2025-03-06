@@ -20,7 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/channeldb"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -64,8 +64,8 @@ func ComputeView(ourBalance, theirBalance uint64,
 
 	log.Tracef("Computing view, whoseCommit=%v, ourAssetBalance=%d, "+
 		"theirAssetBalance=%d, ourUpdates=%d, theirUpdates=%d",
-		whoseCommit, ourBalance, theirBalance, len(original.OurUpdates),
-		len(original.TheirUpdates))
+		whoseCommit, ourBalance, theirBalance,
+		len(original.Updates.Local), len(original.Updates.Remote))
 
 	newView := &DecodedView{
 		FeePerKw: original.FeePerKw,

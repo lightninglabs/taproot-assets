@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -23,7 +25,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -1764,8 +1765,6 @@ func TestTapscriptTreeManager(t *testing.T) {
 func init() {
 	rand.Seed(time.Now().Unix())
 
-	logWriter := build.NewRotatingLogWriter()
-	logger := logWriter.GenSubLogger(Subsystem, func() {})
-	logWriter.RegisterSubLogger(Subsystem, logger)
-	UseLogger(logger)
+	logger := btclog.NewSLogger(btclog.NewDefaultHandler(os.Stdout))
+	UseLogger(logger.SubSystem(Subsystem))
 }

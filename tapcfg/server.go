@@ -7,7 +7,7 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
@@ -597,6 +597,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 		AuxInvoiceManager:        auxInvoiceManager,
 		AuxSweeper:               auxSweeper,
 		LogWriter:                cfg.LogWriter,
+		LogMgr:                   cfg.LogMgr,
 		DatabaseConfig: &tap.DatabaseConfig{
 			RootKeyStore: tapdb.NewRootKeyStore(rksDB),
 			MintingStore: assetMintingStore,

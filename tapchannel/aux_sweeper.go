@@ -26,7 +26,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntypes"
@@ -521,9 +521,11 @@ func (s sweepVpkts) allVpktsWithInput() []vPktsWithInput {
 // the commitment transaction. This excludes vPkts that are the pre-signed 2nd
 // level transaction variant.
 func (s sweepVpkts) directSpendPkts() []*tappsbt.VPacket {
-	directSpends := lfn.Filter(func(vi vPktsWithInput) bool {
-		return !vi.isPresigned()
-	}, s.allVpktsWithInput())
+	directSpends := lfn.Filter(
+		s.allVpktsWithInput(), func(vi vPktsWithInput) bool {
+			return !vi.isPresigned()
+		},
+	)
 	directPkts := fn.FlatMap(
 		directSpends, func(v vPktsWithInput) []*tappsbt.VPacket {
 			return v.vPkts
@@ -541,6 +543,7 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 ) lfn.Result[[]*tappsbt.VPacket] {
 
 	type returnType = []*tappsbt.VPacket
+	type resultType = lfn.Result[returnType]
 
 	// Based on the sweep inputs, make vPackets that sweep all the inputs
 	// into a new output with a fresh script key. They won't have an
@@ -548,7 +551,7 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 	// anchor them all. We'll then take those, then sign all the vPackets
 	// based on the specified sweepDesc.
 	signPkts := func(vPkts []*tappsbt.VPacket,
-		desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
+		desc tapscriptSweepDesc) resultType {
 
 		// If this is a second level output, then we'll use the
 		// specified aux sign desc, otherwise, we'll use the
@@ -571,10 +574,16 @@ func (a *AuxSweeper) createAndSignSweepVpackets(
 		return lfn.Ok(vPkts)
 	}
 
-	return lfn.AndThen2(
+	return lfn.FlatMapResult(
 		a.createSweepVpackets(sweepInputs, sweepDesc, resReq),
-		sweepDesc,
-		signPkts,
+		func(vPkts []*tappsbt.VPacket) resultType {
+			return lfn.FlatMapResult(
+				sweepDesc,
+				func(desc tapscriptSweepDesc) resultType {
+					return signPkts(vPkts, desc)
+				},
+			)
+		},
 	)
 }
 
@@ -1129,24 +1138,32 @@ func anchorOutputAllocations(
 	remoteAnchor := anchorAlloc(keyRing.ToRemoteKey)
 
 	type resultType = lfn.Result[[]*tapsend.Allocation]
-	return lfn.AndThen2(
-		localAnchor, remoteAnchor,
-		func(a1, a2 *tapsend.Allocation) resultType {
-			// Before we return the anchors, we'll make sure that
-			// they end up in the right sort order.
-			scriptCompare := bytes.Compare(
-				a1.SortTaprootKeyBytes, a2.SortTaprootKeyBytes,
+	sortAnchor := func(a1, a2 *tapsend.Allocation) resultType {
+		// Before we return the anchors, we'll make sure that
+		// they end up in the right sort order.
+		scriptCompare := bytes.Compare(
+			a1.SortTaprootKeyBytes, a2.SortTaprootKeyBytes,
+		)
+
+		if scriptCompare < 0 {
+			a1.OutputIndex = 0
+			a2.OutputIndex = 1
+		} else {
+			a2.OutputIndex = 0
+			a1.OutputIndex = 1
+		}
+
+		return lfn.Ok([]*tapsend.Allocation{a1, a2})
+	}
+
+	return lfn.FlatMapResult(
+		localAnchor, func(a1 *tapsend.Allocation) resultType {
+			return lfn.FlatMapResult(
+				remoteAnchor,
+				func(a2 *tapsend.Allocation) resultType {
+					return sortAnchor(a1, a2)
+				},
 			)
-
-			if scriptCompare < 0 {
-				a1.OutputIndex = 0
-				a2.OutputIndex = 1
-			} else {
-				a2.OutputIndex = 0
-				a1.OutputIndex = 1
-			}
-
-			return lfn.Ok([]*tapsend.Allocation{a1, a2})
 		},
 	)
 }
@@ -2114,16 +2131,16 @@ func extractInputVPackets(inputs []input.Input) lfn.Result[sweepVpkts] {
 	)
 
 	firstLevelSweeps := lfn.Filter(
+		resolutionInfo,
 		func(info blobWithWitnessInfo) bool {
 			return !info.secondLevel
 		},
-		resolutionInfo,
 	)
 	secondLevelSweeps := lfn.Filter(
+		resolutionInfo,
 		func(info blobWithWitnessInfo) bool {
 			return info.secondLevel
 		},
-		resolutionInfo,
 	)
 
 	// With our set of resolution inputs extracted, we'll now decode them in
