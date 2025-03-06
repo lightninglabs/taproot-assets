@@ -250,12 +250,13 @@ jobs:
         run: make ${{ matrix.unit_type }}
 
       - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
+        uses: coverallsapp/github-action@v2
         if: matrix.unit_type == 'unit-cover'
         continue-on-error: true
         with:
-          path-to-profile: coverage.txt
+          file: coverage.txt
           flag-name: 'unit'
+          format: 'golang'
           parallel: true
 
   ########################
@@ -289,12 +290,13 @@ jobs:
           retention-days: 5
 
       - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
+        uses: coverallsapp/github-action@v2
         if: ${{ success() }}
         continue-on-error: true
         with:
-          path-to-profile: itest/coverage.txt
+          file: itest/coverage.txt
           flag-name: 'itest'
+          format: 'golang'
           parallel: true
 
   ########################
@@ -328,12 +330,13 @@ jobs:
           retention-days: 5
 
       - name: Send coverage
-        uses: shogo82148/actions-goveralls@v1
+        uses: coverallsapp/github-action@v2
         if: ${{ success() }}
         continue-on-error: true
         with:
-          path-to-profile: itest/coverage.txt
+          file: itest/coverage.txt
           flag-name: 'itest'
+          format: 'golang'
           parallel: true
 
   ########################
@@ -391,7 +394,7 @@ jobs:
     needs: [unit-test]
     runs-on: ubuntu-latest
     steps:
-      - uses: shogo82148/actions-goveralls@v1
+      - uses: coverallsapp/github-action@v2
         continue-on-error: true
         with:
           parallel-finished: true
