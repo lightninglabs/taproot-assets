@@ -681,10 +681,10 @@ func newRfqTestScenario(t *harnessTest, opts ...RfqOption) *rfqTestScenario {
 	aliceBobChannel, bobCarolChannel := resp[0], resp[1]
 
 	// Make sure Alice is aware of channel Bob -> Carol.
-	t.lndHarness.AssertTopologyChannelOpen(aliceLnd, bobCarolChannel)
+	t.lndHarness.AssertChannelInGraph(aliceLnd, bobCarolChannel)
 
 	// Make sure Carol is aware of channel Alice -> Bob.
-	t.lndHarness.AssertTopologyChannelOpen(carolLnd, aliceBobChannel)
+	t.lndHarness.AssertChannelInGraph(carolLnd, aliceBobChannel)
 
 	// Create tapd nodes.
 	aliceTapd := setupTapdHarness(
@@ -734,13 +734,6 @@ func (s *rfqTestScenario) Cleanup() {
 	require.NoError(s.testHarness.t, s.AliceTapd.stop(!*noDelete))
 	require.NoError(s.testHarness.t, s.BobTapd.stop(!*noDelete))
 	require.NoError(s.testHarness.t, s.CarolTapd.stop(!*noDelete))
-
-	// Kill the LND nodes in the test harness node manager. If we don't
-	// perform this step the LND test harness node manager will continue to
-	// run the nodes in the background as "active nodes".
-	s.testHarness.lndHarness.KillNode(s.AliceLnd)
-	s.testHarness.lndHarness.KillNode(s.BobLnd)
-	s.testHarness.lndHarness.KillNode(s.CarolLnd)
 }
 
 // randomString generates a random string of the given length.

@@ -40,9 +40,8 @@ func testRoundTripSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -144,7 +143,7 @@ func testRoundTripSend(t *harnessTest) {
 
 	// Spend the output again, this time back to a p2wkh address.
 	_, p2wkhPkScript := newAddrWithScript(
-		t.lndHarness, t.lndHarness.Alice,
+		t.lndHarness, t.tapd.cfg.LndNode,
 		lnrpc.AddressType_WITNESS_PUBKEY_HASH,
 	)
 
@@ -187,7 +186,7 @@ func testRoundTripSend(t *harnessTest) {
 	var buf bytes.Buffer
 	err = tx.Serialize(&buf)
 	require.NoError(t.t, err)
-	t.lndHarness.Alice.RPC.PublishTransaction(&walletrpc.Transaction{
+	t.tapd.cfg.LndNode.RPC.PublishTransaction(&walletrpc.Transaction{
 		TxHex: buf.Bytes(),
 	})
 
@@ -196,7 +195,7 @@ func testRoundTripSend(t *harnessTest) {
 	sweepTxHash := tx.TxHash()
 	t.lndHarness.Miner().AssertTxInBlock(block, sweepTxHash)
 
-	unspent := t.lndHarness.Alice.RPC.ListUnspent(
+	unspent := t.tapd.cfg.LndNode.RPC.ListUnspent(
 		&walletrpc.ListUnspentRequest{
 			MinConfs: 1,
 		},

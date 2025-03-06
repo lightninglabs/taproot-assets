@@ -18,9 +18,9 @@ func testMintProofRepeatFedSyncAttempt(t *harnessTest) {
 	// that we can test that the proof push sync is retried and eventually
 	// succeeds after the fed server peer node reappears online.
 	syncTickerInterval := 2 * time.Second
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	mintingNode := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, nil,
-		func(params *tapdHarnessParams) {
+		t.t, t, bobLnd, nil, func(params *tapdHarnessParams) {
 			params.fedSyncTickerInterval = &syncTickerInterval
 			params.noDefaultUniverseSync = true
 		},

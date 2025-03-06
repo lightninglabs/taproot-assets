@@ -42,10 +42,10 @@ func testUniverseSync(t *harnessTest) {
 
 	// With those assets created, we'll now create a new node that we'll
 	// use to exercise the Universe sync.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.noDefaultUniverseSync = true
+		t.t, t, bobLnd, t.universeServer, func(p *tapdHarnessParams) {
+			p.noDefaultUniverseSync = true
 		},
 	)
 	defer func() {
@@ -305,10 +305,10 @@ func testUniverseManualSync(t *harnessTest) {
 
 	// With those assets created, we'll now create a new node that we'll
 	// use to exercise the manual Universe sync.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.noDefaultUniverseSync = true
+		t.t, t, bobLnd, t.universeServer, func(p *tapdHarnessParams) {
+			p.noDefaultUniverseSync = true
 		},
 	)
 	defer func() {
@@ -501,10 +501,10 @@ func getJSON[T proto.Message](url string) (T, error) {
 func testUniverseFederation(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up to
 	// any existing Universe server.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-		func(params *tapdHarnessParams) {
-			params.noDefaultUniverseSync = true
+		t.t, t, bobLnd, t.universeServer, func(p *tapdHarnessParams) {
+			p.noDefaultUniverseSync = true
 		},
 	)
 	defer func() {
