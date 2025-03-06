@@ -1416,6 +1416,36 @@ func AssertNumGroups(t *testing.T, client taprpc.TaprootAssetsClient,
 	require.Equal(t, num, NumGroups(t, client))
 }
 
+// AssertNumBurns makes sure a given number of burns exists, then returns them.
+func AssertNumBurns(t *testing.T, client taprpc.TaprootAssetsClient,
+	num int, req *taprpc.ListBurnsRequest) []*taprpc.AssetBurn {
+
+	ctxb := context.Background()
+	if req == nil {
+		req = &taprpc.ListBurnsRequest{}
+	}
+
+	var result []*taprpc.AssetBurn
+	err := wait.NoError(func() error {
+		burns, err := client.ListBurns(ctxb, req)
+		if err != nil {
+			return err
+		}
+
+		if len(burns.Burns) != num {
+			return fmt.Errorf("wanted %d burns, got %d", num,
+				len(burns.Burns))
+		}
+
+		result = burns.Burns
+
+		return nil
+	}, defaultTimeout)
+	require.NoError(t, err)
+
+	return result
+}
+
 // NumGroups returns the current number of asset groups present.
 func NumGroups(t *testing.T, client taprpc.TaprootAssetsClient) int {
 	ctxb := context.Background()

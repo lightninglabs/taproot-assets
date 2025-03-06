@@ -2,6 +2,7 @@ package tapfreighter
 
 import (
 	"github.com/btcsuite/btclog"
+	"github.com/davecgh/go-spew/spew"
 )
 
 // Subsystem defines the logging code for this subsystem.
@@ -23,4 +24,11 @@ func DisableLog() {
 // using btclog.
 func UseLogger(logger btclog.Logger) {
 	log = logger
+}
+
+// limitSpewer is a spew.ConfigState that limits the depth of the output
+// to 4 levels, so it can safely be used for things that contain an MS-SMT tree.
+var limitSpewer = &spew.ConfigState{
+	Indent:   "  ",
+	MaxDepth: 7,
 }

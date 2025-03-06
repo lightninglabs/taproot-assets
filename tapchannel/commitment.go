@@ -479,8 +479,8 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	whoseCommit lntypes.ChannelParty, ourBalance,
 	theirBalance lnwire.MilliSatoshi, originalView *lnwallet.HtlcView,
 	chainParams *address.ChainParams,
-	keys lnwallet.CommitmentKeyRing) ([]*Allocation, *cmsg.Commitment,
-	error) {
+	keys lnwallet.CommitmentKeyRing) ([]*tapsend.Allocation,
+	*cmsg.Commitment, error) {
 
 	log.Tracef("Generating allocations, whoseCommit=%v, ourBalance=%d, "+
 		"theirBalance=%d", whoseCommit, ourBalance, theirBalance)
@@ -555,7 +555,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// Now we can distribute the inputs according to the allocations. This
 	// creates a virtual packet for each distinct asset ID that is committed
 	// to the channel.
-	vPackets, err := DistributeCoins(inputProofs, allocations, chainParams)
+	vPackets, err := tapsend.DistributeCoins(
+		inputProofs, allocations, chainParams, true, tappsbt.V1,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to distribute coins: %w",
 			err)
@@ -607,7 +609,7 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 	// The output commitment is all we need to create the auxiliary leaves.
 	// We map the output commitments (which are keyed by on-chain output
 	// index) back to the allocation.
-	err = AssignOutputCommitments(allocations, outCommitments)
+	err = tapsend.AssignOutputCommitments(allocations, outCommitments)
 	if err != nil {
 		return nil, nil, fmt.Errorf("unable to assign alloc output "+
 			"commitments: %w", err)
@@ -631,7 +633,9 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 		for outIdx := range vPkt.Outputs {
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				fakeCommitTx, vPkt, outCommitments, outIdx,
-				vPackets, NonAssetExclusionProofs(allocations),
+				vPackets, tapsend.NonAssetExclusionProofs(
+					allocations,
+				),
 			)
 			if err != nil {
 				return nil, nil, fmt.Errorf("unable to create "+
@@ -661,7 +665,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 	wantLocalCommitAnchor, wantRemoteCommitAnchor bool,
 	filteredView *DecodedView, whoseCommit lntypes.ChannelParty,
 	keys lnwallet.CommitmentKeyRing,
-	nonAssetView *DecodedView) ([]*Allocation, error) {
+	nonAssetView *DecodedView) ([]*tapsend.Allocation, error) {
 
 	log.Tracef("Creating allocations, whoseCommit=%v, initiator=%v, "+
 		"ourBalance=%d, theirBalance=%d, ourAssetBalance=%d, "+
@@ -683,8 +687,8 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			len(filteredView.TheirUpdates) +
 			len(nonAssetView.OurUpdates) +
 			len(nonAssetView.TheirUpdates) + 4
-		allocations = make([]*Allocation, 0, numAllocations)
-		addAlloc    = func(a *Allocation) {
+		allocations = make([]*tapsend.Allocation, 0, numAllocations)
+		addAlloc    = func(a *tapsend.Allocation) {
 			allocations = append(allocations, a)
 		}
 	)
@@ -771,9 +775,9 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			haveHtlcSplitRoot = true
 		}
 
-		allocType := CommitAllocationHtlcOutgoing
+		allocType := tapsend.CommitAllocationHtlcOutgoing
 		if isIncoming {
-			allocType = CommitAllocationHtlcIncoming
+			allocType = tapsend.CommitAllocationHtlcIncoming
 		}
 
 		// If HTLC is dust, do not create allocation for it.
@@ -803,7 +807,18 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			schnorr.SerializePubKey(htlcTree.TaprootKey),
 			schnorr.SerializePubKey(tweakedTree.TaprootKey))
 
-		allocations = append(allocations, &Allocation{
+		scriptKey := asset.ScriptKey{
+			PubKey: asset.NewScriptKey(
+				tweakedTree.TaprootKey,
+			).PubKey,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: tweakedTree.InternalKey,
+				},
+				Tweak: tweakedTree.TapscriptRoot,
+			},
+		}
+		allocations = append(allocations, &tapsend.Allocation{
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
 			AssetVersion:   asset.V1,
@@ -811,24 +826,14 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.ScriptKey{
-				PubKey: asset.NewScriptKey(
-					tweakedTree.TaprootKey,
-				).PubKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						PubKey: tweakedTree.InternalKey,
-					},
-					Tweak: tweakedTree.TapscriptRoot,
-				},
-			},
+			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				// This _must_ remain the non-tweaked key, since
 				// this is used for sorting _before_ applying
 				// any TAP tweaks.
 				htlcTree.TaprootKey,
 			),
-			CLTV:      htlc.Timeout,
+			SortCLTV:  htlc.Timeout,
 			HtlcIndex: htlc.HtlcIndex,
 		})
 
@@ -882,15 +887,15 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			return nil
 		}
 
-		allocations = append(allocations, &Allocation{
-			Type:           AllocationTypeNoAssets,
+		allocations = append(allocations, &tapsend.Allocation{
+			Type:           tapsend.AllocationTypeNoAssets,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				htlcTree.TaprootKey,
 			),
-			CLTV:      htlc.Timeout,
+			SortCLTV:  htlc.Timeout,
 			HtlcIndex: htlc.HtlcIndex,
 		})
 
@@ -916,7 +921,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 	// With all allocations created, we now sort them to ensure that we have
 	// a stable and deterministic order that both parties can arrive at. We
 	// then assign the output indexes according to that order.
-	InPlaceAllocationSort(allocations)
+	tapsend.InPlaceAllocationSort(allocations)
 	for idx := range allocations {
 		allocations[idx].OutputIndex = uint32(idx)
 	}
@@ -932,7 +937,7 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 	theirBalance btcutil.Amount, ourAssetBalance, theirAssetBalance uint64,
 	wantLocalCommitAnchor, wantRemoteCommitAnchor bool,
 	keys lnwallet.CommitmentKeyRing, leaseExpiry uint32,
-	addAllocation func(a *Allocation)) error {
+	addAllocation func(a *tapsend.Allocation)) error {
 
 	// Start with the commitment anchor outputs.
 	localAnchor, remoteAnchor, err := lnwallet.CommitScriptAnchors(
@@ -951,9 +956,9 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
-		addAllocation(&Allocation{
+		addAllocation(&tapsend.Allocation{
 			// Commitment anchor outputs never carry assets.
-			Type:           AllocationTypeNoAssets,
+			Type:           tapsend.AllocationTypeNoAssets,
 			Amount:         0,
 			BtcAmount:      lnwallet.AnchorSize,
 			InternalKey:    scriptTree.InternalKey,
@@ -972,9 +977,9 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"script sibling: %w", err)
 		}
 
-		addAllocation(&Allocation{
+		addAllocation(&tapsend.Allocation{
 			// Commitment anchor outputs never carry assets.
-			Type:           AllocationTypeNoAssets,
+			Type:           tapsend.AllocationTypeNoAssets,
 			Amount:         0,
 			BtcAmount:      lnwallet.AnchorSize,
 			InternalKey:    scriptTree.InternalKey,
@@ -1006,25 +1011,26 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
-		allocation := &Allocation{
-			Type:           CommitAllocationToLocal,
+		scriptKey := asset.ScriptKey{
+			PubKey: asset.NewScriptKey(
+				toLocalTree.TaprootKey,
+			).PubKey,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: toLocalTree.InternalKey,
+				},
+				Tweak: toLocalTree.TapscriptRoot,
+			},
+		}
+		allocation := &tapsend.Allocation{
+			Type:           tapsend.CommitAllocationToLocal,
 			Amount:         ourAssetBalance,
 			AssetVersion:   asset.V1,
 			SplitRoot:      initiator,
 			BtcAmount:      ourBalance,
 			InternalKey:    toLocalTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.ScriptKey{
-				PubKey: asset.NewScriptKey(
-					toLocalTree.TaprootKey,
-				).PubKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						PubKey: toLocalTree.InternalKey,
-					},
-					Tweak: toLocalTree.TapscriptRoot,
-				},
-			},
+			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toLocalTree.TaprootKey,
 			),
@@ -1033,12 +1039,12 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 		// If there are no assets, only BTC (for example due to a push
 		// amount), the allocation looks simpler.
 		if ourAssetBalance == 0 {
-			allocation = &Allocation{
-				Type:           AllocationTypeNoAssets,
+			allocation = &tapsend.Allocation{
+				Type:           tapsend.AllocationTypeNoAssets,
 				BtcAmount:      ourBalance,
 				InternalKey:    toLocalTree.InternalKey,
 				NonAssetLeaves: sibling,
-				ScriptKey: asset.NewScriptKey(
+				GenScriptKey: tapsend.StaticScriptPubKeyGen(
 					toLocalTree.TaprootKey,
 				),
 				SortTaprootKeyBytes: schnorr.SerializePubKey(
@@ -1068,26 +1074,26 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 				"sibling: %w", err)
 		}
 
-		allocation := &Allocation{
-			Type:           CommitAllocationToRemote,
+		scriptKey := asset.ScriptKey{
+			PubKey: asset.NewScriptKey(
+				toRemoteTree.TaprootKey,
+			).PubKey,
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					PubKey: toRemoteTree.InternalKey,
+				},
+				Tweak: toRemoteTree.TapscriptRoot,
+			},
+		}
+		allocation := &tapsend.Allocation{
+			Type:           tapsend.CommitAllocationToRemote,
 			Amount:         theirAssetBalance,
 			AssetVersion:   asset.V1,
 			SplitRoot:      !initiator,
 			BtcAmount:      theirBalance,
 			InternalKey:    toRemoteTree.InternalKey,
 			NonAssetLeaves: sibling,
-			ScriptKey: asset.ScriptKey{
-				PubKey: asset.NewScriptKey(
-					toRemoteTree.TaprootKey,
-				).PubKey,
-				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey: keychain.KeyDescriptor{
-						//nolint:lll
-						PubKey: toRemoteTree.InternalKey,
-					},
-					Tweak: toRemoteTree.TapscriptRoot,
-				},
-			},
+			GenScriptKey:   tapsend.StaticScriptKeyGen(scriptKey),
 			SortTaprootKeyBytes: schnorr.SerializePubKey(
 				toRemoteTree.TaprootKey,
 			),
@@ -1096,12 +1102,12 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 		// If there are no assets, only BTC (for example due to a push
 		// amount), the allocation looks simpler.
 		if theirAssetBalance == 0 {
-			allocation = &Allocation{
-				Type:           AllocationTypeNoAssets,
+			allocation = &tapsend.Allocation{
+				Type:           tapsend.AllocationTypeNoAssets,
 				BtcAmount:      theirBalance,
 				InternalKey:    toRemoteTree.InternalKey,
 				NonAssetLeaves: sibling,
-				ScriptKey: asset.NewScriptKey(
+				GenScriptKey: tapsend.StaticScriptPubKeyGen(
 					toRemoteTree.TaprootKey,
 				),
 				SortTaprootKeyBytes: schnorr.SerializePubKey(
@@ -1141,7 +1147,7 @@ func LeavesFromTapscriptScriptTree(
 }
 
 // ToCommitment converts the allocations to a Commitment struct.
-func ToCommitment(allocations []*Allocation,
+func ToCommitment(allocations []*tapsend.Allocation,
 	vPackets []*tappsbt.VPacket) (*cmsg.Commitment, error) {
 
 	var (
@@ -1154,7 +1160,9 @@ func ToCommitment(allocations []*Allocation,
 
 	// Start with the to_local output. There should be at most one of these
 	// outputs.
-	toLocal := fn.Filter(allocations, FilterByType(CommitAllocationToLocal))
+	toLocal := fn.Filter(allocations, tapsend.FilterByType(
+		tapsend.CommitAllocationToLocal,
+	))
 	switch {
 	case len(toLocal) > 1:
 		return nil, fmt.Errorf("expected at most one to local output, "+
@@ -1176,9 +1184,9 @@ func ToCommitment(allocations []*Allocation,
 	}
 
 	// The same for the to_remote, at most one should exist.
-	toRemote := fn.Filter(
-		allocations, FilterByType(CommitAllocationToRemote),
-	)
+	toRemote := fn.Filter(allocations, tapsend.FilterByType(
+		tapsend.CommitAllocationToRemote,
+	))
 	switch {
 	case len(toRemote) > 1:
 		return nil, fmt.Errorf("expected at most one to remote "+
@@ -1199,9 +1207,9 @@ func ToCommitment(allocations []*Allocation,
 		}
 	}
 
-	outgoing := fn.Filter(
-		allocations, FilterByType(CommitAllocationHtlcOutgoing),
-	)
+	outgoing := fn.Filter(allocations, tapsend.FilterByType(
+		tapsend.CommitAllocationHtlcOutgoing,
+	))
 	for _, a := range outgoing {
 		htlcLeaf, err := a.AuxLeaf()
 		if err != nil {
@@ -1230,9 +1238,9 @@ func ToCommitment(allocations []*Allocation,
 		}
 	}
 
-	incoming := fn.Filter(
-		allocations, FilterByType(CommitAllocationHtlcIncoming),
-	)
+	incoming := fn.Filter(allocations, tapsend.FilterByType(
+		tapsend.CommitAllocationHtlcIncoming,
+	))
 	for _, a := range incoming {
 		htlcLeaf, err := a.AuxLeaf()
 		if err != nil {
@@ -1269,7 +1277,7 @@ func ToCommitment(allocations []*Allocation,
 
 // collectOutputs collects all virtual transaction outputs for a given
 // allocation from the given packets.
-func collectOutputs(a *Allocation,
+func collectOutputs(a *tapsend.Allocation,
 	allPackets []*tappsbt.VPacket) ([]*cmsg.AssetOutput, error) {
 
 	var outputs []*cmsg.AssetOutput
@@ -1303,7 +1311,7 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 	initiator bool, htlcOutputs []*cmsg.AssetOutput, htlcAmt btcutil.Amount,
 	commitCsvDelay uint32, keys lnwallet.CommitmentKeyRing,
 	outputIndex fn.Option[uint32], htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) ([]*Allocation, error) {
+	htlcIndex uint64) ([]*tapsend.Allocation, error) {
 
 	// TODO(roasbeef): thaw height not implemented for taproot chans rn
 	// (lease expiry)
@@ -1338,8 +1346,8 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		schnorr.SerializePubKey(htlcTree.TaprootKey),
 		schnorr.SerializePubKey(tweakedTree.TaprootKey))
 
-	allocations := []*Allocation{{
-		Type: SecondLevelHtlcAllocation,
+	allocations := []*tapsend.Allocation{{
+		Type: tapsend.SecondLevelHtlcAllocation,
 		// If we're making the second-level transaction just to sign,
 		// then we'll have an output index of zero. Otherwise, we'll
 		// want to use the output index as appears in the final
@@ -1353,13 +1361,15 @@ func createSecondLevelHtlcAllocations(chanType channeldb.ChannelType,
 		),
 		InternalKey:    htlcTree.InternalKey,
 		NonAssetLeaves: sibling,
-		ScriptKey:      asset.NewScriptKey(tweakedTree.TaprootKey),
+		GenScriptKey: tapsend.StaticScriptPubKeyGen(
+			tweakedTree.TaprootKey,
+		),
 		SortTaprootKeyBytes: schnorr.SerializePubKey(
 			// This _must_ remain the non-tweaked key, since this is
 			// used for sorting _before_ applying any TAP tweaks.
 			htlcTree.TaprootKey,
 		),
-		CLTV:      htlcTimeout.UnwrapOr(0),
+		SortCLTV:  htlcTimeout.UnwrapOr(0),
 		HtlcIndex: htlcIndex,
 	}}
 
@@ -1372,7 +1382,7 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 	commitTx *wire.MsgTx, htlcAmt btcutil.Amount,
 	keys lnwallet.CommitmentKeyRing, chainParams *address.ChainParams,
 	htlcOutputs []*cmsg.AssetOutput, htlcTimeout fn.Option[uint32],
-	htlcIndex uint64) ([]*tappsbt.VPacket, []*Allocation, error) {
+	htlcIndex uint64) ([]*tappsbt.VPacket, []*tapsend.Allocation, error) {
 
 	allocations, err := createSecondLevelHtlcAllocations(
 		chanState.ChanType, chanState.IsInitiator,
@@ -1391,7 +1401,9 @@ func CreateSecondLevelHtlcPackets(chanState lnwallet.AuxChanState,
 		},
 	)
 
-	vPackets, err := DistributeCoins(inputProofs, allocations, chainParams)
+	vPackets, err := tapsend.DistributeCoins(
+		inputProofs, allocations, chainParams, true, tappsbt.V1,
+	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error distributing coins: %w", err)
 	}
@@ -1445,7 +1457,7 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 	// The output commitment is all we need to create the auxiliary leaves.
 	// We map the output commitments (which are keyed by on-chain output
 	// index) back to the allocation.
-	err = AssignOutputCommitments(allocations, outCommitments)
+	err = tapsend.AssignOutputCommitments(allocations, outCommitments)
 	if err != nil {
 		return none, fmt.Errorf("unable to assign output commitments: "+
 			"%w", err)
@@ -1464,7 +1476,7 @@ func CreateSecondLevelHtlcTx(chanState lnwallet.AuxChanState,
 // FakeCommitTx creates a fake commitment on-chain transaction from the given
 // funding outpoint and allocations. The transaction is not signed.
 func FakeCommitTx(fundingOutpoint wire.OutPoint,
-	allocations []*Allocation) (*wire.MsgTx, error) {
+	allocations []*tapsend.Allocation) (*wire.MsgTx, error) {
 
 	fakeCommitTx := wire.NewMsgTx(2)
 	fakeCommitTx.TxIn = []*wire.TxIn{
@@ -1475,7 +1487,7 @@ func FakeCommitTx(fundingOutpoint wire.OutPoint,
 	fakeCommitTx.TxOut = make([]*wire.TxOut, len(allocations))
 
 	for _, a := range allocations {
-		pkScript, err := a.finalPkScript()
+		pkScript, err := a.FinalPkScript()
 		if err != nil {
 			return nil, fmt.Errorf("error getting final pk "+
 				"script: %w", err)
@@ -1495,7 +1507,8 @@ func FakeCommitTx(fundingOutpoint wire.OutPoint,
 // the allocation's OutputIndex. The transaction inputs are sorted by the
 // default BIP69 sort.
 func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
-	htlcIndexes []input.HtlcIndex, allocations []*Allocation) error {
+	htlcIndexes []input.HtlcIndex,
+	allocations []*tapsend.Allocation) error {
 
 	if len(tx.TxOut) != len(allocations) {
 		return fmt.Errorf("output and allocation size mismatch")
@@ -1515,7 +1528,7 @@ func InPlaceCustomCommitSort(tx *wire.MsgTx, cltvs []uint32,
 	newCltvs := make([]uint32, len(cltvs))
 
 	for i, original := range txOutOriginal {
-		var allocation *Allocation
+		var allocation *tapsend.Allocation
 		for _, a := range allocations {
 			match, err := a.MatchesOutput(
 				original.PkScript, original.Value, cltvs[i],

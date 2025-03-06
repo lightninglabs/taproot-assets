@@ -1,4 +1,4 @@
-package tapchannel
+package tapsend
 
 import (
 	"bytes"
@@ -28,7 +28,7 @@ func InPlaceAllocationSort(allocations []*Allocation) {
 			bytes.Compare(
 				i.SortTaprootKeyBytes, j.SortTaprootKeyBytes,
 			),
-			cmp.Compare(i.CLTV, j.CLTV),
+			cmp.Compare(i.SortCLTV, j.SortCLTV),
 			cmp.Compare(i.HtlcIndex, j.HtlcIndex),
 		)
 	})

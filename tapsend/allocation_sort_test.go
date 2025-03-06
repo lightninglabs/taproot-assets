@@ -1,4 +1,4 @@
-package tapchannel
+package tapsend
 
 import (
 	"testing"
@@ -21,90 +21,90 @@ func TestInPlaceAllocationSort(t *testing.T) {
 				{
 					BtcAmount:           2000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                300,
+					SortCLTV:            300,
 				},
 				{
 					BtcAmount:           3000,
 					SortTaprootKeyBytes: []byte("a"),
-					CLTV:                100,
+					SortCLTV:            100,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("a"),
-					CLTV:                200,
+					SortCLTV:            200,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 					HtlcIndex:           1,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 					HtlcIndex:           9,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 					HtlcIndex:           3,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("a"),
-					CLTV:                100,
+					SortCLTV:            100,
 				},
 			},
 			expected: []*Allocation{
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("a"),
-					CLTV:                100,
+					SortCLTV:            100,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("a"),
-					CLTV:                200,
+					SortCLTV:            200,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 					HtlcIndex:           1,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 					HtlcIndex:           3,
 				},
 				{
 					BtcAmount:           1000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                100,
+					SortCLTV:            100,
 					HtlcIndex:           9,
 				},
 				{
 					BtcAmount:           2000,
 					SortTaprootKeyBytes: []byte("b"),
-					CLTV:                300,
+					SortCLTV:            300,
 				},
 				{
 					BtcAmount:           3000,
 					SortTaprootKeyBytes: []byte("a"),
-					CLTV:                100,
+					SortCLTV:            100,
 				},
 			},
 		},

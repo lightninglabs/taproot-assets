@@ -1,7 +1,8 @@
-package tapchannel
+package tapsend
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"net/url"
 	"sort"
@@ -17,7 +18,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 )
 
@@ -30,18 +30,34 @@ var (
 	// were provided.
 	ErrMissingAllocations = fmt.Errorf("no allocations provided")
 
+	// ErrInputTypesNotEqual is an error that is returned if the input types
+	// are not all the same.
+	ErrInputTypesNotEqual = fmt.Errorf("input types not all equal")
+
+	// ErrInputGroupMismatch is an error that is returned if the input
+	// assets don't all belong to the same asset group.
+	ErrInputGroupMismatch = fmt.Errorf("input assets not all of same group")
+
 	// ErrInputOutputSumMismatch is an error that is returned if the sum of
 	// the input asset proofs does not match the sum of the output
 	// allocations.
 	ErrInputOutputSumMismatch = fmt.Errorf("input and output sum mismatch")
 
-	// ErrNormalAssetsOnly is an error that is returned if an allocation
-	// contains an asset that is not a normal asset (e.g. a collectible).
-	ErrNormalAssetsOnly = fmt.Errorf("only normal assets are supported")
-
 	// ErrCommitmentNotSet is an error that is returned if the output
 	// commitment is not set for an allocation.
 	ErrCommitmentNotSet = fmt.Errorf("output commitment not set")
+
+	// ErrInvalidSibling is an error that is returned if both non-asset
+	// leaves and sibling preimage are set for an allocation.
+	ErrInvalidSibling = errors.New(
+		"both non-asset leaves and sibling preimage set",
+	)
+
+	// ErrScriptKeyGenMissing is an error that is returned if the script key
+	// generator function is not set.
+	ErrScriptKeyGenMissing = errors.New(
+		"script key generator function not set for asset allocation",
+	)
 )
 
 // AllocationType is an enum that defines the different types of asset
@@ -77,6 +93,27 @@ const (
 	SecondLevelHtlcAllocation AllocationType = 5
 )
 
+// ScriptKeyGen is a function type that is used for generating a script key for
+// an asset specific script key.
+type ScriptKeyGen func(assetID asset.ID) (asset.ScriptKey, error)
+
+// StaticScriptKeyGen is a helper function that returns a script key generator
+// function that always returns the same script key.
+func StaticScriptKeyGen(scriptKey asset.ScriptKey) ScriptKeyGen {
+	return func(asset.ID) (asset.ScriptKey, error) {
+		return scriptKey, nil
+	}
+}
+
+// StaticScriptPubKeyGen is a helper function that returns a script key
+// generator function that always returns the same script key, provided as a
+// public key.
+func StaticScriptPubKeyGen(scriptPubKey *btcec.PublicKey) ScriptKeyGen {
+	return func(asset.ID) (asset.ScriptKey, error) {
+		return asset.NewScriptKey(scriptPubKey), nil
+	}
+}
+
 // Allocation is a struct that tracks how many units of assets should be
 // allocated to a specific output of an on-chain transaction. An allocation can
 // be seen as a recipe/instruction to distribute a certain number of asset units
@@ -103,13 +140,25 @@ type Allocation struct {
 
 	// NonAssetLeaves is the full list of TapLeaf nodes that aren't any
 	// asset commitments. This is used to construct the tapscript sibling
-	// for the asset commitment. If this is a non-asset allocation and the
-	// list of leaves is empty, then we assume a BIP-0086 output.
+	// for the asset commitment. This is mutually exclusive to the
+	// SiblingPreimage field below, only one of them (or none) should be
+	// set. If this is a non-asset allocation and both NonAssetLeaves is
+	// empty and no SiblingPreimage is set, then we assume a BIP-0086
+	// output.
 	NonAssetLeaves []txscript.TapLeaf
 
-	// ScriptKey is the Taproot tweaked key encoding the different spend
-	// conditions possible for the asset allocation.
-	ScriptKey asset.ScriptKey
+	// SiblingPreimage is the tapscript sibling preimage that is used to
+	// create the tapscript sibling for the asset commitment. This is
+	// mutually exclusive to the NonAssetLeaves above, only one of them (or
+	// none) should be set. If this is a non-asset allocation and both
+	// NonAssetLeaves is empty and no SiblingPreimage is set, then we assume
+	// a BIP-0086 output.
+	SiblingPreimage *commitment.TapscriptPreimage
+
+	// GenScriptKey is a function that returns the Taproot tweaked key
+	// encoding the different spend conditions possible for the asset
+	// allocation for a certain asset ID.
+	GenScriptKey ScriptKeyGen
 
 	// Amount is the amount of units that should be allocated in total.
 	// Available units from different UTXOs are distributed up to this total
@@ -128,14 +177,18 @@ type Allocation struct {
 	// commitment present. This field should be used for sorting purposes.
 	SortTaprootKeyBytes []byte
 
-	// CLTV is the CLTV timeout for the asset allocation. This is only
-	// relevant for sorting purposes and is expected to be zero for any
+	// SortCLTV is the SortCLTV timeout for the asset allocation. This is
+	// only relevant for sorting purposes and is expected to be zero for any
 	// non-HTLC allocation.
-	CLTV uint32
+	SortCLTV uint32
 
 	// Sequence is the CSV value for the asset allocation. This is only
-	// relevant for HTLC second level transactions.
+	// relevant for HTLC second level transactions. This value will be set
+	// as the relative time lock on the virtual output.
 	Sequence uint32
+
+	// LockTime is the actual CLTV value that will be set on the output.
+	LockTime uint64
 
 	// HtlcIndex is the index of the HTLC that the allocation is for. This
 	// is only relevant for HTLC allocations.
@@ -148,13 +201,43 @@ type Allocation struct {
 	// ProofDeliveryAddress is the address the proof courier should use to
 	// upload the proof for this allocation.
 	ProofDeliveryAddress *url.URL
+
+	// AltLeaves represent data used to construct an Asset commitment, that
+	// will be inserted in the output anchor Tap commitment. These
+	// data-carrying leaves are used for a purpose distinct from
+	// representing individual Taproot Assets.
+	AltLeaves []asset.AltLeaf[asset.Asset]
+}
+
+// Validate checks that the allocation is correctly set up and that the fields
+// are consistent with each other.
+func (a *Allocation) Validate() error {
+	// Make sure the two mutually exclusive fields aren't set at the same
+	// time.
+	if len(a.NonAssetLeaves) > 0 && a.SiblingPreimage != nil {
+		return ErrInvalidSibling
+	}
+
+	// The script key generator function is required for any allocation that
+	// carries assets.
+	if a.Type != AllocationTypeNoAssets && a.GenScriptKey == nil {
+		return ErrScriptKeyGenMissing
+	}
+
+	return nil
 }
 
 // tapscriptSibling returns the tapscript sibling preimage from the non-asset
 // leaves of the allocation. If there are no non-asset leaves, nil is returned.
 func (a *Allocation) tapscriptSibling() (*commitment.TapscriptPreimage, error) {
-	if len(a.NonAssetLeaves) == 0 {
+	if len(a.NonAssetLeaves) == 0 && a.SiblingPreimage == nil {
 		return nil, nil
+	}
+
+	// The sibling preimage has precedence. Only one of the two fields
+	// should be set in any case.
+	if a.SiblingPreimage != nil {
+		return a.SiblingPreimage, nil
 	}
 
 	treeNodes, err := asset.TapTreeNodesFromLeaves(a.NonAssetLeaves)
@@ -172,10 +255,10 @@ func (a *Allocation) tapscriptSibling() (*commitment.TapscriptPreimage, error) {
 	return sibling, err
 }
 
-// finalPkScript returns the pkScript calculated from the internal key,
+// FinalPkScript returns the pkScript calculated from the internal key,
 // tapscript sibling and merkle root of the output commitment. If the output
 // commitment is not set, ErrCommitmentNotSet is returned.
-func (a *Allocation) finalPkScript() ([]byte, error) {
+func (a *Allocation) FinalPkScript() ([]byte, error) {
 	// If this is a normal commitment anchor output without any assets, then
 	// we'll map the sort Taproot output key to a script directly.
 	if a.Type == AllocationTypeNoAssets {
@@ -229,13 +312,13 @@ func (a *Allocation) AuxLeaf() (txscript.TapLeaf, error) {
 func (a *Allocation) MatchesOutput(pkScript []byte, value int64, cltv uint32,
 	htlcIndex input.HtlcIndex) (bool, error) {
 
-	finalPkScript, err := a.finalPkScript()
+	finalPkScript, err := a.FinalPkScript()
 	if err != nil {
 		return false, err
 	}
 
 	outputsEqual := bytes.Equal(pkScript, finalPkScript) &&
-		value == int64(a.BtcAmount) && cltv == a.CLTV &&
+		value == int64(a.BtcAmount) && cltv == a.SortCLTV &&
 		htlcIndex == a.HtlcIndex
 
 	return outputsEqual, nil
@@ -328,7 +411,8 @@ func sortPiecesWithProofs(pieces []*piece) {
 // asset outputs (asset UTXOs of different sizes from different tranches/asset
 // IDs) according to the distribution rules provided as "allocations".
 func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
-	chainParams *address.ChainParams) ([]*tappsbt.VPacket, error) {
+	chainParams *address.ChainParams, interactive bool,
+	vPktVersion tappsbt.VPacketVersion) ([]*tappsbt.VPacket, error) {
 
 	if len(inputs) == 0 {
 		return nil, ErrMissingInputs
@@ -339,18 +423,35 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	}
 
 	// Count how many asset units are available for distribution.
-	var inputSum uint64
+	var (
+		inputSum    uint64
+		firstType   = inputs[0].Asset.Type
+		firstTapKey = inputs[0].Asset.TapCommitmentKey()
+	)
 	for _, inputProof := range inputs {
-		if inputProof.Asset.Type != asset.Normal {
-			return nil, ErrNormalAssetsOnly
+		// We can't have mixed types (normal and collectibles) within
+		// the same allocation.
+		if firstType != inputProof.Asset.Type {
+			return nil, ErrInputTypesNotEqual
+		}
+
+		// Allocating assets from different asset groups is not allowed.
+		if firstTapKey != inputProof.Asset.TapCommitmentKey() {
+			return nil, ErrInputGroupMismatch
 		}
 
 		inputSum += inputProof.Asset.Amount
 	}
 
-	// Sum up the amounts that are to be allocated to the outputs.
+	// Sum up the amounts that are to be allocated to the outputs. We also
+	// validate that all the required fields are set and no conflicting
+	// fields are set.
 	var outputSum uint64
 	for _, allocation := range allocations {
+		if err := allocation.Validate(); err != nil {
+			return nil, fmt.Errorf("invalid allocation: %w", err)
+		}
+
 		outputSum += allocation.Amount
 	}
 
@@ -383,7 +484,9 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 			},
 		)
 
-		pkt, err := tappsbt.FromProofs(proofsByID, chainParams)
+		pkt, err := tappsbt.FromProofs(
+			proofsByID, chainParams, vPktVersion,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -412,64 +515,22 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 		// Find the next piece that has assets left to allocate.
 		toFill := a.Amount
 		for pieceIdx := range pieces {
-			p := pieces[pieceIdx]
-
-			// Skip fully allocated pieces
-			if p.available() == 0 {
-				continue
-			}
-
-			// We know we have something to allocate, so let's now
-			// create a new vOutput for the allocation.
-			allocating := toFill
-			if p.available() < toFill {
-				allocating = p.available()
-			}
-
-			// We only need a split root output if this piece is
-			// being split. If we consume it fully in this
-			// allocation, we can use a simple output.
-			consumeFully := p.allocated == 0 &&
-				toFill >= p.available()
-
-			outType := tappsbt.TypeSimple
-			if a.SplitRoot && !consumeFully {
-				outType = tappsbt.TypeSplitRoot
-			}
-
-			sibling, err := a.tapscriptSibling()
+			fillDelta, updatedPiece, err := allocatePiece(
+				*pieces[pieceIdx], *a, toFill, interactive,
+			)
 			if err != nil {
 				return nil, err
 			}
 
-			deliveryAddr := a.ProofDeliveryAddress
-			vOut := &tappsbt.VOutput{
-				Amount:                       allocating,
-				AssetVersion:                 a.AssetVersion,
-				Type:                         outType,
-				Interactive:                  true,
-				AnchorOutputIndex:            a.OutputIndex,
-				AnchorOutputInternalKey:      a.InternalKey,
-				AnchorOutputTapscriptSibling: sibling,
-				ScriptKey:                    a.ScriptKey,
-				ProofDeliveryAddress:         deliveryAddr,
-				RelativeLockTime: uint64(
-					a.Sequence,
-				),
-			}
-			p.packet.Outputs = append(p.packet.Outputs, vOut)
-
-			// TODO(guggero): If sequence > 0, set the sequence
-			// on the inputs of the packet.
-
-			p.allocated += allocating
-			toFill -= allocating
+			pieces[pieceIdx] = updatedPiece
+			toFill -= fillDelta
 
 			// If the piece has enough assets to fill the
-			// allocation, we can exit the loop. If it only fills
-			// part of the allocation, we'll continue to the next
-			// piece.
-			if toFill == 0 {
+			// allocation, we can exit the loop, unless we also need
+			// to create a tombstone output for a non-interactive
+			// send. If it only fills part of the allocation, we'll
+			// continue to the next piece.
+			if toFill == 0 && interactive {
 				break
 			}
 		}
@@ -478,12 +539,99 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	packets := fn.Map(pieces, func(p *piece) *tappsbt.VPacket {
 		return p.packet
 	})
-	err := tapsend.ValidateVPacketVersions(packets)
+	err := ValidateVPacketVersions(packets)
 	if err != nil {
 		return nil, err
 	}
 
 	return packets, nil
+}
+
+// allocatePiece allocates assets from the given piece to the given allocation,
+// if there are units left to allocate. This adds a virtual output to the piece
+// and updates the amount of allocated assets. The function returns the amount
+// of assets that were allocated and the updated piece.
+func allocatePiece(p piece, a Allocation, toFill uint64,
+	interactive bool) (uint64, *piece, error) {
+
+	sibling, err := a.tapscriptSibling()
+	if err != nil {
+		return 0, nil, err
+	}
+
+	scriptKey, err := a.GenScriptKey(p.assetID)
+	if err != nil {
+		return 0, nil, fmt.Errorf("error generating script key for "+
+			"allocation: %w", err)
+	}
+
+	deliveryAddr := a.ProofDeliveryAddress
+	vOut := &tappsbt.VOutput{
+		AssetVersion:                 a.AssetVersion,
+		Interactive:                  interactive,
+		AnchorOutputIndex:            a.OutputIndex,
+		AnchorOutputInternalKey:      a.InternalKey,
+		AnchorOutputTapscriptSibling: sibling,
+		ScriptKey:                    scriptKey,
+		ProofDeliveryAddress:         deliveryAddr,
+		LockTime:                     a.LockTime,
+		RelativeLockTime:             uint64(a.Sequence),
+		AltLeaves:                    a.AltLeaves,
+	}
+
+	// If we've allocated all pieces, or we don't need to allocate anything
+	// to this piece, we might only need to create a tombstone output.
+	if p.available() == 0 || toFill == 0 {
+		// We don't need a tombstone output for interactive transfers,
+		// or recipient outputs (outputs that don't go back to the
+		// sender).
+		if interactive || !a.SplitRoot {
+			return 0, &p, nil
+		}
+
+		// Create a zero-amount tombstone output for the split root, if
+		// there is no change.
+		vOut.Type = tappsbt.TypeSplitRoot
+		p.packet.Outputs = append(p.packet.Outputs, vOut)
+
+		return 0, &p, nil
+	}
+
+	// We know we have something to allocate, so let's now create a new
+	// vOutput for the allocation.
+	allocating := toFill
+	if p.available() < toFill {
+		allocating = p.available()
+	}
+
+	// We only need a split root output if this piece is being split. If we
+	// consume it fully in this allocation, we can use a simple output.
+	consumeFully := p.allocated == 0 && toFill >= p.available()
+
+	// If we're creating a non-interactive packet (e.g. for a TAP address
+	// based send), we definitely need a split root, even if there is no
+	// change. If there is change, then we also need a split root, even if
+	// we're creating a fully interactive packet.
+	needSplitRoot := a.SplitRoot && (!interactive || !consumeFully)
+
+	// The only exception is when the split root output is the only output,
+	// because it's not being used at all and goes back to the sender.
+	splitRootIsOnlyOutput := a.SplitRoot && consumeFully
+
+	outType := tappsbt.TypeSimple
+	if needSplitRoot && !splitRootIsOnlyOutput {
+		outType = tappsbt.TypeSplitRoot
+	}
+
+	// We just need to update the type and amount for this virtual output,
+	// everything else can be taken from the allocation itself.
+	vOut.Type = outType
+	vOut.Amount = allocating
+	p.packet.Outputs = append(p.packet.Outputs, vOut)
+
+	p.allocated += allocating
+
+	return allocating, &p, nil
 }
 
 // AssignOutputCommitments assigns the output commitments keyed by the output
@@ -515,10 +663,10 @@ func AssignOutputCommitments(allocations []*Allocation,
 // NonAssetExclusionProofs returns an exclusion proof generator that creates
 // exclusion proofs for non-asset P2TR outputs in the given allocations.
 func NonAssetExclusionProofs(
-	allocations []*Allocation) tapsend.ExclusionProofGenerator {
+	allocations []*Allocation) ExclusionProofGenerator {
 
 	return func(target *proof.BaseProofParams,
-		isAnchor tapsend.IsAnchor) error {
+		isAnchor IsAnchor) error {
 
 		for _, alloc := range allocations {
 			// We only need exclusion proofs for allocations that
@@ -548,4 +696,109 @@ func NonAssetExclusionProofs(
 
 		return nil
 	}
+}
+
+// AllocationsFromTemplate creates a list of allocations from a spend template.
+// If there is no split output present in the template, one is created to carry
+// potential change or a zero-value tombstone output in case of a
+// non-interactive transfer. The script key for those change/tombstone outputs
+// are set to the NUMS script key and need to be replaced with an actual script
+// key (if the change is non-zero) after the coin distribution has been
+// performed.
+func AllocationsFromTemplate(tpl *tappsbt.VPacket,
+	inputSum uint64) ([]*Allocation, bool, error) {
+
+	if len(tpl.Outputs) == 0 {
+		return nil, false, fmt.Errorf("spend template has no outputs")
+	}
+
+	// We first detect if the outputs are interactive or not. They need to
+	// all say the same thing, otherwise we can't proceed.
+	isInteractive := tpl.Outputs[0].Interactive
+	for idx := 1; idx < len(tpl.Outputs); idx++ {
+		if tpl.Outputs[idx].Interactive != isInteractive {
+			return nil, false, fmt.Errorf("outputs have " +
+				"different interactive flags")
+		}
+	}
+
+	// Calculate the total amount that is being spent.
+	var outputAmount uint64
+	for _, out := range tpl.Outputs {
+		outputAmount += out.Amount
+	}
+
+	// Validate the change amount so we can use it later.
+	if outputAmount > inputSum {
+		return nil, false, fmt.Errorf("output amount exceeds input sum")
+	}
+	changeAmount := inputSum - outputAmount
+
+	// In case there is no change/tombstone output, we assume the anchor
+	// output indexes are still increasing. So we'll just use the next one
+	// after the last output's anchor output index.
+	splitOutIndex := tpl.Outputs[len(tpl.Outputs)-1].AnchorOutputIndex + 1
+
+	// If there is no change/tombstone output in the template, we always
+	// create one. This will not be used (e.g. turned into an actual virtual
+	// output) by the allocation logic if is not needed (when it's an
+	// interactive full-value send).
+	localAllocation := &Allocation{
+		Type:         CommitAllocationToLocal,
+		OutputIndex:  splitOutIndex,
+		SplitRoot:    true,
+		GenScriptKey: StaticScriptKeyGen(asset.NUMSScriptKey),
+	}
+
+	// If we have a split root defined in the template, we'll use that as
+	// the template for the local allocation.
+	if tpl.HasSplitRootOutput() {
+		splitRootOut, err := tpl.SplitRootOutput()
+		if err != nil {
+			return nil, false, err
+		}
+
+		setAllocationFieldsFromOutput(localAllocation, splitRootOut)
+	}
+
+	// We do need to overwrite the amount of the local allocation with the
+	// change amount now. We do _NOT_, however, derive change script keys
+	// yet, since we don't know if some of the packets created by the coin
+	// distribution might remain an un-spendable zero-amount tombstone
+	// output, and we don't want to derive change script keys for those.
+	localAllocation.Amount = changeAmount
+
+	// We now create the remote allocations for each non-split output.
+	remoteAllocations := make([]*Allocation, 0, len(tpl.Outputs))
+	normalOuts := fn.Filter(tpl.Outputs, tappsbt.VOutIsNotSplitRoot)
+	for _, out := range normalOuts {
+		remoteAllocation := &Allocation{
+			Type:      CommitAllocationToRemote,
+			SplitRoot: false,
+		}
+
+		setAllocationFieldsFromOutput(remoteAllocation, out)
+		remoteAllocations = append(remoteAllocations, remoteAllocation)
+	}
+
+	allAllocations := append(
+		[]*Allocation{localAllocation}, remoteAllocations...,
+	)
+
+	return allAllocations, isInteractive, nil
+}
+
+// setAllocationFieldsFromOutput sets the fields of the given allocation from
+// the given virtual output.
+func setAllocationFieldsFromOutput(alloc *Allocation, vOut *tappsbt.VOutput) {
+	alloc.Amount = vOut.Amount
+	alloc.AssetVersion = vOut.AssetVersion
+	alloc.OutputIndex = vOut.AnchorOutputIndex
+	alloc.InternalKey = vOut.AnchorOutputInternalKey
+	alloc.GenScriptKey = StaticScriptKeyGen(vOut.ScriptKey)
+	alloc.Sequence = uint32(vOut.RelativeLockTime)
+	alloc.LockTime = vOut.LockTime
+	alloc.ProofDeliveryAddress = vOut.ProofDeliveryAddress
+	alloc.AltLeaves = vOut.AltLeaves
+	alloc.SiblingPreimage = vOut.AnchorOutputTapscriptSibling
 }
