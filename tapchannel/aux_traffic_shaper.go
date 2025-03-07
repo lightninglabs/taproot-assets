@@ -243,7 +243,7 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
 	lnwire.CustomRecords, error) {
 
-	if len(htlcCustomRecords) == 0 {
+	if !rfqmsg.HasAssetHTLCCustomRecords(htlcCustomRecords) {
 		return totalAmount, nil, nil
 	}
 
