@@ -292,9 +292,7 @@ func (a *Archive) UpsertProofLeaf(ctx context.Context, id Identifier,
 	// Before we can validate a non-issuance proof we need to fetch the
 	// previous asset snapshot (which is the proof verification result for
 	// the previous/parent proof in the proof file).
-	prevAssetSnapshot, err := a.getPrevAssetSnapshot(
-		ctx, id, newAsset, nil,
-	)
+	prevAssetSnapshot, err := a.getPrevAssetSnapshot(ctx, id, newAsset, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unable to fetch previous asset "+
 			"snapshot: %w", err)
@@ -577,9 +575,7 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	}
 
 	// Parse script key for previous asset.
-	prevScriptKeyPubKey, err := btcec.ParsePubKey(
-		prevID.ScriptKey[:],
-	)
+	prevScriptKeyPubKey, err := btcec.ParsePubKey(prevID.ScriptKey[:])
 	if err != nil {
 		return nil, fmt.Errorf("unable to parse previous "+
 			"script key: %w", err)

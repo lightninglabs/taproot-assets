@@ -1587,27 +1587,26 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	vPkts := maps.Values(vPktsByAssetID)
 	ctx := context.Background()
 	for idx := range vPkts {
-		err := tapsend.PrepareOutputAssets(ctx, vPkts[idx])
+		// We'll set the witness on the split output, that way it'll be
+		// copied to the splits as well.
+		splitOut, err := vPkts[idx].SplitRootOutput()
+		if err != nil {
+			return fmt.Errorf("unable to get split root output: %w",
+				err)
+		}
+
+		// There is always only a single input, as we're
+		// sweeping a single contract w/ each vPkt.
+		const inputIndex = 0
+		err = splitOut.Asset.UpdateTxWitness(inputIndex, fundingWitness)
+		if err != nil {
+			return fmt.Errorf("error updating witness: %w", err)
+		}
+
+		err = tapsend.PrepareOutputAssets(ctx, vPkts[idx])
 		if err != nil {
 			return fmt.Errorf("unable to prepare output "+
 				"assets: %w", err)
-		}
-
-		// With the packets prepared, we'll swap in the correct witness
-		// for each of them.
-		for outIdx := range vPkts[idx].Outputs {
-			outAsset := vPkts[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, as we're
-			// sweeping a single contract w/ each vPkt.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
 		}
 	}
 	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
