@@ -171,10 +171,14 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 					"prevID", wit)
 			}
 
-			spentAsset := &asset.Asset{
-				ScriptKey: asset.NewScriptKey(
-					asset.DeriveBurnKey(*wit.PrevID),
-				),
+			prevIdKey := asset.DeriveBurnKey(*wit.PrevID)
+			scriptKey := asset.NewScriptKey(prevIdKey)
+			spentAsset, err := asset.NewAltLeaf(
+				scriptKey, asset.ScriptV0, nil,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error creating "+
+					"altLeaf: %w", err)
 			}
 
 			// Generate an STXO inclusion proof for each prev
