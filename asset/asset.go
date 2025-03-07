@@ -2070,7 +2070,7 @@ func CollectSTXO(outAsset *Asset) ([]AltLeaf[Asset], error) {
 	// Genesis assets have no input asset, so they should have an empty
 	// STXO tree. Split leaves will also have a zero PrevID; we will use
 	// an empty STXO tree for them as well.
-	if outAsset.IsGenesisAsset() || outAsset.HasSplitCommitmentWitness() {
+	if !outAsset.IsTransferRoot() {
 		return nil, nil
 	}
 
