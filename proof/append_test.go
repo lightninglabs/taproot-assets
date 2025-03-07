@@ -71,7 +71,7 @@ func TestAppendTransition(t *testing.T) {
 			withBip86Change: true,
 		},
 		{
-			name:      "normal with change",
+			name:      "normal with change (with split)",
 			assetType: asset.Normal,
 			amt:       100,
 			withSplit: true,
@@ -135,6 +135,14 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Add some alt leaves to the commitment anchoring the asset transfer.
 	altLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+
+	// Commit to the stxo of the previous asset. Otherwise, the inclusion
+	// proofs will fail.
+	stxoAsset, err := asset.MakeSpentAsset(newAsset.PrevWitnesses[0])
+	require.NoError(t, err)
+
+	stxoLeaf := asset.ToAltLeaves([]*asset.Asset{stxoAsset})
+	altLeaves = append(altLeaves, stxoLeaf...)
 	err = tapCommitment.MergeAltLeaves(altLeaves)
 	require.NoError(t, err)
 
@@ -213,6 +221,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// Append the new transition to the genesis blob.
 	transitionBlob, transitionProof, err := AppendTransition(
 		genesisBlob, transitionParams, MockVerifierCtx,
+		WithVersion(TransitionV1),
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(transitionBlob), len(genesisBlob))
@@ -293,8 +302,17 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		nil, split1Commitment,
 	)
 	require.NoError(t, err)
+
+	// Commit to the stxo of the previous asset. Otherwise, the inclusion
+	// proofs will fail. With splits this is only needed for the root asset.
+	stxoAsset1, err := asset.MakeSpentAsset(split1Asset.PrevWitnesses[0])
+	require.NoError(t, err)
+
+	stxoLeaf1 := asset.ToAltLeaves([]*asset.Asset{stxoAsset1})
+	split1AltLeaves = append(split1AltLeaves, stxoLeaf1...)
 	err = tap1Commitment.MergeAltLeaves(split1AltLeaves)
 	require.NoError(t, err)
+
 	tap2Commitment, err := commitment.NewTapCommitment(
 		nil, split2Commitment,
 	)
@@ -361,11 +379,33 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// For the transfer root we also need to the stxo exclusion proofs.
+	_, stxo1In2exclusionProof, err := tap2Commitment.Proof(
+		stxoAsset1.TapCommitmentKey(),
+		stxoAsset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	stxoID := asset.ToSerialized(stxoAsset1.ScriptKey.PubKey)
+	stxo1In2Proofs := make(map[asset.SerializedKey]commitment.Proof, 1)
+	stxo1In2Proofs[stxoID] = *stxo1In2exclusionProof
+
 	_, split1In3ExclusionProof, err := tap3Commitment.Proof(
 		split1Asset.TapCommitmentKey(),
 		split1Asset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// For the transfer root we also need to the stxo exclusion proofs.
+	_, stxo1In3exclusionProof, err := tap3Commitment.Proof(
+		stxoAsset1.TapCommitmentKey(),
+		stxoAsset1.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	stxo1In3Proofs := make(map[asset.SerializedKey]commitment.Proof, 1)
+	stxo1In3Proofs[stxoID] = *stxo1In3exclusionProof
 
 	_, split2In1ExclusionProof, err := tap1Commitment.Proof(
 		split2Asset.TapCommitmentKey(),
@@ -406,13 +446,15 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 				OutputIndex: 1,
 				InternalKey: internalKey2,
 				CommitmentProof: &CommitmentProof{
-					Proof: *split1In2ExclusionProof,
+					Proof:      *split1In2ExclusionProof,
+					STXOProofs: stxo1In2Proofs,
 				},
 			}, {
 				OutputIndex: 2,
 				InternalKey: internalKey3,
 				CommitmentProof: &CommitmentProof{
-					Proof: *split1In3ExclusionProof,
+					Proof:      *split1In3ExclusionProof,
+					STXOProofs: stxo1In3Proofs,
 				},
 			}},
 		},
@@ -421,6 +463,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split1Blob, split1Proof, err := AppendTransition(
 		transitionBlob, split1Params, MockVerifierCtx,
+		WithVersion(TransitionV1),
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split1Blob), len(transitionBlob))
@@ -463,6 +506,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split2Blob, split2Proof, err := AppendTransition(
 		transitionBlob, split2Params, MockVerifierCtx,
+		WithVersion(TransitionV1),
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split2Blob), len(transitionBlob))
@@ -506,6 +550,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	split3Blob, split3Proof, err := AppendTransition(
 		transitionBlob, split3Params, MockVerifierCtx,
+		WithVersion(TransitionV1),
 	)
 	require.NoError(t, err)
 	require.Greater(t, len(split3Blob), len(transitionBlob))

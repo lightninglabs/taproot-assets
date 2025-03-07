@@ -1697,6 +1697,23 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 		senderAsset.AssetCommitmentKey(),
 	)
 	require.NoError(t, err)
+
+	// The sender gets the transfer root, so we also need to the stxo
+	// exclusion proofs.
+	senderSTXOAsset, err := asset.MakeSpentAsset(
+		senderAsset.PrevWitnesses[0],
+	)
+	require.NoError(t, err)
+	_, senderSTXOExclusionProof, err := receiverTapTree.Proof(
+		senderSTXOAsset.TapCommitmentKey(),
+		senderSTXOAsset.AssetCommitmentKey(),
+	)
+	require.NoError(t, err)
+
+	senderSTXOID := asset.ToSerialized(senderSTXOAsset.ScriptKey.PubKey)
+	senderSTXOProofs := make(map[asset.SerializedKey]commitment.Proof, 1)
+	senderSTXOProofs[senderSTXOID] = *senderSTXOExclusionProof
+
 	_, receiverExclusionProof, err := senderTapTree.Proof(
 		receiverAsset.TapCommitmentKey(),
 		receiverAsset.AssetCommitmentKey(),
@@ -1719,7 +1736,8 @@ func createProofParams(t *testing.T, genesisTxIn wire.TxIn, state spendData,
 				OutputIndex: 1,
 				InternalKey: &state.receiverPubKey,
 				CommitmentProof: &proof.CommitmentProof{
-					Proof: *senderExclusionProof,
+					Proof:      *senderExclusionProof,
+					STXOProofs: senderSTXOProofs,
 				},
 			}},
 		},
@@ -1803,6 +1821,7 @@ func TestProofVerify(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockVerifierCtx,
+		proof.WithVersion(proof.TransitionV1),
 	)
 	require.NoError(t, err)
 	senderFile := proof.NewEmptyFile(proof.V0)
@@ -1814,6 +1833,7 @@ func TestProofVerify(t *testing.T) {
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockVerifierCtx,
+		proof.WithVersion(proof.TransitionV1),
 	)
 	require.NoError(t, err)
 	receiverFile, err := proof.NewFile(proof.V0)
@@ -1870,6 +1890,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 	// Create a proof for each receiver and verify it.
 	senderBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[0], proof.MockVerifierCtx,
+		proof.WithVersion(proof.TransitionV1),
 	)
 	require.NoError(t, err)
 	senderFile, err := proof.NewFile(proof.V0)
@@ -1880,6 +1901,7 @@ func TestProofVerifyFullValueSplit(t *testing.T) {
 
 	receiverBlob, _, err := proof.AppendTransition(
 		genesisProofBlob, &proofParams[1], proof.MockVerifierCtx,
+		proof.WithVersion(proof.TransitionV1),
 	)
 	require.NoError(t, err)
 	receiverFile := proof.NewEmptyFile(proof.V0)
