@@ -14,8 +14,10 @@ import (
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
+	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/davecgh/go-spew/spew"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
@@ -23,6 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
+	lfn "github.com/lightningnetwork/lnd/fn"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )
@@ -82,6 +85,11 @@ type GardenKit struct {
 // PlanterConfig is the main config for the ChainPlanter.
 type PlanterConfig struct {
 	GardenKit
+
+	// ChainParams defines the chain parameters for the target blockchain
+	// network. It specifies whether the network is Bitcoin mainnet or
+	// testnet.
+	ChainParams address.ChainParams
 
 	// ProofUpdates is the storage backend for updated proofs.
 	ProofUpdates proof.Archiver
@@ -663,6 +671,203 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 	return newBatch, nil
 }
 
+// preCommitmentOutput creates the pre-commitment output for a batch that uses
+// universe commitments.
+func preCommitmentOutput(pendingBatch *MintingBatch) (PreCommitmentOutput,
+	error) {
+
+	var zero PreCommitmentOutput
+
+	// Ensure that a pending batch is provided.
+	if pendingBatch == nil {
+		return zero, fmt.Errorf("no pending batch provided when " +
+			"creating pre-commitment output")
+	}
+
+	// Ensure that the universe commitments feature is enabled for the
+	// batch.
+	if !pendingBatch.UniverseCommitments {
+		return zero, fmt.Errorf("code error: universe commitments " +
+			"should be enabled before calling " +
+			"preCommitmentOutput")
+	}
+
+	// Ensure that the batch has at least one seedling.
+	if len(pendingBatch.Seedlings) == 0 {
+		return zero, fmt.Errorf("uni commitment enabled for funded " +
+			"batch but no seedlings in batch")
+	}
+
+	// Retrieve batch anchor seedling.
+	var groupAnchorSeedling *Seedling
+	for _, seedling := range pendingBatch.Seedlings {
+		if seedling.GroupAnchor == nil {
+			groupAnchorSeedling = seedling
+			break
+		}
+
+		groupAnchorSeedling =
+			pendingBatch.Seedlings[*seedling.GroupAnchor]
+		break
+	}
+
+	// Ensure that the group anchor seedling is found.
+	if groupAnchorSeedling == nil {
+		return zero, fmt.Errorf("no group anchor seedling found")
+	}
+
+	// Extract delegated key from the group anchor seedling.
+	delegationKey, err := groupAnchorSeedling.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("no delegation key found in seedling"),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	// Extract group pub key from group anchor seedling.
+	if groupAnchorSeedling.GroupInfo == nil {
+		return zero, fmt.Errorf("no group info found in seedling")
+	}
+	groupPubKey := groupAnchorSeedling.GroupInfo.GroupPubKey
+
+	// Use a placeholder output index for the pre-commitment output. This
+	// will be revised after funding.
+	var placeholderOutIdx uint32 = 0
+
+	// Formulate the pre-commitment output bundle.
+	preCommitOut := NewPreCommitmentOutput(
+		placeholderOutIdx, *delegationKey.PubKey, groupPubKey,
+	)
+	return preCommitOut, nil
+}
+
+// unfundedAnchorPsbt creates an unfunded PSBT packet for the minting anchor
+// transaction.
+func unfundedAnchorPsbt(preCommitmentTxOut fn.Option[wire.TxOut]) (psbt.Packet,
+	error) {
+
+	var zero psbt.Packet
+
+	// Construct a template transaction for our minting anchor transaction.
+	txTemplate := wire.NewMsgTx(2)
+
+	// Add one output to anchor all assets which are being minted.
+	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
+
+	// If universe commitments are enabled, we add an output to the
+	// transaction which will be used as the pre-commitment output.
+	// This output is spent by the universe commitment transaction.
+	preCommitmentTxOut.WhenSome(func(txOut wire.TxOut) {
+		txTemplate.AddTxOut(&txOut)
+	})
+
+	// Formulate the PSBT packet from the template transaction.
+	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
+	if err != nil {
+		return zero, fmt.Errorf("unable to make psbt packet: %w", err)
+	}
+
+	return *genesisPkt, nil
+}
+
+// AnchorTxOutputIndexes specifies the output indexes of the batch mint anchor
+// transaction.
+type AnchorTxOutputIndexes struct {
+	// AssetAnchorOutIdx is the index of the asset anchor output in the
+	// transaction.
+	AssetAnchorOutIdx uint32
+
+	// ChangeOutIdx is the index of the change output in the transaction.
+	ChangeOutIdx uint32
+
+	// PreCommitOutIdx is the index of the pre-commitment output in the
+	// transaction. This field is only set if universe commitments are
+	// enabled for the batch.
+	PreCommitOutIdx fn.Option[uint32]
+}
+
+// anchorTxOutputIndexes specifies the output indexes of the anchor transaction.
+func anchorTxOutputIndexes(fundedPsbt tapsend.FundedPsbt,
+	preCommitmentTxOut fn.Option[wire.TxOut]) (AnchorTxOutputIndexes,
+	error) {
+
+	var (
+		zero AnchorTxOutputIndexes
+
+		// assetAnchorOutIdxOpt will contain the index of the asset
+		// anchor output in the transaction.
+		assetAnchorOutIdxOpt fn.Option[uint32]
+
+		// preCommitOutIdx will contain the index of the pre-commitment
+		// output in the transaction. This field is only
+		// set if universe commitments are enabled for the batch.
+		preCommitOutIdx fn.Option[uint32]
+	)
+
+	// Formulate the expected asset anchor output that we will use to
+	// identify the asset anchor output in the transaction.
+	expectedAssetAnchorOutput := tapsend.CreateDummyOutput()
+	expectedAssetAnchorPkScript := expectedAssetAnchorOutput.PkScript
+
+	// Inspect each output in the transaction to determine the output
+	// indexes.
+	for idx := range fundedPsbt.Pkt.UnsignedTx.TxOut {
+		// Skip the change output based on its index.
+		if int32(idx) == fundedPsbt.ChangeOutputIndex {
+			continue
+		}
+
+		// We will inspect the output script pubkey to determine whether
+		// it is the asset anchor output or the pre-commitment output.
+		txOut := fundedPsbt.Pkt.UnsignedTx.TxOut[idx]
+
+		// If the output script pubkey matches the expected asset anchor
+		// output script pubkey, we have found the asset anchor output.
+		if bytes.Equal(txOut.PkScript, expectedAssetAnchorPkScript) {
+			assetAnchorOutIdxOpt = fn.Some(uint32(idx))
+			continue
+		}
+
+		// If universe commitments are enabled, we will inspect the
+		// output script pubkey to determine whether it is the
+		// pre-commitment output.
+		preCommitmentTxOut.WhenSome(
+			func(preCommitTxOut wire.TxOut) {
+				// If the output script pubkey matches the
+				// pre-commitment output script pubkey, we have
+				// found the pre-commitment output.
+				outputMatch := bytes.Equal(
+					txOut.PkScript, preCommitTxOut.PkScript,
+				)
+				if outputMatch {
+					preCommitOutIdx = fn.Some(uint32(idx))
+				}
+			},
+		)
+	}
+
+	// Unpack the asset anchor output index. Return an error if the output
+	// index is not found.
+	assetAnchorOutIdx, err := assetAnchorOutIdxOpt.UnwrapOrErr(
+		fmt.Errorf("asset anchor output index not found"),
+	)
+	if err != nil {
+		return zero, err
+	}
+
+	// If the pre-commitment output is expected, but not found, we return an
+	// error.
+	if preCommitmentTxOut.IsSome() && !preCommitOutIdx.IsSome() {
+		return zero, fmt.Errorf("pre-commitment output index not found")
+	}
+
+	return AnchorTxOutputIndexes{
+		AssetAnchorOutIdx: assetAnchorOutIdx,
+		ChangeOutIdx:      uint32(fundedPsbt.ChangeOutputIndex),
+		PreCommitOutIdx:   preCommitOutIdx,
+	}, nil
+}
+
 // fundGenesisPsbt generates a PSBT packet we'll use to create an asset.  In
 // order to be able to create an asset, we need an initial genesis outpoint. To
 // obtain this we'll ask the wallet to fund a PSBT template for GenesisAmtSats
@@ -671,22 +876,50 @@ func (c *ChainPlanter) newBatch() (*MintingBatch, error) {
 // that's dependent on the genesis outpoint.
 func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	batchKey asset.SerializedKey,
-	manualFeeRate *chainfee.SatPerKWeight) (*tapsend.FundedPsbt, error) {
+	manualFeeRate *chainfee.SatPerKWeight) (FundedMintAnchorPsbt, error) {
 
+	var zero FundedMintAnchorPsbt
 	log.Infof("Attempting to fund batch: %x", batchKey)
 
-	// Construct a 1-output TX as a template for our genesis TX, which the
-	// backing wallet will fund.
-	txTemplate := wire.NewMsgTx(2)
-	txTemplate.AddTxOut(tapsend.CreateDummyOutput())
-	genesisPkt, err := psbt.NewFromUnsignedTx(txTemplate)
-	if err != nil {
-		return nil, fmt.Errorf("unable to make psbt packet: %w", err)
+	// If universe commitments are enabled, we formulate a pre-commitment
+	// output. This output is spent by the universe commitment transaction.
+	var preCommitmentOut fn.Option[PreCommitmentOutput]
+	if c.pendingBatch != nil && c.pendingBatch.UniverseCommitments {
+		out, err := preCommitmentOutput(c.pendingBatch)
+		if err != nil {
+			return zero, fmt.Errorf("unable to create "+
+				"pre-commitment output: %w", err)
+		}
+
+		preCommitmentOut = fn.Some(out)
 	}
 
-	log.Infof("creating skeleton PSBT for batch: %x", batchKey)
-	log.Tracef("PSBT: %v", spew.Sdump(genesisPkt))
+	// Derive wire.TxOut from the pre-commitment output, if available.
+	var preCommitmentTxOut fn.Option[wire.TxOut]
+	if preCommitmentOut.IsSome() {
+		txOut, err := fn.MapOptionZ(
+			preCommitmentOut,
+			func(p PreCommitmentOutput) lfn.Result[wire.TxOut] {
+				return lfn.NewResult(p.TxOut())
+			},
+		).Unpack()
+		if err != nil {
+			return zero, err
+		}
 
+		preCommitmentTxOut = fn.Some(txOut)
+	}
+
+	// Construct an unfunded anchor PSBT which will eventually become a
+	// funded minting anchor transaction.
+	genesisPkt, err := unfundedAnchorPsbt(preCommitmentTxOut)
+	if err != nil {
+		return zero, fmt.Errorf("unable to create anchor template tx: "+
+			"%w", err)
+	}
+	log.Tracef("Unfunded batch anchor PSBT: %v", spew.Sdump(genesisPkt))
+
+	// Compute the anchor transaction fee rate.
 	var feeRate chainfee.SatPerKWeight
 	switch {
 	// If a fee rate was manually assigned for this batch, use that instead
@@ -702,7 +935,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 			ctx, GenesisConfTarget,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("unable to estimate fee: %w",
+			return zero, fmt.Errorf("unable to estimate fee: %w",
 				err)
 		}
 
@@ -712,7 +945,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 
 	minRelayFee, err := c.cfg.Wallet.MinRelayFee(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("unable to obtain minrelayfee: %w", err)
+		return zero, fmt.Errorf("unable to obtain minrelayfee: %w", err)
 	}
 
 	// If the fee rate is below the minimum relay fee, we'll
@@ -725,7 +958,7 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 			// This case should already have been handled by the
 			// `checkFeeRateSanity` of `rpcserver.go`. We check here
 			// again to be safe.
-			return nil, fmt.Errorf("feerate does not meet "+
+			return zero, fmt.Errorf("feerate does not meet "+
 				"minrelayfee: (fee_rate=%s, minrelayfee=%s)",
 				feeRate.String(), minRelayFee.String())
 		default:
@@ -737,16 +970,68 @@ func (c *ChainPlanter) fundGenesisPsbt(ctx context.Context,
 	}
 
 	fundedGenesisPkt, err := c.cfg.Wallet.FundPsbt(
-		ctx, genesisPkt, 1, feeRate, -1,
+		ctx, &genesisPkt, 1, feeRate, -1,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("unable to fund psbt: %w", err)
+		return zero, fmt.Errorf("unable to fund psbt: %w", err)
+	}
+
+	// Sanity check the funded PSBT.
+	if fundedGenesisPkt.ChangeOutputIndex == -1 {
+		return zero, fmt.Errorf("undefined change output index in " +
+			"funded anchor transaction")
 	}
 
 	log.Infof("Funded GenesisPacket for batch: %x", batchKey)
 	log.Tracef("GenesisPacket: %v", spew.Sdump(fundedGenesisPkt))
 
-	return fundedGenesisPkt, nil
+	// Classify anchor transaction output indexes.
+	anchorOutIndexes, err := anchorTxOutputIndexes(
+		*fundedGenesisPkt, preCommitmentTxOut,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to determine output indexes: "+
+			"%w", err)
+	}
+
+	// Sanity check that the pre-commitment output index was found if
+	// expected.
+	if preCommitmentOut.IsSome() &&
+		anchorOutIndexes.PreCommitOutIdx.IsNone() {
+
+		return zero, fmt.Errorf("pre-commitment output index not found")
+	}
+
+	// If pre-commitment output is some, assign the output index to the
+	// pre-commitment output.
+	if preCommitmentOut.IsSome() {
+		// Ensure that a pre-commitment output index is found.
+		outIdx, err := anchorOutIndexes.PreCommitOutIdx.UnwrapOrErr(
+			fmt.Errorf("pre-commitment output index not found"),
+		)
+		if err != nil {
+			return zero, err
+		}
+
+		// Assign output index to the pre-commitment output.
+		preCommitmentOut = fn.MapOption(
+			func(out PreCommitmentOutput) PreCommitmentOutput {
+				out.OutIdx = outIdx
+				return out
+			},
+		)(preCommitmentOut)
+	}
+
+	// Formulate a funded minting anchor PSBT from the funded PSBT.
+	fundedMintAnchorPsbt, err := NewFundedMintAnchorPsbt(
+		*fundedGenesisPkt, anchorOutIndexes, preCommitmentOut,
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to create funded minting "+
+			"anchor PSBT: %w", err)
+	}
+
+	return fundedMintAnchorPsbt, nil
 }
 
 // filterSeedlingsWithGroup separates a set of seedlings into two sets based on
@@ -1037,12 +1322,13 @@ func filterFinalizedBatches(batches []*MintingBatch) ([]*MintingBatch,
 func fetchFinalizedBatch(ctx context.Context, batchStore MintingStore,
 	archiver proof.Archiver, batch *MintingBatch) (*MintingBatch, error) {
 
+	if batch.GenesisPacket == nil {
+		return nil, fmt.Errorf("batch is missing anchor tx packet")
+	}
+
 	// Collect genesis TX information from the batch to build the proof
 	// locators.
-	anchorOutputIndex, err := extractAnchorOutputIndex(batch.GenesisPacket)
-	if err != nil {
-		return nil, err
-	}
+	anchorOutputIndex := batch.GenesisPacket.AssetAnchorOutIdx
 
 	signedTx, err := psbt.Extract(batch.GenesisPacket.Pkt)
 	if err != nil {
@@ -1279,12 +1565,7 @@ func newVerboseBatch(currentBatch *MintingBatch,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex, err := extractAnchorOutputIndex(
-		currentBatch.GenesisPacket,
-	)
-	if err != nil {
-		return nil, err
-	}
+	anchorOutputIndex := currentBatch.GenesisPacket.AssetAnchorOutIdx
 
 	genesisPoint := extractGenesisOutpoint(
 		currentBatch.GenesisPacket.Pkt.UnsignedTx,
@@ -1727,13 +2008,13 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 
 		// Fund the batch with the specified fee rate.
 		batchKey := asset.ToSerialized(batch.BatchKey.PubKey)
-		batchTX, err := c.fundGenesisPsbt(ctx, batchKey, feeRate)
+		mintAnchorTx, err := c.fundGenesisPsbt(ctx, batchKey, feeRate)
 		if err != nil {
 			return fmt.Errorf("unable to fund minting PSBT for "+
 				"batch: %x %w", batchKey[:], err)
 		}
 
-		batch.GenesisPacket = batchTX
+		batch.GenesisPacket = &mintAnchorTx
 
 		return nil
 	}
@@ -1781,7 +2062,7 @@ func (c *ChainPlanter) fundBatch(ctx context.Context, params FundParams,
 	}
 
 	err = c.cfg.Log.CommitBatchTx(
-		ctx, workingBatch.BatchKey.PubKey, workingBatch.GenesisPacket,
+		ctx, workingBatch.BatchKey.PubKey, *workingBatch.GenesisPacket,
 	)
 	if err != nil {
 		return err
@@ -1862,12 +2143,7 @@ func (c *ChainPlanter) sealBatch(ctx context.Context, params SealParams,
 
 	// Before we can build the group key requests for each seedling, we must
 	// fetch the genesis point and anchor index for the batch.
-	anchorOutputIndex, err := extractAnchorOutputIndex(
-		workingBatch.GenesisPacket,
-	)
-	if err != nil {
-		return nil, err
-	}
+	anchorOutputIndex := workingBatch.GenesisPacket.AssetAnchorOutIdx
 
 	genesisPoint := extractGenesisOutpoint(
 		workingBatch.GenesisPacket.Pkt.UnsignedTx,
@@ -2245,12 +2521,93 @@ func (c *ChainPlanter) CancelBatch() (*btcec.PublicKey, error) {
 	return <-req.resp, <-req.err
 }
 
+// prepSeedlingDelegationKey finalizes the seedling delegation key.
+func (c *ChainPlanter) prepSeedlingDelegationKey(ctx context.Context,
+	req *Seedling) error {
+
+	// If the universe commitments feature is disabled for this seedling,
+	// we can skip any further delegation key considerations.
+	if !req.UniverseCommitments {
+		return nil
+	}
+
+	// At this point, we know that the universe commitments feature is
+	// enabled for the seedling. If a group anchor seedling is specified
+	// we will use its delegation key.
+	if req.GroupAnchor != nil {
+		// Retrieve the group anchor seedling from the pending batch.
+		anchorSeedlingName := *req.GroupAnchor
+
+		anchor, ok := c.pendingBatch.Seedlings[anchorSeedlingName]
+		if anchor == nil || !ok {
+			return fmt.Errorf("group anchor seedling not present "+
+				"in batch (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		if anchor.DelegationKey.IsNone() {
+			return fmt.Errorf("group anchor seedling has no "+
+				"delegation key (anchor_seedling_name=%s)",
+				anchorSeedlingName)
+		}
+
+		// Set the delegation key for the seedling to the delegation key
+		// of the group anchor seedling.
+		req.DelegationKey = anchor.DelegationKey
+
+		// Return early, no further seedling prep required for universe
+		// commitments feature.
+		return nil
+	}
+
+	// On the other hand, if we're handling the group anchor seedling, we
+	// and the delegation key is unset, we must generate a new one.
+	if req.EnableEmission && req.GroupAnchor == nil {
+		newKey, err := c.cfg.KeyRing.DeriveNextKey(
+			ctx, asset.TaprootAssetsKeyFamily,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to derive pre-commitment "+
+				"output key: %w", err)
+		}
+
+		req.DelegationKey = fn.Some(newKey)
+	}
+
+	return nil
+}
+
 // prepAssetSeedling performs some basic validation for the Seedling, then
 // either adds it to an existing pending batch or creates a new batch for it.
 func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 	req *Seedling) error {
 
-	// First, we'll perform some basic validation for the seedling.
+	// Finalise the seedling delegation key.
+	err := c.prepSeedlingDelegationKey(ctx, req)
+	if err != nil {
+		return err
+	}
+
+	// Set seedling asset metadata fields.
+	req.Meta.UniverseCommitments = req.UniverseCommitments
+
+	if req.DelegationKey.IsSome() {
+		keyDesc, err := req.DelegationKey.UnwrapOrErr(
+			fmt.Errorf("delegation key is not set"),
+		)
+		if err != nil {
+			return err
+		}
+
+		if keyDesc.PubKey == nil {
+			return fmt.Errorf("delegation key has no public key")
+		}
+
+		req.Meta.DelegationKey = fn.Some(*keyDesc.PubKey)
+	}
+
+	// We will perform basic validation on the seedling, including metadata
+	// validation.
 	if err := req.validateFields(); err != nil {
 		return err
 	}
@@ -2363,30 +2720,40 @@ func (c *ChainPlanter) prepAssetSeedling(ctx context.Context,
 			return err
 		}
 
-		log.Infof("Adding %v to new MintingBatch", req)
+		c.pendingBatch = newBatch
 
-		newBatch.Seedlings[req.AssetName] = req
+		log.Infof("Attempting to add a seedling to a new batch "+
+			"(seedling=%v)", req)
+
+		err = c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err = c.cfg.Log.CommitMintingBatch(ctx, newBatch)
+		err = c.cfg.Log.CommitMintingBatch(ctx, c.pendingBatch)
 		if err != nil {
 			return err
 		}
 
-		c.pendingBatch = newBatch
-
 	// A batch already exists, so we'll add this seedling to the batch,
 	// committing it to disk fully before we move on.
 	case c.pendingBatch != nil:
-		log.Infof("Adding %v to existing MintingBatch", req)
+		log.Infof("Attempting to add a seedling to batch (seedling=%v)",
+			req)
 
-		c.pendingBatch.Seedlings[req.AssetName] = req
+		err := c.pendingBatch.AddSeedling(*req)
+		if err != nil {
+			return fmt.Errorf("failed to add seedling to batch: %w",
+				err)
+		}
 
 		// Now that we know the seedling is ok, we'll write it to disk.
 		ctx, cancel := c.WithCtxQuit()
 		defer cancel()
-		err := c.cfg.Log.AddSeedlingsToBatch(
+		err = c.cfg.Log.AddSeedlingsToBatch(
 			ctx, c.pendingBatch.BatchKey.PubKey, req,
 		)
 		if err != nil {
@@ -2569,3 +2936,117 @@ var _ Planter = (*ChainPlanter)(nil)
 // A compile-time assertion to make sure BatchCaretaker satisfies the
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPlanter)(nil)
+
+// PreCommitmentOutput provides metadata related to the pre-commitment output
+// of a mint anchor transaction. This output serves as an intermediate step
+// before being spent by the universe commitment transaction.
+type PreCommitmentOutput struct {
+	// OutIdx specifies the index of the pre-commitment output within the
+	// batch mint anchor transaction.
+	OutIdx uint32
+
+	// InternalKey is the Taproot internal public key associated with the
+	// pre-commitment output.
+	InternalKey btcec.PublicKey
+
+	// GroupPubKey is the asset group public key associated with this
+	// pre-commitment output.
+	GroupPubKey btcec.PublicKey
+}
+
+// NewPreCommitmentOutput creates a new PreCommitmentOutput instance.
+func NewPreCommitmentOutput(outIdx uint32, internalKey,
+	groupPubKey btcec.PublicKey) PreCommitmentOutput {
+
+	return PreCommitmentOutput{
+		OutIdx:      outIdx,
+		InternalKey: internalKey,
+		GroupPubKey: groupPubKey,
+	}
+}
+
+// TxOut returns the pre-commitment output as a wire.TxOut instance.
+func (p *PreCommitmentOutput) TxOut() (wire.TxOut, error) {
+	var zero wire.TxOut
+
+	// Formulate a taproot output key from the taproot internal key.
+	taprootOutputKey := txscript.ComputeTaprootKeyNoScript(&p.InternalKey)
+
+	// Create a new pay-to-taproot pk script from the taproot output key.
+	pkScript, err := txscript.PayToTaprootScript(taprootOutputKey)
+	if err != nil {
+		return zero, fmt.Errorf("unable to create pre-commitment "+
+			"output pk script: %w", err)
+	}
+
+	// Return the minting anchor transaction pre-commitment output.
+	return wire.TxOut{
+		Value:    int64(tapsend.DummyAmtSats),
+		PkScript: pkScript,
+	}, nil
+}
+
+// FundedMintAnchorPsbt is a struct that contains a funded minting anchor
+// transaction PSBT.
+type FundedMintAnchorPsbt struct {
+	// FundedPsbt is the PSBT packet that has been funded by the wallet.
+	tapsend.FundedPsbt
+
+	// AssetAnchorOutIdx is the index of the asset anchor output in the
+	// transaction.
+	AssetAnchorOutIdx uint32
+
+	// PreCommitmentOutput contains metadata describing the pre-commitment
+	// output.
+	//
+	// This field is set only if the pre-commitment output exists in the
+	// transaction. The pre-commitment output is later spent by the universe
+	// commitment transaction.
+	PreCommitmentOutput fn.Option[PreCommitmentOutput]
+}
+
+// NewFundedMintAnchorPsbt creates a new funded minting anchor PSBT package from
+// a funded PSBT.
+func NewFundedMintAnchorPsbt(
+	fundedPsbt tapsend.FundedPsbt, anchorOutIndexes AnchorTxOutputIndexes,
+	preCommitOut fn.Option[PreCommitmentOutput]) (FundedMintAnchorPsbt,
+	error) {
+
+	var zero FundedMintAnchorPsbt
+
+	// Sanity check pre-commitment output arguments.
+	if anchorOutIndexes.PreCommitOutIdx.IsSome() != preCommitOut.IsSome() {
+		return zero, fmt.Errorf("pre-commitment output index and " +
+			"pre-commitment output must be both set or both unset")
+	}
+
+	return FundedMintAnchorPsbt{
+		FundedPsbt:          fundedPsbt,
+		AssetAnchorOutIdx:   anchorOutIndexes.AssetAnchorOutIdx,
+		PreCommitmentOutput: preCommitOut,
+	}, nil
+}
+
+// Copy creates a deep copy of FundedMintAnchorPsbt.
+func (f *FundedMintAnchorPsbt) Copy() *FundedMintAnchorPsbt {
+	newMintAnchorPsbt := &FundedMintAnchorPsbt{
+		FundedPsbt: tapsend.FundedPsbt{
+			ChangeOutputIndex: f.ChangeOutputIndex,
+			ChainFees:         f.ChainFees,
+			LockedUTXOs:       fn.CopySlice(f.LockedUTXOs),
+		},
+		AssetAnchorOutIdx:   f.AssetAnchorOutIdx,
+		PreCommitmentOutput: f.PreCommitmentOutput,
+	}
+
+	if f.Pkt != nil {
+		newMintAnchorPsbt.Pkt = &psbt.Packet{
+			UnsignedTx: f.Pkt.UnsignedTx.Copy(),
+			Inputs:     fn.CopySlice(f.Pkt.Inputs),
+			Outputs:    fn.CopySlice(f.Pkt.Outputs),
+			Unknowns:   fn.CopySlice(f.Pkt.Unknowns),
+		}
+	}
+
+	return newMintAnchorPsbt
+}

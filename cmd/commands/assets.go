@@ -59,6 +59,7 @@ var (
 	groupByGroupName             = "by_group"
 	assetIDName                  = "asset_id"
 	shortResponseName            = "short"
+	universeCommitmentsName      = "universe_commitments"
 	feeRateName                  = "sat_per_vbyte"
 	assetAmountName              = "amount"
 	burnOverrideConfirmationName = "override_confirmation_destroy_assets"
@@ -153,6 +154,15 @@ var mintAssetCommand = cli.Command{
 			Name: "group_key_fingerprint",
 			Usage: "the master fingerprint of the key the xpub " +
 				"was derived from",
+		},
+		cli.BoolFlag{
+			Name: universeCommitmentsName,
+			Usage: "if set, the asset group will be minted with " +
+				"universe commitments enabled " +
+				"(minter-controlled, on-chain attestations " +
+				"that anchor and verify the state of an " +
+				"asset group); this option restricts the " +
+				"minting batch to a single asset group",
 		},
 	},
 	Action: mintAsset,
@@ -382,7 +392,8 @@ func mintAsset(ctx *cli.Context) error {
 			AssetVersion: taprpc.AssetVersion(
 				ctx.Uint64(assetVersionName),
 			),
-			ExternalGroupKey: externalKey,
+			ExternalGroupKey:    externalKey,
+			UniverseCommitments: ctx.Bool(universeCommitmentsName),
 		},
 		ShortResponse: ctx.Bool(shortResponseName),
 	})

@@ -127,6 +127,10 @@ type (
 	// NewAssetMeta wraps the params needed to insert a new asset meta on
 	// disk.
 	NewAssetMeta = sqlc.UpsertAssetMetaParams
+
+	// MintAnchorUniCommitParams wraps the params needed to insert a new
+	// mint anchor uni commitment on disk.
+	MintAnchorUniCommitParams = sqlc.UpsertMintAnchorUniCommitmentParams
 )
 
 // PendingAssetStore is a sub-set of the main sqlc.Querier interface that
@@ -199,7 +203,8 @@ type PendingAssetStore interface {
 
 	// BindMintingBatchWithTx adds the minting transaction to an existing
 	// batch.
-	BindMintingBatchWithTx(ctx context.Context, arg BatchChainUpdate) error
+	BindMintingBatchWithTx(ctx context.Context,
+		arg BatchChainUpdate) (int64, error)
 
 	// UpdateBatchGenesisTx updates the batch tx attached to an existing
 	// batch.
@@ -238,6 +243,16 @@ type PendingAssetStore interface {
 	// FetchAssetMetaForAsset fetches the asset meta for a given asset.
 	FetchAssetMetaForAsset(ctx context.Context,
 		assetID []byte) (sqlc.FetchAssetMetaForAssetRow, error)
+
+	// FetchMintAnchorUniCommitment fetches the mint anchor uni commitment
+	// for a given batch.
+	FetchMintAnchorUniCommitment(ctx context.Context,
+		batchID int32) (sqlc.MintAnchorUniCommitment, error)
+
+	// UpsertMintAnchorUniCommitment inserts a new or updates an existing
+	// mint anchor uni commitment on disk.
+	UpsertMintAnchorUniCommitment(ctx context.Context,
+		arg MintAnchorUniCommitParams) (int64, error)
 }
 
 var (
@@ -311,6 +326,77 @@ type OptionalSeedlingFields struct {
 	GroupAnchorID      sql.NullInt64
 }
 
+// insertMintAnchorTx inserts a mint anchor transaction into the database.
+func insertMintAnchorTx(ctx context.Context, q PendingAssetStore,
+	anchorPackage tapgarden.FundedMintAnchorPsbt,
+	batchKey btcec.PublicKey, genesisOutpoint wire.OutPoint) error {
+
+	// Ensure that the genesis point is in the database.
+	genesisPointDbID, err := upsertGenesisPoint(
+		ctx, q, genesisOutpoint,
+	)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrUpsertGenesisPoint, err)
+	}
+
+	var psbtBuf bytes.Buffer
+	err = anchorPackage.Pkt.Serialize(&psbtBuf)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrEncodePsbt, err)
+	}
+
+	rawBatchKey := batchKey.SerializeCompressed()
+	enableUniverseCommitments := anchorPackage.PreCommitmentOutput.IsSome()
+
+	batchID, err := q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
+		RawKey:              rawBatchKey,
+		MintingTxPsbt:       psbtBuf.Bytes(),
+		ChangeOutputIndex:   sqlInt32(anchorPackage.ChangeOutputIndex),
+		AssetsOutputIndex:   sqlInt32(anchorPackage.AssetAnchorOutIdx),
+		GenesisID:           sqlInt64(genesisPointDbID),
+		UniverseCommitments: enableUniverseCommitments,
+	})
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrBindBatchTx, err)
+	}
+
+	// If universe commitments are not enabled for this batch, we can
+	// return early.
+	if !enableUniverseCommitments {
+		return nil
+	}
+
+	// At this point, universe commitments are enabled for this batch, so
+	// we'll insert the mint anchor uni commitment record.
+	preCommitOut, err := anchorPackage.PreCommitmentOutput.UnwrapOrErr(
+		fmt.Errorf("pre-commitment outpoint bundle not set"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// Serialize internal key.
+	internalKey := preCommitOut.InternalKey.SerializeCompressed()
+
+	// Serialize group key.
+	groupPubKey := preCommitOut.GroupPubKey.SerializeCompressed()
+
+	_, err = q.UpsertMintAnchorUniCommitment(
+		ctx, MintAnchorUniCommitParams{
+			BatchID:            int32(batchID),
+			TxOutputIndex:      int32(preCommitOut.OutIdx),
+			TaprootInternalKey: internalKey,
+			GroupKey:           groupPubKey,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("unable to insert mint anchor uni "+
+			"commitment: %w", err)
+	}
+
+	return nil
+}
+
 // CommitMintingBatch commits a new minting batch to disk along with any
 // seedlings specified as part of the batch. A new internal key is also
 // created, with the batch referencing that internal key. This internal key
@@ -365,31 +451,16 @@ func (a *AssetMintingStore) CommitMintingBatch(ctx context.Context,
 		if newBatch.GenesisPacket != nil {
 			genesisPacket := newBatch.GenesisPacket
 			genesisTx := genesisPacket.Pkt.UnsignedTx
-			changeIdx := genesisPacket.ChangeOutputIndex
 			genesisOutpoint := genesisTx.TxIn[0].PreviousOutPoint
 
-			var psbtBuf bytes.Buffer
-			err := genesisPacket.Pkt.Serialize(&psbtBuf)
-			if err != nil {
-				return fmt.Errorf("%w: %w", ErrEncodePsbt, err)
-			}
-
-			genesisPointID, err := upsertGenesisPoint(
-				ctx, q, genesisOutpoint,
+			// Insert the batch transaction.
+			err = insertMintAnchorTx(
+				ctx, q, *genesisPacket,
+				*newBatch.BatchKey.PubKey, genesisOutpoint,
 			)
 			if err != nil {
-				return fmt.Errorf("%w: %w",
-					ErrUpsertGenesisPoint, err)
-			}
-
-			err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
-				RawKey:            rawBatchKey,
-				MintingTxPsbt:     psbtBuf.Bytes(),
-				ChangeOutputIndex: sqlInt32(changeIdx),
-				GenesisID:         sqlInt64(genesisPointID),
-			})
-			if err != nil {
-				return fmt.Errorf("%w: %w", ErrBindBatchTx, err)
+				return fmt.Errorf("unable to insert mint "+
+					"anchor tx: %w", err)
 			}
 		}
 
@@ -1163,11 +1234,59 @@ func marshalMintingBatch(ctx context.Context, q PendingAssetStore,
 		if err != nil {
 			return nil, err
 		}
-		batch.GenesisPacket = &tapsend.FundedPsbt{
-			Pkt: genesisPkt,
-			ChangeOutputIndex: extractSqlInt32[int32](
-				dbBatch.ChangeOutputIndex,
-			),
+
+		if !dbBatch.AssetsOutputIndex.Valid {
+			return nil, fmt.Errorf("missing asset anchor output " +
+				"index")
+		}
+		assetAnchorOutIdx := dbBatch.AssetsOutputIndex.Int32
+
+		// If the batch has universe commitments, we will retrieve
+		// the pre-commitment output index from the database.
+		var preCommitOut fn.Option[tapgarden.PreCommitmentOutput]
+		if dbBatch.UniverseCommitments {
+			res, err := q.FetchMintAnchorUniCommitment(
+				ctx, int32(dbBatch.BatchID),
+			)
+			if err != nil {
+				return nil, fmt.Errorf("unable to fetch mint "+
+					"anchor uni commitment: %w", err)
+			}
+
+			// Parse the internal key from the database.
+			internalKey, err := btcec.ParsePubKey(
+				res.TaprootInternalKey,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing "+
+					"taproot internal key: %w", err)
+			}
+
+			// Parse the group public key from the database.
+			groupPubKey, err := btcec.ParsePubKey(res.GroupKey)
+			if err != nil {
+				return nil, fmt.Errorf("error parsing "+
+					"group public key: %w", err)
+			}
+
+			preCommitOut = fn.Some(
+				tapgarden.PreCommitmentOutput{
+					OutIdx:      uint32(res.TxOutputIndex),
+					InternalKey: *internalKey,
+					GroupPubKey: *groupPubKey,
+				},
+			)
+		}
+
+		batch.GenesisPacket = &tapgarden.FundedMintAnchorPsbt{
+			FundedPsbt: tapsend.FundedPsbt{
+				Pkt: genesisPkt,
+				ChangeOutputIndex: extractSqlInt32[int32](
+					dbBatch.ChangeOutputIndex,
+				),
+			},
+			AssetAnchorOutIdx:   uint32(assetAnchorOutIdx),
+			PreCommitmentOutput: preCommitOut,
 		}
 	}
 
@@ -1282,33 +1401,23 @@ func encodeOutpoint(outPoint wire.OutPoint) ([]byte, error) {
 // CommitBatchTx updates the genesis transaction of a batch based on the batch
 // key.
 func (a *AssetMintingStore) CommitBatchTx(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPacket *tapsend.FundedPsbt) error {
+	batchKey *btcec.PublicKey,
+	genesisPacket tapgarden.FundedMintAnchorPsbt) error {
 
 	genesisOutpoint := genesisPacket.Pkt.UnsignedTx.TxIn[0].PreviousOutPoint
-	rawBatchKey := batchKey.SerializeCompressed()
-
-	var psbtBuf bytes.Buffer
-	if err := genesisPacket.Pkt.Serialize(&psbtBuf); err != nil {
-		return fmt.Errorf("%w: %w", ErrEncodePsbt, err)
-	}
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		genesisPointID, err := upsertGenesisPoint(
-			ctx, q, genesisOutpoint,
+		// Insert the batch transaction.
+		err := insertMintAnchorTx(
+			ctx, q, genesisPacket, *batchKey, genesisOutpoint,
 		)
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrUpsertGenesisPoint, err)
+			return fmt.Errorf("unable to insert mint anchor "+
+				"tx: %w", err)
 		}
 
-		return q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
-			RawKey:        rawBatchKey,
-			MintingTxPsbt: psbtBuf.Bytes(),
-			ChangeOutputIndex: sqlInt32(
-				genesisPacket.ChangeOutputIndex,
-			),
-			GenesisID: sqlInt64(genesisPointID),
-		})
+		return nil
 	})
 }
 
@@ -1415,7 +1524,8 @@ func fetchSeedlingGroups(ctx context.Context, q PendingAssetStore,
 // binds the genesis transaction (which will create the set of assets in the
 // batch) to the batch itself.
 func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
-	batchKey *btcec.PublicKey, genesisPacket *tapsend.FundedPsbt,
+	batchKey *btcec.PublicKey,
+	genesisPacket *tapgarden.FundedMintAnchorPsbt,
 	assetRoot *commitment.TapCommitment) error {
 
 	// Before we open the DB transaction below, we'll fetch the set of
@@ -1444,7 +1554,8 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 
 	var writeTxOpts AssetStoreTxOptions
 	return a.db.ExecTx(ctx, &writeTxOpts, func(q PendingAssetStore) error {
-		genesisPointID, _, err := upsertAssetsWithGenesis(
+		// Upsert the assets with genesis.
+		_, _, err := upsertAssetsWithGenesis(
 			ctx, q, genesisOutpoint, sortedAssets, nil,
 		)
 		if err != nil {
@@ -1452,23 +1563,13 @@ func (a *AssetMintingStore) AddSproutsToBatch(ctx context.Context,
 				"genesis: %w", err)
 		}
 
-		// With all the assets inserted, we'll now update the
-		// corresponding batch that references all these assets with
-		// the genesis packet, and genesis point information.
-		var psbtBuf bytes.Buffer
-		if err := genesisPacket.Pkt.Serialize(&psbtBuf); err != nil {
-			return fmt.Errorf("%w: %w", ErrEncodePsbt, err)
-		}
-		err = q.BindMintingBatchWithTx(ctx, BatchChainUpdate{
-			RawKey:        rawBatchKey,
-			MintingTxPsbt: psbtBuf.Bytes(),
-			ChangeOutputIndex: sqlInt32(
-				genesisPacket.ChangeOutputIndex,
-			),
-			GenesisID: sqlInt64(genesisPointID),
-		})
+		// Insert the batch transaction.
+		err = insertMintAnchorTx(
+			ctx, q, *genesisPacket, *batchKey, genesisOutpoint,
+		)
 		if err != nil {
-			return fmt.Errorf("%w: %w", ErrBindBatchTx, err)
+			return fmt.Errorf("unable to insert mint anchor "+
+				"tx: %w", err)
 		}
 
 		// Finally, update the batch state to BatchStateCommitted.

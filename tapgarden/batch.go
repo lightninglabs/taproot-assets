@@ -14,7 +14,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -51,7 +50,7 @@ type MintingBatch struct {
 	// GenesisPacket is the funded genesis packet that may or may not be
 	// fully signed. When broadcast, this will create all assets stored
 	// within this batch.
-	GenesisPacket *tapsend.FundedPsbt
+	GenesisPacket *FundedMintAnchorPsbt
 
 	// RootAssetCommitment is the root Taproot Asset commitment for all the
 	// assets contained in this batch.
@@ -63,6 +62,14 @@ type MintingBatch struct {
 	// AssetMetas maps the serialized script key of an asset to the meta
 	// reveal for that asset, if it has one.
 	AssetMetas AssetMetas
+
+	// UniverseCommitments is a flag that determines whether the minting
+	// event supports universe commitments. When set to true, the batch must
+	// include only assets that share the same asset group key.
+	//
+	// Universe commitments are minter-controlled, on-chain anchored
+	// attestations regarding the state of the universe.
+	UniverseCommitments bool
 
 	// mintingPubKey is the top-level Taproot output key that will be used
 	// to commit to the Taproot Asset commitment above.
@@ -299,6 +306,233 @@ func (m *MintingBatch) IsFunded() bool {
 // cannot be sealed nor finalized.
 func (m *MintingBatch) HasSeedlings() bool {
 	return len(m.Seedlings) != 0
+}
+
+// validateDelegationKey ensures that the delegation key is valid for a seedling
+// being considered for inclusion in the batch.
+func (m *MintingBatch) validateDelegationKey(newSeedling Seedling) error {
+	// If the universe commitment flag is disabled, then the delegation key
+	// should not be set.
+	if !newSeedling.UniverseCommitments {
+		if newSeedling.DelegationKey.IsSome() {
+			return fmt.Errorf("delegation key must not be set " +
+				"for seedling without universe commitments")
+		}
+
+		// If the universe commitment flag is disabled and the
+		// delegation key is correctly unset, no further checks are
+		// needed.
+		return nil
+	}
+
+	// At this point, we know that the universe commitment flag is enabled
+	// for the seedling. Therefore, the delegation key must be set.
+	delegationKey, err := newSeedling.DelegationKey.UnwrapOrErr(
+		fmt.Errorf("delegation key must be set for seedling with " +
+			"universe commitments"),
+	)
+	if err != nil {
+		return err
+	}
+
+	// validateKeyDesc is a helper function to validate a key descriptor.
+	validateKeyDesc := func(keyDesc keychain.KeyDescriptor) error {
+		if keyDesc.PubKey == nil {
+			return fmt.Errorf("pubkey is nil")
+		}
+
+		if !keyDesc.PubKey.IsOnCurve() {
+			return fmt.Errorf("pubkey is not on curve")
+		}
+
+		return nil
+	}
+
+	// Ensure that the delegation key is valid.
+	err = validateKeyDesc(delegationKey)
+	if err != nil {
+		return fmt.Errorf("candidate seedling delegation "+
+			"key validation failed: %w", err)
+	}
+
+	// Ensure that the delegation key is the same for all seedlings in the
+	// batch.
+	for _, seedling := range m.Seedlings {
+		// Ensure that the delegation key matches that of the candidate
+		// seedling.
+		keyDesc, err := seedling.DelegationKey.UnwrapOrErr(
+			fmt.Errorf("delegation key must be set for seedling " +
+				"with universe commitments"),
+		)
+		if err != nil {
+			return err
+		}
+
+		if !delegationKey.PubKey.IsEqual(keyDesc.PubKey) {
+			return fmt.Errorf("delegation key mismatch")
+		}
+	}
+
+	return nil
+}
+
+// validateUniCommitment verifies that the seedling adheres to the universe
+// commitment feature restrictions in the context of the current batch state.
+func (m *MintingBatch) validateUniCommitment(newSeedling Seedling) error {
+	// If the batch is empty, the first seedling will set the universe
+	// commitment flag for the batch.
+	if !m.HasSeedlings() {
+		// If there are no seedlings in the batch, and the first
+		// (subject) seedling doesn't enable universe commitment, we can
+		// accept it without further checks.
+		if !newSeedling.UniverseCommitments {
+			return nil
+		}
+
+		// At this point, the given seedling is the first to be added to
+		// the batch, and it has the universe commitment flag enabled.
+		//
+		// The minting batch funding step records the genesis
+		// transaction in the database. Additionally, the uni-commitment
+		// feature requires the change output to be locked, ensuring it
+		// can only be spent by `tapd`. Therefore, to leverage the
+		// uni-commitment feature, the batch must be populated with
+		// seedlings, with the uni-commitment flag correctly set before
+		// any funding attempt is made.
+		//
+		// As such, when adding the first seedling with uni-commitment
+		// support to the batch, it is essential to verify that the
+		// batch has not yet been funded.
+		if m.IsFunded() {
+			return fmt.Errorf("attempting to add first seedling " +
+				"with universe commitment flag enabled to " +
+				"funded batch")
+		}
+
+		// At this point, we know the batch is empty, and the candidate
+		// seedling will be the first to be added. Consequently, if the
+		// seedling has the universe commitment flag enabled, it must
+		// specify a re-issuable asset group key.
+		if !newSeedling.EnableEmission {
+			return fmt.Errorf("the emission flag must be enabled " +
+				"for the first asset in a batch with the " +
+				"universe commitment flag enabled")
+		}
+
+		if !newSeedling.HasGroupKey() {
+			return fmt.Errorf("a group key must be specified " +
+				"for the first seedling in the batch when " +
+				"the universe commitment flag is enabled")
+		}
+
+		// No further checks are required for the first seedling in the
+		// batch.
+		return nil
+	}
+
+	// At this stage, we know that the batch contains seedlings.
+	// Furthermore, the universe commitment flag for the batch should have
+	// been correctly updated when the existing seedlings were added.
+	//
+	// Therefore, when evaluating this new candidate seedling for inclusion
+	// in the batch, we must ensure that its universe commitment flag state
+	// matches the flag state of the batch.
+	if m.UniverseCommitments != newSeedling.UniverseCommitments {
+		return fmt.Errorf("seedling universe commitment flag does " +
+			"not match batch")
+	}
+
+	// If the universe commitment flag is disabled for both the seedling and
+	// the batch, no additional checks are required.
+	if !m.UniverseCommitments && !newSeedling.UniverseCommitments {
+		return nil
+	}
+
+	// Logically, by this point, the following must be true:
+	// * the universe commitment flag is enabled for both the seedling and
+	//   the batch
+	// * the batch contains at least one seedling.
+	//
+	// For clarity, we will assert these conditions now.
+	if !m.UniverseCommitments || !newSeedling.UniverseCommitments ||
+		!m.HasSeedlings() {
+
+		return fmt.Errorf("unexpected code path reached")
+	}
+
+	// At this point, the candidate seedling (with uni commitments enabled)
+	// must have a group anchor that is already part of the batch. The group
+	// anchor must have been added to the batch before the candidate
+	// seedling.
+	if newSeedling.GroupAnchor == nil {
+		return fmt.Errorf("non-empty batch with uni commit enabled " +
+			"but candidate seedling does not have group anchor " +
+			"specified")
+	}
+
+	// For clarity, we will assert that the candidate seedling refers to a
+	// group anchor that is already part of the batch.
+	if _, ok := m.Seedlings[*newSeedling.GroupAnchor]; !ok {
+		return fmt.Errorf("group anchor for candidate seedling not " +
+			"present in batch")
+	}
+
+	// Next, we will also assert that there is only one group anchor in the
+	// batch.
+	var anchorCount int
+	for _, seedling := range m.Seedlings {
+		if seedling.GroupAnchor != nil {
+			anchorCount++
+		}
+	}
+	if anchorCount > 1 {
+		return fmt.Errorf("multiple group anchors present in batch " +
+			"with universe commitments enabled")
+	}
+
+	// Ensure that the group anchor for the candidate seedling is already
+	// present in the batch.
+	err := m.validateGroupAnchor(&newSeedling)
+	if err != nil {
+		return fmt.Errorf("group anchor validation failed: %w", err)
+	}
+
+	return nil
+}
+
+// AddSeedling adds a new seedling to the batch.
+func (m *MintingBatch) AddSeedling(newSeedling Seedling) error {
+	// Ensure that the seedling adheres to the universe commitment feature
+	// restrictions in relation to the current batch state.
+	err := m.validateUniCommitment(newSeedling)
+	if err != nil {
+		return fmt.Errorf("seedling does not comply with universe "+
+			"commitment feature: %w", err)
+	}
+
+	// At this stage, the seedling has been confirmed to comply with the
+	// universe commitment feature restrictions. If this is the first
+	// seedling being added to the batch, the batch universe commitment flag
+	// can be set to match the seedling's flag state.
+	if !m.HasSeedlings() {
+		m.UniverseCommitments = newSeedling.UniverseCommitments
+	}
+
+	// Ensure that the delegation key is valid for the seedling being
+	// considered for inclusion in the batch.
+	err = m.validateDelegationKey(newSeedling)
+	if err != nil {
+		return fmt.Errorf("delegation key validation failed: %w", err)
+	}
+
+	// Add the seedling to the batch.
+	if m.Seedlings == nil {
+		m.Seedlings = make(map[string]*Seedling)
+	}
+
+	m.Seedlings[newSeedling.AssetName] = &newSeedling
+
+	return nil
 }
 
 // ToMintingBatch creates a new MintingBatch from a VerboseBatch.

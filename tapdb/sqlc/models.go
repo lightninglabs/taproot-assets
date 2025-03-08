@@ -81,14 +81,16 @@ type AssetGroupWitness struct {
 }
 
 type AssetMintingBatch struct {
-	BatchID           int64
-	BatchState        int16
-	MintingTxPsbt     []byte
-	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt64
-	HeightHint        int32
-	CreationTimeUnix  time.Time
-	TapscriptSibling  []byte
+	BatchID             int64
+	BatchState          int16
+	MintingTxPsbt       []byte
+	ChangeOutputIndex   sql.NullInt32
+	GenesisID           sql.NullInt64
+	HeightHint          int32
+	CreationTimeUnix    time.Time
+	TapscriptSibling    []byte
+	AssetsOutputIndex   sql.NullInt32
+	UniverseCommitments bool
 }
 
 type AssetProof struct {
@@ -274,6 +276,14 @@ type ManagedUtxo struct {
 	LeaseOwner       []byte
 	LeaseExpiry      sql.NullTime
 	RootVersion      sql.NullInt16
+}
+
+type MintAnchorUniCommitment struct {
+	ID                 int64
+	BatchID            int32
+	TxOutputIndex      int32
+	TaprootInternalKey []byte
+	GroupKey           []byte
 }
 
 type MssmtNode struct {

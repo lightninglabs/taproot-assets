@@ -412,24 +412,6 @@ func (b *BatchCaretaker) assetCultivator() {
 	}
 }
 
-// extractAnchorOutputIndex extracts the anchor output index from a funded
-// genesis packet.
-func extractAnchorOutputIndex(genesisPkt *tapsend.FundedPsbt) (uint32, error) {
-	if len(genesisPkt.Pkt.UnsignedTx.TxOut) != 2 {
-		return 0, fmt.Errorf("funded genesis packet has unexpected "+
-			"number of outputs, expected 2 (txout_len=%d)",
-			len(genesisPkt.Pkt.UnsignedTx.TxOut))
-	}
-
-	anchorOutputIndex := uint32(0)
-
-	if genesisPkt.ChangeOutputIndex == 0 {
-		anchorOutputIndex = 1
-	}
-
-	return anchorOutputIndex, nil
-}
-
 // extractGenesisOutpoint extracts the genesis point (the first input from the
 // genesis transaction).
 func extractGenesisOutpoint(tx *wire.MsgTx) wire.OutPoint {
@@ -612,18 +594,12 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 			return 0, fmt.Errorf("unable to deserialize genesis "+
 				"PSBT: %w", err)
 		}
-		changeOutputIndex := b.cfg.Batch.GenesisPacket.ChangeOutputIndex
 
-		// If the change output is first, then our commitment is second,
-		// and vice versa.
-		// TODO(jhb): return the anchor index instead of change? or both
-		// so this works for N outputs
-		b.anchorOutputIndex, err = extractAnchorOutputIndex(
-			b.cfg.Batch.GenesisPacket,
-		)
-		if err != nil {
-			return 0, err
-		}
+		// Unpack output indexes.
+		genesisPacket := b.cfg.Batch.GenesisPacket
+
+		changeOutputIndex := genesisPacket.ChangeOutputIndex
+		b.anchorOutputIndex = genesisPacket.AssetAnchorOutIdx
 
 		genesisPoint := extractGenesisOutpoint(genesisTxPkt.UnsignedTx)
 
@@ -671,10 +647,15 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 		log.Infof("BatchCaretaker(%x): committing sprouts to disk",
 			b.batchKey[:])
 
-		fundedGenesisPsbt := tapsend.FundedPsbt{
-			Pkt:               genesisTxPkt,
-			ChangeOutputIndex: changeOutputIndex,
+		fundedGenesisPsbt := FundedMintAnchorPsbt{
+			FundedPsbt: tapsend.FundedPsbt{
+				Pkt:               genesisTxPkt,
+				ChangeOutputIndex: changeOutputIndex,
+			},
+			AssetAnchorOutIdx:   b.anchorOutputIndex,
+			PreCommitmentOutput: genesisPacket.PreCommitmentOutput,
 		}
+
 		// With all our commitments created, we'll commit them to disk,
 		// replacing the existing seedlings we had created for each of
 		// these assets.
@@ -801,8 +782,9 @@ func (b *BatchCaretaker) stateStep(currentState BatchState) (BatchState, error) 
 
 		err = b.cfg.Log.CommitSignedGenesisTx(
 			ctx, b.cfg.Batch.BatchKey.PubKey,
-			b.cfg.Batch.GenesisPacket, b.anchorOutputIndex,
-			merkleRoot, tapCommitmentRoot[:], siblingBytes,
+			&b.cfg.Batch.GenesisPacket.FundedPsbt,
+			b.anchorOutputIndex, merkleRoot, tapCommitmentRoot[:],
+			siblingBytes,
 		)
 		if err != nil {
 			return 0, fmt.Errorf("unable to commit genesis "+

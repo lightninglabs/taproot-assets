@@ -174,12 +174,6 @@ type MetaReveal struct {
 	UnknownOddTypes tlv.TypeMap
 }
 
-// SizableInteger is a subset of Integer that excludes int8, since we never use
-// it in practice.
-type SizableInteger interface {
-	constraints.Unsigned | ~int | ~int16 | ~int32 | ~int64
-}
-
 // Validate validates the meta reveal.
 func (m *MetaReveal) Validate() error {
 	// A meta reveal is allowed to be nil.
@@ -234,6 +228,13 @@ func (m *MetaReveal) Validate() error {
 		return err
 	}
 
+	// The asset metadata is invalid when the universe commitments feature
+	// is enabled but no delegation key is specified.
+	if m.UniverseCommitments && m.DelegationKey.IsNone() {
+		return fmt.Errorf("universe commitments enabled in asset " +
+			"metadata but delegation key is unspecified")
+	}
+
 	return fn.MapOptionZ(m.DelegationKey, func(key btcec.PublicKey) error {
 		if key == emptyKey {
 			return ErrDelegationKeyEmpty
@@ -245,6 +246,12 @@ func (m *MetaReveal) Validate() error {
 
 		return nil
 	})
+}
+
+// SizableInteger is a subset of Integer that excludes int8, since we never use
+// it in practice.
+type SizableInteger interface {
+	constraints.Unsigned | ~int | ~int16 | ~int32 | ~int64
 }
 
 // IsValidMetaType checks if the passed value is a valid meta type.
@@ -288,6 +295,8 @@ func IsValidDecDisplay(decDisplay uint32) error {
 
 // DecodeMetaJSON decodes bytes as a JSON object, after checking that the bytes
 // could be valid metadata.
+//
+// TODO(ffranr): Add unit test for `jBytes := []byte{}`.
 func DecodeMetaJSON(jBytes []byte) (map[string]interface{}, error) {
 	jMeta := make(map[string]interface{})
 

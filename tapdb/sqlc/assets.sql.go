@@ -87,25 +87,27 @@ func (q *Queries) AllInternalKeys(ctx context.Context) ([]InternalKey, error) {
 }
 
 const AllMintingBatches = `-- name: AllMintingBatches :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index 
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index 
 FROM asset_minting_batches
 JOIN internal_keys 
 ON asset_minting_batches.batch_id = internal_keys.key_id
 `
 
 type AllMintingBatchesRow struct {
-	BatchID           int64
-	BatchState        int16
-	MintingTxPsbt     []byte
-	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt64
-	HeightHint        int32
-	CreationTimeUnix  time.Time
-	TapscriptSibling  []byte
-	KeyID             int64
-	RawKey            []byte
-	KeyFamily         int32
-	KeyIndex          int32
+	BatchID             int64
+	BatchState          int16
+	MintingTxPsbt       []byte
+	ChangeOutputIndex   sql.NullInt32
+	GenesisID           sql.NullInt64
+	HeightHint          int32
+	CreationTimeUnix    time.Time
+	TapscriptSibling    []byte
+	AssetsOutputIndex   sql.NullInt32
+	UniverseCommitments bool
+	KeyID               int64
+	RawKey              []byte
+	KeyFamily           int32
+	KeyIndex            int32
 }
 
 func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow, error) {
@@ -126,6 +128,8 @@ func (q *Queries) AllMintingBatches(ctx context.Context) ([]AllMintingBatchesRow
 			&i.HeightHint,
 			&i.CreationTimeUnix,
 			&i.TapscriptSibling,
+			&i.AssetsOutputIndex,
+			&i.UniverseCommitments,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -353,7 +357,7 @@ func (q *Queries) BindMintingBatchWithTapSibling(ctx context.Context, arg BindMi
 	return err
 }
 
-const BindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :exec
+const BindMintingBatchWithTx = `-- name: BindMintingBatchWithTx :one
 WITH target_batch AS (
     SELECT batch_id
     FROM asset_minting_batches batches
@@ -361,26 +365,34 @@ WITH target_batch AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-UPDATE asset_minting_batches 
-SET minting_tx_psbt = $2, change_output_index = $3, genesis_id = $4
+UPDATE asset_minting_batches
+SET minting_tx_psbt = $2, change_output_index = $3, assets_output_index = $4,
+    genesis_id = $5, universe_commitments = $6
 WHERE batch_id IN (SELECT batch_id FROM target_batch)
+RETURNING batch_id
 `
 
 type BindMintingBatchWithTxParams struct {
-	RawKey            []byte
-	MintingTxPsbt     []byte
-	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt64
+	RawKey              []byte
+	MintingTxPsbt       []byte
+	ChangeOutputIndex   sql.NullInt32
+	AssetsOutputIndex   sql.NullInt32
+	GenesisID           sql.NullInt64
+	UniverseCommitments bool
 }
 
-func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) error {
-	_, err := q.db.ExecContext(ctx, BindMintingBatchWithTx,
+func (q *Queries) BindMintingBatchWithTx(ctx context.Context, arg BindMintingBatchWithTxParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, BindMintingBatchWithTx,
 		arg.RawKey,
 		arg.MintingTxPsbt,
 		arg.ChangeOutputIndex,
+		arg.AssetsOutputIndex,
 		arg.GenesisID,
+		arg.UniverseCommitments,
 	)
-	return err
+	var batch_id int64
+	err := row.Scan(&batch_id)
+	return batch_id, err
 }
 
 const ConfirmChainAnchorTx = `-- name: ConfirmChainAnchorTx :exec
@@ -1502,6 +1514,26 @@ func (q *Queries) FetchManagedUTXOs(ctx context.Context) ([]FetchManagedUTXOsRow
 	return items, nil
 }
 
+const FetchMintAnchorUniCommitment = `-- name: FetchMintAnchorUniCommitment :one
+SELECT id, batch_id, tx_output_index, taproot_internal_key, group_key
+FROM mint_anchor_uni_commitments
+WHERE batch_id = $1
+`
+
+// Fetch a record from the mint_anchor_uni_commitments table by id.
+func (q *Queries) FetchMintAnchorUniCommitment(ctx context.Context, batchID int32) (MintAnchorUniCommitment, error) {
+	row := q.db.QueryRowContext(ctx, FetchMintAnchorUniCommitment, batchID)
+	var i MintAnchorUniCommitment
+	err := row.Scan(
+		&i.ID,
+		&i.BatchID,
+		&i.TxOutputIndex,
+		&i.TaprootInternalKey,
+		&i.GroupKey,
+	)
+	return i, err
+}
+
 const FetchMintingBatch = `-- name: FetchMintingBatch :one
 WITH target_batch AS (
     -- This CTE is used to fetch the ID of a batch, based on the serialized
@@ -1514,7 +1546,7 @@ WITH target_batch AS (
         ON batches.batch_id = keys.key_id
     WHERE keys.raw_key = $1
 )
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -1522,18 +1554,20 @@ WHERE batch_id in (SELECT batch_id FROM target_batch)
 `
 
 type FetchMintingBatchRow struct {
-	BatchID           int64
-	BatchState        int16
-	MintingTxPsbt     []byte
-	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt64
-	HeightHint        int32
-	CreationTimeUnix  time.Time
-	TapscriptSibling  []byte
-	KeyID             int64
-	RawKey            []byte
-	KeyFamily         int32
-	KeyIndex          int32
+	BatchID             int64
+	BatchState          int16
+	MintingTxPsbt       []byte
+	ChangeOutputIndex   sql.NullInt32
+	GenesisID           sql.NullInt64
+	HeightHint          int32
+	CreationTimeUnix    time.Time
+	TapscriptSibling    []byte
+	AssetsOutputIndex   sql.NullInt32
+	UniverseCommitments bool
+	KeyID               int64
+	RawKey              []byte
+	KeyFamily           int32
+	KeyIndex            int32
 }
 
 func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMintingBatchRow, error) {
@@ -1548,6 +1582,8 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 		&i.HeightHint,
 		&i.CreationTimeUnix,
 		&i.TapscriptSibling,
+		&i.AssetsOutputIndex,
+		&i.UniverseCommitments,
 		&i.KeyID,
 		&i.RawKey,
 		&i.KeyFamily,
@@ -1557,7 +1593,7 @@ func (q *Queries) FetchMintingBatch(ctx context.Context, rawKey []byte) (FetchMi
 }
 
 const FetchMintingBatchesByInverseState = `-- name: FetchMintingBatchesByInverseState :many
-SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, key_id, raw_key, key_family, key_index
+SELECT batch_id, batch_state, minting_tx_psbt, change_output_index, genesis_id, height_hint, creation_time_unix, tapscript_sibling, assets_output_index, universe_commitments, key_id, raw_key, key_family, key_index
 FROM asset_minting_batches batches
 JOIN internal_keys keys
     ON batches.batch_id = keys.key_id
@@ -1565,18 +1601,20 @@ WHERE batches.batch_state != $1
 `
 
 type FetchMintingBatchesByInverseStateRow struct {
-	BatchID           int64
-	BatchState        int16
-	MintingTxPsbt     []byte
-	ChangeOutputIndex sql.NullInt32
-	GenesisID         sql.NullInt64
-	HeightHint        int32
-	CreationTimeUnix  time.Time
-	TapscriptSibling  []byte
-	KeyID             int64
-	RawKey            []byte
-	KeyFamily         int32
-	KeyIndex          int32
+	BatchID             int64
+	BatchState          int16
+	MintingTxPsbt       []byte
+	ChangeOutputIndex   sql.NullInt32
+	GenesisID           sql.NullInt64
+	HeightHint          int32
+	CreationTimeUnix    time.Time
+	TapscriptSibling    []byte
+	AssetsOutputIndex   sql.NullInt32
+	UniverseCommitments bool
+	KeyID               int64
+	RawKey              []byte
+	KeyFamily           int32
+	KeyIndex            int32
 }
 
 func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchState int16) ([]FetchMintingBatchesByInverseStateRow, error) {
@@ -1597,6 +1635,8 @@ func (q *Queries) FetchMintingBatchesByInverseState(ctx context.Context, batchSt
 			&i.HeightHint,
 			&i.CreationTimeUnix,
 			&i.TapscriptSibling,
+			&i.AssetsOutputIndex,
+			&i.UniverseCommitments,
 			&i.KeyID,
 			&i.RawKey,
 			&i.KeyFamily,
@@ -2934,6 +2974,42 @@ func (q *Queries) UpsertManagedUTXO(ctx context.Context, arg UpsertManagedUTXOPa
 	var utxo_id int64
 	err := row.Scan(&utxo_id)
 	return utxo_id, err
+}
+
+const UpsertMintAnchorUniCommitment = `-- name: UpsertMintAnchorUniCommitment :one
+INSERT INTO mint_anchor_uni_commitments (
+    id, batch_id, tx_output_index, taproot_internal_key, group_key
+)
+VALUES ($1, $2, $3, $4, $5)
+ON CONFLICT(batch_id, tx_output_index) DO UPDATE SET
+    -- The following fields are updated if a conflict occurs.
+    taproot_internal_key = EXCLUDED.taproot_internal_key,
+    group_key = EXCLUDED.group_key
+RETURNING id
+`
+
+type UpsertMintAnchorUniCommitmentParams struct {
+	ID                 int64
+	BatchID            int32
+	TxOutputIndex      int32
+	TaprootInternalKey []byte
+	GroupKey           []byte
+}
+
+// Upsert a record into the mint_anchor_uni_commitments table.
+// If a record with the same batch_id and group_key already exists, update the
+// existing record. Otherwise, insert a new record.
+func (q *Queries) UpsertMintAnchorUniCommitment(ctx context.Context, arg UpsertMintAnchorUniCommitmentParams) (int64, error) {
+	row := q.db.QueryRowContext(ctx, UpsertMintAnchorUniCommitment,
+		arg.ID,
+		arg.BatchID,
+		arg.TxOutputIndex,
+		arg.TaprootInternalKey,
+		arg.GroupKey,
+	)
+	var id int64
+	err := row.Scan(&id)
+	return id, err
 }
 
 const UpsertScriptKey = `-- name: UpsertScriptKey :one
