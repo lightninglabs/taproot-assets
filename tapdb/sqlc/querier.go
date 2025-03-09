@@ -114,6 +114,7 @@ type Querier interface {
 	InsertUniverseServer(ctx context.Context, arg InsertUniverseServerParams) error
 	LogProofTransferAttempt(ctx context.Context, arg LogProofTransferAttemptParams) error
 	LogServerSync(ctx context.Context, arg LogServerSyncParams) error
+	LookupGenesisID(ctx context.Context, assetID []byte) (int64, error)
 	NewMintingBatch(ctx context.Context, arg NewMintingBatchParams) error
 	// We use a LEFT JOIN here as not every asset has a group key, so this'll
 	// generate rows that have NULL values for the group key fields if an asset
