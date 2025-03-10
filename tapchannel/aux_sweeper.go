@@ -1587,27 +1587,26 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	vPkts := maps.Values(vPktsByAssetID)
 	ctx := context.Background()
 	for idx := range vPkts {
-		err := tapsend.PrepareOutputAssets(ctx, vPkts[idx])
+		// We'll set the witness on the split output, that way it'll be
+		// copied to the splits as well.
+		splitOut, err := vPkts[idx].SplitRootOutput()
+		if err != nil {
+			return fmt.Errorf("unable to get split root output: %w",
+				err)
+		}
+
+		// There is always only a single input, as we're
+		// sweeping a single contract w/ each vPkt.
+		const inputIndex = 0
+		err = splitOut.Asset.UpdateTxWitness(inputIndex, fundingWitness)
+		if err != nil {
+			return fmt.Errorf("error updating witness: %w", err)
+		}
+
+		err = tapsend.PrepareOutputAssets(ctx, vPkts[idx])
 		if err != nil {
 			return fmt.Errorf("unable to prepare output "+
 				"assets: %w", err)
-		}
-
-		// With the packets prepared, we'll swap in the correct witness
-		// for each of them.
-		for outIdx := range vPkts[idx].Outputs {
-			outAsset := vPkts[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, as we're
-			// sweeping a single contract w/ each vPkt.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
 		}
 	}
 	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
@@ -1876,8 +1875,9 @@ func (a *AuxSweeper) resolveContract(
 		return lfn.Err[tlv.Blob](err)
 	}
 
+	type packetList = []*tappsbt.VPacket
 	var (
-		secondLevelPkts    []*tappsbt.VPacket
+		secondLevelPkts    packetList
 		secondLevelSigDesc lfn.Option[cmsg.TapscriptSigDesc]
 	)
 
@@ -1886,25 +1886,30 @@ func (a *AuxSweeper) resolveContract(
 	if needsSecondLevel {
 		log.Infof("Creating+signing 2nd level vPkts")
 
-		// We'll make a place holder for the second level output based
-		// on the assetID+value tuple.
-		secondLevelInputs := []*cmsg.AssetOutput{cmsg.NewAssetOutput(
-			assetOutputs[0].AssetID.Val,
-			assetOutputs[0].Amount.Val, assetOutputs[0].Proof.Val,
-		)}
+		// We'll make a placeholder for the second level output based
+		// on the assetID+value tuples.
+		secondLevelInputs := fn.Map(
+			assetOutputs,
+			func(a *cmsg.AssetOutput) *cmsg.AssetOutput {
+				return cmsg.NewAssetOutput(
+					a.AssetID.Val, a.Amount.Val,
+					a.Proof.Val,
+				)
+			},
+		)
 
 		// Unlike the first level packets, we can't yet sign the second
 		// level packets yet, as we don't know what the sweeping
 		// transaction will look like. So we'll just create them.
 		secondLevelPkts, err = lfn.MapOption(
 			//nolint:lll
-			func(desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
+			func(desc tapscriptSweepDesc) lfn.Result[packetList] {
 				return a.createSweepVpackets(
 					secondLevelInputs, lfn.Ok(desc), req,
 				)
 			},
 		)(tapSweepDesc.secondLevel).UnwrapOr(
-			lfn.Ok[[]*tappsbt.VPacket](nil),
+			lfn.Ok[packetList](nil),
 		).Unpack()
 		if err != nil {
 			return lfn.Errf[tlv.Blob]("unable to make "+

@@ -3561,6 +3561,16 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
+		var proofAsset asset.Asset
+		err = proof.SparseDecode(
+			bytes.NewReader(out.ProofSuffix),
+			proof.AssetLeafRecord(&proofAsset),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sparse decode "+
+				"proof: %w", err)
+		}
+
 		// Marshall the proof delivery status.
 		proofDeliveryStatus := marshalOutputProofDeliveryStatus(out)
 
@@ -3576,6 +3586,7 @@ func marshalOutboundParcel(
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
 			ProofDeliveryStatus: proofDeliveryStatus,
+			AssetId:             fn.ByteSlice(proofAsset.ID()),
 		}
 	}
 
@@ -7079,7 +7090,7 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 
 	assetID, groupKey, err := parseAssetSpecifier(
-		req.GetAssetId(), "", nil, "",
+		req.GetAssetId(), "", req.GetGroupKey(), "",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing asset specifier: %w", err)
@@ -8030,7 +8041,7 @@ func (r *rpcServer) rfqChannel(ctx context.Context, id asset.ID,
 // asset within a channel with the channels' general information.
 type channelWithAsset struct {
 	// assetInfo is the information about one of the assets in a channel.
-	assetInfo rfqmsg.JsonAssetChanInfo
+	assetInfo rfqmsg.JsonAssetChannel
 
 	// channelInfo is the information about the channel the asset is
 	// committed to.
@@ -8061,9 +8072,9 @@ func (r *rpcServer) computeChannelAssetBalance(
 				"data: %w", err)
 		}
 
-		for assetIdx := range assetData.Assets {
-			assetOutput := assetData.Assets[assetIdx]
-			assetIDStr := assetOutput.AssetInfo.AssetGenesis.AssetID
+		for assetIdx := range assetData.FundingAssets {
+			assetOutput := assetData.FundingAssets[assetIdx]
+			assetIDStr := assetOutput.AssetGenesis.AssetID
 			assetIDBytes, err := hex.DecodeString(assetIDStr)
 			if err != nil {
 				return nil, fmt.Errorf("error decoding asset "+
@@ -8074,7 +8085,7 @@ func (r *rpcServer) computeChannelAssetBalance(
 
 			channelsByID[assetID] = append(
 				channelsByID[assetID], channelWithAsset{
-					assetInfo:   assetOutput,
+					assetInfo:   assetData,
 					channelInfo: openChan,
 				},
 			)

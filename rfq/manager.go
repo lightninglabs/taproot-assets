@@ -564,8 +564,8 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 			continue
 		}
 
-		for _, channelAsset := range assetData.Assets {
-			gen := channelAsset.AssetInfo.AssetGenesis
+		for _, channelAsset := range assetData.FundingAssets {
+			gen := channelAsset.AssetGenesis
 			if gen.AssetID == assetIDStr {
 				baseSCID = localChan.ChannelID
 				break
