@@ -438,6 +438,16 @@ func (s *Specifier) UnwrapToPtr() (*ID, *btcec.PublicKey) {
 	return s.UnwrapIdToPtr(), s.UnwrapGroupKeyToPtr()
 }
 
+// AssertNotEmpty checks whether the specifier is empty, returning an error if
+// so.
+func (s *Specifier) AssertNotEmpty() error {
+	if !s.HasId() && !s.HasGroupPubKey() {
+		return fmt.Errorf("asset specifier is empty")
+	}
+
+	return nil
+}
+
 // Type denotes the asset types supported by the Taproot Asset protocol.
 type Type uint8
 
