@@ -16,7 +16,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg"
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/caddyserver/certmagic"
 	"github.com/jessevdk/go-flags"
 	"github.com/lightninglabs/lndclient"
@@ -53,9 +53,6 @@ const (
 	defaultLetsEncryptListen  = ":80"
 
 	defaultNetwork = "testnet"
-
-	defaultMaxLogFiles    = 3
-	defaultMaxLogFileSize = 10
 
 	defaultMainnetFederationServer = "universe.lightning.finance:10029"
 	defaultTestnetFederationServer = "testnet.universe.lightning.finance:10029"
@@ -318,8 +315,10 @@ type Config struct {
 
 	DataDir        string `long:"datadir" description:"The directory to store tapd's data within"`
 	LogDir         string `long:"logdir" description:"Directory to log output."`
-	MaxLogFiles    int    `long:"maxlogfiles" description:"Maximum logfiles to keep (0 for no rotation)"`
-	MaxLogFileSize int    `long:"maxlogfilesize" description:"Maximum logfile size in MB"`
+	MaxLogFiles    int    `long:"maxlogfiles" hidden:"true" description:"DEPRECATED! Use logging.file.max-files instead. Maximum logfiles to keep (0 for no rotation)"`
+	MaxLogFileSize int    `long:"maxlogfilesize" hidden:"true" description:"DEPRECATED! Use logging.file.max-file-size instead. Maximum logfile size in MB"`
+
+	Logging *build.LogConfig `group:"logging" namespace:"logging"`
 
 	CPUProfile string `long:"cpuprofile" description:"Write CPU profile to the specified file"`
 	Profile    string `long:"profile" description:"Enable HTTP profiling on either a port or host:port"`
@@ -354,6 +353,10 @@ type Config struct {
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
 
+	// LogMgr is the sublogger manager that is used to create subloggers for
+	// the daemon.
+	LogMgr *build.SubLoggerManager
+
 	// networkDir is the path to the directory of the currently active
 	// network. This path will hold the files related to each different
 	// network.
@@ -370,14 +373,17 @@ type Config struct {
 
 // DefaultConfig returns all default values for the Config struct.
 func DefaultConfig() Config {
+	logWriter := build.NewRotatingLogWriter()
+	defaultLogConfig := build.DefaultLogConfig()
 	return Config{
 		TapdDir:        DefaultTapdDir,
 		ConfigFile:     DefaultConfigFile,
 		DataDir:        defaultDataDir,
 		DebugLevel:     defaultLogLevel,
 		LogDir:         defaultLogDir,
-		MaxLogFiles:    defaultMaxLogFiles,
-		MaxLogFileSize: defaultMaxLogFileSize,
+		MaxLogFiles:    defaultLogConfig.File.MaxLogFiles,
+		MaxLogFileSize: defaultLogConfig.File.MaxLogFileSize,
+		Logging:        defaultLogConfig,
 		net:            &tor.ClearNet{},
 		RpcConf: &RpcConfig{
 			TLSCertPath:       defaultTLSCertPath,
@@ -405,7 +411,10 @@ func DefaultConfig() Config {
 			Port:               5432,
 			MaxOpenConnections: 10,
 		},
-		LogWriter:               build.NewRotatingLogWriter(),
+		LogWriter: logWriter,
+		LogMgr: build.NewSubLoggerManager(build.NewDefaultLogHandlers(
+			defaultLogConfig, logWriter,
+		)...),
 		Prometheus:              monitoring.DefaultPrometheusConfig(),
 		ReOrgSafeDepth:          defaultReOrgSafeDepth,
 		DefaultProofCourierAddr: defaultProofCourierAddr,
@@ -523,7 +532,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		return nil, nil, err
 	}
 
-	cfgLogger := cfg.LogWriter.GenSubLogger("CONF", nil)
+	cfgLogger := cfg.LogMgr.GenSubLogger("CONF", nil)
 
 	// Make sure everything we just loaded makes sense.
 	cleanCfg, err := ValidateConfig(cfg, cfgLogger)
@@ -537,11 +546,33 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 		return nil, nil, err
 	}
 
+	// Initialize the log manager with the actual logging configuration. We
+	// need to support the deprecated max log files and max log file size
+	// options for now.
+	if cleanCfg.MaxLogFiles != build.DefaultMaxLogFiles {
+		cfgLogger.Warnf("Config option 'maxlogfiles' is deprecated, " +
+			"please use 'logging.file.max-files' instead")
+
+		cleanCfg.Logging.File.MaxLogFiles = cleanCfg.MaxLogFiles
+	}
+	if cleanCfg.MaxLogFileSize != build.DefaultMaxLogFileSize {
+		cfgLogger.Warnf("Config option 'maxlogfilesize' is " +
+			"deprecated, please use 'logging.file.max-file-size' " +
+			"instead")
+
+		cleanCfg.Logging.File.MaxLogFileSize = cleanCfg.MaxLogFileSize
+	}
+	cfg.LogMgr = build.NewSubLoggerManager(build.NewDefaultLogHandlers(
+		cleanCfg.Logging, cleanCfg.LogWriter,
+	)...)
+
 	// Initialize logging at the default logging level.
-	tap.SetupLoggers(cfg.LogWriter, interceptor)
-	err = cfg.LogWriter.InitLogRotator(
-		filepath.Join(cleanCfg.LogDir, defaultLogFilename),
-		cleanCfg.MaxLogFileSize, cfg.MaxLogFiles,
+	tap.SetupLoggers(cleanCfg.LogMgr, interceptor)
+
+	err = cleanCfg.LogWriter.InitLogRotator(
+		cleanCfg.Logging.File, filepath.Join(
+			cleanCfg.LogDir, defaultLogFilename,
+		),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err.Error())
@@ -549,7 +580,7 @@ func LoadConfig(interceptor signal.Interceptor) (*Config, btclog.Logger, error) 
 	}
 
 	// Parse, validate, and set debug log level(s).
-	err = build.ParseAndSetDebugLevels(cfg.DebugLevel, cfg.LogWriter)
+	err = build.ParseAndSetDebugLevels(cleanCfg.DebugLevel, cleanCfg.LogMgr)
 	if err != nil {
 		str := "error parsing debug level: %v"
 		cfgLogger.Warnf(str, err)
@@ -786,7 +817,7 @@ func ValidateConfig(cfg Config, cfgLogger btclog.Logger) (*Config, error) {
 	// Special show command to list supported subsystems and exit.
 	if cfg.DebugLevel == "show" {
 		fmt.Println("Supported subsystems",
-			cfg.LogWriter.SupportedSubsystems())
+			cfg.LogMgr.SupportedSubsystems())
 		os.Exit(0)
 	}
 

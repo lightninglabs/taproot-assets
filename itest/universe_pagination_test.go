@@ -36,9 +36,8 @@ func testUniversePaginationSimple(t *harnessTest) {
 
 	// If we create a second tapd instance and sync the universe state,
 	// the synced tree should match the source tree.
-	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()

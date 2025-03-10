@@ -16,9 +16,8 @@ func testOwnershipVerification(t *harnessTest) {
 	ctxb := context.Background()
 
 	// Create bob tapd.
-	bobTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bobTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bobTapd.stop(!*noDelete))
 	}()

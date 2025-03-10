@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/rand"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
+	"github.com/btcsuite/btclog/v2"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	tap "github.com/lightninglabs/taproot-assets"
@@ -33,7 +35,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
-	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -2295,8 +2296,6 @@ func signGroupKeyV1(keyDesc keychain.KeyDescriptor, gk asset.GroupKeyRevealV1,
 func init() {
 	rand.Seed(time.Now().Unix())
 
-	logWriter := build.NewRotatingLogWriter()
-	logger := logWriter.GenSubLogger(tapgarden.Subsystem, func() {})
-	logWriter.RegisterSubLogger(tapgarden.Subsystem, logger)
-	tapgarden.UseLogger(logger)
+	logger := btclog.NewSLogger(btclog.NewDefaultHandler(os.Stdout))
+	tapgarden.UseLogger(logger.SubSystem(tapgarden.Subsystem))
 }

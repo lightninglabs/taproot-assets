@@ -3,7 +3,7 @@ package fn
 import (
 	"fmt"
 
-	"github.com/lightningnetwork/lnd/fn"
+	"github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // Reducer represents a function that takes an accumulator and the value, then

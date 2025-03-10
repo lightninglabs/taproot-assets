@@ -237,6 +237,18 @@ func HasAssetHTLCCustomRecords(records lnwire.CustomRecords) bool {
 	return false
 }
 
+// HasAssetHTLCEntries returns true if the given blob contains the custom
+// records that we'd expect an asset HTLC to carry. If the blob is not a valid
+// custom records blob, this function will return false.
+func HasAssetHTLCEntries(blob tlv.Blob) bool {
+	customRecords, err := lnwire.ParseCustomRecords(blob)
+	if err != nil {
+		return false
+	}
+
+	return HasAssetHTLCCustomRecords(customRecords)
+}
+
 // AssetBalance is a record that represents the amount of an asset that is
 // being transferred or is available to be spent.
 type AssetBalance struct {

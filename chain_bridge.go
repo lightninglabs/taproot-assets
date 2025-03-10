@@ -184,12 +184,12 @@ func (l *LndRpcChainBridge) VerifyBlock(ctx context.Context,
 
 // CurrentHeight return the current height of the main chain.
 func (l *LndRpcChainBridge) CurrentHeight(ctx context.Context) (uint32, error) {
-	info, err := l.lnd.Client.GetInfo(ctx)
+	_, bestHeight, err := l.lnd.ChainKit.GetBestBlock(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("unable to grab block height: %w", err)
 	}
 
-	return info.BlockHeight, nil
+	return uint32(bestHeight), nil
 }
 
 // GetBlockTimestamp returns the timestamp of the block at the given height.

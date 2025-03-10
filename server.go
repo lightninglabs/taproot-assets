@@ -27,7 +27,7 @@ import (
 	"github.com/lightningnetwork/lnd"
 	"github.com/lightningnetwork/lnd/build"
 	"github.com/lightningnetwork/lnd/channeldb"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/funding"
 	"github.com/lightningnetwork/lnd/htlcswitch"
 	"github.com/lightningnetwork/lnd/input"
@@ -746,8 +746,8 @@ func (s *Server) FetchLeavesFromView(
 	srvrLog.Debugf("FetchLeavesFromView called, whoseCommit=%v, "+
 		"ourBalance=%v, theirBalance=%v, numOurUpdates=%d, "+
 		"numTheirUpdates=%d", in.WhoseCommit, in.OurBalance,
-		in.TheirBalance, len(in.UnfilteredView.OurUpdates),
-		len(in.UnfilteredView.TheirUpdates))
+		in.TheirBalance, len(in.UnfilteredView.Updates.Local),
+		len(in.UnfilteredView.Updates.Remote))
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.
@@ -802,8 +802,8 @@ func (s *Server) ApplyHtlcView(
 	srvrLog.Debugf("ApplyHtlcView called, whoseCommit=%v, "+
 		"ourBalance=%v, theirBalance=%v, numOurUpdates=%d, "+
 		"numTheirUpdates=%d", in.WhoseCommit, in.OurBalance,
-		in.TheirBalance, len(in.UnfilteredView.OurUpdates),
-		len(in.UnfilteredView.TheirUpdates))
+		in.TheirBalance, len(in.UnfilteredView.Updates.Local),
+		len(in.UnfilteredView.Updates.Remote))
 
 	// The aux leaf creator is fully stateless, and we don't need to wait
 	// for the server to be started before being able to use it.

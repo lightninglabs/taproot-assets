@@ -9,7 +9,7 @@ import (
 
 	tap "github.com/lightninglabs/taproot-assets"
 	"github.com/lightninglabs/taproot-assets/taprpc"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/signal"
 	"github.com/urfave/cli"
 	"google.golang.org/protobuf/proto"

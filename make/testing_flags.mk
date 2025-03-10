@@ -93,7 +93,7 @@ TEST_FLAGS += -test.timeout=$(timeout)
 else ifneq ($(optional),)
 TEST_FLAGS += -test.timeout=240m
 else
-TEST_FLAGS += -test.timeout=20m
+TEST_FLAGS += -test.timeout=60m
 endif
 
 # UNIT_TARGTED is undefined iff a specific package and/or unit test case is

@@ -12,8 +12,8 @@ import (
 func testMultiSignature(t *harnessTest) {
 	var (
 		aliceTapd = t.tapd
-		aliceLnd  = t.lndHarness.Alice
-		bobLnd    = t.lndHarness.Bob
+		aliceLnd  = t.tapd.cfg.LndNode
+		bobLnd    = t.lndHarness.NewNodeWithCoins("Bob", nil)
 	)
 
 	// We create a second tapd node that will be used to simulate a second

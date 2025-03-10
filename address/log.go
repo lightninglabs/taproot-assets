@@ -1,7 +1,7 @@
 package address
 
 import (
-	"github.com/btcsuite/btclog"
+	"github.com/btcsuite/btclog/v2"
 )
 
 // Subsystem defines the logging code for this subsystem.

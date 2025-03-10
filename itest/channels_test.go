@@ -47,7 +47,8 @@ func testChannelRPCs(t *harnessTest) {
 	require.ErrorContains(t.t, err, "only available when running inside")
 
 	// Try the keysend path first, which should go all the way through to
-	// lnd, where it should fail because we didn't set a timeout.
+	// lnd, where it should fail because we didn't set a destination public
+	// key.
 	stream, err := t.tapd.SendPayment(ctx, &tchrpc.SendPaymentRequest{
 		AssetAmount: 123,
 		AssetId:     dummyByteArr[:],
@@ -60,12 +61,12 @@ func testChannelRPCs(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	_, err = stream.Recv()
-	require.ErrorContains(t.t, err, "timeout_seconds")
+	require.ErrorContains(t.t, err, "invalid vertex length of 0, want 33")
 
 	// Now let's also try the invoice path, which should fail because we
 	// don't have any asset channels with peers that we could ask for a
 	// quote.
-	invoiceResp := t.lndHarness.Alice.RPC.AddInvoice(&lnrpc.Invoice{
+	invoiceResp := t.tapd.cfg.LndNode.RPC.AddInvoice(&lnrpc.Invoice{
 		AmtPaidSat: 1234,
 	})
 	stream, err = t.tapd.SendPayment(ctx, &tchrpc.SendPaymentRequest{

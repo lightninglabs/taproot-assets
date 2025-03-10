@@ -11,7 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -82,6 +82,7 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 	// If there is no auxiliary blob in the channel, it's not a custom
 	// channel, and we don't need to handle it.
 	if fundingBlob.IsNone() {
+		log.Tracef("No aux funding blob set, not handling traffic")
 		return false, nil
 	}
 
@@ -113,6 +114,8 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// bandwidth from a taproot asset perspective. We return the link
 	// bandwidth as a fallback.
 	if commitmentBlob.IsNone() || htlcBlob.IsNone() {
+		log.Tracef("No commitment or HTLC blob set, returning link "+
+			"bandwidth %v", linkBandwidth)
 		return linkBandwidth, nil
 	}
 
@@ -122,6 +125,16 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// Sometimes the blob is set but actually empty, in which case we also
 	// don't have any information about the channel.
 	if len(commitmentBytes) == 0 || len(htlcBytes) == 0 {
+		log.Tracef("Empty commitment or HTLC blob, returning link "+
+			"bandwidth %v", linkBandwidth)
+		return linkBandwidth, nil
+	}
+
+	// If there are no asset HTLC custom records, we don't need to do
+	// anything as this is a regular payment.
+	if !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
+		log.Tracef("No asset HTLC custom records, returning link "+
+			"bandwidth %v", linkBandwidth)
 		return linkBandwidth, nil
 	}
 
@@ -174,6 +187,9 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		// it goes below the reserve, we report zero bandwidth as we
 		// cannot push the HTLC amount.
 		if linkBandwidth < htlcAmt {
+			log.Tracef("Link bandwidth %v smaller than HTLC "+
+				"amount %d, returning 0 as we'd dip below "+
+				"reserver otherwise", linkBandwidth, htlcAmt)
 			return 0, nil
 		}
 
@@ -189,6 +205,8 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// If the HTLC doesn't have an asset amount and RFQ ID, it's incomplete,
 	// and we cannot determine what channel to use.
 	if htlc.RfqID.ValOpt().IsNone() {
+		log.Tracef("No RFQ ID in HTLC, cannot determine matching " +
+			"outgoing channel")
 		return 0, nil
 	}
 
@@ -228,6 +246,9 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// to check if the link bandwidth can afford sending a non-dust htlc to
 	// the other side.
 	if linkBandwidth < minHtlcAmt {
+		log.Tracef("Link bandwidth %v smaller than HTLC min amount "+
+			"%d, returning 0 as we'd dip below reserver otherwise",
+			linkBandwidth, minHtlcAmt)
 		return 0, nil
 	}
 
@@ -243,7 +264,9 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	htlcCustomRecords lnwire.CustomRecords) (lnwire.MilliSatoshi,
 	lnwire.CustomRecords, error) {
 
-	if len(htlcCustomRecords) == 0 {
+	if !rfqmsg.HasAssetHTLCCustomRecords(htlcCustomRecords) {
+		log.Tracef("No asset HTLC custom records, not producing " +
+			"extra data")
 		return totalAmount, nil, nil
 	}
 
@@ -258,6 +281,8 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	// keysend payment and don't need to do anything. We even return the
 	// original on-chain amount as we don't want to change it.
 	if htlc.Amounts.Val.Sum() > 0 {
+		log.Tracef("Already have asset amount (sum %d) in HTLC, not "+
+			"producing extra data", htlc.Amounts.Val.Sum())
 		return totalAmount, htlcCustomRecords, nil
 	}
 
