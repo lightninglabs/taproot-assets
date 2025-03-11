@@ -2,6 +2,7 @@ package rfq
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"sync"
@@ -61,6 +62,14 @@ type (
 	SellAcceptMap map[SerialisedScid]rfqmsg.SellAccept
 )
 
+// GroupLookup is an interface that helps us look up a group of an asset based
+// on the asset ID.
+type GroupLookup interface {
+	// QueryAssetGroup fetches the group information of an asset, if it
+	// belongs in a group.
+	QueryAssetGroup(context.Context, asset.ID) (*asset.AssetGroup, error)
+}
+
 // ManagerCfg is a struct that holds the configuration parameters for the RFQ
 // manager.
 type ManagerCfg struct {
@@ -83,6 +92,10 @@ type ManagerCfg struct {
 	// ChannelLister is the channel lister that the RFQ manager will use to
 	// determine the available channels for routing.
 	ChannelLister ChannelLister
+
+	// GroupLookup is an interface that helps us querry asset groups by
+	// asset IDs.
+	GroupLookup GroupLookup
 
 	// AliasManager is the SCID alias manager. This component is injected
 	// into the manager once lnd and tapd are hooked together.
@@ -164,6 +177,12 @@ type Manager struct {
 	localAcceptedSellQuotes lnutils.SyncMap[
 		SerialisedScid, rfqmsg.SellAccept,
 	]
+
+	// groupKeyLookupCache is a map that helps us quickly perform an
+	// in-memory look up of the group an asset belongs to. Since this
+	// information is static and generated during minting, it is not
+	// possible for an asset to change groups.
+	groupKeyLookupCache lnutils.SyncMap[asset.ID, *btcec.PublicKey]
 
 	// subscribers is a map of components that want to be notified on new
 	// events, keyed by their subscription ID.
@@ -539,18 +558,7 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 		return c.PubKeyBytes == peer
 	}, localChans)
 
-	// Identify the correct channel to use as the base SCID for the alias
-	// by inspecting the asset data in the custom channel data.
-	assetID, err := assetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return fmt.Errorf("asset ID must be specified when adding "+
-			"alias: %w", err)
-	}
-
-	var (
-		assetIDStr = assetID.String()
-		baseSCID   uint64
-	)
+	var baseSCID uint64
 	for _, localChan := range peerChannels {
 		if len(localChan.CustomChannelData) == 0 {
 			continue
@@ -564,12 +572,20 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 			continue
 		}
 
-		for _, channelAsset := range assetData.Assets {
-			gen := channelAsset.AssetInfo.AssetGenesis
-			if gen.AssetID == assetIDStr {
-				baseSCID = localChan.ChannelID
-				break
-			}
+		match, err := m.ChannelCompatible(
+			ctxb, assetData.Assets, assetSpecifier,
+		)
+		if err != nil {
+			return err
+		}
+
+		// TODO(george): Instead of returning the first result,
+		// try to pick the best channel for what we're trying to
+		// do (receive/send). Binding a baseSCID means we're
+		// also binding the asset liquidity on that channel.
+		if match {
+			baseSCID = localChan.ChannelID
+			break
 		}
 	}
 
@@ -583,8 +599,8 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	// At this point, if the base SCID is still not found, we return an
 	// error. We can't map the SCID alias to a base SCID.
 	if baseSCID == 0 {
-		return fmt.Errorf("add alias: base SCID not found for asset: "+
-			"%v", assetID)
+		return fmt.Errorf("add alias: base SCID not found for %s",
+			&assetSpecifier)
 	}
 
 	log.Debugf("Adding SCID alias %d for base SCID %d", scidAlias, baseSCID)
@@ -915,6 +931,99 @@ func (m *Manager) RemoveSubscriber(
 	m.subscribers.Delete(subscriber.ID())
 
 	return nil
+}
+
+// getAssetGroupKey retrieves the group key of an asset based on its ID.
+func (m *Manager) getAssetGroupKey(ctx context.Context,
+	id asset.ID) (fn.Option[btcec.PublicKey], error) {
+
+	// First, see if we have already queried our DB for this ID.
+	v, ok := m.groupKeyLookupCache.Load(id)
+	if ok {
+		return fn.Some(*v), nil
+	}
+
+	// Perform the DB query.
+	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
+	if err != nil {
+		return fn.None[btcec.PublicKey](), err
+	}
+
+	// If the asset does not belong to a group, return early with no error
+	// or response.
+	if group == nil || group.GroupKey == nil {
+		return fn.None[btcec.PublicKey](), nil
+	}
+
+	// Store the result for future calls.
+	m.groupKeyLookupCache.Store(id, &group.GroupPubKey)
+
+	return fn.Some(group.GroupPubKey), nil
+}
+
+// AssetMatchesSpecifier checks if the provided asset satisfies the provided
+// specifier. If the specifier includes a group key, we will check if the asset
+// belongs to that group.
+func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
+	specifier asset.Specifier, id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		group, err := m.getAssetGroupKey(ctx, id)
+		if err != nil {
+			return false, err
+		}
+
+		if group.IsNone() {
+			return false, nil
+		}
+
+		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		return group.UnwrapToPtr().IsEqual(specifierGK), nil
+
+	case specifier.HasId():
+		specifierID := specifier.UnwrapIdToPtr()
+
+		return *specifierID == id, nil
+
+	default:
+		return false, fmt.Errorf("specifier is empty")
+	}
+}
+
+// ChannelCompatible checks a channel's assets against an asset specifier. If
+// the specifier is an asset ID, then all assets must be of that specific ID,
+// if the specifier is a group key, then all assets in the channel must belong
+// to that group.
+func (m *Manager) ChannelCompatible(ctx context.Context,
+	jsonAssets []rfqmsg.JsonAssetChanInfo, specifier asset.Specifier) (bool,
+	error) {
+
+	for _, chanAsset := range jsonAssets {
+		gen := chanAsset.AssetInfo.AssetGenesis
+		assetIDBytes, err := hex.DecodeString(
+			gen.AssetID,
+		)
+		if err != nil {
+			return false, fmt.Errorf("error decoding asset ID: %w",
+				err)
+		}
+
+		var assetID asset.ID
+		copy(assetID[:], assetIDBytes)
+
+		match, err := m.AssetMatchesSpecifier(ctx, specifier, assetID)
+		if err != nil {
+			return false, err
+		}
+
+		if !match {
+			return false, err
+		}
+	}
+
+	return true, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.

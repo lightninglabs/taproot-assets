@@ -159,11 +159,9 @@ func NewBuyRequestFromWire(wireMsg WireMessage,
 // Validate ensures that the buy request is valid.
 func (q *BuyRequest) Validate() error {
 	// Ensure that the asset specifier is set.
-	//
-	// TODO(ffranr): For now, the asset ID must be set. We do not currently
-	//  support group keys.
-	if !q.AssetSpecifier.HasId() {
-		return fmt.Errorf("asset id not specified in BuyRequest")
+	err := q.AssetSpecifier.AssertNotEmpty()
+	if err != nil {
+		return err
 	}
 
 	// Ensure that the message version is supported.
@@ -173,7 +171,7 @@ func (q *BuyRequest) Validate() error {
 	}
 
 	// Ensure that the suggested asset rate has not expired.
-	err := fn.MapOptionZ(q.AssetRateHint, func(rate AssetRate) error {
+	err = fn.MapOptionZ(q.AssetRateHint, func(rate AssetRate) error {
 		if rate.Expiry.Before(time.Now()) {
 			return fmt.Errorf("suggested asset rate has expired")
 		}
