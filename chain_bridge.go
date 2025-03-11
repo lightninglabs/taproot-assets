@@ -227,9 +227,8 @@ func (l *LndRpcChainBridge) GetBlockTimestamp(ctx context.Context,
 // PublishTransaction attempts to publish a new transaction to the
 // network.
 func (l *LndRpcChainBridge) PublishTransaction(ctx context.Context,
-	tx *wire.MsgTx) error {
+	tx *wire.MsgTx, label string) error {
 
-	label := "tapd-asset-minting"
 	return l.lnd.WalletKit.PublishTransaction(ctx, tx, label)
 }
 
