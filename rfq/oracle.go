@@ -195,21 +195,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
 
-	// For now, we only support querying the ask price with an asset ID.
-	if !assetSpecifier.HasId() {
-		return nil, fmt.Errorf("asset ID is nil")
-	}
-
-	var (
-		subjectAssetId = make([]byte, 32)
-		paymentAssetId = make([]byte, 32)
-	)
-
-	// The payment asset ID is BTC, so we leave it at all zeroes. We only
-	// set the subject asset ID.
-	assetSpecifier.WhenId(func(assetId asset.ID) {
-		copy(subjectAssetId, assetId[:])
-	})
+	// The payment asset ID is BTC, so we leave it at all zeroes.
+	var paymentAssetId = make([]byte, 32)
 
 	// Marshal asset max amount.
 	assetMaxAmount := assetMaxAmt.UnwrapOr(0)
@@ -228,12 +215,8 @@ func (r *RpcPriceOracle) QueryAskPrice(ctx context.Context,
 	)
 
 	req := &oraclerpc.QueryAssetRatesRequest{
-		TransactionType: oraclerpc.TransactionType_SALE,
-		SubjectAsset: &oraclerpc.AssetSpecifier{
-			Id: &oraclerpc.AssetSpecifier_AssetId{
-				AssetId: subjectAssetId,
-			},
-		},
+		TransactionType:       oraclerpc.TransactionType_SALE,
+		SubjectAsset:          rpcMarshalAssetSpecifier(assetSpecifier),
 		SubjectAssetMaxAmount: assetMaxAmount,
 		PaymentAsset: &oraclerpc.AssetSpecifier{
 			Id: &oraclerpc.AssetSpecifier_AssetId{
@@ -303,21 +286,8 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 	assetRateHint fn.Option[rfqmsg.AssetRate]) (*OracleResponse,
 	error) {
 
-	// For now, we only support querying the ask price with an asset ID.
-	if !assetSpecifier.HasId() {
-		return nil, fmt.Errorf("asset ID is nil")
-	}
-
-	var (
-		subjectAssetId = make([]byte, 32)
-		paymentAssetId = make([]byte, 32)
-	)
-
-	// The payment asset ID is BTC, so we leave it at all zeroes. We only
-	// set the subject asset ID.
-	assetSpecifier.WhenId(func(assetId asset.ID) {
-		copy(subjectAssetId, assetId[:])
-	})
+	// The payment asset ID is BTC, so we leave it at all zeroes.
+	var paymentAssetId = make([]byte, 32)
 
 	// Marshal asset max amount.
 	assetMaxAmount := assetMaxAmt.UnwrapOr(0)
@@ -336,12 +306,8 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 	}
 
 	req := &oraclerpc.QueryAssetRatesRequest{
-		TransactionType: oraclerpc.TransactionType_PURCHASE,
-		SubjectAsset: &oraclerpc.AssetSpecifier{
-			Id: &oraclerpc.AssetSpecifier_AssetId{
-				AssetId: subjectAssetId,
-			},
-		},
+		TransactionType:       oraclerpc.TransactionType_PURCHASE,
+		SubjectAsset:          rpcMarshalAssetSpecifier(assetSpecifier),
 		SubjectAssetMaxAmount: assetMaxAmount,
 		PaymentAsset: &oraclerpc.AssetSpecifier{
 			Id: &oraclerpc.AssetSpecifier_AssetId{
@@ -406,3 +372,27 @@ func (r *RpcPriceOracle) QueryBidPrice(ctx context.Context,
 
 // Ensure that RpcPriceOracle implements the PriceOracle interface.
 var _ PriceOracle = (*RpcPriceOracle)(nil)
+
+// rpcMarshalAssetSpecifier is a helper method that converts an asset specifier
+// to the oraclerpc representation of the specifier.
+func rpcMarshalAssetSpecifier(
+	assetSpecifier asset.Specifier) *oraclerpc.AssetSpecifier {
+
+	var subjectSpecifier oraclerpc.AssetSpecifier
+
+	switch {
+	case assetSpecifier.HasId():
+		assetID := assetSpecifier.UnwrapIdToPtr()
+		subjectSpecifier.Id = &oraclerpc.AssetSpecifier_AssetId{
+			AssetId: assetID[:],
+		}
+
+	case assetSpecifier.HasGroupPubKey():
+		groupKey := assetSpecifier.UnwrapGroupKeyToPtr()
+		subjectSpecifier.Id = &oraclerpc.AssetSpecifier_GroupKey{
+			GroupKey: groupKey.SerializeCompressed(),
+		}
+	}
+
+	return &subjectSpecifier
+}
