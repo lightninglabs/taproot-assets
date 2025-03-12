@@ -223,7 +223,7 @@ func NewIncomingAcceptFromWire(wireMsg WireMessage,
 	request, found := sessionLookup(msgData.ID.Val)
 	if !found {
 		return nil, fmt.Errorf("no outgoing request found for "+
-			"incoming accept message: %s", msgData.ID.Val)
+			"incoming accept message: %s", msgData.ID.Val.String())
 	}
 
 	// Use the corresponding request to determine the type of accept

@@ -120,6 +120,7 @@ func (h *StreamHandler) handleIncomingWireMessage(
 	switch msg.(type) {
 	case *rfqmsg.BuyAccept, *rfqmsg.SellAccept, *rfqmsg.Reject:
 		h.outgoingRequests.Delete(msg.MsgID())
+		log.Tracef("Deleted outgoing request with ID %s", msg.MsgID())
 	}
 
 	// Send the incoming message to the RFQ manager.
@@ -163,9 +164,13 @@ func (h *StreamHandler) HandleOutgoingMessage(
 	switch msg := outgoingMsg.(type) {
 	case *rfqmsg.BuyRequest:
 		h.outgoingRequests.Store(msg.ID, msg)
+		log.Tracef("Stored outgoing request with ID %s",
+			msg.ID.String())
 
 	case *rfqmsg.SellRequest:
 		h.outgoingRequests.Store(msg.ID, msg)
+		log.Tracef("Stored outgoing request with ID %s",
+			msg.ID.String())
 	}
 
 	return nil
