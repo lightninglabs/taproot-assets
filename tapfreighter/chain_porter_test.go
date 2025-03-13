@@ -2,10 +2,11 @@ package tapfreighter
 
 import (
 	"math/rand"
+	"os"
 	"testing"
 	"time"
 
-	"github.com/lightningnetwork/lnd/build"
+	"github.com/btcsuite/btclog/v2"
 )
 
 func TestRunChainPorter(t *testing.T) {
@@ -15,8 +16,6 @@ func TestRunChainPorter(t *testing.T) {
 func init() {
 	rand.Seed(time.Now().Unix())
 
-	logWriter := build.NewRotatingLogWriter()
-	logger := logWriter.GenSubLogger(Subsystem, func() {})
-	logWriter.RegisterSubLogger(Subsystem, logger)
-	UseLogger(logger)
+	logger := btclog.NewSLogger(btclog.NewDefaultHandler(os.Stdout))
+	UseLogger(logger.SubSystem(Subsystem))
 }

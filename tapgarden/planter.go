@@ -25,7 +25,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/universe"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnwallet/chainfee"
 	"golang.org/x/exp/maps"
 )

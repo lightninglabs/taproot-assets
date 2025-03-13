@@ -507,8 +507,9 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 
 	// Make a non-tap output from Bob to use in a TX spending Alice's
 	// genesis UTXO.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	burnOutput := MakeOutput(
-		t, t.lndHarness.Bob, lnrpc.AddressType_TAPROOT_PUBKEY, 500,
+		t, bobLnd, lnrpc.AddressType_TAPROOT_PUBKEY, 500,
 	)
 
 	// Construct and publish the TX.
@@ -528,16 +529,16 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 
 	var burnTxBuf bytes.Buffer
 	require.NoError(t.t, burnTx.Serialize(&burnTxBuf))
-	t.lndHarness.Bob.RPC.PublishTransaction(&walletrpc.Transaction{
+	bobLnd.RPC.PublishTransaction(&walletrpc.Transaction{
 		TxHex: burnTxBuf.Bytes(),
 	})
 
 	// Bob should detect the TX, and the resulting confirmed UTXO once
 	// a new block is mined.
 	t.lndHarness.Miner().AssertNumTxsInMempool(1)
-	t.lndHarness.AssertNumUTXOsUnconfirmed(t.lndHarness.Bob, 1)
+	t.lndHarness.AssertNumUTXOsUnconfirmed(bobLnd, 1)
 	t.lndHarness.MineBlocksAndAssertNumTxes(1, 1)
-	t.lndHarness.AssertNumUTXOsWithConf(t.lndHarness.Bob, 1, 1, 1)
+	t.lndHarness.AssertNumUTXOsWithConf(bobLnd, 1, 1, 1)
 }
 
 // testMintBatchAndTransfer tests that we can mint a batch of assets, observe
@@ -557,9 +558,8 @@ func testMintBatchAndTransfer(t *harnessTest) {
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -676,7 +676,7 @@ func testAssetBalances(t *harnessTest) {
 		anchorTxid         = out.Hash.CloneBytes()
 		anchorVout         = out.Index
 		aliceTapd          = t.tapd
-		bobLnd             = t.lndHarness.Bob
+		bobLnd             = t.lndHarness.NewNodeWithCoins("Bob", nil)
 	)
 
 	// We create a second tapd node that will be used to simulate a second

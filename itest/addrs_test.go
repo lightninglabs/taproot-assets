@@ -44,9 +44,8 @@ func testAddresses(t *harnessTest) {
 
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -183,7 +182,7 @@ func testAddresses(t *harnessTest) {
 		Amount: 22,
 	}
 	manualAsset, mintProofBlob, mintOP := ManualMintSimpleAsset(
-		t, t.lndHarness.Alice, t.tapd, commitment.TapCommitmentV0, &req,
+		t, t.tapd.cfg.LndNode, t.tapd, commitment.TapCommitmentV0, &req,
 	)
 
 	numAssets := 2
@@ -267,9 +266,8 @@ func testMultiAddress(t *harnessTest) {
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
 	alice := t.tapd
-	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
@@ -312,8 +310,9 @@ func testMultiAddress(t *harnessTest) {
 func testAddressAssetSyncer(t *harnessTest) {
 	// We'll kick off the test by making a new node, without hooking it up
 	// to any existing Universe server.
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
 	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
+		t.t, t, bobLnd, t.universeServer,
 		func(params *tapdHarnessParams) {
 			params.noDefaultUniverseSync = true
 		},
@@ -443,7 +442,7 @@ func testAddressAssetSyncer(t *harnessTest) {
 	restartBobNoUniSync := func(disableSyncer bool) {
 		require.NoError(t.t, bob.stop(!*noDelete))
 		bob = setupTapdHarness(
-			t.t, t, t.lndHarness.Bob, t.universeServer,
+			t.t, t, bobLnd, t.universeServer,
 			func(params *tapdHarnessParams) {
 				params.noDefaultUniverseSync = true
 				params.addrAssetSyncerDisable = disableSyncer
@@ -685,9 +684,8 @@ func testUnknownTlvType(t *harnessTest) {
 	// We'll make a second node now that'll be the receiver of all the
 	// assets made above.
 	alice := t.tapd
-	bob := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
@@ -766,9 +764,7 @@ func testUnknownTlvType(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// We make a new node to import the modified proof.
-	charlie := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	charlie := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, charlie.stop(!*noDelete))
 	}()

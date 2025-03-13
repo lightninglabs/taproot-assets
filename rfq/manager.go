@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -554,9 +554,11 @@ func (m *Manager) addScidAlias(scidAlias uint64, assetSpecifier asset.Specifier,
 	}
 
 	// Filter for channels with the given peer.
-	peerChannels := lfn.Filter(func(c lndclient.ChannelInfo) bool {
-		return c.PubKeyBytes == peer
-	}, localChans)
+	peerChannels := lfn.Filter(
+		localChans, func(c lndclient.ChannelInfo) bool {
+			return c.PubKeyBytes == peer
+		},
+	)
 
 	var baseSCID uint64
 	for _, localChan := range peerChannels {

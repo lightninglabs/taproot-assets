@@ -55,9 +55,8 @@ func testPsbtScriptHashLockSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -174,9 +173,8 @@ func testPsbtScriptCheckSigSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -312,9 +310,8 @@ func testPsbtNormalInteractiveFullValueSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -352,9 +349,8 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -425,15 +421,13 @@ func testPsbtMultiVersionSend(t *harnessTest) {
 	numAssets := 1
 	AssertNumAssets(t.t, ctxb, sender, numAssets)
 	firstAsset, _, _ = ManualMintSimpleAsset(
-		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV0,
-		&firstReq,
+		t, lndBob, sender, commitment.TapCommitmentV0, &firstReq,
 	)
 
 	numAssets += 1
 	AssertNumAssets(t.t, ctxb, sender, numAssets)
 	secondAsset, _, _ = ManualMintSimpleAsset(
-		t, t.lndHarness.Bob, sender, commitment.TapCommitmentV1,
-		&secondReq,
+		t, lndBob, sender, commitment.TapCommitmentV1, &secondReq,
 	)
 
 	numAssets += 1
@@ -567,9 +561,8 @@ func testPsbtGroupedInteractiveFullValueSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -731,9 +724,8 @@ func testPsbtNormalInteractiveSplitSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -778,9 +770,8 @@ func testPsbtGroupedInteractiveSplitSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -960,16 +951,15 @@ func testPsbtInteractiveAltLeafAnchoring(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
 	var (
 		sender      = t.tapd
-		senderLnd   = t.lndHarness.Alice
+		senderLnd   = t.tapd.cfg.LndNode
 		receiver    = secondTapd
 		id          = fn.ToArray[[32]byte](genInfo.AssetId)
 		partialAmt  = mintedAsset.Amount / 4
@@ -1171,9 +1161,8 @@ func testPsbtInteractiveTapscriptSibling(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -1296,9 +1285,8 @@ func testPsbtMultiSend(t *harnessTest) {
 
 	// With the asset created, we'll set up a new node that will act as the
 	// receiver of the transfer.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -1474,9 +1462,8 @@ func testMultiInputPsbtSingleAssetID(t *harnessTest) {
 
 	// Set up a node that will serve as the final multi input PSBT sender
 	// node.
-	secondaryTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondaryTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondaryTapd.stop(!*noDelete))
 	}()
@@ -1776,9 +1763,8 @@ func testPsbtSighashNone(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -1950,9 +1936,8 @@ func testPsbtSighashNoneInvalid(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -2193,7 +2178,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.Len(t.t, btcPacket.Outputs, 2)
 
 	// Let's set an actual address for Alice's output.
-	addrResp := t.lndHarness.Alice.RPC.NewAddress(&lnrpc.NewAddressRequest{
+	addrResp := t.tapd.cfg.LndNode.RPC.NewAddress(&lnrpc.NewAddressRequest{
 		Type: lnrpc.AddressType_TAPROOT_PUBKEY,
 	})
 
@@ -2211,7 +2196,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	btcPacket.UnsignedTx.TxOut[0].PkScript = alicePkScript
 	btcPacket.UnsignedTx.TxOut[0].Value = 69420
 	derivation, trDerivation := getAddressBip32Derivation(
-		t.t, addrResp.Address, t.lndHarness.Alice,
+		t.t, addrResp.Address, t.tapd.cfg.LndNode,
 	)
 
 	// Add the derivation info and internal key for alice's taproot address.
@@ -2278,7 +2263,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Now alice signs the bitcoin psbt.
-	signPsbtResp := t.lndHarness.Alice.RPC.SignPsbt(
+	signPsbtResp := t.tapd.cfg.LndNode.RPC.SignPsbt(
 		&walletrpc.SignPsbtRequest{
 			FundedPsbt: b.Bytes(),
 		},
@@ -2300,9 +2285,8 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.NoError(t.t, err)
 
 	// Now let's spin up the receiver of this swap offer.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -2395,11 +2379,9 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	// Since Bob brings in a new input to the bitcoin transaction, he needs
 	// to sign it. We do not care about the sighash flag here, that can be
 	// the default, as we will not edit the bitcoin transaction further.
-	signResp := t.lndHarness.Bob.RPC.SignPsbt(
-		&walletrpc.SignPsbtRequest{
-			FundedPsbt: resp.AnchorPsbt,
-		},
-	)
+	signResp := lndBob.RPC.SignPsbt(&walletrpc.SignPsbtRequest{
+		FundedPsbt: resp.AnchorPsbt,
+	})
 	require.NoError(t.t, err)
 
 	finalPsbt, err := psbt.NewFromRawBytes(
@@ -2421,7 +2403,7 @@ func testPsbtTrustlessSwap(t *harnessTest) {
 	require.Equal(t.t, bobInputIdx, signResp.SignedInputs[0])
 	require.NoError(t.t, finalPsbt.SanityCheck())
 
-	signedPkt := finalizePacket(t.t, t.lndHarness.Bob, finalPsbt)
+	signedPkt := finalizePacket(t.t, lndBob, finalPsbt)
 	require.True(t.t, signedPkt.IsComplete())
 
 	logResp := logAndPublish(
@@ -2506,8 +2488,8 @@ func testPsbtExternalCommit(t *harnessTest) {
 	var (
 		targetAssetGenesis = targetAsset.AssetGenesis
 		aliceTapd          = t.tapd
-		aliceLnd           = t.lndHarness.Alice
-		bobLnd             = t.lndHarness.Bob
+		aliceLnd           = t.tapd.cfg.LndNode
+		bobLnd             = t.lndHarness.NewNodeWithCoins("Bob", nil)
 	)
 
 	// We create a second tapd node that will be used to simulate a second
@@ -2652,14 +2634,14 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, t.universeServer)
+	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	var (
 		alice       = t.tapd
-		bobLnd      = t.lndHarness.Bob
 		id          [32]byte
 		fullAmt     = mintedAsset.Amount
 		chainParams = &address.RegressionNetTap
@@ -2781,7 +2763,7 @@ func testPsbtLockTimeSend(t *harnessTest) {
 
 	var spendTxBuf bytes.Buffer
 	require.NoError(t.t, spendTx.Serialize(&spendTxBuf))
-	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+	_, err = bobLnd.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
 			TxHex: spendTxBuf.Bytes(),
 		},
@@ -2870,14 +2852,14 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, t.universeServer)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	var (
 		alice       = t.tapd
-		bobLnd      = t.lndHarness.Bob
 		id          [32]byte
 		fullAmt     = mintedAsset.Amount
 		chainParams = &address.RegressionNetTap
@@ -2989,14 +2971,14 @@ func testPsbtRelativeLockTimeSend(t *harnessTest) {
 	btcPacket, _, _, _ = CommitVirtualPsbts(
 		t.t, bob, btcPacket, vPackets, nil, -1,
 	)
-	btcPacket = signPacket(t.t, bobLnd, btcPacket)
-	btcPacket = FinalizePacket(t.t, bobLnd.RPC, btcPacket)
+	btcPacket = signPacket(t.t, lndBob, btcPacket)
+	btcPacket = FinalizePacket(t.t, lndBob.RPC, btcPacket)
 	spendTx, err := psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
 	var spendTxBuf bytes.Buffer
 	require.NoError(t.t, spendTx.Serialize(&spendTxBuf))
-	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+	_, err = lndBob.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
 			TxHex: spendTxBuf.Bytes(),
 		},
@@ -3086,14 +3068,14 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
-	bob := setupTapdHarness(t.t, t, t.lndHarness.Bob, t.universeServer)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	bob := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
 
 	var (
 		alice       = t.tapd
-		bobLnd      = t.lndHarness.Bob
 		id          [32]byte
 		fullAmt     = mintedAsset.Amount
 		chainParams = &address.RegressionNetTap
@@ -3205,16 +3187,16 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 	btcPacket, vPackets, _, commitResp := CommitVirtualPsbts(
 		t.t, bob, btcPacket, vPackets, nil, -1,
 	)
-	btcPacketTimeLocked := signPacket(t.t, bobLnd, btcPacket)
+	btcPacketTimeLocked := signPacket(t.t, lndBob, btcPacket)
 	btcPacketTimeLocked = FinalizePacket(
-		t.t, bobLnd.RPC, btcPacketTimeLocked,
+		t.t, lndBob.RPC, btcPacketTimeLocked,
 	)
 	spendTxTimeLocked, err := psbt.Extract(btcPacketTimeLocked)
 	require.NoError(t.t, err)
 
 	var spendTxBuf bytes.Buffer
 	require.NoError(t.t, spendTxTimeLocked.Serialize(&spendTxBuf))
-	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+	_, err = lndBob.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
 			TxHex: spendTxBuf.Bytes(),
 		},
@@ -3231,14 +3213,14 @@ func testPsbtRelativeLockTimeSendProofFail(t *harnessTest) {
 		btcPacket.UnsignedTx.TxIn[idx].Sequence = 0
 	}
 
-	btcPacket = signPacket(t.t, bobLnd, btcPacket)
-	btcPacket = FinalizePacket(t.t, bobLnd.RPC, btcPacket)
+	btcPacket = signPacket(t.t, lndBob, btcPacket)
+	btcPacket = FinalizePacket(t.t, lndBob.RPC, btcPacket)
 	spendTxTimeLocked, err = psbt.Extract(btcPacket)
 	require.NoError(t.t, err)
 
 	spendTxBuf.Reset()
 	require.NoError(t.t, spendTxTimeLocked.Serialize(&spendTxBuf))
-	_, err = t.lndHarness.Bob.RPC.WalletKit.PublishTransaction(
+	_, err = lndBob.RPC.WalletKit.PublishTransaction(
 		ctxt, &walletrpc.Transaction{
 			TxHex: spendTxBuf.Bytes(),
 		},

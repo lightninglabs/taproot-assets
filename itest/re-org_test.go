@@ -16,6 +16,11 @@ import (
 // testReOrgMint tests that when a re-org occurs, minted asset proofs are
 // updated accordingly.
 func testReOrgMint(t *harnessTest) {
+	// We create a second node for the second tapd instance. But because
+	// NewNodeWithCoins mines a block, we need to do it before we do
+	// anything else.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+
 	// First, we'll mint a few assets but don't confirm the batch TX.
 	mintRequests := []*mintrpc.MintAssetRequest{
 		issuableAssets[0], issuableAssets[1],
@@ -52,9 +57,7 @@ func testReOrgMint(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -66,7 +69,7 @@ func testReOrgMint(t *harnessTest) {
 	// chain, where the funding transaction is not confirmed.
 	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
 	require.NoError(t.t, err, "unable to get current block height")
-	t.lndHarness.WaitForNodeBlockHeight(t.lndHarness.Alice, tempMinerHeight)
+	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the asset proofs should be invalid, since the mint TX
 	// was re-organized out.
@@ -135,9 +138,8 @@ func testReOrgSend(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -180,7 +182,7 @@ func testReOrgSend(t *harnessTest) {
 	// chain, where the funding transaction is not confirmed.
 	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
 	require.NoError(t.t, err, "unable to get current block height")
-	t.lndHarness.WaitForNodeBlockHeight(t.lndHarness.Alice, tempMinerHeight)
+	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.
@@ -238,6 +240,11 @@ func testReOrgMintAndSend(t *harnessTest) {
 	ctxt, cancel := context.WithTimeout(ctxb, defaultWaitTimeout)
 	defer cancel()
 
+	// We create a second node for the second tapd instance. But because
+	// NewNodeWithCoins mines a block, we need to do it before we spawn the
+	// temporary miner.
+	lndBob := t.lndHarness.NewNodeWithCoins("Bob", nil)
+
 	// Before we do anything, we spawn a miner. This is where the fork in
 	// the chain starts.
 	tempMiner := spawnTempMiner(t.t, t, ctxt)
@@ -254,9 +261,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets. The existing tapd
 	// node will be used to synchronize universe state.
-	secondTapd := setupTapdHarness(
-		t.t, t, t.lndHarness.Bob, t.universeServer,
-	)
+	secondTapd := setupTapdHarness(t.t, t, lndBob, t.universeServer)
 	defer func() {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
@@ -295,7 +300,7 @@ func testReOrgMintAndSend(t *harnessTest) {
 	// chain, where the funding transaction is not confirmed.
 	_, tempMinerHeight, err := tempMiner.Client.GetBestBlock()
 	require.NoError(t.t, err, "unable to get current block height")
-	t.lndHarness.WaitForNodeBlockHeight(t.lndHarness.Alice, tempMinerHeight)
+	t.lndHarness.WaitForNodeBlockHeight(t.tapd.cfg.LndNode, tempMinerHeight)
 
 	// At this point, the all asset proofs should be invalid, since the send
 	// TX was re-organized out, and it also contained passive assets.

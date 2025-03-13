@@ -1,6 +1,6 @@
 module basic-price-oracle
 
-go 1.22.6
+go 1.23.6
 
 replace (
 	github.com/lightninglabs/taproot-assets => ../../../
@@ -24,13 +24,14 @@ require (
 	github.com/aead/chacha20 v0.0.0-20180709150244-8b13a72661da // indirect
 	github.com/aead/siphash v1.0.1 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
-	github.com/btcsuite/btcd v0.24.3-0.20240921052913-67b8efd3ba53 // indirect
+	github.com/btcsuite/btcd v0.24.3-0.20241210095828-e646d437e95b // indirect
 	github.com/btcsuite/btcd/btcec/v2 v2.3.4 // indirect
 	github.com/btcsuite/btcd/btcutil v1.1.5 // indirect
 	github.com/btcsuite/btcd/btcutil/psbt v1.1.10 // indirect
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0 // indirect
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c // indirect
-	github.com/btcsuite/btcwallet v0.16.10-0.20240912233857-ffb143c77cc5 // indirect
+	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318 // indirect
+	github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 // indirect
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5 // indirect
@@ -91,22 +92,23 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/juju/loggo v0.0.0-20210728185423-eebad3a902c4 // indirect
 	github.com/kkdai/bstream v1.0.0 // indirect
+	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lightninglabs/gozmq v0.0.0-20191113021534-d20a764486bf // indirect
-	github.com/lightninglabs/lndclient v0.18.4-9 // indirect
+	github.com/lightninglabs/lndclient v0.19.0-2 // indirect
 	github.com/lightninglabs/neutrino v0.16.1-0.20240425105051-602843d34ffd // indirect
 	github.com/lightninglabs/neutrino/cache v1.1.2 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
-	github.com/lightningnetwork/lnd v0.18.4-beta.rc2 // indirect
+	github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20250304192711-9feb761b4ec4 // indirect
 	github.com/lightningnetwork/lnd/clock v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/fn v1.2.3 // indirect
-	github.com/lightningnetwork/lnd/healthcheck v1.2.5 // indirect
-	github.com/lightningnetwork/lnd/kvdb v1.4.10 // indirect
+	github.com/lightningnetwork/lnd/fn/v2 v2.0.8 // indirect
+	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
+	github.com/lightningnetwork/lnd/kvdb v1.4.12 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.4 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.7 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/tlv v1.2.6 // indirect
-	github.com/lightningnetwork/lnd/tor v1.1.2 // indirect
+	github.com/lightningnetwork/lnd/tlv v1.3.0 // indirect
+	github.com/lightningnetwork/lnd/tor v1.1.4 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/matttproud/golang_protobuf_extensions v1.0.2-0.20181231171920-c182affec369 // indirect
@@ -158,14 +160,14 @@ require (
 	go.uber.org/atomic v1.10.0 // indirect
 	go.uber.org/multierr v1.6.0 // indirect
 	go.uber.org/zap v1.23.0 // indirect
-	golang.org/x/crypto v0.31.0 // indirect
+	golang.org/x/crypto v0.35.0 // indirect
 	golang.org/x/exp v0.0.0-20240325151524-a685a6edb6d8 // indirect
 	golang.org/x/mod v0.17.0 // indirect
-	golang.org/x/net v0.33.0 // indirect
-	golang.org/x/sync v0.10.0 // indirect
-	golang.org/x/sys v0.28.0 // indirect
-	golang.org/x/term v0.27.0 // indirect
-	golang.org/x/text v0.21.0 // indirect
+	golang.org/x/net v0.36.0 // indirect
+	golang.org/x/sync v0.11.0 // indirect
+	golang.org/x/sys v0.30.0 // indirect
+	golang.org/x/term v0.29.0 // indirect
+	golang.org/x/text v0.22.0 // indirect
 	golang.org/x/time v0.3.0 // indirect
 	golang.org/x/tools v0.21.1-0.20240508182429-e35e4ccd0d2d // indirect
 	google.golang.org/genproto v0.0.0-20231016165738-49dd2c1f3d0b // indirect

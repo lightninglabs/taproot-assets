@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/chaincfg"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btclog"
 	"github.com/go-errors/errors"
 	"github.com/lightninglabs/aperture"
 	"github.com/lightninglabs/lndclient"
@@ -100,6 +99,7 @@ type harnessTest struct {
 	tapd *tapdHarness
 
 	logWriter *build.RotatingLogWriter
+	logMgr    *build.SubLoggerManager
 
 	interceptor signal.Interceptor
 }
@@ -117,6 +117,7 @@ func (h *harnessTest) newHarnessTest(t *testing.T, net *lntest.HarnessTest,
 		universeServer: universeServer,
 		tapd:           tapd,
 		logWriter:      h.logWriter,
+		logMgr:         h.logMgr,
 		interceptor:    h.interceptor,
 	}
 }
@@ -201,18 +202,21 @@ func (h *harnessTest) shutdown(_ *testing.T) error {
 func (h *harnessTest) setupLogging() {
 	h.logWriter = build.NewRotatingLogWriter()
 
+	logConfig := build.DefaultLogConfig()
+	h.logMgr = build.NewSubLoggerManager(
+		build.NewDefaultLogHandlers(logConfig, h.logWriter)...,
+	)
+
 	var err error
 	h.interceptor, err = signal.Intercept()
 	require.NoError(h.t, err)
 
-	tap.SetupLoggers(h.logWriter, h.interceptor)
-	aperture.SetupLoggers(h.logWriter, h.interceptor)
+	tap.SetupLoggers(h.logMgr, h.interceptor)
+	aperture.SetupLoggers(h.logMgr, h.interceptor)
 
-	UseLogger(build.NewSubLogger(Subsystem, func(tag string) btclog.Logger {
-		return h.logWriter.GenSubLogger(tag, func() {})
-	}))
+	UseLogger(h.logMgr.GenSubLogger(Subsystem, func() {}))
 
-	h.logWriter.SetLogLevels("debug")
+	h.logMgr.SetLogLevels(*logLevel)
 }
 
 func (h *harnessTest) newLndClient(
@@ -326,10 +330,11 @@ func setupHarnesses(t *testing.T, ht *harnessTest,
 		proofCourier = universeServer
 	}
 
+	alice := lndHarness.NewNodeWithCoins("Alice", nil)
+
 	// Create a tapd that uses Alice and connect it to the universe server.
 	tapdHarness := setupTapdHarness(
-		t, ht, lndHarness.Alice, universeServer,
-		func(params *tapdHarnessParams) {
+		t, ht, alice, universeServer, func(params *tapdHarnessParams) {
 			params.proofCourier = proofCourier
 		},
 	)

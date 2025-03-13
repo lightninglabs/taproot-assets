@@ -27,7 +27,7 @@ import (
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntest/node"
 	"github.com/lightningnetwork/lnd/lntest/wait"
@@ -243,7 +243,7 @@ func newTapdHarness(t *testing.T, ht *harnessTest, cfg tapdConfig,
 		}
 	}
 
-	cfgLogger := tapCfg.LogWriter.GenSubLogger("CONF", nil)
+	cfgLogger := tapCfg.LogMgr.GenSubLogger("CONF", nil)
 	finalCfg, err := tapcfg.ValidateConfig(tapCfg, cfgLogger)
 	if err != nil {
 		return nil, err
@@ -390,7 +390,7 @@ func (hs *tapdHarness) rpcHost() string {
 
 // start spins up the tapd server listening for gRPC connections.
 func (hs *tapdHarness) start(expectErrExit bool) error {
-	cfgLogger := hs.ht.logWriter.GenSubLogger("CONF", func() {})
+	cfgLogger := hs.ht.logMgr.GenSubLogger("CONF", func() {})
 
 	var (
 		err         error

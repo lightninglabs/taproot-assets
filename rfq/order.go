@@ -13,7 +13,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	"github.com/lightningnetwork/lnd/channeldb/models"
+	"github.com/lightningnetwork/lnd/graph/db/models"
 	"github.com/lightningnetwork/lnd/lnrpc/routerrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -912,9 +912,21 @@ func (h *OrderHandler) fetchPolicy(htlc lndclient.InterceptedHtlc) (Policy,
 	inPolicy, haveInPolicy := h.policies.Load(inScid)
 
 	log.Tracef("Have inbound policy: %v: %v", haveInPolicy,
-		spew.Sdump(inPolicy))
-	log.Tracef("Have outbound policy: %v: %v", haveOutPolicy,
-		spew.Sdump(outPolicy))
+		lnutils.LogClosure(func() string {
+			if inPolicy == nil {
+				return "<nil>"
+			}
+
+			return fmt.Sprintf("%d", inPolicy.Scid())
+		}))
+	log.Tracef("Have outbound policy: %v: scid %v", haveOutPolicy,
+		lnutils.LogClosure(func() string {
+			if outPolicy == nil {
+				return "<nil>"
+			}
+
+			return fmt.Sprintf("%d", outPolicy.Scid())
+		}))
 
 	var (
 		foundPolicy *Policy

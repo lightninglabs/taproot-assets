@@ -233,6 +233,10 @@ type Config struct {
 	// hooked up to.
 	LogWriter *build.RotatingLogWriter
 
+	// LogMgr is the sublogger manager that is used to create subloggers for
+	// the daemon.
+	LogMgr *build.SubLoggerManager
+
 	*RPCConfig
 
 	*DatabaseConfig

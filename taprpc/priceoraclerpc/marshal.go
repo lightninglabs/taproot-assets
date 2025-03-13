@@ -8,7 +8,7 @@ import (
 
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
-	lfn "github.com/lightningnetwork/lnd/fn"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 // IsAssetBtc is a helper function that returns true if the given asset

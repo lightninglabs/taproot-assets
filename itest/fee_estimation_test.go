@@ -56,8 +56,8 @@ func testFeeEstimation(t *harnessTest) {
 
 	// Set the initial state of the wallet of the first node. The wallet
 	// state will reset at the end of this test.
-	SetNodeUTXOs(t, t.lndHarness.Alice, btcutil.Amount(1), initialUTXOs)
-	defer ResetNodeWallet(t, t.lndHarness.Alice)
+	SetNodeUTXOs(t, t.tapd.cfg.LndNode, btcutil.Amount(1), initialUTXOs)
+	defer ResetNodeWallet(t, t.tapd.cfg.LndNode)
 
 	t.lndHarness.SetFeeEstimateWithConf(defaultFeeRate, 6)
 
@@ -154,7 +154,7 @@ func testFeeEstimation(t *harnessTest) {
 	)
 
 	SetNodeUTXOs(
-		t, t.lndHarness.Alice, btcutil.Amount(1),
+		t, t.tapd.cfg.LndNode, btcutil.Amount(1),
 		[]*UTXORequest{initialUTXOs[3]},
 	)
 
