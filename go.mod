@@ -10,7 +10,7 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
-	github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63
+	github.com/btcsuite/btcwallet v0.16.10
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
 	github.com/btcsuite/btcwallet/wtxmgr v1.5.4
 	github.com/caddyserver/certmagic v0.17.2
@@ -34,7 +34,7 @@ require (
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
 	github.com/lightningnetwork/lnd/tlv v1.3.0
-	github.com/lightningnetwork/lnd/tor v1.1.4
+	github.com/lightningnetwork/lnd/tor v1.1.5
 	github.com/ory/dockertest/v3 v3.10.0
 	github.com/prometheus/client_golang v1.14.0
 	github.com/stretchr/testify v1.9.0
@@ -209,3 +209,5 @@ require (
 // We want to format raw bytes as hex instead of base64. The forked version
 // allows us to specify that as an option.
 replace google.golang.org/protobuf => github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display
+
+replace github.com/lightningnetwork/lnd => github.com/guggero/lnd v0.11.0-beta.rc4.0.20250313195613-c175d22bf81f

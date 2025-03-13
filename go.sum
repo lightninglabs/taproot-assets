@@ -97,8 +97,8 @@ github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c/go.mod h1:w7xnGOhw
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318 h1:oCjIcinPt7XQ644MP/22JcjYEC84qRc3bRBH0d7Hhd4=
 github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318/go.mod h1:XItGUfVOxotJL8kkuk2Hj3EVow5KCugXl3wWfQ6K0AE=
 github.com/btcsuite/btcutil v0.0.0-20190425235716-9e5f4b9a998d/go.mod h1:+5NJ2+qvTyV9exUAL/rxXi3DcLg2Ts+ymUAY5y4NvMg=
-github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63 h1:YN+PekOLlLoGxE3P5RJaGgodZD5DDJSU8eXQZVwwCxM=
-github.com/btcsuite/btcwallet v0.16.10-0.20241127094224-93c858b2ad63/go.mod h1:1HJXYbjJzgumlnxOC2+ViR1U+gnHWoOn7WeK5OfY1eU=
+github.com/btcsuite/btcwallet v0.16.10 h1:SDMS0Gp7oEJVvyZNQ6gDYkpkvp/cSMRcAAy3fvO3vTk=
+github.com/btcsuite/btcwallet v0.16.10/go.mod h1:1HJXYbjJzgumlnxOC2+ViR1U+gnHWoOn7WeK5OfY1eU=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 h1:Rr0njWI3r341nhSPesKQ2JF+ugDSzdPoeckS75SeDZk=
 github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5/go.mod h1:+tXJ3Ym0nlQc/iHSwW1qzjmPs3ev+UVWMbGgfV1OZqU=
 github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 h1:YEO+Lx1ZJJAtdRrjuhXjWrYsmAk26wLTlNzxt2q0lhk=
@@ -346,6 +346,8 @@ github.com/grpc-ecosystem/grpc-gateway v1.16.0/go.mod h1:BDjrQk3hbvj6Nolgz8mAMFb
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.5.0/go.mod h1:r1hZAcvfFXuYmcKyCJI9wlyOPIZUJl6FCB8Cpca/NLE=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0 h1:YBftPWNWd4WwGqtY2yeZL2ef8rHAxPBD8KFhJpmcqms=
 github.com/grpc-ecosystem/grpc-gateway/v2 v2.16.0/go.mod h1:YN5jB8ie0yfIUg6VvR9Kz84aCaG7AsGZnLjhHbUqwPg=
+github.com/guggero/lnd v0.11.0-beta.rc4.0.20250313195613-c175d22bf81f h1:Fe56v6YtTbN1sUINb8+zr178n2wPPOX1vVwRqxbPHsw=
+github.com/guggero/lnd v0.11.0-beta.rc4.0.20250313195613-c175d22bf81f/go.mod h1:oOf/h8P5F6Mqh7P9LYyBTl7zuKv2pOgaClXWp0Oh6Vg=
 github.com/hashicorp/errwrap v1.0.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
 github.com/hashicorp/errwrap v1.1.0 h1:OxrOeh75EUXMY8TBjag2fzXGZ40LB6IKw45YeGUDY2I=
 github.com/hashicorp/errwrap v1.1.0/go.mod h1:YH+1FKiLXxHSkmPseP+kNlulaMuP3n2brvKWEqk/Jc4=
@@ -502,8 +504,6 @@ github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display h1:Y2WiPkBS
 github.com/lightninglabs/protobuf-go-hex-display v1.33.0-hex-display/go.mod h1:c6P6GXX6sHbq/GpV6MGZEdwhWPcYBgnhAHhKbcUYpos=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb h1:yfM05S8DXKhuCBp5qSMZdtSwvJ+GFzl94KbXMNB1JDY=
 github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb/go.mod h1:c0kvRShutpj3l6B9WtTsNTBUtjSmjZXbJd9ZBRQOSKI=
-github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20250304192711-9feb761b4ec4 h1:3UfT25sO71q3V7RSb/wE0ruiwk3ex30h7ZvPZ0O2Z80=
-github.com/lightningnetwork/lnd v0.18.0-beta.rc4.0.20250304192711-9feb761b4ec4/go.mod h1:5fYMAma+ylPOV+wycJuxSIwPLyRYRqKZTfiqk+59c+s=
 github.com/lightningnetwork/lnd/cert v1.2.2 h1:71YK6hogeJtxSxw2teq3eGeuy4rHGKcFf0d0Uy4qBjI=
 github.com/lightningnetwork/lnd/cert v1.2.2/go.mod h1:jQmFn/Ez4zhDgq2hnYSw8r35bqGVxViXhX6Cd7HXM6U=
 github.com/lightningnetwork/lnd/clock v1.1.1 h1:OfR3/zcJd2RhH0RU+zX/77c0ZiOnIMsDIBjgjWdZgA0=
@@ -522,8 +522,8 @@ github.com/lightningnetwork/lnd/ticker v1.1.1 h1:J/b6N2hibFtC7JLV77ULQp++QLtCwT6
 github.com/lightningnetwork/lnd/ticker v1.1.1/go.mod h1:waPTRAAcwtu7Ji3+3k+u/xH5GHovTsCoSVpho0KDvdA=
 github.com/lightningnetwork/lnd/tlv v1.3.0 h1:exS/KCPEgpOgviIttfiXAPaUqw2rHQrnUOpP7HPBPiY=
 github.com/lightningnetwork/lnd/tlv v1.3.0/go.mod h1:pJuiBj1ecr1WWLOtcZ+2+hu9Ey25aJWFIsjmAoPPnmc=
-github.com/lightningnetwork/lnd/tor v1.1.4 h1:TUW27EXqoZCcCAQPlD4aaDfh8jMbBS9CghNz50qqwtA=
-github.com/lightningnetwork/lnd/tor v1.1.4/go.mod h1:qSRB8llhAK+a6kaTPWOLLXSZc6Hg8ZC0mq1sUQ/8JfI=
+github.com/lightningnetwork/lnd/tor v1.1.5 h1:kZ1Ab4EcPFCny3a179rZGKeDUlgYilEcfKx3tD5+L+k=
+github.com/lightningnetwork/lnd/tor v1.1.5/go.mod h1:qSRB8llhAK+a6kaTPWOLLXSZc6Hg8ZC0mq1sUQ/8JfI=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 h1:sjOGyegMIhvgfq5oaue6Td+hxZuf3tDC8lAPrFldqFw=
 github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796/go.mod h1:3p7ZTf9V1sNPI5H8P3NkTFF4LuwMdPl2DodF60qAKqY=
 github.com/ltcsuite/ltcutil v0.0.0-20181217130922-17f3b04680b6/go.mod h1:8Vg/LTOO0KYa/vlHWJ6XZAevPQThGH5sufO0Hrou/lA=
