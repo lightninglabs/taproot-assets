@@ -2,9 +2,11 @@ package rfq
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -228,10 +230,11 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 
 	// Initialise and start the order handler.
 	m.orderHandler, err = NewOrderHandler(OrderHandlerCfg{
-		CleanupInterval:  CacheCleanupInterval,
-		HtlcInterceptor:  m.cfg.HtlcInterceptor,
-		HtlcSubscriber:   m.cfg.HtlcSubscriber,
-		AcceptHtlcEvents: m.acceptHtlcEvents,
+		CleanupInterval:       CacheCleanupInterval,
+		HtlcInterceptor:       m.cfg.HtlcInterceptor,
+		HtlcSubscriber:        m.cfg.HtlcSubscriber,
+		AcceptHtlcEvents:      m.acceptHtlcEvents,
+		AssetSpecifierChecker: m,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",
@@ -948,6 +951,10 @@ func (m *Manager) getAssetGroupKey(ctx context.Context,
 	// Perform the DB query.
 	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
 	if err != nil {
+		if strings.Contains(err.Error(), "asset group is unknown") {
+			return fn.None[btcec.PublicKey](), nil
+		}
+
 		return fn.None[btcec.PublicKey](), err
 	}
 
@@ -976,11 +983,19 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 			return false, err
 		}
 
-		if group.IsNone() {
-			return false, nil
-		}
-
 		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		// If the group lookup failed, let's see if the provided assetID
+		// is the hash of the group key, which is used by the sender to
+		// indicate that any asset that belongs to this group may be
+		// used.
+		if group.IsNone() {
+			groupHash := sha256.Sum256(
+				specifierGK.SerializeCompressed(),
+			)
+
+			return groupHash == id, nil
+		}
 
 		return group.UnwrapToPtr().IsEqual(specifierGK), nil
 
