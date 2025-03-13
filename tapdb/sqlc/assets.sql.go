@@ -2099,6 +2099,19 @@ func (q *Queries) InsertAssetSeedlingIntoBatch(ctx context.Context, arg InsertAs
 	return err
 }
 
+const LookupGenesisID = `-- name: LookupGenesisID :one
+SELECT gen_asset_id
+FROM genesis_assets
+WHERE asset_id = $1
+`
+
+func (q *Queries) LookupGenesisID(ctx context.Context, assetID []byte) (int64, error) {
+	row := q.db.QueryRowContext(ctx, LookupGenesisID, assetID)
+	var gen_asset_id int64
+	err := row.Scan(&gen_asset_id)
+	return gen_asset_id, err
+}
+
 const NewMintingBatch = `-- name: NewMintingBatch :exec
 INSERT INTO asset_minting_batches (
     batch_state, batch_id, height_hint, creation_time_unix
