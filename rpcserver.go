@@ -7730,6 +7730,34 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		maxUnits = assetUnits.ToUint64()
 	}
 
+	// Since we used a different oracle price query above calculate the max
+	// amount of units, we want to add some breathing room to account for
+	// price fluctuations caused by the small time delay, plus the fact that
+	// the agreed upon quote may be different. If we don't add this safety
+	// window the peer may allow a routable amount that evaluates to less
+	// than what we ask for.
+	tolerance := rfqmath.NewBigIntFromUint64(
+		r.cfg.RfqManager.GetPriceDeviationPpm(),
+	)
+
+	// Parse the max asset units to the rfqmath type.
+	maxMathUnits := rfqmath.NewBigIntFromUint64(maxUnits)
+
+	// Calculate the tolerance margin.
+	toleranceUnits := maxMathUnits.Mul(tolerance).Div(
+		rfqmath.NewBigIntFromUint64(1_000_000),
+	)
+
+	// Apply the tolerance margin twice. Once due to the ask/bid price
+	// deviation that may occur during rfq negotiation, and once for the
+	// price movement that may occur between querying the oracle and
+	// acquiring the quote. We don't really care about this margin being too
+	// big, this only affects the max units our peer agrees to route.
+	maxMathUnits = maxMathUnits.Add(toleranceUnits).Add(toleranceUnits)
+
+	// Now parse the result back to uint64.
+	maxUnits = maxMathUnits.ToUint64()
+
 	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
 		AssetSpecifier: &rfqrpc.AssetSpecifier{
 			Id: &rfqrpc.AssetSpecifier_AssetId{
@@ -7801,9 +7829,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	switch {
 	case satsMode:
-		amtMsat := lnwire.MilliSatoshi(req.InvoiceRequest.ValueMsat +
-			req.InvoiceRequest.Value*(1000))
-
 		iReq.ValueMsat = int64(amtMsat)
 
 	default:
