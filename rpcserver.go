@@ -7808,12 +7808,27 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	invUnits := req.AssetAmount
 
-	// If the invoice was created over a satoshi amount, we need to
-	// calculate the units.
 	if satsMode {
+		// If the invoice was created over a satoshi amount, we need to
+		// calculate the units.
 		invUnits = rfqmath.MilliSatoshiToUnits(
 			amtMsat, *askAssetRate,
 		).ToUint64()
+
+		// Now let's see if the negotiated quote can actually route the
+		// amount we need in msat.
+		maxFixedUnits := rfqmath.NewBigIntFixedPoint(
+			acceptedQuote.AssetMaxAmount, 0,
+		)
+		maxRoutableMsat := rfqmath.UnitsToMilliSatoshi(
+			maxFixedUnits, *askAssetRate,
+		)
+
+		if maxRoutableMsat <= amtMsat {
+			return nil, fmt.Errorf("cannot create invoice for %v "+
+				"msat, max routable amount is %v msat", amtMsat,
+				maxRoutableMsat)
+		}
 	}
 
 	// If the invoice is for an asset unit amount smaller than the minimal
