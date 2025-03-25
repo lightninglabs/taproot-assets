@@ -144,7 +144,12 @@ func NewSqliteStore(cfg *SqliteConfig) (*SqliteStore, error) {
 	// Now that the database is open, populate the database with our set of
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(s.backupAndMigrate); err != nil {
+		err := s.ExecuteMigrations(
+			s.backupAndMigrate, WithPostStepCallbacks(
+				makePostStepCallbacks(s, postMigrationChecks),
+			),
+		)
+		if err != nil {
 			return nil, fmt.Errorf("error executing migrations: "+
 				"%w", err)
 		}
@@ -297,7 +302,11 @@ func NewTestSqliteDBWithVersion(t *testing.T, version uint) *SqliteStore {
 	})
 	require.NoError(t, err)
 
-	err = sqlDB.ExecuteMigrations(TargetVersion(version))
+	err = sqlDB.ExecuteMigrations(
+		TargetVersion(version), WithPostStepCallbacks(
+			makePostStepCallbacks(sqlDB, postMigrationChecks),
+		),
+	)
 	require.NoError(t, err)
 
 	t.Cleanup(func() {
