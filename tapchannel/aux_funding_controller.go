@@ -2248,7 +2248,9 @@ func (f *FundingController) CanHandle(msg msgmux.PeerMsg) bool {
 
 // SendMessage handles the target message, and returns true if the message was
 // able being processed.
-func (f *FundingController) SendMessage(msg msgmux.PeerMsg) bool {
+func (f *FundingController) SendMessage(_ context.Context,
+	msg msgmux.PeerMsg) bool {
+
 	return fn.SendOrQuit(f.msgs, msg, f.Quit)
 }
 
