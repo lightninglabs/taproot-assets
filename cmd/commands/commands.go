@@ -15,6 +15,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const (
+	// Environment variables names that can be used to set the global flags.
+	envVarRPCServer       = "TAPCLI_RPCSERVER"
+	envVarTapDir          = "TAPCLI_TAPDIR"
+	ewnvVarSocksProxy     = "TAPCLI_SOCKSPROXY"
+	envVarTLSCert         = "TAPCLI_TLSCERTPATH"
+	envVarNetwork         = "TAPCLI_NETWORK"
+	envVarMacaroonPath    = "TAPCLI_MACAROONPATH"
+	envVarMacaroonTimeout = "TAPCLI_MACAROONTIMEOUT"
+	envVarMacaroonIP      = "TAPCLI_MACAROONIP"
+	envVarProfile         = "TAPCLI_PROFILE"
+	envVarMacFromJar      = "TAPCLI_MACFROMJAR"
+)
+
 // NewApp creates a new tapcli app with all the available commands.
 func NewApp(actionOpts ...ActionOption) cli.App {
 	app := cli.NewApp()
@@ -23,15 +37,17 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 	app.Usage = "control plane for your Taproot Assets Daemon (tapd)"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
-			Name:  "rpcserver",
-			Value: defaultRPCHostPort,
-			Usage: "The host:port of tap daemon.",
+			Name:   "rpcserver",
+			Value:  defaultRPCHostPort,
+			Usage:  "The host:port of tap daemon.",
+			EnvVar: envVarRPCServer,
 		},
 		cli.StringFlag{
 			Name:      "tapddir",
 			Value:     defaultTapdDir,
 			Usage:     "The path to tap's base directory.",
 			TakesFile: true,
+			EnvVar:    envVarTapDir,
 		},
 		cli.StringFlag{
 			Name: "socksproxy",
@@ -44,12 +60,14 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 			Value:     defaultTLSCertPath,
 			Usage:     "The path to tapd's TLS certificate.",
 			TakesFile: true,
+			EnvVar:    envVarTLSCert,
 		},
 		cli.StringFlag{
 			Name: "network, n",
 			Usage: "The network tapd is running on, e.g. " +
 				"mainnet, testnet, etc.",
-			Value: "testnet",
+			Value:  "testnet",
+			EnvVar: envVarNetwork,
 		},
 		cli.BoolFlag{
 			Name:  "no-macaroons",
@@ -59,15 +77,20 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 			Name:      "macaroonpath",
 			Usage:     "The path to macaroon file.",
 			TakesFile: true,
+			EnvVar:    envVarMacaroonPath,
 		},
 		cli.Int64Flag{
 			Name:  "macaroontimeout",
 			Value: 60,
-			Usage: "Anti-replay macaroon validity time in seconds.",
+			Usage: "Anti-replay macaroon validity time in " +
+				"seconds.",
+			EnvVar: envVarMacaroonTimeout,
 		},
 		cli.StringFlag{
-			Name:  "macaroonip",
-			Usage: "If set, lock macaroon to specific IP address.",
+			Name: "macaroonip",
+			Usage: "If set, lock macaroon to specific IP " +
+				"address.",
+			EnvVar: envVarMacaroonIP,
 		},
 		cli.StringFlag{
 			Name: "profile, p",
@@ -77,12 +100,14 @@ func NewApp(actionOpts ...ActionOption) cli.App {
 				"a default profile is set, this flag can be " +
 				"set to an empty string to disable reading " +
 				"values from the profiles file.",
+			EnvVar: envVarProfile,
 		},
 		cli.StringFlag{
 			Name: "macfromjar",
 			Usage: "Use this macaroon from the profile's " +
 				"macaroon jar instead of the default one. " +
 				"Can only be used if profiles are defined.",
+			EnvVar: envVarMacFromJar,
 		},
 	}
 
