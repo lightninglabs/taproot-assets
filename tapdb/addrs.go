@@ -268,6 +268,9 @@ func (t *TapAddressBook) InsertAddrs(ctx context.Context,
 				InternalKeyID:    rawScriptKeyID,
 				TweakedScriptKey: addr.ScriptKey.SerializeCompressed(),
 				Tweak:            addr.ScriptKeyTweak.Tweak,
+				KeyType: sqlInt16(
+					addr.ScriptKeyTweak.Type,
+				),
 			})
 			if err != nil {
 				return fmt.Errorf("unable to insert script "+
@@ -649,7 +652,8 @@ func (t *TapAddressBook) InsertInternalKey(ctx context.Context,
 // it can be recognized as belonging to the wallet when a transfer comes in
 // later on.
 func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
-	scriptKey asset.ScriptKey, declaredKnown bool) error {
+	scriptKey asset.ScriptKey, declaredKnown bool,
+	keyType asset.ScriptKeyType) error {
 
 	var writeTxOpts AddrBookTxOptions
 	return t.db.ExecTx(ctx, &writeTxOpts, func(q AddrBook) error {
@@ -666,6 +670,7 @@ func (t *TapAddressBook) InsertScriptKey(ctx context.Context,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
 			Tweak:            scriptKey.Tweak,
 			DeclaredKnown:    sqlBool(declaredKnown),
+			KeyType:          sqlInt16(keyType),
 		})
 		return err
 	})

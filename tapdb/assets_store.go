@@ -2630,10 +2630,14 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 	scriptInternalKey := keychain.KeyDescriptor{
 		PubKey: output.ScriptKey.PubKey,
 	}
-	var tweak []byte
+	var (
+		tweak         []byte
+		scriptKeyType asset.ScriptKeyType
+	)
 	if output.ScriptKey.TweakedScriptKey != nil {
 		scriptInternalKey = output.ScriptKey.RawKey
 		tweak = output.ScriptKey.Tweak
+		scriptKeyType = output.ScriptKey.Type
 	}
 	scriptInternalKeyID, err := q.UpsertInternalKey(ctx, InternalKey{
 		RawKey:    scriptInternalKey.PubKey.SerializeCompressed(),
@@ -2648,6 +2652,7 @@ func insertAssetTransferOutput(ctx context.Context, q ActiveAssetsStore,
 		InternalKeyID:    scriptInternalKeyID,
 		TweakedScriptKey: output.ScriptKey.PubKey.SerializeCompressed(),
 		Tweak:            tweak,
+		KeyType:          sqlInt16(scriptKeyType),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to insert script key: %w", err)
