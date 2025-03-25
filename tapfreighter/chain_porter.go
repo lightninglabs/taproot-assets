@@ -1296,6 +1296,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"%w", err)
 		}
 
+		// Burn keys are the only keys that we don't explicitly store
+		// in the DB before this point. But we'll want them to have the
+		// correct type when creating the transfer, so we'll set that
+		// now.
+		detectBurnKeys(currentPkg.VirtualPackets)
+
 		// We now need to find out if this is a transfer to ourselves
 		// (e.g. a change output) or an outbound transfer. A key being
 		// local means the lnd node connected to this daemon knows how
@@ -1564,6 +1570,26 @@ func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range p.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
+	}
+}
+
+// detectBurnKeys checks if any of the outputs in the virtual packets are burn
+// keys and sets the appropriate type on the output script key.
+func detectBurnKeys(activeTransfers []*tappsbt.VPacket) {
+	for _, vPkt := range activeTransfers {
+		for _, vOut := range vPkt.Outputs {
+			if vOut.Asset == nil {
+				continue
+			}
+
+			witness := vOut.Asset.PrevWitnesses
+			if len(witness) > 0 && asset.IsBurnKey(
+				vOut.ScriptKey.PubKey, witness[0],
+			) {
+				vOut.Asset.ScriptKey.Type = asset.ScriptKeyBurn
+				vOut.ScriptKey.Type = asset.ScriptKeyBurn
+			}
+		}
 	}
 }
 
