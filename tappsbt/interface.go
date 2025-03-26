@@ -43,7 +43,6 @@ var (
 	PsbtKeyTypeInputTapAnchorTapscriptSibling             = []byte{0x78}
 	PsbtKeyTypeInputTapAsset                              = []byte{0x79}
 	PsbtKeyTypeInputTapAssetProof                         = []byte{0x7a}
-	PsbtKeyTypeInputAltLeaves                             = []byte{0x7b}
 
 	PsbtKeyTypeOutputTapType                               = []byte{0x70}
 	PsbtKeyTypeOutputTapIsInteractive                      = []byte{0x71}
@@ -394,12 +393,6 @@ type VInput struct {
 	// Proof is a transition proof that proves the asset being spent was
 	// committed to in the anchor transaction above.
 	Proof *proof.Proof
-
-	// AltLeaves represent data used to construct an Asset commitment, that
-	// will be inserted in the input anchor Tap commitment. These
-	// data-carrying leaves are used for a purpose distinct from
-	// representing individual Taproot Assets.
-	AltLeaves []asset.AltLeaf[asset.Asset]
 }
 
 // Copy creates a deep copy of the VInput.
@@ -417,35 +410,13 @@ func (i *VInput) Copy() *VInput {
 		// We never expect the individual fields of the proof to change
 		// while it is assigned to a virtual input. So not deep copying
 		// it here is fine.
-		Proof:     i.Proof,
-		AltLeaves: asset.CopyAltLeaves(i.AltLeaves),
+		Proof: i.Proof,
 	}
 }
 
 // Asset returns the input's asset that's being spent.
 func (i *VInput) Asset() *asset.Asset {
 	return i.asset
-}
-
-// SetAltLeaves asserts that a set of AltLeaves are valid, and updates a VInput
-// to set the AltLeaves. Setting the input's AltLeaves twice is disallowed.
-func (i *VInput) SetAltLeaves(altLeafAssets []*asset.Asset) error {
-	// AltLeaves can be set exactly once on a VInput.
-	if len(i.AltLeaves) != 0 {
-		return fmt.Errorf("%w: input", ErrAltLeavesAlreadySet)
-	}
-
-	// Each asset must be a valid AltLeaf, and the set of AltLeaves must be
-	// valid, by not having overlapping keys in the AltCommitment.
-	altLeaves := asset.ToAltLeaves(altLeafAssets)
-	err := asset.ValidAltLeaves(altLeaves)
-	if err != nil {
-		return err
-	}
-
-	i.AltLeaves = asset.CopyAltLeaves(altLeaves)
-
-	return nil
 }
 
 // serializeScriptKey serializes the input asset's script key as the PSBT

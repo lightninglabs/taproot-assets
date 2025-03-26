@@ -277,8 +277,7 @@ func (f *AssetWallet) FundAddressSend(ctx context.Context,
 func createPassivePacket(passiveAsset *asset.Asset,
 	activePackets []*tappsbt.VPacket, anchorOutputIndex uint32,
 	anchorOutputInternalKey keychain.KeyDescriptor, prevOut wire.OutPoint,
-	inputProof *proof.Proof,
-	inputAltLeaves []*asset.Asset) (*tappsbt.VPacket, error) {
+	inputProof *proof.Proof) (*tappsbt.VPacket, error) {
 
 	if len(activePackets) == 0 {
 		return nil, errors.New("no active packets provided")
@@ -298,12 +297,8 @@ func createPassivePacket(passiveAsset *asset.Asset,
 			SighashType: txscript.SigHashDefault,
 		},
 	}
-	err := vInput.SetAltLeaves(inputAltLeaves)
-	if err != nil {
-		return nil, err
-	}
 
-	err = tapsend.ValidateVPacketVersions(activePackets)
+	err := tapsend.ValidateVPacketVersions(activePackets)
 	if err != nil {
 		return nil, err
 	}
@@ -950,7 +945,7 @@ func CreatePassiveAssets(ctx context.Context, keyRing KeyRing,
 		// removing the active assets. But we don't want to count the
 		// alt leaves as "assets" in this context, so we'll trim them
 		// out.
-		trimmedPassives, altLeaves, err := commitment.TrimAltLeaves(
+		trimmedPassives, _, err := commitment.TrimAltLeaves(
 			passiveCommitments,
 		)
 		if err != nil {
@@ -986,7 +981,7 @@ func CreatePassiveAssets(ctx context.Context, keyRing KeyRing,
 			passivePacket, err := createPassivePacket(
 				passiveAsset, activePackets,
 				anchorOutIdx, *anchorOutDesc, prevID.OutPoint,
-				inputProof, altLeaves,
+				inputProof,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("unable to create "+

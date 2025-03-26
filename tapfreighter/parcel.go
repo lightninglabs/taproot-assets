@@ -529,11 +529,6 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		PassiveAssetsAnchor: passiveAssetAnchor,
 	}
 
-	allPackets := append(activeTransfers, passiveAssets...)
-	if err := tapsend.AssertInputsUnique(allPackets); err != nil {
-		return nil, fmt.Errorf("unable to convert to transfer: %w", err)
-	}
-
 	for pIdx := range activeTransfers {
 		vPkt := activeTransfers[pIdx]
 
