@@ -6432,6 +6432,31 @@ func MarshalAssetFedSyncCfg(
 	}, nil
 }
 
+// marshalAssetSpecifier marshals an asset specifier to the RPC form.
+func marshalAssetSpecifier(specifier asset.Specifier) rfqrpc.AssetSpecifier {
+	switch {
+	case specifier.HasId():
+		assetID := specifier.UnwrapIdToPtr()
+		return rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: assetID[:],
+			},
+		}
+
+	case specifier.HasGroupPubKey():
+		groupKey := specifier.UnwrapGroupKeyToPtr()
+		groupKeyBytes := groupKey.SerializeCompressed()
+		return rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_GroupKey{
+				GroupKey: groupKeyBytes,
+			},
+		}
+
+	default:
+		return rfqrpc.AssetSpecifier{}
+	}
+}
+
 // unmarshalAssetSpecifier unmarshals an asset specifier from the RPC form.
 func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier) (*asset.ID,
 	*btcec.PublicKey, error) {
