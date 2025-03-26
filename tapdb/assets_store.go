@@ -858,7 +858,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 // constraintsToDbFilter maps application level constraints to the set of
 // filters we use in the SQL queries.
 func (a *AssetStore) constraintsToDbFilter(
-	query *AssetQueryFilters) QueryAssetFilters {
+	query *AssetQueryFilters) (QueryAssetFilters, error) {
 
 	assetFilter := QueryAssetFilters{
 		Now: sql.NullTime{
@@ -873,10 +873,36 @@ func (a *AssetStore) constraintsToDbFilter(
 				Valid: true,
 			}
 		}
+
+		if query.MaxAmt != 0 {
+			assetFilter.MaxAmt = sql.NullInt64{
+				Int64: int64(query.MaxAmt),
+				Valid: true,
+			}
+		}
+
 		if query.MinAnchorHeight != 0 {
 			assetFilter.MinAnchorHeight = sqlInt32(
 				query.MinAnchorHeight,
 			)
+		}
+
+		if query.ScriptKey != nil {
+			key := query.ScriptKey.PubKey
+			assetFilter.TweakedScriptKey = key.SerializeCompressed()
+		}
+
+		if query.AnchorPoint != nil {
+			anchorPointBytes, err := encodeOutpoint(
+				*query.AnchorPoint,
+			)
+			if err != nil {
+				return QueryAssetFilters{}, fmt.Errorf(
+					"unable to encode outpoint: %w", err,
+				)
+			}
+
+			assetFilter.AnchorPoint = anchorPointBytes
 		}
 
 		// Add asset ID bytes and group key bytes to the filter. These
@@ -898,7 +924,7 @@ func (a *AssetStore) constraintsToDbFilter(
 		}
 	}
 
-	return assetFilter
+	return assetFilter, nil
 }
 
 // specificAssetFilter maps the given asset parameters to the set of filters
@@ -970,6 +996,13 @@ type AssetQueryFilters struct {
 	// MinAnchorHeight is the minimum block height the asset's anchor tx
 	// must have been confirmed at.
 	MinAnchorHeight int32
+
+	// ScriptKey allows filtering by asset script key.
+	ScriptKey *asset.ScriptKey
+
+	// AnchorPoint allows filtering by the outpoint the asset is anchored
+	// to.
+	AnchorPoint *wire.OutPoint
 }
 
 // QueryBalancesByAsset queries the balances for assets or alternatively
@@ -1189,7 +1222,10 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
-	assetFilter := a.constraintsToDbFilter(query)
+	assetFilter, err := a.constraintsToDbFilter(query)
+	if err != nil {
+		return nil, err
+	}
 
 	// By default, the spent boolean is null, which means we'll fetch all
 	// assets. Only if we should exclude spent assets, we'll set the spent
@@ -1986,9 +2022,12 @@ func (a *AssetStore) ListEligibleCoins(ctx context.Context,
 
 	// First, we'll map the commitment constraints to our database query
 	// filters.
-	assetFilter := a.constraintsToDbFilter(&AssetQueryFilters{
+	assetFilter, err := a.constraintsToDbFilter(&AssetQueryFilters{
 		CommitmentConstraints: constraints,
 	})
+	if err != nil {
+		return nil, err
+	}
 
 	// We only want to select unspent and non-leased commitments.
 	assetFilter.Spent = sqlBool(false)
