@@ -6629,7 +6629,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetBuyOrderResponse(event)
+			resp, err := rfq.NewAddAssetBuyOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
 					"buy order response: %w", err)
@@ -6803,7 +6803,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetSellOrderResponse(event)
+			resp, err := rfq.NewAddAssetSellOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
 					"sell order response: %w", err)
@@ -6991,7 +6991,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote, err := taprpc.MarshalAcceptedBuyQuoteEvent(event)
+		acceptedQuote, err := rfq.MarshalAcceptedBuyQuoteEvent(event)
 		if err != nil {
 			return nil, err
 		}
@@ -7007,7 +7007,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		rpcAcceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(
+		rpcAcceptedQuote := rfq.MarshalAcceptedSellQuoteEvent(
 			event,
 		)
 
@@ -7296,7 +7296,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		// Calculate the equivalent asset units for the given invoice
 		// amount based on the asset-to-BTC conversion rate.
-		sellOrder := taprpc.MarshalAcceptedSellQuote(*quote)
+		sellOrder := rfq.MarshalAcceptedSellQuote(*quote)
 
 		// paymentMaxAmt is the maximum amount that the counterparty is
 		// expected to pay. This is the amount that the invoice is
