@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -466,4 +467,91 @@ func TestMigration29(t *testing.T) {
 	`).Scan(&proofType)
 	require.NoError(t, err)
 	require.Equal(t, "ignore", proofType)
+}
+
+// TestMigration31 tests the migration that changes the UNIQUE index on the
+// universe_leaves table from two columns (minting_point, script_key_bytes) to
+// three columns (minting_point, script_key_bytes, leaf_node_namespace).
+func TestMigration31(t *testing.T) {
+	ctx := context.Background()
+
+	// Create a test DB at the pre-migration state (version 30).
+	db := NewTestDBWithVersion(t, 30)
+
+	// Insert test data from file.
+	InsertTestdata(t, db.BaseDB, "migrations_test_00031_dummy_data.sql")
+
+	// Attempt to insert a duplicate leaf row (same minting_point and
+	// script_key_bytes) but with a different leaf_node_namespace "test_ns".
+	// Under the old unique constraint, this should error.
+	//
+	//nolint:lll
+	const dupLeafStmt = `
+	INSERT INTO universe_leaves (
+		id, asset_genesis_id, minting_point, script_key_bytes,
+		universe_root_id, leaf_node_key, leaf_node_namespace
+	) VALUES (
+		%d, 1, X'0A0B0C', X'00112233445566778899AABBCCDDEEFF00112233445566778899AABBCCDDEEFF',
+		999, X'BB', 'test_ns'
+	)
+	`
+
+	dupQuery := transformByteLiterals(
+		t, db.BaseDB, fmt.Sprintf(dupLeafStmt, 101),
+	)
+	_, err := db.ExecContext(ctx, dupQuery)
+	require.Error(
+		t, err,
+		"duplicate insert should fail under the old unique constraint",
+	)
+
+	// Check error message, which differs between SQLite and Postgres
+	errMsg := err.Error()
+	switch db.Backend() {
+	case sqlc.BackendTypeSqlite:
+		require.Contains(
+			t, errMsg,
+			"constraint failed: UNIQUE constraint failed: "+
+				"universe_leaves.minting_point, "+
+				"universe_leaves.script_key_bytes",
+			"SQLite error should contain the expected unique "+
+				"constraint failure")
+	case sqlc.BackendTypePostgres:
+		require.Contains(
+			t, errMsg, "duplicate key value violates unique "+
+				"constraint", "postgres error should mention "+
+				"duplicate key violation")
+	default:
+		t.Fatalf("unknown database backend: %v", db.Backend())
+	}
+
+	// Run migration 31 (apply the up migration that updates the unique
+	// constraint).
+	err = db.ExecuteMigrations(TargetVersion(31))
+	require.NoError(t, err)
+
+	// Verify that the dummy row inserted from the testdata file was
+	// migrated properly.
+	var ns string
+	err = db.QueryRowContext(ctx, transformByteLiterals(t, db.BaseDB, `
+		SELECT leaf_node_namespace FROM universe_leaves WHERE id = 100
+	`)).Scan(&ns)
+	require.NoError(t, err)
+	require.Equal(
+		t, "old_ns", ns, "pre-existing leaf should have its namespace "+
+			"unchanged",
+	)
+
+	// Now, with the new three-column unique constraint in place, attempting
+	// to insert a row with the same minting_point and script_key_bytes but
+	// a different namespace ("test_ns") should succeed.
+	dupQuery2 := transformByteLiterals(
+		t, db.BaseDB, fmt.Sprintf(dupLeafStmt, 102),
+	)
+	_, err = db.ExecContext(ctx, dupQuery2)
+	require.NoError(
+		t, err,
+		"duplicate insert should now succeed with the new unique "+
+			"constraint",
+	)
 }
