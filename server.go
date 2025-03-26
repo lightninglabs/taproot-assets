@@ -849,14 +849,14 @@ func (s *Server) CanHandle(msg msgmux.PeerMsg) bool {
 // able to be processed.
 //
 // NOTE: This method is part of the msgmux.MsgEndpoint interface.
-func (s *Server) SendMessage(msg msgmux.PeerMsg) bool {
+func (s *Server) SendMessage(ctx context.Context, msg msgmux.PeerMsg) bool {
 	err := s.waitForReady()
 	if err != nil {
 		srvrLog.Debugf("Failed to send PeerMsg, server not ready %v",
 			err)
 		return false
 	}
-	return s.cfg.AuxFundingController.SendMessage(msg)
+	return s.cfg.AuxFundingController.SendMessage(ctx, msg)
 }
 
 // SubmitSecondLevelSigBatch takes a batch of aux sign jobs and processes them
