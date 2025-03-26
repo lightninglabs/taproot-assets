@@ -232,6 +232,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		HtlcInterceptor:  m.cfg.HtlcInterceptor,
 		HtlcSubscriber:   m.cfg.HtlcSubscriber,
 		AcceptHtlcEvents: m.acceptHtlcEvents,
+		SpecifierChecker: m.AssetMatchesSpecifier,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",
