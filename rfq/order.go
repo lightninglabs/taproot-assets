@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/davecgh/go-spew/spew"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
@@ -249,11 +250,23 @@ func (c *AssetSalePolicy) GenerateInterceptorResponse(
 
 	outgoingAmt := rfqmath.DefaultOnChainHtlcMSat
 
-	// Unpack asset ID.
-	assetID, err := c.AssetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return nil, fmt.Errorf("asset sale policy has no asset ID: %w",
-			err)
+	var assetID asset.ID
+
+	// We have performed checks for the asset IDs inside the HTLC against
+	// the specifier's group key in a previous step. Here we just need to
+	// provide a dummy value as the asset ID. The real asset IDs will be
+	// carefully picked in a later step in the process. What really matters
+	// now is the total amount.
+	switch {
+	case c.AssetSpecifier.HasGroupPubKey():
+		groupKey := c.AssetSpecifier.UnwrapGroupKeyToPtr()
+		groupKeyX := schnorr.SerializePubKey(groupKey)
+
+		assetID = asset.ID(groupKeyX)
+
+	case c.AssetSpecifier.HasId():
+		specifierID := *c.AssetSpecifier.UnwrapIdToPtr()
+		copy(assetID[:], specifierID[:])
 	}
 
 	// Compute the outgoing asset amount given the msat outgoing amount and
