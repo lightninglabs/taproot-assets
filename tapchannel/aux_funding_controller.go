@@ -824,48 +824,49 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 	log.Infof("Generating input ownership proofs for %v packets",
 		len(vPackets))
 
-	// TODO(guggero): Remove once we add group key support.
-	if len(vPackets) > 1 {
-		return fmt.Errorf("only one vPacket supported for now")
-	}
-	vPkt := vPackets[0]
-
 	// For each of the inputs we selected, we'll create a new ownership
 	// proof for each of them. We'll send this to the peer, so they can
 	// verify that we actually own the inputs we're using to fund
 	// the channel.
-	for _, assetInput := range vPkt.Inputs {
-		// First, we'll grab the proof for the asset input, then
-		// generate the challenge witness to place in the proof so it
-		challengeWitness, err := f.cfg.AssetWallet.SignOwnershipProof(
-			assetInput.Asset(), fn.None[[32]byte](),
-		)
-		if err != nil {
-			return fmt.Errorf("error signing ownership proof: %w",
-				err)
+	for _, vPkt := range vPackets {
+		for _, assetInput := range vPkt.Inputs {
+			// First, we'll grab the proof for the asset input, then
+			// generate the challenge witness to place in the proof
+			// so it can be sent over.
+			wallet := f.cfg.AssetWallet
+			challengeWitness, err := wallet.SignOwnershipProof(
+				assetInput.Asset(), fn.None[[32]byte](),
+			)
+			if err != nil {
+				return fmt.Errorf("error signing ownership "+
+					"proof: %w", err)
+			}
+
+			// TODO(roasbeef): use the temp chan ID above? as part
+			// of challenge
+
+			// With the witness obtained, we'll emplace it, then add
+			// this to our set of relevant input proofs. But we
+			// create a copy of the proof first, to make sure we
+			// don't modify the vPacket.
+			var proofBuf bytes.Buffer
+			err = assetInput.Proof.Encode(&proofBuf)
+			if err != nil {
+				return fmt.Errorf("error serializing proof: %w",
+					err)
+			}
+
+			proofCopy := &proof.Proof{}
+			if err := proofCopy.Decode(&proofBuf); err != nil {
+				return fmt.Errorf("error decoding proof: %w",
+					err)
+			}
+
+			proofCopy.ChallengeWitness = challengeWitness
+			fundingState.inputProofs = append(
+				fundingState.inputProofs, proofCopy,
+			)
 		}
-
-		// TODO(roasbeef): use the temp chan ID above? as part of
-		// challenge
-
-		// With the witness obtained, we'll emplace it, then add this
-		// to our set of relevant input proofs. But we create a copy of
-		// the proof first, to make sure we don't modify the vPacket.
-		var proofBuf bytes.Buffer
-		err = assetInput.Proof.Encode(&proofBuf)
-		if err != nil {
-			return fmt.Errorf("error serializing proof: %w", err)
-		}
-
-		proofCopy := &proof.Proof{}
-		if err := proofCopy.Decode(&proofBuf); err != nil {
-			return fmt.Errorf("error decoding proof: %w", err)
-		}
-
-		proofCopy.ChallengeWitness = challengeWitness
-		fundingState.inputProofs = append(
-			fundingState.inputProofs, proofCopy,
-		)
 	}
 
 	// With all our proofs assembled, we'll now send each of them to the
@@ -908,32 +909,42 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 	// Now that we've sent the proofs for the input assets, we'll send them
 	// a fully signed asset funding output. We can send this safely as they
 	// can't actually broadcast this without our signed Bitcoin inputs.
-	signedInputs, err := f.cfg.AssetWallet.SignVirtualPacket(vPkt)
-	if err != nil {
-		return fmt.Errorf("unable to sign funding inputs: %w", err)
-	}
-	if len(signedInputs) != len(vPkt.Inputs) {
-		return fmt.Errorf("expected %v signed inputs, got %v",
-			len(vPkt.Inputs), len(signedInputs))
+	for idx := range vPackets {
+		vPkt := vPackets[idx]
+		signedInputs, err := f.cfg.AssetWallet.SignVirtualPacket(vPkt)
+		if err != nil {
+			return fmt.Errorf("unable to sign funding inputs: %w",
+				err)
+		}
+		if len(signedInputs) != len(vPkt.Inputs) {
+			return fmt.Errorf("expected %v signed inputs, got %v",
+				len(vPkt.Inputs), len(signedInputs))
+		}
 	}
 
 	// We'll now send the signed inputs to the remote party.
-	//
-	// TODO(roasbeef): generalize for multi-asset
-	fundingOut, err := vPkt.FirstNonSplitRootOutput()
-	if err != nil {
-		return fmt.Errorf("unable to get funding asset: %w", err)
-	}
-	assetOutputMsg := cmsg.NewTxAssetOutputProof(
-		fundingState.pid, *fundingOut.Asset, true,
-	)
+	for idx, vPkt := range vPackets {
+		fundingOut, err := vPkt.FirstNonSplitRootOutput()
+		if err != nil {
+			return fmt.Errorf("unable to get funding asset: %w",
+				err)
+		}
 
-	log.Debugf("Sending TLV for funding asset output to remote party: %v",
-		limitSpewer.Sdump(fundingOut.Asset))
+		assetOutputMsg := cmsg.NewTxAssetOutputProof(
+			fundingState.pid, *fundingOut.Asset,
+			idx == len(vPackets)-1,
+		)
 
-	err = f.cfg.PeerMessenger.SendMessage(ctx, peerPub, assetOutputMsg)
-	if err != nil {
-		return fmt.Errorf("unable to send proof to peer: %w", err)
+		log.Debugf("Sending TLV for funding asset output to remote "+
+			"party: %v", limitSpewer.Sdump(fundingOut.Asset))
+
+		err = f.cfg.PeerMessenger.SendMessage(
+			ctx, peerPub, assetOutputMsg,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to send proof to peer: %w",
+				err)
+		}
 	}
 
 	return nil
@@ -2031,6 +2042,13 @@ func (f *FundingController) validateWitness(outAsset asset.Asset,
 	// the prev output fetcher for Bitcoin.
 	prevAssets := make(commitment.InputSet)
 	for _, p := range inputAssetProofs {
+		// We validate on the individual vPSBT level, so we will only
+		// use the inputs that actually match the current output's asset
+		// ID.
+		if outAsset.ID() != p.Asset.ID() {
+			continue
+		}
+
 		prevID := asset.PrevID{
 			OutPoint:  p.OutPoint(),
 			ID:        p.Asset.ID(),
