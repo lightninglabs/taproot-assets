@@ -1,10 +1,13 @@
 package tapfreighter
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -218,6 +221,35 @@ type Anchor struct {
 	NumPassiveAssets uint32
 }
 
+// OutputIdentifier is a key that can be used to uniquely identify a transfer
+// output.
+type OutputIdentifier [32]byte
+
+// NewOutputIdentifier creates a new output identifier from the proof suffix and
+// script key.
+func NewOutputIdentifier(proofSuffix []byte,
+	scriptKey btcec.PublicKey) (OutputIdentifier, error) {
+
+	var zero [32]byte
+	if len(proofSuffix) == 0 {
+		return zero, fmt.Errorf("proof suffix not set")
+	}
+
+	var outProofAsset asset.Asset
+	err := proof.SparseDecode(
+		bytes.NewReader(proofSuffix),
+		proof.AssetLeafRecord(&outProofAsset),
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to sparse decode proof: %w",
+			err)
+	}
+
+	keyData := append([]byte{}, fn.ByteSlice(outProofAsset.ID())...)
+	keyData = append(keyData, scriptKey.SerializeCompressed()...)
+	return sha256.Sum256(keyData), nil
+}
+
 // TransferOutput represents the database level output to an asset transfer.
 type TransferOutput struct {
 	// Anchor is the new location of the Taproot Asset commitment referenced
@@ -334,6 +366,13 @@ func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
 	return true, nil
 }
 
+// UniqueKey returns a unique key that can be used to identify the output.
+// Because this requires the output proof to be set to extract the asset ID, an
+// error is returned if it is not.
+func (out *TransferOutput) UniqueKey() (OutputIdentifier, error) {
+	return NewOutputIdentifier(out.ProofSuffix, *out.ScriptKey.PubKey)
+}
+
 // OutboundParcel represents the database level delta of an outbound Taproot
 // Asset parcel (outbound spend). A spend will destroy a series of assets listed
 // as inputs, and re-create them as new outputs. Along the way some assets may
@@ -429,7 +468,7 @@ type AssetConfirmEvent struct {
 
 	// FinalProofs is the set of final full proof chain files that are going
 	// to be stored on disk, one for each output in the outbound parcel.
-	FinalProofs map[asset.SerializedKey]*proof.AnnotatedProof
+	FinalProofs map[OutputIdentifier]*proof.AnnotatedProof
 
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.
