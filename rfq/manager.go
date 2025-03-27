@@ -17,10 +17,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -1210,6 +1213,61 @@ func (m *Manager) RfqChannel(ctx context.Context,
 	}
 
 	return balancesMap, nil
+}
+
+// InboundPolicyFetcher is a helper that fetches the inbound policy of a channel
+// based on its chanID.
+type InboundPolicyFetcher func(ctx context.Context, chanID uint64,
+	remotePubStr string) (*lnrpc.RoutingPolicy, error)
+
+// RfqToHopHint creates the hop hint representation which encapsulates certain
+// quote information along with some other data required by the payment to
+// succeed.
+func (m *Manager) RfqToHopHint(ctx context.Context,
+	policyFetcher InboundPolicyFetcher, channelID uint64,
+	peerPubKey route.Vertex, quote *rfqrpc.PeerAcceptedBuyQuote,
+	hold bool) (*lnrpc.HopHint, []zpay32.HopHint, error) {
+
+	inboundPolicy, err := policyFetcher(ctx, channelID, peerPubKey.String())
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to get inbound channel "+
+			"policy for channel with ID %d: %w", channelID, err)
+	}
+
+	if hold {
+		peerPub, err := btcec.ParsePubKey(peerPubKey[:])
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing peer "+
+				"pubkey: %w", err)
+		}
+		hopHint := []zpay32.HopHint{
+			{
+				NodeID:      peerPub,
+				ChannelID:   quote.Scid,
+				FeeBaseMSat: uint32(inboundPolicy.FeeBaseMsat),
+				FeeProportionalMillionths: uint32(
+					inboundPolicy.FeeRateMilliMsat,
+				),
+				CLTVExpiryDelta: uint16(
+					inboundPolicy.TimeLockDelta,
+				),
+			},
+		}
+
+		return nil, hopHint, nil
+	}
+
+	hopHint := &lnrpc.HopHint{
+		NodeId:      peerPubKey.String(),
+		ChanId:      quote.Scid,
+		FeeBaseMsat: uint32(inboundPolicy.FeeBaseMsat),
+		FeeProportionalMillionths: uint32(
+			inboundPolicy.FeeRateMilliMsat,
+		),
+		CltvExpiryDelta: inboundPolicy.TimeLockDelta,
+	}
+
+	return hopHint, nil, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
