@@ -31,7 +31,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightninglabs/taproot-assets/vm"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -758,27 +757,18 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 		amt)
 
 	// Our funding script key will be the OP_TRUE addr that we'll use as
-	// the funding script on the asset level.
-	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
-	fundingTaprootKey, _ := schnorr.ParsePubKey(
-		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
+	// the funding script on the asset level. We start with this one in case
+	// there is only a single asset ID in the channel. This is to remain
+	// backward compatible with previous versions of the channel funding
+	// process, so updated users can still fund channels with a single asset
+	// ID with older clients. Also, we don't know what asset IDs we're going
+	// to be using, so we couldn't derive a unique funding script key for
+	// each asset ID yet anyway.
+	fundingScriptKey, err := deriveFundingScriptKey(
+		ctx, f.cfg.AddrBook, nil,
 	)
-	fundingScriptKey := asset.ScriptKey{
-		PubKey: fundingTaprootKey,
-		TweakedScriptKey: &asset.TweakedScriptKey{
-			RawKey: keychain.KeyDescriptor{
-				PubKey: fundingScriptTree.InternalKey,
-			},
-			Tweak: fundingScriptTree.TapscriptRoot,
-		},
-	}
-
-	// We'll also need to import the funding script key into the wallet so
-	// the asset will be materialized in the asset table and show up in the
-	// balance correctly.
-	err := f.cfg.AddrBook.InsertScriptKey(ctx, fundingScriptKey, true)
 	if err != nil {
-		return nil, fmt.Errorf("unable to insert script key: %w", err)
+		return nil, fmt.Errorf("unable to derive script key: %w", err)
 	}
 
 	// Next, we'll use the asset wallet to fund a new vPSBT which'll be
@@ -805,7 +795,62 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 
 	// Fund the packet. This will derive an anchor internal key for us, but
 	// we'll overwrite that later on.
-	return f.cfg.AssetWallet.FundPacket(ctx, fundDesc, pktTemplate)
+	fundedPkt, err := f.cfg.AssetWallet.FundPacket(
+		ctx, fundDesc, pktTemplate,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to fund vPacket: %w", err)
+	}
+
+	// If there was just a single virtual packet created, it means we only
+	// have a single asset ID in the channel, and we can proceed without any
+	// workarounds.
+	if len(fundedPkt.VPackets) == 1 {
+		return fundedPkt, nil
+	}
+
+	// For channels with multiple asset IDs, we'll need to create unique
+	// funding script keys for each asset ID. Otherwise, the proofs for the
+	// assets will collide in the universe because of group key, script key
+	// and outpoint all being equal.
+	for _, vPkt := range fundedPkt.VPackets {
+		assetID, err := vPkt.AssetID()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get asset ID: %w",
+				err)
+		}
+
+		// If there's change from the funding output, it'll be in the
+		// split root output. If there's no change, there will be no
+		// split root output, since the virtual transfer is interactive.
+		// So in either case we just need to get the first non-root
+		// output.
+		fundingOut, err := vPkt.FirstNonSplitRootOutput()
+		if err != nil {
+			return nil, fmt.Errorf("unable to get first non split "+
+				"root output: %w", err)
+		}
+
+		fundingScriptKey, err := deriveFundingScriptKey(
+			ctx, f.cfg.AddrBook, &assetID,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to derive script key: "+
+				"%w", err)
+		}
+
+		// We now set the unique script key. This requires us to
+		// re-calculate the split commitments, so we'll do that right
+		// afterward.
+		fundingOut.ScriptKey = fundingScriptKey
+
+		if err := tapsend.PrepareOutputAssets(ctx, vPkt); err != nil {
+			return nil, fmt.Errorf("unable to prepare output "+
+				"assets after funding key update: %w", err)
+		}
+	}
+
+	return fundedPkt, nil
 }
 
 // sendInputOwnershipProofs sends the input ownership proofs to the remote
@@ -1014,8 +1059,7 @@ func (f *FundingController) signAllVPackets(ctx context.Context,
 // complete, but unsigned PSBT packet that can be used to create out asset
 // channel.
 func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
-	allPackets []*tappsbt.VPacket,
-	fundingScriptKey asset.ScriptKey) ([]*proof.Proof, error) {
+	allPackets []*tappsbt.VPacket) ([]*proof.Proof, error) {
 
 	log.Infof("Anchoring funding vPackets to funding PSBT")
 
@@ -1062,10 +1106,13 @@ func (f *FundingController) anchorVPackets(fundedPkt *tapsend.FundedPsbt,
 
 			vPkt.Outputs[vOutIdx].ProofSuffix = proofSuffix
 
-			if proofSuffix.Asset.ScriptKey.PubKey.IsEqual(
-				fundingScriptKey.PubKey,
-			) {
-
+			// Any output that isn't a split root output is a
+			// channel funding output, so we'll store the proofs
+			// for those outputs. If there is change, that will be
+			// the split root output. And if there is no change,
+			// there is no split root output, as it's an interactive
+			// transfer.
+			if vPkt.Outputs[vOutIdx].Type == tappsbt.TypeSimple {
 				fundingProofs = append(
 					fundingProofs, proofSuffix,
 				)
@@ -1252,10 +1299,8 @@ func (f *FundingController) completeChannelFunding(ctx context.Context,
 	// With all the vPackets signed, we'll now anchor them to the funding
 	// PSBT. This'll update all the pkScripts for our funding output and
 	// change.
-	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
-	fundingScriptKey := asset.NewScriptKey(fundingScriptTree.TaprootKey)
 	fundingOutputProofs, err := f.anchorVPackets(
-		finalFundedPsbt, signedPkts, fundingScriptKey,
+		finalFundedPsbt, signedPkts,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to anchor vPackets: %w", err)
