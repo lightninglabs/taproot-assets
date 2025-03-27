@@ -3561,6 +3561,16 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
+		var proofAsset asset.Asset
+		err = proof.SparseDecode(
+			bytes.NewReader(out.ProofSuffix),
+			proof.AssetLeafRecord(&proofAsset),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sparse decode "+
+				"proof: %w", err)
+		}
+
 		// Marshall the proof delivery status.
 		proofDeliveryStatus := marshalOutputProofDeliveryStatus(out)
 
@@ -3576,6 +3586,7 @@ func marshalOutboundParcel(
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
 			ProofDeliveryStatus: proofDeliveryStatus,
+			AssetId:             fn.ByteSlice(proofAsset.ID()),
 		}
 	}
 
