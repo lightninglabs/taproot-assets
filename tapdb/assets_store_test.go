@@ -1545,9 +1545,6 @@ func TestAssetExportLog(t *testing.T) {
 	newRootHash := sha256.Sum256([]byte("kek"))
 	newRootValue := uint64(100)
 
-	senderBlob := bytes.Repeat([]byte{0x01}, 100)
-	receiverBlob := bytes.Repeat([]byte{0x02}, 100)
-
 	newWitness := asset.Witness{
 		PrevID:          &asset.PrevID{},
 		TxWitness:       [][]byte{{0x01}, {0x02}},
@@ -1563,9 +1560,20 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, allAssets, numAssets)
 
+	inputAsset := allAssets[0]
+	senderAsset := inputAsset.Copy()
+	senderAsset.ScriptKey = newScriptKey
+	senderProof := randProof(t, senderAsset)
+	receiverAsset := inputAsset.Copy()
+	receiverAsset.ScriptKey = newScriptKey2
+	receiverProof := randProof(t, receiverAsset)
+
+	var senderBlob, receiverBlob bytes.Buffer
+	require.NoError(t, senderProof.Encode(&senderBlob))
+	require.NoError(t, receiverProof.Encode(&receiverBlob))
+
 	// With the assets inserted, we'll now construct the struct that will be
 	// used to commit a new spend on disk.
-	inputAsset := allAssets[0]
 	anchorTxHash := newAnchorTx.TxHash()
 	spendDelta := &tapfreighter.OutboundParcel{
 		AnchorTx:           newAnchorTx,
@@ -1620,7 +1628,7 @@ func TestAssetExportLog(t *testing.T) {
 			),
 			// The receiver wants a V0 asset version.
 			AssetVersion: asset.V0,
-			ProofSuffix:  receiverBlob,
+			ProofSuffix:  receiverBlob.Bytes(),
 			Position:     0,
 		}, {
 			Anchor: tapfreighter.Anchor{
@@ -1655,7 +1663,7 @@ func TestAssetExportLog(t *testing.T) {
 			// As the sender, we'll send our change back to a V1
 			// asset version.
 			AssetVersion: asset.V1,
-			ProofSuffix:  senderBlob,
+			ProofSuffix:  senderBlob.Bytes(),
 			Position:     1,
 		}},
 	}
@@ -1664,20 +1672,26 @@ func TestAssetExportLog(t *testing.T) {
 	))
 
 	assetID := inputAsset.ID()
-	proofs := map[asset.SerializedKey]*proof.AnnotatedProof{
-		asset.ToSerialized(newScriptKey.PubKey): {
+	receiverIdentifier := tapfreighter.NewOutputIdentifier(
+		assetID, 0, *newScriptKey.PubKey,
+	)
+	senderIdentifier := tapfreighter.NewOutputIdentifier(
+		assetID, 0, *newScriptKey2.PubKey,
+	)
+	proofs := map[tapfreighter.OutputIdentifier]*proof.AnnotatedProof{
+		receiverIdentifier: {
 			Locator: proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: *newScriptKey.PubKey,
 			},
-			Blob: receiverBlob,
+			Blob: receiverBlob.Bytes(),
 		},
-		asset.ToSerialized(newScriptKey2.PubKey): {
+		senderIdentifier: {
 			Locator: proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: *newScriptKey2.PubKey,
 			},
-			Blob: senderBlob,
+			Blob: senderBlob.Bytes(),
 		},
 	}
 
@@ -1851,7 +1865,7 @@ func TestAssetExportLog(t *testing.T) {
 		TweakedScriptKey: newScriptKey.PubKey.SerializeCompressed(),
 	})
 	require.NoError(t, err)
-	require.Equal(t, receiverBlob, diskSenderBlob[0].ProofFile)
+	require.Equal(t, receiverBlob.Bytes(), diskSenderBlob[0].ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

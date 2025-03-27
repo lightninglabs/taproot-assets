@@ -465,8 +465,8 @@ type sendPackage struct {
 
 	// FinalProofs is the set of final full proof chain files that are going
 	// to be stored on disk, one for each output in the outbound parcel,
-	// keyed by their script key.
-	FinalProofs map[asset.SerializedKey]*proof.AnnotatedProof
+	// keyed by their unique output key (hash of asset ID and script key).
+	FinalProofs map[OutputIdentifier]*proof.AnnotatedProof
 
 	// TransferTxConfEvent contains transfer transaction on-chain
 	// confirmation data.
