@@ -451,6 +451,60 @@ func ParseCustomChannelData(msg proto.Message) error {
 			rpcChannel.CustomChannelData = customData
 		}
 
+		for idx := range m.PendingForceClosingChannels {
+			pendingForceClose := m.PendingForceClosingChannels[idx]
+			rpcChannel := pendingForceClose.Channel
+
+			if rpcChannel == nil {
+				continue
+			}
+
+			customData, err := jsonFormatChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return err
+			}
+
+			rpcChannel.CustomChannelData = customData
+		}
+
+		for idx := range m.WaitingCloseChannels {
+			waitingClose := m.WaitingCloseChannels[idx]
+			rpcChannel := waitingClose.Channel
+
+			if rpcChannel == nil {
+				continue
+			}
+
+			customData, err := jsonFormatChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return err
+			}
+
+			rpcChannel.CustomChannelData = customData
+		}
+
+	case *lnrpc.ClosedChannelsResponse:
+		for idx := range m.Channels {
+			rpcChannel := m.Channels[idx]
+
+			if rpcChannel == nil {
+				continue
+			}
+
+			customData, err := jsonFormatChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return err
+			}
+
+			rpcChannel.CustomChannelData = customData
+		}
+
 	case *lnrpc.CloseStatusUpdate:
 		closeUpd, ok := m.Update.(*lnrpc.CloseStatusUpdate_ChanClose)
 		if !ok {
