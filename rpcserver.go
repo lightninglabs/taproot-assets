@@ -7073,7 +7073,7 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 
 	assetID, groupKey, err := parseAssetSpecifier(
-		req.GetAssetId(), "", nil, "",
+		req.GetAssetId(), "", req.GetGroupKey(), "",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing asset specifier: %w", err)
