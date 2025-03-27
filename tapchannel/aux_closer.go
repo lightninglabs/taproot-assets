@@ -484,8 +484,9 @@ func (a *AuxChanCloser) ShutdownBlob(
 	none := lfn.None[lnwire.CustomRecords]()
 
 	// If there's no custom blob, then we don't need to do anything.
-	if req.CommitBlob.IsNone() {
-		log.Debugf("No commit blob for ChannelPoint(%v)", req.ChanPoint)
+	if req.FundingBlob.IsNone() {
+		log.Debugf("No funding blob for ChannelPoint(%v)",
+			req.ChanPoint)
 		return none, nil
 	}
 
@@ -500,16 +501,16 @@ func (a *AuxChanCloser) ShutdownBlob(
 	log.Infof("Creating shutdown blob for close of ChannelPoint(%v)",
 		req.ChanPoint)
 
-	// Otherwise, we'll decode the commitment, so we can examine the current
-	// state.
-	var commitState tapchannelmsg.Commitment
-	err = lfn.MapOptionZ(req.CommitBlob, func(blob tlv.Blob) error {
-		c, err := tapchannelmsg.DecodeCommitment(blob)
+	// Otherwise, we'll decode the funding state, so we can examine the
+	// different asset IDs in the channel.
+	var fundingState tapchannelmsg.OpenChannel
+	err = lfn.MapOptionZ(req.FundingBlob, func(blob tlv.Blob) error {
+		c, err := tapchannelmsg.DecodeOpenChannel(blob)
 		if err != nil {
 			return err
 		}
 
-		commitState = *c
+		fundingState = *c
 
 		return nil
 	})
@@ -528,16 +529,20 @@ func (a *AuxChanCloser) ShutdownBlob(
 		return none, err
 	}
 
-	// Next, we'll collect all the assets that we own in this channel.
-	assets := commitState.LocalAssets.Val.Outputs
+	// Next, we'll collect all the asset IDs that were committed to the
+	// channel.
+	assetIDs := fn.Map(
+		fundingState.FundedAssets.Val.Outputs,
+		func(o *tapchannelmsg.AssetOutput) asset.ID {
+			return o.AssetID.Val
+		},
+	)
 
 	// Now that we have all the asset IDs, we'll query for a new key for
 	// each of them which we'll use as both the internal key and the script
 	// key.
 	scriptKeys := make(tapchannelmsg.ScriptKeyMap)
-	for idx := range assets {
-		channelAsset := assets[idx]
-
+	for _, assetID := range assetIDs {
 		newKey, err := a.cfg.AddrBook.NextScriptKey(
 			ctx, asset.TaprootAssetsKeyFamily,
 		)
@@ -545,21 +550,13 @@ func (a *AuxChanCloser) ShutdownBlob(
 			return none, err
 		}
 
-		// We now add the a
-		// TODO(guggero): This only works if there's only a single asset
-		// in the channel. We need to extend this to support multiple
-		// assets.
-		_, err = a.cfg.AddrBook.NewAddressWithKeys(
-			ctx, address.V1, channelAsset.AssetID.Val,
-			channelAsset.Amount.Val, newKey, newInternalKey, nil,
-			*a.cfg.DefaultCourierAddr,
-		)
+		err = a.cfg.AddrBook.InsertScriptKey(ctx, newKey, true)
 		if err != nil {
-			return none, fmt.Errorf("error adding new address: %w",
-				err)
+			return none, fmt.Errorf("error declaring script key: "+
+				"%w", err)
 		}
 
-		scriptKeys[channelAsset.AssetID.Val] = *newKey.PubKey
+		scriptKeys[assetID] = *newKey.PubKey
 	}
 
 	// Finally, we'll map the extra shutdown info to a TLV record map we
