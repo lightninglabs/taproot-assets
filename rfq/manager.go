@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -1066,9 +1067,11 @@ type ChannelWithSpecifier struct {
 // each asset channel that matches the provided asset specifier.
 func (m *Manager) ComputeChannelAssetBalance(ctx context.Context,
 	activeChannels []lndclient.ChannelInfo,
-	specifier asset.Specifier) ([]ChannelWithSpecifier, error) {
+	specifier asset.Specifier) (map[route.Vertex][]ChannelWithSpecifier,
+	error) {
 
-	channels := make([]ChannelWithSpecifier, 0)
+	peerChanMap := make(map[route.Vertex][]ChannelWithSpecifier)
+
 	for chanIdx := range activeChannels {
 		openChan := activeChannels[chanIdx]
 		if len(openChan.CustomChannelData) == 0 {
@@ -1104,25 +1107,39 @@ func (m *Manager) ComputeChannelAssetBalance(ctx context.Context,
 				aggrInfo.RemoteBalance += info.RemoteBalance
 			}
 
-			channels = append(channels, ChannelWithSpecifier{
+			_, ok := peerChanMap[openChan.PubKeyBytes]
+			if !ok {
+				peerChanMap[openChan.PubKeyBytes] =
+					make([]ChannelWithSpecifier, 0)
+			}
+
+			chanMap := peerChanMap[openChan.PubKeyBytes]
+
+			chanMap = append(chanMap, ChannelWithSpecifier{
 				Specifier:   specifier,
 				ChannelInfo: openChan,
 				AssetInfo:   aggrInfo,
 			})
+
+			peerChanMap[openChan.PubKeyBytes] = chanMap
 		}
 	}
 
-	return channels, nil
+	return peerChanMap, nil
 }
+
+// ChanLister is a helper that is able to list the channels of the node.
+type ChanLister func(ctx context.Context, activeOnly,
+	publicOnly bool) ([]lndclient.ChannelInfo, error)
 
 // chanIntention defines the intention of calling rfqChannel. This helps with
 // returning the channel that is most suitable for what we want to do.
-type chanIntention uint8
+type ChanIntention uint8
 
 const (
 	// NoIntention defines the absence of any intention, signalling that we
 	// don't really care which channel is returned.
-	NoIntention chanIntention = iota
+	NoIntention ChanIntention = iota
 
 	// SendIntention defines the intention to send over an asset channel.
 	SendIntention
@@ -1132,25 +1149,20 @@ const (
 	ReceiveIntention
 )
 
-// ChanLister is a helper that is able to list the channels of the node.
-type ChanLister func(ctx context.Context, activeOnly,
-	publicOnly bool) ([]lndclient.ChannelInfo, error)
-
-// RfqChannel returns the channel to use for RFQ operations. If a peer public
-// key is specified, the channels are filtered by that peer. If there are
-// multiple channels for the same specifier, the user must specify the peer
-// public key.
+// RfqChannel returns the channel to use for RFQ operations. It returns a map of
+// peers and their eligible channels. If a peerPubKey is specified then the map
+// will only contain one entry for that peer.
 func (m *Manager) RfqChannel(ctx context.Context,
-	chanLister ChanLister,
-	specifier asset.Specifier, peerPubKey *route.Vertex,
-	intention chanIntention) (*ChannelWithSpecifier, error) {
+	chanLister ChanLister, specifier asset.Specifier,
+	peerPubKey *route.Vertex, intention ChanIntention) (map[route.Vertex][]ChannelWithSpecifier,
+	error) {
 
 	activeChannels, err := chanLister(ctx, true, false)
 	if err != nil {
 		return nil, err
 	}
 
-	balances, err := m.ComputeChannelAssetBalance(
+	balancesMap, err := m.ComputeChannelAssetBalance(
 		ctx, activeChannels, specifier,
 	)
 	if err != nil {
@@ -1158,71 +1170,46 @@ func (m *Manager) RfqChannel(ctx context.Context,
 			"channel balance: %w", err)
 	}
 
-	if len(balances) == 0 {
+	if len(balancesMap) == 0 {
 		return nil, fmt.Errorf("no asset channel balance found for %s",
 			&specifier)
+	}
+
+	switch intention {
+	case SendIntention:
+		// When sending we care about the volume of our local balances,
+		// so we sort by local balances in descending order.
+		for _, v := range balancesMap {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].AssetInfo.LocalBalance >
+					v[j].AssetInfo.LocalBalance
+			})
+		}
+	case ReceiveIntention:
+		// When sending we care about the volume of the remote balances,
+		// so we sort by remote balances in descending order.
+		for _, v := range balancesMap {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].AssetInfo.RemoteBalance >
+					v[j].AssetInfo.RemoteBalance
+			})
+		}
+	case NoIntention:
+		// We don't care about sending or receiving, this means that
+		// the method was called as a dry check. Do nothing.
 	}
 
 	// If a peer public key was specified, we always want to use that to
 	// filter the asset channels.
 	if peerPubKey != nil {
-		balances = fn.Filter(
-			balances, func(c ChannelWithSpecifier) bool {
-				return c.ChannelInfo.PubKeyBytes == *peerPubKey
-			},
-		)
+		_, ok := balancesMap[*peerPubKey]
+		if !ok {
+			return nil, fmt.Errorf("no asset channels found for "+
+				"%s and peer=%s", &specifier, peerPubKey)
+		}
 	}
 
-	switch {
-	// If there are multiple asset channels for the same specifier, we need
-	// to ask the user to specify the peer public key. Otherwise, we don't
-	// know who to ask for a quote.
-	case len(balances) > 1 && peerPubKey == nil:
-		return nil, fmt.Errorf("multiple asset channels found for "+
-			"%s, please specify the peer pubkey", &specifier)
-
-	// We don't have any channels with that asset ID and peer.
-	case len(balances) == 0:
-		return nil, fmt.Errorf("no asset channel found for %s",
-			&specifier)
-	}
-
-	// If the user specified a peer public key, and we still have multiple
-	// channels, it means we have multiple channels with the same asset and
-	// the same peer, as we ruled out the rest of the cases above.
-
-	// Initialize best balance to first channel of the list.
-	bestBalance := balances[0]
-
-	switch intention {
-	case ReceiveIntention:
-		// If the intention is to receive, return the channel
-		// with the best remote balance.
-		fn.ForEach(balances, func(b ChannelWithSpecifier) {
-			if b.AssetInfo.RemoteBalance >
-				bestBalance.AssetInfo.RemoteBalance {
-
-				bestBalance = b
-			}
-		})
-
-	case SendIntention:
-		// If the intention is to send, return the channel with
-		// the best local balance.
-		fn.ForEach(balances, func(b ChannelWithSpecifier) {
-			if b.AssetInfo.LocalBalance >
-				bestBalance.AssetInfo.LocalBalance {
-
-				bestBalance = b
-			}
-		})
-
-	case NoIntention:
-		// Do nothing. Just return the first element that was
-		// assigned above.
-	}
-
-	return &bestBalance, nil
+	return balancesMap, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
