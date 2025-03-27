@@ -161,16 +161,23 @@ func createCloseAlloc(isLocal bool, outputSum uint64,
 func signCommitVirtualPackets(ctx context.Context,
 	vPackets []*tappsbt.VPacket) error {
 
-	// Now that we've added all the relevant vPackets, we'll prepare the
-	// funding witness which includes the OP_TRUE ctrl block.
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return fmt.Errorf("unable to make funding witness: %w", err)
-	}
-
-	// With all the vPackets created, we'll create output commitments from
-	// them, as we'll need them to ship the transaction off to the porter.
+	useUniqueScriptKey := len(vPackets) > 1
 	for idx := range vPackets {
+		assetID, err := vPackets[idx].AssetID()
+		if err != nil {
+			return fmt.Errorf("unable to get asset ID: %w", err)
+		}
+
+		// First, we'll prepare the funding witness which includes the
+		// OP_TRUE ctrl block.
+		fundingWitness, err := tapscript.ChannelFundingSpendWitness(
+			useUniqueScriptKey, assetID,
+		)
+		if err != nil {
+			return fmt.Errorf("unable to make funding witness: %w",
+				err)
+		}
+
 		err = tapsend.PrepareOutputAssets(ctx, vPackets[idx])
 		if err != nil {
 			return fmt.Errorf("unable to prepare output "+
@@ -201,26 +208,6 @@ func signCommitVirtualPackets(ctx context.Context,
 	}
 
 	return nil
-}
-
-// fundingSpendWitness creates a complete witness to spend the OP_TRUE funding
-// script of an asset funding output.
-func fundingSpendWitness() lfn.Result[wire.TxWitness] {
-	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
-
-	tapscriptTree := fundingScriptTree.TapscriptTree
-	ctrlBlock := tapscriptTree.LeafMerkleProofs[0].ToControlBlock(
-		&input.TaprootNUMSKey,
-	)
-	ctrlBlockBytes, err := ctrlBlock.ToBytes()
-	if err != nil {
-		return lfn.Errf[wire.TxWitness]("unable to serialize control "+
-			"block: %w", err)
-	}
-
-	return lfn.Ok(wire.TxWitness{
-		tapscript.AnyoneCanSpendScript(), ctrlBlockBytes,
-	})
 }
 
 // AuxCloseOutputs returns the set of close outputs to use for this co-op close

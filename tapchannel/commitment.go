@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -1450,6 +1451,55 @@ func FakeCommitTx(fundingOutpoint wire.OutPoint,
 	}
 
 	return fakeCommitTx, nil
+}
+
+// deriveFundingScriptKey derives the funding script key that'll be used to
+// fund the channel. If an asset ID is provided, then a unique funding script
+// key will be derived for that asset ID.
+func deriveFundingScriptKey(ctx context.Context, addrBook address.Storage,
+	assetID *asset.ID) (asset.ScriptKey, error) {
+
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
+
+	// If we're using more than one asset ID in a channel, then this will be
+	// called with the actual asset ID set. So we need to use a different
+	// function to generate the funding script key.
+	if assetID != nil {
+		scriptKey, err := tapscript.NewChannelFundingScriptTreeUniqueID(
+			*assetID,
+		)
+		if err != nil {
+			return asset.ScriptKey{}, fmt.Errorf("error deriving "+
+				"funding script key for asset ID %s: %w",
+				assetID.String(), err)
+		}
+
+		fundingScriptTree = scriptKey
+	}
+
+	fundingTaprootKey, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
+	)
+	fundingScriptKey := asset.ScriptKey{
+		PubKey: fundingTaprootKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingScriptTree.InternalKey,
+			},
+			Tweak: fundingScriptTree.TapscriptRoot,
+		},
+	}
+
+	// We'll also need to import the funding script key into the wallet so
+	// the asset will be materialized in the asset table and show up in the
+	// balance correctly.
+	err := addrBook.InsertScriptKey(ctx, fundingScriptKey, true)
+	if err != nil {
+		return asset.ScriptKey{}, fmt.Errorf("unable to insert script "+
+			"key: %w", err)
+	}
+
+	return fundingScriptKey, nil
 }
 
 // InPlaceCustomCommitSort performs an in-place sort of a transaction, given a
