@@ -84,7 +84,7 @@
     },
     "/v1/taproot-assets/channels/invoice": {
       "post": {
-        "summary": "AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset\nspecific parameters. It allows RPC users to create invoices that correspond\nto the specified asset amount.",
+        "summary": "AddInvoice is a wrapper around lnd's lnrpc.AddInvoice method with asset\nspecific parameters. It allows RPC users to create invoices that correspond\nto the specified asset amount. If a peer pubkey is specified, then only that\npeer will be used for RFQ negotiations. If none is specified then RFQ quotes\nfor all peers with suitable asset channels will be created.",
         "operationId": "TaprootAssetChannels_AddInvoice",
         "responses": {
           "200": {

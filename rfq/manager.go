@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"sync"
 	"time"
 
@@ -16,10 +17,13 @@ import (
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -1044,6 +1048,226 @@ func (m *Manager) ChannelCompatible(ctx context.Context,
 	}
 
 	return true, nil
+}
+
+// ChannelWithSpecifier is a helper struct that combines the information of an
+// asset specifier that is satisfied by a channel with the channels' general
+// information.
+type ChannelWithSpecifier struct {
+	// Specifier is the asset Specifier that is satisfied by this channels'
+	// assets.
+	Specifier asset.Specifier
+
+	// ChannelInfo is the information about the channel the asset is
+	// committed to.
+	ChannelInfo lndclient.ChannelInfo
+
+	// AssetInfo contains the asset related info of the channel.
+	AssetInfo rfqmsg.JsonAssetChanInfo
+}
+
+// ComputeChannelAssetBalance computes the total local and remote balance for
+// each asset channel that matches the provided asset specifier.
+func (m *Manager) ComputeChannelAssetBalance(ctx context.Context,
+	activeChannels []lndclient.ChannelInfo,
+	specifier asset.Specifier) (map[route.Vertex][]ChannelWithSpecifier,
+	error) {
+
+	peerChanMap := make(map[route.Vertex][]ChannelWithSpecifier)
+
+	for chanIdx := range activeChannels {
+		openChan := activeChannels[chanIdx]
+		if len(openChan.CustomChannelData) == 0 {
+			continue
+		}
+
+		var assetData rfqmsg.JsonAssetChannel
+		err := json.Unmarshal(openChan.CustomChannelData, &assetData)
+		if err != nil {
+			return nil, fmt.Errorf("unable to unmarshal asset "+
+				"data: %w", err)
+		}
+
+		// Check if the assets of this channel match the provided
+		// specifier.
+		pass, err := m.ChannelCompatible(
+			ctx, assetData.Assets, specifier,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if pass {
+			// Since the assets of the channel passed the above
+			// filter, we're safe to aggregate their info to be
+			// represented as a single entity.
+			var aggrInfo rfqmsg.JsonAssetChanInfo
+
+			// TODO(george): refactor when JSON gets fixed
+			for _, info := range assetData.Assets {
+				aggrInfo.Capacity += info.Capacity
+				aggrInfo.LocalBalance += info.LocalBalance
+				aggrInfo.RemoteBalance += info.RemoteBalance
+			}
+
+			_, ok := peerChanMap[openChan.PubKeyBytes]
+			if !ok {
+				peerChanMap[openChan.PubKeyBytes] =
+					make([]ChannelWithSpecifier, 0)
+			}
+
+			chanMap := peerChanMap[openChan.PubKeyBytes]
+
+			chanMap = append(chanMap, ChannelWithSpecifier{
+				Specifier:   specifier,
+				ChannelInfo: openChan,
+				AssetInfo:   aggrInfo,
+			})
+
+			peerChanMap[openChan.PubKeyBytes] = chanMap
+		}
+	}
+
+	return peerChanMap, nil
+}
+
+// ChanLister is a helper that is able to list the channels of the node.
+type ChanLister func(ctx context.Context, activeOnly,
+	publicOnly bool) ([]lndclient.ChannelInfo, error)
+
+// chanIntention defines the intention of calling rfqChannel. This helps with
+// returning the channel that is most suitable for what we want to do.
+type ChanIntention uint8
+
+const (
+	// NoIntention defines the absence of any intention, signalling that we
+	// don't really care which channel is returned.
+	NoIntention ChanIntention = iota
+
+	// SendIntention defines the intention to send over an asset channel.
+	SendIntention
+
+	// ReceiveIntention defines the intention to receive over an asset
+	// channel.
+	ReceiveIntention
+)
+
+// RfqChannel returns the channel to use for RFQ operations. It returns a map of
+// peers and their eligible channels. If a peerPubKey is specified then the map
+// will only contain one entry for that peer.
+func (m *Manager) RfqChannel(ctx context.Context,
+	chanLister ChanLister, specifier asset.Specifier,
+	peerPubKey *route.Vertex, intention ChanIntention) (map[route.Vertex][]ChannelWithSpecifier,
+	error) {
+
+	activeChannels, err := chanLister(ctx, true, false)
+	if err != nil {
+		return nil, err
+	}
+
+	balancesMap, err := m.ComputeChannelAssetBalance(
+		ctx, activeChannels, specifier,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error computing available asset "+
+			"channel balance: %w", err)
+	}
+
+	if len(balancesMap) == 0 {
+		return nil, fmt.Errorf("no asset channel balance found for %s",
+			&specifier)
+	}
+
+	switch intention {
+	case SendIntention:
+		// When sending we care about the volume of our local balances,
+		// so we sort by local balances in descending order.
+		for _, v := range balancesMap {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].AssetInfo.LocalBalance >
+					v[j].AssetInfo.LocalBalance
+			})
+		}
+	case ReceiveIntention:
+		// When sending we care about the volume of the remote balances,
+		// so we sort by remote balances in descending order.
+		for _, v := range balancesMap {
+			sort.Slice(v, func(i, j int) bool {
+				return v[i].AssetInfo.RemoteBalance >
+					v[j].AssetInfo.RemoteBalance
+			})
+		}
+	case NoIntention:
+		// We don't care about sending or receiving, this means that
+		// the method was called as a dry check. Do nothing.
+	}
+
+	// If a peer public key was specified, we always want to use that to
+	// filter the asset channels.
+	if peerPubKey != nil {
+		_, ok := balancesMap[*peerPubKey]
+		if !ok {
+			return nil, fmt.Errorf("no asset channels found for "+
+				"%s and peer=%s", &specifier, peerPubKey)
+		}
+	}
+
+	return balancesMap, nil
+}
+
+// InboundPolicyFetcher is a helper that fetches the inbound policy of a channel
+// based on its chanID.
+type InboundPolicyFetcher func(ctx context.Context, chanID uint64,
+	remotePubStr string) (*lnrpc.RoutingPolicy, error)
+
+// RfqToHopHint creates the hop hint representation which encapsulates certain
+// quote information along with some other data required by the payment to
+// succeed.
+func (m *Manager) RfqToHopHint(ctx context.Context,
+	policyFetcher InboundPolicyFetcher, channelID uint64,
+	peerPubKey route.Vertex, quote *rfqrpc.PeerAcceptedBuyQuote,
+	hold bool) (*lnrpc.HopHint, []zpay32.HopHint, error) {
+
+	inboundPolicy, err := policyFetcher(ctx, channelID, peerPubKey.String())
+	if err != nil {
+		return nil, nil, fmt.Errorf("unable to get inbound channel "+
+			"policy for channel with ID %d: %w", channelID, err)
+	}
+
+	if hold {
+		peerPub, err := btcec.ParsePubKey(peerPubKey[:])
+		if err != nil {
+			return nil, nil, fmt.Errorf("error parsing peer "+
+				"pubkey: %w", err)
+		}
+		hopHint := []zpay32.HopHint{
+			{
+				NodeID:      peerPub,
+				ChannelID:   quote.Scid,
+				FeeBaseMSat: uint32(inboundPolicy.FeeBaseMsat),
+				FeeProportionalMillionths: uint32(
+					inboundPolicy.FeeRateMilliMsat,
+				),
+				CLTVExpiryDelta: uint16(
+					inboundPolicy.TimeLockDelta,
+				),
+			},
+		}
+
+		return nil, hopHint, nil
+	}
+
+	hopHint := &lnrpc.HopHint{
+		NodeId:      peerPubKey.String(),
+		ChanId:      quote.Scid,
+		FeeBaseMsat: uint32(inboundPolicy.FeeBaseMsat),
+		FeeProportionalMillionths: uint32(
+			inboundPolicy.FeeRateMilliMsat,
+		),
+		CltvExpiryDelta: inboundPolicy.TimeLockDelta,
+	}
+
+	return hopHint, nil, nil
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
