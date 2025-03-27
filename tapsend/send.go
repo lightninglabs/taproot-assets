@@ -208,6 +208,12 @@ type FundingDescriptor struct {
 
 	// CoinSelectType specifies the type of coins that should be selected.
 	CoinSelectType CoinSelectType
+
+	// DistinctSpecifier indicates whether we _only_ look at either the
+	// group key _or_ the asset ID but not both. That means, if the group
+	// key is set, we ignore the asset ID and allow multiple inputs of the
+	// same group to be selected.
+	DistinctSpecifier bool
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset

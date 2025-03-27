@@ -533,15 +533,15 @@ func newAssetGenerator(t *testing.T,
 }
 
 func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
-	assetDescs []assetDesc) {
+	assetDescs []assetDesc) []*asset.Asset {
 
 	ctx := context.Background()
 
 	anchorPointsToAssetCommitments := make(
 		map[wire.OutPoint][]*commitment.AssetCommitment,
 	)
-	newAssets := []*asset.Asset{}
-	for _, desc := range assetDescs {
+	newAssets := make([]*asset.Asset, len(assetDescs))
+	for idx, desc := range assetDescs {
 		desc := desc
 
 		opts := []assetGenOpt{
@@ -578,11 +578,12 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 				desc.assetVersion,
 			))
 		}
-		newAsset := randAsset(t, opts...)
-		newAssets = append(newAssets, newAsset)
+		newAssets[idx] = randAsset(t, opts...)
 
 		// Group assets by anchor point before building tap commitments.
-		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
+		assetCommitment, err := commitment.NewAssetCommitment(
+			newAssets[idx],
+		)
 		require.NoError(t, err)
 
 		_, ok := anchorPointsToAssetCommitments[desc.anchorPoint]
@@ -676,6 +677,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			require.NoError(t, err)
 		}
 	}
+
+	return newAssets
 }
 
 func (a *assetGenerator) assetSpecifierAssetID(i int,
@@ -705,13 +708,45 @@ func (a *assetGenerator) assetSpecifierGroupKey(i int,
 	return asset.NewSpecifierFromGroupKey(*groupPubKey)
 }
 
+type filterOpt func(f *AssetQueryFilters)
+
+func filterSpecifier(s asset.Specifier) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.AssetSpecifier = s
+	}
+}
+
+func filterMinAmt(amt uint64) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.MinAmt = amt
+	}
+}
+
+func filterCoinSelectType(typ tapsend.CoinSelectType) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.CoinSelectType = typ
+	}
+}
+
+func filterDistinctSpecifier() filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.DistinctSpecifier = true
+	}
+}
+
+func filterAnchorHeight(height int32) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.MinAnchorHeight = height
+	}
+}
+
 // TestFetchAllAssets tests that the different AssetQueryFilters work as
 // expected.
 func TestFetchAllAssets(t *testing.T) {
 	t.Parallel()
 
 	const (
-		numAssetIDs  = 10
+		numAssetIDs  = 12
 		numGroupKeys = 2
 	)
 
@@ -777,19 +812,34 @@ func TestFetchAllAssets(t *testing.T) {
 		anchorPoint: assetGen.anchorPoints[4],
 		amt:         777,
 		scriptKey:   scriptKeyWithScript,
+	}, {
+		assetGen:    assetGen.assetGens[10],
+		anchorPoint: assetGen.anchorPoints[10],
+		amt:         10,
+		keyGroup:    assetGen.groupKeys[0],
+	}, {
+		assetGen:            assetGen.assetGens[11],
+		anchorPoint:         assetGen.anchorPoints[11],
+		amt:                 8,
+		groupAnchorGen:      &assetGen.assetGens[10],
+		groupAnchorGenPoint: &assetGen.anchorPoints[10],
+		keyGroup:            assetGen.groupKeys[0],
 	}}
-	makeFilter := func(amt uint64, anchorHeight int32,
-		coinSelectType tapsend.CoinSelectType) *AssetQueryFilters {
+	makeFilter := func(opts ...filterOpt) *AssetQueryFilters {
+		var filter AssetQueryFilters
+		for _, opt := range opts {
+			opt(&filter)
+		}
 
-		constraints := tapfreighter.CommitmentConstraints{
-			MinAmt:         amt,
-			CoinSelectType: coinSelectType,
-		}
-		return &AssetQueryFilters{
-			CommitmentConstraints: constraints,
-			MinAnchorHeight:       anchorHeight,
-		}
+		return &filter
 	}
+
+	// First, we'll create a new assets store and then insert the set of
+	// assets described by the asset descriptions.
+	_, assetsStore, _ := newAssetStore(t)
+	genAssets := assetGen.genAssets(t, assetsStore, availableAssets)
+	numGenAssets := len(genAssets)
+	lastAsset := genAssets[numGenAssets-1]
 
 	testCases := []struct {
 		name          string
@@ -800,64 +850,108 @@ func TestFetchAllAssets(t *testing.T) {
 		err           error
 	}{{
 		name:      "no constraints",
-		numAssets: 4,
+		numAssets: 6,
 	}, {
 		name:          "no constraints, include leased",
 		includeLeased: true,
-		numAssets:     7,
+		numAssets:     9,
 	}, {
 		name:         "no constraints, include spent",
 		includeSpent: true,
-		numAssets:    6,
+		numAssets:    8,
 	}, {
 		name:          "no constraints, include leased, include spent",
 		includeLeased: true,
 		includeSpent:  true,
-		numAssets:     10,
+		numAssets:     12,
 	}, {
-		name:      "min amount",
-		filter:    makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		numAssets: 2,
 	}, {
-		name:         "min amount, include spent",
-		filter:       makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include spent",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeSpent: true,
 		numAssets:    4,
 	}, {
-		name:          "min amount, include leased",
-		filter:        makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include leased",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeLeased: true,
 		numAssets:     5,
 	}, {
-		name:          "min amount, include leased, include spent",
-		filter:        makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include leased, include spent",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeLeased: true,
 		includeSpent:  true,
 		numAssets:     8,
 	}, {
-		name:         "default min height, include spent",
-		filter:       makeFilter(0, 500, tapsend.ScriptTreesAllowed),
+		name: "default min height, include spent",
+		filter: makeFilter(
+			filterAnchorHeight(500),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeSpent: true,
-		numAssets:    6,
+		numAssets:    8,
 	}, {
-		name:      "specific height",
-		filter:    makeFilter(0, 502, tapsend.ScriptTreesAllowed),
+		name: "specific height",
+		filter: makeFilter(
+			filterAnchorHeight(512),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		numAssets: 0,
 	}, {
-		name:         "default min height, include spent",
-		filter:       makeFilter(0, 502, tapsend.ScriptTreesAllowed),
+		name: "default min height, include spent",
+		filter: makeFilter(
+			filterAnchorHeight(502),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeSpent: true,
-		numAssets:    1,
+		numAssets:    3,
 	}, {
-		name:      "script key with tapscript",
-		filter:    makeFilter(100, 0, tapsend.Bip86Only),
+		name: "script key with tapscript",
+		filter: makeFilter(
+			filterMinAmt(100),
+			filterCoinSelectType(tapsend.Bip86Only),
+		),
 		numAssets: 0,
+	}, {
+		name: "query by group key only",
+		filter: makeFilter(
+			filterSpecifier(asset.NewSpecifierFromGroupKey(
+				lastAsset.GroupKey.GroupPubKey,
+			)),
+		),
+		numAssets: 2,
+	}, {
+		name: "query by group key and asset ID",
+		filter: makeFilter(
+			filterSpecifier(asset.NewSpecifierOptionalGroupPubKey(
+				lastAsset.ID(), &lastAsset.GroupKey.GroupPubKey,
+			)),
+		),
+		numAssets: 1,
+	}, {
+		name: "query by group key and asset ID but distinct",
+		filter: makeFilter(
+			filterSpecifier(asset.NewSpecifierOptionalGroupPubKey(
+				lastAsset.ID(), &lastAsset.GroupKey.GroupPubKey,
+			)), filterDistinctSpecifier(),
+		),
+		numAssets: 2,
 	}}
 
-	// First, we'll create a new assets store and then insert the set of
-	// assets described by the asset descriptions.
-	_, assetsStore, _ := newAssetStore(t)
-	assetGen.genAssets(t, assetsStore, availableAssets)
 	for _, tc := range testCases {
 		tc := tc
 
