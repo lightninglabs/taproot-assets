@@ -1477,6 +1477,10 @@ func locatorToProofQuery(locator proof.Locator) (FetchAssetProof, error) {
 		args.Outpoint = outpoint
 	}
 
+	if locator.AssetID != nil {
+		args.AssetID = locator.AssetID[:]
+	}
+
 	return args, nil
 }
 

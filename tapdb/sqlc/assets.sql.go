@@ -658,8 +658,11 @@ WITH asset_info AS (
         ON assets.script_key_id = script_keys.script_key_id
     JOIN managed_utxos utxos
         ON assets.anchor_utxo_id = utxos.utxo_id
+    JOIN genesis_assets
+         ON assets.genesis_id = genesis_assets.gen_asset_id
    WHERE script_keys.tweaked_script_key = $1
      AND (utxos.outpoint = $2 OR $2 IS NULL)
+     AND (genesis_assets.asset_id = $3 OR $3 IS NULL)
 )
 SELECT asset_info.tweaked_script_key AS script_key, asset_proofs.proof_file,
        asset_info.asset_id as asset_id, asset_proofs.proof_id as proof_id,
@@ -672,6 +675,7 @@ JOIN asset_info
 type FetchAssetProofParams struct {
 	TweakedScriptKey []byte
 	Outpoint         []byte
+	AssetID          []byte
 }
 
 type FetchAssetProofRow struct {
@@ -683,7 +687,7 @@ type FetchAssetProofRow struct {
 }
 
 func (q *Queries) FetchAssetProof(ctx context.Context, arg FetchAssetProofParams) ([]FetchAssetProofRow, error) {
-	rows, err := q.db.QueryContext(ctx, FetchAssetProof, arg.TweakedScriptKey, arg.Outpoint)
+	rows, err := q.db.QueryContext(ctx, FetchAssetProof, arg.TweakedScriptKey, arg.Outpoint, arg.AssetID)
 	if err != nil {
 		return nil, err
 	}

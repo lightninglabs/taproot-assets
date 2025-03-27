@@ -533,7 +533,7 @@ func newAssetGenerator(t *testing.T,
 }
 
 func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
-	assetDescs []assetDesc) []*asset.Asset {
+	assetDescs []assetDesc) ([]*asset.Asset, []proof.Proof) {
 
 	ctx := context.Background()
 
@@ -611,6 +611,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		anchorPointsToTapCommitments[anchorPoint] = tapCommitment
 	}
 
+	assetProofs := make([]proof.Proof, len(newAssets))
 	for i, newAsset := range newAssets {
 		desc := assetDescs[i]
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
@@ -634,6 +635,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			OutputIndex: 0,
 			InternalKey: test.RandPubKey(t),
 		}
+		assetProofs[i] = assetProof
 
 		proofBlob, err := proof.EncodeAsProofFile(&assetProof)
 		require.NoError(t, err)
@@ -678,7 +680,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		}
 	}
 
-	return newAssets
+	return newAssets, assetProofs
 }
 
 func (a *assetGenerator) assetSpecifierAssetID(i int,
@@ -837,7 +839,7 @@ func TestFetchAllAssets(t *testing.T) {
 	// First, we'll create a new assets store and then insert the set of
 	// assets described by the asset descriptions.
 	_, assetsStore, _ := newAssetStore(t)
-	genAssets := assetGen.genAssets(t, assetsStore, availableAssets)
+	genAssets, _ := assetGen.genAssets(t, assetsStore, availableAssets)
 	numGenAssets := len(genAssets)
 	lastAsset := genAssets[numGenAssets-1]
 
@@ -965,6 +967,121 @@ func TestFetchAllAssets(t *testing.T) {
 			require.ErrorIs(t, tc.err, err)
 
 			require.Len(t, selectedAssets, tc.numAssets)
+		})
+	}
+}
+
+// TestFetchProof tests that proofs can be fetched for different assets.
+func TestFetchProof(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssetIDs  = 10
+		numGroupKeys = 2
+	)
+
+	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
+	scriptKey := asset.RandScriptKey(t)
+	anchorPoint1 := assetGen.anchorPoints[0]
+	anchorPoint2 := assetGen.anchorPoints[1]
+
+	ctx := context.Background()
+	availableAssets := []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: anchorPoint1,
+		amt:         777,
+		scriptKey:   &scriptKey,
+	}, {
+		assetGen:    assetGen.assetGens[8],
+		anchorPoint: anchorPoint2,
+		amt:         10,
+		keyGroup:    assetGen.groupKeys[0],
+		scriptKey:   &scriptKey,
+	}, {
+		assetGen:            assetGen.assetGens[9],
+		anchorPoint:         anchorPoint2,
+		amt:                 8,
+		groupAnchorGen:      &assetGen.assetGens[8],
+		groupAnchorGenPoint: &anchorPoint2,
+		keyGroup:            assetGen.groupKeys[0],
+		scriptKey:           &scriptKey,
+	}}
+
+	// First, we'll create a new assets store and then insert the set of
+	// assets described by the asset descriptions.
+	_, assetsStore, _ := newAssetStore(t)
+	genAssets, genProofs := assetGen.genAssets(
+		t, assetsStore, availableAssets,
+	)
+
+	testCases := []struct {
+		name          string
+		locator       proof.Locator
+		expectProofID int
+		err           error
+	}{{
+		name: "script key only",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+		},
+		err: proof.ErrMultipleProofs,
+	}, {
+		name: "script key and anchor point",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+		},
+		err: proof.ErrMultipleProofs,
+	}, {
+		name: "script key, anchor point and group key",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+			GroupKey:  &genAssets[1].GroupKey.GroupPubKey,
+		},
+		err: proof.ErrMultipleProofs,
+	}, {
+		name: "script key, anchor point and asset ID",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+			AssetID:   fn.Ptr(genAssets[1].ID()),
+		},
+		expectProofID: 1,
+	}, {
+		name: "script key, anchor point, group key and asset ID",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+			GroupKey:  &genAssets[1].GroupKey.GroupPubKey,
+			AssetID:   fn.Ptr(genAssets[2].ID()),
+		},
+		expectProofID: 2,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			blob, err := assetsStore.FetchProof(
+				ctx, tc.locator,
+			)
+			if tc.err != nil {
+				require.ErrorIs(t, tc.err, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			expectedFile, err := proof.NewFile(
+				proof.V0, genProofs[tc.expectProofID],
+			)
+			require.NoError(t, err)
+
+			var expectedBuf bytes.Buffer
+			err = expectedFile.Encode(&expectedBuf)
+			require.NoError(t, err)
+
+			require.Equal(t, expectedBuf.Bytes(), []byte(blob))
 		})
 	}
 }
