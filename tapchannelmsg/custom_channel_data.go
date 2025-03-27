@@ -13,6 +13,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// outputsToJsonTranches converts a list of asset outputs to a list of JSON
+// asset tranches.
+func outputsToJsonTranches(outputs []*AssetOutput) []rfqmsg.JsonAssetTranche {
+	tranches := make([]rfqmsg.JsonAssetTranche, len(outputs))
+	for idx, output := range outputs {
+		tranches[idx] = rfqmsg.JsonAssetTranche{
+			Amount:  output.Amount.Val,
+			AssetID: hex.EncodeToString(output.AssetID.Val[:]),
+		}
+	}
+
+	return tranches
+}
+
 // ReadOpenChannel reads the content of an OpenChannel struct from a reader.
 func ReadOpenChannel(r io.Reader, maxReadSize uint32) (*OpenChannel, error) {
 	openChanData, err := wire.ReadVarBytes(r, 0, maxReadSize, "chan data")
@@ -62,34 +76,53 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	resp := &rfqmsg.JsonAssetChannel{}
+	resp := &rfqmsg.JsonAssetChannel{
+		Capacity:            OutputSum(c.OpenChan.Assets()),
+		LocalBalance:        c.LocalCommit.LocalAssets.Val.Sum(),
+		RemoteBalance:       c.LocalCommit.RemoteAssets.Val.Sum(),
+		OutgoingHtlcBalance: c.LocalCommit.OutgoingHtlcAssets.Val.Sum(),
+		IncomingHtlcBalance: c.LocalCommit.IncomingHtlcAssets.Val.Sum(),
+	}
+
+	// First, we encode the funding state, which lists all assets committed
+	// to the channel at the time of channel opening.
 	for _, output := range c.OpenChan.Assets() {
 		a := output.Proof.Val.Asset
 
 		assetID := a.ID()
-		utxo := rfqmsg.JsonAssetUtxo{
-			Version: int64(a.Version),
-			AssetGenesis: rfqmsg.JsonAssetGenesis{
-				GenesisPoint: a.FirstPrevOut.String(),
-				Name:         a.Tag,
-				MetaHash: hex.EncodeToString(
-					a.MetaHash[:],
+		groupPubKey := a.ScriptKey.PubKey
+		resp.FundingAssets = append(
+			resp.FundingAssets, rfqmsg.JsonAssetUtxo{
+				Version: int64(a.Version),
+				AssetGenesis: rfqmsg.JsonAssetGenesis{
+					GenesisPoint: a.FirstPrevOut.String(),
+					Name:         a.Tag,
+					MetaHash: hex.EncodeToString(
+						a.MetaHash[:],
+					),
+					AssetID: hex.EncodeToString(assetID[:]),
+				},
+				Amount: a.Amount,
+				ScriptKey: hex.EncodeToString(
+					groupPubKey.SerializeCompressed(),
 				),
-				AssetID: hex.EncodeToString(assetID[:]),
+				DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
 			},
-			Amount: a.Amount,
-			ScriptKey: hex.EncodeToString(
-				a.ScriptKey.PubKey.SerializeCompressed(),
-			),
-			DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
-		}
-		resp.Assets = append(resp.Assets, rfqmsg.JsonAssetChanInfo{
-			AssetInfo:     utxo,
-			Capacity:      output.Amount.Val,
-			LocalBalance:  c.LocalCommit.LocalAssets.Val.Sum(),
-			RemoteBalance: c.LocalCommit.RemoteAssets.Val.Sum(),
-		})
+		)
 	}
+
+	resp.LocalAssets = outputsToJsonTranches(
+		c.LocalCommit.LocalAssets.Val.Outputs,
+	)
+	resp.RemoteAssets = outputsToJsonTranches(
+		c.LocalCommit.RemoteAssets.Val.Outputs,
+	)
+	resp.OutgoingHtlcs = outputsToJsonTranches(
+		c.LocalCommit.OutgoingHtlcAssets.Val.Outputs(),
+	)
+	resp.IncomingHtlcs = outputsToJsonTranches(
+		c.LocalCommit.IncomingHtlcAssets.Val.Outputs(),
+	)
 
 	return json.Marshal(resp)
 }
