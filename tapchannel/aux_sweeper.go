@@ -1592,42 +1592,15 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		}
 	}
 
-	// Now that we've added all the relevant vPackets, we'll prepare the
-	// funding witness which includes the OP_TRUE ctrl block.
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return fmt.Errorf("unable to make funding witness: %w", err)
+	// We can now add the witness for the OP_TRUE spend of the commitment
+	// output to the vPackets.
+	vPackets := maps.Values(vPktsByAssetID)
+	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+		return fmt.Errorf("error signing commit virtual "+
+			"packets: %w", err)
 	}
 
-	// With all the vPackets created, we'll create output commitments from
-	// them, as we'll need them to ship the transaction off to the porter.
-	vPkts := maps.Values(vPktsByAssetID)
-	ctx := context.Background()
-	for idx := range vPkts {
-		err := tapsend.PrepareOutputAssets(ctx, vPkts[idx])
-		if err != nil {
-			return fmt.Errorf("unable to prepare output "+
-				"assets: %w", err)
-		}
-
-		// With the packets prepared, we'll swap in the correct witness
-		// for each of them.
-		for outIdx := range vPkts[idx].Outputs {
-			outAsset := vPkts[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, as we're
-			// sweeping a single contract w/ each vPkt.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
-		}
-	}
-	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
+	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
@@ -1641,12 +1614,12 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			"allocations: %w", err)
 	}
 	exclusionCreator := tapsend.NonAssetExclusionProofs(anchorAllocations)
-	for idx := range vPkts {
-		vPkt := vPkts[idx]
+	for idx := range vPackets {
+		vPkt := vPackets[idx]
 		for outIdx := range vPkt.Outputs {
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				req.CommitTx, vPkt, outCommitments, outIdx,
-				vPkts, exclusionCreator,
+				vPackets, exclusionCreator,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create "+
@@ -1663,7 +1636,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// With all the vPKts created, we can now ship the transaction off to
 	// the porter for final delivery.
 	return shipChannelTxn(
-		a.cfg.TxSender, req.CommitTx, outCommitments, vPkts,
+		a.cfg.TxSender, req.CommitTx, outCommitments, vPackets,
 		int64(req.CommitFee),
 	)
 }

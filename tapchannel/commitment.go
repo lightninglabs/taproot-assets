@@ -563,41 +563,12 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			err)
 	}
 
-	// The root asset of the split commitment will still commit to the full
-	// witness value. Therefore, we need to update the root asset witness to
-	// what it would be at broadcast time.
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to make funding "+
-			"witness: %w", err)
-	}
-
-	// Prepare the output assets for each virtual packet, then create the
-	// output commitments.
-	ctx := context.Background()
-	for idx := range vPackets {
-		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to prepare output "+
-				"assets: %w", err)
-		}
-
-		// With the packets prepared, we'll swap in the correct witness
-		// for each of them.
-		for outIdx := range vPackets[idx].Outputs {
-			outAsset := vPackets[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, as we're
-			// sweeping a single contract w/ each vPkt.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return nil, nil, fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
-		}
+	// We can now add the witness for the OP_TRUE spend of the commitment
+	// output to the vPackets.
+	ctxb := context.Background()
+	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+		return nil, nil, fmt.Errorf("error signing commit virtual "+
+			"packets: %w", err)
 	}
 
 	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
