@@ -292,12 +292,6 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	log.Infof("Created %v sweep packets: %v", len(vPackets),
 		limitSpewer.Sdump(vPackets))
 
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return lfn.Errf[returnType]("unable to make funding witness: "+
-			"%w", err)
-	}
-
 	// Next, we'll prepare all the vPackets for the sweep transaction, and
 	// also set the courier address.
 	courierAddr := a.cfg.DefaultCourierAddr
@@ -322,16 +316,6 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		if err != nil {
 			return lfn.Errf[returnType]("unable to prepare output "+
 				"assets: %w", err)
-		}
-
-		// Next before we sign, we'll make sure to update the witness
-		// of the prev asset's root asset. Otherwise, we'll be signing
-		// the wrong input leaf.
-		vIn := vPackets[idx].Inputs[0]
-		if vIn.Asset().HasSplitCommitmentWitness() {
-			//nolint:lll
-			rootAsset := vIn.Asset().PrevWitnesses[0].SplitCommitment.RootAsset
-			rootAsset.PrevWitnesses[0].TxWitness = fundingWitness
 		}
 
 		for outIdx := range vPackets[idx].Outputs {
