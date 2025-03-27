@@ -340,7 +340,7 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 	)
 	dbErr := b.db.ExecTx(ctx, &writeTx, func(dbTx BaseUniverseStore) error {
 		issuanceProof, err = universeUpsertProofLeaf(
-			ctx, dbTx, b.id, key, leaf, metaReveal,
+			ctx, dbTx, b.id, key, leaf, metaReveal, false,
 		)
 		return err
 	})
@@ -361,7 +361,8 @@ func (b *BaseUniverseTree) RegisterIssuance(ctx context.Context,
 // broader DB updates.
 func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	id universe.Identifier, key universe.LeafKey, leaf *universe.Leaf,
-	metaReveal *proof.MetaReveal) (*universe.Proof, error) {
+	metaReveal *proof.MetaReveal,
+	skipMultiverse bool) (*universe.Proof, error) {
 
 	namespace := id.String()
 
@@ -459,6 +460,20 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 	universeRoot, err = universeTree.Root(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// If this Universe tree isn't part of the greater multi-verse tree,
+	// then we'll skip insertion for now.
+	//
+	// TODO(roasbeef): will go into a combined multi-verse tree for diff
+	// proof types later
+	if skipMultiverse {
+		return &universe.Proof{
+			LeafKey:                key,
+			UniverseRoot:           universeRoot,
+			UniverseInclusionProof: leafInclusionProof,
+			Leaf:                   leaf,
+		}, nil
 	}
 
 	// The next step is to insert the multiverse leaf, which is a leaf in

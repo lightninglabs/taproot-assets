@@ -766,7 +766,7 @@ func (b *MultiverseStore) UpsertProofLeaf(ctx context.Context,
 		// tree.
 		var err error
 		issuanceProof, err = universeUpsertProofLeaf(
-			ctx, dbTx, id, key, leaf, metaReveal,
+			ctx, dbTx, id, key, leaf, metaReveal, false,
 		)
 		if err != nil {
 			return err
@@ -812,7 +812,7 @@ func (b *MultiverseStore) UpsertProofLeafBatch(ctx context.Context,
 		// tree.
 		return universeUpsertProofLeaf(
 			ctx, dbTx, item.ID, item.Key, item.Leaf,
-			item.MetaReveal,
+			item.MetaReveal, false,
 		)
 	}
 
