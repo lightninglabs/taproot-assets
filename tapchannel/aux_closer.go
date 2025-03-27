@@ -104,7 +104,7 @@ func NewAuxChanCloser(cfg AuxChanCloserCfg) *AuxChanCloser {
 // createCloseAlloc is a helper function that creates an allocation for an asset
 // close. This does not set a script key, as the script key will be set for each
 // packet after the coins have been distributed.
-func createCloseAlloc(isLocal, isInitiator bool, outputSum uint64,
+func createCloseAlloc(isLocal bool, outputSum uint64,
 	shutdownMsg tapchannelmsg.AuxShutdownMsg) (*tapsend.Allocation, error) {
 
 	// The sort pkScript for the allocation will just be the internal key,
@@ -146,7 +146,6 @@ func createCloseAlloc(isLocal, isInitiator bool, outputSum uint64,
 
 			return tapsend.CommitAllocationToRemote
 		}(),
-		SplitRoot:            isInitiator,
 		InternalKey:          shutdownMsg.AssetInternalKey.Val,
 		GenScriptKey:         scriptKeyGen,
 		Amount:               outputSum,
@@ -273,7 +272,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	remoteSum := fn.Reduce(commitState.RemoteAssets.Val.Outputs, sumAmounts)
 	if localSum > 0 {
 		localAlloc, err = createCloseAlloc(
-			true, desc.Initiator, localSum, localShutdown,
+			true, localSum, localShutdown,
 		)
 		if err != nil {
 			return none, err
@@ -285,7 +284,7 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 	}
 	if remoteSum > 0 {
 		remoteAlloc, err = createCloseAlloc(
-			false, !desc.Initiator, remoteSum, remoteShutdown,
+			false, remoteSum, remoteShutdown,
 		)
 		if err != nil {
 			return none, err

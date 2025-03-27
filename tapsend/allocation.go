@@ -58,6 +58,13 @@ var (
 	ErrScriptKeyGenMissing = errors.New(
 		"script key generator function not set for asset allocation",
 	)
+
+	// ErrNoSplitRoot is returned if a non-interactive send doesn't specify
+	// which output should house the split root asset.
+	ErrNoSplitRoot = errors.New(
+		"non-interactive transfers must specify which output should " +
+			"house the split root asset",
+	)
 )
 
 // AllocationType is an enum that defines the different types of asset
@@ -446,13 +453,27 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	// Sum up the amounts that are to be allocated to the outputs. We also
 	// validate that all the required fields are set and no conflicting
 	// fields are set.
-	var outputSum uint64
+	var (
+		outputSum     uint64
+		haveSplitRoot bool
+	)
 	for _, allocation := range allocations {
 		if err := allocation.Validate(); err != nil {
 			return nil, fmt.Errorf("invalid allocation: %w", err)
 		}
 
 		outputSum += allocation.Amount
+		haveSplitRoot = haveSplitRoot || allocation.SplitRoot
+	}
+
+	// Non-interactive transfers need to specify which output should house
+	// the split root asset. Because that will need to be the output that
+	// goes back to the sender (or to a zero-amount tombstone output the
+	// sender owns the internal key for). But in interactive transfers,
+	// it doesn't matter which output houses the split root asset, we'll
+	// just assign one later if needed.
+	if !interactive && !haveSplitRoot {
+		return nil, ErrNoSplitRoot
 	}
 
 	// Asset change must be allocated upfront as well. We expect the sum of
@@ -542,6 +563,23 @@ func DistributeCoins(inputs []*proof.Proof, allocations []*Allocation,
 	err := ValidateVPacketVersions(packets)
 	if err != nil {
 		return nil, err
+	}
+
+	// If we're doing a non-interactive transfer, we're done here.
+	if !interactive {
+		return packets, nil
+	}
+
+	// For interactive packets we will now assign a split root output (if
+	// needed).
+	for _, vPkt := range packets {
+		// If we have more than 1 output (meaning we are going to split
+		// the assets), and we don't have a split root output yet, we
+		// select the first output to be the split root. In interactive
+		// transfers it doesn't really matter which output is selected.
+		if len(vPkt.Outputs) > 1 && !vPkt.HasSplitRootOutput() {
+			vPkt.Outputs[0].Type = tappsbt.TypeSplitRoot
+		}
 	}
 
 	return packets, nil
