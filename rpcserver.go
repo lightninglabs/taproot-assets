@@ -11,6 +11,7 @@ import (
 	"io"
 	"math"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -47,6 +48,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	wrpc "github.com/lightninglabs/taproot-assets/taprpc/assetwalletrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
+	"github.com/lightninglabs/taproot-assets/taprpc/priceoraclerpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
 	tchrpc "github.com/lightninglabs/taproot-assets/taprpc/tapchannelrpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/tapdevrpc"
@@ -102,6 +104,10 @@ const (
 	// proofTypeReceive is an alias for the proof type used for receiving
 	// assets.
 	proofTypeReceive = tapdevrpc.ProofTransferType_PROOF_TRANSFER_TYPE_RECEIVE
+
+	// maxRfqHopHints is the maximum number of RFQ quotes that may be
+	// encoded as hop hints in a bolt11 invoice.
+	maxRfqHopHints = 20
 )
 
 type (
@@ -7938,6 +7944,15 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, fmt.Errorf("invoice request must be specified")
 	}
 	iReq := req.InvoiceRequest
+	existingQuotes := iReq.RouteHints != nil
+
+	if existingQuotes && !tapchannel.IsAssetInvoice(
+		iReq, r.cfg.AuxInvoiceManager,
+	) {
+
+		return nil, fmt.Errorf("existing route hints should only " +
+			"contain valid accepted quotes")
+	}
 
 	assetID, groupKey, err := parseAssetSpecifier(
 		req.AssetId, "", req.GroupKey, "",
@@ -7973,16 +7988,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			err)
 	}
 
-	// TODO(george): this is temporary just for the commit to compile.
-	var firstChan rfq.ChannelWithSpecifier
-	for _, v := range chanMap {
-		firstChan = v[0]
-	}
-
-	// Even if the user didn't specify the peer public key before, we
-	// definitely know it now. So let's make sure it's always set.
-	peerPubKey = &firstChan.ChannelInfo.PubKeyBytes
-
 	expirySeconds := iReq.Expiry
 	if expirySeconds == 0 {
 		expirySeconds = int64(rfq.DefaultInvoiceExpiry.Seconds())
@@ -8006,62 +8011,92 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 	rpcSpecifier := marshalAssetSpecifier(specifier)
 
-	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
-		AssetSpecifier: &rpcSpecifier,
-		AssetMaxAmt:    maxUnits,
-		Expiry:         uint64(expiryTimestamp.Unix()),
-		PeerPubKey:     peerPubKey[:],
-		TimeoutSeconds: uint32(
-			rfq.DefaultTimeout.Seconds(),
-		),
+	type quoteWithInfo struct {
+		quote   *rfqrpc.PeerAcceptedBuyQuote
+		rate    *rfqmath.BigIntFixedPoint
+		channel rfq.ChannelWithSpecifier
+	}
+
+	var acquiredQuotes []quoteWithInfo
+
+	for peer, channels := range chanMap {
+		if existingQuotes {
+			break
+		}
+
+		quote, err := r.acquireBuyOrder(
+			ctx, &rpcSpecifier, maxUnits, expiryTimestamp,
+			&peer,
+		)
+		if err != nil {
+			rpcsLog.Errorf("error while trying to acquire a buy "+
+				"order for invoice: %v", err)
+			continue
+		}
+
+		rate, err := rpcutils.UnmarshalFixedPoint(
+			&priceoraclerpc.FixedPoint{
+				Coefficient: quote.AskAssetRate.Coefficient,
+				Scale:       quote.AskAssetRate.Scale,
+			},
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		acquiredQuotes = append(acquiredQuotes, quoteWithInfo{
+			quote: quote,
+			rate:  rate,
+			// Since the channels are sorted, we know the value with
+			// the greatest remote balance is at index 0.
+			channel: channels[0],
+		})
+	}
+
+	// Let's sort the ask rate of the quotes in ascending order.
+	sort.Slice(acquiredQuotes, func(i, j int) bool {
+		return acquiredQuotes[i].rate.ToUint64() <
+			acquiredQuotes[j].rate.ToUint64()
 	})
-	if err != nil {
-		return nil, fmt.Errorf("error adding buy order: %w", err)
+
+	// If we failed to get any quotes, we need to return an error. If the
+	// user has already defined quotes in the request we don't return an
+	// error.
+	if len(acquiredQuotes) == 0 && !existingQuotes {
+		return nil, fmt.Errorf("could not create any quotes for the " +
+			"invoice")
 	}
 
-	var acceptedQuote *rfqrpc.PeerAcceptedBuyQuote
-	switch r := resp.Response.(type) {
-	case *rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote:
-		acceptedQuote = r.AcceptedQuote
-
-	case *rfqrpc.AddAssetBuyOrderResponse_InvalidQuote:
-		return nil, fmt.Errorf("peer %v sent back an invalid quote, "+
-			"status: %v", r.InvalidQuote.Peer,
-			r.InvalidQuote.Status.String())
-
-	case *rfqrpc.AddAssetBuyOrderResponse_RejectedQuote:
-		return nil, fmt.Errorf("peer %v rejected the quote, code: %v, "+
-			"error message: %v", r.RejectedQuote.Peer,
-			r.RejectedQuote.ErrorCode, r.RejectedQuote.ErrorMessage)
-
-	default:
-		return nil, fmt.Errorf("unexpected response type: %T", r)
+	// We need to trim any extra quotes that cannot make it into the bolt11
+	// invoice due to size limitations.
+	if len(acquiredQuotes) > maxRfqHopHints {
+		acquiredQuotes = acquiredQuotes[:maxRfqHopHints]
 	}
 
+	// TODO(george): We want to cancel back quotes that didn't make it into
+	// the set. Need to add CancelOrder endpoints to RFQ manager.
+
+	// We grab the most expensive rate to use as reference for the total
+	// invoice amount. Since peers have varying prices for the assets, we
+	// pick the most expensive rate in order to allow for any combination of
+	// MPP shards through our set of chosen peers.
+	var expensiveQuote *rfqrpc.PeerAcceptedBuyQuote
+	if !existingQuotes {
+		expensiveQuote = acquiredQuotes[0].quote
+	}
+
+	// replace with above
 	// Now that we have the accepted quote, we know the amount in (milli)
 	// Satoshi that we need to pay. We can now update the invoice with this
 	// amount.
 	invoiceAmtMsat, err := validateInvoiceAmount(
-		acceptedQuote, req.AssetAmount, iReq,
+		expensiveQuote, req.AssetAmount, iReq,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error validating invoice amount: %w",
 			err)
 	}
 	iReq.ValueMsat = int64(invoiceAmtMsat)
-
-	// The last step is to create a hop hint that includes the fake SCID of
-	// the quote, alongside the channel's routing policy. We need to choose
-	// the policy that points towards us, as the payment will be flowing in.
-	// So we get the policy that's being set by the remote peer.
-	channelID := firstChan.ChannelInfo.ChannelID
-	inboundPolicy, err := r.getInboundPolicy(
-		ctx, channelID, peerPubKey.String(),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("unable to get inbound channel policy "+
-			"for channel with ID %d: %w", channelID, err)
-	}
 
 	// If this is a hodl invoice, then we'll copy over the relevant fields,
 	// then route this through the invoicerpc instead.
@@ -8072,24 +8107,21 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				"hash: %w", err)
 		}
 
-		peerPub, err := btcec.ParsePubKey(peerPubKey[:])
-		if err != nil {
-			return nil, fmt.Errorf("error parsing peer "+
-				"pubkey: %w", err)
-		}
+		routeHints := make([][]zpay32.HopHint, 0)
+		for _, v := range acquiredQuotes {
+			hopHint, err := r.cfg.RfqManager.RfqToHopHint(
+				ctx, r.getInboundPolicy,
+				v.channel.ChannelInfo.ChannelID,
+				v.channel.ChannelInfo.PubKeyBytes, v.quote,
+				true,
+			)
+			if err != nil {
+				return nil, err
+			}
 
-		hopHint := []zpay32.HopHint{
-			{
-				NodeID:      peerPub,
-				ChannelID:   acceptedQuote.Scid,
-				FeeBaseMSat: uint32(inboundPolicy.FeeBaseMsat),
-				FeeProportionalMillionths: uint32(
-					inboundPolicy.FeeRateMilliMsat,
-				),
-				CLTVExpiryDelta: uint16(
-					inboundPolicy.TimeLockDelta,
-				),
-			},
+			routeHints = append(
+				routeHints, []zpay32.HopHint{*hopHint},
+			)
 		}
 
 		payReq, err := r.cfg.Lnd.Invoices.AddHoldInvoice(
@@ -8105,7 +8137,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 				// add any hop hints other than this one.
 				Private:     false,
 				HodlInvoice: true,
-				RouteHints:  [][]zpay32.HopHint{hopHint},
+				RouteHints:  routeHints,
 			},
 		)
 		if err != nil {
@@ -8114,29 +8146,39 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		}
 
 		return &tchrpc.AddInvoiceResponse{
-			AcceptedBuyQuote: acceptedQuote,
+			// TODO(george): For now we just return the expensive
+			// quote
+			AcceptedBuyQuote: expensiveQuote,
 			InvoiceResult: &lnrpc.AddInvoiceResponse{
 				PaymentRequest: payReq,
 			},
 		}, nil
 	}
 
-	// Otherwise, we'll make this into a normal invoice.
-	hopHint := &lnrpc.HopHint{
-		NodeId:      peerPubKey.String(),
-		ChanId:      acceptedQuote.Scid,
-		FeeBaseMsat: uint32(inboundPolicy.FeeBaseMsat),
-		FeeProportionalMillionths: uint32(
-			inboundPolicy.FeeRateMilliMsat,
-		),
-		CltvExpiryDelta: inboundPolicy.TimeLockDelta,
-	}
-	iReq.RouteHints = []*lnrpc.RouteHint{
-		{
+	routeHints := make([]*lnrpc.RouteHint, 0)
+	for _, v := range acquiredQuotes {
+		hopHint, err := r.cfg.RfqManager.RfqToHopHint(
+			ctx, r.getInboundPolicy,
+			v.channel.ChannelInfo.ChannelID,
+			v.channel.ChannelInfo.PubKeyBytes, v.quote, false,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		lnrpcHopHint := rfq.Zpay32HopHintToLnrpc(hopHint)
+
+		routeHints = append(routeHints, &lnrpc.RouteHint{
 			HopHints: []*lnrpc.HopHint{
-				hopHint,
+				lnrpcHopHint,
 			},
-		},
+		})
+	}
+
+	// Only replace the route hints of the invoice request if the user has
+	// not already set them.
+	if !existingQuotes {
+		iReq.RouteHints = routeHints
 	}
 
 	rpcCtx, _, rawClient := r.cfg.Lnd.Client.RawClientWithMacAuth(ctx)
@@ -8146,7 +8188,7 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	}
 
 	return &tchrpc.AddInvoiceResponse{
-		AcceptedBuyQuote: acceptedQuote,
+		AcceptedBuyQuote: expensiveQuote,
 		InvoiceResult:    invoiceResp,
 	}, nil
 }
