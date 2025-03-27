@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"context"
+	crand "crypto/rand"
 	"database/sql"
 	"math"
 	"math/rand"
@@ -167,6 +168,14 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 		proofAsset = *argAsset
 	}
 
+	var witnessData [32]byte
+	_, err := crand.Read(witnessData[:])
+	require.NoError(t, err)
+
+	var pkScript [32]byte
+	_, err = crand.Read(pkScript[:])
+	require.NoError(t, err)
+
 	return &proof.Proof{
 		PrevOut: wire.OutPoint{},
 		BlockHeader: wire.BlockHeader{
@@ -175,7 +184,11 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 		AnchorTx: wire.MsgTx{
 			Version: 2,
 			TxIn: []*wire.TxIn{{
-				Witness: [][]byte{[]byte("foo")},
+				Witness: [][]byte{witnessData[:]},
+			}},
+			TxOut: []*wire.TxOut{{
+				PkScript: pkScript[:],
+				Value:    1000,
 			}},
 		},
 		TxMerkleProof: proof.TxMerkleProof{},
