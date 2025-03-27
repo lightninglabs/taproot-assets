@@ -1267,7 +1267,12 @@ func (c *UniverseRpcCourier) ensureConnect(ctx context.Context) error {
 	c.client = unirpc.NewUniverseClient(conn)
 	c.rawConn = conn
 
-	return nil
+	// Make sure we initiate the connection. The GetInfo RPC method is in
+	// the base macaroon white list, so it doesn't require any
+	// authentication, independent of the universe's configuration.
+	_, err = c.client.Info(ctx, &unirpc.InfoRequest{})
+
+	return err
 }
 
 // DeliverProof attempts to delivery a proof file to the receiver.
@@ -1665,4 +1670,32 @@ func FetchProofProvenance(ctx context.Context, localArchive Archiver,
 	}
 
 	return proofFile, nil
+}
+
+// CheckUniverseRpcCourierConnection checks if the universe RPC courier at the
+// given URL is reachable. It returns an error if the connection cannot be
+// established within the given timeout duration.
+func CheckUniverseRpcCourierConnection(ctx context.Context,
+	timeout time.Duration, courierURL *url.URL) error {
+
+	// We now also make a quick test connection.
+	ctxt, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	courier, err := NewUniverseRpcCourier(
+		ctxt, &UniverseRpcCourierCfg{}, nil, nil, courierURL,
+		false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to test connection proof courier "+
+			"'%v': %v", courierURL.String(), err)
+	}
+
+	err = courier.Close()
+	if err != nil {
+		// We only log any disconnect errors, as they're not critical.
+		log.Warnf("Unable to disconnect from proof courier '%v': %v",
+			courierURL.String(), err)
+	}
+
+	return nil
 }

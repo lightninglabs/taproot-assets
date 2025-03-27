@@ -578,7 +578,7 @@ func (a *AuxChanCloser) ShutdownBlob(
 	return lfn.Some[lnwire.CustomRecords](records), nil
 }
 
-// shipChannelTxn takes a chanenl transaction, an output commitment, and the
+// shipChannelTxn takes a channel transaction, an output commitment, and the
 // set of vPackets used to make the output commitment and ships a complete
 // pre-singed package off to the porter. This'll insert a transfer for the
 // channel, send the final transaction to the network, and update any
