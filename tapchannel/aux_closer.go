@@ -156,6 +156,53 @@ func createCloseAlloc(isLocal bool, outputSum uint64,
 	}, nil
 }
 
+// signCommitVirtualPackets signs the commit virtual packets with the funding
+// witness, which is just the script and control block for the OP_TRUE spend.
+func signCommitVirtualPackets(ctx context.Context,
+	vPackets []*tappsbt.VPacket) error {
+
+	// Now that we've added all the relevant vPackets, we'll prepare the
+	// funding witness which includes the OP_TRUE ctrl block.
+	fundingWitness, err := fundingSpendWitness().Unpack()
+	if err != nil {
+		return fmt.Errorf("unable to make funding witness: %w", err)
+	}
+
+	// With all the vPackets created, we'll create output commitments from
+	// them, as we'll need them to ship the transaction off to the porter.
+	for idx := range vPackets {
+		err = tapsend.PrepareOutputAssets(ctx, vPackets[idx])
+		if err != nil {
+			return fmt.Errorf("unable to prepare output "+
+				"assets: %w", err)
+		}
+
+		// With the packets prepared, we'll swap in the correct witness
+		// for each of them. We need to do this _after_ calling
+		// PrepareOutputAsset, because that method will overwrite any
+		// asset in the virtual outputs. Which means we'll also need to
+		// set the witness on _every_ output of the packet, to make sure
+		// each split output's root asset reference also gets the
+		// correct witness.
+		for outIdx := range vPackets[idx].Outputs {
+			outAsset := vPackets[idx].Outputs[outIdx].Asset
+
+			// There is always only a single input, as we're
+			// spending a single funding output w/ each vPkt.
+			const inputIndex = 0
+			err := outAsset.UpdateTxWitness(
+				inputIndex, fundingWitness,
+			)
+			if err != nil {
+				return fmt.Errorf("error updating witness: %w",
+					err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // fundingSpendWitness creates a complete witness to spend the OP_TRUE funding
 // script of an asset funding output.
 func fundingSpendWitness() lfn.Result[wire.TxWitness] {
@@ -377,35 +424,12 @@ func (a *AuxChanCloser) AuxCloseOutputs(
 		return none, fmt.Errorf("unable to distribute coins: %w", err)
 	}
 
-	// With the vPackets created we'll now prepare all the split
-	// information encoded in the vPackets.
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return none, fmt.Errorf("unable to make funding "+
-			"witness: %w", err)
-	}
-	ctx := context.Background()
-	for idx := range vPackets {
-		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
-		if err != nil {
-			return none, fmt.Errorf("unable to prepare output "+
-				"assets: %w", err)
-		}
-
-		for outIdx := range vPackets[idx].Outputs {
-			outAsset := vPackets[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, which is the
-			// funding output.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return none, fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
-		}
+	// We can now add the witness for the OP_TRUE spend of the commitment
+	// output to the vPackets.
+	ctxb := context.Background()
+	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+		return none, fmt.Errorf("error signing commit virtual "+
+			"packets: %w", err)
 	}
 
 	// With the outputs prepared, we can now create the set of output
