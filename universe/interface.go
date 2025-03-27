@@ -1,6 +1,7 @@
 package universe
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -1212,7 +1213,8 @@ type AuthenticatedIgnoreTuple struct {
 // TupleQueryResp is the response to a query for ignore tuples.
 type TupleQueryResp = lfn.Result[lfn.Option[[]AuthenticatedIgnoreTuple]]
 
-// SumQueryResp is the response to a query for the sum of ignore tuples.
+// SumQueryResp is the response to a query to obtain the root sum of an MS-SMT
+// tree.
 type SumQueryResp = lfn.Result[lfn.Option[uint64]]
 
 // AuthIgnoreTuples is a type alias for a slice of AuthenticatedIgnoreTuple.
@@ -1236,4 +1238,91 @@ type IgnoreTree interface {
 	// QueryTuples returns the ignore tuples for the given asset.
 	QueryTuples(context.Context, asset.Specifier,
 		...IgnoreTuple) TupleQueryResp
+}
+
+// BurnLeaf is a type that represents a burn leaf within the universe tree.
+type BurnLeaf struct {
+	// UniverseKey is the key that the burn leaf is stored at.
+	UniverseKey LeafKey
+
+	// BurnProof is the burn proof that is stored within the burn leaf.
+	BurnProof *proof.Proof
+}
+
+// UniverseLeafNode returns the leaf node for the burn leaf.
+func (b *BurnLeaf) UniverseLeafNode() (*mssmt.LeafNode, error) {
+	var proofBuf bytes.Buffer
+	if err := b.BurnProof.Encode(&proofBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode burn "+
+			"proof: %w", err)
+	}
+	rawProofBytes := proofBuf.Bytes()
+
+	return mssmt.NewLeafNode(rawProofBytes, b.BurnProof.Asset.Amount), nil
+}
+
+// AuthenticatedBurnLeaf is a type that represents a burn leaf within the
+// Universe tree. This includes the MS-SMT inclusion proofs.
+type AuthenticatedBurnLeaf struct {
+	*BurnLeaf
+
+	// BurnTreeRoot is the root of the burn tree that the burn leaf resides
+	// within.
+	BurnTreeRoot mssmt.Node
+
+	// BurnProof is the universe inclusion proof for the burn leaf within
+	// the universe tree.
+	BurnProof *mssmt.Proof
+}
+
+// BurnDesc is a type that represents a burn leaf within the universe tree. This
+// is useful for querying the state without needing the proof itself.
+type BurnDesc struct {
+	// AssetSpec is the asset specifier for the burn leaf.
+	AssetSpec asset.Specifier
+
+	// Amt is the total amount burned.
+	Amt uint64
+
+	// BurnPoint is the outpoint of the transaction that created the burn.
+	BurnPoint wire.OutPoint
+}
+
+// BurnLeafResp is the response when inserting a new set of burn leaves. This
+// includes the updated merkle inclusion proofs for the inserted leaves.
+type BurnLeafResp = lfn.Result[[]*AuthenticatedBurnLeaf]
+
+// BurnLeafQueryResp is the response to a query for burn leaves. If none of the
+// target burn leafs are found, then None is returned with a result value.
+type BurnLeafQueryResp = lfn.Result[lfn.Option[[]*AuthenticatedBurnLeaf]]
+
+// BurnTree sum is the response to a query of the total amount burned in a given
+// burn tree.
+type BurnTreeSum = SumQueryResp
+
+// ListBurnsResp is the response to a query for burn leaves.
+type ListBurnsResp = lfn.Result[lfn.Option[[]*BurnDesc]]
+
+// BurnTree represents a tree that stores all the 1st party burn events (created
+// by the issuer). The tree structure is similar to the normal issuance tree,
+// but all the proofs are burn proofs.
+type BurnTree interface {
+	// Sum returns the sum of the burn leaves for the given asset.
+	Sum(context.Context, asset.Specifier) BurnTreeSum
+
+	// InsertBurns attempts to insert a set of new burn leaves into the burn
+	// tree identifier by the passed asset.Specifier. If a given proof isn't
+	// a true burn proof, then an error is returned. This check is performed
+	// upfront. If the proof is valid, then the burn leaf is inserted into
+	// the tree, with a new merkle proof returned.
+	InsertBurns(context.Context, asset.Specifier, ...*BurnLeaf) BurnLeafResp
+
+	// QueryBurns attempts to query a set of burn leaves for the given asset
+	// specifier. If the burn leaf points are empty, then all burn leaves
+	// are returned.
+	QueryBurns(context.Context, asset.Specifier,
+		...wire.OutPoint) BurnLeafQueryResp
+
+	// ListBurns attempts to list all burn leaves for the given asset.
+	ListBurns(context.Context, asset.Specifier) ListBurnsResp
 }
