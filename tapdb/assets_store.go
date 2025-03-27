@@ -886,8 +886,13 @@ func (a *AssetStore) constraintsToDbFilter(
 		assetFilter.AssetIDFilter = assetIDBytes
 		assetFilter.KeyGroupFilter = groupKeyBytes
 
-		// TODO(roasbeef): only want to allow asset ID or other and not
-		// both?
+		// If we query by group key, we don't also include the asset ID,
+		// otherwise we'd only get assets from that specific tranche.
+		if query.DistinctSpecifier &&
+			len(assetFilter.KeyGroupFilter) > 0 {
+
+			assetFilter.AssetIDFilter = nil
+		}
 
 		switch query.CoinSelectType {
 		case tapsend.ScriptTreesAllowed:
