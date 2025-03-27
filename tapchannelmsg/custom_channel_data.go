@@ -90,7 +90,7 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 		a := output.Proof.Val.Asset
 
 		assetID := a.ID()
-		groupPubKey := a.ScriptKey.PubKey
+		scriptPubKey := a.ScriptKey.PubKey
 		resp.FundingAssets = append(
 			resp.FundingAssets, rfqmsg.JsonAssetUtxo{
 				Version: int64(a.Version),
@@ -104,7 +104,7 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 				},
 				Amount: a.Amount,
 				ScriptKey: hex.EncodeToString(
-					groupPubKey.SerializeCompressed(),
+					scriptPubKey.SerializeCompressed(),
 				),
 				DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
 			},
