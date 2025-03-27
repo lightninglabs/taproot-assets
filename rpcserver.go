@@ -3561,6 +3561,16 @@ func marshalOutboundParcel(
 			return nil, err
 		}
 
+		var proofAsset asset.Asset
+		err = proof.SparseDecode(
+			bytes.NewReader(out.ProofSuffix),
+			proof.AssetLeafRecord(&proofAsset),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("unable to sparse decode "+
+				"proof: %w", err)
+		}
+
 		// Marshall the proof delivery status.
 		proofDeliveryStatus := marshalOutputProofDeliveryStatus(out)
 
@@ -3576,6 +3586,7 @@ func marshalOutboundParcel(
 			OutputType:          rpcOutType,
 			AssetVersion:        assetVersion,
 			ProofDeliveryStatus: proofDeliveryStatus,
+			AssetId:             fn.ByteSlice(proofAsset.ID()),
 		}
 	}
 
@@ -7073,7 +7084,7 @@ func (r *rpcServer) FundChannel(ctx context.Context,
 	}
 
 	assetID, groupKey, err := parseAssetSpecifier(
-		req.GetAssetId(), "", nil, "",
+		req.GetAssetId(), "", req.GetGroupKey(), "",
 	)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing asset specifier: %w", err)
@@ -8036,7 +8047,7 @@ type channelWithSpecifier struct {
 	channelInfo lndclient.ChannelInfo
 
 	// assetInfo contains the asset related info of the channel.
-	assetInfo rfqmsg.JsonAssetChanInfo
+	assetInfo rfqmsg.JsonAssetChannel
 }
 
 // computeChannelAssetBalance computes the total local and remote balance for
@@ -8066,29 +8077,17 @@ func (r *rpcServer) computeChannelAssetBalance(ctx context.Context,
 		// Check if the assets of this channel match the provided
 		// specifier.
 		pass, err := r.cfg.RfqManager.ChannelCompatible(
-			ctx, assetData.Assets, specifier,
+			ctx, assetData, specifier,
 		)
 		if err != nil {
 			return nil, err
 		}
 
 		if pass {
-			// Since the assets of the channel passed the above
-			// filter, we're safe to aggregate their info to be
-			// represented as a single entity.
-			var aggrInfo rfqmsg.JsonAssetChanInfo
-
-			// TODO(george): refactor when JSON gets fixed
-			for _, info := range assetData.Assets {
-				aggrInfo.Capacity += info.Capacity
-				aggrInfo.LocalBalance += info.LocalBalance
-				aggrInfo.RemoteBalance += info.RemoteBalance
-			}
-
 			channels = append(channels, channelWithSpecifier{
 				specifier:   specifier,
 				channelInfo: openChan,
-				assetInfo:   aggrInfo,
+				assetInfo:   assetData,
 			})
 		}
 	}
