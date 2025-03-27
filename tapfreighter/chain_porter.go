@@ -977,7 +977,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		courierAddr := string(output.ProofCourierAddr)
 
 		log.Errorf("Error delivering transfer output proof "+
-			"(anchor_outpoint=%s, script_pub_key=%v, "+
+			"(anchor_outpoint=%s, script_pub_key=%x, "+
 			"position=%d, proof_courier_addr=%s, "+
 			"proof_delivery_status=%v): %v",
 			anchorOutpoint, scriptPubKey, output.Position,
@@ -989,7 +989,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// if any.
 	var firstErr error
 	fn.PeekMap(instanceErrors).WhenSome(func(kv fn.KV[int, error]) {
-		firstErr = err
+		firstErr = kv.Value
 	})
 
 	if firstErr != nil {
