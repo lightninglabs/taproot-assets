@@ -40,6 +40,12 @@ type CommitmentConstraints struct {
 
 	// CoinSelectType is the type of coins that should be selected.
 	CoinSelectType tapsend.CoinSelectType
+
+	// DistinctSpecifier indicates whether we _only_ look at either the
+	// group key _or_ the asset ID but not both. That means, if the group
+	// key is set, we ignore the asset ID and allow multiple inputs of the
+	// same group to be selected.
+	DistinctSpecifier bool
 }
 
 // AssetBurn holds data related to a burn of an asset.
