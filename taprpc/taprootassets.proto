@@ -824,6 +824,8 @@ message TransferOutput {
 
     // The delivery status of the proof associated with this output.
     ProofDeliveryStatus proof_delivery_status = 11;
+
+    bytes asset_id = 12;
 }
 
 message StopRequest {

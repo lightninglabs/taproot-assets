@@ -2410,6 +2410,10 @@
         "proof_delivery_status": {
           "$ref": "#/definitions/taprpcProofDeliveryStatus",
           "description": "The delivery status of the proof associated with this output."
+        },
+        "asset_id": {
+          "type": "string",
+          "format": "byte"
         }
       }
     },
