@@ -3062,7 +3062,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 
 	var (
 		writeTxOpts    AssetStoreTxOptions
-		localProofKeys []asset.SerializedKey
+		localProofKeys []tapfreighter.OutputIdentifier
 	)
 
 	err := a.db.ExecTx(ctx, &writeTxOpts, func(q ActiveAssetsStore) error {
@@ -3088,9 +3088,11 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 		// We'll keep around the IDs of the assets that we set to being
 		// spent. We'll need one of them as our template to create the
 		// new assets.
-		spentAssetIDs := make([]int64, len(inputs))
+		spentAssetIDs := make(map[asset.ID]int64, len(inputs))
 		for idx := range inputs {
-			spentAssetIDs[idx], err = q.SetAssetSpent(
+			var assetID asset.ID
+			copy(assetID[:], inputs[idx].AssetID)
+			spentAssetIDs[assetID], err = q.SetAssetSpent(
 				ctx, SetAssetSpentParams{
 					ScriptKey:   inputs[idx].ScriptKey,
 					GenAssetID:  inputs[idx].AssetID,
@@ -3168,12 +3170,31 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 				continue
 			}
 
-			// Since we define that a transfer can only move assets
-			// within the same asset ID, we can take any of the
-			// inputs as a template for the new asset, since the
-			// genesis and group key will be the same. We'll
-			// overwrite all other fields.
-			templateID := spentAssetIDs[0]
+			// If we create the asset, we'll also import the proof.
+			// We need to find out the asset ID this output is for,
+			// since a transfer can host multiple virtual
+			// transactions, with potentially different asset IDs.
+			var outProofAsset asset.Asset
+			err = proof.SparseDecode(
+				bytes.NewReader(out.ProofSuffix),
+				proof.AssetLeafRecord(&outProofAsset),
+			)
+			if err != nil {
+				return fmt.Errorf("unable to sparse decode "+
+					"proof: %w", err)
+			}
+
+			// We can take any of the inputs for a certain asset ID
+			// as a template for the new asset, since the genesis
+			// and group key will be the same. We'll overwrite all
+			// other fields.
+			templateID, ok := spentAssetIDs[outProofAsset.ID()]
+			if !ok {
+				return fmt.Errorf("no spent asset found for "+
+					"output with asset ID %v",
+					outProofAsset.ID())
+			}
+
 			params := ApplyPendingOutput{
 				ScriptKeyID: out.ScriptKeyID,
 				AnchorUtxoID: sqlInt64(
@@ -3208,15 +3229,21 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 					"witnesses: %w", err)
 			}
 
-			var scriptKey asset.SerializedKey
-			copy(scriptKey[:], out.ScriptKeyBytes)
-			receiverProof, ok := conf.FinalProofs[scriptKey]
+			outKey, err := tapfreighter.NewOutputIdentifier(
+				out.ProofSuffix, *scriptPubKey,
+			)
+			if err != nil {
+				return fmt.Errorf("unable to create output "+
+					"identifier: %w", err)
+			}
+
+			receiverProof, ok := conf.FinalProofs[outKey]
 			if !ok {
 				return fmt.Errorf("no proof found for output "+
 					"with script key %x",
 					out.ScriptKeyBytes)
 			}
-			localProofKeys = append(localProofKeys, scriptKey)
+			localProofKeys = append(localProofKeys, outKey)
 
 			// Upload proof by the dbAssetId, which is the _primary
 			// key_ of the asset in table assets, not the BIPS
