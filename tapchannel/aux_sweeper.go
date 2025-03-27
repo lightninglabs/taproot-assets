@@ -1893,8 +1893,9 @@ func (a *AuxSweeper) resolveContract(
 		return lfn.Err[tlv.Blob](err)
 	}
 
+	type packetList = []*tappsbt.VPacket
 	var (
-		secondLevelPkts    []*tappsbt.VPacket
+		secondLevelPkts    packetList
 		secondLevelSigDesc lfn.Option[cmsg.TapscriptSigDesc]
 	)
 
@@ -1903,25 +1904,30 @@ func (a *AuxSweeper) resolveContract(
 	if needsSecondLevel {
 		log.Infof("Creating+signing 2nd level vPkts")
 
-		// We'll make a place holder for the second level output based
-		// on the assetID+value tuple.
-		secondLevelInputs := []*cmsg.AssetOutput{cmsg.NewAssetOutput(
-			assetOutputs[0].AssetID.Val,
-			assetOutputs[0].Amount.Val, assetOutputs[0].Proof.Val,
-		)}
+		// We'll make a placeholder for the second level output based
+		// on the assetID+value tuples.
+		secondLevelInputs := fn.Map(
+			assetOutputs,
+			func(a *cmsg.AssetOutput) *cmsg.AssetOutput {
+				return cmsg.NewAssetOutput(
+					a.AssetID.Val, a.Amount.Val,
+					a.Proof.Val,
+				)
+			},
+		)
 
 		// Unlike the first level packets, we can't yet sign the second
 		// level packets yet, as we don't know what the sweeping
 		// transaction will look like. So we'll just create them.
 		secondLevelPkts, err = lfn.MapOption(
 			//nolint:lll
-			func(desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
+			func(desc tapscriptSweepDesc) lfn.Result[packetList] {
 				return a.createSweepVpackets(
 					secondLevelInputs, lfn.Ok(desc), req,
 				)
 			},
 		)(tapSweepDesc.secondLevel).UnwrapOr(
-			lfn.Ok[[]*tappsbt.VPacket](nil),
+			lfn.Ok[packetList](nil),
 		).Unpack()
 		if err != nil {
 			return lfn.Errf[tlv.Blob]("unable to make "+
