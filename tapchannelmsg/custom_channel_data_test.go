@@ -11,6 +11,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/stretchr/testify/require"
 )
@@ -27,15 +28,25 @@ var (
 func TestReadChannelCustomData(t *testing.T) {
 	proof1 := randProof(t)
 	proof2 := randProof(t)
+	proof3 := randProof(t)
+	proof4 := randProof(t)
 	assetID1 := proof1.Asset.ID()
 	assetID2 := proof2.Asset.ID()
+	assetID3 := proof3.Asset.ID()
+	assetID4 := proof4.Asset.ID()
 	output1 := NewAssetOutput(assetID1, 1000, proof1)
 	output2 := NewAssetOutput(assetID2, 2000, proof2)
+	output3 := NewAssetOutput(assetID3, 3000, proof3)
+	output4 := NewAssetOutput(assetID4, 4000, proof4)
 
 	fundingState := NewOpenChannel([]*AssetOutput{output1, output2}, 11)
 	commitState := NewCommitment(
-		[]*AssetOutput{output1}, []*AssetOutput{output2}, nil, nil,
-		lnwallet.CommitAuxLeaves{},
+		[]*AssetOutput{output1}, []*AssetOutput{output2},
+		map[input.HtlcIndex][]*AssetOutput{
+			1: {output3},
+		}, map[input.HtlcIndex][]*AssetOutput{
+			2: {output4},
+		}, lnwallet.CommitAuxLeaves{},
 	)
 
 	fundingBlob := fundingState.Bytes()
@@ -59,42 +70,61 @@ func TestReadChannelCustomData(t *testing.T) {
 	require.NoError(t, err)
 
 	expected := `{
-  "assets": [
+  "funding_assets": [
     {
-      "asset_utxo": {
-        "version": 0,
-        "asset_genesis": {
-          "genesis_point": "` + proof1.Asset.FirstPrevOut.String() + `",
-          "name": "` + proof1.Asset.Tag + `",
-          "meta_hash": "` + hexStr(proof1.Asset.MetaHash[:]) + `",
-          "asset_id": "` + hexStr(assetID1[:]) + `"
-        },
-        "amount": 1,
-        "script_key": "` + pubKeyHexStr(proof1.Asset.ScriptKey.PubKey) + `",
-        "decimal_display": 11
+      "version": 0,
+      "asset_genesis": {
+        "genesis_point": "` + proof1.Asset.FirstPrevOut.String() + `",
+        "name": "` + proof1.Asset.Tag + `",
+        "meta_hash": "` + hexStr(proof1.Asset.MetaHash[:]) + `",
+        "asset_id": "` + hexStr(assetID1[:]) + `"
       },
-      "capacity": 3000,
-      "local_balance": 1000,
-      "remote_balance": 2000
+      "amount": 1,
+      "script_key": "` + pubKeyHexStr(proof1.Asset.ScriptKey.PubKey) + `",
+      "decimal_display": 11
     },
     {
-      "asset_utxo": {
-        "version": 0,
-        "asset_genesis": {
-          "genesis_point": "` + proof2.Asset.FirstPrevOut.String() + `",
-          "name": "` + proof2.Asset.Tag + `",
-          "meta_hash": "` + hexStr(proof2.Asset.MetaHash[:]) + `",
-          "asset_id": "` + hexStr(assetID2[:]) + `"
-        },
-        "amount": 1,
-        "script_key": "` + pubKeyHexStr(proof2.Asset.ScriptKey.PubKey) + `",
-        "decimal_display": 11
+      "version": 0,
+      "asset_genesis": {
+        "genesis_point": "` + proof2.Asset.FirstPrevOut.String() + `",
+        "name": "` + proof2.Asset.Tag + `",
+        "meta_hash": "` + hexStr(proof2.Asset.MetaHash[:]) + `",
+        "asset_id": "` + hexStr(assetID2[:]) + `"
       },
-      "capacity": 3000,
-      "local_balance": 1000,
-      "remote_balance": 2000
+      "amount": 1,
+      "script_key": "` + pubKeyHexStr(proof2.Asset.ScriptKey.PubKey) + `",
+      "decimal_display": 11
     }
-  ]
+  ],
+  "local_assets": [
+    {
+      "asset_id": "` + hexStr(assetID1[:]) + `",
+      "amount": 1000
+    }
+  ],
+  "remote_assets": [
+    {
+      "asset_id": "` + hexStr(assetID2[:]) + `",
+      "amount": 2000
+    }
+  ],
+  "outgoing_htlcs": [
+    {
+      "asset_id": "` + hexStr(assetID3[:]) + `",
+      "amount": 3000
+    }
+  ],
+  "incoming_htlcs": [
+    {
+      "asset_id": "` + hexStr(assetID4[:]) + `",
+      "amount": 4000
+    }
+  ],
+  "capacity": 3000,
+  "local_balance": 1000,
+  "remote_balance": 2000,
+  "outgoing_htlc_balance": 3000,
+  "incoming_htlc_balance": 4000
 }`
 	require.Equal(t, expected, formattedJSON.String())
 }

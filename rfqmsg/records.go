@@ -177,7 +177,7 @@ func (h *Htlc) ToCustomRecords() (lnwire.CustomRecords, error) {
 // AsJson returns the Htlc record as a JSON blob.
 func (h *Htlc) AsJson() ([]byte, error) {
 	j := &JsonHtlc{
-		Balances: make([]*JsonHtlcBalance, len(h.Balances())),
+		Balances: make([]*JsonAssetTranche, len(h.Balances())),
 	}
 
 	h.RfqID.ValOpt().WhenSome(func(id ID) {
@@ -185,7 +185,7 @@ func (h *Htlc) AsJson() ([]byte, error) {
 	})
 
 	for idx, balance := range h.Balances() {
-		j.Balances[idx] = &JsonHtlcBalance{
+		j.Balances[idx] = &JsonAssetTranche{
 			AssetID: hex.EncodeToString(balance.AssetID.Val[:]),
 			Amount:  balance.Amount.Val,
 		}
