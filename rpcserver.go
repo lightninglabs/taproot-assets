@@ -8292,6 +8292,57 @@ func validateInvoiceAmount(acceptedQuote *rfqrpc.PeerAcceptedBuyQuote,
 	return newInvoiceAmtMsat, nil
 }
 
+// acquireBuyOrder performs an RFQ negotiation with the target peer and quote
+// parameters and returns the quote if the negotiation was successful.
+func (r *rpcServer) acquireBuyOrder(ctx context.Context,
+	rpcSpecifier *rfqrpc.AssetSpecifier, assetMaxAmt uint64,
+	expiryTimestamp time.Time,
+	peerPubKey *route.Vertex) (*rfqrpc.PeerAcceptedBuyQuote, error) {
+
+	var quote *rfqrpc.PeerAcceptedBuyQuote
+
+	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
+		AssetSpecifier: rpcSpecifier,
+		AssetMaxAmt:    assetMaxAmt,
+		Expiry:         uint64(expiryTimestamp.Unix()),
+		PeerPubKey:     peerPubKey[:],
+		TimeoutSeconds: uint32(
+			rfq.DefaultTimeout.Seconds(),
+		),
+	})
+	if err != nil {
+		return quote, fmt.Errorf("error adding buy order: %w", err)
+	}
+
+	switch r := resp.Response.(type) {
+	case *rfqrpc.AddAssetBuyOrderResponse_AcceptedQuote:
+		quote = r.AcceptedQuote
+
+	case *rfqrpc.AddAssetBuyOrderResponse_InvalidQuote:
+		return nil, fmt.Errorf("peer %v sent back an invalid quote, "+
+			"status: %v", r.InvalidQuote.Peer,
+			r.InvalidQuote.Status.String())
+
+	case *rfqrpc.AddAssetBuyOrderResponse_RejectedQuote:
+		return nil, fmt.Errorf("peer %v rejected the quote, code: %v, "+
+			"error message: %v", r.RejectedQuote.Peer,
+			r.RejectedQuote.ErrorCode, r.RejectedQuote.ErrorMessage)
+
+	default:
+		return nil, fmt.Errorf("unexpected response type: %T", r)
+	}
+
+	if quote.MinTransportableUnits > assetMaxAmt {
+		return nil, fmt.Errorf("cannot create invoice over %d asset "+
+			"units, as the minimal transportable amount is %d "+
+			"units with the current rate of %v units/BTC",
+			assetMaxAmt, quote.MinTransportableUnits,
+			quote.AskAssetRate)
+	}
+
+	return quote, nil
+}
+
 // DeclareScriptKey declares a new script key to the wallet. This is useful
 // when the script key contains scripts, which would mean it wouldn't be
 // recognized by the wallet automatically. Declaring a script key will make any
