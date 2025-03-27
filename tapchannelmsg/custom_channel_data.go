@@ -13,6 +13,20 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// outputsToJsonTranches converts a list of asset outputs to a list of JSON
+// asset tranches.
+func outputsToJsonTranches(outputs []*AssetOutput) []rfqmsg.JsonAssetTranche {
+	tranches := make([]rfqmsg.JsonAssetTranche, len(outputs))
+	for idx, output := range outputs {
+		tranches[idx] = rfqmsg.JsonAssetTranche{
+			Amount:  output.Amount.Val,
+			AssetID: hex.EncodeToString(output.AssetID.Val[:]),
+		}
+	}
+
+	return tranches
+}
+
 // ReadOpenChannel reads the content of an OpenChannel struct from a reader.
 func ReadOpenChannel(r io.Reader, maxReadSize uint32) (*OpenChannel, error) {
 	openChanData, err := wire.ReadVarBytes(r, 0, maxReadSize, "chan data")
@@ -62,34 +76,53 @@ func (c *ChannelCustomData) AsJson() ([]byte, error) {
 		return []byte{}, nil
 	}
 
-	resp := &rfqmsg.JsonAssetChannel{}
+	resp := &rfqmsg.JsonAssetChannel{
+		Capacity:            OutputSum(c.OpenChan.Assets()),
+		LocalBalance:        c.LocalCommit.LocalAssets.Val.Sum(),
+		RemoteBalance:       c.LocalCommit.RemoteAssets.Val.Sum(),
+		OutgoingHtlcBalance: c.LocalCommit.OutgoingHtlcAssets.Val.Sum(),
+		IncomingHtlcBalance: c.LocalCommit.IncomingHtlcAssets.Val.Sum(),
+	}
+
+	// First, we encode the funding state, which lists all assets committed
+	// to the channel at the time of channel opening.
 	for _, output := range c.OpenChan.Assets() {
 		a := output.Proof.Val.Asset
 
 		assetID := a.ID()
-		utxo := rfqmsg.JsonAssetUtxo{
-			Version: int64(a.Version),
-			AssetGenesis: rfqmsg.JsonAssetGenesis{
-				GenesisPoint: a.FirstPrevOut.String(),
-				Name:         a.Tag,
-				MetaHash: hex.EncodeToString(
-					a.MetaHash[:],
+		groupPubKey := a.ScriptKey.PubKey
+		resp.FundingAssets = append(
+			resp.FundingAssets, rfqmsg.JsonAssetUtxo{
+				Version: int64(a.Version),
+				AssetGenesis: rfqmsg.JsonAssetGenesis{
+					GenesisPoint: a.FirstPrevOut.String(),
+					Name:         a.Tag,
+					MetaHash: hex.EncodeToString(
+						a.MetaHash[:],
+					),
+					AssetID: hex.EncodeToString(assetID[:]),
+				},
+				Amount: a.Amount,
+				ScriptKey: hex.EncodeToString(
+					groupPubKey.SerializeCompressed(),
 				),
-				AssetID: hex.EncodeToString(assetID[:]),
+				DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
 			},
-			Amount: a.Amount,
-			ScriptKey: hex.EncodeToString(
-				a.ScriptKey.PubKey.SerializeCompressed(),
-			),
-			DecimalDisplay: c.OpenChan.DecimalDisplay.Val,
-		}
-		resp.Assets = append(resp.Assets, rfqmsg.JsonAssetChanInfo{
-			AssetInfo:     utxo,
-			Capacity:      output.Amount.Val,
-			LocalBalance:  c.LocalCommit.LocalAssets.Val.Sum(),
-			RemoteBalance: c.LocalCommit.RemoteAssets.Val.Sum(),
-		})
+		)
 	}
+
+	resp.LocalAssets = outputsToJsonTranches(
+		c.LocalCommit.LocalAssets.Val.Outputs,
+	)
+	resp.RemoteAssets = outputsToJsonTranches(
+		c.LocalCommit.RemoteAssets.Val.Outputs,
+	)
+	resp.OutgoingHtlcs = outputsToJsonTranches(
+		c.LocalCommit.OutgoingHtlcAssets.Val.Outputs(),
+	)
+	resp.IncomingHtlcs = outputsToJsonTranches(
+		c.LocalCommit.IncomingHtlcAssets.Val.Outputs(),
+	)
 
 	return json.Marshal(resp)
 }
@@ -123,6 +156,28 @@ func ReadChannelCustomData(chanData []byte) (*ChannelCustomData, error) {
 	}, nil
 }
 
+// jsonFormatChannelCustomData converts the custom channel data in the given
+// byte slice to JSON format.
+func jsonFormatChannelCustomData(customData []byte) ([]byte, error) {
+	if len(customData) == 0 {
+		return customData, nil
+	}
+
+	channelData, err := ReadChannelCustomData(customData)
+	if err != nil {
+		return nil, fmt.Errorf("error reading custom channel data: %w",
+			err)
+	}
+
+	jsonBytes, err := channelData.AsJson()
+	if err != nil {
+		return nil, fmt.Errorf("error converting custom channel data "+
+			"to JSON: %w", err)
+	}
+
+	return jsonBytes, nil
+}
+
 // BalanceCustomData represents the data that is returned in the
 // CustomChannelData field of a lnrpc.ChannelBalanceResponse object.
 type BalanceCustomData struct {
@@ -142,7 +197,7 @@ func (b *BalanceCustomData) AsJson() ([]byte, error) {
 	}
 	for _, openChan := range b.OpenChannels {
 		for _, assetOutput := range openChan.LocalOutputs() {
-			assetID := assetOutput.Proof.Val.Asset.ID()
+			assetID := assetOutput.AssetID.Val
 
 			assetIDStr := hex.EncodeToString(assetID[:])
 			assetName := assetOutput.Proof.Val.Asset.Tag
@@ -160,7 +215,7 @@ func (b *BalanceCustomData) AsJson() ([]byte, error) {
 		}
 
 		for _, assetOutput := range openChan.RemoteOutputs() {
-			assetID := assetOutput.Proof.Val.Asset.ID()
+			assetID := assetOutput.AssetID.Val
 
 			assetIDStr := hex.EncodeToString(assetID[:])
 			assetName := assetOutput.Proof.Val.Asset.Tag
@@ -180,7 +235,7 @@ func (b *BalanceCustomData) AsJson() ([]byte, error) {
 
 	for _, pendingChan := range b.PendingChannels {
 		for _, assetOutput := range pendingChan.LocalOutputs() {
-			assetID := assetOutput.Proof.Val.Asset.ID()
+			assetID := assetOutput.AssetID.Val
 
 			assetIDStr := hex.EncodeToString(assetID[:])
 			assetName := assetOutput.Proof.Val.Asset.Tag
@@ -198,7 +253,7 @@ func (b *BalanceCustomData) AsJson() ([]byte, error) {
 		}
 
 		for _, assetOutput := range pendingChan.RemoteOutputs() {
-			assetID := assetOutput.Proof.Val.Asset.ID()
+			assetID := assetOutput.AssetID.Val
 
 			assetIDStr := hex.EncodeToString(assetID[:])
 			assetName := assetOutput.Proof.Val.Asset.Tag
@@ -265,16 +320,39 @@ func ReadBalanceCustomData(balanceData []byte) (*BalanceCustomData, error) {
 	return result, nil
 }
 
-// replaceCloseOutCustomChannelData replaces the custom channel data in the
-// given close output with the JSON representation of the custom data.
-func replaceCloseOutCustomChannelData(localOut *lnrpc.CloseOutput) error {
-	if len(localOut.CustomChannelData) == 0 {
-		return nil
+// jsonFormatBalanceCustomData converts the custom channel data in the given
+// byte slice to JSON format.
+func jsonFormatBalanceCustomData(customData []byte) ([]byte, error) {
+	if len(customData) == 0 {
+		return customData, nil
 	}
 
-	closeData, err := DecodeAuxShutdownMsg(localOut.CustomChannelData)
+	channelData, err := ReadBalanceCustomData(customData)
 	if err != nil {
-		return fmt.Errorf("error reading custom close data: %w", err)
+		return nil, fmt.Errorf("error reading custom balance data: %w",
+			err)
+	}
+
+	jsonBytes, err := channelData.AsJson()
+	if err != nil {
+		return nil, fmt.Errorf("error converting custom balance data "+
+			"to JSON: %w", err)
+	}
+
+	return jsonBytes, nil
+}
+
+// jsonFormatCloseOutCustomData converts the custom channel data in the given
+// close output with the JSON representation.
+func jsonFormatCloseOutCustomData(customData []byte) ([]byte, error) {
+	if len(customData) == 0 {
+		return customData, nil
+	}
+
+	closeData, err := DecodeAuxShutdownMsg(customData)
+	if err != nil {
+		return nil, fmt.Errorf("error reading custom close data: %w",
+			err)
 	}
 
 	jsonCloseData := rfqmsg.JsonCloseOutput{
@@ -295,13 +373,35 @@ func replaceCloseOutCustomChannelData(localOut *lnrpc.CloseOutput) error {
 		)
 	}
 
-	localOut.CustomChannelData, err = json.Marshal(jsonCloseData)
+	jsonBytes, err := json.Marshal(jsonCloseData)
 	if err != nil {
-		return fmt.Errorf("error converting custom close data to "+
+		return nil, fmt.Errorf("error converting custom close data to "+
 			"JSON: %w", err)
 	}
 
-	return nil
+	return jsonBytes, nil
+}
+
+// jsonFormatHtlcCustomData converts the custom channel data in the given HTLC
+// with the JSON representation.
+func jsonFormatHtlcCustomData(customData []byte) ([]byte, error) {
+	if len(customData) == 0 {
+		return customData, nil
+	}
+
+	parsedHtlc, err := rfqmsg.DecodeHtlc(customData)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing custom channel data: %w",
+			err)
+	}
+
+	jsonBytes, err := parsedHtlc.AsJson()
+	if err != nil {
+		return nil, fmt.Errorf("error converting custom channel data "+
+			"to JSON: %w", err)
+	}
+
+	return jsonBytes, nil
 }
 
 // ParseCustomChannelData parses the custom channel data in the given lnd RPC
@@ -312,41 +412,25 @@ func ParseCustomChannelData(msg proto.Message) error {
 		for idx := range m.Channels {
 			rpcChannel := m.Channels[idx]
 
-			if len(rpcChannel.CustomChannelData) == 0 {
-				continue
-			}
-
-			channelData, err := ReadChannelCustomData(
+			customData, err := jsonFormatChannelCustomData(
 				rpcChannel.CustomChannelData,
 			)
 			if err != nil {
-				return fmt.Errorf("error reading custom "+
-					"channel data: %w", err)
+				return err
 			}
 
-			rpcChannel.CustomChannelData, err = channelData.AsJson()
-			if err != nil {
-				return fmt.Errorf("error converting custom "+
-					"channel data to JSON: %w", err)
-			}
+			rpcChannel.CustomChannelData = customData
 		}
 
 	case *lnrpc.ChannelBalanceResponse:
-		if len(m.CustomChannelData) == 0 {
-			return nil
+		customData, err := jsonFormatBalanceCustomData(
+			m.CustomChannelData,
+		)
+		if err != nil {
+			return err
 		}
 
-		balanceData, err := ReadBalanceCustomData(m.CustomChannelData)
-		if err != nil {
-			return fmt.Errorf("error reading custom balance "+
-				"data: %w", err)
-		}
-
-		m.CustomChannelData, err = balanceData.AsJson()
-		if err != nil {
-			return fmt.Errorf("error converting custom balance "+
-				"data to JSON: %w", err)
-		}
+		m.CustomChannelData = customData
 
 	case *lnrpc.PendingChannelsResponse:
 		for idx := range m.PendingOpenChannels {
@@ -357,23 +441,68 @@ func ParseCustomChannelData(msg proto.Message) error {
 				continue
 			}
 
-			if len(rpcChannel.CustomChannelData) == 0 {
-				continue
-			}
-
-			channelData, err := ReadChannelCustomData(
+			customData, err := jsonFormatChannelCustomData(
 				rpcChannel.CustomChannelData,
 			)
 			if err != nil {
-				return fmt.Errorf("error reading custom "+
-					"channel data: %w", err)
+				return err
 			}
 
-			rpcChannel.CustomChannelData, err = channelData.AsJson()
-			if err != nil {
-				return fmt.Errorf("error converting custom "+
-					"channel data to JSON: %w", err)
+			rpcChannel.CustomChannelData = customData
+		}
+
+		for idx := range m.PendingForceClosingChannels {
+			pendingForceClose := m.PendingForceClosingChannels[idx]
+			rpcChannel := pendingForceClose.Channel
+
+			if rpcChannel == nil {
+				continue
 			}
+
+			customData, err := jsonFormatChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return err
+			}
+
+			rpcChannel.CustomChannelData = customData
+		}
+
+		for idx := range m.WaitingCloseChannels {
+			waitingClose := m.WaitingCloseChannels[idx]
+			rpcChannel := waitingClose.Channel
+
+			if rpcChannel == nil {
+				continue
+			}
+
+			customData, err := jsonFormatChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return err
+			}
+
+			rpcChannel.CustomChannelData = customData
+		}
+
+	case *lnrpc.ClosedChannelsResponse:
+		for idx := range m.Channels {
+			rpcChannel := m.Channels[idx]
+
+			if rpcChannel == nil {
+				continue
+			}
+
+			customData, err := jsonFormatChannelCustomData(
+				rpcChannel.CustomChannelData,
+			)
+			if err != nil {
+				return err
+			}
+
+			rpcChannel.CustomChannelData = customData
 		}
 
 	case *lnrpc.CloseStatusUpdate:
@@ -384,60 +513,50 @@ func ParseCustomChannelData(msg proto.Message) error {
 
 		localOut := closeUpd.ChanClose.LocalCloseOutput
 		if localOut != nil {
-			err := replaceCloseOutCustomChannelData(localOut)
+			customData, err := jsonFormatCloseOutCustomData(
+				localOut.CustomChannelData,
+			)
 			if err != nil {
-				return fmt.Errorf("error replacing local "+
-					"custom close data: %w", err)
+				return err
 			}
+
+			localOut.CustomChannelData = customData
 		}
 
 		remoteOut := closeUpd.ChanClose.RemoteCloseOutput
 		if remoteOut != nil {
-			err := replaceCloseOutCustomChannelData(remoteOut)
+			customData, err := jsonFormatCloseOutCustomData(
+				remoteOut.CustomChannelData,
+			)
 			if err != nil {
-				return fmt.Errorf("error replacing remote "+
-					"custom close data: %w", err)
+				return err
 			}
+
+			remoteOut.CustomChannelData = customData
 		}
 
 	case *lnrpc.Route:
-		if len(m.CustomChannelData) == 0 {
-			return nil
+		customData, err := jsonFormatHtlcCustomData(
+			m.CustomChannelData,
+		)
+		if err != nil {
+			return err
 		}
 
-		parsedHtlc, err := rfqmsg.DecodeHtlc(m.CustomChannelData)
-		if err != nil {
-			return fmt.Errorf("error parsing custom "+
-				"channel data: %w", err)
-		}
-
-		m.CustomChannelData, err = parsedHtlc.AsJson()
-		if err != nil {
-			return fmt.Errorf("error converting custom "+
-				"channel data to JSON: %w", err)
-		}
+		m.CustomChannelData = customData
 
 	case *lnrpc.Invoice:
 		for idx := range m.Htlcs {
 			htlc := m.Htlcs[idx]
 
-			if len(htlc.CustomChannelData) == 0 {
-				continue
-			}
-
-			parsedHtlc, err := rfqmsg.DecodeHtlc(
+			customData, err := jsonFormatHtlcCustomData(
 				htlc.CustomChannelData,
 			)
 			if err != nil {
-				return fmt.Errorf("error parsing custom "+
-					"channel data: %w", err)
+				return err
 			}
 
-			htlc.CustomChannelData, err = parsedHtlc.AsJson()
-			if err != nil {
-				return fmt.Errorf("error converting custom "+
-					"channel data to JSON: %w", err)
-			}
+			htlc.CustomChannelData = customData
 		}
 	}
 
