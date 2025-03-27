@@ -739,10 +739,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		initiatorAssetBalance)
 
 	// Next, we add the HTLC outputs, using this helper function to
-	// distinguish between incoming and outgoing HTLCs. The haveHtlcSplit
-	// boolean is used to store if one of the HTLCs has already been chosen
-	// to be the split root (only the very first HTLC might be chosen).
-	var haveHtlcSplitRoot bool
+	// distinguish between incoming and outgoing HTLCs.
 	addHtlc := func(htlc *DecodedDescriptor, isIncoming bool) error {
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
 			isIncoming, whoseCommit, htlc.Timeout, htlc.RHash,
@@ -758,21 +755,6 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		if err != nil {
 			return fmt.Errorf("error creating HTLC script "+
 				"sibling: %w", err)
-		}
-
-		// We should always just have a single split root, which
-		// normally is the initiator's balance. However, if the
-		// initiator has no balance, then we choose the very first HTLC
-		// in the list to be the split root. If there are no HTLCs, then
-		// all the balance is on the receiver side and we don't need a
-		// split root.
-		shouldHouseSplitRoot := initiatorAssetBalance == 0 &&
-			!haveHtlcSplitRoot
-
-		// Make sure we only select the very first HTLC that pays to the
-		// initiator.
-		if shouldHouseSplitRoot {
-			haveHtlcSplitRoot = true
 		}
 
 		allocType := tapsend.CommitAllocationHtlcOutgoing
@@ -822,7 +804,6 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
 			AssetVersion:   asset.V1,
-			SplitRoot:      shouldHouseSplitRoot,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
@@ -1026,7 +1007,6 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			Type:           tapsend.CommitAllocationToLocal,
 			Amount:         ourAssetBalance,
 			AssetVersion:   asset.V1,
-			SplitRoot:      initiator,
 			BtcAmount:      ourBalance,
 			InternalKey:    toLocalTree.InternalKey,
 			NonAssetLeaves: sibling,
@@ -1089,7 +1069,6 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			Type:           tapsend.CommitAllocationToRemote,
 			Amount:         theirAssetBalance,
 			AssetVersion:   asset.V1,
-			SplitRoot:      !initiator,
 			BtcAmount:      theirBalance,
 			InternalKey:    toRemoteTree.InternalKey,
 			NonAssetLeaves: sibling,
