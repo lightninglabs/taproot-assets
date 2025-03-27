@@ -348,9 +348,6 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 		totalInputAmount uint64
 
 		// Inspect first asset to determine all input asset IDs.
-		//
-		// TODO(ffranr): Add support for multiple different input asset
-		// IDs.
 		assetID = inputs[0].Asset().ID()
 
 		// Inspect first asset to determine all input asset types.
@@ -387,10 +384,9 @@ func PrepareOutputAssets(ctx context.Context, vPkt *tappsbt.VPacket) error {
 			OutPoint: vIn.PrevID.OutPoint,
 		}
 
-		// TODO(ffranr): Right now, we only support a single input or
-		// multiple inputs with the same asset ID. We need to support
-		// multiple input assets from the same group but do not
-		// necessarily share the same asset ID.
+		// A single virtual packet can only contain assets with the same
+		// ID. For different fungible assets, distinct virtual packets
+		// need to be created.
 		if idx > 0 && inputs[idx].Asset().ID() != assetID {
 			return fmt.Errorf("multiple input assets " +
 				"must have the same asset ID")
