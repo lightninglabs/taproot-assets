@@ -18,9 +18,12 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
+	"github.com/lightninglabs/taproot-assets/taprpc/rfqrpc"
+	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
+	"github.com/lightningnetwork/lnd/zpay32"
 )
 
 const (
@@ -1164,6 +1167,62 @@ func (m *Manager) RfqChannel(ctx context.Context, specifier asset.Specifier,
 	}
 
 	return balancesMap, nil
+}
+
+// InboundPolicyFetcher is a helper that fetches the inbound policy of a channel
+// based on its chanID.
+type InboundPolicyFetcher func(ctx context.Context, chanID uint64,
+	remotePubStr string) (*lnrpc.RoutingPolicy, error)
+
+// RfqToHopHint creates the hop hint representation which encapsulates certain
+// quote information along with some other data required by the payment to
+// succeed.
+// Depending on whether the hold flag is set, we either return the lnrpc version
+// of a hop hint or the zpay32 version. This is because we use the lndclient
+// wrapper for hold invoices while we use the raw lnrpc endpoint for simple
+// invoices.
+func (m *Manager) RfqToHopHint(ctx context.Context,
+	policyFetcher InboundPolicyFetcher, channelID uint64,
+	peerPubKey route.Vertex, quote *rfqrpc.PeerAcceptedBuyQuote,
+	hold bool) (*zpay32.HopHint, error) {
+
+	inboundPolicy, err := policyFetcher(ctx, channelID, peerPubKey.String())
+	if err != nil {
+		return nil, fmt.Errorf("unable to get inbound channel "+
+			"policy for channel with ID %d: %w", channelID, err)
+	}
+
+	peerPub, err := btcec.ParsePubKey(peerPubKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("error parsing peer "+
+			"pubkey: %w", err)
+	}
+	hopHint := &zpay32.HopHint{
+		NodeID:      peerPub,
+		ChannelID:   quote.Scid,
+		FeeBaseMSat: uint32(inboundPolicy.FeeBaseMsat),
+		FeeProportionalMillionths: uint32(
+			inboundPolicy.FeeRateMilliMsat,
+		),
+		CLTVExpiryDelta: uint16(
+			inboundPolicy.TimeLockDelta,
+		),
+	}
+
+	return hopHint, nil
+}
+
+// Zpay32HopHintToLnrpc converts a zpay32 hop hint to the lnrpc representation.
+func Zpay32HopHintToLnrpc(h *zpay32.HopHint) *lnrpc.HopHint {
+	return &lnrpc.HopHint{
+		NodeId: fmt.Sprintf(
+			"%x", h.NodeID.SerializeCompressed(),
+		),
+		ChanId:                    h.ChannelID,
+		FeeBaseMsat:               h.FeeBaseMSat,
+		FeeProportionalMillionths: h.FeeProportionalMillionths,
+		CltvExpiryDelta:           uint32(h.CLTVExpiryDelta),
+	}
 }
 
 // publishSubscriberEvent publishes an event to all subscribers.
