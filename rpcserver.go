@@ -7637,6 +7637,29 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 	if len(req.AssetId) != sha256.Size {
 		return nil, fmt.Errorf("asset ID must be 32 bytes")
 	}
+
+	// Let's make sure that only one type of amount is set, in order to
+	// avoid ambiguous behavior. This field dictates the actual value of the
+	// invoice so let's be strict and only allow one possible value to be
+	// set.
+	if req.AssetAmount > 0 && (req.InvoiceRequest.ValueMsat > 0 ||
+		req.InvoiceRequest.Value > 0) {
+
+		return nil, fmt.Errorf("cannot set both asset amount and sats" +
+			"amount")
+	}
+
+	if req.InvoiceRequest.ValueMsat > 0 && req.InvoiceRequest.Value > 0 {
+		return nil, fmt.Errorf("cannot set both sats and msats")
+	}
+
+	// In order to avoid repeating the following check let's assign it to a
+	// boolean for easier access.
+	var satsMode bool
+	if req.InvoiceRequest.Value > 0 || req.InvoiceRequest.ValueMsat > 0 {
+		satsMode = true
+	}
+
 	var assetID asset.ID
 	copy(assetID[:], req.AssetId)
 
@@ -7676,13 +7699,72 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		time.Duration(expirySeconds) * time.Second,
 	)
 
+	maxUnits := req.AssetAmount
+	amtMsat := lnwire.MilliSatoshi(0)
+
+	// If the invoice defines the desired amount in satoshis, we need to
+	// query our oracle first to get an estimation on the asset rate. This
+	// will help us establish a quote with the correct amount of asset
+	// units.
+	if satsMode {
+		amtMsat = lnwire.MilliSatoshi(req.InvoiceRequest.ValueMsat +
+			req.InvoiceRequest.Value*(1000))
+
+		oracleRes, err := r.cfg.PriceOracle.QueryBidPrice(
+			ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
+			fn.None[rfqmsg.AssetRate](),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		if oracleRes.Err != nil {
+			return nil, fmt.Errorf("cannot query oracle: %v",
+				oracleRes.Err.Error())
+		}
+
+		assetUnits := rfqmath.MilliSatoshiToUnits(
+			amtMsat, oracleRes.AssetRate.Rate,
+		)
+
+		maxUnits = assetUnits.ToUint64()
+	}
+
+	// Since we used a different oracle price query above calculate the max
+	// amount of units, we want to add some breathing room to account for
+	// price fluctuations caused by the small time delay, plus the fact that
+	// the agreed upon quote may be different. If we don't add this safety
+	// window the peer may allow a routable amount that evaluates to less
+	// than what we ask for.
+	tolerance := rfqmath.NewBigIntFromUint64(
+		r.cfg.RfqManager.GetPriceDeviationPpm(),
+	)
+
+	// Parse the max asset units to the rfqmath type.
+	maxMathUnits := rfqmath.NewBigIntFromUint64(maxUnits)
+
+	// Calculate the tolerance margin.
+	toleranceUnits := maxMathUnits.Mul(tolerance).Div(
+		rfqmath.NewBigIntFromUint64(1_000_000),
+	)
+
+	// Apply the tolerance margin twice. Once due to the ask/bid price
+	// deviation that may occur during rfq negotiation, and once for the
+	// price movement that may occur between querying the oracle and
+	// acquiring the quote. We don't really care about this margin being too
+	// big, this only affects the max units our peer agrees to route.
+	maxMathUnits = maxMathUnits.Add(toleranceUnits).Add(toleranceUnits)
+
+	// Now parse the result back to uint64.
+	maxUnits = maxMathUnits.ToUint64()
+
 	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
 		AssetSpecifier: &rfqrpc.AssetSpecifier{
 			Id: &rfqrpc.AssetSpecifier_AssetId{
 				AssetId: assetID[:],
 			},
 		},
-		AssetMaxAmt: req.AssetAmount,
+		AssetMaxAmt: maxUnits,
 		Expiry:      uint64(expiryTimestamp.Unix()),
 		PeerPubKey:  peerPubKey[:],
 		TimeoutSeconds: uint32(
@@ -7712,17 +7794,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		return nil, fmt.Errorf("unexpected response type: %T", r)
 	}
 
-	// If the invoice is for an asset unit amount smaller than the minimal
-	// transportable amount, we'll return an error, as it wouldn't be
-	// payable by the network.
-	if acceptedQuote.MinTransportableUnits > req.AssetAmount {
-		return nil, fmt.Errorf("cannot create invoice over %d asset "+
-			"units, as the minimal transportable amount is %d "+
-			"units with the current rate of %v units/BTC",
-			req.AssetAmount, acceptedQuote.MinTransportableUnits,
-			acceptedQuote.AskAssetRate)
-	}
-
 	// Now that we have the accepted quote, we know the amount in Satoshi
 	// that we need to pay. We can now update the invoice with this amount.
 	//
@@ -7735,12 +7806,56 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 			err)
 	}
 
-	// Convert the asset amount into a fixed-point.
-	assetAmount := rfqmath.NewBigIntFixedPoint(req.AssetAmount, 0)
+	invUnits := req.AssetAmount
 
-	// Calculate the invoice amount in msat.
-	valMsat := rfqmath.UnitsToMilliSatoshi(assetAmount, *askAssetRate)
-	iReq.ValueMsat = int64(valMsat)
+	if satsMode {
+		// If the invoice was created over a satoshi amount, we need to
+		// calculate the units.
+		invUnits = rfqmath.MilliSatoshiToUnits(
+			amtMsat, *askAssetRate,
+		).ToUint64()
+
+		// Now let's see if the negotiated quote can actually route the
+		// amount we need in msat.
+		maxFixedUnits := rfqmath.NewBigIntFixedPoint(
+			acceptedQuote.AssetMaxAmount, 0,
+		)
+		maxRoutableMsat := rfqmath.UnitsToMilliSatoshi(
+			maxFixedUnits, *askAssetRate,
+		)
+
+		if maxRoutableMsat <= amtMsat {
+			return nil, fmt.Errorf("cannot create invoice for %v "+
+				"msat, max routable amount is %v msat", amtMsat,
+				maxRoutableMsat)
+		}
+	}
+
+	// If the invoice is for an asset unit amount smaller than the minimal
+	// transportable amount, we'll return an error, as it wouldn't be
+	// payable by the network.
+	if acceptedQuote.MinTransportableUnits > invUnits {
+		return nil, fmt.Errorf("cannot create invoice over %d asset "+
+			"units, as the minimal transportable amount is %d "+
+			"units with the current rate of %v units/BTC",
+			invUnits, acceptedQuote.MinTransportableUnits,
+			acceptedQuote.AskAssetRate)
+	}
+
+	switch {
+	case satsMode:
+		iReq.ValueMsat = int64(amtMsat)
+
+	default:
+		// Convert the asset amount into a fixed-point.
+		assetAmount := rfqmath.NewBigIntFixedPoint(req.AssetAmount, 0)
+
+		// Calculate the invoice amount in msat.
+		valMsat := rfqmath.UnitsToMilliSatoshi(
+			assetAmount, *askAssetRate,
+		)
+		iReq.ValueMsat = int64(valMsat)
+	}
 
 	// The last step is to create a hop hint that includes the fake SCID of
 	// the quote, alongside the channel's routing policy. We need to choose
