@@ -2,6 +2,8 @@ package tapdb
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
@@ -22,22 +24,6 @@ func NewIgnoreUniverseTree(db BatchedUniverseTree) *IgnoreUniverseTree {
 	return &IgnoreUniverseTree{db: db}
 }
 
-// specifierToIdentifier converts an asset.Specifier into a universe.Identifier.
-func specifierToIdentifier(spec asset.Specifier) (universe.Identifier, error) {
-	var id universe.Identifier
-
-	// The specifier must have a group key to be able to be used within the
-	// ignore tree context.
-	if !spec.HasGroupPubKey() {
-		return id, fmt.Errorf("group key must be set")
-	}
-
-	id.GroupKey = spec.UnwrapGroupKeyToPtr()
-
-	id.ProofType = universe.ProofTypeIgnore
-	return id, nil
-}
-
 // AddTuple adds a new ignore tuples to the ignore tree.
 func (it *IgnoreUniverseTree) AddTuples(ctx context.Context,
 	spec asset.Specifier, tuples ...*universe.SignedIgnoreTuple,
@@ -51,7 +37,7 @@ func (it *IgnoreUniverseTree) AddTuples(ctx context.Context,
 
 	// Derive identifier (and thereby the namespace) from the
 	// asset.Specifier.
-	id, err := specifierToIdentifier(spec)
+	id, err := specifierToIdentifier(spec, universe.ProofTypeIgnore)
 	if err != nil {
 		return lfn.Err[[]universe.AuthenticatedIgnoreTuple](err)
 	}
@@ -171,100 +157,124 @@ func (it *IgnoreUniverseTree) Sum(ctx context.Context,
 	spec asset.Specifier) universe.SumQueryResp {
 
 	// Derive identifier from the asset.Specifier.
-	id, err := specifierToIdentifier(spec)
+	id, err := specifierToIdentifier(spec, universe.ProofTypeIgnore)
 	if err != nil {
 		return lfn.Err[lfn.Option[uint64]](err)
 	}
-	namespace := id.String()
 
-	var sumValue uint64
-	var foundSum bool
+	// Use the generic helper to get the sum of the universe tree.
+	return getUniverseTreeSum(ctx, it.db, id)
+}
 
-	readTx := NewBaseUniverseReadTx()
-	txErr := it.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		tree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, namespace),
-		)
-
-		// Get the root of the tree to retrieve the sum.
-		root, err := tree.Root(ctx)
-		if err != nil {
-			return err
-		}
-
-		// If root is empty, return empty sum.
-		//
-		// TODO(roasbeef): verify behavior
-		if root.NodeHash() == mssmt.EmptyTreeRootHash {
-			return nil
-		}
-
-		// Return the sum from the root.
-		sumValue = root.NodeSum()
-		foundSum = true
-		return nil
-	})
-	if txErr != nil {
-		return lfn.Err[lfn.Option[uint64]](txErr)
+// decodeIgnoreTuple decodes the raw bytes into an IgnoreTuple.
+func decodeIgnoreTuple(dbLeaf UniverseLeaf) (*universe.IgnoreTuple, error) {
+	signedTuple, err := universe.DecodeSignedIgnoreTuple(
+		dbLeaf.GenesisProof,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error decoding signed ignore "+
+			"tuple: %w", err)
 	}
 
-	if !foundSum {
-		return lfn.Ok(lfn.None[uint64]())
-	}
-
-	return lfn.Ok(lfn.Some(sumValue))
+	return &signedTuple.IgnoreTuple.Val, nil
 }
 
 // ListTuples returns the list of ignore tuples for the given asset.
 func (it *IgnoreUniverseTree) ListTuples(ctx context.Context,
-	spec asset.Specifier) lfn.Result[[]*universe.IgnoreTuple] {
+	spec asset.Specifier) universe.ListTuplesResp {
 
 	// Derive identifier from the asset.Specifier.
-	id, err := specifierToIdentifier(spec)
+	id, err := specifierToIdentifier(spec, universe.ProofTypeIgnore)
 	if err != nil {
-		return lfn.Err[[]*universe.IgnoreTuple](err)
+		return lfn.Err[lfn.Option[universe.IgnoreTuples]](err)
 	}
 
-	namespace := id.String()
+	// Use the generic list helper to list the leaves from the universe
+	// Tree. We pass in our custom decode function to handle the logic
+	// specific to IgnoreTuples.
+	res, dbErr := listUniverseLeaves(ctx, it.db, id, decodeIgnoreTuple)
+	if dbErr != nil {
+		return lfn.Err[lfn.Option[universe.IgnoreTuples]](err)
+	}
 
-	var tuples []*universe.IgnoreTuple
+	return res
+}
 
-	readTx := NewBaseUniverseReadTx()
-	txErr := it.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		// To list all the tuples, we'll just query for all the universe
-		// leaves for this namespace. The namespace is derived from the
-		// group key, and the proof type, which in this case is ignore.
-		universeLeaves, err := db.QueryUniverseLeaves(
-			ctx, UniverseLeafQuery{
-				Namespace: namespace,
-			},
-		)
+// queryIgnoreLeaves retrieves UniverseLeaf records based on IgnoreTuple
+// criteria.
+func queryIgnoreLeaves(ctx context.Context, dbtx BaseUniverseStore,
+	spec asset.Specifier,
+	tuples ...universe.IgnoreTuple) ([]UniverseLeaf, error) {
+
+	uniNamespace, err := specifierToIdentifier(
+		spec, universe.ProofTypeIgnore,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("error deriving identifier: %w", err)
+	}
+
+	var allLeaves []UniverseLeaf
+	for _, queryTuple := range tuples {
+		// Create a leaf query for this specific key.
+		//
+		// TODO(roasbeef): need a more specific key here?
+		//   * also add outpoint?
+		scriptKey := queryTuple.ScriptKey
+		leafQuery := UniverseLeafQuery{
+			ScriptKeyBytes: scriptKey.SchnorrSerialized(),
+			Namespace:      uniNamespace.String(),
+		}
+
+		leaves, err := dbtx.QueryUniverseLeaves(ctx, leafQuery)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue // Skip if no leaves found for this tuple
+		}
 		if err != nil {
-			return err
+			return nil, fmt.Errorf("error querying leaf for tuple "+
+				"(script_key=%x): %w", leafQuery.ScriptKeyBytes,
+				err)
 		}
 
-		for _, leaf := range universeLeaves {
-			leafBytes := leaf.GenesisProof
-
-			tuple, err := universe.DecodeSignedIgnoreTuple(
-				leafBytes,
-			)
-			if err != nil {
-				return fmt.Errorf("error decoding tuple: "+
-					"%w", err)
-			}
-
-			tuples = append(tuples, &tuple.IgnoreTuple.Val)
+		// Since the query is specific, we expect at most one leaf.
+		if len(leaves) > 0 {
+			allLeaves = append(allLeaves, leaves[0])
 		}
-
-		return nil
-	})
-
-	if txErr != nil {
-		return lfn.Err[[]*universe.IgnoreTuple](txErr)
 	}
 
-	return lfn.Ok(tuples)
+	// Return sql.ErrNoRows if no leaves were found across all tuples.
+	if len(allLeaves) == 0 {
+		return nil, sql.ErrNoRows
+	}
+
+	return allLeaves, nil
+}
+
+// decodeAndBuildAuthIgnoreTuple decodes the raw leaf, reconstructs the key,
+// and builds the AuthenticatedIgnoreTuple.
+func decodeAndBuildAuthIgnoreTuple(dbLeaf UniverseLeaf,
+) (*universe.SignedIgnoreTuple, uniKey, error) {
+
+	signedTuple, err := universe.DecodeSignedIgnoreTuple(
+		dbLeaf.GenesisProof,
+	)
+	if err != nil {
+		return nil, uniKey{}, fmt.Errorf("error decoding tuple: %w",
+			err)
+	}
+
+	return &signedTuple, signedTuple.UniverseKey(), nil
+}
+
+// buildAuthIgnoreTuple constructs the final AuthenticatedIgnoreTuple.
+func buildAuthIgnoreTuple(decodedLeaf *universe.SignedIgnoreTuple,
+	proof *mssmt.Proof,
+	root mssmt.Node) (universe.AuthenticatedIgnoreTuple, error) {
+
+	return universe.AuthenticatedIgnoreTuple{
+		SignedIgnoreTuple: decodedLeaf,
+		InclusionProof:    proof,
+		IgnoreTreeRoot:    root,
+	}, nil
 }
 
 // QueryTuples returns the ignore tuples for the given asset.
@@ -277,104 +287,26 @@ func (it *IgnoreUniverseTree) QueryTuples(ctx context.Context,
 	}
 
 	// Derive identifier from the asset.Specifier.
-	id, err := specifierToIdentifier(spec)
+	id, err := specifierToIdentifier(spec, universe.ProofTypeIgnore)
 	if err != nil {
 		return lfn.Err[lfn.Option[[]universe.AuthenticatedIgnoreTuple]](
 			err,
 		)
 	}
 
-	namespace := id.String()
-
-	var (
-		resultTuples []universe.AuthenticatedIgnoreTuple
-		foundAny     bool
+	// Use the generic query helper, which will handle: doing the initial
+	// query, decoding the ignore tuples, and finally building the merkle
+	// proof for the tuples.
+	res, dbErr := queryUniverseLeavesAndProofs(
+		ctx, it.db, spec, id, queryIgnoreLeaves,
+		decodeAndBuildAuthIgnoreTuple, buildAuthIgnoreTuple,
+		queryTuples...,
 	)
-
-	readTx := NewBaseUniverseReadTx()
-	txErr := it.db.ExecTx(ctx, &readTx, func(db BaseUniverseStore) error {
-		// Create the tree within the transaction for getting root and
-		// proofs.
-		tree := mssmt.NewCompactedTree(
-			newTreeStoreWrapperTx(db, namespace),
-		)
-
-		// Get the tree root once for all queries
-		root, err := tree.Root(ctx)
-		if err != nil {
-			return err
-		}
-
-		for _, queryTuple := range queryTuples {
-			// Generate the SMT key for the query tuple.
-			smtKey := queryTuple.Hash()
-
-			// Create a leaf query for this specific key.
-			scriptKey := queryTuple.ScriptKey
-			leafQuery := UniverseLeafQuery{
-				ScriptKeyBytes: scriptKey.SchnorrSerialized(),
-				Namespace:      namespace,
-			}
-
-			leaves, err := db.QueryUniverseLeaves(
-				ctx, leafQuery,
-			)
-			if err != nil {
-				return fmt.Errorf("error querying leaf "+
-					"for tuple: %w", err)
-			}
-
-			// Skip if no leaves found for this tuple.
-			//
-			// TODO(roasbeef): move to slice of results? then can
-			// see if one failed or not for each
-			if len(leaves) == 0 {
-				continue
-			}
-
-			// Get the first leaf (there should only be one for this
-			// specific key).
-			rawLeaf := leaves[0].GenesisProof
-
-			// With the key, we can generate the inclusion proof for
-			// this tuple.
-			proof, err := tree.MerkleProof(ctx, smtKey)
-			if err != nil {
-				return fmt.Errorf("error generating proof for "+
-					"tuple: %w", err)
-			}
-
-			// With all the data gathered, we can now create the
-			// signed tuple along side the universe root and its
-			// inclusion proof.
-			signedTuple, err := universe.DecodeSignedIgnoreTuple(
-				rawLeaf,
-			)
-			if err != nil {
-				return fmt.Errorf("error deserializing "+
-					"tuple: %w", err)
-			}
-			tup := universe.AuthenticatedIgnoreTuple{
-				SignedIgnoreTuple: &signedTuple,
-				InclusionProof:    proof,
-				IgnoreTreeRoot:    root,
-			}
-			resultTuples = append(resultTuples, tup)
-
-			foundAny = true
-		}
-
-		return nil
-	})
-	if txErr != nil {
+	if dbErr != nil {
 		return lfn.Err[lfn.Option[[]universe.AuthenticatedIgnoreTuple]](
-			txErr,
+			dbErr,
 		)
 	}
 
-	if !foundAny {
-		return lfn.Ok(lfn.None[[]universe.AuthenticatedIgnoreTuple]())
-	}
-
-	return lfn.Ok(lfn.Some(resultTuples))
+	return res
 }
