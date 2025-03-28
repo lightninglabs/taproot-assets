@@ -1210,6 +1210,17 @@ type AuthenticatedIgnoreTuple struct {
 	InclusionProof *mssmt.Proof
 }
 
+// NewAuthIgnoreTuple constructs the final AuthenticatedIgnoreTuple.
+func NewAuthIgnoreTuple(decodedLeaf SignedIgnoreTuple,
+	proof *mssmt.Proof, root mssmt.Node) AuthenticatedIgnoreTuple {
+
+	return AuthenticatedIgnoreTuple{
+		SignedIgnoreTuple: decodedLeaf,
+		InclusionProof:    proof,
+		IgnoreTreeRoot:    root,
+	}
+}
+
 // TupleQueryResp is the response to a query for ignore tuples.
 type TupleQueryResp = lfn.Result[lfn.Option[[]AuthenticatedIgnoreTuple]]
 
@@ -1219,6 +1230,9 @@ type SumQueryResp = lfn.Result[lfn.Option[uint64]]
 
 // AuthIgnoreTuples is a type alias for a slice of AuthenticatedIgnoreTuple.
 type AuthIgnoreTuples = []AuthenticatedIgnoreTuple
+
+// ListTuplesResp is the response to a query for ignore tuples.
+type ListTuplesResp = lfn.Result[lfn.Option[IgnoreTuples]]
 
 // IgnoreTree represents a tree of ignore tuples which can be used to
 // effectively cache rejection of invalid proofs.
@@ -1233,7 +1247,7 @@ type IgnoreTree interface {
 		...SignedIgnoreTuple) lfn.Result[AuthIgnoreTuples]
 
 	// ListTuples returns the list of ignore tuples for the given asset.
-	ListTuples(context.Context, asset.Specifier) lfn.Result[IgnoreTuples]
+	ListTuples(context.Context, asset.Specifier) ListTuplesResp
 
 	// QueryTuples returns the ignore tuples for the given asset.
 	QueryTuples(context.Context, asset.Specifier,

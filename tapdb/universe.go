@@ -15,6 +15,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/proof"
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/universe"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -110,6 +111,245 @@ type BaseUniverseStore interface {
 	// DeleteMultiverseLeaf deletes a multiverse leaf from the database.
 	DeleteMultiverseLeaf(ctx context.Context,
 		arg DeleteMultiverseLeaf) error
+}
+
+// specifierToIdentifier converts an asset.Specifier into a universe.Identifier
+// for a specific proof type.
+//
+// NOTE: This makes an assumption that only specifiers with a group key are
+// valid.
+func specifierToIdentifier(spec asset.Specifier,
+	proofType universe.ProofType) (universe.Identifier, error) {
+
+	var id universe.Identifier
+
+	// The specifier must have a group key to be able to be used within the
+	// ignore or burn tree context.
+	if !spec.HasGroupPubKey() {
+		return id, fmt.Errorf("group key must be set for proof type %v",
+			proofType)
+	}
+
+	id.GroupKey = spec.UnwrapGroupKeyToPtr()
+	id.ProofType = proofType
+
+	return id, nil
+}
+
+// getUniverseTreeSum retrieves the sum of a universe tree specified by its
+// identifier.
+func getUniverseTreeSum(ctx context.Context, db BatchedUniverseTree,
+	id universe.Identifier) universe.SumQueryResp {
+
+	namespace := id.String()
+	var sumOpt lfn.Option[uint64]
+
+	readTx := NewBaseUniverseReadTx()
+	txErr := db.ExecTx(ctx, &readTx, func(dbtx BaseUniverseStore) error {
+		tree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbtx, namespace),
+		)
+
+		// Get the root of the tree to retrieve the sum.
+		root, err := tree.Root(ctx)
+		if err != nil {
+			return err
+		}
+
+		// If root is empty, return empty sum.
+		if root.NodeHash() == mssmt.EmptyTreeRootHash {
+			return nil
+		}
+
+		// Return the sum from the root.
+		sumOpt = lfn.Some(root.NodeSum())
+		return nil
+	})
+	if txErr != nil {
+		return lfn.Err[lfn.Option[uint64]](txErr)
+	}
+
+	// If sumOpt was never set (empty tree), return None explicitly.
+	if !sumOpt.IsSome() {
+		return lfn.Ok(lfn.None[uint64]())
+	}
+
+	return lfn.Ok(sumOpt)
+}
+
+// uniKey is a type alias for a 32-byte array used as a key in the universe
+// tree.
+type uniKey = [32]byte
+
+// universeLeafQueryFunc defines the function signature for retrieving
+// UniverseLeaf records based on specific query parameters.
+type universeLeafQueryFunc[QueryType any] func(context.Context,
+	BaseUniverseStore, asset.Specifier, ...QueryType,
+) ([]UniverseLeaf, error)
+
+// universeLeafDecodeFunc defines the function signature for decoding a raw
+// proof from a UniverseLeaf into a specific type and extracting the universe
+// key.
+type universeLeafDecodeFunc[DecodedLeafType any] func(
+	UniverseLeaf,
+) (DecodedLeafType, uniKey, error)
+
+// authProofBuilder defines the function signature for constructing the final
+// authenticated proof structure using the decoded leaf, the SMT proof, and the
+// SMT root.
+type authProofBuilder[DecodedLeafType any, AuthProofType any] func(
+	DecodedLeafType, *mssmt.Proof, mssmt.Node,
+) AuthProofType
+
+// queryUniverseLeavesAndProofs executes a query against universe leaves,
+// fetches their inclusion proofs, and builds authenticated results.
+//
+// The LeafType is the concrete type of the leaf, AuthType is the
+// type of the wrapper of the LeafType that includes MS-SMT merkle proof
+// info, and finally the QueryType is the type that is used to query the leaves.
+func queryUniverseLeavesAndProofs[LeafType any, AuthType any, QueryType any](
+	ctx context.Context, db BatchedUniverseTree, assetSpec asset.Specifier,
+	id universe.Identifier, leafQuery universeLeafQueryFunc[QueryType],
+	leafDecode universeLeafDecodeFunc[LeafType],
+	proofBuild authProofBuilder[LeafType, AuthType],
+	queryParams ...QueryType) lfn.Result[lfn.Option[[]AuthType]] {
+
+	namespace := id.String()
+	var (
+		resultAuths []AuthType
+		foundAny    bool
+	)
+
+	readTx := NewBaseUniverseReadTx()
+	txErr := db.ExecTx(ctx, &readTx, func(dbtx BaseUniverseStore) error {
+		tree := mssmt.NewCompactedTree(
+			newTreeStoreWrapperTx(dbtx, namespace),
+		)
+
+		root, err := tree.Root(ctx)
+		if err != nil {
+			return fmt.Errorf("unable to get tree root: %w", err)
+		}
+
+		// If the root is the empty hash, there are no leaves.
+		if root.NodeHash() == mssmt.EmptyTreeRootHash {
+			return nil
+		}
+
+		// First, we'll query for the set of leaves using the query
+		// params.
+		leavesToQuery, err := leafQuery(
+			ctx, dbtx, assetSpec, queryParams...,
+		)
+		if err != nil {
+			// It's okay if no leaves match the query.
+			if errors.Is(err, sql.ErrNoRows) {
+				return nil
+			}
+			return fmt.Errorf("error querying leaves: %w", err)
+		}
+
+		if len(leavesToQuery) == 0 {
+			return nil
+		}
+
+		// Mark that we found leaves matching the query.
+		foundAny = true
+
+		// At this point, we have responses, so we'll decode them,
+		// generate a merkle proof using the leaf key, then finally
+		// assembled the final result which includes the merkle proofs.
+		for _, dbLeaf := range leavesToQuery {
+			decodedLeaf, leafKey, err := leafDecode(dbLeaf)
+			if err != nil {
+				return fmt.Errorf("error decoding "+
+					"leaf: %w", err)
+			}
+
+			inclusionProof, err := tree.MerkleProof(ctx, leafKey)
+			if err != nil {
+				// If proof generation fails for a specific key,
+				// it might indicate inconsistency. Return
+				// error.
+				return fmt.Errorf("error generating proof for "+
+					"smt key %x: %w", leafKey, err)
+			}
+
+			authResult := proofBuild(
+				decodedLeaf, inclusionProof, root,
+			)
+
+			resultAuths = append(resultAuths, authResult)
+		}
+
+		return nil
+	})
+	if txErr != nil {
+		return lfn.Err[lfn.Option[[]AuthType]](txErr)
+	}
+
+	if !foundAny {
+		return lfn.Ok(lfn.None[[]AuthType]())
+	}
+
+	return lfn.Ok(lfn.Some(resultAuths))
+}
+
+// listUniverseLeaves retrieves and decodes all leaves within a universe
+// namespace.
+//
+// We accept and return an abstract type T, which can be created by reading the
+// raw value of the universe leaf, and decoding that.
+//
+// decodeFunc decodes the raw proof bytes from a UniverseLeaf into the
+// desired domain-specific type.
+func listUniverseLeaves[T any](ctx context.Context, db BatchedUniverseTree,
+	id universe.Identifier, decodeFunc func(UniverseLeaf) (T, error),
+) lfn.Result[lfn.Option[[]T]] {
+
+	namespace := id.String()
+	var results []T
+
+	readTx := NewBaseUniverseReadTx()
+	txErr := db.ExecTx(ctx, &readTx, func(dbtx BaseUniverseStore) error {
+		universeLeaves, err := dbtx.QueryUniverseLeaves(
+			ctx, UniverseLeafQuery{
+				Namespace: namespace,
+			},
+		)
+
+		// If no leaves are found, return successfully with empty
+		// results.
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("error querying universe leaves: %w",
+				err)
+		}
+
+		for _, dbLeaf := range universeLeaves {
+			decodedResult, err := decodeFunc(dbLeaf)
+			if err != nil {
+				// If decoding fails for one leaf, return error.
+				return fmt.Errorf(
+					"error decoding leaf: %w", err,
+				)
+			}
+			results = append(results, decodedResult)
+		}
+
+		return nil
+	})
+	if txErr != nil {
+		return lfn.Err[lfn.Option[[]T]](txErr)
+	}
+
+	if len(results) == 0 {
+		return lfn.Ok(lfn.None[[]T]())
+	}
+
+	return lfn.Ok(lfn.Some(results))
 }
 
 // BaseUniverseStoreOptions is the set of options for universe tree queries.

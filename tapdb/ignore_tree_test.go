@@ -286,13 +286,15 @@ func TestIgnoreUniverseTreeListTuples(t *testing.T) {
 		// that we added.
 		resTuples, err := ignoreTree.ListTuples(ctx, spec).Unpack()
 		require.NoError(t, err)
-		require.Len(t, resTuples, 10)
+
+		dbTuples := resTuples.UnwrapOrFail(t)
+		require.Len(t, dbTuples, 10)
 
 		// To make our next assertion easier, we'll create a map of the
 		// results keyed by their asset ID, then use that to assert that
 		// all the tuples are found and identical.
 		tupleMap := make(map[[32]byte]*universe.IgnoreTuple)
-		for _, tuple := range resTuples {
+		for _, tuple := range dbTuples {
 			tupleMap[tuple.ID] = tuple
 		}
 
@@ -313,7 +315,8 @@ func TestIgnoreUniverseTreeListTuples(t *testing.T) {
 		newTuples, err := ignoreTree.ListTuples(ctx, spec).Unpack()
 		require.NoError(t, err)
 
-		require.Len(t, newTuples, len(signedTuples)+1)
+		dbTuples = newTuples.UnwrapOrFail(t)
+		require.Len(t, dbTuples, len(signedTuples)+1)
 	})
 
 	// Test case 3: List with invalid specifier should fail.
