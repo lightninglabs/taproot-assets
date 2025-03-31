@@ -266,6 +266,9 @@ jobs:
     name: run itests
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v4
 
@@ -306,6 +309,9 @@ jobs:
     name: run itests postgres
     runs-on: ubuntu-latest
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v4
 
@@ -347,6 +353,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: cleanup space
+        run: rm -rf /opt/hostedtoolcache
+
       - name: git checkout
         uses: actions/checkout@v4
 
@@ -391,7 +400,7 @@ jobs:
   # Notify about the completion of all coverage collecting jobs.
   finish:
     if: ${{ always() }}
-    needs: [unit-test]
+    needs: [ unit-test ]
     runs-on: ubuntu-latest
     steps:
       - uses: coverallsapp/github-action@v2
