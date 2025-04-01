@@ -35,10 +35,8 @@ var (
 	)
 )
 
-// TestOpenChannel tests encoding and decoding of the OpenChannel struct.
-func TestOpenChannel(t *testing.T) {
-	t.Parallel()
-
+// randProof creates a new, random proof.
+func randProof(t *testing.T) proof.Proof {
 	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
 	require.NoError(t, err)
 
@@ -53,12 +51,16 @@ func TestOpenChannel(t *testing.T) {
 
 	randGen := asset.RandGenesis(t, asset.Normal)
 	scriptKey1 := test.RandPubKey(t)
-	originalRandProof := proof.RandProof(
-		t, randGen, scriptKey1, oddTxBlock, 0, 1,
-	)
+	return proof.RandProof(t, randGen, scriptKey1, oddTxBlock, 0, 1)
+}
+
+// TestOpenChannel tests encoding and decoding of the OpenChannel struct.
+func TestOpenChannel(t *testing.T) {
+	t.Parallel()
 
 	// Proofs don't Encode everything, so we need to do a quick Encode/
 	// Decode cycle to make sure we can compare it afterward.
+	originalRandProof := randProof(t)
 	proofBytes, err := proof.Encode(&originalRandProof)
 	require.NoError(t, err)
 	randProof, err := proof.Decode(proofBytes)
@@ -183,26 +185,9 @@ func TestAuxLeaves(t *testing.T) {
 func TestCommitment(t *testing.T) {
 	t.Parallel()
 
-	oddTxBlockHex, err := os.ReadFile(oddTxBlockHexFileName)
-	require.NoError(t, err)
-
-	oddTxBlockBytes, err := hex.DecodeString(
-		strings.Trim(string(oddTxBlockHex), "\n"),
-	)
-	require.NoError(t, err)
-
-	var oddTxBlock wire.MsgBlock
-	err = oddTxBlock.Deserialize(bytes.NewReader(oddTxBlockBytes))
-	require.NoError(t, err)
-
-	randGen := asset.RandGenesis(t, asset.Normal)
-	scriptKey1 := test.RandPubKey(t)
-	originalRandProof := proof.RandProof(
-		t, randGen, scriptKey1, oddTxBlock, 0, 1,
-	)
-
 	// Proofs don't Encode everything, so we need to do a quick Encode/
 	// Decode cycle to make sure we can compare it afterward.
+	originalRandProof := randProof(t)
 	proofBytes, err := proof.Encode(&originalRandProof)
 	require.NoError(t, err)
 	randProof, err := proof.Decode(proofBytes)
