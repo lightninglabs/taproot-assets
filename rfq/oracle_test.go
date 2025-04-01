@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"net"
 	"testing"
 	"time"
 
@@ -22,10 +21,6 @@ import (
 )
 
 const (
-	// testServiceAddress is the address of the mock RPC price oracle
-	// service.
-	testServiceAddress = "localhost:8095"
-
 	// testAssetRate is the asset units to BTC rate used in the test cases.
 	testAssetRate uint64 = 42_000
 )
@@ -109,15 +104,15 @@ func validateAssetRatesRequest(
 
 // startBackendRPC starts the given RPC server and blocks until the server is
 // shut down.
-func startBackendRPC(grpcServer *grpc.Server) error {
+func startBackendRPC(t *testing.T, grpcServer *grpc.Server) string {
 	server := mockRpcPriceOracleServer{}
 	priceoraclerpc.RegisterPriceOracleServer(grpcServer, &server)
-	grpcListener, err := net.Listen("tcp", testServiceAddress)
-	if err != nil {
-		return fmt.Errorf("RPC server unable to listen on %s",
-			testServiceAddress)
-	}
-	return grpcServer.Serve(grpcListener)
+	mockAddr, cleanup, err := test.StartMockGRPCServer(t, grpcServer, false)
+	require.NoError(t, err)
+
+	t.Cleanup(cleanup)
+
+	return mockAddr
 }
 
 // testCaseQueryAskPrice is a test case for the RPC price oracle client
@@ -140,11 +135,7 @@ func runQueryAskPriceTest(t *testing.T, tc *testCaseQueryAskPrice) {
 		grpc.Creds(insecure.NewCredentials()),
 	}
 	backendService := grpc.NewServer(serverOpts...)
-	go func() { _ = startBackendRPC(backendService) }()
-	defer backendService.Stop()
-
-	// Wait for the server to start.
-	time.Sleep(200 * time.Millisecond)
+	testServiceAddress := startBackendRPC(t, backendService)
 
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)
@@ -252,11 +243,7 @@ func runQueryBidPriceTest(t *testing.T, tc *testCaseQueryBidPrice) {
 		grpc.Creds(insecure.NewCredentials()),
 	}
 	backendService := grpc.NewServer(serverOpts...)
-	go func() { _ = startBackendRPC(backendService) }()
-	defer backendService.Stop()
-
-	// Wait for the server to start.
-	time.Sleep(2 * time.Second)
+	testServiceAddress := startBackendRPC(t, backendService)
 
 	// Create a new RPC price oracle client and connect to the mock service.
 	serviceAddr := fmt.Sprintf("rfqrpc://%s", testServiceAddress)

@@ -20,6 +20,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/commitment"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/internal/test"
+	"github.com/lightninglabs/taproot-assets/taprpc/universerpc"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwire"
@@ -1045,4 +1046,28 @@ func newMockIgnoreChecker(ignoreAll bool,
 
 func (m *mockIgnoreChecker) IsIgnored(assetPoint AssetPoint) bool {
 	return m.ignoreAll || m.ignoredAssetPoints.Contains(assetPoint)
+}
+
+// MockUniverseServer is a mock implementation of the UniverseServer
+// interface. It implements the GetInfo RPC method, which returns an empty
+// InfoResponse.
+type MockUniverseServer struct {
+	universerpc.UnimplementedUniverseServer
+}
+
+// Info is a mock implementation of the GetInfo RPC.
+func (m *MockUniverseServer) Info(context.Context,
+	*universerpc.InfoRequest) (*universerpc.InfoResponse, error) {
+
+	return &universerpc.InfoResponse{}, nil
+}
+
+// MockCourierURL creates a new mock proof courier URL for the given protocol
+// and address.
+func MockCourierURL(t *testing.T, protocol, addr string) *url.URL {
+	urlString := fmt.Sprintf("%s://%s", protocol, addr)
+	proofCourierAddr, err := ParseCourierAddress(urlString)
+	require.NoError(t, err)
+
+	return proofCourierAddr
 }
