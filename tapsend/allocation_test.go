@@ -116,6 +116,23 @@ func TestDistributeCoinsErrors(t *testing.T) {
 		}}, testParams, true, tappsbt.V1,
 	)
 	require.ErrorIs(t, err, ErrScriptKeyGenMissing)
+
+	_, err = DistributeCoins(
+		[]*proof.Proof{proofNormal}, []*Allocation{{
+			Type:   CommitAllocationToLocal,
+			Amount: assetNormal.Amount / 2,
+			GenScriptKey: StaticScriptKeyGen(
+				asset.RandScriptKey(t),
+			),
+		}, {
+			Type:   CommitAllocationToRemote,
+			Amount: assetNormal.Amount / 2,
+			GenScriptKey: StaticScriptKeyGen(
+				asset.RandScriptKey(t),
+			),
+		}}, testParams, false, tappsbt.V1,
+	)
+	require.ErrorIs(t, err, ErrNoSplitRoot)
 }
 
 func TestDistributeCoins(t *testing.T) {
@@ -128,6 +145,8 @@ func TestDistributeCoins(t *testing.T) {
 	assetID1 := grindAssetID(t, 0x01)
 	assetID2 := grindAssetID(t, 0x02)
 	assetID3 := grindAssetID(t, 0x03)
+	assetID4 := grindAssetID(t, 0x04)
+	assetID5 := grindAssetID(t, 0x05)
 
 	assetID1Tranche1 := asset.NewAssetNoErr(
 		t, assetID1, 100, 0, 0, asset.RandScriptKey(t), groupKey,
@@ -157,6 +176,13 @@ func TestDistributeCoins(t *testing.T) {
 	)
 	assetID3Tranche3 := asset.NewAssetNoErr(
 		t, assetID3, 30000, 0, 0, asset.RandScriptKey(t), groupKey,
+	)
+
+	assetID4Tranche1 := asset.NewAssetNoErr(
+		t, assetID4, 25000, 0, 0, asset.RandScriptKey(t), groupKey,
+	)
+	assetID5Tranche1 := asset.NewAssetNoErr(
+		t, assetID5, 25000, 0, 0, asset.RandScriptKey(t), groupKey,
 	)
 
 	var (
@@ -713,6 +739,140 @@ func TestDistributeCoins(t *testing.T) {
 						Type:              simple,
 						Interactive:       false,
 						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "lots of assets, interactive, no split root",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID1Tranche1),
+				makeProof(t, assetID1Tranche2),
+				makeProof(t, assetID1Tranche3),
+				makeProof(t, assetID2Tranche1),
+				makeProof(t, assetID2Tranche2),
+				makeProof(t, assetID2Tranche3),
+				makeProof(t, assetID3Tranche1),
+				makeProof(t, assetID3Tranche2),
+				makeProof(t, assetID3Tranche3),
+			},
+			interactive: true,
+			allocations: []*Allocation{
+				{
+					Type:   CommitAllocationToLocal,
+					Amount: 3600,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      63000,
+					OutputIndex: 1,
+				},
+			},
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID1.ID(): {
+					assetID1Tranche1.ScriptKey,
+					assetID1Tranche2.ScriptKey,
+					assetID1Tranche3.ScriptKey,
+				},
+				assetID2.ID(): {
+					assetID2Tranche1.ScriptKey,
+					assetID2Tranche2.ScriptKey,
+					assetID2Tranche3.ScriptKey,
+				},
+				assetID3.ID(): {
+					assetID3Tranche1.ScriptKey,
+					assetID3Tranche2.ScriptKey,
+					assetID3Tranche3.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID1.ID(): {
+					{
+						Amount:            600,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 0,
+					},
+				},
+				assetID2.ID(): {
+					{
+						Amount:            3000,
+						Type:              split,
+						Interactive:       true,
+						AnchorOutputIndex: 0,
+					},
+					{
+						Amount:            3000,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 1,
+					},
+				},
+				assetID3.ID(): {
+					{
+						Amount:            60000,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 1,
+					},
+				},
+			},
+		},
+		{
+			name: "multiple allocations, no split root defined",
+			inputs: []*proof.Proof{
+				makeProof(t, assetID4Tranche1),
+				makeProof(t, assetID5Tranche1),
+			},
+			interactive: true,
+			//nolint:lll
+			allocations: []*Allocation{
+				{
+					Type:        CommitAllocationHtlcOutgoing,
+					Amount:      5000,
+					OutputIndex: 2,
+				},
+				{
+					Type:        CommitAllocationToLocal,
+					Amount:      20000,
+					OutputIndex: 3,
+				},
+				{
+					Type:        CommitAllocationToRemote,
+					Amount:      25000,
+					OutputIndex: 4,
+				},
+			},
+			vPktVersion: tappsbt.V1,
+			expectedInputs: map[asset.ID][]asset.ScriptKey{
+				assetID4.ID(): {
+					assetID4Tranche1.ScriptKey,
+				},
+				assetID5.ID(): {
+					assetID5Tranche1.ScriptKey,
+				},
+			},
+			expectedOutputs: map[asset.ID][]*tappsbt.VOutput{
+				assetID4.ID(): {
+					{
+						Amount:            5000,
+						Type:              split,
+						Interactive:       true,
+						AnchorOutputIndex: 2,
+					},
+					{
+						Amount:            20000,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 3,
+					},
+				},
+				assetID5.ID(): {
+					{
+						Amount:            25000,
+						Type:              simple,
+						Interactive:       true,
+						AnchorOutputIndex: 4,
 					},
 				},
 			},

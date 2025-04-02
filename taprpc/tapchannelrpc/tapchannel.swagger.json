@@ -1616,6 +1616,11 @@
           "type": "string",
           "format": "int64",
           "description": "The number of satoshis to give the remote side as part of the initial\ncommitment state. This is equivalent to first opening a channel and then\nsending the remote party funds, but all done in one step. Therefore, this\nis equivalent to a donation to the remote party, unless they reimburse\nthe funds in another way (outside the protocol)."
+        },
+        "group_key": {
+          "type": "string",
+          "format": "byte",
+          "description": "The group key to use for the channel. This can be used instead of the\nasset_id to allow assets from a fungible group to be used for the channel\nfunding instead of just assets from a single minting tranche (asset_id)."
         }
       }
     },
