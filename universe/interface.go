@@ -261,11 +261,24 @@ func (m *Leaf) SmtLeafNode() *mssmt.LeafNode {
 	return mssmt.NewLeafNode(m.RawProof, amount)
 }
 
-// LeafKey is the top level leaf key for a universe. This will be used to key
-// into a universe's MS-SMT data structure. The final serialized key is:
-// sha256(mintingOutpoint || scriptKey). This ensures that all
-// leaves for a given asset will be uniquely keyed in the universe tree.
-type LeafKey struct {
+// LeafKey is an interface that allows us to obtain the universe key for a leaf
+// within a universe.
+type LeafKey interface {
+	// UniverseKey returns the universe key for the leaf.
+	UniverseKey() [32]byte
+
+	// ScriptKey returns the script key for the leaf.
+	LeafScriptKey() asset.ScriptKey
+
+	// OutPoint returns the outpoint for the leaf.
+	LeafOutPoint() wire.OutPoint
+}
+
+// BaseLeafKey is the top level leaf key for a universe. This will be used to
+// key into a universe's MS-SMT data structure. The final serialized key is:
+// sha256(mintingOutpoint || scriptKey). This ensures that all leaves for a
+// given asset will be uniquely keyed in the universe tree.
+type BaseLeafKey struct {
 	// OutPoint is the outpoint at which the asset referenced by this key
 	// resides.
 	OutPoint wire.OutPoint
@@ -279,7 +292,7 @@ type LeafKey struct {
 }
 
 // UniverseKey is the key for a universe.
-func (b LeafKey) UniverseKey() [32]byte {
+func (b BaseLeafKey) UniverseKey() [32]byte {
 	// key = sha256(mintingOutpoint || scriptKey)
 	h := sha256.New()
 	_ = wire.WriteOutPoint(h, 0, 0, &b.OutPoint)
@@ -289,6 +302,16 @@ func (b LeafKey) UniverseKey() [32]byte {
 	copy(k[:], h.Sum(nil))
 
 	return k
+}
+
+// LeafScriptKey returns the script key for the leaf.
+func (b BaseLeafKey) LeafScriptKey() asset.ScriptKey {
+	return *b.ScriptKey
+}
+
+// LeafOutPoint returns the outpoint for the leaf.
+func (b BaseLeafKey) LeafOutPoint() wire.OutPoint {
+	return b.OutPoint
 }
 
 // Proof associates a universe leaf (and key) with its corresponding multiverse

@@ -42,7 +42,7 @@ func createBurnLeaf(t *testing.T) *universe.BurnLeaf {
 	scriptKey := asset.RandScriptKey(t)
 
 	return &universe.BurnLeaf{
-		UniverseKey: universe.LeafKey{
+		UniverseKey: universe.BaseLeafKey{
 			OutPoint:  burnProof.OutPoint(),
 			ScriptKey: &scriptKey,
 		},
@@ -189,7 +189,7 @@ func TestBurnUniverseTreeInsertBurns(t *testing.T) {
 		}
 
 		nonBurnLeaf := &universe.BurnLeaf{
-			UniverseKey: universe.LeafKey{
+			UniverseKey: universe.BaseLeafKey{
 				OutPoint:  op,
 				ScriptKey: &a.ScriptKey,
 			},
@@ -270,10 +270,10 @@ func TestBurnUniverseTreeInsertBurns(t *testing.T) {
 		count := 0
 		for _, leaf := range queryLeaves {
 			//nolint:lll
-			if leaf.BurnLeaf.UniverseKey.OutPoint ==
-				burnLeaf.UniverseKey.OutPoint &&
-				leaf.BurnLeaf.UniverseKey.ScriptKey.PubKey.IsEqual(
-					burnLeaf.UniverseKey.ScriptKey.PubKey,
+			if leaf.BurnLeaf.UniverseKey.LeafOutPoint() ==
+				burnLeaf.UniverseKey.LeafOutPoint() &&
+				leaf.BurnLeaf.UniverseKey.LeafScriptKey().PubKey.IsEqual(
+					burnLeaf.UniverseKey.LeafScriptKey().PubKey,
 				) {
 
 				count++

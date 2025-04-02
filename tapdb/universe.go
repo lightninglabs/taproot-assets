@@ -619,7 +619,7 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		groupKeyBytes = schnorr.SerializePubKey(id.GroupKey)
 	}
 
-	mintingPointBytes, err := encodeOutpoint(key.OutPoint)
+	mintingPointBytes, err := encodeOutpoint(key.LeafOutPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -675,7 +675,8 @@ func universeUpsertProofLeaf(ctx context.Context, dbTx BaseUniverseStore,
 		return nil, err
 	}
 
-	scriptKeyBytes := schnorr.SerializePubKey(key.ScriptKey.PubKey)
+	scriptKey := key.LeafScriptKey()
+	scriptKeyBytes := schnorr.SerializePubKey(scriptKey.PubKey)
 	err = dbTx.UpsertUniverseLeaf(ctx, UpsertUniverseLeaf{
 		AssetGenesisID:    assetGenID,
 		ScriptKeyBytes:    scriptKeyBytes,
@@ -846,13 +847,14 @@ func universeFetchProofLeaf(ctx context.Context,
 	// Depending on the universeKey, we'll either be fetching the details of
 	// a specific issuance, or each issuance for that minting outpoint.
 	var targetScriptKey []byte
-	if universeKey.ScriptKey != nil {
+	scriptKey, hasScriptKey := universeKey.(universe.BaseLeafKey)
+	if hasScriptKey && scriptKey.ScriptKey != nil {
 		targetScriptKey = schnorr.SerializePubKey(
-			universeKey.ScriptKey.PubKey,
+			scriptKey.ScriptKey.PubKey,
 		)
 	}
 
-	mintingPointBytes, err := encodeOutpoint(universeKey.OutPoint)
+	mintingPointBytes, err := encodeOutpoint(universeKey.LeafOutPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -902,11 +904,11 @@ func universeFetchProofLeaf(ctx context.Context,
 
 		// Next, we'll fetch the leaf node from the tree and also obtain
 		// a merkle proof for the leaf alongside it.
-		universeKey := universe.LeafKey{
-			OutPoint:  universeKey.OutPoint,
+		leafKey := universe.BaseLeafKey{
+			OutPoint:  universeKey.LeafOutPoint(),
 			ScriptKey: &scriptKey,
 		}
-		smtKey := universeKey.UniverseKey()
+		smtKey := leafKey.UniverseKey()
 		leafProof, err := universeTree.MerkleProof(ctx, smtKey)
 		if err != nil {
 			return err
@@ -1008,7 +1010,7 @@ func mintingKeys(ctx context.Context, dbTx BaseUniverseStore,
 			return err
 		}
 
-		leafKeys = append(leafKeys, universe.LeafKey{
+		leafKeys = append(leafKeys, universe.BaseLeafKey{
 			OutPoint:  genPoint,
 			ScriptKey: &scriptKey,
 		})

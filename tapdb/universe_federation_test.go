@@ -332,7 +332,10 @@ func assertProofSyncLogLeafKey(t *testing.T, actualLeafKey universe.LeafKey,
 	// We can safely ignore the tweaked script key as it is the derivation
 	// information for the script key. It is only ever known to the owner of
 	// the asset and is never serialized in a proof
-	actualLeafKey.ScriptKey.TweakedScriptKey = nil
+	baseKey, ok := actualLeafKey.(universe.BaseLeafKey)
+	require.True(t, ok)
+	baseKey.ScriptKey.TweakedScriptKey = nil
+	actualLeafKey = baseKey
 	require.Equal(t, actualLeafKey, logLeafKey)
 }
 
