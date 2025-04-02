@@ -5136,11 +5136,11 @@ func (r *rpcServer) DeleteAssetRoot(ctx context.Context,
 func marshalLeafKey(leafKey universe.LeafKey) *unirpc.AssetKey {
 	return &unirpc.AssetKey{
 		Outpoint: &unirpc.AssetKey_OpStr{
-			OpStr: leafKey.OutPoint.String(),
+			OpStr: leafKey.LeafOutPoint().String(),
 		},
 		ScriptKey: &unirpc.AssetKey_ScriptKeyBytes{
 			ScriptKeyBytes: schnorr.SerializePubKey(
-				leafKey.ScriptKey.PubKey,
+				leafKey.LeafScriptKey().PubKey,
 			),
 		},
 	}
@@ -5275,7 +5275,7 @@ func (r *rpcServer) AssetLeaves(ctx context.Context,
 
 // unmarshalLeafKey un-marshals a leaf key from the RPC form.
 func unmarshalLeafKey(key *unirpc.AssetKey) (universe.LeafKey, error) {
-	var leafKey universe.LeafKey
+	var leafKey universe.BaseLeafKey
 
 	switch {
 	case key.GetScriptKeyBytes() != nil:
@@ -5525,7 +5525,7 @@ func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
 
 	var (
 		uniID  = universe.Identifier{}
-		uniKey = universe.LeafKey{}
+		uniKey = universe.BaseLeafKey{}
 		err    error
 	)
 
@@ -5538,12 +5538,12 @@ func unmarshalUniverseKey(key *unirpc.UniverseKey) (universe.Identifier,
 		return uniID, uniKey, err
 	}
 
-	uniKey, err = unmarshalLeafKey(key.LeafKey)
+	leafKey, err := unmarshalLeafKey(key.LeafKey)
 	if err != nil {
 		return uniID, uniKey, err
 	}
 
-	return uniID, uniKey, nil
+	return uniID, leafKey, nil
 }
 
 // unmarshalAssetLeaf unmarshals an asset leaf from the RPC form.

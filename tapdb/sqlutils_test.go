@@ -193,7 +193,7 @@ func (d *DbHandler) AddUniProofLeaf(t *testing.T, testAsset *asset.Asset,
 	// populate the universe root and universe leaves tables.
 	uniId := universe.NewUniIDFromAsset(*testAsset)
 
-	leafKey := universe.LeafKey{
+	leafKey := universe.BaseLeafKey{
 		OutPoint:  annotatedProof.AssetSnapshot.OutPoint,
 		ScriptKey: &testAsset.ScriptKey,
 	}

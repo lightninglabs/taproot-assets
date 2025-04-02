@@ -356,12 +356,11 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 	)
 	if err != nil {
 		var skBytes []byte
-		if key.ScriptKey != nil {
-			skBytes = key.ScriptKey.PubKey.SerializeCompressed()
-		}
+		scriptKey := key.LeafScriptKey()
+		skBytes = scriptKey.PubKey.SerializeCompressed()
 		return nil, fmt.Errorf("unable to verify proof (%v, "+
 			"outpoint=%v, scriptKey=%x): %w", id.StringForLog(),
-			key.OutPoint.String(), skBytes, err)
+			key.LeafOutPoint().String(), skBytes, err)
 	}
 
 	newAsset := assetSnapshot.Asset
@@ -385,9 +384,9 @@ func (a *Archive) verifyIssuanceProof(ctx context.Context, id Identifier,
 			id.AssetID, newAsset.ID())
 
 	// The script key should also match exactly.
-	case !newAsset.ScriptKey.PubKey.IsEqual(key.ScriptKey.PubKey):
+	case !newAsset.ScriptKey.PubKey.IsEqual(key.LeafScriptKey().PubKey):
 		return nil, fmt.Errorf("script key mismatch: expected %v, got "+
-			"%v", key.ScriptKey.PubKey.SerializeCompressed(),
+			"%v", key.LeafScriptKey().PubKey.SerializeCompressed(),
 			newAsset.ScriptKey.PubKey.SerializeCompressed())
 	}
 
@@ -586,7 +585,7 @@ func (a *Archive) getPrevAssetSnapshot(ctx context.Context,
 	}
 	prevScriptKey := asset.NewScriptKey(prevScriptKeyPubKey)
 
-	prevLeafKey := LeafKey{
+	prevLeafKey := BaseLeafKey{
 		OutPoint:  prevID.OutPoint,
 		ScriptKey: &prevScriptKey,
 	}

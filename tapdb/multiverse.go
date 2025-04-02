@@ -698,7 +698,7 @@ func (b *MultiverseStore) FetchProof(ctx context.Context,
 			ProofType: universe.ProofTypeTransfer,
 		}
 		scriptKey := asset.NewScriptKey(&loc.ScriptKey)
-		leafKey := universe.LeafKey{
+		leafKey := universe.BaseLeafKey{
 			ScriptKey: &scriptKey,
 		}
 		if loc.OutPoint != nil {
@@ -1028,7 +1028,7 @@ func (b *MultiverseStore) RegisterSubscriber(
 			ProofType: universe.ProofTypeTransfer,
 		}
 		scriptKey := asset.NewScriptKey(&loc.ScriptKey)
-		key := universe.LeafKey{
+		key := universe.BaseLeafKey{
 			ScriptKey: &scriptKey,
 		}
 
