@@ -35,11 +35,7 @@ func request_Universe_MultiverseRoot_0(ctx context.Context, marshaler runtime.Ma
 	var protoReq MultiverseRootRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -52,11 +48,7 @@ func local_request_Universe_MultiverseRoot_0(ctx context.Context, marshaler runt
 	var protoReq MultiverseRootRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -102,7 +94,7 @@ func local_request_Universe_AssetRoots_0(ctx context.Context, marshaler runtime.
 }
 
 var (
-	filter_Universe_QueryAssetRoots_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "assetIdStr": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 1, 3, 4}}
+	filter_Universe_QueryAssetRoots_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 )
 
 func request_Universe_QueryAssetRoots_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -172,7 +164,7 @@ func local_request_Universe_QueryAssetRoots_0(ctx context.Context, marshaler run
 }
 
 var (
-	filter_Universe_QueryAssetRoots_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "groupKeyStr": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 1, 3, 4}}
+	filter_Universe_QueryAssetRoots_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 )
 
 func request_Universe_QueryAssetRoots_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -278,7 +270,7 @@ func local_request_Universe_DeleteAssetRoot_0(ctx context.Context, marshaler run
 }
 
 var (
-	filter_Universe_AssetLeafKeys_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "assetIdStr": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 1, 3, 4}}
+	filter_Universe_AssetLeafKeys_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 )
 
 func request_Universe_AssetLeafKeys_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -348,7 +340,7 @@ func local_request_Universe_AssetLeafKeys_0(ctx context.Context, marshaler runti
 }
 
 var (
-	filter_Universe_AssetLeafKeys_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "groupKeyStr": 2}, Base: []int{1, 1, 1, 2, 0, 0}, Check: []int{0, 1, 2, 1, 3, 4}}
+	filter_Universe_AssetLeafKeys_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1}, Base: []int{1, 1, 1, 0}, Check: []int{0, 1, 2, 3}}
 )
 
 func request_Universe_AssetLeafKeys_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -418,7 +410,7 @@ func local_request_Universe_AssetLeafKeys_1(ctx context.Context, marshaler runti
 }
 
 var (
-	filter_Universe_AssetLeaves_0 = &utilities.DoubleArray{Encoding: map[string]int{"asset_id_str": 0, "assetIdStr": 1}, Base: []int{1, 1, 2, 0, 0}, Check: []int{0, 1, 1, 2, 3}}
+	filter_Universe_AssetLeaves_0 = &utilities.DoubleArray{Encoding: map[string]int{"asset_id_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 )
 
 func request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -498,7 +490,7 @@ func local_request_Universe_AssetLeaves_0(ctx context.Context, marshaler runtime
 }
 
 var (
-	filter_Universe_AssetLeaves_1 = &utilities.DoubleArray{Encoding: map[string]int{"group_key_str": 0, "groupKeyStr": 1}, Base: []int{1, 1, 2, 0, 0}, Check: []int{0, 1, 1, 2, 3}}
+	filter_Universe_AssetLeaves_1 = &utilities.DoubleArray{Encoding: map[string]int{"group_key_str": 0}, Base: []int{1, 1, 0}, Check: []int{0, 1, 2}}
 )
 
 func request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -578,7 +570,7 @@ func local_request_Universe_AssetLeaves_1(ctx context.Context, marshaler runtime
 }
 
 var (
-	filter_Universe_QueryProof_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "assetIdStr": 2, "leaf_key": 3, "op": 4, "hash_str": 5, "hashStr": 6, "index": 7, "script_key_str": 8, "scriptKeyStr": 9}, Base: []int{1, 1, 1, 2, 8, 1, 3, 8, 9, 7, 10, 0, 0, 0, 5, 0, 7, 0, 0, 0, 0}, Check: []int{0, 1, 2, 1, 1, 5, 6, 1, 1, 5, 1, 3, 4, 7, 10, 15, 5, 17, 8, 9, 11}}
+	filter_Universe_QueryProof_0 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "asset_id_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
 )
 
 func request_Universe_QueryProof_0(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -708,7 +700,7 @@ func local_request_Universe_QueryProof_0(ctx context.Context, marshaler runtime.
 }
 
 var (
-	filter_Universe_QueryProof_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "groupKeyStr": 2, "leaf_key": 3, "op": 4, "hash_str": 5, "hashStr": 6, "index": 7, "script_key_str": 8, "scriptKeyStr": 9}, Base: []int{1, 1, 1, 2, 8, 1, 3, 8, 9, 7, 10, 0, 0, 0, 5, 0, 7, 0, 0, 0, 0}, Check: []int{0, 1, 2, 1, 1, 5, 6, 1, 1, 5, 1, 3, 4, 7, 10, 15, 5, 17, 8, 9, 11}}
+	filter_Universe_QueryProof_1 = &utilities.DoubleArray{Encoding: map[string]int{"id": 0, "group_key_str": 1, "leaf_key": 2, "op": 3, "hash_str": 4, "index": 5, "script_key_str": 6}, Base: []int{1, 1, 1, 5, 1, 2, 2, 3, 0, 0, 0, 5, 0}, Check: []int{0, 1, 2, 1, 4, 5, 4, 7, 3, 6, 8, 4, 12}}
 )
 
 func request_Universe_QueryProof_1(ctx context.Context, marshaler runtime.Marshaler, client UniverseClient, req *http.Request, pathParams map[string]string) (proto.Message, runtime.ServerMetadata, error) {
@@ -841,11 +833,7 @@ func request_Universe_InsertProof_0(ctx context.Context, marshaler runtime.Marsh
 	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -905,11 +893,7 @@ func local_request_Universe_InsertProof_0(ctx context.Context, marshaler runtime
 	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -969,11 +953,7 @@ func request_Universe_InsertProof_1(ctx context.Context, marshaler runtime.Marsh
 	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1033,11 +1013,7 @@ func local_request_Universe_InsertProof_1(ctx context.Context, marshaler runtime
 	var protoReq AssetProof
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1097,11 +1073,7 @@ func request_Universe_PushProof_0(ctx context.Context, marshaler runtime.Marshal
 	var protoReq PushProofRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1161,11 +1133,7 @@ func local_request_Universe_PushProof_0(ctx context.Context, marshaler runtime.M
 	var protoReq PushProofRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1225,11 +1193,7 @@ func request_Universe_PushProof_1(ctx context.Context, marshaler runtime.Marshal
 	var protoReq PushProofRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1289,11 +1253,7 @@ func local_request_Universe_PushProof_1(ctx context.Context, marshaler runtime.M
 	var protoReq PushProofRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1371,11 +1331,7 @@ func request_Universe_SyncUniverse_0(ctx context.Context, marshaler runtime.Mars
 	var protoReq SyncRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1388,11 +1344,7 @@ func local_request_Universe_SyncUniverse_0(ctx context.Context, marshaler runtim
 	var protoReq SyncRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1423,11 +1375,7 @@ func request_Universe_AddFederationServer_0(ctx context.Context, marshaler runti
 	var protoReq AddFederationServerRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1440,11 +1388,7 @@ func local_request_Universe_AddFederationServer_0(ctx context.Context, marshaler
 	var protoReq AddFederationServerRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1583,11 +1527,7 @@ func request_Universe_SetFederationSyncConfig_0(ctx context.Context, marshaler r
 	var protoReq SetFederationSyncConfigRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -1600,11 +1540,7 @@ func local_request_Universe_SetFederationSyncConfig_0(ctx context.Context, marsh
 	var protoReq SetFederationSyncConfigRequest
 	var metadata runtime.ServerMetadata
 
-	newReader, berr := utilities.IOReaderFactory(req.Body)
-	if berr != nil {
-		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", berr)
-	}
-	if err := marshaler.NewDecoder(newReader()).Decode(&protoReq); err != nil && err != io.EOF {
+	if err := marshaler.NewDecoder(req.Body).Decode(&protoReq); err != nil && err != io.EOF {
 		return nil, metadata, status.Errorf(codes.InvalidArgument, "%v", err)
 	}
 
@@ -2286,21 +2222,21 @@ func RegisterUniverseHandlerServer(ctx context.Context, mux *runtime.ServeMux, s
 // RegisterUniverseHandlerFromEndpoint is same as RegisterUniverseHandler but
 // automatically dials to "endpoint" and closes the connection when "ctx" gets done.
 func RegisterUniverseHandlerFromEndpoint(ctx context.Context, mux *runtime.ServeMux, endpoint string, opts []grpc.DialOption) (err error) {
-	conn, err := grpc.DialContext(ctx, endpoint, opts...)
+	conn, err := grpc.NewClient(endpoint, opts...)
 	if err != nil {
 		return err
 	}
 	defer func() {
 		if err != nil {
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Errorf("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 			return
 		}
 		go func() {
 			<-ctx.Done()
 			if cerr := conn.Close(); cerr != nil {
-				grpclog.Infof("Failed to close conn to %s: %v", endpoint, cerr)
+				grpclog.Errorf("Failed to close conn to %s: %v", endpoint, cerr)
 			}
 		}()
 	}()
