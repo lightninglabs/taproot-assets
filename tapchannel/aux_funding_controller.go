@@ -782,7 +782,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	// the asset will be materialized in the asset table and show up in the
 	// balance correctly.
 	err := f.cfg.AddrBook.InsertScriptKey(
-		ctx, fundingScriptKey, true, asset.ScriptKeyScriptPathChannel,
+		ctx, fundingScriptKey, asset.ScriptKeyScriptPathChannel,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to insert script key: %w", err)
