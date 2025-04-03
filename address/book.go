@@ -140,7 +140,7 @@ type Storage interface {
 	// being relevant for the local wallet (e.g. show assets received on
 	// this key in the asset list and balances).
 	InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
-		declareAsKnown bool) error
+		declareAsKnown bool, keyType asset.ScriptKeyType) error
 }
 
 // KeyRing is used to create script and internal keys for Taproot Asset
@@ -401,7 +401,12 @@ func (b *Book) NewAddressWithKeys(ctx context.Context, addrVersion Version,
 	if err != nil {
 		return nil, fmt.Errorf("unable to insert internal key: %w", err)
 	}
-	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, true)
+
+	// We might not know the type of script key, if it was given to us
+	// through an RPC call. So we make a guess here.
+	keyType := scriptKey.DetermineType()
+
+	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, true, keyType)
 	if err != nil {
 		return nil, fmt.Errorf("unable to insert script key: %w", err)
 	}
@@ -438,9 +443,11 @@ func (b *Book) IsLocalKey(ctx context.Context,
 
 // InsertScriptKey inserts an address related script key into the database.
 func (b *Book) InsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
-	declareAsKnown bool) error {
+	declareAsKnown bool, keyType asset.ScriptKeyType) error {
 
-	return b.cfg.Store.InsertScriptKey(ctx, scriptKey, declareAsKnown)
+	return b.cfg.Store.InsertScriptKey(
+		ctx, scriptKey, declareAsKnown, keyType,
+	)
 }
 
 // NextInternalKey derives then inserts an internal key into the database to
@@ -475,7 +482,9 @@ func (b *Book) NextScriptKey(ctx context.Context,
 	}
 
 	scriptKey := asset.NewScriptKeyBip86(keyDesc)
-	err = b.cfg.Store.InsertScriptKey(ctx, scriptKey, true)
+	err = b.cfg.Store.InsertScriptKey(
+		ctx, scriptKey, true, asset.ScriptKeyBip86,
+	)
 	if err != nil {
 		return asset.ScriptKey{}, err
 	}

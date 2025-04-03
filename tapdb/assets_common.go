@@ -424,6 +424,7 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 			InternalKeyID:    rawScriptKeyID,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
 			Tweak:            scriptKey.Tweak,
+			KeyType:          sqlInt16(scriptKey.Type),
 		})
 		if err != nil {
 			return 0, fmt.Errorf("%w: %w", ErrUpsertScriptKey, err)
@@ -455,6 +456,7 @@ func upsertScriptKey(ctx context.Context, scriptKey asset.ScriptKey,
 		scriptKeyID, err = q.UpsertScriptKey(ctx, NewScriptKey{
 			InternalKeyID:    rawScriptKeyID,
 			TweakedScriptKey: scriptKey.PubKey.SerializeCompressed(),
+			KeyType:          sqlInt16(asset.ScriptKeyUnknown),
 		})
 		if err != nil {
 			return 0, fmt.Errorf("%w: %w", ErrUpsertScriptKey, err)
@@ -520,6 +522,9 @@ func parseScriptKey(ik sqlc.InternalKey, sk sqlc.ScriptKey) (asset.ScriptKey,
 				},
 				Tweak:         sk.Tweak,
 				DeclaredKnown: extractBool(sk.DeclaredKnown),
+				Type: extractSqlInt16[asset.ScriptKeyType](
+					sk.KeyType,
+				),
 			},
 		}
 		err error

@@ -560,12 +560,6 @@ func (a *AuxChanCloser) ShutdownBlob(
 			return none, err
 		}
 
-		err = a.cfg.AddrBook.InsertScriptKey(ctx, newKey, true)
-		if err != nil {
-			return none, fmt.Errorf("error declaring script key: "+
-				"%w", err)
-		}
-
 		scriptKeys[assetID] = *newKey.PubKey
 	}
 

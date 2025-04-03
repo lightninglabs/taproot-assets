@@ -8154,7 +8154,12 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 			err)
 	}
 
-	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, true)
+	// Because we've been given the key over the RPC interface, we can't be
+	// 100% sure of the type. But we can make a best effort guess based on
+	// the fields the user has set.
+	keyType := scriptKey.DetermineType()
+
+	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, true, keyType)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting script key: %w", err)
 	}
