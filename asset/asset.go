@@ -1049,15 +1049,6 @@ type TweakedScriptKey struct {
 	// public key. If this is nil, then a BIP-0086 tweak is assumed.
 	Tweak []byte
 
-	// DeclaredKnown indicates that this script key has been explicitly
-	// declared as being important to the local wallet, even if it might not
-	// be fully known to the local wallet. This could perhaps also be named
-	// "imported", though that might imply that the corresponding private
-	// key was also somehow imported and available. The only relevance this
-	// flag has is that assets with a declared key are shown in the asset
-	// list/balance.
-	DeclaredKnown bool
-
 	// Type is the type of script key that is being used.
 	Type ScriptKeyType
 }
@@ -1130,12 +1121,9 @@ func (s *ScriptKey) IsEqual(otherScriptKey *ScriptKey) bool {
 // the local wallet or was explicitly declared to be known by using the
 // DeclareScriptKey RPC. Knowing the key conceptually means the key belongs to
 // the local wallet or is at least known by a software that operates on the
-// local wallet. The DeclaredAsKnown flag is never serialized in proofs, so this
-// is never explicitly set for keys foreign to the local wallet. Therefore, if
-// this method returns true for a script key, it means the asset with the script
-// key will be shown in the wallet balance.
+// local wallet.
 func (s *ScriptKey) DeclaredAsKnown() bool {
-	return s.TweakedScriptKey != nil && s.TweakedScriptKey.DeclaredKnown
+	return s.TweakedScriptKey != nil && s.Type != ScriptKeyUnknown
 }
 
 // HasScriptPath returns true if we know the internals of the script key and
@@ -1612,8 +1600,7 @@ func (a *Asset) Copy() *Asset {
 
 	if a.ScriptKey.TweakedScriptKey != nil {
 		assetCopy.ScriptKey.TweakedScriptKey = &TweakedScriptKey{
-			DeclaredKnown: a.ScriptKey.DeclaredKnown,
-			Type:          a.ScriptKey.Type,
+			Type: a.ScriptKey.Type,
 		}
 		assetCopy.ScriptKey.RawKey = a.ScriptKey.RawKey
 

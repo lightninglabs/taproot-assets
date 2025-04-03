@@ -140,7 +140,6 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     -- LEFT JOIN is actually necessary or if we always have keys for seedlings.
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
-    script_keys.declared_known AS script_key_declared_known,
     script_keys.key_type AS script_key_type,
     internal_keys.raw_key AS script_key_raw,
     internal_keys.key_family AS script_key_fam,
@@ -865,22 +864,14 @@ WHERE txid = $1;
 
 -- name: UpsertScriptKey :one
 INSERT INTO script_keys (
-    internal_key_id, tweaked_script_key, tweak, declared_known, key_type
+    internal_key_id, tweaked_script_key, tweak, key_type
 ) VALUES (
-    $1, $2, $3, $4, $5
+    $1, $2, $3, $4
 )  ON CONFLICT (tweaked_script_key)
     -- Overwrite the declared_known, key_type and tweak fields if they were
     -- previously unknown.
     DO UPDATE SET 
       tweaked_script_key = EXCLUDED.tweaked_script_key,
-      -- If the script key was previously unknown, we'll update to the new
-      -- value, if that is non-NULL.
-      declared_known =
-          CASE
-             WHEN COALESCE(script_keys.declared_known, FALSE) = FALSE
-             THEN COALESCE(EXCLUDED.declared_known, script_keys.declared_known)
-             ELSE script_keys.declared_known
-           END,
       -- If the tweak was previously unknown, we'll update to the new value.
       tweak =
           CASE

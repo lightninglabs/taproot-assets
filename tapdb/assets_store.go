@@ -3147,7 +3147,7 @@ func (a *AssetStore) LogAnchorTxConfirm(ctx context.Context,
 				out.OutputType == int16(tappsbt.TypeSplitRoot)
 			isBurn := !isNumsKey && len(witnessData) > 0 &&
 				asset.IsBurnKey(scriptPubKey, witnessData[0])
-			isKnown := fullScriptKey.DeclaredKnown
+			isKnown := fullScriptKey.Type != asset.ScriptKeyUnknown
 			skipAssetCreation := !isTombstone && !isBurn &&
 				!out.ScriptKeyLocal && !isKnown
 

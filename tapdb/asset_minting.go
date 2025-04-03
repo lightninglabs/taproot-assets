@@ -737,19 +737,15 @@ func fetchAssetSeedlings(ctx context.Context, q PendingAssetStore,
 				PubKey:     scriptKeyInternalPub,
 			}
 			scriptKeyTweak := dbSeedling.ScriptKeyTweak
-			declaredKnown := extractBool(
-				dbSeedling.ScriptKeyDeclaredKnown,
-			)
 			scriptType := extractSqlInt16[asset.ScriptKeyType](
 				dbSeedling.ScriptKeyType,
 			)
 			seedling.ScriptKey = asset.ScriptKey{
 				PubKey: tweakedScriptKey,
 				TweakedScriptKey: &asset.TweakedScriptKey{
-					RawKey:        scriptKeyRawKey,
-					Tweak:         scriptKeyTweak,
-					DeclaredKnown: declaredKnown,
-					Type:          scriptType,
+					RawKey: scriptKeyRawKey,
+					Tweak:  scriptKeyTweak,
+					Type:   scriptType,
 				},
 			}
 		}

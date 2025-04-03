@@ -8167,9 +8167,7 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 		return nil, fmt.Errorf("script key type must be set")
 	}
 
-	err = r.cfg.TapAddrBook.InsertScriptKey(
-		ctx, *scriptKey, true, scriptKey.Type,
-	)
+	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, scriptKey.Type)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting script key: %w", err)
 	}

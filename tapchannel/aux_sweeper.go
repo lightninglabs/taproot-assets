@@ -1265,7 +1265,7 @@ func (a *AuxSweeper) importCommitScriptKeys(req lnwallet.ResolutionReq) error {
 	ctxb := context.Background()
 	for _, key := range keysToImport {
 		err := a.cfg.AddrBook.InsertScriptKey(
-			ctxb, key, true, asset.ScriptKeyScriptPathChannel,
+			ctxb, key, asset.ScriptKeyScriptPathChannel,
 		)
 		if err != nil {
 			return fmt.Errorf("unable to insert script "+
@@ -1299,7 +1299,7 @@ func (a *AuxSweeper) importOutputScriptKeys(desc tapscriptSweepDescs) error {
 			limitSpewer.Sdump(scriptKey))
 
 		return a.cfg.AddrBook.InsertScriptKey(
-			ctxb, scriptKey, true, asset.ScriptKeyScriptPathChannel,
+			ctxb, scriptKey, asset.ScriptKeyScriptPathChannel,
 		)
 	}
 
@@ -1494,7 +1494,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// balance correctly.
 	ctxb := context.Background()
 	err := a.cfg.AddrBook.InsertScriptKey(
-		ctxb, fundingScriptKey, true, asset.ScriptKeyScriptPathChannel,
+		ctxb, fundingScriptKey, asset.ScriptKeyScriptPathChannel,
 	)
 	if err != nil {
 		return fmt.Errorf("unable to insert script key: %w", err)

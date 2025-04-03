@@ -206,7 +206,6 @@ func determineAndAssignScriptKeyType(ctx context.Context,
 			InternalKeyID:    k.InternalKey.KeyID,
 			TweakedScriptKey: k.ScriptKey.TweakedScriptKey,
 			Tweak:            k.ScriptKey.Tweak,
-			DeclaredKnown:    k.ScriptKey.DeclaredKnown,
 			KeyType:          sqlInt16(newType),
 		})
 		if err != nil {

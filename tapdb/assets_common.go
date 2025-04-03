@@ -520,8 +520,7 @@ func parseScriptKey(ik sqlc.InternalKey, sk sqlc.ScriptKey) (asset.ScriptKey,
 				RawKey: keychain.KeyDescriptor{
 					KeyLocator: locator,
 				},
-				Tweak:         sk.Tweak,
-				DeclaredKnown: extractBool(sk.DeclaredKnown),
+				Tweak: sk.Tweak,
 				Type: extractSqlInt16[asset.ScriptKeyType](
 					sk.KeyType,
 				),

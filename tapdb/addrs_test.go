@@ -3,7 +3,6 @@ package tapdb
 import (
 	"context"
 	"database/sql"
-	"fmt"
 	"math/rand"
 	"testing"
 	"time"
@@ -660,40 +659,12 @@ func randScriptKey(t *testing.T) asset.ScriptKey {
 	return scriptKey
 }
 
-// insertScriptKeyWithNull is a helper function that inserts a script key with a
-// a NULL value for declared known. We use this so we can insert a NULL vs an
-// actual value. It is identical to the InsertScriptKey.
-func insertScriptKeyWithNull(ctx context.Context,
-	key asset.ScriptKey) func(AddrBook) error {
-
-	return func(q AddrBook) error {
-		internalKeyID, err := insertInternalKey(
-			ctx, q, key.RawKey,
-		)
-		if err != nil {
-			return fmt.Errorf("error inserting internal key: %w",
-				err)
-		}
-
-		_, err = q.UpsertScriptKey(ctx, NewScriptKey{
-			InternalKeyID:    internalKeyID,
-			TweakedScriptKey: key.PubKey.SerializeCompressed(),
-			Tweak:            key.Tweak,
-			DeclaredKnown: sql.NullBool{
-				Valid: false,
-			},
-		})
-		return err
-	}
-}
-
 func assertKeyKnowledge(t *testing.T, ctx context.Context,
-	addrBook *TapAddressBook, scriptKey asset.ScriptKey, known bool,
+	addrBook *TapAddressBook, scriptKey asset.ScriptKey,
 	keyType asset.ScriptKeyType) {
 
 	dbScriptKey, err := addrBook.FetchScriptKey(ctx, scriptKey.PubKey)
 	require.NoError(t, err)
-	require.Equal(t, known, dbScriptKey.DeclaredKnown)
 	require.Equal(t, keyType, dbScriptKey.Type)
 }
 
@@ -703,87 +674,6 @@ func assertTweak(t *testing.T, ctx context.Context, addrBook *TapAddressBook,
 	dbScriptKey, err := addrBook.FetchScriptKey(ctx, scriptKey.PubKey)
 	require.NoError(t, err)
 	require.Equal(t, tweak, dbScriptKey.Tweak)
-}
-
-// TestScriptKeyKnownUpsert tests that we can insert a script key, then insert
-// it again declared as known.
-func TestScriptKeyKnownUpsert(t *testing.T) {
-	t.Parallel()
-
-	// First, make a new addr book instance we'll use in the test below.
-	testClock := clock.NewTestClock(time.Now())
-	addrBook, _ := newAddrBook(t, testClock)
-
-	ctx := context.Background()
-
-	// In this test, we insert the known field as false, and make sure we
-	// can flip it back to true.
-	t.Run("false_to_true", func(t *testing.T) {
-		known := false
-		scriptKey := randScriptKey(t)
-
-		// We'll insert a random script key into the database. We won't
-		// declare it as known though.
-		err := addrBook.InsertScriptKey(
-			ctx, scriptKey, known, asset.ScriptKeyBip86,
-		)
-		require.NoError(t, err)
-
-		// We'll fetch the script key and confirm that it's not known.
-		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyBip86,
-		)
-
-		known = true
-
-		// We'll now insert it again, but this time declare it as known.
-		err = addrBook.InsertScriptKey(
-			ctx, scriptKey, known, asset.ScriptKeyBip86,
-		)
-		require.NoError(t, err)
-
-		// We'll fetch the script key and confirm that it's known.
-		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyBip86,
-		)
-	})
-
-	// In this test, we insert a NULL value, and make sure that it can still
-	// be set to true.
-	t.Run("null_to_true", func(t *testing.T) {
-		known := false
-		scriptKey := randScriptKey(t)
-
-		// We'll lift the internal routine of InsertScriptKey so we can
-		// insert an actual NULL here.
-		err := addrBook.db.ExecTx(
-			ctx, &AddrBookTxOptions{},
-			insertScriptKeyWithNull(ctx, scriptKey),
-		)
-		require.NoError(t, err)
-
-		// We'll fetch the script key and confirm that it's not known.
-		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyUnknown,
-		)
-
-		known = true
-
-		// We'll now insert it again, but this time declare it as known.
-		err = addrBook.InsertScriptKey(
-			ctx, scriptKey, known, asset.ScriptKeyBip86,
-		)
-		require.NoError(t, err)
-
-		// We'll fetch the script key and confirm that it's known.
-		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyBip86,
-		)
-	})
 }
 
 // TestScriptKeyTweakUpsert tests that we can insert a script key, then insert
@@ -800,40 +690,35 @@ func TestScriptKeyTweakUpsert(t *testing.T) {
 	// In this test, we insert the tweak as NULL, and make sure we overwrite
 	// it with an actual value again later.
 	t.Run("null_to_value", func(t *testing.T) {
-		known := false
 		scriptKey := randScriptKey(t)
 		scriptKey.Tweak = nil
 
 		// We'll insert a random script key into the database. We won't
 		// declare it as known though, and it doesn't have the tweak.
 		err := addrBook.InsertScriptKey(
-			ctx, scriptKey, known,
-			asset.ScriptKeyScriptPathExternal,
+			ctx, scriptKey, asset.ScriptKeyUnknown,
 		)
 		require.NoError(t, err)
 
 		// We'll fetch the script key and confirm that it's not known.
 		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyScriptPathExternal,
+			t, ctx, addrBook, scriptKey, asset.ScriptKeyUnknown,
 		)
 		assertTweak(t, ctx, addrBook, scriptKey, nil)
 
-		known = true
 		randTweak := test.RandBytes(32)
 		scriptKey.Tweak = randTweak
 
 		// We'll now insert it again, but this time declare it as known
 		// and also know the tweak.
 		err = addrBook.InsertScriptKey(
-			ctx, scriptKey, known,
-			asset.ScriptKeyScriptPathExternal,
+			ctx, scriptKey, asset.ScriptKeyScriptPathExternal,
 		)
 		require.NoError(t, err)
 
 		// We'll fetch the script key and confirm that it's known.
 		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
+			t, ctx, addrBook, scriptKey,
 			asset.ScriptKeyScriptPathExternal,
 		)
 		assertTweak(t, ctx, addrBook, scriptKey, randTweak)
@@ -854,35 +739,32 @@ func TestScriptKeyTypeUpsert(t *testing.T) {
 	// In this test, we insert the type as unknown, and make sure we
 	// overwrite it with an actual value again later.
 	t.Run("null_to_value", func(t *testing.T) {
-		known := true
 		scriptKey := randScriptKey(t)
 		scriptKey.Tweak = nil
 
 		// We'll insert a random script key into the database. It is
 		// declared as known, but doesn't have a known type.
 		err := addrBook.InsertScriptKey(
-			ctx, scriptKey, known, asset.ScriptKeyUnknown,
+			ctx, scriptKey, asset.ScriptKeyUnknown,
 		)
 		require.NoError(t, err)
 
 		// We'll fetch the script key and confirm that it's not known.
 		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyUnknown,
+			t, ctx, addrBook, scriptKey, asset.ScriptKeyUnknown,
 		)
 		assertTweak(t, ctx, addrBook, scriptKey, nil)
 
 		// We'll now insert it again, but this time declare it as known
 		// and also know the tweak.
 		err = addrBook.InsertScriptKey(
-			ctx, scriptKey, known, asset.ScriptKeyBip86,
+			ctx, scriptKey, asset.ScriptKeyBip86,
 		)
 		require.NoError(t, err)
 
 		// We'll fetch the script key and confirm that it's known.
 		assertKeyKnowledge(
-			t, ctx, addrBook, scriptKey, known,
-			asset.ScriptKeyBip86,
+			t, ctx, addrBook, scriptKey, asset.ScriptKeyBip86,
 		)
 	})
 }
