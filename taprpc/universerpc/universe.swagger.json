@@ -691,61 +691,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "object",
-                      "properties": {
-                        "asset_id": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                        },
-                        "group_key": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                        },
-                        "group_key_str": {
-                          "type": "string",
-                          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-                        },
-                        "proof_type": {
-                          "$ref": "#/definitions/universerpcProofType"
-                        }
-                      },
-                      "description": "The ID of the asset to query for.",
-                      "title": "The ID of the asset to query for."
-                    },
-                    "leaf_key": {
-                      "type": "object",
-                      "properties": {
-                        "op_str": {
-                          "type": "string"
-                        },
-                        "op": {
-                          "type": "object"
-                        },
-                        "script_key_bytes": {
-                          "type": "string",
-                          "format": "byte"
-                        }
-                      },
-                      "description": "The asset key to query for.",
-                      "title": "The asset key to query for."
-                    }
-                  },
-                  "description": "The ID of the asset to insert the proof for.",
-                  "title": "The ID of the asset to insert the proof for."
-                },
-                "asset_leaf": {
-                  "$ref": "#/definitions/universerpcAssetLeaf",
-                  "description": "The asset leaf to insert into the Universe tree."
-                }
-              }
+              "$ref": "#/definitions/UniverseInsertProofBody"
             }
           }
         ],
@@ -907,61 +853,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "object",
-                      "properties": {
-                        "asset_id": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                        },
-                        "asset_id_str": {
-                          "type": "string",
-                          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-                        },
-                        "group_key": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                        },
-                        "proof_type": {
-                          "$ref": "#/definitions/universerpcProofType"
-                        }
-                      },
-                      "description": "The ID of the asset to query for.",
-                      "title": "The ID of the asset to query for."
-                    },
-                    "leaf_key": {
-                      "type": "object",
-                      "properties": {
-                        "op_str": {
-                          "type": "string"
-                        },
-                        "op": {
-                          "type": "object"
-                        },
-                        "script_key_bytes": {
-                          "type": "string",
-                          "format": "byte"
-                        }
-                      },
-                      "description": "The asset key to query for.",
-                      "title": "The asset key to query for."
-                    }
-                  },
-                  "description": "The ID of the asset to insert the proof for.",
-                  "title": "The ID of the asset to insert the proof for."
-                },
-                "asset_leaf": {
-                  "$ref": "#/definitions/universerpcAssetLeaf",
-                  "description": "The asset leaf to insert into the Universe tree."
-                }
-              }
+              "$ref": "#/definitions/UniverseInsertProofBody"
             }
           }
         ],
@@ -1022,61 +914,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "object",
-                      "properties": {
-                        "asset_id": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                        },
-                        "group_key": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                        },
-                        "group_key_str": {
-                          "type": "string",
-                          "description": "The 32-byte asset group key encoded as hex string (use this for\nREST)."
-                        },
-                        "proof_type": {
-                          "$ref": "#/definitions/universerpcProofType"
-                        }
-                      },
-                      "description": "The ID of the asset to query for.",
-                      "title": "The ID of the asset to query for."
-                    },
-                    "leaf_key": {
-                      "type": "object",
-                      "properties": {
-                        "op_str": {
-                          "type": "string"
-                        },
-                        "op": {
-                          "type": "object"
-                        },
-                        "script_key_bytes": {
-                          "type": "string",
-                          "format": "byte"
-                        }
-                      },
-                      "description": "The asset key to query for.",
-                      "title": "The asset key to query for."
-                    }
-                  },
-                  "description": "The ID of the asset to push the proof for.",
-                  "title": "The ID of the asset to push the proof for."
-                },
-                "server": {
-                  "$ref": "#/definitions/universerpcUniverseFederationServer",
-                  "description": "The universe server to push the proof to."
-                }
-              }
+              "$ref": "#/definitions/UniversePushProofBody"
             }
           }
         ],
@@ -1137,61 +975,7 @@
             "in": "body",
             "required": true,
             "schema": {
-              "type": "object",
-              "properties": {
-                "key": {
-                  "type": "object",
-                  "properties": {
-                    "id": {
-                      "type": "object",
-                      "properties": {
-                        "asset_id": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
-                        },
-                        "asset_id_str": {
-                          "type": "string",
-                          "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
-                        },
-                        "group_key": {
-                          "type": "string",
-                          "format": "byte",
-                          "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
-                        },
-                        "proof_type": {
-                          "$ref": "#/definitions/universerpcProofType"
-                        }
-                      },
-                      "description": "The ID of the asset to query for.",
-                      "title": "The ID of the asset to query for."
-                    },
-                    "leaf_key": {
-                      "type": "object",
-                      "properties": {
-                        "op_str": {
-                          "type": "string"
-                        },
-                        "op": {
-                          "type": "object"
-                        },
-                        "script_key_bytes": {
-                          "type": "string",
-                          "format": "byte"
-                        }
-                      },
-                      "description": "The asset key to query for.",
-                      "title": "The asset key to query for."
-                    }
-                  },
-                  "description": "The ID of the asset to push the proof for.",
-                  "title": "The ID of the asset to push the proof for."
-                },
-                "server": {
-                  "$ref": "#/definitions/universerpcUniverseFederationServer",
-                  "description": "The universe server to push the proof to."
-                }
-              }
+              "$ref": "#/definitions/UniversePushProofBody"
             }
           }
         ],
@@ -1637,6 +1421,120 @@
     }
   },
   "definitions": {
+    "UniverseInsertProofBody": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "object",
+              "properties": {
+                "asset_id": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                },
+                "asset_id_str": {
+                  "type": "string",
+                  "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+                },
+                "group_key": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                },
+                "proof_type": {
+                  "$ref": "#/definitions/universerpcProofType"
+                }
+              },
+              "description": "The ID of the asset to query for.",
+              "title": "The ID of the asset to query for."
+            },
+            "leaf_key": {
+              "type": "object",
+              "properties": {
+                "op_str": {
+                  "type": "string"
+                },
+                "op": {
+                  "type": "object"
+                },
+                "script_key_bytes": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "description": "The asset key to query for.",
+              "title": "The asset key to query for."
+            }
+          },
+          "description": "The ID of the asset to insert the proof for.",
+          "title": "The ID of the asset to insert the proof for."
+        },
+        "asset_leaf": {
+          "$ref": "#/definitions/universerpcAssetLeaf",
+          "description": "The asset leaf to insert into the Universe tree."
+        }
+      }
+    },
+    "UniversePushProofBody": {
+      "type": "object",
+      "properties": {
+        "key": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "object",
+              "properties": {
+                "asset_id": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "The 32-byte asset ID specified as raw bytes (gRPC only)."
+                },
+                "asset_id_str": {
+                  "type": "string",
+                  "description": "The 32-byte asset ID encoded as a hex string (use this for REST)."
+                },
+                "group_key": {
+                  "type": "string",
+                  "format": "byte",
+                  "description": "The 32-byte asset group key specified as raw bytes (gRPC only)."
+                },
+                "proof_type": {
+                  "$ref": "#/definitions/universerpcProofType"
+                }
+              },
+              "description": "The ID of the asset to query for.",
+              "title": "The ID of the asset to query for."
+            },
+            "leaf_key": {
+              "type": "object",
+              "properties": {
+                "op_str": {
+                  "type": "string"
+                },
+                "op": {
+                  "type": "object"
+                },
+                "script_key_bytes": {
+                  "type": "string",
+                  "format": "byte"
+                }
+              },
+              "description": "The asset key to query for.",
+              "title": "The asset key to query for."
+            }
+          },
+          "description": "The ID of the asset to push the proof for.",
+          "title": "The ID of the asset to push the proof for."
+        },
+        "server": {
+          "$ref": "#/definitions/universerpcUniverseFederationServer",
+          "description": "The universe server to push the proof to."
+        }
+      }
+    },
     "protobufAny": {
       "type": "object",
       "properties": {
