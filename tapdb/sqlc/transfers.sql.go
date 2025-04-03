@@ -137,7 +137,7 @@ SELECT
     utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
     utxo_internal_keys.key_family AS internal_key_family,
     utxo_internal_keys.key_index AS internal_key_index,
-    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.declared_known,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.declared_known, script_keys.key_type,
     script_internal_keys.key_id, script_internal_keys.raw_key, script_internal_keys.key_family, script_internal_keys.key_index
 FROM asset_transfer_outputs outputs
 JOIN managed_utxos utxos
@@ -222,6 +222,7 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 			&i.ScriptKey.TweakedScriptKey,
 			&i.ScriptKey.Tweak,
 			&i.ScriptKey.DeclaredKnown,
+			&i.ScriptKey.KeyType,
 			&i.InternalKey.KeyID,
 			&i.InternalKey.RawKey,
 			&i.InternalKey.KeyFamily,
