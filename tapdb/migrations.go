@@ -2,6 +2,7 @@ package tapdb
 
 import (
 	"bytes"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"github.com/golang-migrate/migrate/v4/database"
 	"github.com/golang-migrate/migrate/v4/source/httpfs"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 )
 
 const (
@@ -24,6 +26,13 @@ const (
 	// NOTE: This MUST be updated when a new migration is added.
 	LatestMigrationVersion = 33
 )
+
+// DatabaseBackend is an interface that contains all methods our different
+// Database backends implement.
+type DatabaseBackend interface {
+	BatchedQuerier
+	WithTx(tx *sql.Tx) *sqlc.Queries
+}
 
 // MigrationTarget is a functional option that can be passed to applyMigrations
 // to specify a target version to migrate to. `currentDbVersion` is the current
