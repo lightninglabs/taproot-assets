@@ -275,6 +275,17 @@ type LeafKey interface {
 	LeafOutPoint() wire.OutPoint
 }
 
+// UniqueLeafKey is an interface that allows us to obtain the universe key for a
+// leaf within a universe. This is used to uniquely identify a leaf within a
+// universe. Compared to LeafKey, it includes the asset ID of a leaf within the
+// universe key calculation.
+type UniqueLeafKey interface {
+	LeafKey
+
+	// LeafAssetID returns the asset ID for the leaf.
+	LeafAssetID() asset.ID
+}
+
 // BaseLeafKey is the top level leaf key for a universe. This will be used to
 // key into a universe's MS-SMT data structure. The final serialized key is:
 // sha256(mintingOutpoint || scriptKey). This ensures that all leaves for a
@@ -313,6 +324,35 @@ func (b BaseLeafKey) LeafScriptKey() asset.ScriptKey {
 // LeafOutPoint returns the outpoint for the leaf.
 func (b BaseLeafKey) LeafOutPoint() wire.OutPoint {
 	return b.OutPoint
+}
+
+// AssetLeafKey is a super-set of the BaseLeafKey struct that also includes the
+// asset ID.
+type AssetLeafKey struct {
+	BaseLeafKey
+
+	// AssetID is the asset ID of the asset that the leaf is associated
+	// with.
+	AssetID asset.ID
+}
+
+// LeafAssetID returns the asset ID for the leaf.
+func (a AssetLeafKey) LeafAssetID() asset.ID {
+	return a.AssetID
+}
+
+// UniverseKey returns the universe key for the leaf.
+func (a AssetLeafKey) UniverseKey() [32]byte {
+	// key = sha256(mintingOutpoint || scriptKey || assetID)
+	h := sha256.New()
+	_ = wire.WriteOutPoint(h, 0, 0, &a.OutPoint)
+	h.Write(schnorr.SerializePubKey(a.ScriptKey.PubKey))
+	h.Write(a.AssetID[:])
+
+	var k [32]byte
+	copy(k[:], h.Sum(nil))
+
+	return k
 }
 
 // Proof associates a universe leaf (and key) with its corresponding multiverse
