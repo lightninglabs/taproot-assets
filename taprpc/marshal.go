@@ -582,11 +582,18 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 	isSpent, withWitness bool, keyRing KeyLookup,
 	decDisplay fn.Option[uint32]) (*Asset, error) {
 
-	scriptKeyIsLocal := false
-	if a.ScriptKey.TweakedScriptKey != nil && keyRing != nil {
-		scriptKeyIsLocal = keyRing.IsLocalKey(
-			ctx, a.ScriptKey.RawKey,
-		)
+	var (
+		scriptKeyIsLocal = false
+		scriptKeyType    = asset.ScriptKeyUnknown
+	)
+	if a.ScriptKey.TweakedScriptKey != nil {
+		if keyRing != nil {
+			scriptKeyIsLocal = keyRing.IsLocalKey(
+				ctx, a.ScriptKey.RawKey,
+			)
+		}
+
+		scriptKeyType = a.ScriptKey.Type
 	}
 
 	assetVersion, err := MarshalAssetVersion(a.Version)
@@ -608,6 +615,7 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 		ScriptKeyHasScriptPath: a.ScriptKey.HasScriptPath(),
 		IsSpent:                isSpent,
 		IsBurn:                 a.IsBurn(),
+		ScriptKeyType:          MarshalScriptKeyType(scriptKeyType),
 	}
 
 	decDisplay.WhenSome(func(u uint32) {

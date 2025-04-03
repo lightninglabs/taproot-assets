@@ -1392,15 +1392,19 @@
         },
         "script_key_declared_known": {
           "type": "boolean",
-          "description": "Indicates whether this script key has either been derived by the local\nwallet or was explicitly declared to be known by using the\nDeclareScriptKey RPC. Knowing the key conceptually means the key belongs\nto the local wallet or is at least known by a software that operates on\nthe local wallet. The flag is never serialized in proofs, so this is\nnever explicitly set for keys foreign to the local wallet. Therefore, if\nthis method returns true for a script key, it means the asset with the\nscript key will be shown in the wallet balance."
+          "description": "Deprecated, use script_key_type instead!\nIndicates whether this script key has either been derived by the local\nwallet or was explicitly declared to be known by using the\nDeclareScriptKey RPC. Knowing the key conceptually means the key belongs\nto the local wallet or is at least known by a software that operates on\nthe local wallet. The flag is never serialized in proofs, so this is\nnever explicitly set for keys foreign to the local wallet. Therefore, if\nthis method returns true for a script key, it means the asset with the\nscript key will be shown in the wallet balance."
         },
         "script_key_has_script_path": {
           "type": "boolean",
-          "description": "Indicates whether the script key is known to have a Tapscript spend path,\nmeaning that the Taproot merkle root tweak is not empty. This will only\never be true if either script_key_is_local or script_key_internals_known\nis true as well, since the presence of a Tapscript spend path cannot be\ndetermined for script keys that aren't known to the wallet of the local\ntapd node."
+          "description": "Deprecated, use script_key_type instead!\nIndicates whether the script key is known to have a Tapscript spend path,\nmeaning that the Taproot merkle root tweak is not empty. This will only\never be true if either script_key_is_local or script_key_internals_known\nis true as well, since the presence of a Tapscript spend path cannot be\ndetermined for script keys that aren't known to the wallet of the local\ntapd node."
         },
         "decimal_display": {
           "$ref": "#/definitions/taprpcDecimalDisplay",
           "description": "This field defines a decimal display value that may be present. If this\nfield is null, it means the presence of a decimal display field is\nunknown in the current context."
+        },
+        "script_key_type": {
+          "$ref": "#/definitions/taprpcScriptKeyType",
+          "description": "The type of the script key. This type is either user-declared when custom\nscript keys are added, or automatically determined by the daemon for\nstandard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel\nrelated keys)."
         }
       }
     },

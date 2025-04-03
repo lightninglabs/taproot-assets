@@ -517,6 +517,7 @@ message Asset {
     // assets in this output are destroyed and can no longer be spent.
     bool is_burn = 17;
 
+    // Deprecated, use script_key_type instead!
     // Indicates whether this script key has either been derived by the local
     // wallet or was explicitly declared to be known by using the
     // DeclareScriptKey RPC. Knowing the key conceptually means the key belongs
@@ -527,6 +528,7 @@ message Asset {
     // script key will be shown in the wallet balance.
     bool script_key_declared_known = 18;
 
+    // Deprecated, use script_key_type instead!
     // Indicates whether the script key is known to have a Tapscript spend path,
     // meaning that the Taproot merkle root tweak is not empty. This will only
     // ever be true if either script_key_is_local or script_key_internals_known
@@ -539,6 +541,12 @@ message Asset {
     // field is null, it means the presence of a decimal display field is
     // unknown in the current context.
     DecimalDisplay decimal_display = 20;
+
+    // The type of the script key. This type is either user-declared when custom
+    // script keys are added, or automatically determined by the daemon for
+    // standard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel
+    // related keys).
+    ScriptKeyType script_key_type = 21;
 }
 
 message PrevWitness {
