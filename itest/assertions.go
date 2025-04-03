@@ -46,6 +46,12 @@ var (
 
 	batchFrozen    = mintrpc.BatchState_BATCH_STATE_FROZEN
 	batchFinalized = mintrpc.BatchState_BATCH_STATE_FINALIZED
+
+	allScriptKeysQuery = &taprpc.ScriptKeyTypeQuery{
+		Type: &taprpc.ScriptKeyTypeQuery_AllTypes{
+			AllTypes: true,
+		},
+	}
 )
 
 // tapClient is an interface that covers all currently available RPC interfaces
@@ -1336,7 +1342,8 @@ func AssertBalanceByID(t *testing.T, client taprpc.TaprootAssetsClient,
 			GroupBy: &taprpc.ListBalancesRequest_AssetId{
 				AssetId: true,
 			},
-			AssetFilter: id,
+			AssetFilter:   id,
+			ScriptKeyType: allScriptKeysQuery,
 		},
 	)
 	require.NoError(t, err)
@@ -1902,7 +1909,9 @@ func AssertAssetsMinted(t *testing.T, tapClient commands.RpcClientsBundle,
 	)
 
 	listRespConfirmed, err := tapClient.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t, err)
 	confirmedAssets := GroupAssetsByName(listRespConfirmed.Assets)
@@ -2198,6 +2207,7 @@ func assertNumAssetOutputs(t *testing.T, client taprpc.TaprootAssetsClient,
 
 	resp, err := client.ListAssets(ctxt, &taprpc.ListAssetRequest{
 		IncludeLeased: true,
+		ScriptKeyType: allScriptKeysQuery,
 	})
 	require.NoError(t, err)
 

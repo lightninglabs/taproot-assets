@@ -241,7 +241,9 @@ func transferAssetProofs(t *harnessTest, src, dst *tapdHarness,
 	}
 
 	listResp, err := dst.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{},
+		ctxt, &taprpc.ListAssetRequest{
+			ScriptKeyType: allScriptKeysQuery,
+		},
 	)
 	require.NoError(t.t, err)
 
