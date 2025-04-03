@@ -589,6 +589,13 @@ func ConvertToTransfer(currentHeight uint32, activeTransfers []*tappsbt.VPacket,
 		vPkt := activeTransfers[pIdx]
 
 		for vPktOutputIdx := range vPkt.Outputs {
+			// Burn and tombstone keys are the only keys that we
+			// don't explicitly store in the DB before this point.
+			// But we'll want them to have the correct type when
+			// creating the transfer, as they'll be inserted into
+			// the DB, assigned to this transfer.
+			detectUnSpendableKeys(vPkt.Outputs[vPktOutputIdx])
+
 			tOut, err := transferOutput(
 				vPkt, vPktOutputIdx, outputPosition, anchorTx,
 				passiveAssets, isLocalKey,

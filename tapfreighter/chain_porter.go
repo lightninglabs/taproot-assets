@@ -1723,6 +1723,46 @@ func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 	}
 }
 
+// detectUnSpendableKeys checks if the script key in the virtual output is a
+// burn or tombstone key and sets the appropriate type on the output script key.
+func detectUnSpendableKeys(vOut *tappsbt.VOutput) {
+	setScriptKeyType := func(vOut *tappsbt.VOutput,
+		scriptKeyType asset.ScriptKeyType) {
+
+		if vOut.Asset.ScriptKey.TweakedScriptKey == nil {
+			vOut.Asset.ScriptKey.TweakedScriptKey = new(
+				asset.TweakedScriptKey,
+			)
+			vOut.Asset.ScriptKey.RawKey.PubKey =
+				vOut.Asset.ScriptKey.PubKey
+		}
+		if vOut.ScriptKey.TweakedScriptKey == nil {
+			vOut.ScriptKey.TweakedScriptKey = new(
+				asset.TweakedScriptKey,
+			)
+			vOut.ScriptKey.RawKey.PubKey = vOut.ScriptKey.PubKey
+		}
+
+		vOut.Asset.ScriptKey.Type = scriptKeyType
+		vOut.ScriptKey.Type = scriptKeyType
+	}
+
+	if vOut.Asset == nil {
+		return
+	}
+
+	witness := vOut.Asset.PrevWitnesses
+	scriptKey := vOut.ScriptKey
+	if len(witness) > 0 && asset.IsBurnKey(scriptKey.PubKey, witness[0]) {
+		setScriptKeyType(vOut, asset.ScriptKeyBurn)
+	}
+
+	unSpendable, _ := scriptKey.IsUnSpendable()
+	if unSpendable {
+		setScriptKeyType(vOut, asset.ScriptKeyTombstone)
+	}
+}
+
 // A compile-time assertion to make sure ChainPorter satisfies the
 // fn.EventPublisher interface.
 var _ fn.EventPublisher[fn.Event, bool] = (*ChainPorter)(nil)
