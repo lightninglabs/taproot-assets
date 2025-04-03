@@ -1306,7 +1306,7 @@ type IgnoreTree interface {
 // BurnLeaf is a type that represents a burn leaf within the universe tree.
 type BurnLeaf struct {
 	// UniverseKey is the key that the burn leaf is stored at.
-	UniverseKey LeafKey
+	UniverseKey UniqueLeafKey
 
 	// BurnProof is the burn proof that is stored within the burn leaf.
 	BurnProof *proof.Proof

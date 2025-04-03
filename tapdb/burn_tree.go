@@ -247,13 +247,16 @@ func decodeAndBuildAuthBurnLeaf(dbLeaf UniverseLeaf) (
 	}
 	scriptKey := asset.NewScriptKey(scriptPub)
 
-	leafKey := universe.BaseLeafKey{
-		OutPoint:  burnProof.OutPoint(),
-		ScriptKey: &scriptKey,
+	leafKey := universe.AssetLeafKey{
+		BaseLeafKey: universe.BaseLeafKey{
+			OutPoint:  burnProof.OutPoint(),
+			ScriptKey: &scriptKey,
+		},
+		AssetID: burnProof.Asset.ID(),
 	}
 
 	burnLeaf := &universe.BurnLeaf{
-		UniverseKey: leafKey,
+		UniverseKey: &leafKey,
 		BurnProof:   &burnProof,
 	}
 
