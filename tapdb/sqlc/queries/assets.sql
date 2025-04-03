@@ -339,8 +339,8 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND 
-      (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
-        sqlc.narg('exclude_key') IS NULL) AND
+      (script_keys.key_type != sqlc.narg('exclude_script_key_type') OR
+        sqlc.narg('exclude_script_key_type') IS NULL) AND
       (sqlc.narg('script_key_type') = script_keys.key_type OR 
         sqlc.narg('script_key_type') IS NULL)
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
@@ -369,9 +369,9 @@ JOIN managed_utxos utxos
        END
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
-WHERE spent = FALSE AND 
-      (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
-        sqlc.narg('exclude_key') IS NULL) AND
+WHERE spent = FALSE AND
+      (script_keys.key_type != sqlc.narg('exclude_script_key_type') OR
+        sqlc.narg('exclude_script_key_type') IS NULL) AND
       (sqlc.narg('script_key_type') = script_keys.key_type OR
         sqlc.narg('script_key_type') IS NULL)
 GROUP BY key_group_info_view.tweaked_group_key;

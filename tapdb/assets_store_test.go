@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
@@ -3034,23 +3035,33 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 	const numGroups = 1
 	assetGen := newAssetGenerator(t, numAssets, numGroups)
 
-	fundingScriptKey := asset.NewScriptKey(
-		tapscript.NewChannelFundingScriptTree().TaprootKey,
+	fundingKey := tapscript.NewChannelFundingScriptTree()
+	xOnlyKey, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(fundingKey.TaprootKey),
 	)
+	fundingScriptKey := asset.ScriptKey{
+		PubKey: xOnlyKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingKey.InternalKey,
+			},
+			Type: asset.ScriptKeyScriptPathChannel,
+		},
+	}
 
 	assetDesc := []assetDesc{
 		{
 			assetGen:    assetGen.assetGens[0],
 			anchorPoint: assetGen.anchorPoints[0],
 			keyGroup:    assetGen.groupKeys[0],
-			amt:         4,
+			amt:         8,
 			scriptKey:   &fundingScriptKey,
 		},
 		{
 			assetGen:    assetGen.assetGens[1],
 			anchorPoint: assetGen.anchorPoints[1],
 			keyGroup:    assetGen.groupKeys[0],
-			amt:         4,
+			amt:         12,
 		},
 	}
 	assetGen.genAssets(t, assetsStore, assetDesc)
@@ -3081,4 +3092,31 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 		balanceByGroupSum += balance.Balance
 	}
 	require.Equal(t, assetDesc[1].amt, balanceByGroupSum)
+
+	// If we explicitly query for channel related script keys, we should get
+	// just those assets.
+	balances, err = assetsStore.QueryBalancesByAsset(
+		ctx, nil, includeLeased,
+		fn.Some(asset.ScriptKeyScriptPathChannel),
+	)
+	require.NoError(t, err)
+	balancesByGroup, err = assetsStore.QueryAssetBalancesByGroup(
+		ctx, nil, includeLeased,
+		fn.Some(asset.ScriptKeyScriptPathChannel),
+	)
+	require.NoError(t, err)
+	require.Len(t, balances, numAssets-1)
+	require.Len(t, balancesByGroup, numAssets-1)
+
+	balanceSum = uint64(0)
+	for _, balance := range balances {
+		balanceSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[0].amt, balanceSum)
+
+	balanceByGroupSum = uint64(0)
+	for _, balance := range balancesByGroup {
+		balanceByGroupSum += balance.Balance
+	}
+	require.Equal(t, assetDesc[0].amt, balanceByGroupSum)
 }

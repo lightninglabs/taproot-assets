@@ -23,7 +23,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
-	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -999,19 +998,25 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 		},
 	}
 
+	// We exclude the assets that are specifically used for funding custom
+	// channels. The balance of those assets is reported through lnd channel
+	// balance. Those assets are identified by the specific script key type
+	// for channel keys. We exclude them unless explicitly queried for.
+	assetBalancesFilter.ExcludeScriptKeyType = sqlInt16(
+		asset.ScriptKeyScriptPathChannel,
+	)
+
 	// The fn.None option means we don't restrict on script key type at all.
 	skt.WhenSome(func(t asset.ScriptKeyType) {
 		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
-	})
 
-	// We exclude the assets that are specifically used for funding custom
-	// channels. The balance of those assets is reported through lnd channel
-	// balance. Those assets are identified by the funding script tree for a
-	// custom channel asset-level script key.
-	excludeKey := asset.NewScriptKey(
-		tapscript.NewChannelFundingScriptTree().TaprootKey,
-	)
-	assetBalancesFilter.ExcludeKey = excludeKey.PubKey.SerializeCompressed()
+		// If the user explicitly wants to see the channel related asset
+		// balances, we need to set the exclude type to NULL.
+		if t == asset.ScriptKeyScriptPathChannel {
+			nullValue := sql.NullInt16{}
+			assetBalancesFilter.ExcludeScriptKeyType = nullValue
+		}
+	})
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
@@ -1085,19 +1090,25 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 		},
 	}
 
+	// We exclude the assets that are specifically used for funding custom
+	// channels. The balance of those assets is reported through lnd channel
+	// balance. Those assets are identified by the specific script key type
+	// for channel keys. We exclude them unless explicitly queried for.
+	assetBalancesFilter.ExcludeScriptKeyType = sqlInt16(
+		asset.ScriptKeyScriptPathChannel,
+	)
+
 	// The fn.None option means we don't restrict on script key type at all.
 	skt.WhenSome(func(t asset.ScriptKeyType) {
 		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
-	})
 
-	// We exclude the assets that are specifically used for funding custom
-	// channels. The balance of those assets is reported through lnd channel
-	// balance. Those assets are identified by the funding script tree for a
-	// custom channel asset-level script key.
-	excludeKey := asset.NewScriptKey(
-		tapscript.NewChannelFundingScriptTree().TaprootKey,
-	)
-	assetBalancesFilter.ExcludeKey = excludeKey.PubKey.SerializeCompressed()
+		// If the user explicitly wants to see the channel related asset
+		// balances, we need to set the exclude type to NULL.
+		if t == asset.ScriptKeyScriptPathChannel {
+			nullValue := sql.NullInt16{}
+			assetBalancesFilter.ExcludeScriptKeyType = nullValue
+		}
+	})
 
 	// By default, we only show assets that are not leased.
 	if !includeLeased {
