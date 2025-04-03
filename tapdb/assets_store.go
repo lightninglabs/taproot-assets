@@ -624,8 +624,8 @@ func parseAssetWitness(input AssetWitness) (asset.Witness, error) {
 // dbAssetsToChainAssets maps a set of confirmed assets in the database, and
 // the witnesses of those assets to a set of normal ChainAsset structs needed
 // by a higher level application.
-func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
-	witnesses assetWitnesses) ([]*asset.ChainAsset, error) {
+func dbAssetsToChainAssets(dbAssets []ConfirmedAsset, witnesses assetWitnesses,
+	dbClock clock.Clock) ([]*asset.ChainAsset, error) {
 
 	chainAssets := make([]*asset.ChainAsset, len(dbAssets))
 	for i := range dbAssets {
@@ -829,7 +829,7 @@ func (a *AssetStore) dbAssetsToChainAssets(dbAssets []ConfirmedAsset,
 		owner := sprout.AnchorLeaseOwner
 		expiry := sprout.AnchorLeaseExpiry
 		if len(owner) > 0 && expiry.Valid &&
-			expiry.Time.UTC().After(a.clock.Now().UTC()) {
+			expiry.Time.UTC().After(dbClock.Now().UTC()) {
 
 			copy(chainAssets[i].AnchorLeaseOwner[:], owner)
 			chainAssets[i].AnchorLeaseExpiry = &expiry.Time
@@ -1235,7 +1235,7 @@ func (a *AssetStore) FetchAllAssets(ctx context.Context, includeSpent,
 		return nil, dbErr
 	}
 
-	return a.dbAssetsToChainAssets(dbAssets, assetWitnesses)
+	return dbAssetsToChainAssets(dbAssets, assetWitnesses, a.clock)
 }
 
 // FetchManagedUTXOs fetches all UTXOs we manage.
@@ -1947,7 +1947,9 @@ func (a *AssetStore) queryChainAssets(ctx context.Context, q ActiveAssetsStore,
 	if err != nil {
 		return nil, err
 	}
-	matchingAssets, err := a.dbAssetsToChainAssets(dbAssets, assetWitnesses)
+	matchingAssets, err := dbAssetsToChainAssets(
+		dbAssets, assetWitnesses, a.clock,
+	)
 	if err != nil {
 		return nil, err
 	}
