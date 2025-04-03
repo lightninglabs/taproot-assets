@@ -268,7 +268,7 @@ var (
 	// fails.
 	ErrBindBatchTx = errors.New("unable to bind batch tx")
 
-	// ErrEcodePsbt is returned when serializing a PSBT fails.
+	// ErrEncodePsbt is returned when serializing a PSBT fails.
 	ErrEncodePsbt = errors.New("unable to encode psbt")
 )
 

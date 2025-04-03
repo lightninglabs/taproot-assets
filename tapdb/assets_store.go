@@ -1519,8 +1519,8 @@ func locatorToProofQuery(locator proof.Locator) (FetchAssetProof, error) {
 // the FileArchiver.
 //
 // NOTE: This implements the proof.Archiver interface.
-func (a *AssetStore) FetchIssuanceProof(ctx context.Context, id asset.ID,
-	anchorOutpoint wire.OutPoint) (proof.Blob, error) {
+func (a *AssetStore) FetchIssuanceProof(_ context.Context, _ asset.ID,
+	_ wire.OutPoint) (proof.Blob, error) {
 
 	return nil, proof.ErrProofNotFound
 }

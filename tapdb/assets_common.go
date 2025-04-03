@@ -134,7 +134,7 @@ var (
 	// exactly 32 bytes.
 	ErrTapscriptRootSize = errors.New("tapscript root invalid: wrong size")
 
-	// ErrFetchGenesisAsset is returned when fetching the database ID for an
+	// ErrFetchGenesisID is returned when fetching the database ID for an
 	// asset genesis fails.
 	ErrFetchGenesisID = errors.New("unable to fetch genesis asset")
 )
