@@ -24,7 +24,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -724,9 +723,9 @@ func filterMinAmt(amt uint64) filterOpt {
 	}
 }
 
-func filterCoinSelectType(typ tapsend.CoinSelectType) filterOpt {
+func filterScriptKeyType(typ asset.ScriptKeyType) filterOpt {
 	return func(f *AssetQueryFilters) {
-		f.CoinSelectType = typ
+		f.ScriptKeyType = fn.Some(typ)
 	}
 }
 
@@ -867,65 +866,44 @@ func TestFetchAllAssets(t *testing.T) {
 		includeSpent:  true,
 		numAssets:     12,
 	}, {
-		name: "min amount",
-		filter: makeFilter(
-			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:      "min amount",
+		filter:    makeFilter(filterMinAmt(12)),
 		numAssets: 2,
 	}, {
-		name: "min amount, include spent",
-		filter: makeFilter(
-			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:         "min amount, include spent",
+		filter:       makeFilter(filterMinAmt(12)),
 		includeSpent: true,
 		numAssets:    4,
 	}, {
-		name: "min amount, include leased",
-		filter: makeFilter(
-			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:          "min amount, include leased",
+		filter:        makeFilter(filterMinAmt(12)),
 		includeLeased: true,
 		numAssets:     5,
 	}, {
-		name: "min amount, include leased, include spent",
-		filter: makeFilter(
-			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:          "min amount, include leased, include spent",
+		filter:        makeFilter(filterMinAmt(12)),
 		includeLeased: true,
 		includeSpent:  true,
 		numAssets:     8,
 	}, {
-		name: "default min height, include spent",
-		filter: makeFilter(
-			filterAnchorHeight(500),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:         "default min height, include spent",
+		filter:       makeFilter(filterAnchorHeight(500)),
 		includeSpent: true,
 		numAssets:    8,
 	}, {
-		name: "specific height",
-		filter: makeFilter(
-			filterAnchorHeight(512),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:      "specific height",
+		filter:    makeFilter(filterAnchorHeight(512)),
 		numAssets: 0,
 	}, {
-		name: "default min height, include spent",
-		filter: makeFilter(
-			filterAnchorHeight(502),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
-		),
+		name:         "default min height, include spent",
+		filter:       makeFilter(filterAnchorHeight(502)),
 		includeSpent: true,
 		numAssets:    3,
 	}, {
 		name: "script key with tapscript",
 		filter: makeFilter(
 			filterMinAmt(100),
-			filterCoinSelectType(tapsend.Bip86Only),
+			filterScriptKeyType(asset.ScriptKeyBip86),
 		),
 		numAssets: 0,
 	}, {
