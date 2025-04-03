@@ -208,6 +208,10 @@ type FundingDescriptor struct {
 
 	// CoinSelectType specifies the type of coins that should be selected.
 	CoinSelectType CoinSelectType
+
+	// ScriptKeyType is the type of script key the assets are expected to
+	// have. If this is fn.None, then any script key type is allowed.
+	ScriptKeyType fn.Option[asset.ScriptKeyType]
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset

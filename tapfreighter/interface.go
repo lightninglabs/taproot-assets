@@ -40,6 +40,10 @@ type CommitmentConstraints struct {
 
 	// CoinSelectType is the type of coins that should be selected.
 	CoinSelectType tapsend.CoinSelectType
+
+	// ScriptKeyType is the type of script key the assets are expected to
+	// have. If this is fn.None, then any script key type is allowed.
+	ScriptKeyType fn.Option[asset.ScriptKeyType]
 }
 
 // AssetBurn holds data related to a burn of an asset.
