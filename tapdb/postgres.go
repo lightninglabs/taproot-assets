@@ -131,7 +131,12 @@ func NewPostgresStore(cfg *PostgresConfig) (*PostgresStore, error) {
 	// Now that the database is open, populate the database with our set of
 	// schemas based on our embedded in-memory file system.
 	if !cfg.SkipMigrations {
-		if err := s.ExecuteMigrations(TargetLatest); err != nil {
+		err := s.ExecuteMigrations(
+			TargetLatest, WithPostStepCallbacks(
+				makePostStepCallbacks(s, postMigrationChecks),
+			),
+		)
+		if err != nil {
 			return nil, fmt.Errorf("error executing migrations: "+
 				"%w", err)
 		}
