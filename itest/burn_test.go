@@ -157,9 +157,10 @@ func testBurnAssets(t *harnessTest) {
 
 	// We'll now assert that the burned asset has the correct state.
 	burnedAsset := burnResp.BurnProof.Asset
-	allAssets, err := t.tapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{IncludeSpent: true},
-	)
+	allAssets, err := t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		IncludeSpent:  true,
+		ScriptKeyType: allScriptKeysQuery,
+	})
 	require.NoError(t.t, err)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
@@ -454,9 +455,10 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 	// Ensure that the burnt asset has the correct state.
 	burnedAsset := burnResp.BurnProof.Asset
-	allAssets, err := t.tapd.ListAssets(
-		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
-	)
+	allAssets, err := t.tapd.ListAssets(ctxb, &taprpc.ListAssetRequest{
+		IncludeSpent:  true,
+		ScriptKeyType: allScriptKeysQuery,
+	})
 	require.NoError(t.t, err)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
