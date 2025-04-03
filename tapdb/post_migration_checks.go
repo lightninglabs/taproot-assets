@@ -188,7 +188,6 @@ func detectScriptKeyType(ctx context.Context, q sqlc.Querier) error {
 				InternalKeyID:    k.InternalKey.KeyID,
 				TweakedScriptKey: k.ScriptKey.TweakedScriptKey,
 				Tweak:            k.ScriptKey.Tweak,
-				DeclaredKnown:    k.ScriptKey.DeclaredKnown,
 				KeyType:          sqlInt16(newType),
 			})
 			if err != nil {
