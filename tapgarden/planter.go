@@ -2802,7 +2802,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		// The base key is the set of bytes that keys into the universe,
 		// this'll be the outpoint where it was created at and the
 		// script key for that asset.
-		leafKey := universe.LeafKey{
+		leafKey := universe.BaseLeafKey{
 			OutPoint: wire.OutPoint{
 				Hash:  p.AnchorTx.TxHash(),
 				Index: p.InclusionProof.OutputIndex,

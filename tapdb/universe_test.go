@@ -3,6 +3,7 @@ package tapdb
 import (
 	"bytes"
 	"context"
+	crand "crypto/rand"
 	"database/sql"
 	"math"
 	"math/rand"
@@ -156,7 +157,7 @@ func TestUniverseEmptyTree(t *testing.T) {
 }
 
 func randLeafKey(t *testing.T) universe.LeafKey {
-	return universe.LeafKey{
+	return universe.BaseLeafKey{
 		OutPoint:  test.RandOp(t),
 		ScriptKey: fn.Ptr(asset.NewScriptKey(test.RandPubKey(t))),
 	}
@@ -168,6 +169,14 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 		proofAsset = *argAsset
 	}
 
+	var witnessData [32]byte
+	_, err := crand.Read(witnessData[:])
+	require.NoError(t, err)
+
+	var pkScript [32]byte
+	_, err = crand.Read(pkScript[:])
+	require.NoError(t, err)
+
 	return &proof.Proof{
 		PrevOut: wire.OutPoint{},
 		BlockHeader: wire.BlockHeader{
@@ -176,7 +185,11 @@ func randProof(t *testing.T, argAsset *asset.Asset) *proof.Proof {
 		AnchorTx: wire.MsgTx{
 			Version: 2,
 			TxIn: []*wire.TxIn{{
-				Witness: [][]byte{[]byte("foo")},
+				Witness: [][]byte{witnessData[:]},
+			}},
+			TxOut: []*wire.TxOut{{
+				PkScript: pkScript[:],
+				Value:    1000,
 			}},
 		},
 		TxMerkleProof: proof.TxMerkleProof{},
@@ -635,12 +648,13 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// We'll create three new leaves, all of them will share the exact same
 	// minting outpoint, but will have distinct script keys.
-	rootMintingPoint := randLeafKey(t).OutPoint
+	rootMintingPoint := randLeafKey(t).LeafOutPoint()
 
 	leafToScriptKey := make(map[asset.SerializedKey]universe.Leaf)
 	for i := 0; i < numLeafs; i++ {
-		targetKey := randLeafKey(t)
-		targetKey.OutPoint = rootMintingPoint
+		baseKey := randLeafKey(t).(universe.BaseLeafKey)
+		baseKey.OutPoint = rootMintingPoint
+		targetKey := baseKey
 
 		leaf := randMintingLeaf(t, assetGen, id.GroupKey)
 		if id.GroupKey != nil {
@@ -659,7 +673,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 			}
 		}
 
-		scriptKey := asset.ToSerialized(targetKey.ScriptKey.PubKey)
+		scriptKey := asset.ToSerialized(targetKey.LeafScriptKey().PubKey)
 
 		leafToScriptKey[scriptKey] = leaf
 
@@ -671,7 +685,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 
 	// If we query for only the minting point, then all three leaves should
 	// be returned.
-	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
+	proofs, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseLeafKey{
 		OutPoint: rootMintingPoint,
 	})
 	require.NoError(t, err)
@@ -684,7 +698,7 @@ func TestUniverseLeafQuery(t *testing.T) {
 		scriptKey, err := btcec.ParsePubKey(scriptKeyBytes[:])
 		require.NoError(t, err)
 
-		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.LeafKey{
+		p, err := baseUniverse.FetchIssuanceProof(ctx, universe.BaseLeafKey{
 			OutPoint: rootMintingPoint,
 			ScriptKey: &asset.ScriptKey{
 				PubKey: scriptKey,
