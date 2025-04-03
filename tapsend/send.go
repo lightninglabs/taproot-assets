@@ -209,6 +209,10 @@ type FundingDescriptor struct {
 	// CoinSelectType specifies the type of coins that should be selected.
 	CoinSelectType CoinSelectType
 
+	// ScriptKeyType is the type of script key the assets are expected to
+	// have. If this is fn.None, then any script key type is allowed.
+	ScriptKeyType fn.Option[asset.ScriptKeyType]
+
 	// DistinctSpecifier indicates whether we _only_ look at either the
 	// group key _or_ the asset ID but not both. That means, if the group
 	// key is set, we ignore the asset ID and allow multiple inputs of the

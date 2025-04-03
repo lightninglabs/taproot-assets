@@ -692,3 +692,37 @@ func MarshalAsset(ctx context.Context, a *asset.Asset,
 
 	return rpcAsset, nil
 }
+
+// ParseScriptKeyTypeQuery parses the script key type query from the RPC
+// variant.
+func ParseScriptKeyTypeQuery(
+	q *ScriptKeyTypeQuery) (fn.Option[asset.ScriptKeyType], bool, error) {
+
+	if q == nil || q.Type == nil {
+		return fn.Some(asset.ScriptKeyBip86), false, nil
+	}
+
+	switch t := q.Type.(type) {
+	case *ScriptKeyTypeQuery_ExplicitType:
+		explicitType, err := UnmarshalScriptKeyType(t.ExplicitType)
+		if err != nil {
+			return fn.None[asset.ScriptKeyType](), false, err
+		}
+
+		includeSpent := false
+		switch explicitType {
+		case asset.ScriptKeyTombstone, asset.ScriptKeyBurn:
+			includeSpent = true
+
+		default:
+		}
+
+		return fn.Some(explicitType), includeSpent, nil
+
+	case *ScriptKeyTypeQuery_AllTypes:
+		return fn.None[asset.ScriptKeyType](), false, nil
+
+	default:
+		return fn.Some(asset.ScriptKeyBip86), false, nil
+	}
+}

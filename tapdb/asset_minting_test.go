@@ -1143,7 +1143,9 @@ func TestCommitBatchChainActions(t *testing.T) {
 
 	// We'll now query for the set of balances to ensure they all line up
 	// with the assets we just created, including the group genesis asset.
-	assetBalances, err := confAssets.QueryBalancesByAsset(ctx, nil, false)
+	assetBalances, err := confAssets.QueryBalancesByAsset(
+		ctx, nil, false, fn.None[asset.ScriptKeyType](),
+	)
 	require.NoError(t, err)
 	require.Equal(t, numSeedlings+1, len(assetBalances))
 
@@ -1165,7 +1167,7 @@ func TestCommitBatchChainActions(t *testing.T) {
 	}
 	numKeyGroups := fn.Reduce(mintedAssets, keyGroupSumReducer)
 	assetBalancesByGroup, err := confAssets.QueryAssetBalancesByGroup(
-		ctx, nil, false,
+		ctx, nil, false, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Equal(t, numKeyGroups, len(assetBalancesByGroup))

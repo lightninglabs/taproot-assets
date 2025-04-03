@@ -2194,8 +2194,10 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND 
-        (script_keys.tweaked_script_key != $4 OR
-                $4 IS NULL)
+      (script_keys.tweaked_script_key != $4 OR
+        $4 IS NULL) AND
+      ($5 = script_keys.key_type OR 
+        $5 IS NULL)
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -2207,6 +2209,7 @@ type QueryAssetBalancesByAssetParams struct {
 	Leased        interface{}
 	Now           sql.NullTime
 	ExcludeKey    []byte
+	ScriptKeyType sql.NullInt16
 }
 
 type QueryAssetBalancesByAssetRow struct {
@@ -2229,6 +2232,7 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetB
 		arg.Leased,
 		arg.Now,
 		arg.ExcludeKey,
+		arg.ScriptKeyType,
 	)
 	if err != nil {
 		return nil, err
@@ -2281,8 +2285,10 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND 
-        (script_keys.tweaked_script_key != $4 OR
-                $4 IS NULL)
+      (script_keys.tweaked_script_key != $4 OR
+        $4 IS NULL) AND
+      ($5 = script_keys.key_type OR
+        $5 IS NULL)
 GROUP BY key_group_info_view.tweaked_group_key
 `
 
@@ -2291,6 +2297,7 @@ type QueryAssetBalancesByGroupParams struct {
 	Leased         interface{}
 	Now            sql.NullTime
 	ExcludeKey     []byte
+	ScriptKeyType  sql.NullInt16
 }
 
 type QueryAssetBalancesByGroupRow struct {
@@ -2304,6 +2311,7 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetB
 		arg.Leased,
 		arg.Now,
 		arg.ExcludeKey,
+		arg.ScriptKeyType,
 	)
 	if err != nil {
 		return nil, err
@@ -2397,28 +2405,25 @@ WHERE (
     assets.anchor_utxo_id = COALESCE($10, assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE($11, assets.genesis_id) AND
     assets.script_key_id = COALESCE($12, assets.script_key_id) AND
-    COALESCE(length(script_keys.tweak), 0) = (CASE
-        WHEN cast($13 as bool) = TRUE
-        THEN 0 
-        ELSE COALESCE(length(script_keys.tweak), 0)
-    END)
+    ($13 = script_keys.key_type OR
+      $13 IS NULL)
 )
 `
 
 type QueryAssetsParams struct {
-	AssetIDFilter       []byte
-	TweakedScriptKey    []byte
-	AnchorPoint         []byte
-	Leased              interface{}
-	Now                 sql.NullTime
-	MinAnchorHeight     sql.NullInt32
-	MinAmt              sql.NullInt64
-	Spent               sql.NullBool
-	KeyGroupFilter      []byte
-	AnchorUtxoID        sql.NullInt64
-	GenesisID           sql.NullInt64
-	ScriptKeyID         sql.NullInt64
-	Bip86ScriptKeysOnly bool
+	AssetIDFilter    []byte
+	TweakedScriptKey []byte
+	AnchorPoint      []byte
+	Leased           interface{}
+	Now              sql.NullTime
+	MinAnchorHeight  sql.NullInt32
+	MinAmt           sql.NullInt64
+	Spent            sql.NullBool
+	KeyGroupFilter   []byte
+	AnchorUtxoID     sql.NullInt64
+	GenesisID        sql.NullInt64
+	ScriptKeyID      sql.NullInt64
+	ScriptKeyType    sql.NullInt16
 }
 
 type QueryAssetsRow struct {
@@ -2482,7 +2487,7 @@ func (q *Queries) QueryAssets(ctx context.Context, arg QueryAssetsParams) ([]Que
 		arg.AnchorUtxoID,
 		arg.GenesisID,
 		arg.ScriptKeyID,
-		arg.Bip86ScriptKeysOnly,
+		arg.ScriptKeyType,
 	)
 	if err != nil {
 		return nil, err

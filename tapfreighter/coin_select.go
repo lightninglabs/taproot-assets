@@ -55,6 +55,7 @@ func (s *CoinSelect) SelectCoins(ctx context.Context,
 		AssetSpecifier:    constraints.AssetSpecifier,
 		MinAmt:            1,
 		CoinSelectType:    constraints.CoinSelectType,
+		ScriptKeyType:     constraints.ScriptKeyType,
 		PrevIDs:           constraints.PrevIDs,
 		DistinctSpecifier: constraints.DistinctSpecifier,
 	}
