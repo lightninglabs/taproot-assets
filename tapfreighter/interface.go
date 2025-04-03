@@ -21,7 +21,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapgarden"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/keychain"
 )
 
@@ -51,9 +50,6 @@ type CommitmentConstraints struct {
 
 	// PrevIDs are the set of inputs allowed to be used.
 	PrevIDs []asset.PrevID
-
-	// CoinSelectType is the type of coins that should be selected.
-	CoinSelectType tapsend.CoinSelectType
 
 	// DistinctSpecifier indicates whether we _only_ look at either the
 	// group key _or_ the asset ID but not both. That means, if the group

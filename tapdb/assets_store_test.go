@@ -24,7 +24,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapdb/sqlc"
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/keychain"
 	"github.com/stretchr/testify/require"
@@ -730,12 +729,6 @@ func filterMaxAmt(amt uint64) filterOpt {
 	}
 }
 
-func filterCoinSelectType(typ tapsend.CoinSelectType) filterOpt {
-	return func(f *AssetQueryFilters) {
-		f.CoinSelectType = typ
-	}
-}
-
 func filterDistinctSpecifier() filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.DistinctSpecifier = true
@@ -757,6 +750,12 @@ func filterAnchorPoint(point *wire.OutPoint) filterOpt {
 func filterScriptKey(key *asset.ScriptKey) filterOpt {
 	return func(f *AssetQueryFilters) {
 		f.ScriptKey = key
+	}
+}
+
+func filterScriptKeyType(keyType asset.ScriptKeyType) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.ScriptKeyType = fn.Some(keyType)
 	}
 }
 
@@ -889,14 +888,12 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "min amount",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 2,
 	}, {
 		name: "min amount, include spent",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    4,
@@ -904,7 +901,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "min amount, include leased",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		numAssets:     5,
@@ -912,7 +908,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "min amount, include leased, include spent",
 		filter: makeFilter(
 			filterMinAmt(12),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		includeSpent:  true,
@@ -921,14 +916,12 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "max amount",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 6,
 	}, {
 		name: "max amount, include spent",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    7,
@@ -936,7 +929,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "max amount, include leased",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		numAssets:     8,
@@ -944,7 +936,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "max amount, include leased, include spent",
 		filter: makeFilter(
 			filterMaxAmt(100),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		includeSpent:  true,
@@ -953,7 +944,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "default min height, include spent",
 		filter: makeFilter(
 			filterAnchorHeight(500),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    8,
@@ -961,14 +951,12 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "specific height",
 		filter: makeFilter(
 			filterAnchorHeight(512),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 0,
 	}, {
 		name: "specific height, include spent",
 		filter: makeFilter(
 			filterAnchorHeight(502),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeSpent: true,
 		numAssets:    3,
@@ -976,21 +964,19 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "script key with tapscript",
 		filter: makeFilter(
 			filterMinAmt(100),
-			filterCoinSelectType(tapsend.Bip86Only),
+			filterScriptKeyType(asset.ScriptKeyBip86),
 		),
 		numAssets: 0,
 	}, {
 		name: "query by script key",
 		filter: makeFilter(
 			filterScriptKey(scriptKeyWithScript),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 1,
 	}, {
 		name: "query by script key, include leased",
 		filter: makeFilter(
 			filterScriptKey(scriptKeyWithScript),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		includeLeased: true,
 		numAssets:     2,
@@ -1022,7 +1008,6 @@ func TestFetchAllAssets(t *testing.T) {
 		name: "query by anchor point",
 		filter: makeFilter(
 			filterAnchorPoint(&assetGen.anchorPoints[0]),
-			filterCoinSelectType(tapsend.ScriptTreesAllowed),
 		),
 		numAssets: 3,
 	}}

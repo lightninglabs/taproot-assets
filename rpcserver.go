@@ -1060,9 +1060,8 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 	}
 
 	constraints := tapfreighter.CommitmentConstraints{
-		MinAmt:         req.MinAmount,
-		MaxAmt:         req.MaxAmount,
-		CoinSelectType: tapsend.DefaultCoinSelectType,
+		MinAmt: req.MinAmount,
+		MaxAmt: req.MaxAmount,
 	}
 
 	if len(req.GroupKey) > 0 {
@@ -2210,7 +2209,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	req *wrpc.FundVirtualPsbtRequest) (*wrpc.FundVirtualPsbtResponse,
 	error) {
 
-	coinSelectType, err := unmarshalCoinSelectType(req.CoinSelectType)
+	scriptKeyType, err := unmarshalCoinSelectType(req.CoinSelectType)
 	if err != nil {
 		return nil, fmt.Errorf("error parsing coin select type: %w",
 			err)
@@ -2237,7 +2236,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 				"recipients: %w", err)
 		}
 
-		desc.CoinSelectType = coinSelectType
+		desc.ScriptKeyType = scriptKeyType
 		fundedVPkt, err = r.cfg.AssetWallet.FundPacket(ctx, desc, vPkt)
 		if err != nil {
 			return nil, fmt.Errorf("error funding packet: %w", err)
@@ -2307,7 +2306,7 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 		}
 
 		fundedVPkt, err = r.cfg.AssetWallet.FundAddressSend(
-			ctx, coinSelectType, prevIDs, addr,
+			ctx, scriptKeyType, prevIDs, addr,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error funding address send: "+
@@ -2356,23 +2355,24 @@ func (r *rpcServer) FundVirtualPsbt(ctx context.Context,
 	return response, nil
 }
 
-// unmarshalCoinSelectType converts an RPC select type into a native one.
+// unmarshalCoinSelectType converts an RPC select type into a script key type
+// that can be used to select the appropriate inputs.
 func unmarshalCoinSelectType(
-	coinSelectType wrpc.CoinSelectType) (tapsend.CoinSelectType, error) {
+	coinSelectType wrpc.CoinSelectType) (fn.Option[asset.ScriptKeyType],
+	error) {
 
 	switch coinSelectType {
-	case wrpc.CoinSelectType_COIN_SELECT_DEFAULT:
-		return tapsend.DefaultCoinSelectType, nil
+	case wrpc.CoinSelectType_COIN_SELECT_DEFAULT,
+		wrpc.CoinSelectType_COIN_SELECT_SCRIPT_TREES_ALLOWED:
+
+		return fn.None[asset.ScriptKeyType](), nil
 
 	case wrpc.CoinSelectType_COIN_SELECT_BIP86_ONLY:
-		return tapsend.Bip86Only, nil
-
-	case wrpc.CoinSelectType_COIN_SELECT_SCRIPT_TREES_ALLOWED:
-		return tapsend.ScriptTreesAllowed, nil
+		return fn.Some(asset.ScriptKeyBip86), nil
 
 	default:
-		return 0, fmt.Errorf("unknown coin select type: %d",
-			coinSelectType)
+		return fn.None[asset.ScriptKeyType](), fmt.Errorf("unknown "+
+			"coin select type: %d", coinSelectType)
 	}
 }
 
