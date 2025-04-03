@@ -1007,6 +1007,53 @@ message NewAddrRequest {
     AddrVersion address_version = 8;
 }
 
+enum ScriptKeyType {
+    /*
+    The type of script key is not known. This should only be stored for assets
+        where we don't know the internal key of the script key (e.g. for
+        imported proofs).
+    */
+    SCRIPT_KEY_UNKNOWN = 0;
+
+    /*
+    The script key is a normal BIP-86 key. This means that the internal key is
+    turned into a Taproot output key by applying a BIP-86 tweak to it.
+    */
+    SCRIPT_KEY_BIP86 = 1;
+
+    /*
+    The script key is a key that contains a script path that is defined by the
+    user and is therefore external to the tapd wallet. Spending this key
+    requires providing a specific witness and must be signed through the vPSBT
+    signing flow.
+    */
+    SCRIPT_KEY_SCRIPT_PATH_EXTERNAL = 2;
+
+    /*
+    The script key is a specific un-spendable key that indicates a burnt asset.
+    Assets with this key type can never be spent again, as a burn key is a
+    tweaked NUMS key that nobody knows the private key for.
+    */
+    SCRIPT_KEY_BURN = 3;
+
+    /*
+    The script key is a specific un-spendable key that indicates a tombstone
+    output. This is only the case for zero-value assets that result from a
+    non-interactive (TAP address) send where no change was left over.
+    */
+    SCRIPT_KEY_TOMBSTONE = 4;
+
+    /*
+    The script key is used for an asset that resides within a Taproot Asset
+    Channel. That means the script key is either a funding key (OP_TRUE), a
+    commitment output key (to_local, to_remote, htlc), or a HTLC second-level
+    transaction output key. Keys related to channels are not shown in asset
+    balances (unless specifically requested) and are never used for coin
+    selection.
+    */
+    SCRIPT_KEY_CHANNEL = 5;
+}
+
 message ScriptKey {
     /*
     The full Taproot output key the asset is locked to. This is either a BIP-86
@@ -1025,6 +1072,14 @@ message ScriptKey {
     empty then a BIP-86 style tweak is applied to the internal key.
     */
     bytes tap_tweak = 3;
+
+    /*
+    The type of the script key. This type is either user-declared when custom
+    script keys are added, or automatically determined by the daemon for
+    standard operations (e.g. BIP-86 keys, burn keys, tombstone keys, channel
+    related keys).
+    */
+    ScriptKeyType type = 4;
 }
 
 message KeyLocator {

@@ -8155,11 +8155,21 @@ func (r *rpcServer) DeclareScriptKey(ctx context.Context,
 	}
 
 	// Because we've been given the key over the RPC interface, we can't be
-	// 100% sure of the type. But we can make a best effort guess based on
-	// the fields the user has set.
-	keyType := scriptKey.DetermineType()
+	// 100% sure of the type, if it wasn't declared. But we can make a
+	// best-effort guess based on the fields the user has set. This is a
+	// no-op if the type is already set.
+	scriptKey.Type = scriptKey.DetermineType()
 
-	err = r.cfg.TapAddrBook.InsertScriptKey(ctx, *scriptKey, true, keyType)
+	// The user is declaring the key, so they should know what type it is.
+	// So if they didn't set it, and it wasn't an obvious one, we'll require
+	// them to set it.
+	if scriptKey.Type == asset.ScriptKeyUnknown {
+		return nil, fmt.Errorf("script key type must be set")
+	}
+
+	err = r.cfg.TapAddrBook.InsertScriptKey(
+		ctx, *scriptKey, true, scriptKey.Type,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("error inserting script key: %w", err)
 	}
