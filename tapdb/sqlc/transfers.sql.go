@@ -137,13 +137,8 @@ SELECT
     utxo_internal_keys.raw_key AS internal_key_raw_key_bytes,
     utxo_internal_keys.key_family AS internal_key_family,
     utxo_internal_keys.key_index AS internal_key_index,
-    script_keys.tweaked_script_key AS script_key_bytes,
-    script_keys.tweak AS script_key_tweak,
-    script_keys.declared_known AS script_key_declared_known,
-    script_key AS script_key_id,
-    script_internal_keys.raw_key AS script_key_raw_key_bytes,
-    script_internal_keys.key_family AS script_key_family,
-    script_internal_keys.key_index AS script_key_index
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.declared_known,
+    script_internal_keys.key_id, script_internal_keys.raw_key, script_internal_keys.key_family, script_internal_keys.key_index
 FROM asset_transfer_outputs outputs
 JOIN managed_utxos utxos
   ON outputs.anchor_utxo = utxos.utxo_id
@@ -183,13 +178,8 @@ type FetchTransferOutputsRow struct {
 	InternalKeyRawKeyBytes   []byte
 	InternalKeyFamily        int32
 	InternalKeyIndex         int32
-	ScriptKeyBytes           []byte
-	ScriptKeyTweak           []byte
-	ScriptKeyDeclaredKnown   sql.NullBool
-	ScriptKeyID              int64
-	ScriptKeyRawKeyBytes     []byte
-	ScriptKeyFamily          int32
-	ScriptKeyIndex           int32
+	ScriptKey                ScriptKey
+	InternalKey              InternalKey
 }
 
 func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([]FetchTransferOutputsRow, error) {
@@ -227,13 +217,15 @@ func (q *Queries) FetchTransferOutputs(ctx context.Context, transferID int64) ([
 			&i.InternalKeyRawKeyBytes,
 			&i.InternalKeyFamily,
 			&i.InternalKeyIndex,
-			&i.ScriptKeyBytes,
-			&i.ScriptKeyTweak,
-			&i.ScriptKeyDeclaredKnown,
-			&i.ScriptKeyID,
-			&i.ScriptKeyRawKeyBytes,
-			&i.ScriptKeyFamily,
-			&i.ScriptKeyIndex,
+			&i.ScriptKey.ScriptKeyID,
+			&i.ScriptKey.InternalKeyID,
+			&i.ScriptKey.TweakedScriptKey,
+			&i.ScriptKey.Tweak,
+			&i.ScriptKey.DeclaredKnown,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
 		); err != nil {
 			return nil, err
 		}
