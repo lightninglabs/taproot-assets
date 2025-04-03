@@ -2190,7 +2190,7 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND 
-      (script_keys.tweaked_script_key != $4 OR
+      (script_keys.key_type != $4 OR
         $4 IS NULL) AND
       ($5 = script_keys.key_type OR 
         $5 IS NULL)
@@ -2201,11 +2201,11 @@ GROUP BY assets.genesis_id, genesis_info_view.asset_id,
 `
 
 type QueryAssetBalancesByAssetParams struct {
-	AssetIDFilter []byte
-	Leased        interface{}
-	Now           sql.NullTime
-	ExcludeKey    []byte
-	ScriptKeyType sql.NullInt16
+	AssetIDFilter        []byte
+	Leased               interface{}
+	Now                  sql.NullTime
+	ExcludeScriptKeyType sql.NullInt16
+	ScriptKeyType        sql.NullInt16
 }
 
 type QueryAssetBalancesByAssetRow struct {
@@ -2227,7 +2227,7 @@ func (q *Queries) QueryAssetBalancesByAsset(ctx context.Context, arg QueryAssetB
 		arg.AssetIDFilter,
 		arg.Leased,
 		arg.Now,
-		arg.ExcludeKey,
+		arg.ExcludeScriptKeyType,
 		arg.ScriptKeyType,
 	)
 	if err != nil {
@@ -2280,8 +2280,8 @@ JOIN managed_utxos utxos
        END
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
-WHERE spent = FALSE AND 
-      (script_keys.tweaked_script_key != $4 OR
+WHERE spent = FALSE AND
+      (script_keys.key_type != $4 OR
         $4 IS NULL) AND
       ($5 = script_keys.key_type OR
         $5 IS NULL)
@@ -2289,11 +2289,11 @@ GROUP BY key_group_info_view.tweaked_group_key
 `
 
 type QueryAssetBalancesByGroupParams struct {
-	KeyGroupFilter []byte
-	Leased         interface{}
-	Now            sql.NullTime
-	ExcludeKey     []byte
-	ScriptKeyType  sql.NullInt16
+	KeyGroupFilter       []byte
+	Leased               interface{}
+	Now                  sql.NullTime
+	ExcludeScriptKeyType sql.NullInt16
+	ScriptKeyType        sql.NullInt16
 }
 
 type QueryAssetBalancesByGroupRow struct {
@@ -2306,7 +2306,7 @@ func (q *Queries) QueryAssetBalancesByGroup(ctx context.Context, arg QueryAssetB
 		arg.KeyGroupFilter,
 		arg.Leased,
 		arg.Now,
-		arg.ExcludeKey,
+		arg.ExcludeScriptKeyType,
 		arg.ScriptKeyType,
 	)
 	if err != nil {
