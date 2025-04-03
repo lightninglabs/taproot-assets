@@ -853,35 +853,12 @@ func fetchAssetSprouts(ctx context.Context, q PendingAssetStore,
 	for i, sprout := range dbSprout {
 		// First, we'll decode the script key which very asset must
 		// specify, and populate the key locator information
-		tweakedScriptKey, err := btcec.ParsePubKey(
-			sprout.TweakedScriptKey,
+		scriptKey, err := parseScriptKey(
+			sprout.InternalKey, sprout.ScriptKey,
 		)
 		if err != nil {
-			return nil, err
-		}
-
-		internalScriptKey, err := btcec.ParsePubKey(
-			sprout.ScriptKeyRaw,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		scriptKeyDesc := keychain.KeyDescriptor{
-			PubKey: internalScriptKey,
-			KeyLocator: keychain.KeyLocator{
-				Index:  uint32(sprout.ScriptKeyIndex),
-				Family: keychain.KeyFamily(sprout.ScriptKeyFam),
-			},
-		}
-		declaredKnown := extractBool(sprout.ScriptKeyDeclaredKnown)
-		scriptKey := asset.ScriptKey{
-			PubKey: tweakedScriptKey,
-			TweakedScriptKey: &asset.TweakedScriptKey{
-				RawKey:        scriptKeyDesc,
-				Tweak:         sprout.Tweak,
-				DeclaredKnown: declaredKnown,
-			},
+			return nil, fmt.Errorf("unable to decode script key: "+
+				"%w", err)
 		}
 
 		// Not all assets have a key group, so we only need to

@@ -485,26 +485,59 @@ func fetchScriptKey(ctx context.Context, q FetchScriptKeyStore,
 		return nil, err
 	}
 
-	rawKey, err := btcec.ParsePubKey(dbKey.RawKey)
+	scriptKey, err := parseScriptKey(dbKey.InternalKey, dbKey.ScriptKey)
 	if err != nil {
-		return nil, fmt.Errorf("unable to parse raw key: %w", err)
+		return nil, err
 	}
 
-	scriptKey := &asset.TweakedScriptKey{
-		Tweak: dbKey.Tweak,
-		RawKey: keychain.KeyDescriptor{
-			PubKey: rawKey,
-			KeyLocator: keychain.KeyLocator{
-				Family: keychain.KeyFamily(
-					dbKey.KeyFamily,
-				),
-				Index: uint32(dbKey.KeyIndex),
+	return scriptKey.TweakedScriptKey, nil
+}
+
+// parseScriptKey maps a script key and internal key from the database into a
+// ScriptKey struct. Both the internal raw public key and the tweaked public key
+// must be set and valid.
+func parseScriptKey(ik sqlc.InternalKey, sk sqlc.ScriptKey) (asset.ScriptKey,
+	error) {
+
+	var emptyKey asset.ScriptKey
+	if len(sk.TweakedScriptKey) == 0 {
+		return emptyKey, fmt.Errorf("tweaked script key is empty")
+	}
+
+	if len(ik.RawKey) == 0 {
+		return emptyKey, fmt.Errorf("internal raw key is empty")
+	}
+
+	var (
+		locator = keychain.KeyLocator{
+			Index:  uint32(ik.KeyIndex),
+			Family: keychain.KeyFamily(ik.KeyFamily),
+		}
+		result = asset.ScriptKey{
+			TweakedScriptKey: &asset.TweakedScriptKey{
+				RawKey: keychain.KeyDescriptor{
+					KeyLocator: locator,
+				},
+				Tweak:         sk.Tweak,
+				DeclaredKnown: extractBool(sk.DeclaredKnown),
 			},
-		},
-		DeclaredKnown: extractBool(dbKey.DeclaredKnown),
+		}
+		err error
+	)
+
+	result.PubKey, err = btcec.ParsePubKey(sk.TweakedScriptKey)
+	if err != nil {
+		return emptyKey, fmt.Errorf("error parsing tweaked script "+
+			"key: %w", err)
 	}
 
-	return scriptKey, nil
+	result.RawKey.PubKey, err = btcec.ParsePubKey(ik.RawKey)
+	if err != nil {
+		return emptyKey, fmt.Errorf("error parsing internal raw "+
+			"key: %w", err)
+	}
+
+	return result, nil
 }
 
 // FetchGenesisStore houses the methods related to fetching genesis assets.

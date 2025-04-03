@@ -404,21 +404,12 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				}
 			}
 
-			rawScriptKey, err := btcec.ParsePubKey(
-				addr.RawScriptKey,
+			scriptKey, err := parseScriptKey(
+				addr.InternalKey, addr.ScriptKey,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to decode "+
 					"script key: %w", err)
-			}
-			rawScriptKeyDesc := keychain.KeyDescriptor{
-				KeyLocator: keychain.KeyLocator{
-					Family: keychain.KeyFamily(
-						addr.ScriptKeyFamily,
-					),
-					Index: uint32(addr.ScriptKeyIndex),
-				},
-				PubKey: rawScriptKey,
 			}
 
 			internalKey, err := btcec.ParsePubKey(addr.RawTaprootKey)
@@ -434,11 +425,6 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 					Index: uint32(addr.TaprootKeyIndex),
 				},
 				PubKey: internalKey,
-			}
-
-			scriptKey, err := btcec.ParsePubKey(addr.TweakedScriptKey)
-			if err != nil {
-				return err
 			}
 
 			taprootOutputKey, err := schnorr.ParsePubKey(
@@ -467,8 +453,8 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 
 			tapAddr, err := address.New(
 				address.Version(addr.Version), assetGenesis,
-				groupKey, groupWitness,
-				*scriptKey, *internalKey, uint64(addr.Amount),
+				groupKey, groupWitness, *scriptKey.PubKey,
+				*internalKey, uint64(addr.Amount),
 				tapscriptSibling, t.params, *proofCourierAddr,
 				address.WithAssetVersion(
 					asset.Version(addr.AssetVersion),
@@ -478,16 +464,9 @@ func (t *TapAddressBook) QueryAddrs(ctx context.Context,
 				return fmt.Errorf("unable to make addr: %w", err)
 			}
 
-			declaredKnown := extractBool(
-				addr.ScriptKeyDeclaredKnown,
-			)
 			addrs = append(addrs, address.AddrWithKeyInfo{
-				Tap: tapAddr,
-				ScriptKeyTweak: asset.TweakedScriptKey{
-					RawKey:        rawScriptKeyDesc,
-					Tweak:         addr.ScriptKeyTweak,
-					DeclaredKnown: declaredKnown,
-				},
+				Tap:              tapAddr,
+				ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
 				InternalKeyDesc:  internalKeyDesc,
 				TaprootOutputKey: *taprootOutputKey,
 				CreationTime:     addr.CreationTime.UTC(),
@@ -571,21 +550,7 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 		}
 	}
 
-	rawScriptKey, err := btcec.ParsePubKey(dbAddr.RawScriptKey)
-	if err != nil {
-		return nil, fmt.Errorf("unable to decode script key: %w", err)
-	}
-	scriptKeyDesc := keychain.KeyDescriptor{
-		KeyLocator: keychain.KeyLocator{
-			Family: keychain.KeyFamily(
-				dbAddr.ScriptKeyFamily,
-			),
-			Index: uint32(dbAddr.ScriptKeyIndex),
-		},
-		PubKey: rawScriptKey,
-	}
-
-	scriptKey, err := btcec.ParsePubKey(dbAddr.TweakedScriptKey)
+	scriptKey, err := parseScriptKey(dbAddr.InternalKey, dbAddr.ScriptKey)
 	if err != nil {
 		return nil, fmt.Errorf("unable to decode script key: %w", err)
 	}
@@ -622,8 +587,9 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 
 	tapAddr, err := address.New(
 		address.Version(dbAddr.Version), genesis, groupKey,
-		groupWitness, *scriptKey, *internalKey, uint64(dbAddr.Amount),
-		tapscriptSibling, params, *proofCourierAddr,
+		groupWitness, *scriptKey.PubKey, *internalKey,
+		uint64(dbAddr.Amount), tapscriptSibling, params,
+		*proofCourierAddr,
 		address.WithAssetVersion(asset.Version(dbAddr.AssetVersion)),
 	)
 	if err != nil {
@@ -631,14 +597,8 @@ func fetchAddr(ctx context.Context, db AddrBook, params *address.ChainParams,
 	}
 
 	return &address.AddrWithKeyInfo{
-		Tap: tapAddr,
-		ScriptKeyTweak: asset.TweakedScriptKey{
-			RawKey: scriptKeyDesc,
-			Tweak:  dbAddr.ScriptKeyTweak,
-			DeclaredKnown: extractBool(
-				dbAddr.ScriptKeyDeclaredKnown,
-			),
-		},
+		Tap:              tapAddr,
+		ScriptKeyTweak:   *scriptKey.TweakedScriptKey,
 		InternalKeyDesc:  internalKeyDesc,
 		TaprootOutputKey: *taprootOutputKey,
 		CreationTime:     dbAddr.CreationTime.UTC(),

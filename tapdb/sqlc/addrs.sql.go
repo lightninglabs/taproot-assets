@@ -16,12 +16,8 @@ SELECT
     version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
     taproot_output_key, amount, asset_type, creation_time, managed_from,
     proof_courier_addr,
-    script_keys.tweaked_script_key,
-    script_keys.tweak AS script_key_tweak,
-    script_keys.declared_known AS script_key_declared_known,
-    raw_script_keys.raw_key as raw_script_key,
-    raw_script_keys.key_family AS script_key_family,
-    raw_script_keys.key_index AS script_key_index,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.declared_known,
+    raw_script_keys.key_id, raw_script_keys.raw_key, raw_script_keys.key_family, raw_script_keys.key_index,
     taproot_keys.raw_key AS raw_taproot_key,
     taproot_keys.key_family AS taproot_key_family,
     taproot_keys.key_index AS taproot_key_index
@@ -36,26 +32,22 @@ WHERE taproot_output_key = $1
 `
 
 type FetchAddrByTaprootOutputKeyRow struct {
-	Version                int16
-	AssetVersion           int16
-	GenesisAssetID         int64
-	GroupKey               []byte
-	TapscriptSibling       []byte
-	TaprootOutputKey       []byte
-	Amount                 int64
-	AssetType              int16
-	CreationTime           time.Time
-	ManagedFrom            sql.NullTime
-	ProofCourierAddr       []byte
-	TweakedScriptKey       []byte
-	ScriptKeyTweak         []byte
-	ScriptKeyDeclaredKnown sql.NullBool
-	RawScriptKey           []byte
-	ScriptKeyFamily        int32
-	ScriptKeyIndex         int32
-	RawTaprootKey          []byte
-	TaprootKeyFamily       int32
-	TaprootKeyIndex        int32
+	Version          int16
+	AssetVersion     int16
+	GenesisAssetID   int64
+	GroupKey         []byte
+	TapscriptSibling []byte
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
+	ManagedFrom      sql.NullTime
+	ProofCourierAddr []byte
+	ScriptKey        ScriptKey
+	InternalKey      InternalKey
+	RawTaprootKey    []byte
+	TaprootKeyFamily int32
+	TaprootKeyIndex  int32
 }
 
 func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutputKey []byte) (FetchAddrByTaprootOutputKeyRow, error) {
@@ -73,12 +65,15 @@ func (q *Queries) FetchAddrByTaprootOutputKey(ctx context.Context, taprootOutput
 		&i.CreationTime,
 		&i.ManagedFrom,
 		&i.ProofCourierAddr,
-		&i.TweakedScriptKey,
-		&i.ScriptKeyTweak,
-		&i.ScriptKeyDeclaredKnown,
-		&i.RawScriptKey,
-		&i.ScriptKeyFamily,
-		&i.ScriptKeyIndex,
+		&i.ScriptKey.ScriptKeyID,
+		&i.ScriptKey.InternalKeyID,
+		&i.ScriptKey.TweakedScriptKey,
+		&i.ScriptKey.Tweak,
+		&i.ScriptKey.DeclaredKnown,
+		&i.InternalKey.KeyID,
+		&i.InternalKey.RawKey,
+		&i.InternalKey.KeyFamily,
+		&i.InternalKey.KeyIndex,
 		&i.RawTaprootKey,
 		&i.TaprootKeyFamily,
 		&i.TaprootKeyIndex,
@@ -207,12 +202,8 @@ SELECT
     version, asset_version, genesis_asset_id, group_key, tapscript_sibling,
     taproot_output_key, amount, asset_type, creation_time, managed_from,
     proof_courier_addr,
-    script_keys.tweaked_script_key,
-    script_keys.tweak AS script_key_tweak,
-    script_keys.declared_known AS script_key_declared_known,
-    raw_script_keys.raw_key AS raw_script_key,
-    raw_script_keys.key_family AS script_key_family,
-    raw_script_keys.key_index AS script_key_index,
+    script_keys.script_key_id, script_keys.internal_key_id, script_keys.tweaked_script_key, script_keys.tweak, script_keys.declared_known,
+    raw_script_keys.key_id, raw_script_keys.raw_key, raw_script_keys.key_family, raw_script_keys.key_index,
     taproot_keys.raw_key AS raw_taproot_key, 
     taproot_keys.key_family AS taproot_key_family,
     taproot_keys.key_index AS taproot_key_index
@@ -240,26 +231,22 @@ type FetchAddrsParams struct {
 }
 
 type FetchAddrsRow struct {
-	Version                int16
-	AssetVersion           int16
-	GenesisAssetID         int64
-	GroupKey               []byte
-	TapscriptSibling       []byte
-	TaprootOutputKey       []byte
-	Amount                 int64
-	AssetType              int16
-	CreationTime           time.Time
-	ManagedFrom            sql.NullTime
-	ProofCourierAddr       []byte
-	TweakedScriptKey       []byte
-	ScriptKeyTweak         []byte
-	ScriptKeyDeclaredKnown sql.NullBool
-	RawScriptKey           []byte
-	ScriptKeyFamily        int32
-	ScriptKeyIndex         int32
-	RawTaprootKey          []byte
-	TaprootKeyFamily       int32
-	TaprootKeyIndex        int32
+	Version          int16
+	AssetVersion     int16
+	GenesisAssetID   int64
+	GroupKey         []byte
+	TapscriptSibling []byte
+	TaprootOutputKey []byte
+	Amount           int64
+	AssetType        int16
+	CreationTime     time.Time
+	ManagedFrom      sql.NullTime
+	ProofCourierAddr []byte
+	ScriptKey        ScriptKey
+	InternalKey      InternalKey
+	RawTaprootKey    []byte
+	TaprootKeyFamily int32
+	TaprootKeyIndex  int32
 }
 
 func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]FetchAddrsRow, error) {
@@ -289,12 +276,15 @@ func (q *Queries) FetchAddrs(ctx context.Context, arg FetchAddrsParams) ([]Fetch
 			&i.CreationTime,
 			&i.ManagedFrom,
 			&i.ProofCourierAddr,
-			&i.TweakedScriptKey,
-			&i.ScriptKeyTweak,
-			&i.ScriptKeyDeclaredKnown,
-			&i.RawScriptKey,
-			&i.ScriptKeyFamily,
-			&i.ScriptKeyIndex,
+			&i.ScriptKey.ScriptKeyID,
+			&i.ScriptKey.InternalKeyID,
+			&i.ScriptKey.TweakedScriptKey,
+			&i.ScriptKey.Tweak,
+			&i.ScriptKey.DeclaredKnown,
+			&i.InternalKey.KeyID,
+			&i.InternalKey.RawKey,
+			&i.InternalKey.KeyFamily,
+			&i.InternalKey.KeyIndex,
 			&i.RawTaprootKey,
 			&i.TaprootKeyFamily,
 			&i.TaprootKeyIndex,

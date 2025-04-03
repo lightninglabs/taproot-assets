@@ -135,6 +135,9 @@ SELECT seedling_id, asset_name, asset_type, asset_version, asset_supply,
     sqlc.embed(assets_meta),
     emission_enabled, batch_id, 
     group_genesis_id, group_anchor_id, group_tapscript_root,
+    -- TODO(guggero): We should use sqlc.embed() for the script key and internal
+    -- key fields, but we can't because it's a LEFT JOIN. We should check if the
+    -- LEFT JOIN is actually necessary or if we always have keys for seedlings.
     script_keys.tweak AS script_key_tweak,
     script_keys.tweaked_script_key,
     script_keys.declared_known AS script_key_declared_known,
@@ -254,11 +257,9 @@ WITH genesis_info AS (
     WHERE wit.gen_asset_id IN (SELECT gen_asset_id FROM genesis_info)
 )
 SELECT 
-    version, script_keys.tweak, script_keys.tweaked_script_key,
-    script_keys.declared_known AS script_key_declared_known,
-    internal_keys.raw_key AS script_key_raw,
-    internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index,
+    version,
+    sqlc.embed(script_keys),
+    sqlc.embed(internal_keys),
     key_group_info.tapscript_root, 
     key_group_info.witness_stack, 
     key_group_info.tweaked_group_key,
@@ -425,12 +426,8 @@ WHERE (
 SELECT
     assets.asset_id AS asset_primary_key,
     assets.genesis_id, assets.version, spent,
-    script_keys.tweak AS script_key_tweak,
-    script_keys.tweaked_script_key,
-    script_keys.declared_known AS script_key_declared_known,
-    internal_keys.raw_key AS script_key_raw,
-    internal_keys.key_family AS script_key_fam,
-    internal_keys.key_index AS script_key_index,
+    sqlc.embed(script_keys),
+    sqlc.embed(internal_keys),
     key_group_info_view.tapscript_root, 
     key_group_info_view.witness_stack, 
     key_group_info_view.tweaked_group_key,
@@ -896,7 +893,7 @@ FROM script_keys
 WHERE tweaked_script_key = $1;
 
 -- name: FetchScriptKeyByTweakedKey :one
-SELECT tweak, raw_key, key_family, key_index, declared_known
+SELECT sqlc.embed(script_keys), sqlc.embed(internal_keys)
 FROM script_keys
 JOIN internal_keys
   ON script_keys.internal_key_id = internal_keys.key_id
