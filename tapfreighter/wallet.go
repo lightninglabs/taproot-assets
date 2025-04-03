@@ -414,6 +414,7 @@ func (f *AssetWallet) FundPacket(ctx context.Context,
 		AssetSpecifier:    fundDesc.AssetSpecifier,
 		MinAmt:            fundDesc.Amount,
 		CoinSelectType:    fundDesc.CoinSelectType,
+		ScriptKeyType:     fundDesc.ScriptKeyType,
 		PrevIDs:           fundDesc.PrevIDs,
 		DistinctSpecifier: fundDesc.DistinctSpecifier,
 	}

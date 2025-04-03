@@ -2944,11 +2944,11 @@ func TestQueryAssetBalances(t *testing.T) {
 	// At first, none of the assets should be leased.
 	includeLeased := false
 	balances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	balancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, balances, numAssets)
@@ -2984,14 +2984,14 @@ func TestQueryAssetBalances(t *testing.T) {
 
 	// Only two assets should be returned that is not leased.
 	unleasedBalances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, unleasedBalances, numAssets-2)
 
 	// Only one group should be returned that is not leased.
 	unleasedBalancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, unleasedBalancesByGroup, numGroups-1)
@@ -3014,12 +3014,12 @@ func TestQueryAssetBalances(t *testing.T) {
 	// the same results as when the assets where unleased.
 	includeLeased = true
 	includeLeasedBalances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, includeLeasedBalances, numAssets)
 	includeLeasedBalByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, includeLeasedBalByGroup, len(assetGen.groupKeys))
@@ -3073,11 +3073,11 @@ func TestQueryAssetBalancesCustomChannelFunding(t *testing.T) {
 	// Hit both balance queries, they should return the same result.
 	includeLeased := false
 	balances, err := assetsStore.QueryBalancesByAsset(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	balancesByGroup, err := assetsStore.QueryAssetBalancesByGroup(
-		ctx, nil, includeLeased,
+		ctx, nil, includeLeased, fn.None[asset.ScriptKeyType](),
 	)
 	require.NoError(t, err)
 	require.Len(t, balances, numAssets-1)

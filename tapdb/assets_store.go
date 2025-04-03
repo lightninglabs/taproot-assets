@@ -24,7 +24,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/tapfreighter"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/clock"
 	"github.com/lightningnetwork/lnd/keychain"
 )
@@ -897,13 +896,11 @@ func (a *AssetStore) constraintsToDbFilter(
 			assetFilter.AssetIDFilter = nil
 		}
 
-		switch query.CoinSelectType {
-		case tapsend.ScriptTreesAllowed:
-			assetFilter.Bip86ScriptKeysOnly = false
-
-		default:
-			assetFilter.Bip86ScriptKeysOnly = true
-		}
+		// The fn.None option means we don't restrict on script key type
+		// at all.
+		query.ScriptKeyType.WhenSome(func(t asset.ScriptKeyType) {
+			assetFilter.ScriptKeyType = sqlInt16(t)
+		})
 	}
 
 	return assetFilter, nil
@@ -990,8 +987,8 @@ type AssetQueryFilters struct {
 // QueryBalancesByAsset queries the balances for assets or alternatively
 // for a selected one that matches the passed asset ID filter.
 func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
-	assetID *asset.ID,
-	includeLeased bool) (map[asset.ID]AssetBalance, error) {
+	assetID *asset.ID, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (map[asset.ID]AssetBalance, error) {
 
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
@@ -1001,6 +998,11 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 			Valid: true,
 		},
 	}
+
+	// The fn.None option means we don't restrict on script key type at all.
+	skt.WhenSome(func(t asset.ScriptKeyType) {
+		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
+	})
 
 	// We exclude the assets that are specifically used for funding custom
 	// channels. The balance of those assets is reported through lnd channel
@@ -1070,9 +1072,9 @@ func (a *AssetStore) QueryBalancesByAsset(ctx context.Context,
 // QueryAssetBalancesByGroup queries the asset balances for asset groups or
 // alternatively for a selected one that matches the passed filter.
 func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
-	groupKey *btcec.PublicKey,
-	includeLeased bool) (map[asset.SerializedKey]AssetGroupBalance,
-	error) {
+	groupKey *btcec.PublicKey, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (
+	map[asset.SerializedKey]AssetGroupBalance, error) {
 
 	// We'll now map the application level filtering to the type of
 	// filtering our database query understands.
@@ -1082,6 +1084,11 @@ func (a *AssetStore) QueryAssetBalancesByGroup(ctx context.Context,
 			Valid: true,
 		},
 	}
+
+	// The fn.None option means we don't restrict on script key type at all.
+	skt.WhenSome(func(t asset.ScriptKeyType) {
+		assetBalancesFilter.ScriptKeyType = sqlInt16(t)
+	})
 
 	// We exclude the assets that are specifically used for funding custom
 	// channels. The balance of those assets is reported through lnd channel

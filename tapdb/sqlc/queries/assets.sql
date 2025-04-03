@@ -339,8 +339,10 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND 
-        (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
-                sqlc.narg('exclude_key') IS NULL)
+      (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
+        sqlc.narg('exclude_key') IS NULL) AND
+      (sqlc.narg('script_key_type') = script_keys.key_type OR 
+        sqlc.narg('script_key_type') IS NULL)
 GROUP BY assets.genesis_id, genesis_info_view.asset_id,
          genesis_info_view.asset_tag, genesis_info_view.meta_hash,
          genesis_info_view.asset_type, genesis_info_view.output_index,
@@ -368,8 +370,10 @@ JOIN managed_utxos utxos
 JOIN script_keys
     ON assets.script_key_id = script_keys.script_key_id
 WHERE spent = FALSE AND 
-        (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
-                sqlc.narg('exclude_key') IS NULL)
+      (script_keys.tweaked_script_key != sqlc.narg('exclude_key') OR
+        sqlc.narg('exclude_key') IS NULL) AND
+      (sqlc.narg('script_key_type') = script_keys.key_type OR
+        sqlc.narg('script_key_type') IS NULL)
 GROUP BY key_group_info_view.tweaked_group_key;
 
 -- name: FetchGroupedAssets :many
@@ -502,11 +506,8 @@ WHERE (
     assets.anchor_utxo_id = COALESCE(sqlc.narg('anchor_utxo_id'), assets.anchor_utxo_id) AND
     assets.genesis_id = COALESCE(sqlc.narg('genesis_id'), assets.genesis_id) AND
     assets.script_key_id = COALESCE(sqlc.narg('script_key_id'), assets.script_key_id) AND
-    COALESCE(length(script_keys.tweak), 0) = (CASE
-        WHEN cast(@bip86_script_keys_only as bool) = TRUE
-        THEN 0 
-        ELSE COALESCE(length(script_keys.tweak), 0)
-    END)
+    (sqlc.narg('script_key_type') = script_keys.key_type OR
+      sqlc.narg('script_key_type') IS NULL)
 );
 
 -- name: AllAssets :many

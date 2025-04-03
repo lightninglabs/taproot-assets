@@ -214,6 +214,10 @@ type FundingDescriptor struct {
 	// key is set, we ignore the asset ID and allow multiple inputs of the
 	// same group to be selected.
 	DistinctSpecifier bool
+
+	// ScriptKeyType is the type of script key the assets are expected to
+	// have. If this is fn.None, then any script key type is allowed.
+	ScriptKeyType fn.Option[asset.ScriptKeyType]
 }
 
 // TapCommitmentKey is the key that maps to the root commitment for the asset

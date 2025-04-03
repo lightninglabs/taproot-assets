@@ -1010,7 +1010,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 	case assetID != nil:
 		// Retrieve the current asset balance.
 		balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-			ctx, assetID, true,
+			ctx, assetID, true, fn.None[asset.ScriptKeyType](),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query asset balance: %w",
@@ -1026,7 +1026,7 @@ func (r *rpcServer) checkBalanceOverflow(ctx context.Context,
 	case groupPubKey != nil:
 		// Retrieve the current balance of the group.
 		balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-			ctx, groupPubKey, true,
+			ctx, groupPubKey, true, fn.None[asset.ScriptKeyType](),
 		)
 		if err != nil {
 			return fmt.Errorf("unable to query group balance: %w",
@@ -1105,9 +1105,18 @@ func (r *rpcServer) ListAssets(ctx context.Context,
 		filters.AnchorPoint = outPoint
 	}
 
+	scriptKeyType, includeSpent, err := taprpc.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+	filters.ScriptKeyType = scriptKeyType
+
 	rpcAssets, err := r.fetchRpcAssets(
-		ctx, req.WithWitness, req.IncludeSpent, req.IncludeLeased,
-		filters,
+		ctx, req.WithWitness, req.IncludeSpent || includeSpent,
+		req.IncludeLeased, filters,
 	)
 
 	if err != nil {
@@ -1225,11 +1234,12 @@ func (r *rpcServer) MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 }
 
 func (r *rpcServer) listBalancesByAsset(ctx context.Context,
-	assetID *asset.ID, includeLeased bool) (*taprpc.ListBalancesResponse,
+	assetID *asset.ID, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
 	error) {
 
 	balances, err := r.cfg.AssetStore.QueryBalancesByAsset(
-		ctx, assetID, includeLeased,
+		ctx, assetID, includeLeased, skt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1260,11 +1270,12 @@ func (r *rpcServer) listBalancesByAsset(ctx context.Context,
 }
 
 func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
-	groupKey *btcec.PublicKey,
-	includeLeased bool) (*taprpc.ListBalancesResponse, error) {
+	groupKey *btcec.PublicKey, includeLeased bool,
+	skt fn.Option[asset.ScriptKeyType]) (*taprpc.ListBalancesResponse,
+	error) {
 
 	balances, err := r.cfg.AssetStore.QueryAssetBalancesByGroup(
-		ctx, groupKey, includeLeased,
+		ctx, groupKey, includeLeased, skt,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to list balances: %w", err)
@@ -1299,8 +1310,22 @@ func (r *rpcServer) listBalancesByGroupKey(ctx context.Context,
 func (r *rpcServer) ListUtxos(ctx context.Context,
 	req *taprpc.ListUtxosRequest) (*taprpc.ListUtxosResponse, error) {
 
+	scriptKeyType, includeSpent, err := taprpc.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+
+	filters := &tapdb.AssetQueryFilters{
+		CommitmentConstraints: tapfreighter.CommitmentConstraints{
+			ScriptKeyType: scriptKeyType,
+		},
+	}
+
 	rpcAssets, err := r.fetchRpcAssets(
-		ctx, false, false, req.IncludeLeased, nil,
+		ctx, false, includeSpent, req.IncludeLeased, filters,
 	)
 	if err != nil {
 		return nil, err
@@ -1402,6 +1427,14 @@ func (r *rpcServer) ListGroups(ctx context.Context,
 func (r *rpcServer) ListBalances(ctx context.Context,
 	req *taprpc.ListBalancesRequest) (*taprpc.ListBalancesResponse, error) {
 
+	scriptKeyType, _, err := taprpc.ParseScriptKeyTypeQuery(
+		req.ScriptKeyType,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("unable to parse script key type "+
+			"query: %w", err)
+	}
+
 	switch groupBy := req.GroupBy.(type) {
 	case *taprpc.ListBalancesRequest_AssetId:
 		if !groupBy.AssetId {
@@ -1418,7 +1451,9 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 			copy(assetID[:], req.AssetFilter)
 		}
 
-		return r.listBalancesByAsset(ctx, assetID, req.IncludeLeased)
+		return r.listBalancesByAsset(
+			ctx, assetID, req.IncludeLeased, scriptKeyType,
+		)
 
 	case *taprpc.ListBalancesRequest_GroupKey:
 		if !groupBy.GroupKey {
@@ -1436,7 +1471,7 @@ func (r *rpcServer) ListBalances(ctx context.Context,
 		}
 
 		return r.listBalancesByGroupKey(
-			ctx, groupKey, req.IncludeLeased,
+			ctx, groupKey, req.IncludeLeased, scriptKeyType,
 		)
 
 	default:

@@ -231,6 +231,14 @@ message ListAssetRequest {
 
     // Return all assets that are currently anchored on this outpoint.
     OutPoint anchor_outpoint = 9;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
+    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
+    // will automatically be set to true, because assets of that type are always
+    // marked as spent.
+    ScriptKeyTypeQuery script_key_type = 10;
 }
 
 message AnchorInfo {
@@ -576,6 +584,11 @@ message ListAssetResponse {
 
 message ListUtxosRequest {
     bool include_leased = 1;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86).
+    ScriptKeyTypeQuery script_key_type = 2;
 }
 
 message ManagedUtxo {
@@ -673,6 +686,14 @@ message ListBalancesRequest {
 
     // An option to include previous leased assets in the balances.
     bool include_leased = 5;
+
+    // The script key type to filter the assets by. If not set, only assets with
+    // a BIP-0086 script key will be returned (which is the equivalent of
+    // setting script_key_type.explicit_type = SCRIPT_KEY_BIP86). If the type
+    // is set to SCRIPT_KEY_BURN or SCRIPT_KEY_TOMBSTONE the include_spent flag
+    // will automatically be set to true, because assets of that type are always
+    // marked as spent.
+    ScriptKeyTypeQuery script_key_type = 6;
 }
 
 message AssetBalance {
@@ -1060,6 +1081,20 @@ enum ScriptKeyType {
     selection.
     */
     SCRIPT_KEY_CHANNEL = 5;
+}
+
+message ScriptKeyTypeQuery {
+    oneof type {
+        // Query for assets of a specific script key type.
+        ScriptKeyType explicit_type = 1;
+
+        // Query for assets with all script key types.
+        bool all_types = 2;
+
+        // TODO(guggero): Add a bit field that allows querying for multiple
+        // script key types at once. Need a way to do a WHERE ... IN () type SQL
+        // query that is compatible with all backends first though.
+    }
 }
 
 message ScriptKey {

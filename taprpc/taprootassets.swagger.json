@@ -309,6 +309,29 @@
             "required": false,
             "type": "integer",
             "format": "int64"
+          },
+          {
+            "name": "script_key_type.explicit_type",
+            "description": "Query for assets of a specific script key type.\n\n - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for\nimported proofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SCRIPT_KEY_UNKNOWN",
+              "SCRIPT_KEY_BIP86",
+              "SCRIPT_KEY_SCRIPT_PATH_EXTERNAL",
+              "SCRIPT_KEY_BURN",
+              "SCRIPT_KEY_TOMBSTONE",
+              "SCRIPT_KEY_CHANNEL"
+            ],
+            "default": "SCRIPT_KEY_UNKNOWN"
+          },
+          {
+            "name": "script_key_type.all_types",
+            "description": "Query for assets with all script key types.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "tags": [
@@ -368,6 +391,29 @@
           {
             "name": "include_leased",
             "description": "An option to include previous leased assets in the balances.",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "script_key_type.explicit_type",
+            "description": "Query for assets of a specific script key type.\n\n - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for\nimported proofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SCRIPT_KEY_UNKNOWN",
+              "SCRIPT_KEY_BIP86",
+              "SCRIPT_KEY_SCRIPT_PATH_EXTERNAL",
+              "SCRIPT_KEY_BURN",
+              "SCRIPT_KEY_TOMBSTONE",
+              "SCRIPT_KEY_CHANNEL"
+            ],
+            "default": "SCRIPT_KEY_UNKNOWN"
+          },
+          {
+            "name": "script_key_type.all_types",
+            "description": "Query for assets with all script key types.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -629,6 +675,29 @@
         "parameters": [
           {
             "name": "include_leased",
+            "in": "query",
+            "required": false,
+            "type": "boolean"
+          },
+          {
+            "name": "script_key_type.explicit_type",
+            "description": "Query for assets of a specific script key type.\n\n - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for\nimported proofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection.",
+            "in": "query",
+            "required": false,
+            "type": "string",
+            "enum": [
+              "SCRIPT_KEY_UNKNOWN",
+              "SCRIPT_KEY_BIP86",
+              "SCRIPT_KEY_SCRIPT_PATH_EXTERNAL",
+              "SCRIPT_KEY_BURN",
+              "SCRIPT_KEY_TOMBSTONE",
+              "SCRIPT_KEY_CHANNEL"
+            ],
+            "default": "SCRIPT_KEY_UNKNOWN"
+          },
+          {
+            "name": "script_key_type.all_types",
+            "description": "Query for assets with all script key types.",
             "in": "query",
             "required": false,
             "type": "boolean"
@@ -2352,6 +2421,19 @@
       ],
       "default": "SCRIPT_KEY_UNKNOWN",
       "description": " - SCRIPT_KEY_UNKNOWN: The type of script key is not known. This should only be stored for assets\nwhere we don't know the internal key of the script key (e.g. for\nimported proofs).\n - SCRIPT_KEY_BIP86: The script key is a normal BIP-86 key. This means that the internal key is\nturned into a Taproot output key by applying a BIP-86 tweak to it.\n - SCRIPT_KEY_SCRIPT_PATH_EXTERNAL: The script key is a key that contains a script path that is defined by the\nuser and is therefore external to the tapd wallet. Spending this key\nrequires providing a specific witness and must be signed through the vPSBT\nsigning flow.\n - SCRIPT_KEY_BURN: The script key is a specific un-spendable key that indicates a burnt asset.\nAssets with this key type can never be spent again, as a burn key is a\ntweaked NUMS key that nobody knows the private key for.\n - SCRIPT_KEY_TOMBSTONE: The script key is a specific un-spendable key that indicates a tombstone\noutput. This is only the case for zero-value assets that result from a\nnon-interactive (TAP address) send where no change was left over.\n - SCRIPT_KEY_CHANNEL: The script key is used for an asset that resides within a Taproot Asset\nChannel. That means the script key is either a funding key (OP_TRUE), a\ncommitment output key (to_local, to_remote, htlc), or a HTLC second-level\ntransaction output key. Keys related to channels are not shown in asset\nbalances (unless specifically requested) and are never used for coin\nselection."
+    },
+    "taprpcScriptKeyTypeQuery": {
+      "type": "object",
+      "properties": {
+        "explicit_type": {
+          "$ref": "#/definitions/taprpcScriptKeyType",
+          "description": "Query for assets of a specific script key type."
+        },
+        "all_types": {
+          "type": "boolean",
+          "description": "Query for assets with all script key types."
+        }
+      }
     },
     "taprpcSendAssetRequest": {
       "type": "object",
