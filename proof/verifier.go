@@ -174,51 +174,48 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 	hasV2Proofs := p.InclusionProof.CommitmentProof != nil &&
 		len(p.InclusionProof.CommitmentProof.STXOProofs) > 0
 
-	if hasV2Proofs {
-		commitVersions := make(
-			map[uint32][]commitment.TapCommitmentVersion,
+	if !hasV2Proofs {
+		return verifyTaprootProof(
+			&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
 		)
-		p2trOutputs := make(P2TROutputsSTXOs)
-		outIdx := p.InclusionProof.OutputIndex
-		p2trOutputs[outIdx] = make(fn.Set[asset.SerializedKey])
-
-		// Collect the STXOs from the new asset.
-		stxoAssets, err := asset.CollectSTXO(&p.Asset)
-		if err != nil {
-			return nil, fmt.Errorf("error collecting STXO "+
-				"assets: %w", err)
-		}
-
-		// Map STXOs by serialized key.
-		assetMap := make(map[asset.SerializedKey]*asset.Asset)
-		for idx := range stxoAssets {
-			stxoAsset := stxoAssets[idx].(*asset.Asset)
-			key := asset.ToSerialized(stxoAsset.ScriptKey.PubKey)
-			assetMap[key] = stxoAsset
-			p2trOutputs[outIdx].Add(key)
-		}
-
-		baseProof := p.InclusionProof
-
-		commitment, err := verifySTXOProofSet(
-			&p.AnchorTx, baseProof, assetMap, p2trOutputs,
-			commitVersions, true,
-		)
-		if err != nil {
-			return nil, err
-		}
-
-		err = p.verifyRemainingOutputs(p2trOutputs)
-		if err != nil {
-			return nil, err
-		}
-
-		return commitment, nil
 	}
 
-	return verifyTaprootProof(
-		&p.AnchorTx, &p.InclusionProof, &p.Asset, true,
+	commitVersions := make(map[uint32][]commitment.TapCommitmentVersion)
+	p2trOutputs := make(P2TROutputsSTXOs)
+	outIdx := p.InclusionProof.OutputIndex
+	p2trOutputs[outIdx] = make(fn.Set[asset.SerializedKey])
+
+	// Collect the STXOs from the new asset.
+	stxoAssets, err := asset.CollectSTXO(&p.Asset)
+	if err != nil {
+		return nil, fmt.Errorf("error collecting STXO assets: %w", err)
+	}
+
+	// Map STXOs by serialized key.
+	assetMap := make(map[asset.SerializedKey]*asset.Asset)
+	for idx := range stxoAssets {
+		stxoAsset := stxoAssets[idx].(*asset.Asset)
+		key := asset.ToSerialized(stxoAsset.ScriptKey.PubKey)
+		assetMap[key] = stxoAsset
+		p2trOutputs[outIdx].Add(key)
+	}
+
+	baseProof := p.InclusionProof
+
+	commitment, err := verifySTXOProofSet(
+		&p.AnchorTx, baseProof, assetMap, p2trOutputs, commitVersions,
+		true,
 	)
+	if err != nil {
+		return nil, err
+	}
+
+	err = p.verifyRemainingOutputs(p2trOutputs)
+	if err != nil {
+		return nil, err
+	}
+
+	return commitment, nil
 }
 
 // verifySplitRootProof verifies the SplitRootProof is valid.
