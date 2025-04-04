@@ -1018,7 +1018,6 @@ func (p *Proof) VerifyProofs() (*commitment.TapCommitment, error) {
 
 	// The inclusion proof must have a similar version to all exclusion
 	// proofs.
-
 	if !commitment.IsSimilarTapCommitmentVersion(
 		&tapCommitment.Version, exclusionCommitVersion,
 	) {
