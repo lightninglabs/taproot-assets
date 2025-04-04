@@ -292,7 +292,7 @@ func (p *Proof) verifyV1ExclusionProofs(
 
 	// All proofs must have similar versions.
 	firstVersion := maps.Values(commitVersions)[0][0]
-	return p.verifySTXOVersions(firstVersion, commitVersions)
+	return verifySTXOVersions(firstVersion, commitVersions)
 }
 
 // verifyV2ExclusionProofs verifies all version 2 exclusion proofs.
@@ -356,7 +356,7 @@ func (p *Proof) verifyV2ExclusionProofs(
 
 	// All proofs must have similar versions.
 	firstVersion := maps.Values(commitVersions)[0][0]
-	return p.verifySTXOVersions(firstVersion, commitVersions)
+	return verifySTXOVersions(firstVersion, commitVersions)
 }
 
 // handleBasicExclusionProof handles a basic (non-STXO) exclusion proof.
@@ -474,7 +474,7 @@ func (p *Proof) verifyRemainingOutputs(
 }
 
 // verifySTXOVersions verifies all STXO versions match.
-func (p *Proof) verifySTXOVersions(firstVersion commitment.TapCommitmentVersion,
+func verifySTXOVersions(firstVersion commitment.TapCommitmentVersion,
 	versions map[uint32][]commitment.TapCommitmentVersion) (
 	*commitment.TapCommitmentVersion, error) {
 
