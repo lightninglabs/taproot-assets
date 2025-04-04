@@ -40,6 +40,10 @@ const (
 	// count from where commitment.ProofTaprootAssetProofType left off.
 	CommitmentProofTapSiblingPreimageType tlv.Type = 5
 
+	// CommitmentProofSTXOProofsType is the type of the TLV record for the
+	// Exclusion proof CommitmentProof's STXOProofs field.
+	CommitmentProofSTXOProofsType tlv.Type = 7
+
 	TapscriptProofTapPreimage1 tlv.Type = 1
 	TapscriptProofTapPreimage2 tlv.Type = 3
 	TapscriptProofBip86        tlv.Type = 4
@@ -74,7 +78,7 @@ var KnownTaprootProofTypes = fn.NewSet(
 // tests.
 var KnownCommitmentProofTypes = fn.NewSet(
 	commitment.ProofAssetProofType, commitment.ProofTaprootAssetProofType,
-	CommitmentProofTapSiblingPreimageType,
+	CommitmentProofTapSiblingPreimageType, CommitmentProofSTXOProofsType,
 )
 
 // KnownTapscriptProofTypes is a set of all known Tapscript proof TLV types.
@@ -285,6 +289,26 @@ func CommitmentProofTapSiblingPreimageRecord(
 		CommitmentProofTapSiblingPreimageType, preimage, sizeFunc,
 		commitment.TapscriptPreimageEncoder,
 		commitment.TapscriptPreimageDecoder,
+	)
+}
+
+func CommitmentProofSTXOProofsRecord(
+	stxoProofs *map[asset.SerializedKey]commitment.Proof) tlv.Record {
+
+	sizeFunc := func() uint64 {
+		var buf bytes.Buffer
+		err := CommitmentProofsEncoder(
+			&buf, stxoProofs, &[8]byte{},
+		)
+		if err != nil {
+			panic(err)
+		}
+		return uint64(len(buf.Bytes()))
+	}
+	return tlv.MakeDynamicRecord(
+		CommitmentProofSTXOProofsType, stxoProofs, sizeFunc,
+		CommitmentProofsEncoder,
+		CommitmentProofsDecoder,
 	)
 }
 

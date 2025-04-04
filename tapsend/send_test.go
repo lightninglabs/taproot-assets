@@ -388,7 +388,7 @@ func createPacket(t *testing.T, addr address.Tap, prevInput asset.PrevID,
 		for range numAltLeaves {
 			scriptKey := asset.NewScriptKey(test.RandPubKey(t))
 			baseLeaf, err := asset.NewAltLeaf(
-				scriptKey, asset.ScriptV0, nil,
+				scriptKey, asset.ScriptV0,
 			)
 			require.NoError(t, err)
 
@@ -682,6 +682,8 @@ func checkOutputCommitments(t *testing.T, vPkt *tappsbt.VPacket,
 	default:
 		require.Fail(t, "unknown vPacket version")
 	}
+
+	// TODO(jhb): Check for correct STXOs
 }
 
 func checkTaprootOutputs(t *testing.T, outputs []*tappsbt.VOutput,
@@ -1195,7 +1197,7 @@ var createOutputCommitmentsTestCases = []testCase{{
 
 		altLeafScriptKey := asset.NewScriptKey(test.RandPubKey(t))
 		newAltLeaf, err := asset.NewAltLeaf(
-			altLeafScriptKey, asset.ScriptV0, nil,
+			altLeafScriptKey, asset.ScriptV0,
 		)
 		require.NoError(t, err)
 

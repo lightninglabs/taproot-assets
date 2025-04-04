@@ -364,9 +364,6 @@ func TestAssetEncoding(t *testing.T) {
 	})
 
 	assertAssetEncoding("minimal asset", &Asset{
-		Genesis: Genesis{
-			MetaHash: [MetaHashLen]byte{},
-		},
 		ScriptKey: NewScriptKey(pubKey),
 	})
 
