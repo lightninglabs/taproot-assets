@@ -397,7 +397,7 @@ func (p *Proof) verifySTXOProofSet(baseProof TaprootProof,
 	for key := range baseProof.CommitmentProof.STXOProofs {
 		stxoProof := baseProof.CommitmentProof.STXOProofs[key]
 		stxoAsset := assetMap[key]
-		stxoCombinedProof := p.makeSTXOProof(baseProof, &stxoProof)
+		stxoCombinedProof := MakeSTXOProof(baseProof, &stxoProof)
 
 		var err error
 		commitment, err = verifyTaprootProof(
@@ -422,9 +422,9 @@ func (p *Proof) verifySTXOProofSet(baseProof TaprootProof,
 	return commitment, nil
 }
 
-// makeSTXOProof creates a new proof for an STXO reusing the base proof while
+// MakeSTXOProof creates a new proof for an STXO reusing the base proof while
 // replacing commitmentProof bu the stxoProof.
-func (p *Proof) makeSTXOProof(baseProof TaprootProof,
+func MakeSTXOProof(baseProof TaprootProof,
 	stxoProof *commitment.Proof) TaprootProof {
 
 	return TaprootProof{
