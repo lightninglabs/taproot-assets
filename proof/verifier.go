@@ -196,8 +196,9 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 
 		baseProof := p.InclusionProof
 
-		commitment, err := p.verifySTXOProofSet(
-			baseProof, assetMap, p2trOutputs, commitVersions, true,
+		commitment, err := verifySTXOProofSet(
+			&p.AnchorTx, baseProof, assetMap, p2trOutputs,
+			commitVersions, true,
 		)
 		if err != nil {
 			return nil, err
@@ -337,8 +338,9 @@ func (p *Proof) verifyV2ExclusionProofs(
 			continue
 		}
 
-		_, err := p.verifySTXOProofSet(
-			baseProof, assetMap, p2trOutputs, commitVersions, false,
+		_, err := verifySTXOProofSet(
+			&p.AnchorTx, baseProof, assetMap, p2trOutputs,
+			commitVersions, false,
 		)
 		if err != nil {
 			return nil, err
@@ -386,12 +388,11 @@ func (p *Proof) handleBasicExclusionProof(baseProof *TaprootProof,
 }
 
 // verifySTXOProofSet verifies a set of STXO proofs.
-func (p *Proof) verifySTXOProofSet(baseProof TaprootProof,
+func verifySTXOProofSet(anchorTx *wire.MsgTx, baseProof TaprootProof,
 	assetMap map[asset.SerializedKey]*asset.Asset,
 	p2trOutputs map[uint32]fn.Set[asset.SerializedKey],
 	commitVersions map[uint32][]commitment.TapCommitmentVersion,
-	inclusion bool,
-) (*commitment.TapCommitment, error) {
+	inclusion bool) (*commitment.TapCommitment, error) {
 
 	var commitment *commitment.TapCommitment
 	for key := range baseProof.CommitmentProof.STXOProofs {
@@ -401,7 +402,7 @@ func (p *Proof) verifySTXOProofSet(baseProof TaprootProof,
 
 		var err error
 		commitment, err = verifyTaprootProof(
-			&p.AnchorTx, &stxoCombinedProof, stxoAsset, inclusion,
+			anchorTx, &stxoCombinedProof, stxoAsset, inclusion,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("error verifying STXO "+
