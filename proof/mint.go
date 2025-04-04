@@ -158,7 +158,7 @@ func (p *BaseProofParams) HaveInclusionProof(anchorOutputIndex uint32) bool {
 	return p.OutputIndex == int(anchorOutputIndex)
 }
 
-// HaveSTXOInclusionProof returns true if the inclusion proof is for the given
+// HaveSTXOExclusionProof returns true if the inclusion proof is for the given
 // anchor output index.
 func (p *BaseProofParams) HaveSTXOExclusionProof(
 	anchorOutputIndex uint32) bool {
