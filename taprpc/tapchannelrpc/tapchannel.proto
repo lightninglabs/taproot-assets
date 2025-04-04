@@ -106,7 +106,7 @@ message SendPaymentRequest {
     // The asset ID to use for the payment. This must be set for both invoice
     // and keysend payments, unless RFQ negotiation was already done beforehand
     // and payment_request.first_hop_custom_records already contains valid RFQ
-    // data.
+    // data. Mutually exclusive to group_key.
     bytes asset_id = 1;
 
     // The asset amount to send in a keysend payment. This amount is ignored for
@@ -142,6 +142,10 @@ message SendPaymentRequest {
     // are sent out to the network than the invoice amount plus routing fees
     // require to be paid.
     bool allow_overpay = 6;
+
+    // The group key which dictates which assets may be used for this payment.
+    // Mutually exclusive to asset_id.
+    bytes group_key = 7;
 }
 
 message SendPaymentResponse {
@@ -164,7 +168,7 @@ message HodlInvoice {
 }
 
 message AddInvoiceRequest {
-    // The asset ID to use for the invoice.
+    // The asset ID to use for the invoice. Mutually exclusive to group_key.
     bytes asset_id = 1;
 
     // The asset amount to receive.
@@ -188,6 +192,11 @@ message AddInvoiceRequest {
     // won't be settled automatically. Instead, users will need to use the
     // invoicesrpc.SettleInvoice call to manually settle the invoice.
     HodlInvoice hodl_invoice = 5;
+
+    // The group key which dictates which assets may be accepted for this
+    // invoice. If set, any asset that belongs to this group may be accepted to
+    // settle this invoice. Mutually exclusive to asset_id.
+    bytes group_key = 6;
 }
 
 message AddInvoiceResponse {

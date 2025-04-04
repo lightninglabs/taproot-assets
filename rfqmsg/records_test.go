@@ -2,12 +2,14 @@ package rfqmsg
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"testing"
 
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
+	"github.com/lightningnetwork/lnd/lntest/wait"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/stretchr/testify/require"
 )
@@ -21,6 +23,22 @@ type htlcTestCase struct {
 	// sumBalances is a map of asset ID to the expected sum of balances for
 	// that asset in the HTLC.
 	sumBalances map[asset.ID]rfqmath.BigInt
+}
+
+type DummyChecker struct{}
+
+func MockAssetMatchesSpecifier(_ context.Context, specifier asset.Specifier,
+	id asset.ID) (bool, error) {
+
+	switch {
+	case specifier.HasGroupPubKey():
+		return true, nil
+
+	case specifier.HasId():
+		return *specifier.UnwrapIdToPtr() == id, nil
+	}
+
+	return false, nil
 }
 
 // assetHtlcTestCase is a helper function that asserts different properties of
@@ -63,7 +81,14 @@ func assetHtlcTestCase(t *testing.T, tc htlcTestCase) {
 
 	for assetID, expectedBalance := range tc.sumBalances {
 		assetSpecifier := asset.NewSpecifierFromId(assetID)
-		balance, err := tc.htlc.SumAssetBalance(assetSpecifier)
+
+		ctxt, cancel := context.WithTimeout(
+			context.Background(), wait.DefaultTimeout,
+		)
+		defer cancel()
+		balance, err := tc.htlc.SumAssetBalance(
+			ctxt, assetSpecifier, MockAssetMatchesSpecifier,
+		)
 		require.NoError(t, err)
 
 		require.Equal(t, expectedBalance, balance)

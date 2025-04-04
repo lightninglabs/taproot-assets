@@ -4,12 +4,15 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/lightninglabs/lndclient"
+	"github.com/lightninglabs/taproot-assets/address"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
@@ -232,6 +235,7 @@ func (m *Manager) startSubsystems(ctx context.Context) error {
 		HtlcInterceptor:  m.cfg.HtlcInterceptor,
 		HtlcSubscriber:   m.cfg.HtlcSubscriber,
 		AcceptHtlcEvents: m.acceptHtlcEvents,
+		SpecifierChecker: m.AssetMatchesSpecifier,
 	})
 	if err != nil {
 		return fmt.Errorf("error initializing RFQ order handler: %w",
@@ -948,6 +952,10 @@ func (m *Manager) getAssetGroupKey(ctx context.Context,
 	// Perform the DB query.
 	group, err := m.cfg.GroupLookup.QueryAssetGroup(ctx, id)
 	if err != nil {
+		if errors.Is(err, address.ErrAssetGroupUnknown) {
+			return fn.None[btcec.PublicKey](), nil
+		}
+
 		return fn.None[btcec.PublicKey](), err
 	}
 
@@ -971,6 +979,18 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 
 	switch {
 	case specifier.HasGroupPubKey():
+		specifierGK := specifier.UnwrapGroupKeyToPtr()
+
+		// Let's directly check if the ID is equal to the X coordinate
+		// of the group key. This is used by the sender to indicate that
+		// any asset that belongs to this group may be used.
+		groupKeyX := schnorr.SerializePubKey(specifierGK)
+		if asset.ID(groupKeyX) == id {
+			return true, nil
+		}
+
+		// Now let's make an actual query to find this assetID's group,
+		// if it exists.
 		group, err := m.getAssetGroupKey(ctx, id)
 		if err != nil {
 			return false, err
@@ -979,8 +999,6 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 		if group.IsNone() {
 			return false, nil
 		}
-
-		specifierGK := specifier.UnwrapGroupKeyToPtr()
 
 		return group.UnwrapToPtr().IsEqual(specifierGK), nil
 

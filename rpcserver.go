@@ -6432,6 +6432,31 @@ func MarshalAssetFedSyncCfg(
 	}, nil
 }
 
+// marshalAssetSpecifier marshals an asset specifier to the RPC form.
+func marshalAssetSpecifier(specifier asset.Specifier) rfqrpc.AssetSpecifier {
+	switch {
+	case specifier.HasId():
+		assetID := specifier.UnwrapIdToPtr()
+		return rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_AssetId{
+				AssetId: assetID[:],
+			},
+		}
+
+	case specifier.HasGroupPubKey():
+		groupKey := specifier.UnwrapGroupKeyToPtr()
+		groupKeyBytes := groupKey.SerializeCompressed()
+		return rfqrpc.AssetSpecifier{
+			Id: &rfqrpc.AssetSpecifier_GroupKey{
+				GroupKey: groupKeyBytes,
+			},
+		}
+
+	default:
+		return rfqrpc.AssetSpecifier{}
+	}
+}
+
 // unmarshalAssetSpecifier unmarshals an asset specifier from the RPC form.
 func unmarshalAssetSpecifier(s *rfqrpc.AssetSpecifier) (*asset.ID,
 	*btcec.PublicKey, error) {
@@ -6629,7 +6654,7 @@ func (r *rpcServer) AddAssetBuyOrder(ctx context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetBuyOrderResponse(event)
+			resp, err := rfq.NewAddAssetBuyOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
 					"buy order response: %w", err)
@@ -6803,7 +6828,7 @@ func (r *rpcServer) AddAssetSellOrder(ctx context.Context,
 	for {
 		select {
 		case event := <-eventSubscriber.NewItemCreated.ChanOut():
-			resp, err := taprpc.NewAddAssetSellOrderResponse(event)
+			resp, err := rfq.NewAddAssetSellOrderResponse(event)
 			if err != nil {
 				return nil, fmt.Errorf("error marshalling "+
 					"sell order response: %w", err)
@@ -6991,7 +7016,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 
 	switch event := eventInterface.(type) {
 	case *rfq.PeerAcceptedBuyQuoteEvent:
-		acceptedQuote, err := taprpc.MarshalAcceptedBuyQuoteEvent(event)
+		acceptedQuote, err := rfq.MarshalAcceptedBuyQuoteEvent(event)
 		if err != nil {
 			return nil, err
 		}
@@ -7007,7 +7032,7 @@ func marshallRfqEvent(eventInterface fn.Event) (*rfqrpc.RfqEvent, error) {
 		}, nil
 
 	case *rfq.PeerAcceptedSellQuoteEvent:
-		rpcAcceptedQuote := taprpc.MarshalAcceptedSellQuoteEvent(
+		rpcAcceptedQuote := rfq.MarshalAcceptedSellQuoteEvent(
 			event,
 		)
 
@@ -7221,19 +7246,27 @@ func (r *rpcServer) EncodeCustomRecords(_ context.Context,
 func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 	stream tchrpc.TaprootAssetChannels_SendPaymentServer) error {
 
+	if len(req.AssetId) > 0 && len(req.GroupKey) > 0 {
+		return fmt.Errorf("cannot set both asset id and group key")
+	}
+
 	if req.PaymentRequest == nil {
 		return fmt.Errorf("payment request must be specified")
 	}
 	pReq := req.PaymentRequest
 	ctx := stream.Context()
 
-	// Do some preliminary checks on the asset ID and make sure we have any
-	// balance for that asset.
-	if len(req.AssetId) != sha256.Size {
-		return fmt.Errorf("asset ID must be 32 bytes")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return err
 	}
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+
+	specifier, err := asset.NewExclusiveSpecifier(assetID, groupKey)
+	if err != nil {
+		return err
+	}
 
 	// Now that we know we have at least _some_ asset balance, we'll figure
 	// out what kind of payment this is, so we can determine _how many_
@@ -7296,7 +7329,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		// Calculate the equivalent asset units for the given invoice
 		// amount based on the asset-to-BTC conversion rate.
-		sellOrder := taprpc.MarshalAcceptedSellQuote(*quote)
+		sellOrder := rfq.MarshalAcceptedSellQuote(*quote)
 
 		// paymentMaxAmt is the maximum amount that the counterparty is
 		// expected to pay. This is the amount that the invoice is
@@ -7358,7 +7391,7 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 			peerPubKey = &parsedKey
 		}
 
-		specifier := asset.NewSpecifierFromId(assetID)
+		rpcSpecifier := marshalAssetSpecifier(specifier)
 
 		// We can now query the asset channels we have.
 		assetChan, err := r.rfqChannel(
@@ -7384,14 +7417,10 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 
 		resp, err := r.AddAssetSellOrder(
 			ctx, &rfqrpc.AddAssetSellOrderRequest{
-				AssetSpecifier: &rfqrpc.AssetSpecifier{
-					Id: &rfqrpc.AssetSpecifier_AssetId{
-						AssetId: assetID[:],
-					},
-				},
-				PaymentMaxAmt: uint64(paymentMaxAmt),
-				Expiry:        uint64(expiry.Unix()),
-				PeerPubKey:    peerPubKey[:],
+				AssetSpecifier: &rpcSpecifier,
+				PaymentMaxAmt:  uint64(paymentMaxAmt),
+				Expiry:         uint64(expiry.Unix()),
+				PeerPubKey:     peerPubKey[:],
 				TimeoutSeconds: uint32(
 					rfq.DefaultTimeout.Seconds(),
 				),
@@ -7474,9 +7503,32 @@ func (r *rpcServer) SendPayment(req *tchrpc.SendPaymentRequest,
 				"for keysend payment")
 		}
 
-		balances := []*rfqmsg.AssetBalance{
-			rfqmsg.NewAssetBalance(assetID, req.AssetAmount),
+		var balances []*rfqmsg.AssetBalance
+
+		switch {
+		case specifier.HasId():
+			balances = []*rfqmsg.AssetBalance{
+				rfqmsg.NewAssetBalance(
+					*specifier.UnwrapIdToPtr(),
+					req.AssetAmount,
+				),
+			}
+
+		case specifier.HasGroupPubKey():
+			groupKey := specifier.UnwrapGroupKeyToPtr()
+			groupKeyX := schnorr.SerializePubKey(groupKey)
+
+			// We can't distribute the amount over distinct asset ID
+			// balances, so we provide the total amount under the
+			// dummy asset ID that is produced by hashing the group
+			// key.
+			balances = []*rfqmsg.AssetBalance{
+				rfqmsg.NewAssetBalance(
+					asset.ID(groupKeyX), req.AssetAmount,
+				),
+			}
 		}
+
 		htlc := rfqmsg.NewHtlc(balances, fn.None[rfqmsg.ID]())
 
 		// We'll now map the HTLC struct into a set of TLV records,
@@ -7627,18 +7679,26 @@ func checkOverpayment(quote *rfqrpc.PeerAcceptedSellQuote,
 func (r *rpcServer) AddInvoice(ctx context.Context,
 	req *tchrpc.AddInvoiceRequest) (*tchrpc.AddInvoiceResponse, error) {
 
+	if len(req.AssetId) > 0 && len(req.GroupKey) > 0 {
+		return nil, fmt.Errorf("cannot set both asset id and group key")
+	}
+
 	if req.InvoiceRequest == nil {
 		return nil, fmt.Errorf("invoice request must be specified")
 	}
 	iReq := req.InvoiceRequest
 
-	// Do some preliminary checks on the asset ID and make sure we have any
-	// balance for that asset.
-	if len(req.AssetId) != sha256.Size {
-		return nil, fmt.Errorf("asset ID must be 32 bytes")
+	assetID, groupKey, err := parseAssetSpecifier(
+		req.AssetId, "", req.GroupKey, "",
+	)
+	if err != nil {
+		return nil, err
 	}
-	var assetID asset.ID
-	copy(assetID[:], req.AssetId)
+
+	specifier, err := asset.NewExclusiveSpecifier(assetID, groupKey)
+	if err != nil {
+		return nil, err
+	}
 
 	// The peer public key is optional if there is only a single asset
 	// channel.
@@ -7652,8 +7712,6 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 
 		peerPubKey = &parsedKey
 	}
-
-	specifier := asset.NewSpecifierFromId(assetID)
 
 	// We can now query the asset channels we have.
 	assetChan, err := r.rfqChannel(
@@ -7676,15 +7734,13 @@ func (r *rpcServer) AddInvoice(ctx context.Context,
 		time.Duration(expirySeconds) * time.Second,
 	)
 
+	rpcSpecifier := marshalAssetSpecifier(specifier)
+
 	resp, err := r.AddAssetBuyOrder(ctx, &rfqrpc.AddAssetBuyOrderRequest{
-		AssetSpecifier: &rfqrpc.AssetSpecifier{
-			Id: &rfqrpc.AssetSpecifier_AssetId{
-				AssetId: assetID[:],
-			},
-		},
-		AssetMaxAmt: req.AssetAmount,
-		Expiry:      uint64(expiryTimestamp.Unix()),
-		PeerPubKey:  peerPubKey[:],
+		AssetSpecifier: &rpcSpecifier,
+		AssetMaxAmt:    req.AssetAmount,
+		Expiry:         uint64(expiryTimestamp.Unix()),
+		PeerPubKey:     peerPubKey[:],
 		TimeoutSeconds: uint32(
 			rfq.DefaultTimeout.Seconds(),
 		),

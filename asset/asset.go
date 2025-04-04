@@ -348,6 +348,23 @@ func NewSpecifierFromGroupKey(groupPubKey btcec.PublicKey) Specifier {
 	}
 }
 
+// NewExlusiveSpecifier creates a specifier that may only include one of asset
+// ID or group key. If both are set then a specifier over the group key is
+// created.
+func NewExclusiveSpecifier(id *ID,
+	groupPubKey *btcec.PublicKey) (Specifier, error) {
+
+	switch {
+	case groupPubKey != nil:
+		return NewSpecifierFromGroupKey(*groupPubKey), nil
+
+	case id != nil:
+		return NewSpecifierFromId(*id), nil
+	}
+
+	return Specifier{}, fmt.Errorf("must set either asset ID or group key")
+}
+
 // String returns a human-readable description of the specifier.
 func (s *Specifier) String() string {
 	// An unset asset ID is represented as an empty string.

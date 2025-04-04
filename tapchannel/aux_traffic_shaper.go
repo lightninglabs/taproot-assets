@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/lightninglabs/taproot-assets/address"
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/rfq"
 	"github.com/lightninglabs/taproot-assets/rfqmath"
@@ -308,11 +310,20 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	)
 	numAssetUnits := numAssetUnitsFp.ScaleTo(0).ToUint64()
 
-	// We now know how many units we need. We take the asset ID from the
-	// RFQ so the recipient can match it back to the quote.
-	assetId, err := quote.Request.AssetSpecifier.UnwrapIdOrErr()
-	if err != nil {
-		return 0, nil, fmt.Errorf("quote has no asset ID: %w", err)
+	var assetId asset.ID
+
+	switch {
+	case quote.Request.AssetSpecifier.HasId():
+		assetId = *quote.Request.AssetSpecifier.UnwrapIdToPtr()
+
+	case quote.Request.AssetSpecifier.HasGroupPubKey():
+		// If a group key is defined in the quote we place the X
+		// coordinate of the group key as the dummy asset ID in the
+		// HTLC. This asset balance in the HTLC is just a hint and the
+		// actual asset IDs will be picked later in the process.
+		groupKey := quote.Request.AssetSpecifier.UnwrapGroupKeyToPtr()
+		groupKeyX := schnorr.SerializePubKey(groupKey)
+		assetId = asset.ID(groupKeyX)
 	}
 
 	// If the number of asset units to send is zero due to integer division

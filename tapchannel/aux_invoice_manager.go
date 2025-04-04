@@ -42,6 +42,12 @@ type RfqManager interface {
 	// node and have been requested by our peers. These quotes are
 	// exclusively available to our node for the sale of assets.
 	LocalAcceptedSellQuotes() rfq.SellAcceptMap
+
+	// AssetMatchesSpecifier checks if the provided asset satisfies the
+	// provided specifier. If the specifier includes a group key, we will
+	// check if the asset belongs to that group.
+	AssetMatchesSpecifier(ctx context.Context, specifier asset.Specifier,
+		id asset.ID) (bool, error)
 }
 
 // A compile time assertion to ensure that the rfq.Manager meets the expected
@@ -128,7 +134,7 @@ func (s *AuxInvoiceManager) Start() error {
 // handleInvoiceAccept is the handler that will be called for each invoice that
 // is accepted. It will intercept the HTLCs that attempt to settle the invoice
 // and modify them if necessary.
-func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
+func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	req lndclient.InvoiceHtlcModifyRequest) (
 	*lndclient.InvoiceHtlcModifyResponse, error) {
 
@@ -200,7 +206,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(_ context.Context,
 	}
 
 	// We now run some validation checks on the asset HTLC.
-	err = s.validateAssetHTLC(htlc)
+	err = s.validateAssetHTLC(ctx, htlc)
 	if err != nil {
 		log.Errorf("Failed to validate asset HTLC: %v", err)
 
@@ -274,22 +280,23 @@ func (s *AuxInvoiceManager) identifierFromQuote(
 	buyQuote, isBuy := acceptedBuyQuotes[rfqID.Scid()]
 	sellQuote, isSell := acceptedSellQuotes[rfqID.Scid()]
 
+	var specifier asset.Specifier
+
 	switch {
 	case isBuy:
-		if buyQuote.Request.AssetSpecifier.HasId() {
-			req := buyQuote.Request
-			return req.AssetSpecifier, nil
-		}
+		specifier = buyQuote.Request.AssetSpecifier
 
 	case isSell:
-		if sellQuote.Request.AssetSpecifier.HasId() {
-			req := sellQuote.Request
-			return req.AssetSpecifier, nil
-		}
+		specifier = sellQuote.Request.AssetSpecifier
 	}
 
-	return asset.Specifier{}, fmt.Errorf("rfqID does not match any " +
-		"accepted buy or sell quote")
+	err := specifier.AssertNotEmpty()
+	if err != nil {
+		return specifier, fmt.Errorf("rfqID does not match any "+
+			"accepted buy or sell quote: %v", err)
+	}
+
+	return specifier, nil
 }
 
 // priceFromQuote retrieves the price from the accepted quote for the given RFQ
@@ -382,7 +389,9 @@ func isAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 }
 
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
-func (s *AuxInvoiceManager) validateAssetHTLC(htlc *rfqmsg.Htlc) error {
+func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
+	htlc *rfqmsg.Htlc) error {
+
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
 
 	// Retrieve the asset identifier from the RFQ quote.
@@ -392,26 +401,19 @@ func (s *AuxInvoiceManager) validateAssetHTLC(htlc *rfqmsg.Htlc) error {
 			"quote: %v", err)
 	}
 
-	if !identifier.HasId() {
-		return fmt.Errorf("asset specifier has empty assetID")
-	}
-
 	// Check for each of the asset balances of the HTLC that the identifier
 	// matches that of the RFQ quote.
 	for _, v := range htlc.Balances() {
-		err := fn.MapOptionZ(
-			identifier.ID(), func(id asset.ID) error {
-				if v.AssetID.Val != id {
-					return fmt.Errorf("mismatch between " +
-						"htlc asset ID and rfq asset " +
-						"ID")
-				}
-
-				return nil
-			},
+		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
+			ctx, identifier, v.AssetID.Val,
 		)
 		if err != nil {
 			return err
+		}
+
+		if !match {
+			return fmt.Errorf("asset ID %s does not match %s",
+				v.AssetID.Val.String(), identifier.String())
 		}
 	}
 
