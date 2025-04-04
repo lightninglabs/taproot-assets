@@ -109,8 +109,13 @@ func testMintAssets(t *harnessTest) {
 	// Now that all our assets have been issued, we'll use the balance
 	// calls to ensure that we're able to retrieve the proper balance for
 	// them all.
-	AssertAssetBalances(
+	AssertMintedAssetBalances(
 		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
+	)
+	AssertBalances(
+		t.t, t.tapd, 10002, WithNumUtxos(4), WithNumAnchorUtxos(2),
+		WithGroupedAssetBalance(5001),
+		WithScriptKeyType(asset.ScriptKeyBip86),
 	)
 
 	// Check that we can retrieve the group keys for the issuable assets.
@@ -450,7 +455,7 @@ func testMintAssetsWithTapscriptSibling(t *harnessTest) {
 	rpcIssuableAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd, issuableAssets,
 	)
-	AssertAssetBalances(
+	AssertMintedAssetBalances(
 		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
 	)
 
@@ -653,17 +658,12 @@ func testAssetBalances(t *harnessTest) {
 	rpcSimpleAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd, simpleAssets,
 	)
-	rpcIssuableAssets := MintAssetsConfirmBatch(
-		t.t, t.lndHarness.Miner().Client, t.tapd, issuableAssets,
-	)
 	targetAsset := rpcSimpleAssets[0]
 
 	// Now that all our assets have been issued, we'll use the balance
 	// calls to ensure that we're able to retrieve the proper balance for
 	// them all.
-	AssertAssetBalances(
-		t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets, false,
-	)
+	AssertMintedAssetBalances(t.t, t.tapd, rpcSimpleAssets, nil, false)
 
 	// Check chain anchor for the target asset.
 	out, err := wire.NewOutPointFromString(
@@ -816,33 +816,32 @@ func testAssetBalances(t *harnessTest) {
 
 		if tt.expectError {
 			require.ErrorContains(t.t, err, tt.expectedErrMsg)
-		} else {
+			continue
+		}
+
+		require.NoError(t.t, err)
+
+		// With a transaction funding should have led to a lease on the
+		// simple assets, we'll use the balance calls to ensure that
+		// we're able to retrieve the proper balances.
+		AssertBalances(
+			t.t, t.tapd, 0, WithAssetID(targetAssetGenesis.AssetId),
+			WithNumAnchorUtxos(0),
+		)
+		AssertBalances(
+			t.t, t.tapd, 5000, WithIncludeLeased(), WithNumUtxos(1),
+			WithAssetID(targetAssetGenesis.AssetId),
+			WithNumAnchorUtxos(1),
+		)
+
+		// Unlock the input if provided so it can be reused.
+		for _, input := range tt.inputs {
+			_, err = aliceTapd.RemoveUTXOLease(
+				ctxb, &wrpc.RemoveUTXOLeaseRequest{
+					Outpoint: input.Outpoint,
+				},
+			)
 			require.NoError(t.t, err)
-
-			// With a transaction funding should have led to a
-			// lease on the simple assets, we'll use the balance
-			// calls to ensure that we're able to retrieve the
-			// proper balances.
-			rpcEmptyAssets := []*taprpc.Asset{}
-			AssertAssetBalances(
-				t.t, t.tapd, rpcEmptyAssets, rpcIssuableAssets,
-				false,
-			)
-			AssertAssetBalances(
-				t.t, t.tapd, rpcSimpleAssets, rpcIssuableAssets,
-				true,
-			)
-
-			// Unlock the input if provided so it can be reused.
-			for _, input := range tt.inputs {
-				_, err = aliceTapd.RemoveUTXOLease(
-					ctxb,
-					&wrpc.RemoveUTXOLeaseRequest{
-						Outpoint: input.Outpoint,
-					},
-				)
-				require.NoError(t.t, err)
-			}
 		}
 	}
 }
