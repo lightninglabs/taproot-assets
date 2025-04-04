@@ -79,6 +79,10 @@ type Verifier interface {
 type BaseVerifier struct {
 }
 
+// P2TROutputsSTXOs is used to track stxo proofs per p2tr output in the anchor
+// transaction.
+type P2TROutputsSTXOs = map[uint32]fn.Set[asset.SerializedKey]
+
 // Verify takes the passed serialized proof file, and returns a nil
 // error if the proof file is valid. A valid file should return an
 // AssetSnapshot of the final state transition of the file.
@@ -174,7 +178,7 @@ func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 		commitVersions := make(
 			map[uint32][]commitment.TapCommitmentVersion,
 		)
-		p2trOutputs := make(map[uint32]fn.Set[asset.SerializedKey])
+		p2trOutputs := make(P2TROutputsSTXOs)
 		outIdx := p.InclusionProof.OutputIndex
 		p2trOutputs[outIdx] = make(fn.Set[asset.SerializedKey])
 
@@ -238,7 +242,7 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	// Gather all P2TR outputs in the on-chain transaction. The STXO proofs
 	// are tracked using a set of serialized keys. We ignore that set when
 	// verifying V1 exclusion proofs.
-	p2trOutputs := make(map[uint32]fn.Set[asset.SerializedKey])
+	p2trOutputs := make(fn.Set[uint32])
 	for i, txOut := range p.AnchorTx.TxOut {
 		if uint32(i) == p.InclusionProof.OutputIndex {
 			continue
@@ -247,8 +251,7 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 			continue
 		}
 
-		outIdx := uint32(i)
-		p2trOutputs[outIdx] = make(fn.Set[asset.SerializedKey])
+		p2trOutputs.Add(uint32(i))
 	}
 
 	// Early pass to determine if we're dealing with v1 or v2 proofs.
@@ -264,9 +267,8 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 }
 
 // verifyV1ExclusionProofs verifies all version 1 exclusion proofs.
-func (p *Proof) verifyV1ExclusionProofs(
-	p2trOutputs map[uint32]fn.Set[asset.SerializedKey],
-) (*commitment.TapCommitmentVersion, error) {
+func (p *Proof) verifyV1ExclusionProofs(p2trOutputs fn.Set[uint32]) (
+	*commitment.TapCommitmentVersion, error) {
 
 	commitVersions := make(map[uint32][]commitment.TapCommitmentVersion)
 
@@ -297,8 +299,7 @@ func (p *Proof) verifyV1ExclusionProofs(
 }
 
 // verifyV2ExclusionProofs verifies all version 2 exclusion proofs.
-func (p *Proof) verifyV2ExclusionProofs(
-	p2trOutputs map[uint32]fn.Set[asset.SerializedKey]) (
+func (p *Proof) verifyV2ExclusionProofs(p2trOutputs fn.Set[uint32]) (
 	*commitment.TapCommitmentVersion, error) {
 
 	commitVersions := make(map[uint32][]commitment.TapCommitmentVersion)
@@ -309,14 +310,20 @@ func (p *Proof) verifyV2ExclusionProofs(
 		return nil, fmt.Errorf("error collecting STXO assets: %w", err)
 	}
 
-	// Map STXOs by serialized key.
+	// Create a P2TROutputsSTXOs from p2trOutputs and map STXOs by
+	// serialized key.
 	assetMap := make(map[asset.SerializedKey]*asset.Asset)
+	p2trOutputsSTXOs := make(P2TROutputsSTXOs)
+	for outIdx := range p2trOutputs {
+		p2trOutputsSTXOs[outIdx] = make(fn.Set[asset.SerializedKey])
+	}
+
 	for idx := range stxoAssets {
 		stxoAsset := stxoAssets[idx].(*asset.Asset)
 		key := asset.ToSerialized(stxoAsset.ScriptKey.PubKey)
 		assetMap[key] = stxoAsset
 		for outIdx := range p2trOutputs {
-			p2trOutputs[outIdx].Add(key)
+			p2trOutputsSTXOs[outIdx].Add(key)
 		}
 	}
 
@@ -339,7 +346,7 @@ func (p *Proof) verifyV2ExclusionProofs(
 		}
 
 		_, err := verifySTXOProofSet(
-			&p.AnchorTx, baseProof, assetMap, p2trOutputs,
+			&p.AnchorTx, baseProof, assetMap, p2trOutputsSTXOs,
 			commitVersions, false,
 		)
 		if err != nil {
@@ -347,7 +354,7 @@ func (p *Proof) verifyV2ExclusionProofs(
 		}
 	}
 
-	err = p.verifyRemainingOutputs(p2trOutputs)
+	err = p.verifyRemainingOutputs(p2trOutputsSTXOs)
 	if err != nil {
 		return nil, err
 	}
@@ -363,7 +370,7 @@ func (p *Proof) verifyV2ExclusionProofs(
 
 // handleBasicExclusionProof handles a basic (non-STXO) exclusion proof.
 func (p *Proof) handleBasicExclusionProof(baseProof *TaprootProof,
-	p2trOutputs map[uint32]fn.Set[asset.SerializedKey],
+	p2trOutputs fn.Set[uint32],
 	commitVersions map[uint32][]commitment.TapCommitmentVersion) error {
 
 	derivedCommitment, err := verifyTaprootProof(
@@ -390,7 +397,7 @@ func (p *Proof) handleBasicExclusionProof(baseProof *TaprootProof,
 // verifySTXOProofSet verifies a set of STXO proofs.
 func verifySTXOProofSet(anchorTx *wire.MsgTx, baseProof TaprootProof,
 	assetMap map[asset.SerializedKey]*asset.Asset,
-	p2trOutputs map[uint32]fn.Set[asset.SerializedKey],
+	p2trOutputs P2TROutputsSTXOs,
 	commitVersions map[uint32][]commitment.TapCommitmentVersion,
 	inclusion bool) (*commitment.TapCommitment, error) {
 
@@ -446,9 +453,7 @@ func MakeSTXOProof(baseProof TaprootProof,
 }
 
 // verifyRemainingOutputs verifies any remaining outputs are BIP-86 outputs.
-func (p *Proof) verifyRemainingOutputs(
-	p2trOutputs map[uint32]fn.Set[asset.SerializedKey]) error {
-
+func (p *Proof) verifyRemainingOutputs(p2trOutputs P2TROutputsSTXOs) error {
 	if len(p2trOutputs) == 0 {
 		return nil
 	}
