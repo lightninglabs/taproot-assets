@@ -403,6 +403,20 @@ func addSTXOExclusionProofs(outputs []*tappsbt.VOutput,
 
 			commitmentProof := eProof.CommitmentProof
 
+			// Confirm that we are creating the stxo proofs for the
+			// asset that is being created. We do this by confirming
+			// that the exclusion proof for the newly created asset
+			// is already present.
+			_, err = eProof.DeriveByAssetExclusion(
+				newAsset.AssetCommitmentKey(),
+				newAsset.TapCommitmentKey(),
+			)
+			if err != nil {
+				return fmt.Errorf("v1 proof for newly created "+
+					"asset not found during creation of "+
+					"stxo proofs: %w", err)
+			}
+
 			//nolint:lll
 			if commitmentProof.STXOProofs == nil {
 				commitmentProof.STXOProofs = make(
