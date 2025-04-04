@@ -2492,9 +2492,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 	// Now that we have the asset created, we'll make a new node that'll
 	// serve as the node which'll receive the assets.
 	bobLnd := t.lndHarness.NewNodeWithCoins("Bob", nil)
-	bob := setupTapdHarness(
-		t.t, t, bobLnd, t.universeServer,
-	)
+	bob := setupTapdHarness(t.t, t, bobLnd, t.universeServer)
 	defer func() {
 		require.NoError(t.t, bob.stop(!*noDelete))
 	}()
@@ -2503,9 +2501,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 
 	// We need to derive two keys, one for the new script key and
 	// one for the internal key.
-	bobScriptKey, bobAnchorIntKeyDesc := DeriveKeys(
-		t.t, bob,
-	)
+	bobScriptKey, bobAnchorIntKeyDesc := DeriveKeys(t.t, bob)
 
 	var id [32]byte
 	copy(id[:], genInfo.AssetId)
