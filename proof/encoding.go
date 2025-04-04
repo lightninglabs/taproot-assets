@@ -379,7 +379,8 @@ func CommitmentProofsEncoder(w io.Writer, val any, buf *[8]byte) error {
 		return nil
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "[]CommitmentProof")
+	return tlv.NewTypeForEncodingErr(val, "map[asset.SerializedKey]"+
+		"CommitmentProof")
 }
 
 func CommitmentProofsDecoder(r io.Reader, val any, buf *[8]byte,
@@ -436,7 +437,8 @@ func CommitmentProofsDecoder(r io.Reader, val any, buf *[8]byte,
 		return nil
 	}
 
-	return tlv.NewTypeForEncodingErr(val, "[]CommitmentProof")
+	return tlv.NewTypeForEncodingErr(val, "map[asset.SerializedKey]"+
+		"CommitmentProof")
 }
 
 func TapscriptProofEncoder(w io.Writer, val any, buf *[8]byte) error {
