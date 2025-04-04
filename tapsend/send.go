@@ -1995,10 +1995,6 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 				inputAssets[outpoint], vIn.Asset(),
 			)
 			inputSiblings[outpoint] = sibling
-			inputAltLeaves[outpoint] = append(
-				inputAltLeaves[outpoint],
-				asset.CopyAltLeaves(vIn.AltLeaves)...,
-			)
 			inputScripts[outpoint] = anchorIn.WitnessUtxo.PkScript
 			inputAnchors[outpoint] = vIn.Anchor
 		}
