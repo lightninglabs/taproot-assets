@@ -678,12 +678,9 @@ func RandAssetWithValues(t testing.TB, genesis Genesis, groupKey *GroupKey,
 
 // RandAltLeaf generates a random Asset that is a valid AltLeaf.
 func RandAltLeaf(t testing.TB) *Asset {
-	randWitness := []Witness{
-		{TxWitness: test.RandTxWitnesses(t)},
-	}
 	randKey := RandScriptKey(t)
 	randVersion := ScriptVersion(test.RandInt[uint16]())
-	randLeaf, err := NewAltLeaf(randKey, randVersion, randWitness)
+	randLeaf, err := NewAltLeaf(randKey, randVersion)
 	require.NoError(t, err)
 	require.NoError(t, randLeaf.ValidateAltLeaf())
 
