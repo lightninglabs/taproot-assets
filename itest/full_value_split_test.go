@@ -3,6 +3,7 @@ package itest
 import (
 	"context"
 
+	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/taprpc"
 	"github.com/lightninglabs/taproot-assets/taprpc/mintrpc"
 	"github.com/stretchr/testify/require"
@@ -11,7 +12,7 @@ import (
 // testFullValueSend tests that we can properly send the full value of a
 // normal asset.
 func testFullValueSend(t *harnessTest) {
-	// First, we'll make an normal assets with enough units to allow us to
+	// First, we'll make a normal assets with enough units to allow us to
 	// send it around a few times.
 	rpcAssets := MintAssetsConfirmBatch(
 		t.t, t.lndHarness.Miner().Client, t.tapd,
@@ -37,12 +38,38 @@ func testFullValueSend(t *harnessTest) {
 		require.NoError(t.t, secondTapd.stop(!*noDelete))
 	}()
 
+	// Run the test scenario with the normal asset.
 	runFullValueSendTests(
 		ctxt, t, t.tapd, secondTapd, genInfo, mintedAsset, 0, 1,
 	)
+
+	// After the first run, we should've sent everything to Bob. But Alice
+	// should have two zero-value tombstones in her wallet.
+	AssertBalances(
+		t.t, t.tapd, 0, WithScriptKeyType(asset.ScriptKeyTombstone),
+		WithNumUtxos(2), WithNumAnchorUtxos(2),
+	)
+	AssertBalances(
+		t.t, secondTapd, mintedAsset.Amount,
+		WithScriptKeyType(asset.ScriptKeyBip86), WithNumUtxos(1),
+		WithNumAnchorUtxos(1),
+	)
+
+	// Run the same scenario with the grouped asset.
 	runFullValueSendTests(
 		ctxt, t, t.tapd, secondTapd, groupGenInfo, mintedGroupAsset,
 		1, 2,
+	)
+
+	// Alice should have one more zero-value tombstones in her wallet.
+	AssertBalances(
+		t.t, t.tapd, 0, WithScriptKeyType(asset.ScriptKeyTombstone),
+		WithNumUtxos(3), WithNumAnchorUtxos(3),
+	)
+	AssertBalances(
+		t.t, secondTapd, mintedAsset.Amount+mintedGroupAsset.Amount,
+		WithScriptKeyType(asset.ScriptKeyBip86), WithNumUtxos(2),
+		WithNumAnchorUtxos(2),
 	)
 }
 
@@ -124,7 +151,9 @@ func runFullValueSendTests(ctxt context.Context, t *harnessTest, alice,
 	// zero-value transfers. and Bob should have 1. The main node should
 	// show a balance of zero, and Bob should hold the total asset supply.
 	AssertTransfer(t.t, alice, runIdx*2, numRuns*2, []uint64{0, fullAmount})
-	AssertTransfer(t.t, alice, runIdx*2+1, numRuns*2, []uint64{0, fullAmount})
+	AssertTransfer(
+		t.t, alice, runIdx*2+1, numRuns*2, []uint64{0, fullAmount},
+	)
 	AssertBalanceByID(t.t, alice, genInfo.AssetId, 0)
 
 	AssertTransfer(t.t, bob, runIdx, numRuns, []uint64{0, fullAmount})

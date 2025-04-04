@@ -1083,7 +1083,8 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 				"address parcel")
 		}
 		fundSendRes, err := p.cfg.AssetWallet.FundAddressSend(
-			ctx, tapsend.Bip86Only, nil, addrParcel.destAddrs...,
+			ctx, fn.Some(asset.ScriptKeyBip86), nil,
+			addrParcel.destAddrs...,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("unable to fund address send: "+
@@ -1295,6 +1296,12 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 			return nil, fmt.Errorf("unable to get current height: "+
 				"%w", err)
 		}
+
+		// Burn and tombstone keys are the only keys that we don't
+		// explicitly store in the DB before this point. But we'll want
+		// them to have the correct type when creating the transfer, so
+		// we'll set that now.
+		detectUnSpendableKeys(currentPkg.VirtualPackets)
 
 		// We now need to find out if this is a transfer to ourselves
 		// (e.g. a change output) or an outbound transfer. A key being
@@ -1564,6 +1571,53 @@ func (p *ChainPorter) publishSubscriberEvent(event fn.Event) {
 
 	for _, sub := range p.subscribers {
 		sub.NewItemCreated.ChanIn() <- event
+	}
+}
+
+// detectUnSpendableKeys checks if any of the outputs in the virtual packets are
+// burn or tombstone keys and sets the appropriate type on the output script
+// key.
+func detectUnSpendableKeys(activeTransfers []*tappsbt.VPacket) {
+	setScriptKeyType := func(vOut *tappsbt.VOutput,
+		scriptKeyType asset.ScriptKeyType) {
+
+		if vOut.Asset.ScriptKey.TweakedScriptKey == nil {
+			vOut.Asset.ScriptKey.TweakedScriptKey = new(
+				asset.TweakedScriptKey,
+			)
+			vOut.Asset.ScriptKey.RawKey.PubKey =
+				vOut.Asset.ScriptKey.PubKey
+		}
+		if vOut.ScriptKey.TweakedScriptKey == nil {
+			vOut.ScriptKey.TweakedScriptKey = new(
+				asset.TweakedScriptKey,
+			)
+			vOut.ScriptKey.RawKey.PubKey = vOut.ScriptKey.PubKey
+		}
+
+		vOut.Asset.ScriptKey.Type = scriptKeyType
+		vOut.ScriptKey.Type = scriptKeyType
+	}
+
+	for _, vPkt := range activeTransfers {
+		for _, vOut := range vPkt.Outputs {
+			if vOut.Asset == nil {
+				continue
+			}
+
+			witness := vOut.Asset.PrevWitnesses
+			if len(witness) > 0 && asset.IsBurnKey(
+				vOut.ScriptKey.PubKey, witness[0],
+			) {
+
+				setScriptKeyType(vOut, asset.ScriptKeyBurn)
+			}
+
+			unSpendable, _ := vOut.ScriptKey.IsUnSpendable()
+			if unSpendable {
+				setScriptKeyType(vOut, asset.ScriptKeyTombstone)
+			}
+		}
 	}
 }
 

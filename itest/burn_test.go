@@ -157,9 +157,10 @@ func testBurnAssets(t *harnessTest) {
 
 	// We'll now assert that the burned asset has the correct state.
 	burnedAsset := burnResp.BurnProof.Asset
-	allAssets, err := t.tapd.ListAssets(
-		ctxt, &taprpc.ListAssetRequest{IncludeSpent: true},
-	)
+	allAssets, err := t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
+		IncludeSpent:  true,
+		ScriptKeyType: allScriptKeysQuery,
+	})
 	require.NoError(t.t, err)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,
@@ -167,6 +168,10 @@ func testBurnAssets(t *harnessTest) {
 		AssetTypeCheck(burnedAsset.AssetGenesis.AssetType),
 		AssetScriptKeyIsLocalCheck(false),
 		AssetScriptKeyIsBurnCheck(true),
+	)
+	AssertBalances(
+		t.t, t.tapd, burnAmt, WithNumUtxos(1), WithNumAnchorUtxos(1),
+		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
 	// And now our asset balance should have been decreased by the burned
@@ -225,6 +230,12 @@ func testBurnAssets(t *harnessTest) {
 	)
 	AssertSendEventsComplete(t.t, fullSendAddr.ScriptKey, sendEvents)
 
+	AssertBalances(
+		t.t, t.tapd, burnAmt+simpleCollectible.Amount,
+		WithNumUtxos(2), WithNumAnchorUtxos(2),
+		WithScriptKeyType(asset.ScriptKeyBurn),
+	)
+
 	// Test case 4: Burn assets from multiple inputs. This will select the
 	// two largest inputs we have, the one over 1500 we sent above and the
 	// 1200 from the initial fan out transfer.
@@ -255,6 +266,12 @@ func testBurnAssets(t *harnessTest) {
 	AssertBalanceByID(
 		t.t, t.tapd, simpleAssetGen.AssetId,
 		simpleAsset.Amount-burnAmt-multiBurnAmt,
+	)
+
+	AssertBalances(
+		t.t, t.tapd, burnAmt+simpleCollectible.Amount+multiBurnAmt,
+		WithNumUtxos(3), WithNumAnchorUtxos(3),
+		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
 	resp, err := t.tapd.ListAssets(ctxt, &taprpc.ListAssetRequest{
@@ -291,6 +308,13 @@ func testBurnAssets(t *harnessTest) {
 	)
 	AssertBalanceByID(
 		t.t, t.tapd, simpleGroupGen.AssetId, simpleGroup.Amount-burnAmt,
+	)
+
+	AssertBalances(
+		t.t, t.tapd,
+		burnAmt+simpleCollectible.Amount+multiBurnAmt+burnAmt,
+		WithNumUtxos(4), WithNumAnchorUtxos(4),
+		WithScriptKeyType(asset.ScriptKeyBurn),
 	)
 
 	burns = AssertNumBurns(t.t, t.tapd, 4, nil)
@@ -344,6 +368,13 @@ func testBurnAssets(t *harnessTest) {
 		simpleGroupCollectGen.AssetId, []uint64{1}, 6, 7, 1, true,
 	)
 	AssertBalanceByID(t.t, t.tapd, simpleGroupCollectGen.AssetId, 0)
+
+	AssertBalances(
+		t.t, t.tapd,
+		burnAmt+simpleCollectible.Amount+multiBurnAmt+burnAmt+1,
+		WithNumUtxos(5), WithNumAnchorUtxos(5),
+		WithScriptKeyType(asset.ScriptKeyBurn),
+	)
 
 	// We now perform some queries to test the filters of the ListBurns
 	// call.
@@ -454,9 +485,10 @@ func testBurnGroupedAssets(t *harnessTest) {
 
 	// Ensure that the burnt asset has the correct state.
 	burnedAsset := burnResp.BurnProof.Asset
-	allAssets, err := t.tapd.ListAssets(
-		ctxb, &taprpc.ListAssetRequest{IncludeSpent: true},
-	)
+	allAssets, err := t.tapd.ListAssets(ctxb, &taprpc.ListAssetRequest{
+		IncludeSpent:  true,
+		ScriptKeyType: allScriptKeysQuery,
+	})
 	require.NoError(t.t, err)
 	AssertAssetStateByScriptKey(
 		t.t, allAssets.Assets, burnedAsset.ScriptKey,

@@ -781,7 +781,9 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	// We'll also need to import the funding script key into the wallet so
 	// the asset will be materialized in the asset table and show up in the
 	// balance correctly.
-	err := f.cfg.AddrBook.InsertScriptKey(ctx, fundingScriptKey, true)
+	err := f.cfg.AddrBook.InsertScriptKey(
+		ctx, fundingScriptKey, asset.ScriptKeyScriptPathChannel,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("unable to insert script key: %w", err)
 	}
@@ -804,7 +806,7 @@ func (f *FundingController) fundVirtualPacket(ctx context.Context,
 	fundDesc := &tapsend.FundingDescriptor{
 		AssetSpecifier: specifier,
 		Amount:         amt,
-		CoinSelectType: tapsend.Bip86Only,
+		ScriptKeyType:  fn.Some(asset.ScriptKeyBip86),
 	}
 
 	// Fund the packet. This will derive an anchor internal key for us, but

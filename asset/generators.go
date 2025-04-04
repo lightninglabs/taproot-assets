@@ -71,9 +71,11 @@ var (
 	})
 	TweakedScriptKeyGen = rapid.Custom(func(t *rapid.T) TweakedScriptKey {
 		return TweakedScriptKey{
-			RawKey:        KeyDescGen.Draw(t, "raw_key"),
-			Tweak:         HashBytesGen.Draw(t, "tweak"),
-			DeclaredKnown: rapid.Bool().Draw(t, "declared_known"),
+			RawKey: KeyDescGen.Draw(t, "raw_key"),
+			Tweak:  HashBytesGen.Draw(t, "tweak"),
+			Type: ScriptKeyType(
+				rapid.Int16().Draw(t, "script_key_type"),
+			),
 		}
 	})
 	ScriptKeyGen = rapid.Custom(func(t *rapid.T) ScriptKey {
