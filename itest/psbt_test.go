@@ -2594,21 +2594,10 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 
 	// We need to copy the base exclusion proof for each STXO because we'll
 	// modify it with the specific asset and taproot proofs.
-	stxoExclProof := proof.TaprootProof{
-		OutputIndex: latestProof.ExclusionProofs[0].OutputIndex,
-		InternalKey: latestProof.ExclusionProofs[0].InternalKey,
-		CommitmentProof: &proof.CommitmentProof{
-			Proof: commitment.Proof{
-				TaprootAssetProof: stxoProofs[identifier].
-					TaprootAssetProof,
-				AssetProof: stxoProofs[identifier].
-					AssetProof,
-			},
-			TapSiblingPreimage: latestProof.ExclusionProofs[0].
-				CommitmentProof.TapSiblingPreimage,
-		},
-		TapscriptProof: latestProof.ExclusionProofs[0].TapscriptProof,
-	}
+	stxoProof := stxoProofs[identifier]
+	stxoExclProof := proof.MakeSTXOProof(
+		latestProof.ExclusionProofs[0], &stxoProof,
+	)
 
 	// Derive the possible taproot keys assuming the exclusion proof is
 	// correct.
