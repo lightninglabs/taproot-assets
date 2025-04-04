@@ -174,7 +174,7 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 			prevIdKey := asset.DeriveBurnKey(*wit.PrevID)
 			scriptKey := asset.NewScriptKey(prevIdKey)
 			spentAsset, err := asset.NewAltLeaf(
-				scriptKey, asset.ScriptV0, nil,
+				scriptKey, asset.ScriptV0,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("error creating "+

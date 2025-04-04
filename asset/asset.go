@@ -1897,9 +1897,7 @@ type AltLeaf[T any] interface {
 }
 
 // NewAltLeaf instantiates a new valid AltLeaf.
-func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
-	prevWitness []Witness) (*Asset, error) {
-
+func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion) (*Asset, error) {
 	if key.PubKey == nil {
 		return nil, fmt.Errorf("script key must be non-nil")
 	}
@@ -1910,7 +1908,7 @@ func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
 		Amount:              0,
 		LockTime:            0,
 		RelativeLockTime:    0,
-		PrevWitnesses:       prevWitness,
+		PrevWitnesses:       nil,
 		SplitCommitmentRoot: nil,
 		GroupKey:            nil,
 		ScriptKey:           key,
@@ -2089,9 +2087,7 @@ func CollectSTXO(outAsset *Asset) ([]AltLeaf[Asset], error) {
 
 		prevIdKey := DeriveBurnKey(*wit.PrevID)
 		scriptKey := NewScriptKey(prevIdKey)
-		altLeaf, err := NewAltLeaf(
-			scriptKey, ScriptV0, nil,
-		)
+		altLeaf, err := NewAltLeaf(scriptKey, ScriptV0)
 		if err != nil {
 			return nil, fmt.Errorf("error creating altLeaf: %w",
 				err)

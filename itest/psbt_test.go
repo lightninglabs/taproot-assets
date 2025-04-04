@@ -2587,9 +2587,7 @@ func testPsbtSTXOExclusionProofs(t *harnessTest) {
 
 	// Create the minimal asset for which we expect to see the STXO
 	// exclusion.
-	minAsset, err := asset.NewAltLeaf(
-		expectedScriptKey, asset.ScriptV0, nil,
-	)
+	minAsset, err := asset.NewAltLeaf(expectedScriptKey, asset.ScriptV0)
 	require.NoError(t.t, err)
 
 	// We need to copy the base exclusion proof for each STXO because we'll

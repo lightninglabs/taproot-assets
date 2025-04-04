@@ -140,9 +140,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// proofs will fail.
 	prevIdKey := asset.DeriveBurnKey(*newAsset.PrevWitnesses[0].PrevID)
 	scriptKey := asset.NewScriptKey(prevIdKey)
-	stxoAsset, err := asset.NewAltLeaf(
-		scriptKey, asset.ScriptV0, nil,
-	)
+	stxoAsset, err := asset.NewAltLeaf(scriptKey, asset.ScriptV0)
 	require.NoError(t, err)
 	stxoLeaf := asset.ToAltLeaves([]*asset.Asset{stxoAsset})
 	altLeaves = append(altLeaves, stxoLeaf...)
@@ -309,9 +307,7 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 	// proofs will fail. With splits this is only needed for the root asset.
 	prevIdKey1 := asset.DeriveBurnKey(*split1Asset.PrevWitnesses[0].PrevID)
 	scriptKey1 := asset.NewScriptKey(prevIdKey1)
-	stxoAsset1, err := asset.NewAltLeaf(
-		scriptKey1, asset.ScriptV0, nil,
-	)
+	stxoAsset1, err := asset.NewAltLeaf(scriptKey1, asset.ScriptV0)
 	require.NoError(t, err)
 	stxoLeaf1 := asset.ToAltLeaves([]*asset.Asset{stxoAsset1})
 	split1AltLeaves = append(split1AltLeaves, stxoLeaf1...)
