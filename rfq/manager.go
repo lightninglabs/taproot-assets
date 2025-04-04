@@ -12,6 +12,7 @@ import (
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
+	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/lnutils"
@@ -994,6 +995,12 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 	}
 }
 
+// GetPriceDeviationPpm returns the configured price deviation in ppm that is
+// used in rfq negotiations.
+func (m *Manager) GetPriceDeviationPpm() uint64 {
+	return m.cfg.AcceptPriceDeviationPpm
+}
+
 // ChannelCompatible checks a channel's assets against an asset specifier. If
 // the specifier is an asset ID, then all assets must be of that specific ID,
 // if the specifier is a group key, then all assets in the channel must belong
@@ -1036,6 +1043,33 @@ func (m *Manager) publishSubscriberEvent(event fn.Event) {
 			return true
 		},
 	)
+}
+
+// EstimateAssetUnits is a helper function that queries our price oracle to find
+// out how many units of an asset are needed to evaluate to the provided amount
+// in msats.
+func EstimateAssetUnits(ctx context.Context, oracle PriceOracle,
+	specifier asset.Specifier,
+	amtMsat lnwire.MilliSatoshi) (uint64, error) {
+
+	oracleRes, err := oracle.QueryBidPrice(
+		ctx, specifier, fn.None[uint64](), fn.Some(amtMsat),
+		fn.None[rfqmsg.AssetRate](),
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	if oracleRes.Err != nil {
+		return 0, fmt.Errorf("cannot query oracle: %v",
+			oracleRes.Err.Error())
+	}
+
+	assetUnits := rfqmath.MilliSatoshiToUnits(
+		amtMsat, oracleRes.AssetRate.Rate,
+	)
+
+	return assetUnits.ToUint64(), nil
 }
 
 // PeerAcceptedBuyQuoteEvent is an event that is broadcast when the RFQ manager
