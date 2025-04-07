@@ -726,6 +726,11 @@ message AssetTransfer {
     // transaction. If this value is unset, the anchor transaction is
     // unconfirmed.
     ChainHash anchor_tx_block_hash = 7;
+
+    // The block height of the blockchain block that contains the anchor
+    // transaction. If the anchor transaction is still unconfirmed, this value
+    // will be 0.
+    uint32 anchor_tx_block_height = 8;
 }
 
 message TransferInput {

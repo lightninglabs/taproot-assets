@@ -405,6 +405,7 @@ func (p *ChainPorter) waitForTransferTxConf(pkg *sendPackage) error {
 		pkg.OutboundPkg.AnchorTxBlockHash = fn.MaybeSome(
 			confEvent.BlockHash,
 		)
+		pkg.OutboundPkg.AnchorTxBlockHeight = confEvent.BlockHeight
 
 		pkg.SendState = SendStateStorePostAnchorTxConf
 

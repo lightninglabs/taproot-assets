@@ -1556,6 +1556,15 @@ func TestAssetExportLog(t *testing.T) {
 	)
 	require.NoError(t, err)
 
+	// Make sure that if we query for the asset transfer again, we now have
+	// the block hash and height set.
+	parcels, err = assetsStore.QueryParcels(ctx, &anchorTxHash, false)
+	require.NoError(t, err)
+	require.Len(t, parcels, 1)
+	spendDelta.AnchorTxBlockHash = fn.Some(fakeBlockHash)
+	spendDelta.AnchorTxBlockHeight = uint32(blockHeight)
+	require.Equal(t, spendDelta, parcels[0])
+
 	// We'll now fetch all the assets to verify that they were updated
 	// properly on disk.
 	chainAssets, err := assetsStore.FetchAllAssets(ctx, false, true, nil)

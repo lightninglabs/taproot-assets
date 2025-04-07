@@ -3491,6 +3491,14 @@ func (a *AssetStore) QueryParcels(ctx context.Context,
 				Inputs:             inputs,
 				Outputs:            outputs,
 			}
+
+			// Set the block height if the anchor is marked as
+			// confirmed in the database.
+			if dbAnchorTx.BlockHeight.Valid {
+				parcel.AnchorTxBlockHeight = uint32(
+					dbAnchorTx.BlockHeight.Int32,
+				)
+			}
 			outboundParcels = append(outboundParcels, parcel)
 		}
 
