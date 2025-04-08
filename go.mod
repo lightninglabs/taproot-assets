@@ -10,9 +10,9 @@ require (
 	github.com/btcsuite/btcd/chaincfg/chainhash v1.1.0
 	github.com/btcsuite/btclog v0.0.0-20241003133417-09c4e92e319c
 	github.com/btcsuite/btclog/v2 v2.0.1-0.20250110154127-3ae4bf1cb318
-	github.com/btcsuite/btcwallet v0.16.12
+	github.com/btcsuite/btcwallet v0.16.13
 	github.com/btcsuite/btcwallet/wallet/txsizes v1.2.5
-	github.com/btcsuite/btcwallet/wtxmgr v1.5.4
+	github.com/btcsuite/btcwallet/wtxmgr v1.5.6
 	github.com/caddyserver/certmagic v0.17.2
 	github.com/davecgh/go-spew v1.1.1
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.3.0
@@ -29,7 +29,7 @@ require (
 	github.com/lightninglabs/lightning-node-connect/hashmailrpc v1.0.2
 	github.com/lightninglabs/lndclient v0.19.0-3
 	github.com/lightninglabs/neutrino/cache v1.1.2
-	github.com/lightningnetwork/lnd v0.19.0-beta.rc1.0.20250327183348-eb822a5e117f
+	github.com/lightningnetwork/lnd v0.19.0-beta.rc2.0.20250417120008-a304be6bad91
 	github.com/lightningnetwork/lnd/cert v1.2.2
 	github.com/lightningnetwork/lnd/clock v1.1.1
 	github.com/lightningnetwork/lnd/fn/v2 v2.0.8
@@ -65,7 +65,7 @@ require (
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/btcsuite/btcwallet/wallet/txauthor v1.3.5 // indirect
 	github.com/btcsuite/btcwallet/wallet/txrules v1.2.2 // indirect
-	github.com/btcsuite/btcwallet/walletdb v1.4.4 // indirect
+	github.com/btcsuite/btcwallet/walletdb v1.5.1 // indirect
 	github.com/btcsuite/go-socks v0.0.0-20170105172521-4720035b7bfd // indirect
 	github.com/btcsuite/websocket v0.0.0-20150119174127-31079b680792 // indirect
 	github.com/btcsuite/winsvc v1.0.0 // indirect
@@ -127,9 +127,9 @@ require (
 	github.com/lightninglabs/neutrino v0.16.1 // indirect
 	github.com/lightningnetwork/lightning-onion v1.2.1-0.20240712235311-98bd56499dfb // indirect
 	github.com/lightningnetwork/lnd/healthcheck v1.2.6 // indirect
-	github.com/lightningnetwork/lnd/kvdb v1.4.12 // indirect
+	github.com/lightningnetwork/lnd/kvdb v1.4.15 // indirect
 	github.com/lightningnetwork/lnd/queue v1.1.1 // indirect
-	github.com/lightningnetwork/lnd/sqldb v1.0.7 // indirect
+	github.com/lightningnetwork/lnd/sqldb v1.0.9 // indirect
 	github.com/lightningnetwork/lnd/ticker v1.1.1 // indirect
 	github.com/ltcsuite/ltcd v0.0.0-20190101042124-f37f8bf35796 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
