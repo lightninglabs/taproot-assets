@@ -548,7 +548,7 @@ func newCommitBlobAndLeaves(pendingFunding *pendingAssetFunding,
 
 	// Just like above, we don't have a real HTLC view here, so we'll pass
 	// in a blank view.
-	fakeView := &lnwallet.HtlcView{}
+	var fakeView lnwallet.AuxHtlcView
 
 	// With all the above, we'll generate the first commitment that'll be
 	// stored

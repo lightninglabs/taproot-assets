@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
 )
@@ -109,7 +110,8 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // called first.
 func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
-	htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+	htlcAmt lnwire.MilliSatoshi,
+	_ lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
 	// If the commitment or HTLC blob is not set, we don't have any
 	// information about the channel and cannot determine the available
