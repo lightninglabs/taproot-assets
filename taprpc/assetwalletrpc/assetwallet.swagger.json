@@ -921,6 +921,11 @@
         "anchor_tx_block_hash": {
           "$ref": "#/definitions/taprpcChainHash",
           "description": "The block hash of the blockchain block that contains the anchor\ntransaction. If this value is unset, the anchor transaction is\nunconfirmed."
+        },
+        "anchor_tx_block_height": {
+          "type": "integer",
+          "format": "int64",
+          "description": "The block height of the blockchain block that contains the anchor\ntransaction. If the anchor transaction is still unconfirmed, this value\nwill be 0."
         }
       }
     },

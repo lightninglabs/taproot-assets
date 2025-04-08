@@ -3591,13 +3591,14 @@ func marshalOutboundParcel(
 	})
 
 	return &taprpc.AssetTransfer{
-		TransferTimestamp:  parcel.TransferTime.Unix(),
-		AnchorTxHash:       anchorTxHash[:],
-		AnchorTxHeightHint: parcel.AnchorTxHeightHint,
-		AnchorTxChainFees:  parcel.ChainFees,
-		AnchorTxBlockHash:  anchorTxBlockHash,
-		Inputs:             rpcInputs,
-		Outputs:            rpcOutputs,
+		TransferTimestamp:   parcel.TransferTime.Unix(),
+		AnchorTxHash:        anchorTxHash[:],
+		AnchorTxHeightHint:  parcel.AnchorTxHeightHint,
+		AnchorTxChainFees:   parcel.ChainFees,
+		AnchorTxBlockHash:   anchorTxBlockHash,
+		AnchorTxBlockHeight: parcel.AnchorTxBlockHeight,
+		Inputs:              rpcInputs,
+		Outputs:             rpcOutputs,
 	}, nil
 }
 
