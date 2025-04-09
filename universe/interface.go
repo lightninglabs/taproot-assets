@@ -747,61 +747,6 @@ type DiffEngine interface {
 	Close() error
 }
 
-// Commitment is an on chain universe commitment. This includes the merkle
-// proof for a transaction which anchors the target universe root.
-type Commitment struct {
-	// BlockHeight is the height of the block that the commitment is
-	// contained within.
-	BlockHeight uint32
-
-	// BlockHeader is the block header that commits to the transaction.
-	BlockHeader wire.BlockHeader
-
-	// MerkleProof is a merkle proof for the above transaction that the
-	// anchor output was included.
-	MerkleProof *proof.TxMerkleProof
-
-	// UniverseRoot is the full Universe root for this commitment.
-	UniverseRoot mssmt.Node
-}
-
-// CommittedIssuanceProof couples together a Bitcoin level merkle proof
-// commitment with an issuance proof. This allows remote callers to verify that
-// their responses re actually committed to within the chain.
-type CommittedIssuanceProof struct {
-	// ChainProof is the on chain proof that shows the Universe root has
-	// been stamped in the chain.
-	ChainProof *Commitment
-
-	// TaprootAssetProof is a proof of new asset issuance.
-	TaprootAssetProof *Proof
-}
-
-// ChainCommitter is used to commit a Universe backend in the chain.
-type ChainCommitter interface {
-	// CommitUniverse takes a Universe and returns a new commitment to that
-	// Universe in the main chain.
-	CommitUniverse(universe BaseBackend) (*Commitment, error)
-}
-
-// Canonical is an interface that allows a caller to query for the latest
-// canonical Universe information related to an asset.
-//
-// TODO(roasbeef): sync methods too, divide into read/write?
-type Canonical interface {
-	BaseBackend
-
-	// Query returns a fully proved response for the target base key.
-	Query(context.Context, LeafKey) (*CommittedIssuanceProof, error)
-
-	// LatestCommitment returns the latest chain commitment.
-	LatestCommitment() (*Commitment, error)
-
-	// UpdateChainCommitment takes in a series of chain commitments and
-	// updates the commitment on chain.
-	UpdateChainCommitment(chainCommits ...ChainCommitter) (*Commitment, error)
-}
-
 // FederationLog is used to keep track of the set Universe servers that
 // comprise our current federation. This'll be used by the AutoSyncer to
 // periodically push and sync new proof events against the federation.
@@ -1388,4 +1333,94 @@ type BurnTree interface {
 
 	// ListBurns attempts to list all burn leaves for the given asset.
 	ListBurns(context.Context, asset.Specifier) ListBurnsResp
+}
+
+// ChainCommitment is an on chain universe commitment. This includes the merkle
+// proof for a transaction which anchors the target universe root.
+type ChainCommitment struct {
+	// BlockHeight is the height of the block that the commitment is
+	// contained within.
+	BlockHeight uint32
+
+	// BlockHeader is the block header that commits to the transaction.
+	BlockHeader wire.BlockHeader
+
+	// MerkleProof is a merkle proof for the above transaction that the
+	// anchor output was included.
+	MerkleProof proof.TxMerkleProof
+
+	// CommitTx is the transaction that commits to the target universe root.
+	CommitTx *wire.MsgTx
+
+	// CommitOutputIndex is the index of the output that commits to the
+	// Universe root.
+	CommitOutputIndex uint32
+}
+
+// UniverseLeaf is an interface that allows a caller to query for the leaf node
+// of a given Universe tree.
+type UniverseLeaf interface {
+	UniverseLeafNode() (*mssmt.LeafNode, error)
+}
+
+// CanonicalUnivereProof is a type that represents a proof of a given event that
+// may modify the issuance state of a given asset.
+type CanonicalUnivereProof struct {
+	// LeafKey is the key that the proof is stored at.
+	LeafKey LeafKey
+
+	// Leaf is the actual leaf being stored in the universe. This might be
+	// an issuance proof, a burn, or an ignore proof (for invalid proofs).
+	Leaf UniverseLeaf
+
+	// UniverseRoot is the root of the universe that the asset is located
+	// within.
+	UniverseRoot mssmt.Node
+
+	// UniverseInclusionProof is the universe inclusion proof for the asset
+	// within the universe tree.
+	UniverseInclusionProof *mssmt.Proof
+
+	// AssetGroupRoot is the root of the multiverse tree that the asset is
+	// located within.
+	AssetGroupRoot mssmt.Node
+
+	// AssetGroupInclusionProof is the inclusion proof for the asset within
+	// the multiverse tree.
+	AssetGroupInclusionProof *mssmt.Proof
+}
+
+// CommittedUniverseProof couples together a Bitcoin level merkle proof
+// commitment a with a proof into the canonical universe tree. This allows
+// remote callers to verify that their responses re actually committed to within
+// the chain.
+type CommittedIssuanceProof struct {
+	// ChainProof is the on chain proof that shows the Universe root has
+	// been stamped in the chain.
+	ChainProof ChainCommitment
+
+	// UniverseProof is the proof that shows the asset is contained within
+	// the canonical universe tree.
+	UniverseProof *CanonicalUnivereProof
+}
+
+// ChainCommitter is used to commit a Universe backend in the chain.
+type ChainCommitter interface {
+	// CommitUniverse takes a Universe and returns a new commitment to that
+	// Universe in the main chain.
+	//CommitUniverse(universe BaseBackend) (*Commitment, error)
+}
+
+// Canonical is an interface that allows a caller to query for the latest
+// canonical Universe information related to an asset.
+type Canonical interface {
+	// Query returns a fully proved response for the target base key.
+	//Query(context.Context, LeafKey) (*CommittedIssuanceProof, error)
+
+	// LatestCommitment returns the latest chain commitment.
+	//LatestCommitment() (*Commitment, error)
+
+	// UpdateChainCommitment takes in a series of chain commitments and
+	// updates the commitment on chain.
+	//UpdateChainCommitment(chainCommits ...ChainCommitter) (*Commitment, error)
 }
