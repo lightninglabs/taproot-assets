@@ -180,12 +180,19 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// never be settled. Other HTLCs that may also call into this method are
 	// not yet registered to the commitment, so we need to account for them
 	// manually.
-	computedLocal, _, err := ComputeLocalBalance(
+	computedLocal, decodedView, err := ComputeLocalBalance(
 		commitment, htlcView,
 	)
 	if err != nil {
 		return 0, err
 	}
+
+	log.Tracef("Computed asset HTLC View: commitmentLocal=%v, "+
+		"computedLocal=%v, nextHeight=%v, thisHtlc=%v, newView=%v",
+		cmsg.OutputSum(commitment.LocalOutputs()), computedLocal,
+		htlcView.NextHeight, htlc.Amounts.Val.Sum(), func() string {
+			return prettyPrintLocalView(*decodedView)
+		}())
 
 	// If the HTLC carries asset units (keysend, forwarding), then there's
 	// no need to do any RFQ related math. We can directly compare the asset
@@ -437,4 +444,32 @@ func (s *AuxTrafficShaper) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	}
 
 	return htlcAmountMSat, updatedRecords, nil
+}
+
+// prettyPrintLocalView returns a string that pretty-prints the local update log
+// of an HTLC view.
+func prettyPrintLocalView(view DecodedView) string {
+	var res string
+	res = "\nHtlcView Local Updates:\n"
+	for _, v := range view.OurUpdates {
+		assetAmt := uint64(0)
+		if rfqmsg.HasAssetHTLCCustomRecords(v.CustomRecords) {
+			assetHtlc, err := rfqmsg.HtlcFromCustomRecords(
+				v.CustomRecords,
+			)
+			if err != nil {
+				res = fmt.Sprintf("%s\terror: could not "+
+					"decode htlc custom records\n", res)
+				continue
+			}
+
+			assetAmt = rfqmsg.Sum(assetHtlc.Balances())
+		}
+
+		res = fmt.Sprintf("%s\thtlcIndex=%v: amt=%v, assets=%v, "+
+			"addHeight=%v\n", res, v.HtlcIndex, v.Amount, assetAmt,
+			v.AddHeight(lntypes.Local))
+	}
+
+	return res
 }
