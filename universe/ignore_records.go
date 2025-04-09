@@ -7,6 +7,7 @@ import (
 
 	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcec/v2/schnorr"
+	"github.com/btcsuite/btcd/wire"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -202,6 +203,21 @@ func (i *SignedIgnoreTuple) UniverseLeafNode() (*mssmt.LeafNode, error) {
 // UniverseKey returns the universe tree key for the SignedIgnoreTuple.
 func (i *SignedIgnoreTuple) UniverseKey() [32]byte {
 	return i.IgnoreTuple.Val.Hash()
+}
+
+// LeafScriptKey returns the script key for the SignedIgnoreTuple.
+func (i *SignedIgnoreTuple) LeafScriptKey() asset.ScriptKey {
+	scriptKeyBytes := i.IgnoreTuple.Val.ScriptKey
+
+	keyPub, _ := btcec.ParsePubKey(scriptKeyBytes.SchnorrSerialized())
+	scriptKey := asset.NewScriptKey(keyPub)
+
+	return scriptKey
+}
+
+// LeafOutPoint returns the outpoint for the SignedIgnoreTuple.
+func (i *SignedIgnoreTuple) LeafOutPoint() wire.OutPoint {
+	return i.IgnoreTuple.Val.OutPoint
 }
 
 // DecodeSignedIgnoreTuple deserializes a SignedIgnoreTuple from the given blob.
