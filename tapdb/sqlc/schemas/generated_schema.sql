@@ -1,3 +1,7 @@
+CREATE INDEX addr_asset_genesis_ids ON addrs (genesis_asset_id);
+
+CREATE INDEX addr_creation_time ON addrs (creation_time);
+
 CREATE TABLE addr_events (
     id INTEGER PRIMARY KEY,
 
@@ -34,6 +38,10 @@ CREATE TABLE addr_events (
     
     UNIQUE(addr_id, chain_txn_id, chain_txn_output_index)
 );
+
+CREATE INDEX addr_group_keys ON addrs (group_key);
+
+CREATE INDEX addr_managed_from ON addrs (managed_from);
 
 CREATE TABLE addrs (
     id INTEGER PRIMARY KEY,
@@ -136,6 +144,10 @@ CREATE TABLE asset_groups (
 , version INTEGER NOT NULL DEFAULT 0, custom_subtree_root_id INTEGER
 REFERENCES tapscript_roots(root_id));
 
+CREATE INDEX asset_id_idx ON addr_events(asset_id);
+
+CREATE INDEX asset_ids on genesis_assets(asset_id);
+
 CREATE TABLE asset_minting_batches (
     batch_id INTEGER PRIMARY KEY REFERENCES internal_keys(key_id),
 
@@ -153,6 +165,8 @@ CREATE TABLE asset_minting_batches (
 
     creation_time_unix TIMESTAMP NOT NULL
 , tapscript_sibling BLOB, assets_output_index INTEGER, universe_commitments BOOLEAN NOT NULL DEFAULT FALSE);
+
+CREATE INDEX asset_proof_id_idx ON addr_events(asset_proof_id);
 
 CREATE TABLE asset_proofs (
     proof_id INTEGER PRIMARY KEY,
@@ -238,6 +252,11 @@ CREATE TABLE asset_transfer_outputs (
     proof_courier_addr BLOB
 , lock_time INTEGER, relative_lock_time INTEGER, proof_delivery_complete BOOL, position INTEGER NOT NULL DEFAULT -1);
 
+CREATE UNIQUE INDEX asset_transfer_outputs_transfer_id_position_unique
+ON asset_transfer_outputs (
+    transfer_id, position
+);
+
 CREATE TABLE asset_transfers (
     id INTEGER PRIMARY KEY, 
 
@@ -265,6 +284,11 @@ CREATE TABLE asset_witnesses (
 
     split_commitment_proof BLOB
 , witness_index INTEGER NOT NULL DEFAULT -1);
+
+CREATE UNIQUE INDEX asset_witnesses_asset_id_witness_index_unique
+    ON asset_witnesses (
+                asset_id, witness_index
+        );
 
 CREATE TABLE assets (
     asset_id INTEGER PRIMARY KEY,
@@ -304,6 +328,11 @@ CREATE TABLE assets (
     UNIQUE(asset_id, genesis_id, script_key_id)
 );
 
+CREATE UNIQUE INDEX assets_genesis_id_script_key_id_anchor_utxo_id_unique
+    ON assets (
+               genesis_id, script_key_id, anchor_utxo_id
+        );
+
 CREATE TABLE assets_meta (
     meta_id INTEGER PRIMARY KEY,
 
@@ -316,6 +345,8 @@ CREATE TABLE assets_meta (
 , meta_decimal_display INTEGER, meta_universe_commitments BOOL, meta_canonical_universes BLOB
     CHECK(LENGTH(meta_canonical_universes) <= 4096), meta_delegation_key BLOB
     CHECK(LENGTH(meta_delegation_key) <= 33));
+
+CREATE INDEX batch_state_lookup on asset_minting_batches (batch_state);
 
 CREATE TABLE chain_txns (
     txn_id INTEGER PRIMARY KEY,
@@ -332,6 +363,8 @@ CREATE TABLE chain_txns (
 
     tx_index INTEGER
 );
+
+CREATE INDEX creation_time_idx ON addr_events(creation_time);
 
 CREATE TABLE federation_global_sync_config (
     proof_type TEXT NOT NULL PRIMARY KEY REFERENCES proof_types(proof_type),
@@ -363,6 +396,14 @@ CREATE TABLE federation_proof_sync_log (
 
     -- The ID of the server that the proof will be/was synced to.
     servers_id BIGINT NOT NULL REFERENCES universe_servers(id)
+);
+
+CREATE UNIQUE INDEX federation_proof_sync_log_unique_index_proof_leaf_id_servers_id
+ON federation_proof_sync_log (
+    sync_direction,
+    proof_leaf_id,
+    universe_root_id,
+    servers_id
 );
 
 CREATE TABLE federation_uni_sync_config (
@@ -434,6 +475,14 @@ CREATE TABLE genesis_points (
 
     anchor_tx_id BIGINT REFERENCES chain_txns(txn_id)
 );
+
+CREATE INDEX idx_mssmt_nodes_composite 
+ON mssmt_nodes(namespace, key, hash_key, sum);
+
+CREATE INDEX idx_universe_leaves_asset 
+ON universe_leaves(asset_genesis_id, universe_root_id);
+
+CREATE INDEX idx_universe_roots_composite ON universe_roots(namespace_root, proof_type, asset_id);
 
 CREATE TABLE internal_keys (
     key_id INTEGER PRIMARY KEY,
@@ -526,6 +575,9 @@ CREATE TABLE mint_anchor_uni_commitments (
     group_key BLOB
 );
 
+CREATE UNIQUE INDEX mint_anchor_uni_commitments_unique
+    ON mint_anchor_uni_commitments (batch_id, tx_output_index);
+
 CREATE TABLE mssmt_nodes (
     -- hash_key is the hash key by which we reference all nodes.
     hash_key BLOB NOT NULL,
@@ -556,6 +608,10 @@ CREATE TABLE mssmt_nodes (
     -- between namespaces.
     PRIMARY KEY (hash_key, namespace)
 );
+
+CREATE INDEX mssmt_nodes_l_hash_key_idx ON mssmt_nodes (l_hash_key);
+
+CREATE INDEX mssmt_nodes_r_hash_key_idx ON mssmt_nodes (r_hash_key);
 
 CREATE TABLE mssmt_roots (
     -- namespace allows us to store several root hash pointers for distinct
@@ -588,6 +644,10 @@ CREATE TABLE multiverse_leaves (
         (asset_id IS NOT NULL AND group_key IS NULL) OR
         (asset_id IS NULL AND group_key IS NOT NULL)
     )
+);
+
+CREATE UNIQUE INDEX multiverse_leaves_unique ON multiverse_leaves (
+    leaf_node_key, leaf_node_namespace
 );
 
 CREATE TABLE multiverse_roots (
@@ -623,6 +683,12 @@ CREATE TABLE passive_assets (
     new_proof BLOB
 );
 
+CREATE INDEX passive_assets_idx
+    ON passive_assets (transfer_id);
+
+CREATE INDEX proof_locator_hash_index
+ON proof_transfer_log (proof_locator_hash);
+
 CREATE TABLE proof_transfer_log (
     -- The type of proof transfer attempt. The transfer is either a proof
     -- delivery to the transfer counterparty or receiving a proof from the
@@ -655,6 +721,8 @@ CREATE TABLE script_keys (
     tweak BLOB
 , declared_known BOOLEAN);
 
+CREATE INDEX status_idx ON addr_events(status);
+
 CREATE TABLE tapscript_edges (
         edge_id INTEGER PRIMARY KEY,
 
@@ -667,6 +735,10 @@ CREATE TABLE tapscript_edges (
 
         -- The tapscript node referenced by this edge.
         raw_node_id BIGINT NOT NULL REFERENCES tapscript_nodes(node_id)
+);
+
+CREATE UNIQUE INDEX tapscript_edges_unique ON tapscript_edges (
+        root_hash_id, node_index, raw_node_id
 );
 
 CREATE TABLE tapscript_nodes (
@@ -687,6 +759,18 @@ CREATE TABLE tapscript_roots (
         branch_only BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+CREATE INDEX transfer_inputs_idx
+    ON asset_transfer_inputs (transfer_id);
+
+CREATE INDEX transfer_outputs_idx
+    ON asset_transfer_outputs (transfer_id);
+
+CREATE INDEX transfer_time_idx
+    ON asset_transfers (transfer_time_unix);
+
+CREATE INDEX transfer_txn_idx
+    ON asset_transfers (anchor_txn_id);
+
 CREATE TABLE universe_events (
     event_id INTEGER PRIMARY KEY,
 
@@ -698,6 +782,10 @@ CREATE TABLE universe_events (
 
     event_time TIMESTAMP NOT NULL
 , event_timestamp BIGINT NOT NULL DEFAULT 0);
+
+CREATE INDEX universe_events_event_time_idx ON universe_events(event_time);
+
+CREATE INDEX universe_events_type_idx ON universe_events(event_type);
 
 CREATE TABLE universe_leaves (
     id INTEGER PRIMARY KEY,
@@ -716,6 +804,10 @@ CREATE TABLE universe_leaves (
 
     UNIQUE(minting_point, script_key_bytes)
 );
+
+CREATE INDEX universe_leaves_key_idx ON universe_leaves(leaf_node_key);
+
+CREATE INDEX universe_leaves_namespace ON universe_leaves(leaf_node_namespace);
 
 CREATE TABLE universe_roots (
     id INTEGER PRIMARY KEY,
@@ -737,6 +829,10 @@ CREATE TABLE universe_roots (
     -- universe.
     proof_type TEXT REFERENCES proof_types(proof_type));
 
+CREATE INDEX universe_roots_asset_id_idx ON universe_roots(asset_id);
+
+CREATE INDEX universe_roots_group_key_idx ON universe_roots(group_key);
+
 CREATE TABLE universe_servers (
     id INTEGER PRIMARY KEY,
 
@@ -749,6 +845,8 @@ CREATE TABLE universe_servers (
     -- TODO(roasbeef): can also add stuff like filters re which items to sync,
     -- etc? also sync mode, ones that should get everything pushed, etc
 );
+
+CREATE INDEX universe_servers_host ON universe_servers(server_host);
 
 CREATE VIEW universe_stats AS
 WITH sync_counts AS (

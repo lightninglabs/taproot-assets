@@ -65,10 +65,14 @@ func main() {
 	//
 	// This way, we can consolidate and export the complete database schema
 	// as it stands after all migrations have been applied.
+	//
+	// We filter our where sql is NOT NULL, as for the internal sqlite
+	// creates, the sql column will be NULL.
 	// ---------------------------------------------------------------------
 	rows, err := db.Query(`
 		SELECT type, name, sql FROM sqlite_master 
-		WHERE type IN ('table','view') ORDER BY name`,
+		WHERE type IN ('table','view', 'index') AND sql IS NOT NULL 
+		ORDER BY name`,
 	)
 	if err != nil {
 		log.Fatalf("failed to query schema: %v", err)
