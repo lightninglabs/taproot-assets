@@ -1,0 +1,12 @@
+type: google.api.Service
+config_version: 3
+
+http:
+  rules:
+    - selector: authmailboxrpc.Mailbox.SendMessage
+      post: "/v1/taproot-assets/mailbox/send"
+      body: "*"
+
+    - selector: authmailboxrpc.Mailbox.ReceiveMessages
+      post: "/v1/taproot-assets/mailbox/receive"
+      body: "*"
