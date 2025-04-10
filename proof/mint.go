@@ -307,6 +307,12 @@ func baseProof(params *BaseProofParams, prevOut wire.OutPoint) (*Proof, error) {
 	}
 	proof.ExclusionProofs = params.ExclusionProofs
 
+	// We set the proof version to V1, which is the first version that
+	// supports STXO proofs for root transfer assets.  A root transfer is an
+	// asset that is neither a genesis asset nor contains split commitment
+	// witness data.
+	proof.Version = TransitionV1
+
 	return proof, nil
 }
 
