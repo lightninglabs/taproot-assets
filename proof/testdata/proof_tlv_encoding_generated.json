@@ -2,6 +2,7 @@
   "valid_test_cases": [
     {
       "proof": {
+        "version": 0,
         "prev_out": "8d73ec3f2525632186845c95d4491d1b3a768b7c4e0b6804951aa42655d9b95f:2092150027",
         "block_header": {
           "version": 0,
@@ -149,6 +150,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "cd36e9f7676678e7aa2d92faded7e41173fac825416fed825e117039374b7964:3197016449",
         "block_header": {
           "version": 0,
@@ -262,6 +264,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "098047936c9c64b74e91e98b02c9173a0c2bf9fc6568bb5389421657ffb92d01:3276740653",
         "block_header": {
           "version": 0,
@@ -409,6 +412,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "ba3a5aceec2c8aaaacfc5dc154086425fcd6090ec04ff5f26283efc6c65ca80d:2394154145",
         "block_header": {
           "version": 0,
@@ -522,6 +526,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "3a7d712e166bdfbeaa0fe2f8c1fe0aedf1a6e222f59e3bdcdc02b390baf44754:1840451127",
         "block_header": {
           "version": 0,
@@ -652,6 +657,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "4fbff2770eb58f0d25580a4f5ae17c02d5b55397b4926431624c583b0a7f2080:1409563238",
         "block_header": {
           "version": 0,
@@ -747,6 +753,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "0efd7a84af6747c045d99121ebdd8f44c9ab40aaab031f765a41fc24541c3b6b:2955392992",
         "block_header": {
           "version": 0,
@@ -860,6 +867,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "5c92e2b89ad1bdc176163dea42afc12d154eb95e8cca59939285764813883142:3818717915",
         "block_header": {
           "version": 0,
@@ -973,6 +981,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "a14c5136fd600756ff805584aa5403510d6531e066191291a585e696d511e10f:1312193188",
         "block_header": {
           "version": 0,
@@ -1076,6 +1085,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "dfc122306066091f323f491a95baf7d30e4b85439851da45809354827163240d:2200192249",
         "block_header": {
           "version": 0,
@@ -1197,6 +1207,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "7de34688825d31521f73085cddf29420b53e139a8ecad480ca0d379b5bf1350c:4074289298",
         "block_header": {
           "version": 0,
@@ -1320,6 +1331,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "42bb7a587d976edf598dd3a5962b00cb9f048fe6b5780b2194ba1cceb7074974:2992579926",
         "block_header": {
           "version": 0,
@@ -1477,6 +1489,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "f52bfe55e280959e40fd3182a38aae50dc0977d1d2a8dee9e4b406ea6f9c6427:1573797138",
         "block_header": {
           "version": 0,
@@ -1600,6 +1613,7 @@
     },
     {
       "proof": {
+        "version": 0,
         "prev_out": "4ce6979ab1bc2dce1e8b8992f678e1bd4132c8f4a49a233fe5d74c1c45c2c834:3986124895",
         "block_header": {
           "version": 0,

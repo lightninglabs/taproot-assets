@@ -114,8 +114,8 @@ type ExclusionProofGenerator func(target *proof.BaseProofParams,
 // finalTxPacketOutputs.
 func CreateProofSuffix(chainTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
 	vPacket *tappsbt.VPacket, outputCommitments tappsbt.OutputCommitments,
-	outIndex int, allAnchoredVPackets []*tappsbt.VPacket) (*proof.Proof,
-	error) {
+	outIndex int, allAnchoredVPackets []*tappsbt.VPacket,
+	opts ...proof.GenOption) (*proof.Proof, error) {
 
 	return CreateProofSuffixCustom(
 		chainTx, vPacket, outputCommitments, outIndex,
@@ -133,7 +133,7 @@ func CreateProofSuffix(chainTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
 				target, chainTx, finalTxPacketOutputs,
 				isAnchor,
 			)
-		},
+		}, opts...,
 	)
 }
 
@@ -150,7 +150,8 @@ func CreateProofSuffix(chainTx *wire.MsgTx, finalTxPacketOutputs []psbt.POutput,
 func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 	outputCommitments tappsbt.OutputCommitments, outIndex int,
 	allAnchoredVPackets []*tappsbt.VPacket,
-	genExclusionProofs ExclusionProofGenerator) (*proof.Proof, error) {
+	genExclusionProofs ExclusionProofGenerator,
+	opts ...proof.GenOption) (*proof.Proof, error) {
 
 	inputPrevID := vPacket.Inputs[0].PrevID
 
@@ -195,7 +196,7 @@ func CreateProofSuffixCustom(finalTx *wire.MsgTx, vPacket *tappsbt.VPacket,
 	}
 
 	proofSuffix, err := proof.CreateTransitionProof(
-		inputPrevID.OutPoint, params,
+		inputPrevID.OutPoint, params, opts...,
 	)
 	if err != nil {
 		return nil, err

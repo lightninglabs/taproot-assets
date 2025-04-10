@@ -578,6 +578,7 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 	t.Helper()
 
 	tp := &TestProof{
+		Version:         p.Version,
 		PrevOut:         p.PrevOut.String(),
 		BlockHeader:     NewTestFromBlockHeader(t, &p.BlockHeader),
 		BlockHeight:     p.BlockHeight,
@@ -651,6 +652,7 @@ func NewTestFromProof(t testing.TB, p *Proof) *TestProof {
 }
 
 type TestProof struct {
+	Version          TransitionVersion         `json:"version"`
 	PrevOut          string                    `json:"prev_out"`
 	BlockHeader      *TestBlockHeader          `json:"block_header"`
 	BlockHeight      uint32                    `json:"block_height"`
@@ -673,6 +675,7 @@ func (tp *TestProof) ToProof(t testing.TB) *Proof {
 	t.Helper()
 
 	p := &Proof{
+		Version:         tp.Version,
 		PrevOut:         test.ParseOutPoint(t, tp.PrevOut),
 		BlockHeader:     *tp.BlockHeader.ToBlockHeader(t),
 		BlockHeight:     tp.BlockHeight,
