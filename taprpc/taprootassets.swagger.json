@@ -2233,7 +2233,8 @@
           "format": "int64",
           "description": "The index of the output on the transaction."
         }
-      }
+      },
+      "description": "Represents a Bitcoin transaction outpoint."
     },
     "taprpcOutputType": {
       "type": "string",
