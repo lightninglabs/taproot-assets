@@ -170,7 +170,8 @@ func verifyTaprootProof(anchor *wire.MsgTx, proof *TaprootProof,
 // verifyInclusionProof verifies the InclusionProof is valid.
 func (p *Proof) verifyInclusionProof() (*commitment.TapCommitment, error) {
 	// Determine if we're dealing with v0 or v1 proofs.
-	hasV1Proofs := p.InclusionProof.CommitmentProof != nil &&
+	hasV1Proofs := p.IsVersionV1() &&
+		p.InclusionProof.CommitmentProof != nil &&
 		len(p.InclusionProof.CommitmentProof.STXOProofs) > 0
 
 	if !hasV1Proofs {
@@ -251,7 +252,8 @@ func (p *Proof) verifyExclusionProofs() (*commitment.TapCommitmentVersion,
 	}
 
 	// Early pass to determine if we're dealing with v0 or v1 proofs.
-	hasV1Proofs := len(p.ExclusionProofs) > 0 &&
+	hasV1Proofs := p.IsVersionV1() &&
+		len(p.ExclusionProofs) > 0 &&
 		p.ExclusionProofs[0].CommitmentProof != nil &&
 		len(p.ExclusionProofs[0].CommitmentProof.STXOProofs) > 0
 
