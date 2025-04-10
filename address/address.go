@@ -84,6 +84,10 @@ const (
 	// V1 addresses use V2 Taproot Asset commitments.
 	V1 Version = 1
 
+	// V2 addresses support sending grouped assets and require the new
+	// auth mailbox proof courier address format.
+	V2 Version = 2
+
 	// LatestVersion is the latest supported Taproot Asset address version.
 	latestVersion = V1
 )
@@ -101,7 +105,8 @@ type Tap struct {
 	// AssetVersion is the Taproot Asset version of the asset.
 	AssetVersion asset.Version
 
-	// AssetID is the asset ID of the asset.
+	// AssetID is the asset ID of the asset. This will be all zeroes for
+	// V2 addresses that have a group key set.
 	AssetID asset.ID
 
 	// GroupKey is the tweaked public key that is used to associate assets
@@ -110,7 +115,12 @@ type Tap struct {
 	GroupKey *btcec.PublicKey
 
 	// ScriptKey represents a tweaked Taproot output key encumbering the
-	// different ways an asset can be spent.
+	// different ways an asset can be spent. For V2 addresses, this key is
+	// not the tweaked Taproot output key but instead the bare/raw/internal
+	// script key. The sender will use this key to encrypt the send fragment
+	// that they post to the proof courier's mailbox. The raw script key
+	// will also be used by the sender to derive different Taproot output
+	// script keys for each asset ID.
 	ScriptKey btcec.PublicKey
 
 	// InternalKey is the BIP-0340/0341 public key of the receiver.
@@ -122,6 +132,9 @@ type Tap struct {
 	TapscriptSibling *commitment.TapscriptPreimage
 
 	// Amount is the number of asset units being requested by the receiver.
+	// The amount is allowed to be zero for V2 addresses, where the sender
+	// will post a fragment containing the asset IDs and amounts to the
+	// proof courier's mailbox.
 	Amount uint64
 
 	// assetGen is the receiving asset's genesis metadata which directly
@@ -129,7 +142,9 @@ type Tap struct {
 	assetGen asset.Genesis
 
 	// ProofCourierAddr is the address of the proof courier that will be
-	// used to distribute related proofs for this address.
+	// used to distribute related proofs for this address. For V2 addresses
+	// the proof courier address is mandatory and must be a valid auth
+	// mailbox address.
 	ProofCourierAddr url.URL
 
 	// UnknownOddTypes is a map of unknown odd types that were encountered
@@ -259,7 +274,7 @@ func CommitmentVersion(vers Version) (*commitment.TapCommitmentVersion,
 	// can't know without accessing all leaves of the commitment itself.
 	case V0:
 		return nil, nil
-	case V1:
+	case V1, V2:
 		return fn.Ptr(commitment.TapCommitmentV2), nil
 	default:
 		return nil, ErrUnknownVersion
@@ -473,7 +488,7 @@ func (a *Tap) String() string {
 // this implementation of tap.
 func IsUnknownVersion(v Version) bool {
 	switch v {
-	case V0, V1:
+	case V0, V1, V2:
 		return false
 	default:
 		return true

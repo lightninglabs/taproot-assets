@@ -176,8 +176,8 @@
           "type": "integer",
           "format": "int64"
         },
-        "max_messages": {
-          "type": "integer",
+        "start_timestamp_exclusive": {
+          "type": "string",
           "format": "int64"
         }
       },
@@ -203,12 +203,12 @@
         },
         "arrival_timestamp": {
           "type": "string",
-          "format": "uint64",
+          "format": "int64",
           "description": "Timestamp (Unix epoch seconds) when the message arrived at the server."
         },
         "expiry_block_height": {
-          "type": "string",
-          "format": "uint64",
+          "type": "integer",
+          "format": "int64",
           "description": "Block height after which this message may be considered expired by the\nsystem."
         }
       },

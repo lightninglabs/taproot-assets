@@ -39,6 +39,8 @@ const (
 	// UniverseRpcCourierType is a courier that uses the daemon universe RPC
 	// endpoints to deliver proofs.
 	UniverseRpcCourierType = "universerpc"
+
+	MailboxUniRpcCourierType = "authmailbox+universerpc"
 )
 
 // CourierHarness interface is an integration testing harness for a proof

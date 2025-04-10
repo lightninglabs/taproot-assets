@@ -3,12 +3,27 @@ package proof
 import (
 	"errors"
 	"io"
+	"sync"
 
 	"github.com/btcsuite/btcd/blockchain"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
 	"github.com/lightningnetwork/lnd/tlv"
+)
+
+var (
+	// ErrTxMerkleProofExists is an error returned when a transaction
+	// merkle proof already exists in the store.
+	ErrTxMerkleProofExists = errors.New("tx merkle proof already exists")
+
+	// ErrHashMismatch is returned when the hash of the outpoint does not
+	// match the hash of the transaction.
+	ErrHashMismatch = errors.New("outpoint hash does not match tx hash")
+
+	// ErrOutputIndexInvalid is returned when the output index of the
+	// outpoint is invalid for the transaction.
+	ErrOutputIndexInvalid = errors.New("output index is invalid for tx")
 )
 
 // TxMerkleProof represents a simplified version of BIP-0037 transaction merkle
@@ -165,5 +180,79 @@ func (p *TxMerkleProof) Decode(r io.Reader) error {
 	bits := unpackBits(packedBits)
 	p.Bits = bits[:len(p.Nodes)]
 
+	return nil
+}
+
+type TxProof struct {
+	MsgTx           wire.MsgTx
+	BlockHeader     wire.BlockHeader
+	BlockHeight     uint32
+	MerkleProof     TxMerkleProof
+	ClaimedOutPoint wire.OutPoint
+}
+
+// Verify validates the Bitcoin Merkle Inclusion Proof.
+func (p *TxProof) Verify(headerVerifier HeaderVerifier,
+	merkleVerifier MerkleVerifier) error {
+
+	txHash := p.MsgTx.TxHash()
+
+	if p.ClaimedOutPoint.Hash != txHash {
+		return ErrHashMismatch
+	}
+
+	if p.ClaimedOutPoint.Index >= uint32(len(p.MsgTx.TxOut)) {
+		return ErrOutputIndexInvalid
+	}
+
+	err := merkleVerifier(
+		&p.MsgTx, &p.MerkleProof, p.BlockHeader.MerkleRoot,
+	)
+	if err != nil {
+		return err
+	}
+
+	err = headerVerifier(p.BlockHeader, p.BlockHeight)
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+type TxProofStore interface {
+	HaveProof(wire.OutPoint) (bool, error)
+
+	StoreProof(wire.OutPoint) error
+}
+
+type inMemoryTxProofStore struct {
+	proofs map[wire.OutPoint]struct{}
+	mu     sync.RWMutex
+}
+
+func NewInMemoryTxProofStore() *inMemoryTxProofStore {
+	return &inMemoryTxProofStore{
+		proofs: make(map[wire.OutPoint]struct{}),
+	}
+}
+
+func (s *inMemoryTxProofStore) HaveProof(outpoint wire.OutPoint) (bool, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	_, exists := s.proofs[outpoint]
+	return exists, nil
+}
+
+func (s *inMemoryTxProofStore) StoreProof(outpoint wire.OutPoint) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if _, exists := s.proofs[outpoint]; exists {
+		return ErrTxMerkleProofExists
+	}
+
+	s.proofs[outpoint] = struct{}{}
 	return nil
 }

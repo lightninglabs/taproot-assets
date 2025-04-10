@@ -881,19 +881,27 @@ enum AddrVersion {
     // ADDR_VERSION_V1 is the address version that uses V2 Taproot Asset
     // commitments.
     ADDR_VERSION_V1 = 2;
+
+    // ADDR_VERSION_V2 is the address version that supports sending grouped
+    // assets and require the new auth mailbox proof courier address format.
+    ADDR_VERSION_V2 = 3;
 }
 
 message Addr {
     // The bech32 encoded Taproot Asset address.
     string encoded = 1;
 
-    // The asset ID that uniquely identifies the asset.
+    // The asset ID that uniquely identifies the asset. This can be all zeroes
+    // for V2 addresses that have a group key set.
     bytes asset_id = 2;
 
     // The type of the asset.
     AssetType asset_type = 3;
 
-    // The total amount of the asset stored in this Taproot Asset UTXO.
+    // The total amount of the asset stored in this Taproot Asset UTXO. The
+    // amount is allowed to be unset for V2 addresses, where the sender will
+    // post a fragment containing the asset IDs and amounts to the proof
+    // courier's auth mailbox.
     uint64 amount = 4;
 
     // The group key of the asset (if it exists)
@@ -923,7 +931,9 @@ message Addr {
     */
     bytes taproot_output_key = 9;
 
-    // The address of the proof courier service used in proof transfer.
+    // The address of the proof courier service used in proof transfer. For V2
+    // addresses the proof courier address is mandatory and must be a valid auth
+    // mailbox address (authmailbox+universerpc://host:port).
     string proof_courier_addr = 10;
 
     // The asset version of the address.

@@ -101,11 +101,11 @@ message MailboxMessage {
     bytes sender_ephemeral_pubkey = 3;
 
     // Timestamp (Unix epoch seconds) when the message arrived at the server.
-    uint64 arrival_timestamp = 4;
+    int64 arrival_timestamp = 4;
 
     // Block height after which this message may be considered expired by the
     // system.
-    uint64 expiry_block_height = 5;
+    uint32 expiry_block_height = 5;
 }
 
 // Request message for the SendMessage RPC.
@@ -161,7 +161,7 @@ message InitReceive {
     bytes receiver_id = 1;
     uint64 start_message_id_exclusive = 2;
     uint32 start_block_height_inclusive = 3;
-    uint32 max_messages = 4;
+    int64 start_timestamp_exclusive = 4;
 }
 
 // Carries the client's signature in response to the server's challenge.
