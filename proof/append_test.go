@@ -71,7 +71,7 @@ func TestAppendTransition(t *testing.T) {
 			withBip86Change: true,
 		},
 		{
-			name:      "normal with change",
+			name:      "normal with change (with split)",
 			assetType: asset.Normal,
 			amt:       100,
 			withSplit: true,
@@ -135,6 +135,16 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 
 	// Add some alt leaves to the commitment anchoring the asset transfer.
 	altLeaves := asset.ToAltLeaves(asset.RandAltLeaves(t, true))
+
+	// Commit to the stxo of the previous asset. Otherwise, the inclusion
+	// proofs will fail.
+	prevIdKey := asset.DeriveBurnKey(*newAsset.PrevWitnesses[0].PrevID)
+	scriptKey := asset.NewScriptKey(prevIdKey)
+	stxoAsset, err := asset.NewAltLeaf(scriptKey, asset.ScriptV0)
+	require.NoError(t, err)
+
+	stxoLeaf := asset.ToAltLeaves([]*asset.Asset{stxoAsset})
+	altLeaves = append(altLeaves, stxoLeaf...)
 	err = tapCommitment.MergeAltLeaves(altLeaves)
 	require.NoError(t, err)
 
@@ -293,8 +303,19 @@ func runAppendTransitionTest(t *testing.T, assetType asset.Type, amt uint64,
 		nil, split1Commitment,
 	)
 	require.NoError(t, err)
+
+	// Commit to the stxo of the previous asset. Otherwise, the inclusion
+	// proofs will fail. With splits this is only needed for the root asset.
+	prevIdKey1 := asset.DeriveBurnKey(*split1Asset.PrevWitnesses[0].PrevID)
+	scriptKey1 := asset.NewScriptKey(prevIdKey1)
+	stxoAsset1, err := asset.NewAltLeaf(scriptKey1, asset.ScriptV0)
+	require.NoError(t, err)
+
+	stxoLeaf1 := asset.ToAltLeaves([]*asset.Asset{stxoAsset1})
+	split1AltLeaves = append(split1AltLeaves, stxoLeaf1...)
 	err = tap1Commitment.MergeAltLeaves(split1AltLeaves)
 	require.NoError(t, err)
+
 	tap2Commitment, err := commitment.NewTapCommitment(
 		nil, split2Commitment,
 	)

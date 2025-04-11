@@ -222,27 +222,40 @@ func addOutputCommitment(t *testing.T, anchorTx *AnchorTransaction,
 		}
 	}
 
-	for idx, assets := range assetsByOutput {
-		for idx := range assets {
-			if !assets[idx].HasSplitCommitmentWitness() {
+	stxoAssetsByOutput := make(map[uint32][]asset.AltLeaf[asset.Asset])
+	for idx1, assets := range assetsByOutput {
+		for idx2 := range assets {
+			if assets[idx2].IsTransferRoot() {
+				stxoAssets, err := asset.CollectSTXO(
+					assets[idx2],
+				)
+				stxoAssetsByOutput[idx1] = append(
+					stxoAssetsByOutput[idx1], stxoAssets...,
+				)
+				require.NoError(t, err)
+			}
+
+			if !assets[idx2].HasSplitCommitmentWitness() {
 				continue
 			}
-			assets[idx] = assets[idx].Copy()
-			assets[idx].PrevWitnesses[0].SplitCommitment = nil
+
+			assets[idx2] = assets[idx2].Copy()
+			assets[idx2].PrevWitnesses[0].SplitCommitment = nil
 		}
 
 		c, err := commitment.FromAssets(nil, assets...)
 		require.NoError(t, err)
+		err = c.MergeAltLeaves(stxoAssetsByOutput[idx1])
+		require.NoError(t, err)
 
-		internalKey := keyByOutput[idx]
+		internalKey := keyByOutput[idx1]
 		script, err := tapscript.PayToAddrScript(*internalKey, nil, *c)
 		require.NoError(t, err)
 
-		packet.UnsignedTx.TxOut[idx].PkScript = script
-		packet.Outputs[idx].TaprootInternalKey = schnorr.SerializePubKey(
-			internalKey,
-		)
-		outputCommitments[idx] = c
+		packet.UnsignedTx.TxOut[idx1].PkScript = script
+		packet.Outputs[idx1].TaprootInternalKey =
+			schnorr.SerializePubKey(internalKey)
+		outputCommitments[idx1] = c
 	}
 }
 

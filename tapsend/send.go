@@ -27,7 +27,6 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
 	"github.com/lightninglabs/taproot-assets/tapscript"
-	lfn "github.com/lightningnetwork/lnd/fn/v2"
 	"github.com/lightningnetwork/lnd/input"
 	"github.com/lightningnetwork/lnd/lnwallet/btcwallet"
 	"golang.org/x/exp/maps"
@@ -934,11 +933,6 @@ func addKeyTweaks(unknowns []*psbt.Unknown, desc *lndclient.SignDescriptor) {
 func CreateOutputCommitments(
 	packets []*tappsbt.VPacket) (tappsbt.OutputCommitments, error) {
 
-	// Inputs must be unique.
-	if err := AssertInputsUnique(packets); err != nil {
-		return nil, err
-	}
-
 	// We require all outputs that reference the same anchor output to be
 	// identical, otherwise some assumptions in the code below don't hold.
 	if err := AssertInputAnchorsEqual(packets); err != nil {
@@ -1013,6 +1007,18 @@ func commitPacket(vPkt *tappsbt.VPacket,
 		if err != nil {
 			return fmt.Errorf("error committing assets: %w", err)
 		}
+
+		// Collect the spent assets for this output.
+		stxoAssets, err := asset.CollectSTXO(vOut.Asset)
+		if err != nil {
+			return fmt.Errorf("error collecting STXO assets: %w",
+				err)
+		}
+
+		// If we have STXOs, we will encumber vOut.AltLeaves with
+		// them.They will be merged into the commitment later with
+		// MergeAltLeaves.
+		vOut.AltLeaves = append(vOut.AltLeaves, stxoAssets...)
 
 		// Because the receiver of this output might be receiving
 		// through an address (non-interactive), we need to blank out
@@ -1457,26 +1463,6 @@ func AssertInputAnchorsEqual(packets []*tappsbt.VPacket) error {
 					"anchor outpoint",
 					ErrInvalidAnchorInputInfo, op)
 			}
-		}
-	}
-
-	return nil
-}
-
-// AssertInputsUnique makes sure that every input across all virtual packets is
-// referencing a unique input asset, which is identified by the input PrevID.
-func AssertInputsUnique(packets []*tappsbt.VPacket) error {
-	// PrevIDs are comparable enough to serve as a map key without hashing.
-	inputs := make(lfn.Set[asset.PrevID])
-
-	for _, vPkt := range packets {
-		for _, vIn := range vPkt.Inputs {
-			if inputs.Contains(vIn.PrevID) {
-				return fmt.Errorf("input %v is duplicated",
-					vIn.PrevID)
-			}
-
-			inputs.Add(vIn.PrevID)
 		}
 	}
 
@@ -2011,6 +1997,19 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 			inputSiblings[outpoint] = sibling
 			inputScripts[outpoint] = anchorIn.WitnessUtxo.PkScript
 			inputAnchors[outpoint] = vIn.Anchor
+
+			// AltLeaves are the same for all assets from the same
+			// outpoint. So we only need to store them once for each
+			// outpoint.
+			if vIn.Proof == nil {
+				continue
+			}
+
+			if _, ok := inputAltLeaves[outpoint]; !ok {
+				inputAltLeaves[outpoint] = asset.CopyAltLeaves(
+					vIn.Proof.AltLeaves,
+				)
+			}
 		}
 	}
 

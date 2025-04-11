@@ -551,10 +551,12 @@ func AssertProofAltLeaves(t *testing.T, tapClient taprpc.TaprootAssetsClient,
 	// not. E.x. a passive asset created inside the freighter will not be
 	// anchored with any alt leaves.
 	altLeavesBytes := decodeResp.DecodedProof.AltLeaves
-	expectedAltLeaves, ok := leafMap[string(scriptKey)]
-	emptyAltLeaves := len(altLeavesBytes) == 0
+	expectedAltLeaves := leafMap[string(scriptKey)]
+	emptyAltLeaves := len(expectedAltLeaves) == 0
 
-	require.Equal(t, ok, !emptyAltLeaves)
+	// If we expect no alt leaves, there might be alt leaves in the proof,
+	// but that is from an asset that wasn't transferred just now. We don't
+	// need to check those alt leaves.
 	if emptyAltLeaves {
 		return
 	}

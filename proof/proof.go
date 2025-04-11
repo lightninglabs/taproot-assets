@@ -228,6 +228,10 @@ type TransitionVersion uint32
 const (
 	// TransitionV0 is the first version of the state transition proof.
 	TransitionV0 TransitionVersion = 0
+
+	// TransitionV1 is the second version of the state transition proof.
+	// This version added STXO inclusion and exclusion proofs.
+	TransitionV1 TransitionVersion = 1
 )
 
 // Proof encodes all of the data necessary to prove a valid state transition for
@@ -485,9 +489,16 @@ func (p *Proof) IsUnknownVersion() bool {
 	switch p.Version {
 	case TransitionV0:
 		return false
+	case TransitionV1:
+		return false
 	default:
 		return true
 	}
+}
+
+// IsVersionV1 returns true if the proof is of version V1.
+func (p *Proof) IsVersionV1() bool {
+	return p.Version == TransitionV1
 }
 
 // ToChainAsset converts the proof to a ChainAsset.

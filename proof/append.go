@@ -160,6 +160,49 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 		TapSiblingPreimage: params.TapscriptSibling,
 	}
 
+	if proof.Asset.IsTransferRoot() {
+		stxoInclusionProofs := make(
+			map[asset.SerializedKey]commitment.Proof,
+			len(proof.Asset.PrevWitnesses),
+		)
+		for _, wit := range proof.Asset.PrevWitnesses {
+			if wit.PrevID == nil {
+				return nil, fmt.Errorf("witness %v has no "+
+					"prevID", wit)
+			}
+
+			prevIdKey := asset.DeriveBurnKey(*wit.PrevID)
+			scriptKey := asset.NewScriptKey(prevIdKey)
+			spentAsset, err := asset.NewAltLeaf(
+				scriptKey, asset.ScriptV0,
+			)
+			if err != nil {
+				return nil, fmt.Errorf("error creating "+
+					"altLeaf: %w", err)
+			}
+
+			// Generate an STXO inclusion proof for each prev
+			// witness.
+			_, stxoProof, err := params.TaprootAssetRoot.Proof(
+				asset.EmptyGenesisID,
+				spentAsset.AssetCommitmentKey(),
+			)
+			if err != nil {
+				return nil, err
+			}
+
+			keySerialized := asset.ToSerialized(scriptKey.PubKey)
+			stxoInclusionProofs[keySerialized] = *stxoProof
+		}
+
+		if len(stxoInclusionProofs) == 0 {
+			return nil, fmt.Errorf("no stxo inclusion proofs")
+		}
+
+		proof.InclusionProof.CommitmentProof.STXOProofs =
+			stxoInclusionProofs
+	}
+
 	// If the asset is a split asset, we also need to generate MS-SMT
 	// inclusion proofs that prove the existence of the split root asset.
 	if proof.Asset.HasSplitCommitmentWitness() {
@@ -191,6 +234,7 @@ func CreateTransitionProof(prevOut wire.OutPoint,
 			return nil, fmt.Errorf("root asset mismatch")
 		}
 
+		// TODO(jhb): add STXO inclusion proof for root prevIDs
 		proof.SplitRootProof = &TaprootProof{
 			OutputIndex: params.RootOutputIndex,
 			InternalKey: params.RootInternalKey,

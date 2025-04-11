@@ -265,6 +265,19 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 			allVirtualOutputs, rootOut.Asset, rootParams,
 			outputCommitments,
 		)
+
+		// Add STXO exclusion proofs for all the other outputs, for all
+		// STXOs spent by _all_ VOutputs that anchor in this output.
+		// First Collect all STXOs for this anchor output. Then add
+		// exclusion proofs for all the other anchor outputs. Add these
+		// in proofParams in tapsend/proof.go Those proofParams end up
+		// in `CreateTransitionProof` in tapsend/append.go, where we
+		// create the basic proof template. There we drop the STXO
+		// exclusion proofs in proof.UnknownOddTypes.
+		err := addSTXOExclusionProofs(
+			allVirtualOutputs, rootOut.Asset, rootParams,
+			outputCommitments,
+		)
 		if err != nil {
 			return nil, err
 		}
@@ -326,9 +339,101 @@ func proofParams(finalTx *wire.MsgTx, vPkt *tappsbt.VPacket,
 	return splitParams, nil
 }
 
+// addSTXOExclusionProofs adds exclusion proofs for all the STXOs of the asset,
+// for all the outputs that are asset outputs but haven't been processed yet,
+// otherwise they'll be skipped. This should only be called after
+// `addOtherOutputExclusionProofs` because it depends on
+// `params.ExclusionProofs` already being set.
+func addSTXOExclusionProofs(outputs []*tappsbt.VOutput,
+	newAsset *asset.Asset, params *proof.TransitionParams,
+	outputCommitments map[uint32]*commitment.TapCommitment) error {
+
+	stxoAssets, err := asset.CollectSTXO(newAsset)
+	if err != nil {
+		return fmt.Errorf("error collecting STXO assets: %w", err)
+	}
+
+	for idx := range outputs {
+		vOut := outputs[idx]
+
+		outIndex := vOut.AnchorOutputIndex
+
+		// We can use `HaveInclusionProof` here because it is just a
+		// check on whether we are processing our own anchor output.
+		haveIProof := params.HaveInclusionProof(outIndex)
+		haveEProof := params.HaveSTXOExclusionProof(outIndex)
+		if haveIProof || haveEProof {
+			continue
+		}
+
+		tapTree := outputCommitments[outIndex]
+
+		for idx := range stxoAssets {
+			stxoAsset := stxoAssets[idx].(*asset.Asset)
+			pubKey := stxoAsset.ScriptKey.PubKey
+			identifier := asset.ToSerialized(pubKey)
+
+			_, exclusionProof, err := tapTree.Proof(
+				stxoAsset.TapCommitmentKey(),
+				stxoAsset.AssetCommitmentKey(),
+			)
+			if err != nil {
+				return err
+			}
+
+			// Find the exclusion proofs for this output.
+			var eProof *proof.TaprootProof
+			for idx := range params.ExclusionProofs {
+				e := params.ExclusionProofs[idx]
+				if e.OutputIndex == outIndex {
+					eProof = &params.ExclusionProofs[idx]
+					break
+				}
+			}
+			if eProof == nil {
+				return fmt.Errorf("no exclusion proof for "+
+					"output %d", outIndex)
+			}
+
+			// There aren't any assets in that output, we can skip
+			// creating exclusion proofs for it.
+			if eProof.CommitmentProof == nil {
+				continue
+			}
+
+			commitmentProof := eProof.CommitmentProof
+
+			// Confirm that we are creating the stxo proofs for the
+			// asset that is being created. We do this by confirming
+			// that the exclusion proof for the newly created asset
+			// is already present.
+			_, err = eProof.DeriveByAssetExclusion(
+				newAsset.AssetCommitmentKey(),
+				newAsset.TapCommitmentKey(),
+			)
+			if err != nil {
+				return fmt.Errorf("v1 proof for newly created "+
+					"asset not found during creation of "+
+					"stxo proofs: %w", err)
+			}
+
+			//nolint:lll
+			if commitmentProof.STXOProofs == nil {
+				commitmentProof.STXOProofs = make(
+					map[asset.SerializedKey]commitment.Proof,
+				)
+			}
+
+			commitmentProof.STXOProofs[identifier] = *exclusionProof
+		}
+	}
+
+	return nil
+}
+
 // addOtherOutputExclusionProofs adds exclusion proofs for all the outputs that
-// are asset outputs but haven't been processed yet (the skip function needs to
-// return false for not yet processed outputs, otherwise they'll be skipped).
+// are asset outputs but haven't been processed yet, otherwise they'll be
+// skipped.
 func addOtherOutputExclusionProofs(outputs []*tappsbt.VOutput,
 	asset *asset.Asset, params *proof.TransitionParams,
 	outputCommitments map[uint32]*commitment.TapCommitment) error {

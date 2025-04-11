@@ -209,6 +209,7 @@
               "unknown_odd_types": null
             },
             "proof": {
+              "version": 0,
               "prev_out": "676678e7aa2d92faded7e41173fac825416fed825e117039374b7964976f269a:3197016449",
               "block_header": {
                 "version": 1,
@@ -284,6 +285,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -309,6 +311,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -358,6 +361,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -521,6 +525,7 @@
             "tr_merkle_root": "",
             "proof_delivery_address": "https://example.com",
             "proof_suffix": {
+              "version": 0,
               "prev_out": "676678e7aa2d92faded7e41173fac825416fed825e117039374b7964976f269a:3197016449",
               "block_header": {
                 "version": 1,
@@ -596,6 +601,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -621,6 +627,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -670,6 +677,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -984,6 +992,7 @@
               "unknown_odd_types": null
             },
             "proof": {
+              "version": 0,
               "prev_out": "0a7f201283b654043a6680d58fe8ba8f22c93fb09f6c47ac3f0d6fb73c32eded:2773153607",
               "block_header": {
                 "version": 1,
@@ -1059,6 +1068,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1084,6 +1094,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -1133,6 +1144,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1296,6 +1308,7 @@
             "tr_merkle_root": "",
             "proof_delivery_address": "https://example.com",
             "proof_suffix": {
+              "version": 0,
               "prev_out": "0a7f201283b654043a6680d58fe8ba8f22c93fb09f6c47ac3f0d6fb73c32eded:2773153607",
               "block_header": {
                 "version": 1,
@@ -1371,6 +1384,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "00c00101",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
@@ -1396,6 +1410,7 @@
                       "unknown_odd_types": null
                     },
                     "tapscript_sibling": "00c00101",
+                    "stxo_proofs": {},
                     "unknown_odd_types": null
                   },
                   "tapscript_proof": null,
@@ -1445,6 +1460,7 @@
                     "unknown_odd_types": null
                   },
                   "tapscript_sibling": "",
+                  "stxo_proofs": {},
                   "unknown_odd_types": null
                 },
                 "tapscript_proof": null,
