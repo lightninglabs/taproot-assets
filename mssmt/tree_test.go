@@ -822,6 +822,103 @@ func TestBIPTestVectors(t *testing.T) {
 	}
 }
 
+// TestTreeCopy tests the Copy method for both FullTree and CompactedTree,
+// including copying between different tree types.
+func TestTreeCopy(t *testing.T) {
+	t.Parallel()
+
+	leaves := randTree(50) // Use a smaller number for faster testing
+
+	// Prepare source trees (Full and Compacted)
+	ctx := context.Background()
+	sourceFullStore := mssmt.NewDefaultStore()
+	sourceFullTree := mssmt.NewFullTree(sourceFullStore)
+	sourceCompactedStore := mssmt.NewDefaultStore()
+	sourceCompactedTree := mssmt.NewCompactedTree(sourceCompactedStore)
+
+	for _, item := range leaves {
+		_, err := sourceFullTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+		_, err = sourceCompactedTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+
+	sourceFullRoot, err := sourceFullTree.Root(ctx)
+	require.NoError(t, err)
+	sourceCompactedRoot, err := sourceCompactedTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(sourceFullRoot, sourceCompactedRoot))
+
+	// Define test cases
+	testCases := []struct {
+		name       string
+		sourceTree mssmt.Tree
+		makeTarget func() mssmt.Tree
+	}{
+		{
+			name:       "Full -> Full",
+			sourceTree: sourceFullTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewFullTree(mssmt.NewDefaultStore())
+			},
+		},
+		{
+			name:       "Full -> Compacted",
+			sourceTree: sourceFullTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+			},
+		},
+		{
+			name:       "Compacted -> Full",
+			sourceTree: sourceCompactedTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewFullTree(mssmt.NewDefaultStore())
+			},
+		},
+		{
+			name:       "Compacted -> Compacted",
+			sourceTree: sourceCompactedTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewCompactedTree(mssmt.NewDefaultStore())
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			targetTree := tc.makeTarget()
+
+			// Perform the copy
+			err := tc.sourceTree.Copy(ctx, targetTree)
+			require.NoError(t, err)
+
+			// Verify the target tree root
+			targetRoot, err := targetTree.Root(ctx)
+			require.NoError(t, err)
+			require.True(t, mssmt.IsEqualNode(sourceFullRoot, targetRoot),
+				"Root mismatch after copy")
+
+			// Verify individual leaves in the target tree
+			for _, item := range leaves {
+				targetLeaf, err := targetTree.Get(ctx, item.key)
+				require.NoError(t, err)
+				require.Equal(t, item.leaf, targetLeaf,
+					"Leaf mismatch for key %x", item.key)
+			}
+
+			// Verify a non-existent key is still empty
+			emptyLeaf, err := targetTree.Get(ctx, test.RandHash())
+			require.NoError(t, err)
+			require.True(t, emptyLeaf.IsEmpty(), "Non-existent key found")
+		})
+	}
+}
+
+
 // runBIPTestVector runs the tests in a single BIP test vector file.
 func runBIPTestVector(t *testing.T, testVectors *mssmt.TestVectors) {
 	for _, validCase := range testVectors.ValidTestCases {
