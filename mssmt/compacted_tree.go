@@ -510,15 +510,73 @@ func (t *CompactedTree) Copy(ctx context.Context, targetTree Tree) error {
 		return err
 	}
 
-	// Insert all found leaves into the target tree.
-	for key, leaf := range leaves {
-		// Use the target tree's Insert method.
-		_, err := targetTree.Insert(ctx, key, leaf)
-		if err != nil {
-			return fmt.Errorf("error inserting leaf with key %x "+
-				"into target tree: %w", key, err)
-		}
+	// Insert all found leaves into the target tree using InsertMany for
+	// efficiency.
+	_, err = targetTree.InsertMany(ctx, leaves)
+	if err != nil {
+		return fmt.Errorf("error inserting leaves into "+
+			"target tree: %w", err)
 	}
 
 	return nil
+}
+
+// InsertMany inserts multiple leaf nodes provided in the leaves map within a
+// single database transaction.
+func (t *CompactedTree) InsertMany(ctx context.Context,
+	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
+
+	if len(leaves) == 0 {
+		return t, nil
+	}
+
+	dbErr := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+		rootBranch := currentRoot.(*BranchNode)
+
+		for key, leaf := range leaves {
+			// Check for potential sum overflow before each
+			// insertion.
+			sumRoot := rootBranch.NodeSum()
+			sumLeaf := leaf.NodeSum()
+			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+			if err != nil {
+				return fmt.Errorf("compact tree leaf insert "+
+					"sum overflow, root: %d, leaf: %d; %w",
+					sumRoot, sumLeaf, err)
+			}
+
+			// Insert the leaf using the internal helper.
+			newRoot, err := t.insert(
+				tx, &key, 0, rootBranch, leaf,
+			)
+			if err != nil {
+				return fmt.Errorf("error inserting leaf "+
+					"with key %x: %w", key, err)
+			}
+			rootBranch = newRoot
+
+			// Update the root within the transaction for
+			// consistency, even though the insert logic passes the
+			// root explicitly.
+			err = tx.UpdateRoot(rootBranch)
+			if err != nil {
+				return fmt.Errorf("error updating root "+
+					"during InsertMany: %w", err)
+			}
+		}
+
+		// The root is already updated by the last iteration of the
+		// loop. No final update needed here, but returning nil error
+		// signals success.
+		return nil
+	})
+	if dbErr != nil {
+		return nil, dbErr
+	}
+
+	return t, nil
 }

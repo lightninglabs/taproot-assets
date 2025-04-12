@@ -344,7 +344,8 @@ func (t *FullTree) MerkleProof(ctx context.Context, key [hashSize]byte) (
 // findLeaves recursively traverses the tree represented by the given node and
 // collects all non-empty leaf nodes along with their reconstructed keys.
 func findLeaves(ctx context.Context, tx TreeStoreViewTx, node Node,
-	keyPrefix [hashSize]byte, depth int) (map[[hashSize]byte]*LeafNode, error) {
+	keyPrefix [hashSize]byte,
+	depth int) (map[[hashSize]byte]*LeafNode, error) {
 
 	// Base case: If it's a leaf node.
 	if leafNode, ok := node.(*LeafNode); ok {
@@ -428,20 +429,72 @@ func (t *FullTree) Copy(ctx context.Context, targetTree Tree) error {
 		return err
 	}
 
-	// Insert all found leaves into the target tree. We assume the target
-	// tree handles batching or individual inserts efficiently.
-	for key, leaf := range leaves {
-		// Use the target tree's Insert method. We ignore the returned
-		// tree as we are modifying the targetTree in place via its
-		// store.
-		_, err := targetTree.Insert(ctx, key, leaf)
-		if err != nil {
-			return fmt.Errorf("error inserting leaf with key %x "+
-				"into target tree: %w", key, err)
-		}
+	// Insert all found leaves into the target tree using InsertMany for
+	// efficiency.
+	_, err = targetTree.InsertMany(ctx, leaves)
+	if err != nil {
+		return fmt.Errorf("error inserting leaves into target "+
+			"tree: %w", err)
 	}
 
 	return nil
+}
+
+// InsertMany inserts multiple leaf nodes provided in the leaves map within a
+// single database transaction.
+func (t *FullTree) InsertMany(ctx context.Context,
+	leaves map[[hashSize]byte]*LeafNode) (Tree, error) {
+
+	if len(leaves) == 0 {
+		return t, nil
+	}
+
+	err := t.store.Update(ctx, func(tx TreeStoreUpdateTx) error {
+		currentRoot, err := tx.RootNode()
+		if err != nil {
+			return err
+		}
+		rootBranch := currentRoot.(*BranchNode)
+
+		for key, leaf := range leaves {
+			// Check for potential sum overflow before each
+			// insertion.
+			sumRoot := rootBranch.NodeSum()
+			sumLeaf := leaf.NodeSum()
+			err = CheckSumOverflowUint64(sumRoot, sumLeaf)
+			if err != nil {
+				return fmt.Errorf("full tree leaf insert sum "+
+					"overflow, root: %d, leaf: %d; %w",
+					sumRoot, sumLeaf, err)
+			}
+
+			// Insert the leaf using the internal helper.
+			newRoot, err := t.insert(tx, &key, leaf)
+			if err != nil {
+				return fmt.Errorf("error inserting leaf "+
+					"with key %x: %w", key, err)
+			}
+			rootBranch = newRoot
+
+			// Update the root within the transaction so subsequent
+			// inserts in this batch read the correct state.
+			err = tx.UpdateRoot(rootBranch)
+			if err != nil {
+				return fmt.Errorf("error updating root "+
+					"during InsertMany: %w", err)
+			}
+		}
+
+		// The root is already updated by the last iteration of the
+		// loop. No final update needed here, but returning nil error
+		// signals success.
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return t, nil
 }
 
 // VerifyMerkleProof determines whether a merkle proof for the leaf found at the
