@@ -174,18 +174,40 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
 	}
 
-	// localBalance is the total number of local asset units.
-	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
+	// With the help of the latest HtlcView, let's calculate a more precise
+	// local balance. This is useful in order to not forward HTLCs that may
+	// never be settled. Other HTLCs that may also call into this method are
+	// not yet registered to the commitment, so we need to account for them
+	// manually.
+	computedLocal := ComputeLocalBalance(*commitment)
 
-	// There either already is an amount set in the HTLC (which would
-	// indicate it to be a direct-channel keysend payment that just sends
-	// assets to the direct peer with no conversion), in which case we don't
-	// need an RFQ ID as we can just compare the local balance and the
-	// required HTLC amount. If there is no amount set, we need to look up
-	// the RFQ ID in the HTLC blob and use the accepted quote to determine
-	// the amount.
+	// If the HTLC carries asset units (keysend, forwarding), then there's
+	// no need to do any RFQ related math. We can directly compare the asset
+	// units of the HTLC with those in our local balance.
 	htlcAssetAmount := htlc.Amounts.Val.Sum()
-	if htlcAssetAmount != 0 && htlcAssetAmount <= localBalance {
+	if htlcAssetAmount != 0 {
+		return paymentBandwidthAssetUnits(
+			htlcAssetAmount, computedLocal, linkBandwidth, htlcAmt,
+		)
+	}
+
+	// Otherwise, we derive the available bandwidth from the HTLC's RFQ and
+	// the asset units in our local balance.
+	return s.paymentBandwidth(
+		htlc, computedLocal, linkBandwidth, minHtlcAmt,
+	)
+}
+
+// paymentBandwidthAssetUnits includes the asset unit related checks between the
+// HTLC carrying the units and the asset balance of our channel. The response
+// will either be infinite or zero bandwidth, as we can't really map the amount
+// to msats without an RFQ, and it's also not needed.
+func paymentBandwidthAssetUnits(htlcAssetAmount, computedLocal uint64,
+	linkBandwidth,
+	htlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+
+	switch {
+	case htlcAssetAmount <= computedLocal:
 		// Check if the current link bandwidth can afford sending out
 		// the htlc amount without dipping into the channel reserve. If
 		// it goes below the reserve, we report zero bandwidth as we
@@ -204,10 +226,30 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		// matter too much here, we just want to signal that this
 		// channel _does_ have available bandwidth.
 		return lnwire.NewMSatFromSatoshis(btcutil.MaxSatoshi), nil
-	}
 
-	// If the HTLC doesn't have an asset amount and RFQ ID, it's incomplete,
-	// and we cannot determine what channel to use.
+	case htlcAssetAmount > computedLocal:
+		// The asset balance of the channel is simply not enough to
+		// route the asset units, we report 0 bandwidth in order for the
+		// HTLC to fail back.
+		return 0, nil
+
+	default:
+		// We shouldn't reach this case, we add it only for the function
+		// to always return something and the compiler to be happy.
+		return 0, fmt.Errorf("should not reach this, invalid htlc " +
+			"asset amount or computed local balance")
+	}
+}
+
+// paymentBandwidth returns the available payment bandwidth of the channel based
+// on the asset rate of the RFQ quote that is included in the HTLC and the asset
+// units of the local balance.
+func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
+	localBalance uint64, linkBandwidth,
+	minHtlcAmt lnwire.MilliSatoshi) (lnwire.MilliSatoshi, error) {
+
+	// If the HTLC doesn't have an RFQ ID, it's incomplete, and we cannot
+	// determine the bandwidth.
 	if htlc.RfqID.ValOpt().IsNone() {
 		log.Tracef("No RFQ ID in HTLC, cannot determine matching " +
 			"outgoing channel")
@@ -259,6 +301,16 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// The available balance is the local asset unit expressed in
 	// milli-satoshis.
 	return availableBalanceMsat, nil
+}
+
+// ComputeLocalBalance combines the given commitment state with the HtlcView to
+// produce the available local balance with accuracy.
+func ComputeLocalBalance(commitment cmsg.Commitment) uint64 {
+	// Let's get the current local asset balance of the channel as reported
+	// by the latest commitment.
+	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
+
+	return localBalance
 }
 
 // ProduceHtlcExtraData is a function that, based on the previous custom record
