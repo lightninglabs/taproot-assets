@@ -2424,6 +2424,10 @@
           "type": "string",
           "format": "byte",
           "description": "Filter send events by a specific recipient script key. Leave empty to get\nall receive events for all parcels."
+        },
+        "filter_label": {
+          "type": "string",
+          "description": "Filter send events by a specific label. Leave empty to not filter by\ntransfer label."
         }
       }
     },

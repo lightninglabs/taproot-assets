@@ -1414,6 +1414,10 @@ message SubscribeSendEventsRequest {
     // Filter send events by a specific recipient script key. Leave empty to get
     // all receive events for all parcels.
     bytes filter_script_key = 1;
+
+    // Filter send events by a specific label. Leave empty to not filter by
+    // transfer label.
+    string filter_label = 2;
 }
 
 enum SendState {
