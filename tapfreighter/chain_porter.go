@@ -1339,7 +1339,7 @@ func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 		parcel, err := ConvertToTransfer(
 			currentHeight, currentPkg.VirtualPackets,
 			currentPkg.AnchorTx, currentPkg.PassiveAssets,
-			isLocalKey,
+			isLocalKey, currentPkg.Label,
 		)
 		if err != nil {
 			p.unlockInputs(ctx, &currentPkg)
@@ -1618,6 +1618,9 @@ type AssetSendEvent struct {
 	// Parcel is the parcel that is being sent.
 	Parcel Parcel
 
+	// TransferLabel is the label that was set for the transfer.
+	TransferLabel string
+
 	// VirtualPackets is the list of virtual packets that describes the
 	// "active" parts of the asset transfer.
 	VirtualPackets []*tappsbt.VPacket
@@ -1651,6 +1654,7 @@ func newAssetSendEvent(executedState SendState,
 		// The parcel remains static throughout the state machine, so we
 		// don't need to copy it, there can be no data race.
 		Parcel:         pkg.Parcel,
+		TransferLabel:  pkg.Label,
 		VirtualPackets: fn.CopyAll(pkg.VirtualPackets),
 		PassivePackets: fn.CopyAll(pkg.PassiveAssets),
 	}
@@ -1675,6 +1679,7 @@ func newAssetSendErrorEvent(err error, executedState SendState,
 		SendState:      executedState,
 		Error:          err,
 		Parcel:         pkg.Parcel,
+		TransferLabel:  pkg.Label,
 		VirtualPackets: pkg.VirtualPackets,
 		PassivePackets: pkg.PassiveAssets,
 		AnchorTx:       pkg.AnchorTx,
