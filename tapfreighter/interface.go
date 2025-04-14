@@ -439,6 +439,9 @@ type OutboundParcel struct {
 	// Outputs represents the list of new assets that were created with this
 	// transfer.
 	Outputs []TransferOutput
+
+	// Label is a user provided label for the transfer.
+	Label string
 }
 
 // Copy creates a deep copy of the OutboundParcel.
