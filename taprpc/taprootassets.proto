@@ -1257,6 +1257,11 @@ message SendAssetRequest {
     uint32 fee_rate = 2;
     // TODO(roasbeef): maybe in future add details re type of ProofCourier or
     // w/e
+
+    // An optional short label for the send transfer. This label can be used to
+    // track the progress of the transfer via the logs or an event subscription.
+    // Multiple transfers can share the same label.
+    string label = 3;
 }
 
 message PrevInputAsset {

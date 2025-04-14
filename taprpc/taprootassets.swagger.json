@@ -2320,6 +2320,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The optional fee rate to use for the minting transaction, in sat/kw.\n\nTODO(roasbeef): maybe in future add details re type of ProofCourier or\n w/e"
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional short label for the send transfer. This label can be used to\ntrack the progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
         }
       }
     },
