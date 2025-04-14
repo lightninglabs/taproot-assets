@@ -265,7 +265,7 @@ CREATE TABLE asset_transfers (
     anchor_txn_id BIGINT NOT NULL REFERENCES chain_txns(txn_id),
 
     transfer_time_unix TIMESTAMP NOT NULL
-);
+, label VARCHAR DEFAULT NULL);
 
 CREATE TABLE asset_witnesses (
     witness_id INTEGER PRIMARY KEY,

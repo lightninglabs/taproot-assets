@@ -120,6 +120,7 @@ type AssetTransfer struct {
 	HeightHint       int32
 	AnchorTxnID      int64
 	TransferTimeUnix time.Time
+	Label            sql.NullString
 }
 
 type AssetTransferInput struct {
