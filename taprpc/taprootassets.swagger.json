@@ -1580,6 +1580,10 @@
           "type": "integer",
           "format": "int64",
           "description": "The block height of the blockchain block that contains the anchor\ntransaction. If the anchor transaction is still unconfirmed, this value\nwill be 0."
+        },
+        "label": {
+          "type": "string",
+          "description": "An optional short label for the transfer. This label can be used to track\nthe progress of the transfer via the logs or an event subscription.\nMultiple transfers can share the same label."
         }
       }
     },
@@ -2386,6 +2390,10 @@
         "error": {
           "type": "string",
           "description": "An optional error, indicating that executing the send_state failed."
+        },
+        "transfer_label": {
+          "type": "string",
+          "description": "The label of the transfer."
         }
       }
     },

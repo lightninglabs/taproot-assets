@@ -3662,6 +3662,7 @@ func marshalOutboundParcel(
 		AnchorTxBlockHeight: parcel.AnchorTxBlockHeight,
 		Inputs:              rpcInputs,
 		Outputs:             rpcOutputs,
+		Label:               parcel.Label,
 	}, nil
 }
 
@@ -4178,6 +4179,7 @@ func marshalSendEvent(event fn.Event) (*taprpc.SendEvent, error) {
 		SendState:             e.SendState.String(),
 		VirtualPackets:        make([][]byte, len(e.VirtualPackets)),
 		PassiveVirtualPackets: make([][]byte, len(e.PassivePackets)),
+		TransferLabel:         e.TransferLabel,
 	}
 
 	if e.Error != nil {

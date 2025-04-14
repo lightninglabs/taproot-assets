@@ -746,6 +746,11 @@ message AssetTransfer {
     // transaction. If the anchor transaction is still unconfirmed, this value
     // will be 0.
     uint32 anchor_tx_block_height = 8;
+
+    // An optional short label for the transfer. This label can be used to track
+    // the progress of the transfer via the logs or an event subscription.
+    // Multiple transfers can share the same label.
+    string label = 9;
 }
 
 message TransferInput {
@@ -1512,6 +1517,9 @@ message SendEvent {
 
     // An optional error, indicating that executing the send_state failed.
     string error = 9;
+
+    // The label of the transfer.
+    string transfer_label = 10;
 }
 
 message AnchorTransaction {
