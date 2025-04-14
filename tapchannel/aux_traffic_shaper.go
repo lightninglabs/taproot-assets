@@ -14,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
+	"github.com/lightningnetwork/lnd/lntypes"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/tlv"
@@ -111,7 +112,7 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
 	htlcAmt lnwire.MilliSatoshi,
-	_ lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
+	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
 	// If the commitment or HTLC blob is not set, we don't have any
 	// information about the channel and cannot determine the available
@@ -179,7 +180,10 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 	// never be settled. Other HTLCs that may also call into this method are
 	// not yet registered to the commitment, so we need to account for them
 	// manually.
-	computedLocal := ComputeLocalBalance(*commitment)
+	computedLocal, _, err := ComputeLocalBalance(*commitment, htlcView)
+	if err != nil {
+		return 0, err
+	}
 
 	// If the HTLC carries asset units (keysend, forwarding), then there's
 	// no need to do any RFQ related math. We can directly compare the asset
@@ -305,12 +309,34 @@ func (s *AuxTrafficShaper) paymentBandwidth(htlc *rfqmsg.Htlc,
 
 // ComputeLocalBalance combines the given commitment state with the HtlcView to
 // produce the available local balance with accuracy.
-func ComputeLocalBalance(commitment cmsg.Commitment) uint64 {
-	// Let's get the current local asset balance of the channel as reported
-	// by the latest commitment.
-	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
+func ComputeLocalBalance(commitment cmsg.Commitment,
+	htlcView lnwallet.AuxHtlcView) (uint64, *DecodedView, error) {
 
-	return localBalance
+	// Set the htlcView next height to 0. This is needed because the
+	// following helper `ComputeLocalBalance` will use that height to add or
+	// remove HTLCs that have a matching addHeight. The HTLCs that are not
+	// yet part of the commitment have an addHeight of 0, so that's the
+	// height we want to filter by here.
+	htlcView.NextHeight = 0
+
+	// Let's get the current local and remote asset balances of the channel
+	// as reported by the latest commitment.
+	localBalance := cmsg.OutputSum(commitment.LocalOutputs())
+	remoteBalance := cmsg.OutputSum(commitment.RemoteOutputs())
+
+	// With the help of the latest HtlcView, let's calculate a more precise
+	// local balance. This is useful in order to not forward HTLCs that may
+	// never be settled. Other HTLCs that may also call into this method are
+	// not yet registered to the commitment, so we need to account for them
+	// manually.
+	computedLocal, _, decodedView, _, err := ComputeView(
+		localBalance, remoteBalance, lntypes.Local, htlcView,
+	)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	return computedLocal, decodedView, nil
 }
 
 // ProduceHtlcExtraData is a function that, based on the previous custom record
