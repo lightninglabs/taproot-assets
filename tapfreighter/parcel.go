@@ -24,9 +24,13 @@ import (
 type SendState uint8
 
 const (
+	// SendStateStartHandleAddrParcel is the initial state entered when
+	// the state machine begins processing a new address parcel.
+	SendStateStartHandleAddrParcel SendState = iota
+
 	// SendStateVirtualCommitmentSelect is the state for performing input
 	// coin selection to pick out which assets inputs should be spent.
-	SendStateVirtualCommitmentSelect SendState = iota
+	SendStateVirtualCommitmentSelect
 
 	// SendStateVirtualSign is used to generate the Taproot Asset level
 	// witness data for any inputs being spent.
@@ -69,6 +73,9 @@ const (
 // String returns a human-readable version of SendState.
 func (s SendState) String() string {
 	switch s {
+	case SendStateStartHandleAddrParcel:
+		return "SendStateStartHandleAddrParcel"
+
 	case SendStateVirtualCommitmentSelect:
 		return "SendStateVirtualCommitmentSelect"
 

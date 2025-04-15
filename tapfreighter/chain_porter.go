@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -1093,13 +1094,138 @@ func (p *ChainPorter) importLocalAddresses(ctx context.Context,
 	return nil
 }
 
+// pingCourier attempts to establish a connection to the given proof courier
+// address. If the connection is successful, the courier is closed and the
+// function returns nil. If the connection fails, an error is returned.
+// This function is blocking.
+func (p *ChainPorter) pingCourier(ctx context.Context, addr url.URL) error {
+	log.Debugf("Attempting to ping proof courier (addr=%s)", addr.String())
+
+	// Connect to the proof courier service with an eager (non-lazy)
+	// connection attempt, blocking until the connection either succeeds,
+	// fails, or times out.
+	courier, err := p.cfg.ProofCourierDispatcher.NewCourier(
+		ctx, &addr, false,
+	)
+	if err != nil {
+		return fmt.Errorf("unable to initiate proof courier "+
+			"service handle (addr=%s): %w", addr.String(), err)
+	}
+
+	return courier.Close()
+}
+
+// pingProofCouriers performs a blocking connectivity check for each applicable
+// proof courier.
+func (p *ChainPorter) pingProofCouriers(proofCourierAddrs []url.URL) error {
+	// Construct minimal set of unique proof couriers to ping.
+	var couriers []url.URL
+
+	for idx := range proofCourierAddrs {
+		addr := proofCourierAddrs[idx]
+
+		// Check if the address is a duplicate (already in the list of
+		// couriers).
+		for i := range couriers {
+			if addr.String() == couriers[i].String() {
+				// Skip duplicate addresses.
+				continue
+			}
+		}
+
+		couriers = append(couriers, addr)
+	}
+
+	// Ping each proof courier in parallel to ensure they are reachable.
+	ctx, cancel := p.WithCtxQuit()
+	defer cancel()
+	instanceErrors, err := fn.ParSliceErrCollect(
+		ctx, couriers, p.pingCourier,
+	)
+	if err != nil {
+		return fmt.Errorf("failed execute proof courier(s) parallel "+
+			"ping: %w", err)
+	}
+
+	// If any errors occurred while pinging proof couriers, log them all
+	// here.
+	for idx := range instanceErrors {
+		addr := couriers[idx]
+		instanceErr := instanceErrors[idx]
+
+		log.Errorf("Failed to pinging proof courier (addr=%s): %v",
+			addr.String(), instanceErr)
+	}
+
+	// If any errors occurred while pinging proof couriers, return an error.
+	if len(instanceErrors) > 0 {
+		return fmt.Errorf("failed to ping proof courier(s) "+
+			"(error_count=%d)", len(instanceErrors))
+	}
+
+	return nil
+}
+
+// prelimCheckAddrParcel performs preliminary validation on the given address
+// parcel. These early checks run before any coin locking or transaction
+// broadcasting occurs.
+func (p *ChainPorter) prelimCheckAddrParcel(addrParcel AddressParcel) error {
+	// Currently, the only preliminary check is to ensure that the proof
+	// couriers are reachable. If the skip flag is set, we skip this
+	// check and exit early.
+	if addrParcel.skipProofCourierPingCheck {
+		log.Debugf("Flag skipProofCourierPingCheck activated. " +
+			"Skipping check. ")
+		return nil
+	}
+
+	// Ping the proof couriers to verify that they are reachable.
+	// This early check ensures a proof can be reliably delivered
+	// to the counterparty before broadcasting a transaction or
+	// locking local funds.
+	var proofCourierAddrs []url.URL
+	for idx := range addrParcel.destAddrs {
+		tapAddr := addrParcel.destAddrs[idx]
+
+		proofCourierAddrs = append(
+			proofCourierAddrs, tapAddr.ProofCourierAddr,
+		)
+	}
+
+	err := p.pingProofCouriers(proofCourierAddrs)
+	if err != nil {
+		return fmt.Errorf("failed proof courier(s) connection "+
+			"check: %w", err)
+	}
+
+	return nil
+}
+
 // stateStep attempts to step through the state machine to complete a Taproot
 // Asset transfer.
 func (p *ChainPorter) stateStep(currentPkg sendPackage) (*sendPackage, error) {
 	switch currentPkg.SendState {
-	// At this point we have the initial package information populated, so
-	// we'll perform coin selection to see if the send request is even
-	// possible at all.
+	// The initial state entered when the state machine begins processing a
+	// new address parcel. In this state, basic validation is performed,
+	// such as verifying connectivity to any required proof courier service.
+	case SendStateStartHandleAddrParcel:
+		// Ensure that the parcel is a valid address parcel.
+		addrParcel, ok := currentPkg.Parcel.(*AddressParcel)
+		if !ok {
+			return nil, fmt.Errorf("unable to cast parcel to " +
+				"address parcel")
+		}
+
+		err := p.prelimCheckAddrParcel(*addrParcel)
+		if err != nil {
+			return nil, fmt.Errorf("failed to perform prelim "+
+				"checks on address parcel: %w", err)
+		}
+
+		currentPkg.SendState = SendStateVirtualCommitmentSelect
+		return &currentPkg, nil
+
+	// Perform coin selection for the address parcel.
 	case SendStateVirtualCommitmentSelect:
 		ctx, cancel := p.WithCtxQuitNoTimeout()
 		defer cancel()
