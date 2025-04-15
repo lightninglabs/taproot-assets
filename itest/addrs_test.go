@@ -912,8 +912,9 @@ func transferProofNormalExportUniInsert(t *harnessTest, src, dst *tapdHarness,
 // sendOptions is a struct that holds a SendAssetRequest and an
 // optional error string that should be tested against.
 type sendOptions struct {
-	sendAssetRequest taprpc.SendAssetRequest
-	errText          string
+	sendAssetRequest          taprpc.SendAssetRequest
+	skipProofCourierPingCheck bool
+	errText                   string
 }
 
 // sendOption is a functional option for configuring the sendAssets call.
@@ -928,6 +929,14 @@ func withReceiverAddresses(addrs ...*taprpc.Addr) sendOption {
 			encodedAddrs[i] = addr.Encoded
 		}
 		options.sendAssetRequest.TapAddrs = encodedAddrs
+	}
+}
+
+// withSkipProofCourierPingCheck is an option to skip the proof courier ping
+// check. This is useful for testing purposes.
+func withSkipProofCourierPingCheck() sendOption {
+	return func(options *sendOptions) {
+		options.skipProofCourierPingCheck = true
 	}
 }
 
@@ -997,6 +1006,11 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 			)
 			return true, nil
 		},
+	}
+
+	// Apply the skip proof courier ping check option if set.
+	if options.skipProofCourierPingCheck {
+		options.sendAssetRequest.SkipProofCourierPingCheck = true
 	}
 
 	// Kick off the send asset request.
