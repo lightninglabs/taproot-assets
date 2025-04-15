@@ -1010,7 +1010,7 @@ func AssertSendEvents(t *testing.T, targetScriptKey []byte,
 
 	success := make(chan struct{})
 	timeout := time.After(defaultWaitTimeout)
-	startStatus := from
+	expectedStatus := from
 
 	// By default, if the target script key is not given we will accept all
 	// send events.
@@ -1056,7 +1056,7 @@ func AssertSendEvents(t *testing.T, targetScriptKey []byte,
 		require.Emptyf(
 			t, event.Error, "send event error: %x", event,
 		)
-		require.Equal(t, startStatus.String(), event.SendState)
+		require.Equal(t, expectedStatus.String(), event.SendState)
 
 		// Fully close the stream once we definitely no longer need the
 		// stream.
@@ -1069,7 +1069,7 @@ func AssertSendEvents(t *testing.T, targetScriptKey []byte,
 			return
 		}
 
-		startStatus++
+		expectedStatus++
 	}
 }
 
