@@ -38,31 +38,32 @@ var assetsCommands = []cli.Command{
 }
 
 var (
-	assetTypeName                = "type"
-	assetTagName                 = "name"
-	assetSupplyName              = "supply"
-	assetMetaBytesName           = "meta_bytes"
-	assetMetaFilePathName        = "meta_file_path"
-	assetMetaTypeName            = "meta_type"
-	assetDecimalDisplayName      = "decimal_display"
-	assetNewGroupedAssetName     = "new_grouped_asset"
-	assetGroupedAssetName        = "grouped_asset"
-	assetShowWitnessName         = "show_witness"
-	assetShowSpentName           = "show_spent"
-	assetShowLeasedName          = "show_leased"
-	assetIncludeLeasedName       = "include_leased"
-	assetShowUnconfMintsName     = "show_unconfirmed_mints"
-	assetGroupKeyName            = "group_key"
-	assetGroupAnchorName         = "group_anchor"
-	anchorTxidName               = "anchor_txid"
-	batchKeyName                 = "batch_key"
-	groupByGroupName             = "by_group"
-	assetIDName                  = "asset_id"
-	shortResponseName            = "short"
-	universeCommitmentsName      = "universe_commitments"
-	feeRateName                  = "sat_per_vbyte"
-	assetAmountName              = "amount"
-	burnOverrideConfirmationName = "override_confirmation_destroy_assets"
+	assetTypeName                 = "type"
+	assetTagName                  = "name"
+	assetSupplyName               = "supply"
+	assetMetaBytesName            = "meta_bytes"
+	assetMetaFilePathName         = "meta_file_path"
+	assetMetaTypeName             = "meta_type"
+	assetDecimalDisplayName       = "decimal_display"
+	assetNewGroupedAssetName      = "new_grouped_asset"
+	assetGroupedAssetName         = "grouped_asset"
+	assetShowWitnessName          = "show_witness"
+	assetShowSpentName            = "show_spent"
+	assetShowLeasedName           = "show_leased"
+	assetIncludeLeasedName        = "include_leased"
+	assetShowUnconfMintsName      = "show_unconfirmed_mints"
+	assetGroupKeyName             = "group_key"
+	assetGroupAnchorName          = "group_anchor"
+	anchorTxidName                = "anchor_txid"
+	batchKeyName                  = "batch_key"
+	groupByGroupName              = "by_group"
+	assetIDName                   = "asset_id"
+	shortResponseName             = "short"
+	universeCommitmentsName       = "universe_commitments"
+	feeRateName                   = "sat_per_vbyte"
+	skipProofCourierPingCheckName = "skip-proof-courier-ping-check"
+	assetAmountName               = "amount"
+	burnOverrideConfirmationName  = "override_confirmation_destroy_assets"
 )
 
 var mintAssetCommand = cli.Command{
@@ -824,6 +825,10 @@ var sendAssetsCommand = cli.Command{
 			Usage: "if set, the fee rate in sat/vB to use for " +
 				"the anchor transaction",
 		},
+		cli.BoolFlag{
+			Name:  skipProofCourierPingCheckName,
+			Usage: "if set, skip the proof courier ping check",
+		},
 		// TODO(roasbeef): add arg for file name to write sender proof
 		// blob
 	},
@@ -848,6 +853,9 @@ func sendAssets(ctx *cli.Context) error {
 	resp, err := client.SendAsset(ctxc, &taprpc.SendAssetRequest{
 		TapAddrs: addrs,
 		FeeRate:  feeRate,
+		SkipProofCourierPingCheck: ctx.Bool(
+			skipProofCourierPingCheckName,
+		),
 	})
 	if err != nil {
 		return fmt.Errorf("unable to send assets: %w", err)

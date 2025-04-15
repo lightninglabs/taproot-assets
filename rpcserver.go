@@ -3324,7 +3324,10 @@ func (r *rpcServer) SendAsset(ctx context.Context,
 	}
 
 	resp, err := r.cfg.ChainPorter.RequestShipment(
-		tapfreighter.NewAddressParcel(feeRate, req.Label, tapAddrs...),
+		tapfreighter.NewAddressParcel(
+			feeRate, req.Label, req.SkipProofCourierPingCheck,
+			tapAddrs...,
+		),
 	)
 	if err != nil {
 		return nil, err
