@@ -1029,7 +1029,7 @@ func sendAsset(t *harnessTest, sender *tapdHarness,
 	var targetScriptKey []byte = nil
 	AssertSendEvents(
 		t.t, targetScriptKey, sub,
-		tapfreighter.SendStateVirtualCommitmentSelect,
+		tapfreighter.SendStateStartHandleAddrParcel,
 		tapfreighter.SendStateBroadcast,
 	)
 
