@@ -140,6 +140,12 @@ type AddressParcel struct {
 
 	// label is an optional user provided transfer label.
 	label string
+
+	// skipProofCourierPingCheck bool is a flag that indicates whether the
+	// proof courier ping check should be skipped. This is useful for
+	// testing purposes or to force transfer attempts even if the
+	// proof courier is not immediately reachable.
+	skipProofCourierPingCheck bool
 }
 
 // A compile-time assertion to ensure AddressParcel implements the parcel
@@ -148,6 +154,7 @@ var _ Parcel = (*AddressParcel)(nil)
 
 // NewAddressParcel creates a new AddressParcel.
 func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
+	skipProofCourierPingCheck bool,
 	destAddrs ...*address.Tap) *AddressParcel {
 
 	return &AddressParcel{
@@ -155,9 +162,10 @@ func NewAddressParcel(feeRate *chainfee.SatPerKWeight, label string,
 			respChan: make(chan *OutboundParcel, 1),
 			errChan:  make(chan error, 1),
 		},
-		destAddrs:       destAddrs,
-		transferFeeRate: feeRate,
-		label:           label,
+		destAddrs:                 destAddrs,
+		transferFeeRate:           feeRate,
+		label:                     label,
+		skipProofCourierPingCheck: skipProofCourierPingCheck,
 	}
 }
 
@@ -168,8 +176,9 @@ func (p *AddressParcel) pkg() *sendPackage {
 
 	// Initialize a package with the destination address.
 	return &sendPackage{
-		Parcel: p,
-		Label:  p.label,
+		Parcel:                    p,
+		Label:                     p.label,
+		SkipProofCourierPingCheck: p.skipProofCourierPingCheck,
 	}
 }
 
@@ -483,6 +492,12 @@ type sendPackage struct {
 	// Note is a user provided description for this transfer. This is
 	// currently only used by asset burn transfers.
 	Note string
+
+	// SkipProofCourierPingCheck bool is a flag that indicates whether the
+	// proof courier ping check should be skipped. This is useful for
+	// testing purposes or to force transfer attempts even if the
+	// proof courier is not immediately reachable.
+	SkipProofCourierPingCheck bool
 }
 
 // ConvertToTransfer prepares the finished send data for storing to the database
