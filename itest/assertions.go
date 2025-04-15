@@ -961,6 +961,36 @@ func AssertReceiveEvents(t *testing.T, addr *taprpc.Addr,
 	}
 }
 
+// makeFilterSendEventScriptKey returns a filter function that checks if the
+// given script key is present in the send event. If it is, the event is
+// included in the stream.
+func makeFilterSendEventScriptKey(
+	scriptKey btcec.PublicKey) func(*taprpc.SendEvent) (bool, error) {
+
+	return func(event *taprpc.SendEvent) (bool, error) {
+		for _, vPacketBytes := range event.VirtualPackets {
+			vPkt, err := tappsbt.Decode(vPacketBytes)
+			if err != nil {
+				return false, err
+			}
+
+			for _, vOut := range vPkt.Outputs {
+				if vOut.ScriptKey.PubKey == nil {
+					continue
+				}
+
+				// This packet sends to the filtered script key,
+				// we want to include this event.
+				if vOut.ScriptKey.PubKey.IsEqual(&scriptKey) {
+					return true, nil
+				}
+			}
+		}
+
+		return false, nil
+	}
+}
+
 // AssertSendEventsComplete makes sure the two remaining events for the given
 // script key are sent on the stream.
 func AssertSendEventsComplete(t *testing.T, scriptKey []byte,
@@ -974,7 +1004,7 @@ func AssertSendEventsComplete(t *testing.T, scriptKey []byte,
 
 // AssertSendEvents makes sure all events with incremental status are sent
 // on the stream for the given script key.
-func AssertSendEvents(t *testing.T, scriptKey []byte,
+func AssertSendEvents(t *testing.T, targetScriptKey []byte,
 	stream *EventSubscription[*taprpc.SendEvent], from,
 	to tapfreighter.SendState) {
 
@@ -982,31 +1012,19 @@ func AssertSendEvents(t *testing.T, scriptKey []byte,
 	timeout := time.After(defaultWaitTimeout)
 	startStatus := from
 
-	targetScriptKey, err := btcec.ParsePubKey(scriptKey)
-	require.NoError(t, err)
+	// By default, if the target script key is not given we will accept all
+	// send events.
+	sendsToKey := func(*taprpc.SendEvent) (bool, error) {
+		return true, nil
+	}
 
-	sendsToKey := func(e *taprpc.SendEvent) bool {
-		for _, vPacketBytes := range e.VirtualPackets {
-			vPkt, err := tappsbt.Decode(vPacketBytes)
-			require.NoError(t, err)
+	// If a target script key is given, we will only accept send events that
+	// relate to that key.
+	if targetScriptKey != nil {
+		targetScriptKey, err := btcec.ParsePubKey(targetScriptKey)
+		require.NoError(t, err)
 
-			for _, vOut := range vPkt.Outputs {
-				if vOut.ScriptKey.PubKey == nil {
-					continue
-				}
-
-				// This packet sends to the filtered script key,
-				// we want to include this event.
-				if vOut.ScriptKey.PubKey.IsEqual(
-					targetScriptKey,
-				) {
-
-					return true
-				}
-			}
-		}
-
-		return false
+		sendsToKey = makeFilterSendEventScriptKey(*targetScriptKey)
 	}
 
 	// To make sure we don't forever hang on receiving on the stream, we'll
@@ -1026,7 +1044,11 @@ func AssertSendEvents(t *testing.T, scriptKey []byte,
 		event, err := stream.Recv()
 		require.NoError(t, err, "receiving send event")
 
-		require.True(t, sendsToKey(event))
+		// Ensure that the event complies with the target script key
+		// check.
+		res, err := sendsToKey(event)
+		require.NoError(t, err)
+		require.True(t, res)
 
 		// Check the event's error field for unexpected errors. Perform
 		// this check before verifying the expected send state, as
