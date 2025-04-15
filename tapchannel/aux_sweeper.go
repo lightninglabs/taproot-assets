@@ -292,12 +292,6 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 	log.Infof("Created %v sweep packets: %v", len(vPackets),
 		limitSpewer.Sdump(vPackets))
 
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return lfn.Errf[returnType]("unable to make funding witness: "+
-			"%w", err)
-	}
-
 	// Next, we'll prepare all the vPackets for the sweep transaction, and
 	// also set the courier address.
 	courierAddr := a.cfg.DefaultCourierAddr
@@ -322,16 +316,6 @@ func (a *AuxSweeper) createSweepVpackets(sweepInputs []*cmsg.AssetOutput,
 		if err != nil {
 			return lfn.Errf[returnType]("unable to prepare output "+
 				"assets: %w", err)
-		}
-
-		// Next before we sign, we'll make sure to update the witness
-		// of the prev asset's root asset. Otherwise, we'll be signing
-		// the wrong input leaf.
-		vIn := vPackets[idx].Inputs[0]
-		if vIn.Asset().HasSplitCommitmentWitness() {
-			//nolint:lll
-			rootAsset := vIn.Asset().PrevWitnesses[0].SplitCommitment.RootAsset
-			rootAsset.PrevWitnesses[0].TxWitness = fundingWitness
 		}
 
 		for outIdx := range vPackets[idx].Outputs {
@@ -1592,42 +1576,15 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 		}
 	}
 
-	// Now that we've added all the relevant vPackets, we'll prepare the
-	// funding witness which includes the OP_TRUE ctrl block.
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return fmt.Errorf("unable to make funding witness: %w", err)
+	// We can now add the witness for the OP_TRUE spend of the commitment
+	// output to the vPackets.
+	vPackets := maps.Values(vPktsByAssetID)
+	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+		return fmt.Errorf("error signing commit virtual "+
+			"packets: %w", err)
 	}
 
-	// With all the vPackets created, we'll create output commitments from
-	// them, as we'll need them to ship the transaction off to the porter.
-	vPkts := maps.Values(vPktsByAssetID)
-	ctx := context.Background()
-	for idx := range vPkts {
-		err := tapsend.PrepareOutputAssets(ctx, vPkts[idx])
-		if err != nil {
-			return fmt.Errorf("unable to prepare output "+
-				"assets: %w", err)
-		}
-
-		// With the packets prepared, we'll swap in the correct witness
-		// for each of them.
-		for outIdx := range vPkts[idx].Outputs {
-			outAsset := vPkts[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, as we're
-			// sweeping a single contract w/ each vPkt.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
-		}
-	}
-	outCommitments, err := tapsend.CreateOutputCommitments(vPkts)
+	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
 	if err != nil {
 		return fmt.Errorf("unable to create output "+
 			"commitments: %w", err)
@@ -1641,12 +1598,12 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 			"allocations: %w", err)
 	}
 	exclusionCreator := tapsend.NonAssetExclusionProofs(anchorAllocations)
-	for idx := range vPkts {
-		vPkt := vPkts[idx]
+	for idx := range vPackets {
+		vPkt := vPackets[idx]
 		for outIdx := range vPkt.Outputs {
 			proofSuffix, err := tapsend.CreateProofSuffixCustom(
 				req.CommitTx, vPkt, outCommitments, outIdx,
-				vPkts, exclusionCreator,
+				vPackets, exclusionCreator,
 			)
 			if err != nil {
 				return fmt.Errorf("unable to create "+
@@ -1663,7 +1620,7 @@ func (a *AuxSweeper) importCommitTx(req lnwallet.ResolutionReq,
 	// With all the vPKts created, we can now ship the transaction off to
 	// the porter for final delivery.
 	return shipChannelTxn(
-		a.cfg.TxSender, req.CommitTx, outCommitments, vPkts,
+		a.cfg.TxSender, req.CommitTx, outCommitments, vPackets,
 		int64(req.CommitFee),
 	)
 }
@@ -1893,8 +1850,9 @@ func (a *AuxSweeper) resolveContract(
 		return lfn.Err[tlv.Blob](err)
 	}
 
+	type packetList = []*tappsbt.VPacket
 	var (
-		secondLevelPkts    []*tappsbt.VPacket
+		secondLevelPkts    packetList
 		secondLevelSigDesc lfn.Option[cmsg.TapscriptSigDesc]
 	)
 
@@ -1903,25 +1861,30 @@ func (a *AuxSweeper) resolveContract(
 	if needsSecondLevel {
 		log.Infof("Creating+signing 2nd level vPkts")
 
-		// We'll make a place holder for the second level output based
-		// on the assetID+value tuple.
-		secondLevelInputs := []*cmsg.AssetOutput{cmsg.NewAssetOutput(
-			assetOutputs[0].AssetID.Val,
-			assetOutputs[0].Amount.Val, assetOutputs[0].Proof.Val,
-		)}
+		// We'll make a placeholder for the second level output based
+		// on the assetID+value tuples.
+		secondLevelInputs := fn.Map(
+			assetOutputs,
+			func(a *cmsg.AssetOutput) *cmsg.AssetOutput {
+				return cmsg.NewAssetOutput(
+					a.AssetID.Val, a.Amount.Val,
+					a.Proof.Val,
+				)
+			},
+		)
 
 		// Unlike the first level packets, we can't yet sign the second
 		// level packets yet, as we don't know what the sweeping
 		// transaction will look like. So we'll just create them.
 		secondLevelPkts, err = lfn.MapOption(
 			//nolint:lll
-			func(desc tapscriptSweepDesc) lfn.Result[[]*tappsbt.VPacket] {
+			func(desc tapscriptSweepDesc) lfn.Result[packetList] {
 				return a.createSweepVpackets(
 					secondLevelInputs, lfn.Ok(desc), req,
 				)
 			},
 		)(tapSweepDesc.secondLevel).UnwrapOr(
-			lfn.Ok[[]*tappsbt.VPacket](nil),
+			lfn.Ok[packetList](nil),
 		).Unpack()
 		if err != nil {
 			return lfn.Errf[tlv.Blob]("unable to make "+

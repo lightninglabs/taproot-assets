@@ -1,10 +1,14 @@
 package tapfreighter
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/binary"
 	"fmt"
 	"time"
 
+	"github.com/btcsuite/btcd/btcec/v2"
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/btcutil/psbt"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
@@ -40,6 +44,12 @@ type CommitmentConstraints struct {
 
 	// CoinSelectType is the type of coins that should be selected.
 	CoinSelectType tapsend.CoinSelectType
+
+	// DistinctSpecifier indicates whether we _only_ look at either the
+	// group key _or_ the asset ID but not both. That means, if the group
+	// key is set, we ignore the asset ID and allow multiple inputs of the
+	// same group to be selected.
+	DistinctSpecifier bool
 }
 
 // AssetBurn holds data related to a burn of an asset.
@@ -212,6 +222,23 @@ type Anchor struct {
 	NumPassiveAssets uint32
 }
 
+// OutputIdentifier is a key that can be used to uniquely identify a transfer
+// output.
+type OutputIdentifier [32]byte
+
+// NewOutputIdentifier creates a new output identifier for the given asset ID,
+// output index and script key. This is used to uniquely identify the output
+// from the transfer entries in the database.
+func NewOutputIdentifier(id asset.ID, outputIndex uint32,
+	scriptKey btcec.PublicKey) OutputIdentifier {
+
+	keyData := make([]byte, 32+4+len(scriptKey.SerializeCompressed()))
+	copy(keyData[0:32], id[:])
+	binary.BigEndian.PutUint32(keyData[32:36], outputIndex)
+	copy(keyData[36:], scriptKey.SerializeCompressed())
+	return sha256.Sum256(keyData)
+}
+
 // TransferOutput represents the database level output to an asset transfer.
 type TransferOutput struct {
 	// Anchor is the new location of the Taproot Asset commitment referenced
@@ -328,6 +355,35 @@ func (out *TransferOutput) ShouldDeliverProof() (bool, error) {
 	return true, nil
 }
 
+// UniqueKey returns a unique key that can be used to identify the output.
+// Because this requires the output proof to be set to extract the asset ID, an
+// error is returned if it is not.
+func (out *TransferOutput) UniqueKey() (OutputIdentifier, error) {
+	var zero [32]byte
+	if len(out.ProofSuffix) == 0 {
+		return zero, fmt.Errorf("proof suffix not set")
+	}
+
+	var (
+		outProofAsset  asset.Asset
+		inclusionProof proof.TaprootProof
+	)
+	err := proof.SparseDecode(
+		bytes.NewReader(out.ProofSuffix),
+		proof.AssetLeafRecord(&outProofAsset),
+		proof.InclusionProofRecord(&inclusionProof),
+	)
+	if err != nil {
+		return zero, fmt.Errorf("unable to sparse decode proof: %w",
+			err)
+	}
+
+	return NewOutputIdentifier(
+		outProofAsset.ID(), inclusionProof.OutputIndex,
+		*out.ScriptKey.PubKey,
+	), nil
+}
+
 // OutboundParcel represents the database level delta of an outbound Taproot
 // Asset parcel (outbound spend). A spend will destroy a series of assets listed
 // as inputs, and re-create them as new outputs. Along the way some assets may
@@ -428,7 +484,7 @@ type AssetConfirmEvent struct {
 
 	// FinalProofs is the set of final full proof chain files that are going
 	// to be stored on disk, one for each output in the outbound parcel.
-	FinalProofs map[asset.SerializedKey]*proof.AnnotatedProof
+	FinalProofs map[OutputIdentifier]*proof.AnnotatedProof
 
 	// PassiveAssetProofFiles is the set of passive asset proof files that
 	// are re-anchored during the parcel confirmation process.

@@ -533,15 +533,15 @@ func newAssetGenerator(t *testing.T,
 }
 
 func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
-	assetDescs []assetDesc) {
+	assetDescs []assetDesc) ([]*asset.Asset, []proof.Proof) {
 
 	ctx := context.Background()
 
 	anchorPointsToAssetCommitments := make(
 		map[wire.OutPoint][]*commitment.AssetCommitment,
 	)
-	newAssets := []*asset.Asset{}
-	for _, desc := range assetDescs {
+	newAssets := make([]*asset.Asset, len(assetDescs))
+	for idx, desc := range assetDescs {
 		desc := desc
 
 		opts := []assetGenOpt{
@@ -578,11 +578,12 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 				desc.assetVersion,
 			))
 		}
-		newAsset := randAsset(t, opts...)
-		newAssets = append(newAssets, newAsset)
+		newAssets[idx] = randAsset(t, opts...)
 
 		// Group assets by anchor point before building tap commitments.
-		assetCommitment, err := commitment.NewAssetCommitment(newAsset)
+		assetCommitment, err := commitment.NewAssetCommitment(
+			newAssets[idx],
+		)
 		require.NoError(t, err)
 
 		_, ok := anchorPointsToAssetCommitments[desc.anchorPoint]
@@ -610,6 +611,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 		anchorPointsToTapCommitments[anchorPoint] = tapCommitment
 	}
 
+	assetProofs := make([]proof.Proof, len(newAssets))
 	for i, newAsset := range newAssets {
 		desc := assetDescs[i]
 		anchorPoint := a.anchorPointsToTx[desc.anchorPoint]
@@ -633,6 +635,7 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			OutputIndex: 0,
 			InternalKey: test.RandPubKey(t),
 		}
+		assetProofs[i] = assetProof
 
 		proofBlob, err := proof.EncodeAsProofFile(&assetProof)
 		require.NoError(t, err)
@@ -676,6 +679,8 @@ func (a *assetGenerator) genAssets(t *testing.T, assetStore *AssetStore,
 			require.NoError(t, err)
 		}
 	}
+
+	return newAssets, assetProofs
 }
 
 func (a *assetGenerator) assetSpecifierAssetID(i int,
@@ -705,13 +710,45 @@ func (a *assetGenerator) assetSpecifierGroupKey(i int,
 	return asset.NewSpecifierFromGroupKey(*groupPubKey)
 }
 
+type filterOpt func(f *AssetQueryFilters)
+
+func filterSpecifier(s asset.Specifier) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.AssetSpecifier = s
+	}
+}
+
+func filterMinAmt(amt uint64) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.MinAmt = amt
+	}
+}
+
+func filterCoinSelectType(typ tapsend.CoinSelectType) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.CoinSelectType = typ
+	}
+}
+
+func filterDistinctSpecifier() filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.DistinctSpecifier = true
+	}
+}
+
+func filterAnchorHeight(height int32) filterOpt {
+	return func(f *AssetQueryFilters) {
+		f.MinAnchorHeight = height
+	}
+}
+
 // TestFetchAllAssets tests that the different AssetQueryFilters work as
 // expected.
 func TestFetchAllAssets(t *testing.T) {
 	t.Parallel()
 
 	const (
-		numAssetIDs  = 10
+		numAssetIDs  = 12
 		numGroupKeys = 2
 	)
 
@@ -777,19 +814,34 @@ func TestFetchAllAssets(t *testing.T) {
 		anchorPoint: assetGen.anchorPoints[4],
 		amt:         777,
 		scriptKey:   scriptKeyWithScript,
+	}, {
+		assetGen:    assetGen.assetGens[10],
+		anchorPoint: assetGen.anchorPoints[10],
+		amt:         10,
+		keyGroup:    assetGen.groupKeys[0],
+	}, {
+		assetGen:            assetGen.assetGens[11],
+		anchorPoint:         assetGen.anchorPoints[11],
+		amt:                 8,
+		groupAnchorGen:      &assetGen.assetGens[10],
+		groupAnchorGenPoint: &assetGen.anchorPoints[10],
+		keyGroup:            assetGen.groupKeys[0],
 	}}
-	makeFilter := func(amt uint64, anchorHeight int32,
-		coinSelectType tapsend.CoinSelectType) *AssetQueryFilters {
+	makeFilter := func(opts ...filterOpt) *AssetQueryFilters {
+		var filter AssetQueryFilters
+		for _, opt := range opts {
+			opt(&filter)
+		}
 
-		constraints := tapfreighter.CommitmentConstraints{
-			MinAmt:         amt,
-			CoinSelectType: coinSelectType,
-		}
-		return &AssetQueryFilters{
-			CommitmentConstraints: constraints,
-			MinAnchorHeight:       anchorHeight,
-		}
+		return &filter
 	}
+
+	// First, we'll create a new assets store and then insert the set of
+	// assets described by the asset descriptions.
+	_, assetsStore, _ := newAssetStore(t)
+	genAssets, _ := assetGen.genAssets(t, assetsStore, availableAssets)
+	numGenAssets := len(genAssets)
+	lastAsset := genAssets[numGenAssets-1]
 
 	testCases := []struct {
 		name          string
@@ -800,64 +852,108 @@ func TestFetchAllAssets(t *testing.T) {
 		err           error
 	}{{
 		name:      "no constraints",
-		numAssets: 4,
+		numAssets: 6,
 	}, {
 		name:          "no constraints, include leased",
 		includeLeased: true,
-		numAssets:     7,
+		numAssets:     9,
 	}, {
 		name:         "no constraints, include spent",
 		includeSpent: true,
-		numAssets:    6,
+		numAssets:    8,
 	}, {
 		name:          "no constraints, include leased, include spent",
 		includeLeased: true,
 		includeSpent:  true,
-		numAssets:     10,
+		numAssets:     12,
 	}, {
-		name:      "min amount",
-		filter:    makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		numAssets: 2,
 	}, {
-		name:         "min amount, include spent",
-		filter:       makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include spent",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeSpent: true,
 		numAssets:    4,
 	}, {
-		name:          "min amount, include leased",
-		filter:        makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include leased",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeLeased: true,
 		numAssets:     5,
 	}, {
-		name:          "min amount, include leased, include spent",
-		filter:        makeFilter(12, 0, tapsend.ScriptTreesAllowed),
+		name: "min amount, include leased, include spent",
+		filter: makeFilter(
+			filterMinAmt(12),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeLeased: true,
 		includeSpent:  true,
 		numAssets:     8,
 	}, {
-		name:         "default min height, include spent",
-		filter:       makeFilter(0, 500, tapsend.ScriptTreesAllowed),
+		name: "default min height, include spent",
+		filter: makeFilter(
+			filterAnchorHeight(500),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeSpent: true,
-		numAssets:    6,
+		numAssets:    8,
 	}, {
-		name:      "specific height",
-		filter:    makeFilter(0, 502, tapsend.ScriptTreesAllowed),
+		name: "specific height",
+		filter: makeFilter(
+			filterAnchorHeight(512),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		numAssets: 0,
 	}, {
-		name:         "default min height, include spent",
-		filter:       makeFilter(0, 502, tapsend.ScriptTreesAllowed),
+		name: "default min height, include spent",
+		filter: makeFilter(
+			filterAnchorHeight(502),
+			filterCoinSelectType(tapsend.ScriptTreesAllowed),
+		),
 		includeSpent: true,
-		numAssets:    1,
+		numAssets:    3,
 	}, {
-		name:      "script key with tapscript",
-		filter:    makeFilter(100, 0, tapsend.Bip86Only),
+		name: "script key with tapscript",
+		filter: makeFilter(
+			filterMinAmt(100),
+			filterCoinSelectType(tapsend.Bip86Only),
+		),
 		numAssets: 0,
+	}, {
+		name: "query by group key only",
+		filter: makeFilter(
+			filterSpecifier(asset.NewSpecifierFromGroupKey(
+				lastAsset.GroupKey.GroupPubKey,
+			)),
+		),
+		numAssets: 2,
+	}, {
+		name: "query by group key and asset ID",
+		filter: makeFilter(
+			filterSpecifier(asset.NewSpecifierOptionalGroupPubKey(
+				lastAsset.ID(), &lastAsset.GroupKey.GroupPubKey,
+			)),
+		),
+		numAssets: 1,
+	}, {
+		name: "query by group key and asset ID but distinct",
+		filter: makeFilter(
+			filterSpecifier(asset.NewSpecifierOptionalGroupPubKey(
+				lastAsset.ID(), &lastAsset.GroupKey.GroupPubKey,
+			)), filterDistinctSpecifier(),
+		),
+		numAssets: 2,
 	}}
 
-	// First, we'll create a new assets store and then insert the set of
-	// assets described by the asset descriptions.
-	_, assetsStore, _ := newAssetStore(t)
-	assetGen.genAssets(t, assetsStore, availableAssets)
 	for _, tc := range testCases {
 		tc := tc
 
@@ -871,6 +967,121 @@ func TestFetchAllAssets(t *testing.T) {
 			require.ErrorIs(t, tc.err, err)
 
 			require.Len(t, selectedAssets, tc.numAssets)
+		})
+	}
+}
+
+// TestFetchProof tests that proofs can be fetched for different assets.
+func TestFetchProof(t *testing.T) {
+	t.Parallel()
+
+	const (
+		numAssetIDs  = 10
+		numGroupKeys = 2
+	)
+
+	assetGen := newAssetGenerator(t, numAssetIDs, numGroupKeys)
+	scriptKey := asset.RandScriptKey(t)
+	anchorPoint1 := assetGen.anchorPoints[0]
+	anchorPoint2 := assetGen.anchorPoints[1]
+
+	ctx := context.Background()
+	availableAssets := []assetDesc{{
+		assetGen:    assetGen.assetGens[0],
+		anchorPoint: anchorPoint1,
+		amt:         777,
+		scriptKey:   &scriptKey,
+	}, {
+		assetGen:    assetGen.assetGens[8],
+		anchorPoint: anchorPoint2,
+		amt:         10,
+		keyGroup:    assetGen.groupKeys[0],
+		scriptKey:   &scriptKey,
+	}, {
+		assetGen:            assetGen.assetGens[9],
+		anchorPoint:         anchorPoint2,
+		amt:                 8,
+		groupAnchorGen:      &assetGen.assetGens[8],
+		groupAnchorGenPoint: &anchorPoint2,
+		keyGroup:            assetGen.groupKeys[0],
+		scriptKey:           &scriptKey,
+	}}
+
+	// First, we'll create a new assets store and then insert the set of
+	// assets described by the asset descriptions.
+	_, assetsStore, _ := newAssetStore(t)
+	genAssets, genProofs := assetGen.genAssets(
+		t, assetsStore, availableAssets,
+	)
+
+	testCases := []struct {
+		name          string
+		locator       proof.Locator
+		expectProofID int
+		err           error
+	}{{
+		name: "script key only",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+		},
+		err: proof.ErrMultipleProofs,
+	}, {
+		name: "script key and anchor point",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+		},
+		err: proof.ErrMultipleProofs,
+	}, {
+		name: "script key, anchor point and group key",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+			GroupKey:  &genAssets[1].GroupKey.GroupPubKey,
+		},
+		err: proof.ErrMultipleProofs,
+	}, {
+		name: "script key, anchor point and asset ID",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+			AssetID:   fn.Ptr(genAssets[1].ID()),
+		},
+		expectProofID: 1,
+	}, {
+		name: "script key, anchor point, group key and asset ID",
+		locator: proof.Locator{
+			ScriptKey: *scriptKey.PubKey,
+			OutPoint:  &anchorPoint2,
+			GroupKey:  &genAssets[1].GroupKey.GroupPubKey,
+			AssetID:   fn.Ptr(genAssets[2].ID()),
+		},
+		expectProofID: 2,
+	}}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			blob, err := assetsStore.FetchProof(
+				ctx, tc.locator,
+			)
+			if tc.err != nil {
+				require.ErrorIs(t, tc.err, err)
+
+				return
+			}
+
+			require.NoError(t, err)
+
+			expectedFile, err := proof.NewFile(
+				proof.V0, genProofs[tc.expectProofID],
+			)
+			require.NoError(t, err)
+
+			var expectedBuf bytes.Buffer
+			err = expectedFile.Encode(&expectedBuf)
+			require.NoError(t, err)
+
+			require.Equal(t, expectedBuf.Bytes(), []byte(blob))
 		})
 	}
 }
@@ -1334,9 +1545,6 @@ func TestAssetExportLog(t *testing.T) {
 	newRootHash := sha256.Sum256([]byte("kek"))
 	newRootValue := uint64(100)
 
-	senderBlob := bytes.Repeat([]byte{0x01}, 100)
-	receiverBlob := bytes.Repeat([]byte{0x02}, 100)
-
 	newWitness := asset.Witness{
 		PrevID:          &asset.PrevID{},
 		TxWitness:       [][]byte{{0x01}, {0x02}},
@@ -1352,9 +1560,20 @@ func TestAssetExportLog(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, allAssets, numAssets)
 
+	inputAsset := allAssets[0]
+	senderAsset := inputAsset.Copy()
+	senderAsset.ScriptKey = newScriptKey
+	senderProof := randProof(t, senderAsset)
+	receiverAsset := inputAsset.Copy()
+	receiverAsset.ScriptKey = newScriptKey2
+	receiverProof := randProof(t, receiverAsset)
+
+	var senderBlob, receiverBlob bytes.Buffer
+	require.NoError(t, senderProof.Encode(&senderBlob))
+	require.NoError(t, receiverProof.Encode(&receiverBlob))
+
 	// With the assets inserted, we'll now construct the struct that will be
 	// used to commit a new spend on disk.
-	inputAsset := allAssets[0]
 	anchorTxHash := newAnchorTx.TxHash()
 	spendDelta := &tapfreighter.OutboundParcel{
 		AnchorTx:           newAnchorTx,
@@ -1409,7 +1628,7 @@ func TestAssetExportLog(t *testing.T) {
 			),
 			// The receiver wants a V0 asset version.
 			AssetVersion: asset.V0,
-			ProofSuffix:  receiverBlob,
+			ProofSuffix:  receiverBlob.Bytes(),
 			Position:     0,
 		}, {
 			Anchor: tapfreighter.Anchor{
@@ -1444,7 +1663,7 @@ func TestAssetExportLog(t *testing.T) {
 			// As the sender, we'll send our change back to a V1
 			// asset version.
 			AssetVersion: asset.V1,
-			ProofSuffix:  senderBlob,
+			ProofSuffix:  senderBlob.Bytes(),
 			Position:     1,
 		}},
 	}
@@ -1453,20 +1672,26 @@ func TestAssetExportLog(t *testing.T) {
 	))
 
 	assetID := inputAsset.ID()
-	proofs := map[asset.SerializedKey]*proof.AnnotatedProof{
-		asset.ToSerialized(newScriptKey.PubKey): {
+	receiverIdentifier := tapfreighter.NewOutputIdentifier(
+		assetID, 0, *newScriptKey.PubKey,
+	)
+	senderIdentifier := tapfreighter.NewOutputIdentifier(
+		assetID, 0, *newScriptKey2.PubKey,
+	)
+	proofs := map[tapfreighter.OutputIdentifier]*proof.AnnotatedProof{
+		receiverIdentifier: {
 			Locator: proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: *newScriptKey.PubKey,
 			},
-			Blob: receiverBlob,
+			Blob: receiverBlob.Bytes(),
 		},
-		asset.ToSerialized(newScriptKey2.PubKey): {
+		senderIdentifier: {
 			Locator: proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: *newScriptKey2.PubKey,
 			},
-			Blob: senderBlob,
+			Blob: senderBlob.Bytes(),
 		},
 	}
 
@@ -1640,7 +1865,7 @@ func TestAssetExportLog(t *testing.T) {
 		TweakedScriptKey: newScriptKey.PubKey.SerializeCompressed(),
 	})
 	require.NoError(t, err)
-	require.Equal(t, receiverBlob, diskSenderBlob[0].ProofFile)
+	require.Equal(t, receiverBlob.Bytes(), diskSenderBlob[0].ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

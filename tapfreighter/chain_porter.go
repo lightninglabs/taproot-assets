@@ -521,7 +521,7 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 	}
 
 	sendPkg.FinalProofs = make(
-		map[asset.SerializedKey]*proof.AnnotatedProof,
+		map[OutputIdentifier]*proof.AnnotatedProof,
 		len(parcel.Outputs),
 	)
 	for idx := range parcel.Outputs {
@@ -556,8 +556,12 @@ func (p *ChainPorter) storeProofs(sendPkg *sendPackage) error {
 				"proof file for output %d: %w", idx, err)
 		}
 
-		serializedScriptKey := asset.ToSerialized(out.ScriptKey.PubKey)
-		sendPkg.FinalProofs[serializedScriptKey] = outputProof
+		outKey, err := out.UniqueKey()
+		if err != nil {
+			return fmt.Errorf("error generating unique key for "+
+				"output %d: %w", idx, err)
+		}
+		sendPkg.FinalProofs[outKey] = outputProof
 
 		vCtx := proof.VerifierCtx{
 			HeaderVerifier: headerVerifier,
@@ -878,25 +882,23 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	reportProofTransfers(notDeliveringOutputs, pendingDeliveryOutputs)
 
 	deliver := func(ctx context.Context, out TransferOutput) error {
-		key := out.ScriptKey.PubKey
-
-		// We just look for the full proof in the list of final proofs
-		// by matching the content of the proof suffix.
-		var receiverProof *proof.AnnotatedProof
-		for idx := range pkg.FinalProofs {
-			finalFile := pkg.FinalProofs[idx]
-			if finalFile.ScriptKey.IsEqual(out.ScriptKey.PubKey) {
-				receiverProof = finalFile
-				break
-			}
+		scriptKey := out.ScriptKey.PubKey
+		scriptKeyBytes := scriptKey.SerializeCompressed()
+		outKey, err := out.UniqueKey()
+		if err != nil {
+			return fmt.Errorf("error generating unique key for "+
+				"output: %w", err)
 		}
-		if receiverProof == nil {
+
+		receiverProof, ok := pkg.FinalProofs[outKey]
+		if !ok {
 			return fmt.Errorf("no proof found for output with "+
-				"script key %x", key.SerializeCompressed())
+				"script key %x", scriptKeyBytes)
 		}
 
 		log.Debugf("Attempting to deliver proof (script_key=%x, "+
-			"proof_courier_addr=%s)", key.SerializeCompressed(),
+			"asset_id=%x, proof_courier_addr=%s)",
+			scriptKeyBytes, receiverProof.AssetID[:],
 			out.ProofCourierAddr)
 
 		proofCourierAddr, err := proof.ParseCourierAddress(
@@ -927,7 +929,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 
 		// Deliver proof to proof courier service.
 		recipient := proof.Recipient{
-			ScriptKey: key,
+			ScriptKey: scriptKey,
 			AssetID:   *receiverProof.AssetID,
 			Amount:    out.Amount,
 		}
@@ -978,7 +980,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 		courierAddr := string(output.ProofCourierAddr)
 
 		log.Errorf("Error delivering transfer output proof "+
-			"(anchor_outpoint=%s, script_pub_key=%v, "+
+			"(anchor_outpoint=%s, script_pub_key=%x, "+
 			"position=%d, proof_courier_addr=%s, "+
 			"proof_delivery_status=%v): %v",
 			anchorOutpoint, scriptPubKey, output.Position,
@@ -990,7 +992,7 @@ func (p *ChainPorter) transferReceiverProof(pkg *sendPackage) error {
 	// if any.
 	var firstErr error
 	fn.PeekMap(instanceErrors).WhenSome(func(kv fn.KV[int, error]) {
-		firstErr = err
+		firstErr = kv.Value
 	})
 
 	if firstErr != nil {

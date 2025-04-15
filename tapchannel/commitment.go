@@ -18,6 +18,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	cmsg "github.com/lightninglabs/taproot-assets/tapchannelmsg"
 	"github.com/lightninglabs/taproot-assets/tappsbt"
+	"github.com/lightninglabs/taproot-assets/tapscript"
 	"github.com/lightninglabs/taproot-assets/tapsend"
 	"github.com/lightningnetwork/lnd/channeldb"
 	lfn "github.com/lightningnetwork/lnd/fn/v2"
@@ -563,41 +564,12 @@ func GenerateCommitmentAllocations(prevState *cmsg.Commitment,
 			err)
 	}
 
-	// The root asset of the split commitment will still commit to the full
-	// witness value. Therefore, we need to update the root asset witness to
-	// what it would be at broadcast time.
-	fundingWitness, err := fundingSpendWitness().Unpack()
-	if err != nil {
-		return nil, nil, fmt.Errorf("unable to make funding "+
-			"witness: %w", err)
-	}
-
-	// Prepare the output assets for each virtual packet, then create the
-	// output commitments.
-	ctx := context.Background()
-	for idx := range vPackets {
-		err := tapsend.PrepareOutputAssets(ctx, vPackets[idx])
-		if err != nil {
-			return nil, nil, fmt.Errorf("unable to prepare output "+
-				"assets: %w", err)
-		}
-
-		// With the packets prepared, we'll swap in the correct witness
-		// for each of them.
-		for outIdx := range vPackets[idx].Outputs {
-			outAsset := vPackets[idx].Outputs[outIdx].Asset
-
-			// There is always only a single input, as we're
-			// sweeping a single contract w/ each vPkt.
-			const inputIndex = 0
-			err := outAsset.UpdateTxWitness(
-				inputIndex, fundingWitness,
-			)
-			if err != nil {
-				return nil, nil, fmt.Errorf("error updating "+
-					"witness: %w", err)
-			}
-		}
+	// We can now add the witness for the OP_TRUE spend of the commitment
+	// output to the vPackets.
+	ctxb := context.Background()
+	if err := signCommitVirtualPackets(ctxb, vPackets); err != nil {
+		return nil, nil, fmt.Errorf("error signing commit virtual "+
+			"packets: %w", err)
 	}
 
 	outCommitments, err := tapsend.CreateOutputCommitments(vPackets)
@@ -739,10 +711,7 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		initiatorAssetBalance)
 
 	// Next, we add the HTLC outputs, using this helper function to
-	// distinguish between incoming and outgoing HTLCs. The haveHtlcSplit
-	// boolean is used to store if one of the HTLCs has already been chosen
-	// to be the split root (only the very first HTLC might be chosen).
-	var haveHtlcSplitRoot bool
+	// distinguish between incoming and outgoing HTLCs.
 	addHtlc := func(htlc *DecodedDescriptor, isIncoming bool) error {
 		htlcScript, err := lnwallet.GenTaprootHtlcScript(
 			isIncoming, whoseCommit, htlc.Timeout, htlc.RHash,
@@ -758,21 +727,6 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 		if err != nil {
 			return fmt.Errorf("error creating HTLC script "+
 				"sibling: %w", err)
-		}
-
-		// We should always just have a single split root, which
-		// normally is the initiator's balance. However, if the
-		// initiator has no balance, then we choose the very first HTLC
-		// in the list to be the split root. If there are no HTLCs, then
-		// all the balance is on the receiver side and we don't need a
-		// split root.
-		shouldHouseSplitRoot := initiatorAssetBalance == 0 &&
-			!haveHtlcSplitRoot
-
-		// Make sure we only select the very first HTLC that pays to the
-		// initiator.
-		if shouldHouseSplitRoot {
-			haveHtlcSplitRoot = true
 		}
 
 		allocType := tapsend.CommitAllocationHtlcOutgoing
@@ -822,7 +776,6 @@ func CreateAllocations(chanState lnwallet.AuxChanState, ourBalance,
 			Type:           allocType,
 			Amount:         rfqmsg.Sum(htlc.AssetBalances),
 			AssetVersion:   asset.V1,
-			SplitRoot:      shouldHouseSplitRoot,
 			BtcAmount:      htlc.Amount.ToSatoshis(),
 			InternalKey:    htlcTree.InternalKey,
 			NonAssetLeaves: sibling,
@@ -1026,7 +979,6 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			Type:           tapsend.CommitAllocationToLocal,
 			Amount:         ourAssetBalance,
 			AssetVersion:   asset.V1,
-			SplitRoot:      initiator,
 			BtcAmount:      ourBalance,
 			InternalKey:    toLocalTree.InternalKey,
 			NonAssetLeaves: sibling,
@@ -1089,7 +1041,6 @@ func addCommitmentOutputs(chanType channeldb.ChannelType, localChanCfg,
 			Type:           tapsend.CommitAllocationToRemote,
 			Amount:         theirAssetBalance,
 			AssetVersion:   asset.V1,
-			SplitRoot:      !initiator,
 			BtcAmount:      theirBalance,
 			InternalKey:    toRemoteTree.InternalKey,
 			NonAssetLeaves: sibling,
@@ -1500,6 +1451,55 @@ func FakeCommitTx(fundingOutpoint wire.OutPoint,
 	}
 
 	return fakeCommitTx, nil
+}
+
+// deriveFundingScriptKey derives the funding script key that'll be used to
+// fund the channel. If an asset ID is provided, then a unique funding script
+// key will be derived for that asset ID.
+func deriveFundingScriptKey(ctx context.Context, addrBook address.Storage,
+	assetID *asset.ID) (asset.ScriptKey, error) {
+
+	fundingScriptTree := tapscript.NewChannelFundingScriptTree()
+
+	// If we're using more than one asset ID in a channel, then this will be
+	// called with the actual asset ID set. So we need to use a different
+	// function to generate the funding script key.
+	if assetID != nil {
+		scriptKey, err := tapscript.NewChannelFundingScriptTreeUniqueID(
+			*assetID,
+		)
+		if err != nil {
+			return asset.ScriptKey{}, fmt.Errorf("error deriving "+
+				"funding script key for asset ID %s: %w",
+				assetID.String(), err)
+		}
+
+		fundingScriptTree = scriptKey
+	}
+
+	fundingTaprootKey, _ := schnorr.ParsePubKey(
+		schnorr.SerializePubKey(fundingScriptTree.TaprootKey),
+	)
+	fundingScriptKey := asset.ScriptKey{
+		PubKey: fundingTaprootKey,
+		TweakedScriptKey: &asset.TweakedScriptKey{
+			RawKey: keychain.KeyDescriptor{
+				PubKey: fundingScriptTree.InternalKey,
+			},
+			Tweak: fundingScriptTree.TapscriptRoot,
+		},
+	}
+
+	// We'll also need to import the funding script key into the wallet so
+	// the asset will be materialized in the asset table and show up in the
+	// balance correctly.
+	err := addrBook.InsertScriptKey(ctx, fundingScriptKey, true)
+	if err != nil {
+		return asset.ScriptKey{}, fmt.Errorf("unable to insert script "+
+			"key: %w", err)
+	}
+
+	return fundingScriptKey, nil
 }
 
 // InPlaceCustomCommitSort performs an in-place sort of a transaction, given a
