@@ -738,7 +738,13 @@ func testReattemptFailedSendHashmailCourier(t *harnessTest) {
 	require.NoError(t.t, t.tapd.stop(false))
 
 	// Send asset and then mine to confirm the associated on-chain tx.
-	sendAssetsToAddr(t, sendTapd, recvAddr)
+	//
+	// We skip the proof courier ping check so that we can ensure that proof
+	// transfer is reattempted.
+	sendAsset(
+		t, sendTapd, withReceiverAddresses(recvAddr),
+		withSkipProofCourierPingCheck(),
+	)
 	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// Define a target event selector to match the backoff wait
@@ -842,7 +848,10 @@ func testReattemptProofTransferOnTapdRestart(t *harnessTest) {
 	// Start asset transfer and then mine to confirm the associated on-chain
 	// tx. The on-chain tx should be mined successfully, but we expect the
 	// asset proof transfer to be unsuccessful.
-	sendResp, _ := sendAssetsToAddr(t, sendTapd, recvAddr)
+	sendResp, _ := sendAsset(
+		t, sendTapd, withReceiverAddresses(recvAddr),
+		withSkipProofCourierPingCheck(),
+	)
 	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// Define a target event selector to match the backoff wait
@@ -997,7 +1006,13 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	require.NoError(t.t, t.proofCourier.Stop())
 
 	// Send asset and then mine to confirm the associated on-chain tx.
-	sendAssetsToAddr(t, sendTapd, recvAddr)
+	//
+	// We skip the proof courier ping check so that we can ensure that proof
+	// transfer is reattempted.
+	sendAsset(
+		t, sendTapd, withReceiverAddresses(recvAddr),
+		withSkipProofCourierPingCheck(),
+	)
 	_ = MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// Define a target event selector to match the backoff wait
@@ -1009,7 +1024,7 @@ func testReattemptFailedSendUniCourier(t *harnessTest) {
 	// Expected number of events is one less than the number of
 	// tries because the first attempt does not count as a backoff
 	// event.
-	nodeBackoffCfg := sendTapd.clientCfg.HashMailCourier.BackoffCfg
+	nodeBackoffCfg := sendTapd.clientCfg.UniverseRpcCourier.BackoffCfg
 	expectedEventCount := nodeBackoffCfg.NumTries - 1
 
 	// Context timeout scales with expected number of events.
@@ -1104,7 +1119,10 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	// Start asset transfer and then mine to confirm the associated on-chain
 	// tx. The on-chain tx should be mined successfully, but we expect the
 	// asset proof transfer to be unsuccessful.
-	sendAssetsToAddr(t, sendTapd, recvAddr)
+	sendAsset(
+		t, sendTapd, withReceiverAddresses(recvAddr),
+		withSkipProofCourierPingCheck(),
+	)
 	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// There may be a delay between mining the anchoring transaction and
@@ -1178,7 +1196,10 @@ func testSpendChangeOutputWhenProofTransferFail(t *harnessTest) {
 	require.NoError(t.t, err)
 	AssertAddrCreated(t.t, recvTapd, rpcAssets[0], recvAddr)
 
-	sendAssetsToAddr(t, sendTapd, recvAddr)
+	sendAsset(
+		t, sendTapd, withReceiverAddresses(recvAddr),
+		withSkipProofCourierPingCheck(),
+	)
 	MineBlocks(t.t, t.lndHarness.Miner().Client, 1, 1)
 
 	// There may be a delay between mining the anchoring transaction and
