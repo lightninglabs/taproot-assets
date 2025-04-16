@@ -16,6 +16,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/fn"
 	"github.com/lightninglabs/taproot-assets/mssmt"
 	"github.com/lightninglabs/taproot-assets/proof"
+	lfn "github.com/lightningnetwork/lnd/fn/v2"
 )
 
 var (
@@ -767,6 +768,12 @@ const (
 
 	// ProofTypeTransfer corresponds to the transfer proof type.
 	ProofTypeTransfer
+
+	// ProofTypeIgnore corresponds to the ignore proof type.
+	ProofTypeIgnore
+
+	// ProofTypeBurn corresponds to the burn proof type.
+	ProofTypeBurn
 )
 
 // NewProofTypeFromAsset returns the proof type for the given asset proof.
@@ -791,6 +798,10 @@ func (t ProofType) String() string {
 		return "issuance"
 	case ProofTypeTransfer:
 		return "transfer"
+	case ProofTypeIgnore:
+		return "ignore"
+	case ProofTypeBurn:
+		return "burn"
 	}
 
 	return fmt.Sprintf("unknown(%v)", int(t))
@@ -805,6 +816,10 @@ func ParseStrProofType(typeStr string) (ProofType, error) {
 		return ProofTypeIssuance, nil
 	case "transfer":
 		return ProofTypeTransfer, nil
+	case "ignore":
+		return ProofTypeIgnore, nil
+	case "burn":
+		return ProofTypeBurn, nil
 	default:
 		return 0, fmt.Errorf("unknown proof type: %v", typeStr)
 	}
@@ -1175,4 +1190,50 @@ type Telemetry interface {
 	// day.
 	QueryAssetStatsPerDay(ctx context.Context,
 		q GroupedStatsQuery) ([]*GroupedStats, error)
+}
+
+// AuthenticatedIgnoreTuple wraps the existing SignedIgnoreTuple struct and
+// includes information that allows it to be authenticated against an ignore
+// tree universe root.
+//
+// TODO(roasbeef): supplement with bitcoin header proof
+type AuthenticatedIgnoreTuple struct {
+	SignedIgnoreTuple
+
+	// IgnoreTreeRoot is the root of the ignore tree that the ignore tuple
+	// resides within.
+	IgnoreTreeRoot mssmt.Node
+
+	// InclusionProof is the universe inclusion proof for the ignore tuple
+	// within the universe tree.
+	InclusionProof *mssmt.Proof
+}
+
+// TupleQueryResp is the response to a query for ignore tuples.
+type TupleQueryResp = lfn.Result[lfn.Option[[]AuthenticatedIgnoreTuple]]
+
+// SumQueryResp is the response to a query for the sum of ignore tuples.
+type SumQueryResp = lfn.Result[lfn.Option[uint64]]
+
+// AuthIgnoreTuples is a type alias for a slice of AuthenticatedIgnoreTuple.
+type AuthIgnoreTuples = []AuthenticatedIgnoreTuple
+
+// IgnoreTree represents a tree of ignore tuples which can be used to
+// effectively cache rejection of invalid proofs.
+type IgnoreTree interface {
+	// Sum returns the sum of the ignore tuples for the given asset.
+	Sum(context.Context, asset.Specifier) SumQueryResp
+
+	// AddTuple adds a new ignore tuples to the ignore tree.
+	//
+	// TODO(roasbeef): does all the signing under the hood?
+	AddTuples(context.Context, asset.Specifier,
+		...SignedIgnoreTuple) lfn.Result[AuthIgnoreTuples]
+
+	// ListTuples returns the list of ignore tuples for the given asset.
+	ListTuples(context.Context, asset.Specifier) lfn.Result[IgnoreTuples]
+
+	// QueryTuples returns the ignore tuples for the given asset.
+	QueryTuples(context.Context, asset.Specifier,
+		...IgnoreTuple) TupleQueryResp
 }

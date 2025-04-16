@@ -68,6 +68,7 @@ type Querier interface {
 	FetchGenesisByAssetID(ctx context.Context, assetID []byte) (GenesisInfoView, error)
 	FetchGenesisByID(ctx context.Context, genAssetID int64) (FetchGenesisByIDRow, error)
 	FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) (int64, error)
+	FetchGenesisIDByAssetID(ctx context.Context, assetID []byte) (int64, error)
 	FetchGenesisPointByAnchorTx(ctx context.Context, anchorTxID sql.NullInt64) (GenesisPoint, error)
 	FetchGroupByGenesis(ctx context.Context, genesisID int64) (FetchGroupByGenesisRow, error)
 	// Sort and limit to return the genesis ID for initial genesis of the group.

@@ -1210,6 +1210,19 @@ func (q *Queries) FetchGenesisID(ctx context.Context, arg FetchGenesisIDParams) 
 	return gen_asset_id, err
 }
 
+const FetchGenesisIDByAssetID = `-- name: FetchGenesisIDByAssetID :one
+SELECT gen_asset_id
+FROM genesis_assets
+WHERE asset_id = $1
+`
+
+func (q *Queries) FetchGenesisIDByAssetID(ctx context.Context, assetID []byte) (int64, error) {
+	row := q.db.QueryRowContext(ctx, FetchGenesisIDByAssetID, assetID)
+	var gen_asset_id int64
+	err := row.Scan(&gen_asset_id)
+	return gen_asset_id, err
+}
+
 const FetchGenesisPointByAnchorTx = `-- name: FetchGenesisPointByAnchorTx :one
 SELECT genesis_id, prev_out, anchor_tx_id 
 FROM genesis_points

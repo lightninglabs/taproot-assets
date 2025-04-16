@@ -1297,11 +1297,12 @@ INSERT INTO universe_leaves (
 ) VALUES (
     $1, $2, $3, $4,
     $5, $6
-) ON CONFLICT (minting_point, script_key_bytes)
+) ON CONFLICT (minting_point, script_key_bytes, leaf_node_namespace)
     -- This is a NOP, minting_point and script_key_bytes are the unique fields
     -- that caused the conflict.
     DO UPDATE SET minting_point = EXCLUDED.minting_point,
-                  script_key_bytes = EXCLUDED.script_key_bytes
+                  script_key_bytes = EXCLUDED.script_key_bytes,
+                  leaf_node_namespace = EXCLUDED.leaf_node_namespace
 `
 
 type UpsertUniverseLeafParams struct {
