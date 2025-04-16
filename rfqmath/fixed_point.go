@@ -186,6 +186,23 @@ func (f FixedPoint[T]) WithinTolerance(
 	return result, nil
 }
 
+// AddTolerance applies the given tolerance expressed in parts per million (ppm)
+// to the provided amount.
+func AddTolerance(value, tolerancePpm BigInt) BigInt {
+	// A placeholder variable for ppm value denominator (1 million).
+	ppmBase := NewBigIntFromUint64(1_000_000)
+
+	// Convert the tolerancePpm value to the actual units that express this
+	// margin.
+	toleranceUnits := value.Mul(tolerancePpm).Div(ppmBase)
+
+	res := value.Add(toleranceUnits)
+
+	// We now add the tolerance margin to the original value and return the
+	// result.
+	return res
+}
+
 // FixedPointFromUint64 creates a new FixedPoint from the given integer and
 // scale. Note that the input here should be *unscaled*.
 func FixedPointFromUint64[N Int[N]](value uint64, scale uint8) FixedPoint[N] {
