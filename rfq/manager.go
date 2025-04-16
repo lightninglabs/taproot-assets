@@ -1012,6 +1012,12 @@ func (m *Manager) AssetMatchesSpecifier(ctx context.Context,
 	}
 }
 
+// GetPriceDeviationPpm returns the configured price deviation in ppm that is
+// used in rfq negotiations.
+func (m *Manager) GetPriceDeviationPpm() uint64 {
+	return m.cfg.AcceptPriceDeviationPpm
+}
+
 // ChannelCompatible checks a channel's assets against an asset specifier. If
 // the specifier is an asset ID, then all assets must be of that specific ID,
 // if the specifier is a group key, then all assets in the channel must belong
