@@ -181,7 +181,7 @@ type PsbtChannelFunder interface {
 type TxPublisher interface {
 	// PublishTransaction attempts to publish a new transaction to the
 	// network.
-	PublishTransaction(context.Context, *wire.MsgTx) error
+	PublishTransaction(context.Context, *wire.MsgTx, string) error
 }
 
 // AssetSyncer is used to ensure that we know of the set of assets that'll be
