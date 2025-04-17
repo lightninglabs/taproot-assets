@@ -81,27 +81,30 @@ func (s *AuxTrafficShaper) Stop() error {
 // it is handled by the traffic shaper, then the normal bandwidth calculation
 // can be skipped and the bandwidth returned by PaymentBandwidth should be used
 // instead.
-func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
-	fundingBlob, _ lfn.Option[tlv.Blob]) (bool, error) {
+func (s *AuxTrafficShaper) ShouldHandleTraffic(cid lnwire.ShortChannelID,
+	_, htlcBlob lfn.Option[tlv.Blob]) (bool, error) {
 
-	// If there is no auxiliary blob in the channel, it's not a custom
-	// channel, and we don't need to handle it.
-	if fundingBlob.IsNone() {
-		log.Tracef("No aux funding blob set, not handling traffic")
+	// The rule here is simple: If the HTLC is an asset HTLC, we _need_ to
+	// handle the bandwidth. Because of non-strict forwarding in lnd, it
+	// could otherwise be the case that we forward an asset HTLC on a
+	// non-asset channel, which would be a problem.
+	htlcBytes := htlcBlob.UnwrapOr(nil)
+	if len(htlcBytes) == 0 {
+		log.Tracef("Empty HTLC blob, not handling traffic for %v", cid)
 		return false, nil
 	}
 
-	// If we can successfully decode the channel blob as a channel capacity
-	// information, we know that this is a custom channel.
-	err := lfn.MapOptionZ(fundingBlob, func(blob tlv.Blob) error {
-		_, err := cmsg.DecodeOpenChannel(blob)
-		return err
-	})
-	if err != nil {
-		return false, err
+	// If there are no asset HTLC custom records, we don't need to do
+	// anything as this is a regular payment.
+	if !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
+		log.Tracef("No asset HTLC custom records, not handling "+
+			"traffic for %v", cid)
+		return false, nil
 	}
 
-	// No error, so this is a custom channel, we'll want to decide.
+	// If this _is_ an asset HTLC, we definitely want to handle the
+	// bandwidth for this channel, so we can deny forwarding asset HTLCs
+	// over non-asset channels.
 	return true, nil
 }
 
@@ -110,38 +113,32 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // is no bandwidth available. To find out if a channel is a custom channel that
 // should be handled by the traffic shaper, the HandleTraffic method should be
 // called first.
-func (s *AuxTrafficShaper) PaymentBandwidth(_, htlcBlob,
+func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
 	htlcAmt lnwire.MilliSatoshi,
 	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
-	// If the commitment or HTLC blob is not set, we don't have any
-	// information about the channel and cannot determine the available
-	// bandwidth from a taproot asset perspective. We return the link
-	// bandwidth as a fallback.
-	if commitmentBlob.IsNone() || htlcBlob.IsNone() {
-		log.Tracef("No commitment or HTLC blob set, returning link "+
-			"bandwidth %v", linkBandwidth)
+	fundingBlobBytes := fundingBlob.UnwrapOr(nil)
+	htlcBytes := htlcBlob.UnwrapOr(nil)
+	commitmentBytes := commitmentBlob.UnwrapOr(nil)
+
+	// If the HTLC is not an asset HTLC, we can just return the normal link
+	// bandwidth, as we don't need to do any special math. We shouldn't even
+	// get here in the first place, since the ShouldHandleTraffic function
+	// should return false in this case.
+	if len(htlcBytes) == 0 || !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
+		log.Tracef("Empty HTLC blob or no asset HTLC custom records, "+
+			"returning link bandwidth %v", linkBandwidth)
 		return linkBandwidth, nil
 	}
 
-	commitmentBytes := commitmentBlob.UnsafeFromSome()
-	htlcBytes := htlcBlob.UnsafeFromSome()
-
-	// Sometimes the blob is set but actually empty, in which case we also
-	// don't have any information about the channel.
-	if len(commitmentBytes) == 0 || len(htlcBytes) == 0 {
-		log.Tracef("Empty commitment or HTLC blob, returning link "+
-			"bandwidth %v", linkBandwidth)
-		return linkBandwidth, nil
-	}
-
-	// If there are no asset HTLC custom records, we don't need to do
-	// anything as this is a regular payment.
-	if !rfqmsg.HasAssetHTLCEntries(htlcBytes) {
-		log.Tracef("No asset HTLC custom records, returning link "+
-			"bandwidth %v", linkBandwidth)
-		return linkBandwidth, nil
+	// If this is an asset HTLC but the channel is not an asset channel, we
+	// MUST deny forwarding the HTLC.
+	if len(commitmentBytes) == 0 || len(fundingBlobBytes) == 0 {
+		log.Tracef("Empty commitment or funding blob, cannot forward" +
+			"asset HTLC over non-asset channel, returning 0 " +
+			"bandwidth")
+		return 0, nil
 	}
 
 	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
