@@ -460,6 +460,16 @@ func (p *Proof) Decode(r io.Reader) error {
 	return nil
 }
 
+// Bytes returns the serialized proof.
+func (p *Proof) Bytes() ([]byte, error) {
+	var buf bytes.Buffer
+	err := p.Encode(&buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // Record returns a TLV record that can be used to encode/decode a Proof to/from
 // a TLV stream.
 //
