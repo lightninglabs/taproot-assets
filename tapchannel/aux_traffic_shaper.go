@@ -144,28 +144,6 @@ func (s *AuxTrafficShaper) PaymentBandwidth(_, htlcBlob,
 		return linkBandwidth, nil
 	}
 
-	// Get the minimum HTLC amount, which is just above dust.
-	minHtlcAmt := rfqmath.DefaultOnChainHtlcMSat
-
-	// LND calls this hook twice. Once to see if the overall budget of the
-	// node is enough, and then during pathfinding to actually see if
-	// there's enough balance in the channel to make the payment attempt.
-	//
-	// When doing the overall balance check, we don't know what the actual
-	// htlcAmt is in satoshis, so a value of 0 will be passed here. Let's at
-	// least check if we can afford the min amount above dust. If the actual
-	// htlc amount ends up being greater when calling this method during
-	// pathfinding, we will still check it below.
-
-	// If the passed htlcAmt is below dust, then assume the dust amount. At
-	// this point we know we are sending assets, so we cannot anchor them to
-	// dust amounts. Dust HTLCs are added to the fees and aren't
-	// materialized in an on-chain output, so we wouldn't have anything
-	// to anchor the asset commitment to.
-	if htlcAmt < minHtlcAmt {
-		htlcAmt = minHtlcAmt
-	}
-
 	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
 	if err != nil {
 		return 0, fmt.Errorf("error decoding commitment blob: %w", err)
@@ -195,6 +173,28 @@ func (s *AuxTrafficShaper) PaymentBandwidth(_, htlcBlob,
 		lnutils.NewLogClosure(func() string {
 			return prettyPrintLocalView(*decodedView)
 		}))
+
+	// Get the minimum HTLC amount, which is just above dust.
+	minHtlcAmt := rfqmath.DefaultOnChainHtlcMSat
+
+	// LND calls this hook twice. Once to see if the overall budget of the
+	// node is enough, and then during pathfinding to actually see if
+	// there's enough balance in the channel to make the payment attempt.
+	//
+	// When doing the overall balance check, we don't know what the actual
+	// htlcAmt is in satoshis, so a value of 0 will be passed here. Let's at
+	// least check if we can afford the min amount above dust. If the actual
+	// htlc amount ends up being greater when calling this method during
+	// pathfinding, we will still check it below.
+
+	// If the passed htlcAmt is below dust, then assume the dust amount. At
+	// this point we know we are sending assets, so we cannot anchor them to
+	// dust amounts. Dust HTLCs are added to the fees and aren't
+	// materialized in an on-chain output, so we wouldn't have anything
+	// to anchor the asset commitment to.
+	if htlcAmt < minHtlcAmt {
+		htlcAmt = minHtlcAmt
+	}
 
 	// If the HTLC carries asset units (keysend, forwarding), then there's
 	// no need to do any RFQ related math. We can directly compare the asset
