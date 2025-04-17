@@ -512,6 +512,16 @@
           "type": "string",
           "format": "uint64",
           "description": "The fee rate, expressed in sat/vbyte, that should be used to fund the\nBTC level anchor transaction."
+        },
+        "custom_lock_id": {
+          "type": "string",
+          "format": "byte",
+          "description": "The custom lock ID used to identify the lock lease for UTXOs that serve as\ninputs in the BTC-level anchor transaction. If left empty, LND's default\nlock ID will be used."
+        },
+        "lock_expiration_seconds": {
+          "type": "string",
+          "format": "uint64",
+          "description": "If set, the UTXOs used as inputs in the BTC-level anchor transaction will be\nlocked for the specified number of seconds. If unset, LND's default lock\nexpiration of 10 minutes will be applied."
         }
       }
     },

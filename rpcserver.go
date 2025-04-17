@@ -2532,8 +2532,10 @@ func (r *rpcServer) CommitVirtualPsbts(ctx context.Context,
 		Template: &walletrpc.FundPsbtRequest_CoinSelect{
 			CoinSelect: coinSelect,
 		},
-		MinConfs:   1,
-		ChangeType: P2TRChangeType,
+		MinConfs:              1,
+		ChangeType:            P2TRChangeType,
+		CustomLockId:          req.CustomLockId,
+		LockExpirationSeconds: req.LockExpirationSeconds,
 	}
 
 	// Unfortunately we can't use the same RPC types, so we have to do a
