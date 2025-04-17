@@ -3589,6 +3589,7 @@ func marshalOutboundParcel(
 			MerkleRoot:       out.Anchor.MerkleRoot[:],
 			TapscriptSibling: out.Anchor.TapscriptSibling,
 			NumPassiveAssets: out.Anchor.NumPassiveAssets,
+			PkScript:         out.Anchor.PkScript,
 		}
 		scriptPubKey := out.ScriptKey.PubKey
 

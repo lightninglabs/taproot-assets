@@ -224,6 +224,9 @@ type Anchor struct {
 	// NumPassiveAssets is the number of passive assets in the commitment
 	// for this anchor output.
 	NumPassiveAssets uint32
+
+	// PkScript is the pkScript of the anchor output.
+	PkScript []byte
 }
 
 // OutputIdentifier is a key that can be used to uniquely identify a transfer
