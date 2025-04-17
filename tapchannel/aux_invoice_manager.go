@@ -2,6 +2,7 @@ package tapchannel
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/lightninglabs/taproot-assets/rfqmath"
 	"github.com/lightninglabs/taproot-assets/rfqmsg"
 	"github.com/lightninglabs/taproot-assets/taprpc"
+	"github.com/lightningnetwork/lnd/invoices"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lnwire"
 	"github.com/lightningnetwork/lnd/routing/route"
@@ -77,6 +79,10 @@ type InvoiceManagerConfig struct {
 	// accepted quotes for determining the incoming value of invoice related
 	// HTLCs.
 	RfqManager RfqManager
+
+	// LndClient is the lnd client that will be used to interact with the
+	// lnd node.
+	LightningClient lndclient.LightningClient
 }
 
 // AuxInvoiceManager is a Taproot Asset auxiliary invoice manager that can be
@@ -206,7 +212,7 @@ func (s *AuxInvoiceManager) handleInvoiceAccept(ctx context.Context,
 	}
 
 	// We now run some validation checks on the asset HTLC.
-	err = s.validateAssetHTLC(ctx, htlc)
+	err = s.validateAssetHTLC(ctx, htlc, resp.CircuitKey)
 	if err != nil {
 		log.Errorf("Failed to validate asset HTLC: %v", err)
 
@@ -390,7 +396,7 @@ func isAssetInvoice(invoice *lnrpc.Invoice, rfqLookup RfqLookup) bool {
 
 // validateAssetHTLC runs a couple of checks on the provided asset HTLC.
 func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
-	htlc *rfqmsg.Htlc) error {
+	htlc *rfqmsg.Htlc, circuitKey invoices.CircuitKey) error {
 
 	rfqID := htlc.RfqID.ValOpt().UnsafeFromSome()
 
@@ -403,6 +409,7 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 
 	// Check for each of the asset balances of the HTLC that the identifier
 	// matches that of the RFQ quote.
+	assetIDs := fn.NewSet[asset.ID]()
 	for _, v := range htlc.Balances() {
 		match, err := s.cfg.RfqManager.AssetMatchesSpecifier(
 			ctx, identifier, v.AssetID.Val,
@@ -415,6 +422,47 @@ func (s *AuxInvoiceManager) validateAssetHTLC(ctx context.Context,
 			return fmt.Errorf("asset ID %s does not match %s",
 				v.AssetID.Val.String(), identifier.String())
 		}
+
+		assetIDs.Add(v.AssetID.Val)
+	}
+
+	// We also need to validate that the HTLC is actually the correct asset
+	// and arrived through the correct asset channel.
+	channels, err := s.cfg.LightningClient.ListChannels(ctx, true, false)
+	if err != nil {
+		return fmt.Errorf("unable to list channels: %w", err)
+	}
+
+	var inboundChannel *lndclient.ChannelInfo
+	for _, channel := range channels {
+		if channel.ChannelID == circuitKey.ChanID.ToUint64() {
+			inboundChannel = &channel
+			break
+		}
+	}
+
+	if inboundChannel == nil {
+		return fmt.Errorf("unable to find channel with short channel "+
+			"ID %d", circuitKey.ChanID.ToUint64())
+	}
+
+	if len(inboundChannel.CustomChannelData) == 0 {
+		return fmt.Errorf("channel %d does not have custom channel "+
+			"data, can't accept asset HTLC over non-asset channel",
+			inboundChannel.ChannelID)
+	}
+
+	var assetData rfqmsg.JsonAssetChannel
+	err = json.Unmarshal(inboundChannel.CustomChannelData, &assetData)
+	if err != nil {
+		return fmt.Errorf("unable to unmarshal channel asset data: %w",
+			err)
+	}
+
+	if !assetData.HasAllAssetIDs(assetIDs) {
+		return fmt.Errorf("channel %d does not have all asset IDs "+
+			"required for HTLC settlement",
+			inboundChannel.ChannelID)
 	}
 
 	return nil
