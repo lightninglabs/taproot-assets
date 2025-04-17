@@ -12,7 +12,6 @@ import (
 	"github.com/btcsuite/btcd/btcutil"
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/davecgh/go-spew/spew"
 	proxy "github.com/grpc-ecosystem/grpc-gateway/v2/runtime"
 	"github.com/lightninglabs/lndclient"
 	"github.com/lightninglabs/taproot-assets/address"
@@ -34,6 +33,7 @@ import (
 	"github.com/lightningnetwork/lnd/lncfg"
 	"github.com/lightningnetwork/lnd/lnrpc"
 	"github.com/lightningnetwork/lnd/lntypes"
+	"github.com/lightningnetwork/lnd/lnutils"
 	"github.com/lightningnetwork/lnd/lnwallet"
 	lnwl "github.com/lightningnetwork/lnd/lnwallet"
 	"github.com/lightningnetwork/lnd/lnwallet/chancloser"
@@ -999,9 +999,9 @@ func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 	fundingBlob, htlcBlob lfn.Option[tlv.Blob]) (bool, error) {
 
-	srvrLog.Debugf("HandleTraffic called (cid=%v, fundingBlob=%v, "+
-		"htlcBlob=%v)", cid, fundingBlob.UnwrapOr(tlv.Blob{}),
-		htlcBlob.UnwrapOr(tlv.Blob{}))
+	srvrLog.Debugf("HandleTraffic called, cid=%v, fundingBlob=%v, "+
+		"htlcBlob=%v", cid, lnutils.SpewLogClosure(fundingBlob),
+		lnutils.SpewLogClosure(htlcBlob))
 
 	if err := s.waitForReady(); err != nil {
 		return false, err
@@ -1025,8 +1025,9 @@ func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
 	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
 	srvrLog.Debugf("PaymentBandwidth called, fundingBlob=%v, htlcBlob=%v, "+
-		"commitmentBlob=%v", spew.Sdump(fundingBlob),
-		spew.Sdump(htlcBlob), spew.Sdump(commitmentBlob))
+		"commitmentBlob=%v", lnutils.SpewLogClosure(fundingBlob),
+		lnutils.SpewLogClosure(htlcBlob),
+		lnutils.SpewLogClosure(commitmentBlob))
 
 	if err := s.waitForReady(); err != nil {
 		return 0, err
@@ -1048,7 +1049,8 @@ func (s *Server) ProduceHtlcExtraData(totalAmount lnwire.MilliSatoshi,
 	lnwire.CustomRecords, error) {
 
 	srvrLog.Debugf("ProduceHtlcExtraData called, totalAmount=%d, "+
-		"htlcBlob=%v", totalAmount, spew.Sdump(htlcCustomRecords))
+		"htlcBlob=%v", totalAmount,
+		lnutils.SpewLogClosure(htlcCustomRecords))
 
 	if err := s.waitForReady(); err != nil {
 		return 0, nil, err
@@ -1079,7 +1081,8 @@ func (s *Server) AuxCloseOutputs(
 	desc chancloser.AuxCloseDesc) (lfn.Option[chancloser.AuxCloseOutputs],
 	error) {
 
-	srvrLog.Tracef("AuxCloseOutputs called, desc=%v", spew.Sdump(desc))
+	srvrLog.Tracef("AuxCloseOutputs called, desc=%v",
+		lnutils.SpewLogClosure(desc))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.None[chancloser.AuxCloseOutputs](), err
@@ -1096,7 +1099,8 @@ func (s *Server) ShutdownBlob(
 	req chancloser.AuxShutdownReq) (lfn.Option[lnwire.CustomRecords],
 	error) {
 
-	srvrLog.Tracef("ShutdownBlob called, req=%v", spew.Sdump(req))
+	srvrLog.Tracef("ShutdownBlob called, req=%v",
+		lnutils.SpewLogClosure(req))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.None[lnwire.CustomRecords](), err
@@ -1114,7 +1118,7 @@ func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 	closeTx *wire.MsgTx) error {
 
 	srvrLog.Tracef("FinalizeClose called, desc=%v, closeTx=%v",
-		spew.Sdump(desc), spew.Sdump(closeTx))
+		lnutils.SpewLogClosure(desc), lnutils.SpewLogClosure(closeTx))
 
 	if err := s.waitForReady(); err != nil {
 		return err
@@ -1128,7 +1132,8 @@ func (s *Server) FinalizeClose(desc chancloser.AuxCloseDesc,
 //
 // NOTE: This method is part of the lnwallet.AuxContractResolver interface.
 func (s *Server) ResolveContract(req lnwl.ResolutionReq) lfn.Result[tlv.Blob] {
-	srvrLog.Tracef("ResolveContract called, req=%v", spew.Sdump(req))
+	srvrLog.Tracef("ResolveContract called, req=%v",
+		lnutils.SpewLogClosure(req))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.Err[tlv.Blob](err)
@@ -1146,7 +1151,7 @@ func (s *Server) DeriveSweepAddr(inputs []input.Input,
 	change lnwl.AddrWithKey) lfn.Result[sweep.SweepOutput] {
 
 	srvrLog.Tracef("DeriveSweepAddr called, inputs=%v, change=%v",
-		spew.Sdump(inputs), spew.Sdump(change))
+		lnutils.SpewLogClosure(inputs), lnutils.SpewLogClosure(change))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.Err[sweep.SweepOutput](err)
@@ -1163,7 +1168,7 @@ func (s *Server) ExtraBudgetForInputs(
 	inputs []input.Input) lfn.Result[btcutil.Amount] {
 
 	srvrLog.Tracef("ExtraBudgetForInputs called, inputs=%v",
-		spew.Sdump(inputs))
+		lnutils.SpewLogClosure(inputs))
 
 	if err := s.waitForReady(); err != nil {
 		return lfn.Err[btcutil.Amount](err)
@@ -1181,8 +1186,9 @@ func (s *Server) NotifyBroadcast(req *sweep.BumpRequest,
 	outpointToTxIndex map[wire.OutPoint]int) error {
 
 	srvrLog.Tracef("NotifyBroadcast called, req=%v, tx=%v, fee=%v, "+
-		"out_index=%v", spew.Sdump(req), spew.Sdump(tx), fee,
-		spew.Sdump(outpointToTxIndex))
+		"out_index=%v", lnutils.SpewLogClosure(req),
+		lnutils.SpewLogClosure(tx), fee,
+		lnutils.SpewLogClosure(outpointToTxIndex))
 
 	if err := s.waitForReady(); err != nil {
 		return err
