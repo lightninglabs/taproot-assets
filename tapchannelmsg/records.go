@@ -157,6 +157,26 @@ func (o *OpenChannel) Bytes() []byte {
 	return buf.Bytes()
 }
 
+// HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
+// provided set. It returns true if all asset IDs are present, false otherwise.
+func (o *OpenChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
+	for id := range ids {
+		found := false
+		for _, output := range o.Assets() {
+			if output.AssetID.Val == id {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
+}
+
 // DecodeOpenChannel deserializes an OpenChannel from the given blob.
 func DecodeOpenChannel(blob tlv.Blob) (*OpenChannel, error) {
 	var o OpenChannel
@@ -534,6 +554,42 @@ func (c *Commitment) Leaves() lnwallet.CommitAuxLeaves {
 	}
 
 	return leaves
+}
+
+// HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
+// provided set. It returns true if all asset IDs are present, false otherwise.
+func (c *Commitment) HasAllAssetIDs(assetIDs fn.Set[asset.ID]) bool {
+	// First, we collect all possible asset IDs from the local and remote
+	// outputs, including the HTLCs.
+	channelAssetIDs := fn.NewSet[asset.ID]()
+	for _, local := range c.LocalOutputs() {
+		channelAssetIDs.Add(local.AssetID.Val)
+	}
+	for _, remote := range c.RemoteOutputs() {
+		channelAssetIDs.Add(remote.AssetID.Val)
+	}
+	for _, incoming := range c.IncomingHtlcAssets.Val.Outputs() {
+		channelAssetIDs.Add(incoming.AssetID.Val)
+	}
+	for _, outgoing := range c.OutgoingHtlcAssets.Val.Outputs() {
+		channelAssetIDs.Add(outgoing.AssetID.Val)
+	}
+
+	for id := range assetIDs {
+		found := false
+		for channelAssetID := range channelAssetIDs {
+			if channelAssetID == id {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // DecodeCommitment deserializes a Commitment from the given blob.
