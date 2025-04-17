@@ -1,7 +1,6 @@
 package tapfreighter
 
 import (
-	"bytes"
 	"fmt"
 	"time"
 
@@ -611,8 +610,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 			"missing", vOutIdx)
 	}
 
-	var proofSuffixBuf bytes.Buffer
-	err := vOut.ProofSuffix.Encode(&proofSuffixBuf)
+	proofSuffixBytes, err := vOut.ProofSuffix.Bytes()
 	if err != nil {
 		return nil, fmt.Errorf("unable to encode proof %d: %w",
 			vOutIdx, err)
@@ -633,7 +631,7 @@ func transferOutput(vPkt *tappsbt.VPacket, vOutIdx int, position uint64,
 		AssetVersion:        vOut.AssetVersion,
 		WitnessData:         vOut.Asset.PrevWitnesses,
 		SplitCommitmentRoot: vOut.Asset.SplitCommitmentRoot,
-		ProofSuffix:         proofSuffixBuf.Bytes(),
+		ProofSuffix:         proofSuffixBytes,
 		ProofCourierAddr:    proofCourierAddrBytes,
 		ScriptKeyLocal:      isLocalKey(vOut.ScriptKey),
 		Position:            position,

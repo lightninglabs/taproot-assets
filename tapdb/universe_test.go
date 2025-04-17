@@ -1,7 +1,6 @@
 package tapdb
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"math"
@@ -220,9 +219,10 @@ func randMintingLeaf(t *testing.T, assetGen asset.Genesis,
 
 	leaf.Asset = &randProof.Asset
 
-	var proofBuf bytes.Buffer
-	require.NoError(t, randProof.Encode(&proofBuf))
-	leaf.RawProof = proofBuf.Bytes()
+	proofBytes, err := randProof.Bytes()
+	require.NoError(t, err)
+
+	leaf.RawProof = proofBytes
 
 	return leaf
 }
@@ -385,11 +385,12 @@ func TestUniverseIssuanceProofs(t *testing.T) {
 	for idx := range testLeaves {
 		testLeaf := &testLeaves[idx]
 
-		var proofBuf bytes.Buffer
 		randProof := randProof(t, nil)
-		require.NoError(t, randProof.Encode(&proofBuf))
 
-		testLeaf.Leaf.RawProof = proofBuf.Bytes()
+		randProofBytes, err := randProof.Bytes()
+		require.NoError(t, err)
+
+		testLeaf.Leaf.RawProof = randProofBytes
 
 		targetKey := testLeaf.LeafKey
 		issuanceProof, err := baseUniverse.RegisterIssuance(

@@ -460,18 +460,27 @@ func (p *Proof) Decode(r io.Reader) error {
 	return nil
 }
 
+// Bytes returns the serialized proof.
+func (p *Proof) Bytes() ([]byte, error) {
+	var buf bytes.Buffer
+	err := p.Encode(&buf)
+	if err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
 // Record returns a TLV record that can be used to encode/decode a Proof to/from
 // a TLV stream.
 //
 // NOTE: This is part of the tlv.RecordProducer interface.
 func (p *Proof) Record() tlv.Record {
 	sizeFunc := func() uint64 {
-		var buf bytes.Buffer
-		err := p.Encode(&buf)
+		proofBytes, err := p.Bytes()
 		if err != nil {
 			panic(err)
 		}
-		return uint64(len(buf.Bytes()))
+		return uint64(len(proofBytes))
 	}
 
 	// Note that we set the type here as zero, as when used with a
@@ -554,15 +563,6 @@ func SparseDecode(r io.Reader, records ...tlv.Record) error {
 	}
 
 	return proofStream.Decode(r)
-}
-
-// Encode encodes a proof into a byte slice.
-func Encode(p *Proof) ([]byte, error) {
-	var b bytes.Buffer
-	if err := p.Encode(&b); err != nil {
-		return nil, err
-	}
-	return b.Bytes(), nil
 }
 
 // Decode decodes a proof from a byte slice.

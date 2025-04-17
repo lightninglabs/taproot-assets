@@ -1568,9 +1568,11 @@ func TestAssetExportLog(t *testing.T) {
 	receiverAsset.ScriptKey = newScriptKey2
 	receiverProof := randProof(t, receiverAsset)
 
-	var senderBlob, receiverBlob bytes.Buffer
-	require.NoError(t, senderProof.Encode(&senderBlob))
-	require.NoError(t, receiverProof.Encode(&receiverBlob))
+	senderProofBytes, err := senderProof.Bytes()
+	require.NoError(t, err)
+
+	receiverProofBytes, err := receiverProof.Bytes()
+	require.NoError(t, err)
 
 	// With the assets inserted, we'll now construct the struct that will be
 	// used to commit a new spend on disk.
@@ -1628,7 +1630,7 @@ func TestAssetExportLog(t *testing.T) {
 			),
 			// The receiver wants a V0 asset version.
 			AssetVersion: asset.V0,
-			ProofSuffix:  receiverBlob.Bytes(),
+			ProofSuffix:  receiverProofBytes,
 			Position:     0,
 		}, {
 			Anchor: tapfreighter.Anchor{
@@ -1663,7 +1665,7 @@ func TestAssetExportLog(t *testing.T) {
 			// As the sender, we'll send our change back to a V1
 			// asset version.
 			AssetVersion: asset.V1,
-			ProofSuffix:  senderBlob.Bytes(),
+			ProofSuffix:  senderProofBytes,
 			Position:     1,
 		}},
 	}
@@ -1684,14 +1686,14 @@ func TestAssetExportLog(t *testing.T) {
 				AssetID:   &assetID,
 				ScriptKey: *newScriptKey.PubKey,
 			},
-			Blob: receiverBlob.Bytes(),
+			Blob: receiverProofBytes,
 		},
 		senderIdentifier: {
 			Locator: proof.Locator{
 				AssetID:   &assetID,
 				ScriptKey: *newScriptKey2.PubKey,
 			},
-			Blob: senderBlob.Bytes(),
+			Blob: senderProofBytes,
 		},
 	}
 
@@ -1865,7 +1867,7 @@ func TestAssetExportLog(t *testing.T) {
 		TweakedScriptKey: newScriptKey.PubKey.SerializeCompressed(),
 	})
 	require.NoError(t, err)
-	require.Equal(t, receiverBlob.Bytes(), diskSenderBlob[0].ProofFile)
+	require.Equal(t, receiverProofBytes, diskSenderBlob[0].ProofFile)
 
 	// If we fetch the chain transaction again, then it should have the
 	// conf information populated.

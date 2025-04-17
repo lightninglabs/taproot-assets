@@ -106,7 +106,7 @@ func NewFile(v Version, proofs ...Proof) (*File, error) {
 	for idx := range proofs {
 		proof := proofs[idx]
 
-		proofBytes, err := encodeProof(&proof)
+		proofBytes, err := proof.Bytes()
 		if err != nil {
 			return nil, err
 		}
@@ -380,7 +380,7 @@ func (f *File) AppendProof(proof Proof) error {
 		prevHash = f.proofs[len(f.proofs)-1].hash
 	}
 
-	proofBytes, err := encodeProof(&proof)
+	proofBytes, err := proof.Bytes()
 	if err != nil {
 		return err
 	}
@@ -437,7 +437,7 @@ func (f *File) ReplaceProofAt(index uint32, proof Proof) error {
 		prevHash = f.proofs[index-1].hash
 	}
 
-	proofBytes, err := encodeProof(&proof)
+	proofBytes, err := proof.Bytes()
 	if err != nil {
 		return err
 	}
@@ -455,16 +455,6 @@ func (f *File) ReplaceProofAt(index uint32, proof Proof) error {
 	}
 
 	return nil
-}
-
-// encodeProof encodes the given proof and returns its raw bytes.
-func encodeProof(proof *Proof) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := proof.Encode(&buf); err != nil {
-		return nil, err
-	}
-
-	return buf.Bytes(), nil
 }
 
 // hashProof hashes a proof's content together with the previous hash and

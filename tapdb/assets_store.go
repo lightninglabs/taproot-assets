@@ -2910,8 +2910,7 @@ func logPendingPassiveAssets(ctx context.Context,
 		}
 
 		// Encode new proof.
-		var newProofBuf bytes.Buffer
-		err = passiveOut.ProofSuffix.Encode(&newProofBuf)
+		proofSuffixBytes, err := passiveOut.ProofSuffix.Bytes()
 		if err != nil {
 			return fmt.Errorf("unable to encode new passive "+
 				"asset proof: %w", err)
@@ -2935,7 +2934,7 @@ func logPendingPassiveAssets(ctx context.Context,
 				TransferID:      transferID,
 				NewAnchorUtxo:   newUtxoID,
 				NewWitnessStack: newWitnessBuf.Bytes(),
-				NewProof:        newProofBuf.Bytes(),
+				NewProof:        proofSuffixBytes,
 				PrevOutpoint:    prevOutpointBytes,
 				ScriptKey:       scriptKeyBytes,
 				AssetGenesisID:  passiveIn.PrevID.ID[:],

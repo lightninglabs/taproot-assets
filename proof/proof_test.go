@@ -297,9 +297,8 @@ func TestProofEncodingGroupKeyRevealV1(t *testing.T) {
 		require.NoError(t, err)
 		proof.AdditionalInputs = []File{*file, *file}
 
-		var proofBuf bytes.Buffer
-		require.NoError(t, proof.Encode(&proofBuf))
-		proofBytes := proofBuf.Bytes()
+		proofBytes, err := proof.Bytes()
+		require.NoError(t, err)
 
 		var decodedProof Proof
 		require.NoError(
@@ -324,9 +323,8 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 	proof.AdditionalInputs = []File{*file, *file}
 
-	var proofBuf bytes.Buffer
-	require.NoError(t, proof.Encode(&proofBuf))
-	proofBytes := proofBuf.Bytes()
+	proofBytes, err := proof.Bytes()
+	require.NoError(t, err)
 
 	var decodedProof Proof
 	require.NoError(t, decodedProof.Decode(bytes.NewReader(proofBytes)))
@@ -363,7 +361,7 @@ func TestProofEncoding(t *testing.T) {
 	require.NoError(t, err)
 	proof.AdditionalInputs = []File{*file, *file}
 
-	proofBuf.Reset()
+	var proofBuf bytes.Buffer
 	require.NoError(t, proof.Encode(&proofBuf))
 	var decodedProof2 Proof
 	require.NoError(t, decodedProof2.Decode(&proofBuf))
@@ -821,8 +819,7 @@ func TestGenesisProofVerification(t *testing.T) {
 			)
 			require.ErrorIs(t, err, tc.expectedErr)
 
-			var buf bytes.Buffer
-			err = genesisProof.Encode(&buf)
+			genesisProofBytes, err := genesisProof.Bytes()
 			require.NoError(tt, err)
 
 			if tc.expectedErr == nil {
@@ -833,7 +830,7 @@ func TestGenesisProofVerification(t *testing.T) {
 							t, &genesisProof,
 						),
 						Expected: hex.EncodeToString(
-							buf.Bytes(),
+							genesisProofBytes,
 						),
 						Comment: tc.name,
 					},
@@ -1233,12 +1230,11 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 
 			p := validCase.Proof.ToProof(tt)
 
-			var buf bytes.Buffer
-			err := p.Encode(&buf)
+			proofBytes, err := p.Bytes()
 			require.NoError(tt, err)
 
 			areEqual := validCase.Expected == hex.EncodeToString(
-				buf.Bytes(),
+				proofBytes,
 			)
 
 			// Make sure the proof in the test vectors doesn't use
@@ -1302,7 +1298,7 @@ func runBIPTestVector(t *testing.T, testVectors *TestVectors) {
 				// Make sure we still fail the test.
 				require.Equal(
 					tt, validCase.Expected,
-					hex.EncodeToString(buf.Bytes()),
+					hex.EncodeToString(proofBytes),
 				)
 			}
 
@@ -1453,11 +1449,10 @@ func TestProofUnknownOddType(t *testing.T) {
 			// The proof should've changed, to make sure the unknown
 			// value was taken into account when creating the
 			// serialized proof.
-			var newBuf bytes.Buffer
-			err := parsedProof.Encode(&newBuf)
+			parsedProofBytes, err := parsedProof.Bytes()
 			require.NoError(t, err)
 
-			require.NotEqual(t, knownProofBytes, newBuf.Bytes())
+			require.NotEqual(t, knownProofBytes, parsedProofBytes)
 
 			parsedProof.UnknownOddTypes = nil
 			require.Equal(t, &knownProof, parsedProof)
