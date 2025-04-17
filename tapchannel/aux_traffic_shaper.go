@@ -82,7 +82,7 @@ func (s *AuxTrafficShaper) Stop() error {
 // can be skipped and the bandwidth returned by PaymentBandwidth should be used
 // instead.
 func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
-	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
+	fundingBlob, _ lfn.Option[tlv.Blob]) (bool, error) {
 
 	// If there is no auxiliary blob in the channel, it's not a custom
 	// channel, and we don't need to handle it.
@@ -110,7 +110,7 @@ func (s *AuxTrafficShaper) ShouldHandleTraffic(_ lnwire.ShortChannelID,
 // is no bandwidth available. To find out if a channel is a custom channel that
 // should be handled by the traffic shaper, the HandleTraffic method should be
 // called first.
-func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
+func (s *AuxTrafficShaper) PaymentBandwidth(_, htlcBlob,
 	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
 	htlcAmt lnwire.MilliSatoshi,
 	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {

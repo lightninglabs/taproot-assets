@@ -997,16 +997,19 @@ func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
-	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
+	fundingBlob, htlcBlob lfn.Option[tlv.Blob]) (bool, error) {
 
-	srvrLog.Debugf("HandleTraffic called (cid=%v, fundingBlob=%x)", cid,
-		fundingBlob.UnwrapOr(tlv.Blob{}))
+	srvrLog.Debugf("HandleTraffic called (cid=%v, fundingBlob=%v, "+
+		"htlcBlob=%v)", cid, fundingBlob.UnwrapOr(tlv.Blob{}),
+		htlcBlob.UnwrapOr(tlv.Blob{}))
 
 	if err := s.waitForReady(); err != nil {
 		return false, err
 	}
 
-	return s.cfg.AuxTrafficShaper.ShouldHandleTraffic(cid, fundingBlob)
+	return s.cfg.AuxTrafficShaper.ShouldHandleTraffic(
+		cid, fundingBlob, htlcBlob,
+	)
 }
 
 // PaymentBandwidth returns the available bandwidth for a custom channel decided
@@ -1016,20 +1019,22 @@ func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 // called first.
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
-func (s *Server) PaymentBandwidth(htlcBlob, commitmentBlob lfn.Option[tlv.Blob],
-	linkBandwidth, htlcAmt lnwire.MilliSatoshi,
+func (s *Server) PaymentBandwidth(fundingBlob, htlcBlob,
+	commitmentBlob lfn.Option[tlv.Blob], linkBandwidth,
+	htlcAmt lnwire.MilliSatoshi,
 	htlcView lnwallet.AuxHtlcView) (lnwire.MilliSatoshi, error) {
 
-	srvrLog.Debugf("PaymentBandwidth called, htlcBlob=%v, "+
-		"commitmentBlob=%v", spew.Sdump(htlcBlob),
-		spew.Sdump(commitmentBlob))
+	srvrLog.Debugf("PaymentBandwidth called, fundingBlob=%v, htlcBlob=%v, "+
+		"commitmentBlob=%v", spew.Sdump(fundingBlob),
+		spew.Sdump(htlcBlob), spew.Sdump(commitmentBlob))
 
 	if err := s.waitForReady(); err != nil {
 		return 0, err
 	}
 
 	return s.cfg.AuxTrafficShaper.PaymentBandwidth(
-		htlcBlob, commitmentBlob, linkBandwidth, htlcAmt, htlcView,
+		fundingBlob, htlcBlob, commitmentBlob, linkBandwidth, htlcAmt,
+		htlcView,
 	)
 }
 
