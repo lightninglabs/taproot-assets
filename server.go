@@ -997,7 +997,7 @@ func (s *Server) ChannelFinalized(pid funding.PendingChanID) error {
 //
 // NOTE: This method is part of the routing.TlvTrafficShaper interface.
 func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
-	fundingBlob lfn.Option[tlv.Blob]) (bool, error) {
+	fundingBlob, _ lfn.Option[tlv.Blob]) (bool, error) {
 
 	srvrLog.Debugf("HandleTraffic called (cid=%v, fundingBlob=%x)", cid,
 		fundingBlob.UnwrapOr(tlv.Blob{}))
