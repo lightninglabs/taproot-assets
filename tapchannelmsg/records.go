@@ -8,6 +8,7 @@ import (
 	"net/url"
 
 	"github.com/btcsuite/btcd/btcec/v2"
+	"github.com/btcsuite/btcd/btcec/v2/schnorr"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/lightninglabs/taproot-assets/asset"
 	"github.com/lightninglabs/taproot-assets/fn"
@@ -186,6 +187,46 @@ func (o *OpenChannel) Bytes() []byte {
 	var buf bytes.Buffer
 	_ = o.Encode(&buf)
 	return buf.Bytes()
+}
+
+// HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
+// provided set. It returns true if all asset IDs are present, false otherwise.
+func (o *OpenChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
+	// There is a possibility that we're checking the asset ID from an HTLC
+	// that hasn't been materialized yet and could actually contain a group
+	// key x-coordinate. That should only be the case if there is a single
+	// asset ID.
+	if len(ids) == 1 && o.GroupKey.IsSome() {
+		assetID := ids.ToSlice()[0]
+		groupKeyMatch := lfn.MapOptionZ(
+			o.GroupKey.ValOpt(),
+			func(groupKey *btcec.PublicKey) bool {
+				if groupKey == nil {
+					return false
+				}
+
+				return bytes.Equal(
+					assetID[:], schnorr.SerializePubKey(
+						groupKey,
+					),
+				)
+			},
+		)
+
+		// Only if we get a match do we short-circuit the explicit asset
+		// ID check.
+		if groupKeyMatch {
+			return true
+		}
+	}
+
+	availableIDs := fn.NewSet(fn.Map(
+		o.Assets(), func(output *AssetOutput) asset.ID {
+			return output.AssetID.Val
+		},
+	)...)
+
+	return ids.Subset(availableIDs)
 }
 
 // DecodeOpenChannel deserializes an OpenChannel from the given blob.

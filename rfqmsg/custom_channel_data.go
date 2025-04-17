@@ -1,5 +1,12 @@
 package rfqmsg
 
+import (
+	"strings"
+
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+)
+
 // JsonAssetBalance is a struct that represents the balance of a single asset ID
 // within a channel.
 type JsonAssetBalance struct {
@@ -42,6 +49,33 @@ type JsonAssetChannel struct {
 	RemoteBalance       uint64             `json:"remote_balance"`
 	OutgoingHtlcBalance uint64             `json:"outgoing_htlc_balance"`
 	IncomingHtlcBalance uint64             `json:"incoming_htlc_balance"`
+}
+
+// HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
+// provided set. It returns true if all asset IDs are present, false otherwise.
+func (c *JsonAssetChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
+	// There is a possibility that we're checking the asset ID from an HTLC
+	// that hasn't been materialized yet and could actually contain a group
+	// key x-coordinate. That should only be the case if there is a single
+	// asset ID.
+	if len(ids) == 1 && c.GroupKey != "" {
+		assetID := ids.ToSlice()[0]
+		if strings.Contains(c.GroupKey, assetID.String()) {
+			return true
+		}
+	}
+
+	availableIDStrings := fn.NewSet(fn.Map(
+		c.FundingAssets, func(fundingAsset JsonAssetUtxo) string {
+			return fundingAsset.AssetGenesis.AssetID
+		},
+	)...)
+	targetIDStrings := fn.NewSet(fn.Map(
+		ids.ToSlice(), func(id asset.ID) string {
+			return id.String()
+		},
+	)...)
+	return targetIDStrings.Subset(availableIDStrings)
 }
 
 // JsonAssetChannelBalances is a struct that represents the balance information
