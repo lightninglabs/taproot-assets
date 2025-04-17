@@ -1227,8 +1227,8 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		ScriptKey: &a.ScriptKey,
 	}
 
-	var proofBuf bytes.Buffer
-	if err = mintingProof.Encode(&proofBuf); err != nil {
+	mintingProofBytes, err := mintingProof.Bytes()
+	if err != nil {
 		return nil, nil, fmt.Errorf("unable to encode proof: %w", err)
 	}
 
@@ -1246,7 +1246,7 @@ func (b *BatchCaretaker) storeMintingProof(ctx context.Context,
 		// The universe tree store only the asset state transition and
 		// not also the proof file checksum (as the root is effectively
 		// a checksum), so we'll use just the state transition.
-		RawProof: proofBuf.Bytes(),
+		RawProof: mintingProofBytes,
 		Amt:      a.Amount,
 		Asset:    a,
 	}

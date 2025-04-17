@@ -366,8 +366,7 @@ func proofEncoder(p *proof.Proof) encoderFunc {
 			return nil, nil
 		}
 
-		var buf bytes.Buffer
-		err := p.Encode(&buf)
+		proofBytes, err := p.Bytes()
 		if err != nil {
 			return nil, err
 		}
@@ -375,7 +374,7 @@ func proofEncoder(p *proof.Proof) encoderFunc {
 		return []*customPsbtField{
 			{
 				Key:   fn.CopySlice(key),
-				Value: buf.Bytes(),
+				Value: proofBytes,
 			},
 		}, nil
 	}

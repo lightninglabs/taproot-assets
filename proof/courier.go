@@ -1316,14 +1316,14 @@ func (c *UniverseRpcCourier) DeliverProof(ctx context.Context,
 			return err
 		}
 
-		var proofBuf bytes.Buffer
-		if err := transitionProof.Encode(&proofBuf); err != nil {
+		transitionProofBytes, err := transitionProof.Bytes()
+		if err != nil {
 			return fmt.Errorf("error encoding proof file: %w", err)
 		}
 
 		assetLeaf := unirpc.AssetLeaf{
 			Asset: rpcAsset,
-			Proof: proofBuf.Bytes(),
+			Proof: transitionProofBytes,
 		}
 
 		// Construct universe key.

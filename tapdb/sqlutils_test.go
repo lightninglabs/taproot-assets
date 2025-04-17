@@ -93,11 +93,9 @@ func (d *DbHandler) AddRandomAssetProof(t *testing.T) (*asset.Asset,
 	testProof := randProof(t, testAsset)
 	testProof.AltLeaves = testAltLeaves
 
-	var proofBlobBuffer bytes.Buffer
-	err = testProof.Encode(&proofBlobBuffer)
+	proofBlob, err := testProof.Bytes()
 	require.NoError(t, err)
 
-	proofBlob := proofBlobBuffer.Bytes()
 	scriptKey := testAsset.ScriptKey
 
 	annotatedProof := &proof.AnnotatedProof{

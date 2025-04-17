@@ -6168,13 +6168,13 @@ func (r *rpcServer) ProveAssetOwnership(ctx context.Context,
 
 	lastProof.ChallengeWitness = challengeWitness
 
-	var buf bytes.Buffer
-	if err := lastProof.Encode(&buf); err != nil {
+	lastProofBytes, err := lastProof.Bytes()
+	if err != nil {
 		return nil, fmt.Errorf("error encoding proof file: %w", err)
 	}
 
 	return &wrpc.ProveAssetOwnershipResponse{
-		ProofWithWitness: buf.Bytes(),
+		ProofWithWitness: lastProofBytes,
 	}, nil
 }
 

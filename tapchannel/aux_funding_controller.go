@@ -917,7 +917,7 @@ func (f *FundingController) sendInputOwnershipProofs(peerPub btcec.PublicKey,
 	// With all our proofs assembled, we'll now send each of them to the
 	// remote peer in series.
 	for i := range fundingState.inputProofs {
-		proofBytes, _ := proof.Encode(fundingState.inputProofs[i])
+		proofBytes, _ := fundingState.inputProofs[i].Bytes()
 		log.Tracef("Sending input ownership proof to remote party: %x",
 			proofBytes)
 

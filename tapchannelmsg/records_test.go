@@ -61,7 +61,7 @@ func TestOpenChannel(t *testing.T) {
 	// Proofs don't Encode everything, so we need to do a quick Encode/
 	// Decode cycle to make sure we can compare it afterward.
 	originalRandProof := randProof(t)
-	proofBytes, err := proof.Encode(&originalRandProof)
+	proofBytes, err := originalRandProof.Bytes()
 	require.NoError(t, err)
 	randProof, err := proof.Decode(proofBytes)
 	require.NoError(t, err)
@@ -188,7 +188,7 @@ func TestCommitment(t *testing.T) {
 	// Proofs don't Encode everything, so we need to do a quick Encode/
 	// Decode cycle to make sure we can compare it afterward.
 	originalRandProof := randProof(t)
-	proofBytes, err := proof.Encode(&originalRandProof)
+	proofBytes, err := originalRandProof.Bytes()
 	require.NoError(t, err)
 	randProof, err := proof.Decode(proofBytes)
 	require.NoError(t, err)

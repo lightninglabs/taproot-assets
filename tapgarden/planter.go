@@ -2812,8 +2812,8 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 
 		// The universe leaf stores the raw proof, so we'll encode it
 		// here now.
-		var proofBuf bytes.Buffer
-		if err := p.Encode(&proofBuf); err != nil {
+		proofBytes, err := p.Bytes()
+		if err != nil {
 			return fmt.Errorf("unable to encode proof: %w", err)
 		}
 
@@ -2827,7 +2827,7 @@ func (c *ChainPlanter) updateMintingProofs(proofs []*proof.Proof) error {
 		}
 		mintingLeaf := &universe.Leaf{
 			GenesisWithGroup: uniGen,
-			RawProof:         proofBuf.Bytes(),
+			RawProof:         proofBytes,
 			Amt:              p.Asset.Amount,
 			Asset:            &p.Asset,
 		}

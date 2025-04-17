@@ -41,7 +41,7 @@ func TestAssetFundingMsg(t *testing.T) {
 
 	// Proofs don't Encode everything, so we need to do a quick Encode/
 	// Decode cycle to make sure we can compare it afterward.
-	proofBytes, err := proof.Encode(&originalRandProof)
+	proofBytes, err := originalRandProof.Bytes()
 	require.NoError(t, err)
 	randProof, err := proof.Decode(proofBytes)
 	require.NoError(t, err)
