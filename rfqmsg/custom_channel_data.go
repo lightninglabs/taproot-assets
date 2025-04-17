@@ -1,5 +1,10 @@
 package rfqmsg
 
+import (
+	"github.com/lightninglabs/taproot-assets/asset"
+	"github.com/lightninglabs/taproot-assets/fn"
+)
+
 // JsonAssetBalance is a struct that represents the balance of a single asset ID
 // within a channel.
 type JsonAssetBalance struct {
@@ -41,6 +46,26 @@ type JsonAssetChannel struct {
 	RemoteBalance       uint64             `json:"remote_balance"`
 	OutgoingHtlcBalance uint64             `json:"outgoing_htlc_balance"`
 	IncomingHtlcBalance uint64             `json:"incoming_htlc_balance"`
+}
+
+// HasAllAssetIDs checks if the OpenChannel contains all asset IDs in the
+// provided set. It returns true if all asset IDs are present, false otherwise.
+func (c *JsonAssetChannel) HasAllAssetIDs(ids fn.Set[asset.ID]) bool {
+	for id := range ids {
+		found := false
+		for _, fundingAsset := range c.FundingAssets {
+			if fundingAsset.AssetGenesis.AssetID == id.String() {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			return false
+		}
+	}
+
+	return true
 }
 
 // JsonAssetChannelBalances is a struct that represents the balance information

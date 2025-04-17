@@ -298,7 +298,9 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 			}
 		} else {
 			if assetValueMsat != res.AmtPaid {
-				m.t.Errorf("unexpected final asset value")
+				m.t.Errorf("unexpected final asset value, "+
+					"wanted %d, got %d", assetValueMsat,
+					res.AmtPaid)
 			}
 		}
 	}
@@ -307,6 +309,19 @@ func (m *mockHtlcModifierProperty) HtlcModifier(ctx context.Context,
 	close(m.done)
 
 	return nil
+}
+
+type mockLndClient struct {
+	lndclient.LightningClient
+
+	channels []lndclient.ChannelInfo
+}
+
+// ListChannels retrieves all channels of the backing lnd node.
+func (m *mockLndClient) ListChannels(_ context.Context, _,
+	_ bool) ([]lndclient.ChannelInfo, error) {
+
+	return m.channels, nil
 }
 
 // TestAuxInvoiceManager tests that the htlc modifications of the aux invoice
@@ -609,6 +624,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 			peerBuyQuotes:   testCase.buyQuotes,
 			localSellQuotes: testCase.sellQuotes,
 		}
+		mockLnd := &mockLndClient{}
 
 		done := make(chan bool)
 
@@ -626,6 +642,7 @@ func TestAuxInvoiceManager(t *testing.T) {
 				ChainParams:         testChainParams,
 				InvoiceHtlcModifier: mockModifier,
 				RfqManager:          mockRfq,
+				LightningClient:     mockLnd,
 			},
 		)
 
@@ -903,6 +920,7 @@ func testInvoiceManager(t *rapid.T) {
 	mockRfq := &mockRfqManager{
 		peerBuyQuotes: rfqMap,
 	}
+	mockLnd := &mockLndClient{}
 
 	done := make(chan bool)
 
@@ -913,13 +931,12 @@ func testInvoiceManager(t *rapid.T) {
 		t:          t,
 	}
 
-	manager := NewAuxInvoiceManager(
-		&InvoiceManagerConfig{
-			ChainParams:         testChainParams,
-			InvoiceHtlcModifier: mockModifier,
-			RfqManager:          mockRfq,
-		},
-	)
+	manager := NewAuxInvoiceManager(&InvoiceManagerConfig{
+		ChainParams:         testChainParams,
+		InvoiceHtlcModifier: mockModifier,
+		RfqManager:          mockRfq,
+		LightningClient:     mockLnd,
+	})
 
 	err := manager.Start()
 	require.NoError(t, err)

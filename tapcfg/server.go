@@ -487,6 +487,7 @@ func genServerConfig(cfg *Config, cfgLogger btclog.Logger,
 			ChainParams:         &tapChainParams,
 			InvoiceHtlcModifier: lndInvoicesClient,
 			RfqManager:          rfqManager,
+			LightningClient:     lndServices.Client,
 		},
 	)
 	auxChanCloser := tapchannel.NewAuxChanCloser(
