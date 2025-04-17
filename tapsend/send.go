@@ -2075,9 +2075,9 @@ func ValidateAnchorInputs(anchorPacket *psbt.Packet, packets []*tappsbt.VPacket,
 		}
 
 		// This is the most important check. This ensures that the
-		// assets in the outputs of the virtual transactions match
-		// exactly the assets that are committed to in the anchor
-		// output script.
+		// assets in the inputs of the virtual transactions match
+		// exactly the assets committed to in the anchor output script
+		// that is being spent.
 		anchorScript := inputScripts[anchorOutpoint]
 		if !bytes.Equal(anchorScript, script) {
 			// The commitment may not be V2; let's check against

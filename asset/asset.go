@@ -1395,6 +1395,13 @@ func (a *Asset) HasSplitCommitmentWitness() bool {
 	return IsSplitCommitWitness(a.PrevWitnesses[0])
 }
 
+// IsTransferRoot returns true if this asset represents a root transfer. A root
+// transfer is an asset that is neither a genesis asset nor contains split
+// commitment witness data.
+func (a *Asset) IsTransferRoot() bool {
+	return !a.IsGenesisAsset() && !a.HasSplitCommitmentWitness()
+}
+
 // IsUnSpendable returns true if an asset uses the un-spendable script key and
 // has zero value.
 func (a *Asset) IsUnSpendable() bool {
@@ -1919,9 +1926,7 @@ type AltLeaf[T any] interface {
 }
 
 // NewAltLeaf instantiates a new valid AltLeaf.
-func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
-	prevWitness []Witness) (*Asset, error) {
-
+func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion) (*Asset, error) {
 	if key.PubKey == nil {
 		return nil, fmt.Errorf("script key must be non-nil")
 	}
@@ -1932,7 +1937,7 @@ func NewAltLeaf(key ScriptKey, keyVersion ScriptVersion,
 		Amount:              0,
 		LockTime:            0,
 		RelativeLockTime:    0,
-		PrevWitnesses:       prevWitness,
+		PrevWitnesses:       nil,
 		SplitCommitmentRoot: nil,
 		GroupKey:            nil,
 		ScriptKey:           key,
