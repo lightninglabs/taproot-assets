@@ -141,6 +141,11 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 		return 0, nil
 	}
 
+	fundingChan, err := cmsg.DecodeOpenChannel(fundingBlobBytes)
+	if err != nil {
+		return 0, fmt.Errorf("error decoding funding blob: %w", err)
+	}
+
 	commitment, err := cmsg.DecodeCommitment(commitmentBytes)
 	if err != nil {
 		return 0, fmt.Errorf("error decoding commitment blob: %w", err)
@@ -149,6 +154,23 @@ func (s *AuxTrafficShaper) PaymentBandwidth(fundingBlob, htlcBlob,
 	htlc, err := rfqmsg.DecodeHtlc(htlcBytes)
 	if err != nil {
 		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
+	}
+
+	// Before we do any further checks, we actually need to make sure that
+	// the HTLC is compatible with this channel. Because of `lnd`'s
+	// non-strict forwarding, if there are multiple asset channels, the
+	// wrong one could be chosen if we signal there's bandwidth. So we need
+	// to tell `lnd` it can't use this channel if the assets aren't
+	// compatible.
+	htlcAssetIDs := fn.NewSet[asset.ID](fn.Map(
+		htlc.Balances(), func(b *rfqmsg.AssetBalance) asset.ID {
+			return b.AssetID.Val
+		})...,
+	)
+	if !fundingChan.HasAllAssetIDs(htlcAssetIDs) {
+		log.Tracef("HTLC asset IDs %v not compatible with asset IDs "+
+			"of channel, returning 0 bandwidth", htlcAssetIDs)
+		return 0, nil
 	}
 
 	// With the help of the latest HtlcView, let's calculate a more precise
