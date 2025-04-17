@@ -728,6 +728,7 @@ func outputAnchor(anchorTx *tapsend.AnchorTransaction, vOut *tappsbt.VOutput,
 		MerkleRoot:        merkleRoot[:],
 		TapscriptSibling:  preimageBytes,
 		NumPassiveAssets:  numPassiveAssets,
+		PkScript:          txOut.PkScript,
 	}, nil
 }
 
