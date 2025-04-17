@@ -148,6 +148,23 @@ func (s *AuxTrafficShaper) PaymentBandwidth(htlcBlob,
 		return 0, fmt.Errorf("error decoding HTLC blob: %w", err)
 	}
 
+	// Before we do any further checks, we actually need to make sure that
+	// the HTLC is compatible with this channel. Because of `lnd`'s
+	// non-strict forwarding, if there are multiple asset channels, the
+	// wrong one could be chosen if we signal there's bandwidth. So we need
+	// to tell `lnd` it can't use this channel if the assets aren't
+	// compatible.
+	htlcAssetIDs := fn.NewSet[asset.ID](fn.Map(
+		htlc.Balances(), func(b *rfqmsg.AssetBalance) asset.ID {
+			return b.AssetID.Val
+		})...,
+	)
+	if !commitment.HasAllAssetIDs(htlcAssetIDs) {
+		log.Tracef("HTLC asset IDs %v not compatible with asset IDs "+
+			"of channel, returning 0 bandwidth", htlcAssetIDs)
+		return 0, nil
+	}
+
 	// With the help of the latest HtlcView, let's calculate a more precise
 	// local balance. This is useful in order to not forward HTLCs that may
 	// never be settled. Other HTLCs that may also call into this method are
@@ -244,7 +261,7 @@ func paymentBandwidthAssetUnits(htlcAssetAmount, computedLocal uint64,
 	default:
 		// We shouldn't reach this case, we add it only for the function
 		// to always return something and the compiler to be happy.
-		return 0, nil
+		return 0, fmt.Errorf("unreachable code")
 	}
 }
 
