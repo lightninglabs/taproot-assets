@@ -1007,7 +1007,9 @@ func (s *Server) ShouldHandleTraffic(cid lnwire.ShortChannelID,
 		return false, err
 	}
 
-	return s.cfg.AuxTrafficShaper.ShouldHandleTraffic(cid, fundingBlob)
+	return s.cfg.AuxTrafficShaper.ShouldHandleTraffic(
+		cid, fundingBlob, htlcBlob,
+	)
 }
 
 // PaymentBandwidth returns the available bandwidth for a custom channel decided
