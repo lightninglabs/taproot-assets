@@ -305,6 +305,20 @@ message CommitVirtualPsbtsRequest {
         */
         uint64 sat_per_vbyte = 7;
     }
+
+    /*
+    The custom lock ID used to identify the lock lease for UTXOs that serve as
+    inputs in the BTC-level anchor transaction. If left empty, LND's default
+    lock ID will be used.
+    */
+    bytes custom_lock_id = 8;
+
+    /*
+    If set, the UTXOs used as inputs in the BTC-level anchor transaction will be
+    locked for the specified number of seconds. If unset, LND's default lock
+    expiration of 10 minutes will be applied.
+    */
+    uint64 lock_expiration_seconds = 9;
 }
 
 message CommitVirtualPsbtsResponse {
