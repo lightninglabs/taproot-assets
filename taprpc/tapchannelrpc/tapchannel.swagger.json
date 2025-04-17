@@ -1507,7 +1507,7 @@
         },
         "invoice_request": {
           "$ref": "#/definitions/lnrpcInvoice",
-          "description": "The full lnd invoice request to send. All fields (except for the value\nand the route hints) behave the same way as they do for lnd's\nlnrpc.AddInvoice RPC method (see the API docs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/add-invoice\nfor more details). The value/value_msat fields will be overwritten by the\nsatoshi (or milli-satoshi) equivalent of the asset amount, after\nnegotiating a quote with a peer that supports the given asset ID."
+          "description": "The full lnd invoice request to send. All fields behave the same way as\nthey do for lnd's lnrpc.AddInvoice RPC method (see the API docs at\nhttps://lightning.engineering/api-docs/api/lnd/lightning/add-invoice\nfor more details).\n\nOnly one of the asset_amount/value/value_msat may be set to dictate the\nvalue of the invoice. When using asset_amount, the value/value_msat\nfields will be overwritten by the satoshi (or milli-satoshi) equivalent\nof the asset amount, after negotiating a quote with a peer that supports\nthe given asset ID.\n\nIf the value/value_msat are used, we still receive assets, but they will\nexactly evaluate to the defined amount in sats/msats."
         },
         "hodl_invoice": {
           "$ref": "#/definitions/tapchannelrpcHodlInvoice",

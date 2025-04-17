@@ -630,13 +630,19 @@ type AddInvoiceRequest struct {
 	// assets and converting them from satoshis. This must be specified if
 	// there are multiple channels with the given asset ID.
 	PeerPubkey []byte `protobuf:"bytes,3,opt,name=peer_pubkey,json=peerPubkey,proto3" json:"peer_pubkey,omitempty"`
-	// The full lnd invoice request to send. All fields (except for the value
-	// and the route hints) behave the same way as they do for lnd's
-	// lnrpc.AddInvoice RPC method (see the API docs at
+	// The full lnd invoice request to send. All fields behave the same way as
+	// they do for lnd's lnrpc.AddInvoice RPC method (see the API docs at
 	// https://lightning.engineering/api-docs/api/lnd/lightning/add-invoice
-	// for more details). The value/value_msat fields will be overwritten by the
-	// satoshi (or milli-satoshi) equivalent of the asset amount, after
-	// negotiating a quote with a peer that supports the given asset ID.
+	// for more details).
+	//
+	// Only one of the asset_amount/value/value_msat may be set to dictate the
+	// value of the invoice. When using asset_amount, the value/value_msat
+	// fields will be overwritten by the satoshi (or milli-satoshi) equivalent
+	// of the asset amount, after negotiating a quote with a peer that supports
+	// the given asset ID.
+	//
+	// If the value/value_msat are used, we still receive assets, but they will
+	// exactly evaluate to the defined amount in sats/msats.
 	InvoiceRequest *lnrpc.Invoice `protobuf:"bytes,4,opt,name=invoice_request,json=invoiceRequest,proto3" json:"invoice_request,omitempty"`
 	// If set, then this will make the invoice created a hodl invoice, which
 	// won't be settled automatically. Instead, users will need to use the

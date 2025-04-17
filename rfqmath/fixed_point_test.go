@@ -396,6 +396,44 @@ func testWithinToleranceZeroTolerance(t *rapid.T) {
 	require.True(t, result)
 }
 
+// testAddToleranceProp is a property-based test which tests that the
+// AddTolerance helper correctly applies the provided tolerance margin to any
+// given value.
+func testAddToleranceProp(t *rapid.T) {
+	value := NewBigIntFromUint64(rapid.Uint64Min(1).Draw(t, "value"))
+	tolerancePpm := NewBigIntFromUint64(
+		rapid.Uint64Range(0, 1_000_000).Draw(t, "tolerance_ppm"),
+	)
+
+	result := AddTolerance(value, tolerancePpm)
+
+	if tolerancePpm.ToUint64() == 0 {
+		require.True(t, result.Equals(value))
+		return
+	}
+
+	// First off, let's just check that the result is at all greater than
+	// the input.
+	require.True(t, result.Gte(value))
+
+	// Let's now convert the values to a fixed point type in order to use
+	// the WithinTolerance method.
+	valueFixed := BigIntFixedPoint{
+		Coefficient: value,
+		Scale:       0,
+	}
+	resultFixed := BigIntFixedPoint{
+		Coefficient: result,
+		Scale:       0,
+	}
+
+	// The value with the applied tolerance and the original value should be
+	// within tolerance.
+	res, err := resultFixed.WithinTolerance(valueFixed, tolerancePpm)
+	require.NoError(t, err)
+	require.True(t, res)
+}
+
 // testWithinToleranceSymmetric is a property-based test which ensures that the
 // WithinTolerance method is symmetric (swapping the order of the fixed-point
 // values does not change the result).
@@ -599,6 +637,11 @@ func testWithinTolerance(t *testing.T) {
 	t.Run(
 		"within_tolerance_float_reproduce",
 		rapid.MakeCheck(testWithinToleranceFloatReproduce),
+	)
+
+	t.Run(
+		"add_tolerance_property",
+		rapid.MakeCheck(testAddToleranceProp),
 	)
 }
 
