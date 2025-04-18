@@ -319,7 +319,7 @@ func (u *UniverseFederationDB) UpsertFederationProofSyncLog(
 
 	// Encode the leaf key outpoint as bytes. We'll use this to look up the
 	// leaf ID in the DB.
-	leafKeyOutpointBytes, err := encodeOutpoint(leafKey.OutPoint)
+	leafKeyOutpointBytes, err := encodeOutpoint(leafKey.LeafOutPoint())
 	if err != nil {
 		return 0, err
 	}
@@ -327,7 +327,7 @@ func (u *UniverseFederationDB) UpsertFederationProofSyncLog(
 	// Encode the leaf script key pub key as bytes. We'll use this to look
 	// up the leaf ID in the DB.
 	scriptKeyPubKeyBytes := schnorr.SerializePubKey(
-		leafKey.ScriptKey.PubKey,
+		leafKey.LeafScriptKey().PubKey,
 	)
 
 	var (
@@ -369,7 +369,7 @@ func (u *UniverseFederationDB) QueryFederationProofSyncLog(
 
 	// Encode the leaf key outpoint as bytes. We'll use this to look up the
 	// leaf ID in the DB.
-	leafKeyOutpointBytes, err := encodeOutpoint(leafKey.OutPoint)
+	leafKeyOutpointBytes, err := encodeOutpoint(leafKey.LeafOutPoint())
 	if err != nil {
 		return nil, err
 	}
@@ -377,7 +377,7 @@ func (u *UniverseFederationDB) QueryFederationProofSyncLog(
 	// Encode the leaf script key pub key as bytes. We'll use this to look
 	// up the leaf ID in the DB.
 	scriptKeyPubKeyBytes := schnorr.SerializePubKey(
-		leafKey.ScriptKey.PubKey,
+		leafKey.LeafScriptKey().PubKey,
 	)
 
 	var (
@@ -531,7 +531,7 @@ func fetchProofSyncLogEntry(ctx context.Context, entry ProofSyncLogEntry,
 		return nil, err
 	}
 
-	leafKey := universe.LeafKey{
+	leafKey := universe.BaseLeafKey{
 		OutPoint:  outPoint,
 		ScriptKey: &scriptKey,
 	}

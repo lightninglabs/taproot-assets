@@ -1,6 +1,7 @@
 package universe
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -260,11 +261,35 @@ func (m *Leaf) SmtLeafNode() *mssmt.LeafNode {
 	return mssmt.NewLeafNode(m.RawProof, amount)
 }
 
-// LeafKey is the top level leaf key for a universe. This will be used to key
-// into a universe's MS-SMT data structure. The final serialized key is:
-// sha256(mintingOutpoint || scriptKey). This ensures that all
-// leaves for a given asset will be uniquely keyed in the universe tree.
-type LeafKey struct {
+// LeafKey is an interface that allows us to obtain the universe key for a leaf
+// within a universe.
+type LeafKey interface {
+	// UniverseKey returns the universe key for the leaf.
+	UniverseKey() [32]byte
+
+	// ScriptKey returns the script key for the leaf.
+	LeafScriptKey() asset.ScriptKey
+
+	// OutPoint returns the outpoint for the leaf.
+	LeafOutPoint() wire.OutPoint
+}
+
+// UniqueLeafKey is an interface that allows us to obtain the universe key for a
+// leaf within a universe. This is used to uniquely identify a leaf within a
+// universe. Compared to LeafKey, it includes the asset ID of a leaf within the
+// universe key calculation.
+type UniqueLeafKey interface {
+	LeafKey
+
+	// LeafAssetID returns the asset ID for the leaf.
+	LeafAssetID() asset.ID
+}
+
+// BaseLeafKey is the top level leaf key for a universe. This will be used to
+// key into a universe's MS-SMT data structure. The final serialized key is:
+// sha256(mintingOutpoint || scriptKey). This ensures that all leaves for a
+// given asset will be uniquely keyed in the universe tree.
+type BaseLeafKey struct {
 	// OutPoint is the outpoint at which the asset referenced by this key
 	// resides.
 	OutPoint wire.OutPoint
@@ -278,11 +303,50 @@ type LeafKey struct {
 }
 
 // UniverseKey is the key for a universe.
-func (b LeafKey) UniverseKey() [32]byte {
+func (b BaseLeafKey) UniverseKey() [32]byte {
 	// key = sha256(mintingOutpoint || scriptKey)
 	h := sha256.New()
 	_ = wire.WriteOutPoint(h, 0, 0, &b.OutPoint)
 	h.Write(schnorr.SerializePubKey(b.ScriptKey.PubKey))
+
+	var k [32]byte
+	copy(k[:], h.Sum(nil))
+
+	return k
+}
+
+// LeafScriptKey returns the script key for the leaf.
+func (b BaseLeafKey) LeafScriptKey() asset.ScriptKey {
+	return *b.ScriptKey
+}
+
+// LeafOutPoint returns the outpoint for the leaf.
+func (b BaseLeafKey) LeafOutPoint() wire.OutPoint {
+	return b.OutPoint
+}
+
+// AssetLeafKey is a super-set of the BaseLeafKey struct that also includes the
+// asset ID.
+type AssetLeafKey struct {
+	BaseLeafKey
+
+	// AssetID is the asset ID of the asset that the leaf is associated
+	// with.
+	AssetID asset.ID
+}
+
+// LeafAssetID returns the asset ID for the leaf.
+func (a AssetLeafKey) LeafAssetID() asset.ID {
+	return a.AssetID
+}
+
+// UniverseKey returns the universe key for the leaf.
+func (a AssetLeafKey) UniverseKey() [32]byte {
+	// key = sha256(mintingOutpoint || scriptKey || assetID)
+	h := sha256.New()
+	_ = wire.WriteOutPoint(h, 0, 0, &a.OutPoint)
+	h.Write(schnorr.SerializePubKey(a.ScriptKey.PubKey))
+	h.Write(a.AssetID[:])
 
 	var k [32]byte
 	copy(k[:], h.Sum(nil))
@@ -1209,14 +1273,29 @@ type AuthenticatedIgnoreTuple struct {
 	InclusionProof *mssmt.Proof
 }
 
+// NewAuthIgnoreTuple constructs the final AuthenticatedIgnoreTuple.
+func NewAuthIgnoreTuple(decodedLeaf SignedIgnoreTuple,
+	proof *mssmt.Proof, root mssmt.Node) AuthenticatedIgnoreTuple {
+
+	return AuthenticatedIgnoreTuple{
+		SignedIgnoreTuple: decodedLeaf,
+		InclusionProof:    proof,
+		IgnoreTreeRoot:    root,
+	}
+}
+
 // TupleQueryResp is the response to a query for ignore tuples.
 type TupleQueryResp = lfn.Result[lfn.Option[[]AuthenticatedIgnoreTuple]]
 
-// SumQueryResp is the response to a query for the sum of ignore tuples.
+// SumQueryResp is the response to a query to obtain the root sum of an MS-SMT
+// tree.
 type SumQueryResp = lfn.Result[lfn.Option[uint64]]
 
 // AuthIgnoreTuples is a type alias for a slice of AuthenticatedIgnoreTuple.
 type AuthIgnoreTuples = []AuthenticatedIgnoreTuple
+
+// ListTuplesResp is the response to a query for ignore tuples.
+type ListTuplesResp = lfn.Result[lfn.Option[IgnoreTuples]]
 
 // IgnoreTree represents a tree of ignore tuples which can be used to
 // effectively cache rejection of invalid proofs.
@@ -1231,9 +1310,96 @@ type IgnoreTree interface {
 		...SignedIgnoreTuple) lfn.Result[AuthIgnoreTuples]
 
 	// ListTuples returns the list of ignore tuples for the given asset.
-	ListTuples(context.Context, asset.Specifier) lfn.Result[IgnoreTuples]
+	ListTuples(context.Context, asset.Specifier) ListTuplesResp
 
 	// QueryTuples returns the ignore tuples for the given asset.
 	QueryTuples(context.Context, asset.Specifier,
 		...IgnoreTuple) TupleQueryResp
+}
+
+// BurnLeaf is a type that represents a burn leaf within the universe tree.
+type BurnLeaf struct {
+	// UniverseKey is the key that the burn leaf is stored at.
+	UniverseKey UniqueLeafKey
+
+	// BurnProof is the burn proof that is stored within the burn leaf.
+	BurnProof *proof.Proof
+}
+
+// UniverseLeafNode returns the leaf node for the burn leaf.
+func (b *BurnLeaf) UniverseLeafNode() (*mssmt.LeafNode, error) {
+	var proofBuf bytes.Buffer
+	if err := b.BurnProof.Encode(&proofBuf); err != nil {
+		return nil, fmt.Errorf("unable to encode burn "+
+			"proof: %w", err)
+	}
+	rawProofBytes := proofBuf.Bytes()
+
+	return mssmt.NewLeafNode(rawProofBytes, b.BurnProof.Asset.Amount), nil
+}
+
+// AuthenticatedBurnLeaf is a type that represents a burn leaf within the
+// Universe tree. This includes the MS-SMT inclusion proofs.
+type AuthenticatedBurnLeaf struct {
+	*BurnLeaf
+
+	// BurnTreeRoot is the root of the burn tree that the burn leaf resides
+	// within.
+	BurnTreeRoot mssmt.Node
+
+	// BurnProof is the universe inclusion proof for the burn leaf within
+	// the universe tree.
+	BurnProof *mssmt.Proof
+}
+
+// BurnDesc is a type that represents a burn leaf within the universe tree. This
+// is useful for querying the state without needing the proof itself.
+type BurnDesc struct {
+	// AssetSpec is the asset specifier for the burn leaf.
+	AssetSpec asset.Specifier
+
+	// Amt is the total amount burned.
+	Amt uint64
+
+	// BurnPoint is the outpoint of the transaction that created the burn.
+	BurnPoint wire.OutPoint
+}
+
+// BurnLeafResp is the response when inserting a new set of burn leaves. This
+// includes the updated merkle inclusion proofs for the inserted leaves.
+type BurnLeafResp = lfn.Result[[]*AuthenticatedBurnLeaf]
+
+// BurnLeafQueryResp is the response to a query for burn leaves. If none of the
+// target burn leafs are found, then None is returned with a result value.
+type BurnLeafQueryResp = lfn.Result[lfn.Option[[]*AuthenticatedBurnLeaf]]
+
+// BurnTree sum is the response to a query of the total amount burned in a given
+// burn tree.
+type BurnTreeSum = SumQueryResp
+
+// ListBurnsResp is the response to a query for burn leaves.
+type ListBurnsResp = lfn.Result[lfn.Option[[]*BurnDesc]]
+
+// BurnTree represents a tree that stores all the 1st party burn events (created
+// by the issuer). The tree structure is similar to the normal issuance tree,
+// but all the proofs are burn proofs.
+type BurnTree interface {
+	// Sum returns the sum of the burn leaves for the given asset.
+	Sum(context.Context, asset.Specifier) BurnTreeSum
+
+	// InsertBurns attempts to insert a set of new burn leaves into the burn
+	// tree identifier by the passed asset.Specifier. If a given proof isn't
+	// a true burn proof, then an error is returned. This check is performed
+	// upfront. If the proof is valid, then the burn leaf is inserted into
+	// the tree, with a new merkle proof returned.
+	InsertBurns(context.Context, asset.Specifier, ...*BurnLeaf) BurnLeafResp
+
+	// QueryBurns attempts to query a set of burn leaves for the given asset
+	// specifier. If the burn leaf points are empty, then all burn leaves
+	// are returned.
+	QueryBurns(context.Context, asset.Specifier,
+		...wire.OutPoint) BurnLeafQueryResp
+
+	// ListBurns attempts to list all burn leaves for the given asset.
+	ListBurns(context.Context, asset.Specifier) ListBurnsResp
 }

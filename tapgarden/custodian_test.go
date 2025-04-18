@@ -269,7 +269,7 @@ func (h *custodianHarness) addProofFileToMultiverse(p *proof.AnnotatedProof) {
 		require.NoError(h.t, err)
 
 		id := universe.NewUniIDFromAsset(transition.Asset)
-		key := universe.LeafKey{
+		key := universe.BaseLeafKey{
 			OutPoint: transition.OutPoint(),
 			ScriptKey: fn.Ptr(asset.NewScriptKey(
 				transition.Asset.ScriptKey.PubKey,
