@@ -714,7 +714,9 @@ func testMerkleProof(t *testing.T, tree mssmt.Tree, leaves []treeLeaf) {
 	))
 }
 
-func testProofEquality(t *testing.T, tree1, tree2 mssmt.Tree, leaves []treeLeaf) {
+func testProofEquality(t *testing.T, tree1, tree2 mssmt.Tree,
+	leaves []treeLeaf) {
+
 	assertEqualProof := func(proof1, proof2 *mssmt.Proof) {
 		t.Helper()
 
@@ -818,6 +820,232 @@ func TestBIPTestVectors(t *testing.T) {
 			tt.Parallel()
 
 			runBIPTestVector(tt, testVectors)
+		})
+	}
+}
+
+// TestTreeCopy tests the Copy method for both FullTree and CompactedTree,
+// including copying between different tree types.
+func TestTreeCopy(t *testing.T) {
+	t.Parallel()
+
+	leaves := randTree(50) // Use a smaller number for faster testing
+
+	// Prepare source trees (Full and Compacted)
+	ctx := context.Background()
+	sourceFullStore := mssmt.NewDefaultStore()
+	sourceFullTree := mssmt.NewFullTree(sourceFullStore)
+	sourceCompactedStore := mssmt.NewDefaultStore()
+	sourceCompactedTree := mssmt.NewCompactedTree(sourceCompactedStore)
+
+	for _, item := range leaves {
+		_, err := sourceFullTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+		_, err = sourceCompactedTree.Insert(ctx, item.key, item.leaf)
+		require.NoError(t, err)
+	}
+
+	sourceFullRoot, err := sourceFullTree.Root(ctx)
+	require.NoError(t, err)
+	sourceCompactedRoot, err := sourceCompactedTree.Root(ctx)
+	require.NoError(t, err)
+	require.True(t, mssmt.IsEqualNode(sourceFullRoot, sourceCompactedRoot))
+
+	// Define some leaves to pre-populate the target tree.
+	initialTargetLeaves := []treeLeaf{
+		{key: test.RandHash(), leaf: randLeaf()},
+		{key: test.RandHash(), leaf: randLeaf()},
+	}
+	initialTargetLeavesMap := make(map[[hashSize]byte]*mssmt.LeafNode)
+	for _, item := range initialTargetLeaves {
+		initialTargetLeavesMap[item.key] = item.leaf
+	}
+
+	// Define test cases
+	testCases := []struct {
+		name       string
+		sourceTree mssmt.Tree
+		makeTarget func() mssmt.Tree
+	}{
+		{
+			name:       "Full -> Full",
+			sourceTree: sourceFullTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewFullTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+		{
+			name:       "Full -> Compacted",
+			sourceTree: sourceFullTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewCompactedTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+		{
+			name:       "Compacted -> Full",
+			sourceTree: sourceCompactedTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewFullTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+		{
+			name:       "Compacted -> Compacted",
+			sourceTree: sourceCompactedTree,
+			makeTarget: func() mssmt.Tree {
+				return mssmt.NewCompactedTree(
+					mssmt.NewDefaultStore(),
+				)
+			},
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			targetTree := tc.makeTarget()
+
+			// Pre-populate the target tree.
+			_, err := targetTree.InsertMany(
+				ctx, initialTargetLeavesMap,
+			)
+			require.NoError(t, err)
+
+			// Calculate the expected root after combining initial
+			// and source leaves.
+			expectedStateStore := mssmt.NewDefaultStore()
+			expectedStateTree := mssmt.NewFullTree(
+				expectedStateStore,
+			)
+			_, err = expectedStateTree.InsertMany(
+				ctx, initialTargetLeavesMap,
+			)
+			require.NoError(t, err)
+			sourceLeavesMap := make(
+				map[[hashSize]byte]*mssmt.LeafNode,
+			)
+			for _, item := range leaves {
+				sourceLeavesMap[item.key] = item.leaf
+			}
+			_, err = expectedStateTree.InsertMany(
+				ctx, sourceLeavesMap,
+			)
+			require.NoError(t, err)
+			expectedRoot, err := expectedStateTree.Root(ctx)
+			require.NoError(t, err)
+
+			// Actually perform the copy.
+			err = tc.sourceTree.Copy(ctx, targetTree)
+			require.NoError(t, err)
+
+			// Verify the target tree root matches the expected
+			// combined root.
+			targetRoot, err := targetTree.Root(ctx)
+			require.NoError(t, err)
+			require.True(t,
+				mssmt.IsEqualNode(expectedRoot, targetRoot),
+				"root mismatch after copy to non-empty target",
+			)
+
+			// Verify individual leaves (both initial and copied) in
+			// the target tree
+			allExpectedLeaves := append([]treeLeaf{}, leaves...)
+			allExpectedLeaves = append(
+				allExpectedLeaves, initialTargetLeaves...,
+			)
+			for _, item := range allExpectedLeaves {
+				targetLeaf, err := targetTree.Get(ctx, item.key)
+				require.NoError(t, err)
+				require.Equal(t, item.leaf, targetLeaf,
+					"leaf mismatch for key %x", item.key)
+			}
+
+			// Verify a non-existent key is still empty
+			emptyLeaf, err := targetTree.Get(ctx, test.RandHash())
+			require.NoError(t, err)
+			require.True(
+				t, emptyLeaf.IsEmpty(),
+				"non-existent key found",
+			)
+		})
+	}
+}
+
+// TestInsertMany tests inserting multiple leaves using the InsertMany method.
+func TestInsertMany(t *testing.T) {
+	t.Parallel()
+
+	leavesToInsert := randTree(50)
+	leavesMap := make(map[[hashSize]byte]*mssmt.LeafNode)
+	for _, item := range leavesToInsert {
+		leavesMap[item.key] = item.leaf
+	}
+
+	// Calculate expected root after individual insertions for comparison.
+	tempStore := mssmt.NewDefaultStore()
+	tempTree := mssmt.NewFullTree(tempStore)
+	ctx := context.Background()
+	for key, leaf := range leavesMap {
+		_, err := tempTree.Insert(ctx, key, leaf)
+		require.NoError(t, err)
+	}
+	expectedRoot, err := tempTree.Root(ctx)
+	require.NoError(t, err)
+
+	runTest := func(t *testing.T, name string,
+		makeTree func(mssmt.TreeStore) mssmt.Tree,
+		makeStore makeTestTreeStoreFunc) {
+
+		t.Run(name, func(t *testing.T) {
+			store, err := makeStore()
+			require.NoError(t, err)
+			tree := makeTree(store)
+
+			// Test inserting an empty map (should be a no-op).
+			_, err = tree.InsertMany(
+				ctx, make(map[[hashSize]byte]*mssmt.LeafNode),
+			)
+			require.NoError(t, err)
+			initialRoot, err := tree.Root(ctx)
+			require.NoError(t, err)
+			require.True(
+				t,
+				mssmt.IsEqualNode(
+					mssmt.EmptyTree[0], initialRoot,
+				),
+			)
+
+			// Insert the leaves using InsertMany.
+			_, err = tree.InsertMany(ctx, leavesMap)
+			require.NoError(t, err)
+
+			// Verify the root.
+			finalRoot, err := tree.Root(ctx)
+			require.NoError(t, err)
+			require.True(
+				t, mssmt.IsEqualNode(expectedRoot, finalRoot),
+			)
+
+			// Verify each leaf can be retrieved.
+			for key, expectedLeaf := range leavesMap {
+				retrievedLeaf, err := tree.Get(ctx, key)
+				require.NoError(t, err)
+				require.Equal(t, expectedLeaf, retrievedLeaf)
+			}
+		})
+	}
+
+	for storeName, makeStore := range genTestStores(t) {
+		t.Run(storeName, func(t *testing.T) {
+			runTest(t, "full SMT", makeFullTree, makeStore)
+			runTest(t, "smol SMT", makeSmolTree, makeStore)
 		})
 	}
 }

@@ -30,4 +30,13 @@ type Tree interface {
 	// proof. This is noted by the returned `Proof` containing an empty
 	// leaf.
 	MerkleProof(ctx context.Context, key [hashSize]byte) (*Proof, error)
+
+	// InsertMany inserts multiple leaf nodes provided in the leaves map
+	// within a single database transaction.
+	InsertMany(ctx context.Context, leaves map[[hashSize]byte]*LeafNode) (
+		Tree, error)
+
+	// Copy copies all the key-value pairs from the source tree into the
+	// target tree.
+	Copy(ctx context.Context, targetTree Tree) error
 }
