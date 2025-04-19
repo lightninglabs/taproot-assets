@@ -5291,8 +5291,19 @@ func marshalAssetLeaf(ctx context.Context, keys taprpc.KeyLookup,
 	assetLeaf *universe.Leaf,
 	decDisplay fn.Option[uint32]) (*unirpc.AssetLeaf, error) {
 
-	rpcAsset, err := taprpc.MarshalAsset(
-		ctx, assetLeaf.Asset, false, true, keys, decDisplay,
+	// Decode the single proof to extract on-chain anchor info.
+	p, err := proof.Decode(assetLeaf.RawProof)
+	if err != nil {
+		return nil, err
+	}
+	chainAsset, err := p.ToChainAsset()
+	if err != nil {
+		return nil, err
+	}
+
+	// Marshal as a chain asset to include chain_anchor details.
+	rpcAsset, err := taprpc.MarshalChainAsset(
+		ctx, chainAsset, decDisplay, true, keys,
 	)
 	if err != nil {
 		return nil, err
