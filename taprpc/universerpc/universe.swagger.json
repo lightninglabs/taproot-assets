@@ -1700,6 +1700,11 @@
           "type": "integer",
           "format": "int64",
           "description": "The height of the block which contains the anchor transaction."
+        },
+        "block_timestamp": {
+          "type": "string",
+          "format": "int64",
+          "description": "The UTC Unix timestamp of the block containing the anchor transaction."
         }
       }
     },

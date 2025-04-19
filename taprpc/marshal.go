@@ -510,6 +510,7 @@ func MarshalChainAsset(ctx context.Context, a asset.ChainAsset,
 		MerkleRoot:       a.AnchorMerkleRoot,
 		TapscriptSibling: a.AnchorTapscriptSibling,
 		BlockHeight:      a.AnchorBlockHeight,
+		BlockTimestamp:   a.AnchorBlockTimestamp,
 	}
 
 	if a.AnchorLeaseOwner != [32]byte{} {
