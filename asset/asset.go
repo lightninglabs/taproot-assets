@@ -1863,6 +1863,10 @@ type ChainAsset struct {
 	// tx.
 	AnchorBlockHeight uint32
 
+	// AnchorBlockTimestamp is the Unix timestamp of the block that mined
+	// the anchor tx.
+	AnchorBlockTimestamp int64
+
 	// AnchorOutpoint is the outpoint that commits to the asset.
 	AnchorOutpoint wire.OutPoint
 

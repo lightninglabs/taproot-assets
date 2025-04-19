@@ -530,6 +530,7 @@ func (p *Proof) ToChainAsset() (asset.ChainAsset, error) {
 		AnchorBlockHash:        p.BlockHeader.BlockHash(),
 		AnchorOutpoint:         p.OutPoint(),
 		AnchorBlockHeight:      p.BlockHeight,
+		AnchorBlockTimestamp:   p.BlockHeader.Timestamp.Unix(),
 		AnchorInternalKey:      p.InclusionProof.InternalKey,
 		AnchorMerkleRoot:       merkleRoot[:],
 		AnchorTapscriptSibling: tsSibling,
